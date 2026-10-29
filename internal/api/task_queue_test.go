@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -161,6 +162,100 @@ func TestQueuedPromptsAPIAnswersAnEmptyQueueWithAnEmptyList(t *testing.T) {
 	}
 }
 
+// A message that has not started yet is still the sender's to withdraw. Deleting
+// it takes exactly that row, answers 204, and leaves the rest of the queue in
+// order; a second delete is an honest 404 because the row is gone.
+func TestQueuedPromptCanBeWithdrawnBeforeItRuns(t *testing.T) {
+	s, token := newTestServer(t)
+	h := s.Handler()
+	ctx := context.Background()
+	task := insertRunningTask(t, s, "api-withdraw-1")
+	other := insertRunningTask(t, s, "api-withdraw-2")
+
+	first, err := s.Store.AppendPendingPrompt(ctx, store.PendingPrompt{
+		TaskID: task.ID, Prompt: "keep me", QueuedAt: time.Now().UnixMilli(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.Store.AppendPendingPrompt(ctx, store.PendingPrompt{
+		TaskID: task.ID, Prompt: "take me back", QueuedAt: time.Now().UnixMilli(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	del := func(taskID string, promptID int64) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodDelete,
+			"/api/tasks/"+taskID+"/prompts/"+strconv.FormatInt(promptID, 10), nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		return rr
+	}
+
+	// Another task's id does not reach this row, whatever the prompt id says.
+	if rr := del(other.ID, second.ID); rr.Code != http.StatusNotFound {
+		t.Fatalf("cross-task delete: status %d body %s, want 404", rr.Code, rr.Body.String())
+	}
+
+	if rr := del(task.ID, second.ID); rr.Code != http.StatusNoContent {
+		t.Fatalf("delete: status %d body %s", rr.Code, rr.Body.String())
+	}
+	left, err := s.Store.ListPendingPrompts(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 1 || left[0].ID != first.ID {
+		t.Fatalf("queue = %+v, want only the first message", left)
+	}
+
+	// The message stays in the transcript (events do not change once written), so
+	// the withdrawal has to say so there. Without this note every other device
+	// would read the bubble as delivered.
+	events, err := s.Store.ListEvents(ctx, task.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Type != "notice" {
+		t.Fatalf("events = %+v, want one notice about the withdrawal", events)
+	}
+	var note struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(events[0].Payload, &note); err != nil {
+		t.Fatalf("note payload: %v body %s", err, events[0].Payload)
+	}
+	if note.Code != "prompt_withdrawn" || note.Message == "" {
+		t.Fatalf("note = %+v, want the withdrawal code and a message", note)
+	}
+	// The text is the thing the sender took back; a second copy would defeat it.
+	if strings.Contains(note.Message, "take me back") {
+		t.Fatalf("withdrawal note repeats the message: %q", note.Message)
+	}
+
+	if rr := del(task.ID, second.ID); rr.Code != http.StatusNotFound {
+		t.Fatalf("second delete: status %d, want 404", rr.Code)
+	}
+	// A failed withdrawal writes nothing: only the first delete leaves a note.
+	after, err := s.Store.ListEvents(ctx, task.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(events) {
+		t.Fatalf("a 404 wrote an event: %d notes, want %d", len(after), len(events))
+	}
+	// A prompt id that is not a number is a client bug, not a missing row.
+	req := httptest.NewRequest(http.MethodDelete, "/api/tasks/"+task.ID+"/prompts/abc", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("bad id: status %d, want 400", rr.Code)
+	}
+}
+
 // The zero anchor is part of the contract: a queued message whose user event failed
 // to write reports 0 so the sender can still find the row, and a client that reads
 // a missing key as "no anchor field" would drop it instead.
@@ -192,5 +287,50 @@ func TestQueuedPromptsAPIAlwaysCarriesTheAnchorField(t *testing.T) {
 	}
 	if _, ok := raw[0]["user_seq"]; !ok {
 		t.Fatalf("user_seq is absent from %s, want it present as 0", rr.Body.String())
+	}
+}
+
+// The note has to reach the other devices live. A console that is not told about
+// the event does not refetch the transcript for it, so a withdrawal that only
+// wrote the row would look like nothing happened until the next reload — on the
+// very devices whose reading of the bubble the note exists to correct.
+func TestWithdrawingAQueuedPromptTellsOtherDevices(t *testing.T) {
+	s, token := newTestServer(t)
+	h := s.Handler()
+	ctx := context.Background()
+	task := insertRunningTask(t, s, "api-withdraw-live")
+	queued, err := s.Store.AppendPendingPrompt(ctx, store.PendingPrompt{
+		TaskID: task.ID, Prompt: "never mind", QueuedAt: time.Now().UnixMilli(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ch := s.Engine.Bus().Subscribe()
+	defer s.Engine.Bus().Unsubscribe(ch)
+
+	req := httptest.NewRequest(http.MethodDelete,
+		"/api/tasks/"+task.ID+"/prompts/"+strconv.FormatInt(queued.ID, 10), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("delete: status %d body %s", rr.Code, rr.Body.String())
+	}
+
+	select {
+	case msg := <-ch:
+		if msg.Kind != "event" {
+			t.Fatalf("kind = %q, want an event", msg.Kind)
+		}
+		ev, ok := msg.Data.(store.Event)
+		if !ok || ev.Type != "notice" {
+			t.Fatalf("message = %+v, want the withdrawal notice", msg.Data)
+		}
+		if ev.TaskID != task.ID {
+			t.Fatalf("notice is for %s, want %s", ev.TaskID, task.ID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the withdrawal was not published")
 	}
 }

@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -56,4 +57,38 @@ func (s *Server) handleListQueuedPrompts(w http.ResponseWriter, r *http.Request)
 		})
 	}
 	writeJSON(w, http.StatusOK, entries)
+}
+
+// handleDeleteQueuedPrompt is DELETE /api/tasks/{id}/prompts/{promptID}: take a
+// message back before it is delivered.
+//
+// This is the one edit the queue allows. A message that has not started yet is
+// still the sender's to withdraw — a typo seen on the phone, a thought that
+// changed, something pasted into the wrong task — and until now the only way out
+// was cancelling the task, which drops everything queued with it.
+//
+// A prompt that already ran, or that another device withdrew first, answers 404:
+// the row is gone either way, and the console refetches the queue from the same
+// response path it already polls. The store writes the transcript note in the
+// same transaction; this publishes it.
+func (s *Server) handleDeleteQueuedPrompt(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	promptID, err := strconv.ParseInt(chi.URLParam(r, "promptID"), 10, 64)
+	if err != nil || promptID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid prompt id"})
+		return
+	}
+	note, removed, err := s.Store.WithdrawPendingPrompt(r.Context(), id, promptID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if !removed {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not queued"})
+		return
+	}
+	if note != nil {
+		s.Engine.Bus().PublishEvent(*note)
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

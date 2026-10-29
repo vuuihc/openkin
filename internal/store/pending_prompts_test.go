@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -420,5 +421,77 @@ func TestTasksWithPendingPromptsFindsEveryQueue(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != "task-two" {
 		t.Fatalf("after draining one queue = %v, want only the task still waiting", got)
+	}
+}
+
+func TestWithdrawingAQueuedMessageLeavesANoteAndNoCopy(t *testing.T) {
+	ctx := context.Background()
+	s := openQueueStore(t)
+	insertQueueTask(t, s, "task-w")
+	other := PendingPrompt{TaskID: "task-w", Prompt: "the typo I regret"}
+	if _, err := s.AppendPendingPrompt(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertTask(ctx, Task{
+		ID: "task-other", Title: "Other", Agent: "claude-code", Cwd: "/work/app",
+		Prompt: "start", Status: "running", CreatedAt: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	kept, err := s.AppendPendingPrompt(ctx, PendingPrompt{TaskID: "task-other", Prompt: "not this one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Another task's id does not reach the row, whatever the prompt id says.
+	note, removed, err := s.WithdrawPendingPrompt(ctx, "task-w", kept.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed || note != nil {
+		t.Fatalf("cross-task withdraw = (%+v, %v), want it refused", note, removed)
+	}
+
+	queued, err := s.ListPendingPrompts(ctx, "task-w")
+	if err != nil || len(queued) != 1 {
+		t.Fatalf("queue after refused withdraw = %+v err %v, want the row still there", queued, err)
+	}
+
+	withdrawnID := queued[0].ID
+	note, removed, err = s.WithdrawPendingPrompt(ctx, "task-w", withdrawnID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !removed || note == nil {
+		t.Fatalf("withdraw = (%+v, %v), want a note", note, removed)
+	}
+	if note.Type != "notice" {
+		t.Fatalf("note type = %q, want notice", note.Type)
+	}
+	if strings.Contains(string(note.Payload), "the typo I regret") {
+		t.Fatalf("note repeats the withdrawn text: %s", note.Payload)
+	}
+	if left, err := s.ListPendingPrompts(ctx, "task-w"); err != nil || len(left) != 0 {
+		t.Fatalf("queue after withdraw = %+v err %v, want it empty", left, err)
+	}
+	// The other task's queue is untouched.
+	if left, err := s.ListPendingPrompts(ctx, "task-other"); err != nil || len(left) != 1 {
+		t.Fatalf("other queue = %+v err %v, want its one message", left, err)
+	}
+
+	// A second withdraw of the same row is a no-op with no second note.
+	note, removed, err = s.WithdrawPendingPrompt(ctx, "task-w", withdrawnID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed || note != nil {
+		t.Fatalf("second withdraw = (%+v, %v), want nothing", note, removed)
+	}
+	events, err := s.ListEvents(ctx, "task-w", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events = %+v, want exactly the one withdrawal note", events)
 	}
 }

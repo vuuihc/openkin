@@ -828,6 +828,25 @@ paths:
                   $ref: "#/components/schemas/QueuedPrompt"
         "404":
           description: Task not found
+  /api/tasks/{taskId}/prompts/{promptId}:
+    delete:
+      operationId: withdrawQueuedPrompt
+      description: |
+        Take back a queued prompt before it is delivered. The message itself
+        stays in the transcript — events do not change once they are written —
+        and a `notice` event records the withdrawal so other devices do not read
+        the bubble as delivered. Answering 404 means the queue row was already
+        gone: it ran, or another device withdrew it first.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - $ref: "#/components/parameters/PromptId"
+      responses:
+        "204":
+          description: Withdrawn; the transcript now carries a withdrawal note
+        "400":
+          description: Not a prompt id
+        "404":
+          description: No such queued prompt for this task
   /api/tasks/{taskId}/cancel:
     post:
       operationId: cancelTask
@@ -1554,6 +1573,13 @@ components:
       required: true
       schema:
         type: string
+    PromptId:
+      in: path
+      name: promptId
+      required: true
+      schema:
+        type: integer
+        minimum: 1
     QuestionId:
       in: path
       name: questionId

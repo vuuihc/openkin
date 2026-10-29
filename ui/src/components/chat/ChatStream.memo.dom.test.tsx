@@ -180,6 +180,7 @@ const ROW_CLAUSES: Array<[string, (p: MessageRowProps) => MessageRowProps]> = [
   ["the body", (p) => ({ ...p, text: "why so slow??" })],
   ["the partial flag", (p) => ({ ...p, partial: true })],
   ["the queued badge", (p) => ({ ...p, queued: true })],
+  ["the withdraw control", (p) => ({ ...p, onUnqueue: () => undefined })],
   ["selection mode", (p) => ({ ...p, selectionMode: true })],
   ["the selection", (p) => ({ ...p, selected: true })],
 ];

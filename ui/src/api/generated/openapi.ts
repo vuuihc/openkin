@@ -582,6 +582,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tasks/{taskId}/prompts/{promptId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Take back a queued prompt before it is delivered. The message itself
+         *     stays in the transcript — events do not change once they are written —
+         *     and a `notice` event records the withdrawal so other devices do not read
+         *     the bubble as delivered. Answering 404 means the queue row was already
+         *     gone: it ran, or another device withdrew it first.
+         *      */
+        delete: operations["withdrawQueuedPrompt"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tasks/{taskId}/cancel": {
         parameters: {
             query?: never;
@@ -1817,6 +1839,7 @@ export interface components {
     parameters: {
         TaskId: string;
         ApprovalId: string;
+        PromptId: number;
         QuestionId: string;
         WorkspaceId: string;
         AgentSessionId: string;
@@ -2990,6 +3013,41 @@ export interface operations {
                 };
             };
             /** @description Task not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    withdrawQueuedPrompt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+                promptId: components["parameters"]["PromptId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Withdrawn; the transcript now carries a withdrawal note */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not a prompt id */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such queued prompt for this task */
             404: {
                 headers: {
                     [name: string]: unknown;

@@ -33,6 +33,7 @@ import {
   limitContinue,
   restoreTaskWorkspace,
   retryTask,
+  withdrawQueuedPrompt,
   type AgentInfo,
   type LimitHit,
   type QueuedPrompt,
@@ -79,7 +80,7 @@ import ShareDialog from "../components/task/ShareDialog";
 import { workerActivity } from "../components/task/workerActivity";
 import { extractChangedFiles } from "../lib/changedFiles";
 import { anchoredPendingIds, orderPending } from "../lib/needsYou";
-import { queuedMessageSeqs } from "../lib/queuedPrompts";
+import { queuedMessageSeqs, startWithdrawal, withoutWithdrawn } from "../lib/queuedPrompts";
 import { publishDraftFrom } from "../lib/publishDraft";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useMachines } from "../hooks/useMachines";
@@ -160,6 +161,22 @@ export default function TaskDetailPage({
   const [limitWait, setLimitWait] = useState<TaskLimitWait | null>(null);
   const [workerSteps, setWorkerSteps] = useState<WorkerStep[]>([]);
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedPrompt[]>([]);
+  /**
+   * The queue as the last poll saw it, readable from a click handler whose
+   * identity must stay put: the message rows are memoized and keep the handler
+   * they were given, so the handler reads the current queue from here rather
+   * than from a capture that would go stale as the queue drains.
+   */
+  const queuedPromptsRef = useRef<QueuedPrompt[]>([]);
+  /**
+   * Queue rows this page has withdrawn. Kept after the request succeeds, not
+   * just while it is in flight: a poll the daemon answered before the delete
+   * landed can arrive afterwards, and without the mark it would put the row —
+   * and the badge the tap just removed — back on screen.
+   */
+  const withdrawnRef = useRef<Set<number>>(new Set());
+  /** Bumped to ask the queue effect below to re-read now, not on the next poll. */
+  const [queueReload, setQueueReload] = useState(0);
   const [usageLoading, setUsageLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [awaitingReply, setAwaitingReply] = useState(false);
@@ -264,6 +281,8 @@ export default function TaskDetailPage({
     setLimitWait(null);
     setWorkerSteps([]);
     setQueuedPrompts([]);
+    queuedPromptsRef.current = [];
+    withdrawnRef.current = new Set();
     setWorkspaceOpenPath(null);
     setWorkspaceOpenNonce(0);
     setSelectedWorkspaceId(undefined);
@@ -303,10 +322,15 @@ export default function TaskDetailPage({
     const load = () => {
       listQueuedPrompts(id)
         .then((prompts) => {
-          if (active) setQueuedPrompts(prompts);
+          if (!active) return;
+          const next = withoutWithdrawn(prompts, withdrawnRef.current);
+          queuedPromptsRef.current = next;
+          setQueuedPrompts(next);
         })
         .catch(() => {
-          if (active) setQueuedPrompts([]);
+          if (!active) return;
+          queuedPromptsRef.current = [];
+          setQueuedPrompts([]);
         });
     };
     const timer = window.setTimeout(load, 250);
@@ -316,10 +340,64 @@ export default function TaskDetailPage({
       window.clearTimeout(timer);
       if (interval !== undefined) window.clearInterval(interval);
     };
-  }, [id, task?.id, task?.status, events.length]);
+  }, [id, task?.id, task?.status, events.length, queueReload]);
 
   // Stable identity, so the stream only re-renders when the queue really changed.
   const queuedSeqs = useMemo(() => queuedMessageSeqs(queuedPrompts), [queuedPrompts]);
+
+  /**
+   * Take a message back before the daemon delivers it.
+   *
+   * The row loses its badge at once and the queue poll confirms it — the queue is
+   * the truth, and a message that reached the turn boundary in the meantime is
+   * not a failure, so a 404 just means the poll is about to agree. Anything else
+   * puts the badge back by re-reading the queue and says what went wrong.
+   */
+  const onWithdrawQueued = useCallback(
+    (seq: number) => {
+      // Read by the error path below, which runs a microtask later — after this
+      // call has returned the row it is about.
+      let started: QueuedPrompt | null = null;
+      started = startWithdrawal({
+        queue: queuedPromptsRef.current,
+        seq,
+        withdrawn: withdrawnRef.current,
+        request: (promptID) => withdrawQueuedPrompt(id, promptID),
+        onError: () => {
+          const row = started;
+          if (!row) return;
+          // A failed request is not proof the withdrawal failed: the delete can
+          // land and only its answer be lost — a reset connection, a proxy
+          // timeout — and toasting then would report a success as an error.
+          // The queue is the truth, so ask it before saying anything.
+          void listQueuedPrompts(id)
+            .then((prompts) => {
+              queuedPromptsRef.current = withoutWithdrawn(prompts, withdrawnRef.current);
+              setQueuedPrompts(queuedPromptsRef.current);
+              if (!prompts.some((prompt) => prompt.id === row.id)) {
+                // It did land. The mark went with the error; put it back so a
+                // poll answered before the delete cannot resurrect the row.
+                withdrawnRef.current.add(row.id);
+                return;
+              }
+              pushToast(tr("chat.withdrawFailed"), "error");
+            })
+            .catch(() => {
+              pushToast(tr("chat.withdrawFailed"), "error");
+              setQueueReload((n) => n + 1);
+            });
+        },
+      });
+      if (!started) return;
+      const row = started;
+      // Functional on purpose: a poll can land between the tap and this update,
+      // and dropping the row from the latest list keeps whatever it brought.
+      const drop = (list: QueuedPrompt[]) => list.filter((p) => p.id !== row.id);
+      queuedPromptsRef.current = drop(queuedPromptsRef.current);
+      setQueuedPrompts(drop);
+    },
+    [id, pushToast, tr],
+  );
 
   useEffect(() => {
     if (!task) return;
@@ -1337,6 +1415,7 @@ export default function TaskDetailPage({
             hostSpeaker={task.agent || "kin"}
             hostModel={task.model}
             queuedSeqs={queuedSeqs}
+            onUnqueue={onWithdrawQueued}
             pendingSlots={pendingSlots}
             showMessageActions={terminal}
             actionsBusy={actionBusy}

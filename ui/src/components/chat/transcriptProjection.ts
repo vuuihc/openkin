@@ -129,7 +129,18 @@ export type ChatItem =
     }
   | ProgressItem
   | { kind: "error"; key: string; message: string }
-  | { kind: "meta"; key: string; label: string; pending?: PendingRef };
+  | {
+      kind: "meta";
+      key: string;
+      label: string;
+      pending?: PendingRef;
+      /**
+       * The note says a queued message was taken back. It is written mid-turn,
+       * so the message it was withdrawn from may still be streaming — unlike
+       * every other note, which is a line the agent wrote between messages.
+       */
+      withdrawal?: boolean;
+    };
 
 /** The pending card an event asks for, if it is one of the two asking kinds. */
 export function pendingRefOf(ev: TaskEvent): PendingRef | null {
@@ -653,16 +664,40 @@ export function buildChatItems(
           }
         } else {
           if (sp !== "user") {
+            // The scan removes the previews this message supersedes. An error
+            // ends it: that is a round that died, and its previews are not being
+            // replaced by anything.
+            //
+            // A note ends it too, unless this message carries an identity. Text
+            // before a note is a message of its own when there is no id to match
+            // on — that is the split the adapter notices rely on — but a
+            // withdrawal is written while a turn is running, and only droid
+            // stamps the identity a match needs: for every other adapter the
+            // note would leave the first half of this message behind as its own
+            // bubble. So exactly one withdrawal note is transparent, and only
+            // for the single preview behind it: the note says nothing about text
+            // from an earlier message that never got a final version, and
+            // removing that would delete the only copy of it.
+            let crossedWithdrawal = false;
             for (let index = items.length - 1; index >= 0; index -= 1) {
               const item = items[index];
               if (item.kind === "message" && item.speaker === "user") break;
-              if (item.kind === "error" || item.kind === "meta") break;
+              if (item.kind === "error") break;
+              if (item.kind === "meta" && !messageKey) {
+                if (!item.withdrawal || crossedWithdrawal) break;
+                crossedWithdrawal = true;
+                continue;
+              }
               if (
                 item.kind === "message" &&
                 item.partial &&
                 (messageKey ? item.key === messageKey : item.speaker === sp)
               ) {
                 items.splice(index, 1);
+                // With an identity there may be more than one preview to match;
+                // without one, the nearest preview is the only thing the note
+                // could have been standing in front of.
+                if (!messageKey) break;
               }
             }
           }
@@ -799,7 +834,13 @@ export function buildChatItems(
         const title = typeof p.title === "string" ? p.title.trim() : "";
         const message = typeof p.message === "string" ? p.message.trim() : "";
         const severity = typeof p.severity === "string" ? p.severity : "";
-        const label = [title, message].filter(Boolean).join(": ");
+        // A withdrawal note is written by the daemon, in one language; wording it
+        // for the reader is the console's job, so the code names the note and the
+        // UI says it. Everything else here is the agent's own words.
+        const withdrawal = p.code === "prompt_withdrawn";
+        const label = withdrawal
+          ? t("chat.withdrawnNote")
+          : [title, message].filter(Boolean).join(": ");
         if (!label) break;
         flushStream();
         streamNoteKey = null;
@@ -808,6 +849,7 @@ export function buildChatItems(
           kind: "meta",
           key: `notice-${ev.seq}`,
           label: `${noticeSeverityMark(severity)}${label}`,
+          withdrawal,
         });
         break;
       }

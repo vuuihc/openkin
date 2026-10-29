@@ -84,6 +84,13 @@ type Props = {
    */
   queuedSeqs?: Set<number>;
   /**
+   * Take back a queued message before it is delivered, given the seq of the
+   * message it belongs to. Undefined hides the control — a reader who cannot
+   * send to this task has nothing to withdraw, and neither has one looking at a
+   * transcript that is not live.
+   */
+  onUnqueue?: (seq: number) => void;
+  /**
    * Scopes the mobile message-actions reveal. Message keys are `t-<seq>`, and
    * seq restarts per task while several sessions stay mounted (the tab host),
    * so without a task id one revealed message would light up the same-named
@@ -130,6 +137,7 @@ export default function ChatStream({
   hostSpeaker = "",
   hostModel,
   queuedSeqs,
+  onUnqueue,
   messageScope = "",
   pendingSlots,
   showMessageActions = false,
@@ -372,7 +380,9 @@ export default function ChatStream({
    */
   function renderTurn(turn: Turn, turnIdx: number): ReactNode {
     switch (turn.kind) {
-      case "user":
+      case "user": {
+        const seq = turn.item.seq;
+        const queued = isMessageQueued(seq, queuedSeqs ?? EMPTY_QUEUED);
         return (
           <MessageRow
             key={turn.item.key}
@@ -381,12 +391,16 @@ export default function ChatStream({
             speaker={turn.item.speaker}
             text={turn.item.text}
             partial={turn.item.partial}
-            queued={isMessageQueued(turn.item.seq, queuedSeqs ?? EMPTY_QUEUED)}
+            queued={queued}
+            // Whether the control may show at all is the row's call: it is the
+            // one place that knows the message is still waiting.
+            onUnqueue={onUnqueue && seq !== undefined ? () => onUnqueue(seq) : undefined}
             selectionMode={sharing}
             selected={selectedKeys.has(turn.item.key)}
             onToggleSelection={() => toggleSelection(turn.item.key)}
           />
         );
+      }
       case "standalone":
         return (
           <StandaloneRow
@@ -1187,6 +1201,14 @@ const MessageBody = memo(function MessageBody({
   );
 });
 
+/** A short, single-line excerpt for an accessible name: long enough to tell two
+ *  queued messages apart, short enough that a screen reader is not read a
+ *  pasted stack trace. */
+function withdrawExcerpt(text: string): string {
+  const runes = Array.from(text.replace(/\s+/g, " ").trim());
+  return runes.length > 24 ? `${runes.slice(0, 24).join("")}…` : runes.join("");
+}
+
 export type MessageRowProps = {
   /** The transcript item this bubble renders; the find bar scrolls to it. */
   messageKey?: string;
@@ -1197,6 +1219,11 @@ export type MessageRowProps = {
   partial?: boolean;
   /** Still waiting for a turn: the daemon has it queued, not answered. */
   queued?: boolean;
+  /**
+   * Take this message back out of the queue. Only offered while it is still
+   * waiting, and only where the console can send to this task at all.
+   */
+  onUnqueue?: () => void;
   selectionMode?: boolean;
   selected?: boolean;
   onToggleSelection?: () => void;
@@ -1209,6 +1236,7 @@ const MessageRow = memo(function MessageRow({
   text,
   partial,
   queued = false,
+  onUnqueue,
   selectionMode = false,
   selected = false,
   onToggleSelection,
@@ -1216,6 +1244,11 @@ const MessageRow = memo(function MessageRow({
   const tr = useT();
   const isUser = speaker === "user";
   const meta = agentAvatarMeta(speaker);
+  // Every queued message carries the same ×. Without the message in the name, a
+  // screen reader's button list is N identical "Withdraw message" entries and
+  // the reader cannot tell which one is which.
+  const excerpt = queued ? withdrawExcerpt(text) : "";
+  const withdrawName = excerpt ? tr("chat.withdrawNamed", { text: excerpt }) : tr("chat.withdraw");
 
   if (isUser) {
     return (
@@ -1244,6 +1277,33 @@ const MessageRow = memo(function MessageRow({
               <span className="inline-flex items-center gap-1 rounded-full bg-kin-blue/15 px-1.5 py-px text-caption font-medium text-kin-blue-ink">
                 <span className="w-1.5 h-1.5 rounded-full bg-kin-blue animate-breathe" />
                 {tr("chat.queued")}
+                {onUnqueue && (
+                  // Inside the badge, because that is the state it undoes: the
+                  // message is in the transcript and the badge is the only thing
+                  // that says it has not been sent yet.
+                  //
+                  // `data-touch-mini` + `touch-mini`: a bare button under
+                  // `.touch-lg` is floored to 44px on a phone, which would turn
+                  // a 16px pill into a 44px slab. The sanctioned opt-out is the
+                  // one the composer's tile × uses — 22px on a coarse pointer.
+                  <button
+                    type="button"
+                    onClick={onUnqueue}
+                    data-touch-mini
+                    title={tr("chat.withdraw")}
+                    aria-label={withdrawName}
+                    className="touch-mini -my-1 -mr-1 ml-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full text-kin-blue-ink/80 transition-colors hover:bg-kin-blue/15 hover:text-kin-blue-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kin-focus-ring"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                      <path
+                        d="M1 1l8 8M9 1l-8 8"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </button>
+                )}
               </span>
             )}
           </div>
@@ -1311,6 +1371,10 @@ export function sameRow(a: MessageRowProps, b: MessageRowProps): boolean {
     a.text === b.text &&
     a.partial === b.partial &&
     a.queued === b.queued &&
+    // Presence, not identity: the control is there or it is not, and the fresh
+    // closure a redraw would bring is not worth one. Same rule `sameMessage`
+    // uses for the save button.
+    !!a.onUnqueue === !!b.onUnqueue &&
     a.selectionMode === b.selectionMode &&
     a.selected === b.selected
   );

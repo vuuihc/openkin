@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TaskEvent } from "../../api/client";
 import { extractChangedFiles } from "../../lib/changedFiles";
-import { setLocale, t } from "../../i18n";
+import { getLocale, setLocale, t } from "../../i18n";
 import {
   buildChatItems,
   chatItemSeqRange,
@@ -108,6 +108,57 @@ describe("transcriptProjection", () => {
       ),
     ).toHaveLength(1);
   });
+
+  // Only droid stamps both halves of the identity the scan matches on: claude-code
+  // sends `index` alone, ACP `message_id` alone, kinagent neither. Every one of
+  // them has to end up with the same transcript.
+  it.each([
+    ["droid (message_id + index)", { message_id: "m1", index: 0 }],
+    ["claude-code (index only)", { index: 0 }],
+    ["ACP (message_id only)", { message_id: "m1" }],
+    ["kinagent (neither)", {}],
+  ])(
+    "does not leave half an answer behind when a withdrawal lands mid-stream — %s",
+    (_shape, ids) => {
+      // A withdrawal can only happen while a turn is running, so its note lands
+      // between two deltas of the answer being written. The note flushes the
+      // streamed preview, and the scan that removes previews when the
+      // authoritative message arrives used to stop at the note — leaving the
+      // first half of the answer on screen next to the whole of it.
+      const items = buildChatItems(
+        [
+          ev(1, "message", { role: "user", content: [{ type: "text", text: "ship it" }] }),
+          ev(2, "message", {
+            role: "assistant",
+            speaker: "kin",
+            content: [{ type: "text", text: "the parser is" }],
+            partial: true,
+            ...ids,
+          }),
+          ev(3, "notice", { code: "prompt_withdrawn", severity: "info", message: "withdrawn" }),
+          ev(4, "message", {
+            role: "assistant",
+            speaker: "kin",
+            content: [{ type: "text", text: "the parser is fixed" }],
+            partial: true,
+            ...ids,
+          }),
+          ev(5, "message", {
+            role: "assistant",
+            speaker: "kin",
+            content: [{ type: "text", text: "the parser is fixed" }],
+            partial: false,
+            ...ids,
+          }),
+        ],
+        "kin",
+      );
+
+      const texts = items.flatMap((item) => (item.kind === "message" ? [item.text] : []));
+      expect(texts).toEqual(["ship it", "the parser is fixed"]);
+      expect(items.filter((item) => item.kind === "meta")).toHaveLength(1);
+    },
+  );
 
   it("renders an adapter notice as a status line, in the order it arrived", () => {
     const items = buildChatItems(
@@ -236,6 +287,35 @@ describe("transcriptProjection", () => {
       { kind: "meta", label: "⚠ disk: the disk is full" },
       { kind: "meta", label: "! slow" },
     ]);
+  });
+
+  it("words a withdrawal note in the reader's language, not the daemon's", () => {
+    // The daemon writes its note in one language and cannot know the reader's;
+    // the code it carries is what lets the console say it properly. Without the
+    // code the label would fall through to the payload and a Chinese console
+    // would show an English sentence.
+    const notes = () =>
+      buildChatItems([
+        ev(1, "notice", {
+          code: "prompt_withdrawn",
+          severity: "info",
+          message: "A queued message was withdrawn before it was sent",
+        }),
+      ]);
+
+    expect(notes()).toMatchObject([{ kind: "meta", label: t("chat.withdrawnNote") }]);
+
+    const before = getLocale();
+    setLocale("zh");
+    try {
+      expect(notes()).toMatchObject([{ kind: "meta", label: "一条排队中的消息已在发送前撤回" }]);
+      // A notice without the code is still the agent's own words, untranslated.
+      expect(
+        buildChatItems([ev(2, "notice", { severity: "info", message: "context used: 1 of 10" })]),
+      ).toMatchObject([{ kind: "meta", label: "context used: 1 of 10" }]);
+    } finally {
+      setLocale(before);
+    }
   });
 
   it("keeps the plan line when streamed progress text is interleaved with it", () => {

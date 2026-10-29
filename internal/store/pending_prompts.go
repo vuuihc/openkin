@@ -174,6 +174,65 @@ func (s *Store) PopPendingPrompt(ctx context.Context, taskID string) (PendingPro
 	return p, true, nil
 }
 
+// WithdrawPendingPrompt removes one queued message and writes the transcript
+// note that says it will not be delivered, returning the event for the caller to
+// publish. The bool is false when the row was already gone.
+//
+// The note is why this is not a plain delete. A queued message is already in the
+// transcript — the event was written when it was accepted — and events do not
+// change once written, so withdrawing the queue row leaves the bubble on screen.
+// Without a note every device would read that bubble as delivered; with one the
+// transcript says, in order, what the sender did. The delete and the note share
+// a transaction for the same reason the discard report does: a process that dies
+// between them would leave a message nobody will answer and no record of why.
+//
+// The task id is part of the match, so a row id from one task cannot prune
+// another task's queue. False is a normal answer rather than an error: a turn
+// boundary may have drained the message between the list the console drew and
+// the tap that withdrew it, and the next read of the queue says so.
+func (s *Store) WithdrawPendingPrompt(ctx context.Context, taskID string, id int64) (*Event, bool, error) {
+	if strings.TrimSpace(taskID) == "" {
+		return nil, false, fmt.Errorf("pending prompt task_id is required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, false, fmt.Errorf("withdraw pending prompt: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx,
+		`DELETE FROM task_pending_prompts WHERE id = ? AND task_id = ?`, id, taskID)
+	if err != nil {
+		return nil, false, fmt.Errorf("withdraw pending prompt: %w", err)
+	}
+	removed, err := res.RowsAffected()
+	if err != nil {
+		return nil, false, fmt.Errorf("withdraw pending prompt count: %w", err)
+	}
+	if removed == 0 {
+		if err := tx.Commit(); err != nil {
+			return nil, false, fmt.Errorf("withdraw pending prompt: %w", err)
+		}
+		return nil, false, nil
+	}
+	// The message text is deliberately not repeated here: a withdrawal is often
+	// the sender taking back something they wish they had not sent, and copying
+	// it into a second event would keep a copy they just asked to remove.
+	payload, _ := json.Marshal(map[string]any{
+		"code":     "prompt_withdrawn",
+		"message":  "A queued message was withdrawn before it was sent",
+		"severity": "info",
+	})
+	ev, err := appendEventTx(ctx, tx, taskID, "notice", payload)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, false, fmt.Errorf("withdraw pending prompt: %w", err)
+	}
+	return &ev, true, nil
+}
+
 // DiscardPendingPrompts drops a task's whole queue and writes the transcript report
 // that says how many messages went with it, returning the event for the caller to
 // publish. Nil means the queue was empty.

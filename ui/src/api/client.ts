@@ -1014,6 +1014,22 @@ export function listQueuedPrompts(id: string): Promise<QueuedPrompt[]> {
 }
 
 /**
+ * Take back one queued message before it is delivered.
+ *
+ * The message stays in the transcript — events do not change once written — so
+ * this only removes the queue row; the daemon writes the notice that says the
+ * message will not be answered. A 404 means the row was already gone (it ran, or
+ * another device withdrew it), which is not a failure worth alarming about: the
+ * caller re-reads the queue, which is the truth either way.
+ */
+export function withdrawQueuedPrompt(id: string, promptId: number): Promise<void> {
+  return apiFetch<void>(
+    `/api/tasks/${encodeURIComponent(id)}/prompts/${encodeURIComponent(String(promptId))}`,
+    { method: "DELETE" },
+  );
+}
+
+/**
  * Cached GitHub state for the task's current workspace branch.
  *
  * The daemon reads its cache and nothing else, so this never waits on the
