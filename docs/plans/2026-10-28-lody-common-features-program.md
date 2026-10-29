@@ -916,10 +916,39 @@ on a route anyone holding a link can repeat. A third cap, `shareTotalBytes`
 (512KB), spends the budget from the newest message backwards and reports the
 cut as truncated.
 
-Red-verified by mutation: removing the raw-HTML renderer, removing the image
-renderer, dropping the CSP header, dropping the byte budget, removing
-`WithHardWraps`, swapping GFM for a narrower extension, and putting the
-`HTML` field back on the wire each fail the test that names them. The console
-side got one fix from the same live pass — focusing the minted field selects
-the whole value and a selection that long scrolls the input to its end, so the
-dialog now scrolls back to the URL's scheme.
+Red-verified by mutation: removing the raw-HTML renderer, dropping the image
+escaping, removing the image renderer, dropping the CSP header, dropping the
+byte budget, raising the render limit, dropping the prompt clamp, restoring the
+old ellipsis arithmetic, removing `WithHardWraps`, swapping GFM for a narrower
+extension, and putting the `HTML` field back on the wire each fail the test
+that names them.
+
+A second pass found two ways the caps did not hold, both now closed. The prompt
+fallback ran *after* the byte budget and skipped the line clamp, and a prompt
+is the one input here nobody bounds — the create route accepts any body, so a
+legacy task with a multi-megabyte prompt would have rendered all of it on every
+anonymous request; it now passes the same clamp and the same budget. And the
+budget counts *source* bytes while markdown expands: a page of nested
+blockquotes renders to roughly thirty bytes per source byte. A third pass
+separated the two consequences the first fix had written down as one. The
+*cost* is bounded by the source budget, because that is all the parser ever
+sees — 512KB, whatever it renders to. The *output* is bounded separately by
+`shareRenderBytes`, a per-message cap past which the message is shown as its
+escaped source. It was first written as a refusing writer, on the theory that
+an error from `Write` stops goldmark's walk: it does not. The HTML renderer
+discards write errors and the walk reports them together at flush, so the
+conversion runs to completion either way — measured, capped and uncapped cost
+the same. The cap is now a plain post-check on the buffer, described as a size
+bound, and the tests pin both ends: a line built to explode (twelve thousand
+nesting levels) falls back to its source, and a dense but ordinary table — two
+thousand compact rows, six bytes in and thirty-five out — still renders as a
+table. The first cap was 64KB, which that table exceeds; it is now sixteen
+times the line cap, clear of the densest ordinary content measured (~7.3×).
+The clamp also stopped appending its ellipsis outside the cap it advertises. On the test side,
+the image-escape guard had been pinned by a URL that escaping leaves unchanged
+— removing the escaping was a live XSS the suite still passed — so the payload
+now carries markup in both the alt text and the destination.
+
+The console side got one fix from the same live pass — focusing the minted
+field selects the whole value and a selection that long scrolls the input to
+its end, so the dialog now scrolls back to the URL's scheme.

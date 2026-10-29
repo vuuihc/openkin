@@ -51,11 +51,18 @@ const (
 	// newest message backwards.
 	shareTotalBytes = 512 * 1024
 	// shareRenderBytes bounds what one message may render to. Markdown grows —
-	// tables, list markers and escaped HTML all add bytes — and nesting adds a
-	// lot more: measured on this renderer, 500KB of nested blockquotes becomes
-	// 6.8MB and a second of CPU. Past this the message is shown as its escaped
-	// source instead, which also stops the conversion at the writer.
-	shareRenderBytes = 64 * 1024
+	// a row of a compact GFM table is six bytes in and thirty-five out, a
+	// checklist item about seven — and nesting grows quadratically: a message
+	// of nothing but `>` renders to about thirty bytes per source byte. A
+	// message past this is shown as its escaped source instead.
+	//
+	// This is a size bound, not a cost bound: goldmark's renderers discard
+	// write errors and the walk only reports them at flush, so the conversion
+	// runs to completion either way. What bounds the CPU is the source budget
+	// above — the parser sees 512KB, whatever that renders to. Sixteen times
+	// the per-line cap leaves room for the densest ordinary content measured
+	// (a checklist expands ~7.3×) and fires only on nesting built to explode.
+	shareRenderBytes = 16 * shareMessageBytes
 )
 
 // shareVisibility is the audience metadata the daemon stamps on an event: which
@@ -625,25 +632,6 @@ func shareEscapeRawHTML(w util.BufWriter, source []byte, node ast.Node, entering
 	return ast.WalkContinue, nil
 }
 
-// shareRenderLimit is a writer that refuses to grow past its limit.
-//
-// Refusing, rather than truncating, is the point: goldmark stops converting as
-// soon as the writer returns an error, so a message built to expand costs the
-// parse of its own bytes and nothing more.
-type shareRenderLimit struct {
-	buf   bytes.Buffer
-	limit int
-}
-
-var errShareRenderLimit = errors.New("share render limit")
-
-func (w *shareRenderLimit) Write(p []byte) (int, error) {
-	if w.buf.Len()+len(p) > w.limit {
-		return 0, errShareRenderLimit
-	}
-	return w.buf.Write(p)
-}
-
 // shareHTML renders one message for the public page.
 //
 // The trust boundary is goldmark's parser plus the renderers above: every byte
@@ -652,14 +640,18 @@ func (w *shareRenderLimit) Write(p []byte) (int, error) {
 // contains can make the page fetch, frame or execute anything — the renderers
 // remove the fetches, and the page's own CSP says the rest.
 func shareHTML(text string) template.HTML {
-	w := &shareRenderLimit{limit: shareRenderBytes}
-	if err := shareMarkdown.Convert([]byte(text), w); err != nil || w.buf.Len() == 0 {
-		// Rendering is best-effort: an empty, oversized or failed conversion
-		// must not eat the message the owner meant to publish, so the reader
-		// gets the text the renderer would have started from.
+	var buf bytes.Buffer
+	// The size is checked after the fact rather than during: goldmark's own
+	// renderers swallow write errors and report them together at flush, so a
+	// writer that refused would still pay for the whole walk. Rendering is
+	// best-effort — an empty, failed or oversized conversion must not eat the
+	// message the owner meant to publish, so the reader gets the text the
+	// renderer would have started from.
+	if err := shareMarkdown.Convert([]byte(text), &buf); err != nil ||
+		buf.Len() == 0 || buf.Len() > shareRenderBytes {
 		return template.HTML(template.HTMLEscapeString(text))
 	}
-	return template.HTML(w.buf.String())
+	return template.HTML(buf.String())
 }
 
 // shareStrings are the words around a shared conversation. The conversation is

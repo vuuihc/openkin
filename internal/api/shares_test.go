@@ -291,9 +291,13 @@ func TestShareShowsTheSourceWhenOneMessageRendersHuge(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// Paragraph breaks, not just newlines: each one closes its own chain of
-	// blockquotes, which is what makes the rendering expand.
-	text := strings.Repeat(strings.Repeat("> ", 900)+"deep\n\n", 8)
+	// One byte per level, not two: the marker needs no space after it. The cap
+	// here is sixteen times the line cap, so the payload has to be the most
+	// explosive thing a line can be — twelve thousand levels of nesting, which
+	// renders to about thirty bytes each. Paragraph breaks close each chain,
+	// which is what makes the closing tags expand too, and keep the depth the
+	// same as the rest of the suite rather than one twelve-thousand-deep tree.
+	text := strings.Repeat(strings.Repeat(">", 900)+"\n\n", 14)
 	payload, err := json.Marshal(map[string]any{
 		"role": "assistant", "partial": false,
 		"content": []map[string]string{{"type": "text", "text": text}},
@@ -314,8 +318,56 @@ func TestShareShowsTheSourceWhenOneMessageRendersHuge(t *testing.T) {
 	if strings.Contains(html, "<blockquote") {
 		t.Fatalf("page rendered the expansion anyway (%d bytes)", len(html))
 	}
-	if !strings.Contains(html, "&gt; &gt; ") {
+	if !strings.Contains(html, "&gt;&gt;&gt;") {
 		t.Fatal("the reader lost the message")
+	}
+}
+
+// The render cap is a size bound, so it has to stay clear of content that is
+// merely dense rather than built to explode. A compact GFM table is the
+// densest thing an agent writes on purpose: six bytes a row in, thirty-five
+// out, so two thousand rows fit in one line and render past the 64KB this cap
+// used to be — at which point the reader got a wall of pipes instead of a
+// table.
+func TestShareRendersADenseTableInsteadOfItsSource(t *testing.T) {
+	s, token := newTestServer(t)
+	if err := s.Store.InsertTask(context.Background(), store.Task{
+		ID: "task-table", Title: "table", Agent: "kin", Cwd: "/tmp",
+		Prompt: "p", Status: "finished", CreatedAt: store.NowMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	b.WriteString("|a|b|\n|-|-|\n")
+	for i := 0; i < 2000; i++ {
+		b.WriteString("|a|b|\n")
+	}
+	text := b.String()
+	if len(text) > shareMessageBytes {
+		t.Fatalf("test payload is %d bytes, past the line cap it is meant to sit under", len(text))
+	}
+	payload, err := json.Marshal(map[string]any{
+		"role": "assistant", "partial": false,
+		"content": []map[string]string{{"type": "text", "text": text}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Store.AppendEvent(context.Background(), "task-table", "message", payload); err != nil {
+		t.Fatal(err)
+	}
+	link := createShare(t, s, "task-table", token)
+
+	page := shareRequest(t, s, http.MethodGet, "/s/"+link, "")
+	if page.Code != http.StatusOK {
+		t.Fatalf("public page: %d", page.Code)
+	}
+	html := page.Body.String()
+	if !strings.Contains(html, "<table>") {
+		t.Fatal("a dense table was shown as its source")
+	}
+	if strings.Contains(html, "|a|b|") {
+		t.Fatal("the reader got the markdown source, not the table")
 	}
 }
 
