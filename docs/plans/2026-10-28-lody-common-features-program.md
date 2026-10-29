@@ -1,8 +1,8 @@
 # Common-feature parity program — inventory, gaps, plan
 
-Status: rounds 1–11 landed; round 12 next. This is the living ledger for the
-open-ended "beat Lody on the features I actually use" program: inventory → gap
-matrix → plan → implement → evaluate → repeat.
+Status: rounds 1–12 landed; round 13 in progress. This is the living ledger for
+the open-ended "beat Lody on the features I actually use" program: inventory →
+gap matrix → plan → implement → evaluate → repeat.
 
 Reference for the Lody side: source read at `~/Workspace/works/Lody`
 (`packages/components/src`), not screenshots. Kin-side evidence is in this
@@ -60,14 +60,14 @@ attachment lost when the task runs on another machine, closed with F4 below.
 | Turn duration ("Worked for"), turn info popover (`view.tsx:4955,4608`) | Round evidence card with file count and size, no duration (`RoundEvidenceCard.tsx:43-78`) | Cannot tell how long a round took | S3 | — |
 | Goal chip, plan chip, PR/branch/worktree chips (`session-info-chips.tsx:129,306,356`) | desktop header chips (`TaskDetailPage.tsx:1505-1554`); phone subtitle is project + status only; branch/PR one tap away in the sheet | No goal or plan chip anywhere; branch/PR not visible at a glance on the phone | S3 | — |
 | Pinned-message banner (`session-pin.tsx:27`) | none; message actions are Retry / Fork / Save-as-artifact | Cannot pin a message | S3 | — |
-| Subagent panel with tokens, background count, cancel (`subagent-task-panel.tsx:176`) | `WorkerTimeline` is read-only (`WorkerTimeline.tsx:38-120`); the only worker route is `GET /workers` | Cannot cancel a worker from the panel; no token count | S2 | — |
+| Subagent panel with tokens, background count, cancel (`subagent-task-panel.tsx:176`) | `WorkerTimeline` shows each worker's own tokens and stops one step without ending the turn (`POST /tasks/{id}/workers/{executionId}/{stepIndex}/cancel`, R12B); Kin's workers are turn-scoped, so there is no background count to show | Closed | — | — |
 | Transcript renders progressively (Lody has virtualization in `ai-gui/view.tsx`) | `.map` over every item (`ChatStream.tsx:524,623`); memoized redraw landed (`d275d3ba`) | No windowing: a long session plus 8 cached panes still builds the whole DOM | S2 | `@tanstack/react-virtual` |
 
 ### 2.3 Composer
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Queue rows: edit, drag-reorder, remove, steer (`message-queue-row.tsx:223`) | Queued messages are badged inline (`ChatStream.tsx:1243-1247`); the client can only list them (`client.ts:1012`) | A queued message cannot be edited or removed before it runs; stopping the round is the only way to discard it | S2 | the daemon already keeps the queue (`GET /prompts`) |
+| Queue rows: edit, drag-reorder, remove, steer (`message-queue-row.tsx:223`) | Queued rows carry withdraw and edit (withdraw + refill the composer) end to end (`TaskDetailPage.tsx` `onEditQueued`, `withdrawQueuedPrompt`, F1) | No drag reorder and no steer | S3 | — |
 | Slash commands + prompt shortcuts (`mention-registry.ts:327`) | the "/" menu is a static hint (`Composer.tsx:373-381`); roles are saved prompts but only on the new-chat page | No command menu in the composer; no way to insert a saved prompt mid-session | S3 | — |
 | Mentions: files, PRs, skills, commands, sessions, roles (`mention-registry.ts:53`) | agents + models only (`agentMention.ts:13-25`) | Cannot reference a file or another session | S2 | — |
 | Attachments as structured parts | Path strings appended to the prompt (`Composer.tsx:201-212`); only the Kin agent converts them (`kinagent/attachments.go:38-75`); remote nodes never receive the upload | A Claude/Codex task receives a path, not the image; on another machine the path does not exist | S2 (S1 remote) | — |
@@ -110,7 +110,7 @@ attachment lost when the task runs on another machine, closed with F4 below.
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Project screen with conversations / files / settings tabs (`mobile-project-screen.tsx:934`) | one-pager + pulse + artifacts, no tabs (`ProjectDetailPage.tsx`) | No conversations or files tab; `GET /api/projects/{id}/tasks` exists and no page calls it (`client.ts:1339`) | S2 | the endpoint is already there |
+| Project screen with conversations / files / settings tabs (`mobile-project-screen.tsx:934`) | Overview + Chats tabs (R12A); the Chats tab merges the project's Kin tasks with imported sessions under its roots, URL-backed (`ProjectDetailPage.tsx`) | No files or settings tab | S3 | — |
 | Per-project settings, skills, default MCP (`project-settings.tsx:103`) | project mode is the only per-project setting (`projects.go:32-43`); skills are filesystem-scoped (`.kin/skills`); MCP is not configurable at all | No per-project settings, skills or MCP | S3 | — |
 
 ### 2.9 Search
@@ -2336,3 +2336,182 @@ found it, not the live walk: the archived-scope test had passed while the
 seeding bug was present, because the live walk had rows for the archived
 project on page one.
 
+
+### Round 12 — a project shows its conversations; a worker can be stopped (2026-10-30)
+
+Planned against `1a8ce84b`; both slices are S2 and are verified against the
+current code, not the matrix row above.
+
+**12A Project conversations (§2.8).** `GET /api/projects/{id}/tasks` exists
+(`internal/api/projects.go:453`) and no console page calls it; the client helper
+`listProjectTasks` (`ui/src/api/client.ts:1381`) is unused, and the project
+screen is a one-pager + pulse + artifacts only. Add a Chats tab that merges the
+project's Kin tasks with imported agent sessions whose cwd is one of the
+project roots (`listAgentSessions({cwd})` already filters by exact cwd), newest
+first, each row naming its agent, status and relative time and opening
+`/tasks/:id` or `/agent-sessions/:id`. Acceptance: at 390 wide, a project's
+newest conversations are visible in two taps and open in one more; loading,
+empty and load-error states are distinct; the Overview content is unchanged.
+
+**12A — landed.** The tab is the URL. `?tab=chats` is the only tab value the
+page accepts; `normalizeProjectTab` maps anything else, including a hand-edited
+`?tab=files`, back to Overview, and choosing Overview deletes the parameter so
+the default leaves no trace and the back button still walks the history someone
+actually made. The strip is a real tablist — roving tabindex, ArrowLeft/Right,
+Home/End — because it renders above a screen people keyboard through, and the
+edit controls now mount only with the Overview panel they belong to. (No
+`aria-controls`: only the selected panel is mounted, and a tab must not point
+at an element that is not there.)
+
+The list asks two questions, because the project holds two kinds of chat.
+`listProjectTasks` returns Kin tasks the project owns; imported agent sessions
+are asked per root with `listAgentSessions({cwd})`, which is an exact-cwd
+match — one root would silently drop the others. `projectChatRows` keys rows by
+namespace (`task:` / `session:`), so a task and an imported session that happen
+to share a raw id stay two rows, dedupes the same session returned for two
+roots, sorts by the task activity clock (`taskActivityAt`, not creation time),
+and applies the hundred-row cap after the merge. A task falls back title →
+prompt → "Untitled chat"; an imported session goes through
+`displayAgentSessionTitle`, so an opaque hex title reads as agent + project
+label rather than as a hash.
+
+The panel is honest about what it does not know. Session queries settle
+independently: one failed root leaves the other rows on screen with a partial
+note, and only a failed task feed shows the retry box. A generation counter
+makes the newest load win, so a tab switch or project change cannot be
+overwritten by a slow earlier request. A reload keeps the current list visible
+(skeleton only when there is nothing to keep) and announces itself with a
+status line. Empty is its own state with a "New chat" link that carries
+`?cwd=<first root>` — and no link at all when the project has no root, since a
+chat started elsewhere would not appear in the project.
+
+Rows carry the same signals as the rest of the console: the attention dot only
+for running/approval/failed (`taskCardStatusView`), a machine icon when the
+work runs on another device, relative time, and an accessible name that says
+who, what and when instead of only the title.
+
+**12A — review fixes.** The review found no blockers and two majors. Rows are
+now scoped to the project they were read for (`chatsFor`): the page component
+outlives a route change, so a slower read for the previous project could land
+under the new project's name. A mismatch draws the skeleton, never another
+project's list. The claimed race and partial-failure behavior now has
+behavioral tests: the two-feed read moved to `loadProjectChats` in
+`ui/src/lib/projectChats.ts`, taking the two callables, the roots and a
+generation check, and returning `null` for a superseded read. Tests cover task
+failure (error, no rows), one root failing (rows kept, `partial`), a read
+superseded after each await, the non-Error fallback, and the all-success case.
+Nits fixed: the error box is a live `alert` and the partial/refresh lines are
+`status`; `aria-controls` is gone because the unselected panel is not mounted;
+`projectRoots` trims once for both the fetch and the New-chat link;
+`?tab=overview` and unknown values are removed from the URL on arrival; the
+default hundred-row cap has a test; the wiring test now guards the loader seam
+and the project scoping instead of substrings of the old inline fetch.
+
+**12B A worker's own tokens, and stopping one worker (§2.2).** Lody's panel
+shows tokens and a cancel per subagent (`subagent-task-panel.tsx:176`,
+`subagent-task-state.tsx:98-110`). Kin's `WorkerTimeline` is read-only and the
+only worker route is `GET /workers` (`internal/api/api.go:380`). Usage events
+already carry `execution_id`/`execution_step` (`stampWorker` →
+`applyExecutionMeta`), so the console can sum each worker's tokens from the same
+stream it already draws. Cancellation is real: every worker is started with an
+`adapter.RunHandle` whose `Cancel` stops the process
+(`internal/adapter/adapter.go:17-20`), currently reachable only through
+whole-task cancel. Add a per-step handle map in the engine,
+`POST /api/tasks/{id}/workers/{execution_id}/{step_index}/cancel`, and a Cancel
+control on a running row. A user cancel ends that step as `canceled`, leaves
+the task and the other workers running, and suppresses meta-retry/provider
+fallback for that step. Background count is N/A: Kin's workers are turn-scoped,
+not backgrounded subagent tasks. Acceptance: a running worker can be stopped
+from the panel without ending the task; its row reads Canceled while the rest
+finish; every row shows its own token total.
+
+**12B — landed.** The panel had two facts and no join. The plan table stores
+the turn's execution id per step (`task_worker_steps.execution_id`), while a
+worker event carried the adapter *attempt* id — a retry starts a new attempt
+under the same step, so the ids never matched and every row drew empty. The
+engine now stamps the turn as `run_execution_id` on every worker event
+(`stampWorker`), and `workerActivity` groups on that id with the event's own id
+as the fallback for events written before the field existed. `readExecution`
+parses it; the row key is the plan identity, which is also what the cancel
+route takes.
+
+Tokens are summed per step from the same stream: `usage` events are
+incremental and add up across a retry's attempts; a `result` event's tokens
+count only when the step sent no `usage` event, mirroring the engine's ledger
+rule so a finished worker is not counted twice. The nested `usage` object and
+the adapters' field spellings are accepted. A row whose adapter reports
+nothing prints nothing rather than "0 tokens".
+
+`POST /api/tasks/{id}/workers/{execution_id}/{step_index}/cancel` stops one
+step. `Engine.CancelWorkerStep` uses a per-step handle map registered by the
+same path that registers the whole-run handle, refuses a step with no live
+handle with `ErrWorkerStepNotRunning` (409), marks the step so the meta-retry
+and provider-fallback paths cannot restart it, cancels the process, writes the
+row canceled, posts a transcript note, and resolves the dead worker's pending
+approval and question cards. The wave loop skips a canceled step's terminal
+write; the task keeps running and succeeds on the remaining workers. Whole-task
+cancel clears any live step handles on its way out.
+
+The row's Stop button is a sibling of the expand button (a button inside a
+button is invalid, and one tap must not do both), appears only on a running row
+of a live task, and reads "Stopping…" while its request is in flight. A 409
+refreshes the plan instead of toasting: the step had already settled while the
+button was on screen.
+
+Also fixed on the way: an approval decision landing as a turn finished could
+move a terminal task back to running, because `Decide` read the status and then
+wrote `running` unconditionally. `Store.ResumeTaskFromWait` puts the wait
+states in the `UPDATE` predicate and reports `ErrConflict` when the row has
+already ended; the decision path only publishes what it actually changed.
+
+Tests: `TestCancelWorkerStepStopsOnlyThatWorker` (cancel one of two workers;
+task succeeds, row canceled with no error or findings, approval resolved,
+events carry the run id distinct from the attempt id) and
+`TestCancelWorkerStepRefusesWhenTheSkillIsOver`; `TestStampWorkerCarriesTheRunExecutionID`;
+`TestResumeTaskFromWait*` in the store; `workerActivity.test.ts` for the run-id
+join, token sums across attempts, the result fallback and the silent case;
+`WorkerTimeline.dom.test.tsx` for the stop control's structure, states and
+per-row token display; `TaskDetailPage.test.ts` for the handler's identity and
+409 rule; `TestCancelWorkerStepStatusCodes` for the route's 400/404/409 mapping
+(the handler checks the task exists, so a deleted task is a 404 rather than
+"that worker is not running"). `./scripts/check-openapi.sh` is clean (the
+generated types include the new path).
+
+**12 — review fixes.** The review found no blockers and three majors, all at
+the edge where "stop" meets "the turn is ending". A second stop request — a
+retried tap, or the same step stopped from two devices — could arrive after the
+first had killed the process: it found the row already canceled, dropped the
+stop mark and answered 409, and the worker's own goroutine then read the kill
+as a crash and started the retry the reader had just refused. The mark now
+survives the kill. A repeat request succeeds, and a row another path already
+made terminal is the same answer; the mark is cleared only when `Cancel` itself
+failed and the process is still alive. A plan whose every step was stopped
+reported the turn succeeded with "No result was available to display"; it now
+ends canceled, and a partially stopped plan appends a line to the answer saying
+the result is partial (the synthesis prompt is told as well). The read-then-write
+race fixed in `Decide` was still present in `AnswerUserQuestion`; it now uses
+the same guarded `ResumeTaskFromWait`.
+
+The cards a stopped worker leaves behind are matched by step number, not by
+execution id: the id on an approval or question row is the adapter *attempt*,
+which no run-scoped map relates back to the turn, and matching on the run id
+would have left the stopped worker's own card pending (the test caught exactly
+that). A card from an earlier turn names a process that has already exited, so
+resolving it is right too.
+
+Nits fixed: the unreachable 404 branch and the two dead registration wrappers
+from the first pass are gone; the Chats tab clears its loading flag in a
+`finally`, and a row shape the console cannot read becomes the retry box
+instead of a rejected promise nobody awaits; a worker's token total is
+accounted per adapter attempt, so a retry that reports only a `result` still
+counts. Deferred: `RequestApproval`/`RequestUserQuestion` still write their
+wait state unconditionally, so a request that lands just after a turn ends can
+still park a terminal task in `waiting_*`; fixing it properly needs the insert
+and the status transition in one transaction, which is its own slice.
+
+Red verification: ten mutants — the idempotent second stop, the terminal-row
+mark, the all-stopped terminal status, the partial note, the guarded question
+resume, the retry refusal, per-attempt token accounting, the result/usage rule,
+the chats loader's bad-row outcome, and the loading-flag `finally` — each
+failed its test and the suite passed after the byte-for-byte restore.
+`./scripts/check.sh --all` is green.
