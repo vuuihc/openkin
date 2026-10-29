@@ -250,6 +250,12 @@ export default function ChatStream({
     const onKeyDown = (event: KeyboardEvent) => {
       // Escape during IME composition cancels the composition, not the bar.
       if (event.isComposing) return;
+      // A handler closer to the key already claimed it — the editor's own
+      // find, an open dialog's shortcut. A window listener runs last, and
+      // reopening this bar over whatever just handled the key is the wrong
+      // layer; the Escape branch below checks the flag after dispatch for the
+      // opposite reason (the palette registers later than this listener).
+      if (event.defaultPrevented) return;
       if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "f") {
         event.preventDefault();
         setFindOpen(true);

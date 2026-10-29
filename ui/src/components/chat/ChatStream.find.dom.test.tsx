@@ -72,6 +72,22 @@ describe("find in conversation", () => {
     expect(screen.getByRole("search")).toBeTruthy();
   });
 
+  it("does not open over a key another handler already claimed", () => {
+    renderStream();
+    // A handler closer to the key than the window — Monaco's own find inside
+    // the editor, or a dialog's shortcut — claims it on the way up. The bar is
+    // a window listener, so without the flag it would open on top of whatever
+    // just handled the key.
+    const claim = (event: KeyboardEvent) => event.preventDefault();
+    document.body.addEventListener("keydown", claim);
+    try {
+      fireEvent.keyDown(document.body, { key: "f", metaKey: true });
+    } finally {
+      document.body.removeEventListener("keydown", claim);
+    }
+    expect(screen.queryByRole("search")).toBeNull();
+  });
+
   it("leaves Escape to an inner surface that already claimed it", async () => {
     renderStream();
     fireEvent.keyDown(window, { key: "f", metaKey: true });
