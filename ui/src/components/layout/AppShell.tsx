@@ -9,6 +9,7 @@ import {
   type AgentInfo,
   type AgentSession,
   type AgentSessionImportResult,
+  type Approval,
   type Task,
 } from "../../api/client";
 import { liveResources } from "../../api/liveResources";
@@ -39,10 +40,15 @@ import { useMachines } from "../../hooks/useMachines";
 import { remoteMachine } from "../../lib/devices";
 import { taskDisplayTitle } from "../../lib/taskTitle";
 import { placePath } from "../../lib/places";
+import { floatingApprovals } from "../../lib/floatingApprovals";
+import { useApprovalDecision } from "../../hooks/useApprovalDecision";
+import FloatingApproval from "../cards/FloatingApproval";
 
 type Props = {
   children: ReactNode;
   pendingCount: number;
+  /** The waiting approvals themselves, so one can be answered from any screen. */
+  pendingApprovals: Approval[];
   routineUnreadCount?: number;
 };
 
@@ -68,7 +74,12 @@ function taskIdFromPath(pathname: string): string | null {
  * Desktop: sidebar + main. Mobile: hamburger drawer + full-width main.
  * New chat → navigate to DRAFT_PATH (no modal).
  */
-export default function AppShell({ children, pendingCount, routineUnreadCount = 0 }: Props) {
+export default function AppShell({
+  children,
+  pendingCount,
+  pendingApprovals,
+  routineUnreadCount = 0,
+}: Props) {
   const location = useLocation();
   const navigate = useNavigate();
   const tr = useT();
@@ -77,6 +88,14 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
   const desktop = isKinDesktop();
   // On the phone there is no sidebar to say where you are, so the header has to.
   const pathname = location.pathname.replace(/\/+$/, "") || "/";
+  const approvalDecision = useApprovalDecision();
+  // One approval can be answered from every screen, but not from the two that
+  // already show it: the inbox lists them all, and a task's own transcript
+  // renders its approval inline. See `lib/floatingApprovals.ts`.
+  const floating = floatingApprovals(pendingApprovals, {
+    onInbox: pathname === placePath("inbox"),
+    visibleTaskId: selectedTaskId,
+  });
   /**
    * The pages that are a single list or form, where the shell bar can carry the
    * page's name. A detail route is excluded on purpose: its title is the item's,
@@ -646,6 +665,22 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
             pushed chat owns the whole screen, and its back button is the way
             out (the iOS convention). */}
         {dockVisible && <MobileDock />}
+
+        {/* An approval blocks the agent that asked for it wherever the reader
+            happens to be. The dock's presence decides the offset, because on
+            the phone the card has to clear the pill and its "new chat" button,
+            and on a pushed conversation the composer sits where the dock would
+            be. See `FloatingApproval` for which one it shows. */}
+        <FloatingApproval
+          approvals={floating}
+          titleFor={(taskId) =>
+            taskDisplayTitle(tasks.find((task) => task.id === taskId))
+          }
+          busy={approvalDecision.busy}
+          onDecide={(id, decision) => void approvalDecision.decide(id, decision)}
+          onOpenTask={(taskId) => navigate(`/tasks/${encodeURIComponent(taskId)}`)}
+          raised={dockVisible}
+        />
 
         {/* Terminal panel — the shell's own panel, desktop only */}
         {terminalAvailable && (

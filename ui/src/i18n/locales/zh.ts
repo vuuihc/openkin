@@ -273,6 +273,10 @@ const zh = {
     cardTitle: "需要权限",
     approving: "批准中…",
     denying: "拒绝中…",
+    floatingLabel: "等待处理",
+    floatingFallback: "另一个任务",
+    moreWaiting: "另有 {n} 个待处理",
+    openTask: "打开任务",
   },
   chat: {
     find: {

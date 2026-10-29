@@ -284,6 +284,10 @@ const en: MessageTree = {
     cardTitle: "Permission needed",
     approving: "Approving…",
     denying: "Denying…",
+    floatingLabel: "Waiting",
+    floatingFallback: "another task",
+    moreWaiting: "{n} more waiting",
+    openTask: "Open task",
   },
   chat: {
     find: {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, answerUserQuestion, decideApproval } from "../api/client";
+import { ApiError, answerUserQuestion } from "../api/client";
 import { liveResources } from "../api/liveResources";
 import { usePendingResources, useTaskList } from "../api/useLiveResources";
 import ApprovalCard from "../components/cards/ApprovalCard";
@@ -7,14 +7,13 @@ import UserQuestionCard from "../components/cards/UserQuestionCard";
 import RunningTaskCard from "../components/cards/RunningTaskCard";
 import { ApprovalListSkeleton, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
+import { useApprovalDecision, type PendingDecision } from "../hooks/useApprovalDecision";
 import { focusedId, resolveInboxFocus } from "../lib/inboxFocus";
 import { inboxKeyOutcome, inboxViewState } from "../lib/inboxKeyboard";
 import { useAppStore } from "../store/appStore";
 import { isTerminal } from "../api/client";
 import { Link, useSearchParams } from "react-router-dom";
 import { useT } from "../i18n/react";
-
-type PendingDecision = "approved" | "denied";
 
 /**
  * Inbox — design 3g. Pending approvals first; running tasks below.
@@ -39,9 +38,9 @@ export default function ApprovalsPage() {
         : resourceError
           ? tr("inbox.loadFailed")
           : null;
-  const [busy, setBusy] = useState<Record<string, PendingDecision>>({});
   const [answerBusy, setAnswerBusy] = useState<Record<string, boolean>>({});
   const [focusIdx, setFocusIdx] = useState(0);
+  const { busy, decide } = useApprovalDecision();
   const pushToast = useAppStore((s) => s.pushToast);
   const slow = useSlowHint(loading);
   const [searchParams] = useSearchParams();
@@ -155,26 +154,14 @@ export default function ApprovalsPage() {
     // without it walks back to the question that already left.
   }, [items, focusIdx, cursorTakenOver, parkedQuestionId]);
 
+  // The decision itself — busy row, daemon call, shared-resource update — is
+  // `useApprovalDecision`, because the floating card answers the same approvals
+  // from any other screen and the two must not disagree about what a failure
+  // does. What stays here is the page's own bookkeeping: an id this page
+  // answered is not a missing item, so the focus notice must not mention it.
   async function onDecide(id: string, decision: PendingDecision) {
     handledHere.current.add(id);
-    setBusy((b) => ({ ...b, [id]: decision }));
-    try {
-      const updated = await decideApproval(id, decision);
-      liveResources.applyMessage({ kind: "approval_update", data: updated });
-      setBusy((b) => {
-        const next = { ...b };
-        delete next[id];
-        return next;
-      });
-    } catch (e) {
-      setBusy((b) => {
-        const next = { ...b };
-        delete next[id];
-        return next;
-      });
-      pushToast(e instanceof Error ? e.message : tr("inbox.decisionFailed"), "error");
-      void liveResources.refreshPending();
-    }
+    await decide(id, decision);
   }
 
   async function onAnswer(id: string, body: { selected: string[]; other_text: string }) {
