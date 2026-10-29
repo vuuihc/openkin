@@ -345,6 +345,8 @@ const zh = {
       noPreview: "这次改动没有可还原的内容",
       scope:
         "只统计 agent 用文件工具（写/改/删）改的内容，shell 命令改的看不到；完整差异在工作区与 PR 面板。",
+      scopeWorkspace:
+        "来自每轮开始时的两次工作区快照对比，shell 命令、格式化工具改的也算；完整差异在工作区与 PR 面板。",
     },
   },
   task: {

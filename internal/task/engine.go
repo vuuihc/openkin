@@ -497,6 +497,7 @@ type WorkspaceRuntime interface {
 	CleanupPrepared(ctx context.Context, taskID string, meta workspace.Metadata) error
 	Capture(ctx context.Context, meta workspace.Metadata, taskID string, eventSeq int) (workspace.Checkpoint, error)
 	CapturePrepared(ctx context.Context, meta workspace.Metadata, taskID string) (workspace.Checkpoint, error)
+	ListTreeChanges(ctx context.Context, taskID string, meta workspace.Metadata, baseTreeOID, headTreeOID string) ([]workspace.Change, error)
 	Restore(ctx context.Context, meta workspace.Metadata, taskID string, cp workspace.Checkpoint) error
 	RestoreTreeOntoCurrent(ctx context.Context, meta workspace.Metadata, taskID string, cp workspace.Checkpoint) error
 	PrepareFork(ctx context.Context, newTaskID string, source workspace.Metadata, cp workspace.Checkpoint) (workspace.Metadata, error)
@@ -3774,14 +3775,16 @@ func (e *Engine) captureCheckpoint(ctx context.Context, t store.Task, userSeq in
 		workspaceID = ws.ID
 	}
 	cp, err := e.workspace.Capture(ctx, meta, t.ID, userSeq)
+	var stored store.TaskCheckpoint
 	if err == nil {
-		stored := storeCheckpoint(cp)
+		stored = storeCheckpoint(cp)
 		stored.WorkspaceID = workspaceID
 		if putErr := e.store.PutCheckpoint(ctx, stored); putErr != nil {
 			err = putErr
 		}
 	}
 	if err == nil {
+		e.recordRoundChanges(ctx, t.ID, meta, stored)
 		return
 	}
 	payload, _ := json.Marshal(map[string]any{
@@ -3789,6 +3792,60 @@ func (e *Engine) captureCheckpoint(ctx context.Context, t store.Task, userSeq in
 		"reason":    checkpointSkipReason(err),
 	})
 	if ev, appendErr := e.store.AppendEvent(ctx, t.ID, "checkpoint_skipped", payload); appendErr == nil {
+		e.bus.PublishEvent(ev)
+	}
+}
+
+// maxRecordedRoundFiles caps the file list a round record carries. A round can
+// touch thousands of paths (a generator, a vendored dependency); the transcript
+// card lists a handful and says how many were left out, so the event carries
+// enough to say that and no more.
+const maxRecordedRoundFiles = 200
+
+// recordRoundChanges writes down what the round that just ended changed.
+//
+// The capture that just landed is the boundary: it was taken when the newest
+// user message arrived, so the previous checkpoint and this one bracket the
+// round in between. Both sides are snapshots of the disk, which is the property
+// the transcript card needs — a `sed`, a formatter or a code generator is in
+// this diff, and a file tool that wrote something the next turn reverted is not.
+//
+// The record is an event rather than a table because it is a fact about a point
+// in the stream: it is truncated with the events it describes when a turn is
+// retried, and the console reads it with the rest of the transcript instead of
+// asking the daemon for one diff per card on screen. The very first checkpoint
+// has nothing before it and records nothing, and a round whose end has not
+// arrived yet (the newest one) has no record until the next turn starts.
+func (e *Engine) recordRoundChanges(ctx context.Context, taskID string, meta workspace.Metadata, cp store.TaskCheckpoint) {
+	if e.workspace == nil || cp.EventSeq < 2 {
+		return
+	}
+	prev, err := e.store.GetCheckpointAtOrBefore(ctx, taskID, cp.EventSeq-1)
+	if err != nil || prev.TaskID != taskID {
+		return
+	}
+	changes, err := e.workspace.ListTreeChanges(ctx, taskID, meta, prev.TreeOID, cp.TreeOID)
+	if err != nil {
+		// The card falls back to what the tool payloads said; a missing record
+		// is a smaller failure than an event that claims an empty round.
+		return
+	}
+	total := len(changes)
+	if total > maxRecordedRoundFiles {
+		changes = changes[:maxRecordedRoundFiles]
+	}
+	payload, err := json.Marshal(map[string]any{
+		"from_seq":  prev.EventSeq,
+		"to_seq":    cp.EventSeq,
+		"base_tree": prev.TreeOID,
+		"head_tree": cp.TreeOID,
+		"total":     total,
+		"files":     changes,
+	})
+	if err != nil {
+		return
+	}
+	if ev, appendErr := e.store.AppendEvent(ctx, taskID, "round_changed", payload); appendErr == nil {
 		e.bus.PublishEvent(ev)
 	}
 }

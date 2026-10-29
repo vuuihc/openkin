@@ -10,14 +10,18 @@ import { IconChevron, IconFile } from "../icons";
  * What one round changed, drawn under the work it is an answer to.
  *
  * The scope sentence at the bottom is not decoration and is not behind the fold:
- * this card counts what the agent changed *through file tools*, so an agent that
- * rewrote a file with `sed` leaves nothing here, and a reader who took this list
- * for the workspace diff would conclude the opposite of the truth. The workspace
- * and PR panels remain the authority, and the card says so where it is read.
+ * it says what the list is and is not. A round the daemon recorded was compared
+ * between two workspace snapshots, so shell commands are in it; a round
+ * reconstructed from the stream counts what the agent changed *through file
+ * tools*, so an agent that rewrote a file with `sed` leaves nothing there. A
+ * reader who took either one for the workspace diff would conclude the opposite
+ * of the truth in some case, and the workspace and PR panels remain the
+ * authority.
  *
  * The diff behind each file is reconstructed from the tool payload rather than
- * read back from disk (see `diffPreview.ts`), which is the other reason the card
- * points at the panel: it shows the change the agent reported making.
+ * read back from disk (see `diffPreview.ts`), which is why a file the record
+ * found but no tool reported shows "nothing reconstructible" when opened: the
+ * card shows the change, not its contents.
  */
 export default function RoundEvidenceCard({
   evidence,
@@ -143,7 +147,9 @@ export default function RoundEvidenceCard({
       )}
 
       <p className="border-t border-[var(--kin-hairline)] px-3 py-1.5 text-micro text-kin-muted">
-        {tr("chat.evidence.scope")}
+        {tr(
+          evidence.source === "workspace" ? "chat.evidence.scopeWorkspace" : "chat.evidence.scope",
+        )}
       </p>
     </div>
   );

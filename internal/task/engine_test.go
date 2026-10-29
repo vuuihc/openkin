@@ -889,10 +889,13 @@ type fakeWorkspaceRuntime struct {
 	capture       func(ctx context.Context, meta workspace.Metadata, taskID string, eventSeq int) (workspace.Checkpoint, error)
 	restore       func(ctx context.Context, meta workspace.Metadata, taskID string, cp workspace.Checkpoint) error
 	prepareFork   func(ctx context.Context, newTaskID string, source workspace.Metadata, cp workspace.Checkpoint) (workspace.Metadata, error)
+	treeDiffs     []treeDiffCall
+	treeDiff      func(baseTreeOID, headTreeOID string) ([]workspace.Change, error)
 	failPrep      error
 	failCapture   error
 	failRestore   error
 	failFork      error
+	failTreeDiff  error
 	// failInspectFinalizable makes the finalize attempt fail, which is how a run
 	// ends with the workspace still unmerged.
 	failInspectFinalizable  error
@@ -923,6 +926,13 @@ type captureCall struct {
 	TaskID   string
 	EventSeq int
 	Meta     workspace.Metadata
+}
+
+type treeDiffCall struct {
+	TaskID      string
+	Meta        workspace.Metadata
+	BaseTreeOID string
+	HeadTreeOID string
 }
 
 type restoreCall struct {
@@ -1016,6 +1026,21 @@ func (f *fakeWorkspaceRuntime) Capture(ctx context.Context, meta workspace.Metad
 		SizeBytes: 42,
 		CreatedAt: 99,
 	}, nil
+}
+
+func (f *fakeWorkspaceRuntime) ListTreeChanges(ctx context.Context, taskID string, meta workspace.Metadata, baseTreeOID, headTreeOID string) ([]workspace.Change, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.treeDiffs = append(f.treeDiffs, treeDiffCall{
+		TaskID:      taskID,
+		Meta:        meta,
+		BaseTreeOID: baseTreeOID,
+		HeadTreeOID: headTreeOID,
+	})
+	if f.treeDiff != nil {
+		return f.treeDiff(baseTreeOID, headTreeOID)
+	}
+	return nil, f.failTreeDiff
 }
 
 func (f *fakeWorkspaceRuntime) Restore(ctx context.Context, meta workspace.Metadata, taskID string, cp workspace.Checkpoint) error {

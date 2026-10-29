@@ -168,9 +168,10 @@ lands with tests, a `web/dist` rebuild, and the feature gate.
 
 ### Batch C — truth and evidence (round 3)
 
-- **C1 Per-turn diff from checkpoints.** Replace payload reconstruction with
-  the stored tree OIDs; fall back to the payload when a checkpoint is missing.
-  Acceptance: an edit made by a non-file tool still appears in the round card.
+- **C1 Per-turn diff from checkpoints.** Landed as a record written at capture
+  time (see the C1 section): the stored tree OIDs answer, the payload is the
+  fallback. Acceptance: an edit made by a non-file tool still appears in the
+  round card.
 - **C2 Context window.** Add `context_window` to the model catalog, report
   per-turn usage from adapters, draw a meter in the usage sheet.
 - **C3 Role presets.** A saved prompt prefix chosen per draft/session, no
@@ -473,3 +474,63 @@ less). Callbacks are compared by behaviour, not identity, so a memoized message
 can hold a callback from an earlier render; the only callback that reads
 evolving task metadata is save-artifact's derived title, and it now reads the
 title from `taskTitleRef` rather than its closure.
+
+#### C1 — the round card reads the workspace (landed)
+
+The plan said "replace payload reconstruction with the stored tree OIDs". The
+checkpoints were already there — one per user message, each a `git write-tree`
+of the worktree — but nothing compared them, so the round card could only list
+what a file tool said it wrote. An agent that renamed a symbol with `sed`, ran
+a formatter, or generated a file left no card, or a wrong one.
+
+The shape that landed is a record, not an endpoint:
+
+- when a turn's checkpoint is captured, the engine diffs it against the
+  previous checkpoint and appends a `round_changed` event: the round's
+  `from_seq`/`to_seq`, both tree OIDs, the true file count, and up to 200
+  files with status and line counts (`internal/task/engine.go`,
+  `recordRoundChanges`);
+- the diff itself is git's (`workspace.ListTreeChanges`): one
+  `diff-tree --name-status --find-renames` pass for the list, one
+  `--numstat --no-renames` pass for the counts, run against the task's private
+  checkpoint object directory. The environment setup was copied three times
+  before this; it is now `checkpointEnv`;
+- the console prefers the record for the round it names and falls back to the
+  payload reconstruction for everything else — shared checkouts, tasks that
+  ran elsewhere, sessions older than the record, and the newest round, whose
+  closing checkpoint does not exist until the next turn starts;
+- an empty record is a record: the two snapshots agree, so no card is drawn
+  even when a tool payload claims a write. A write the next turn reverted is
+  not a change to report;
+- the card's scope sentence follows the source (`chat.evidence.scopeWorkspace`),
+  because "only what file tools changed" would now be false for recorded
+  rounds. Previews still come from the payloads: a file both sources know
+  shows its before/after, a shell-only file opens to "nothing reconstructible".
+
+Why an event rather than `GET /tasks/{id}/rounds/{seq}/diff`: a session draws
+one card per round, so a per-round endpoint is one request per card on screen,
+and the answer would have to be cached against a stream that truncates on
+retry. The event is written where the facts are (the capture), travels with
+the transcript the card already reads, and is deleted with the turns it
+describes when a turn is retried.
+
+Acceptance: a file rewritten by a shell command appears in the round card with
+its status and line counts, and a round whose writes were reverted shows no
+card.
+
+Verified: a real temp-repo test (shell rewrite, new file, deletion — statuses
+and counts), two engine tests (two turns produce exactly one record with the
+right `from_seq` and files; a failed diff produces none while both checkpoints
+still land), four console tests (record wins over payloads, shell-only file
+listed, empty record suppresses the payload card, previews survive for shared
+paths). Five mutations were run to prove the tests fail: no record call,
+record despite a failed diff, self-diff, card ignores the record, empty record
+falls back to payloads.
+
+Residual risk and bounds: only isolated worktrees have checkpoints, so the
+feature is absent for shared checkouts and remote tasks by construction; the
+record for a round appears when the next turn starts, and a session that ends
+never records its last round (payload fallback); the two boundaries are the
+user messages, so a hand edit made between turns is attributed to the round
+before it; a record is capped at 200 files (the card shows six and counts the
+rest).

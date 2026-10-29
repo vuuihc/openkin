@@ -2504,6 +2504,57 @@ describe("turn seq ranges", () => {
     ]);
   });
 
+  it("takes a recorded round over the tool payloads, shell edits included", () => {
+    // The daemon compared the two checkpoints that bracket the round, so the
+    // list is the disk's: the file the edit tool reported and the one a shell
+    // command rewrote, which no payload mentions.
+    const events: TaskEvent[] = [
+      userTurn(1, "rename the constant"),
+      hostToolUse(2, "t1", "edit", "internal/parse.go"),
+      hostToolResult(3, "t1", "edit"),
+      ev(5, "message", {
+        role: "assistant",
+        speaker: "kin",
+        text: "renamed",
+        visibility: { user: true, task: true },
+      }),
+      userTurn(6, "next"),
+      ev(7, "round_changed", {
+        from_seq: 1,
+        to_seq: 5,
+        total: 2,
+        files: [
+          { path: "internal/parse.go", status: "modified", additions: 3, deletions: 1 },
+          { path: "internal/sed.go", status: "modified", additions: 1, deletions: 1 },
+        ],
+      }),
+    ];
+    const turns = turnsOf(events);
+
+    const evidence = [...roundEvidenceByTurn(events, turns).values()];
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]!.source).toBe("workspace");
+    expect(evidence[0]!.files.map((file) => file.path).sort()).toEqual([
+      "internal/parse.go",
+      "internal/sed.go",
+    ]);
+  });
+
+  it("draws no card for a recorded round that changed nothing, even if a tool wrote", () => {
+    // The write happened and the next turn's checkpoint does not contain it: the
+    // round left the workspace as it found it, and a card listing the file would
+    // claim a change that is not there any more.
+    const events: TaskEvent[] = [
+      userTurn(1, "try something"),
+      hostToolUse(2, "t1", "write", "internal/parse.go"),
+      hostToolResult(3, "t1", "write"),
+      userTurn(6, "never mind"),
+      ev(7, "round_changed", { from_seq: 1, to_seq: 5, total: 0, files: [] }),
+    ];
+
+    expect(roundEvidenceByTurn(events, turnsOf(events)).size).toBe(0);
+  });
+
   it("has no card for a round that only asked, or only read", () => {
     const events: TaskEvent[] = [
       userTurn(1, "what does this do?"),
@@ -2633,7 +2684,9 @@ describe("note sources", () => {
     expect(noteSourceOf({ role: "reasoning", phase: "plan" })).toBe("reasoning");
     // A word from a subagent is neither the main agent's thinking nor its
     // narration, whatever role or phase travelled with it.
-    expect(noteSourceOf({ sidechain: true, role: "assistant", phase: "progress" })).toBe("subagent");
+    expect(noteSourceOf({ sidechain: true, role: "assistant", phase: "progress" })).toBe(
+      "subagent",
+    );
     expect(noteSourceOf({ sidechain: true, role: "reasoning" })).toBe("subagent");
   });
 
@@ -2895,6 +2948,8 @@ describe("nameless tool updates", () => {
       ev(2, "tool_use", { tool_use_id: "t1", speaker: "kin" }),
     ]);
 
-    expect(top.map((step) => [step.name, step.summary])).toEqual([["Read", "Read /tmp/marker.txt"]]);
+    expect(top.map((step) => [step.name, step.summary])).toEqual([
+      ["Read", "Read /tmp/marker.txt"],
+    ]);
   });
 });

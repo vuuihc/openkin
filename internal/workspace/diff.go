@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -359,6 +360,26 @@ func (m *Manager) ListLiveChanges(ctx context.Context, meta Metadata) ([]Change,
 	return changes, nil
 }
 
+// checkpointEnv is the object-store environment that makes a task's private
+// checkpoint objects readable from inside its worktree.
+//
+// The checkpoint objects are written to their own directory (`git write-tree`
+// with GIT_OBJECT_DIRECTORY set), so a later diff has to point git at that
+// directory and at the repository's own objects, which the trees still refer to.
+// The empty map means the task has no checkpoint store to read.
+func (m *Manager) checkpointEnv(ctx context.Context, taskID string, meta Metadata) map[string]string {
+	env := map[string]string{}
+	objectsDir := filepath.Join(m.stateDir, "checkpoints", taskID, "objects")
+	if fi, err := os.Stat(objectsDir); err != nil || !fi.IsDir() {
+		return env
+	}
+	if normalObjects, err := m.normalObjectDir(ctx, meta.SourceRoot); err == nil {
+		env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = normalObjects
+	}
+	env["GIT_OBJECT_DIRECTORY"] = objectsDir
+	return env
+}
+
 // ListSnapshotChanges computes the diff between review_base_oid and final_tree_oid.
 // Uses the checkpoint object directory as an alternate for reading final trees.
 func (m *Manager) ListSnapshotChanges(ctx context.Context, taskID string, meta Metadata, reviewBaseOID, finalTreeOID string) ([]Change, error) {
@@ -370,17 +391,7 @@ func (m *Manager) ListSnapshotChanges(ctx context.Context, taskID string, meta M
 	}
 
 	hooksDir := m.emptyHooksDir()
-
-	// Set up alternate object directory for checkpoint objects
-	env := map[string]string{}
-	objectsDir := filepath.Join(m.stateDir, "checkpoints", taskID, "objects")
-	if fi, err := os.Stat(objectsDir); err == nil && fi.IsDir() {
-		normalObjects, err := m.normalObjectDir(ctx, meta.SourceRoot)
-		if err == nil {
-			env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = normalObjects
-		}
-		env["GIT_OBJECT_DIRECTORY"] = objectsDir
-	}
+	env := m.checkpointEnv(ctx, taskID, meta)
 
 	// Diff between review base tree and final tree
 	out, err := m.git.Run(ctx, meta.SourceRoot, env, PathListStdoutLimit,
@@ -392,6 +403,101 @@ func (m *Manager) ListSnapshotChanges(ctx context.Context, taskID string, meta M
 	}
 
 	return parseNameStatus(string(out)), nil
+}
+
+// ListTreeChanges returns what differs between two checkpoint trees.
+//
+// This is the workspace's own answer to "what did this round change": both
+// sides are snapshots captured from disk, so an edit no file tool reported — a
+// shell command, a formatter, a generator — is in here like any other. The
+// caller supplies the pair; deciding which checkpoint bounds a round is not
+// this layer's business.
+func (m *Manager) ListTreeChanges(ctx context.Context, taskID string, meta Metadata, baseTreeOID, headTreeOID string) ([]Change, error) {
+	if m == nil {
+		return nil, fmt.Errorf("workspace manager is nil")
+	}
+	if m.git == nil {
+		return nil, fmt.Errorf("git runner not available")
+	}
+	if !validObjectID(baseTreeOID) || !validObjectID(headTreeOID) {
+		return nil, ErrCheckpointUnavailable
+	}
+	env := m.checkpointEnv(ctx, taskID, meta)
+	if env["GIT_OBJECT_DIRECTORY"] == "" {
+		return nil, ErrCheckpointUnavailable
+	}
+
+	runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	hooks := "-c"
+	hooksPath := "core.hooksPath=" + m.emptyHooksDir()
+
+	out, err := m.git.Run(runCtx, meta.Root, env, PathListStdoutLimit,
+		hooks, hooksPath,
+		"diff-tree", "--no-commit-id", "-r", "--name-status", "--find-renames",
+		baseTreeOID, headTreeOID)
+	if err != nil {
+		return nil, fmt.Errorf("list checkpoint tree changes: %w", err)
+	}
+	changes := parseNameStatus(string(out))
+	if len(changes) == 0 {
+		return changes, nil
+	}
+
+	// One pass for the line counts. `--no-renames` keeps this list keyed by
+	// paths the status pass already reported: a rename shows up as its deleted
+	// and added halves, and the rename entry itself keeps no counts rather than
+	// claiming the whole file was added.
+	numstat, err := m.git.Run(runCtx, meta.Root, env, PathListStdoutLimit,
+		hooks, hooksPath,
+		"diff-tree", "--no-commit-id", "-r", "--numstat", "--no-renames",
+		baseTreeOID, headTreeOID)
+	if err != nil {
+		// Counts are decoration; the file list is the answer.
+		return changes, nil
+	}
+	counts := parseNumstat(string(numstat))
+	for i, c := range changes {
+		if c.Status == "renamed" {
+			continue
+		}
+		if count, ok := counts[c.Path]; ok {
+			changes[i].Additions = count.Additions
+			changes[i].Deletions = count.Deletions
+			changes[i].Binary = count.Binary
+		}
+	}
+	return changes, nil
+}
+
+// parseNumstat reads `diff-tree --numstat` output into per-path counts.
+//
+// A binary file reports "-" for both counts; it is kept as a binary entry with
+// no counts rather than as a file that changed by zero lines.
+func parseNumstat(output string) map[string]Change {
+	out := make(map[string]Change)
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		fields := strings.SplitN(line, "\t", 3)
+		if len(fields) < 3 {
+			continue
+		}
+		path := fields[2]
+		if fields[0] == "-" || fields[1] == "-" {
+			out[path] = Change{Path: path, Binary: true}
+			continue
+		}
+		additions, addErr := strconv.Atoi(fields[0])
+		deletions, delErr := strconv.Atoi(fields[1])
+		if addErr != nil || delErr != nil {
+			continue
+		}
+		out[path] = Change{Path: path, Additions: additions, Deletions: deletions}
+	}
+	return out
 }
 
 // ReadSnapshotFile reads a file from a git tree object.
@@ -410,17 +516,7 @@ func (m *Manager) ReadSnapshotFile(ctx context.Context, taskID string, meta Meta
 	}
 
 	hooksDir := m.emptyHooksDir()
-
-	// Set up alternate object directory for checkpoint objects
-	env := map[string]string{}
-	objectsDir := filepath.Join(m.stateDir, "checkpoints", taskID, "objects")
-	if fi, err := os.Stat(objectsDir); err == nil && fi.IsDir() {
-		normalObjects, err := m.normalObjectDir(ctx, meta.SourceRoot)
-		if err == nil {
-			env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = normalObjects
-		}
-		env["GIT_OBJECT_DIRECTORY"] = objectsDir
-	}
+	env := m.checkpointEnv(ctx, taskID, meta)
 
 	// Read blob from tree
 	out, err := m.git.Run(ctx, meta.SourceRoot, env, PathListStdoutLimit,

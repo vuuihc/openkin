@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -636,4 +637,98 @@ func TestMissingReleasedSnapshotIsExplicit(t *testing.T) {
 	}
 
 	_ = m.Release(context.Background(), meta)
+}
+
+// A round's diff is taken from two checkpoints, not from what a tool said: an
+// edit made with a shell command is in the tree like any other.
+func TestListTreeChangesReadsDiskEdits(t *testing.T) {
+	requireGit(t)
+	m := NewManager(t.TempDir())
+	if err := m.EnsureEmptyHooks(); err != nil {
+		t.Fatal(err)
+	}
+	src := t.TempDir()
+	initRepo(t, src)
+	commitFile(t, src, "kept.txt", "one\ntwo\nthree\n")
+	commitFile(t, src, "gone.txt", "bye\n")
+	meta, err := m.Prepare(context.Background(), testTaskID, src, ModeWorktree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.CleanupPrepared(context.Background(), testTaskID, meta)
+
+	base, err := m.Capture(context.Background(), meta, testTaskID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// What a shell command leaves behind: a rewrite, a new file, a deletion.
+	if err := os.WriteFile(filepath.Join(meta.Root, "kept.txt"), []byte("one\nTWO\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(meta.Root, "made-by-sed.txt"), []byte("new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(meta.Root, "gone.txt")); err != nil {
+		t.Fatal(err)
+	}
+	head, err := m.Capture(context.Background(), meta, testTaskID, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	changes, err := m.ListTreeChanges(context.Background(), testTaskID, meta, base.TreeOID, head.TreeOID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byPath := make(map[string]Change, len(changes))
+	for _, change := range changes {
+		byPath[change.Path] = change
+	}
+	if len(byPath) != 3 {
+		t.Fatalf("changes=%+v", changes)
+	}
+	if got := byPath["kept.txt"]; got.Status != "modified" || got.Additions != 1 || got.Deletions != 2 {
+		t.Fatalf("kept.txt=%+v", got)
+	}
+	if got := byPath["made-by-sed.txt"]; got.Status != "added" || got.Additions != 1 {
+		t.Fatalf("made-by-sed.txt=%+v", got)
+	}
+	if got := byPath["gone.txt"]; got.Status != "deleted" || got.Deletions != 1 {
+		t.Fatalf("gone.txt=%+v", got)
+	}
+}
+
+func TestListTreeChangesWithoutAStoreIsUnavailable(t *testing.T) {
+	requireGit(t)
+	m := NewManager(t.TempDir())
+	if err := m.EnsureEmptyHooks(); err != nil {
+		t.Fatal(err)
+	}
+	src := t.TempDir()
+	initRepo(t, src)
+	commitFile(t, src, "a.txt", "a\n")
+	meta, err := m.Prepare(context.Background(), testTaskID, src, ModeWorktree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.CleanupPrepared(context.Background(), testTaskID, meta)
+
+	oid := strings.Repeat("a", 40)
+	if _, err := m.ListTreeChanges(context.Background(), testTaskID, meta, oid, oid); !errors.Is(err, ErrCheckpointUnavailable) {
+		t.Fatalf("err=%v want ErrCheckpointUnavailable", err)
+	}
+}
+
+func TestParseNumstat(t *testing.T) {
+	counts := parseNumstat("3\t1\ta.go\n-\t-\tlogo.png\n\nbad line\n")
+	if got := counts["a.go"]; got.Additions != 3 || got.Deletions != 1 || got.Binary {
+		t.Fatalf("a.go=%+v", got)
+	}
+	if got := counts["logo.png"]; !got.Binary || got.Additions != 0 || got.Deletions != 0 {
+		t.Fatalf("logo.png=%+v", got)
+	}
+	if len(counts) != 2 {
+		t.Fatalf("counts=%+v", counts)
+	}
 }

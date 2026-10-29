@@ -8,7 +8,12 @@ import {
   resolveSpeaker,
 } from "./eventMeta";
 import { displayUserPrompt } from "../../lib/attachments";
-import { roundEvidence, type RoundEvidence } from "../../lib/roundEvidence";
+import {
+  recordedRoundEvidence,
+  recordedRounds,
+  roundEvidence,
+  type RoundEvidence,
+} from "../../lib/roundEvidence";
 import type { PendingRef } from "../../lib/needsYou";
 
 export type ToolStep = {
@@ -88,7 +93,11 @@ export function noteNeedsAttribution(note: NoteStep, hostSpeaker: string): boole
  */
 export function noteLabelKey(
   source: NoteSource,
-): "chat.progress.thinking" | "chat.progress.plan" | "chat.progress.note" | "chat.progress.subagent" {
+):
+  | "chat.progress.thinking"
+  | "chat.progress.plan"
+  | "chat.progress.note"
+  | "chat.progress.subagent" {
   if (source === "reasoning") return "chat.progress.thinking";
   if (source === "plan") return "chat.progress.plan";
   if (source === "subagent") return "chat.progress.subagent";
@@ -718,10 +727,7 @@ export function buildChatItems(
         streamNoteKey = null;
         const content = p.content as Record<string, unknown> | undefined;
         const hinted =
-          content?.name ??
-          p.name ??
-          p.tool_name ??
-          (p.item as { type?: string } | undefined)?.type;
+          content?.name ?? p.name ?? p.tool_name ?? (p.item as { type?: string } | undefined)?.type;
         // A status-only update names no tool. That is not a statement that the
         // step is called "tool": the row keeps the name it was opened with,
         // which is the whole reason the adapter leaves the field out.
@@ -1286,12 +1292,32 @@ export function roundsOf(turns: Turn[]): Round[] {
  *
  * Absent means no card: a round nothing carried a seq for, and a round that
  * changed nothing through a file tool, are both nothing to report.
+ *
+ * A round the daemon recorded wins over the payload reconstruction, including
+ * when the record is empty. The record compares two snapshots of the disk, so
+ * it knows about a `sed` the payload cannot see and about a write the next turn
+ * reverted; falling back to the payloads would put files on screen that do not
+ * differ. Payloads are the fallback for everything the daemon could not record:
+ * shared checkouts, tasks that ran elsewhere, sessions older than the record.
  */
 export function roundEvidenceByTurn(events: TaskEvent[], turns: Turn[]): Map<Turn, RoundEvidence> {
   const byTurn = new Map<Turn, RoundEvidence>();
+  const recorded = recordedRounds(events);
   for (const round of roundsOf(turns)) {
+    const lastTurn = round.turns[round.turns.length - 1];
+    const record = round.fromSeq === undefined ? undefined : recorded.get(round.fromSeq);
+    if (record) {
+      const { fromSeq, toSeq } = round;
+      const slice =
+        fromSeq === undefined || toSeq === undefined
+          ? []
+          : events.filter((event) => event.seq >= fromSeq && event.seq <= toSeq);
+      const evidence = recordedRoundEvidence(record, slice);
+      if (evidence) byTurn.set(lastTurn, evidence);
+      continue;
+    }
     const evidence = roundEvidence(events, round);
-    if (evidence) byTurn.set(round.turns[round.turns.length - 1], evidence);
+    if (evidence) byTurn.set(lastTurn, evidence);
   }
   return byTurn;
 }

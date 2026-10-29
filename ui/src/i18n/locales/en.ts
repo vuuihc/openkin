@@ -356,6 +356,8 @@ const en: MessageTree = {
       noPreview: "Nothing reconstructible for this change",
       scope:
         "Counts only what the agent changed with file tools (write/edit/delete); shell commands are invisible here. The full diff is in the workspace and PR panels.",
+      scopeWorkspace:
+        "Read from workspace snapshots taken at the start of each turn, so shell commands and formatters are included. The full diff is in the workspace and PR panels.",
     },
   },
   task: {

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { TaskEvent } from "../api/client";
-import { evidenceFilePreview, roundEvidence, ROUND_EVIDENCE_MAX_FILES } from "./roundEvidence";
+import {
+  evidenceFilePreview,
+  recordedRoundEvidence,
+  recordedRounds,
+  roundEvidence,
+  ROUND_EVIDENCE_MAX_FILES,
+} from "./roundEvidence";
 
 function toolUse(seq: number, name: string, input: Record<string, unknown>): TaskEvent {
   return {
@@ -145,5 +151,117 @@ describe("evidenceFilePreview", () => {
       "add:new",
       "ctx:tail",
     ]);
+  });
+});
+
+describe("recordedRounds", () => {
+  it("reads the files of a round the daemon recorded", () => {
+    const events: TaskEvent[] = [
+      message(1, "user", "rename it"),
+      {
+        task_id: "t1",
+        event_epoch: 1,
+        seq: 6,
+        type: "round_changed",
+        ts: 6,
+        payload: {
+          from_seq: 1,
+          to_seq: 5,
+          total: 2,
+          files: [
+            { path: "internal/parse.go", status: "modified", additions: 3, deletions: 1 },
+            { path: "internal/renamed.go", status: "added", additions: 9 },
+          ],
+        },
+      },
+    ];
+    const recorded = recordedRounds(events);
+    expect([...recorded.keys()]).toEqual([1]);
+    expect(recorded.get(1)!.map((change) => change.path)).toEqual([
+      "internal/parse.go",
+      "internal/renamed.go",
+    ]);
+    expect(recorded.get(1)![0]).toEqual({
+      path: "internal/parse.go",
+      status: "modified",
+      additions: 3,
+      deletions: 1,
+    });
+  });
+
+  it("ignores a record with no round to key it to", () => {
+    const events: TaskEvent[] = [
+      {
+        task_id: "t1",
+        event_epoch: 1,
+        seq: 3,
+        type: "round_changed",
+        ts: 3,
+        payload: { files: [] },
+      },
+      {
+        task_id: "t1",
+        event_epoch: 1,
+        seq: 4,
+        type: "round_changed",
+        ts: 4,
+        payload: { from_seq: 2, files: [{ status: "modified" }] },
+      },
+    ];
+    const recorded = recordedRounds(events);
+    // The first has no round to key it to; the second is a round that changed
+    // nothing, and the malformed file inside it is dropped rather than drawn.
+    expect([...recorded.keys()]).toEqual([2]);
+    expect(recorded.get(2)).toEqual([]);
+  });
+
+  it("keeps the newest record for a round", () => {
+    // A retried turn rewrites the record for the round before it; the reader is
+    // looking at the rewritten timeline.
+    const record = (seq: number, path: string): TaskEvent => ({
+      task_id: "t1",
+      event_epoch: 1,
+      seq,
+      type: "round_changed",
+      ts: seq,
+      payload: { from_seq: 1, files: [{ path, status: "modified" }] },
+    });
+    const recorded = recordedRounds([record(3, "old.go"), record(9, "new.go")]);
+    expect(recorded.get(1)!.map((change) => change.path)).toEqual(["new.go"]);
+  });
+});
+
+describe("recordedRoundEvidence", () => {
+  it("is null for a round that changed nothing", () => {
+    expect(recordedRoundEvidence([], [])).toBeNull();
+    expect(recordedRoundEvidence(undefined, [])).toBeNull();
+  });
+
+  it("says the list came from the workspace", () => {
+    const evidence = recordedRoundEvidence(
+      [{ path: "src/a.ts", status: "modified", additions: 2, deletions: 1 }],
+      [],
+    )!;
+    expect(evidence.source).toBe("workspace");
+    expect(evidence.totalFiles).toBe(1);
+    expect(evidence.additions).toBe(2);
+    expect(evidence.hasStats).toBe(true);
+    expect(evidenceFilePreview(evidence, "src/a.ts")).toBeNull();
+  });
+
+  it("keeps the payload preview for a file the record also lists", () => {
+    const events = [
+      toolUse(2, "write_file", { path: "src/b.ts", content: "export const b = 1;\n" }),
+    ];
+    const evidence = recordedRoundEvidence(
+      [
+        { path: "src/b.ts", status: "added", additions: 1 },
+        { path: "src/sed.ts", status: "modified", additions: 1, deletions: 1 },
+      ],
+      events,
+    )!;
+    expect(evidenceFilePreview(evidence, "src/b.ts")).not.toBeNull();
+    // The shell edit has no payload behind it; the row still exists.
+    expect(evidenceFilePreview(evidence, "src/sed.ts")).toBeNull();
   });
 });
