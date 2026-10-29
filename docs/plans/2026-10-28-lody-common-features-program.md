@@ -758,3 +758,40 @@ the current `user_version` but missing the new column was not repaired by the
 numbered migration alone, because the runner stops at "version is current". The
 column is now also reconciled on every open (`ensureRoutineRecurrenceSchema`),
 the same way `users.role` is.
+
+#### Verifying D found the console living on a ten-second poll (fixed)
+
+Checking the new role editor by hand, a freshly added row disappeared about six
+seconds after it was added. The row is draft state, so something was replacing
+it with the stored list — and the only writer of that list is the page load,
+which reruns when the realtime stream reconnects.
+
+The stream was reconnecting every ten seconds. `/api/events` re-checks its
+credential on a ticker (`principalRecheck`), and `principalStillValid` handled
+device and user principals only; a request carrying the master token — the
+desktop console, and any local `kin` client — fell into the `default` branch and
+was told its credential was invalid. The daemon hung up on schedule. Measured
+against a live node: `curl` with the master token received the `retry:` preamble
+and then EOF at exactly 10s, with no heartbeat in between.
+
+Why it matters beyond the role row: the client treats a closed stream as "I may
+have missed something" and refetches the page snapshot on reconnect, by design.
+So every page was quietly reloading itself every eleven seconds, and any draft
+in progress — a new role, a price table, a webhook URL — was replaced by what
+was stored. That is also why several screens felt like they "reset" for no
+reason.
+
+The credential decision now lives in `credentialStillValid`, which takes the
+principal and the token instead of reading them out of a context, so it can be
+tested without holding a stream open for ten seconds. The master credential is
+exempt (it cannot be revoked); a device still has to be active, and a browser
+session still has to authenticate. Five table cases plus a red check: removing
+the master exemption fails both master cases.
+
+Post-fix, a stream held open with the master token survives past the recheck and
+keeps delivering heartbeats.
+
+Deliberately not changed: the reconnect handler still reloads the page snapshot,
+drafts included. With the stream fixed that only happens on a genuine
+disconnect, where re-reading the server is the correct behaviour; a
+draft-preserving merge is a bigger design change than this defect justifies.
