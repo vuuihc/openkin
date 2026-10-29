@@ -261,7 +261,9 @@ Ordered by daily cost, not by column order. All are S2.
   it. Add remove, and edit as remove-then-refill, so a typo in a queued send
   does not have to be waited out or the whole round stopped. Acceptance: a
   queued message can be deleted before it runs, and the transcript stops
-  badging it.
+  badging it. **Remove landed** (`DELETE /api/tasks/{id}/prompts/{promptID}`,
+  the × in the badge, and the `prompt_withdrawn` notice that keeps the
+  transcript honest on every device); edit-as-refill remains.
 - **F2 The workspace owns its own find.** Wire monaco's find action and make
   the conversation's Cmd/Ctrl+F handler stand down while an editor has focus
   (`ChatStream.tsx:234-244` currently preventDefaults it). Acceptance: Cmd+F in
@@ -1306,3 +1308,87 @@ the boundary key, the key-letter gate, both observer cleanups, the
 agent-session band, the wide-screen close, the boundary reset, the live-title
 preference, the measured-route assignment, and the drawer render guard each
 fail the test that names them.
+
+#### F1 — a queued message can be taken back (landed)
+
+A message sent while a round is running waits in `task_pending_prompts` for the
+next turn boundary. The console could only show that wait — a "Queued" badge in
+the transcript — and the only way to take a message back was to stop the task,
+which throws away the round and every other queued message with it. Lody's queue
+rows are editable and removable; this lands the remove half. Edit is the same
+gesture followed by a refill of the composer, and is a separate slice.
+
+**The bubble cannot disappear, so the transcript has to say what happened.**
+Events are immutable: the user's message was written when it was accepted, and
+withdrawing the queue row leaves it on screen. With no record, every device would
+read that bubble as delivered, and the agent's next turn would silently not
+mention it. `Store.WithdrawPendingPrompt` deletes the row and appends a `notice`
+event (`code: prompt_withdrawn`) in one transaction — the shape `Cancel` already
+uses for its discard report, and for the same reason: a process that dies between
+the two writes would leave a message nobody will answer and no record of why.
+The note does not quote the text. A withdrawal is often the sender taking back
+something they regret, and a copy in a second event would keep exactly what they
+asked to remove.
+
+**Wording belongs to the console.** The daemon writes one language; the reader
+may be in another. The projection maps `code: prompt_withdrawn` to
+`chat.withdrawnNote` and leaves every other notice as the agent's own words.
+
+**404 is an answer, not a failure.** The turn boundary and the withdraw can race
+for the same row. Both are single transactions, so one wins and the other finds
+nothing: a 404 means the message ran, or another device withdrew it first, and
+the queue poll that follows is the truth. The console removes the badge
+optimistically — the tap should not wait for a round trip — and only a real error
+puts it back, by re-reading the queue and saying what went wrong.
+
+**Where the control lives.** A small × inside the existing badge, because that
+badge is the state it undoes. It exists only while the message is still waiting,
+and only when the page can act on the queue at all (`onUnqueue` is optional, so a
+transcript the caller only reads shows the badge and nothing to press). The
+handler reads the queue through a ref: the rows are memoized and keep the closure
+they were first given — that is what keeps a long transcript cheap — so the
+closure must not capture the queue it was drawn with. A poll the daemon answered
+before the delete landed can still arrive after it, so the page also remembers
+the ids it has withdrawn and drops them from every later list
+(`withoutWithdrawn`); only a real failure un-marks the id, which is what lets the
+badge come back.
+
+**Tests.** Store: the row goes and the rest of the queue keeps its order, a
+cross-task id cannot reach another task's row, a second withdraw is a no-op with
+no second note, and the note never repeats the text. API: 204/404/400, and the
+note written with the row but not on a 404, and the note published on the bus so
+the devices that were not looking at the queue hear about it too. UI: the control
+appears only on a queued message and only when the caller offers the action,
+clicking it reports the message's seq, the note follows the reader's locale while
+an ordinary notice stays untranslated, and the queue filter drops a withdrawn row
+by id — by row id, not the seq the transcript marks — while returning the same
+array when there is nothing to drop. Red-verified by mutation: dropping the note
+write (both the store and the API test fail), dropping the code check (the locale
+test fails), dropping the row's `onUnqueue` gate (the hidden-control test fails),
+passing the wrong seq (the click test fails), dropping the publish (the live test
+fails), and dropping the withdrawn filter (the queue-filter tests fail).
+
+**Review pass two: the identity the scan matched on was one adapter's.** The
+mid-stream fix above assumed the note sits between a preview and the message
+that replaces it *and that the message has an id to match on*. Only droid stamps
+both `message_id` and `index`; claude-code sends `index` alone, ACP
+`message_id` alone, and kinagent neither, so for the default adapter the note
+still left the first half of the answer on screen under the whole of it. The
+note now carries `withdrawal`, and exactly one withdrawal note is transparent to
+the scan: it steps over the note for the single preview directly behind it — the
+text the arriving message is replacing — and then stops. Text from an earlier
+message that never got a final version is left alone, because with no id it is
+the only copy. The test fixture runs all four adapter shapes through the same
+transcript. The row's memo comparator also missed the new prop, so a queued row
+that lost the action kept drawing its button (the save button's clause already
+compares presence for the same reason). And a rejected request no longer means a
+failed withdrawal: a delete can land and its answer be lost to a reset
+connection, so the page re-reads the queue and only reports a failure when the
+message is still waiting.
+
+Deferred, with reasons: the queue poll re-arms on `events.length`, so while an
+answer streams continuously the queue is not re-read (pre-existing; it only
+delays reconciling a failed withdrawal until the stream pauses). A queued row
+whose `user_seq` is 0 — the event write failed when it was accepted — has no
+bubble to put a badge on, so the console cannot offer to withdraw it even though
+the endpoint would accept it. Rare, and the fix is a queue view, not a badge.
