@@ -1506,3 +1506,25 @@ elsewhere can, and the real invariant belongs in `kin serve`, which is a wider
 change than this round. The shell still notifies about a finished task even when
 its window is frontmost, holds no dock badge for pending approvals, and has no
 global shortcut; none of them has produced a dogfooding complaint yet.
+
+#### H3 — the popover opens instead of reloading (landed)
+
+**What was wrong.** `TrayPopover.show` navigated on every click, so the menu-bar
+popover reloaded the whole SPA each time: a flash, a lost scroll position and a
+fresh WebSocket handshake for a window that had only been hidden. The page is
+live — `TrayPage` reads through `useLiveResources` — so the hidden window was
+already up to date.
+
+**The fix.** A hidden popover is shown, not reloaded. It loads only when it has
+no page (just created), when it is showing something else (a failed load leaves
+Chromium's error page; a stray navigation leaves another route), or when the
+token in its URL is not the one in `~/.kin/token` — the one piece of state that
+can go stale behind a live page. Escape now closes it as well; click-away
+already did.
+
+**Tests.** The load decision (empty URL, `about:blank`, the tray URL with its
+token query, a fragment, a longer path with the same prefix, another route, an
+error page) and the token comparison (current, replaced, missing, unparseable,
+and a machine with no token yet). Red-verified by mutation: always reload (1
+fails), prefix-only matching (1), inverting the token comparison (2), treating a
+missing token as stale (1).
