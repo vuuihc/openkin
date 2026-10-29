@@ -251,7 +251,9 @@ export default function RoutineScheduleFields({
         </label>
       )}
 
-      <span className="block text-caption text-kin-muted">{hint}</span>
+      {/* Its own line: in the compact strip the hint shares the row with the
+          fields, and a wrapping sentence there squeezes the input it explains. */}
+      <span className="block basis-full text-caption text-kin-muted">{hint}</span>
 
       {!rule && nextRunLocal && (
         <button
