@@ -1468,8 +1468,7 @@ deadline; unreadable `ps` → spawn). The sidecar cannot be loaded outside
 Electron, so a source test holds the wiring: the question is asked before
 `spawn`, and the "stuck" branch returns before it. Red-verified by mutation:
 dropping the no-rival early return (2 tests fail), sleeping past the deadline
-(1), removing the wait block (3), zeroing either title-bar threshold in H2
-(1 and 3), dropping H2's size clamp (1).
+(1), and removing the wait block (3).
 
 **Verified live.** After a rebuild exactly one process listens on :7777 — the
 installed node — and the shell logs `daemon already running … (external)`, then
