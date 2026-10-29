@@ -273,6 +273,13 @@ Ordered by daily cost, not by column order. All are S2.
   it (`elementFromPoint` at its centre landed on the editor). The page now passes
   `findShortcut={active && panel === null}`: an editor still owns the chord, and
   everywhere uncovered still opens the conversation's.
+- **F2b A change row opens the file it names.** (Landed; found while checking
+  F2.) The viewer is rooted at the workspace, and the tree speaks relative
+  paths, but the change list carries what the tool reported — claude-code and
+  the ACP adapters report absolute ones — so opening a changed file answered
+  `absolute path not allowed` and drew the daemon's complaint. The panel now
+  maps the path into the workspace first; a path outside it says the file cannot
+  be read here instead of asking the daemon to phrase it.
 - **F3 `@file` mentions.** One mention source over the task workspace tree, so
   a path can be referenced without typing it on a phone. Acceptance: typing
   `@` in the composer offers workspace files and inserts the path.

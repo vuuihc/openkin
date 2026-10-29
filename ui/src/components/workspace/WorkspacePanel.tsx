@@ -29,7 +29,7 @@ import {
   type FileDiffSnippet,
 } from "../../lib/changedFiles";
 import WorkspaceGenerationPicker from "./WorkspaceGenerationPicker";
-import { projectLabel, shortPath } from "../../lib/paths";
+import { projectLabel, shortPath, toWorkspaceRelativePath } from "../../lib/paths";
 import { IconPanel, IconSend, IconSpinner, IconX } from "../icons";
 import ChangedFilesList from "./ChangedFilesList";
 import FileTree from "./FileTree";
@@ -378,12 +378,28 @@ export default function WorkspacePanel({
 
   const loadFile = useCallback(
     async (path: string) => {
+      // Two things feed the viewer and they speak different dialects: the tree
+      // names files relative to the workspace, and the change list carries what
+      // the tool reported — claude-code and the ACP adapters report absolute
+      // paths. The file API is rooted at the workspace and refuses an absolute
+      // one, so a change row opened the file as a 400 and printed the daemon's
+      // complaint instead. Inside the workspace the two forms name the same
+      // file; anything else is not readable here and says so.
+      const readPath = toWorkspaceRelativePath(cwd, path);
+      // Bumped before the early return too: a request still in flight must not
+      // land on top of the refusal and draw a file the reader did not open.
       const reqID = ++requestRef.current;
       setSelectedPath(path);
+      if (!readPath) {
+        setFile(null);
+        setLoading(false);
+        setError(t("workspace.viewer.readFailed"));
+        return;
+      }
       setLoading(true);
       setError(null);
       try {
-        const next = await readWorkspaceViewFile(workspaceView, taskId, path);
+        const next = await readWorkspaceViewFile(workspaceView, taskId, readPath);
         if (requestRef.current !== reqID) return;
         setFile(next);
       } catch (err) {
@@ -396,7 +412,7 @@ export default function WorkspacePanel({
         }
       }
     },
-    [taskId, workspaceView],
+    [cwd, taskId, workspaceView],
   );
 
   useEffect(() => {
