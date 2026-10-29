@@ -299,6 +299,16 @@ Ordered by daily cost, not by column order. All are S2.
   Ship the file to the executing node (or embed it for every adapter, not only
   Kin's). Acceptance: an image attached on the phone is visible to a Claude
   Code task running on a different machine.
+  Design (not yet built): the Hub cannot reach a node — the node dialled out —
+  so the node fetches. A dispatched turn carries each upload's stored name,
+  size and MIME beside the prompt; before the agent starts, the node downloads
+  them over an HTTP route authenticated by the device token it already holds,
+  writes them under its own state dir per task, and replaces the Hub-absolute
+  paths the prompt carries with the local ones. Bounds: the upload ceiling per
+  file, a per-turn count and total, a timeout, and a turn that cannot fetch
+  degrading to a prompt note naming what is missing rather than failing. The
+  directory goes when the task does. The alternative — chunking 20 MiB through
+  the 256 KiB query protocol — is eighty round trips for one photo.
 
 ### Global approval (round 1)
 
