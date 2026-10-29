@@ -319,6 +319,20 @@ export class LiveResourceStore {
     this.applyTaskUpdate(task, ++this.revision);
   }
 
+  /**
+   * The newest row the store holds for a task: `null` once it is known to be
+   * deleted, `undefined` if the store has never heard of it.
+   *
+   * A list that keeps pages outside the registered lists (the conversation
+   * list's "load older" tail) gets no pruning or refreshing from the store, so
+   * it asks here instead: a deleted row must disappear, and a row that changed
+   * status must not stay under the filter it no longer matches.
+   */
+  taskSnapshot(taskId: string): Task | null | undefined {
+    if (this.deletedTasks.has(taskId)) return null;
+    return this.tasksById.get(taskId);
+  }
+
   patchTask(taskId: string, patch: Partial<Task>): void {
     const current = this.state.taskDetails[taskId]?.data.task ?? this.tasksById.get(taskId);
     if (!current) return;

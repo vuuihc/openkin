@@ -281,6 +281,15 @@ export function IconSort(p: IconProps) {
   );
 }
 
+export function IconFilter(p: IconProps) {
+  return base(
+    p,
+    <>
+      <path d="M4 5h16l-6 7.2V18l-4 2v-7.8L4 5Z" />
+    </>,
+  );
+}
+
 export function IconExternal(p: IconProps) {
   return base(
     p,

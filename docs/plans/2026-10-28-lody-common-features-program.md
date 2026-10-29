@@ -1,6 +1,6 @@
 # Common-feature parity program — inventory, gaps, plan
 
-Status: rounds 1–10 landed; round 11 next. This is the living ledger for the
+Status: rounds 1–11 landed; round 12 next. This is the living ledger for the
 open-ended "beat Lody on the features I actually use" program: inventory → gap
 matrix → plan → implement → evaluate → repeat.
 
@@ -48,7 +48,7 @@ attachment lost when the task runs on another machine, closed with F4 below.
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Server-backed list with filters (repo / project / status / PR / machine), mine-vs-team scope, archive screen, unread dots (`mobile-chat-list.tsx`, `mobile-filter-drawer.tsx:45`, `mobile-archive-screen.tsx:85`) | Search is server-side over the whole library (`sessionListParams.ts:12-20`), rows carry a status/unread dot (`sessionViewed.ts:111-119`); browsing is still project buckets capped at 100 rows with no filter control (`SessionsPage.tsx:397-422`) | No filter drawer, no archive screen, no cursor/load-more: a conversation older than the cap is reachable only by typing a search term | S2 | the server already has a `before` cursor (`store.go:486`) |
+| Server-backed list with filters (repo / project / status / PR / machine), mine-vs-team scope, archive screen, unread dots (`mobile-chat-list.tsx`, `mobile-filter-drawer.tsx:45`, `mobile-archive-screen.tsx:85`) | Search is server-side over the whole library (`sessionListParams.ts`); a filter control carries status to the daemon in `?status=`, `?scope=archived` is the archived-projects view with per-project restore, and "load older" pages both feeds by `before=` (`SessionFilters.tsx`, `SessionsPage.tsx`); rows carry a status/unread dot (`sessionViewed.ts:111-119`) | No project or machine filter, and the archive view restores but does not delete | S3 | — |
 | Swipe: pin / archive / restore / **delete**, long swipe auto-archives (`mobile-swipeable-row.tsx:341`) | Swipe reveals Pin and Archive only (`SessionsPage.tsx:734-757`, `SwipeReveal.tsx:78-124`); archive acts on the whole project (`SessionsPage.tsx:284-288`); delete lives inside a session (`TaskDetailPage.tsx:1087-1090`) | No delete or restore from the row, no long-swipe | S3 | — |
 | Multi-select: select all, delete (`mobile-chat-list.tsx:1018`) | Multi-select: select all, pin, archive (`SessionsPage.tsx:353-395`) | No batch delete | S3 | — |
 
@@ -2190,3 +2190,149 @@ live node itself held `~/.kin/daemon.lock`: a `LOCK_EX|LOCK_NB` from outside
 blocks, and the pid in the file is the `:7777` listener. A machine that installs
 the node later gets this code from the start. The same rebuild ships the shell
 side of the exit-status message.
+
+### Round 11 — filters, the archived view and older pages (2026-10-29)
+
+The S2 from §2.1's first row: the conversation list could search the whole
+library but not browse it. Three gaps, one screen — a filter control, the other
+side of archiving, and a way past the hundred-row page.
+
+**The filter lives in the URL.** `?status=` and `?scope=` join `?q=`, so the
+header control and the list cannot disagree, a reload keeps the filter, and a
+filtered list can be linked. `normalizeStatusFilter` and `normalizeScopeFilter`
+(`SessionFilters.tsx`) decide what a stale or hand-edited value means: an
+unknown status is "all", an unknown scope is "active" — never a filter that
+nothing can match, which would render as an empty library. The panel opens in
+place rather than as a sheet because the sheet is `md:hidden`: a sheet here
+would need a second desktop-only surface and two chances to disagree about what
+is selected.
+
+**Status is asked of the daemon, not applied to the loaded page.** The page is
+100 rows; narrowing those answers "no running chats" about a page that merely
+ended, and it is wrong, not slow. `sessionListParams` now carries the status
+into the live list, the "is there more" bound and the older page, and the store
+composes `status = ?` with the existing `before` bound. Imported agent sessions
+carry no status, so a status filter hides them instead of showing rows that
+cannot answer the question, and the paged sessions read keeps running for `?q=`
+only.
+
+**Six chips, not eight.** `queued` and `retrying` are deliberately absent: they
+are moments between two of the statuses, and a filter for a state that lasts a
+second is a control that is almost always empty. `canceled` is present for the
+opposite reason — it is durable, and it is the one status the row dot draws
+nothing for, so the chip is the only way to find a canceled run in a list that
+shows a hundred rows.
+
+**Scope is the other half of archiving.** The list hides archived projects
+already; `?scope=archived` shows only them, with a Restore button in each
+project's header. Restore calls `unarchiveProject` with the *stored* entry:
+`archivedCwdFor` maps the bucket key back to what the sidebar saved, including
+the sidebar's `__root__` sentinel for the no-project group, which otherwise
+would find nothing to remove. Rows in the archived view carry no swipe actions
+and no multi-select — pin and archive there would be no-ops — so `SessionRow`
+returns the bare row when actions are off. Pins do not lift rows into a Pinned
+bucket in the archived view either: that view exists to show projects as filed,
+and the lifted rows would carry actions that are hidden.
+
+**Load older is a button, not infinite scroll.** The list is a place people
+scan; a viewport that keeps growing under the thumb loses the row being read.
+Both feeds page by `before=`: Kin's tasks have no cursor, so the oldest loaded
+id is the bound (`id < ?`, exclusive, and the list is id-desc); the imported
+feed has a keyset cursor of its own. A page shorter than the limit is the end,
+and a failed page keeps what is on screen and leaves the button in place so the
+next tap asks again. Older pages live beside the live store rather than inside
+it — the live store merges websocket updates into its first page, and a static
+tail mixed in would make every update re-scan rows that can no longer change —
+and the concatenation dedupes by id, because a task can also arrive through the
+live feed. A new search term or status drops the tail and the "more" hint: a
+tail that answered the previous question is not part of the new one.
+
+**The filter tint is `/10`, not `/12`.** The first version used
+`bg-kin-blue/12`; the design-token test builds the real stylesheet and found
+that Tailwind emits opacity modifiers from the theme's `opacity` scale, and 12
+is not in it — the class produced no CSS at all, so the "active filter" chip
+would have been indistinguishable from an inactive one.
+
+**Tests.** Console: `sessionListParams.test.ts` (status carried, empty status
+dropped instead of becoming `status=`), `SessionFilters.dom.test.tsx` (closed by
+default, the trigger names what is applied and says how many with a noun,
+changing the status keeps the scope, a chosen status toggles off, clear hands
+back both halves in one call, all nine chips present, `aria-controls` only while
+open, Escape closes and returns focus, both normalizers),
+`phoneSessionBuckets.test.ts` (the archived scope is the exact inverse of the
+active one, empty when nothing is archived, an archived project whose chats are
+all older than the loaded page still gets its heading, `__root__` finds the
+no-project bucket, `archivedCwdFor` returns the stored spelling and never an
+empty entry), `taskTail.test.ts` (no tail returns the live array itself, a
+deleted row drops, a newer store copy wins over the page's, a row already on
+the live page is not repeated), `liveResources.test.ts` (`taskSnapshot` answers
+unknown / newest row / `null` after deletion), and
+`sessionSearchWiring.test.ts` (three status-carrying task requests, two
+status-free session requests, both URL normalizers, `before:` on both feeds,
+the local status narrowing, the store reconciliation, and the generation guard
+on both paged feeds). Go: `TestListTasksStatusPaging` in `internal/store`
+inserts seven tasks with alternating statuses and pages the failures two at a
+time, so a page that ignores the filter shows a foreign row in the middle and
+one that drops the bound repeats a row the console would dedupe — the button
+would look dead.
+
+**Tooling.** `scripts/check.sh` grew `ui-test` and `ui-tsc` jobs, gated on
+`ui/` paths and always on under `--all`. They were the two checks a console
+change never got from this script, and the token test above is exactly the kind
+of failure they catch before a commit.
+
+**Red-verified by mutation.** Thirty mutants, each checked with `cmp` before
+and after: the store dropping the status condition, making `before` inclusive,
+and pointing it at newer rows; the parameter rule never carrying the status and
+carrying an empty one; the normalizers passing unknown values through; the
+trigger hiding the applied status and naming a panel that is not there; a
+chosen status that cannot be toggled off; clear keeping the archived scope; the
+canceled chip removed; Escape leaving focus inside the closed panel; the count
+announced as a bare number; the archived scope showing active projects,
+listing only projects with loaded rows, and dropping an empty heading;
+`archivedCwdFor` matching the raw entry and returning an empty one; the live
+list dropping the status; "load older" dropping the bound and appending a page
+after the filter moved on, on both feeds; imported sessions paging under a
+filter; the merged list not narrowed by status; and the tail keeping a deleted
+row, a stale copy, or a duplicate. All thirty fail their check.
+
+**Verified live** against the running node, through `vite dev` on a spare port:
+the panel opened at 1280 and at 390 wide with every chip reachable; choosing
+Failed put `?status=failed` in the URL and left only failed rows on screen;
+archiving a project from the drawer made `?scope=archived` show that project
+with a Restore button and no swipe actions, and Restore emptied the archived
+store and put the project back in the drawer; "load older" appended the next
+page, stopped rendering at the end of the library, and produced no duplicate
+row ids (the one repeated label was two distinct tasks with the same title,
+confirmed by id through `/api/tasks`).
+
+**What the review found.** No blockers, five majors, eight nits — all fixed.
+The majors were all about the list telling the truth about itself. (1) The
+older tail lived outside the live store, so a row deleted after its page loaded
+stayed tappable and opened a 404, and a run that finished stayed under a
+"Running" filter; `taskSnapshot` and `mergeTaskTail` now ask the store per row
+at render time (`null` drops, a newer row wins, a row already on page one is
+not repeated). (2) The status was only filtered server-side, so the previous
+page flashed under the new filter until the answer arrived; the merged list is
+now narrowed locally as well. (3) `loadOlder` had no guard against its own
+response, so a page requested under one filter could append rows under the
+next; both feeds capture a request generation and drop a stale answer. (4) The
+archived view listed only projects with loaded rows, but archiving is how a
+project you are done with is put away — its newest chat is usually older than
+the hundred-row page, exactly when Restore was needed; the view now seeds from
+the stored archive list and keeps empty headings. (5) Each Restore button was
+named just "Restore", so a screen reader heard the same control once per
+project; the name now includes the project. The nits: multi-select stayed armed
+when the archived view opened (now cleared); the chip groups had no
+`role="group"`/`aria-labelledby`, the trigger no `aria-controls`, and Escape
+neither closed the panel nor returned focus; the count badge was an unlabeled
+number (now `aria-hidden`, with a spoken "Filters applied: 2"); `archivedCwdFor`
+could return an empty archive entry, making Restore a silent no-op; `hasMoreTasks`
+is still inferred from a full page, which can leave one dead button press at an
+exact multiple — accepted, since the alternative is a `COUNT(*)` on every list
+read for a button that corrects itself; and the design-token test keeps the
+filter tint at `/10`. One fix from this pass is worth noting because the review
+found it, not the live walk: the archived-scope test had passed while the
+seeding bug was present, because the live walk had rows for the archived
+project on page one.
+

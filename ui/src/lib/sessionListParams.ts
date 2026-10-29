@@ -13,9 +13,17 @@
 export const LIST_LIMIT = 100;
 export const SEARCH_LIMIT = 200;
 
-export type SessionListParams = { limit: number; q?: string };
+export type SessionListParams = { limit: number; q?: string; status?: string };
 
-export function sessionListParams(term: string): SessionListParams {
+/**
+ * `status` is the daemon's own filter (`?status=`), not a narrowing of the
+ * page: filtering loaded rows in the browser would say "no running chats"
+ * about a page that merely ended. Imported agent sessions have no status, so
+ * the page hides them whenever this is set.
+ */
+export function sessionListParams(term: string, status?: string): SessionListParams {
   const q = term.trim();
-  return q ? { limit: SEARCH_LIMIT, q } : { limit: LIST_LIMIT };
+  const params: SessionListParams = q ? { limit: SEARCH_LIMIT, q } : { limit: LIST_LIMIT };
+  if (status) params.status = status;
+  return params;
 }

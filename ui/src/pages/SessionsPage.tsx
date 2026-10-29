@@ -1,11 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { isTerminal, listAgentSessions, type AgentSession, type Task } from "../api/client";
+import {
+  isTerminal,
+  listAgentSessionsPage,
+  listTasks,
+  type AgentSession,
+  type Task,
+} from "../api/client";
 import { useTaskList } from "../api/useLiveResources";
+import { liveResources } from "../api/liveResources";
 import { useMachines } from "../hooks/useMachines";
 import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
 import { formatRelativeTime } from "../lib/relativeTime";
 import {
+  archivedCwdFor,
   filterProjectBuckets,
   phoneProjectBuckets,
   withPinnedBucket,
@@ -20,20 +28,34 @@ import {
   sessionStatusDotClass,
 } from "../lib/sessionViewed";
 import { taskCardStatusView } from "../lib/taskCardStatus";
-import { archiveProject, getArchivedProjects, subscribeProjectSidebar } from "../lib/projectSidebar";
+import { mergeTaskTail } from "../lib/taskTail";
+import {
+  archiveProject,
+  getArchivedProjects,
+  subscribeProjectSidebar,
+  unarchiveProject,
+} from "../lib/projectSidebar";
 import { useLocale, useT } from "../i18n/react";
 import { MobileEmpty, MobileScreen } from "../components/mobile/MobileList";
 import HighlightedText from "../components/HighlightedText";
 import SessionsSearch from "../components/mobile/SessionsSearch";
+import SessionFilters, {
+  normalizeScopeFilter,
+  normalizeStatusFilter,
+  type SessionScopeFilter,
+  type SessionStatusFilter,
+} from "../components/ui/SessionFilters";
 import {
   IconAlert,
   IconArchive,
   IconCheck,
   IconChevronDown,
+  IconFilter,
   IconFolder,
   IconFolderOpen,
   IconMachine,
   IconPin,
+  IconRefresh,
   IconSessions,
 } from "../components/icons";
 import SwipeReveal from "../components/mobile/SwipeReveal";
@@ -58,6 +80,9 @@ import SwipeReveal from "../components/mobile/SwipeReveal";
 
 const ROWS_BEFORE_SHOW_ALL = 5;
 
+/** A stable empty set, so the memos below keep one identity across renders. */
+const EMPTY_IDS: ReadonlySet<string> = new Set();
+
 /**
  * How long typing settles before the query leaves the browser.
  *
@@ -74,8 +99,14 @@ export default function SessionsPage() {
   // never invalidate it.
   const { locale } = useLocale();
   const navigate = useNavigate();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const query = params.get("q") ?? "";
+  // Filters live in the URL for the same reason the query does: the header
+  // control and the list cannot disagree, a reload keeps them, and a filtered
+  // list can be linked to. Unknown values are "all", never a filter that
+  // nothing can match.
+  const status = normalizeStatusFilter(params.get("status"));
+  const scope = normalizeScopeFilter(params.get("scope"));
   // The query as the server last saw it. `query` updates per keystroke; this
   // follows after the field settles, and collapses to empty immediately so
   // clearing the box never waits on a timer.
@@ -90,9 +121,21 @@ export default function SessionsPage() {
     return () => clearTimeout(timer);
   }, [query]);
 
-  const taskList = useTaskList(sessionListParams(searchTerm));
+  const taskList = useTaskList(sessionListParams(searchTerm, status));
   const { machines, loading: machinesLoading } = useMachines();
   const [sessions, setSessions] = useState<AgentSession[]>([]);
+  // Older pages, appended by "load older". They live beside the live list
+  // rather than inside it: the live store merges websocket updates into its
+  // first page, and mixing a static tail into that would make every update
+  // re-scan rows that can no longer change.
+  const [olderTasks, setOlderTasks] = useState<Task[]>([]);
+  const [olderSessions, setOlderSessions] = useState<AgentSession[]>([]);
+  // The imported-sessions feed answers with a keyset cursor; the tasks feed
+  // has none, so "is there more" is inferred from a full page (`null` = not
+  // asked yet).
+  const [sessionCursor, setSessionCursor] = useState<string | undefined>(undefined);
+  const [taskMore, setTaskMore] = useState<boolean | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [sessionsFailed, setSessionsFailed] = useState(false);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
@@ -112,17 +155,33 @@ export default function SessionsPage() {
   // archive lives in sidebar prefs: subscribe rather than read once.
   const [prefsTick, setPrefsTick] = useState(0);
   useEffect(() => subscribeProjectSidebar(() => setPrefsTick((n) => n + 1)), []);
+  // The archived view has no batch actions. A selection made before switching
+  // would leave its toolbar over a list whose buttons are no-ops.
+  useEffect(() => {
+    if (scope !== "archived") return;
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  }, [scope]);
 
   useEffect(() => {
     let cancelled = false;
     // A new query is a new question: the previous answer's failure notice must
     // not sit over rows it never described.
     setSessionsFailed(false);
+    // …and the previous tail and cursor belonged to that answer.
+    setOlderSessions([]);
+    setSessionCursor(undefined);
     const read = () => {
-      listAgentSessions(sessionListParams(searchTerm))
-        .then((rows) => {
+      // The paged route, not the plain one: the cursor is what lets "load
+      // older" reach past the first hundred imported sessions. A sync re-read
+      // starts from the top, because an import changes what page one holds.
+      const term = sessionListParams(searchTerm);
+      listAgentSessionsPage({ limit: term.limit, q: term.q })
+        .then((page) => {
           if (cancelled) return;
-          setSessions(rows);
+          setSessions(page.items);
+          setSessionCursor(page.next_cursor);
+          setOlderSessions([]);
           setSessionsFailed(false);
         })
         .catch(() => {
@@ -141,6 +200,18 @@ export default function SessionsPage() {
     };
   }, [searchTerm]);
 
+  // A different question gets a different page one: the previous tail is not
+  // part of this answer, and the "more" hint answered for the old one. The
+  // generation lets an older page that is still in flight notice it belongs to
+  // a question nobody is asking any more — without it the response lands after
+  // the reset and its rows stay under the new filter for good.
+  const requestGeneration = useRef(0);
+  useEffect(() => {
+    requestGeneration.current += 1;
+    setOlderTasks([]);
+    setTaskMore(null);
+  }, [searchTerm, status]);
+
   const selfDeviceId = (machines.find((machine) => machine.isSelf)?.id ?? "").trim();
   // A settled query is a new live-list key, and the hook hands back an empty
   // unloaded resource while it fetches. Without this the whole page would blink
@@ -151,7 +222,32 @@ export default function SessionsPage() {
   useEffect(() => {
     if (taskList.loaded) lastLoadedTasks.current = taskList.data;
   }, [taskList.loaded, taskList.data]);
-  const tasks = taskList.loaded ? taskList.data : lastLoadedTasks.current;
+  const liveTasks = taskList.loaded ? taskList.data : lastLoadedTasks.current;
+  // The live list first, then the older pages a person asked for. The merge
+  // asks the live store about each tail id — a row deleted since its page was
+  // fetched disappears instead of navigating to a 404, and one that changed
+  // status is shown as it is now rather than as it was. Deduped by id: a row
+  // can arrive through both feeds.
+  //
+  // The status filter is applied here as well as on the server. A filter
+  // change is a new live-list key, and the hook hands back an unloaded
+  // resource until it answers; without local narrowing the previous filter's
+  // rows would sit under the new chip for a whole round trip, which over the
+  // relay is seconds, not milliseconds.
+  const tasks = useMemo(() => {
+    const merged = mergeTaskTail(liveTasks, olderTasks, (id) => liveResources.taskSnapshot(id));
+    return status ? merged.filter((task) => task.status === status) : merged;
+  }, [liveTasks, olderTasks, status]);
+  const allSessions = useMemo(() => {
+    if (olderSessions.length === 0) return sessions;
+    const seen = new Set(sessions.map((session) => session.id));
+    return [...sessions, ...olderSessions.filter((session) => !seen.has(session.id))];
+  }, [sessions, olderSessions]);
+  const taskLimit = sessionListParams(searchTerm, status).limit;
+  const hasMoreTasks = taskMore ?? (taskList.loaded && tasks.length >= taskLimit);
+  // Imported sessions carry no status, so a status filter excludes them rather
+  // than showing rows that cannot match it.
+  const hasMoreSessions = Boolean(sessionCursor) && !status;
   // `prefsTick` is the invalidation: it changes when the drawer archives or
   // restores a project, and the memo below has to rebuild then.
   const archivedCwds = useMemo(() => getArchivedProjects(), [prefsTick]);
@@ -159,21 +255,32 @@ export default function SessionsPage() {
     () =>
       phoneProjectBuckets(
         tasks,
-        sessions,
+        // A status filter is a question about Kin's own tasks; imported
+        // sessions have no status, so they cannot answer it.
+        status ? [] : allSessions,
         selfDeviceId,
         {
           untitled: tr("sessions.untitled"),
           noProject: tr("sessions.noProject"),
         },
         archivedCwds,
+        scope,
       ),
-    [tasks, sessions, selfDeviceId, locale, archivedCwds],
+    [tasks, allSessions, status, scope, selfDeviceId, locale, archivedCwds],
   );
   const filtered = useMemo(() => filterProjectBuckets(buckets, query), [buckets, query]);
-  // Pinned rows leave their project buckets and lead the list.
+  // Pinned rows leave their project buckets and lead the list. Not in the
+  // archived view: a pin lifts a row out of the project it is filed under, and
+  // that view exists to show projects as filed — a "Pinned" bucket there would
+  // also carry rows whose pin/archive actions are hidden.
   const listed = useMemo(
-    () => withPinnedBucket(filtered, pinnedIds, tr("sessions.pinned")),
-    [filtered, pinnedIds, tr],
+    () =>
+      withPinnedBucket(
+        filtered,
+        scope === "archived" ? EMPTY_IDS : pinnedIds,
+        tr("sessions.pinned"),
+      ),
+    [filtered, pinnedIds, scope, tr],
   );
   // Loading is only the first paint. A later fetch keeps the previous rows up
   // (above), so it is not a reason to blank the screen.
@@ -185,10 +292,40 @@ export default function SessionsPage() {
   // update.
   const viewedIds = new Set(getViewedSessionIds());
   const searching = query.trim() !== "";
+  // A status or the archived view: the difference between "this library is
+  // empty" and "this question has no answer here".
+  const filtering = Boolean(status) || scope === "archived";
   // The field is ahead of the request: until the server answers the settled
   // term, an empty list means "not answered yet", not "no matches".
   const pendingQuery = query.trim() !== searchTerm;
   const loadFailed = Boolean(taskList.error) && tasks.length === 0;
+  // Empty copy answers the question that was asked: a filter that matched
+  // nothing is not an empty library, a search that matched nothing is not an
+  // empty filter, and an archived view with nothing in it is not a failed
+  // search for archived chats.
+  const emptyView = searching
+    ? {
+        icon: <IconSessions size={30} />,
+        title: tr("sessions.searchEmpty", { query: query.trim() }),
+        hint: undefined,
+      }
+    : scope === "archived"
+      ? {
+          icon: <IconArchive size={30} />,
+          title: tr("sessions.archiveEmpty"),
+          hint: tr("sessions.archiveEmptyHint"),
+        }
+      : filtering
+        ? {
+            icon: <IconFilter size={30} />,
+            title: tr("sessions.filterEmpty"),
+            hint: tr("sessions.filterEmptyHint"),
+          }
+        : {
+            icon: <IconSessions size={30} />,
+            title: tr("sessions.empty"),
+            hint: tr("sessions.emptyHint"),
+          };
 
   function toggleBucket(key: string) {
     setCollapsed((current) => {
@@ -222,7 +359,9 @@ export default function SessionsPage() {
   /** Long-press: enter multi-select with this row selected (the reference's
    *  gesture for batch actions on a touch screen). */
   function enterSelection(row: PhoneSessionRow) {
-    if (!row.task) return; // imported sessions cannot be pinned or archived
+    // Imported sessions cannot be pinned or archived; the archived view's
+    // batch actions would be "archive what is already archived".
+    if (!row.task || scope === "archived") return;
     setSelectionMode(true);
     setSelectedIds(new Set([row.task.id]));
     setSwipeOpen(null);
@@ -287,6 +426,75 @@ export default function SessionsPage() {
     setSwipeOpen(null);
   }
 
+  function changeFilter(next: { status: SessionStatusFilter; scope: SessionScopeFilter }) {
+    const nextParams = new URLSearchParams(params);
+    if (next.status) nextParams.set("status", next.status);
+    else nextParams.delete("status");
+    if (next.scope === "archived") nextParams.set("scope", "archived");
+    else nextParams.delete("scope");
+    setParams(nextParams, { replace: true });
+  }
+
+  /** Restore an archived project from the archived view. */
+  function restoreBucket(bucket: PhoneProjectBucket) {
+    // The stored entry, not the bucket key: bucketing maps the sidebar's
+    // no-cwd sentinel onto this module's, and restoring the mapped name would
+    // find nothing to remove.
+    const cwd = archivedCwdFor(bucket.key, archivedCwds);
+    if (cwd) {
+      setSwipeOpen(null);
+      unarchiveProject(cwd);
+    }
+  }
+
+  /**
+   * Older pages for both feeds.
+   *
+   * Tasks have no cursor, so the oldest loaded id is the cursor (`?before=`
+   * is an exclusive id bound, and the list is id-desc). The imported feed has
+   * a keyset cursor of its own. A page shorter than the limit is the end.
+   */
+  async function loadOlder() {
+    if (loadingOlder) return;
+    // The question this page answers. Both feeds drop their response when the
+    // filter or the term has moved on: otherwise a slow page lands under a
+    // list it was not asked for, and a stale cursor keeps paging from it.
+    const generation = requestGeneration.current;
+    setLoadingOlder(true);
+    try {
+      if (hasMoreTasks) {
+        const oldest = tasks[tasks.length - 1]?.id;
+        if (oldest) {
+          const page = await listTasks({
+            ...sessionListParams(searchTerm, status),
+            before: oldest,
+          });
+          if (requestGeneration.current !== generation) return;
+          setOlderTasks((current) => [...current, ...page]);
+          setTaskMore(page.length >= taskLimit);
+        } else {
+          setTaskMore(false);
+        }
+      }
+      if (hasMoreSessions && sessionCursor) {
+        const term = sessionListParams(searchTerm);
+        const page = await listAgentSessionsPage({
+          limit: term.limit,
+          q: term.q,
+          before: sessionCursor,
+        });
+        if (requestGeneration.current !== generation) return;
+        setOlderSessions((current) => [...current, ...page.items]);
+        setSessionCursor(page.next_cursor);
+      }
+    } catch {
+      // Keep what is on screen and leave the button in place: the next tap
+      // asks again rather than the list pretending it reached the end.
+    } finally {
+      setLoadingOlder(false);
+    }
+  }
+
   return (
     <MobileScreen className="mx-auto w-full max-w-2xl">
       {/* The bar is the heading on a phone, and this page deliberately has no
@@ -306,6 +514,11 @@ export default function SessionsPage() {
       <div className="hidden md:block md:px-4 md:pb-1 md:pt-3">
         <SessionsSearch />
       </div>
+
+      {/* Filters sit outside the header bar so the same control works at both
+          widths: the phone bar is a different component, and the sheet it
+          would open is `md:hidden`. */}
+      <SessionFilters status={status} scope={scope} onChange={changeFilter} />
 
       {loading && (
         <p className="px-4 py-10 text-center text-strong text-kin-muted">
@@ -336,13 +549,9 @@ export default function SessionsPage() {
         !(pendingQuery && listed.length === 0) &&
         listed.length === 0 && (
           <MobileEmpty
-            icon={<IconSessions size={30} />}
-            title={
-              // With the server doing the matching, "no rows" after a search
-              // is the search's answer; the empty-library copy would be a lie.
-              searching ? tr("sessions.searchEmpty", { query: query.trim() }) : tr("sessions.empty")
-            }
-            hint={searching ? undefined : tr("sessions.emptyHint")}
+            icon={emptyView.icon}
+            title={emptyView.title}
+            hint={emptyView.hint}
           />
         )}
 
@@ -417,11 +626,27 @@ export default function SessionsPage() {
             onSwipeOpenChange={setSwipeOpen}
             onPin={pinRow}
             onArchive={archiveRow}
+            onRestore={scope === "archived" ? () => restoreBucket(bucket) : undefined}
+            actionsEnabled={scope !== "archived"}
             query={query}
           />
         ))}
 
-      {!loading && sessionsFailed && buckets.length > 0 && (
+      {/* Older rows are a choice, not an infinite scroll: the list is a place
+          people scan, and a viewport that keeps growing under the thumb loses
+          the row that was being read. */}
+      {!loading && (hasMoreTasks || hasMoreSessions) && (
+        <button
+          type="button"
+          onClick={loadOlder}
+          disabled={loadingOlder}
+          className="kin-row-press flex min-h-11 w-full items-center justify-center px-4 py-2 text-body font-medium text-kin-muted disabled:opacity-60"
+        >
+          {loadingOlder ? tr("sessions.loadingOlder") : tr("sessions.loadOlder")}
+        </button>
+      )}
+
+      {!loading && !status && sessionsFailed && buckets.length > 0 && (
         <p className="px-4 py-6 text-center text-body text-kin-muted">
           {tr("sessions.agentSessionsFailed")}
         </p>
@@ -488,6 +713,8 @@ function ProjectBucket({
   onSwipeOpenChange,
   onPin,
   onArchive,
+  onRestore,
+  actionsEnabled,
   query,
 }: {
   bucket: PhoneProjectBucket;
@@ -511,6 +738,10 @@ function ProjectBucket({
   onSwipeOpenChange: (open: string | null) => void;
   onPin: (row: PhoneSessionRow) => void;
   onArchive: (row: PhoneSessionRow) => void;
+  /** Present only in the archived view: put this project back in the list. */
+  onRestore?: () => void;
+  /** Rows reveal pin/archive on a swipe; the archived view has neither. */
+  actionsEnabled: boolean;
 }) {
   const tr = useT();
   const rows = showAll ? bucket.rows : bucket.rows.slice(0, ROWS_BEFORE_SHOW_ALL);
@@ -518,42 +749,58 @@ function ProjectBucket({
 
   return (
     <section className="pb-1">
-      <button
-        type="button"
-        onClick={() => {
-          // While searching every bucket is force-opened, so a fold made here
-          // would be invisible until the query was cleared — a click that looks
-          // like it did nothing and then silently hides rows.
-          if (canToggle) onToggle();
-        }}
-        aria-expanded={!collapsed}
-        // The visible label carries a `<mark>` while searching; the accessible
-        // name must stay the plain project name, not "Kin, highlighted, …".
-        aria-label={bucket.label}
-        className="kin-row-press flex min-h-11 w-full items-center gap-1.5 px-4 pb-1 pt-4 text-left"
-      >
-        {collapsed ? (
-          <IconFolder size={20} className="flex-none text-kin-muted" strokeWidth={1.75} />
-        ) : (
-          <IconFolderOpen size={20} className="flex-none text-kin-muted" strokeWidth={1.75} />
-        )}
-        {/* Label and chevron share a tight cluster, the chevron immediately
-            after the text — a chevron pinned to the far edge would sit in the
-            same column as the rows' timestamps and read as one of them. */}
-        <span className="flex min-w-0 max-w-full items-center gap-1">
-          <span className="min-w-0 truncate text-strong font-semibold text-kin-muted">
-            <HighlightedText text={bucket.label} query={query} />
+      <div className="flex items-center gap-1.5 px-4 pb-1 pt-4">
+        <button
+          type="button"
+          onClick={() => {
+            // While searching every bucket is force-opened, so a fold made here
+            // would be invisible until the query was cleared — a click that looks
+            // like it did nothing and then silently hides rows.
+            if (canToggle) onToggle();
+          }}
+          aria-expanded={!collapsed}
+          // The visible label carries a `<mark>` while searching; the accessible
+          // name must stay the plain project name, not "Kin, highlighted, …".
+          aria-label={bucket.label}
+          className="kin-row-press flex min-h-11 min-w-0 flex-1 items-center gap-1.5 text-left"
+        >
+          {collapsed ? (
+            <IconFolder size={20} className="flex-none text-kin-muted" strokeWidth={1.75} />
+          ) : (
+            <IconFolderOpen size={20} className="flex-none text-kin-muted" strokeWidth={1.75} />
+          )}
+          {/* Label and chevron share a tight cluster, the chevron immediately
+              after the text — a chevron pinned to the far edge would sit in the
+              same column as the rows' timestamps and read as one of them. */}
+          <span className="flex min-w-0 max-w-full items-center gap-1">
+            <span className="min-w-0 truncate text-strong font-semibold text-kin-muted">
+              <HighlightedText text={bucket.label} query={query} />
+            </span>
+            <IconChevronDown
+              size={14}
+              strokeWidth={2.25}
+              className={[
+                "flex-none text-kin-muted transition-transform duration-150",
+                collapsed ? "-rotate-90" : "",
+              ].join(" ")}
+            />
           </span>
-          <IconChevronDown
-            size={14}
-            strokeWidth={2.25}
-            className={[
-              "flex-none text-kin-muted transition-transform duration-150",
-              collapsed ? "-rotate-90" : "",
-            ].join(" ")}
-          />
-        </span>
-      </button>
+        </button>
+        {onRestore && (
+          <button
+            type="button"
+            onClick={onRestore}
+            // Three archived projects would otherwise be three buttons called
+            // "Restore": the view's only action has to say which project it
+            // acts on.
+            aria-label={`${tr("sessions.restore")} ${bucket.label}`}
+            className="flex min-h-9 flex-none items-center gap-1.5 rounded-lg bg-[var(--kin-fill)] px-2.5 text-caption font-medium text-kin-text"
+          >
+            <IconRefresh size={13} />
+            {tr("sessions.restore")}
+          </button>
+        )}
+      </div>
 
       {!collapsed && (
         <>
@@ -572,6 +819,7 @@ function ProjectBucket({
               onSwipeOpenChange={(open) => onSwipeOpenChange(open ? row.key : null)}
               onPin={() => onPin(row)}
               onArchive={() => onArchive(row)}
+              actionsEnabled={actionsEnabled}
               query={query}
             />
           ))}
@@ -612,6 +860,7 @@ function SessionRow({
   onSwipeOpenChange,
   onPin,
   onArchive,
+  actionsEnabled,
   query,
 }: {
   row: PhoneSessionRow;
@@ -628,6 +877,8 @@ function SessionRow({
   onSwipeOpenChange: (open: boolean) => void;
   onPin: () => void;
   onArchive: () => void;
+  /** False in the archived view, where pin and archive would be no-ops. */
+  actionsEnabled: boolean;
 }) {
   const tr = useT();
   // The sidebar's dot, on the phone: green means a run finished and has not
@@ -719,7 +970,9 @@ function SessionRow({
     </button>
   );
 
-  if (selectionMode || !row.task) return rowButton;
+  // The archived view shows what is already archived: a "Archive" action there
+  // would be a no-op and a "Pin" would move a row into a list it is not in.
+  if (selectionMode || !row.task || !actionsEnabled) return rowButton;
 
   // Swipe left to reveal the same two batch actions the multi-select owns.
   // The long-press that enters multi-select lives in the swipe wrapper too:

@@ -67,6 +67,21 @@ export function taskActivityAt(task: Task): number {
   return task.finished_at ?? task.started_at ?? task.created_at ?? 0;
 }
 
+/** Which projects the list is about: the ones in use, or the ones put away. */
+export type PhoneBucketScope = "active" | "archived";
+
+/**
+ * The bucket key an archive entry answers to.
+ *
+ * The sidebar files the no-cwd group under its own sentinel, so its archive
+ * entry has to answer to this module's key as well — otherwise archiving "no
+ * project" in the drawer empties the drawer and leaves this page alone.
+ */
+function archivedKeyOf(cwd: string): string {
+  const key = normCwd(cwd);
+  return key === SIDEBAR_ROOT_PROJECT || key === "" ? UNASSIGNED_PROJECT : key;
+}
+
 export function phoneProjectBuckets(
   tasks: readonly Task[],
   sessions: readonly AgentSession[],
@@ -76,16 +91,15 @@ export function phoneProjectBuckets(
    *  reason the sidebar drops them: archiving a project is how a person says
    *  "stop showing me this", and a list that keeps showing it is not a list. */
   archivedCwds: readonly string[] = [],
+  /** "archived" is the other side of the same rule: a scope that shows only
+   *  what was put away, so it can be restored without opening the drawer. */
+  scope: PhoneBucketScope = "active",
 ): PhoneProjectBucket[] {
-  // The sidebar files the no-cwd group under its own sentinel, so its archive
-  // entry has to answer to this module's key as well — otherwise archiving
-  // "no project" in the drawer empties the drawer and leaves this page alone.
-  const archived = new Set(
-    archivedCwds.map((cwd) => {
-      const key = normCwd(cwd);
-      return key === SIDEBAR_ROOT_PROJECT || key === "" ? UNASSIGNED_PROJECT : key;
-    }),
-  );
+  const archived = new Set(archivedCwds.map(archivedKeyOf));
+  const keepProject = (cwd: string | undefined): boolean => {
+    const isArchived = archived.has(projectKeyOf(cwd));
+    return scope === "archived" ? isArchived : !isArchived;
+  };
   const byKey = new Map<string, PhoneProjectBucket>();
 
   const bucketFor = (cwd: string | undefined, session?: AgentSession): PhoneProjectBucket => {
@@ -102,7 +116,7 @@ export function phoneProjectBuckets(
   };
 
   for (const task of tasks) {
-    if (archived.has(projectKeyOf(task.cwd))) continue;
+    if (!keepProject(task.cwd)) continue;
     const at = taskActivityAt(task);
     const bucket = bucketFor(task.cwd);
     const device = (task.executing_device_id ?? "").trim();
@@ -119,7 +133,7 @@ export function phoneProjectBuckets(
   }
 
   for (const session of sessions) {
-    if (archived.has(projectKeyOf(session.cwd))) continue;
+    if (!keepProject(session.cwd)) continue;
     const at = session.updated_at ?? 0;
     const bucket = bucketFor(session.cwd, session);
     const device = (session.device_id ?? "").trim();
@@ -134,12 +148,31 @@ export function phoneProjectBuckets(
     if (at > bucket.lastActivityAt) bucket.lastActivityAt = at;
   }
 
+  // In the archived scope the stored list is the source of truth, not the
+  // loaded rows: archiving is how a project you are done with is put away, so
+  // its newest chat is often older than the hundred-row page. A project with
+  // no rows still gets its heading — that heading is where Restore lives.
+  if (scope === "archived") {
+    for (const cwd of archivedCwds) {
+      const key = archivedKeyOf(cwd);
+      if (byKey.has(key)) continue;
+      byKey.set(key, {
+        key,
+        label: key === UNASSIGNED_PROJECT ? copy.noProject : tailOf(cwd) || copy.noProject,
+        rows: [],
+        lastActivityAt: 0,
+      });
+    }
+  }
+
   for (const bucket of byKey.values()) {
     bucket.rows.sort((a, b) => b.at - a.at || a.key.localeCompare(b.key));
   }
 
   return [...byKey.values()]
-    .filter((bucket) => bucket.rows.length > 0)
+    // Outside the archived scope a heading with no rows is noise; inside it,
+    // an empty heading is the whole point.
+    .filter((bucket) => scope === "archived" || bucket.rows.length > 0)
     .sort((a, b) => {
       // The no-project bucket is a catch-all, not a project: it goes last even
       // when its newest row is the newest thing on the screen.
@@ -149,6 +182,25 @@ export function phoneProjectBuckets(
       if (b.lastActivityAt !== a.lastActivityAt) return b.lastActivityAt - a.lastActivityAt;
       return a.label.localeCompare(b.label);
     });
+}
+
+/**
+ * The stored archive entry a bucket came from, so the archived view can
+ * restore it. Bucketing maps the sidebar's no-cwd sentinel onto this module's
+ * key; restoring has to walk the same mapping backwards, or "restore" on the
+ * no-project bucket would silently do nothing.
+ */
+export function archivedCwdFor(
+  bucketKey: string,
+  archivedCwds: readonly string[],
+): string | undefined {
+  return archivedCwds.find((cwd) => {
+    // An empty entry maps to the no-project bucket but is not a path anything
+    // could put back: returning it would make Restore a silent no-op, which is
+    // the failure this function exists to prevent.
+    if (!cwd) return false;
+    return archivedKeyOf(cwd) === bucketKey;
+  });
 }
 
 /**

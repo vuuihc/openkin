@@ -358,6 +358,74 @@ func TestListTasksQuery(t *testing.T) {
 	}
 }
 
+// The phone list pages with `status` and `before` in the same request: it
+// narrows to one status and then keeps asking for the next older page. The two
+// conditions have to compose — a page that honoured the bound but dropped the
+// filter would append a row of another status under a filtered list, and one
+// that honoured the filter but re-read from the top would repeat rows the
+// client already deduplicates, so the "load older" button would look dead.
+func TestListTasksStatusPaging(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(filepath.Join(dir, "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+
+	// Alternating statuses, so a stray row from the other status lands in the
+	// middle of a page rather than only at an edge.
+	var want []string
+	for i := 0; i < 7; i++ {
+		id := fmt.Sprintf("01PAGETEST000000000000%d", i)
+		status := "succeeded"
+		if i%2 == 1 {
+			status = "failed"
+			// The list is newest first, so each newly inserted failure leads.
+			want = append([]string{id}, want...)
+		}
+		if err := s.InsertTask(ctx, Task{
+			ID: id, Title: "job", Agent: "kin", Cwd: "/x", Prompt: "do the thing",
+			Status: status, CreatedAt: now + int64(i),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(want) != 3 {
+		t.Fatalf("fixture built %d failures, want 3", len(want))
+	}
+
+	var got []string
+	before := ""
+	for page := 0; page < 4; page++ {
+		opts := ListTasksOpts{Scope: Unscoped(), Status: "failed", Limit: 2, Before: before}
+		rows, err := s.ListTasks(ctx, opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) == 0 {
+			break
+		}
+		for _, row := range rows {
+			if row.Status != "failed" {
+				t.Fatalf("page %d carried a %q task: %s", page, row.Status, row.ID)
+			}
+			got = append(got, row.ID)
+		}
+		before = rows[len(rows)-1].ID
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("paged ids = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("paged ids = %v, want %v (gap or duplicate at %d)", got, want, i)
+		}
+	}
+}
+
 func TestListTasksOrderByActivityIncludesOlderResumedTaskInsideLimit(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(filepath.Join(dir, "kin.db"))

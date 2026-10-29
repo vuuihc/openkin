@@ -2,7 +2,7 @@
 # Run the checks that match a change set, in parallel, with one summary.
 #
 # Usage:
-#   ./scripts/check.sh            # changed Go packages, vet, gofmt, desktop, tsc
+#   ./scripts/check.sh            # changed Go packages, vet, gofmt, desktop, tsc, console
 #   ./scripts/check.sh --all      # go test ./... instead of changed packages
 #
 # Each job writes its own log; a failing job prints the tail. Exit status is
@@ -47,6 +47,11 @@ changed_shell_files() {
 
 changed_python_files() {
   git status --porcelain=v1 2>/dev/null | awk '{print $NF}' | grep -E '\.py$' || true
+}
+
+changed_ui_files() {
+  git status --porcelain=v1 2>/dev/null | awk '{print $NF}' |
+    grep -E '^ui/(src/|package\.json$|package-lock\.json$|tsconfig|vite\.config|index\.html$)' || true
 }
 
 job_gofmt() {
@@ -106,6 +111,25 @@ job_desktop_tsc() {
   ( cd desktop && npx tsc --noEmit )
 }
 
+# The console's own suite and typecheck. UI changes are the ones a Go or shell
+# job never sees; gated on ui/ paths so a backend-only change set does not pay
+# for them, and always run under --all.
+job_ui_test() {
+  if [[ "$ALL" != "1" ]] && [[ -z "$(changed_ui_files)" ]]; then
+    echo "no changed console files"
+    return 0
+  fi
+  ( cd ui && npm run test )
+}
+
+job_ui_tsc() {
+  if [[ "$ALL" != "1" ]] && [[ -z "$(changed_ui_files)" ]]; then
+    echo "no changed console files"
+    return 0
+  fi
+  ( cd ui && npx tsc --noEmit )
+}
+
 job_shell_syntax() {
   local files
   files="$(changed_shell_files)"
@@ -140,6 +164,8 @@ start vet job_vet
 start gotest job_gotest
 start desktop-test job_desktop_test
 start desktop-tsc job_desktop_tsc
+start ui-test job_ui_test
+start ui-tsc job_ui_tsc
 start shell-syntax job_shell_syntax
 start python-syntax job_python_syntax
 

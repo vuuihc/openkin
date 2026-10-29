@@ -377,6 +377,25 @@ describe("LiveResourceStore", () => {
     release();
   });
 
+  it("answers a task snapshot with the newest row, a deletion, or nothing known", () => {
+    // The conversation list's "load older" tail lives outside the registered
+    // lists, so the store never prunes or refreshes it; the tail asks here
+    // instead, once per row per render.
+    const store = new LiveResourceStore(api());
+    expect(store.taskSnapshot("task-1")).toBeUndefined();
+
+    store.applyMessage({ kind: "task_update", data: task({ status: "running" }) });
+    expect(store.taskSnapshot("task-1")?.status).toBe("running");
+
+    store.applyMessage({ kind: "task_update", data: task({ status: "succeeded" }) });
+    expect(store.taskSnapshot("task-1")?.status).toBe("succeeded");
+
+    store.applyMessage({ kind: "task_deleted", data: { id: "task-1" } });
+    // `null` is not the same answer as `undefined`: gone must drop the row,
+    // never silently fall back to the page's stale copy.
+    expect(store.taskSnapshot("task-1")).toBeNull();
+  });
+
   it("replaces reused retry sequences while preserving newer live events", async () => {
     const client = api({
       listEvents: vi.fn(async () => [event(1), event(2, "old-result")]),

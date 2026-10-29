@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { AgentSession, Task } from "../api/client";
 import {
+  archivedCwdFor,
   filterProjectBuckets,
   PINNED_BUCKET,
   withPinnedBucket,
   phoneProjectBuckets,
+  type PhoneBucketScope,
   UNASSIGNED_PROJECT,
 } from "./phoneSessionBuckets";
 
@@ -42,8 +44,9 @@ function buckets(
   sessions: AgentSession[] = [],
   self = "self",
   archived: string[] = [],
+  scope: PhoneBucketScope = "active",
 ) {
-  return phoneProjectBuckets(tasks, sessions, self, COPY, archived);
+  return phoneProjectBuckets(tasks, sessions, self, COPY, archived, scope);
 }
 
 describe("phoneProjectBuckets", () => {
@@ -149,6 +152,74 @@ describe("phoneProjectBuckets", () => {
       ],
     );
     expect(rows[0]!.rows[0]!.title).toContain("alpha");
+  });
+});
+
+describe("the archived scope", () => {
+  const tasks = [
+    task({ id: "a", cwd: "/work/alpha", created_at: 10 }),
+    task({ id: "b", cwd: "/work/beta", created_at: 20 }),
+    task({ id: "loose", cwd: "", created_at: 30 }),
+  ];
+
+  it("shows the archived project and only it", () => {
+    // The exact inverse of the active rule: the two scopes together have to
+    // account for every project, or a project archived by mistake is reachable
+    // from neither view.
+    const rows = buckets(tasks, [], "self", ["/work/alpha"], "archived");
+    expect(rows.map((bucket) => bucket.key)).toEqual(["/work/alpha"]);
+    expect(rows[0]!.rows.map((row) => row.key)).toEqual(["a"]);
+  });
+
+  it("is empty when nothing is archived", () => {
+    expect(buckets(tasks, [], "self", [], "archived")).toEqual([]);
+  });
+
+  it("finds the no-project bucket through the sidebar's own sentinel", () => {
+    const rows = buckets(tasks, [], "self", ["__root__"], "archived");
+    expect(rows.map((bucket) => bucket.key)).toEqual([UNASSIGNED_PROJECT]);
+    expect(rows[0]!.rows.map((row) => row.key)).toEqual(["loose"]);
+  });
+
+  it("keeps an archived project whose chats are all older than the loaded page", () => {
+    // Archiving is how a project you are done with is put away, so its newest
+    // chat is usually older than the hundred rows the page holds — exactly the
+    // case where it would otherwise vanish and be unrestorable from here.
+    const rows = buckets(tasks, [], "self", ["/work/alpha", "/work/gamma"], "archived");
+    expect(rows.map((bucket) => bucket.key)).toEqual(["/work/alpha", "/work/gamma"]);
+    const gamma = rows.find((bucket) => bucket.key === "/work/gamma")!;
+    expect(gamma.label).toBe("gamma");
+    expect(gamma.rows).toEqual([]);
+  });
+
+  it("does not invent an empty heading for a project already shown", () => {
+    const rows = buckets(tasks, [], "self", ["/Work/Alpha/"], "archived");
+    expect(rows.map((bucket) => bucket.key)).toEqual(["/work/alpha"]);
+    expect(rows[0]!.rows.map((row) => row.key)).toEqual(["a"]);
+  });
+});
+
+describe("archivedCwdFor", () => {
+  it("returns the stored entry, not the bucket's normalized key", () => {
+    // Restoring has to remove the entry as stored: `unarchiveProject` matches
+    // on the string in the list, and the bucket key is lower-cased and stripped.
+    expect(archivedCwdFor("/work/alpha", ["/Work/Alpha/"])).toBe("/Work/Alpha/");
+  });
+
+  it("maps the no-project bucket back to the sidebar's sentinel", () => {
+    expect(archivedCwdFor(UNASSIGNED_PROJECT, ["/work/a", "__root__"])).toBe("__root__");
+  });
+
+  it("returns undefined for a bucket that is not archived", () => {
+    expect(archivedCwdFor("/work/gamma", ["/work/alpha"])).toBeUndefined();
+  });
+
+  it("never returns an empty entry", () => {
+    // An empty string would match the no-project bucket, but restoring it
+    // would be a silent no-op: the button would appear to work and change
+    // nothing.
+    expect(archivedCwdFor(UNASSIGNED_PROJECT, ["", "__root__"])).toBe("__root__");
+    expect(archivedCwdFor(UNASSIGNED_PROJECT, [""])).toBeUndefined();
   });
 });
 

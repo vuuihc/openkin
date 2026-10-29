@@ -22,4 +22,26 @@ describe("sessionListParams", () => {
     // unfiltered one and the page would fetch the same rows twice.
     expect(sessionListParams("")).not.toHaveProperty("q");
   });
+
+  it("carries the status filter to the daemon", () => {
+    // Status is applied by the server, not over the loaded page: the page is
+    // 100 rows, and "no running chats" about a page that merely ended is a
+    // wrong answer, not a slow one.
+    expect(sessionListParams("", "running")).toEqual({
+      limit: LIST_LIMIT,
+      status: "running",
+    });
+    expect(sessionListParams("note", "failed")).toEqual({
+      limit: SEARCH_LIMIT,
+      q: "note",
+      status: "failed",
+    });
+  });
+
+  it("drops an empty status instead of sending status=", () => {
+    // An empty value would be a filter for a status nothing has: the daemon
+    // compares it exactly, so every row would vanish.
+    expect(sessionListParams("", "")).toEqual(sessionListParams(""));
+    expect(sessionListParams("note", "")).not.toHaveProperty("status");
+  });
 });
