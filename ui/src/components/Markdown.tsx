@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import CodeBlock from "./CodeBlock";
 import MermaidBlock from "./MermaidBlock";
 
@@ -8,7 +8,7 @@ import MermaidBlock from "./MermaidBlock";
  * Supports: headings, fenced code, mermaid diagrams, paragraphs, lists,
  * blockquotes, hr, GFM tables, links, bold, italic, inline code.
  */
-export default function Markdown({ text, className = "" }: { text: string; className?: string }) {
+function MarkdownImpl({ text, className = "" }: { text: string; className?: string }) {
   if (!text) return null;
   const blocks = splitBlocks(text);
   return (
@@ -331,3 +331,5 @@ function inline(s: string): ReactNode[] {
   if (last < s.length) parts.push(s.slice(last));
   return parts;
 }
+
+export default memo(MarkdownImpl);

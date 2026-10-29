@@ -48,10 +48,7 @@ import ApprovalCard from "../components/cards/ApprovalCard";
 import LimitCard from "../components/cards/LimitCard";
 import UserQuestionCard from "../components/cards/UserQuestionCard";
 import ChatStream from "../components/chat/ChatStream";
-import {
-  findSpeakerModel,
-  pendingRefSeqs,
-} from "../components/chat/transcriptProjection";
+import { findSpeakerModel, pendingRefSeqs } from "../components/chat/transcriptProjection";
 import Composer from "../components/chat/Composer";
 import RunConfigControl from "../components/chat/RunConfigSheet";
 import BranchPicker from "../components/chat/BranchPicker";
@@ -133,6 +130,11 @@ export default function TaskDetailPage({
   const detail = useTaskResource(id);
   const pending = usePendingResources();
   const task = detail.data.task;
+  // The title the save button reads, kept current across a memo bailout: the
+  // message rows deliberately ignore changed closures, so their save handler
+  // can still be the one built before the session was renamed.
+  const taskTitleRef = useRef(task?.title);
+  taskTitleRef.current = task?.title;
   const events = detail.data.events;
   const approvals = useMemo(
     () => pending.data.approvals.filter((item) => item.task_id === id),
@@ -790,7 +792,7 @@ export default function TaskDetailPage({
     setActionBusy(true);
     try {
       const art = await createArtifact({
-        title: deriveArtifactTitle(content, task.title || tr("api.untitled")),
+        title: deriveArtifactTitle(content, taskTitleRef.current || tr("api.untitled")),
         kind: detectArtifactKind(content),
         content,
         source_task_id: task.id,

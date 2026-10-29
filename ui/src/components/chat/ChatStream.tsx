@@ -5,6 +5,7 @@
  */
 import {
   Fragment,
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -687,21 +688,7 @@ function AgentTurn({
  * the mobile reveal is per-message state (`useMobileMessageActionsRevealed`),
  * and a hook has to live in a component, not in a map callback.
  */
-function AssistantMessageItem({
-  item,
-  messageScope = "",
-  showMessageActions,
-  actionsBusy,
-  onRetry,
-  onFork,
-  onSaveArtifact,
-  activeFindKey,
-  selectionMode,
-  selected,
-  onToggleSelection,
-  onCopyMessage,
-  onShareMessage,
-}: {
+export type AssistantMessageItemProps = {
   item: Extract<ChatItem, { kind: "message" }>;
   messageScope?: string;
   showMessageActions: boolean;
@@ -716,7 +703,23 @@ function AssistantMessageItem({
   onToggleSelection: () => void;
   onCopyMessage: (text: string) => void;
   onShareMessage: (key: string) => void;
-}) {
+};
+
+const AssistantMessageItem = memo(function AssistantMessageItem({
+  item,
+  messageScope = "",
+  showMessageActions,
+  actionsBusy,
+  onRetry,
+  onFork,
+  onSaveArtifact,
+  activeFindKey,
+  selectionMode,
+  selected,
+  onToggleSelection,
+  onCopyMessage,
+  onShareMessage,
+}: AssistantMessageItemProps) {
   const tr = useT();
   const canSave = !!onSaveArtifact && !item.partial && item.text.trim().length > 0;
   const canRetryFork = showMessageActions && !item.partial && typeof item.seq === "number";
@@ -835,6 +838,47 @@ function AssistantMessageItem({
         </div>
       )}
     </div>
+  );
+}, sameMessage);
+
+/**
+ * Whether two renders of one message would draw the same thing.
+ *
+ * A streaming token rebuilds every item in the transcript, so the item object
+ * is never the same twice even when nothing about it changed; identity cannot
+ * be the test. What the component reads is compared instead: the key (find
+ * bar, mobile action store), the body and its partial flag, the seq the retry
+ * and fork buttons send, and the flags that add controls or rings.
+ *
+ * Callbacks are deliberately not compared. They are rebuilt on every parent
+ * render but their behaviour does not drift with it, and comparing them would
+ * defeat the memo for the 99 messages that did not change. The one callback
+ * that closes over state — selection — is covered by `selectedKeys`, which is
+ * a prop of the turn and changes with it. `onSaveArtifact` is the exception:
+ * its presence, not its identity, decides whether the save button exists.
+ *
+ * A bailed-out row keeps the handler it rendered with, so a handler that has
+ * to see current state reads it from a ref rather than its closure: the save
+ * button names the artifact after the session title, which is why
+ * TaskDetailPage keeps that title in `taskTitleRef`.
+ *
+ * Exported for its clause test. Every field the component reads has a row in
+ * that table; a field added to the component without one is a silent stale
+ * render, not a type error.
+ */
+export function sameMessage(a: AssistantMessageItemProps, b: AssistantMessageItemProps): boolean {
+  return (
+    a.item.key === b.item.key &&
+    a.item.text === b.item.text &&
+    a.item.partial === b.item.partial &&
+    a.item.seq === b.item.seq &&
+    a.messageScope === b.messageScope &&
+    a.showMessageActions === b.showMessageActions &&
+    a.actionsBusy === b.actionsBusy &&
+    a.activeFindKey === b.activeFindKey &&
+    a.selectionMode === b.selectionMode &&
+    a.selected === b.selected &&
+    !!a.onSaveArtifact === !!b.onSaveArtifact
   );
 }
 
@@ -1121,7 +1165,13 @@ function NoteStepRow({
 }
 
 /** Message body only (avatar / name owned by AgentTurn for assistants). */
-function MessageBody({ text, partial }: { text: string; partial?: boolean }) {
+const MessageBody = memo(function MessageBody({
+  text,
+  partial,
+}: {
+  text: string;
+  partial?: boolean;
+}) {
   const body = text ?? "";
   return (
     <div className="text-strong sm:text-subtitle leading-prose text-kin-text">
@@ -1135,19 +1185,9 @@ function MessageBody({ text, partial }: { text: string; partial?: boolean }) {
       )}
     </div>
   );
-}
+});
 
-function MessageRow({
-  messageKey,
-  activeFindKey,
-  speaker,
-  text,
-  partial,
-  queued = false,
-  selectionMode = false,
-  selected = false,
-  onToggleSelection,
-}: {
+export type MessageRowProps = {
   /** The transcript item this bubble renders; the find bar scrolls to it. */
   messageKey?: string;
   /** Set when the find bar is pointing at this message. */
@@ -1160,7 +1200,19 @@ function MessageRow({
   selectionMode?: boolean;
   selected?: boolean;
   onToggleSelection?: () => void;
-}) {
+};
+
+const MessageRow = memo(function MessageRow({
+  messageKey,
+  activeFindKey,
+  speaker,
+  text,
+  partial,
+  queued = false,
+  selectionMode = false,
+  selected = false,
+  onToggleSelection,
+}: MessageRowProps) {
   const tr = useT();
   const isUser = speaker === "user";
   const meta = agentAvatarMeta(speaker);
@@ -1247,6 +1299,20 @@ function MessageRow({
         <MessageBody text={text} partial={partial} />
       </div>
     </div>
+  );
+}, sameRow);
+
+/** Same reasoning as `sameMessage`: compare what is drawn, not the closures. */
+export function sameRow(a: MessageRowProps, b: MessageRowProps): boolean {
+  return (
+    a.messageKey === b.messageKey &&
+    a.activeFindKey === b.activeFindKey &&
+    a.speaker === b.speaker &&
+    a.text === b.text &&
+    a.partial === b.partial &&
+    a.queued === b.queued &&
+    a.selectionMode === b.selectionMode &&
+    a.selected === b.selected
   );
 }
 

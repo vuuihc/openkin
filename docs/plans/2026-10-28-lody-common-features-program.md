@@ -161,8 +161,10 @@ lands with tests, a `web/dist` rebuild, and the feature gate.
   sessions with running / waiting-permission / unread state, opened from the
   conversation header. Acceptance: switching between two live sessions takes
   two taps and never returns to the list.
-- **B2 Transcript virtualization.** Window the transcript; keep the tab cache
-  meaningful. Acceptance: a 300-turn session scrolls without dropping frames.
+- **B2 Transcript performance.** First framed as virtualization; measurement
+  moved the target to the per-token re-render cost (see the B2 section for why
+  windowing was dropped). Acceptance: a streaming token in a 300-turn session
+  redraws one message, not three hundred.
 
 ### Batch C — truth and evidence (round 3)
 
@@ -347,7 +349,7 @@ result is worth copying") described a bug that is not in the tree.
 **Batch A is closed.** Next: batch B (phone session switcher, transcript
 virtualization).
 
-#### B1 — the phone's session switcher (implemented)
+#### B1 — the phone's session switcher (landed)
 
 The tab strip is desktop-only, so on a phone every switch was back → list →
 open; the acceptance was two taps between two live sessions without returning
@@ -399,3 +401,75 @@ only.
 Residual risk: there is no authenticated phone build in this environment, so
 the two-tap flow and the sheet's feel were verified in jsdom and in the source,
 not on a device.
+
+#### B2 — transcript performance (landed)
+
+The plan said "window the transcript". Measuring first changed the answer. A
+local benchmark (jsdom, one streaming token that grows the last message, median
+of four updates plus the settling update) put the cost where it was not
+expected. The harness was rewritten after review: each iteration hands down a
+*new* event array — what a WebSocket event really does — so the projection runs
+inside the measurement, and the fifth update clears the partial flag on a
+byte-identical body, which is the real end of a stream.
+
+| 300 turns | before | after | speedup |
+|---|---|---|---|
+| with tool cards | 97.2ms | 23.5ms | 4.1× |
+| without tool cards | 77.4ms | 12.9ms | 6.0× |
+| settling update (tools) | 90.1ms | 23.6ms | 3.8× |
+
+At 100 turns the same harness reads 32.6ms → 11.2ms with tool cards and
+27.4ms → 8.3ms without. The projection is ~1ms of the total either way; the
+rest was re-rendering every message body, because a token rebuilds every item
+object and nothing below the transcript was memoized.
+
+So the change memoizes what a token does not change:
+
+- `Markdown` is memoized, so an unchanged body is not re-parsed (the parse is
+  the expensive half of a redraw, and the other pages that draw markdown get
+  the same protection against poll-driven re-renders);
+- `MessageBody` is memoized on `(text, partial)` — the boundary the streaming
+  tests pin, and the one place that decides whether a message redraws;
+- `AssistantMessageItem` and `MessageRow` are memoized with comparators that
+  compare what is drawn (key, text, partial, seq, message scope, selection,
+  find hit, busy flags, queued, save-button presence) and deliberately ignore
+  callback identity, which changes on every parent render and would otherwise
+  defeat the memo for the ninety-nine messages that did not change.
+
+The comparators are exported and pinned clause by clause: one table row per
+prop that changes a render, plus a row proving a rebuilt item with fresh
+closures compares equal. That table is what catches the failure mode a DOM test
+cannot — a prop whose clause was forgotten keeps drawing the old value forever.
+Six mutations were run against the new tests to prove they fail: dropping the
+partial, seq, queued or save-presence clause each turns exactly its own row
+red, and removing both body memos turns the "control flag does not re-parse"
+case red.
+
+What is left at 300 turns is the tool-card subtree: the same transcript
+streams in 12.9ms without tool cards, so ~10ms is the card scaffolding, whose
+steps the projection rebuilds every token. The next lever there is
+projection-level identity reuse, not more React memo. First paint is untouched
+by this work (~300ms for 300 turns) — opening a very long session still pays
+the full parse, which is the only case where a real virtual list would earn its
+costs.
+
+Windowing was prototyped and dropped. `content-visibility: auto` plus
+`contain-intrinsic-size` on a box per turn cut first layout in Chromium from
+40.5ms to 3.3ms, but (a) scrolling a fully laid-out 300-turn transcript already
+costs ~0.1ms per scroll step, so it bought nothing for the acceptance case;
+(b) the placeholder height left the scroll height at 54% of the truth until
+turns were visited (62.7k of 116.4k px on first paint, 116.4k after a walk),
+which is a visible scrollbar and scroll-anchoring artifact on exactly the long
+sessions it was meant to help; and (c) the skipped boxes imply paint
+containment, which clips the selection/find rings that sit outside the box, and
+`TaskDetailPage`'s scroll restore watches a child that does not resize when a
+skipped turn renders. A real virtual list would additionally cost the find
+bar's jump to an unrendered `[data-message-key]`, the tab cache's scroll
+restore, and native cross-turn selection. Recorded here so the next round does
+not re-litigate it without new measurements.
+
+Residual risk: ~23ms per token at 300 turns under jsdom (a browser commits
+less). Callbacks are compared by behaviour, not identity, so a memoized message
+can hold a callback from an earlier render; the only callback that reads
+evolving task metadata is save-artifact's derived title, and it now reads the
+title from `taskTitleRef` rather than its closure.
