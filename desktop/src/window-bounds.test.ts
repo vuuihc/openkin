@@ -1,6 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { restoreWindowBounds, savedBoundsFrom } from "./window-bounds.ts";
+import {
+  restoreWindow,
+  restoreWindowBounds,
+  restoreWindowState,
+  savedBoundsFrom,
+} from "./window-bounds.ts";
 
 const LAPTOP = { x: 0, y: 25, width: 1440, height: 875 };
 const EXTERNAL = { x: 1440, y: 0, width: 2560, height: 1415 };
@@ -115,13 +120,29 @@ describe("reading a bounds file", () => {
       y: 140,
       width: 1100,
       height: 760,
+      maximized: false,
+      fullScreen: false,
     });
   });
 
   it("drops a position it cannot use but keeps the size", () => {
     assert.deepEqual(
       savedBoundsFrom({ x: "left", y: null, width: 1100, height: 760 }),
-      { x: undefined, y: undefined, width: 1100, height: 760 },
+      { x: undefined, y: undefined, width: 1100, height: 760, maximized: false, fullScreen: false },
+    );
+  });
+
+  it("keeps a state only when the file says so plainly", () => {
+    // The shell wrote these flags itself, so a value that is not a boolean is
+    // a hand edit or a half-written file. Guessing at it would move the window
+    // into a Space the person did not leave it in.
+    assert.deepEqual(
+      savedBoundsFrom({ width: 1100, height: 760, maximized: true, fullScreen: false }),
+      { x: undefined, y: undefined, width: 1100, height: 760, maximized: true, fullScreen: false },
+    );
+    assert.deepEqual(
+      savedBoundsFrom({ width: 1100, height: 760, maximized: "true", fullScreen: 1 }),
+      { x: undefined, y: undefined, width: 1100, height: 760, maximized: false, fullScreen: false },
     );
   });
 
@@ -142,5 +163,65 @@ describe("reading a bounds file", () => {
     ]) {
       assert.equal(savedBoundsFrom(value), null, JSON.stringify(value));
     }
+  });
+});
+
+describe("restoring the state the window was left in", () => {
+  const NORMAL = { width: 1100, height: 760 };
+
+  it("comes back full screen when that is how it was left", () => {
+    assert.equal(restoreWindowState({ ...NORMAL, fullScreen: true }), "fullscreen");
+  });
+
+  it("comes back maximized when that is how it was left", () => {
+    assert.equal(restoreWindowState({ ...NORMAL, maximized: true }), "maximized");
+  });
+
+  it("comes back normal for a file written before the flags existed", () => {
+    assert.equal(restoreWindowState({ ...NORMAL }), "normal");
+    assert.equal(restoreWindowState({ ...NORMAL, maximized: false, fullScreen: false }), "normal");
+  });
+
+  it("prefers full screen when a file claims both", () => {
+    // A full-screen window reports maximized on some platforms; restoring it
+    // merely maximized would drop it out of the Space it was left in.
+    assert.equal(restoreWindowState({ ...NORMAL, maximized: true, fullScreen: true }), "fullscreen");
+  });
+
+  it("does not let the state move the rect", () => {
+    // The rect beside the flags is the normal one, and it is restored the same
+    // way whatever the state says — the clamp still decides where it lands.
+    const saved = { x: 120, y: 140, width: 1100, height: 760, maximized: true };
+    assert.deepEqual(restoreWindowBounds(saved, [LAPTOP], LAPTOP), {
+      x: 120,
+      y: 140,
+      width: 1100,
+      height: 760,
+    });
+  });
+});
+
+describe("restoring a saved file", () => {
+  it("hands back the rect and the state from the same read", () => {
+    const saved = { x: 120, y: 140, width: 1100, height: 760, maximized: true };
+    assert.deepEqual(restoreWindow(saved, [LAPTOP], LAPTOP), {
+      rect: { x: 120, y: 140, width: 1100, height: 760 },
+      state: "maximized",
+    });
+  });
+
+  it("keeps the state when the rect has to be rebuilt", () => {
+    // The case that was silently broken: the display the window was saved on
+    // is gone, so the rect is clamped to the primary one. The state has to
+    // survive that, and it is the rect — not the file — that gets rebuilt.
+    const saved = { x: 9000, y: 9000, width: 1100, height: 760, fullScreen: true };
+    assert.deepEqual(restoreWindow(saved, [LAPTOP], LAPTOP), {
+      rect: { x: 170, y: 83, width: 1100, height: 760 },
+      state: "fullscreen",
+    });
+  });
+
+  it("is normal for a file written before the flags existed", () => {
+    assert.equal(restoreWindow({ width: 1100, height: 760 }, [LAPTOP], LAPTOP).state, "normal");
   });
 });

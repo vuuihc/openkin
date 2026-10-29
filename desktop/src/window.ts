@@ -18,9 +18,9 @@ import {
 import {
   MIN_HEIGHT,
   MIN_WIDTH,
-  restoreWindowBounds,
+  restoreWindow,
   savedBoundsFrom,
-  type Rect,
+  type RestoredWindow,
   type SavedBounds,
 } from "./window-bounds";
 
@@ -117,7 +117,10 @@ export class MainWindow {
   }
 
   private create(path: string): void {
-    const bounds = loadBounds();
+    // The rect and the state come from one read of the file: taking the state
+    // from the rect would type-check (the flags are optional) and always say
+    // `normal`, because `restoreWindowBounds` returns no flags.
+    const { rect: bounds, state } = loadWindow();
     const iconPath = appIconPath();
     const opts: BrowserWindowConstructorOptions = {
       width: bounds.width,
@@ -149,7 +152,17 @@ export class MainWindow {
 
     this.win.once("ready-to-show", () => {
       this.win?.setTitle(WINDOW_TITLE);
+      // Both restores live here, after the renderer's first paint. `maximize()`
+      // shows a hidden window by itself, so doing it in `create()` would put an
+      // empty dark window on screen before the page had anything to draw.
+      if (state === "maximized") this.win?.maximize();
+      // Still called in both states: `maximize()` shows but does not focus, and
+      // `show()` on the window it already displayed only raises it.
       this.win?.show();
+      // Full screen only once the window is on screen: macOS ignores the
+      // request for a window that is not, and a window that is would enter the
+      // Space with nothing to animate from.
+      if (state === "fullscreen") this.win?.setFullScreen(true);
       this.showDock();
     });
 
@@ -168,6 +181,13 @@ export class MainWindow {
 
     this.win.on("resize", () => this.persistBounds());
     this.win.on("move", () => this.persistBounds());
+    // A state change is not always a size change — macOS full screen keeps the
+    // window's normal bounds and moves it to another Space — so the transitions
+    // are recorded too, or the next launch comes back normal.
+    this.win.on("maximize", () => this.persistBounds());
+    this.win.on("unmaximize", () => this.persistBounds());
+    this.win.on("enter-full-screen", () => this.persistBounds());
+    this.win.on("leave-full-screen", () => this.persistBounds());
 
     // Daemon may still be starting when the tray opens the window — retry
     // connection failures instead of leaving a blank Chromium error page.
@@ -302,8 +322,20 @@ export class MainWindow {
 
   private persistBounds(): void {
     if (!this.win || this.win.isDestroyed()) return;
-    const b = this.win.getBounds();
-    saveBounds(b);
+    // Quitting from full screen makes macOS leave the Space, and the
+    // `leave-full-screen` handler would then record `fullScreen: false` for a
+    // window the person left in full screen. The file already holds the last
+    // live state by the time the app is quitting, so nothing is lost by
+    // stopping here.
+    if (this.allowClose) return;
+    // The normal rect, never the current one: while maximized or full screen
+    // the current bounds are the screen's, and saving those would lose the size
+    // the window goes back to.
+    saveBounds({
+      ...this.win.getNormalBounds(),
+      maximized: this.win.isMaximized(),
+      fullScreen: this.win.isFullScreen(),
+    });
   }
 
   private showDock(): void {
@@ -346,11 +378,11 @@ function isAllowedURL(url: string): boolean {
   }
 }
 
-function loadBounds(): Rect {
+function loadWindow(): RestoredWindow {
   const saved = readSavedBounds();
   // A saved position is only meaningful while the display it names is still
   // attached; see window-bounds.ts.
-  return restoreWindowBounds(
+  return restoreWindow(
     saved,
     screen.getAllDisplays().map((display) => display.workArea),
     screen.getPrimaryDisplay().workArea,
@@ -369,7 +401,7 @@ function readSavedBounds(): SavedBounds {
   }
 }
 
-function saveBounds(b: Rect): void {
+function saveBounds(b: SavedBounds): void {
   try {
     const p = boundsPath();
     mkdirSync(dirname(p), { recursive: true });

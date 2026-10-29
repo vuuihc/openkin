@@ -16,7 +16,54 @@ export type SavedBounds = {
   y?: number;
   width: number;
   height: number;
+  /**
+   * How the window was being shown when it was saved. The rect beside these is
+   * always the *normal* one: while maximized or full screen the window's own
+   * bounds are the screen's, and remembering those would lose the size it
+   * returns to when the person un-maximizes it.
+   */
+  maximized?: boolean;
+  fullScreen?: boolean;
 };
+
+/** How a window should be shown after it is created. */
+export type WindowState = "normal" | "maximized" | "fullscreen";
+
+/**
+ * Which of the three states a saved file asks for.
+ *
+ * Full screen wins over maximized: a full-screen window reports maximized on
+ * some platforms, and restoring it merely maximized would drop it out of its
+ * own Space. A file from before the flags existed has neither, and `false` is
+ * what that file meant — the window comes back normal.
+ */
+export function restoreWindowState(saved: SavedBounds): WindowState {
+  if (saved.fullScreen === true) return "fullscreen";
+  if (saved.maximized === true) return "maximized";
+  return "normal";
+}
+
+/** What a saved file asks for: where to open, and how to show the window. */
+export type RestoredWindow = { rect: Rect; state: WindowState };
+
+/**
+ * Both answers at once, from the same file.
+ *
+ * They have to come from one place. `restoreWindowBounds` returns a plain rect
+ * and the flags are optional fields, so a caller that reads the state back off
+ * that rect type-checks and silently restores `normal` forever. Any path that
+ * keeps only the rect loses the state; this is the one that keeps both.
+ */
+export function restoreWindow(
+  saved: SavedBounds,
+  workAreas: Rect[],
+  primary: Rect,
+): RestoredWindow {
+  return {
+    rect: restoreWindowBounds(saved, workAreas, primary),
+    state: restoreWindowState(saved),
+  };
+}
 
 /** Below this the console has no room for its two panes. */
 export const MIN_WIDTH = 720;
@@ -91,6 +138,10 @@ export function savedBoundsFrom(value: unknown): SavedBounds | null {
     height,
     x: finite(raw.x) ?? undefined,
     y: finite(raw.y) ?? undefined,
+    // Only a literal `true` is a state. A hand-edited `"true"` or `1` is not
+    // something the shell can restore, and guessing would move the window.
+    maximized: raw.maximized === true,
+    fullScreen: raw.fullScreen === true,
   };
 }
 

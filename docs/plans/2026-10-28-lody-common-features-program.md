@@ -1569,6 +1569,10 @@ deadline, letting a stalled settlement clear a newer deadline, never setting
 `keepComposer`, and letting the composer ignore it each fail the test that names
 them.
 
+**Verified live.** The Hub was redeployed on the image built from this commit
+and serves `assets/index-CiOm9dG5.js` — the bundle this repository builds — with
+the three new strings present in it; the container reports healthy.
+
 Deferred, with reasons: the queue poll re-arms on `events.length`, so while an
 answer streams continuously the queue is not re-read (pre-existing; it only
 delays reconciling a failed withdrawal until the stream pauses). A queued row
@@ -1682,13 +1686,14 @@ oversized window (shrunk), first launch, and garbage numbers. Red-verified by
 mutation: zeroing either threshold and dropping the size clamp each fail their
 case.
 
-**Deferred, with reasons.** A maximised or full-screen window still comes back
-in its restored size: its saved bounds are the normal ones and `isMaximized` is
-not recorded. The daemon itself still has no single-writer lock on `~/.kin` —
+**Deferred, with reasons.** The restored size was the one gap this left, and it
+is H6 below. The daemon itself still has no single-writer lock on `~/.kin` —
 the desktop no longer creates a second daemon, but a `kin supervise` started
 elsewhere can, and the real invariant belongs in `kin serve`, which is a wider
 change than this round. The shell holds no dock badge for pending approvals and
-has no global shortcut; neither has produced a dogfooding complaint yet.
+has no global shortcut; neither has produced a dogfooding complaint yet, and the
+dock icon is hidden while the app is idle, so a badge there would be invisible
+exactly when it is wanted — the tray title already carries the count.
 
 #### H3 — the popover opens instead of reloading (landed)
 
@@ -1881,3 +1886,74 @@ Deferred, and deliberately: an in-flight file search is not cancelled when the
 query changes — its answer is dropped, but the node still runs one
 `git ls-files` per settled query. Adding a cancel means giving the worker
 protocol a request-scoped context, which is a protocol change, not a menu one.
+
+### Round 8 — the window that forgot how it was left (2026-10-29)
+
+#### H6 — a window comes back the way it was left (landed)
+
+**What was wrong.** H2 made the saved rect safe — a window whose display was
+unplugged comes back on a screen instead of nowhere — but the *state* was never
+saved. A maximised window came back at its restored size, and a full-screen one
+came back as a normal window, every launch. The shell saved whatever
+`getBounds()` answered on `resize` and `move`, which on macOS is the screen's
+rect once the window is maximised or full screen: remembering that would have
+made the restored size the whole display.
+
+**The fix.** The saved file now carries `maximized` and `fullScreen` beside the
+rect, and the rect is always the window's *normal* one (`getNormalBounds()`),
+which Electron answers the same way in all three states. `restoreWindowState`
+decides between `normal`, `maximized` and `fullscreen` from the file, with full
+screen winning when both are set — a full-screen window reports maximized on
+some platforms, and restoring it merely maximized would drop it out of the Space
+it was left in. A file written before the flags existed restores normal, which
+is what it meant, and only a literal `true` counts: a hand-edited `"true"` or
+`1` is a corrupt file, not a state to act on.
+
+The four transitions that change the state without changing the size
+(`maximize`, `unmaximize`, `enter-full-screen`, `leave-full-screen`) are hooked
+next to `resize`/`move`, because macOS full screen keeps the window's normal
+bounds and moves it to another Space — no resize event fires. Both restores run
+inside `ready-to-show`: `maximize()`, then `show()`, then `setFullScreen(true)`.
+`maximize()` displays a hidden window by itself, so calling it in `create()`
+would put a blank window on screen before the renderer had painted; `show()` is
+still called because `maximize()` shows but does not focus; and macOS ignores
+full screen for a window that is not on screen yet.
+
+Quitting from full screen leaves the Space, and the `leave-full-screen` event
+that follows would record `fullScreen: false` for a window its owner left in
+full screen. `persistBounds` therefore stops once the app is quitting: by then
+the file already holds the last live state.
+
+The rect and the state are returned together, by `restoreWindow`, from one read
+of the file. The first version kept the old `loadBounds(): Rect` and asked
+`restoreWindowState` about *that* rect: the flags are optional fields, so it
+type-checked, saw no flags, and restored `normal` forever. The state only ever
+existed at the file, and the plumbing between the file and the window was the
+one place the unit tests did not look.
+
+**Tests.** `restoreWindowState` (full screen, maximized, a pre-flag file, both
+flags set, and a state that must not move the rect — the clamp still decides
+where it lands); `restoreWindow` (the rect and the state from one read,
+including when the rect has to be clamped to the primary display, and a
+pre-flag file restoring normal); `savedBoundsFrom` (a plain boolean pair kept,
+`"true"`/`1` rejected, legacy files unchanged). Because `window.ts` imports
+electron and cannot be loaded under `node --test`, the wiring is held by a
+source test in the shape `sidecar.wiring.test.ts` established: the state is
+read through `restoreWindow(` and never `restoreWindowState(rect)`,
+`persistBounds` saves `getNormalBounds()` and stops once the app is quitting,
+all four transitions are hooked with a body that calls `persistBounds`, and both
+restores run inside `ready-to-show` — maximize before show, full screen after
+it, each behind its own `state === …` condition. Red-verified by mutation:
+saving the on-screen rect, dropping the `unmaximize` hook, emptying a transition
+handler, restoring full screen as maximized, accepting a truthy flag, setting
+full screen before the show, maximizing unconditionally, maximizing before
+`ready-to-show`, dropping the quitting guard, deriving the state from the
+restored rect inside `restoreWindow`, and putting the old rect-then-state shape
+back in `window.ts` — each fails the test that names it.
+
+**Verified live.** With the window maximized, `window-bounds.json` keeps the
+restored rect and records `maximized: true`; un-maximizing flips the flag
+without changing the rect. (Checked on the rebuilt shell after the change.)
+
+Deferred, with reasons: the same as H2 — no single-writer lock on `~/.kin`, no
+dock badge, no global shortcut.
