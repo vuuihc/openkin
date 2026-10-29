@@ -529,6 +529,13 @@ const zh = {
     recipeLaunchFailed: "启动配方失败",
     back: "返回",
     roots: "关联目录",
+    tabs: "项目分区",
+    tabOverview: "概览",
+    tabChats: "会话",
+    newChat: "新建会话",
+    chatsRetry: "重试",
+    chatsEmptyHint: "在这个项目里开始一个会话，它会出现在这里。",
+    chatsPartial: "部分导入会话未能加载。",
   },
 
   artifacts: {

@@ -549,6 +549,13 @@ const en: MessageTree = {
     recipeLaunchFailed: "Could not launch recipe",
     back: "Back",
     roots: "Roots",
+    tabs: "Project sections",
+    tabOverview: "Overview",
+    tabChats: "Chats",
+    newChat: "New chat",
+    chatsRetry: "Try again",
+    chatsEmptyHint: "Start a chat in this project and it will show up here.",
+    chatsPartial: "Some imported sessions could not be loaded.",
   },
 
   artifacts: {
