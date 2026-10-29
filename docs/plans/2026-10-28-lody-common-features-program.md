@@ -878,3 +878,48 @@ public routes.
 enumeration one). Nothing sets `expires_at` yet (the column and the read
 path are ready; the console does not offer "expires in a day"), there is no view
 count or access log, and the link's URL cannot be shown again by design.
+
+**Follow-up — the page renders the conversation, not its source.** The first
+landing escaped each message verbatim, so a reader got `**done**`, triple
+backticks around every code block and tables as rows of pipes: the markup, not
+the answer. Verified live on the node, it was the one thing about the page that
+read as a raw log. Messages are now rendered with `github.com/yuin/goldmark`
+(GFM, hard wraps so a single newline stays a line break, matching the console's
+paragraphs). goldmark is one module with no transitive dependencies, and only
+the HTML page uses it — the JSON endpoint still publishes the source, because a
+caller that renders the conversation itself should not be handed pre-rendered
+markup.
+
+Two boundaries moved with it, both tested rather than argued:
+
+- *Raw HTML is shown, not dropped.* goldmark's default replaces raw HTML with a
+  comment: safe, and it silently eats content — an agent writes `<div>` and
+  `<script>` for a living, so a sentence would arrive with a hole in it. A node
+  renderer writes those bytes back as escaped text, which is what the console's
+  own renderer does with them.
+- *A `javascript:` destination never becomes an anchor.* goldmark's link
+  renderer refuses the scheme. The test pins it beside a working `https:` link,
+  so it cannot pass by rendering no links at all.
+
+The review of the first version found the boundary it had missed, and it was
+the serious one: an image. goldmark renders `![](https://…)` as an `<img>`, so
+an agent that had been prompt-injected by a page it fetched could put a URL in
+its answer, and every reader of the link would then call that host — a read
+receipt with their IP, a blind `GET` into their own network at worst. Images
+are now rendered as the markdown that asked for them, which is also what the
+console does (it has no image renderer either), and the page carries
+`default-src 'none'; style-src 'unsafe-inline'; img-src 'none'` so the whole
+document class is closed rather than the one case. The same review measured the
+page's cost: the per-line clamp bounds one message, not the sum, so 800 full
+lines were ~9.6MB of markdown and hundreds of milliseconds of CPU per request
+on a route anyone holding a link can repeat. A third cap, `shareTotalBytes`
+(512KB), spends the budget from the newest message backwards and reports the
+cut as truncated.
+
+Red-verified by mutation: removing the raw-HTML renderer, removing the image
+renderer, dropping the CSP header, dropping the byte budget, removing
+`WithHardWraps`, swapping GFM for a narrower extension, and putting the
+`HTML` field back on the wire each fail the test that names them. The console
+side got one fix from the same live pass — focusing the minted field selects
+the whole value and a selection that long scrolls the input to its end, so the
+dialog now scrolls back to the URL's scheme.
