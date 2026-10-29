@@ -14,6 +14,7 @@ import { TrayPopover } from "./tray-popover";
 import { DaemonWS } from "./ws-client";
 import { Notifier } from "./notifications";
 import { taskIdFromURL } from "./task-notifications";
+import { retryWhileUnavailable } from "./daemon-retry";
 import { registerIpcHandlers } from "./ipc";
 import { appIconPath, isDev } from "./config";
 import {
@@ -220,6 +221,44 @@ function connectWS(): void {
   ws.connect(token);
 }
 
+function announceDaemonUnavailable(reason: string): void {
+  if (!Notification.isSupported()) return;
+  new Notification({ title: "Kin daemon", body: reason }).show();
+}
+
+let recovering = false;
+
+/**
+ * Keep asking for a daemon that did not show up.
+ *
+ * "Unavailable" is not always an ending: the usual cause here is the installed
+ * node's supervisor restarting its child, which takes seconds and can outlast
+ * the single wait startup does. Nothing else in the shell asks again — the
+ * window would sit on a dead URL until the person clicked Start — so one slow
+ * retry runs in the background and wires everything up when a daemon appears.
+ * A person who stopped the daemon on purpose is left alone. See daemon-retry.ts.
+ */
+async function recoverWhenDaemonAppears(): Promise<void> {
+  if (recovering) return;
+  recovering = true;
+  try {
+    const outcome = await retryWhileUnavailable({
+      ensureRunning: () => sidecar.ensureRunning(),
+      resolved: () =>
+        sidecar.isStopped || sidecar.current.state !== "unavailable",
+    });
+    console.log(`[kin-desktop] daemon retry → ${outcome}`);
+    if (outcome !== "ready") return;
+    connectWS();
+    await refreshPending();
+    mainWindow.reloadWhenReady();
+    popover?.reloadWhenReady();
+    tray?.refresh();
+  } finally {
+    recovering = false;
+  }
+}
+
 function setupTray(): void {
   popover = new TrayPopover({
     openMain: (path) => {
@@ -247,9 +286,11 @@ function setupTray(): void {
         console.log("[kin-desktop] start daemon →", JSON.stringify(status));
         // Start can now end in "unavailable" without a spawn: something is
         // already on the port but not answering. The tray only says "stopped",
-        // so say why.
-        if (status.state === "unavailable" && Notification.isSupported()) {
-          new Notification({ title: "Kin daemon", body: status.reason }).show();
+        // so say why — and keep asking, in case that something is a supervisor
+        // about to bring the daemon back.
+        if (status.state === "unavailable") {
+          announceDaemonUnavailable(status.reason);
+          void recoverWhenDaemonAppears();
         }
         connectWS();
         await refreshPending();
@@ -375,6 +416,10 @@ if (!gotLock) {
           "[kin-desktop] daemon unavailable:",
           status.state === "unavailable" ? status.reason : "",
         );
+        // Say why — the window is about to load a URL nothing answers — and
+        // keep asking in the background.
+        announceDaemonUnavailable(status.reason);
+        void recoverWhenDaemonAppears();
       }
 
       const launchPath = pendingDeepLinkPath;
