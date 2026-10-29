@@ -184,6 +184,9 @@ func TestSharePageRendersMarkdownButNeverMarkup(t *testing.T) {
 		"first line\nsecond line",
 		"| case | result |\n| --- | --- |\n| one | pass |",
 		"![shot](https://attacker.example/p.gif)",
+		// The literal is rebuilt from parsed parts, so the escaping is the only
+		// thing keeping markup in an alt text or a destination inert.
+		"![<b>x</b>](a<script>alert(5)</script>)",
 		// Case is not a bypass: an upper-case scheme is still refused.
 		"[loud](JaVaScRiPt:alert(4))",
 	}
@@ -205,8 +208,12 @@ func TestSharePageRendersMarkdownButNeverMarkup(t *testing.T) {
 	if page.Code != http.StatusOK {
 		t.Fatalf("public page: %d", page.Code)
 	}
-	if csp := page.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "default-src 'none'") {
-		t.Fatalf("page has no CSP: %q", csp)
+	if csp := page.Header().Get("Content-Security-Policy"); csp !=
+		"default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" {
+		// The whole policy, not just its first word: `style-src 'unsafe-inline'`
+		// is what lets the page's own <style> through, and `img-src 'none'` is
+		// the second lock on the image boundary.
+		t.Fatalf("unexpected CSP: %q", csp)
 	}
 	html := page.Body.String()
 	for _, want := range []string{
@@ -216,6 +223,7 @@ func TestSharePageRendersMarkdownButNeverMarkup(t *testing.T) {
 		"first line<br>",
 		"<table>",
 		"![shot](https://attacker.example/p.gif)",
+		"![&lt;b&gt;x&lt;/b&gt;](a&lt;script&gt;alert(5)&lt;/script&gt;)",
 		// Raw HTML stays readable rather than vanishing behind a comment.
 		"&lt;script&gt;alert(1)&lt;/script&gt;",
 		"&lt;img src=x onerror=alert(2)&gt;",
@@ -244,9 +252,6 @@ func TestSharePageRendersMarkdownButNeverMarkup(t *testing.T) {
 	// wire shape, not on the struct — a new field with a tag would otherwise
 	// slip past, and the struct this package decodes into drops it silently.
 	rr := shareRequest(t, s, http.MethodGet, "/api/public/shares/"+link, "")
-	if strings.Contains(rr.Body.String(), "<strong>") || strings.Contains(rr.Body.String(), "&lt;strong&gt;") {
-		t.Fatalf("JSON carried rendered markup: %s", rr.Body.String())
-	}
 	var wire struct {
 		Messages []map[string]json.RawMessage `json:"messages"`
 	}
@@ -272,6 +277,71 @@ func TestSharePageRendersMarkdownButNeverMarkup(t *testing.T) {
 	}
 	if first.Text != messages[0] {
 		t.Fatalf("JSON text = %q, want the source", first.Text)
+	}
+}
+
+// Markdown can expand far past its source — nesting most of all — and this
+// page is rendered for whoever holds the link. A message that would render
+// huge is shown as its source instead.
+func TestShareShowsTheSourceWhenOneMessageRendersHuge(t *testing.T) {
+	s, token := newTestServer(t)
+	if err := s.Store.InsertTask(context.Background(), store.Task{
+		ID: "task-deep", Title: "deep", Agent: "kin", Cwd: "/tmp",
+		Prompt: "p", Status: "finished", CreatedAt: store.NowMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Paragraph breaks, not just newlines: each one closes its own chain of
+	// blockquotes, which is what makes the rendering expand.
+	text := strings.Repeat(strings.Repeat("> ", 900)+"deep\n\n", 8)
+	payload, err := json.Marshal(map[string]any{
+		"role": "assistant", "partial": false,
+		"content": []map[string]string{{"type": "text", "text": text}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Store.AppendEvent(context.Background(), "task-deep", "message", payload); err != nil {
+		t.Fatal(err)
+	}
+	link := createShare(t, s, "task-deep", token)
+
+	page := shareRequest(t, s, http.MethodGet, "/s/"+link, "")
+	if page.Code != http.StatusOK {
+		t.Fatalf("public page: %d", page.Code)
+	}
+	html := page.Body.String()
+	if strings.Contains(html, "<blockquote") {
+		t.Fatalf("page rendered the expansion anyway (%d bytes)", len(html))
+	}
+	if !strings.Contains(html, "&gt; &gt; ") {
+		t.Fatal("the reader lost the message")
+	}
+}
+
+// A task with no message events falls back to its prompt, and a prompt is
+// unbounded on the create path: it has to meet the same line clamp and the
+// same budget as any other line.
+func TestShareClampsALegacyPromptThatIsTheWholeConversation(t *testing.T) {
+	s, token := newTestServer(t)
+	if err := s.Store.InsertTask(context.Background(), store.Task{
+		ID: "task-prompt", Title: "p", Agent: "kin", Cwd: "/tmp",
+		Prompt: strings.Repeat("y", 4*shareMessageBytes), Status: "queued", CreatedAt: store.NowMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	link := createShare(t, s, "task-prompt", token)
+
+	rr := shareRequest(t, s, http.MethodGet, "/api/public/shares/"+link, "")
+	var view shareView
+	if err := json.Unmarshal(rr.Body.Bytes(), &view); err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Messages) != 1 {
+		t.Fatalf("messages = %d, want the prompt alone", len(view.Messages))
+	}
+	if n := len(view.Messages[0].Text); n > shareMessageBytes {
+		t.Fatalf("prompt fallback is %d bytes, cap is %d", n, shareMessageBytes)
 	}
 }
 

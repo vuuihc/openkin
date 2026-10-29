@@ -50,6 +50,12 @@ const (
 	// follows a link wants the recent turns: the budget is spent from the
 	// newest message backwards.
 	shareTotalBytes = 512 * 1024
+	// shareRenderBytes bounds what one message may render to. Markdown grows —
+	// tables, list markers and escaped HTML all add bytes — and nesting adds a
+	// lot more: measured on this renderer, 500KB of nested blockquotes becomes
+	// 6.8MB and a second of CPU. Past this the message is shown as its escaped
+	// source instead, which also stops the conversion at the writer.
+	shareRenderBytes = 64 * 1024
 )
 
 // shareVisibility is the audience metadata the daemon stamps on an event: which
@@ -210,15 +216,17 @@ func (s *Server) buildShareView(ctx context.Context, taskID string) (shareView, 
 		// reached: a long session streams far more partials than messages.
 		truncated = true
 	}
-	messages, budgetCut := shareBudget(messages)
-	if budgetCut {
-		truncated = true
-	}
 	if len(messages) == 0 && strings.TrimSpace(task.Prompt) != "" {
 		// Sessions written before message events were recorded still have the
 		// prompt that created them, and a link that renders an empty page says
-		// nothing at all.
-		messages = []shareMessage{{Role: "user", Text: strings.TrimSpace(task.Prompt)}}
+		// nothing at all. A prompt is unbounded — nothing on the create path
+		// caps it — so it passes the same line clamp as a message, and it goes
+		// through the budget below like any other line.
+		messages = []shareMessage{{Role: "user", Text: clampShareText(strings.TrimSpace(task.Prompt))}}
+	}
+	messages, budgetCut := shareBudget(messages)
+	if budgetCut {
+		truncated = true
 	}
 	title := strings.TrimSpace(task.Title)
 	if title == "" {
@@ -409,16 +417,20 @@ func clampShareText(text string) string {
 	if len(text) <= shareMessageBytes {
 		return text
 	}
+	// The ellipsis is part of the bound, not an addition to it: a cap that can
+	// be exceeded by three bytes is not a cap.
+	const ellipsis = "…"
+	limit := shareMessageBytes - len(ellipsis)
 	// Runes, not bytes: cutting in the middle of a character would be the one
 	// thing this page renders badly.
 	var b strings.Builder
 	for _, r := range text {
-		if b.Len()+utf8.RuneLen(r) > shareMessageBytes {
+		if b.Len()+utf8.RuneLen(r) > limit {
 			break
 		}
 		b.WriteRune(r)
 	}
-	return strings.TrimSpace(b.String()) + "…"
+	return strings.TrimSpace(b.String()) + ellipsis
 }
 
 // shareBlockText joins the text blocks of one message. Blocks of any other kind
@@ -613,6 +625,25 @@ func shareEscapeRawHTML(w util.BufWriter, source []byte, node ast.Node, entering
 	return ast.WalkContinue, nil
 }
 
+// shareRenderLimit is a writer that refuses to grow past its limit.
+//
+// Refusing, rather than truncating, is the point: goldmark stops converting as
+// soon as the writer returns an error, so a message built to expand costs the
+// parse of its own bytes and nothing more.
+type shareRenderLimit struct {
+	buf   bytes.Buffer
+	limit int
+}
+
+var errShareRenderLimit = errors.New("share render limit")
+
+func (w *shareRenderLimit) Write(p []byte) (int, error) {
+	if w.buf.Len()+len(p) > w.limit {
+		return 0, errShareRenderLimit
+	}
+	return w.buf.Write(p)
+}
+
 // shareHTML renders one message for the public page.
 //
 // The trust boundary is goldmark's parser plus the renderers above: every byte
@@ -621,13 +652,14 @@ func shareEscapeRawHTML(w util.BufWriter, source []byte, node ast.Node, entering
 // contains can make the page fetch, frame or execute anything — the renderers
 // remove the fetches, and the page's own CSP says the rest.
 func shareHTML(text string) template.HTML {
-	var buf bytes.Buffer
-	if err := shareMarkdown.Convert([]byte(text), &buf); err != nil || buf.Len() == 0 {
-		// Rendering is best-effort: an empty or failed conversion must not eat
-		// the message the owner meant to publish.
+	w := &shareRenderLimit{limit: shareRenderBytes}
+	if err := shareMarkdown.Convert([]byte(text), w); err != nil || w.buf.Len() == 0 {
+		// Rendering is best-effort: an empty, oversized or failed conversion
+		// must not eat the message the owner meant to publish, so the reader
+		// gets the text the renderer would have started from.
 		return template.HTML(template.HTMLEscapeString(text))
 	}
-	return template.HTML(buf.String())
+	return template.HTML(w.buf.String())
 }
 
 // shareStrings are the words around a shared conversation. The conversation is
@@ -751,7 +783,6 @@ var sharePageTemplate = template.Must(template.New("share").Parse(`<!doctype htm
   .body hr { border: 0; border-top: 1px solid #24282e; margin: 14px 0; }
   .body table { display: block; overflow-x: auto; border-collapse: collapse; margin: 10px 0; }
   .body th, .body td { border: 1px solid #24282e; padding: 5px 8px; text-align: left; }
-  .body img { max-width: 100%; }
   .turn.user .body { padding: 10px 14px; border-radius: 10px; background: #161a20; }
   footer { margin-top: 40px; color: #6b727c; font-size: 12px; border-top: 1px solid #24282e; padding-top: 16px; }
   .empty { color: #8a919b; }
