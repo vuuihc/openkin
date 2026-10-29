@@ -126,10 +126,21 @@ func (s *Server) principalStillValid(ctx context.Context) bool {
 	if !ok {
 		return false
 	}
-	token, ok := remote.TokenFromContext(ctx)
-	if !ok || token == "" {
-		// The master token cannot be revoked, and there is nothing else to check.
-		return principal.Kind == remote.PrincipalMaster
+	token, _ := remote.TokenFromContext(ctx)
+	return s.credentialStillValid(ctx, principal, token)
+}
+
+// credentialStillValid is the decision itself, split out from the request so it
+// can be exercised without a live stream.
+func (s *Server) credentialStillValid(ctx context.Context, principal remote.Principal, token string) bool {
+	if principal.Kind == remote.PrincipalMaster {
+		// The master token is the daemon's own credential. It cannot be revoked,
+		// so there is nothing to re-check — and a stream opened with it must not
+		// be torn down on a timer.
+		return true
+	}
+	if token == "" {
+		return false
 	}
 	switch principal.Kind {
 	case remote.PrincipalDevice:

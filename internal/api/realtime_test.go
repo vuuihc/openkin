@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/task"
 )
@@ -94,6 +95,34 @@ func TestEventStreamRequiresAuthentication(t *testing.T) {
 	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/events", nil))
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", rr.Code)
+	}
+}
+
+// A live stream re-checks its credential so a revoked device stops receiving
+// traffic. The master credential is the daemon's own and cannot be revoked, so
+// a stream opened with it must survive the recheck — it used to be closed at the
+// first one, which turned every console into a ten-second poll.
+func TestCredentialRecheckSparesTheMasterStream(t *testing.T) {
+	s, _ := newTestServer(t)
+	ctx := context.Background()
+	cases := []struct {
+		name      string
+		principal remote.Principal
+		token     string
+		want      bool
+	}{
+		{"master with its token", remote.Principal{Kind: remote.PrincipalMaster, DeviceID: "master"}, "secret", true},
+		{"master without a token", remote.Principal{Kind: remote.PrincipalMaster}, "", true},
+		{"unknown device", remote.Principal{Kind: remote.PrincipalDevice, DeviceID: "device-unknown"}, "secret", false},
+		{"device claim with no token", remote.Principal{Kind: remote.PrincipalDevice, DeviceID: "device-x"}, "", false},
+		{"unrecognised principal", remote.Principal{Kind: "robot"}, "secret", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := s.credentialStillValid(ctx, tc.principal, tc.token); got != tc.want {
+				t.Fatalf("credentialStillValid() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
