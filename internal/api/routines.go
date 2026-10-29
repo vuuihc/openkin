@@ -306,6 +306,30 @@ func (s *Server) handlePatchRoutine(w http.ResponseWriter, r *http.Request) {
 			patch.NextDueAt = &at
 		}
 	}
+	if body.Cwd != nil {
+		cwd := strings.TrimSpace(*body.Cwd)
+		if cwd == "" {
+			// Create refuses an empty directory; a patch that accepted one would
+			// leave a routine no run could start in.
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "cwd must not be empty"})
+			return
+		}
+		patch.Cwd = &cwd
+		if body.ProjectID == nil && cwd != current.Cwd {
+			// Create resolves the project from the directory; a patch that moves the
+			// routine has to do the same, or its runs stay attributed to the project
+			// the old path belonged to. A directory with no project clears it, which
+			// is what create does with an unmatched cwd. An unchanged directory is
+			// left alone: the caller did not ask to re-resolve it. A lookup that
+			// fails is an error, not a silent move to an unattributed routine.
+			resolved, err := s.Store.ResolveProjectIDForCwd(r.Context(), cwd)
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+			patch.ProjectID = &resolved
+		}
+	}
 	effectiveAgent := current.Agent
 	if body.Agent != nil {
 		effectiveAgent = strings.TrimSpace(*body.Agent)

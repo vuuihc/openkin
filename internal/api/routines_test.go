@@ -319,3 +319,114 @@ func TestPatchRoutineMovesTheNextRunWithTheRule(t *testing.T) {
 			time.UnixMilli(cleared.NextDueAt))
 	}
 }
+
+// Moving a routine to another directory has to move its project with it.
+// Create resolves project_id from the cwd; a patch that only rewrote cwd left
+// the routine attached to the project the old path belonged to, so its runs
+// kept being filed under the wrong one.
+func TestPatchRoutineMovesTheProjectWithTheDirectory(t *testing.T) {
+	s, st := newRoutinesTestServer(t)
+	ctx := context.Background()
+	dirA, dirB := t.TempDir(), t.TempDir()
+	for _, p := range []struct {
+		id   string
+		name string
+		dir  string
+	}{{"p-a", "A", dirA}, {"p-b", "B", dirB}} {
+		err := st.InsertProject(ctx, store.Project{
+			ID:          p.id,
+			Name:        p.name,
+			Mode:        store.ProjectModeShip,
+			OnePagerRel: "onepager.md",
+			CreatedAt:   1,
+		}, []string{p.dir})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rr := postRoutine(t, s, `{"cwd":`+strconv.Quote(dirA)+`,"prompt":"report","interval_secs":3600,"agent":"kin"}`)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var created store.Routine
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.ProjectID != "p-a" {
+		t.Fatalf("project after create = %q, want p-a", created.ProjectID)
+	}
+
+	rr = patchRoutine(t, s, created.ID, `{"cwd":`+strconv.Quote(dirB)+`}`)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("patch status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var moved store.Routine
+	if err := json.Unmarshal(rr.Body.Bytes(), &moved); err != nil {
+		t.Fatal(err)
+	}
+	if moved.ProjectID != "p-b" {
+		t.Fatalf("project after cwd patch = %q, want p-b", moved.ProjectID)
+	}
+
+	// A patch that does not move the routine must not move its project either.
+	rr = patchRoutine(t, s, created.ID, `{"title":"renamed"}`)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("title patch status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var renamed store.Routine
+	if err := json.Unmarshal(rr.Body.Bytes(), &renamed); err != nil {
+		t.Fatal(err)
+	}
+	if renamed.ProjectID != "p-b" {
+		t.Fatalf("project after title patch = %q, want p-b", renamed.ProjectID)
+	}
+
+	// A directory that belongs to no project clears the attribution, the way
+	// create does with an unmatched cwd.
+	rr = patchRoutine(t, s, created.ID, `{"cwd":`+strconv.Quote(t.TempDir())+`}`)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unmatched cwd patch status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var unmatched store.Routine
+	if err := json.Unmarshal(rr.Body.Bytes(), &unmatched); err != nil {
+		t.Fatal(err)
+	}
+	if unmatched.ProjectID != "" {
+		t.Fatalf("project after unmatched cwd = %q, want empty", unmatched.ProjectID)
+	}
+
+	// An explicit project wins over whatever the directory would resolve to.
+	rr = patchRoutine(t, s, created.ID,
+		`{"cwd":`+strconv.Quote(dirA)+`,"project_id":"p-b"}`)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("explicit project patch status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var explicit store.Routine
+	if err := json.Unmarshal(rr.Body.Bytes(), &explicit); err != nil {
+		t.Fatal(err)
+	}
+	if explicit.ProjectID != "p-b" {
+		t.Fatalf("project after explicit patch = %q, want p-b", explicit.ProjectID)
+	}
+
+	// Re-sending the directory it already has is not a move: the explicit
+	// project above must survive it.
+	rr = patchRoutine(t, s, created.ID, `{"cwd":`+strconv.Quote(dirA)+`}`)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("same cwd patch status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var same store.Routine
+	if err := json.Unmarshal(rr.Body.Bytes(), &same); err != nil {
+		t.Fatal(err)
+	}
+	if same.ProjectID != "p-b" {
+		t.Fatalf("project after same cwd = %q, want p-b", same.ProjectID)
+	}
+
+	// Create refuses an empty directory; so must a patch.
+	rr = patchRoutine(t, s, created.ID, `{"cwd":"   "}`)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("empty cwd status=%d body=%s, want 400", rr.Code, rr.Body.String())
+	}
+}
