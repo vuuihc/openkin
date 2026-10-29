@@ -1,6 +1,6 @@
 # Common-feature parity program — inventory, gaps, plan
 
-Status: rounds 1–14 landed; round 15 in progress. This is the living ledger for
+Status: rounds 1–17 landed. This is the living ledger for
 the open-ended "beat Lody on the features I actually use" program: inventory →
 gap matrix → plan → implement → evaluate → repeat.
 
@@ -102,7 +102,7 @@ attachment lost when the task runs on another machine, closed with F4 below.
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Recurrence: daily / weekdays / weekly / monthly / hours / minutes / once, with next-run preview (`schedule-recurrence-editor.tsx:132`) | daily / weekdays / weekly / monthly / once (`recurrence.go:40`, `RoutineScheduleFields.tsx:142-155`), server-computed next due in the list (`RoutinesPage.tsx:535-537`) | No "every N hours/minutes" rule, no next-run preview inside the form, and no way to edit an existing routine's rule (only the enabled toggle) | S3 | — |
+| Recurrence: daily / weekdays / weekly / monthly / hours / minutes / once, with next-run preview (`schedule-recurrence-editor.tsx:132`) | daily / weekdays / weekly / monthly / once (`recurrence.go:40`, `RoutineScheduleFields.tsx:142-155`), server-computed next due in the list (`RoutinesPage.tsx:535-537`), and the create form reused as an editor for those same fields (R17, `routineEdit.ts`) | No "every N hours/minutes" rule, and no next-run preview inside the form (the list shows the computed next due) | S3 | — |
 | Agent/model/permission per schedule (`schedule-agent-controls.tsx:26`) | agent and permission are per-routine end to end (`scheduler.go:513-524`); no model field anywhere | Model per schedule is missing, and the new-chat picker stays visible in routine mode while the payload drops it (`NewChatPage.tsx:482-488,356-369`) — a silently ignored control | S3 | — |
 | Run history | a global routine-run feed with unread and mark-read (`RoutinesPage.tsx:114-117,442-485`) | No per-routine history: the feed is global and capped, and `/api/tasks` never passes `routine_id` though the store supports it | S3 | — |
 
@@ -2886,3 +2886,112 @@ because a title template with no params renders "Switch session — ".
 unchanged). The phone's other session surfaces — the project Chats tab — keep
 the marks they already had. Running sessions are deliberately unmarked, so a
 long-running background job is visible in the sheet but not on the strip.
+
+### Round 17 — a routine is editable (2026-10-30)
+
+The console could create a routine and afterwards only pause, resume or delete
+it. Every other field was frozen at creation, although `PATCH
+/api/routines/{id}` has accepted them all since the scheduler landed
+(`internal/api/routines.go:36-47`). The create form is now the edit form: the
+row's Edit button fills it from the routine, and the save path derives a patch.
+
+**The patch is derived, not the form.** PATCH writes every field it receives,
+and the scheduling fields are the ones that bite. Sending `recurrence` makes
+the daemon recompute `next_due_at` from the rule (`routines.go:296-306`), so a
+routine whose title was the only edit would move to a new next run; a rule also
+carries the zone it was written in, so re-sending an untouched rule from a
+machine in another zone rewrites its wall clock. `routinePatch`
+(`ui/src/lib/routineEdit.ts`) compares what the reader is looking at with what
+the daemon holds — rules through a zone-free shape, day sets in sorted order —
+and says nothing about the schedule when the two match. An unchanged form
+returns null, and the page closes without a request.
+
+**Switching between the two schedule kinds.** Dropping a rule sends
+`recurrence: ""` plus the interval and its first run — the contract the API
+test already pins (`routines_test.go:306`). A new rule sends `recurrence` alone
+and lets the daemon place the next run; the form's next-run field is not sent,
+because an instant the rule does not own would contradict it. A one-off is the
+exception: its instant is editable, so it goes in both.
+
+**17B Review: the schedule round trip.** Two comparisons turned out to be too
+strict. The form's date-time control holds a minute, but an interval routine's
+`next_due_at` carries seconds (the scheduler jitters it so every routine on a
+list does not start on the same tick), so re-opening a routine and saving
+anything re-sent a next run a few seconds earlier each time. Instants now
+compare to the minute (`sameMinute`). The title was compared after the create
+path's 48-rune truncation, which would have shortened a longer title written by
+another client; the patch now sends only what was typed, and never derives or
+truncates a title — create still derives only when the field is blank.
+
+**17C Review: the form is borrowed, not owned.** An edit takes over the create
+form, so closing it now puts back the draft it displaced (`createDraftRef` →
+`applyDraft`), rather than the reset that left the next new routine with another
+routine's directory, agent, cadence and permissions. An empty next-run field
+means "as soon as possible" — create could leave the instant out and let the
+daemon default to now, but a patch has no default, so the client sends `now`
+explicitly. An unrecognised stored rule is cleared on save instead of being
+preserved forever (the form can only show it as interval mode). The one-off
+guard moved from a disabled Save to a submit toast: a greyed button cannot say
+what is missing, and the date-time field is often empty when the form opens.
+The agent select keeps an option for a routine's own agent when that agent is
+offline, instead of silently showing the first available one while the state
+held the missing id. Deleting the routine being edited closes the form. The
+panel is a landmark with a heading and the row's Edit button names its routine.
+
+**17D Review: the project follows the directory.** Create resolves `project_id`
+from `cwd`; PATCH wrote the new directory and left the old project, so a moved
+routine's runs stayed attributed to the project the old path belonged to. The
+patch resolves it the same way, and a directory with no project clears it —
+what create does with an unmatched cwd. An API test moves a routine between two
+projects and checks a title-only patch leaves the project alone.
+
+**17E Second review: a rule keeps the zone it was written in.** The rule's hour
+and minute are a wall clock in a named zone, and every rule written by this
+console carries the writer's zone. The edit form showed that clock verbatim but
+the serializer re-stamped it with the reader's zone, so a 09:00 rule written on
+a phone in Asia/Shanghai and edited from a UTC desktop would have started
+firing at 09:00 UTC — and changing only the weekday would have done it.
+Converting the clock instead would be wrong: a repeating rule has no single
+instant to convert, and the offset between two zones changes with the other
+zone's DST. So the edit keeps the stored zone (`ruleTimeZone`), the serializer
+takes the zone as a parameter, and the schedule hint names it rather than
+claiming the times are the reader's. A rule stored with no zone at all — rows
+written before the console stamped one, or by an API client that omitted it —
+is fired by the daemon on its own local clock, so it stays zone-less on save
+and the hint says the times are the machine's. A stored zone the platform
+cannot load, an out-of-range clock, repeated days, or a one-off with no instant
+now parse as "no rule", which is what the daemon's `Validate` says about them —
+the row then shows as interval mode and a save clears the rule instead of
+holding it in a state that never fires.
+
+**17F Second review: smaller fixes.** PATCH trims `cwd`, refuses an empty one
+(create already did), and only re-resolves the project when the directory
+actually changed — an explicit `project_id` still wins, and a failed lookup is
+a 500 rather than a move that keeps the old project. Clearing the title derives
+one from the prompt, exactly like create, so the routine's runs are named the
+same as one created with a blank title (sending `""` would have left the
+daemon's "Routine" fallback). The disclosure and every row action are disabled
+while a save is in flight, so pressing Save on A and then opening, closing or
+deleting something else cannot make A's completion act on that instead. The
+disclosure has `aria-expanded`/`aria-controls`, the scroll-into-view obeys
+`prefers-reduced-motion`, the agent label is translated, and closing the form
+returns focus to the disclosure in create mode too.
+
+**Not done (nits, deferred with reason).** The shared schedule control still
+edits one day of a multi-day monthly rule and shows a custom interval as a
+blank select; both shapes only come from outside the console (create writes a
+single day and a preset interval), and a correct multi-day editor is its own
+slice. A rule the console cannot parse but the daemon can — capitalized JSON
+keys, a zone ICU lacks, a future kind — is still cleared by an unrelated save;
+keeping it would need the form to track whether the reader touched the schedule
+controls, and today's in-tree writers all produce parseable rules. Moving into
+a subdirectory of the same project clears `project_id`, because resolution is
+an exact-root match — the same rule create uses. Focus after a save lands on the
+disclosure, not the row's Edit button — the row may be scrolled away by then.
+PATCH leaves `interval_secs` alone when a rule changes, while create derives it
+from the rule; `interval_secs` is the fallback pace, so that stays the contract.
+
+**Not done.** The run feed is still global; per-routine history needs
+`/api/tasks` to pass `routine_id` (the store already supports the filter), so
+that is a later slice. The form still shows no next-run preview beyond the
+schedule fields' existing hint.
