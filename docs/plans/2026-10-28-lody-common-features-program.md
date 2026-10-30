@@ -1,6 +1,6 @@
 # Common-feature parity program — inventory, gaps, plan
 
-Status: rounds 1–21 landed. This is the living ledger for
+Status: rounds 1–22 landed. This is the living ledger for
 the open-ended "beat Lody on the features I actually use" program: inventory →
 gap matrix → plan → implement → evaluate → repeat.
 
@@ -70,7 +70,7 @@ attachment lost when the task runs on another machine, closed with F4 below.
 | Queue rows: edit, drag-reorder, remove, steer (`message-queue-row.tsx:223`) | Queued rows carry withdraw and edit (withdraw + refill the composer) end to end (`TaskDetailPage.tsx` `onEditQueued`, `withdrawQueuedPrompt`, F1) | No drag reorder and no steer | S3 | — |
 | Slash commands + prompt shortcuts (`mention-registry.ts:327`) | the "/" menu is a static hint (`Composer.tsx:373-381`); roles are saved prompts but only on the new-chat page | No command menu in the composer; no way to insert a saved prompt mid-session | S3 | — |
 | Mentions: files, PRs, skills, commands, sessions, roles (`mention-registry.ts:53`) | agents + models (`agentMention.ts`); files since `0490c3c` (`Composer.files.dom.test.tsx`) | No PR, skill, command, session or role mentions | S2 | — |
-| Attachments as structured parts | Path strings appended to the prompt (`Composer.tsx:201-212`); only the Kin agent converts them (`kinagent/attachments.go:38-75`); remote nodes never receive the upload | A Claude/Codex task receives a path, not the image; on another machine the path does not exist | S2 (S1 remote) | — |
+| Attachments as structured parts | Path strings appended to the prompt (`Composer.tsx:201-212`); only the Kin agent converts them into structured content (`kinagent/attachments.go:38-75`); a remote node fetches the upload and rewrites the path (F4, `node/fetch.go`, `hubAttachments`) | A Claude/Codex task receives a path, not an image part. Those CLIs read files by path themselves, so the image still arrives; only content the CLI cannot open (and the model never sees as an image block) is lost | S3 | — |
 | Paste-as-chip for long text (`session-chat-input-area.tsx:1364`) | pasted text lands in the textarea (`Composer.tsx:503-508`) | — | S3 | — |
 ### 2.4 Run config
 
@@ -104,7 +104,7 @@ attachment lost when the task runs on another machine, closed with F4 below.
 |---|---|---|---|---|
 | Recurrence: daily / weekdays / weekly / monthly / hours / minutes / once, with next-run preview (`schedule-recurrence-editor.tsx:132`) | all seven kinds, with the two step rules zone-aligned and validated to divide their unit (R19, `recurrence.go`), server-computed next due in the list (`RoutinesPage.tsx:535-537`), the create form reused as an editor for those same fields (R17, `routineEdit.ts`), and the form previewing the daemon's own next run (R21, `POST /api/routines/preview`, `useRoutinePreview.ts`) | Closed (R21); the preview is absent in New Chat's routine composer, which has no preview line yet | — | — |
 | Agent/model/permission per schedule (`schedule-agent-controls.tsx:26`) | agent, model and permission are per-routine end to end (R20): `store.Routine.Model` → `scheduler.go:513-529` → `task.CreateRequest.Model`; both the Routines editor and New Chat's routine mode carry the picker | Closed (R20) | — | — |
-| Run history | a global routine-run feed with unread and mark-read (`RoutinesPage.tsx:114-117,442-485`), plus each routine's ten newest runs under its editor (R18, `/api/tasks?routine_id=`) | No paged per-routine history and no live refresh while the editor stays open; Lody lists up to 100 under the schedule | S3 | — |
+| Run history | a global routine-run feed with unread and mark-read (`RoutinesPage.tsx:114-117,442-485`), plus each routine's runs under its editor: ten newest, live-updated from the same task websocket, with older pages of ten (R22, `routineHistory.ts`) | Closed (R22); "more" is inferred from a full page, so exactly ten runs cost one empty request, and a push that lands while the initial fetch is in flight can be lost (see Round 22) | — | — |
 
 ### 2.8 Projects
 
@@ -3239,3 +3239,73 @@ just passed; the next edit or the list's computed next due corrects it. No
 caching across identical payloads. The page wiring test pins source strings, so
 a reflow or rename breaks it without a behavior change — the same trade the
 design-token tests make.
+
+### Round 22 — the editor's run history keeps up (2026-10-30)
+
+**22A A snapshot that froze.** Opening a routine fetched its ten newest runs
+once. The page already subscribed to the task websocket for the global feed,
+and Run now already updated that feed, but neither touched the editor's own
+list, so a scheduled run that started while the editor stayed open — or a Run
+now pressed on the card beside it — did not appear until the editor was
+reopened. The data was already arriving; nothing folded it in.
+
+**22B Two merges and an explicit boundary.** `foldRoutineRun` is the live
+merge: a known id is replaced in place (the same run changing status keeps its
+row), an unknown id is placed by its id (a run that started after the fetch
+lands at the front; an old run whose read state just changed lands in its
+chronological place), an unloaded routine stays unloaded (a push must not
+invent a partial history the fetch would then contradict), and the list is
+capped at 200 rows. The websocket handler and Run now both call it.
+`appendOlderRuns` merges an older page with an id set, because a run that
+started while the page was in flight can sit on both sides of the cursor, and
+orders the result by id, because the live list may already hold a deeper run
+that a push placed at the tail. The cursor is the oldest id the last applied
+page returned — kept per routine in `historyCursor`, not read off the list: a
+mark-read push for a run below the fetched window would otherwise move the
+next request past every run between the two. It is the tasks route's existing
+`before` ULID cursor. The route returns a bare array, so a full page is the
+only "maybe more" signal: the button appears when the last page was exactly
+ten and the list is below the 200-row cap, and disappears when a short or
+empty page comes back. `loadOlderHistory` guards against a double click, an
+empty cursor (which the daemon reads as "no filter" and would return the
+newest page again) and a list already at the cap.
+
+**Verification.** `./scripts/check.sh --all` clean (one earlier run printed
+FAIL without naming a package; `go test ./...` and two full reruns were clean,
+so it is recorded as a load flake); 26 mutants red — the fold's
+undefined guard, chronological placement and cap, the older page's dedupe, id
+ordering and cap, both read-reconciliation branches, both live folds
+(websocket and Run now), the initial page size and has-more rule, both
+boundary recordings and the state cursor, the cap at the button and at the
+fetch, both reconciliations at the page level, the older cursor, the older
+merge, the newest-wins guard, its position after the await and the writes
+behind it, the older
+has-more, the button gate, and openEdit's load. Review found two majors in the
+first version, both in the older-page path: a page that was already in flight
+when Mark all read landed appended unread rows over a read badge, and a late
+older page could be appended to a list a re-open had replaced. The fixes are
+`reconcileRoutineReads`, used by both fetches, and the same `historySeq`
+newest-wins guard the initial load already had. A second pass found one more
+major introduced by the first fix: folding an old run at the tail moved the
+cursor (then derived from the list) below the fetched boundary, skipping every
+run between the two on the next page; the explicit `historyCursor` state and
+the id-ordered append are that fix. Nits fixed in the same pass: an old run
+marked read now lands in its chronological place instead of above newer rows,
+the list is bounded at 200 rows on both growth paths (and paging stops at the
+cap), the button moved inside the scroll box, and the wiring test gained pins
+for the branch order, the guards and their position, the boundary recordings
+and the cap.
+
+**Not done.** A push that lands while a fetch is in flight can still be lost:
+the fetch snapshot may predate the run, and for a first open there is no list
+to fold into. Closing it needs a per-routine buffer of updates received during
+the fetch; the window is one request. "More" is inferred from a full page, so a
+routine with exactly ten runs offers a button that returns nothing once. At
+the 200-row cap the oldest rows are dropped — by design, but a live run on an
+already-full list trims a row the reader may not have scrolled to yet. The
+list has no jump-to-run or link per row, no date filter, and pages only
+backwards. A live update for a routine whose editor is closed reaches the
+global feed only, which is the intended split. The global feed's own Run now
+prepend is still unconditional (pre-existing): if the websocket echo wins the
+race with the HTTP response, the feed can hold two rows for one run until the
+next full load. The new fold dedupes the editor's list, not that feed.
