@@ -125,6 +125,10 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
 
 ## UI conventions
 
+- Before changing a surface, read `docs/product/IA.md` (which surface owns
+  which concept, and the conversation list's device → project → conversation
+  hierarchy) and `docs/product/TASTE.md` (the rules the change is checked
+  against). Update the IA row the change touches in the same commit.
 - Keep TypeScript strict and avoid `any` unless an external boundary makes it
   unavoidable and the value is narrowed immediately.
 - Reuse existing components, design tokens, API helpers, and Zustand state
