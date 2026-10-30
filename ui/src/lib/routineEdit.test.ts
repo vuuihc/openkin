@@ -84,6 +84,35 @@ describe("routinePatch", () => {
     expect(JSON.parse(String(patch?.recurrence)).kind).toBe("weekdays");
   });
 
+  it("edits a step rule by its step, and leaves it alone otherwise", () => {
+    const stored = JSON.stringify({ kind: "hours", every: 6, time_zone: "Asia/Shanghai" });
+    const r = routine({ recurrence: stored });
+    // The same step in the same zone: nothing to send.
+    expect(routinePatch(r, form(r, { prompt: "new words" }))).toEqual({ prompt: "new words" });
+    // A different step is a new rule, and it keeps the stored zone.
+    const patch = routinePatch(r, form(r, { rule: { kind: "hours", every: 4 } }));
+    expect(Object.keys(patch ?? {})).toEqual(["recurrence"]);
+    expect(JSON.parse(String(patch?.recurrence))).toEqual({
+      kind: "hours",
+      every: 4,
+      time_zone: "Asia/Shanghai",
+    });
+  });
+
+  it("switches between a clock rule and a step rule", () => {
+    const r = routine({ recurrence: serializeRoutineRule(daily(), null) });
+    const patch = routinePatch(r, form(r, { rule: { kind: "minutes", every: 30 } }));
+    expect(Object.keys(patch ?? {})).toEqual(["recurrence"]);
+    expect(JSON.parse(String(patch?.recurrence)).kind).toBe("minutes");
+
+    const step = routine({
+      recurrence: serializeRoutineRule({ kind: "minutes", every: 15 }, null),
+    });
+    const back = routinePatch(step, form(step, { rule: daily() }));
+    expect(Object.keys(back ?? {})).toEqual(["recurrence"]);
+    expect(JSON.parse(String(back?.recurrence)).kind).toBe("daily");
+  });
+
   it("turns an interval routine into a rule and back", () => {
     const interval = routine();
     const toRule = routinePatch(

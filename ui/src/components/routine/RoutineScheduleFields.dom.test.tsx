@@ -2,7 +2,12 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { t } from "../../i18n";
-import { localTimeZone, type RoutineRule } from "../../lib/routineRecurrence";
+import {
+  localTimeZone,
+  ROUTINE_HOUR_STEPS,
+  ROUTINE_MINUTE_STEPS,
+  type RoutineRule,
+} from "../../lib/routineRecurrence";
 import RoutineScheduleFields from "./RoutineScheduleFields";
 
 /**
@@ -100,6 +105,33 @@ describe("RoutineScheduleFields", () => {
       minute: 0,
       days: [15],
     });
+  });
+
+  it("switches to a step rule with a step the daemon accepts", () => {
+    const { onRuleChange } = setup();
+    fireEvent.change(repeat(), { target: { value: "hours" } });
+    expect(onRuleChange).toHaveBeenCalledWith({ kind: "hours", every: 6 });
+    fireEvent.change(repeat(), { target: { value: "minutes" } });
+    expect(onRuleChange).toHaveBeenCalledWith({ kind: "minutes", every: 15 });
+  });
+
+  it("asks a step rule for its step, not a time of day", () => {
+    setup({ kind: "minutes", every: 15 });
+    const step = screen.getByLabelText(t("routines.everyLabel")) as HTMLSelectElement;
+    expect(step.value).toBe("15");
+    // Only the steps the daemon accepts: a step that does not divide the hour
+    // would shorten the last gap of every hour.
+    expect([...step.options].map((o) => Number(o.value))).toEqual([...ROUTINE_MINUTE_STEPS]);
+    expect(screen.queryByLabelText(t("routines.timeLabel"))).toBeNull();
+    expect(screen.queryByLabelText(t("routines.firstRunLabel"))).toBeNull();
+  });
+
+  it("edits the hours step without changing the kind", () => {
+    const { onRuleChange } = setup({ kind: "hours", every: 6 });
+    const step = screen.getByLabelText(t("routines.everyLabel")) as HTMLSelectElement;
+    expect([...step.options].map((o) => Number(o.value))).toEqual([...ROUTINE_HOUR_STEPS]);
+    fireEvent.change(step, { target: { value: "8" } });
+    expect(onRuleChange).toHaveBeenCalledWith({ kind: "hours", every: 8 });
   });
 
   it("keeps the one date-time control for a one-off", () => {

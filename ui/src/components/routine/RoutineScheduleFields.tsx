@@ -1,6 +1,11 @@
 import { useMemo } from "react";
 import { useT } from "../../i18n/react";
-import { localTimeZone, type RoutineRule } from "../../lib/routineRecurrence";
+import {
+  localTimeZone,
+  ROUTINE_HOUR_STEPS,
+  ROUTINE_MINUTE_STEPS,
+  type RoutineRule,
+} from "../../lib/routineRecurrence";
 
 export const ROUTINE_INTERVAL_PRESETS = [
   { secs: 3600, key: "interval1h" as const },
@@ -127,13 +132,29 @@ export default function RoutineScheduleFields({
       case "monthly":
         onRuleChange({ kind, hour: 9, minute: 0, days: [1] });
         return;
+      case "hours":
+        onRuleChange({ kind: "hours", every: 6 });
+        return;
+      case "minutes":
+        onRuleChange({ kind: "minutes", every: 15 });
+        return;
       case "once":
         onRuleChange({ kind: "once" });
         return;
     }
   }
 
-  const clockRule = rule && rule.kind !== "once" ? rule : null;
+  // The four kinds that name a time of day. A step rule has no clock to edit
+  // and a one-off owns an instant instead.
+  const clockRule =
+    rule &&
+    (rule.kind === "daily" ||
+      rule.kind === "weekdays" ||
+      rule.kind === "weekly" ||
+      rule.kind === "monthly")
+      ? rule
+      : null;
+  const stepRule = rule && (rule.kind === "minutes" || rule.kind === "hours") ? rule : null;
 
   return (
     <div
@@ -161,12 +182,37 @@ export default function RoutineScheduleFields({
             <option value="weekdays">{tr("routines.repeatWeekdays")}</option>
             <option value="weekly">{tr("routines.repeatWeekly")}</option>
             <option value="monthly">{tr("routines.repeatMonthly")}</option>
+            <option value="hours">{tr("routines.repeatEveryHours")}</option>
+            <option value="minutes">{tr("routines.repeatEveryMinutes")}</option>
             <option value="once">{tr("routines.repeatOnce")}</option>
           </optgroup>
         </select>
       </label>
 
-      {clockRule ? (
+      {stepRule ? (
+        <label className="block min-w-[8rem]">
+          <span className="text-caption font-medium uppercase tracking-label text-kin-muted">
+            {tr("routines.everyLabel")}
+          </span>
+          <select
+            value={String(stepRule.every)}
+            disabled={disabled}
+            onChange={(e) => onRuleChange({ ...stepRule, every: Number(e.target.value) })}
+            className="mt-1 w-full rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2.5 py-1.5 text-body text-kin-text outline-none focus:border-kin-blue/40 disabled:opacity-50"
+          >
+            {(stepRule.kind === "minutes" ? ROUTINE_MINUTE_STEPS : ROUTINE_HOUR_STEPS).map(
+              (step) => (
+                <option key={step} value={String(step)}>
+                  {tr(
+                    stepRule.kind === "minutes" ? "routines.everyNMinutes" : "routines.everyNHours",
+                    { n: step },
+                  )}
+                </option>
+              ),
+            )}
+          </select>
+        </label>
+      ) : clockRule ? (
         <>
           <label className="block min-w-[8rem]">
             <span className="text-caption font-medium uppercase tracking-label text-kin-muted">

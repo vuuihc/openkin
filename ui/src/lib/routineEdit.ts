@@ -83,6 +83,10 @@ function ruleShape(rule: RoutineRule): string {
       return `weekly ${rule.hour}:${rule.minute} ${[...rule.weekdays].sort((a, b) => a - b).join(",")}`;
     case "monthly":
       return `monthly ${rule.hour}:${rule.minute} ${[...rule.days].sort((a, b) => a - b).join(",")}`;
+    case "minutes":
+      return `minutes ${rule.every}`;
+    case "hours":
+      return `hours ${rule.every}`;
   }
 }
 

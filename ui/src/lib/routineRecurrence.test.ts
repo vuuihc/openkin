@@ -58,12 +58,57 @@ describe("routine recurrence", () => {
       { kind: "weekdays", hour: 8, minute: 30 },
       { kind: "weekly", hour: 18, minute: 0, weekdays: [1, 3] },
       { kind: "monthly", hour: 9, minute: 0, days: [1, 15] },
+      { kind: "minutes", every: 15 },
+      { kind: "hours", every: 6 },
       { kind: "once" },
     ];
     for (const rule of rules) {
       const raw = serializeRoutineRule(rule, rule.kind === "once" ? 1 : null);
       expect(parseRoutineRule(raw)).toEqual(rule);
     }
+  });
+
+  it("writes a step rule as a step, with the zone it is aligned to", () => {
+    const raw = serializeRoutineRule({ kind: "hours", every: 6 }, null, "Asia/Shanghai");
+    expect(JSON.parse(raw)).toEqual({ kind: "hours", every: 6, time_zone: "Asia/Shanghai" });
+    // A step rule has no clock of its own, so nothing to format or describe in
+    // the clock's terms.
+    expect(formatRuleTime({ kind: "minutes", every: 30 })).toBe("");
+    expect(describeRoutineRule({ kind: "minutes", every: 30 }, tr)).toBe(
+      "routines.ruleEveryMinutes(every=30)",
+    );
+    expect(describeRoutineRule({ kind: "hours", every: 6 }, tr)).toBe(
+      "routines.ruleEveryHours(every=6)",
+    );
+  });
+
+  it("refuses a step the daemon would refuse", () => {
+    // The five-minute marks are the whole set the form offers: under five
+    // minutes is an interval routine by another name, and six or twelve
+    // divide the hour but have no option to show.
+    expect(parseRoutineRule(`{"kind":"minutes","every":1}`)).toBeNull();
+    expect(parseRoutineRule(`{"kind":"minutes","every":2}`)).toBeNull();
+    expect(parseRoutineRule(`{"kind":"minutes","every":4}`)).toBeNull();
+    expect(parseRoutineRule(`{"kind":"minutes","every":6}`)).toBeNull();
+    expect(parseRoutineRule(`{"kind":"minutes","every":7}`)).toBeNull();
+    expect(parseRoutineRule(`{"kind":"minutes","every":12}`)).toBeNull();
+    expect(parseRoutineRule(`{"kind":"minutes","every":25}`)).toBeNull();
+    expect(parseRoutineRule(`{"kind":"minutes","every":45}`)).toBeNull();
+    expect(parseRoutineRule(`{"kind":"hours","every":5}`)).toBeNull();
+    expect(parseRoutineRule(`{"kind":"hours","every":13}`)).toBeNull();
+    expect(parseRoutineRule(`{"kind":"hours"}`)).toBeNull();
+    expect(parseRoutineRule(`{"kind":"minutes","every":7.5}`)).toBeNull();
+    expect(parseRoutineRule(`{"kind":"minutes","every":"15"}`)).toBeNull();
+    // The edges the daemon accepts.
+    expect(parseRoutineRule(`{"kind":"minutes","every":5}`)).toEqual({
+      kind: "minutes",
+      every: 5,
+    });
+    expect(parseRoutineRule(`{"kind":"minutes","every":30}`)).toEqual({
+      kind: "minutes",
+      every: 30,
+    });
+    expect(parseRoutineRule(`{"kind":"hours","every":12}`)).toEqual({ kind: "hours", every: 12 });
   });
 
   it("writes the zone it is given, not the browser's", () => {

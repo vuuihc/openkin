@@ -14,10 +14,29 @@ export type RoutineRule =
   | { kind: "weekdays"; hour: number; minute: number }
   | { kind: "weekly"; hour: number; minute: number; weekdays: number[] }
   | { kind: "monthly"; hour: number; minute: number; days: number[] }
+  | { kind: "minutes"; every: number }
+  | { kind: "hours"; every: number }
   | { kind: "once" };
 
 /** The kinds a user can pick, in the order the form offers them. */
-export const ROUTINE_RULE_KINDS = ["daily", "weekdays", "weekly", "monthly", "once"] as const;
+export const ROUTINE_RULE_KINDS = [
+  "daily",
+  "weekdays",
+  "weekly",
+  "monthly",
+  "hours",
+  "minutes",
+  "once",
+] as const;
+
+/**
+ * Steps for the "every few hours / minutes" rules. These are exactly the steps
+ * the daemon accepts — the hour divisors up to half a day, and the five-minute
+ * marks — so a value the form can draw is a value the daemon will store, and a
+ * stored rule always has an option to show.
+ */
+export const ROUTINE_HOUR_STEPS = [1, 2, 3, 4, 6, 8, 12] as const;
+export const ROUTINE_MINUTE_STEPS = [5, 10, 15, 20, 30] as const;
 
 export type RoutineRuleKind = RoutineRule["kind"];
 
@@ -93,6 +112,9 @@ export function serializeRoutineRule(
     if (onceAt == null) return "";
     return JSON.stringify({ kind: "once", at: onceAt, time_zone: zone });
   }
+  if (rule.kind === "minutes" || rule.kind === "hours") {
+    return JSON.stringify({ kind: rule.kind, every: rule.every, time_zone: zone });
+  }
   const base = {
     kind: rule.kind,
     hour: rule.hour,
@@ -135,6 +157,17 @@ function dayList(
     days.push(d);
   }
   return days;
+}
+
+/**
+ * The step of a minutes/hours rule: one of the values the daemon accepts, which
+ * are the same values the form draws. Membership rather than a range check, so
+ * the two sides cannot drift apart.
+ */
+function stepField(kind: "minutes" | "hours", raw: unknown): number | null {
+  if (typeof raw !== "number" || !Number.isInteger(raw)) return null;
+  const steps: readonly number[] = kind === "minutes" ? ROUTINE_MINUTE_STEPS : ROUTINE_HOUR_STEPS;
+  return steps.includes(raw) ? raw : null;
 }
 
 /**
@@ -185,6 +218,12 @@ export function parseRoutineRule(raw: string | null | undefined): RoutineRule | 
       if (typeof at !== "number" || !Number.isInteger(at) || at <= 0) return null;
       return { kind: "once" };
     }
+    case "minutes":
+    case "hours": {
+      const every = stepField(kind, row.every);
+      if (every == null) return null;
+      return { kind, every };
+    }
     default:
       return null;
   }
@@ -192,7 +231,7 @@ export function parseRoutineRule(raw: string | null | undefined): RoutineRule | 
 
 /** "09:05" for a rule's time of day. */
 export function formatRuleTime(rule: RoutineRule): string {
-  if (rule.kind === "once") return "";
+  if (rule.kind === "once" || rule.kind === "minutes" || rule.kind === "hours") return "";
   return `${pad(rule.hour)}:${pad(rule.minute)}`;
 }
 
@@ -221,6 +260,10 @@ export function describeRoutineRule(
       });
     case "monthly":
       return tr("routines.ruleMonthly", { time, days: rule.days.join(", ") });
+    case "minutes":
+      return tr("routines.ruleEveryMinutes", { every: rule.every });
+    case "hours":
+      return tr("routines.ruleEveryHours", { every: rule.every });
     case "once":
       return null;
   }
