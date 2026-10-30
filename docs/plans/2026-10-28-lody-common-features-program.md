@@ -1,6 +1,6 @@
 # Common-feature parity program — inventory, gaps, plan
 
-Status: rounds 1–22 landed. This is the living ledger for
+Status: rounds 1–23 landed. This is the living ledger for
 the open-ended "beat Lody on the features I actually use" program: inventory →
 gap matrix → plan → implement → evaluate → repeat.
 
@@ -68,7 +68,7 @@ attachment lost when the task runs on another machine, closed with F4 below.
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
 | Queue rows: edit, drag-reorder, remove, steer (`message-queue-row.tsx:223`) | Queued rows carry withdraw and edit (withdraw + refill the composer) end to end (`TaskDetailPage.tsx` `onEditQueued`, `withdrawQueuedPrompt`, F1) | No drag reorder and no steer | S3 | — |
-| Slash commands + prompt shortcuts (`mention-registry.ts:327`) | the "/" menu is a static hint (`Composer.tsx:373-381`); roles are saved prompts but only on the new-chat page | No command menu in the composer; no way to insert a saved prompt mid-session | S3 | — |
+| Slash commands + prompt shortcuts (`mention-registry.ts:327`, `mention-prompt-shortcut-source.tsx`) | the `/` menu lists the saved roles, narrows by name or prompt text, and inserts one into the draft mid-session (R23, `Composer.slash.dom.test.tsx`); a token with a space is prose and Enter sends it | Prompt shortcuts closed. Lody's availability ranking and dependency checks have no counterpart, and built-in commands (`/clear` and the like) do not exist | S3 | — |
 | Mentions: files, PRs, skills, commands, sessions, roles (`mention-registry.ts:53`) | agents + models (`agentMention.ts`); files since `0490c3c` (`Composer.files.dom.test.tsx`) | No PR, skill, command, session or role mentions | S2 | — |
 | Attachments as structured parts | Path strings appended to the prompt (`Composer.tsx:201-212`); only the Kin agent converts them into structured content (`kinagent/attachments.go:38-75`); a remote node fetches the upload and rewrites the path (F4, `node/fetch.go`, `hubAttachments`) | A Claude/Codex task receives a path, not an image part. Those CLIs read files by path themselves, so the image still arrives; only content the CLI cannot open (and the model never sees as an image block) is lost | S3 | — |
 | Paste-as-chip for long text (`session-chat-input-area.tsx:1364`) | pasted text lands in the textarea (`Composer.tsx:503-508`) | — | S3 | — |
@@ -3309,3 +3309,138 @@ global feed only, which is the intended split. The global feed's own Run now
 prepend is still unconditional (pre-existing): if the websocket echo wins the
 race with the HTTP response, the feed can hold two rows for one run until the
 next full load. The new fold dedupes the editor's list, not that feed.
+
+### Round 23 — the composer's `/` is a prompt picker (2026-10-30)
+
+**23A A menu that promised nothing.** Typing `/` in a session's composer
+opened a panel with two lines: "/ actions" and a hint about delegation. There
+were no actions, no shortcuts, and Enter sent the slash to the agent — a panel
+shaped like a menu and behaving like a label. Roles (the saved prompt prefixes)
+already existed and the new-chat page already offered them, but mid-session
+they were unreachable, which is where a saved instruction is worth the most:
+the follow-up that needs "review as a security engineer" is written in the
+composer, not in a new chat.
+
+The menu now lists them. `filterRoles` narrows on the name and on the prompt's
+own text, because the reader remembers "the security one" more often than what
+they named it; each row is the name over the prompt's first non-empty line, so
+what a pick will write is visible before the pick. A pick runs the same
+`insertRole` the new-chat picker runs and writes the role's text into the
+draft; the draft stays editable and the transcript shows exactly what the agent
+was told. The menu opens only while the whole draft is one leading slash token,
+and closes on whitespace: "/usr/bin" is a path and a space means prose. While a
+row is highlighted the menu owns Enter and Tab (pick, not send — sending "/rev"
+to the agent was never what the menu looked like it would do); Escape closes it
+and leaves the token for the next Enter to send. With no roles saved, or no
+match, the menu says so and Enter sends the token: a dead key on a daemon with
+no roles would be worse than the label this replaced.
+
+The keyup handler needed a real fix for Escape. It re-read the draft after
+every key to re-evaluate the caret, and with the menu just closed by keydown,
+the draft still started with `/rev` — so the menu reopened a frame later. A
+menu-owned keydown now records its key through `consume()`, and that key's
+keyup is not a reason to re-read the draft. Without it, a pick whose prompt is
+itself a token (`/compact`) would reopen the menu on the keyup of the very
+Enter that picked it. Escape also records the draft it declined: the keyup
+after a caret move reads the same value, and re-reading it must not ask the
+question the person already answered. A value change clears the record and
+asks again; sending clears it with the rest of the draft. The mention menu had
+the same latent reopen; the consumed-key rule fixes it by the same line.
+
+A keydown with `isComposing` is now left alone entirely. A menu that owns Enter
+would otherwise pick a row while an IME was still composing — and the
+Enter-to-send path behind it would send half a sentence. The mention menu had
+the same exposure; the guard sits above both.
+
+**23B One read for every pane.** The session host keeps up to eight session
+panes mounted, and each has a composer. Reading the roles per composer would be
+up to eight settings fetches at app start for one list that only changes on
+another route. `TaskSessionHost` reads them once with `useAgentRoles` and
+threads the list through `TaskDetailPage` into the composer; the page takes an
+optional prop, so a page rendered without the host still works and simply has
+no shortcuts. The imported-session page has the same composer as its continue
+box and reads the list itself, because it mounts on its own route — without it
+that box's `/` menu would claim there are no saved roles. The host stays
+mounted across routes, so a role saved on the settings page would not reach it
+until a reload: the save dispatches `kin:roles-changed` after the write and the
+hook reads again. A failed re-read leaves the list that is already on screen —
+an unreachable daemon is not an empty list. The settings page's own copy now
+says a role is reachable both from a new chat and from any session's `/` menu,
+in both locales.
+
+**Verification.** `./scripts/check.sh` clean (whole UI suite green, including 27
+composer menu cases, seven hook cases, five filter cases and five source pins);
+48 mutants red — 31 for the feature: the query trim, name-only matching, case-sensitive names, an empty query
+returning nothing, returning the caller's array, the listener registration and
+its removal, reading the wrong settings key, a slash token with spaces in it,
+an ignored query, Enter sending instead of picking, Tab not picking, the
+upward wrap, the reset on a new query, the clamp when the list shrinks, a pick
+that leaves the token, a pick that leaves the menu open, a pick that does not
+notify the draft owner, Escape reopening on keyup, the IME guard, the no-roles
+copy, the highlight marker, Enter always picking the first row, the preview
+line, the legend with no rows, the caret returning to the draft, the host's
+prop, the page's prop, the imported session's read and its prop, and the save's
+announcement; and eight for the review fixes: the new-chat composer's prop, the
+consumed-key record, its keyup guard, the Escape dismissal itself, sending
+clearing it, a replaced draft closing the menu, the read sequence, and the tip
+with no rows; and nine for the second review: the emptied draft's dismissal,
+the unknown list at the hook and at the menu, a stale menu on a different
+external token, the echo that keeps it open, the key-repeat guard, the
+modified-Enter guard, the prompt's own case folding, and the downward wrap.
+Two mutants survived the first pass
+and both were the tests' fault, not the code's: the name-matching mutant was
+masked by a prompt that repeated the name, and the clamp had no test where the
+list shrank without the query changing (a live save does exactly that). Both
+gaps were closed with tests that distinguish the two paths. A third survived
+the second pass for the same reason: typing `/rev` clears the dismissal at its
+first keystroke, so only a single change — a paste — can land on the declined
+value again; the test pastes. Two more survived while the second review's
+fixes were being pinned, both again the tests': a `SECURITY` query cannot test
+the prompt's case folding, because the query is lowercased before matching —
+a capitalized prompt word queried in lowercase does — and clearing the draft
+on Enter's keyup had been masking the submit path's own clear, so that test
+now submits the form directly.
+
+**Review.** Two same-model passes. The first found one major — the new-chat
+page's composer had no `roles`, so the page that already read the list for its
+Role row showed "No saved roles yet" over a non-empty list — and eight nits.
+That major and seven nits are fixed in this round: the consumed-key
+generalization, Escape's sticky dismissal, a stale menu closed when the draft
+is replaced from outside, the read-sequence guard, the corrected settings path
+in the empty copy, the footer tip gated on rows, and a wrong doc comment. The
+eighth — `aria-expanded` / `aria-controls` / `aria-activedescendant` on the
+textarea — is deferred: the mention menu has the same gap, so it is a shared
+accessibility item rather than a regression from this change.
+
+The second pass found no blocker or major, and verified that the two menus
+cannot both match one draft: a slash token has no whitespace and a mention
+token needs the start of the draft or a space before its `@`, so a draft
+starting with `/` never matches the mention rule. Its five nits are all fixed:
+an emptied draft now forgets Escape's dismissal, so a token pasted into an
+empty box is a new question; the list is `null` until the daemon answers, and
+the menu says "Saved roles are unavailable right now" rather than claiming
+none exist; an external replacement to a different token closes the menu
+instead of keeping a filter for text it never saw; the mention half of the same
+effect follows the same close-on-change rule, with an identical echo keeping
+either menu open — what the task page's saved-draft re-read needs; and a held
+Enter no longer sends the prompt its first keydown just picked. Three test gaps
+closed with them: the echo, a capitalized prompt word queried in lowercase, and
+the downward wrap plus Shift+Enter. Four limits are recorded rather than fixed:
+`kin:roles-changed` is same-document, so a role saved from the phone is
+invisible to a session host that stays mounted until reload; `roles` is
+optional with a `[]` default, so a fourth call site that forgets it would fall
+back to the false empty state (source pins cover the present three); the
+settings save re-reads settings although its response already carries the
+roles; and a held ArrowDown released after Escape can still reopen the mention
+menu (pre-existing, needs a chord).
+
+**Not done.** The menu only opens when the entire draft is one slash token, so
+a role cannot be inserted mid-message or into a draft that already has text —
+the new-chat picker remains the only way to combine a role with text typed
+first, and it writes the role at the top. No ranking: matches come back in list
+order, not by relevance, and there is no fuzzy matching, no recent-use order
+and no per-role availability or dependency check (Lody has the last one, with
+project/machine/provider reasons). No emoji or description column, and no
+built-in slash commands — `/clear` and the like still have no equivalent, which
+is a separate feature from saved prompts. The menu does not say where roles are
+edited beyond the one line in the empty state.
