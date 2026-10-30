@@ -254,6 +254,44 @@ func TestCreateRoutineWithAWallClockRule(t *testing.T) {
 	}
 }
 
+// A step rule is a wall-clock rule too: the first run lands on the next
+// aligned hour of the rule's zone, and the interval column gets the step.
+func TestCreateRoutineWithAStepRule(t *testing.T) {
+	s, _ := newRoutinesTestServer(t)
+	rule := `{"kind":"hours","every":6,"time_zone":"Asia/Shanghai"}`
+	rr := postRoutine(t, s, `{"cwd":"/tmp/p","prompt":"sweep","recurrence":`+strconv.Quote(rule)+`}`)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var created store.Routine
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Recurrence != rule {
+		t.Fatalf("recurrence = %q, want the rule back", created.Recurrence)
+	}
+	if created.IntervalSecs != 6*3600 {
+		t.Fatalf("interval_secs = %d, want %d", created.IntervalSecs, 6*3600)
+	}
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := time.UnixMilli(created.NextDueAt).In(shanghai)
+	if next.Minute() != 0 || next.Second() != 0 || next.Hour()%6 != 0 {
+		t.Fatalf("next_due_at = %v, want the next 6-hour mark", next)
+	}
+	if !next.After(time.Now()) {
+		t.Fatalf("next_due_at = %v is not ahead of now", next)
+	}
+
+	// A step the daemon does not accept is refused at the boundary.
+	rr = postRoutine(t, s, `{"cwd":"/tmp/p","prompt":"sweep","recurrence":"{\"kind\":\"minutes\",\"every\":7}"}`)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("bad step status = %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestCreateRoutineRejectsAnUnfireableRule(t *testing.T) {
 	s, _ := newRoutinesTestServer(t)
 	rr := postRoutine(t, s, `{"cwd":"/tmp/p","prompt":"standup","recurrence":"{\"kind\":\"weekly\"}"}`)
