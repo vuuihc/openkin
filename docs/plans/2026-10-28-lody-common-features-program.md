@@ -3883,17 +3883,19 @@ scope), `archiveBatch.test.ts` (the moved/failed split, alignment with the
 answers, a missing answer read as a failure, a fully failed batch),
 `sessionSelection.test.ts` (what each view may select, and that imported
 sessions never are), the live-store test that moves one row between two open
-feeds on a single `task_update` and the one that keeps `pageFull` after a
-`task_update` shrinks a full page, the bucket tests for a conversation
+feeds on a single `task_update`, the one that keeps `pageFull` after a
+`task_update` shrinks a full page, and the two that hold the daemon's default
+page size (50) and its cap (200) — a 50-row answer with no limit is full, 201
+rows against an ask of 250 is full, the bucket tests for a conversation
 archived on its own, the chip tests for the archived strip and its slide
 width, and source-wiring tests for the page-level contract — each feed's own
 paging cursor, the archive feed's waiting/retention/failure states, the
 Restore batch chip, the selection rule shared by every path, and the session
-sheet's navigate guard. Full console suite 158 files / 1607 tests. 42
+sheet's navigate guard. Full console suite 158 files / 1609 tests. 45
 mutants, all red, each file restored byte for byte. `./scripts/check.sh` clean
 (10 jobs).
 
-**Review.** REVIEWED — four same-model passes over the whole diff, each after
+**Review.** REVIEWED — five same-model passes over the whole diff, each after
 the previous pass's fixes. First pass: 0 blockers, 2 majors, 6 nits. Both
 majors were the archive view being half-built, and both are fixed and
 red-verified: "load older" took its cursor from the combined array's tail, so
@@ -3954,6 +3956,20 @@ its limit as "more"; an explicit `limit` of zero or less was clamped to the
 cap instead of read as the daemon's default of 50; and a dangling doc comment
 left by the selection refactor was removed.
 
+A fifth pass checked those four fixes and found no blocker or major, with four
+nits. Two are fixed here: the archive's "more" expression was pinned only from
+`(archiveMore ?? …)` inward, so dropping the `scope === "archived"` guard left
+every test green and would put a "load older" on the live list whose taps only
+append rows that view never shows — the pin now includes the guard, and a
+mutant removes it; and the default of 50 / cap of 200 were pinned only through
+the non-positive branch, so drift from `store.ListTasks` would have gone
+unnoticed — two cases now hold both numbers (50 rows against no limit is full,
+201 rows against an ask of 250 is full because the cap answered 200). Two are
+recorded in Not done: a future retry path that refreshes a registered list
+while its old `loaded` data is present could blank the archive, and the live
+feed's own retention has no `!error` guard, so a failed live re-ask blanks the
+archived-projects half (the inline banner explains it).
+
 Two nits are recorded in Not done rather than fixed: the session sheet's
 destination, and a one-frame window in the navigate guard.
 
@@ -3982,4 +3998,13 @@ still show the empty state for a frame, because there is no retained archive to
 hold it; and the page-level "more"/retention mutants are text pins rather than
 behavioral ones — mounting `SessionsPage` needs a daemon and two live
 subscriptions — while the rules underneath (`pageFull`, `sessionFeedTasks`,
-`settleArchiveBatch`, the selection rule) each have behavioral tests.
+`settleArchiveBatch`, the selection rule) each have behavioral tests. The
+fifth pass added two more: `refreshTaskList` clears `error` while leaving
+`loaded` and the old data, so a future retry or reconnect that refreshes a
+registered list would render a first-load failure as an empty `loaded` answer
+(today a re-acquire always starts from a released, unloaded resource, so the
+predicate cannot misfire); and the live feed's retention
+(`taskList.loaded ? taskList.data : lastLoadedTasks.current`) still lacks the
+`!error` guard the archive got, so a failed live re-ask blanks the
+archived-projects half of the archive view — the banner names it instead of
+staying silent, and the fix belongs with whatever retry path makes it common.
