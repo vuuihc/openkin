@@ -136,7 +136,9 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
   whose test files contain the story id. Start a new one with
   `python3 scripts/stories.py new <AREA> "<title>"` and fill it per
   `docs/product/stories/AUTHORING.md`; it stays `draft` until a person signs it,
-  and no product code is written before that. A round does one slice of one
+  and signing means the readable design page `<ID>.review.html` (wireframes for
+  every step, state and surface) exists and was read. No product code is written
+  before that. A round does one slice of one
   story and never mixes two; commit code, tests, the story slice and
   `registry.json` together with `KIN-<AREA>-NNN round N/M` in the body.
   `scripts/check.sh` runs `scripts/stories.py` and fails when the registry, the
