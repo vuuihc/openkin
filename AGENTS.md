@@ -129,18 +129,20 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
   which concept, and the conversation list's device → project → conversation
   hierarchy) and `docs/product/TASTE.md` (the rules the change is checked
   against). Update the IA row the change touches in the same commit.
-- Work from a story, not from a control. `docs/product/stories/` holds a few
-  capability-sized contracts (one thing a person can finish, 80–170 lines,
-  spanning 1–4 rounds), each naming an `IA.md` surface and its J1–J4 journeys,
-  declaring every surface it must hold on, and carrying an acceptance table
-  whose test files contain the story id. Start a new one with
+- Work from a story, not from a control. `docs/product/stories/PLAN.md` holds
+  the whole plan as five intent-sized stories (continue, start, result, manage,
+  settings), each a capability-sized contract (one thing a person can finish,
+  80–170 lines, delivered whole) that names an `IA.md` surface and its J1–J6
+  journeys, declares every surface it must hold on, and carries an acceptance
+  table whose test files contain the story id. Start a new one with
   `python3 scripts/stories.py new <AREA> "<title>"` and fill it per
   `docs/product/stories/AUTHORING.md`; it stays `draft` until a person signs it,
-  and signing means the readable design page `<ID>.review.html` (wireframes for
-  every step, state and surface) exists and was read. No product code is written
-  before that. A round does one slice of one
-  story and never mixes two; commit code, tests, the story slice and
-  `registry.json` together with `KIN-<AREA>-NNN round N/M` in the body.
+  and signing means the readable design page `<ID>.review.html` (a MECE cut,
+  then wireframes for every step, state and surface) exists and was read. No
+  product code is written before that. One delivery finishes one whole story and
+  never mixes two: commit code, tests, the story and `registry.json` together,
+  with `KIN-<AREA>-NNN` in the body. Stories are not split into rounds or
+  phases; if one will not fit one delivery, cut it by intent into another story.
   `scripts/check.sh` runs `scripts/stories.py` and fails when the registry, the
   contracts and the tests disagree. Escaped defects go to
   `docs/product/LESSONS.md` first; a pattern seen three times graduates into

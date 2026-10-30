@@ -72,17 +72,17 @@
   <table>
     <tr><th>意图（主导轴）</th><th>谁负责</th><th>现在</th></tr>
     <tr><td>接着问一段对话</td><td>KIN-CONTINUE-001（这条）</td><td>本页</td></tr>
-    <tr><td>新建一段对话</td><td>KIN-START-001</td><td>合同已写，草图待画</td></tr>
-    <tr><td>看它改了什么</td><td>未写</td><td>Phase 2</td></tr>
-    <tr><td>管理对话</td><td>未写</td><td>Phase 2</td></tr>
-    <tr><td>设置与环境</td><td>未写</td><td>Phase 3</td></tr>
+    <tr><td>新建一段对话</td><td>KIN-START-001</td><td>合同已写</td></tr>
+    <tr><td>看它改了什么</td><td>KIN-RESULT-001</td><td>合同已写</td></tr>
+    <tr><td>管理对话</td><td>KIN-MANAGE-001</td><td>合同已写</td></tr>
+    <tr><td>设置与环境</td><td>KIN-SETTINGS-001</td><td>合同已写</td></tr>
   </table>
   <ul>
     <li><strong>为什么按意图切</strong>：同一条要求在 Mac 和手机上各写一遍，迟早漏一遍——手机改模型/权限就是这么丢的。</li>
     <li><strong>设备是修饰维度</strong>：这条同时覆盖 Mac 和手机，差异写在故事「各面差异」；没有哪个面被拆成独立故事。</li>
     <li><strong>job map 覆盖</strong>：定义/打开 → 定位 → 准备/确认 → 执行 → 修改 → 监控/确认 → 收尾。八段全覆盖，准备与确认、监控与确认各合成一步。</li>
-    <li><strong>不在这一条</strong>：新建（KIN-START-001）；改名、置顶、删除（Phase 2）；产物与分享（Phase 2）；设置与环境（Phase 3）。</li>
-    <li><strong>大小自检</strong>：标题一个动作（接着问）；一次走查一个人、一台设备、一件事；3 轮；7 步。</li>
+    <li><strong>不在这一条</strong>：新建（KIN-START-001）、看改动（KIN-RESULT-001）、管理对话（KIN-MANAGE-001）、设置与环境（KIN-SETTINGS-001）。五条写在同一份方案 <code>PLAN.md</code> 里，没有 Phase 2/3。</li>
+    <li><strong>大小自检</strong>：标题一个动作（接着问）；一次走查一个人、一台设备、一件事；一次交付；7 步。</li>
   </ul>
 
   <div class="changed">
@@ -91,7 +91,7 @@
       <li><strong>左栏是一整块</strong>：会话列表在上面，导入、归档、设置等收进底部一行图标，不再分成两块面板。别的会话列表都删掉；<strong>设备名一直显示</strong>，单设备也不收起。</li>
       <li><strong>agent / 模型 / 权限两面都能换</strong>：选项贴着触发它的控件<strong>外弹</strong>，盖在内容上，不内嵌展开、不用原生 <code>select</code>，打开前后面板高度不变。已写进 <code>TASTE.md</code> 第 14 条。</li>
       <li><strong>切换不再整页白屏</strong>：列表↔对话、对话↔对话切换时外壳不动，只有对话区局部更新，旧内容留到新内容到达。已写进 <code>TASTE.md</code> 第 15 条。</li>
-      <li><strong>分轮按用户动作切，不按面也不按控件</strong>：第 1 轮就能在两端接着问（找得到、打得开、发得出、批得了），第 2 轮改运行设置，第 3 轮看结果和边界。删列表只是第 1 轮里的手段，不是一轮。</li>
+      <li><strong>五条意图写在同一份方案里，一条故事一次交付</strong>：没有 Phase 2/3，也不分轮。这条做完就能在两端接着问（找得到、打得开、发得出、批得了、改得了设置）；"看改动"已经拆成 KIN-RESULT-001，不塞在这一条里。</li>
     </ol>
   </div>
 
@@ -257,7 +257,7 @@
     <li><strong>搜索只留在左栏</strong>，⌘K 保留命令面板但不列对话。推荐：一处搜索，一处结果。</li>
     <li><strong>agent / 模型 / 权限都外弹</strong>：Mac 贴 chip 的浮层，手机盖在面板上的第二层；打开前后高度不变，不用原生 select。推荐：两面同一个形态。</li>
     <li><strong>手机 K 面板只留入口</strong>（新建、导入、收件箱、归档、产物库、例行任务、Agent 运维、设置），去掉列表和搜索。推荐：入口原样保留，不在这条里重设计。</li>
-    <li><strong>轮次</strong>：第 1 轮就能在两端接着问（找得到、打得开、发得出、批得了，含切换不白屏）；第 2 轮 agent / 模型 / 权限外弹；第 3 轮看改动、边界和整条走查。删列表不是一轮，是第 1 轮里的手段。</li>
+    <li><strong>交付</strong>：这条故事一次交付完——两端都能接着问、改设置，含测试、复审、390/1100 截图；不分轮，也不留到 Phase 2。看改动归 KIN-RESULT-001。</li>
   </ol>
 
   <div class="sign">

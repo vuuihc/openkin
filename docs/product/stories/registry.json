@@ -4,16 +4,23 @@
     "J1": "手机：打开 → 找到昨天的对话 → 继续 → 回答批准",
     "J2": "Mac：打开 → 搜到上周的对话 → 继续 → 改模型和权限 → 看 diff",
     "J3": "开始：任一端 → 新建 → 选 agent、模型、权限 → 发送",
-    "J4": "资料：找到产物、项目或例行任务并操作"
+    "J4": "资料：找到产物、项目或例行任务并操作",
+    "J5": "管理：找到一段对话 → 改名、置顶、归档或删除 → 列表恢复秩序",
+    "J6": "设置：打开设置 → 改 agent、模型、设备或权限默认 → 新建对话用上新值"
   },
   "stories": [
     {
       "id": "KIN-CONTINUE-001",
       "state": "draft",
       "priority": "P0",
-      "journeys": ["J1", "J2"],
-      "surfaces": ["mac", "phone"],
-      "plannedRounds": 3,
+      "journeys": [
+        "J1",
+        "J2"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
       "title": "接着问一段对话",
       "file": "docs/product/stories/KIN-CONTINUE-001.md",
       "surface": "Mac 上接着问 / 手机上接着问",
@@ -35,9 +42,13 @@
       "id": "KIN-START-001",
       "state": "draft",
       "priority": "P1",
-      "journeys": ["J3"],
-      "surfaces": ["mac", "phone"],
-      "plannedRounds": 1,
+      "journeys": [
+        "J3"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
       "title": "新建一段对话",
       "file": "docs/product/stories/KIN-START-001.md",
       "surface": "新建一段对话",
@@ -45,6 +56,75 @@
         "ui/src/pages/NewChatPage.tsx",
         "ui/src/components/chat/RunConfigSheet.tsx",
         "ui/src/lib/permissionMode.ts"
+      ],
+      "tests": [],
+      "blockedReason": null
+    },
+    {
+      "id": "KIN-RESULT-001",
+      "state": "draft",
+      "priority": "P1",
+      "journeys": [
+        "J4"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "看它改了什么",
+      "file": "docs/product/stories/KIN-RESULT-001.md",
+      "surface": "找产物",
+      "ownerPaths": [
+        "ui/src/components/changedFileFace.tsx",
+        "ui/src/components/chat/shareExport.ts",
+        "ui/src/pages/ArtifactsPage.tsx",
+        "ui/src/pages/ArtifactDetailPage.tsx",
+        "ui/src/pages/TaskDetailPage.tsx"
+      ],
+      "tests": [],
+      "blockedReason": null
+    },
+    {
+      "id": "KIN-MANAGE-001",
+      "state": "draft",
+      "priority": "P1",
+      "journeys": [
+        "J5"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "整理一段对话",
+      "file": "docs/product/stories/KIN-MANAGE-001.md",
+      "surface": "Mac 上接着问 / 手机上接着问 的列表部分",
+      "ownerPaths": [
+        "ui/src/components/layout/Sidebar.tsx",
+        "ui/src/pages/SessionsPage.tsx",
+        "ui/src/hooks/useSessionDeletion.ts"
+      ],
+      "tests": [],
+      "blockedReason": null
+    },
+    {
+      "id": "KIN-SETTINGS-001",
+      "state": "draft",
+      "priority": "P1",
+      "journeys": [
+        "J6"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "改默认设置",
+      "file": "docs/product/stories/KIN-SETTINGS-001.md",
+      "surface": "设置与环境",
+      "ownerPaths": [
+        "ui/src/pages/SettingsPage.tsx",
+        "ui/src/components/settings/ProviderSettingsSection.tsx",
+        "ui/src/components/settings/LocalAgentSettingsSection.tsx",
+        "ui/src/components/settings/PhoneSection.tsx"
       ],
       "tests": [],
       "blockedReason": null

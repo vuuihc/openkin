@@ -33,7 +33,6 @@ STATE_RE = re.compile(r"^状态：\s*(\w+)\s*$", re.M)
 PRIORITY_RE = re.compile(r"^优先级：\s*(P[01])\s*$", re.M)
 JOURNEY_RE = re.compile(r"^旅程：\s*(.+)$", re.M)
 JOURNEY_SPLIT = re.compile(r"[、,，+\s]+")
-ROUNDS_RE = re.compile(r"^分轮：\s*(\d+)\s*$", re.M)
 SURFACES_RE = re.compile(r"^面：\s*(.+)$", re.M)
 SURFACE_LABEL = {"mac": "Mac", "phone": "手机"}
 DIFFERENCES_HEADING = "## 各面差异"
@@ -49,7 +48,6 @@ REQUIRED_SECTIONS = (
     "## 设计",
     "## Do not",
     "## 验收",
-    "## 分轮",
     "## 证据",
     "## 变更记录",
 )
@@ -118,7 +116,7 @@ def cmd_new(argv: list[str]) -> int:
     """Scaffold a story: id, contract file, registry row, coverage table."""
     if len(argv) < 2:
         print('usage: stories.py new AREA "title" [--journeys J1,J2] [--surfaces mac,phone]', file=sys.stderr)
-        print("       [--priority P0|P1] [--rounds N]", file=sys.stderr)
+        print("       [--priority P0|P1]", file=sys.stderr)
         return 2
 
     area, title = argv[0].upper(), argv[1]
@@ -149,15 +147,6 @@ def cmd_new(argv: list[str]) -> int:
     if priority not in {"P0", "P1"}:
         print(f"priority must be P0 or P1, got {priority!r}", file=sys.stderr)
         return 2
-    try:
-        rounds = int(flags.get("rounds", "1"))
-    except ValueError:
-        print("rounds must be a number", file=sys.stderr)
-        return 2
-    if rounds < 1:
-        print("rounds must be at least 1", file=sys.stderr)
-        return 2
-
     stories = data.get("stories") or []
     story_id = next_id(stories, area)
     path = DIR / f"{story_id}.md"
@@ -172,7 +161,6 @@ def cmd_new(argv: list[str]) -> int:
         .replace("优先级：P0", f"优先级：{priority}", 1)
         .replace("旅程：J1、J2", "旅程：" + "、".join(journeys), 1)
         .replace("面：Mac、手机", "面：" + labels, 1)
-        .replace("分轮：3", f"分轮：{rounds}", 1)
     )
     path.write_text(text, encoding="utf-8")
 
@@ -190,7 +178,6 @@ def cmd_new(argv: list[str]) -> int:
             "priority": priority,
             "journeys": journeys,
             "surfaces": surfaces,
-            "plannedRounds": rounds,
             "title": title,
             "file": str(path.relative_to(ROOT)),
             "surface": "",
@@ -264,10 +251,6 @@ def check() -> list[str]:
         if state == "blocked" and not (story.get("blockedReason") or "").strip():
             problems.append(f"{where}: blocked stories need blockedReason")
 
-        rounds = story.get("plannedRounds")
-        if not isinstance(rounds, int) or rounds < 1:
-            problems.append(f"{where}: plannedRounds must be a positive integer")
-
         contract_path = ROOT / str(story.get("file", ""))
         if not story.get("file") or not contract_path.exists():
             problems.append(f"{where}: contract file missing: {story.get('file')!r}")
@@ -317,14 +300,6 @@ def check() -> list[str]:
                             problems.append(
                                 f"{where}: {DIFFERENCES_HEADING} has no `| {label} |` row"
                             )
-            found_rounds = ROUNDS_RE.search(text)
-            if not found_rounds:
-                problems.append(f"{where}: contract has no `分轮：` line")
-            elif int(found_rounds.group(1)) != rounds:
-                problems.append(
-                    f"{where}: registry plannedRounds {rounds!r} != contract {found_rounds.group(1)}"
-                )
-
             for heading in REQUIRED_SECTIONS:
                 if not has_heading(text, heading):
                     problems.append(f"{where}: contract has no `{heading}` section")
@@ -427,13 +402,13 @@ def coverage_text(data: dict) -> str:
         "由 `scripts/stories.py` 生成，不要手改。改 `registry.json` 后运行",
         "`python3 scripts/stories.py --write-coverage`。",
         "",
-        "| 编号 | 状态 | 优先级 | 旅程 | 面 | 轮数 | 标题 | 测试 |",
-        "|---|---|---|---|---|---|---|---|",
+        "| 编号 | 状态 | 优先级 | 旅程 | 面 | 标题 | 测试 |",
+        "|---|---|---|---|---|---|---|",
     ]
     for story in stories:
         tests = story.get("tests") or []
         lines.append(
-            "| `{id}` | {state} | {priority} | {journey} | {surfaces} | {rounds} | {title} | {tests} |".format(
+            "| `{id}` | {state} | {priority} | {journey} | {surfaces} | {title} | {tests} |".format(
                 id=story.get("id", ""),
                 state=story.get("state", ""),
                 priority=story.get("priority", ""),
@@ -441,7 +416,6 @@ def coverage_text(data: dict) -> str:
                 surfaces="/".join(
                     SURFACE_LABEL.get(name, name) for name in story.get("surfaces") or []
                 ),
-                rounds=story.get("plannedRounds", ""),
                 title=story.get("title", "").replace("|", "\\|"),
                 tests=len(tests),
             )
