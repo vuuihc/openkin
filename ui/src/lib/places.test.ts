@@ -34,6 +34,10 @@ function has(catalog: unknown, path: string): boolean {
  */
 const NOT_A_PLACE = new Map([
   [
+    "/",
+    "the start route: it resumes the last conversation or shows the draft, so its destination is decided at runtime rather than by the router; `/sessions` is the phone's list and the Mac sidebar is the Mac's",
+  ],
+  [
     "/design",
     "the token gallery: App.tsx says it is a place to check the design layer, not a place to work",
   ],

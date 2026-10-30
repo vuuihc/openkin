@@ -46,13 +46,16 @@ export const CUSTOM_MODEL_ID = "__custom__";
 export function modelPickerOptions(
   models: AgentModelOption[],
   copy: { default: string; custom: string },
-): { id: string; label: string; detail?: string }[] {
+): { id: string; label: string; detail?: string; group?: string }[] {
   return [
     { id: "", label: copy.default },
     ...models.map((m) => ({
       id: m.id,
       label: modelPickerLabel(m),
       ...(m.tier ? { detail: m.tier } : {}),
+      // A catalog is a set of providers; the provider is the heading that makes
+      // forty-seven rows scannable. An id with no slash has no provider to name.
+      ...(m.id.includes("/") ? { group: m.id.slice(0, m.id.indexOf("/")) } : {}),
     })),
     { id: CUSTOM_MODEL_ID, label: copy.custom },
   ];

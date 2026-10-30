@@ -377,12 +377,35 @@ func TestCancelRunning(t *testing.T) {
 	}
 	_ = waitStatus(t, e, task.ID, StatusRunning, 2*time.Second)
 
+	a, err := e.RequestApproval(context.Background(), CreateApprovalRequest{
+		TaskID:  task.ID,
+		Kind:    "tool_use",
+		Payload: json.RawMessage(`{"tool_name":"Bash","input":{"command":"ls"}}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusWaitingApproval, 2*time.Second)
+
 	canceled, err := e.Cancel(context.Background(), task.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if canceled.Status != StatusCanceled {
 		t.Fatalf("status=%s", canceled.Status)
+	}
+
+	// Stopping the run denies what was pending, and the record says so: the
+	// console must not present the engine's own denial as a person's answer.
+	denied, err := e.GetApproval(context.Background(), a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if denied.Decision != store.DecisionDenied {
+		t.Fatalf("decision=%s", denied.Decision)
+	}
+	if denied.DecidedVia == nil || *denied.DecidedVia != "interrupt" {
+		t.Fatalf("via=%v, want interrupt", denied.DecidedVia)
 	}
 }
 

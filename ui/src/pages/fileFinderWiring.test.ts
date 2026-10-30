@@ -84,7 +84,10 @@ describe("the file finder's ways in", () => {
 
   it("keeps the page's single-letter shortcuts out of a dialog", () => {
     // 'a'/'d' approve or deny the focused approval. With the finder's Retry
-    // button focused, that would decide a card the reader cannot see.
-    expect(PAGE).toContain(`e.target.closest('[role="dialog"], [role="alertdialog"]')`);
+    // button focused, that would decide a card the reader cannot see. The
+    // predicate is document-wide because the overlays that cover this page are
+    // portaled out of it: a menu or a run-config list is not a DOM ancestor of
+    // the card, so a target-only check cannot see it.
+    expect(PAGE).toContain("overlayOwnsKeyboard()");
   });
 });

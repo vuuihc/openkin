@@ -173,7 +173,8 @@ func (e *Engine) RequestApproval(ctx context.Context, req CreateApprovalRequest)
 }
 
 // Decide records an approval decision from the web console (or expiry path).
-// decision must be approved|denied|expired; via is "web" or "timeout".
+// decision must be approved|denied|expired; via is "web", "timeout", or
+// "interrupt" when the engine stopped the turn and denied what was pending.
 func (e *Engine) Decide(ctx context.Context, id, decision, via string) (store.Approval, error) {
 	switch decision {
 	case store.DecisionApproved, store.DecisionDenied, store.DecisionExpired:
@@ -195,11 +196,18 @@ func (e *Engine) Decide(ctx context.Context, id, decision, via string) (store.Ap
 
 	// Event + task status. Losing approval_decided would make the audit trail
 	// incomplete; surface the error even though the decision row is stored.
-	evPayload, _ := json.Marshal(map[string]any{
+	decidedEvent := map[string]any{
 		"approval_id": id,
 		"decision":    decision,
 		"decided_via": via,
-	})
+	}
+	if a.DecidedAt != nil {
+		// The console rebuilds a decided card from the request + decision pair
+		// after a reload or on a second device; without this the card knows
+		// what was decided but not when.
+		decidedEvent["decided_at"] = *a.DecidedAt
+	}
+	evPayload, _ := json.Marshal(decidedEvent)
 	if _, err := e.appendEventLocked(ctx, a.TaskID, "approval_decided", evPayload); err != nil {
 		e.bus.PublishApproval(a)
 		return a, fmt.Errorf("persist approval_decided: %w", err)
@@ -709,7 +717,7 @@ func (e *Engine) interruptAndFollowUp(ctx context.Context, id string, t store.Ta
 	// Deny pending approvals so MCP waiters unblock before we kill the process.
 	if pending, err := e.store.ListPendingForTask(ctx, id); err == nil {
 		for _, a := range pending {
-			_, _ = e.Decide(ctx, a.ID, store.DecisionDenied, "web")
+			_, _ = e.Decide(ctx, a.ID, store.DecisionDenied, "interrupt")
 		}
 	}
 	// Resolve pending user questions the same way so ask_user_question long-polls unblock.

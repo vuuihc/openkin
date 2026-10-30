@@ -4,8 +4,13 @@ import { isTerminal } from "../api/client";
 import { usePendingResources, useTaskList, useTaskResource } from "../api/useLiveResources";
 import { useAgentRoles } from "../hooks/useAgentRoles";
 import { useT } from "../i18n/react";
+import { rememberLastConversation } from "../lib/lastConversation";
 import { dropSessionCache, taskIdFromPathname, touchSessionCache } from "../lib/sessionCache";
-import { getViewedSessionIds, markSessionViewed, subscribeSessionViewed } from "../lib/sessionViewed";
+import {
+  getViewedSessionIds,
+  markSessionViewed,
+  subscribeSessionViewed,
+} from "../lib/sessionViewed";
 import { attentionMark, buildSwitcherRows, tabMark, waitingTaskIds } from "../lib/sessionSwitcher";
 import {
   closeSessionTab,
@@ -50,6 +55,11 @@ export default function TaskSessionHost() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const activeId = taskIdFromPathname(pathname);
+  // A cold start reopens the conversation that was last on screen, not the
+  // draft. This is the id `StartRoute` reads when `/` is opened.
+  useEffect(() => {
+    if (activeId) rememberLastConversation(activeId);
+  }, [activeId]);
   const [mountedIds, setMountedIds] = useState<string[]>([]);
   const [tabOrder, setTabOrder] = useState<string[]>(() => readSessionTabs());
   /** The phone's session switcher (the tab strip is desktop-only). */
@@ -86,6 +96,43 @@ export default function TaskSessionHost() {
   // reader of that lease, not another request.
   const activeDetail = useTaskResource(activeId ?? "", Boolean(activeId));
   const activeTask = activeDetail.data.task ?? (activeId ? tasksById.get(activeId) : undefined);
+
+  /**
+   * The pane the reader actually sees.
+   *
+   * Switching sessions mounts a new pane and asks for its detail. Until that
+   * answer arrives the new pane has nothing to draw, and drawing *it* — a
+   * skeleton where a conversation was — is the white flash this host exists to
+   * avoid. So the previously shown pane stays on screen while the new one
+   * loads, with a thin progress line saying the switch is happening; the
+   * replacement is a content swap inside the same shell, not a page load.
+   *
+   * `shownId` only advances when the active pane has loaded. A second switch
+   * made during the first one therefore keeps the last pane that had content,
+   * not the intermediate one that never appeared.
+   */
+  const [shownId, setShownId] = useState<string | null>(null);
+  const activeReady = Boolean(activeId) && activeDetail.loaded;
+  useEffect(() => {
+    if (!activeId) {
+      setShownId(null);
+      return;
+    }
+    if (activeReady) setShownId(activeId);
+  }, [activeId, activeReady]);
+  // Active route must appear even before the touch effect commits.
+  const ids =
+    activeId && !mountedIds.includes(activeId)
+      ? touchSessionCache(mountedIds, activeId)
+      : mountedIds;
+  const switching = Boolean(activeId) && !activeReady && Boolean(shownId) && shownId !== activeId;
+  // The pane kept on screen can be closed while the next one loads (its tab is
+  // closed, or the task is deleted). It is then not drawn at all, so holding on
+  // to it would hide the incoming pane too and leave the area blank. Fall back
+  // to the route: the incoming pane draws its own first load, which is honest —
+  // there is no earlier conversation left to keep.
+  const shownMounted = shownId !== null && ids.includes(shownId);
+  const visibleId = switching && shownMounted ? shownId : activeId;
 
   // Asking "what is new?" is the moment the session in front of the reader
   // stops being new. Marked here rather than on every status change: the
@@ -157,12 +204,6 @@ export default function TaskSessionHost() {
     });
   }, []);
 
-  // Active route must appear even before the touch effect commits.
-  const ids =
-    activeId && !mountedIds.includes(activeId)
-      ? touchSessionCache(mountedIds, activeId)
-      : mountedIds;
-
   const tabs: SessionTab[] = tabOrder.map((id) => ({
     id,
     label: taskDisplayTitle(tasksById.get(id)) || tr("tabs.untitled"),
@@ -176,7 +217,8 @@ export default function TaskSessionHost() {
   // page it is prepended so the session in front of the reader keeps its name
   // and state instead of turning into an untitled idle row.
   const switcherTasks = useMemo(() => {
-    if (!activeTask || taskList.data.some((task) => task.id === activeTask.id)) return taskList.data;
+    if (!activeTask || taskList.data.some((task) => task.id === activeTask.id))
+      return taskList.data;
     return [activeTask, ...taskList.data];
   }, [activeTask, taskList.data]);
 
@@ -223,18 +265,34 @@ export default function TaskSessionHost() {
         className={show ? "relative flex flex-1 min-h-0 min-w-0 flex-col" : "hidden"}
         aria-hidden={!show}
       >
+        {switching ? (
+          // Thin, at the top, over the outgoing conversation: it says "this is
+          // changing" without taking height from the content that is still
+          // readable or moving the composer under the reader's hands.
+          <div
+            role="progressbar"
+            aria-label={tr("common.loading")}
+            className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-kin-blue/15"
+          >
+            <div className="h-full w-1/3 animate-pulse bg-kin-blue" />
+          </div>
+        ) : null}
         {ids.map((taskId) => {
-          const active = taskId === activeId;
+          const visible = taskId === visibleId;
+          // The keys follow what is on screen, not the address bar. During a
+          // switch the outgoing conversation is the one being read, so it owns
+          // `a`/`d`/⌘F until the new pane has content; the incoming pane is
+          // hidden and must not decide an approval nobody can see.
           return (
             <div
               key={taskId}
-              className={active ? "flex flex-1 min-h-0 min-w-0 flex-col" : "hidden"}
-              aria-hidden={!active}
+              className={visible ? "flex flex-1 min-h-0 min-w-0 flex-col" : "hidden"}
+              aria-hidden={!visible}
             >
               <ErrorBoundary>
                 <TaskDetailPage
                   taskId={taskId}
-                  active={active && show}
+                  active={visible && show}
                   agentRoles={agentRoles}
                   onOpenSessionSwitcher={openSwitcher}
                   switcherMark={switcherMark}

@@ -81,8 +81,21 @@ func TestWaitingApprovalTransition(t *testing.T) {
 	evs, _ = e.Events(ctx, task.ID, 0)
 	var sawDec bool
 	for _, ev := range evs {
-		if ev.Type == "approval_decided" {
-			sawDec = true
+		if ev.Type != "approval_decided" {
+			continue
+		}
+		sawDec = true
+		var payload map[string]any
+		if err := json.Unmarshal(ev.Payload, &payload); err != nil {
+			t.Fatalf("approval_decided payload: %v", err)
+		}
+		if payload["approval_id"] != a.ID || payload["decision"] != store.DecisionApproved || payload["decided_via"] != "web" {
+			t.Fatalf("approval_decided payload=%v", payload)
+		}
+		// The console rebuilds this card from the request + decision pair on a
+		// reload or another device; the timestamp is part of the answer.
+		if _, ok := payload["decided_at"].(float64); !ok {
+			t.Fatalf("approval_decided payload missing decided_at: %v", payload)
 		}
 	}
 	if !sawDec {
@@ -294,6 +307,55 @@ func TestFollowUpInterruptRequeues(t *testing.T) {
 		if errorPayloadIsCancel(ev.Payload) || strings.EqualFold(msg, "canceled") {
 			t.Fatalf("steer interrupt must not persist cancel error event: %s", string(ev.Payload))
 		}
+	}
+}
+
+// A steer interrupted while an approval is pending denies that approval, and
+// the record says the engine did it. The console rebuilds the card from the
+// request + decision pair, so a missing attribution would present the stop as
+// "Decided online" — a person's answer that nobody gave.
+func TestInterruptSteerDeniesPendingApproval(t *testing.T) {
+	ctx := context.Background()
+	ad := &fakeAdapter{
+		events: []adapter.Event{
+			{Type: "task_started", Payload: json.RawMessage(`{"session_id":"s1","subtype":"init"}`)},
+		},
+		// The run must still be alive when the approval is asked and the steer
+		// arrives. A short runFor made the test a race against the scheduler:
+		// on a loaded machine the run could finish first, the task left
+		// waiting_approval on its own, and the interrupt had nothing to deny.
+		// An hour is not a wait — the interrupt's cancel closes the stream, and
+		// the engine's cleanup cancels the follow-up run.
+		runFor: time.Hour,
+	}
+	e, _ := testEngine(t, 4, ad)
+	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "write file"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusRunning, 2*time.Second)
+	a, err := e.RequestApproval(ctx, CreateApprovalRequest{
+		TaskID:  task.ID,
+		Kind:    "tool_use",
+		Payload: json.RawMessage(`{"tool_name":"Write","input":{"file_path":"/tmp/x","content":"hi"}}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusWaitingApproval, 2*time.Second)
+
+	if _, err := e.FollowUpWith(ctx, task.ID, FollowUpRequest{Prompt: "stop and do Y instead", Interrupt: true}); err != nil {
+		t.Fatal(err)
+	}
+	denied, err := e.GetApproval(ctx, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if denied.Decision != store.DecisionDenied {
+		t.Fatalf("decision=%s, want denied", denied.Decision)
+	}
+	if denied.DecidedVia == nil || *denied.DecidedVia != "interrupt" {
+		t.Fatalf("via=%v, want interrupt", denied.DecidedVia)
 	}
 }
 

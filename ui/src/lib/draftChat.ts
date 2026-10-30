@@ -132,3 +132,21 @@ export function subscribeDraft(fn: () => void): () => void {
 
 /** Always the same path — one draft entry in the sidebar. */
 export const DRAFT_PATH = "/new";
+
+/**
+ * True when the main area is the draft chat.
+ *
+ * `/new` always is. `/sessions` is the conversation list on a phone, but on a
+ * Mac the sidebar already holds the only list, so the main area shows the
+ * draft there — unless the address asks for the archived view, which is a
+ * place of its own. The draft's state (cwd, prompt, dock, header) is keyed to
+ * this, so a palette row landing on `/sessions` cannot leave the shell
+ * thinking no draft is open while a draft is on screen.
+ */
+export function draftSurfaceActive(pathname: string, wide: boolean): boolean {
+  if (pathname === DRAFT_PATH) return true;
+  if (!wide) return false;
+  // The archived address is a filter of the one sidebar list, not a different
+  // main-area surface, so it is still the draft beside it.
+  return pathname.replace(/\/+$/, "") === "/sessions";
+}

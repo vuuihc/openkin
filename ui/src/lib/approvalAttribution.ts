@@ -4,6 +4,34 @@ import type { Approval } from "../api/client";
 export type AttributionT = (key: string, vars?: Record<string, string | number>) => string;
 
 /**
+ * The channel a decision came through, in words.
+ *
+ * `decided_via` is an audit token, not copy: `web`, `timeout`, `interrupt`,
+ * `ios:<device-id>`, or whatever `X-Client-Type` an integration sent (A2A,
+ * `mcp:<client>`). Rendering it raw puts a device id or an internal prefix in
+ * front of a person, and "Decided via ios:node-abc123" is not an answer to
+ * "who answered this". Each known family gets its own sentence; an unknown
+ * token is still reported with its raw value, because a new integration
+ * showing up ugly is better than an answer that claims to know the channel
+ * when this table has never heard of it.
+ */
+export function approvalViaLabel(via: string, tr: AttributionT): string {
+  const token = via.trim();
+  if (!token) return tr("approval.decidedFallback");
+  if (token === "web") return tr("approval.viaWeb");
+  if (token === "timeout") return tr("approval.viaTimeout");
+  if (token === "device_disconnected") return tr("approval.viaDisconnected");
+  if (token === "interrupt") return tr("approval.viaInterrupt");
+  if (token === "a2a") return tr("approval.viaA2A");
+  if (token === "ios" || token.startsWith("ios:")) return tr("approval.viaPhone");
+  if (token === "mcp" || token.startsWith("mcp:")) {
+    const client = token.slice(4).trim();
+    return client ? tr("approval.viaMcp", { client }) : tr("approval.viaMcpUnknown");
+  }
+  return tr("approval.viaOther", { via: token });
+}
+
+/**
  * Format approval card attribution: worker label + step/id when present,
  * otherwise parent task agent (historical rows) and optional title.
  */

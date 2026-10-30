@@ -1,5 +1,11 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import {
+  dismissTopLayer,
+  layerCount,
+  pushLayerDismiss,
+  subscribeLayers,
+} from "../../lib/backStack";
 
 /**
  * The phone's one modal surface.
@@ -33,6 +39,23 @@ export type SheetProps = {
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+/**
+ * A layer that floats above the sheet but is portaled out of it (so the
+ * sheet's scrollport cannot clip it) announces itself here: the sheet then
+ * keeps Tab inside both, stops claiming `aria-modal` over a subtree it does
+ * not contain, and gives Back to the layer first.
+ */
+export function useSheetLayer(open: boolean, dismiss: () => void): void {
+  const dismissRef = useRef(dismiss);
+  useEffect(() => {
+    dismissRef.current = dismiss;
+  }, [dismiss]);
+  useEffect(() => {
+    if (!open) return;
+    return pushLayerDismiss(() => dismissRef.current());
+  }, [open]);
+}
+
 export default function Sheet({
   open,
   onClose,
@@ -45,6 +68,7 @@ export default function Sheet({
 }: SheetProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
+  const layers = useSyncExternalStore(subscribeLayers, layerCount, () => 0);
   // The parent re-renders on every keystroke in some sheets (the composer's
   // controls), and an effect that depended on `onClose` would tear down and
   // re-run on each of those — restoring focus to the opener mid-typing.
@@ -79,7 +103,13 @@ export default function Sheet({
         //     Escape with nothing to close.
         const target = event.target as Element | null;
         const origin = target?.closest?.('[role="dialog"], [role="listbox"]');
-        const openInside = panelRef.current?.querySelector('[role="dialog"], [role="listbox"]');
+        // A layer owned by the sheet may be portaled out of the panel: the run
+        // settings' option layers leave the scrollport so the sheet's body
+        // cannot clip them. They still count as open inside, or the first
+        // Escape would close the sheet under the options.
+        const openInside =
+          panelRef.current?.querySelector('[role="dialog"], [role="listbox"]') ||
+          document.querySelector("[data-sheet-layer]");
         if ((origin && origin !== panelRef.current) || openInside) return;
         event.stopPropagation();
         onCloseRef.current();
@@ -88,7 +118,15 @@ export default function Sheet({
       if (event.key !== "Tab" || !panelRef.current) return;
       // A light trap: a modal that lets Tab walk into the page behind it is a
       // modal only visually. Without focusable children the panel keeps focus.
-      const items = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE));
+      const items = [
+        ...Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)),
+        // A portaled layer is not inside the panel, but it is still part of
+        // this modal: Tab walking out of it into the page behind would leave
+        // the layer floating over a screen the keyboard had moved on from.
+        ...Array.from(document.querySelectorAll<HTMLElement>("[data-sheet-layer]")).flatMap(
+          (layer) => Array.from(layer.querySelectorAll<HTMLElement>(FOCUSABLE)),
+        ),
+      ];
       if (items.length === 0) {
         event.preventDefault();
         panelRef.current.focus();
@@ -106,6 +144,24 @@ export default function Sheet({
       }
     };
     window.addEventListener("keydown", onKeyDown, true);
+    // Back is the phone's other way out. The sheet owns one history entry; a
+    // layer on top registers with `backStack`, so the first Back closes the
+    // layer and the sheet keeps its entry for the next one.
+    const marker = `kin-sheet-${Date.now()}-${Math.random()}`;
+    const base = (window.history.state ?? {}) as Record<string, unknown>;
+    window.history.pushState({ ...base, kinSheet: marker }, "");
+    let closedByBack = false;
+    const onPopState = () => {
+      if (dismissTopLayer()) {
+        // The layer is gone but the sheet stayed; put the entry back so the
+        // next Back still has something to close.
+        window.history.pushState({ ...base, kinSheet: marker }, "");
+        return;
+      }
+      closedByBack = true;
+      onCloseRef.current();
+    };
+    window.addEventListener("popstate", onPopState);
     // The panel is `md:hidden`. Past that width it is invisible but still
     // mounted, and its Escape/Tab trap keeps eating keys meant for the page
     // behind it; closing on the breakpoint is what makes "hidden" mean gone
@@ -121,6 +177,12 @@ export default function Sheet({
     return () => {
       window.clearTimeout(focusTimer);
       window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("popstate", onPopState);
+      // A sheet closed by its own controls gives the entry back, so Back keeps
+      // meaning "leave this page" instead of walking through a sheet the
+      // reader already put away. Closed-by-Back already consumed it.
+      const current = window.history.state as { kinSheet?: string } | null;
+      if (!closedByBack && current?.kinSheet === marker) window.history.back();
       media?.removeEventListener?.("change", onMediaChange);
       restoreRef.current?.focus?.({ preventScroll: true });
     };
@@ -140,7 +202,9 @@ export default function Sheet({
       <div
         ref={panelRef}
         role="dialog"
-        aria-modal="true"
+        // A portaled layer is not in this subtree; claiming `aria-modal` while
+        // it is up would tell a screen reader the layer does not exist.
+        aria-modal={layers > 0 ? undefined : true}
         aria-label={title}
         tabIndex={-1}
         className={[

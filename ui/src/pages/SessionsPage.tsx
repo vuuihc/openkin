@@ -17,12 +17,17 @@ import { formatRelativeTime } from "../lib/relativeTime";
 import {
   archivedCwdFor,
   filterProjectBuckets,
+  groupProjectBucketsByDevice,
   phoneProjectBuckets,
+  PINNED_BUCKET,
+  pinnedRowDeviceName,
   withPinnedBucket,
   type PhoneProjectBucket,
   type PhoneSessionRow,
 } from "../lib/phoneSessionBuckets";
+import { type Machine } from "../lib/devices";
 import { getPinnedTaskIds, setTaskPinned } from "../lib/taskPins";
+import { consumeRowReturn, rememberRowReturn, takeRowReturn } from "../lib/rowReturn";
 import { sessionListParams } from "../lib/sessionListParams";
 import { sessionFeedTasks } from "../lib/sessionFeed";
 import { settleArchiveBatch } from "../lib/archiveBatch";
@@ -125,6 +130,10 @@ export default function SessionsPage() {
   // follows after the field settles, and collapses to empty immediately so
   // clearing the box never waits on a timer.
   const [searchTerm, setSearchTerm] = useState(() => query.trim());
+  // A row opened from this list asks for the caret back when the reader
+  // returns (step 7). The mark is consumed when it lands, so a later keystroke
+  // in the search — or a live update — cannot pull the caret back out.
+  const [returnRow, setReturnRow] = useState<string | null>(() => takeRowReturn());
   useEffect(() => {
     const next = query.trim();
     if (!next) {
@@ -378,6 +387,26 @@ export default function SessionsPage() {
       ),
     [filtered, pinnedIds, scope, tr],
   );
+  // The rows exist only after the task list arrives; retry as it fills until
+  // the marked row is on screen. Once it is, the mark is cleared and this
+  // effect has nothing left to do, whatever else re-renders the list.
+  useEffect(() => {
+    if (!returnRow) return;
+    setReturnRow(consumeRowReturn(returnRow));
+  }, [returnRow, listed]);
+  // The list is three levels: machine → project → conversation. The pinned
+  // bucket is not a place on a machine, so it leads the list on its own.
+  const { pinnedBucket, deviceGroups } = useMemo(() => {
+    const pinned = listed.find((bucket) => bucket.key === PINNED_BUCKET);
+    return {
+      pinnedBucket: pinned,
+      deviceGroups: groupProjectBucketsByDevice(
+        listed.filter((bucket) => bucket.key !== PINNED_BUCKET),
+        machines,
+        selfDeviceId,
+      ),
+    };
+  }, [listed, machines, selfDeviceId]);
   // Select-all counts what this view can actually select; in the archive view
   // that is the put-away conversations, not the archived projects' live chats.
   const selectableCount = selectableTaskIds(listed, scope).length;
@@ -426,8 +455,7 @@ export default function SessionsPage() {
   // feed can be non-empty while this view shows nothing at all, so its length
   // is the wrong question to ask.
   const archiveFailed = scope === "archived" && Boolean(archivedList.error);
-  const archiveProjectsFailed =
-    scope === "archived" && !archiveFailed && Boolean(taskList.error);
+  const archiveProjectsFailed = scope === "archived" && !archiveFailed && Boolean(taskList.error);
   const loadFailed = (Boolean(taskList.error) || archiveFailed) && listed.length === 0;
   // The pin chip flips its label when the whole selection is already pinned.
   const selectionAllPinned =
@@ -461,6 +489,50 @@ export default function SessionsPage() {
             hint: tr("sessions.emptyHint"),
           };
 
+  function renderBucket(bucket: PhoneProjectBucket, stateKey: string) {
+    return (
+      <ProjectBucket
+        key={stateKey}
+        bucket={bucket}
+        machines={machines}
+        now={now}
+        viewedIds={viewedIds}
+        // A search result must not hide behind a fold the user set before
+        // they typed; the cap folds away for the same reason.
+        collapsed={!searching && collapsed.has(stateKey)}
+        showAll={searching || expanded.has(stateKey)}
+        canToggle={!searching}
+        onToggle={() => toggleBucket(stateKey)}
+        onToggleShowAll={() => toggleShowAll(stateKey)}
+        onOpen={openRow}
+        selectionMode={selectionMode}
+        selectionLocked={selectionBusy}
+        selectedIds={selectedIds}
+        onToggleSelect={toggleSelected}
+        onLongPress={enterSelection}
+        swipeOpen={swipeOpen}
+        onSwipeOpenChange={setSwipeOpen}
+        pinnedIds={pinnedIds}
+        onPin={pinRow}
+        onArchive={archiveRow}
+        onDelete={deleteRow}
+        // Only a heading that stands for an archived project gets the
+        // project's Restore. The archive view also lists conversations put
+        // away on their own, and their heading is just the project they
+        // happen to sit in — a Restore button there would promise to put
+        // back something that was never archived and silently do nothing.
+        onRestore={
+          scope === "archived" && archivedCwdFor(bucket.key, archivedCwds)
+            ? () => restoreBucket(bucket)
+            : undefined
+        }
+        onRestoreRow={restoreRow}
+        scope={scope}
+        query={query}
+      />
+    );
+  }
+
   function toggleBucket(key: string) {
     setCollapsed((current) => {
       const next = new Set(current);
@@ -480,6 +552,10 @@ export default function SessionsPage() {
   }
 
   function openRow(row: PhoneSessionRow) {
+    // Back from this conversation should land on this row, not the top —
+    // imported agent sessions are rows in the same list and get the same
+    // promise (step 7).
+    rememberRowReturn(row.task?.id ?? row.session!.id);
     if (!row.task) {
       navigate(`/agent-sessions/${encodeURIComponent(row.session!.id)}`);
       return;
@@ -823,16 +899,9 @@ export default function SessionsPage() {
         />
       )}
 
-      {!loading &&
-        !loadFailed &&
-        !(pendingQuery && listed.length === 0) &&
-        listed.length === 0 && (
-          <MobileEmpty
-            icon={emptyView.icon}
-            title={emptyView.title}
-            hint={emptyView.hint}
-          />
-        )}
+      {!loading && !loadFailed && !(pendingQuery && listed.length === 0) && listed.length === 0 && (
+        <MobileEmpty icon={emptyView.icon} title={emptyView.title} hint={emptyView.hint} />
+      )}
 
       {/* Multi-select toolbar, in the slot the heading would occupy: select
           all + count on the left, the batch actions on the right. Long-press
@@ -913,47 +982,33 @@ export default function SessionsPage() {
         </div>
       )}
 
+      {!loading && pinnedBucket && renderBucket(pinnedBucket, pinnedBucket.key)}
+
       {!loading &&
-        listed.map((bucket) => (
-          <ProjectBucket
-            key={bucket.key}
-            bucket={bucket}
-            now={now}
-            viewedIds={viewedIds}
-            // A search result must not hide behind a fold the user set before
-            // they typed; the cap folds away for the same reason.
-            collapsed={!searching && collapsed.has(bucket.key)}
-            showAll={searching || expanded.has(bucket.key)}
-            canToggle={!searching}
-            onToggle={() => toggleBucket(bucket.key)}
-            onToggleShowAll={() => toggleShowAll(bucket.key)}
-            onOpen={openRow}
-            selectionMode={selectionMode}
-            selectionLocked={selectionBusy}
-            selectedIds={selectedIds}
-            onToggleSelect={toggleSelected}
-            onLongPress={enterSelection}
-            swipeOpen={swipeOpen}
-            onSwipeOpenChange={setSwipeOpen}
-            pinnedIds={pinnedIds}
-            onPin={pinRow}
-            onArchive={archiveRow}
-            onDelete={deleteRow}
-            // Only a heading that stands for an archived project gets the
-            // project's Restore. The archive view also lists conversations put
-            // away on their own, and their heading is just the project they
-            // happen to sit in — a Restore button there would promise to put
-            // back something that was never archived and silently do nothing.
-            onRestore={
-              scope === "archived" && archivedCwdFor(bucket.key, archivedCwds)
-                ? () => restoreBucket(bucket)
-                : undefined
-            }
-            onRestoreRow={restoreRow}
-            scope={scope}
-            query={query}
-          />
-        ))}
+        deviceGroups.map((group) => {
+          const label = group.isSelf ? tr("nav.thisMachine") : group.label;
+          return (
+            <section key={group.id || "__self__"} aria-label={label}>
+              {/* The machine is the top level, and it is always named — one
+                  machine is still a machine, not a list with no owner. */}
+              <div className="flex items-center gap-1.5 px-4 pb-0.5 pt-3">
+                <IconMachine size={14} className="flex-none text-kin-muted" />
+                <h2 className="min-w-0 flex-1 truncate text-caption font-semibold uppercase tracking-label text-kin-muted">
+                  {label}
+                </h2>
+                <span className="flex-none text-caption tabular-nums text-kin-muted">
+                  {group.count}
+                </span>
+              </div>
+              {group.buckets.map((bucket) =>
+                // The same project can run on two machines; the device is part
+                // of the fold's identity so collapsing one leaves the other
+                // where it was.
+                renderBucket(bucket, `${group.id}::${bucket.key}`),
+              )}
+            </section>
+          );
+        })}
 
       {/* Older rows are a choice, not an infinite scroll: the list is a place
           people scan, and a viewport that keeps growing under the thumb loses
@@ -975,11 +1030,7 @@ export default function SessionsPage() {
           itself, the other the archived projects' chats. */}
       {!loading && (archiveFailed || archiveProjectsFailed) && listed.length > 0 && (
         <p className="px-4 py-6 text-center text-body text-kin-muted">
-          {tr(
-            archiveFailed
-              ? "sessions.archiveLoadFailed"
-              : "sessions.archiveProjectsLoadFailed",
-          )}
+          {tr(archiveFailed ? "sessions.archiveLoadFailed" : "sessions.archiveProjectsLoadFailed")}
         </p>
       )}
 
@@ -1029,6 +1080,7 @@ function SelectAllCheckbox({
 
 function ProjectBucket({
   bucket,
+  machines,
   now,
   viewedIds,
   collapsed,
@@ -1054,6 +1106,9 @@ function ProjectBucket({
   query,
 }: {
   bucket: PhoneProjectBucket;
+  /** Where a pinned remote row gets its machine's name from; every other row
+   *  is already under that machine's heading. */
+  machines: readonly Machine[];
   /** The live search text, marked in the heading and in every row title. */
   query: string;
   now: number;
@@ -1150,6 +1205,7 @@ function ProjectBucket({
             <SessionRow
               key={row.key}
               row={row}
+              deviceLabel={pinnedRowDeviceName(bucket.key, row, machines)}
               now={now}
               viewedIds={viewedIds}
               onOpen={() => onOpen(row)}
@@ -1195,6 +1251,7 @@ function ProjectBucket({
 
 function SessionRow({
   row,
+  deviceLabel,
   now,
   viewedIds,
   onOpen,
@@ -1214,6 +1271,8 @@ function SessionRow({
   query,
 }: {
   row: PhoneSessionRow;
+  /** The machine's name, when no heading above the row carries it. */
+  deviceLabel: string;
   /** The live search text, marked in the title. */
   query: string;
   now: number;
@@ -1251,7 +1310,7 @@ function SessionRow({
     agentDisplayName(row.agentId),
     formatRelativeTime(row.at, now),
     row.task && dot ? tr(taskCardStatusView(row.task.status).labelKey) : "",
-    row.remote ? tr("machine.remote") : "",
+    row.remote ? deviceLabel || tr("machine.remote") : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -1259,6 +1318,7 @@ function SessionRow({
   const rowButton = (
     <button
       type="button"
+      data-session-row={row.task?.id ?? row.session?.id}
       onClick={() => {
         if (selectionMode) {
           // Imported agent sessions have no task id and no batch actions;
@@ -1319,10 +1379,22 @@ function SessionRow({
         <HighlightedText text={row.title} query={query} />
       </span>
       {row.remote && (
-        <span className="flex-none text-kin-muted" title={tr("machine.remote")} aria-hidden>
+        <span
+          className="flex-none text-kin-muted"
+          title={deviceLabel || tr("machine.remote")}
+          aria-hidden
+        >
           <IconMachine size={12} />
         </span>
       )}
+      {deviceLabel ? (
+        // The pinned section has no machine heading above it, so the row says
+        // the machine itself. Truncated rather than wrapped: a long machine
+        // name must not push the time out of the row.
+        <span className="max-w-[6rem] flex-none truncate text-caption leading-ui text-kin-muted">
+          {deviceLabel}
+        </span>
+      ) : null}
       <span className="flex-none text-caption leading-ui text-kin-muted tabular-nums">
         {formatRelativeTime(row.at, now)}
       </span>

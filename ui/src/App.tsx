@@ -14,10 +14,10 @@ import DesignSystemPage from "./pages/DesignSystemPage";
 import ProjectsPage from "./pages/ProjectsPage";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
 import NewChatPage from "./pages/NewChatPage";
-import SessionsPage from "./pages/SessionsPage";
+import SessionsRoute from "./pages/SessionsRoute";
+import StartRoute from "./pages/StartRoute";
 import SettingsPage from "./pages/SettingsPage";
 import TaskSessionHost from "./pages/TaskSessionHost";
-import TasksPage from "./pages/TasksPage";
 import TrayPage from "./pages/TrayPage";
 import AgentsPage from "./pages/AgentsPage";
 import RoutinesPage from "./pages/RoutinesPage";
@@ -150,12 +150,11 @@ export default function App() {
           */}
           <TaskSessionHost />
           <Routes>
-            <Route path="/" element={<Navigate to="/new" replace />} />
+            <Route path="/" element={<StartRoute />} />
             <Route path="/new" element={<NewChatPage />} />
-            <Route path="/sessions" element={<SessionsPage />} />
+            <Route path="/sessions" element={<SessionsRoute />} />
             <Route path="/inbox" element={<ApprovalsPage />} />
             <Route path="/approvals" element={<Navigate to="/inbox" replace />} />
-            <Route path="/tasks" element={<TasksPage />} />
             {/* Task detail UI is rendered by TaskSessionHost above. */}
             <Route path="/tasks/:id" element={null} />
             <Route path="/artifacts" element={<ArtifactsPage />} />

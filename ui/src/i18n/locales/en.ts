@@ -35,6 +35,8 @@ const en: MessageTree = {
     archiveProject: "Remove from sidebar",
     unarchiveProject: "Restore to sidebar",
     archivedProjects: "Archived",
+    /** A footer icon's badge, folded into its accessible name. */
+    withCount: "{label} ({count})",
     archivedEmpty: "No archived projects",
     openCover: "One-Pager cover",
     projectActions: "Project actions",
@@ -324,8 +326,25 @@ const en: MessageTree = {
   },
   approval: {
     cardTitle: "Permission needed",
+    approvedTitle: "Permission granted",
+    deniedTitle: "Permission denied",
+    expiredTitle: "Permission request expired",
     approving: "Approving…",
     denying: "Denying…",
+    // `decided_via: "web"` is any online client, not this window: the phone,
+    // another browser, and the console in another tab all land here. A run
+    // stopped by the engine writes `interrupt`, not `web`. "Decided here" was
+    // a claim the record cannot support.
+    viaWeb: "Decided online",
+    viaTimeout: "Decided by timeout",
+    viaInterrupt: "Denied when the run stopped",
+    viaDisconnected: "Decided when the device disconnected",
+    viaA2A: "Decided through an agent connection",
+    viaPhone: "Decided on a paired phone",
+    viaMcp: "Decided via {client}",
+    viaMcpUnknown: "Decided via an MCP client",
+    viaOther: "Decided via {via}",
+    decidedFallback: "Decided",
     floatingLabel: "Waiting",
     floatingFallback: "another task",
     moreWaiting: "{n} more waiting",
@@ -1348,12 +1367,9 @@ const en: MessageTree = {
   },
   palette: {
     title: "Command palette",
-    search: "Search chats, tasks, actions…",
+    search: "Search actions and places…",
     noMatches: "No matches",
     actions: "Actions",
-    chats: "Chats",
-    messages: "Messages",
-    messagesTruncated: "Newest matches only",
     open: "open",
   },
   cwd: {

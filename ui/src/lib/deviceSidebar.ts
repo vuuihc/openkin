@@ -220,19 +220,3 @@ export function groupByDevice(
   });
   return groups;
 }
-
-/**
- * Whether the tree needs to name its machines.
- *
- * One machine is usually the obvious one — the console runs on it, so a heading
- * saying so is noise. Two exceptions: more than one machine (the whole point of
- * the heading), and a console whose only work runs *somewhere else* (a Hub whose
- * sessions all ran on a paired laptop). In the second case the tree is no longer
- * "obviously this machine", and staying silent hides the one fact the grouping
- * exists to show.
- */
-export function showMachineLabels(groups: DeviceGroup[], archivedGroups: DeviceGroup[]): boolean {
-  const all = [...groups, ...archivedGroups];
-  if (new Set(all.map((group) => group.id)).size > 1) return true;
-  return all.length > 0 && all.every((group) => !group.isSelf);
-}

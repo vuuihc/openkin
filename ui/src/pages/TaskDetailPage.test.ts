@@ -3,7 +3,9 @@ import source from "./TaskDetailPage.tsx?raw";
 
 describe("TaskDetailPage session rail breakpoints", () => {
   it("keeps compact usage visible until the side rail appears, and off the phone", () => {
-    const stripClasses = source.match(/<div className="([^"]+)">\s*<div className="max-md:hidden">\s*<TaskUsageSummary/)?.[1];
+    const stripClasses = source.match(
+      /<div className="([^"]+)">\s*<div className="max-md:hidden">\s*<TaskUsageSummary/,
+    )?.[1];
     const usageClasses = source.match(/<div className="([^"]+)">\s*<TaskUsageSummary/)?.[1];
     const railClasses = source.match(
       /<aside\s+className="([^"]+)"\s+aria-label=\{tr\("task\.sessionRail"\)\}/,
@@ -47,7 +49,9 @@ describe("TaskDetailPage session rail breakpoints", () => {
     // and a stalled one that settles late must not clear a newer request's
     // deadline and let a third run beside it.
     expect(edit).toContain("editStillRunning(editStartedAtRef.current, Date.now())");
-    expect(edit).toContain("if (editStartedAtRef.current === startedAt) editStartedAtRef.current = 0;");
+    expect(edit).toContain(
+      "if (editStartedAtRef.current === startedAt) editStartedAtRef.current = 0;",
+    );
 
     expect(edit).toMatch(/case "withdrawn":\s*refillComposer\(\);/);
     expect(source.match(/refillComposer\(\);/g)).toHaveLength(1);
@@ -83,5 +87,16 @@ describe("TaskDetailPage session rail breakpoints", () => {
     expect(source).toContain("if (!task || workerStoppingKey) return;");
     expect(source).toContain("stoppingKey={workerStoppingKey}");
     expect(source).toContain("onStop={isTerminal(task.status) ? undefined : onStopWorker}");
+  });
+
+  it("keeps the answer in place and rebuilds answers the stream remembers", () => {
+    // The pending row leaves the moment it is decided. The card has to stay
+    // where it was asked: this pane's own answer is retained, and a decision
+    // made on another device (or before a reload) comes back from the
+    // request + decision events. KIN-CONTINUE-001.
+    expect(source).toContain("const [decidedApprovals, setDecidedApprovals]");
+    expect(source).toMatch(/setDecidedApprovals\(\(prev\) => \{[\s\S]*?\[id\]: updated/);
+    expect(source).toContain("mergeDecidedApprovals(approvals, decidedApprovals, events)");
+    expect(source).toContain("decided: true");
   });
 });

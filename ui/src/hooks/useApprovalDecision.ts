@@ -34,15 +34,20 @@ export function useApprovalDecision(fallbackKey = "inbox.decisionFailed") {
 
   const decide = useCallback(
     async (id: string, decision: PendingDecision) => {
-      if (inFlight.current.has(id)) return;
+      if (inFlight.current.has(id)) return null;
       inFlight.current.add(id);
       setBusy((b) => ({ ...b, [id]: decision }));
       try {
         const updated = await decideApproval(id, decision);
         liveResources.applyMessage({ kind: "approval_update", data: updated });
+        // The answer, so the surface that asked can keep the decided card in
+        // place after the pending list drops it. A failure returns null: there
+        // is no decision to show, and the toast says why.
+        return updated;
       } catch (e) {
         pushToast(e instanceof Error ? e.message : tr(fallbackKey), "error");
         void liveResources.refreshPending();
+        return null;
       } finally {
         inFlight.current.delete(id);
         setBusy((b) => {

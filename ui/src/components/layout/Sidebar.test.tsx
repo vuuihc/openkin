@@ -98,7 +98,7 @@ describe("the sidebar's import menu", () => {
     );
 
     await user.click(importTrigger());
-    await user.click(screen.getByRole("menuitem", { name: /claude code/i }));
+    await user.click(screen.getByRole("button", { name: /claude code/i }));
 
     // The id, not the name: what travels to the Hub is the provider id, and the
     // two are different strings that a person never sees apart.
@@ -111,7 +111,7 @@ describe("the sidebar's import menu", () => {
     render(sidebar({ onImport }));
 
     await user.click(importTrigger());
-    await user.click(screen.getByRole("menuitem", { name: /import all available agents/i }));
+    await user.click(screen.getByRole("button", { name: /import all available agents/i }));
 
     // No argument is how this menu says "every provider on every machine": an
     // empty array would mean "the ones you can see here", which is a different
@@ -130,13 +130,13 @@ describe("the sidebar's import menu", () => {
     await user.click(importTrigger());
     rerender(sidebar({ onImport, importing: true }));
 
-    expectDisabled(screen.getByRole("menuitem", { name: /codex/i }));
-    expectDisabled(screen.getByRole("menuitem", { name: /import all available agents/i }));
+    expectDisabled(screen.getByRole("button", { name: /codex/i }));
+    expectDisabled(screen.getByRole("button", { name: /import all available agents/i }));
     // And the trigger itself says what is happening rather than reading as
     // ready: its label is the only progress this control has.
     expectDisabled(screen.getByRole("button", { name: /importing agent sessions/i }));
 
-    await user.click(screen.getByRole("menuitem", { name: /codex/i }));
+    await user.click(screen.getByRole("button", { name: /codex/i }));
     expect(onImport).not.toHaveBeenCalled();
   });
 
@@ -156,7 +156,7 @@ describe("the sidebar's import menu", () => {
 
     await user.click(importTrigger());
 
-    expect(screen.getByRole("menuitem", { name: /codex/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /codex/i })).toBeTruthy();
     expect(screen.queryByRole("menuitem", { name: /grok/i })).toBeNull();
   });
 

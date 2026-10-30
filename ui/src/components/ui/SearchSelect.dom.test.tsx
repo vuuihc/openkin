@@ -62,6 +62,17 @@ beforeEach(() => {
   setLocale("en");
 });
 
+// KIN-CONTINUE-001, step 5: a grouped catalog (a gateway's providers) puts the
+// heading in the listbox as a group's name and the group's options inside it.
+// A heading drawn as a sibling <div> leaves every option with no group to
+// report, and some screen readers drop the list's semantics entirely.
+const CATALOG: SearchSelectOption[] = [
+  { id: "a", label: "Alpha", group: "Provider A" },
+  { id: "b", label: "Beta", group: "Provider A" },
+  { id: "c", label: "Gamma", group: "Provider B" },
+  { id: "d", label: "Delta" },
+];
+
 describe("desktop surface", () => {
   it("lists every option and filters on label, id and detail", async () => {
     setup("deepseek-v4-flash[1m]");
@@ -95,6 +106,24 @@ describe("desktop surface", () => {
     // The empty message lives outside the listbox: a listbox may only contain
     // options, and a status is what announces that the filter found nothing.
     expect(screen.getByRole("status").textContent).toBe("No matching models");
+  });
+
+  it("puts each option inside the group its heading names", async () => {
+    setup("", vi.fn(), { options: CATALOG });
+    await userEvent.click(desktopTrigger());
+
+    const list = screen.getByRole("listbox", { name: "Model" });
+    const groupOf = (name: string) =>
+      within(list).getByRole("option", { name }).closest('[role="group"]') as HTMLElement | null;
+
+    // Same group object, not two headings that happen to read alike.
+    expect(groupOf("Alpha")).toBe(groupOf("Beta"));
+    expect(groupOf("Alpha")?.getAttribute("aria-label")).toBe("Provider A");
+    expect(groupOf("Gamma")?.getAttribute("aria-label")).toBe("Provider B");
+    // An option with no heading is still inside the listbox's own wrapper; it
+    // is not left outside every group for a reader to fall out of.
+    expect(groupOf("Delta")).toBeTruthy();
+    expect(groupOf("Delta")?.getAttribute("aria-label")).toBeNull();
   });
 
   it("marks the current value, reports the pick, and keeps focus on the trigger", async () => {

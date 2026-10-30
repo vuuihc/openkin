@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { setLocale } from "../../i18n";
 import RunConfigControl, { type RunConfigControlProps } from "./RunConfigSheet";
@@ -128,6 +128,86 @@ describe("RunConfigControl", () => {
     expect(screen.queryByRole("dialog", { name: "Run settings" })).toBeNull();
   });
 
+  it("spends one Escape on the layer even when focus never entered it", async () => {
+    setup();
+    await openSheet();
+    const trigger = screen.getByRole("button", { name: /^Model/ });
+    await userEvent.click(trigger);
+    expect(screen.getByRole("listbox", { name: "Model" })).toBeTruthy();
+
+    // The layer is portaled out of the sheet, and opening it need not move
+    // focus. The sheet's capture-phase listener runs before the layer's own
+    // Escape handling and must still count the layer as open inside, or the
+    // first Escape closes the sheet under it.
+    trigger.focus();
+    await userEvent.keyboard("{Escape}");
+
+    expect(screen.queryByRole("listbox", { name: "Model" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Run settings" })).toBeTruthy();
+  });
+
+  it("puts focus inside the option layer when a row opens", async () => {
+    // The layer is portaled out of the sheet. Without moving focus into it, a
+    // hardware keyboard has nowhere to arrow from, and a screen reader whose
+    // cursor is confined to the modal never reaches the options.
+    setup();
+    await openSheet();
+    await userEvent.click(screen.getByRole("button", { name: /^Model/ }));
+
+    const layer = document.querySelector("[data-run-config-layer]");
+    expect(layer).toBeTruthy();
+    expect(layer!.contains(document.activeElement)).toBe(true);
+    // And it is the current choice that has it, so the next arrow is relative.
+    expect(document.activeElement?.textContent).toContain("Sonnet");
+  });
+
+  it("gives the first Back to the layer and the next to the sheet", async () => {
+    setup();
+    await openSheet();
+    await userEvent.click(screen.getByRole("button", { name: /^Model/ }));
+    expect(screen.getByRole("listbox", { name: "Model" })).toBeTruthy();
+
+    // The system Back gesture, as the browser delivers it.
+    act(() => {
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(screen.queryByRole("listbox", { name: "Model" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Run settings" })).toBeTruthy();
+
+    act(() => {
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(screen.queryByRole("dialog", { name: "Run settings" })).toBeNull();
+  });
+
+  it("gives its history entry back when the sheet closes itself", async () => {
+    setup();
+    await openSheet();
+    const back = vi.spyOn(window.history, "back");
+    // The scrim is the sheet's own close path; closing this way must not leave
+    // an entry behind for Back to walk into after the sheet is already gone.
+    await userEvent.click(document.querySelector(".kin-scrim-enter") as HTMLElement);
+    expect(screen.queryByRole("dialog", { name: "Run settings" })).toBeNull();
+    expect(back).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes the layer from inside it, where the rows cannot hear the key", async () => {
+    setup();
+    await openSheet();
+    const trigger = screen.getByRole("button", { name: /^Model/ });
+    await userEvent.click(trigger);
+
+    // A portal is not a DOM child, so the rows' own key handler never sees an
+    // Escape pressed on an option. The document listener is what puts the
+    // layer away and returns focus to its row.
+    screen.getByRole("option", { name: /Sonnet/ }).focus();
+    await userEvent.keyboard("{Escape}");
+
+    expect(screen.queryByRole("listbox", { name: "Model" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Run settings" })).toBeTruthy();
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it("walks out of the option list and back into the search field", async () => {
     // More than six models is what makes the list long enough to grow a field.
     const many = Array.from({ length: 8 }, (_, index) => ({
@@ -181,5 +261,62 @@ describe("RunConfigControl", () => {
     await userEvent.click(screen.getByRole("button", { name: /^Permissions/ }));
     expect(screen.getAllByRole("option")).toHaveLength(1);
     expect(screen.queryByRole("option", { name: /YOLO/ })).toBeNull();
+  });
+
+  // KIN-CONTINUE-001, step 5: the phone's pickers are a second layer over the
+  // sheet. The sheet itself must not grow, and the rows below must not move —
+  // the old inline expansion pushed the permission row off the bottom of the
+  // sheet exactly when it was about to be used.
+  it("floats the model options over the sheet without growing it", async () => {
+    setup();
+    const dialog = await openSheet();
+    const permission = screen.getByRole("button", { name: /^Permissions/ });
+
+    await userEvent.click(screen.getByRole("button", { name: /^Model/ }));
+
+    const layer = screen.getByRole("listbox", { name: "Model" }).closest("[data-run-config-layer]");
+    expect(layer).toBeTruthy();
+    // Measured from the viewport and portaled out of the sheet: an `absolute`
+    // layer inside the sheet's scrollport was clipped at its top edge, where
+    // no scroll could reach it, so the search field and first options painted
+    // nowhere.
+    expect(layer!.className).toContain("fixed");
+    expect(layer!.parentElement).toBe(document.body);
+    expect(dialog.contains(layer)).toBe(false);
+    expect(screen.getByRole("dialog", { name: "Run settings" })).toBe(dialog);
+    // The row below is the same node in the same sheet, not a re-render moved
+    // by a taller body.
+    expect(screen.getByRole("button", { name: /^Permissions/ })).toBe(permission);
+    expect(document.querySelector("select")).toBeNull();
+  });
+
+  it("floats the agent options over the sheet too", async () => {
+    setup({
+      agents: [
+        { id: "claude-code", name: "Claude Code", available: true },
+        { id: "codex", name: "Codex", available: true },
+      ] as never,
+      onAgentChange: vi.fn(),
+    });
+    await openSheet();
+    await userEvent.click(screen.getByRole("button", { name: /^Agent/ }));
+
+    const layer = screen.getByRole("listbox", { name: "Agent" }).closest("[data-run-config-layer]");
+    expect(layer).toBeTruthy();
+    expect(layer!.className).toContain("fixed");
+    expect(layer!.parentElement).toBe(document.body);
+  });
+
+  it("closes the layer on a tap outside it, leaving the sheet open", async () => {
+    setup();
+    const dialog = await openSheet();
+    await userEvent.click(screen.getByRole("button", { name: /^Model/ }));
+    expect(screen.getByRole("listbox", { name: "Model" })).toBeTruthy();
+
+    // The sheet's own body, not a row and not the layer.
+    await userEvent.click(dialog);
+
+    expect(screen.queryByRole("listbox", { name: "Model" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Run settings" })).toBe(dialog);
   });
 });

@@ -3,12 +3,15 @@ import type { AgentSession, Task } from "../api/client";
 import {
   archivedCwdFor,
   filterProjectBuckets,
+  groupProjectBucketsByDevice,
   PINNED_BUCKET,
+  pinnedRowDeviceName,
   withPinnedBucket,
   phoneProjectBuckets,
   type PhoneBucketScope,
   UNASSIGNED_PROJECT,
 } from "./phoneSessionBuckets";
+import type { Machine } from "./devices";
 
 function task(partial: Partial<Task> & Pick<Task, "id" | "cwd" | "created_at">): Task {
   return {
@@ -71,7 +74,11 @@ describe("phoneProjectBuckets", () => {
       task({ id: "new", cwd: "/work/new", created_at: 90 }),
       task({ id: "loose", cwd: "", created_at: 100 }),
     ]);
-    expect(rows.map((bucket) => bucket.key)).toEqual(["/work/new", "/work/old", UNASSIGNED_PROJECT]);
+    expect(rows.map((bucket) => bucket.key)).toEqual([
+      "/work/new",
+      "/work/old",
+      UNASSIGNED_PROJECT,
+    ]);
     expect(rows[2]!.label).toBe("No project");
   });
 
@@ -401,5 +408,122 @@ describe("withPinnedBucket", () => {
     );
     expect(out.length).toBe(1);
     expect(out[0]!.rows.map((r) => r.key)).toEqual(["s1"]);
+  });
+});
+
+// KIN-CONTINUE-001, step 1: pinning lifts a row out of its machine's heading,
+// so the row itself has to say where it runs. Without this a pinned
+// conversation worked on another machine reads as a local one.
+describe("pinnedRowDeviceName", () => {
+  const machines: Machine[] = [
+    { id: "mac", label: "MacBook", isSelf: true, online: true, roots: [], agents: [] },
+    { id: "nas", label: "Studio", isSelf: false, online: true, roots: [], agents: [] },
+  ];
+  const row = (remote: boolean, deviceId?: string) => ({
+    key: "t1",
+    at: 1,
+    title: "Pinned one",
+    agentId: "kin",
+    remote,
+    deviceId,
+  });
+
+  it("names the machine a pinned remote row runs on", () => {
+    expect(pinnedRowDeviceName(PINNED_BUCKET, row(true, "nas"), machines)).toBe("Studio");
+  });
+
+  it("says nothing for a row still under its machine's heading", () => {
+    expect(pinnedRowDeviceName("/work/alpha", row(true, "nas"), machines)).toBe("");
+  });
+
+  it("says nothing for a pinned row that runs here", () => {
+    expect(pinnedRowDeviceName(PINNED_BUCKET, row(false, "mac"), machines)).toBe("");
+    expect(pinnedRowDeviceName(PINNED_BUCKET, row(false), machines)).toBe("");
+  });
+
+  it("falls back to the id when the machine list does not know it", () => {
+    // A machine that just went offline still names itself on its tasks; its
+    // label is missing until the list answers again.
+    expect(pinnedRowDeviceName(PINNED_BUCKET, row(true, "nas-2"), machines)).toBe("nas-2");
+  });
+});
+
+// KIN-CONTINUE-001: the phone list is three levels — machine → project →
+// conversation. Two machines with work each get their own heading, and the same
+// project path on both is two histories, not one merged fold.
+describe("groupProjectBucketsByDevice", () => {
+  const machine = (id: string, label: string, isSelf = false): Machine => ({
+    id,
+    label,
+    isSelf,
+    online: true,
+    roots: [],
+    agents: [],
+  });
+  const machines = [machine("mac", "MacBook", true), machine("nas", "Studio")];
+
+  it("puts each machine's projects under its own heading, this machine first", () => {
+    const groups = groupProjectBucketsByDevice(
+      buckets([
+        task({ id: "here", cwd: "/work/alpha", created_at: 2 }),
+        task({ id: "there", cwd: "/srv/beta", created_at: 3, executing_device_id: "nas" }),
+      ]),
+      machines,
+      "mac",
+    );
+
+    expect(groups.map((group) => group.id)).toEqual(["mac", "nas"]);
+    expect(groups[0]!.isSelf).toBe(true);
+    expect(groups[0]!.buckets.map((bucket) => bucket.label)).toEqual(["alpha"]);
+    expect(groups[0]!.buckets[0]!.rows.map((row) => row.key)).toEqual(["here"]);
+    expect(groups[1]!.buckets.map((bucket) => bucket.label)).toEqual(["beta"]);
+    expect(groups[1]!.buckets[0]!.rows.map((row) => row.key)).toEqual(["there"]);
+  });
+
+  it("keeps the same project on two machines as two histories", () => {
+    const groups = groupProjectBucketsByDevice(
+      buckets([
+        task({ id: "local", cwd: "/work/shared", created_at: 1 }),
+        task({ id: "remote", cwd: "/work/shared", created_at: 2, executing_device_id: "nas" }),
+      ]),
+      machines,
+      "mac",
+    );
+
+    expect(groups).toHaveLength(2);
+    expect(groups[0]!.buckets[0]!.rows.map((row) => row.key)).toEqual(["local"]);
+    expect(groups[1]!.buckets[0]!.rows.map((row) => row.key)).toEqual(["remote"]);
+  });
+
+  it("re-sorts each machine's projects after the split", () => {
+    // The project with the remote row sorts first globally, but this machine's
+    // copy of it is the oldest thing here. Its local bucket must fall below the
+    // project this machine actually touched more recently.
+    const groups = groupProjectBucketsByDevice(
+      buckets([
+        task({ id: "remote-new", cwd: "/srv/beta", created_at: 100, executing_device_id: "nas" }),
+        task({ id: "local-old", cwd: "/srv/beta", created_at: 10 }),
+        task({ id: "local-newer", cwd: "/work/gamma", created_at: 70 }),
+      ]),
+      machines,
+      "mac",
+    );
+
+    expect(groups[0]!.buckets.map((bucket) => bucket.label)).toEqual(["gamma", "beta"]);
+  });
+
+  it("leaves pinned rows to the page's own leading section", () => {
+    const out = withPinnedBucket(
+      buckets([
+        task({ id: "pinned", cwd: "/work/alpha", created_at: 1 }),
+        task({ id: "loose", cwd: "/work/alpha", created_at: 2 }),
+      ]),
+      new Set(["pinned"]),
+      "Pinned",
+    );
+    const groups = groupProjectBucketsByDevice(out, machines, "mac");
+    expect(groups.flatMap((group) => group.buckets.map((bucket) => bucket.key))).not.toContain(
+      PINNED_BUCKET,
+    );
   });
 });

@@ -13,7 +13,6 @@ import {
   IconRoutines,
   IconSessions,
   IconSettings,
-  IconTasks,
   IconTerminal,
   type IconProps,
 } from "./icons";
@@ -41,7 +40,6 @@ import {
 export const PLACE_ICONS: Record<PlaceId, (p: IconProps) => ReactNode> = {
   new: IconPlus,
   sessions: IconSessions,
-  tasks: IconTasks,
   inbox: IconInbox,
   artifacts: IconArtifacts,
   routines: IconRoutines,

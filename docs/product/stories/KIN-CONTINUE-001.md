@@ -1,6 +1,6 @@
 # KIN-CONTINUE-001 · 接着问一段对话
 
-状态：draft
+状态：approved
 优先级：P0
 旅程：J1、J2
 归属面：`IA.md`「Mac 上接着问」「手机上接着问」
@@ -144,16 +144,27 @@ Mac：左边一列和右边主区各有一份同样的对话列表，各有自�
 | 层级 | 位置 | Given / When / Then |
 |---|---|---|
 | 单元 | `ui/src/lib/deviceSidebar.test.ts`（已有，改） | Given 只有一台设备有对话 When 渲染列表 Then 设备名仍然显示；多设备时每台一个分组标题 |
-| 单元 | `ui/src/lib/phoneSessionBuckets.test.ts`（已有，扩充） | Given 两台设备各有项目 When 手机列表分桶 Then 输出 设备 → 项目 → 对话 三层 |
-| 组件 | `ui/src/components/layout/Sidebar.dom.test.tsx`（新建） | Given Mac 宽度 When 渲染外壳 Then 文档里只有一个列表搜索框，且列表是三级 |
-| 组件 | `ui/src/pages/SessionsPage.dom.test.tsx`（新建） | Given Mac 宽度 When 打开 `/sessions` Then 渲染新建页而不是列表；Given 手机宽度 When 打开 K 面板 Then 文档里没有对话条目和搜索框 |
-| 组件 | `ui/src/components/chat/PermissionModePicker.dom.test.tsx`（新建） | Given `matchMedia('(min-width: 768px)')` 为真 When 点权限 chip Then 出现 `role="menu"`，文档里没有 `ion-action-sheet`；点一项 Then `onChange` 恰好一次、菜单关闭、焦点回 chip；When 按 Esc Then 不调用 `onChange`；Given 手机宽度 Then 仍是底部面板 |
+| 单元 | `ui/src/lib/phoneSessionBuckets.test.ts`（已有，扩充） | Given 两台设备各有项目 When 手机列表分桶 Then 输出 设备 → 项目 → 对话 三层；Given 一条置顶的远程对话 When 它离开设备标题进入置顶区 Then 行上说明它所在设备，本机置顶行不显示 |
+| 接线 | `ui/src/pages/sessionPinnedWiring.test.ts`（新建） | Given 置顶区渲染 When 行上带设备名 Then 无障碍名字也带上它，不只画一个图标 |
+| 组件 | `ui/src/components/layout/Sidebar.dom.test.tsx`（新建） | Given Mac 宽度 When 渲染外壳 Then 文档里只有一个列表搜索框，且列表是三级；底部图标的徽标数进入无障碍名字；导入是普通按钮的展开区（Esc 关闭并还焦点），不是 `role="menu"` |
+| 组件 | `ui/src/pages/SessionsPage.dom.test.tsx`（新建） | Given Mac 宽度 When 打开 `/sessions` Then 渲染新建页而不是列表；Given `/sessions?scope=archived` When Mac 宽度 Then 仍是新建页，归档由左栏展开归档区呈现，主区不出现第二份列表和搜索框；Given 手机宽度 When 打开 K 面板 Then 文档里没有对话条目和搜索框 |
+| 组件 | `ui/src/components/chat/PermissionModePicker.dom.test.tsx`（新建） | Given `matchMedia('(min-width: 768px)')` 为真 When 点权限 chip Then 出现 `role="menu"`（`fixed` 定位、portal 到 body，不被输入框那一行的滚动容器裁切），文档里没有 `ion-action-sheet`；点一项 Then `onChange` 恰好一次、菜单关闭、焦点回 chip；When 按 Esc Then 不调用 `onChange`；Given 手机宽度 Then 仍是底部面板 |
 | 组件 | `ui/src/components/chat/ModelPicker.dom.test.tsx`（已有，扩充） | Given 桌面宽度 When 打开模型 Then 面板有分组且键盘可选；Given 手机宽度 Then 走运行设置面板 |
-| 组件 | `ui/src/components/chat/RunConfigSheet.dom.test.tsx`（已有，扩充） | Given 手机 When 点模型 / agent / 权限任一行 Then 选项出现在盖住面板的第二层，面板高度不变、下面的行位置不变；选完第二层关闭、面板还在，值显示在底栏；文档里没有 `<select>` |
+| 组件 | `ui/src/components/chat/RunConfigSheet.dom.test.tsx`（已有，扩充） | Given 手机 When 点模型 / agent / 权限任一行 Then 选项出现在盖住面板的第二层（`fixed` 定位、portal 出面板的滚动容器，顶部不被裁掉），焦点进入第二层，面板高度不变、下面的行位置不变；Tab 不出面板加第二层；系统返回先关第二层、再关面板，面板自己关闭时把历史条目还回去；选完第二层关闭、面板还在，值显示在底栏；文档里没有 `<select>` |
+| 组件 | `ui/src/components/ui/SheetSelect.dom.test.tsx`（新建） | Given Mac 宽度 When 点角色这类小选择器 Then 打开贴按钮的 `role="menu"`，文档里没有 `ion-action-sheet`，当前项打勾并先接焦点；选完关闭并还焦点；Esc 关闭且不改值；Given 手机宽度 Then 仍是底部面板 |
+| 组件 | `ui/src/components/ui/SearchSelect.dom.test.tsx`（已有，扩充） | Given 带分组的目录 When 打开列表 Then 每个选项都在以自己标题命名的 `role="group"` 里（没有标题的行也在列表自己的分组里），标题只作视觉 |
 | 组件 | `ui/src/pages/phoneRunConfigFace.test.ts`（已有，回归） | Given 两个宽度 When 渲染 Then 同一时刻只有一份运行设置控件 |
-| 组件 | `ui/src/pages/TaskDetailPage.dom.test.tsx`（新建） | Given 已打开一条对话 When 切到另一条 Then 外壳（侧栏、输入框）节点不重建，旧对话内容留到新内容到达，整页不出现骨架屏 |
-| 组件 | `ui/src/components/cards/ApprovalCard.dom.test.tsx`（新建） | Given 待批准卡片 When 点批准 Then 卡片显示结果、按钮禁用、不跳页 |
-| 回归 | `ui/src/lib/findInTranscript.test.ts`（已有） | Given 面板盖住对话 When 按 ⌘F Then 对话不打开查找栏 |
+| 组件 | `ui/src/components/CommandPalette.dom.test.tsx`（新建） | Given ⌘K When 打开并输入 When 停顿超过防抖 Then 只有操作和去处，没有对话行、没有消息搜索，也不请求任务表和消息接口（项目名沿用已加载的列表） |
+| 单元 | `ui/src/lib/needsYou.test.ts`（已有，扩充） | Given 手机上批过的卡片 When 重开会话或另一台设备读事件流 Then 由 `approval_requested` + `approval_decided` 重建同一张已决卡片，本机刚给出的答案优先、不出现第二张 |
+| 回归 | `ui/src/pages/TaskDetailPage.test.ts`（已有，扩充） | Given 卡片答完 When 待批列表移走这一行 Then 页面保留就地结果，并从事件重建刷新后的答案 |
+| 组件 | `ui/src/pages/TaskDetailPage.dom.test.tsx`（新建） | Given 已打开一条对话 When 切到另一条 Then 外壳（侧栏、输入框）节点不重建，旧对话内容留到新内容到达，整页不出现骨架屏；切换期间快捷键跟着屏幕上那条对话，不落到隐藏的新对话；切换中关掉屏上那条 Then 新对话接手，不出现整块空白 |
+| 组件 | `ui/src/components/cards/ApprovalCard.dom.test.tsx`（新建） | Given 待批准卡片 When 点批准 Then 卡片就地显示结果、提交中按钮禁用、不跳页、焦点落在结果上；Given 手机、超时或运行停止先答复 Then 就地显示但不抢走本机输入焦点（失败的答复后读者已移开焦点时也一样）；没有 `decided_via` 时不出现半句话；`via=web` 只说在线决定，不说“在这里”；过期说超时，不说拒绝；运行停止时自动拒绝说“运行停止时自动拒绝” |
+| 单元 | `ui/src/lib/approvalAttribution.test.ts`（已有，扩充） | Given `decided_via` 是 `a2a`、`mcp:<client>`、`ios:<device>` When 生成说明 Then 说人话（Agent 连接 / 具体的 MCP 客户端 / 已配对手机），不把设备 id 或内部前缀显示给人；未知渠道仍如实显示原值 |
+| 回归 | `ui/src/pages/findWiring.test.ts`（已有） | Given 面板盖住对话 When 按 ⌘F Then 对话不打开查找栏 |
+| 单元 | `ui/src/lib/overlayOwnsKeyboard.dom.test.ts`（新建） | Given 菜单、列表、对话框或手机的第二层盖住对话 When 判断键盘归属 Then 覆盖层接管，j/k/a/d 和 ⌘F 都不落到被盖住的那条对话；框架留在 DOM 里的关闭层（`display:none`）和藏起来的常驻面板不算覆盖层 |
+| 单元 | `ui/src/lib/draftChat.test.ts`（已有，扩充） | Given Mac 的 `/sessions` When 判断草稿态 Then 与主区一致；Given 手机同址 Then 是在看列表，不是草稿；归档地址在 Mac 上仍是草稿（左栏切到归档区），在手机上是归档列表 |
+| 单元/组件 | `ui/src/lib/lastConversation.test.ts`、`ui/src/pages/StartRoute.dom.test.tsx`（新建） | Given 上次停在一条对话 When 冷启动 `/` Then 直接打开那条；Given 那条已被删除 Then 回到草稿页并忘掉它 |
+| 单元/接线 | `ui/src/lib/sessionSearch.test.ts`、`ui/src/pages/macKeyboardWiring.test.ts`（新建） | Given Mac 窗口 When 按 ⌘F Then 焦点落进左栏唯一的搜索框并全选旧词，覆盖层打开时不让给列表；Given 对话页 When 按 Esc Then 回到搜索框；Given 从列表点开一条再返回 Then 焦点回到那一行 |
 | 真浏览器 | 1100 宽，`/browse` | 点权限出贴按钮的菜单（jsdom 不重定向点击，见 `LESSONS.md`）；列表只有一份；⌘K 里没有任务表；发一条消息能看到它进入运行 |
 | 真浏览器 | 390 宽，`/browse` | 列表三层；K 面板只有入口；运行设置是底部面板；能发出一条消息 |
 | 视觉 | 390 / 1100 截图 | 1100：一份列表、权限是菜单；390：对照 `01-sessions-390.png`、`02-drawer-390.png` |
@@ -161,7 +172,10 @@ Mac：左边一列和右边主区各有一份同样的对话列表，各有自�
 ## 证据
 
 - 之前：`03-sessions-1280.png`、`17-permission-desktop-1280.png`、`01-sessions-390.png`、`02-drawer-390.png`
-- 之后：交付时补
+- 之后（Vite 开发服务器连本机节点，`/browse`，2026-10-30）：
+  - 1100：左栏只有一份对话列表；权限菜单 `fixed`、portal 到 `body`、完整落在视口内且不改变输入区高度；⌘K 只有操作和去处，没有对话行和消息搜索；从一条对话切到另一条后内容直接到达，没有整页骨架或空白。
+  - 390：列表是 设备 → 项目 → 对话 三层；K 面板只有入口、没有对话行和第二个搜索框；运行设置是底部面板；点模型后第二层 `fixed` 浮在面板上（`body` 子节点、视口内可见），面板高度保持 261px 不变；发出的消息立即进入运行并完成。
+  - 截图为本地临时文件，未入库。
 
 ## 变更记录
 
@@ -170,3 +184,9 @@ Mac：左边一列和右边主区各有一份同样的对话列表，各有自�
 - 2026-10-30 按草图反馈改：左栏一整块（列表 + 底部图标）、设备名不隐藏；agent 也要能换；选择器外弹不撑高容器（TASTE 14）；切换对话不整页白屏（TASTE 15）
 - 2026-10-30 分轮改按用户动作切：能在两端接着问 / 能改设置 / 能看结果；删列表降为手段
 - 2026-10-30 取消分轮：一条故事一次交付；看改动拆成 KIN-RESULT-001，管理对话和设置各一条
+- 2026-10-30 交付：登记验收测试；⌘F 回归指向 `findWiring.test.ts`（真正钉住覆盖层不回退到对话的那条）
+- 2026-10-30 复审修复：选择器改为 `fixed` + portal（原 `absolute` 被输入行/面板滚动容器裁掉）；Mac 保留归档路由；快捷键跟随可见对话；已决卡片从事件重建并在答完后接住焦点；导入进底栏图标；手机分设备后重排项目
+- 2026-10-30 二轮复审修复：切走时关掉旧对话不再留白；菜单/第二层盖住对话时 j/k/a/d 与 ⌘F 归覆盖层；`via=web` 不再说“在这里”，过期不再当拒绝；Mac 的 `/sessions` 与外壳草稿态一致；补注释与 PLAN 状态
+- 2026-10-30 五轮复审修复：返回行的焦点标记落点即消费，之后打字/实时更新不再把焦点抢回列表；⌘F 按“焦点所在的那条对话”判断归属，不再被先挂载的隐藏 pane 骗过；导入的 agent 会话也记住返回行；手机小选择器的测试证明它真的打开了面板；清掉语言文件里与故事无关的换行噪音
+- 2026-10-30 四轮复审修复：Mac 的归档地址仍走草稿页，由左栏展开归档区（主区不再出现第二份列表）；冷启动恢复上次对话；⌘F / 上下键 / Esc 与返回行焦点接上；运行设置第二层接住 Tab 和系统返回，面板自己关闭时归还历史条目；权限菜单随面板失活关闭；`decided_via` 的 `a2a` / `mcp:` / `ios:` 改成渠道文案；置顶行保留设备名；SearchSelect 分组包住选项；小选择器在 Mac 上是贴按钮菜单（`SheetSelect`）；导入改成普通按钮展开区；底部图标徽标数进入无障碍名字
+- 2026-10-30 三轮复审修复：覆盖层判定只看真正渲染的层（Ionic 关闭的 `role="dialog"` 宿主、隐藏的常驻面板不算）；已决卡片只为本机给出的答案接焦点，答复失败后读者把注意力移开就不再抢；引擎自动拒绝记为 `interrupt`，前端说“运行停止时自动拒绝”，不再冒充在线决定；补 `TestInterruptSteerDeniesPendingApproval`

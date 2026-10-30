@@ -39,6 +39,7 @@ import {
   unarchiveTask,
   withdrawQueuedPrompt,
   type AgentInfo,
+  type Approval,
   type LimitHit,
   type QueuedPrompt,
   type TaskUsage,
@@ -48,6 +49,7 @@ import {
 } from "../api/client";
 import { liveResources } from "../api/liveResources";
 import { useFindSeed } from "./useFindSeed";
+import { useMinWidth } from "../hooks/useMinWidth";
 import { usePendingResources, useTaskResource } from "../api/useLiveResources";
 import ApprovalCard from "../components/cards/ApprovalCard";
 import LimitCard from "../components/cards/LimitCard";
@@ -88,7 +90,10 @@ import ShareDialog from "../components/task/ShareDialog";
 import { workerActivity, type WorkerRow } from "../components/task/workerActivity";
 import { extractChangedFiles } from "../lib/changedFiles";
 import type { AgentRole } from "../lib/agentRoles";
-import { anchoredPendingIds, orderPending } from "../lib/needsYou";
+import { anchoredPendingIds, mergeDecidedApprovals, orderPending } from "../lib/needsYou";
+import { forgetLastConversation } from "../lib/lastConversation";
+import { overlayOwnsKeyboard } from "../lib/overlayOwnsKeyboard";
+import { focusSessionSearch } from "../lib/sessionSearch";
 import {
   canRefillComposer,
   editStillRunning,
@@ -165,6 +170,10 @@ export default function TaskDetailPage({
   const id = taskId || paramId;
   const navigate = useNavigate();
   const tr = useT();
+  // The session-actions sheet is a phone surface; below `md` it is the way to
+  // stop, share or find. Keeping it mounted at desktop width leaves an
+  // `ion-action-sheet` in the Mac's document even while closed.
+  const wide = useMinWidth(768);
   const { machines } = useMachines();
   const detail = useTaskResource(id);
   const pending = usePendingResources();
@@ -193,6 +202,14 @@ export default function TaskDetailPage({
         : detail.error
           ? tr("task.loadFailed")
           : null;
+  // The stored resume point must not outlive the conversation it names: a
+  // task deleted here or on another device would otherwise reopen as an error
+  // on every cold start.
+  useEffect(() => {
+    if (detail.data.deleted || (detail.error instanceof ApiError && detail.error.status === 404)) {
+      forgetLastConversation(id);
+    }
+  }, [detail.data.deleted, detail.error, id]);
   const [usage, setUsage] = useState<TaskUsage | null>(null);
   const [limitWait, setLimitWait] = useState<TaskLimitWait | null>(null);
   const [workerSteps, setWorkerSteps] = useState<WorkerStep[]>([]);
@@ -281,6 +298,30 @@ export default function TaskDetailPage({
   // The same decision path the inbox and the floating card use, so a failure
   // reads the same wherever the reader answered from.
   const { busy, decide } = useApprovalDecision("task.decisionFailed");
+  /**
+   * Answers this pane has just recorded, keyed by approval id.
+   *
+   * The pending list drops a row the moment it is decided, which used to make
+   * the card disappear and leave the conversation to imply the outcome. These
+   * keep the card where it was asked, now saying what was decided — the same
+   * place, the same card, no second pending card on the next device.
+   */
+  const [decidedApprovals, setDecidedApprovals] = useState<Record<string, Approval>>({});
+  const decideAndKeep = useCallback(
+    async (id: string, decision: "approved" | "denied") => {
+      const updated = await decide(id, decision);
+      if (!updated) return;
+      setDecidedApprovals((prev) => {
+        const next = { ...prev, [id]: updated };
+        // A long session can answer many cards; the strip is a record of the
+        // recent ones, not an ever-growing copy of the approval table.
+        const ids = Object.keys(next);
+        for (const key of ids.slice(0, Math.max(0, ids.length - 20))) delete next[key];
+        return next;
+      });
+    },
+    [decide],
+  );
   const [answerBusy, setAnswerBusy] = useState<Record<string, boolean>>({});
   const [limitBusy, setLimitBusy] = useState<string | null>(null);
   const [focusIdx, setFocusIdx] = useState(0);
@@ -310,6 +351,17 @@ export default function TaskDetailPage({
   const [fileFinderOpen, setFileFinderOpen] = useState(false);
   /** Open the finder once the phone's action sheet has gone; see `openFindAfterSheet`. */
   const openFileFinderAfterSheet = useRef(false);
+  // A window can cross the breakpoint with the sheet open. The sheet is only
+  // mounted below `md`, so widening unmounts it without its dismiss path; the
+  // note saying "open find once the sheet is gone" would stay armed for a
+  // sheet that is never coming back. Drop both with the sheet.
+  useEffect(() => {
+    if (!wide) return;
+    setActionsOpen(false);
+    openFindAfterSheet.current = false;
+    openShareAfterSheet.current = false;
+    openFileFinderAfterSheet.current = false;
+  }, [wide]);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null | undefined>(
     undefined,
   );
@@ -743,21 +795,40 @@ export default function TaskDetailPage({
 
   type NeedsYouEntry = (typeof needsYou)[number];
 
+  // Decided cards outlive their pending row: the answers this pane just gave,
+  // and the ones the transcript already remembers (a reload, or a decision
+  // made on the phone). Only until the server lists the same approval again.
+  const decidedCards = useMemo(
+    () => mergeDecidedApprovals(approvals, decidedApprovals, events),
+    [approvals, decidedApprovals, events],
+  );
+  const displayNeedsYou = useMemo(() => {
+    const pending = needsYou.map((entry) => ({ ...entry, decided: false }));
+    if (decidedCards.length === 0) return pending;
+    const anchors = pendingRefSeqs(events);
+    const decided = decidedCards.map((item) => ({
+      kind: "approval" as const,
+      id: item.id,
+      created_at: item.created_at,
+      seq: anchors.get(item.id) ?? null,
+      item,
+      decided: true,
+    }));
+    return orderPending([...pending, ...decided].sort((a, b) => a.created_at - b.created_at));
+  }, [needsYou, decidedCards, events]);
+
   useEffect(() => {
     if (!active) return;
     function onKey(e: KeyboardEvent) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
       }
-      // A dialog owns the keyboard while it is up. Approving a card behind the
-      // overlay is the worst thing a shortcut can do, and a focused button in
-      // the file finder is exactly the target this would otherwise get.
-      if (
-        e.target instanceof Element &&
-        e.target.closest('[role="dialog"], [role="alertdialog"]')
-      ) {
-        return;
-      }
+      // A floating layer owns the keyboard while it is up. Approving a card
+      // behind the overlay is the worst thing a shortcut can do, and a focused
+      // button in the file finder is exactly the target this would otherwise
+      // get. Not only dialogs: the permission menu and the phone's run-config
+      // layers are `menu`/`listbox` roles portaled over this same pane.
+      if (overlayOwnsKeyboard()) return;
       const list = needsYou;
       if (!list.length) return;
       if (e.key === "j" || e.key === "J") {
@@ -766,15 +837,15 @@ export default function TaskDetailPage({
         setFocusIdx((i) => Math.max(0, i - 1));
       } else if (e.key === "a" || e.key === "A") {
         const cur = list[focusIdx] ?? list[0];
-        if (cur?.kind === "approval") void decide(cur.id, "approved");
+        if (cur?.kind === "approval") void decideAndKeep(cur.id, "approved");
       } else if (e.key === "d" || e.key === "D") {
         const cur = list[focusIdx] ?? list[0];
-        if (cur?.kind === "approval") void decide(cur.id, "denied");
+        if (cur?.kind === "approval") void decideAndKeep(cur.id, "denied");
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [active, needsYou, focusIdx, decide]);
+  }, [active, needsYou, focusIdx, decideAndKeep]);
 
   // ⌘P / Ctrl+P is the file finder, from anywhere on the session — the whole
   // point is that it works without first opening the files panel and walking a
@@ -810,6 +881,25 @@ export default function TaskDetailPage({
   useEffect(() => {
     if (!active) setFileFinderOpen(false);
   }, [active]);
+
+  // Escape leaves the conversation and puts the caret back in the one list
+  // search box (step 3). Overlays claim the key first: a menu, the finder bar
+  // or a sheet that already handled it must not also move the reader out. The
+  // claim is checked after dispatch because the palette and the find bar act
+  // on their own timers.
+  useEffect(() => {
+    if (!active || !wide) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      if (overlayOwnsKeyboard()) return;
+      window.setTimeout(() => {
+        if (event.defaultPrevented) return;
+        focusSessionSearch();
+      }, 0);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [active, wide]);
 
   async function onLimitAction(action: "wait" | "continue" | "switch" | "dismiss", agent?: string) {
     if (!task) return;
@@ -1340,15 +1430,17 @@ export default function TaskDetailPage({
   // at the point the agent stopped, and only the ones with no place left (their
   // event scrolled out) fall back to the end of the stream. Rendering both would
   // put two sets of Approve/Deny buttons for the same decision on screen.
-  const anchoredIds = anchoredPendingIds(needsYou);
+  const anchoredIds = anchoredPendingIds(displayNeedsYou);
   const pendingSlots: Record<string, ReactNode> = {};
-  for (const entry of needsYou) {
+  for (const entry of displayNeedsYou) {
     if (anchoredIds.has(entry.id)) pendingSlots[entry.id] = renderPendingCard(entry);
   }
-  const unanchored = needsYou.filter((entry) => !anchoredIds.has(entry.id));
+  const unanchored = displayNeedsYou.filter((entry) => !anchoredIds.has(entry.id));
 
-  function renderPendingCard(entry: NeedsYouEntry) {
-    const focused = needsYou[focusIdx]?.id === entry.id;
+  function renderPendingCard(entry: NeedsYouEntry & { decided?: boolean }) {
+    const settled =
+      entry.kind === "approval" && (entry.decided || entry.item.decision !== "pending");
+    const focused = !settled && needsYou[focusIdx]?.id === entry.id;
     return (
       <div data-pending-id={entry.id}>
         {entry.kind === "approval" ? (
@@ -1356,8 +1448,12 @@ export default function TaskDetailPage({
             approval={entry.item}
             focused={focused}
             busy={busy[entry.id] ?? null}
-            onApprove={() => void decide(entry.id, "approved")}
-            onDeny={() => void decide(entry.id, "denied")}
+            onApprove={() => {
+              if (!settled) void decideAndKeep(entry.id, "approved");
+            }}
+            onDeny={() => {
+              if (!settled) void decideAndKeep(entry.id, "denied");
+            }}
             onOpenPath={onOpenWorkspacePath}
           />
         ) : (
@@ -1660,7 +1756,9 @@ export default function TaskDetailPage({
               disabled={archiving}
               className="inline-flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-secondary transition-colors hover:text-kin-text disabled:opacity-40"
               title={task?.archived_at ? tr("task.unarchiveSession") : tr("task.archiveSession")}
-              aria-label={task?.archived_at ? tr("task.unarchiveSession") : tr("task.archiveSession")}
+              aria-label={
+                task?.archived_at ? tr("task.unarchiveSession") : tr("task.archiveSession")
+              }
             >
               {task?.archived_at ? <IconRestore size={13} /> : <IconArchive size={13} />}
             </button>
@@ -1705,39 +1803,41 @@ export default function TaskDetailPage({
           </div>
         </div>
 
-        <IonActionSheet
-          isOpen={actionsOpen}
-          onDidDismiss={() => {
-            setActionsOpen(false);
-            // The bar can only take focus once the sheet is gone; see
-            // `openFindAfterSheet`.
-            if (openFindAfterSheet.current) {
-              openFindAfterSheet.current = false;
-              setFindOpen(true);
+        {!wide && (
+          <IonActionSheet
+            isOpen={actionsOpen}
+            onDidDismiss={() => {
+              setActionsOpen(false);
+              // The bar can only take focus once the sheet is gone; see
+              // `openFindAfterSheet`.
+              if (openFindAfterSheet.current) {
+                openFindAfterSheet.current = false;
+                setFindOpen(true);
+              }
+              if (openShareAfterSheet.current) {
+                openShareAfterSheet.current = false;
+                setShareOpen(true);
+              }
+              if (openFileFinderAfterSheet.current) {
+                openFileFinderAfterSheet.current = false;
+                setFileFinderOpen(true);
+              }
+            }}
+            header={tr("task.sessionActions")}
+            // Which machine is about to be acted on. The footer strip that named
+            // it is below `md` too, and "stop this session" on an unnamed remote
+            // machine is the decision this sheet exists for.
+            subHeader={
+              machine
+                ? machine.known
+                  ? tr("machine.runsOn", { name: machine.text })
+                  : tr("machine.runsOnUnknown", { name: machine.text })
+                : undefined
             }
-            if (openShareAfterSheet.current) {
-              openShareAfterSheet.current = false;
-              setShareOpen(true);
-            }
-            if (openFileFinderAfterSheet.current) {
-              openFileFinderAfterSheet.current = false;
-              setFileFinderOpen(true);
-            }
-          }}
-          header={tr("task.sessionActions")}
-          // Which machine is about to be acted on. The footer strip that named
-          // it is below `md` too, and "stop this session" on an unnamed remote
-          // machine is the decision this sheet exists for.
-          subHeader={
-            machine
-              ? machine.known
-                ? tr("machine.runsOn", { name: machine.text })
-                : tr("machine.runsOnUnknown", { name: machine.text })
-              : undefined
-          }
-          cssClass="kin-sheet"
-          buttons={sessionActions}
-        />
+            cssClass="kin-sheet"
+            buttons={sessionActions}
+          />
+        )}
         <ShareDialog open={shareOpen} onClose={() => setShareOpen(false)} taskId={task.id} />
 
         {error && (
@@ -1940,11 +2040,30 @@ export default function TaskDetailPage({
                 which is what a long path next to a repository name did on a
                 phone. */}
             <div className="hidden md:flex items-center gap-x-2 gap-y-1 px-0.5 min-w-0 overflow-x-auto kin-scroll whitespace-nowrap">
+              {/* The host agent is this session's identity: the daemon has no
+                  protocol to swap it, so it is named as a fact rather than a
+                  disabled button. The phone's run sheet shows the same value
+                  the same way. */}
+              <span
+                className="inline-flex flex-none items-center gap-1.5 text-caption font-medium text-kin-secondary"
+                title={tr("runConfig.agentLocked")}
+              >
+                <span
+                  className={`flex h-5 w-5 flex-none items-center justify-center rounded-md text-micro font-semibold ${hostAgentAvatar.className}`}
+                >
+                  {hostAgentAvatar.initials}
+                </span>
+                <span className="max-w-[8rem] truncate">{hostAgentName}</span>
+              </span>
+              <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
+                ·
+              </span>
               <PermissionModePicker
                 value={composerPermissionMode}
                 modes={taskPermissionModes}
                 disabled={sending || stopping}
                 compact
+                active={active}
                 onChange={setComposerPermission}
               />
               <span className="text-kin-muted/50 flex-none select-none" aria-hidden>

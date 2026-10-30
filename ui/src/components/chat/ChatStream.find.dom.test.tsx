@@ -209,6 +209,19 @@ describe("find in conversation", () => {
     expect(screen.queryByRole("search")).toBeNull();
   });
 
+  it("does not open while a floating layer covers the conversation", () => {
+    renderStream();
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    document.body.appendChild(menu);
+    try {
+      fireEvent.keyDown(window, { key: "f", metaKey: true });
+      expect(screen.queryByRole("search")).toBeNull();
+    } finally {
+      menu.remove();
+    }
+  });
+
   it("does not handle Escape in a hidden pane either", async () => {
     const onFindOpenChange = vi.fn();
     renderStream({ findOpen: true, onFindOpenChange, findShortcut: false });
@@ -299,9 +312,7 @@ describe("find inside a process card", () => {
     expect(toggle).not.toBeNull();
     fireEvent.click(toggle as HTMLButtonElement);
 
-    expect(
-      container.querySelector('[data-message-key="note-s-3"]'),
-    ).toBeNull();
+    expect(container.querySelector('[data-message-key="note-s-3"]')).toBeNull();
     expect(activeRow(container)).toBeNull();
 
     // A dismissal belongs to that visit. Closing the bar and opening it again

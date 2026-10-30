@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
   type Ref,
 } from "react";
 import { useT } from "../../i18n/react";
@@ -17,6 +18,12 @@ export type SearchSelectOption = {
   label: string;
   /** Secondary text after the label — a model's tier, a gateway's name. */
   detail?: string;
+  /** A heading above a run of options (a model catalog's provider). Options
+   *  with the same group stay together in the order given; the heading is
+   *  drawn once, before the first of them. */
+  group?: string;
+  /** A mark before the label — an agent's avatar tile. */
+  leading?: ReactNode;
 };
 
 type Props = {
@@ -76,6 +83,20 @@ function matches(option: SearchSelectOption, needle: string): boolean {
   return [option.label, option.id, option.detail ?? ""].some((text) =>
     text.toLowerCase().includes(needle),
   );
+}
+
+type OptionRun = { heading: string | null; options: SearchSelectOption[] };
+
+/** Split the flat, already-filtered options into the runs their headings name. */
+function groupRuns(options: SearchSelectOption[]): OptionRun[] {
+  const runs: OptionRun[] = [];
+  for (const option of options) {
+    const heading = option.group || null;
+    const last = runs[runs.length - 1];
+    if (last && last.heading === heading) last.options.push(option);
+    else runs.push({ heading, options: [option] });
+  }
+  return runs;
 }
 
 type TriggerProps = {
@@ -285,55 +306,86 @@ function Chooser({
         onKeyDown={onListKeyDown}
         className={["mt-1", listClassName].filter(Boolean).join(" ")}
       >
-        {shown.map((option) => {
-          const selected = option.id === value;
-          return (
-            <button
-              key={option.id || "__default"}
-              ref={selected ? selectedRef : undefined}
-              type="button"
-              data-search-option
-              role={listbox ? "option" : undefined}
-              // The listbox pattern keeps Tab in the field and moves focus with
-              // the arrow keys; 47 tab stops between the search and the rest of
-              // the page is not a list, it is a maze. The phone's rows keep
-              // their place in the tab order *because* the sheet's focus trap
-              // is built from them: one stop per row is the price of a list
-              // that a keyboard can still reach there, and touch is the path
-              // that surface is actually used by.
-              tabIndex={listbox ? -1 : undefined}
-              aria-selected={listbox ? selected : undefined}
-              aria-current={!listbox && selected ? "true" : undefined}
-              // WebKit does not focus a button on a mouse click, so the field
-              // above blurs with `relatedTarget === null`; keeping the default
-              // would hand focus to nothing mid-click. This is also what the
-              // combobox pattern asks for: focus stays in the field, the row is
-              // a target the arrow keys and the mouse both act on.
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => onSelect(option.id)}
-              className={[
-                "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors",
-                "hover:bg-[var(--kin-fill-strong)] focus:bg-[var(--kin-fill-strong)] focus:outline-none",
-                // The sheet is portaled out of `.touch-lg`, so its rows carry
-                // their own touch floor; 16px is what the phone's other lists
-                // (`MobileRow`) use. The popover stays dense at body size.
-                listbox ? "text-body" : "min-h-12 text-subtitle",
-                selected ? "text-kin-text" : "text-kin-secondary",
-              ].join(" ")}
-            >
-              <span className="min-w-0 flex-1 truncate">
-                {option.label}
-                {option.detail ? (
-                  <span className={listbox ? "text-kin-muted" : "text-caption text-kin-muted"}>
-                    {" · "}
-                    {option.detail}
+        {groupRuns(shown).map((run, runIndex) => (
+          <div
+            key={`${run.heading ?? "__ungrouped"}-${runIndex}`}
+            // A listbox may only contain options and groups; a bare heading div
+            // is neither, and some screen readers drop the whole list's
+            // semantics when they meet one. The heading therefore becomes the
+            // group's name and the group holds its options — the shape a native
+            // `<optgroup>` gives, so an option can answer "which group am I in"
+            // without relying on being drawn next to it.
+            role={listbox || run.heading ? "group" : undefined}
+            aria-label={run.heading ?? undefined}
+          >
+            {run.heading ? (
+              <div
+                // For the eye only in the listbox: the group above already
+                // carries the name, and a readable heading would announce the
+                // provider twice for every run.
+                aria-hidden={listbox ? true : undefined}
+                className={[
+                  "px-2 pb-0.5 text-micro font-semibold uppercase tracking-label text-kin-muted",
+                  runIndex === 0 ? "pt-1" : "pt-2",
+                ].join(" ")}
+              >
+                {run.heading}
+              </div>
+            ) : null}
+            {run.options.map((option) => {
+              const selected = option.id === value;
+              return (
+                <button
+                  key={option.id || "__default"}
+                  ref={selected ? selectedRef : undefined}
+                  type="button"
+                  data-search-option
+                  role={listbox ? "option" : undefined}
+                  // The listbox pattern keeps Tab in the field and moves focus with
+                  // the arrow keys; 47 tab stops between the search and the rest of
+                  // the page is not a list, it is a maze. The phone's rows keep
+                  // their place in the tab order *because* the sheet's focus trap
+                  // is built from them: one stop per row is the price of a list
+                  // that a keyboard can still reach there, and touch is the path
+                  // that surface is actually used by.
+                  tabIndex={listbox ? -1 : undefined}
+                  aria-selected={listbox ? selected : undefined}
+                  aria-current={!listbox && selected ? "true" : undefined}
+                  // WebKit does not focus a button on a mouse click, so the field
+                  // above blurs with `relatedTarget === null`; keeping the default
+                  // would hand focus to nothing mid-click. This is also what the
+                  // combobox pattern asks for: focus stays in the field, the row is
+                  // a target the arrow keys and the mouse both act on.
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => onSelect(option.id)}
+                  className={[
+                    "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors",
+                    "hover:bg-[var(--kin-fill-strong)] focus:bg-[var(--kin-fill-strong)] focus:outline-none",
+                    // The sheet is portaled out of `.touch-lg`, so its rows carry
+                    // their own touch floor; 16px is what the phone's other lists
+                    // (`MobileRow`) use. The popover stays dense at body size.
+                    listbox ? "text-body" : "min-h-12 text-subtitle",
+                    selected ? "text-kin-text" : "text-kin-secondary",
+                  ].join(" ")}
+                >
+                  {option.leading ? <span className="flex-none">{option.leading}</span> : null}
+                  <span className="min-w-0 flex-1 truncate">
+                    {option.label}
+                    {option.detail ? (
+                      <span className={listbox ? "text-kin-muted" : "text-caption text-kin-muted"}>
+                        {" · "}
+                        {option.detail}
+                      </span>
+                    ) : null}
                   </span>
-                ) : null}
-              </span>
-              {selected ? <IconCheck size={13} className="flex-none text-kin-blue-ink" /> : null}
-            </button>
-          );
-        })}
+                  {selected ? (
+                    <IconCheck size={13} className="flex-none text-kin-blue-ink" />
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </div>
       {/* The region is mounted before it has anything to say: a live region
           added in the same commit as its text is not reliably announced. */}

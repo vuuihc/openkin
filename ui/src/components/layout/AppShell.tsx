@@ -14,7 +14,14 @@ import {
 } from "../../api/client";
 import { liveResources } from "../../api/liveResources";
 import { useTaskList, useTaskResource } from "../../api/useLiveResources";
-import { DRAFT_PATH, setDraftCwd, getDraftCwd, subscribeDraft } from "../../lib/draftChat";
+import {
+  DRAFT_PATH,
+  draftSurfaceActive,
+  setDraftCwd,
+  getDraftCwd,
+  subscribeDraft,
+} from "../../lib/draftChat";
+import { useMinWidth } from "../../hooks/useMinWidth";
 import { importToast } from "../../lib/agentSessionImport";
 import { useAgentSessionImport, importsInFlight } from "../../hooks/useAgentSessionImport";
 import { useT } from "../../i18n/react";
@@ -27,6 +34,8 @@ import SessionsHeader from "../mobile/SessionsHeader";
 import { IconSearch, IconX } from "../icons";
 import TerminalPanel from "../terminal/TerminalPanel";
 import { isKinDesktop } from "../../lib/desktop";
+import { overlayOwnsKeyboard } from "../../lib/overlayOwnsKeyboard";
+import { focusInsideConversationPane, focusSessionSearch } from "../../lib/sessionSearch";
 import { isTerminalToggle, localTerminalCwd } from "../../lib/terminal";
 import {
   SHELL_VIEW,
@@ -86,7 +95,11 @@ export default function AppShell({
   const navigate = useNavigate();
   const tr = useT();
   const selectedTaskId = taskIdFromPath(location.pathname);
-  const draftActive = location.pathname === DRAFT_PATH;
+  // `/sessions` draws the draft on a Mac (the sidebar is the list) and the
+  // list on a phone; the shell's draft state has to agree with what is drawn,
+  // not just with `/new`.
+  const wide = useMinWidth(768);
+  const draftActive = draftSurfaceActive(location.pathname, wide);
   const desktop = isKinDesktop();
   // On the phone there is no sidebar to say where you are, so the header has to.
   const pathname = location.pathname.replace(/\/+$/, "") || "/";
@@ -106,15 +119,13 @@ export default function AppShell({
   const listTitle = !desktop
     ? pathname === "/agents"
       ? tr("nav.agents")
-      : pathname === "/tasks"
-        ? tr("nav.tasks")
-        : pathname === "/artifacts"
-          ? tr("nav.artifacts")
-          : pathname === "/projects"
-            ? tr("nav.projects")
-            : pathname === "/routines"
-              ? tr("nav.routines")
-              : ""
+      : pathname === "/artifacts"
+        ? tr("nav.artifacts")
+        : pathname === "/projects"
+          ? tr("nav.projects")
+          : pathname === "/routines"
+            ? tr("nav.routines")
+            : ""
     : "";
   const mobileTitle = draftActive
     ? tr("nav.newChat")
@@ -174,9 +185,7 @@ export default function AppShell({
    * will never be drawn.
    */
   const measuredBottomBand =
-    selectedTaskId !== null ||
-    draftActive ||
-    location.pathname.startsWith("/agent-sessions/");
+    selectedTaskId !== null || draftActive || location.pathname.startsWith("/agent-sessions/");
 
   /**
    * The dock floats over the page, so the shell reserves its height under the
@@ -502,6 +511,26 @@ export default function AppShell({
     return () => window.removeEventListener("keydown", onKey);
   }, [terminalAvailable, openNewChat, toggleTerminal, paletteOpen]);
 
+  // ⌘F is the list's search (step 2). The transcript's own find bar keeps the
+  // key while the caret is inside the conversation, where it is the closer
+  // handler; everywhere else the one search box wins. Capture, because
+  // ChatStream's window listener is registered first and would otherwise open
+  // the find bar over the list the reader was looking at.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.repeat || e.isComposing || e.defaultPrevented) return;
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+      if (e.key.toLowerCase() !== "f") return;
+      // Ask the focused element which pane it is in, not the document which
+      // pane exists: several cached panes are mounted at once.
+      if (focusInsideConversationPane()) return;
+      if (overlayOwnsKeyboard()) return;
+      if (focusSessionSearch()) e.preventDefault();
+    }
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
+
   // Which machine the open task runs on. Read from the task resource the page
   // itself uses, not from the sidebar list: that list is capped and filtered by
   // search, and a task missing from it would silently drop the guard below.
@@ -615,10 +644,7 @@ export default function AppShell({
                 the trailing cluster, where the compose screens already put
                 cancel.
               */
-              <MobileHeaderButton
-                label={tr("app.openMenu")}
-                onClick={() => setMobileOpen(true)}
-              >
+              <MobileHeaderButton label={tr("app.openMenu")} onClick={() => setMobileOpen(true)}>
                 {/* The same identity disc the sessions bar leads with: the
                     drawer is one destination, and one shape for it on every
                     screen. A hamburger here and a disc there made the two
@@ -709,9 +735,7 @@ export default function AppShell({
           >
             <FloatingApproval
               approvals={floating}
-              titleFor={(taskId) =>
-                taskDisplayTitle(tasks.find((task) => task.id === taskId))
-              }
+              titleFor={(taskId) => taskDisplayTitle(tasks.find((task) => task.id === taskId))}
               busy={approvalDecision.busy}
               onDecide={(id, decision) => void approvalDecision.decide(id, decision)}
               onOpenTask={(taskId) => navigate(`/tasks/${encodeURIComponent(taskId)}`)}

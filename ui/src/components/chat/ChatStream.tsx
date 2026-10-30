@@ -19,6 +19,7 @@ import { findMatches, stepMatch } from "../../lib/findInTranscript";
 import { friendlyErrorLabel } from "../../lib/friendlyError";
 import { useLocale, useT } from "../../i18n/react";
 import { isMessageQueued } from "../../lib/queuedPrompts";
+import { overlayOwnsKeyboard } from "../../lib/overlayOwnsKeyboard";
 import { agentAvatarMeta } from "../../lib/agentMention";
 import {
   isMessageActionsToggleTap,
@@ -286,6 +287,10 @@ export default function ChatStream({
       // layer; the Escape branch below checks the flag after dispatch for the
       // opposite reason (the palette registers later than this listener).
       if (event.defaultPrevented) return;
+      // A menu, a sheet or a dialog over this conversation owns the keyboard.
+      // Opening the bar would move focus into a field the reader cannot see,
+      // and the next keystrokes would go there instead of the overlay.
+      if (overlayOwnsKeyboard()) return;
       if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "f") {
         event.preventDefault();
         setFindOpen(true);
@@ -492,6 +497,7 @@ export default function ChatStream({
   return (
     <div
       ref={rootRef}
+      data-conversation-pane
       className="max-w-conversation w-full min-w-0 mx-auto px-4 sm:px-7 flex flex-col gap-4"
     >
       {findOpen && (

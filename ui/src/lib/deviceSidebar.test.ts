@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentSession, Task } from "../api/client";
 import type { Machine } from "./devices";
-import { groupByDevice, projectKey, sessionsForProject, showMachineLabels } from "./deviceSidebar";
+import { groupByDevice, projectKey, sessionsForProject } from "./deviceSidebar";
 
 const store = new Map<string, string>();
 
@@ -256,20 +256,25 @@ describe("groupByDevice", () => {
   });
 });
 
-describe("showMachineLabels", () => {
-  it("stays quiet when the only machine is this one", () => {
+// KIN-CONTINUE-001: the device name is always shown, even when this machine is
+// the only one. The sidebar renders one heading per group, so the grouping
+// must keep the lone self machine as a group instead of flattening it away.
+describe("device grouping", () => {
+  it("keeps the only machine as a group, so it still has a name to show", () => {
     const groups = groupByDevice(
       [task({ id: "t", cwd: "/work/app", created_at: 1 })],
       [],
       machines,
       prefs,
     );
-    expect(showMachineLabels(groups, [])).toBe(false);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.isSelf).toBe(true);
+    expect(groups[0]!.id).toBe("mac-1");
   });
 
   it("does not count a machine twice when it has archived rows too", () => {
     // The bug this replaced: `groups.length + archivedGroups.length > 1` made a
-    // single-machine console grow a machine heading the moment anything was
+    // single-machine console grow a second heading the moment anything was
     // archived.
     const tasks = [
       task({ id: "live", cwd: "/work/live", created_at: 1 }),
@@ -278,35 +283,34 @@ describe("showMachineLabels", () => {
     const archivedPrefs = { ...prefs, archived: ["/work/old"] };
     const live = groupByDevice(tasks, [], machines, archivedPrefs);
     const archived = groupByDevice(tasks, [], machines, archivedPrefs, true);
-    expect(showMachineLabels(live, archived)).toBe(false);
+    expect(new Set([...live, ...archived].map((group) => group.id)).size).toBe(1);
   });
 
-  it("names the machine when there is more than one", () => {
+  it("gives each machine its own group, this machine first", () => {
     const groups = groupByDevice(
       [
-        task({ id: "here", cwd: "/work/app", created_at: 1 }),
         task({ id: "there", cwd: "/srv/app", created_at: 1, executing_device_id: "nas-1" }),
+        task({ id: "here", cwd: "/work/app", created_at: 1 }),
       ],
       [],
       machines,
       prefs,
     );
-    expect(showMachineLabels(groups, [])).toBe(true);
+    expect(groups.map((group) => group.id)).toEqual(["mac-1", "nas-1"]);
   });
 
   it("names the machine when every session runs somewhere else", () => {
     // A Hub whose only work ran on a paired laptop: one machine on screen, but
-    // not this one, so staying silent hides where the work actually ran.
+    // not this one, so grouping by the executing device is the only way to say
+    // where the work actually ran.
     const groups = groupByDevice(
       [task({ id: "there", cwd: "/srv/app", created_at: 1, executing_device_id: "nas-1" })],
       [],
       machines,
       prefs,
     );
-    expect(showMachineLabels(groups, [])).toBe(true);
-  });
-
-  it("says nothing at all when the console is empty", () => {
-    expect(showMachineLabels([], [])).toBe(false);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.id).toBe("nas-1");
+    expect(groups[0]!.isSelf).toBe(false);
   });
 });

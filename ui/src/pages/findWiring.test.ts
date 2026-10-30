@@ -16,6 +16,10 @@ import { describe, expect, it } from "vitest";
  *
  * Source rather than DOM, like `sessionSearchWiring.test.ts`: mounting this
  * page needs a daemon, a machine list and two live subscriptions.
+ *
+ * KIN-CONTINUE-001: an overlay must not leave the conversation's shortcuts
+ * live behind it, so the panel and file-finder cases here stay red if the gate
+ * is loosened.
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 const SOURCE = readFileSync(join(UI, "src/pages/TaskDetailPage.tsx"), "utf8");
@@ -42,6 +46,10 @@ describe("the phone's way into find-in-conversation", () => {
     // same page, and while it is up the bar is behind it too. Monaco keeps its
     // own find; everything else falls through to the browser.
     expect(SOURCE).toContain("findShortcut={active && panel === null && !fileFinderOpen}");
+    // The conversation's j/k/a/d gate is document-wide now: the permission
+    // menu and the run-config layers are `menu`/`listbox` roles portaled over
+    // the same pane, which no ancestor selector can see.
+    expect(SOURCE).toContain("overlayOwnsKeyboard()");
   });
 
   it("opens on the words a chat search sent, in the pane in front only", () => {

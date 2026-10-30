@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { AgentInfo } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { agentCatalogState } from "../../lib/agentCatalog";
+import { agentAvatarMeta } from "../../lib/agentMention";
 import {
   isListedModel,
   modelPickTarget,
@@ -69,7 +70,27 @@ export default function AgentModelPicker({
             bordered={false}
             label={tr("newChat.hostPicker")}
             value={agentValue}
-            options={agents.map((a) => ({ id: a.id, label: a.name }))}
+            options={agents.map((a) => {
+              const meta = agentAvatarMeta(a.id);
+              return {
+                id: a.id,
+                label: a.name,
+                // One row per agent carries the same tile the transcript draws
+                // beside its messages, so the picker and the conversation name
+                // the same agent the same way.
+                leading: (
+                  <span
+                    // The tile is the agent's face, not its name: the row
+                    // already says "Claude Code", and the initials would be
+                    // read as a stray letter before it.
+                    aria-hidden
+                    className={`flex h-5 w-5 items-center justify-center rounded-md text-micro font-semibold ${meta.className}`}
+                  >
+                    {meta.initials}
+                  </span>
+                ),
+              };
+            })}
             onChange={onAgentChange}
             disabled={disabled}
             placement="top"

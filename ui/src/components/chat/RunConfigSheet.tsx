@@ -1,5 +1,17 @@
-import { useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import { createPortal } from "react-dom";
 import type { AgentInfo } from "../../api/client";
+import { useAnchoredPanel } from "../../hooks/useAnchoredPanel";
 import { useT } from "../../i18n/react";
 import { agentAvatarMeta } from "../../lib/agentMention";
 import {
@@ -16,7 +28,7 @@ import {
   type PermissionMode,
 } from "../../lib/permissionMode";
 import { IconCheck, IconSearch, IconX } from "../icons";
-import Sheet from "../mobile/Sheet";
+import Sheet, { useSheetLayer } from "../mobile/Sheet";
 
 /**
  * The phone's run settings, behind one ghost face in the composer.
@@ -79,11 +91,7 @@ export type RunConfigControlProps = {
 };
 
 /** The face's model text: the catalog label, or the id's tail for a custom one. */
-function faceModelLabel(
-  model: string,
-  models: AgentModelOption[],
-  fallback: string,
-): string {
+function faceModelLabel(model: string, models: AgentModelOption[], fallback: string): string {
   const current = model.trim();
   if (!current) return fallback;
   const listed = models.find((m) => m.id === current);
@@ -112,7 +120,11 @@ export default function RunConfigControl({
   const current = model.trim();
   const mode = normalizePermissionMode(permission);
   const permissionLabel = tr(PERMISSION_MODE_LABEL_KEY[mode]);
-  const modelLabel = faceModelLabel(current, models, fallbackModelLabel ?? tr("modelPicker.default"));
+  const modelLabel = faceModelLabel(
+    current,
+    models,
+    fallbackModelLabel ?? tr("modelPicker.default"),
+  );
 
   return (
     <>
@@ -218,6 +230,10 @@ function RunConfigBody({
 }: Omit<SheetProps, "open" | "onClose">) {
   const tr = useT();
   const [openRow, setOpenRow] = useState<RowId | null>(null);
+  // The option layer is part of this sheet's modal even though it is portaled
+  // out of the panel: Tab stays inside both, Back closes it first, and the
+  // sheet stops claiming `aria-modal` over a subtree it does not contain.
+  useSheetLayer(Boolean(openRow), () => setOpenRow(null));
   const [query, setQuery] = useState("");
   const [customPicked, setCustomPicked] = useState(false);
   const [modelList, setModelList] = useState<HTMLDivElement | null>(null);
@@ -251,6 +267,23 @@ function RunConfigBody({
       : modelOptions;
   const agentPicker = agents && onAgentChange ? agents.filter((a) => a.available) : [];
   const modelFallback = fallbackModelLabel ?? tr("modelPicker.default");
+
+  useEffect(() => {
+    if (!openRow) return;
+    // A layer floats over the rows now, so tapping anything that is not it or
+    // the control that opened it puts it away. Tapping another row is not an
+    // "outside" tap: its trigger opens that row, and closing here first would
+    // make the tap only dismiss.
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Element | null;
+      if (target?.closest("[data-run-config-layer], [data-run-config-trigger]")) return;
+      setOpenRow(null);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+    };
+  }, [openRow]);
 
   /** First/last option in the model list, for the search field's arrow keys. */
   function focusOption(which: "first" | "last") {
@@ -299,7 +332,9 @@ function RunConfigBody({
       onKeyDown={(event) => {
         // The sheet's own Escape trap declines to close while a listbox is
         // open inside it (see Sheet.tsx), which leaves this layer to close the
-        // expansion first. The second Escape then closes the sheet.
+        // expansion first. The second Escape then closes the sheet. The layer
+        // is portaled out of this div, but React still bubbles its events
+        // through the tree, so a key pressed on an option lands here.
         if (event.key === "Escape" && openRow) {
           event.stopPropagation();
           closeRow(openRow);
@@ -331,12 +366,12 @@ function RunConfigBody({
           }
         >
           {openRow === "agent" ? (
-            <Expansion id={`${listId}-agent`}>
+            <Expansion id={`${listId}-agent`} placement="below">
               <div
                 role="listbox"
                 aria-label={tr("runConfig.agent")}
                 onKeyDown={moveListFocus}
-                className="py-1"
+                className="max-h-[40dvh] overflow-y-auto py-1 kin-scroll"
               >
                 {agentPicker.map((agent) => {
                   const selected = agent.id === agentId;
@@ -412,7 +447,7 @@ function RunConfigBody({
         }
       >
         {openRow === "model" ? (
-          <Expansion id={listId}>
+          <Expansion id={listId} placement="above">
             {searchable ? (
               <SearchField
                 value={query}
@@ -438,7 +473,9 @@ function RunConfigBody({
               className="max-h-[200px] overflow-y-auto kin-scroll py-1"
             >
               {filtered.length === 0 ? (
-                <p className="px-3 py-2 text-body text-kin-muted">{tr("modelPicker.searchEmpty")}</p>
+                <p className="px-3 py-2 text-body text-kin-muted">
+                  {tr("modelPicker.searchEmpty")}
+                </p>
               ) : (
                 filtered.map((option) => {
                   const selected = option.id === selection;
@@ -458,7 +495,9 @@ function RunConfigBody({
                       <span className="flex min-w-0 flex-1 flex-col">
                         <span className="truncate">{option.label}</span>
                         {option.detail ? (
-                          <span className="truncate text-caption text-kin-muted">{option.detail}</span>
+                          <span className="truncate text-caption text-kin-muted">
+                            {option.detail}
+                          </span>
                         ) : null}
                       </span>
                       {selected ? (
@@ -512,7 +551,7 @@ function RunConfigBody({
           }
         >
           {openRow === "permission" ? (
-            <Expansion id={`${listId}-permission`}>
+            <Expansion id={`${listId}-permission`} placement="above">
               <div
                 role="listbox"
                 aria-label={tr("permission.label")}
@@ -592,9 +631,8 @@ function moveListFocus(event: ReactKeyboardEvent<HTMLDivElement>) {
   // left, so the pair is reversible rather than one-way. The permission list
   // has no field above it, and there the old clamp still applies.
   if (event.key === "ArrowUp" && index <= 0) {
-    const search = event.currentTarget.parentElement?.querySelector<HTMLInputElement>(
-      "[data-picker-search]",
-    );
+    const search =
+      event.currentTarget.parentElement?.querySelector<HTMLInputElement>("[data-picker-search]");
     if (search) {
       search.focus();
       return;
@@ -617,6 +655,11 @@ function moveListFocus(event: ReactKeyboardEvent<HTMLDivElement>) {
  *  Exported so the new-chat page can build its location rows (machine,
  *  workspace, branch, dispatch, routine) with the same card chrome.
  */
+/** The card an open row's layer is measured against. A context rather than a
+ *  prop: the rows are built by this module and their children are JSX written
+ *  by the caller, so the ref has to travel without every row restating it. */
+const RowAnchorContext = createContext<RefObject<HTMLDivElement | null> | null>(null);
+
 export function RunConfigSheetRow({
   label,
   control,
@@ -626,13 +669,19 @@ export function RunConfigSheetRow({
   control: ReactNode;
   children?: ReactNode;
 }) {
+  const anchorRef = useRef<HTMLDivElement>(null);
   return (
-    <div>
+    // A row's options are a layer over this card, not a block that grows it.
+    // The sheet keeps its height and the rows below keep their places while a
+    // picker is open.
+    <div ref={anchorRef}>
       <div className="flex items-center gap-3 rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated px-3 py-2">
-        <span className="w-20 flex-none text-caption font-semibold text-kin-secondary">{label}</span>
+        <span className="w-20 flex-none text-caption font-semibold text-kin-secondary">
+          {label}
+        </span>
         <div className="min-w-0 flex-1">{control}</div>
       </div>
-      {children ? <div className="mt-1.5">{children}</div> : null}
+      <RowAnchorContext.Provider value={anchorRef}>{children}</RowAnchorContext.Provider>
     </div>
   );
 }
@@ -676,6 +725,7 @@ function PickerTrigger({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      data-run-config-trigger
       aria-label={`${label}${tr("common.labelSeparator")}${value}`}
       aria-haspopup="listbox"
       aria-expanded={expanded}
@@ -694,14 +744,73 @@ function PickerTrigger({
   );
 }
 
-function Expansion({ id, children }: { id: string; children: ReactNode }) {
-  return (
+/**
+ * The second layer: the options for one run-config row, floating over the
+ * sheet rather than unfolding inside it.
+ *
+ * The rows are a fixed list of three; growing the sheet to fit a model catalog
+ * pushed the permission row out from under the thumb that was about to use
+ * it, and on a phone the sheet was tall enough to lose the row being edited.
+ * As a layer the sheet's height never changes. `placement` says which side of
+ * the row has room: the first row opens downward, the two below it upward.
+ */
+function Expansion({
+  id,
+  placement,
+  children,
+}: {
+  id: string;
+  placement: "above" | "below";
+  children: ReactNode;
+}) {
+  const anchorRef = useContext(RowAnchorContext);
+  // Viewport coordinates, and portaled out of the sheet: the sheet's body is
+  // the scrollport (`overflow-y: auto`), and an `absolute` layer opening
+  // upward lands in its unscrollable top overflow — the search field and first
+  // options were painted outside the box and could never be scrolled to. A
+  // portal also survives the sheet's slide-in transform.
+  const anchor = useAnchoredPanel(Boolean(anchorRef), anchorRef, {
+    placement,
+    maxWidth: 480,
+    maxHeight: 360,
+  });
+  const layerRef = useRef<HTMLDivElement>(null);
+  const anchored = Boolean(anchor);
+  // A layer the keyboard cannot enter is a layer a hardware keyboard or
+  // VoiceOver cannot use. The focus move lives here, not on the row's state,
+  // because the layer mounts one render after the row opens — the anchor has
+  // to be measured first — and an effect keyed on `openRow` would run while
+  // there was nothing to focus.
+  useEffect(() => {
+    const layer = layerRef.current;
+    if (!layer) return;
+    const search = layer.querySelector<HTMLInputElement>("input");
+    const checked = layer.querySelector<HTMLElement>(
+      '[role="option"][aria-selected="true"], [role="option"][aria-checked="true"]',
+    );
+    (search ?? checked ?? layer.querySelector<HTMLElement>('[role="option"]'))?.focus({
+      preventScroll: true,
+    });
+  }, [id, anchored]);
+  if (!anchor) return null;
+  return createPortal(
     <div
+      ref={layerRef}
       id={id}
-      className="overflow-hidden rounded-lg border border-[var(--kin-hairline)] bg-kin-elevated"
+      data-run-config-layer
+      data-sheet-layer
+      style={{
+        left: anchor.left,
+        width: anchor.width,
+        maxHeight: anchor.maxHeight,
+        top: anchor.top,
+        bottom: anchor.bottom,
+      }}
+      className="fixed z-[60] overflow-y-auto kin-scroll rounded-lg border border-[var(--kin-hairline)] bg-kin-elevated shadow-e3"
     >
       {children}
-    </div>
+    </div>,
+    document.body,
   );
 }
 

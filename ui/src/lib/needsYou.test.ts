@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { anchoredPendingIds, orderPending, type PendingEntry } from "./needsYou";
+import type { Approval, TaskEvent } from "../api/client";
+import {
+  anchoredPendingIds,
+  decidedApprovalsFromEvents,
+  mergeDecidedApprovals,
+  orderPending,
+  type PendingEntry,
+} from "./needsYou";
 
 function entry(
   id: string,
@@ -47,5 +54,111 @@ describe("anchoredPendingIds", () => {
     const anchored = anchoredPendingIds([entry("in-window", 7), entry("scrolled-out", null)]);
 
     expect([...anchored]).toEqual(["in-window"]);
+  });
+});
+
+// KIN-CONTINUE-001, step 6: the answer survives the reload, and reaches the
+// other device. The pending list only holds what is still waiting, so a card
+// that was answered on the phone has to be rebuilt from the transcript's own
+// request + decision pair — the same card, saying what was decided.
+function event(
+  type: string,
+  seq: number,
+  payload: Record<string, unknown>,
+  ts = 1_700_000_000_000,
+): TaskEvent {
+  return { task_id: "task-1", event_epoch: 0, seq, ts, type, payload } as TaskEvent;
+}
+
+const asked = event("approval_requested", 1, {
+  approval_id: "a1",
+  kind: "tool",
+  payload: { tool: "Bash", input: { command: "rm -rf build" } },
+});
+const answered = event("approval_decided", 2, {
+  approval_id: "a1",
+  decision: "approved",
+  decided_via: "web",
+  decided_at: 1_700_000_005_000,
+});
+
+function approved(overrides: Partial<Approval> = {}): Approval {
+  return {
+    id: "a1",
+    task_id: "task-1",
+    kind: "tool",
+    payload: { tool: "Bash", input: { command: "rm -rf build" } },
+    decision: "approved",
+    created_at: 1_700_000_000_000,
+    decided_via: "web",
+    decided_at: 1_700_000_005_000,
+    ...overrides,
+  } as Approval;
+}
+
+describe("decided approvals from the transcript", () => {
+  it("rebuilds the card and the answer from the two events", () => {
+    const [card] = decidedApprovalsFromEvents([asked, answered]);
+
+    expect(card).toMatchObject({
+      id: "a1",
+      task_id: "task-1",
+      kind: "tool",
+      decision: "approved",
+      decided_via: "web",
+      decided_at: 1_700_000_005_000,
+      created_at: 1_700_000_000_000,
+    });
+    expect(card!.payload).toEqual({ tool: "Bash", input: { command: "rm -rf build" } });
+  });
+
+  it("needs the request: a decision alone has no card to draw", () => {
+    // The asking event can be older than the loaded window; a card without its
+    // tool body would be an empty box, so it is left out rather than faked.
+    expect(decidedApprovalsFromEvents([answered])).toEqual([]);
+  });
+
+  it("ignores a decision value it does not know", () => {
+    const weird = event("approval_decided", 2, { approval_id: "a1", decision: "maybe" });
+    expect(decidedApprovalsFromEvents([asked, weird])).toEqual([]);
+  });
+
+  it("prefers the answer this pane just gave over the event copy", () => {
+    const local = approved({ decided_at: 1_700_000_009_999 });
+    const cards = mergeDecidedApprovals([], { a1: local }, [asked, answered]);
+
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toBe(local);
+  });
+
+  it("drops the card while the live list still returns the same approval", () => {
+    expect(mergeDecidedApprovals([approved()], { a1: approved() }, [asked, answered])).toEqual([]);
+  });
+
+  it("orders the reconstructed cards the way they were asked", () => {
+    const second = event(
+      "approval_requested",
+      3,
+      {
+        approval_id: "a2",
+        kind: "tool",
+        payload: { tool: "Read" },
+      },
+      1_700_000_002_000,
+    );
+    const secondAnswer = event(
+      "approval_decided",
+      4,
+      {
+        approval_id: "a2",
+        decision: "denied",
+        decided_via: "timeout",
+      },
+      1_700_000_003_000,
+    );
+
+    const cards = mergeDecidedApprovals([], {}, [asked, answered, second, secondAnswer]);
+    expect(cards.map((card) => card.id)).toEqual(["a1", "a2"]);
+    expect(cards[1]!.decided_at).toBe(1_700_000_003_000);
   });
 });

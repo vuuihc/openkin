@@ -31,7 +31,6 @@
 export const PLACE_IDS = [
   "new",
   "sessions",
-  "tasks",
   "inbox",
   "artifacts",
   "routines",
@@ -64,7 +63,6 @@ export type Place = {
 export const PLACES: Place[] = [
   { id: "new", path: "/new", labelKey: "nav.newChat", section: "work", hint: "⌘N" },
   { id: "sessions", path: "/sessions", labelKey: "nav.sessions", section: "work" },
-  { id: "tasks", path: "/tasks", labelKey: "nav.tasks", section: "work" },
   { id: "inbox", path: "/inbox", labelKey: "nav.inbox", section: "work" },
   { id: "artifacts", path: "/artifacts", labelKey: "nav.artifacts", section: "library" },
   { id: "routines", path: "/routines", labelKey: "nav.routines", section: "library" },

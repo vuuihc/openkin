@@ -1977,7 +1977,7 @@ func (e *Engine) cancelTask(ctx context.Context, id string) (store.Task, error) 
 	// Deny any pending approvals so MCP waiters unblock.
 	if pending, err := e.store.ListPendingForTask(ctx, id); err == nil {
 		for _, a := range pending {
-			_, _ = e.Decide(ctx, a.ID, store.DecisionDenied, "web")
+			_, _ = e.Decide(ctx, a.ID, store.DecisionDenied, "interrupt")
 		}
 	}
 	// Resolve pending user questions the same way (ADR 0010).

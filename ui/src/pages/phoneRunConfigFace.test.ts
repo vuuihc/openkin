@@ -17,6 +17,9 @@ import { describe, expect, it } from "vitest";
  * Source rather than DOM, like `phoneKeyboardHints.test.ts`: "this element
  * carries these two classes" is a property of the source text, and rendering
  * the page for real needs a live task, a daemon and a machine list.
+ *
+ * KIN-CONTINUE-001 keeps this gate: the selectors moved into anchored layers,
+ * but there is still exactly one run-config control at each width.
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const store = new Map<string, string>();
@@ -46,6 +48,7 @@ vi.stubGlobal(
 
 const {
   clearDraftPrompt,
+  draftSurfaceActive,
   getDraftAttachments,
   getDraftPrompt,
   setDraftAttachments,
@@ -117,5 +120,38 @@ describe("draftChat prompt persistence", () => {
     ]);
     setDraftAttachments([]);
     expect(getDraftAttachments()).toEqual([]);
+  });
+});
+
+/**
+ * KIN-CONTINUE-001: `/sessions` draws the draft on a Mac, so the shell's draft
+ * state has to say the same thing the main area does.
+ */
+describe("draftSurfaceActive", () => {
+  it("is the draft on /new at either width", () => {
+    expect(draftSurfaceActive("/new", true)).toBe(true);
+    expect(draftSurfaceActive("/new", false)).toBe(true);
+  });
+
+  it("is the draft on /sessions only where the sidebar holds the list", () => {
+    expect(draftSurfaceActive("/sessions", true)).toBe(true);
+    expect(draftSurfaceActive("/sessions/", true)).toBe(true);
+    // On a phone that address draws the list, so no draft is open.
+    expect(draftSurfaceActive("/sessions", false)).toBe(false);
+  });
+
+  it("does not call a conversation or an unrelated page a draft", () => {
+    expect(draftSurfaceActive("/tasks/abc", true)).toBe(false);
+    expect(draftSurfaceActive("/settings", true)).toBe(false);
+  });
+
+  it("is the rule the shell actually reads", () => {
+    // The helper is only worth its tests if AppShell calls it; keying the
+    // shell back to `/new` alone is the defect this pair exists to prevent.
+    const shell = readFileSync(
+      fileURLToPath(new URL("../components/layout/AppShell.tsx", import.meta.url)),
+      "utf8",
+    );
+    expect(shell).toContain("draftSurfaceActive(location.pathname, wide)");
   });
 });

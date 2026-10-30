@@ -51,7 +51,7 @@ describe("useApprovalDecision", () => {
     );
     const { result } = renderHook(() => useApprovalDecision());
 
-    let pending: Promise<void> = Promise.resolve();
+    let pending: Promise<Approval | null> = Promise.resolve(null);
     act(() => {
       pending = result.current.decide("a1", "approved");
     });
@@ -93,7 +93,7 @@ describe("useApprovalDecision", () => {
     );
     const { result } = renderHook(() => useApprovalDecision());
 
-    let first: Promise<void> = Promise.resolve();
+    let first: Promise<Approval | null> = Promise.resolve(null);
     await act(async () => {
       first = result.current.decide("a1", "approved");
       await result.current.decide("a1", "approved");

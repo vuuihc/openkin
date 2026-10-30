@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { setLocale } from "../../i18n";
-import { CUSTOM_MODEL_ID } from "../../lib/agentModels";
+import { CUSTOM_MODEL_ID, modelPickerOptions } from "../../lib/agentModels";
 import ModelPicker from "./ModelPicker";
 
 /**
@@ -80,5 +80,43 @@ describe("ModelPicker compact sheet selection", () => {
     await userEvent.click(screen.getByTestId("pick"));
     expect(onChange).toHaveBeenCalledWith("opus");
     expect(trigger.dataset.value).toBe("");
+  });
+});
+
+// KIN-CONTINUE-001, step 5: on a Mac the model panel is grouped by provider and
+// walkable from the keyboard. The stub above is about selection semantics; this
+// one renders the real control, because groups and arrow keys live in it.
+describe("the desktop model panel", () => {
+  it("heads each provider's models and walks them with the arrow keys", async () => {
+    const { default: SearchSelect } =
+      await vi.importActual<typeof import("../ui/SearchSelect")>("../ui/SearchSelect");
+    const options = modelPickerOptions(
+      [
+        { id: "volcengine/opus", label: "Opus" },
+        { id: "volcengine/sonnet", label: "Sonnet" },
+        { id: "openai/gpt", label: "GPT" },
+      ],
+      { default: "Default model", custom: "Custom model…" },
+    );
+
+    render(
+      <SearchSelect
+        label="Model"
+        value=""
+        options={options}
+        onChange={() => {}}
+        searchable
+        searchPlaceholder="Search models"
+      />,
+    );
+
+    // Two triggers share the name: the desktop popover and the phone sheet are
+    // separate controls so neither can be left mounted behind the other.
+    await userEvent.click(screen.getAllByRole("button", { name: /^Model/ })[0]);
+
+    expect(screen.getByText("volcengine")).toBeTruthy();
+    expect(screen.getByText("openai")).toBeTruthy();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(screen.getAllByRole("option")[0]);
   });
 });

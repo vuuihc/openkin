@@ -1,5 +1,13 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   ensureProject,
   formatCost,
@@ -27,11 +35,11 @@ import {
   ONLY_THIS_MACHINE,
   projectKey,
   sessionsForProject,
-  showMachineLabels,
   type DeviceGroup,
 } from "../../lib/deviceSidebar";
 import { useMachines } from "../../hooks/useMachines";
-import { sidebarNavSections, type PlaceId } from "../../lib/places";
+import { useMinWidth } from "../../hooks/useMinWidth";
+import { placeById, PLACES, type PlaceId } from "../../lib/places";
 import { PLACE_ICONS } from "../placeIcons";
 import {
   getViewedSessionIds,
@@ -95,9 +103,6 @@ function normCwd(cwd: string): string {
   return cwd.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
-const footLink =
-  "flex items-center gap-2.5 px-2 py-1.5 max-md:px-3 max-md:text-strong rounded-lg text-body text-kin-secondary hover:bg-[var(--kin-fill-strong)] hover:text-kin-text transition-colors min-h-10 max-md:min-h-11 max-md:rounded-xl";
-
 function readSidebarDisclosure(key: string): boolean {
   try {
     return localStorage.getItem(`kin_sidebar_open:${key}`) !== "0";
@@ -145,6 +150,7 @@ export default function Sidebar({
 }: Props) {
   const tr = useT();
   const navigate = useNavigate();
+  const location = useLocation();
   const draftCwd = useSyncExternalStore(subscribeDraft, getDraftCwd, () => "");
   const draftPrompt = useSyncExternalStore(subscribeDraft, getDraftPrompt, () => "");
   /** Keep the draft row visible when navigating away with unsent text (or any draft cwd). */
@@ -174,11 +180,60 @@ export default function Sidebar({
     () => groupByDevice(tasks, externalSessions, machineList, null, false, machinesLoading),
     [tasks, externalSessions, machineList, machinesLoading, prefsTick],
   );
-  /** A lone machine needs no heading: the tree is already all of it. A machine
-   *  with both live and archived rows is still one machine. */
-  const machineLabels = showMachineLabels(groups, archivedGroups);
+  // One tree, one width: a phone has no sidebar to hold the list, and the
+  // drawer is entries only. Rendering both copies and hiding one with CSS left
+  // the other's search field in the document, which is how the same list grew
+  // two search boxes.
+  const wide = useMinWidth(768);
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const [archivedOpen, setArchivedOpen] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLElement>(null);
+
+  /**
+   * ↑/↓ walk the conversation rows from the search box and from one row to the
+   * next; Enter opens the focused row because a row is a link; Escape empties
+   * the query and leaves the field. The results are the list itself rather
+   * than a dropdown, so the keyboard model lives on the list.
+   */
+  function sessionRows(): HTMLElement[] {
+    return Array.from(listRef.current?.querySelectorAll<HTMLElement>("[data-session-row]") ?? []);
+  }
+
+  function onSearchKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onSearchQueryChange?.("");
+      event.currentTarget.blur();
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    const rows = sessionRows();
+    if (rows.length === 0) return;
+    event.preventDefault();
+    (event.key === "ArrowDown" ? rows[0] : rows[rows.length - 1])?.focus();
+  }
+
+  function onListKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
+    if (event.defaultPrevented || event.nativeEvent.isComposing) return;
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    const rows = sessionRows();
+    const at = rows.indexOf(document.activeElement as HTMLElement);
+    if (at === -1) return;
+    event.preventDefault();
+    const next =
+      event.key === "ArrowDown" ? Math.min(at + 1, rows.length - 1) : Math.max(at - 1, 0);
+    rows[next]?.focus();
+  }
+  const archivedSectionRef = useRef<HTMLDivElement>(null);
+  const archivedScope = new URLSearchParams(location.search).get("scope") === "archived";
+  // On a Mac the archived address is a filter of this one list, not a second
+  // list in the main area. Following such a link (a restored window, a shared
+  // URL) opens the section, where the phone's drawer entry already leads.
+  useEffect(() => {
+    if (wide && archivedScope) setArchivedOpen(true);
+  }, [archivedScope, wide]);
   /**
    * The project whose overflow sheet is open.
    *
@@ -343,21 +398,21 @@ export default function Sidebar({
     );
   };
 
-  const panel = (
-    <aside className="w-sidebar max-w-[85vw] max-md:w-[86vw] max-md:max-w-[22rem] h-full flex flex-col bg-kin-sidebar shrink-0">
-      <div className="px-3 pt-3 pb-2 max-md:px-3 max-md:pt-4 max-md:pb-3 flex items-center gap-2">
-        {/* The mark, flat: the accent fill every primary action already uses.
-            There were two different gradients for this same "K" in the tree —
-            this one and the chat avatar's — which is two brand palettes, not
-            one. The gradient also could not carry white initials at 4.5:1 at
-            both of its ends. */}
-        <div className="w-7 h-7 max-md:h-8 max-md:w-8 rounded-lg bg-kin-blue flex items-center justify-center text-kin-on-brand text-strong font-semibold shadow-e1">
-          K
-        </div>
-        <span className="text-strong max-md:text-subtitle font-semibold tracking-tight">
-          {tr("app.name")}
-        </span>
-        <div className="ml-auto flex items-center gap-1">
+  const header = (drawer: boolean) => (
+    <div className="px-3 pt-3 pb-2 max-md:px-3 max-md:pt-4 max-md:pb-3 flex items-center gap-2">
+      {/* The mark, flat: the accent fill every primary action already uses.
+          There were two different gradients for this same "K" in the tree —
+          this one and the chat avatar's — which is two brand palettes, not
+          one. The gradient also could not carry white initials at 4.5:1 at
+          both of its ends. */}
+      <div className="w-7 h-7 max-md:h-8 max-md:w-8 rounded-lg bg-kin-blue flex items-center justify-center text-kin-on-brand text-strong font-semibold shadow-e1">
+        K
+      </div>
+      <span className="text-strong max-md:text-subtitle font-semibold tracking-tight">
+        {tr("app.name")}
+      </span>
+      <div className="ml-auto flex items-center gap-1">
+        {!drawer && (
           <div className="relative" ref={sortMenuRef}>
             <button
               type="button"
@@ -406,281 +461,473 @@ export default function Sidebar({
               </div>
             )}
           </div>
-          {/* The drawer's own dismissal. The scrim still closes it, but a
-              full-height panel that covers 86% of the screen leaves almost no
-              scrim to hit — the close control is the reliable way out. */}
+        )}
+        {drawer && (
+          // The drawer's own dismissal. The scrim still closes it, but a
+          // full-height panel that covers 86% of the screen leaves almost no
+          // scrim to hit — the close control is the reliable way out.
           <button
             type="button"
             onClick={onCloseMobile}
             aria-label={tr("app.closeMenu")}
             title={tr("app.closeMenu")}
-            className="md:hidden inline-flex h-11 w-11 -mr-2 items-center justify-center rounded-full text-kin-muted active:bg-[var(--kin-fill)]"
+            className="inline-flex h-11 w-11 -mr-2 items-center justify-center rounded-full text-kin-muted active:bg-[var(--kin-fill)]"
           >
             <IconX size={22} />
           </button>
+        )}
+      </div>
+    </div>
+  );
+
+  // Escape puts the disclosure away and hands focus back to the button that
+  // opened it — the wrapper's first button, which is the trigger in both
+  // surfaces. Tab is how the rows are reached; there is no arrow-key model to
+  // keep, because the popup is a group of plain buttons rather than a menu.
+  const onImportMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Escape") return;
+    event.stopPropagation();
+    setImportMenuOpen(false);
+    importMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+  };
+
+  // The import entry's menu, shared by the drawer's full-width button and the
+  // desktop footer's icon. One list, so the two surfaces cannot offer different
+  // imports.
+  const importMenuItems = (
+    <>
+      <button
+        type="button"
+        // An import that is already running cannot be started again — one
+        // fan-out at a time, which is the hook's rule and not this menu's.
+        // Disabled rather than ignored, because a menu item that closes
+        // the menu and does nothing is a tap that looks like it worked.
+        disabled={importingExternalSessions}
+        onClick={() => {
+          setImportMenuOpen(false);
+          onImportExternalSessions?.();
+        }}
+        className="w-full text-left px-3 py-2 text-body text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
+      >
+        {tr("nav.importAllAgents")}
+      </button>
+      <div className="my-1 border-t border-kin-hairline" />
+      {sessionProviders.length > 0 ? (
+        sessionProviders.map((provider) => (
+          <button
+            key={provider.id}
+            type="button"
+            disabled={importingExternalSessions}
+            onClick={() => {
+              setImportMenuOpen(false);
+              onImportExternalSessions?.([provider.id]);
+            }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-body text-kin-secondary hover:bg-[var(--kin-fill-strong)] hover:text-kin-text disabled:opacity-50"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-kin-blue" />
+            <span className="truncate">{provider.name || provider.id}</span>
+            <span className="ml-auto text-micro text-kin-muted">{provider.id}</span>
+          </button>
+        ))
+      ) : (
+        <div className="px-3 py-2 text-caption text-kin-muted">{tr("nav.noSessionProviders")}</div>
+      )}
+    </>
+  );
+
+  const importBlock = (
+    <div className="px-3 pb-2 relative" ref={importMenuRef}>
+      <button
+        type="button"
+        disabled={importingExternalSessions || !onImportExternalSessions}
+        aria-expanded={importMenuOpen}
+        onClick={() => setImportMenuOpen((open) => !open)}
+        className="w-full flex items-center gap-2 px-2.5 h-11 rounded-xl text-strong text-kin-secondary border border-[var(--kin-hairline-strong)] hover:bg-[var(--kin-fill-strong)] hover:text-kin-text disabled:opacity-50 transition-colors"
+      >
+        <IconDownload size={16} />
+        <span className="flex-1 text-left">
+          {importingExternalSessions
+            ? tr("nav.importingAgentSessions")
+            : tr("nav.importAgentSessions")}
+        </span>
+        <IconChevron
+          size={13}
+          className={importMenuOpen ? "rotate-90 transition-transform" : "transition-transform"}
+        />
+      </button>
+      {importMenuOpen && (
+        <div
+          // A disclosure, not a menu: the rows are plain buttons reached by
+          // Tab. Calling it a menu promises arrow-key navigation that this
+          // popup does not implement, and a screen reader in menu mode
+          // swallows the keys it would otherwise use.
+          role="group"
+          aria-label={tr("nav.importAgentSessions")}
+          onKeyDown={onImportMenuKeyDown}
+          className="absolute left-3 right-3 top-full mt-1 z-50 rounded-lg bg-kin-elevated shadow-e3 py-1"
+        >
+          {importMenuItems}
         </div>
-      </div>
+      )}
+    </div>
+  );
 
-      <div className="px-2.5 pb-2 max-md:px-3 relative" ref={importMenuRef}>
-        <button
-          type="button"
-          disabled={importingExternalSessions || !onImportExternalSessions}
-          aria-haspopup="menu"
-          aria-expanded={importMenuOpen}
-          onClick={() => setImportMenuOpen((open) => !open)}
-          className="w-full flex items-center gap-2 px-2.5 h-8 max-md:h-11 max-md:rounded-xl max-md:text-strong rounded-lg text-body text-kin-secondary border border-[var(--kin-hairline-strong)] hover:bg-[var(--kin-fill-strong)] hover:text-kin-text disabled:opacity-50 transition-colors"
+  // On a Mac the same entry is one of the footer icons: the left column is one
+  // piece — the list, then one row of destinations — and a full-width import
+  // button above it was a second navigation block with the same weight as the
+  // list it was supposed to serve.
+  const importIcon = onImportExternalSessions ? (
+    <div className="relative" ref={importMenuRef}>
+      <button
+        type="button"
+        disabled={importingExternalSessions}
+        aria-expanded={importMenuOpen}
+        aria-label={
+          importingExternalSessions
+            ? tr("nav.importingAgentSessions")
+            : tr("nav.importAgentSessions")
+        }
+        title={
+          importingExternalSessions
+            ? tr("nav.importingAgentSessions")
+            : tr("nav.importAgentSessions")
+        }
+        onClick={() => setImportMenuOpen((open) => !open)}
+        className={[
+          "relative inline-flex h-8 w-8 flex-none items-center justify-center rounded-lg transition-colors",
+          importMenuOpen
+            ? "bg-[var(--kin-fill-strong)] text-kin-text"
+            : "text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text",
+          importingExternalSessions ? "opacity-50" : "",
+        ].join(" ")}
+      >
+        <IconDownload size={16} />
+      </button>
+      {importMenuOpen && (
+        <div
+          role="group"
+          aria-label={tr("nav.importAgentSessions")}
+          onKeyDown={onImportMenuKeyDown}
+          className="absolute bottom-full left-0 z-50 mb-1 w-60 rounded-lg bg-kin-elevated shadow-e3 py-1"
         >
-          <IconDownload size={14} className="max-md:hidden" />
-          <span className="flex-1 text-left">
-            {importingExternalSessions
-              ? tr("nav.importingAgentSessions")
-              : tr("nav.importAgentSessions")}
+          {importMenuItems}
+        </div>
+      )}
+    </div>
+  ) : null;
+
+  const newChatBlock = (
+    <div className="px-2.5 pb-2 max-md:px-3">
+      <button
+        type="button"
+        onClick={() => {
+          onNewChat();
+          onCloseMobile();
+        }}
+        className={[
+          "w-full flex items-center gap-2 px-2.5 h-9 max-md:h-11 max-md:rounded-xl max-md:font-semibold rounded-lg text-strong font-medium border transition-colors",
+          "max-md:border-transparent max-md:bg-kin-blue max-md:text-kin-on-brand max-md:active:opacity-90",
+          draftActive
+            ? "border-kin-blue/40 bg-kin-blue/15 text-kin-text"
+            : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-text hover:bg-[var(--kin-fill-strong)]",
+        ].join(" ")}
+      >
+        <IconPlus size={15} strokeWidth={1.9} className="max-md:h-[18px] max-md:w-[18px]" />
+        {tr("nav.newChat")}
+        <span className="ml-auto text-caption text-kin-muted font-medium hidden sm:inline">⌘N</span>
+      </button>
+    </div>
+  );
+
+  const searchBlock = (
+    <div className="px-3 pb-2 max-md:px-3">
+      <label className="relative flex items-center">
+        <IconSearch
+          size={13}
+          className="absolute left-2.5 max-md:left-3 text-kin-muted pointer-events-none max-md:h-[17px] max-md:w-[17px]"
+        />
+        <input
+          ref={searchRef}
+          data-session-search
+          type="search"
+          value={searchQuery}
+          onChange={(e) => onSearchQueryChange?.(e.target.value)}
+          onKeyDown={onSearchKeyDown}
+          placeholder={tr("nav.searchSessions")}
+          aria-label={tr("nav.searchSessions")}
+          className="w-full h-[32px] max-md:h-11 pl-8 max-md:pl-9 pr-2 rounded-lg max-md:rounded-xl bg-[var(--kin-fill)] border border-transparent focus:border-kin-blue/40 focus:bg-[var(--kin-fill-strong)] text-body max-md:text-subtitle text-kin-text placeholder:text-kin-muted outline-none transition-colors"
+        />
+      </label>
+      {searchQuery.trim() && (
+        <div className="mt-1 px-0.5 text-caption text-kin-muted">
+          {searchLoading ? tr("common.loading") : tr("nav.searchHint")}
+        </div>
+      )}
+    </div>
+  );
+
+  const listNav = (
+    <nav
+      ref={listRef}
+      onKeyDown={onListKeyDown}
+      className="flex-1 overflow-y-auto px-2 pb-2 max-md:px-3 space-y-3"
+    >
+      <button
+        type="button"
+        onClick={() => {
+          navigate("/approvals");
+          onCloseMobile();
+        }}
+        className={[
+          "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-strong min-h-9 max-md:min-h-11 max-md:rounded-xl max-md:px-2 max-md:text-body",
+          pendingCount > 0
+            ? "border border-kin-blue/40 bg-kin-blue/15 text-kin-text"
+            : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
+        ].join(" ")}
+      >
+        <IconInbox size={15} />
+        <span>{tr("nav.inbox")}</span>
+        {pendingCount > 0 && (
+          <span className="ml-auto min-w-[18px] h-[18px] px-1.5 rounded-full bg-kin-orange text-kin-on-status text-caption font-bold inline-flex items-center justify-center tabular-nums">
+            {pendingCount > 99 ? "99+" : pendingCount}
           </span>
-          <IconChevron
-            size={13}
-            className={importMenuOpen ? "rotate-90 transition-transform" : "transition-transform"}
+        )}
+      </button>
+
+      {groups.length === 0 && archivedGroups.length === 0 && (
+        <div className="px-2 py-4 text-body text-kin-muted leading-prose">
+          {searchQuery.trim()
+            ? tr("nav.searchEmpty", { query: searchQuery.trim() })
+            : tr("nav.emptyHint")}
+        </div>
+      )}
+
+      {groups.map((device) => (
+        <DeviceSection
+          key={device.id || "__self__"}
+          device={device}
+          label={deviceLabel(device, tr)}
+          count={device.count}
+          mode="active"
+        >
+          {device.projects.map((g) => projectBlock(g, device, "active"))}
+        </DeviceSection>
+      ))}
+      {showOrphanDraft && (
+        <div>
+          <div className="kin-section-label max-md:px-2 max-md:pb-1.5 max-md:normal-case max-md:tracking-normal max-md:text-strong text-kin-muted">
+            {tr("nav.draft")}
+          </div>
+          <DraftRow
+            active={Boolean(draftActive)}
+            label={tr("nav.draftChat")}
+            onClick={() => {
+              navigate("/new");
+              onCloseMobile();
+            }}
           />
-        </button>
-        {importMenuOpen && (
-          <div
-            role="menu"
-            aria-label={tr("nav.importAgentSessions")}
-            className="absolute left-2.5 right-2.5 top-full mt-1 z-50 rounded-lg bg-kin-elevated shadow-e3 py-1"
+        </div>
+      )}
+
+      {archivedGroups.length > 0 && (
+        <div ref={archivedSectionRef} className="pt-1 border-t border-kin-hairline">
+          <button
+            type="button"
+            onClick={() => setArchivedOpen((o) => !o)}
+            className="kin-section-label w-full flex items-center gap-1 pr-0.5 max-md:px-2 max-md:normal-case max-md:tracking-normal max-md:text-strong hover:text-kin-secondary transition-colors"
+            aria-expanded={archivedOpen}
           >
-            <button
-              type="button"
-              role="menuitem"
-              // An import that is already running cannot be started again — one
-              // fan-out at a time, which is the hook's rule and not this menu's.
-              // Disabled rather than ignored, because a menu item that closes
-              // the menu and does nothing is a tap that looks like it worked.
-              disabled={importingExternalSessions}
-              onClick={() => {
-                setImportMenuOpen(false);
-                onImportExternalSessions?.();
-              }}
-              className="w-full text-left px-3 py-2 text-body text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
-            >
-              {tr("nav.importAllAgents")}
-            </button>
-            <div className="my-1 border-t border-kin-hairline" />
-            {sessionProviders.length > 0 ? (
-              sessionProviders.map((provider) => (
-                <button
-                  key={provider.id}
-                  type="button"
-                  role="menuitem"
-                  disabled={importingExternalSessions}
-                  onClick={() => {
-                    setImportMenuOpen(false);
-                    onImportExternalSessions?.([provider.id]);
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-body text-kin-secondary hover:bg-[var(--kin-fill-strong)] hover:text-kin-text disabled:opacity-50"
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-kin-blue" />
-                  <span className="truncate">{provider.name || provider.id}</span>
-                  <span className="ml-auto text-micro text-kin-muted">{provider.id}</span>
-                </button>
-              ))
-            ) : (
-              <div className="px-3 py-2 text-caption text-kin-muted">
-                {tr("nav.noSessionProviders")}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="px-2.5 pb-2 max-md:px-3">
-        <button
-          type="button"
-          onClick={() => {
-            onNewChat();
-            onCloseMobile();
-          }}
-          className={[
-            "w-full flex items-center gap-2 px-2.5 h-9 max-md:h-11 max-md:rounded-xl max-md:font-semibold rounded-lg text-strong font-medium border transition-colors",
-            "max-md:border-transparent max-md:bg-kin-blue max-md:text-kin-on-brand max-md:active:opacity-90",
-            draftActive
-              ? "border-kin-blue/40 bg-kin-blue/15 text-kin-text"
-              : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-text hover:bg-[var(--kin-fill-strong)]",
-          ].join(" ")}
-        >
-          <IconPlus size={15} strokeWidth={1.9} className="max-md:h-[18px] max-md:w-[18px]" />
-          {tr("nav.newChat")}
-          <span className="ml-auto text-caption text-kin-muted font-medium hidden sm:inline">
-            ⌘N
-          </span>
-        </button>
-      </div>
-
-      <div className="px-3 pb-2 max-md:px-3">
-        <label className="relative flex items-center">
-          <IconSearch
-            size={13}
-            className="absolute left-2.5 max-md:left-3 text-kin-muted pointer-events-none max-md:h-[17px] max-md:w-[17px]"
-          />
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={(e) => onSearchQueryChange?.(e.target.value)}
-            placeholder={tr("nav.searchSessions")}
-            aria-label={tr("nav.searchSessions")}
-            className="w-full h-[32px] max-md:h-11 pl-8 max-md:pl-9 pr-2 rounded-lg max-md:rounded-xl bg-[var(--kin-fill)] border border-transparent focus:border-kin-blue/40 focus:bg-[var(--kin-fill-strong)] text-body max-md:text-subtitle text-kin-text placeholder:text-kin-muted outline-none transition-colors"
-          />
-        </label>
-        {searchQuery.trim() && (
-          <div className="mt-1 px-0.5 text-caption text-kin-muted">
-            {searchLoading ? tr("common.loading") : tr("nav.searchHint")}
-          </div>
-        )}
-      </div>
-
-      <nav className="flex-1 overflow-y-auto px-2 pb-2 max-md:px-3 space-y-3">
-        <button
-          type="button"
-          onClick={() => {
-            navigate("/approvals");
-            onCloseMobile();
-          }}
-          className={[
-            "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-strong min-h-9 max-md:min-h-11 max-md:rounded-xl max-md:px-2 max-md:text-body",
-            pendingCount > 0
-              ? "border border-kin-blue/40 bg-kin-blue/15 text-kin-text"
-              : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
-          ].join(" ")}
-        >
-          <IconInbox size={15} />
-          <span>{tr("nav.inbox")}</span>
-          {pendingCount > 0 && (
-            <span className="ml-auto min-w-[18px] h-[18px] px-1.5 rounded-full bg-kin-orange text-kin-on-status text-caption font-bold inline-flex items-center justify-center tabular-nums">
-              {pendingCount > 99 ? "99+" : pendingCount}
+            <IconArchive size={11} className="flex-none opacity-70" />
+            <span className="truncate flex-1 min-w-0 text-left">{tr("nav.archivedProjects")}</span>
+            <span className="text-caption tabular-nums opacity-70">
+              {archivedGroups.reduce((n, device) => n + device.projects.length, 0)}
             </span>
-          )}
-        </button>
-
-        {groups.length === 0 && archivedGroups.length === 0 && (
-          <div className="px-2 py-4 text-body text-kin-muted leading-prose">
-            {searchQuery.trim()
-              ? tr("nav.searchEmpty", { query: searchQuery.trim() })
-              : tr("nav.emptyHint")}
-          </div>
-        )}
-
-        {groups.map((device) => (
-          <DeviceSection
-            key={device.id || "__self__"}
-            device={device}
-            label={deviceLabel(device, tr)}
-            count={device.count}
-            showLabel={machineLabels}
-            mode="active"
-          >
-            {device.projects.map((g) => projectBlock(g, device, "active"))}
-          </DeviceSection>
-        ))}
-        {showOrphanDraft && (
-          <div>
-            <div className="kin-section-label max-md:px-2 max-md:pb-1.5 max-md:normal-case max-md:tracking-normal max-md:text-strong text-kin-muted">
-              {tr("nav.draft")}
-            </div>
-            <DraftRow
-              active={Boolean(draftActive)}
-              label={tr("nav.draftChat")}
-              onClick={() => {
-                navigate("/new");
-                onCloseMobile();
-              }}
-            />
-          </div>
-        )}
-
-        {archivedGroups.length > 0 && (
-          <div className="pt-1 border-t border-kin-hairline">
-            <button
-              type="button"
-              onClick={() => setArchivedOpen((o) => !o)}
-              className="kin-section-label w-full flex items-center gap-1 pr-0.5 max-md:px-2 max-md:normal-case max-md:tracking-normal max-md:text-strong hover:text-kin-secondary transition-colors"
-              aria-expanded={archivedOpen}
+            <span
+              className={[
+                "text-micro opacity-60 transition-transform",
+                archivedOpen ? "rotate-90" : "",
+              ].join(" ")}
             >
-              <IconArchive size={11} className="flex-none opacity-70" />
-              <span className="truncate flex-1 min-w-0 text-left">
-                {tr("nav.archivedProjects")}
-              </span>
-              <span className="text-caption tabular-nums opacity-70">
-                {archivedGroups.reduce((n, device) => n + device.projects.length, 0)}
-              </span>
-              <span
-                className={[
-                  "text-micro opacity-60 transition-transform",
-                  archivedOpen ? "rotate-90" : "",
-                ].join(" ")}
-              >
-                ▸
-              </span>
-            </button>
-            {archivedOpen && (
-              <div className="space-y-3 mt-1">
-                {archivedGroups.map((device) => (
-                  <DeviceSection
-                    key={`arch-${device.id || "__self__"}`}
-                    device={device}
-                    label={deviceLabel(device, tr)}
-                    count={device.count}
-                    showLabel={machineLabels}
-                    mode="archived"
-                  >
-                    {device.projects.map((g) => projectBlock(g, device, "archived"))}
-                  </DeviceSection>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </nav>
-
-      <div className="border-t border-kin-hairline px-2 py-2 max-md:pb-3 space-y-2">
-        {sidebarNavSections().map((section) => (
-          <div key={section.id} className="space-y-0.5">
-            <div className="px-2 pt-1 max-md:px-3 text-micro max-md:text-caption font-semibold uppercase max-md:normal-case tracking-label max-md:tracking-normal text-kin-muted">
-              {tr(section.labelKey)}
+              ▸
+            </span>
+          </button>
+          {archivedOpen && (
+            <div className="space-y-3 mt-1">
+              {archivedGroups.map((device) => (
+                <DeviceSection
+                  key={`arch-${device.id || "__self__"}`}
+                  device={device}
+                  label={deviceLabel(device, tr)}
+                  count={device.count}
+                  mode="archived"
+                >
+                  {device.projects.map((g) => projectBlock(g, device, "archived"))}
+                </DeviceSection>
+              ))}
             </div>
-            {section.items.map((item) => (
-              <NavLink
-                key={item.id}
-                to={item.path}
-                onClick={onCloseMobile}
-                className={({ isActive }) =>
-                  [footLink, isActive ? "bg-[var(--kin-fill-strong)] text-kin-text" : ""].join(" ")
-                }
-              >
-                {sidebarNavIcon(item.id)}
-                <span className="flex-1">{tr(item.labelKey)}</span>
-                {item.id === "routines" && routineUnreadCount > 0 && (
-                  <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-kin-blue text-micro font-semibold text-kin-on-brand flex items-center justify-center tabular-nums">
-                    {routineUnreadCount > 99 ? "99+" : routineUnreadCount}
-                  </span>
-                )}
-                {item.id === "agents" && weekCost != null && weekCost > 0 && (
-                  <span className="text-caption text-kin-muted tabular-nums">
-                    {formatCost(weekCost)}
-                  </span>
-                )}
-              </NavLink>
-            ))}
-          </div>
+          )}
+        </div>
+      )}
+    </nav>
+  );
+
+  // Every destination the sidebar can reach, as one icon row. The list above is
+  // the work; the icons are the way out of it. The old footer printed the same
+  // destinations as two labelled text groups, which made the rail a second,
+  // shorter navigation under the list it was supposed to serve.
+  const destinations = PLACES.filter((place) => place.section !== "work");
+  const footerIcons = (
+    <div data-sidebar-footer className="border-t border-kin-hairline px-1.5 py-2">
+      <div className="flex items-center justify-between gap-0.5">
+        <FooterIcon
+          to="/inbox"
+          label={tr("nav.inbox")}
+          icon={<IconInbox size={16} />}
+          badge={pendingCount > 0 ? (pendingCount > 99 ? "99+" : String(pendingCount)) : undefined}
+          onClick={onCloseMobile}
+        />
+        {archivedGroups.length > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              const next = !archivedOpen;
+              setArchivedOpen(next);
+              // A long list can put the section below the fold, where the icon
+              // highlight is the only feedback; bring it into view on open.
+              if (next) {
+                requestAnimationFrame(() =>
+                  archivedSectionRef.current?.scrollIntoView?.({ block: "nearest" }),
+                );
+              }
+            }}
+            aria-label={tr("nav.archivedProjects")}
+            aria-expanded={archivedOpen}
+            title={tr("nav.archivedProjects")}
+            className={[
+              "inline-flex h-8 w-8 flex-none items-center justify-center rounded-lg transition-colors",
+              archivedOpen
+                ? "bg-[var(--kin-fill-strong)] text-kin-text"
+                : "text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text",
+            ].join(" ")}
+          >
+            <IconArchive size={16} />
+          </button>
+        )}
+        {importIcon}
+        {destinations.map((place) => (
+          <FooterIcon
+            key={place.id}
+            to={place.path}
+            label={tr(place.labelKey)}
+            icon={(() => {
+              const Icon = PLACE_ICONS[place.id];
+              return <Icon size={16} />;
+            })()}
+            badge={
+              place.id === "routines" && routineUnreadCount > 0
+                ? routineUnreadCount > 99
+                  ? "99+"
+                  : String(routineUnreadCount)
+                : undefined
+            }
+            title={
+              place.id === "agents" && weekCost != null && weekCost > 0
+                ? `${tr(place.labelKey)} · ${formatCost(weekCost)}`
+                : undefined
+            }
+            onClick={onCloseMobile}
+          />
         ))}
       </div>
+    </div>
+  );
+
+  const desktopPanel = (
+    <aside className="w-sidebar max-w-[85vw] max-md:w-[86vw] max-md:max-w-[22rem] h-full flex flex-col bg-kin-sidebar shrink-0">
+      {header(false)}
+      {newChatBlock}
+      {searchBlock}
+      {listNav}
+      {footerIcons}
+    </aside>
+  );
+
+  // The phone's K panel is entries only. A list here was a second copy of the
+  // page behind it, with its own search box and its own idea of which row was
+  // open; the list already has a home one tap away.
+  const drawerEntries = [
+    {
+      key: "inbox",
+      path: "/inbox",
+      label: tr("nav.inbox"),
+      icon: <IconInbox size={18} />,
+      badge: pendingCount,
+    },
+    {
+      key: "archived",
+      path: "/sessions?scope=archived",
+      label: tr("nav.archivedProjects"),
+      icon: <IconArchive size={18} />,
+      badge: 0,
+    },
+    ...["artifacts", "routines", "agents", "settings"].map((id) => {
+      const place = placeById(id as PlaceId);
+      const Icon = PLACE_ICONS[place.id];
+      return {
+        key: place.id,
+        path: place.path,
+        label: tr(place.labelKey),
+        icon: <Icon size={18} />,
+        badge: place.id === "routines" ? routineUnreadCount : 0,
+      };
+    }),
+  ];
+  // `NavLink` matches a path, not a query, so the archived entry's
+  // `/sessions?scope=archived` looked active on the phone's plain list too.
+  const archivedEntryActive =
+    location.pathname === "/sessions" &&
+    new URLSearchParams(location.search).get("scope") === "archived";
+
+  const drawerPanel = (
+    <aside className="w-sidebar max-w-[85vw] max-md:w-[86vw] max-md:max-w-[22rem] h-full flex flex-col bg-kin-sidebar shrink-0">
+      {header(true)}
+      {importBlock}
+      {newChatBlock}
+      <nav className="flex-1 overflow-y-auto px-3 pb-4 space-y-1">
+        {drawerEntries.map((entry) => (
+          <NavLink
+            key={entry.key}
+            to={entry.path}
+            onClick={onCloseMobile}
+            className={({ isActive }) =>
+              [
+                "flex min-h-11 items-center gap-3 rounded-xl px-3 text-strong font-medium transition-colors",
+                (entry.key === "archived" ? archivedEntryActive : isActive)
+                  ? "bg-[var(--kin-fill-strong)] text-kin-text"
+                  : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
+              ].join(" ")
+            }
+          >
+            {entry.icon}
+            <span className="flex-1">{entry.label}</span>
+            {entry.badge > 0 && (
+              <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-kin-blue text-micro font-semibold text-kin-on-brand flex items-center justify-center tabular-nums">
+                {entry.badge > 99 ? "99+" : entry.badge}
+              </span>
+            )}
+          </NavLink>
+        ))}
+      </nav>
     </aside>
   );
 
   return (
     <>
       {/* Desktop */}
-      <div className="hidden md:flex h-full shrink-0 kin-zen-hide">{panel}</div>
+      {wide && <div className="hidden md:flex h-full shrink-0 kin-zen-hide">{desktopPanel}</div>}
 
       {/* Mobile drawer */}
-      {mobileOpen && (
+      {!wide && mobileOpen && (
         <div className="md:hidden fixed inset-0 z-40 flex">
           <button
             type="button"
@@ -701,7 +948,7 @@ export default function Sidebar({
             */
             className="kin-drawer-enter relative z-10 h-full shadow-e3 bg-kin-sidebar pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
           >
-            {panel}
+            {drawerPanel}
           </div>
         </div>
       )}
@@ -712,67 +959,69 @@ export default function Sidebar({
         no width. `role: "destructive"` is Ionic's, and the console's red ink is
         what it paints (index.css) — the default is 2.24:1 on this panel.
       */}
-      <IonActionSheet
-        isOpen={projectMenu !== null}
-        onDidDismiss={() => setProjectMenu(null)}
-        header={projectMenu?.group.label}
-        cssClass="kin-sheet kin-sheet-named"
-        buttons={
-          projectMenu
-            ? [
-                {
-                  text: tr("nav.newSessionIn", { project: projectMenu.group.label }),
-                  handler: () => {
-                    if (projectMenu.mode === "archived") unarchiveProject(projectMenu.group.cwd);
-                    touchProject(projectMenu.group.cwd);
-                    if (onNewSessionInProject) onNewSessionInProject(projectMenu.group.cwd);
-                    else onNewChat();
-                    onCloseMobile();
+      {!wide && (
+        <IonActionSheet
+          isOpen={projectMenu !== null}
+          onDidDismiss={() => setProjectMenu(null)}
+          header={projectMenu?.group.label}
+          cssClass="kin-sheet kin-sheet-named"
+          buttons={
+            projectMenu
+              ? [
+                  {
+                    text: tr("nav.newSessionIn", { project: projectMenu.group.label }),
+                    handler: () => {
+                      if (projectMenu.mode === "archived") unarchiveProject(projectMenu.group.cwd);
+                      touchProject(projectMenu.group.cwd);
+                      if (onNewSessionInProject) onNewSessionInProject(projectMenu.group.cwd);
+                      else onNewChat();
+                      onCloseMobile();
+                    },
                   },
-                },
-                ...(projectMenu.mode === "active"
-                  ? [
-                      {
-                        text: projectMenu.group.pinned
-                          ? tr("nav.unpinProject")
-                          : tr("nav.pinProject"),
-                        handler: () => toggleProjectPinned(projectMenu.group.cwd),
-                      },
-                    ]
-                  : []),
-                {
-                  text: tr("nav.openCover"),
-                  handler: () => {
-                    void ensureProject({
-                      path: projectMenu.group.cwd,
-                      name: projectMenu.group.label,
-                    })
-                      .then((p) => {
-                        onCloseMobile();
-                        navigate(`/projects/${p.id}`);
+                  ...(projectMenu.mode === "active"
+                    ? [
+                        {
+                          text: projectMenu.group.pinned
+                            ? tr("nav.unpinProject")
+                            : tr("nav.pinProject"),
+                          handler: () => toggleProjectPinned(projectMenu.group.cwd),
+                        },
+                      ]
+                    : []),
+                  {
+                    text: tr("nav.openCover"),
+                    handler: () => {
+                      void ensureProject({
+                        path: projectMenu.group.cwd,
+                        name: projectMenu.group.label,
                       })
-                      .catch(() => {
-                        // The cover is optional; a project without one is not
-                        // an error worth a dialog.
-                      });
+                        .then((p) => {
+                          onCloseMobile();
+                          navigate(`/projects/${p.id}`);
+                        })
+                        .catch(() => {
+                          // The cover is optional; a project without one is not
+                          // an error worth a dialog.
+                        });
+                    },
                   },
-                },
-                {
-                  text:
-                    projectMenu.mode === "archived"
-                      ? tr("nav.unarchiveProject")
-                      : tr("nav.archiveProject"),
-                  role: "destructive",
-                  handler: () => {
-                    if (projectMenu.mode === "archived") unarchiveProject(projectMenu.group.cwd);
-                    else onArchive(projectMenu.group);
+                  {
+                    text:
+                      projectMenu.mode === "archived"
+                        ? tr("nav.unarchiveProject")
+                        : tr("nav.archiveProject"),
+                    role: "destructive",
+                    handler: () => {
+                      if (projectMenu.mode === "archived") unarchiveProject(projectMenu.group.cwd);
+                      else onArchive(projectMenu.group);
+                    },
                   },
-                },
-                { text: tr("common.cancel"), role: "cancel" },
-              ]
-            : []
-        }
-      />
+                  { text: tr("common.cancel"), role: "cancel" },
+                ]
+              : []
+          }
+        />
+      )}
     </>
   );
 }
@@ -788,8 +1037,6 @@ function deviceLabel(device: DeviceGroup, tr: (key: string) => string): string {
 /**
  * One machine's projects, under a heading that says whether it can take work.
  *
- * @param showLabel When there is only one machine in the tree a heading would
- *                  name the obvious, so the section renders as a plain group.
  * @param mode      Active and archived render the same machine twice, and each
  *                  keeps its own collapsed state — sharing the key would make
  *                  collapsing one silently pre-collapse the other.
@@ -798,20 +1045,17 @@ function DeviceSection({
   device,
   label,
   count,
-  showLabel,
   mode,
   children,
 }: {
   device: DeviceGroup;
   label: string;
   count: number;
-  showLabel: boolean;
   mode: "active" | "archived";
   children: ReactNode;
 }) {
   const tr = useT();
   const [open, toggle] = useSidebarDisclosure(`device:${mode}:${device.id || "self"}`);
-  if (!showLabel) return <div className="space-y-3">{children}</div>;
   return (
     <div className="space-y-1">
       <button
@@ -839,11 +1083,48 @@ function DeviceSection({
   );
 }
 
-function sidebarNavIcon(id: PlaceId): ReactNode {
-  // The glyph comes from the place table's icon map, so a place added there is
-  // drawn here by existing; only the size is this footer's (see `placeIcons`).
-  const Icon = PLACE_ICONS[id];
-  return <Icon size={15} />;
+/** One destination in the sidebar's bottom icon row. */
+function FooterIcon({
+  to,
+  label,
+  icon,
+  badge,
+  title,
+  onClick,
+}: {
+  to: string;
+  label: string;
+  icon: ReactNode;
+  badge?: string;
+  title?: string;
+  onClick: () => void;
+}) {
+  const tr = useT();
+  return (
+    <NavLink
+      to={to}
+      onClick={onClick}
+      // The badge is a number next to an icon; a name that leaves it out tells
+      // a screen reader there is nothing waiting when the dot says otherwise.
+      aria-label={badge ? tr("nav.withCount", { label, count: badge }) : label}
+      title={title ?? label}
+      className={({ isActive }) =>
+        [
+          "relative inline-flex h-8 w-8 flex-none items-center justify-center rounded-lg transition-colors",
+          isActive
+            ? "bg-[var(--kin-fill-strong)] text-kin-text"
+            : "text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text",
+        ].join(" ")
+      }
+    >
+      {icon}
+      {badge ? (
+        <span className="absolute -right-0.5 -top-0.5 min-w-[15px] h-[15px] px-0.5 rounded-full bg-kin-orange text-kin-on-status text-micro font-bold inline-flex items-center justify-center tabular-nums">
+          {badge}
+        </span>
+      ) : null}
+    </NavLink>
+  );
 }
 
 function ProjectBlock({
@@ -1072,6 +1353,7 @@ function ExternalSessionRow({
   return (
     <button
       type="button"
+      data-session-row={session.id}
       onClick={() => {
         onOpen?.(session);
         onCloseMobile();
@@ -1196,6 +1478,7 @@ function ProjectSessionRows({
           >
             <NavLink
               to={`/tasks/${task.id}`}
+              data-session-row={task.id}
               onClick={() => {
                 touchProject(task.cwd);
                 if (isTerminal(task.status)) markSessionViewed(task.id);
