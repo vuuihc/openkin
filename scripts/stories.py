@@ -29,8 +29,12 @@ ID_RE = re.compile(r"^KIN-[A-Z]+-\d{3}$")
 MENTION_RE = re.compile(r"KIN-[A-Z]+-\d{3}")
 STATE_RE = re.compile(r"^状态：\s*(\w+)\s*$", re.M)
 PRIORITY_RE = re.compile(r"^优先级：\s*(P[01])\s*$", re.M)
-JOURNEY_RE = re.compile(r"^旅程：\s*(J[1-4])\s*$", re.M)
+JOURNEY_RE = re.compile(r"^旅程：\s*(.+)$", re.M)
+JOURNEY_SPLIT = re.compile(r"[、,，+\s]+")
 ROUNDS_RE = re.compile(r"^分轮：\s*(\d+)\s*$", re.M)
+SURFACES_RE = re.compile(r"^面：\s*(.+)$", re.M)
+SURFACE_LABEL = {"mac": "Mac", "phone": "手机"}
+DIFFERENCES_HEADING = "## 各面差异"
 
 STATES = {"draft", "approved", "covered", "failing", "blocked"}
 NEEDS_TEST = {"approved", "covered", "failing"}
@@ -96,9 +100,23 @@ def check() -> list[str]:
         priority = story.get("priority")
         if priority not in {"P0", "P1"}:
             problems.append(f"{where}: priority {priority!r} must be P0 or P1")
-        journey = story.get("journey")
-        if journey not in journeys:
-            problems.append(f"{where}: journey {journey!r} not declared in registry.journeys")
+        story_journeys = story.get("journeys")
+        if not isinstance(story_journeys, list) or not story_journeys:
+            problems.append(f"{where}: journeys must be a non-empty list")
+            story_journeys = []
+        else:
+            for name in story_journeys:
+                if name not in journeys:
+                    problems.append(f"{where}: journey {name!r} not declared in registry.journeys")
+
+        surfaces = story.get("surfaces")
+        if not isinstance(surfaces, list) or not surfaces:
+            problems.append(f"{where}: surfaces must be a non-empty list")
+            surfaces = []
+        else:
+            for name in surfaces:
+                if name not in SURFACE_LABEL:
+                    problems.append(f"{where}: surface {name!r} not in {sorted(SURFACE_LABEL)}")
 
         if state == "blocked" and not (story.get("blockedReason") or "").strip():
             problems.append(f"{where}: blocked stories need blockedReason")
@@ -129,10 +147,33 @@ def check() -> list[str]:
                 )
             if not found_journey:
                 problems.append(f"{where}: contract has no `旅程：` line")
-            elif found_journey.group(1) != journey:
-                problems.append(
-                    f"{where}: registry journey {journey!r} != contract {found_journey.group(1)!r}"
-                )
+            else:
+                declared = [j for j in JOURNEY_SPLIT.split(found_journey.group(1).strip()) if j]
+                if sorted(declared) != sorted(story_journeys):
+                    problems.append(
+                        f"{where}: registry journeys {story_journeys!r} != contract {declared!r}"
+                    )
+            found_surfaces = SURFACES_RE.search(text)
+            if not found_surfaces:
+                problems.append(f"{where}: contract has no `面：` line")
+            elif all(name in SURFACE_LABEL for name in surfaces):
+                labels = [
+                    label for label in SURFACE_LABEL.values() if label in found_surfaces.group(1)
+                ]
+                expected = [SURFACE_LABEL[name] for name in surfaces]
+                if sorted(labels) != sorted(expected):
+                    problems.append(
+                        f"{where}: registry surfaces {expected!r} != contract {labels!r}"
+                    )
+                if DIFFERENCES_HEADING not in text:
+                    problems.append(f"{where}: contract has no `{DIFFERENCES_HEADING}` section")
+                else:
+                    section = text.split(DIFFERENCES_HEADING, 1)[1].split("\n## ", 1)[0]
+                    for label in expected:
+                        if f"| {label} |" not in section:
+                            problems.append(
+                                f"{where}: {DIFFERENCES_HEADING} has no `| {label} |` row"
+                            )
             found_rounds = ROUNDS_RE.search(text)
             if not found_rounds:
                 problems.append(f"{where}: contract has no `分轮：` line")
@@ -192,17 +233,20 @@ def coverage_text(data: dict) -> str:
         "由 `scripts/stories.py` 生成，不要手改。改 `registry.json` 后运行",
         "`python3 scripts/stories.py --write-coverage`。",
         "",
-        "| 编号 | 状态 | 优先级 | 旅程 | 轮数 | 标题 | 测试 |",
-        "|---|---|---|---|---|---|---|",
+        "| 编号 | 状态 | 优先级 | 旅程 | 面 | 轮数 | 标题 | 测试 |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for story in stories:
         tests = story.get("tests") or []
         lines.append(
-            "| `{id}` | {state} | {priority} | {journey} | {rounds} | {title} | {tests} |".format(
+            "| `{id}` | {state} | {priority} | {journey} | {surfaces} | {rounds} | {title} | {tests} |".format(
                 id=story.get("id", ""),
                 state=story.get("state", ""),
                 priority=story.get("priority", ""),
-                journey=story.get("journey", ""),
+                journey="、".join(story.get("journeys") or []),
+                surfaces="/".join(
+                    SURFACE_LABEL.get(name, name) for name in story.get("surfaces") or []
+                ),
                 rounds=story.get("plannedRounds", ""),
                 title=story.get("title", "").replace("|", "\\|"),
                 tests=len(tests),
