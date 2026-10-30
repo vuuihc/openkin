@@ -33,6 +33,14 @@ import {
   serializeRoutineRule,
   type RoutineRule,
 } from "../lib/routineRecurrence";
+import {
+  appendOlderRuns,
+  foldRoutineRun,
+  pageCursor,
+  reconcileRoutineReads,
+  ROUTINE_HISTORY_MAX,
+  ROUTINE_HISTORY_PAGE,
+} from "../lib/routineHistory";
 import { SlowConnectHint } from "../components/Skeleton";
 import { useRoutinePreview } from "../hooks/useRoutinePreview";
 import { useSlowHint } from "../hooks/useSlowHint";
@@ -120,6 +128,13 @@ export default function RoutinesPage() {
   // not put the first one's spinner or failure under the second one's name.
   const [historyLoading, setHistoryLoading] = useState<Record<string, boolean>>({});
   const [historyError, setHistoryError] = useState<Record<string, string>>({});
+  // A full page is the tasks route's only "maybe more" signal. Older pages are
+  // asked for below the oldest id a page returned — kept here rather than read
+  // off the list, because a live push can put a deeper run at the tail and the
+  // cursor must not follow it down.
+  const [historyHasMore, setHistoryHasMore] = useState<Record<string, boolean>>({});
+  const [historyCursor, setHistoryCursor] = useState<Record<string, string>>({});
+  const [historyLoadingOlder, setHistoryLoadingOlder] = useState<Record<string, boolean>>({});
   // The newest fetch per routine; an older one that lands late is discarded.
   const historySeq = useRef<Record<string, number>>({});
   // Unread only ever goes true -> false, so a write that landed while a fetch
@@ -227,6 +242,13 @@ export default function RoutinesPage() {
         }
         return [t, ...prev].slice(0, 80);
       });
+      // The editor's list is a snapshot from when it opened. A scheduled run
+      // that starts (or finishes) while the editor stays open has to land here
+      // too, or the reader watches a list that never moves.
+      setHistory((prev) => {
+        const folded = foldRoutineRun(prev[t.routine_id!], t);
+        return folded ? { ...prev, [t.routine_id!]: folded } : prev;
+      });
     });
   }, []);
 
@@ -290,6 +312,12 @@ export default function RoutinesPage() {
     try {
       const t = await runRoutineNow(r.id);
       setRuns((prev) => [t, ...prev].slice(0, 80));
+      // The editor may be open on this routine; Run now should show up there
+      // without waiting for the websocket echo (which the fold then dedupes).
+      setHistory((prev) => {
+        const folded = foldRoutineRun(prev[r.id], t);
+        return folded ? { ...prev, [r.id]: folded } : prev;
+      });
       pushToast(tr("routines.runStarted"), "info");
     } catch (e) {
       pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
@@ -346,13 +374,15 @@ export default function RoutinesPage() {
       return next;
     });
     try {
-      const tasks = await listTasks({ routineId: id, limit: 10 });
+      const tasks = await listTasks({ routineId: id, limit: ROUTINE_HISTORY_PAGE });
       if (historySeq.current[id] !== seq) return;
       const allRead = readAllEpoch.current !== epoch;
       const read = knownRead.current;
+      setHistoryHasMore((prev) => ({ ...prev, [id]: tasks.length >= ROUTINE_HISTORY_PAGE }));
+      setHistoryCursor((prev) => ({ ...prev, [id]: pageCursor(tasks) }));
       setHistory((prev) => ({
         ...prev,
-        [id]: tasks.map((x) => (allRead || read.has(x.id) ? { ...x, routine_unread: false } : x)),
+        [id]: reconcileRoutineReads(tasks, allRead, read),
       }));
     } catch (e) {
       if (historySeq.current[id] !== seq) return;
@@ -366,6 +396,56 @@ export default function RoutinesPage() {
       if (historySeq.current[id] === seq) {
         setHistoryLoading((prev) => ({ ...prev, [id]: false }));
       }
+    }
+  };
+
+  /**
+   * The next page of runs below the last one a page returned. The cursor is
+   * that page's oldest id ("id < before"); a page that came back empty or short
+   * means there is nothing older to ask for, so the button goes away. The list
+   * is capped, so the button and this guard stop asking at 200 rows; a page
+   * that straddles the cap keeps its newer rows and drops its oldest.
+   */
+  const loadOlderHistory = async (id: string) => {
+    const cursor = historyCursor[id] ?? "";
+    if (
+      !id ||
+      !cursor ||
+      historyLoadingOlder[id] ||
+      (history[id]?.length ?? 0) >= ROUTINE_HISTORY_MAX
+    ) {
+      return;
+    }
+    // A re-open starts a newer initial fetch, which replaces the list this
+    // cursor came from; appending to that new list would skip the rows between
+    // the two pages. Same newest-wins policy as loadHistory.
+    const seq = historySeq.current[id] ?? 0;
+    const epoch = readAllEpoch.current;
+    const read = knownRead.current;
+    setHistoryLoadingOlder((prev) => ({ ...prev, [id]: true }));
+    try {
+      const page = await listTasks({
+        routineId: id,
+        limit: ROUTINE_HISTORY_PAGE,
+        before: cursor,
+      });
+      if (historySeq.current[id] !== seq) return;
+      // The page can predate a mark-all (which publishes no task update) or a
+      // per-task mark; reconcile before appending or older rows come back
+      // unread over a badge that says everything is read.
+      const allRead = readAllEpoch.current !== epoch;
+      // The list may have grown while this page was in flight (a live run, the
+      // previous page); merging into the latest state keeps both.
+      setHistory((prev) => ({
+        ...prev,
+        [id]: appendOlderRuns(prev[id] ?? [], reconcileRoutineReads(page, allRead, read)),
+      }));
+      setHistoryHasMore((prev) => ({ ...prev, [id]: page.length >= ROUTINE_HISTORY_PAGE }));
+      setHistoryCursor((prev) => ({ ...prev, [id]: pageCursor(page) }));
+    } catch (e) {
+      pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
+    } finally {
+      setHistoryLoadingOlder((prev) => ({ ...prev, [id]: false }));
     }
   };
 
@@ -766,6 +846,25 @@ export default function RoutinesPage() {
                         ownRoutine
                       />
                     ))}
+                    {/* Inside the scroll box: the click happens at the bottom,
+                        and the rows it fetches appear just above the button,
+                        in view. Outside it, the label changed while the new
+                        rows landed off-screen. */}
+                    {historyHasMore[editing.id] &&
+                      (history[editing.id]?.length ?? 0) < ROUTINE_HISTORY_MAX && (
+                        <li>
+                          <button
+                            type="button"
+                            disabled={historyLoadingOlder[editing.id]}
+                            onClick={() => void loadOlderHistory(editing.id)}
+                            className="min-h-11 text-body text-kin-secondary hover:text-kin-text disabled:opacity-50 sm:min-h-8"
+                          >
+                            {historyLoadingOlder[editing.id]
+                              ? tr("routines.historyLoadingOlder")
+                              : tr("routines.historyLoadOlder")}
+                          </button>
+                        </li>
+                      )}
                   </ul>
                 )}
               </section>

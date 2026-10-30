@@ -4,78 +4,119 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 /**
- * A routine's own run history, guarded where a unit cannot reach.
+ * The routine editor's run list must not be a snapshot that freezes when it
+ * opens: a scheduled run or Run now has to land there, and ten rows cannot be
+ * the whole story of a routine that has run for weeks.
  *
- * The section only exists inside the edit form, which needs a daemon, a task
- * feed, an agent list and a router to mount. What is pinned here is the seam:
- * that opening a routine asks for that routine's runs, that the section reads
- * the same rows and the same mark-read path as the global feed, and that a
- * failed fetch is not shown as "never ran".
+ * `routineHistory.test.ts` holds the two merges (fold a live update, append an
+ * older page). What is left is the page wiring: the websocket handler and Run
+ * now feed the fold, both fetches record the boundary they returned, the older
+ * page asks below it, and the button only exists when there is something to ask
+ * for.
+ *
+ * Source rather than DOM: mounting this page needs a daemon, a websocket, an
+ * agent list and a router.
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 const PAGE = readFileSync(join(UI, "src/pages/RoutinesPage.tsx"), "utf8");
 
-/** The source between two markers, so a test can speak about one function. */
-function block(start: string, end: string): string {
-  const from = PAGE.indexOf(start);
-  const to = PAGE.indexOf(end, from + start.length);
-  expect(from).toBeGreaterThan(-1);
-  expect(to).toBeGreaterThan(from);
-  return PAGE.slice(from, to);
-}
-
-describe("a routine's run history", () => {
-  it("asks the daemon for the routine that was opened", () => {
-    // Inside openEdit, not merely somewhere on the page.
-    const openEdit = block("const openEdit = (r: Routine) => {", "const onSubmit = async");
-    expect(openEdit).toContain("void loadHistory(r.id);");
+describe("the routine editor's run history", () => {
+  it("folds live task updates into the open routine's list", () => {
+    // Same websocket message that feeds the global run feed. Without the
+    // second fold the editor's list stays where the fetch left it.
+    expect(PAGE).toContain("const folded = foldRoutineRun(prev[t.routine_id!], t);");
+    expect(PAGE).toContain("return folded ? { ...prev, [t.routine_id!]: folded } : prev;");
   });
 
-  it("draws the history with the feed's row, so both mark read the same way", () => {
-    const section = block("{editing && (", "          </section>");
-    expect(section).toContain('tr("routines.historyTitle")');
-    expect(section).toContain("history[editing.id].map((run) => (");
-    expect(section).toContain("onMarkRead={onMarkRead}");
-    // The routine id on every row is noise under that routine's own editor.
-    expect(section).toContain("ownRoutine");
-    expect(PAGE).toContain("{!ownRoutine && run.routine_id ?");
-    // Marking a run read from the history has to clear it in the history too,
-    // not only in the feed above.
-    const markRead = block("const onMarkRead = async", "const loadHistory = async");
-    expect(markRead).toContain("setHistory((prev) => {");
-    expect(markRead).toContain("return { ...x, ...t, routine_unread: false };");
-    expect(markRead).toContain("knownRead.current.add(taskId);");
-    // "Mark all read" is on the same screen as the open history.
-    const markAll = block("const onMarkAllRead = async", "const resetForm");
-    expect(markAll).toContain("setHistory((prev) => {");
-    expect(markAll).toContain("readAllEpoch.current += 1;");
+  it("shows a Run now in the editor without waiting for the echo", () => {
+    expect(PAGE).toContain("const folded = foldRoutineRun(prev[r.id], t);");
+    expect(PAGE).toContain("return folded ? { ...prev, [r.id]: folded } : prev;");
   });
 
-  it("does not call a failed fetch an empty history", () => {
-    const load = block("const loadHistory = async", "const onMarkAllRead");
-    expect(load).toContain("const tasks = await listTasks({ routineId: id, limit: 10 });");
-    expect(load).toContain("setHistoryError((prev) => ({");
-    expect(load).toContain("if (!id) return;");
-    // A reopened routine's older fetch must not overwrite the newer list, nor
-    // write its error, nor clear the spinner the newer fetch owns.
-    expect(load.split("if (historySeq.current[id] !== seq) return;").length - 1).toBe(2);
-    expect(load).toContain("if (historySeq.current[id] === seq) {");
-    // A mark write that landed while the fetch was out beats its snapshot.
-    expect(load).toContain("const allRead = readAllEpoch.current !== epoch;");
-    expect(load).toContain("allRead || read.has(x.id) ? { ...x, routine_unread: false } : x");
-    expect(PAGE).toContain("historyLoading[editing.id] ?");
-    expect(PAGE).toContain("historyError[editing.id] ?");
-    expect(PAGE).toContain("(history[editing.id]?.length ?? 0) === 0 ?");
-    expect(PAGE).toContain('tr("routines.historyEmpty")');
-    // Order matters: a swap would show "No runs yet." for a failed fetch
-    // whenever nothing is cached, and every string above would still be there.
-    const section = block("{editing && (", "          </section>");
-    const order = [
-      "historyLoading[editing.id] ?",
-      "historyError[editing.id] ?",
-      "(history[editing.id]?.length ?? 0) === 0 ?",
-    ].map((needle) => section.indexOf(needle));
-    expect(order.every((at) => at > -1)).toBe(true);
-    expect(order).toEqual([...order].sort((a, b) => a - b));
+  it("asks for one page and records whether more may exist", () => {
+    expect(PAGE).toContain(
+      "const tasks = await listTasks({ routineId: id, limit: ROUTINE_HISTORY_PAGE });",
+    );
+    expect(PAGE).toContain("tasks.length >= ROUTINE_HISTORY_PAGE");
+  });
+
+  it("pages older runs from the boundary the last page returned", () => {
+    // `before` is the daemon's ULID cursor. It must come from the page, not
+    // from the list's tail: a live push can place a deeper run at the tail, and
+    // asking below that id would skip every run between the two.
+    expect(PAGE).toContain('const cursor = historyCursor[id] ?? "";');
+    expect(PAGE).toContain("before: cursor,");
+    expect(PAGE).toContain("setHistoryCursor((prev) => ({ ...prev, [id]: pageCursor(tasks) }));");
+    expect(PAGE).toContain("setHistoryCursor((prev) => ({ ...prev, [id]: pageCursor(page) }));");
+    expect(PAGE).toContain(
+      "appendOlderRuns(prev[id] ?? [], reconcileRoutineReads(page, allRead, read))",
+    );
+    expect(PAGE).toContain("page.length >= ROUTINE_HISTORY_PAGE");
+  });
+
+  it("applies the newer page only after the newer-wins guard", () => {
+    // The guard exists to drop a page the next open has outdated. Moving it
+    // above the await would make it always pass, and a stale page would be
+    // appended to the list the re-open replaced. Every write from that page —
+    // rows, has-more, cursor — has to sit behind it.
+    const start = PAGE.indexOf("const loadOlderHistory");
+    const awaited = PAGE.indexOf("await listTasks", start);
+    const guarded = PAGE.indexOf("if (historySeq.current[id] !== seq) return;", start);
+    const applied = PAGE.indexOf("appendOlderRuns(prev[id] ?? []", start);
+    const hasMore = PAGE.indexOf(
+      "setHistoryHasMore((prev) => ({ ...prev, [id]: page.length >= ROUTINE_HISTORY_PAGE }));",
+      start,
+    );
+    const cursor = PAGE.indexOf(
+      "setHistoryCursor((prev) => ({ ...prev, [id]: pageCursor(page) }));",
+      start,
+    );
+    expect(awaited).toBeGreaterThan(start);
+    expect(guarded).toBeGreaterThan(awaited);
+    expect(applied).toBeGreaterThan(guarded);
+    expect(hasMore).toBeGreaterThan(guarded);
+    expect(cursor).toBeGreaterThan(guarded);
+  });
+
+  it("reconciles both fetches against what the reader already marked read", () => {
+    // Mark all read publishes no task update, so a page that was already in
+    // flight would otherwise append unread rows over a read badge.
+    expect(PAGE).toContain("reconcileRoutineReads(tasks, allRead, read)");
+    expect(PAGE).toContain("reconcileRoutineReads(page, allRead, read)");
+    expect(PAGE).toContain("const epoch = readAllEpoch.current;");
+    expect(PAGE).toContain("readAllEpoch.current += 1;");
+  });
+
+  it("discards an older page that a re-open has made stale", () => {
+    // The cursor belongs to the list the re-open replaced; appending would skip
+    // the rows between the two pages and could hide the button with a short
+    // page. Every fetch path has the newest-wins guard.
+    expect(PAGE).toContain("const seq = historySeq.current[id] ?? 0;");
+    expect(PAGE.split("if (historySeq.current[id] !== seq) return;").length - 1).toBe(3);
+  });
+
+  it("keeps the history branches in loading / error / empty order", () => {
+    // A failed fetch must not read as "this routine has never run", and a
+    // loading state must not flash the empty line underneath it.
+    const loading = PAGE.indexOf("historyLoading[editing.id] ?");
+    const failure = PAGE.indexOf("historyError[editing.id] ?");
+    const empty = PAGE.indexOf("(history[editing.id]?.length ?? 0) === 0 ?");
+    expect(loading).toBeGreaterThan(-1);
+    expect(failure).toBeGreaterThan(loading);
+    expect(empty).toBeGreaterThan(failure);
+  });
+
+  it("loads the history when the editor opens", () => {
+    expect(PAGE).toContain("void loadHistory(r.id);");
+  });
+
+  it("offers the older page only when the last one was full and the cap is not reached", () => {
+    expect(PAGE).toContain("{historyHasMore[editing.id] &&");
+    expect(PAGE).toContain("(history[editing.id]?.length ?? 0) < ROUTINE_HISTORY_MAX && (");
+    // And the fetch refuses too: a long-lived editor whose list fills between
+    // the render and the click must not ask for rows the merge would drop.
+    expect(PAGE).toContain("(history[id]?.length ?? 0) >= ROUTINE_HISTORY_MAX");
+    expect(PAGE).toContain('tr("routines.historyLoadingOlder")');
+    expect(PAGE).toContain('tr("routines.historyLoadOlder")');
   });
 });

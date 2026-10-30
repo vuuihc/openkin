@@ -1517,6 +1517,8 @@ const en: MessageTree = {
     historyTitle: "Run history",
     historyLoading: "Loading runs…",
     historyEmpty: "No runs yet.",
+    historyLoadOlder: "Load older runs",
+    historyLoadingOlder: "Loading older runs…",
     searchPlaceholder: "Search routines",
     loadMore: "Load more routines",
     emptyFeed: "No routine runs yet",
