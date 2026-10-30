@@ -1,6 +1,6 @@
 # Common-feature parity program — inventory, gaps, plan
 
-Status: rounds 1–20 landed. This is the living ledger for
+Status: rounds 1–21 landed. This is the living ledger for
 the open-ended "beat Lody on the features I actually use" program: inventory →
 gap matrix → plan → implement → evaluate → repeat.
 
@@ -102,7 +102,7 @@ attachment lost when the task runs on another machine, closed with F4 below.
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Recurrence: daily / weekdays / weekly / monthly / hours / minutes / once, with next-run preview (`schedule-recurrence-editor.tsx:132`) | all seven kinds, with the two step rules zone-aligned and validated to divide their unit (R19, `recurrence.go`), server-computed next due in the list (`RoutinesPage.tsx:535-537`), and the create form reused as an editor for those same fields (R17, `routineEdit.ts`) | No next-run preview inside the form (the list shows the computed next due) | S3 | — |
+| Recurrence: daily / weekdays / weekly / monthly / hours / minutes / once, with next-run preview (`schedule-recurrence-editor.tsx:132`) | all seven kinds, with the two step rules zone-aligned and validated to divide their unit (R19, `recurrence.go`), server-computed next due in the list (`RoutinesPage.tsx:535-537`), the create form reused as an editor for those same fields (R17, `routineEdit.ts`), and the form previewing the daemon's own next run (R21, `POST /api/routines/preview`, `useRoutinePreview.ts`) | Closed (R21); the preview is absent in New Chat's routine composer, which has no preview line yet | — | — |
 | Agent/model/permission per schedule (`schedule-agent-controls.tsx:26`) | agent, model and permission are per-routine end to end (R20): `store.Routine.Model` → `scheduler.go:513-529` → `task.CreateRequest.Model`; both the Routines editor and New Chat's routine mode carry the picker | Closed (R20) | — | — |
 | Run history | a global routine-run feed with unread and mark-read (`RoutinesPage.tsx:114-117,442-485`), plus each routine's ten newest runs under its editor (R18, `/api/tasks?routine_id=`) | No paged per-routine history and no live refresh while the editor stays open; Lody lists up to 100 under the schedule | S3 | — |
 
@@ -3177,3 +3177,65 @@ quick-create is the third routine surface and still hard-codes `agent: "kin"`
 with no model or permission control. A routine whose agent is later removed
 keeps both the agent id and the model id. No bulk "set the model for every
 routine" action.
+
+### Round 21 — the form says when it will next run (2026-10-30)
+
+**21A The rule existed twice, or not at all.** Create turns a repeated rule into
+a first run with `Recurrence.Next`; the console never showed that answer, so the
+form asked for a time of day and gave no sign of when the first run would land.
+Lody's recurrence editor previews it (`schedule-recurrence-editor.tsx:132`).
+Computing it in TypeScript would have been a second implementation of zones,
+DST walking and step alignment, and the day the two disagreed the form would
+promise a time the routine never fires at — worse than no preview. The daemon
+is the only thing that should answer.
+
+**21B One helper, one answer.** `ruleFirstRun` is now the single read of a
+rule's next instant, shared by create, patch (`nextDueAfterRuleChange`) and the
+new `POST /api/routines/preview`. The route parses the same recurrence string
+create would store, returns `{next_due_at}`, and refuses bad JSON, a missing
+rule and a rule with no future occurrence with 400. It is `holderOnly`:
+parsing a rule touches no state, but the answer depends on this machine's
+clock, so a guest may not ask. The first version also returned the rule's
+nominal pace for the interval column; review asked what would display it, and
+nothing did, so the field was dropped rather than kept as an unused part of the
+contract.
+
+**21C The console.** `previewRoutine` in the API client; `useRoutinePreview`
+debounces 250 ms, treats the serialized rule as the request identity, clears
+the shown instant the moment the payload changes (so the previous rule's time
+never survives the debounce or a slow request), drops an answer for a rule the
+form has already left, clears on an empty payload and reads null on failure.
+The page builds that payload with the same zone default the edit path uses —
+`ruleZone ?? localTimeZone()`, matching `schedulePatch` — so a stored rule is
+previewed in its own zone, and skips `once`, whose instant is already in the
+date field. The fields render one muted line under the zone hint, only for a
+repeated rule that has an answer, and format it on the rule's own clock face so
+it agrees with the hour/minute fields above it. Both locales carry the key.
+
+**Verification.** `./scripts/check.sh` clean; 20 mutants red — the route, the
+preview's no-future refusal, its returned instant (pinned against create's
+stored value, not only by eye), malformed JSON, `ruleFirstRun` itself (create,
+patch and preview all caught), create's refusal of an unfireable rule, the
+hook's clearing on change, stale guard, debounce cleanup, delay and failure
+state, the page's once skip and zone, the prop reaching the fields, both render
+gates, the line's clock face, and the client path. The client test was added
+because the endpoint name and the verbatim rule body were not otherwise pinned
+by anything. Review also produced a create-agreement test, the invalid-JSON
+case, and a member-403 assertion for the new route. Prettier rewrapped three
+unrelated strings in the locale files; those hunks were reverted so the diff
+stays on this round. The clock-face test picks its zone by rendered output, not
+name: the first name-only pick (Asia/Shanghai) sat in the runner's own offset
+(Asia/Singapore), so the mutant that dropped the zone survived until the test
+compared strings.
+
+**Not done.** New Chat's routine composer uses the same fields but passes no
+preview — the hook is ready for that surface. No request-body limit on the
+preview route, consistent with the other routine routes (R20 note). A zone-less
+stored rule ("" — the daemon's own clock) is formatted on the reader's clock,
+because the daemon's zone is not part of the response; the hint above already
+says the times follow the daemon. The preview reflects the request's "now", so
+a rule that fires inside the debounce window can briefly show the instant that
+just passed; the next edit or the list's computed next due corrects it. No
+caching across identical payloads. The page wiring test pins source strings, so
+a reflow or rename breaks it without a behavior change — the same trade the
+design-token tests make.
