@@ -35,6 +35,11 @@ type createRoutineBody struct {
 	NextDueAt *int64 `json:"next_due_at"`
 }
 
+// previewRoutineBody asks what a rule would mean before it is saved.
+type previewRoutineBody struct {
+	Recurrence string `json:"recurrence"`
+}
+
 type patchRoutineBody struct {
 	Title           *string `json:"title"`
 	ProjectID       *string `json:"project_id"`
@@ -145,12 +150,12 @@ func (s *Server) handleCreateRoutine(w http.ResponseWriter, r *http.Request) {
 		// The first run is the rule's next occurrence, not "as soon as the
 		// scheduler looks": creating a weekday-morning routine on a Tuesday
 		// afternoon must not run it on Tuesday afternoon.
-		at, ok := recurrence.Next(time.UnixMilli(now))
+		at, ok := ruleFirstRun(recurrence, time.UnixMilli(now))
 		if !ok {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "recurrence has no future occurrence"})
 			return
 		}
-		next = at.UnixMilli()
+		next = at
 	}
 	agent := strings.TrimSpace(body.Agent)
 	if agent == "" {
@@ -220,21 +225,61 @@ func (s *Server) handleCreateRoutine(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, rec)
 }
 
+// ruleFirstRun is the instant a wall-clock rule's next run lands on, in unix
+// ms. Create, patch and the console's preview all read a rule through this, so
+// the form cannot promise a time the daemon would not use.
+func ruleFirstRun(rule *routines.Recurrence, now time.Time) (int64, bool) {
+	at, ok := rule.Next(now)
+	if !ok {
+		return 0, false
+	}
+	return at.UnixMilli(), true
+}
+
 // nextDueAfterRuleChange is when a routine should next run after its rule was
 // replaced — or after it was switched back to a plain interval, in which case
 // the interval takes over from now rather than from the old rule's instant.
 func nextDueAfterRuleChange(rule *routines.Recurrence, intervalSecs int64, now time.Time) (int64, bool) {
 	if rule != nil {
-		at, ok := rule.Next(now)
-		if !ok {
-			return 0, false
-		}
-		return at.UnixMilli(), true
+		return ruleFirstRun(rule, now)
 	}
 	if intervalSecs <= 0 {
 		intervalSecs = 60
 	}
 	return now.Add(time.Duration(intervalSecs) * time.Second).UnixMilli(), true
+}
+
+// handlePreviewRoutine answers what a rule means before it is saved: the
+// instant its next run would land on.
+//
+// The console asks this instead of computing `Next` itself. A second
+// implementation would eventually disagree with the daemon about zones, DST or
+// the step alignment, and the form would then promise a time the routine never
+// fires at — worse than no preview, because the reader would trust it.
+func (s *Server) handlePreviewRoutine(w http.ResponseWriter, r *http.Request) {
+	var body previewRoutineBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	rule, err := routines.ParseRecurrence(body.Recurrence)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if rule == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "recurrence is required"})
+		return
+	}
+	now := time.Now()
+	next, ok := ruleFirstRun(rule, now)
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "recurrence has no future occurrence"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{
+		"next_due_at": next,
+	})
 }
 
 func (s *Server) handleGetRoutine(w http.ResponseWriter, r *http.Request) {

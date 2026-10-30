@@ -856,6 +856,13 @@ func TestAMemberCannotReadTheMachinesOwnRecords(t *testing.T) {
 			t.Fatalf("member reading %s: %d %s, want 403", path, rec.Code, rec.Body.String())
 		}
 	}
+	// The preview answers about this machine's clock — which zone a rule is
+	// interpreted in — so it is a holder surface too, even though it stores
+	// nothing. A guest has no routines on this machine to preview.
+	if rec := member.post("/api/routines/preview",
+		`{"recurrence":"{\"kind\":\"daily\",\"hour\":9,\"minute\":0}"}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("member previewing a rule: %d %s, want 403", rec.Code, rec.Body.String())
+	}
 
 	// The owner holds the machine, so nothing here changed for them. The
 	// assertion is "not refused" rather than "200": a handler may still answer

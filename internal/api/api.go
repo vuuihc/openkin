@@ -492,6 +492,9 @@ func (s *Server) Handler() http.Handler {
 		r.With(holderOnly).Get("/api/routines/unread-count", s.handleRoutineUnreadCount)
 		r.With(holderOnly).Get("/api/routines/health", s.handleRoutineHealth)
 		r.With(operatorOnly).Post("/api/routines/mark-all-read", s.handleMarkAllRoutineRunsRead)
+		// Preview is a read of a rule the client has not saved yet; it touches
+		// no state, so a holder token may ask.
+		r.With(holderOnly).Post("/api/routines/preview", s.handlePreviewRoutine)
 		r.With(holderOnly).Get("/api/routines/{id}", s.handleGetRoutine)
 		r.With(operatorOnly).Patch("/api/routines/{id}", s.handlePatchRoutine)
 		r.With(operatorOnly).Delete("/api/routines/{id}", s.handleDeleteRoutine)

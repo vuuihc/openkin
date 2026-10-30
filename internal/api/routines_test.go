@@ -292,6 +292,108 @@ func TestCreateRoutineWithAStepRule(t *testing.T) {
 	}
 }
 
+// The console's form asks the daemon what a rule means before saving it. The
+// preview has to agree with create: same zone, same alignment, and the same
+// refusals.
+func TestPreviewRoutineRule(t *testing.T) {
+	s, _ := newRoutinesTestServer(t)
+	preview := func(body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/routines/preview", bytes.NewReader([]byte(body)))
+		req.Header.Set("Authorization", "Bearer test-token")
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, req)
+		return rr
+	}
+	type previewBody struct {
+		NextDueAt int64 `json:"next_due_at"`
+	}
+	read := func(rr *httptest.ResponseRecorder) previewBody {
+		t.Helper()
+		if rr.Code != http.StatusOK {
+			t.Fatalf("preview status=%d body=%s", rr.Code, rr.Body.String())
+		}
+		var body previewBody
+		if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		return body
+	}
+
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := `{"kind":"daily","hour":9,"minute":30,"time_zone":"Asia/Shanghai"}`
+	got := read(preview(`{"recurrence":` + strconv.Quote(rule) + `}`))
+	next := time.UnixMilli(got.NextDueAt).In(shanghai)
+	if next.Hour() != 9 || next.Minute() != 30 || !next.After(time.Now()) {
+		t.Fatalf("preview next = %v, want the next 09:30 in Shanghai", next)
+	}
+
+	// A step rule previews on its mark.
+	got = read(preview(`{"recurrence":"{\"kind\":\"hours\",\"every\":6,\"time_zone\":\"Asia/Shanghai\"}"}`))
+	next = time.UnixMilli(got.NextDueAt).In(shanghai)
+	if next.Minute() != 0 || next.Second() != 0 || next.Hour()%6 != 0 {
+		t.Fatalf("preview next = %v, want the next 6-hour mark", next)
+	}
+
+	// What create would refuse, the preview refuses too.
+	if rr := preview(`{"recurrence":"{\"kind\":\"minutes\",\"every\":7}"}`); rr.Code != http.StatusBadRequest {
+		t.Fatalf("bad step status = %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+	if rr := preview(`{}`); rr.Code != http.StatusBadRequest {
+		t.Fatalf("missing rule status = %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+	if rr := preview(`{`); rr.Code != http.StatusBadRequest {
+		t.Fatalf("bad json status = %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+	past := strconv.FormatInt(time.Now().Add(-time.Hour).UnixMilli(), 10)
+	if rr := preview(`{"recurrence":"{\"kind\":\"once\",\"at\":` + past + `}"}`); rr.Code != http.StatusBadRequest {
+		t.Fatalf("past once status = %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+// Preview and create are two doors into the same helper. Asking one and then
+// the other must name the same instant, or the form would show a time the
+// stored routine never fires at.
+func TestPreviewAgreesWithCreate(t *testing.T) {
+	s, _ := newRoutinesTestServer(t)
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Six hours out, so the two requests cannot land on opposite sides of the
+	// occurrence and disagree for a legitimate reason.
+	hour := (time.Now().In(shanghai).Hour() + 6) % 24
+	rule := `{"kind":"daily","hour":` + strconv.Itoa(hour) + `,"minute":0,"time_zone":"Asia/Shanghai"}`
+	rr := postRoutine(t, s, `{"cwd":"/tmp/p","prompt":"p","recurrence":`+strconv.Quote(rule)+`}`)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var created store.Routine
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/routines/preview",
+		bytes.NewReader([]byte(`{"recurrence":`+strconv.Quote(rule)+`}`)))
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var preview struct {
+		NextDueAt int64 `json:"next_due_at"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if preview.NextDueAt != created.NextDueAt {
+		t.Fatalf("preview next_due_at = %d, create stored %d", preview.NextDueAt, created.NextDueAt)
+	}
+}
+
 func TestCreateRoutineRejectsAnUnfireableRule(t *testing.T) {
 	s, _ := newRoutinesTestServer(t)
 	rr := postRoutine(t, s, `{"cwd":"/tmp/p","prompt":"standup","recurrence":"{\"kind\":\"weekly\"}"}`)
