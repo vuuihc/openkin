@@ -96,7 +96,7 @@ attachment lost when the task runs on another machine, closed with F4 below.
 | Changes sidebar with Code/Docs/Tests/Dev grouping (`session-changes-sidebar.tsx:366`) | flat list sorted by seq (`ChangedFilesList.tsx:21-102`); Keep/Discard exist in the viewer header for terminal tasks | No grouping, no persisted per-file reviewed state | S3 | — |
 | Mobile diff drawer (Changes vs Conversation diff) (`session-mobile-diff-drawer.tsx:75`) | one pane at a time under `md`: the list, then a full-height file with a back control (R15, `WorkspacePanel.tsx`); md+ keeps both panes | Closed for the viewer; no separate conversation-diff pane, because the per-turn diff cards already live in the conversation one tap away | — | — |
 | File viewer: preview, wrap, find, save, quick-open (`session-file-content-view.tsx:126`, `session-file-quick-open.tsx:235`) | `CodeViewer` (monaco): wrap on, read-only unless the workspace is writable, Cmd+S save (`CodeViewer.tsx:54-57,164-169`); monaco's own find owns Ctrl/Cmd+F inside the editor; file quick-open over the checkout with ⌘P/Ctrl+P, the panel's search button and the phone sheet (R13, `FileQuickOpen.tsx`) | `FileTree` itself still has no name filter — quick-open is the way to a known file, the tree is for browsing; no image/CSV/binary preview (next row) | S3 | — |
-| Image/CSV/Office/binary preview | text and Markdown only; the file API refuses non-UTF-8 (`workspace/diff.go:158-160`) | Binary and Office files cannot be opened at all | S3 | — |
+| Image/CSV/Office/binary preview | text and Markdown only; the file API refuses non-UTF-8 (`workspace/diff.go:158-160`) | Images draw inline, CSV/TSV lay out as tables with a source switch, and other binary files open as downloads (R24); Office documents are a download, not rendered | S3 | — |
 
 ### 2.7 Schedules
 
@@ -3444,3 +3444,139 @@ project/machine/provider reasons). No emoji or description column, and no
 built-in slash commands — `/clear` and the like still have no equivalent, which
 is a separate feature from saved prompts. The menu does not say where roles are
 edited beyond the one line in the empty state.
+
+### Round 24 — a screenshot and a CSV open as themselves (2026-10-30)
+
+**24A The file API only spoke text.** The workspace panel could open a file only
+by asking for it as UTF-8: `ReadLiveFile` rejects anything that is not valid
+text, and the endpoint answered 400 for a PNG. So the two files an agent most
+often leaves behind for a person to look at — a screenshot it took, a CSV it
+exported — opened to a refusal, and a binary opened to an error that said
+nothing about what the file was. `raw=1` on both file routes now answers with
+the bytes: the same route, the same scope check and the same traversal and
+symlink guards, under a 4 MiB cap (`rawFileLimit`, matching the git runner's
+stdout cap so a snapshot read and a live read refuse the same file at the same
+size). The text read keeps its 1 MiB cap and its UTF-8 rule untouched.
+
+The response says what the bytes are from the extension and nothing else.
+Sniffing would let a workspace file call itself `text/html` and run as a page on
+the daemon's origin, so the type is an allowlist: png/jpg/jpeg/gif/webp/bmp/ico/
+avif are drawn inline; pdf is an attachment; everything else is
+`application/octet-stream` and an attachment. SVG is deliberately absent — it is
+text, the code viewer already shows it, and as a document it can carry script.
+`X-Content-Type-Options: nosniff` stops the browser second-guessing the declared
+type, `Cache-Control: no-store` keeps yesterday's screenshot from outliving the
+file it came from, and `mime.FormatMediaType` quotes the filename where it has
+to. A remote workspace answers 501 for the raw read: the bytes are on the other
+machine and the worker protocol carries text, not arbitrary data.
+
+**24A′ A download is not a preview.** The first cut made the download fallback
+re-issue `raw=1`, so a refusal was saved under the file's name — a remote
+workspace wrote its 501 JSON to `shot.png`, and a 5 MiB screenshot wrote a 400
+JSON to `shot.png` too. `download=1` is now its own answer. A live file is
+opened with `Manager.OpenLiveFile` and streamed through `http.ServeContent`
+with an always-attachment disposition: no cap, because the cap exists to keep a
+mislabeled archive out of the daemon's memory, not to refuse the recording the
+person asked to save. Snapshot sides are read out of git into memory and keep
+the 4 MiB cap; their download is still an attachment. `openLiveFile` is shared
+by the capped read and the streaming open, so containment (rooted open,
+regular-file check, symlink escape) is one implementation, and
+`fileResponseHeaders`/`writeFileBytes` keep both answers on one set of headers.
+The remote workspace answers 501 for the download as well.
+
+**24B The viewer chooses by name.** `previewKind` classifies a file as image,
+table, binary or text from its extension, with the image list kept in step with
+the daemon's allowlist and Office documents (doc/docx/xls/xlsx/ppt/pptx) on the
+binary side. An image is no longer read as text at all. The panel fetches bytes
+with `fetchFileBytes`, which sends the token in a header — never in the URL —
+and throws the daemon's `ApiError`; the blob is drawn through an object URL that
+is revoked when the file changes or the panel unmounts. The wait is announced
+(`role=status`), and a failure shows the daemon's own sentence (`role=alert`)
+with the download beside it, which is a different route and can still succeed
+where the preview could not. A binary formats the same way without a text read
+at all. The download fetches `download=1`, saves the blob under the file's own
+name, and a failed download reports the daemon's message on screen instead of
+saving the refusal. CSV and TSV are read as text, because they are text, and
+laid out by a bounded parser: quotes may wrap a field carrying the delimiter or
+a newline, a doubled quote is one quote, an unclosed quote keeps what was
+written, and the table stops at 200 rows by 30 columns with a caption that says
+it did. A read that was itself truncated — a remote worker caps at 128 KiB — is
+called out separately, because a short table that hides that lies about the
+data. The first row is the header. A "Code" switch hands the file back to the
+editor, which is where a writable generation can still edit it and where its
+exact quoting is visible. Everything else — SVG and files with no extension
+included — goes to the code viewer exactly as before.
+
+**Verification.** `./scripts/check.sh --all` clean (whole UI suite green,
+including 20 parser/kind/error-message/base-name cases, 16 panel preview cases,
+two byte-URL cases and three byte-fetch cases; the backend suite green,
+including 12 new Go test functions and 31 cases counting subtests). 39 mutants
+red, all byte-for-byte restored: the live and source raw reads falling back to
+the text reader, the base snapshot raw read asking for the final tree, nosniff
+dropped, the cache header made long-lived, SVG admitted inline, unknown types
+admitted inline, the remote refusal removed for both raw and download, `raw`
+ignored on the workspace route, a live download served by the capped preview
+reader, the source download not streamed, a download drawn inline, a snapshot
+download drawn inline, a snapshot download losing to raw, a snapshot download
+taking the text path, the download path accepting a directory, the preview read
+using the text cap, the panel reading an image as text, the panel drawing the
+editor where the image belongs, a binary file keeping the previous file's
+download state, reopening an image not fetching it again, images removed from
+`previewKind`, SVG added to it, quoted fields read without their quotes, the
+row bound off by one, a saved file named after its whole Windows path, the
+parser's truncation caption removed, a truncated read shown as a complete
+table, the download route asking for a preview, a failed download with nothing
+to say, the saved file named for its path, a failed image not announced, the
+byte fetch returning an empty body, the byte fetch forgetting the token, a page
+answered with 200 saved as the file, a text error page answered with 200 saved
+as the file, a final snapshot download losing to raw, and the byte URL asking
+the text route.
+Two fixtures had to be fixed before they could catch anything: the snapshot
+test first committed one image and read both sides from it, so a mutant that
+answered the base side with the final tree passed, and the traversal case
+pointed at a file that did not exist beside the root, so a naive join would
+have found nothing. The fixtures now edit the image between the two commits and
+put the leaked file in the root's real parent.
+
+The first review found two majors the implementation then fixed: a download
+fallback that saved the daemon's refusal under the file's name (fixed by the
+`download=1` streaming route and fetch-based saving, which reports the refusal
+instead), and a table that dropped the read's truncation flag (fixed by
+`tableIncomplete`). The second review found no blockers and one further major —
+the download button's busy/error state survived a switch between two binary
+files — fixed by keying the previews by path and fetch generation, with a
+two-binary regression test. A third review found no blockers and no majors; its
+nits were fixed in the same pass — the 200 guard widened from `text/html` to all
+of `text/*` and `application/problem+json`, `rawFileLimit` defined from the git
+runner's stdout cap instead of restating its number, the changed-files bar
+reusing `fileBaseName`, the OpenAPI document finally naming `raw`, `download`
+and `side` on the workspace file route (with its generated types), a fresh
+`Response` per case in the byte-fetch test, and a final-side `raw=1&download=1`
+assertion. Two nits were left as notes: the image allowlist is duplicated
+between Go and TypeScript with tests on both sides rather than generated from
+one source, and `DownloadButton` still calls `setState` after unmount, which
+React ignores and which does not stop the save the person asked for. Each
+review ran on the same model as the implementation; every fix was red-verified
+with `./scripts/mutants.py`.
+
+**Review.** REVIEWED — three same-model passes. Pass 1: no blockers, two majors
+(the download fallback saving refusals; the table dropping the read's
+truncation), both fixed. Pass 2: no blockers, one major (a binary file
+inheriting the previous file's download state), fixed with keyed previews and
+the fetch nonce; `web/dist/index.html` confirmed as a landing step. Pass 3: no
+blockers, no majors; eight nits, six fixed and two noted. The remote 501 is
+still an English sentence from the daemon, restated as residual risk.
+
+**Not done.** Office documents are a download, not a rendered preview, and a PDF
+opens in the browser's own viewer only after the download the attachment
+disposition asks for. An unknown binary extension still goes through the text
+read and shows its refusal instead of offering the download; the list of binary
+extensions is a heuristic, and `.dat` was deliberately left on the text side
+because it is as often text as not. The table has no sorting, filtering, column
+sizing or type inference, and a quoted field that starts after leading spaces is
+read as unquoted (RFC 4180 does not allow those spaces either). Images cannot be
+zoomed or panned, and there is no "open in a new tab". The download is fetched
+into a blob before it is saved, which browsers back with disk but which is not
+the streaming path a native download link takes, and the raw cap is a constant,
+not a setting. A workspace on another machine still cannot preview or download
+an image at all (501), because the worker protocol carries text only.
