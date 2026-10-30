@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "journeys": {
+    "J1": "手机：打开 → 找到昨天的对话 → 继续 → 回答批准",
+    "J2": "Mac：打开 → 搜到上周的对话 → 继续 → 改模型和权限 → 看 diff",
+    "J3": "开始：任一端 → 新建 → 选 agent、模型、权限 → 发送",
+    "J4": "资料：找到产物、项目或例行任务并操作"
+  },
+  "stories": [
+    {
+      "id": "KIN-MAC-001",
+      "state": "draft",
+      "priority": "P0",
+      "journey": "J2",
+      "plannedRounds": 2,
+      "title": "在 Mac 上找到上周的对话并接着问",
+      "file": "docs/product/stories/KIN-MAC-001.md",
+      "surface": "Mac 上接着问",
+      "ownerPaths": [
+        "ui/src/components/layout/Sidebar.tsx",
+        "ui/src/pages/SessionsPage.tsx",
+        "ui/src/pages/TasksPage.tsx",
+        "ui/src/components/chat/PermissionModePicker.tsx",
+        "ui/src/components/chat/ModelPicker.tsx"
+      ],
+      "tests": [],
+      "blockedReason": null
+    },
+    {
+      "id": "KIN-PHONE-001",
+      "state": "draft",
+      "priority": "P0",
+      "journey": "J1",
+      "plannedRounds": 2,
+      "title": "在手机上找到昨天的对话并接着问",
+      "file": "docs/product/stories/KIN-PHONE-001.md",
+      "surface": "手机上接着问",
+      "ownerPaths": [
+        "ui/src/pages/SessionsPage.tsx",
+        "ui/src/lib/phoneSessionBuckets.ts",
+        "ui/src/lib/deviceSidebar.ts",
+        "ui/src/components/cards/ApprovalCard.tsx"
+      ],
+      "tests": [],
+      "blockedReason": null
+    },
+    {
+      "id": "KIN-START-001",
+      "state": "draft",
+      "priority": "P1",
+      "journey": "J3",
+      "plannedRounds": 1,
+      "title": "新建一段对话",
+      "file": "docs/product/stories/KIN-START-001.md",
+      "surface": "新建一段对话",
+      "ownerPaths": [
+        "ui/src/pages/NewChatPage.tsx",
+        "ui/src/components/chat/RunConfigSheet.tsx",
+        "ui/src/lib/permissionMode.ts"
+      ],
+      "tests": [],
+      "blockedReason": null
+    }
+  ]
+}

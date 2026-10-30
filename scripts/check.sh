@@ -175,6 +175,13 @@ job_python_syntax() {
   done
 }
 
+# Story contracts, the registry index, and the tests that name them must agree.
+# Cheap enough to run on every change set, and it is the only check that sees a
+# story whose test was renamed away.
+job_stories() {
+  python3 scripts/stories.py
+}
+
 start gofmt job_gofmt
 start vet job_vet
 start gotest job_gotest
@@ -185,6 +192,7 @@ start ui-tsc job_ui_tsc
 start api-contract job_api_contract
 start shell-syntax job_shell_syntax
 start python-syntax job_python_syntax
+start stories job_stories
 
 FAILED=()
 for i in "${!PIDS[@]}"; do

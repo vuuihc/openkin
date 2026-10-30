@@ -129,6 +129,17 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
   which concept, and the conversation list's device → project → conversation
   hierarchy) and `docs/product/TASTE.md` (the rules the change is checked
   against). Update the IA row the change touches in the same commit.
+- Work from a story, not from a control. `docs/product/stories/` holds a few
+  capability-sized contracts (one thing a person can finish, 40–80 lines,
+  spanning 1–3 rounds), each naming an `IA.md` surface and a J1–J4 journey, with
+  an acceptance table whose test files contain the story id. A round does one
+  slice of one story and never mixes two; commit code, tests, the story slice and
+  `registry.json` together with `KIN-<AREA>-NNN round N/M` in the body.
+  `scripts/check.sh` runs `scripts/stories.py` and fails when the registry, the
+  contracts and the tests disagree. Escaped defects go to
+  `docs/product/LESSONS.md` first; a pattern seen three times graduates into
+  `TASTE.md` or this file with a reproducing test. See
+  `docs/product/stories/README.md`.
 - Keep TypeScript strict and avoid `any` unless an external boundary makes it
   unavoidable and the value is narrowed immediately.
 - Reuse existing components, design tokens, API helpers, and Zustand state
