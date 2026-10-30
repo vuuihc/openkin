@@ -13,7 +13,7 @@
       "priority": "P0",
       "journeys": ["J1", "J2"],
       "surfaces": ["mac", "phone"],
-      "plannedRounds": 4,
+      "plannedRounds": 3,
       "title": "接着问一段对话",
       "file": "docs/product/stories/KIN-CONTINUE-001.md",
       "surface": "Mac 上接着问 / 手机上接着问",
