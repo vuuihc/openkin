@@ -8,6 +8,8 @@ is the text; this script keeps the two and the tests honest.
 Usage:
   python3 scripts/stories.py                  # check, print a summary
   python3 scripts/stories.py --write-coverage # check and rewrite COVERAGE.md
+  python3 scripts/stories.py new AREA "title" [--journeys J1,J2] [--surfaces mac,phone]
+                                              # scaffold a story before writing code
 
 Exit status is nonzero when anything disagrees, so `scripts/check.sh` can use
 it as a commit gate.
@@ -35,6 +37,26 @@ ROUNDS_RE = re.compile(r"^分轮：\s*(\d+)\s*$", re.M)
 SURFACES_RE = re.compile(r"^面：\s*(.+)$", re.M)
 SURFACE_LABEL = {"mac": "Mac", "phone": "手机"}
 DIFFERENCES_HEADING = "## 各面差异"
+
+# The contract's skeleton. A story missing any of these is still being written,
+# and the checker says so instead of letting a half-written story look approved.
+REQUIRED_SECTIONS = (
+    "## 谁、什么时候、为什么",
+    "## 现在",
+    "## 范围",
+    "## 每一步的预期",
+    "## 各面差异",
+    "## Do not",
+    "## 验收",
+    "## 分轮",
+    "## 证据",
+    "## 变更记录",
+)
+# Every job-map step answers the same six questions; a blank one is a step
+# nobody has thought through.
+STEP_FIELDS = ("起点", "动作", "立刻看到", "慢 / 空 / 失败 / 断线", "键盘与焦点", "离开再回来")
+# A cell that is only `<something>` is the template talking, not the author.
+PLACEHOLDER_RE = re.compile(r"<[^<>]*>")
 
 STATES = {"draft", "approved", "covered", "failing", "blocked"}
 NEEDS_TEST = {"approved", "covered", "failing"}
@@ -66,6 +88,117 @@ def iter_test_files():
                 if any(part in SKIP_DIRS for part in path.parts):
                     continue
                 yield path
+
+
+def has_heading(text: str, heading: str) -> bool:
+    """True when `heading` is a whole line, so `## 范围` is not satisfied by `## 范围被删`."""
+    return re.search(rf"^{re.escape(heading)}\s*$", text, re.M) is not None
+
+
+def section(text: str, heading: str) -> str:
+    """Body of a `##` section, without the next heading."""
+    found = re.search(rf"^{re.escape(heading)}\s*$", text, re.M)
+    if not found:
+        return ""
+    return text[found.end() :].split("\n## ", 1)[0]
+
+
+def next_id(stories: list[dict], area: str) -> str:
+    numbers = []
+    pattern = re.compile(rf"^KIN-{re.escape(area)}-(\d{{3}})$")
+    for story in stories:
+        found = pattern.match(str(story.get("id", "")))
+        if found:
+            numbers.append(int(found.group(1)))
+    return f"KIN-{area}-{max(numbers) + 1 if numbers else 1:03d}"
+
+
+def cmd_new(argv: list[str]) -> int:
+    """Scaffold a story: id, contract file, registry row, coverage table."""
+    if len(argv) < 2:
+        print('usage: stories.py new AREA "title" [--journeys J1,J2] [--surfaces mac,phone]', file=sys.stderr)
+        print("       [--priority P0|P1] [--rounds N]", file=sys.stderr)
+        return 2
+
+    area, title = argv[0].upper(), argv[1]
+    if area.startswith("KIN-"):
+        area = area[4:]
+    if not re.fullmatch(r"[A-Z]+", area):
+        print(f"area must be letters like CONTINUE, got {argv[0]!r}", file=sys.stderr)
+        return 2
+
+    flags: dict[str, str] = {}
+    rest = argv[2:]
+    for index in range(0, len(rest) - 1, 2):
+        if rest[index].startswith("--"):
+            flags[rest[index][2:]] = rest[index + 1]
+
+    data = load_registry()
+    journeys = [name for name in JOURNEY_SPLIT.split(flags.get("journeys", "")) if name]
+    unknown = [name for name in journeys if name not in (data.get("journeys") or {})]
+    if unknown:
+        print(f"unknown journeys: {unknown}", file=sys.stderr)
+        return 2
+    surfaces = [name for name in JOURNEY_SPLIT.split(flags.get("surfaces", "")) if name]
+    unknown = [name for name in surfaces if name not in SURFACE_LABEL]
+    if unknown:
+        print(f"unknown surfaces: {unknown}", file=sys.stderr)
+        return 2
+    priority = flags.get("priority", "P0")
+    if priority not in {"P0", "P1"}:
+        print(f"priority must be P0 or P1, got {priority!r}", file=sys.stderr)
+        return 2
+    try:
+        rounds = int(flags.get("rounds", "1"))
+    except ValueError:
+        print("rounds must be a number", file=sys.stderr)
+        return 2
+    if rounds < 1:
+        print("rounds must be at least 1", file=sys.stderr)
+        return 2
+
+    stories = data.get("stories") or []
+    story_id = next_id(stories, area)
+    path = DIR / f"{story_id}.md"
+    if path.exists():
+        print(f"{path} already exists", file=sys.stderr)
+        return 1
+
+    text = read(DIR / "_TEMPLATE.md")
+    labels = "、".join(SURFACE_LABEL[name] for name in surfaces)
+    text = (
+        text.replace("# KIN-<AREA>-NNN · <一件事，用户能感知的结果>", f"# {story_id} · {title}")
+        .replace("优先级：P0", f"优先级：{priority}", 1)
+        .replace("旅程：J1、J2", "旅程：" + "、".join(journeys), 1)
+        .replace("面：Mac、手机", "面：" + labels, 1)
+        .replace("分轮：3", f"分轮：{rounds}", 1)
+    )
+    path.write_text(text, encoding="utf-8")
+
+    stories.append(
+        {
+            "id": story_id,
+            "state": "draft",
+            "priority": priority,
+            "journeys": journeys,
+            "surfaces": surfaces,
+            "plannedRounds": rounds,
+            "title": title,
+            "file": str(path.relative_to(ROOT)),
+            "surface": "",
+            "ownerPaths": [],
+            "tests": [],
+            "blockedReason": None,
+        }
+    )
+    data["stories"] = stories
+    REGISTRY.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    COVERAGE.write_text(coverage_text(data), encoding="utf-8")
+
+    print(f"created {path.relative_to(ROOT)}")
+    print(f"created registry entry {story_id} (draft)")
+    print("next: fill it in per docs/product/stories/AUTHORING.md, then run stories.py")
+    return 0
 
 
 def check() -> list[str]:
@@ -165,12 +298,12 @@ def check() -> list[str]:
                     problems.append(
                         f"{where}: registry surfaces {expected!r} != contract {labels!r}"
                     )
-                if DIFFERENCES_HEADING not in text:
+                if not has_heading(text, DIFFERENCES_HEADING):
                     problems.append(f"{where}: contract has no `{DIFFERENCES_HEADING}` section")
                 else:
-                    section = text.split(DIFFERENCES_HEADING, 1)[1].split("\n## ", 1)[0]
+                    body = section(text, DIFFERENCES_HEADING)
                     for label in expected:
-                        if f"| {label} |" not in section:
+                        if f"| {label} |" not in body:
                             problems.append(
                                 f"{where}: {DIFFERENCES_HEADING} has no `| {label} |` row"
                             )
@@ -181,6 +314,41 @@ def check() -> list[str]:
                 problems.append(
                     f"{where}: registry plannedRounds {rounds!r} != contract {found_rounds.group(1)}"
                 )
+
+            for heading in REQUIRED_SECTIONS:
+                if not has_heading(text, heading):
+                    problems.append(f"{where}: contract has no `{heading}` section")
+
+            steps = [
+                chunk for chunk in re.split(r"^### ", section(text, "## 每一步的预期"), flags=re.M)[1:]
+            ]
+            if not steps:
+                problems.append(f"{where}: `## 每一步的预期` has no `### ` step")
+            for chunk in steps:
+                step_title = chunk.splitlines()[0].strip() if chunk.splitlines() else "?"
+                if "<" in step_title:
+                    problems.append(f"{where}: step title `{step_title}` is still a placeholder")
+                for field in STEP_FIELDS:
+                    if f"| {field} |" not in chunk:
+                        problems.append(f"{where}: step `{step_title}` has no `{field}` row")
+                        continue
+                    row = re.search(
+                        rf"^\|\s*{re.escape(field)}\s*\|(.*)\|\s*$", chunk, re.M
+                    )
+                    if row and PLACEHOLDER_RE.fullmatch(row.group(1).strip()):
+                        problems.append(
+                            f"{where}: step `{step_title}` still has a placeholder in `{field}`"
+                        )
+
+            if "<面的名字>" in text:
+                problems.append(f"{where}: `归属面` is still a placeholder")
+
+            if not re.search(r"^- \S", section(text, "## Do not"), re.M):
+                problems.append(f"{where}: `## Do not` has no bullet")
+
+            acceptance = section(text, "## 验收")
+            if "Given" not in acceptance or "Then" not in acceptance:
+                problems.append(f"{where}: `## 验收` has no Given / Then row")
 
         owner_paths = story.get("ownerPaths") or []
         if not isinstance(owner_paths, list):
@@ -265,6 +433,9 @@ def coverage_text(data: dict) -> str:
 
 
 def main(argv: list[str]) -> int:
+    if argv and argv[0] == "new":
+        return cmd_new(argv[1:])
+
     problems = check()
     data = load_registry()
     expected = coverage_text(data)

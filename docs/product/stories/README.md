@@ -4,6 +4,17 @@
 
 参考了本地两份实现：Lody 用 24 条 journey 覆盖整个应用（`~/Workspace/works/Lody/e2e/journeys/registry.json`），Magpie 没有故事表，靠 `LESSONS.md` 累积规则再升级成 `docs/code-standards.md`（`~/Workspace/works/magpie`）。OpenKin 取中间：**故事少而厚，规则从真实缺陷长出来**。
 
+## 开发任何功能之前
+
+```bash
+python3 scripts/stories.py new CONTINUE "一句话说清这件事" --journeys J1,J2 --surfaces mac,phone
+```
+
+它分配编号、复制模板、写进 `registry.json`、重生成 `COVERAGE.md`。然后照
+[`AUTHORING.md`](AUTHORING.md) 填：选意图 → 定范围 → 列步骤 → 写各面差异 → 写验收。
+填完跑 `python3 scripts/stories.py`，它会指出还缺什么（缺章节、某一步缺六项中的一项、
+还是模板占位符没换）。签字后才动代码。
+
 ## 怎么切才 MECE
 
 按**意图**切，不按设备切。
@@ -27,7 +38,7 @@
 
 ## 一条故事多大
 
-- 一条 = 一件事，80–150 行。不是十个微故事，也不是整个产品。
+- 一条 = 一件事，80–170 行。不是十个微故事，也不是整个产品。
 - 可以跨 1–4 轮。提交信息写 `KIN-CONTINUE-001 round 2/4`。
 - 反面例子：把"Mac 权限菜单"单独写成一条。它只是"接着问"里的一个控件——那种粒度会让 agent 每轮都在写合同，而不是改产品。
 - 反面例子：把"手机接着问"和"Mac 接着问"写成两条。同一个要求写两遍，迟早漏一遍。
@@ -90,7 +101,8 @@ Magpie 就是这么做的：每晚复盘当天合并的提交，从"又被修了
 
 ## 目录
 
-- `_TEMPLATE.md` —— 模板，复制它开始。
+- `_TEMPLATE.md` —— 骨架，复制它开始（`new` 会替你复制）。
+- `AUTHORING.md` —— 怎么写：五步、签字前 10 问、检查器会拦什么。
 - `registry.json` —— 机器读的索引，状态的唯一真相。
 - `COVERAGE.md` —— 脚本生成，不要手改。
 - `KIN-CONTINUE-001.md` —— 接着问一段对话，Mac 和手机（`draft`）。

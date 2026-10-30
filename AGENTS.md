@@ -130,10 +130,14 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
   hierarchy) and `docs/product/TASTE.md` (the rules the change is checked
   against). Update the IA row the change touches in the same commit.
 - Work from a story, not from a control. `docs/product/stories/` holds a few
-  capability-sized contracts (one thing a person can finish, 40–80 lines,
-  spanning 1–3 rounds), each naming an `IA.md` surface and a J1–J4 journey, with
-  an acceptance table whose test files contain the story id. A round does one
-  slice of one story and never mixes two; commit code, tests, the story slice and
+  capability-sized contracts (one thing a person can finish, 80–170 lines,
+  spanning 1–4 rounds), each naming an `IA.md` surface and its J1–J4 journeys,
+  declaring every surface it must hold on, and carrying an acceptance table
+  whose test files contain the story id. Start a new one with
+  `python3 scripts/stories.py new <AREA> "<title>"` and fill it per
+  `docs/product/stories/AUTHORING.md`; it stays `draft` until a person signs it,
+  and no product code is written before that. A round does one slice of one
+  story and never mixes two; commit code, tests, the story slice and
   `registry.json` together with `KIN-<AREA>-NNN round N/M` in the body.
   `scripts/check.sh` runs `scripts/stories.py` and fails when the registry, the
   contracts and the tests disagree. Escaped defects go to
