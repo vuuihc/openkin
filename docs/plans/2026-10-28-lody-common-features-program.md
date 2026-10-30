@@ -1,6 +1,6 @@
 # Common-feature parity program — inventory, gaps, plan
 
-Status: rounds 1–17 landed. This is the living ledger for
+Status: rounds 1–18 landed. This is the living ledger for
 the open-ended "beat Lody on the features I actually use" program: inventory →
 gap matrix → plan → implement → evaluate → repeat.
 
@@ -104,7 +104,7 @@ attachment lost when the task runs on another machine, closed with F4 below.
 |---|---|---|---|---|
 | Recurrence: daily / weekdays / weekly / monthly / hours / minutes / once, with next-run preview (`schedule-recurrence-editor.tsx:132`) | daily / weekdays / weekly / monthly / once (`recurrence.go:40`, `RoutineScheduleFields.tsx:142-155`), server-computed next due in the list (`RoutinesPage.tsx:535-537`), and the create form reused as an editor for those same fields (R17, `routineEdit.ts`) | No "every N hours/minutes" rule, and no next-run preview inside the form (the list shows the computed next due) | S3 | — |
 | Agent/model/permission per schedule (`schedule-agent-controls.tsx:26`) | agent and permission are per-routine end to end (`scheduler.go:513-524`); no model field anywhere | Model per schedule is missing, and the new-chat picker stays visible in routine mode while the payload drops it (`NewChatPage.tsx:482-488,356-369`) — a silently ignored control | S3 | — |
-| Run history | a global routine-run feed with unread and mark-read (`RoutinesPage.tsx:114-117,442-485`) | No per-routine history: the feed is global and capped, and `/api/tasks` never passes `routine_id` though the store supports it | S3 | — |
+| Run history | a global routine-run feed with unread and mark-read (`RoutinesPage.tsx:114-117,442-485`), plus each routine's ten newest runs under its editor (R18, `/api/tasks?routine_id=`) | No paged per-routine history and no live refresh while the editor stays open; Lody lists up to 100 under the schedule | S3 | — |
 
 ### 2.8 Projects
 
@@ -2991,7 +2991,63 @@ disclosure, not the row's Edit button — the row may be scrolled away by then.
 PATCH leaves `interval_secs` alone when a rule changes, while create derives it
 from the rule; `interval_secs` is the fallback pace, so that stays the contract.
 
-**Not done.** The run feed is still global; per-routine history needs
-`/api/tasks` to pass `routine_id` (the store already supports the filter), so
-that is a later slice. The form still shows no next-run preview beyond the
-schedule fields' existing hint.
+**Not done.** The form still shows no next-run preview beyond the schedule
+fields' existing hint. (Per-routine history landed in Round 18.)
+
+### Round 18 — a routine carries its own runs (2026-10-30)
+
+**18A The filter the store already had.** `ListTasksOpts.RoutineID` has existed
+since the routine-runs feed: `""` means no filter, `*` means any routine run,
+and an id means that routine. `/api/tasks` never passed it through, so a client
+could only read the global feed and filter after the fact — and a routine whose
+last run fell off that capped page looked like it had never run. The handler now
+passes `routine_id`, and a test covers the exact id, the `*` wildcard and an
+unknown id. The console's `listTasks` gains `routineId`, so the request is the
+one thing a unit test proves rather than a source pin.
+
+**18B History under the open routine.** Opening a routine (create has no id yet)
+asks for its ten newest runs and draws them below Save/Cancel: a translated
+title, a loading line, the empty line "No runs yet.", or the rows themselves,
+reusing the feed's `RunCard` so status, time, unread and mark-read look and
+behave the same in both places. Marking a run read in the history clears it in
+the history and the global feed at once, and still fires the unread badge event.
+A failed fetch shows its error instead of the empty line — "could not ask" must
+not read as "never ran". The cap is ten because the panel is a glance at what
+the routine has done lately, not an archive; the global feed above remains the
+place to page through everything.
+
+**18C Keyed by routine.** The rows, the in-flight flag and the error are each
+keyed by routine id. Opening B while A is still loading, or while A's fetch
+fails, cannot put A's spinner, error or runs under B's name. Two fetches for
+the *same* routine are ordered by a per-id sequence number: reopening a routine
+while the first fetch is still out keeps the newer answer, so a run created in
+between is not overwritten by the older snapshot. An empty routine id never
+reaches the request, because the daemon reads `routine_id=` as "no filter" and
+would show the newest tasks of any kind under one routine's name.
+
+**18D The review's catches.** "Mark all read" sits on the same screen as the
+open history, so it now clears the cached history lists too — otherwise the
+feed and the history contradicted each other on one screen. The error/empty
+order is pinned as an order, not as a set of strings: swapping the two branches
+would show "No runs yet." for a failed fetch and every presence check would
+still pass. The sequence guard is pinned per occurrence, because the try, catch
+and finally guards do different jobs and one surviving copy cannot stand in for
+the others. A mark write that lands while a history fetch is already out still
+wins over that fetch's older snapshot — per-id marks are remembered and
+"mark all" bumps an epoch — because unread only ever goes true → false and a
+late snapshot would otherwise put unread rows back on a screen whose feed and
+badge say read. The rows in a routine's own history drop the routine-id suffix,
+which only says what the editor already says. The section is named with
+`aria-labelledby` rather than an `aria-label` that repeated the visible
+heading, and `GET /api/tasks` documents `routine_id`, including that empty
+means no filter rather than "tasks without a routine"; the generated
+`ui/src/api/generated/openapi.ts` carries the same parameter so
+`npm run check:api` stays green.
+
+**Not done.** The editor shows each routine's runs but does not refresh them
+while it stays open, and has no "load more" (ten is the whole panel). A failed
+fetch has no retry button; closing and reopening the routine retries. Following
+a run's title leaves the page and drops an unsaved draft, which is how the page
+already behaved everywhere. No next-run preview inside the form yet. Lody caps
+the linked sessions under a schedule at 100; reaching that breadth here needs a
+paged history view rather than the form panel.
