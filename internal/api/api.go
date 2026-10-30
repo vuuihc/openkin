@@ -410,6 +410,10 @@ func (s *Server) Handler() http.Handler {
 			r.With(operatorOnly).Put("/workspace/file", s.handleLegacyWriteWorkspaceFile)
 			r.With(operatorOnly).Post("/workspace/restore", s.handleRestoreTaskWorkspace)
 			r.Post("/cancel", s.handleCancelTask)
+			// Putting a conversation away is a write on one row, not a stop and
+			// not a delete: the holder may do it, and the next call undoes it.
+			r.With(holderOnly).Post("/archive", s.handleArchiveTask)
+			r.With(holderOnly).Post("/unarchive", s.handleUnarchiveTask)
 			r.With(operatorOnly).Delete("/", s.handleDeleteTask)
 			r.Post("/prompt", s.handleFollowUp)
 			r.Post("/retry", s.handleRetry)
@@ -839,6 +843,19 @@ func (s *Server) versionRequestCanSeeIdentity(r *http.Request) bool {
 
 func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
+	// A list is one side of the archive or the other: the conversation list is
+	// what is still filed, `?archived=1` is the archive view. Neither is the
+	// whole library, and an unknown value is refused rather than answered with
+	// a half that the caller did not ask for.
+	archived := store.ArchivedExclude
+	switch q.Get("archived") {
+	case "", "0":
+	case "1":
+		archived = store.ArchivedOnly
+	default:
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid archived"})
+		return
+	}
 	opts := store.ListTasksOpts{
 		Status:          q.Get("status"),
 		Before:          q.Get("before"),
@@ -846,6 +863,7 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		RoutineID:       q.Get("routine_id"),
 		OrderByActivity: q.Get("order") == "activity",
 		Scope:           taskScope(r),
+		Archived:        archived,
 	}
 	if lim := q.Get("limit"); lim != "" {
 		n, err := strconv.Atoi(lim)
@@ -1163,6 +1181,32 @@ func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleArchiveTask puts one conversation away; handleUnarchiveTask puts it
+// back. Archiving is per conversation on purpose: the row leaves every list
+// and every other chat in the same project stays where it was, which is what
+// the phone's row action and the session's own sheet both mean by it.
+func (s *Server) handleArchiveTask(w http.ResponseWriter, r *http.Request) {
+	s.setTaskArchived(w, r, true)
+}
+
+func (s *Server) handleUnarchiveTask(w http.ResponseWriter, r *http.Request) {
+	s.setTaskArchived(w, r, false)
+}
+
+func (s *Server) setTaskArchived(w http.ResponseWriter, r *http.Request, archived bool) {
+	id := chi.URLParam(r, "id")
+	t, err := s.Engine.SetArchived(r.Context(), id, archived)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
 }
 
 func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request) {

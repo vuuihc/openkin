@@ -608,6 +608,8 @@ export function listTasks(params?: {
   q?: string;
   /** Only runs spawned by this routine; "*" = every routine run. */
   routineId?: string;
+  /** The archive view: what was put away, instead of what is still filed. */
+  archived?: boolean;
 }): Promise<Task[]> {
   const q = new URLSearchParams();
   if (params?.status) q.set("status", params.status);
@@ -617,6 +619,7 @@ export function listTasks(params?: {
   if (params?.order) q.set("order", params.order);
   if (params?.q?.trim()) q.set("q", params.q.trim());
   if (params?.routineId) q.set("routine_id", params.routineId);
+  if (params?.archived) q.set("archived", "1");
   const qs = q.toString();
   return apiFetch<Task[]>(`/api/tasks${qs ? `?${qs}` : ""}`);
 }
@@ -966,6 +969,20 @@ export function cancelTask(id: string): Promise<Task> {
 export function deleteTask(id: string): Promise<void> {
   return apiFetch<void>(`/api/tasks/${encodeURIComponent(id)}`, {
     method: "DELETE",
+  });
+}
+
+/** Put one conversation away. The row leaves every list; nothing is deleted. */
+export function archiveTask(id: string): Promise<Task> {
+  return apiFetch<Task>(`/api/tasks/${encodeURIComponent(id)}/archive`, {
+    method: "POST",
+  });
+}
+
+/** Bring an archived conversation back into the list. */
+export function unarchiveTask(id: string): Promise<Task> {
+  return apiFetch<Task>(`/api/tasks/${encodeURIComponent(id)}/unarchive`, {
+    method: "POST",
   });
 }
 

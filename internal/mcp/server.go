@@ -691,6 +691,9 @@ func (s *Server) listTasks(ctx context.Context, auth authContext, args map[strin
 		Query:  stringArg(args, "query"),
 		Limit:  limit,
 		Scope:  auth.Scope,
+		// A conversation its owner put away is not work in flight; an agent
+		// asking what is here should not be handed it to act on.
+		Archived: store.ArchivedExclude,
 	}
 	var (
 		items []store.Task

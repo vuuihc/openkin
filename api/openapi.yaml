@@ -694,6 +694,15 @@ paths:
           schema:
             type: string
         - in: query
+          name: archived
+          schema:
+            type: string
+            enum: ["0", "1"]
+          description: >-
+            Which side of the archive to list. Absent or "0" is the
+            conversation list; "1" is the archive view. There is deliberately
+            no value that returns both.
+        - in: query
           name: routine_id
           schema:
             type: string
@@ -863,6 +872,30 @@ paths:
       responses:
         "200":
           description: Canceled task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+  /api/tasks/{taskId}/archive:
+    post:
+      operationId: archiveTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: The task, now archived
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+  /api/tasks/{taskId}/unarchive:
+    post:
+      operationId: unarchiveTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: The task, back in the list
           content:
             application/json:
               schema:
@@ -2759,6 +2792,13 @@ components:
           type: string
         routine_unread:
           type: boolean
+        archived_at:
+          type: integer
+          description: >-
+            When this conversation was put away, in epoch milliseconds. Absent
+            or 0 means it is in the list. Archiving is per conversation: it
+            hides this row and leaves every other chat in the same project
+            alone.
         dispatch: {}
     TaskLimitWait:
       type: object

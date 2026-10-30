@@ -7,7 +7,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 43
+const schemaVersion = 44
 
 // migrationTaskTombstones records deleted tasks in the sync cursor's own terms.
 //
@@ -219,7 +219,8 @@ CREATE TABLE tasks (
   origin_device_id TEXT,
   executing_device_id TEXT,
   workspace_anchor_id TEXT,
-  hub_seq INTEGER
+  hub_seq INTEGER,
+  archived_at INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE events (
@@ -2440,6 +2441,38 @@ ON eval_results(run_id, case_id, rep_idx);
 		v = 43
 	}
 
+	if v == 43 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 044: %w", err)
+		}
+		// A conversation can be put away on its own. Additive: every row that
+		// predates the column reads as still filed, which is what it was.
+		var present int
+		if err := tx.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'archived_at'`,
+		).Scan(&present); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("check archived_at column: %w", err)
+		}
+		if present == 0 {
+			if _, err := tx.Exec(
+				`ALTER TABLE tasks ADD COLUMN archived_at INTEGER NOT NULL DEFAULT 0`,
+			); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("add archived_at column: %w", err)
+			}
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 44`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 044: %w", err)
+		}
+		v = 44
+	}
+
 	// Every path out of here has to reach the same shape, so the assertion runs
 	// on the upgraded path too rather than only on the already-current one.
 	return s.ensureCurrentSchema()
@@ -2476,6 +2509,9 @@ func (s *Store) ensureCurrentSchema() error {
 		return err
 	}
 	if err := s.ensureRoutineModelSchema(); err != nil {
+		return err
+	}
+	if err := s.ensureTaskArchiveSchema(); err != nil {
 		return err
 	}
 	if err := s.ensureSessionShareSchema(); err != nil {
@@ -2579,6 +2615,39 @@ func (s *Store) ensureRoutineModelSchema() error {
 		`ALTER TABLE routines ADD COLUMN model TEXT NOT NULL DEFAULT ''`,
 	); err != nil {
 		return fmt.Errorf("add routines.model: %w", err)
+	}
+	return nil
+}
+
+// ensureTaskArchiveSchema adds the archive marker to a `tasks` table written
+// before it existed.
+//
+// Reconciled here as well as in the numbered migration for the same reason as
+// the routine columns: a version number only says which migrations ran, and a
+// task read on a database that reached 44 without the column would fail every
+// list with "no such column". Additive and empty by default, so a row that
+// predates it reads as still filed.
+func (s *Store) ensureTaskArchiveSchema() error {
+	present, err := s.tableExists("tasks")
+	if err != nil {
+		return err
+	}
+	if !present {
+		return nil
+	}
+	var exists int
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'archived_at'`,
+	).Scan(&exists); err != nil {
+		return fmt.Errorf("inspect tasks.archived_at: %w", err)
+	}
+	if exists > 0 {
+		return nil
+	}
+	if _, err := s.db.Exec(
+		`ALTER TABLE tasks ADD COLUMN archived_at INTEGER NOT NULL DEFAULT 0`,
+	); err != nil {
+		return fmt.Errorf("add tasks.archived_at: %w", err)
 	}
 	return nil
 }

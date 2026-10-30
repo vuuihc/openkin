@@ -146,6 +146,12 @@ type Task struct {
 	RoutineTLDR       string `json:"routine_tldr,omitempty"`
 	RoutineUnread     bool   `json:"routine_unread"`
 
+	// ArchivedAt is when this conversation was put away; 0 means it is in the
+	// list. Archiving is per conversation — it hides this row and leaves every
+	// other chat filed under the same project alone — which is why it lives on
+	// the task rather than in the sidebar's project preferences.
+	ArchivedAt int64 `json:"archived_at,omitempty"`
+
 	// Optional dispatch selection for auto model routing.
 	Dispatch json.RawMessage `json:"dispatch,omitempty"`
 
@@ -313,7 +319,26 @@ type ListTasksOpts struct {
 	// Scope is what the caller is allowed to see. The zero value matches
 	// nothing, so every request-facing caller must set it; see TaskScope.
 	Scope TaskScope
+	// Archived selects which side of the archive the list is asking for. The
+	// zero value keeps both, so a caller that reconciles state rather than
+	// showing a list — a workspace still held by a task somebody put away — is
+	// not silently narrowed by a filter it never asked for.
+	Archived ArchivedFilter
 }
+
+// ArchivedFilter selects which side of the archive a list returns.
+type ArchivedFilter int
+
+const (
+	// ArchivedAny keeps archived and live rows; the zero value, for callers
+	// that reconcile state rather than show a list.
+	ArchivedAny ArchivedFilter = iota
+	// ArchivedExclude is the conversation list: what is still filed.
+	ArchivedExclude
+	// ArchivedOnly is the archive view: what was put away, so it can be
+	// restored.
+	ArchivedOnly
+)
 
 // HasActiveTasks reports whether any task requires the daemon to remain
 // available. It is used by process-level guards during startup and after
@@ -359,6 +384,7 @@ func scanTask(scanner interface {
 		&routineID, &routineNoteworthy, &routineTLDR, &routineUnread,
 		&t.WorkspacePolicy, &t.CurrentWorkspaceID, &t.EventEpoch,
 		&dispatch, &executingDevice, &anchorID, &t.HubSeq, &ownerUserID,
+		&t.ArchivedAt,
 	); err != nil {
 		return Task{}, err
 	}
@@ -443,7 +469,7 @@ func scanTask(scanner interface {
 	return t, nil
 }
 
-const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, session_ref_device_id, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, workspace_repo, project_id, routine_id, routine_noteworthy, routine_tldr, routine_unread, workspace_policy, current_workspace_id, event_epoch, dispatch, executing_device_id, workspace_anchor_id, hub_seq, owner_user_id`
+const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, session_ref_device_id, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, workspace_repo, project_id, routine_id, routine_noteworthy, routine_tldr, routine_unread, workspace_policy, current_workspace_id, event_epoch, dispatch, executing_device_id, workspace_anchor_id, hub_seq, owner_user_id, archived_at`
 
 // escapeLike escapes \, %, and _ so user input is treated as a literal substring.
 func escapeLike(s string) string {
@@ -470,6 +496,12 @@ func (s *Store) ListTasks(ctx context.Context, opts ListTasksOpts) ([]Task, erro
 	scopeCond, scopeArgs := opts.Scope.predicate("")
 	b.WriteString(` AND ` + scopeCond)
 	args = append(args, scopeArgs...)
+	switch opts.Archived {
+	case ArchivedExclude:
+		b.WriteString(` AND archived_at = 0`)
+	case ArchivedOnly:
+		b.WriteString(` AND archived_at > 0`)
+	}
 	if opts.Status != "" {
 		b.WriteString(` AND status = ?`)
 		args = append(args, opts.Status)
@@ -877,8 +909,8 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 			workspace_scope, workspace_base_oid, workspace_branch, workspace_repo, project_id,
 			routine_id, routine_noteworthy, routine_tldr, routine_unread,
 				workspace_policy, current_workspace_id, event_epoch, dispatch,
-			executing_device_id, workspace_anchor_id, hub_seq, owner_user_id
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			executing_device_id, workspace_anchor_id, hub_seq, owner_user_id, archived_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		t.ID, t.Title, t.Agent, t.Cwd, t.Prompt, model, sessionRef, sessionRefDevice, perm, t.Status,
 		t.ExitCode, t.TokensIn, t.TokensOut, t.CostUSD,
@@ -888,6 +920,7 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 		routineID, noteworthy, t.RoutineTLDR, unread,
 		t.WorkspacePolicy, t.CurrentWorkspaceID, t.EventEpoch,
 		dispatchJSON(t.Dispatch), executingDevice, anchorID, hubSeq, ownerUserID,
+		t.ArchivedAt,
 	); err != nil {
 		return fmt.Errorf("insert task: %w", err)
 	}
@@ -944,6 +977,9 @@ type TaskPatch struct {
 	// it gave — an offline machine is not a repository-less one.
 	WorkspaceRepo   *string
 	WorkspaceBranch *string
+	// ArchivedAt sets when the conversation was put away; 0 puts it back. Nil
+	// leaves it alone, which is every patch that is not an archive request.
+	ArchivedAt *int64
 }
 
 // UpdateTask applies a patch to a task row.
@@ -1136,6 +1172,10 @@ func (s *Store) updateTask(ctx context.Context, id string, p TaskPatch, refuseSt
 	if p.WorkspaceBranch != nil {
 		sets = append(sets, "workspace_branch = ?")
 		args = append(args, *p.WorkspaceBranch)
+	}
+	if p.ArchivedAt != nil {
+		sets = append(sets, "archived_at = ?")
+		args = append(args, *p.ArchivedAt)
 	}
 	if len(sets) == 0 {
 		return nil

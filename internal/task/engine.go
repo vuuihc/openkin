@@ -2280,6 +2280,29 @@ func (e *Engine) List(ctx context.Context, opts store.ListTasksOpts) ([]store.Ta
 	return e.store.ListTasks(ctx, opts)
 }
 
+// SetArchived puts a conversation away or brings it back.
+//
+// It is a write on one row, not a stop: a running task keeps running, its
+// approvals still arrive, and putting it back is one call. The row is
+// published like any other change so every surface — the phone list, the
+// desktop sidebar, a cached client's change cursor — learns the new state
+// without refetching the library.
+func (e *Engine) SetArchived(ctx context.Context, id string, archived bool) (store.Task, error) {
+	at := int64(0)
+	if archived {
+		at = e.nowMilli()
+	}
+	if err := e.store.UpdateTask(ctx, id, store.TaskPatch{ArchivedAt: &at}); err != nil {
+		return store.Task{}, err
+	}
+	t, err := e.store.GetTask(ctx, id)
+	if err != nil {
+		return store.Task{}, err
+	}
+	e.bus.PublishTask(t)
+	return t, nil
+}
+
 // Events returns events for a task.
 func (e *Engine) Events(ctx context.Context, id string, sinceSeq int) ([]store.Event, error) {
 	if _, err := e.store.GetTask(ctx, id); err != nil {

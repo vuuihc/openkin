@@ -620,6 +620,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tasks/{taskId}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["archiveTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{taskId}/unarchive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["unarchiveTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tasks/{taskId}/events": {
         parameters: {
             query?: never;
@@ -1627,6 +1659,8 @@ export interface components {
             routine_noteworthy?: boolean;
             routine_tldr?: string;
             routine_unread?: boolean;
+            /** @description When this conversation was put away, in epoch milliseconds. Absent or 0 means it is in the list. Archiving is per conversation: it hides this row and leaves every other chat in the same project alone. */
+            archived_at?: number;
             dispatch?: unknown;
         } & {
             [key: string]: unknown;
@@ -2829,6 +2863,8 @@ export interface operations {
                 limit?: number;
                 before?: string;
                 q?: string;
+                /** @description Which side of the archive to list. Absent or "0" is the conversation list; "1" is the archive view. There is deliberately no value that returns both. */
+                archived?: "0" | "1";
                 /** @description A routine id returns only that routine's runs; `*` returns every run spawned by a routine; empty or absent means no filter, not "tasks without a routine". */
                 routine_id?: string;
                 /** @description Sort by most recent task activity when set to activity. */
@@ -3086,6 +3122,50 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Canceled task */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Task"];
+                };
+            };
+        };
+    };
+    archiveTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The task, now archived */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Task"];
+                };
+            };
+        };
+    };
+    unarchiveTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The task, back in the list */
             200: {
                 headers: {
                     [name: string]: unknown;
