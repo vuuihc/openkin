@@ -294,10 +294,22 @@ func TestTerminalWebSocket(t *testing.T) {
 	if err := reconnected.Write(ctx, websocket.MessageText, []byte(`{"type":"resize","cols":0,"rows":20}`)); err != nil {
 		t.Fatalf("malformed resize Write() error = %v", err)
 	}
-	_, _, err = reconnected.Read(ctx)
-	status := websocket.CloseStatus(err)
-	if status != websocket.StatusUnsupportedData && status != websocket.StatusPolicyViolation {
-		t.Fatalf("malformed resize close status = %v, want unsupported data or policy violation; error = %v", status, err)
+	// A frame already in flight — a redraw, the shell's answer to the resize —
+	// can arrive before the close, so read until the connection ends rather
+	// than assuming the very next frame is the close.
+	for {
+		_, _, err = reconnected.Read(ctx)
+		if err == nil {
+			continue
+		}
+		status := websocket.CloseStatus(err)
+		if status == -1 {
+			t.Fatalf("malformed resize read error = %v, want a close frame", err)
+		}
+		if status != websocket.StatusUnsupportedData && status != websocket.StatusPolicyViolation {
+			t.Fatalf("malformed resize close status = %v, want unsupported data or policy violation; error = %v", status, err)
+		}
+		break
 	}
 }
 
