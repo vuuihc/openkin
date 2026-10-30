@@ -60,6 +60,7 @@ const en: MessageTree = {
     pinned: "Pinned",
     pin: "Pin",
     unpin: "Unpin",
+    delete: "Delete",
     archive: "Archive",
     selectedCount: "{count} selected",
     selectAll: "Select all",
@@ -100,6 +101,11 @@ const en: MessageTree = {
     archiveEmptyHint: "A project removed from the drawer shows up here, ready to restore.",
     loadOlder: "Load older chats",
     loadingOlder: "Loading older chats…",
+    deleteSelectedConfirm:
+      "Permanently delete the selected sessions ({count})? History cannot be recovered.",
+    deletedCount: "Sessions deleted: {count}",
+    deleteFailedCount: "{count} could not be deleted: {error}",
+    deletingSelected: "Deleting…",
   },
   home: {
     slogan: "Talk to Kin, orchestrate your agents",

@@ -17,7 +17,8 @@ import { useRef, useState, type ReactNode } from "react";
  * a move that the captured events now target at this element — a handler on
  * the row's own button would never see those moves.
  */
-const REVEAL_WIDTH = 152; // px: two 76px action chips
+/** px: two 76px action chips, the default reveal. */
+const REVEAL_WIDTH = 152;
 const LONG_PRESS_MS = 500;
 const MOVE_TOLERANCE_PX = 8;
 
@@ -26,6 +27,8 @@ export default function SwipeReveal({
   onOpenChange,
   onLongPress,
   actions,
+  /** How far the row slides to uncover its actions, in px. */
+  width = REVEAL_WIDTH,
   children,
 }: {
   open: boolean;
@@ -35,6 +38,7 @@ export default function SwipeReveal({
   onLongPress?: () => void;
   /** Rendered behind the row, on the right, revealed by the swipe. */
   actions: ReactNode;
+  width?: number;
   children: ReactNode;
 }) {
   const startX = useRef<number | null>(null);
@@ -44,7 +48,7 @@ export default function SwipeReveal({
   // re-issues a changed transform instead of freezing the row mid-drag.
   const lastDrag = useRef(0);
   const [drag, setDrag] = useState<number | null>(null);
-  const translate = open ? -REVEAL_WIDTH : 0;
+  const translate = open ? -width : 0;
   // A drag ends with a click the browser still fires on the row; that click
   // must not navigate (or toggle) after the row was just moved for its
   // actions. One-shot: the very next click event on this row is swallowed.
@@ -95,7 +99,7 @@ export default function SwipeReveal({
     const dx = event.clientX - startX.current;
     // Only leftwards into the reveal; a rightward drag from an open row
     // closes it, a rightward drag on a closed row does nothing.
-    const next = Math.min(0, Math.max(-REVEAL_WIDTH * 2, translate + dx));
+    const next = Math.min(0, Math.max(-width * 2, translate + dx));
     if (next !== lastDrag.current) {
       lastDrag.current = next;
       setDrag(next);
@@ -113,7 +117,7 @@ export default function SwipeReveal({
     // Only a released drag is followed by the browser's own click; a
     // cancelled one is not.
     if (event.type === "pointerup") suppressClick.current = true;
-    const next = translate + dx < -REVEAL_WIDTH / 2;
+    const next = translate + dx < -width / 2;
     if (next !== open) onOpenChange(next);
   }
 
@@ -138,7 +142,7 @@ export default function SwipeReveal({
           none (tab would reach an invisible button), and the row's own slide
           is the whole transition. */}
       {open ? (
-        <div className="absolute inset-y-0 right-0 flex items-stretch" style={{ width: REVEAL_WIDTH }}>
+        <div className="absolute inset-y-0 right-0 flex items-stretch" style={{ width }}>
           {actions}
         </div>
       ) : null}

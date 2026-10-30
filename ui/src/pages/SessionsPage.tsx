@@ -57,8 +57,13 @@ import {
   IconPin,
   IconRefresh,
   IconSessions,
+  IconTrash,
 } from "../components/icons";
 import SwipeReveal from "../components/mobile/SwipeReveal";
+import SessionRowActions, {
+  SESSION_ROW_ACTIONS_WIDTH,
+} from "../components/mobile/SessionRowActions";
+import { useSessionDeletion } from "../hooks/useSessionDeletion";
 
 /**
  * The phone's conversation list, grouped by project.
@@ -94,6 +99,7 @@ const SEARCH_DEBOUNCE_MS = 200;
 
 export default function SessionsPage() {
   const tr = useT();
+  const { deleteOne, deleteMany } = useSessionDeletion();
   // The memo below bakes copy into the buckets ("No project", "Untitled"), so
   // it has to rebuild on a locale switch — `tr` is a stable function and would
   // never invalidate it.
@@ -149,6 +155,14 @@ export default function SessionsPage() {
   // batch actions: pin / unpin and archive.
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set());
+  // A batch in flight: the toolbar's actions disable and re-entry is refused,
+  // so a second tap cannot fire a second round at rows the first is removing.
+  const [deletingSelection, setDeletingSelection] = useState(false);
+  const deletingSelectionRef = useRef(false);
+  // Which selection a slow batch answered. A search or filter change clears
+  // the selection and bumps this, so a batch that lands afterwards cannot put
+  // rows nobody selected back into a toolbar.
+  const selectionEpoch = useRef(0);
   // One swipe-revealed row at a time, the same rule the message actions use.
   const [swipeOpen, setSwipeOpen] = useState<string | null>(null);
   // Archiving a project from the drawer has to empty this list too, and the
@@ -159,9 +173,19 @@ export default function SessionsPage() {
   // would leave its toolbar over a list whose buttons are no-ops.
   useEffect(() => {
     if (scope !== "archived") return;
+    selectionEpoch.current += 1;
     setSelectionMode(false);
     setSelectedIds(new Set());
   }, [scope]);
+
+  // A different question is a different list. A selection made under the old
+  // one would let Delete remove rows the person can no longer see — "select
+  // all, then search, then Delete" would arm exactly that.
+  useEffect(() => {
+    selectionEpoch.current += 1;
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  }, [query, status]);
 
   useEffect(() => {
     let cancelled = false;
@@ -282,6 +306,21 @@ export default function SessionsPage() {
       ),
     [filtered, pinnedIds, scope, tr],
   );
+  // A selected id can lose its row while the batch is in flight — another
+  // device deleted it, so the delete came back 404 and our own `task_deleted`
+  // never arrived. Keeping it selected makes the count and the select-all
+  // checkbox describe a row nobody can see, so the selection follows the list.
+  useEffect(() => {
+    if (selectedIds.size === 0) return;
+    const present = new Set(
+      listed.flatMap((bucket) =>
+        bucket.rows.filter((row) => row.task).map((row) => row.task!.id),
+      ),
+    );
+    const next = Array.from(selectedIds).filter((id) => present.has(id));
+    if (next.length !== selectedIds.size) setSelectedIds(new Set(next));
+  }, [listed, selectedIds]);
+
   // Loading is only the first paint. A later fetch keeps the previous rows up
   // (above), so it is not a reason to blank the screen.
   const loading = (!taskList.loaded && tasks.length === 0) || machinesLoading;
@@ -299,6 +338,10 @@ export default function SessionsPage() {
   // term, an empty list means "not answered yet", not "no matches".
   const pendingQuery = query.trim() !== searchTerm;
   const loadFailed = Boolean(taskList.error) && tasks.length === 0;
+  // The pin chip flips its label when the whole selection is already pinned.
+  const selectionAllPinned =
+    selectedIds.size > 0 && Array.from(selectedIds).every((id) => pinnedIds.has(id));
+  const pinLabel = selectionAllPinned ? tr("sessions.unpin") : tr("sessions.pin");
   // Empty copy answers the question that was asked: a filter that matched
   // nothing is not an empty library, a search that matched nothing is not an
   // empty filter, and an archived view with nothing in it is not a failed
@@ -388,6 +431,7 @@ export default function SessionsPage() {
   }
 
   function exitSelection() {
+    selectionEpoch.current += 1;
     setSelectionMode(false);
     setSelectedIds(new Set());
   }
@@ -424,6 +468,64 @@ export default function SessionsPage() {
     if (!row.task) return;
     archiveProject(row.task.cwd);
     setSwipeOpen(null);
+  }
+
+  /** Delete from the row's swipe reveal. The confirm lives in the hook, so
+   *  both this and the batch path ask the same question in the same words. */
+  async function deleteRow(row: PhoneSessionRow) {
+    if (!row.task) return;
+    const id = row.task.id;
+    setSwipeOpen(null);
+    // The bucket's title, not `task.title`: it is the display title the row
+    // shows, and a task titled only by its prompt must be named in the
+    // confirmation by the same words the person tapped.
+    if (await deleteOne({ id, title: row.title })) forgetPins([id]);
+  }
+
+  /** Drop deleted ids from the pin preference. A dead id has no visible row,
+   *  but it would sit in localStorage forever and read as a pin that exists.
+   *  Storage is re-read here: the batch may have outlived a pin the person
+   *  made after it started, and this render's `pinnedIds` would not know it. */
+  function forgetPins(ids: readonly string[]) {
+    const current = new Set(getPinnedTaskIds());
+    const pinned = ids.filter((id) => current.has(id));
+    if (pinned.length === 0) return;
+    let next: ReadonlySet<string> = current;
+    for (const id of pinned) next = new Set(setTaskPinned(id, false));
+    setPinnedIds(next);
+  }
+
+  /**
+   * Delete the selection.
+   *
+   * A declined confirm leaves the selection alone. Rows the daemon refused
+   * stay selected — they are still in the list, and a retry should be one tap —
+   * and only a batch where everything went exits the mode. A second tap while
+   * the requests are in flight is refused: it would confirm again and turn the
+   * first batch's success into a round of "not found" errors.
+   */
+  async function deleteSelected() {
+    if (deletingSelectionRef.current) return;
+    deletingSelectionRef.current = true;
+    setDeletingSelection(true);
+    const epoch = selectionEpoch.current;
+    const ids = Array.from(selectedIds);
+    try {
+      const outcome = await deleteMany(ids);
+      if (outcome === null) return;
+      forgetPins(ids.filter((id) => !outcome.failed.includes(id)));
+      // The list moved on while this was in flight (a search or filter change
+      // cleared the selection); its answer is about rows nobody is looking at.
+      if (selectionEpoch.current !== epoch) return;
+      if (outcome.failed.length > 0) {
+        setSelectedIds(new Set(outcome.failed));
+        return;
+      }
+      exitSelection();
+    } finally {
+      deletingSelectionRef.current = false;
+      setDeletingSelection(false);
+    }
   }
 
   function changeFilter(next: { status: SessionStatusFilter; scope: SessionScopeFilter }) {
@@ -557,7 +659,7 @@ export default function SessionsPage() {
 
       {/* Multi-select toolbar, in the slot the heading would occupy: select
           all + count on the left, the batch actions on the right. Long-press
-          any row to enter this mode (the reference's gesture); the same two
+          any row to enter this mode (the reference's gesture); the same
           actions are on each row's swipe reveal, so nothing is touch-only. */}
       {selectionMode && (
         <div className="sticky top-0 z-[3] flex min-h-12 items-center gap-2 border-b border-[var(--kin-hairline)] bg-[var(--kin-page)] px-3 kin-glass">
@@ -571,31 +673,52 @@ export default function SessionsPage() {
             {tr("sessions.selectedCount", { count: String(selectedIds.size) })}
           </label>
           <div className="ml-auto flex items-center gap-1.5">
+            {/* Three batch actions and a cancel no longer fit a 390px bar
+                with labels; below `sm` the chips are icon-only and the label
+                becomes their accessible name. Colour alone never carries the
+                delete: it is a trash icon and it says "Delete". */}
             <button
               type="button"
               onClick={pinSelected}
-              disabled={selectedIds.size === 0}
-              className="flex min-h-10 items-center gap-1.5 rounded-lg bg-[var(--kin-fill)] px-3 text-body font-medium text-kin-text disabled:opacity-40"
+              disabled={selectedIds.size === 0 || deletingSelection}
+              aria-label={pinLabel}
+              title={pinLabel}
+              className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-[var(--kin-fill)] px-2.5 text-body font-medium text-kin-text disabled:opacity-40 sm:px-3"
             >
               <IconPin size={14} />
-              {selectedIds.size > 0 &&
-              Array.from(selectedIds).every((id) => pinnedIds.has(id))
-                ? tr("sessions.unpin")
-                : tr("sessions.pin")}
+              <span className="hidden sm:inline">{pinLabel}</span>
             </button>
             <button
               type="button"
               onClick={archiveSelected}
-              disabled={selectedIds.size === 0}
-              className="flex min-h-10 items-center gap-1.5 rounded-lg bg-[var(--kin-fill)] px-3 text-body font-medium text-kin-text disabled:opacity-40"
+              disabled={selectedIds.size === 0 || deletingSelection}
+              aria-label={tr("sessions.archive")}
+              title={tr("sessions.archive")}
+              className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-[var(--kin-fill)] px-2.5 text-body font-medium text-kin-text disabled:opacity-40 sm:px-3"
             >
               <IconArchive size={14} />
-              {tr("sessions.archive")}
+              <span className="hidden sm:inline">{tr("sessions.archive")}</span>
+            </button>
+            <button
+              type="button"
+              onClick={deleteSelected}
+              disabled={selectedIds.size === 0 || deletingSelection}
+              aria-label={
+                deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")
+              }
+              title={deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")}
+              aria-busy={deletingSelection || undefined}
+              className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-kin-red/15 px-2.5 text-body font-medium text-kin-red-ink disabled:opacity-40 sm:px-3"
+            >
+              <IconTrash size={14} />
+              <span className="hidden sm:inline">
+                {deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")}
+              </span>
             </button>
             <button
               type="button"
               onClick={exitSelection}
-              className="flex min-h-10 items-center rounded-lg px-3 text-body font-medium text-kin-muted hover:text-kin-text"
+              className="flex min-h-11 min-w-11 items-center justify-center rounded-lg px-2.5 text-body font-medium text-kin-muted hover:text-kin-text sm:px-3"
             >
               {tr("common.cancel")}
             </button>
@@ -619,13 +742,16 @@ export default function SessionsPage() {
             onToggleShowAll={() => toggleShowAll(bucket.key)}
             onOpen={openRow}
             selectionMode={selectionMode}
+            selectionLocked={deletingSelection}
             selectedIds={selectedIds}
             onToggleSelect={toggleSelected}
             onLongPress={enterSelection}
             swipeOpen={swipeOpen}
             onSwipeOpenChange={setSwipeOpen}
+            pinnedIds={pinnedIds}
             onPin={pinRow}
             onArchive={archiveRow}
+            onDelete={deleteRow}
             onRestore={scope === "archived" ? () => restoreBucket(bucket) : undefined}
             actionsEnabled={scope !== "archived"}
             query={query}
@@ -706,13 +832,16 @@ function ProjectBucket({
   onToggleShowAll,
   onOpen,
   selectionMode,
+  selectionLocked,
   selectedIds,
   onToggleSelect,
   onLongPress,
   swipeOpen,
   onSwipeOpenChange,
+  pinnedIds,
   onPin,
   onArchive,
+  onDelete,
   onRestore,
   actionsEnabled,
   query,
@@ -731,16 +860,21 @@ function ProjectBucket({
   onToggleShowAll: () => void;
   onOpen: (row: PhoneSessionRow) => void;
   selectionMode: boolean;
+  /** A batch is deleting: a tap must not change the selection it captured. */
+  selectionLocked: boolean;
   selectedIds: ReadonlySet<string>;
   onToggleSelect: (key: string) => void;
   onLongPress: (row: PhoneSessionRow) => void;
   swipeOpen: string | null;
   onSwipeOpenChange: (open: string | null) => void;
+  /** The page's pin preference, so a pinned row's chip says "Unpin". */
+  pinnedIds: ReadonlySet<string>;
   onPin: (row: PhoneSessionRow) => void;
   onArchive: (row: PhoneSessionRow) => void;
+  onDelete: (row: PhoneSessionRow) => void;
   /** Present only in the archived view: put this project back in the list. */
   onRestore?: () => void;
-  /** Rows reveal pin/archive on a swipe; the archived view has neither. */
+  /** Rows reveal pin/archive/delete on a swipe; the archived view has none. */
   actionsEnabled: boolean;
 }) {
   const tr = useT();
@@ -812,13 +946,16 @@ function ProjectBucket({
               viewedIds={viewedIds}
               onOpen={() => onOpen(row)}
               selectionMode={selectionMode}
+              selectionLocked={selectionLocked}
               selected={row.task ? selectedIds.has(row.task.id) : false}
               onToggleSelect={() => onToggleSelect(row.key)}
               onLongPress={() => onLongPress(row)}
               swipeOpen={swipeOpen === row.key}
               onSwipeOpenChange={(open) => onSwipeOpenChange(open ? row.key : null)}
+              pinned={row.task ? pinnedIds.has(row.task.id) : false}
               onPin={() => onPin(row)}
               onArchive={() => onArchive(row)}
+              onDelete={() => onDelete(row)}
               actionsEnabled={actionsEnabled}
               query={query}
             />
@@ -853,13 +990,16 @@ function SessionRow({
   viewedIds,
   onOpen,
   selectionMode,
+  selectionLocked,
   selected,
   onToggleSelect,
   onLongPress,
   swipeOpen,
   onSwipeOpenChange,
+  pinned,
   onPin,
   onArchive,
+  onDelete,
   actionsEnabled,
   query,
 }: {
@@ -870,13 +1010,17 @@ function SessionRow({
   viewedIds: ReadonlySet<string>;
   onOpen: () => void;
   selectionMode: boolean;
+  selectionLocked: boolean;
   selected: boolean;
   onToggleSelect: () => void;
   onLongPress: () => void;
   swipeOpen: boolean;
   onSwipeOpenChange: (open: boolean) => void;
+  /** This row is in the pinned bucket: its pin chip unpins. */
+  pinned: boolean;
   onPin: () => void;
   onArchive: () => void;
+  onDelete: () => void;
   /** False in the archived view, where pin and archive would be no-ops. */
   actionsEnabled: boolean;
 }) {
@@ -906,8 +1050,9 @@ function SessionRow({
       onClick={() => {
         if (selectionMode) {
           // Imported agent sessions have no task id and no batch actions;
-          // they are not selectable.
-          if (row.task) onToggleSelect();
+          // they are not selectable. A batch in flight owns the selection it
+          // captured, so taps wait for it to land.
+          if (row.task && !selectionLocked) onToggleSelect();
           return;
         }
         // A tap on a swipe-revealed row closes the reveal instead of opening
@@ -923,9 +1068,10 @@ function SessionRow({
         // (the equivalent of a long press, which a keyboard cannot do).
         if (event.key === "Enter" && event.shiftKey) {
           event.preventDefault();
-          if (row.task) onToggleSelect();
+          if (row.task && !selectionLocked) onToggleSelect();
         }
       }}
+      aria-disabled={selectionMode && selectionLocked ? true : undefined}
       aria-label={label}
       aria-pressed={selectionMode ? selected : undefined}
       className={[
@@ -974,40 +1120,28 @@ function SessionRow({
   // would be a no-op and a "Pin" would move a row into a list it is not in.
   if (selectionMode || !row.task || !actionsEnabled) return rowButton;
 
-  // Swipe left to reveal the same two batch actions the multi-select owns.
-  // The long-press that enters multi-select lives in the swipe wrapper too:
-  // once a drag captures the pointer, the row's own button stops seeing
-  // moves, and a timer it can no longer cancel would fire behind the user's
-  // back (or the cancel would never fire at all).
+  // Swipe left to reveal the same batch actions the multi-select owns, plus
+  // the delete only the list offers (a session can be deleted from inside it,
+  // but the list is where old ones are scanned and discarded). The long-press
+  // that enters multi-select lives in the swipe wrapper too: once a drag
+  // captures the pointer, the row's own button stops seeing moves, and a timer
+  // it can no longer cancel would fire behind the user's back (or the cancel
+  // would never fire at all).
   return (
     <SwipeReveal
       open={swipeOpen}
       onOpenChange={onSwipeOpenChange}
       onLongPress={onLongPress}
+      width={SESSION_ROW_ACTIONS_WIDTH}
       actions={
-      <>
-        <button
-          type="button"
-          onClick={onPin}
-          aria-label={tr("sessions.pin")}
-          title={tr("sessions.pin")}
-          className="flex w-[76px] flex-none flex-col items-center justify-center gap-1 bg-[var(--kin-fill-strong)] text-caption font-medium text-kin-text"
-        >
-          <IconPin size={16} />
-          {tr("sessions.pin")}
-        </button>
-        <button
-          type="button"
-          onClick={onArchive}
-          aria-label={tr("sessions.archive")}
-          title={tr("sessions.archive")}
-          className="flex w-[76px] flex-none flex-col items-center justify-center gap-1 bg-kin-orange/15 text-caption font-medium text-kin-orange-ink"
-        >
-          <IconArchive size={16} />
-          {tr("sessions.archive")}
-        </button>
-      </>
-    }>
+        <SessionRowActions
+          pinned={pinned}
+          onPin={onPin}
+          onArchive={onArchive}
+          onDelete={onDelete}
+        />
+      }
+    >
       {rowButton}
     </SwipeReveal>
   );

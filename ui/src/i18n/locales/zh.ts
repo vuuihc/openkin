@@ -57,6 +57,7 @@ const zh = {
     pinned: "置顶",
     pin: "置顶",
     unpin: "取消置顶",
+    delete: "删除",
     archive: "归档",
     selectedCount: "已选 {count} 项",
     selectAll: "全选",
@@ -94,6 +95,10 @@ const zh = {
     archiveEmptyHint: "从侧栏移除的项目会出现在这里，可随时恢复。",
     loadOlder: "加载更早的对话",
     loadingOlder: "正在加载更早的对话…",
+    deleteSelectedConfirm: "确定永久删除选中的 {count} 个会话？历史记录无法恢复。",
+    deletedCount: "已删除 {count} 个会话",
+    deleteFailedCount: "{count} 个会话删除失败：{error}",
+    deletingSelected: "正在删除…",
   },
   home: {
     slogan: "和 Kin 对话，编排你的 agent",
