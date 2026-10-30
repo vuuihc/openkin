@@ -694,6 +694,14 @@ paths:
           schema:
             type: string
         - in: query
+          name: routine_id
+          schema:
+            type: string
+          description: >-
+            A routine id returns only that routine's runs; `*` returns every run
+            spawned by a routine; empty or absent means no filter, not "tasks
+            without a routine".
+        - in: query
           name: order
           schema:
             type: string

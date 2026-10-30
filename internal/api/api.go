@@ -840,6 +840,7 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		Status:          q.Get("status"),
 		Before:          q.Get("before"),
 		Query:           q.Get("q"),
+		RoutineID:       q.Get("routine_id"),
 		OrderByActivity: q.Get("order") == "activity",
 		Scope:           taskScope(r),
 	}

@@ -430,3 +430,59 @@ func TestPatchRoutineMovesTheProjectWithTheDirectory(t *testing.T) {
 		t.Fatalf("empty cwd status=%d body=%s, want 400", rr.Code, rr.Body.String())
 	}
 }
+
+// A routine's own run history is the routine-runs feed narrowed to one id.
+// The store has supported the filter since the feed landed, but the tasks
+// endpoint never passed it through, so a client could only read the global
+// feed and filter after the fact — which loses runs older than the page.
+func TestListTasksFiltersByRoutine(t *testing.T) {
+	s, st := newRoutinesTestServer(t)
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+
+	for _, r := range []store.Routine{
+		{ID: "r1", Cwd: "/tmp", Agent: "kin", Prompt: "p1", IntervalSecs: 60, Enabled: true, NextDueAt: now, CreatedAt: now, Title: "One"},
+		{ID: "r2", Cwd: "/tmp", Agent: "kin", Prompt: "p2", IntervalSecs: 60, Enabled: true, NextDueAt: now, CreatedAt: now, Title: "Two"},
+	} {
+		if err := st.InsertRoutine(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, task := range []store.Task{
+		{ID: "t-r1", Title: "one", Agent: "kin", Cwd: "/tmp", Prompt: "p", Status: "succeeded", CreatedAt: now, RoutineID: "r1"},
+		{ID: "t-r2", Title: "two", Agent: "kin", Cwd: "/tmp", Prompt: "p", Status: "succeeded", CreatedAt: now + 1, RoutineID: "r2"},
+	} {
+		if err := st.InsertTask(ctx, task); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	list := func(query string) []store.Task {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/tasks"+query, nil)
+		req.Header.Set("Authorization", "Bearer test-token")
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("list %s status=%d body=%s", query, rr.Code, rr.Body.String())
+		}
+		var tasks []store.Task
+		if err := json.Unmarshal(rr.Body.Bytes(), &tasks); err != nil {
+			t.Fatal(err)
+		}
+		return tasks
+	}
+
+	one := list("?routine_id=r1")
+	if len(one) != 1 || one[0].ID != "t-r1" {
+		t.Fatalf("routine_id=r1 returned %+v", one)
+	}
+	all := list("?routine_id=*")
+	if len(all) != 2 {
+		t.Fatalf("routine_id=* returned %d tasks, want 2", len(all))
+	}
+	none := list("?routine_id=missing")
+	if len(none) != 0 {
+		t.Fatalf("routine_id=missing returned %+v", none)
+	}
+}

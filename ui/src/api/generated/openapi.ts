@@ -2829,6 +2829,8 @@ export interface operations {
                 limit?: number;
                 before?: string;
                 q?: string;
+                /** @description A routine id returns only that routine's runs; `*` returns every run spawned by a routine; empty or absent means no filter, not "tasks without a routine". */
+                routine_id?: string;
                 /** @description Sort by most recent task activity when set to activity. */
                 order?: "activity";
             };
