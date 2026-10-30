@@ -46,6 +46,7 @@ REQUIRED_SECTIONS = (
     "## 范围",
     "## 每一步的预期",
     "## 各面差异",
+    "## 设计",
     "## Do not",
     "## 验收",
     "## 分轮",
@@ -175,6 +176,13 @@ def cmd_new(argv: list[str]) -> int:
     )
     path.write_text(text, encoding="utf-8")
 
+    review_source = DIR / "_REVIEW.html"
+    review_path = DIR / f"{story_id}.review.html"
+    if review_source.exists() and not review_path.exists():
+        review_text = read(review_source).replace("KIN-XXX-000", story_id)
+        review_text = review_text.replace("· 设计草图", f"· {title} · 设计草图", 1)
+        review_path.write_text(review_text, encoding="utf-8")
+
     stories.append(
         {
             "id": story_id,
@@ -196,6 +204,8 @@ def cmd_new(argv: list[str]) -> int:
     COVERAGE.write_text(coverage_text(data), encoding="utf-8")
 
     print(f"created {path.relative_to(ROOT)}")
+    if review_path.exists():
+        print(f"created {review_path.relative_to(ROOT)}")
     print(f"created registry entry {story_id} (draft)")
     print("next: fill it in per docs/product/stories/AUTHORING.md, then run stories.py")
     return 0
@@ -349,6 +359,20 @@ def check() -> list[str]:
             acceptance = section(text, "## 验收")
             if "Given" not in acceptance or "Then" not in acceptance:
                 problems.append(f"{where}: `## 验收` has no Given / Then row")
+
+            # From approval on, the readable design page is part of the contract:
+            # a person signs the sketch, not a table of cells.
+            if state != "draft":
+                design = section(text, "## 设计")
+                review = DIR / f"{story_id}.review.html"
+                if f"{story_id}.review.html" not in design:
+                    problems.append(f"{where}: `## 设计` does not name {story_id}.review.html")
+                if not review.exists():
+                    problems.append(f"{where}: design page missing: {review.name}")
+                elif story_id not in read(review):
+                    problems.append(f"{where}: {review.name} does not mention {story_id}")
+                elif "（填）" in read(review):
+                    problems.append(f"{where}: {review.name} still has template placeholders")
 
         owner_paths = story.get("ownerPaths") or []
         if not isinstance(owner_paths, list):
