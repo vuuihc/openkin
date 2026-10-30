@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"mime"
 	"net/http"
+	"net/url"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -129,10 +130,27 @@ func (s *Server) handleListTaskWorkspaces(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, entries)
 }
 
+// workspaceIDParam is the generation id from the route, percent-decoded.
+//
+// The router matches on the escaped path, so a client that encodes the id —
+// the console's URL builders encode every segment, and an id is
+// `<task>:g<N>` — hands the handler `%3A` where the store expects `:`. Without
+// this, every workspace route answers "workspace not found" for a workspace
+// that exists. An id that arrives still encoded twice (`%253A`) decodes twice
+// and names the same row; ids are generated and never contain a literal `%`,
+// so the leniency cannot reach a row the client did not mean.
+func workspaceIDParam(r *http.Request) string {
+	id := chi.URLParam(r, "workspace_id")
+	if decoded, err := url.PathUnescape(id); err == nil {
+		return decoded
+	}
+	return id
+}
+
 // handleListWorkspaceTree lists entries in a workspace generation tree.
 func (s *Server) handleListWorkspaceTree(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "id")
-	wsID := chi.URLParam(r, "workspace_id")
+	wsID := workspaceIDParam(r)
 
 	ws, err := s.Store.GetWorkspace(r.Context(), wsID)
 	if errors.Is(err, store.ErrNotFound) {
@@ -237,7 +255,7 @@ func (s *Server) handleListWorkspaceTree(w http.ResponseWriter, r *http.Request)
 // handleReadWorkspaceFile reads a file from a workspace generation.
 func (s *Server) handleReadWorkspaceFile(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "id")
-	wsID := chi.URLParam(r, "workspace_id")
+	wsID := workspaceIDParam(r)
 
 	ws, err := s.Store.GetWorkspace(r.Context(), wsID)
 	if errors.Is(err, store.ErrNotFound) {
@@ -376,7 +394,7 @@ func (s *Server) handleReadWorkspaceFile(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleWriteWorkspaceFile(w http.ResponseWriter, r *http.Request) {
-	s.writeWorkspaceFile(w, r, chi.URLParam(r, "id"), chi.URLParam(r, "workspace_id"))
+	s.writeWorkspaceFile(w, r, chi.URLParam(r, "id"), workspaceIDParam(r))
 }
 
 func (s *Server) writeWorkspaceFile(w http.ResponseWriter, r *http.Request, taskID, wsID string) {
@@ -462,7 +480,7 @@ func (s *Server) writeWorkspaceFile(w http.ResponseWriter, r *http.Request, task
 // handleGetWorkspaceDiff returns the diff for a workspace generation.
 func (s *Server) handleGetWorkspaceDiff(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "id")
-	wsID := chi.URLParam(r, "workspace_id")
+	wsID := workspaceIDParam(r)
 
 	ws, err := s.Store.GetWorkspace(r.Context(), wsID)
 	if errors.Is(err, store.ErrNotFound) {
