@@ -49,8 +49,8 @@ attachment lost when the task runs on another machine, closed with F4 below.
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
 | Server-backed list with filters (repo / project / status / PR / machine), mine-vs-team scope, archive screen, unread dots (`mobile-chat-list.tsx`, `mobile-filter-drawer.tsx:45`, `mobile-archive-screen.tsx:85`) | Search is server-side over the whole library (`sessionListParams.ts`); a filter control carries status to the daemon in `?status=`, `?scope=archived` is the archived-projects view with per-project restore, and "load older" pages both feeds by `before=` (`SessionFilters.tsx`, `SessionsPage.tsx`); rows carry a status/unread dot (`sessionViewed.ts:111-119`) | No project or machine filter, and the archive view restores but does not delete | S3 | — |
-| Swipe: pin / archive / restore / **delete**, long swipe auto-archives (`mobile-swipeable-row.tsx:341`) | Swipe reveals Pin and Archive only (`SessionsPage.tsx:734-757`, `SwipeReveal.tsx:78-124`); archive acts on the whole project (`SessionsPage.tsx:284-288`); delete lives inside a session (`TaskDetailPage.tsx:1087-1090`) | No delete or restore from the row, no long-swipe | S3 | — |
-| Multi-select: select all, delete (`mobile-chat-list.tsx:1018`) | Multi-select: select all, pin, archive (`SessionsPage.tsx:353-395`) | No batch delete | S3 | — |
+| Swipe: pin / archive / restore / **delete**, long swipe auto-archives (`mobile-swipeable-row.tsx:341`) | Swipe reveals pin/unpin, archive and **delete** on one measured strip (`SessionRowActions.tsx`, R26); delete confirms once and forgets the row in the list, the scroll memory, the unsent draft and the pin preference (`useSessionDeletion.ts`); archive still archives the row's whole project (`SessionsPage.tsx:467`) | No restore from a row and no long-swipe auto-archive; the row's 归档 hides every conversation in its project, not the one row | S3 | — |
+| Multi-select: select all, delete (`mobile-chat-list.tsx:1018`) | Multi-select: select all, pin, archive, and **delete** — per-row failures stay selected, a second batch is refused while one runs, a filter change disarms the selection (R26, `SessionsPage.tsx`) | Closed (R26) | — | — |
 
 ### 2.2 Open conversation
 
@@ -3647,6 +3647,94 @@ every other path parameter is a ULID or a hex token that cannot carry an
 encodable character, and a blanket decode would hide the next id that grows a
 `:` rather than name it. The over-encoded `%253A` form is accepted rather than
 refused, as noted above.
+
+### Round 27 — a provider failure says what failed (2026-10-30)
+
+**27A The task's error was the gateway's HTML page.** Found by opening a real
+failed conversation on the live node: the provider gateway (Cloudflare 520) had
+been down, and every retry line and the final red card carried
+`<!DOCTYPE html>…` — 300 bytes of the gateway's error page, repeated on each of
+five attempts. `httpStatusErr` appended the response body verbatim, so the page
+was stored in the transcript, pushed to a phone, and shown to whoever the
+conversation was shared with. The status and its hint
+(`cloudflare/origin unreachable`) already said everything.
+
+What changed, all at the seam that writes the error:
+
+- `providerErrorMessage` extracts the provider's own message: OpenAI's and
+  Anthropic's envelopes, `{"error":"…"}`, bare `message`/`detail`, each field
+  decoded on its own so one odd sibling type cannot hide a clean message next
+  to it. A body is a page only when it *starts* with an HTML opening
+  (`<!doctype`, `<html`, `<head`, `<body`), after leading comments and an XML
+  declaration are skipped — so a message that says "expected text but got
+  `<html>` markup" survives, and an XML error document stays text.
+- `httpStatusErr` renders one line, without repeating the hint when the body
+  already says it. A page on a status with no hint falls back to its `<title>`
+  (bounded 120), which is how a Cloudflare Access 403 still names itself.
+- Decode errors on a 2xx body say `an HTML error page` or `an empty body`
+  instead of quoting 200 bytes of markup.
+- `formatFinalProviderErr` names the cause once: when the last attempt already
+  says the hint, the final error is `<last> (failed after N attempts)` rather
+  than `<hint> (…; last: <hint again>)`.
+- The reconnect progress line in `kinagent` no longer reads
+  `Provider provider HTTP 520`: the duplicated word is trimmed
+  case-insensitively, and the parenthesised URL is dropped (only the exact
+  ` (http…): ` span `httpStatusErr` emits) so a long gateway host cannot eat
+  the 120-byte budget before the cause.
+
+Before and after, on the stored event from that conversation:
+
+```
+_Provider provider HTTP 520 (https://…/v1/chat/completions): cloudflare/origin unreachable — <!DOCTYPE htm… — reconnecting 1/5 in 1s…_
+_Provider HTTP 520: cloudflare/origin unreachable — reconnecting 1/5 in 1s…_
+```
+
+and the final error becomes
+`provider HTTP 520 (https://…/v1/chat/completions): cloudflare/origin unreachable (failed after 5 attempts)`.
+
+**Verification.** Table tests over the seam (22 body shapes: envelopes, strings,
+broken siblings, markup in a message, XML, pages with comments and XML
+declarations, a decoy title inside a comment, an unterminated comment, hinted
+and unhinted statuses, multibyte truncation), a test that drives the real retry
+loop against an `httptest` gateway answering 520 with the page and asserts the
+exact final string, and reconnect-hint tests including a URL containing
+parentheses. 24 mutants, all red, each file restored byte for byte. `./scripts/check.sh` clean (10 jobs) after each step. The console and
+phone render the stored string unchanged, so no UI change and no embed was
+needed.
+
+**Review.** REVIEWED — first pass: 0 blockers, 1 major (the markup heuristic
+was re-applied to messages the caller had already extracted, so a legitimate
+message containing `<html>`/`<header>` was dropped and left a bare status;
+reproduced end-to-end) and 8 nits. The major and nits 1, 2, 3, 4, 6 and 7 were
+fixed, each with a test and a mutant. Confirmation pass: the reported
+behaviour held, but the new title extractor introduced a blocker of its own —
+`strings.ToLower` can change byte length (U+023A → U+2C65), and offsets taken
+from the lowercased copy were used to slice the original, so a page with such
+runes panicked the daemon. Fixed with an ASCII-only `asciiLower` that preserves
+byte offsets, plus a regression test with 120 expanding runes before and inside
+the title; its leading-comment and parenthesised-URL nits were fixed in the
+same pass. Third pass: no blocker, no major; the blocker fix held under its
+regression test. Two nits in the same new code, both fixed with a table case
+and a mutant each: the root strip handled a comment then one XML declaration
+but not a declaration followed by a comment, and the `<title>` search read a
+decoy inside an HTML conditional comment as the page's title. `bodyRoot` now
+loops over both forms in one switch, an empty root (only comments, or a comment
+that never closes) counts as a page, and `markupPageTitle` strips comments
+before searching. After those fixes the full mutation set (24/24 red) and
+`./scripts/check.sh` (10/10) were re-run clean; no further review pass was
+needed. Deferred, both pre-existing and narrow: nit 5
+(the "already annotated" guard reads provider text for `"after … attempt"`) and
+nit 8 (JSON extraction keeps `message` but drops `type`/`code`, so a bare
+`{"message","code"}` body can lose the quota-versus-transient key the routers
+read).
+
+**Not done.** Rows written before this change keep their stored page text; the
+fix is at the seam, with no migration. A page on an unhinted status yields only
+its title, and a page without a title only the status. A FastAPI `detail` array
+or a top-level JSON array is not extracted and remains raw JSON, as before. A
+live gateway failure was not forced — pointing the live provider at a broken
+endpoint to watch it fail was not worth the risk; the proof is the real retry
+loop against a server that answers exactly as the observed gateway did.
 
 ### Round 26 — the phone list can delete (2026-10-30)
 
