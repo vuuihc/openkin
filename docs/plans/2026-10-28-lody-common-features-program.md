@@ -1,6 +1,6 @@
 # Common-feature parity program — inventory, gaps, plan
 
-Status: rounds 1–19 landed. This is the living ledger for
+Status: rounds 1–20 landed. This is the living ledger for
 the open-ended "beat Lody on the features I actually use" program: inventory →
 gap matrix → plan → implement → evaluate → repeat.
 
@@ -103,7 +103,7 @@ attachment lost when the task runs on another machine, closed with F4 below.
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
 | Recurrence: daily / weekdays / weekly / monthly / hours / minutes / once, with next-run preview (`schedule-recurrence-editor.tsx:132`) | all seven kinds, with the two step rules zone-aligned and validated to divide their unit (R19, `recurrence.go`), server-computed next due in the list (`RoutinesPage.tsx:535-537`), and the create form reused as an editor for those same fields (R17, `routineEdit.ts`) | No next-run preview inside the form (the list shows the computed next due) | S3 | — |
-| Agent/model/permission per schedule (`schedule-agent-controls.tsx:26`) | agent and permission are per-routine end to end (`scheduler.go:513-524`); no model field anywhere | Model per schedule is missing, and the new-chat picker stays visible in routine mode while the payload drops it (`NewChatPage.tsx:482-488,356-369`) — a silently ignored control | S3 | — |
+| Agent/model/permission per schedule (`schedule-agent-controls.tsx:26`) | agent, model and permission are per-routine end to end (R20): `store.Routine.Model` → `scheduler.go:513-529` → `task.CreateRequest.Model`; both the Routines editor and New Chat's routine mode carry the picker | Closed (R20) | — | — |
 | Run history | a global routine-run feed with unread and mark-read (`RoutinesPage.tsx:114-117,442-485`), plus each routine's ten newest runs under its editor (R18, `/api/tasks?routine_id=`) | No paged per-routine history and no live refresh while the editor stays open; Lody lists up to 100 under the schedule | S3 | — |
 
 ### 2.8 Projects
@@ -3110,3 +3110,70 @@ that day and realigns at the next occurrence; the alternative — rebuilding the
 wall clock each step — is the ambiguity that produced the fall-back bug above.
 The `ROUTINE_RULE_KINDS` / `RoutineRuleKind` exports remain unused
 (pre-existing).
+
+### Round 20 — a routine remembers its model (2026-10-30)
+
+**20A The control that did nothing.** New Chat's routine mode keeps the
+composer's model picker visible, and `createRoutine` dropped the value: picking
+a model there produced a routine that ran on the agent's default, a control
+that looked applied and changed nothing. The Routines editor had no model
+control at all. Both are the same missing field — a routine carried an agent
+and a permission mode but no model, while Lody's schedule editor has all three
+(`schedule-agent-controls.tsx:26`).
+
+**20B One column, two upgrade histories.** `routines.model` is additive and
+defaults to `''`, which is exactly the state every routine ran in before the
+field existed: the agent's own default. The ordered migration (43) adds it to
+a database that says 42; the `ensureRoutineModelSchema` reconciler adds it to a
+table that already claims the current version but has no column, the same split
+the recurrence and device-agent columns use. Both histories are pinned by
+tests, including that the upgrade records the new `user_version` so the next
+open does not migrate again. The HTTP boundary trims the id on create and on
+patch; `""` is a real patch value and clears back to the agent default. The
+scheduler turns a non-empty model into `CreateRequest.Model` and leaves an
+empty one nil, so "no model" is the absence of a field rather than a literal
+empty id the adapter would have to interpret.
+
+**20C The console.** The Routines form gains the shared `ModelPicker` beside
+permission and agent, listing the selected agent's catalog — read from all
+agents, not only the available ones, because a routine keeps its agent when
+that agent goes offline and the catalog it last reported is still the best list
+to offer. Changing the agent clears the model, mirroring New Chat: an id from
+the old catalog is a run that fails at start. The create draft snapshot and
+restore carry the model, so opening an edit and closing it gives the next new
+routine back its own picker. The picker is keyed on the form's identity and
+agent: its internal "Custom" flag deliberately survives a value change (that is
+what keeps the empty input open while a custom id is typed), so a model the
+form clears would otherwise leave the control reading "Custom" with a blank
+box — the exact stale-control class this round removes. The edit patch sends
+`model` only when the trimmed value differs and sends `""` to clear it. New
+Chat forwards its selected model into the routine it creates.
+
+**Verification.** `./scripts/check.sh` clean; 22 mutants red — store scan,
+select list, insert, update, reconciler, migration, API create/patch trims,
+clearing and omission, scheduler pointer, omission and the tick path, the
+console diff, the picker remount, and the page wirings. One of them was a real
+gap in the first manifest: the API create test
+reads the handler's response, which is the struct it just built, so an INSERT
+that never wrote the model still passed. The store now has a read-back test for
+insert, the reconciler repair with its own mutant, and version-42 upgrade
+coverage that pins the reopened version and column — the ALTER inside that
+migration is deliberately mirrored by the reconciler on the same open, so no
+external test can tell the two apart; the version bump is what the migration
+mutant kills. Review added the omission case (a title-only PATCH must keep the
+model) and the tick-path assertion (store scan → scheduler → the task row a run
+starts from), both with their own mutants.
+
+**Not done.** No catalog validation of a stored model id beyond the picker
+itself; a raw HTTP client can store any string, and the run fails at start the
+way New Chat does for an unknown model. No length bound on `model` and no
+`MaxBytesReader` on the routine routes — prompt and title share that exposure,
+so it is a consistency change, not this field's. New Chat's host-change effect
+keeps a picked model when the fallback agent reports no catalog at all
+(`opts.length > 0` guard, pre-existing): narrow — it needs the chosen agent to
+go offline between picking and sending — but a routine created in that window
+stores the stale id, so it is a candidate for a follow-up. The project page's
+quick-create is the third routine surface and still hard-codes `agent: "kin"`
+with no model or permission control. A routine whose agent is later removed
+keeps both the agent id and the model id. No bulk "set the model for every
+routine" action.
