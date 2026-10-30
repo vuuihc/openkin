@@ -1,9 +1,11 @@
 package workspace
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -891,5 +893,105 @@ func TestRankFileMatchesPutsTheLikelyFileFirst(t *testing.T) {
 
 	if _, _, err := rankFileMatches(files, "  ", 10); err == nil {
 		t.Fatal("an empty query was answered")
+	}
+}
+
+// A download opens the file instead of reading it into memory: the same
+// containment as every other live read, no preview cap, and the caller owns
+// what it gets.
+func TestOpenLiveFileStreamsWithoutThePreviewCap(t *testing.T) {
+	root := t.TempDir()
+	m := NewManager(t.TempDir())
+	meta := Metadata{Mode: ResolvedWorktree, Root: root, Scope: "."}
+	big := bytes.Repeat([]byte{0x2a}, int(rawFileLimit)+1)
+	if err := os.WriteFile(filepath.Join(root, "talk.mp4"), big, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	file, info, err := m.OpenLiveFile(context.Background(), meta, "talk.mp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if info.Size() != int64(len(big)) {
+		t.Fatalf("size = %d, want %d", info.Size(), len(big))
+	}
+	got := make([]byte, len(big))
+	if _, err := io.ReadFull(file, got); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, big) {
+		t.Fatal("streamed bytes differ from the file")
+	}
+
+	// A download widens what may be read, not where it may be read from.
+	if _, _, err := m.OpenLiveFile(context.Background(), meta, "."); err == nil {
+		t.Fatal("expected a directory to be refused")
+	}
+	outside := filepath.Join(t.TempDir(), "secret.mp4")
+	if err := os.WriteFile(outside, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "escape.mp4")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := m.OpenLiveFile(context.Background(), meta, "escape.mp4"); err == nil {
+		t.Fatal("expected an escaping symlink to be refused")
+	}
+}
+
+// The preview path reads the bytes the text path refuses, and refuses the same
+// places and the same sizes: widening what may be read must not widen where it
+// may be read from.
+func TestLiveFileRawReadsWhatTheTextPathRefuses(t *testing.T) {
+	root := t.TempDir()
+	png := []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+	if err := os.WriteFile(filepath.Join(root, "shot.png"), png, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager(t.TempDir())
+	meta := Metadata{Mode: ResolvedWorktree, Root: root, Scope: "."}
+
+	if _, err := m.ReadLiveFile(context.Background(), meta, "shot.png"); err == nil {
+		t.Fatal("expected the text path to refuse an image")
+	}
+	data, err := m.ReadLiveFileRaw(context.Background(), meta, "shot.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(data, png) {
+		t.Fatalf("raw bytes = %q", data)
+	}
+
+	// 1 MiB is the text cap, not the preview cap: a screenshot over it is still
+	// a screenshot, and refusing it would be the bug this read exists to fix.
+	mid := bytes.Repeat([]byte{0x89}, liveFileLimit+1)
+	if err := os.WriteFile(filepath.Join(root, "mid.png"), mid, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.ReadLiveFile(context.Background(), meta, "mid.png"); err == nil {
+		t.Fatal("expected the text path to refuse a file over its cap")
+	}
+	if data, err := m.ReadLiveFileRaw(context.Background(), meta, "mid.png"); err != nil || len(data) != len(mid) {
+		t.Fatalf("raw read of a preview-sized image: len=%d err=%v", len(data), err)
+	}
+
+	outside := filepath.Join(t.TempDir(), "secret.png")
+	if err := os.WriteFile(outside, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "escape.png")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.ReadLiveFileRaw(context.Background(), meta, "escape.png"); err == nil {
+		t.Fatal("expected raw read of an escaping symlink to be refused")
+	}
+
+	over := make([]byte, rawFileLimit+1)
+	if err := os.WriteFile(filepath.Join(root, "huge.png"), over, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.ReadLiveFileRaw(context.Background(), meta, "huge.png"); !errors.Is(err, ErrOutputTooLarge) {
+		t.Fatalf("oversized raw read error = %v, want ErrOutputTooLarge", err)
 	}
 }

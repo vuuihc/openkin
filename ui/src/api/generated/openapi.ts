@@ -3362,6 +3362,17 @@ export interface operations {
         parameters: {
             query: {
                 path: string;
+                /** @description Which recorded side to read. Defaults to the one the state implies. */
+                side?: "live" | "base" | "final";
+                /** @description Answer with the file's bytes typed by extension, drawable in place
+                 *     only for an image type. Subject to a 4 MiB cap.
+                 *      */
+                raw?: "1";
+                /** @description Answer with the file's bytes as an attachment. A live file is
+                 *     streamed and uncapped; a recorded side is read from git under the
+                 *     4 MiB cap. Takes precedence over raw.
+                 *      */
+                download?: "1";
             };
             header?: never;
             path: {
@@ -3372,7 +3383,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Workspace file */
+            /** @description Workspace file, or its bytes when raw or download is set */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3381,6 +3392,7 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                    "application/octet-stream": string;
                 };
             };
         };

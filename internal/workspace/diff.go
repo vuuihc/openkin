@@ -19,6 +19,12 @@ import (
 const (
 	liveTreeLimit = 500
 	liveFileLimit = 1024 * 1024
+	// rawFileLimit bounds a preview read of a file the text path refuses.
+	// Images are the reason it exists, and a screenshot is rarely more than a
+	// few megabytes; the cap keeps a mislabeled archive from being pulled into
+	// memory to draw nothing. It is the git runner's stdout cap by definition,
+	// so a snapshot view answers the same file the same way as the live one.
+	rawFileLimit = PathListStdoutLimit
 	// LiveFilesLimit is how many names one file search answers with. A menu is
 	// read at a glance; a person who does not see what they meant types another
 	// character instead of scrolling.
@@ -131,39 +137,85 @@ func (m *Manager) ReadLiveFile(_ context.Context, meta Metadata, relPath string)
 
 // ReadLiveFile reads an existing UTF-8 file beneath a rooted workspace.
 func ReadLiveFile(meta Metadata, relPath string) ([]byte, error) {
-	rootPath, rel, err := rootedLivePath(meta, relPath)
+	data, err := readLiveFileBytes(meta, relPath, liveFileLimit)
 	if err != nil {
 		return nil, err
 	}
+	if !utf8.Valid(data) || strings.IndexByte(string(data), 0) >= 0 {
+		return nil, fmt.Errorf("live file is not UTF-8 text")
+	}
+	return data, nil
+}
+
+// ReadLiveFileRaw reads the bytes of a file beneath a rooted workspace without
+// requiring them to be text.
+//
+// The viewer uses it for the files the text path refuses — an image has no
+// UTF-8 to validate. The cap is the only judgement made here; whether the
+// bytes are safe to render is the caller's decision, by type.
+func ReadLiveFileRaw(meta Metadata, relPath string) ([]byte, error) {
+	return readLiveFileBytes(meta, relPath, rawFileLimit)
+}
+
+// ReadLiveFileRaw is the manager-bound form of the package read, so a caller
+// that holds a Manager reads every workspace file the same way.
+func (m *Manager) ReadLiveFileRaw(_ context.Context, meta Metadata, relPath string) ([]byte, error) {
+	return ReadLiveFileRaw(meta, relPath)
+}
+
+// OpenLiveFile opens a regular file beneath a rooted workspace for a download
+// that streams rather than buffering the bytes.
+//
+// The caller owns the file and must close it. The root it was opened through is
+// closed here: an open file descriptor stays valid on its own, which is what
+// lets a download of a large file avoid being copied into memory first.
+func (m *Manager) OpenLiveFile(_ context.Context, meta Metadata, relPath string) (*os.File, os.FileInfo, error) {
+	return openLiveFile(meta, relPath)
+}
+
+// openLiveFile opens a regular file beneath the workspace root.
+func openLiveFile(meta Metadata, relPath string) (*os.File, os.FileInfo, error) {
+	rootPath, rel, err := rootedLivePath(meta, relPath)
+	if err != nil {
+		return nil, nil, err
+	}
 	root, err := os.OpenRoot(rootPath)
 	if err != nil {
-		return nil, fmt.Errorf("open workspace root: %w", err)
+		return nil, nil, fmt.Errorf("open workspace root: %w", err)
 	}
 	defer root.Close()
 	file, err := root.Open(rel)
 	if err != nil {
-		return nil, fmt.Errorf("open live file: %w", err)
+		return nil, nil, fmt.Errorf("open live file: %w", err)
 	}
-	defer file.Close()
 	info, err := file.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("stat live file: %w", err)
+		_ = file.Close()
+		return nil, nil, fmt.Errorf("stat live file: %w", err)
 	}
 	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("live path is not a regular file")
+		_ = file.Close()
+		return nil, nil, fmt.Errorf("live path is not a regular file")
 	}
-	if info.Size() > liveFileLimit {
-		return nil, fmt.Errorf("%w: file exceeds %d bytes", ErrOutputTooLarge, liveFileLimit)
+	return file, info, nil
+}
+
+// readLiveFileBytes reads a regular file beneath the workspace root, capped.
+func readLiveFileBytes(meta Metadata, relPath string, limit int64) ([]byte, error) {
+	file, info, err := openLiveFile(meta, relPath)
+	if err != nil {
+		return nil, err
 	}
-	data, err := io.ReadAll(io.LimitReader(file, liveFileLimit+1))
+	defer file.Close()
+	if info.Size() > limit {
+		return nil, fmt.Errorf("%w: file exceeds %d bytes", ErrOutputTooLarge, limit)
+	}
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
 	if err != nil {
 		return nil, fmt.Errorf("read live file: %w", err)
 	}
-	if len(data) > liveFileLimit {
-		return nil, fmt.Errorf("%w: file exceeds %d bytes", ErrOutputTooLarge, liveFileLimit)
-	}
-	if !utf8.Valid(data) || strings.IndexByte(string(data), 0) >= 0 {
-		return nil, fmt.Errorf("live file is not UTF-8 text")
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("%w: file exceeds %d bytes", ErrOutputTooLarge, limit)
 	}
 	return data, nil
 }

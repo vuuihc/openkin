@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"net/http"
 	"path"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -255,6 +258,8 @@ func (s *Server) handleReadWorkspaceFile(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path is required"})
 		return
 	}
+	raw := r.URL.Query().Get("raw") == "1"
+	download := r.URL.Query().Get("download") == "1"
 	side := r.URL.Query().Get("side")
 	if side == "" {
 		side = defaultSide(ws.State)
@@ -272,6 +277,19 @@ func (s *Server) handleReadWorkspaceFile(w http.ResponseWriter, r *http.Request)
 	case "live":
 		if s.Workspace == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "workspace manager unavailable"})
+			return
+		}
+		if download {
+			s.serveLiveFileDownload(w, r, meta, reqPath)
+			return
+		}
+		if raw {
+			data, err := s.Workspace.ReadLiveFileRaw(r.Context(), meta, reqPath)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			writeFileBytes(w, reqPath, data, true)
 			return
 		}
 		content, err := s.Workspace.ReadLiveFile(r.Context(), meta, reqPath)
@@ -296,6 +314,18 @@ func (s *Server) handleReadWorkspaceFile(w http.ResponseWriter, r *http.Request)
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "workspace manager unavailable"})
 			return
 		}
+		if raw || download {
+			data, err := s.Workspace.ReadSnapshotFile(r.Context(), taskID, meta, ws.BaseOID+"^{tree}", reqPath)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			// A snapshot is read out of git into memory, so its download keeps
+			// the preview cap; only a live file can stream past it. A download
+			// asks for an attachment even when raw was also named.
+			writeFileBytes(w, reqPath, data, raw && !download)
+			return
+		}
 		content, err := s.Workspace.ReadSnapshotFile(r.Context(), taskID, meta, ws.BaseOID+"^{tree}", reqPath)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -316,6 +346,15 @@ func (s *Server) handleReadWorkspaceFile(w http.ResponseWriter, r *http.Request)
 		}
 		if s.Workspace == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "workspace manager unavailable"})
+			return
+		}
+		if raw || download {
+			data, err := s.Workspace.ReadSnapshotFile(r.Context(), taskID, meta, ws.FinalTreeOID, reqPath)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			writeFileBytes(w, reqPath, data, raw && !download)
 			return
 		}
 		content, err := s.Workspace.ReadSnapshotFile(r.Context(), taskID, meta, ws.FinalTreeOID, reqPath)
@@ -571,7 +610,16 @@ func (s *Server) handleReadSourceFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	raw := r.URL.Query().Get("raw") == "1"
+	download := r.URL.Query().Get("download") == "1"
 	if s.Engine.RunsElsewhere(t) {
+		if raw || download {
+			// The bytes live on another machine and the worker protocol carries
+			// text, not arbitrary data. The text reader still answers; only the
+			// previews and downloads that need raw bytes are unavailable.
+			writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "raw preview and download are not available for a remote workspace"})
+			return
+		}
 		s.askRemoteFile(w, r, t, reqPath, func(found worker.WorkspaceFileResult) any {
 			return genFileResponse{
 				View:      "source",
@@ -596,6 +644,19 @@ func (s *Server) handleReadSourceFile(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := validateScopePath(meta.Scope, reqPath); err != nil {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
+		return
+	}
+	if download {
+		s.serveLiveFileDownload(w, r, meta, reqPath)
+		return
+	}
+	if raw {
+		data, err := s.Workspace.ReadLiveFileRaw(r.Context(), meta, reqPath)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		writeFileBytes(w, reqPath, data, true)
 		return
 	}
 	content, err := s.Workspace.ReadLiveFile(r.Context(), meta, reqPath)
@@ -780,6 +841,84 @@ func sourceWorkspaceMetadata(ctx context.Context, manager *workspace.Manager, ta
 		Cwd:        task.Cwd,
 		Scope:      scope,
 	}, nil
+}
+
+// fileResponseHeaders sets the headers a file's bytes are served with.
+//
+// The type comes from the extension and nothing else. Sniffing would let a
+// workspace file call itself text/html and run as a page on the daemon's
+// origin; only the image types the viewer draws in an <img> may be inline, and
+// everything else is a download. The bytes are file content, so no cache may
+// outlive the file they came from.
+func fileResponseHeaders(w http.ResponseWriter, name string, inline bool) {
+	contentType, drawable := rawFileType(name)
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "no-store")
+	disposition := "attachment"
+	if inline && drawable {
+		disposition = "inline"
+	}
+	// FormatMediaType quotes and escapes a name that needs it, so a file called
+	// `my shot.png` cannot end the header early.
+	if value := mime.FormatMediaType(disposition, map[string]string{"filename": filepath.Base(name)}); value != "" {
+		w.Header().Set("Content-Disposition", value)
+	}
+}
+
+// writeFileBytes answers with a file's bytes already in memory, inline only
+// when the caller asks for a preview and the type is drawable.
+func writeFileBytes(w http.ResponseWriter, name string, data []byte, inline bool) {
+	fileResponseHeaders(w, name, inline)
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
+// serveLiveFileDownload streams a live file as an attachment.
+//
+// A download is not a preview: the preview cap keeps a mislabeled archive out
+// of the daemon's memory, and applying it here would refuse the recording the
+// person asked to save. The bytes are streamed from disk instead, under the
+// same extension-only type and an always-attachment disposition.
+func (s *Server) serveLiveFileDownload(w http.ResponseWriter, r *http.Request, meta workspace.Metadata, name string) {
+	file, info, err := s.Workspace.OpenLiveFile(r.Context(), meta, name)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	defer file.Close()
+	fileResponseHeaders(w, name, false)
+	http.ServeContent(w, r, filepath.Base(name), info.ModTime(), file)
+}
+
+// rawFileType is the type a raw read may be drawn as, and whether the browser
+// may draw it in place.
+//
+// SVG is deliberately absent: it is text, the code viewer already shows it,
+// and as a document it can carry script. A viewer that never asks for it keeps
+// that decision in one place.
+func rawFileType(name string) (string, bool) {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".png":
+		return "image/png", true
+	case ".jpg", ".jpeg":
+		return "image/jpeg", true
+	case ".gif":
+		return "image/gif", true
+	case ".webp":
+		return "image/webp", true
+	case ".bmp":
+		return "image/bmp", true
+	case ".ico":
+		return "image/x-icon", true
+	case ".avif":
+		return "image/avif", true
+	case ".pdf":
+		return "application/pdf", false
+	default:
+		return "application/octet-stream", false
+	}
 }
 
 // defaultSide returns the default view side for a workspace state.
