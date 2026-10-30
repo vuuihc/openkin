@@ -91,8 +91,11 @@ export default function NewChatPage() {
   );
   const [asRoutine, setAsRoutine] = useState(false);
   // Saved prompt prefixes. They are a settings key, so they arrive after the
-  // first paint; until then the role row simply does not exist.
+  // first paint; until then the role row simply does not exist. The composer
+  // gets the unknown `null` through, so its `/` menu can tell "not loaded yet"
+  // apart from "none saved".
   const agentRoles = useAgentRoles();
+  const roleList = agentRoles ?? [];
 
   const [routineInterval, setRoutineInterval] = useState(86400);
   const [routineRule, setRoutineRule] = useState<RoutineRule | null>(null);
@@ -487,11 +490,11 @@ export default function NewChatPage() {
     (id) =>
       // No saved roles, no row: a picker whose only entry is "none" is a
       // control that exists to be dismissed.
-      (id !== "role" || agentRoles.length > 0) &&
+      (id !== "role" || roleList.length > 0) &&
       !(asRoutine && (id === "machine" || id === "cwd" || id === "branch" || id === "dispatch")),
   );
   const visiblePhoneExtraRows = phoneExtraRows.filter(
-    (id) => id !== "role" || agentRoles.length > 0,
+    (id) => id !== "role" || roleList.length > 0,
   );
 
   /** Each control's own row label. The group headings stay as sections
@@ -526,13 +529,13 @@ export default function NewChatPage() {
           <SheetSelect
             key={control}
             label={tr("newChat.rowRole")}
-            value={appliedRole(previewPrompt, agentRoles)?.id ?? ""}
+            value={appliedRole(previewPrompt, roleList)?.id ?? ""}
             // "No role" is an option, not a placeholder: a control that can
             // only ever add text is a one-way door, and the way back is a tap
             // on the same row rather than editing the draft by hand.
             options={[
               { id: "", label: tr("newChat.roleNone") },
-              ...agentRoles.map((role) => ({ id: role.id, label: role.name })),
+              ...roleList.map((role) => ({ id: role.id, label: role.name })),
             ]}
             placeholder={tr("newChat.roleNone")}
             disabled={sending}
@@ -541,7 +544,7 @@ export default function NewChatPage() {
               // The draft is the truth. Picking a role writes its text into
               // the draft — the same text the transcript will show — instead
               // of attaching a setting that the run would apply invisibly.
-              const next = selectRole(previewPrompt, agentRoles, id);
+              const next = selectRole(previewPrompt, roleList, id);
               setPreviewPrompt(next);
               setDraftPrompt(next);
               setInitialValue(next);
@@ -799,6 +802,7 @@ export default function NewChatPage() {
           )}
           <Composer
             agents={agents}
+            roles={agentRoles}
             hostAgentId={mainAgentId}
             busy={sending}
             disabled={sending}

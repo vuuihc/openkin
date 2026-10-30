@@ -4,6 +4,7 @@ import {
   AGENT_ROLE_PROMPT_MAX,
   AGENT_ROLES_MAX,
   appliedRole,
+  filterRoles,
   hasRole,
   insertRole,
   newAgentRoleId,
@@ -189,5 +190,41 @@ describe("agent roles", () => {
   it("issues a free id for a new role", () => {
     const id = newAgentRoleId([review, commit]);
     expect(id && ![review.id, commit.id].includes(id)).toBe(true);
+  });
+});
+
+describe("filterRoles", () => {
+  it("lists every role for an empty query", () => {
+    expect(filterRoles([review, commit], "")).toEqual([review, commit]);
+    expect(filterRoles([review, commit], "   ")).toEqual([review, commit]);
+  });
+
+  it("matches the name, case-insensitively, after trimming", () => {
+    // "commit" is only in the second role's name — its prompt never says it —
+    // so a name match cannot be mistaken for a prompt match.
+    expect(filterRoles([review, commit], "commit")).toEqual([commit]);
+    expect(filterRoles([review, commit], "COMMIT")).toEqual([commit]);
+    expect(filterRoles([review, commit], "  Review  ")).toEqual([review]);
+  });
+
+  it("matches the prompt text, not only the name", () => {
+    // "the security one" is what the reader remembers; the name they gave it
+    // may be nothing like it.
+    expect(filterRoles([review, commit], "security")).toEqual([review]);
+    // "Write" is capitalized in the prompt and the query is not, and the name
+    // never says it: this is the prompt branch's own case folding.
+    expect(filterRoles([review, commit], "write")).toEqual([commit]);
+    expect(filterRoles([review, commit], "imperative")).toEqual([commit]);
+  });
+
+  it("keeps the list's order and hands back its own array", () => {
+    const roles = [review, commit];
+    const all = filterRoles(roles, "");
+    expect(all).not.toBe(roles);
+    expect(filterRoles(roles, "e").map((role) => role.id)).toEqual(["review", "commit"]);
+  });
+
+  it("returns nothing when nothing matches", () => {
+    expect(filterRoles([review, commit], "zzz")).toEqual([]);
   });
 });

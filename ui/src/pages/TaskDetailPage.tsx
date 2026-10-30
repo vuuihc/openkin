@@ -83,6 +83,7 @@ import WorkerTimeline from "../components/task/WorkerTimeline";
 import ShareDialog from "../components/task/ShareDialog";
 import { workerActivity, type WorkerRow } from "../components/task/workerActivity";
 import { extractChangedFiles } from "../lib/changedFiles";
+import type { AgentRole } from "../lib/agentRoles";
 import { anchoredPendingIds, orderPending } from "../lib/needsYou";
 import {
   canRefillComposer,
@@ -140,6 +141,13 @@ type TaskDetailPageProps = {
    * session is exactly what the dot is for.
    */
   switcherMark?: AttentionMark | null;
+  /**
+   * Saved prompt shortcuts for the composer's `/` menu. The host reads them
+   * once for every session pane it keeps alive; a pane that is rendered on its
+   * own (or a test) simply has none. `null` is "not loaded yet", which the
+   * composer's menu reports differently from an empty list.
+   */
+  agentRoles?: AgentRole[] | null;
 };
 
 export default function TaskDetailPage({
@@ -147,6 +155,7 @@ export default function TaskDetailPage({
   active = true,
   onOpenSessionSwitcher,
   switcherMark = null,
+  agentRoles = [],
 }: TaskDetailPageProps) {
   const { id: paramId = "" } = useParams();
   const id = taskId || paramId;
@@ -1817,6 +1826,7 @@ export default function TaskDetailPage({
             <Composer
               key={task.id}
               agents={agents}
+              roles={agentRoles}
               hostAgentId={task.agent || ""}
               fileSearch={searchSourceFiles}
               busy={sending}

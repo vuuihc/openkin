@@ -29,7 +29,12 @@ import {
   type Settings,
 } from "../api/client";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
-import { parseAgentRoles, serializeAgentRoles, type AgentRole } from "../lib/agentRoles";
+import {
+  AGENT_ROLES_CHANGED_EVENT,
+  parseAgentRoles,
+  serializeAgentRoles,
+  type AgentRole,
+} from "../lib/agentRoles";
 import { importToast } from "../lib/agentSessionImport";
 import { useAgentSessionImport } from "../hooks/useAgentSessionImport";
 import {
@@ -298,6 +303,10 @@ export default function SettingsPage() {
       setSaved(true);
       pushToast(tr("settings.saved"), "info");
       window.dispatchEvent(new Event("kin:agent-sessions-changed"));
+      // The session host reads roles once and stays mounted across routes;
+      // without this, a role saved here would not reach the composer's `/`
+      // menu until a reload.
+      window.dispatchEvent(new Event(AGENT_ROLES_CHANGED_EVENT));
       listAgents()
         .then(setAgentList)
         .catch(() => undefined);

@@ -15,6 +15,7 @@ import Composer from "../components/chat/Composer";
 import CwdPicker from "../components/chat/CwdPicker";
 import { IconBack } from "../components/icons";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
+import { useAgentRoles } from "../hooks/useAgentRoles";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useT } from "../i18n/react";
 import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
@@ -51,6 +52,10 @@ export default function AgentSessionDetailPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const tr = useT();
+  // The continue box is a composer, so `/` opens the same prompt menu there.
+  // This page mounts on its own route, so one read of the list is the whole
+  // cost — without it the menu would claim there are no saved roles.
+  const agentRoles = useAgentRoles();
   const reconnectGen = useAppStore((s) => s.reconnectGen);
   const [session, setSession] = useState<AgentSession | null>(null);
   const [items, setItems] = useState<AgentSessionHistoryItem[]>([]);
@@ -316,6 +321,7 @@ export default function AgentSessionDetailPage() {
               key={session.id}
               busy={attachBusy}
               disabled={attachBusy}
+              roles={agentRoles}
               placeholder={tr("agentSession.continuePlaceholder", { agent: agentName })}
               onSubmit={attach}
             />

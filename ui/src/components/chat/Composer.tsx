@@ -16,6 +16,7 @@ import {
   uploadFile,
 } from "../../api/client";
 import { useT } from "../../i18n/react";
+import { filterRoles, insertRole, type AgentRole } from "../../lib/agentRoles";
 import { agentDisplayName } from "../../lib/agentMention";
 import { agentCatalogState } from "../../lib/agentCatalog";
 import { useAppStore } from "../../store/appStore";
@@ -68,6 +69,16 @@ type Props = {
   onAttachmentsChange?: (attachments: Upload[]) => void;
   /** Available agents for @mention menu. */
   agents?: AgentInfo[];
+  /**
+   * Saved prompt shortcuts, listed by the `/` menu. A pick writes the role's
+   * text into the draft, so the transcript shows exactly what the agent was
+   * told — the same rule the new-chat role picker follows.
+   *
+   * `null` means the list is not known yet: the daemon has not answered. That
+   * is not the same as an empty list, and the menu must not tell someone their
+   * saved roles do not exist while the read is still in flight or has failed.
+   */
+  roles?: readonly AgentRole[] | null;
   /** Current session host; used only for mention role labels. */
   hostAgentId?: string;
   /**
@@ -136,6 +147,29 @@ function isMentionQuery(token: string): boolean {
 }
 
 /**
+ * The draft as a slash token: a leading `/` and a query with no whitespace.
+ *
+ * A space means the person is writing prose — "or /rev" is a sentence — and
+ * Enter belongs to the message again. A path such as `/usr/bin` is one token,
+ * so it still opens the menu and simply matches no role; the menu says so and
+ * Enter sends it. The menu opens on any paste that is still one token, not only
+ * on the exact "/" keystroke.
+ */
+const SLASH_TOKEN_RE = /^\/(\S*)$/;
+
+/** The list a composer with no roles prop filters: nothing to offer. */
+const NO_ROLES: readonly AgentRole[] = [];
+
+/** The first non-empty line of a saved prompt, for the menu's second line. */
+function rolePreview(prompt: string): string {
+  for (const line of prompt.split("\n")) {
+    const text = line.trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+/**
  * Chat composer: @agent menu for multi-agent delegation.
  * Enter sends; Shift/⌘/Ctrl+Enter inserts a newline.
  * Arrow keys navigate the @mention menu; Enter selects; Esc closes.
@@ -153,6 +187,7 @@ export default function Composer({
   onValueChange,
   onAttachmentsChange,
   agents = [],
+  roles = [],
   hostAgentId,
   fileSearch,
   footer,
@@ -165,6 +200,8 @@ export default function Composer({
   const [menu, setMenu] = useState<"slash" | "mention" | null>(null);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [slashQuery, setSlashQuery] = useState("");
+  const [slashIndex, setSlashIndex] = useState(0);
   const [fileMatches, setFileMatches] = useState<string[]>([]);
   const [fileSearching, setFileSearching] = useState(false);
   // Which query the newest file search belongs to. An answer that arrives
@@ -176,10 +213,22 @@ export default function Composer({
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mentionListRef = useRef<HTMLDivElement>(null);
+  const slashListRef = useRef<HTMLDivElement>(null);
   // Which of the two send buttons was pressed. Both are submit buttons in one
   // form, and the form's submit event does not say which — Enter lands here too,
   // and Enter means the default action, which is queueing.
   const submitIntent = useRef<"queue" | "interrupt">("queue");
+  /**
+   * The key a menu answered in keydown. Its keyup must not re-read the draft:
+   * the menu the key just closed (Escape) — or the one a pick replaced with a
+   * prompt that itself looks like a token — would open again.
+   */
+  const consumedKey = useRef("");
+  /**
+   * The slash draft Escape declined. A caret move keeps the same value, and
+   * the dismissal has to survive it; typing changes the value and asks again.
+   */
+  const dismissedSlash = useRef<string | null>(null);
 
   useEffect(() => {
     // The empty string is a value, not an absence: taking a role back out of
@@ -187,6 +236,20 @@ export default function Composer({
     // check left the old role on screen while the draft behind it said
     // otherwise.
     setValue(initialValue);
+    // A value that arrives from outside the composer is not typing. A menu
+    // still pointing at the old token would pick into text it never saw — the
+    // new-chat page's role row replaces the draft exactly like this. The one
+    // external value that keeps a menu open is an echo of the draft already on
+    // screen (the task page re-reads its saved draft on every render); a token
+    // shape alone is not enough, because the same shape with a different query
+    // is still text the menu never saw.
+    if (initialValue !== value) {
+      if (menu === "slash") closeSlash();
+      else if (menu === "mention") setMenu(null);
+    }
+    // Runs on the value, not on the menu: a menu change must not rewrite the
+    // draft the person is typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialValue]);
 
   // A focus signal asks for the caret to come here. The text that came with it
@@ -303,6 +366,58 @@ export default function Composer({
     active?.scrollIntoView?.({ block: "nearest" });
   }, [mentionIndex, mentionOptions.length]);
 
+  // The `/` menu lists the saved prompt shortcuts, narrowed as the token grows.
+  // An unknown list (`null`) offers nothing, but it does not claim to be empty.
+  const roleList = roles ?? NO_ROLES;
+  const slashMatches = useMemo(() => filterRoles(roleList, slashQuery), [roleList, slashQuery]);
+
+  // A new query is a new list, so the highlight starts at its best row.
+  useEffect(() => {
+    setSlashIndex(0);
+  }, [slashQuery]);
+
+  // Keep the highlight in range when the list changes: the roles can arrive
+  // after the menu opened, and a save can replace them while it stays open.
+  useEffect(() => {
+    setSlashIndex((i) => (slashMatches.length === 0 ? 0 : Math.min(i, slashMatches.length - 1)));
+  }, [slashMatches.length]);
+
+  // Same rule as the mention list: the chosen row has to be on screen.
+  useEffect(() => {
+    const active = slashListRef.current?.querySelector<HTMLElement>('[aria-selected="true"]');
+    active?.scrollIntoView?.({ block: "nearest" });
+  }, [slashIndex, slashMatches.length]);
+
+  function closeSlash() {
+    // Any close but Escape is a new situation when the menu reopens; Escape
+    // records its own dismissal after closing (see onKeyDown).
+    dismissedSlash.current = null;
+    setMenu(null);
+    setSlashQuery("");
+    setSlashIndex(0);
+  }
+
+  /**
+   * Put the highlighted prompt shortcut into the draft.
+   *
+   * The slash token is the whole draft while the menu is open, so the role's
+   * text replaces it. The draft is the truth: the transcript shows exactly
+   * this text, and editing it afterwards is allowed — the same contract as the
+   * new-chat role picker.
+   */
+  function pickSlashRole(index = slashIndex) {
+    const role = slashMatches[index] ?? slashMatches[0];
+    if (!role) return;
+    const next = insertRole(value.replace(SLASH_TOKEN_RE, ""), role);
+    setValue(next);
+    onValueChange?.(next);
+    closeSlash();
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      adjustTextareaHeight();
+    });
+  }
+
   async function addFiles(files: FileList | File[] | null) {
     const list = Array.from(files ?? []);
     if (list.length === 0) return;
@@ -390,6 +505,9 @@ export default function Composer({
     setMenu(null);
     setMentionQuery("");
     setMentionIndex(0);
+    setSlashQuery("");
+    setSlashIndex(0);
+    dismissedSlash.current = null;
     setAttachments([]);
     onAttachmentsChange?.([]);
     try {
@@ -420,13 +538,24 @@ export default function Composer({
     onValueChange?.(v);
     const upto = caret == null ? v : v.slice(0, caret);
     const at = upto.match(MENTION_TOKEN_RE);
+    const slash = SLASH_TOKEN_RE.exec(v);
     if (at && isMentionQuery(at[1] ?? "")) {
       setMentionQuery(at[1] ?? "");
       setMenu("mention");
-    } else if (v === "/") {
-      setMenu("slash");
-    } else if (menu === "slash" && !v.startsWith("/")) {
-      setMenu(null);
+    } else if (slash) {
+      // Escape declined this exact draft, and moving the caret is not a new
+      // question. Typing changes the value, which asks again.
+      if (dismissedSlash.current === v) {
+        setMenu(null);
+        setSlashQuery("");
+      } else {
+        dismissedSlash.current = null;
+        setMenu("slash");
+        setSlashQuery(slash[1]);
+      }
+    } else if (menu === "slash") {
+      // The token became prose (a space, a newline) or was deleted.
+      closeSlash();
     } else if (menu === "mention") {
       setMenu(null);
       setMentionQuery("");
@@ -436,6 +565,12 @@ export default function Composer({
       setMenu(null);
       setMentionQuery("");
       setMentionIndex(0);
+      setSlashQuery("");
+      setSlashIndex(0);
+      // Clearing the draft is not the draft Escape declined: a fresh token
+      // pasted into an empty box is a new question, even if it is the same
+      // text character for character.
+      dismissedSlash.current = null;
     }
   }
 
@@ -476,31 +611,83 @@ export default function Composer({
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    // An IME owns the keyboard while it composes: Enter confirms the candidate
+    // and the arrows walk the candidate list. Taking either would pick a menu
+    // row — or send the draft — under the composition the person is still
+    // writing, which is the one way this composer breaks for a language that
+    // types through an IME.
+    if (e.nativeEvent.isComposing) return;
+
+    // Holding Enter repeats the keydown; by the second one the menu has already
+    // picked and closed, so the repeat would send the prompt the first keydown
+    // just wrote into the draft. A held key is never a second decision.
+    if (e.repeat && (e.key === "Enter" || e.key === "Tab")) return;
+
+    /** Answer a key for a menu: its keyup is not a reason to re-read the draft. */
+    function consume() {
+      e.preventDefault();
+      consumedKey.current = e.key;
+    }
+
+    // `/` prompt shortcuts. Enter picks a row instead of sending: the draft is
+    // still the token, and sending "/rev" to the agent is never what the menu
+    // looks like it will do.
+    if (menu === "slash") {
+      if (e.key === "Escape") {
+        consume();
+        closeSlash();
+        // Recorded after the close: `closeSlash` clears it for every other
+        // caller.
+        dismissedSlash.current = value;
+        return;
+      }
+      if (slashMatches.length > 0) {
+        if (e.key === "ArrowDown") {
+          consume();
+          setSlashIndex((i) => (i + 1) % slashMatches.length);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          consume();
+          setSlashIndex((i) => (i - 1 + slashMatches.length) % slashMatches.length);
+          return;
+        }
+        if (
+          (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.shiftKey) ||
+          (e.key === "Tab" && !e.shiftKey)
+        ) {
+          consume();
+          pickSlashRole();
+          return;
+        }
+      }
+    }
+
     // Mention menu keyboard navigation. One list, both kinds of row: the arrow
     // keys do not stop at the boundary between agents and files.
     if (menu === "mention" && mentionOptions.length > 0) {
       if (e.key === "ArrowDown") {
-        e.preventDefault();
+        consume();
         setMentionIndex((i) => (i + 1) % mentionOptions.length);
         return;
       }
       if (e.key === "ArrowUp") {
-        e.preventDefault();
+        consume();
         setMentionIndex((i) => (i - 1 + mentionOptions.length) % mentionOptions.length);
         return;
       }
       if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
-        e.preventDefault();
+        consume();
         pickMention();
         return;
       }
       if (e.key === "Tab" && !e.shiftKey) {
-        e.preventDefault();
+        consume();
         pickMention();
         return;
       }
       if (e.key === "Escape") {
-        e.preventDefault();
+        consume();
         setMenu(null);
         setMentionQuery("");
         setMentionIndex(0);
@@ -541,12 +728,61 @@ export default function Composer({
     <form onSubmit={submit} className="relative">
       {menu === "slash" && (
         <div className="absolute bottom-full left-0 right-0 mb-2 rounded-xl bg-kin-elevated shadow-e2 overflow-hidden z-20">
-          <div className="px-3 py-2 text-caption font-semibold uppercase tracking-label text-kin-muted">
-            {tr("composer.slashActions")}
+          <div className="px-3 py-2 text-caption font-semibold uppercase tracking-label text-kin-muted flex items-center justify-between">
+            <span>{tr("composer.slashActions")}</span>
+            {slashMatches.length > 0 && (
+              <span className="normal-case tracking-normal font-normal text-caption">
+                ↑↓ {tr("composer.mentionNav")} · ↵ {tr("composer.mentionSelect")}
+              </span>
+            )}
           </div>
-          <div className="px-3 py-2.5 text-strong text-kin-secondary">
-            {tr("composer.slashTip")}
-          </div>
+          {roleList.length === 0 ? (
+            <div className="px-3 py-2.5 text-strong text-kin-secondary">
+              {tr(roles === null ? "composer.slashRolesUnavailable" : "composer.slashNoRoles")}
+            </div>
+          ) : slashMatches.length === 0 ? (
+            <div className="px-3 py-2.5 text-strong text-kin-secondary">
+              {tr("composer.slashNoMatch")}
+            </div>
+          ) : (
+            /* The rows scroll; the header and the hint below stay put. */
+            <div
+              ref={slashListRef}
+              role="listbox"
+              aria-label={tr("composer.slashActions")}
+              className="max-h-[min(40vh,18rem)] overflow-y-auto kin-scroll"
+            >
+              {slashMatches.map((role, i) => {
+                const active = i === slashIndex;
+                return (
+                  <button
+                    key={role.id}
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    className={
+                      "w-full flex flex-col items-start gap-0.5 px-3 py-2.5 text-left text-strong " +
+                      (active
+                        ? "bg-kin-blue/15 text-kin-text"
+                        : "hover:bg-[var(--kin-fill-strong)]")
+                    }
+                    onMouseEnter={() => setSlashIndex(i)}
+                    onClick={() => pickSlashRole(i)}
+                  >
+                    <span className="w-full truncate font-semibold text-kin-text">{role.name}</span>
+                    <span className="w-full truncate text-caption text-kin-muted">
+                      {rolePreview(role.prompt)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {slashMatches.length > 0 && (
+            <div className="border-t border-[var(--kin-hairline)] px-3 py-2 text-caption text-kin-muted">
+              {tr("composer.slashTip")}
+            </div>
+          )}
         </div>
       )}
       {menu === "mention" && (mentionOptions.length > 0 || fileSearching) && (
@@ -724,14 +960,18 @@ export default function Composer({
               onChange(e.currentTarget.value, e.currentTarget.selectionStart ?? undefined)
             }
             onKeyUp={(e) => {
+              // The keydown that answered this key already decided what the
+              // menu should be. Reading the draft again here would reopen the
+              // menu it just closed — or the one a pick just replaced with a
+              // prompt that itself looks like a token.
+              if (consumedKey.current === e.key) {
+                consumedKey.current = "";
+                return;
+              }
               // Don't re-open / clobber menu index after Arrow keys handled in keydown.
               if (
-                menu === "mention" &&
-                (e.key === "ArrowDown" ||
-                  e.key === "ArrowUp" ||
-                  e.key === "Enter" ||
-                  e.key === "Tab" ||
-                  e.key === "Escape")
+                (menu === "mention" || menu === "slash") &&
+                (e.key === "ArrowDown" || e.key === "ArrowUp")
               ) {
                 return;
               }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import { useLocation, useNavigate } from "react-router-dom";
 import { isTerminal } from "../api/client";
 import { usePendingResources, useTaskList, useTaskResource } from "../api/useLiveResources";
+import { useAgentRoles } from "../hooks/useAgentRoles";
 import { useT } from "../i18n/react";
 import { dropSessionCache, taskIdFromPathname, touchSessionCache } from "../lib/sessionCache";
 import { getViewedSessionIds, markSessionViewed, subscribeSessionViewed } from "../lib/sessionViewed";
@@ -41,6 +42,11 @@ import TaskDetailPage from "./TaskDetailPage";
  */
 export default function TaskSessionHost() {
   const tr = useT();
+  // One read for every pane this host keeps alive: the composer's `/` menu
+  // lists these. Reading per pane would be up to eight settings fetches at app
+  // start for one list that only changes on the settings route — which
+  // announces its save, so this stays current without a per-pane read.
+  const agentRoles = useAgentRoles();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const activeId = taskIdFromPathname(pathname);
@@ -229,6 +235,7 @@ export default function TaskSessionHost() {
                 <TaskDetailPage
                   taskId={taskId}
                   active={active && show}
+                  agentRoles={agentRoles}
                   onOpenSessionSwitcher={openSwitcher}
                   switcherMark={switcherMark}
                 />

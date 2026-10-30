@@ -24,6 +24,16 @@ export const AGENT_ROLE_NAME_MAX = 60;
 export const AGENT_ROLE_PROMPT_MAX = 32_768;
 export const AGENT_ROLES_MAX = 50;
 
+/**
+ * The window event a settings save announces.
+ *
+ * The session host reads the roles once and stays mounted across routes, so a
+ * role written on the settings page would otherwise be invisible to the
+ * composer's `/` menu until a reload. The save names itself; `useAgentRoles`
+ * reads again.
+ */
+export const AGENT_ROLES_CHANGED_EVENT = "kin:roles-changed";
+
 /** The blank line that separates the role's text from the user's own words. */
 const ROLE_GAP = "\n\n";
 
@@ -176,6 +186,22 @@ export function appliedRole(draft: string, roles: readonly AgentRole[]): AgentRo
     if (hasRole(draft, role)) return role;
   }
   return null;
+}
+
+/**
+ * The roles whose name or prompt text contains `query`, in list order.
+ *
+ * The prompt is searched as well as the name: the reader remembers "the
+ * security one" more often than what they called it. An empty query is every
+ * role, not none — the menu's first frame lists the whole list.
+ */
+export function filterRoles(roles: readonly AgentRole[], query: string): AgentRole[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return roles.slice();
+  return roles.filter(
+    (role) =>
+      role.name.toLowerCase().includes(needle) || role.prompt.toLowerCase().includes(needle),
+  );
 }
 
 /**
