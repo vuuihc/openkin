@@ -563,6 +563,8 @@ export function listTasks(params?: {
   order?: "activity";
   /** Case-insensitive substring match (title/prompt/cwd/agent/id). */
   q?: string;
+  /** Only runs spawned by this routine; "*" = every routine run. */
+  routineId?: string;
 }): Promise<Task[]> {
   const q = new URLSearchParams();
   if (params?.status) q.set("status", params.status);
@@ -571,6 +573,7 @@ export function listTasks(params?: {
   if (params?.before) q.set("before", params.before);
   if (params?.order) q.set("order", params.order);
   if (params?.q?.trim()) q.set("q", params.q.trim());
+  if (params?.routineId) q.set("routine_id", params.routineId);
   const qs = q.toString();
   return apiFetch<Task[]>(`/api/tasks${qs ? `?${qs}` : ""}`);
 }

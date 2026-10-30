@@ -9,6 +9,7 @@ import {
   listAgents,
   listRoutineRuns,
   listRoutines,
+  listTasks,
   markAllRoutineRunsRead,
   markRoutineRunRead,
   patchRoutine,
@@ -108,6 +109,19 @@ export default function RoutinesPage() {
   const [routineHasMore, setRoutineHasMore] = useState(false);
   const [loadingMoreRoutines, setLoadingMoreRoutines] = useState(false);
   const [runs, setRuns] = useState<Task[]>([]);
+  // One routine's own recent runs, keyed by routine id; loaded when it is opened.
+  const [history, setHistory] = useState<Record<string, Task[]>>({});
+  // Keyed too: opening a second routine while the first is still loading must
+  // not put the first one's spinner or failure under the second one's name.
+  const [historyLoading, setHistoryLoading] = useState<Record<string, boolean>>({});
+  const [historyError, setHistoryError] = useState<Record<string, string>>({});
+  // The newest fetch per routine; an older one that lands late is discarded.
+  const historySeq = useRef<Record<string, number>>({});
+  // Unread only ever goes true -> false, so a write that landed while a fetch
+  // was out must beat that fetch's older snapshot: the history would otherwise
+  // show unread rows on a screen whose feed and badge say read.
+  const knownRead = useRef<Set<string>>(new Set());
+  const readAllEpoch = useRef(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showSilent, setShowSilent] = useState(false);
@@ -263,20 +277,94 @@ export default function RoutinesPage() {
   const onMarkRead = async (taskId: string) => {
     try {
       const t = await markRoutineRunRead(taskId);
+      knownRead.current.add(taskId);
       // Explicit false: API used to omit false bools via omitempty.
       setRuns((prev) =>
         prev.map((x) => (x.id === taskId ? { ...x, ...t, routine_unread: false } : x)),
       );
+      setHistory((prev) => {
+        let touched = false;
+        const next: Record<string, Task[]> = {};
+        for (const [id, list] of Object.entries(prev)) {
+          next[id] = list.map((x) => {
+            if (x.id !== taskId) return x;
+            touched = true;
+            return { ...x, ...t, routine_unread: false };
+          });
+        }
+        return touched ? next : prev;
+      });
       window.dispatchEvent(new Event("kin:routine-unread-changed"));
     } catch {
       /* best-effort */
     }
   };
 
+  /**
+   * One routine's own runs, newest first. The global feed is capped, so a
+   * routine that has not run recently would otherwise look like it never ran;
+   * the daemon's list already supports the filter.
+   */
+  const loadHistory = async (id: string) => {
+    // An empty id means "no filter" to the daemon, which would show the newest
+    // tasks of any kind under one routine's name.
+    if (!id) return;
+    // Reopening the same routine starts a second fetch; the older one must not
+    // overwrite the newer list when it lands late.
+    const seq = (historySeq.current[id] ?? 0) + 1;
+    historySeq.current[id] = seq;
+    const epoch = readAllEpoch.current;
+    setHistoryLoading((prev) => ({ ...prev, [id]: true }));
+    setHistoryError((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    try {
+      const tasks = await listTasks({ routineId: id, limit: 10 });
+      if (historySeq.current[id] !== seq) return;
+      const allRead = readAllEpoch.current !== epoch;
+      const read = knownRead.current;
+      setHistory((prev) => ({
+        ...prev,
+        [id]: tasks.map((x) => (allRead || read.has(x.id) ? { ...x, routine_unread: false } : x)),
+      }));
+    } catch (e) {
+      if (historySeq.current[id] !== seq) return;
+      // A convenience: the editor works without it, but a failed fetch must
+      // not read as "this routine has never run".
+      setHistoryError((prev) => ({
+        ...prev,
+        [id]: e instanceof Error ? e.message : tr("routines.actionFailed"),
+      }));
+    } finally {
+      if (historySeq.current[id] === seq) {
+        setHistoryLoading((prev) => ({ ...prev, [id]: false }));
+      }
+    }
+  };
+
   const onMarkAllRead = async () => {
     try {
       await markAllRoutineRunsRead();
+      // Mark-all names no ids, so it beats every fetch that was already out.
+      readAllEpoch.current += 1;
       setRuns((prev) => prev.map((x) => ({ ...x, routine_unread: false })));
+      // The history is on screen at the same time as the feed; leaving it
+      // unread would make the page contradict itself.
+      setHistory((prev) => {
+        let touched = false;
+        const next: Record<string, Task[]> = {};
+        for (const [id, list] of Object.entries(prev)) {
+          next[id] = list.map((x) => {
+            if (!x.routine_unread) return x;
+            touched = true;
+            return { ...x, routine_unread: false };
+          });
+        }
+        return touched ? next : prev;
+      });
       // Nudge App badge (mark-all has no per-task WS storm).
       window.dispatchEvent(new Event("kin:routine-unread-changed"));
     } catch (e) {
@@ -359,6 +447,7 @@ export default function RoutinesPage() {
         : defaultNextRunLocal(),
     );
     setShowCreate(true);
+    void loadHistory(r.id);
     // The row that opened this is below the fold: bring the form into view and
     // put the caret in it, rather than leaving focus on a button the reader can
     // no longer see. A reader who asked for less motion gets the jump.
@@ -593,6 +682,40 @@ export default function RoutinesPage() {
                 {editing ? tr("routines.save") : tr("routines.createAndOpen")}
               </button>
             </div>
+
+            {editing && (
+              <section
+                className="mt-5 border-t border-[var(--kin-hairline)] pt-4"
+                aria-labelledby="routine-history-title"
+              >
+                <h3
+                  id="routine-history-title"
+                  className="text-caption font-semibold uppercase tracking-label text-kin-muted"
+                >
+                  {tr("routines.historyTitle")}
+                </h3>
+                {historyLoading[editing.id] ? (
+                  <p className="mt-2 text-body text-kin-muted">{tr("routines.historyLoading")}</p>
+                ) : historyError[editing.id] ? (
+                  <p className="mt-2 text-body text-kin-red-ink">{historyError[editing.id]}</p>
+                ) : (history[editing.id]?.length ?? 0) === 0 ? (
+                  <p className="mt-2 text-body text-kin-secondary">{tr("routines.historyEmpty")}</p>
+                ) : (
+                  <ul className="mt-2 max-h-[min(320px,40vh)] space-y-2 overflow-y-auto kin-scroll">
+                    {history[editing.id].map((run) => (
+                      <RunCard
+                        key={run.id}
+                        run={run}
+                        onMarkRead={onMarkRead}
+                        tr={tr}
+                        quiet
+                        ownRoutine
+                      />
+                    ))}
+                  </ul>
+                )}
+              </section>
+            )}
           </section>
         )}
 
@@ -781,11 +904,14 @@ function RunCard({
   onMarkRead,
   tr,
   quiet,
+  ownRoutine,
 }: {
   run: Task;
   onMarkRead: (id: string) => void;
   tr: (key: string, vars?: Record<string, string | number>) => string;
   quiet?: boolean;
+  /** The card already sits under its own routine; the id prefix is noise. */
+  ownRoutine?: boolean;
 }) {
   return (
     <li
@@ -821,7 +947,7 @@ function RunCard({
           )}
           <div className="mt-1 text-caption text-kin-muted">
             {formatWhen(run.finished_at ?? run.created_at)}
-            {run.routine_id ? ` · ${run.routine_id.slice(0, 8)}` : ""}
+            {!ownRoutine && run.routine_id ? ` · ${run.routine_id.slice(0, 8)}` : ""}
           </div>
         </div>
         {run.routine_unread && (
