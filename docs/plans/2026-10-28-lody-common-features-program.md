@@ -1,6 +1,6 @@
 # Common-feature parity program — inventory, gaps, plan
 
-Status: rounds 1–18 landed. This is the living ledger for
+Status: rounds 1–19 landed. This is the living ledger for
 the open-ended "beat Lody on the features I actually use" program: inventory →
 gap matrix → plan → implement → evaluate → repeat.
 
@@ -102,7 +102,7 @@ attachment lost when the task runs on another machine, closed with F4 below.
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Recurrence: daily / weekdays / weekly / monthly / hours / minutes / once, with next-run preview (`schedule-recurrence-editor.tsx:132`) | daily / weekdays / weekly / monthly / once (`recurrence.go:40`, `RoutineScheduleFields.tsx:142-155`), server-computed next due in the list (`RoutinesPage.tsx:535-537`), and the create form reused as an editor for those same fields (R17, `routineEdit.ts`) | No "every N hours/minutes" rule, and no next-run preview inside the form (the list shows the computed next due) | S3 | — |
+| Recurrence: daily / weekdays / weekly / monthly / hours / minutes / once, with next-run preview (`schedule-recurrence-editor.tsx:132`) | all seven kinds, with the two step rules zone-aligned and validated to divide their unit (R19, `recurrence.go`), server-computed next due in the list (`RoutinesPage.tsx:535-537`), and the create form reused as an editor for those same fields (R17, `routineEdit.ts`) | No next-run preview inside the form (the list shows the computed next due) | S3 | — |
 | Agent/model/permission per schedule (`schedule-agent-controls.tsx:26`) | agent and permission are per-routine end to end (`scheduler.go:513-524`); no model field anywhere | Model per schedule is missing, and the new-chat picker stays visible in routine mode while the payload drops it (`NewChatPage.tsx:482-488,356-369`) — a silently ignored control | S3 | — |
 | Run history | a global routine-run feed with unread and mark-read (`RoutinesPage.tsx:114-117,442-485`), plus each routine's ten newest runs under its editor (R18, `/api/tasks?routine_id=`) | No paged per-routine history and no live refresh while the editor stays open; Lody lists up to 100 under the schedule | S3 | — |
 
@@ -3051,3 +3051,62 @@ a run's title leaves the page and drops an unsaved draft, which is how the page
 already behaved everywhere. No next-run preview inside the form yet. Lody caps
 the linked sessions under a schedule at 100; reaching that breadth here needs a
 paged history view rather than the form panel.
+
+### Round 19 — a routine can step through the day (2026-10-30)
+
+**19A The two missing kinds.** Lody's recurrence editor offers "every few
+hours" and "every few minutes" beside the clock rules; Kin had five kinds and
+no way to say "every six hours" except a six-hour interval, which drifts. An
+interval routine waits `interval_secs` after the previous run *finished*, so a
+ten-minute run turns "every six hours" into six hours and ten minutes, and a
+day of those accumulates. The daemon gains `kind=hours` and `kind=minutes` with
+an `every` field. Both sides accept the same set and no more: the minute steps
+are the five-minute marks (5, 10, 15, 20, 30), the hour steps are the divisors
+of a day up to half of it (1, 2, 3, 4, 6, 8, 12). A step has to divide its unit,
+because one that does not leaves a short gap at the boundary (every 7 minutes
+from :56 is :00 four minutes later). Under five minutes is excluded on purpose:
+hundreds of agent sessions a day is an interval routine's job, not the calendar
+rule's. Six and twelve divide the hour but are not offered, and the daemon
+refuses them too — a step the form cannot draw would otherwise be a stored rule
+that opens as a blank control. The scheduler's overdue
+threshold comes from the same `period` the other rules use, so a step rule is
+judged by its nominal gap — 20 minutes or 8 hours — not by `interval_secs`.
+
+**19B Alignment is the point.** `Next` walks absolute time from the caller's
+wall clock and returns the first candidate whose minute or hour hand is a
+multiple of the step. That is what makes "every 6 hours" mean 00:00, 06:00,
+12:00 and 18:00 in the rule's own zone rather than six hours after the last
+run. Walking absolute time and requiring every candidate to be strictly after
+the caller is what keeps DST honest: the New York spring-forward removes 02:00,
+and the 02:30 candidate simply lands on 03:00; at the fall-back the repeated
+hour cannot hand back an instant in the past. That second case was the review's
+blocker: rebuilding the ambiguous wall clock resolves it to its first
+occurrence, so a rule asked during the second 01:30 answered 01:00 — a past
+instant the scheduler re-dispatched every tick. Tests pin the alignment
+(including the strictly-future case on an already-aligned minute and hour), the
+rule's own zone with a UTC caller and a Shanghai rule, both DST transitions,
+the nominal period, and every rejected step shape — including a fractional
+`every` and one sent as a string.
+
+**19C The console's step control.** The one "repeat" select gains the two
+rules. Choosing one swaps the row underneath for a step select and nothing
+else: no time of day, no first run. The step lists are exactly the daemon's
+accepted sets, checked by membership rather than re-derived arithmetic on both
+sides, so the form cannot offer a value the daemon refuses and a stored rule
+always has an option to show. A stored rule that fails validation reads as no
+rule (the form shows it as interval-only, as it already did for unreadable
+rules). Serialization writes
+`{kind, every, time_zone}`; the list line says "Every 6 hours"; the edit form
+compares step rules by kind and step, so saving a prompt change leaves the
+schedule alone, and switching between a clock rule and a step rule sends the
+new rule while keeping the stored zone.
+
+**Not done.** Still no next-run preview inside the form. A step rule always
+aligns to the top of the day (00:00 for hours, :00 for minutes); there is no
+"start at 07:00" offset. Lody's cron `*/N` is aligned the same way, so the
+simpler model stands until a real need shows up. In a zone whose DST shift is
+itself 30 minutes (Lord Howe), an hours rule can land on :30 for the rest of
+that day and realigns at the next occurrence; the alternative — rebuilding the
+wall clock each step — is the ambiguity that produced the fall-back bug above.
+The `ROUTINE_RULE_KINDS` / `RoutineRuleKind` exports remain unused
+(pre-existing).
