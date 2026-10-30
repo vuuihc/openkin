@@ -3647,3 +3647,69 @@ every other path parameter is a ULID or a hex token that cannot carry an
 encodable character, and a blanket decode would hide the next id that grows a
 `:` rather than name it. The over-encoded `%253A` form is accepted rather than
 refused, as noted above.
+
+### Round 26 — the phone list can delete (2026-10-30)
+
+**26A The list could not delete a conversation.** A session could be deleted
+from inside the session, but the phone list — where old chats are scanned and
+discarded — offered only pin and archive behind a swipe. The row now slides
+open on three 76px chips (pin/unpin, archive, delete), and the delete runs the
+same `DELETE /api/tasks/{id}` plus `task_deleted` broadcast every other delete
+uses, through one `useSessionDeletion` hook: the canonical `task.deleteConfirm`
+/ `task.deleted` copy, and a row that disappears from the list, from the session
+scroll memory, from its unsent follow-up draft, and from the pin preference.
+
+The long-press selection that already carried pin and archive gains delete too.
+One confirm for N rows, then `Promise.allSettled`: only fulfilled ids are
+forgotten, failures stay selected (rebuilding a selection to retry is the
+destructive action that did nothing), and the toast separates deleted from
+failed (`sessions.deletedCount` / `sessions.deleteFailedCount`). A re-entry ref
+refuses a second batch while one is in flight; row taps are locked and the chip
+is disabled until it lands; an epoch bump on `[query, status]` and on exiting
+the selection means a slow batch cannot resurrect a selection the person has
+since filtered away, and selected ids with no surviving row are pruned.
+
+**26B Every tap inside a swipe row landed on the wrapper.** Found by clicking
+it, not by reading it: a real browser click on a revealed chip and on a normal
+row both did nothing, while every DOM test passed. `setPointerCapture` on
+`pointerdown` retargets the following `pointerup` — and, per the pointer-events
+specification, the `click` derived from it — to the capturing wrapper, so row
+navigation and every action chip were dead inside the wrapper (touch pointers
+capture implicitly, so this was true on the phone, not just in Playwright).
+Pre-existing since the wrapper landed. jsdom does not retarget clicks, which is
+why four class-and-handler tests never saw it.
+
+Capture now starts only once a drag actually moves past the tolerance, which is
+the only gesture that needs moves after the pointer leaves the row; the
+click-swallow is armed only for a released drag or a fired long press, and a
+fresh `pointerdown` clears it. Four gesture tests pin the behaviour: a tap
+leaves the click to the inner button and captures nothing, a drag captures on
+its first move, a drag-ending click and a long-press-ending click are both
+swallowed. Each has a mutant that turns it red.
+
+**Verification.** `./scripts/check.sh` clean on every step (10 jobs). 17
+mutants, all red, each file restored byte for byte. Vitest: the hook (8 cases,
+partial and total failure included), the chips, the gestures, and source-wiring
+assertions for the page-level contract. Live on the rebuilt node at 390×844:
+the row reveals three 76px chips at `translateX(-228px)`; a real Playwright
+click on the delete chip accepts the confirm, the row leaves, the `会话已删除`
+toast shows, and `GET /api/tasks/<id>` answers 404; a batch of two reports a
+deleted count; a real row tap navigates to `/tasks/<id>` after 26B; the toolbar
+fits at 390 (icon-only) and 1280 (labeled). The first live attempt clicked
+nothing because the hidden desktop close button carries the same title in
+`关闭 <title>` and came first in the DOM — the phone row needs `aria-label^=`.
+
+**Review.** REVIEWED — the first pass found 3 majors (a fully failed batch lost
+the selection it needed for a retry; no in-flight guard on the batch; the
+console embed not rebuilt) and 13 nits. All majors and nits 1–4, 8, 9 and 13
+fixed and red-verified. The second pass reported no blocker or major and 6
+nits: 1–4 fixed in the same pass; 5 (a progress cue during a long batch) and 6
+(`会话`/`对话` terminology) deferred with rationale.
+
+**Not done.** The archived view shows no row actions: pin would move a row into
+a list it is not in, and archive would be a no-op. Delete on a running task
+cancels it first (server behaviour, pre-existing); the confirm says history
+cannot be recovered but not that a live run stops, and a destructive-copy
+change was out of scope. Keyboard focus after a deleted row falls to `body`.
+`DELETE /api/tasks/{id}` is operator-only, so a pairing-token console would get
+403. The list tab says 会话 while the product elsewhere says 对话.
