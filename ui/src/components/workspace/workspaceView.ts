@@ -92,6 +92,29 @@ export function readWorkspaceViewFile(
   return readWorkspaceFile(taskId, view.workspaceId, path);
 }
 
+/**
+ * Where a preview or a download fetches a file's bytes from.
+ *
+ * The same route as the text read, with `raw=1` for a preview — bytes typed by
+ * their name, drawable in place only if the type is an image — or `download=1`
+ * for a save: streamed from disk, always an attachment, not held to the
+ * preview cap. The URL carries no credentials; callers fetch it with
+ * `fetchFileBytes`, which sends the token in a header.
+ */
+export function workspaceViewFileBytesURL(
+  view: WorkspaceView,
+  taskId: string,
+  path: string,
+  disposition: "preview" | "download",
+): string {
+  const q = new URLSearchParams({ path });
+  q.set(disposition === "download" ? "download" : "raw", "1");
+  if (view.kind === "source") {
+    return `/api/tasks/${encodeURIComponent(taskId)}/source/file?${q.toString()}`;
+  }
+  return `/api/tasks/${encodeURIComponent(taskId)}/workspaces/${encodeURIComponent(view.workspaceId)}/file?${q.toString()}`;
+}
+
 export function workspaceTreeEntries(response: WorkspaceTreeResponse): TaskWorkspaceEntry[] {
   const base = response.path === "." ? "" : response.path.replace(/^\.?\//, "");
   return response.entries.map((entry) => ({

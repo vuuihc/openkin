@@ -717,6 +717,14 @@ const en: MessageTree = {
       saved: "Saved",
       saveFailed: "Unable to save file",
       readOnlyTruncated: "File is truncated — read-only",
+      imageFailed: "This image could not be previewed.",
+      binaryHint: "This file type cannot be shown here. Download it to open it.",
+      download: "Download",
+      downloading: "Preparing…",
+      downloadFailed: "Unable to download this file.",
+      tableEmpty: "This table has no rows.",
+      tableTruncated: "Showing up to the first {rows} rows and {columns} columns.",
+      tableIncomplete: "The file was truncated while reading, so this table may be missing rows.",
     },
     generation: {
       source: "Current project",
@@ -1671,6 +1679,7 @@ const en: MessageTree = {
   api: {
     untitled: "Untitled",
     unknownTool: "Tool",
+    notAFile: "The server returned a page instead of the file.",
     newTask: "New task",
   },
   common: {

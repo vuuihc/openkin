@@ -695,6 +695,14 @@ const zh = {
       saved: "已保存",
       saveFailed: "无法保存文件",
       readOnlyTruncated: "文件已截断——只读",
+      imageFailed: "无法预览这张图片。",
+      binaryHint: "这类文件无法在此显示，请下载后打开。",
+      download: "下载",
+      downloading: "准备中…",
+      downloadFailed: "无法下载此文件。",
+      tableEmpty: "这个表格没有数据。",
+      tableTruncated: "最多显示前 {rows} 行、{columns} 列。",
+      tableIncomplete: "文件读取被截断，表格可能缺少数据。",
     },
     generation: {
       source: "当前项目",
@@ -1602,6 +1610,7 @@ const zh = {
   api: {
     untitled: "未命名",
     unknownTool: "工具",
+    notAFile: "服务器返回的不是文件内容。",
     newTask: "新任务",
   },
   common: {

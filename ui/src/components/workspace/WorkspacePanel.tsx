@@ -9,7 +9,6 @@ import {
   type CSSProperties,
 } from "react";
 import {
-  ApiError,
   getTaskSourceChanges,
   getWorkspaceDiff,
   listTaskWorkspaces,
@@ -40,7 +39,10 @@ import {
   resolveWorkspaceView,
   workspaceLifecycleRefreshKey,
   workspaceViewKey,
+  workspaceViewFileBytesURL,
 } from "./workspaceView";
+import { DelimitedTablePane, DownloadPreview, ImagePreview } from "./FilePreview";
+import { previewKind, workspaceErrorMessage } from "./workspacePreview";
 import { lensForPick } from "../../lib/workspaceLens";
 import { useAppStore } from "../../store/appStore";
 
@@ -226,6 +228,13 @@ export default function WorkspacePanel({
   const [file, setFile] = useState<TaskWorkspaceFileResponse | WorkspaceFileResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A table is a reading view; the source is one click away, and that click is
+  // the whole state. Reset by opening another file or place.
+  const [tableAsCode, setTableAsCode] = useState(false);
+  // Reopening a file is a request to look again. The text read answers by
+  // fetching, but an image or a download fetches in its own effect, so it needs
+  // something that changes even when the path does not.
+  const [previewNonce, setPreviewNonce] = useState(0);
   const [dismissedPaths, setDismissedPaths] = useState<Set<string>>(() => new Set());
   const [genDiffFiles, setGenDiffFiles] = useState<ChangedFile[]>([]);
   const [genDiffLoaded, setGenDiffLoaded] = useState(false);
@@ -407,6 +416,7 @@ export default function WorkspacePanel({
       // land on top of the refusal and draw a file the reader did not open.
       const reqID = ++requestRef.current;
       setSelectedPath(path);
+      setTableAsCode(false);
       // Every way into a file ends here — the change list, the tree, quick-open,
       // the changed-files bar. A phone shows the file from now on, including
       // the path this refuses: the refusal is the viewer's answer and belongs
@@ -426,6 +436,17 @@ export default function WorkspacePanel({
       }
       setLoading(true);
       setError(null);
+      const kind = previewKind(readPath);
+      if (kind === "image" || kind === "binary") {
+        // These are not read as text: an image is not UTF-8 and the daemon
+        // refuses it, and a binary has nothing to show in an editor. Their
+        // bytes are fetched by the viewer itself, which is also what keeps a
+        // large file out of memory until it is drawn — or saved.
+        setFile(null);
+        setLoading(false);
+        setPreviewNonce((nonce) => nonce + 1);
+        return;
+      }
       try {
         const next = await readWorkspaceViewFile(workspaceView, taskId, readPath);
         if (requestRef.current !== reqID) return;
@@ -433,7 +454,7 @@ export default function WorkspacePanel({
       } catch (err) {
         if (requestRef.current !== reqID) return;
         setFile(null);
-        setError(workspaceErrorMessage(err));
+        setError(workspaceErrorMessage(err, t("workspace.viewer.readFailed")));
       } finally {
         if (requestRef.current === reqID) {
           setLoading(false);
@@ -452,6 +473,7 @@ export default function WorkspacePanel({
     setFile(null);
     setLoading(false);
     setError(null);
+    setTableAsCode(false);
     setGenDiffFiles([]);
     setSourceChanges(null);
   }, [cwd, taskId, workspaceView.kind, workspaceView.workspaceId]);
@@ -476,6 +498,20 @@ export default function WorkspacePanel({
     handledPulseRef.current = { path: openPath, nonce: openNonce };
     void loadFile(openPath);
   }, [openPath, openNonce, loadFile]);
+
+  // What the viewer shows comes from the file's name, and the bytes of an
+  // image or a download come from the byte routes rather than the text one.
+  // The path is workspace-relative, the same form `loadFile` reads with.
+  const preview = selectedPath ? previewKind(selectedPath) : "text";
+  const fileBytes = useMemo(() => {
+    if (!selectedPath || (preview !== "image" && preview !== "binary")) return null;
+    const rel = toWorkspaceRelativePath(cwd, selectedPath);
+    if (!rel) return null;
+    return {
+      preview: workspaceViewFileBytesURL(workspaceView, taskId, rel, "preview"),
+      download: workspaceViewFileBytesURL(workspaceView, taskId, rel, "download"),
+    };
+  }, [selectedPath, preview, cwd, workspaceView, taskId]);
 
   const diff: FileDiffSnippet | null = useMemo(() => {
     if (!selectedPath || !events || events.length === 0) return null;
@@ -765,7 +801,30 @@ export default function WorkspacePanel({
             "flex-1 min-w-0 min-h-0 bg-[var(--kin-bg)] flex-col",
           ].join(" ")}
         >
-          {selectedPath ? (
+          {selectedPath && preview === "image" && fileBytes ? (
+            <ImagePreview
+              key={`${selectedPath}:${previewNonce}`}
+              name={selectedPath}
+              previewURL={fileBytes.preview}
+              downloadURL={fileBytes.download}
+            />
+          ) : selectedPath && preview === "binary" && fileBytes ? (
+            <DownloadPreview
+              key={`${selectedPath}:${previewNonce}`}
+              name={selectedPath}
+              downloadURL={fileBytes.download}
+              message={tr("workspace.viewer.binaryHint")}
+            />
+          ) : selectedPath && preview === "table" && !tableAsCode ? (
+            <DelimitedTablePane
+              path={selectedPath}
+              content={file?.content ?? null}
+              loading={loading}
+              error={error}
+              truncated={file?.truncated ?? false}
+              onShowCode={() => setTableAsCode(true)}
+            />
+          ) : selectedPath ? (
             <Suspense fallback={<ViewerLoading />}>
               <CodeViewer
                 path={selectedPath}
@@ -876,19 +935,4 @@ function TabButton({
       {label}
     </button>
   );
-}
-
-function workspaceErrorMessage(error: unknown): string {
-  if (error instanceof ApiError) {
-    try {
-      const parsed = JSON.parse(error.message) as { error?: unknown };
-      if (typeof parsed.error === "string" && parsed.error) {
-        return parsed.error;
-      }
-    } catch {
-      // ignore
-    }
-    return error.message;
-  }
-  return error instanceof Error ? error.message : t("workspace.viewer.readFailed");
 }

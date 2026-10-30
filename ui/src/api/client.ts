@@ -298,33 +298,76 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     headers,
   });
   if (!res.ok) {
-    if (res.status === 401) {
-      notifyUnauthorized();
-    }
-    const text = await res.text().catch(() => "");
-    let body: unknown = undefined;
-    let message = text || res.statusText;
-    if (text) {
-      try {
-        body = JSON.parse(text);
-        if (
-          body &&
-          typeof body === "object" &&
-          "error" in body &&
-          typeof (body as { error: unknown }).error === "string"
-        ) {
-          message = (body as { error: string }).error;
-        }
-      } catch {
-        /* plain text */
-      }
-    }
-    throw new ApiError(res.status, message, body);
+    throw await apiErrorFromResponse(res);
   }
   if (res.status === 204) {
     return undefined as T;
   }
   return (await res.json()) as T;
+}
+
+/**
+ * Turns a non-2xx response into the error both fetch helpers throw.
+ *
+ * A route answers refusals with `{"error": "..."}`; the message is lifted out
+ * so callers have something to show without parsing the body again.
+ */
+async function apiErrorFromResponse(res: Response): Promise<ApiError> {
+  if (res.status === 401) {
+    notifyUnauthorized();
+  }
+  const text = await res.text().catch(() => "");
+  let body: unknown = undefined;
+  let message = text || res.statusText;
+  if (text) {
+    try {
+      body = JSON.parse(text);
+      if (
+        body &&
+        typeof body === "object" &&
+        "error" in body &&
+        typeof (body as { error: unknown }).error === "string"
+      ) {
+        message = (body as { error: string }).error;
+      }
+    } catch {
+      /* plain text */
+    }
+  }
+  return new ApiError(res.status, message, body);
+}
+
+/**
+ * Fetches a route's bytes — a preview image, a file download.
+ *
+ * The JSON helpers cannot carry a PNG, and an `<img src>` or `<a href>` cannot
+ * say why the daemon refused one. This returns the bytes or throws the daemon's
+ * own ApiError, which is what a viewer needs to tell the person what happened.
+ * The body is bounded by the route, not by this helper.
+ */
+export async function fetchFileBytes(path: string): Promise<Blob> {
+  const headers = new Headers();
+  const token = getToken();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  const res = await fetch(withRelayCredentials(path), {
+    credentials: "same-origin",
+    headers,
+  });
+  if (!res.ok) {
+    throw await apiErrorFromResponse(res);
+  }
+  // A proxy, a Hub sign-in page or an older daemon can answer 200 with a page
+  // or a JSON envelope. Saving that under the file's name is the bug this
+  // route exists to avoid, so it is refused here even though the daemon on the
+  // other side of this call always answers with bytes. The daemon never serves
+  // a text type on this route, so matching all of text/* costs nothing.
+  const type = res.headers.get("Content-Type") ?? "";
+  if (/^(?:text\/|application\/(?:json|problem\+json))/i.test(type)) {
+    throw new ApiError(res.status, t("api.notAFile"));
+  }
+  return res.blob();
 }
 
 /** Payload for event type "limit_hit" (provider rate limit / quota). */

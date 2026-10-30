@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, type TaskWorkspaceEntry } from "../../api/client";
+import { type TaskWorkspaceEntry } from "../../api/client";
 import { t } from "../../i18n";
 import { useT } from "../../i18n/react";
 import { normalizeRelativePath } from "../../lib/paths";
 import { IconChevron, IconFile, IconFolder } from "../icons";
+import { workspaceErrorMessage } from "./workspacePreview";
 import { listWorkspaceViewTree, workspaceTreeEntries, type WorkspaceView } from "./workspaceView";
 
 type Props = {
@@ -81,7 +82,7 @@ export default function FileTree({
             entries: prev[dirPath]?.entries ?? [],
             loading: false,
             loaded: false,
-            error: workspaceErrorMessage(error),
+            error: workspaceErrorMessage(error, t("workspace.tree.loadFailed")),
             truncated: false,
           },
         }));
@@ -267,23 +268,4 @@ function renderEntries({
       </div>
     );
   });
-}
-
-function workspaceErrorMessage(error: unknown): string {
-  if (error instanceof ApiError) {
-    return unwrapApiErrorMessage(error.message);
-  }
-  return error instanceof Error ? error.message : t("workspace.tree.loadFailed");
-}
-
-function unwrapApiErrorMessage(message: string): string {
-  try {
-    const parsed = JSON.parse(message) as { error?: unknown };
-    if (typeof parsed.error === "string" && parsed.error) {
-      return parsed.error;
-    }
-  } catch {
-    // ignore
-  }
-  return message;
 }

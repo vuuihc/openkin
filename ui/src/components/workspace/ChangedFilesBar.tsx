@@ -3,6 +3,7 @@ import { summarizeChangedFiles, type ChangedFile } from "../../lib/changedFiles"
 import { useT } from "../../i18n/react";
 import DeltaInline, { FileSize } from "../changedFileFace";
 import { IconCheck, IconChevron, IconX } from "../icons";
+import { fileBaseName } from "./workspacePreview";
 
 type Props = {
   files: ChangedFile[];
@@ -214,7 +215,7 @@ export default function ChangedFilesBar({
 
         <ul className="max-h-48 overflow-y-auto kin-scroll py-1">
           {preview.map((f) => {
-            const name = f.path.split(/[\\/]/).pop() || f.path;
+            const name = fileBaseName(f.path);
             const dir = f.path.slice(0, Math.max(0, f.path.length - name.length));
             return (
               <li key={`${f.action}:${f.path}:${f.seq}`}>

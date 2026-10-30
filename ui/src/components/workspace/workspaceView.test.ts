@@ -11,6 +11,7 @@ import {
   workspaceLifecycleRefreshKey,
   workspaceTreeEntries,
   workspaceViewKey,
+  workspaceViewFileBytesURL,
 } from "./workspaceView";
 
 const fetchMock = vi.fn<typeof fetch>();
@@ -211,5 +212,31 @@ describe("workspace view integration", () => {
     expect(workspacePanelSource).toContain("workspaceLifecycleRefreshKey");
     expect(generationPickerSource).not.toContain("listTaskWorkspaces");
     expect(generationPickerSource).not.toContain("onChange(preferred)");
+  });
+});
+
+describe("file byte URLs", () => {
+  it("asks the same route as the text read, for bytes", () => {
+    // The mode is what turns the route from a JSON envelope into the file, and
+    // the path is the same workspace-relative one the text read uses.
+    expect(
+      workspaceViewFileBytesURL(resolveWorkspaceView(null), "task/1", "shot one.png", "preview"),
+    ).toBe("/api/tasks/task%2F1/source/file?path=shot+one.png&raw=1");
+    expect(
+      workspaceViewFileBytesURL(
+        resolveWorkspaceView("generation/1"),
+        "task/1",
+        "shot.png",
+        "preview",
+      ),
+    ).toBe("/api/tasks/task%2F1/workspaces/generation%2F1/file?path=shot.png&raw=1");
+  });
+
+  it("names the download mode instead of the preview one", () => {
+    // A download streams past the preview cap and is always an attachment, so
+    // it is a different flag on the same route — never both at once.
+    expect(workspaceViewFileBytesURL(resolveWorkspaceView("g1"), "t", "a.pdf", "download")).toBe(
+      "/api/tasks/t/workspaces/g1/file?path=a.pdf&download=1",
+    );
   });
 });
