@@ -19,15 +19,22 @@ import (
 // Times are interpreted in TimeZone, not in the daemon's zone: the daemon is
 // often a container running in UTC while the user means their own clock.
 type Recurrence struct {
-	// Kind is one of daily, weekdays, weekly, monthly, once.
+	// Kind is one of daily, weekdays, weekly, monthly, minutes, hours, once.
 	Kind string `json:"kind"`
-	// Hour and Minute are the wall-clock time of day for every kind but once.
+	// Hour and Minute are the wall-clock time of day for the four clock kinds:
+	// daily, weekdays, weekly and monthly.
 	Hour   int `json:"hour"`
 	Minute int `json:"minute"`
 	// Weekdays selects days for kind=weekly, 0=Sunday … 6=Saturday.
 	Weekdays []int `json:"weekdays,omitempty"`
 	// Days selects days of the month for kind=monthly, 1-31.
 	Days []int `json:"days,omitempty"`
+	// Every is the step for kind=minutes and kind=hours: the minute hand lands
+	// on every multiple of it, or the hour hand does at :00. The step is
+	// aligned to the zone's own clock, which is what makes "every 6 hours"
+	// mean 00:00, 06:00, 12:00 and 18:00 rather than six hours after the last
+	// run finished.
+	Every int `json:"every,omitempty"`
 	// At is the single instant for kind=once, in unix milliseconds.
 	At int64 `json:"at,omitempty"`
 	// TimeZone is an IANA name. Empty means the daemon's local zone.
@@ -41,6 +48,8 @@ const (
 	RecurrenceWeekdays = "weekdays"
 	RecurrenceWeekly   = "weekly"
 	RecurrenceMonthly  = "monthly"
+	RecurrenceMinutes  = "minutes"
+	RecurrenceHours    = "hours"
 	RecurrenceOnce     = "once"
 )
 
@@ -112,6 +121,22 @@ func (r Recurrence) Validate() error {
 			seen[d] = true
 		}
 		return nil
+	case RecurrenceMinutes:
+		// The five-minute marks are the whole set, not every divisor of the
+		// hour: the console offers exactly these, and a routine that spawns an
+		// agent session every minute or two is an interval routine at best.
+		// Keeping one set on both sides is what stops a stored rule from being
+		// valid to the daemon and unshowable in the form.
+		switch r.Every {
+		case 5, 10, 15, 20, 30:
+			return nil
+		}
+		return fmt.Errorf("recurrence every %d is not a step of 5, 10, 15, 20 or 30 minutes", r.Every)
+	case RecurrenceHours:
+		if r.Every < 1 || r.Every > 12 || 24%r.Every != 0 {
+			return fmt.Errorf("recurrence every %d is not a step of 1-12 hours that divides a day", r.Every)
+		}
+		return nil
 	case RecurrenceOnce:
 		if r.At <= 0 {
 			return fmt.Errorf("recurrence at is required for kind %q", r.Kind)
@@ -120,7 +145,7 @@ func (r Recurrence) Validate() error {
 	case "":
 		return fmt.Errorf("recurrence kind is required")
 	default:
-		return fmt.Errorf("recurrence kind %q is not one of daily, weekdays, weekly, monthly, once", r.Kind)
+		return fmt.Errorf("recurrence kind %q is not one of daily, weekdays, weekly, monthly, minutes, hours, once", r.Kind)
 	}
 }
 
@@ -161,6 +186,9 @@ func (r Recurrence) Next(after time.Time) (time.Time, bool) {
 		}
 		return at, true
 	}
+	if r.Kind == RecurrenceMinutes || r.Kind == RecurrenceHours {
+		return r.nextStep(after), true
+	}
 
 	loc := r.Location()
 	local := after.In(loc)
@@ -174,6 +202,45 @@ func (r Recurrence) Next(after time.Time) (time.Time, bool) {
 		day = day.AddDate(0, 0, 1)
 	}
 	return time.Time{}, false
+}
+
+// nextStep is the next aligned instant of a step rule. Alignment is to the
+// rule's own clock, so "every 6 hours" fires at 00:00, 06:00, 12:00 and 18:00
+// there — which is the whole difference from an interval routine, whose runs
+// drift by however long each run took.
+//
+// The candidates are walked in absolute time and every one is required to be
+// strictly after `after`. That matters at a fall-back, where the local clock
+// repeats an hour: rebuilding the wall clock would resolve the ambiguous time
+// to its first occurrence and could hand back an instant an hour in the past.
+// The minute rule starts from absolute time directly, which keeps the minute
+// hand's alignment exact in every zone (offsets are whole minutes). The hour
+// rule starts from the local top of the hour so that "every 6 hours" stays on
+// :00 local in zones whose offset is not a whole hour. (A zone whose DST shift
+// is itself 30 minutes, such as Lord Howe, can land on :30 for the rest of that
+// day; the next occurrence realigns.)
+func (r Recurrence) nextStep(after time.Time) time.Time {
+	loc := r.Location()
+	if r.Kind == RecurrenceHours {
+		local := after.In(loc)
+		t := time.Date(local.Year(), local.Month(), local.Day(), local.Hour(), 0, 0, 0, loc)
+		// One extra day of scan absorbs a fall-back's repeated hour.
+		for i := 0; i < 48; i++ {
+			t = t.Add(time.Hour)
+			if t.After(after) && t.In(loc).Hour()%r.Every == 0 {
+				return t
+			}
+		}
+		return t
+	}
+	t := after.Truncate(time.Minute).Add(time.Minute)
+	for i := 0; i < 60; i++ {
+		if t.In(loc).Minute()%r.Every == 0 {
+			return t
+		}
+		t = t.Add(time.Minute)
+	}
+	return t
 }
 
 // period returns the nominal gap between two consecutive occurrences starting
