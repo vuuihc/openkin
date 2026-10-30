@@ -373,6 +373,8 @@ def check() -> list[str]:
                     problems.append(f"{where}: {review.name} does not mention {story_id}")
                 elif "（填）" in read(review):
                     problems.append(f"{where}: {review.name} still has template placeholders")
+                elif "<h2>MECE" not in read(review):
+                    problems.append(f"{where}: {review.name} has no MECE section")
 
         owner_paths = story.get("ownerPaths") or []
         if not isinstance(owner_paths, list):
