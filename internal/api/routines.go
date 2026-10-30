@@ -17,10 +17,12 @@ import (
 )
 
 type createRoutineBody struct {
-	Title           string `json:"title"`
-	ProjectID       string `json:"project_id"`
-	Cwd             string `json:"cwd"`
-	Agent           string `json:"agent"`
+	Title     string `json:"title"`
+	ProjectID string `json:"project_id"`
+	Cwd       string `json:"cwd"`
+	Agent     string `json:"agent"`
+	// Model is optional; empty means the agent's own default.
+	Model           string `json:"model"`
 	PermissionMode  string `json:"permission_mode"`
 	Prompt          string `json:"prompt"`
 	IntervalSecs    int64  `json:"interval_secs"`
@@ -38,6 +40,7 @@ type patchRoutineBody struct {
 	ProjectID       *string `json:"project_id"`
 	Cwd             *string `json:"cwd"`
 	Agent           *string `json:"agent"`
+	Model           *string `json:"model"` // "" clears back to the agent default
 	PermissionMode  *string `json:"permission_mode"`
 	Prompt          *string `json:"prompt"`
 	IntervalSecs    *int64  `json:"interval_secs"`
@@ -157,6 +160,7 @@ func (s *Server) handleCreateRoutine(w http.ResponseWriter, r *http.Request) {
 	if perm == "" {
 		perm = "default"
 	}
+	model := strings.TrimSpace(body.Model)
 	policy := strings.ToLower(strings.TrimSpace(body.MissedRunPolicy))
 	if policy == "" {
 		policy = "coalesce"
@@ -197,6 +201,7 @@ func (s *Server) handleCreateRoutine(w http.ResponseWriter, r *http.Request) {
 		ProjectID:       projectID,
 		Cwd:             body.Cwd,
 		Agent:           agent,
+		Model:           model,
 		PermissionMode:  perm,
 		Prompt:          body.Prompt,
 		IntervalSecs:    intervalSecs,
@@ -269,6 +274,12 @@ func (s *Server) handlePatchRoutine(w http.ResponseWriter, r *http.Request) {
 		NextDueAt:       body.NextDueAt,
 		MissedRunPolicy: body.MissedRunPolicy,
 		Lane:            body.Lane,
+	}
+	if body.Model != nil {
+		// Empty is meaningful here: it clears the model back to whatever the
+		// agent chooses, which is how create spells "no model".
+		model := strings.TrimSpace(*body.Model)
+		patch.Model = &model
 	}
 	current, err := s.Store.GetRoutine(r.Context(), id)
 	if err != nil {

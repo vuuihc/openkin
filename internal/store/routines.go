@@ -14,10 +14,13 @@ const RoutineMaxConsecFailures = 3
 
 // Routine is a saved recurring task (ADR 0011).
 type Routine struct {
-	ID              string `json:"id"`
-	ProjectID       string `json:"project_id,omitempty"`
-	Cwd             string `json:"cwd"`
-	Agent           string `json:"agent"`
+	ID        string `json:"id"`
+	ProjectID string `json:"project_id,omitempty"`
+	Cwd       string `json:"cwd"`
+	Agent     string `json:"agent"`
+	// Model is the agent model its runs start with; empty means the agent's
+	// own default, which is what every routine used before the field existed.
+	Model           string `json:"model,omitempty"`
 	PermissionMode  string `json:"permission_mode"`
 	Prompt          string `json:"prompt"`
 	IntervalSecs    int64  `json:"interval_secs"`
@@ -43,6 +46,7 @@ type RoutinePatch struct {
 	ProjectID       *string // empty string clears
 	Cwd             *string
 	Agent           *string
+	Model           *string // empty string clears back to the agent default
 	PermissionMode  *string
 	Prompt          *string
 	IntervalSecs    *int64
@@ -73,7 +77,7 @@ type RoutinePage struct {
 	HasMore    bool      `json:"has_more"`
 }
 
-const routineColumns = `id, project_id, cwd, agent, permission_mode, prompt, interval_secs, enabled, last_run_at, next_due_at, consec_failures, created_at, title, missed_run_policy, lane, recurrence, claim_until_at, last_outcome, last_error`
+const routineColumns = `id, project_id, cwd, agent, model, permission_mode, prompt, interval_secs, enabled, last_run_at, next_due_at, consec_failures, created_at, title, missed_run_policy, lane, recurrence, claim_until_at, last_outcome, last_error`
 
 func scanRoutine(scanner interface {
 	Scan(dest ...any) error
@@ -84,7 +88,7 @@ func scanRoutine(scanner interface {
 	var missedRunPolicy, lane, recurrence, lastOutcome, lastError sql.NullString
 	var enabled int
 	if err := scanner.Scan(
-		&r.ID, &projectID, &r.Cwd, &r.Agent, &r.PermissionMode, &r.Prompt,
+		&r.ID, &projectID, &r.Cwd, &r.Agent, &r.Model, &r.PermissionMode, &r.Prompt,
 		&r.IntervalSecs, &enabled, &lastRun, &r.NextDueAt, &r.ConsecFailures,
 		&r.CreatedAt, &r.Title, &missedRunPolicy, &lane, &recurrence, &r.ClaimUntilAt,
 		&lastOutcome, &lastError,
@@ -162,11 +166,11 @@ func (s *Store) InsertRoutine(ctx context.Context, r Routine) error {
 	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO routines (
-			id, project_id, cwd, agent, permission_mode, prompt, interval_secs,
+			id, project_id, cwd, agent, model, permission_mode, prompt, interval_secs,
 			enabled, last_run_at, next_due_at, consec_failures, created_at, title,
 			missed_run_policy, lane, recurrence, claim_until_at, last_outcome, last_error
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ID, projectID, r.Cwd, r.Agent, r.PermissionMode, r.Prompt, r.IntervalSecs,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, projectID, r.Cwd, r.Agent, r.Model, r.PermissionMode, r.Prompt, r.IntervalSecs,
 		enabled, lastRun, r.NextDueAt, r.ConsecFailures, r.CreatedAt, r.Title,
 		r.MissedRunPolicy, r.Lane, r.Recurrence, r.ClaimUntilAt, r.LastOutcome, r.LastError,
 	)
@@ -462,6 +466,10 @@ func (s *Store) UpdateRoutine(ctx context.Context, id string, p RoutinePatch) er
 	if p.Agent != nil {
 		sets = append(sets, "agent = ?")
 		args = append(args, *p.Agent)
+	}
+	if p.Model != nil {
+		sets = append(sets, "model = ?")
+		args = append(args, *p.Model)
 	}
 	if p.PermissionMode != nil {
 		sets = append(sets, "permission_mode = ?")

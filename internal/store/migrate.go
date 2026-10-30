@@ -7,7 +7,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 42
+const schemaVersion = 43
 
 // migrationTaskTombstones records deleted tasks in the sync cursor's own terms.
 //
@@ -369,6 +369,7 @@ CREATE TABLE routines (
   project_id       TEXT REFERENCES projects(id),
   cwd              TEXT NOT NULL,
   agent            TEXT NOT NULL,
+  model            TEXT NOT NULL DEFAULT '',
   permission_mode  TEXT NOT NULL DEFAULT 'default',
   prompt           TEXT NOT NULL,
   interval_secs    INTEGER NOT NULL,
@@ -2407,6 +2408,38 @@ ON eval_results(run_id, case_id, rep_idx);
 		v = 42
 	}
 
+	if v == 42 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 043: %w", err)
+		}
+		// A routine's model. Additive: an existing routine keeps the agent's
+		// own default, which is exactly what it has been running with.
+		var present int
+		if err := tx.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info('routines') WHERE name = 'model'`,
+		).Scan(&present); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("check model column: %w", err)
+		}
+		if present == 0 {
+			if _, err := tx.Exec(
+				`ALTER TABLE routines ADD COLUMN model TEXT NOT NULL DEFAULT ''`,
+			); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("add model column: %w", err)
+			}
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 43`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 043: %w", err)
+		}
+		v = 43
+	}
+
 	// Every path out of here has to reach the same shape, so the assertion runs
 	// on the upgraded path too rather than only on the already-current one.
 	return s.ensureCurrentSchema()
@@ -2440,6 +2473,9 @@ func (s *Store) ensureCurrentSchema() error {
 		return err
 	}
 	if err := s.ensureRoutineRecurrenceSchema(); err != nil {
+		return err
+	}
+	if err := s.ensureRoutineModelSchema(); err != nil {
 		return err
 	}
 	if err := s.ensureSessionShareSchema(); err != nil {
@@ -2511,6 +2547,38 @@ func (s *Store) ensureRoutineRecurrenceSchema() error {
 		`ALTER TABLE routines ADD COLUMN recurrence TEXT NOT NULL DEFAULT ''`,
 	); err != nil {
 		return fmt.Errorf("add routines.recurrence: %w", err)
+	}
+	return nil
+}
+
+// ensureRoutineModelSchema adds a routine's model to a `routines` table
+// written before the column existed.
+//
+// Same reasoning as ensureRoutineRecurrenceSchema: a version number says which
+// migrations ran, not what the tables look like. The column is additive and
+// empty by default, and an empty model is what every routine ran with before
+// the field existed — the agent's own default.
+func (s *Store) ensureRoutineModelSchema() error {
+	present, err := s.tableExists("routines")
+	if err != nil {
+		return err
+	}
+	if !present {
+		return nil
+	}
+	var exists int
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM pragma_table_info('routines') WHERE name = 'model'`,
+	).Scan(&exists); err != nil {
+		return fmt.Errorf("inspect routines.model: %w", err)
+	}
+	if exists > 0 {
+		return nil
+	}
+	if _, err := s.db.Exec(
+		`ALTER TABLE routines ADD COLUMN model TEXT NOT NULL DEFAULT ''`,
+	); err != nil {
+		return fmt.Errorf("add routines.model: %w", err)
 	}
 	return nil
 }

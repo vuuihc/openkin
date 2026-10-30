@@ -510,11 +510,16 @@ func (s *Scheduler) routineCreateRequest(r store.Routine, taskID string) task.Cr
 	if title == "" {
 		title = "Routine"
 	}
+	var model *string
+	if m := strings.TrimSpace(r.Model); m != "" {
+		model = &m
+	}
 	return task.CreateRequest{
 		ID:             taskID,
 		Agent:          r.Agent,
 		Cwd:            r.Cwd,
 		Prompt:         prompt,
+		Model:          model,
 		Title:          &title,
 		PermissionMode: r.PermissionMode,
 		ProjectID:      r.ProjectID,

@@ -524,3 +524,60 @@ func TestListTasksFiltersByRoutine(t *testing.T) {
 		t.Fatalf("routine_id=missing returned %+v", none)
 	}
 }
+
+// The model a routine remembers is what its runs start with: create stores it,
+// patch replaces it, and an empty patch value clears back to the agent default.
+func TestRoutineKeepsItsModel(t *testing.T) {
+	s, _ := newRoutinesTestServer(t)
+	rr := postRoutine(t, s,
+		`{"cwd":"/tmp/p","prompt":"sweep","interval_secs":3600,"model":" claude-sonnet-5-5 "}`)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var created store.Routine
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Model != "claude-sonnet-5-5" {
+		t.Fatalf("model = %q, want the trimmed id", created.Model)
+	}
+
+	rr = patchRoutine(t, s, created.ID, `{"model":" claude-opus-5-5 "}`)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("patch status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var patched store.Routine
+	if err := json.Unmarshal(rr.Body.Bytes(), &patched); err != nil {
+		t.Fatal(err)
+	}
+	if patched.Model != "claude-opus-5-5" {
+		t.Fatalf("model = %q, want the new id", patched.Model)
+	}
+
+	// A patch that says nothing about the model leaves it alone: renaming a
+	// routine must not quietly put its unattended runs back on the default.
+	rr = patchRoutine(t, s, created.ID, `{"title":"renamed"}`)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("title patch status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var renamed store.Routine
+	if err := json.Unmarshal(rr.Body.Bytes(), &renamed); err != nil {
+		t.Fatal(err)
+	}
+	if renamed.Model != "claude-opus-5-5" {
+		t.Fatalf("model after a title patch = %q, want it kept", renamed.Model)
+	}
+
+	// Empty is how the console says "let the agent decide".
+	rr = patchRoutine(t, s, created.ID, `{"model":""}`)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("clear status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var cleared store.Routine
+	if err := json.Unmarshal(rr.Body.Bytes(), &cleared); err != nil {
+		t.Fatal(err)
+	}
+	if cleared.Model != "" {
+		t.Fatalf("model = %q, want empty", cleared.Model)
+	}
+}

@@ -44,7 +44,7 @@ func TestTickDispatchesDueAndAdvances(t *testing.T) {
 	nowMs := fixed.UnixMilli()
 
 	r := store.Routine{
-		ID: "r1", Cwd: t.TempDir(), Agent: "kin", Prompt: "check",
+		ID: "r1", Cwd: t.TempDir(), Agent: "kin", Model: "claude-sonnet-5-5", Prompt: "check",
 		IntervalSecs: 3600, Enabled: true,
 		NextDueAt: nowMs - 1000, CreatedAt: nowMs - 10_000, Title: "T",
 	}
@@ -74,6 +74,11 @@ func TestTickDispatchesDueAndAdvances(t *testing.T) {
 	}
 	if runs[0].RoutineID != "r1" {
 		t.Fatalf("routine_id=%q", runs[0].RoutineID)
+	}
+	// The tick path carries the model end to end: the scan reads it, the
+	// scheduler maps it, and the task row the run starts from holds it.
+	if runs[0].Model == nil || *runs[0].Model != "claude-sonnet-5-5" {
+		t.Fatalf("run model = %v, want the routine's model", runs[0].Model)
 	}
 
 	// Interactive still present and untagged.
@@ -288,5 +293,25 @@ func TestTickRecoversManualDispatchWithoutCreatingDuplicate(t *testing.T) {
 	}
 	if len(runs) != 1 || runs[0].ID != "manual-task" {
 		t.Fatalf("runs=%+v", runs)
+	}
+}
+
+// A routine's runs start on the model it remembers. An empty model is the
+// agent's own default, so no model field is sent at all rather than "".
+func TestRoutineCreateRequestCarriesTheModel(t *testing.T) {
+	s := &Scheduler{}
+	model := "claude-sonnet-5-5"
+	req := s.routineCreateRequest(store.Routine{
+		ID: "r1", Cwd: "/work/app", Agent: "claude-code", Model: model, Prompt: "go",
+	}, "task-1")
+	if req.Model == nil || *req.Model != model {
+		t.Fatalf("model = %v, want %q", req.Model, model)
+	}
+
+	req = s.routineCreateRequest(store.Routine{
+		ID: "r2", Cwd: "/work/app", Agent: "claude-code", Prompt: "go",
+	}, "task-2")
+	if req.Model != nil {
+		t.Fatalf("model = %q, want none for the agent default", *req.Model)
 	}
 }
