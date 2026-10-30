@@ -51,11 +51,21 @@ export default function SwipeReveal({
   const translate = open ? -width : 0;
   // A drag ends with a click the browser still fires on the row; that click
   // must not navigate (or toggle) after the row was just moved for its
-  // actions. One-shot: the very next click event on this row is swallowed.
-  // Armed on pointerup only: a cancelled gesture (the browser took the pan)
-  // is followed by no click, and a suppression armed for nothing would eat
-  // the next genuine tap.
+  // actions. The same goes for the click that ends a long press: it would
+  // toggle off the selection the press just made. One-shot: the very next
+  // click event on this row is swallowed. Armed on pointerup of a drag, or
+  // when the long-press fires: a cancelled gesture is followed by no click,
+  // and a fresh pointerdown clears whatever was armed for a click that never
+  // came.
   const suppressClick = useRef(false);
+  // Whether this gesture has taken the pointer. Capture is deliberately not
+  // taken on pointerdown: a captured pointer's `pointerup` — and therefore
+  // the browser's `click` — targets the capturing element, so every tap on a
+  // button inside the row would be delivered to this wrapper instead. The
+  // row could not be opened and its action chips could not be pressed. It is
+  // taken once a drag actually starts, which is the only time moves outside
+  // the row need to keep arriving here.
+  const captured = useRef(false);
 
   const cancelLongPress = () => {
     if (longPressTimer.current !== null) {
@@ -70,23 +80,17 @@ export default function SwipeReveal({
     // A fresh gesture starts clean: whatever the previous one armed, it
     // belonged to that gesture's own follow-up click.
     suppressClick.current = false;
+    captured.current = false;
     startX.current = event.clientX;
     if (onLongPress) {
       pressOrigin.current = { x: event.clientX, y: event.clientY };
       longPressTimer.current = window.setTimeout(() => {
         longPressTimer.current = null;
         pressOrigin.current = null;
+        // The tap that ends this press is not a tap on the row.
+        suppressClick.current = true;
         onLongPress();
       }, LONG_PRESS_MS);
-    }
-    // The pointer may leave the row mid-drag; the capture keeps the moves
-    // and the final up on this element. A synthetic pointer (a test, a
-    // screen-reader driver) has no active pointer to capture, so the call
-    // is best-effort.
-    try {
-      event.currentTarget.setPointerCapture?.(event.pointerId);
-    } catch {
-      // no active pointer — drag still works within this element
     }
   }
 
@@ -97,6 +101,17 @@ export default function SwipeReveal({
     }
     if (startX.current === null) return;
     const dx = event.clientX - startX.current;
+    // The drag is real: take the pointer so it keeps reporting here if the
+    // finger leaves the row. A synthetic pointer (a test, a screen-reader
+    // driver) has no active pointer to capture, so the call is best-effort.
+    if (!captured.current && Math.abs(dx) > MOVE_TOLERANCE_PX) {
+      captured.current = true;
+      try {
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+      } catch {
+        // no active pointer — the drag still works within this element
+      }
+    }
     // Only leftwards into the reveal; a rightward drag from an open row
     // closes it, a rightward drag on a closed row does nothing.
     const next = Math.min(0, Math.max(-width * 2, translate + dx));
@@ -111,6 +126,7 @@ export default function SwipeReveal({
     if (startX.current === null) return;
     const dx = event.clientX - startX.current;
     startX.current = null;
+    captured.current = false;
     lastDrag.current = 0;
     setDrag(null);
     if (Math.abs(dx) < MOVE_TOLERANCE_PX) return; // a tap — the row's own handler owns it
