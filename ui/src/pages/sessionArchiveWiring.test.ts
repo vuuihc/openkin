@@ -118,12 +118,14 @@ describe("the phone list's archive wiring", () => {
     // resource records the answer before live updates touch it; the page must
     // read that, and only a paged tail may override it. The length terms are
     // the other direction: a short answer that later filled up means rows were
-    // evicted from the loaded window, so more exist below it.
+    // evicted from the loaded window, so more exist below it. The archive's
+    // tail only counts while that view is open: the live list drops archived
+    // rows, so a "load older" offered there would append rows it never shows.
     expect(SOURCE).toContain(
       "const hasMoreTasks = taskMore ?? (taskList.pageFull || liveTasks.length >= taskLimit);",
     );
     expect(SOURCE).toContain(
-      "(archiveMore ?? (archivedList.pageFull || archivedTasks.length >= archiveLimit))",
+      'scope === "archived" &&\n    (archiveMore ?? (archivedList.pageFull || archivedTasks.length >= archiveLimit));',
     );
     expect(SOURCE).not.toContain("liveRows.length >= taskLimit");
     expect(SOURCE).not.toContain("taskList.data.length >= taskLimit");

@@ -343,6 +343,53 @@ describe("LiveResourceStore", () => {
     release();
   });
 
+  it("reads an absent limit as the daemon's default of 50", async () => {
+    // The store answers 50 rows when no limit is asked for. A page of 50 is
+    // full (there may be more); 49 is not. Pinning both sides is what keeps
+    // this number in step with internal/store's default.
+    const full = new LiveResourceStore(
+      api({
+        listTasks: vi.fn(async () =>
+          Array.from({ length: 50 }, (_, index) => task({ id: `task-${index}` })),
+        ),
+      }),
+    );
+    const releaseFull = full.acquireTaskList({});
+    await full.refreshTaskList({});
+    expect(full.getTaskList(taskListKey({})).pageFull).toBe(true);
+    releaseFull();
+
+    const short = new LiveResourceStore(
+      api({
+        listTasks: vi.fn(async () =>
+          Array.from({ length: 49 }, (_, index) => task({ id: `task-${index}` })),
+        ),
+      }),
+    );
+    const releaseShort = short.acquireTaskList({});
+    await short.refreshTaskList({});
+    expect(short.getTaskList(taskListKey({})).pageFull).toBe(false);
+    releaseShort();
+  });
+
+  it("caps the page size at 200", async () => {
+    // An ask of 250 is answered with at most 200 rows, so 201 rows is already
+    // a full page. Reading the request literally would call it short and hide
+    // the rest of the tail.
+    const store = new LiveResourceStore(
+      api({
+        listTasks: vi.fn(async () =>
+          Array.from({ length: 201 }, (_, index) => task({ id: `task-${index}` })),
+        ),
+      }),
+    );
+    const params = { limit: 250 };
+    const release = store.acquireTaskList(params);
+    await store.refreshTaskList(params);
+    expect(store.getTaskList(taskListKey(params)).pageFull).toBe(true);
+    release();
+  });
+
   it("reads a non-positive limit the way the daemon does", async () => {
     // The daemon answers 50 rows when the request asks for 0 or less. Taking
     // the request literally would call a one-row answer full and offer a
