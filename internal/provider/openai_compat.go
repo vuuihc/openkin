@@ -230,7 +230,7 @@ func (c *openAICompat) chatOnce(ctx context.Context, url string, raw []byte, mod
 		if res.StatusCode < 200 || res.StatusCode >= 300 {
 			return nil, httpStatusErr(res.StatusCode, url, bodyStr)
 		}
-		return nil, fmt.Errorf("decode %s (HTTP %d): non-JSON body=%s", url, res.StatusCode, truncate(bodyStr, 200))
+		return nil, fmt.Errorf("decode %s (HTTP %d): non-JSON body=%s", url, res.StatusCode, bodyExcerpt(bodyStr, 200))
 	}
 
 	var parsed oaiChatResp
@@ -238,7 +238,7 @@ func (c *openAICompat) chatOnce(ctx context.Context, url string, raw []byte, mod
 		if res.StatusCode < 200 || res.StatusCode >= 300 {
 			return nil, httpStatusErr(res.StatusCode, url, bodyStr)
 		}
-		return nil, fmt.Errorf("decode %s (HTTP %d): %w; body=%s", url, res.StatusCode, err, truncate(bodyStr, 200))
+		return nil, fmt.Errorf("decode %s (HTTP %d): %w; body=%s", url, res.StatusCode, err, bodyExcerpt(bodyStr, 200))
 	}
 	if parsed.Error != nil && parsed.Error.Message != "" {
 		// Prefer provider message; keep status when non-2xx.
@@ -546,17 +546,195 @@ func readOpenAIStream(
 // httpStatusErr builds a clear, retry-classifiable provider HTTP error.
 func httpStatusErr(code int, url, body string) error {
 	hint := httpStatusHint(code)
-	msg := truncate(strings.TrimSpace(body), 300)
-	if hint != "" && msg != "" {
-		return fmt.Errorf("provider HTTP %d (%s): %s — %s", code, url, hint, msg)
+	msg := truncate(oneLine(providerErrorMessage(body)), 300)
+	if msg == "" && hint == "" {
+		// No hint and no body message: a page's own title is the only thing
+		// left that names the refusal ("Attention Required! | Cloudflare").
+		msg = truncate(oneLine(markupPageTitle(body)), 120)
 	}
-	if hint != "" {
+	if msg == "" {
+		if hint == "" {
+			return fmt.Errorf("provider HTTP %d (%s)", code, url)
+		}
 		return fmt.Errorf("provider HTTP %d (%s): %s", code, url, hint)
 	}
-	if msg != "" {
+	// A body that already says what the hint would say ("rate limited", a
+	// gateway's own "origin unreachable") is one line, not two.
+	if hint == "" || strings.Contains(strings.ToLower(msg), strings.ToLower(hint)) {
 		return fmt.Errorf("provider HTTP %d (%s): %s", code, url, msg)
 	}
-	return fmt.Errorf("provider HTTP %d (%s)", code, url)
+	return fmt.Errorf("provider HTTP %d (%s): %s — %s", code, url, hint, msg)
+}
+
+// providerErrorMessage reduces a failed response body to the sentence worth
+// reading, and drops bodies that are an HTML page rather than a message.
+//
+// A gateway that cannot reach the origin answers with its own HTML error page;
+// truncated into the task's error that page is a wall of doctypes and inline
+// styles, it says nothing the status hint does not, and it is stored in the
+// transcript, pushed to a phone, and shown to whoever the conversation is
+// shared with. The status code and hint stand on their own there. A provider
+// that answers with its own JSON error — OpenAI's and Anthropic's envelopes,
+// or a bare {"message":…} — does name something worth keeping, so that message
+// is extracted rather than half-quoted as JSON.
+func providerErrorMessage(body string) string {
+	body = strings.TrimSpace(strings.TrimPrefix(body, "\xef\xbb\xbf"))
+	if body == "" {
+		return ""
+	}
+	if msg := jsonBodyMessage(body); msg != "" {
+		return msg
+	}
+	// Markup is recognised by how the body starts, not by what it mentions: a
+	// provider's own message may say "expected text but got <html> markup",
+	// and dropping that would leave a bare status with no cause at all. XML
+	// error documents are text worth keeping, so only HTML openings count.
+	// An empty root is a body of nothing but comments or declarations, or a
+	// comment that never closes: either way there is no message in it.
+	root := asciiLower(bodyRoot(body))
+	if root == "" ||
+		strings.HasPrefix(root, "<!doctype") ||
+		strings.HasPrefix(root, "<html") ||
+		strings.HasPrefix(root, "<head") ||
+		strings.HasPrefix(root, "<body") {
+		return ""
+	}
+	return body
+}
+
+// bodyRoot strips what may precede a document's first element — comments and
+// an XML declaration, in either order and any number — so a page that opens
+// with either is still recognised by the tag that actually follows.
+func bodyRoot(body string) string {
+	for {
+		body = strings.TrimSpace(body)
+		switch {
+		case strings.HasPrefix(body, "<!--"):
+			end := strings.Index(body, "-->")
+			if end < 0 {
+				return ""
+			}
+			body = body[end+3:]
+		case len(body) >= 5 && strings.EqualFold(body[:5], "<?xml"):
+			end := strings.Index(body, "?>")
+			if end < 0 {
+				return ""
+			}
+			body = body[end+2:]
+		default:
+			return body
+		}
+	}
+}
+
+// asciiLower lowercases A–Z only. Unlike strings.ToLower it cannot change the
+// byte length of the string, so an offset found in its result is an offset in
+// the original — the property slicing provider-controlled text depends on.
+func asciiLower(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			b[i] = c + ('a' - 'A')
+		}
+	}
+	return string(b)
+}
+
+// markupPageTitle reads the <title> out of an HTML error page. It is a label,
+// not a page: one line, bounded, and only used where there is no status hint.
+// Comments are removed first — a conditional comment can carry a decoy title,
+// and a comment can mention one — so the title that is read is the document's.
+func markupPageTitle(body string) string {
+	body = stripHTMLComments(body)
+	lower := asciiLower(body)
+	open := strings.Index(lower, "<title")
+	if open < 0 {
+		return ""
+	}
+	gt := strings.IndexByte(lower[open:], '>')
+	if gt < 0 {
+		return ""
+	}
+	rest := body[open+gt+1:]
+	end := strings.Index(asciiLower(rest), "</title>")
+	if end < 0 {
+		end = len(rest)
+	}
+	return strings.TrimSpace(rest[:end])
+}
+
+// stripHTMLComments removes every <!-- … --> span. An unterminated comment
+// takes the rest of the body with it: nothing after it is document text.
+func stripHTMLComments(s string) string {
+	var b strings.Builder
+	for {
+		open := strings.Index(s, "<!--")
+		if open < 0 {
+			b.WriteString(s)
+			return b.String()
+		}
+		b.WriteString(s[:open])
+		end := strings.Index(s[open:], "-->")
+		if end < 0 {
+			return b.String()
+		}
+		s = s[open+end+3:]
+	}
+}
+
+// jsonBodyMessage pulls the message out of a provider's JSON error envelope.
+// Each field is decoded on its own: one field of an unexpected type must not
+// hide a clean message in the one beside it.
+func jsonBodyMessage(body string) string {
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		return ""
+	}
+	if raw, ok := payload["error"]; ok {
+		if text := rawJSONString(raw); text != "" {
+			return text
+		}
+		var envelope map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &envelope); err == nil {
+			if msg := rawJSONString(envelope["message"]); msg != "" {
+				return msg
+			}
+		}
+	}
+	for _, key := range []string{"message", "detail"} {
+		if msg := rawJSONString(payload[key]); msg != "" {
+			return msg
+		}
+	}
+	return ""
+}
+
+func rawJSONString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil && strings.TrimSpace(text) != "" {
+		return text
+	}
+	return ""
+}
+
+// bodyExcerpt is what a decode error shows of a body it could not read: the
+// message it carried, or a note that the body was a page rather than data.
+func bodyExcerpt(body string, n int) string {
+	if excerpt := truncate(oneLine(providerErrorMessage(body)), n); excerpt != "" {
+		return excerpt
+	}
+	if strings.TrimSpace(body) != "" {
+		return "an HTML error page"
+	}
+	return "an empty body"
+}
+
+// oneLine collapses a body's whitespace so an error stays one readable line.
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 func httpStatusHint(code int) string {
@@ -722,7 +900,7 @@ func formatFinalProviderErr(err error, attempts int) error {
 	if attempts <= 1 {
 		// Still clarify gateway timeout codes even on a single attempt.
 		if code, ok := parseProviderHTTPStatus(strings.ToLower(s)); ok {
-			if hint := httpStatusHint(code); hint != "" && !strings.Contains(s, hint) {
+			if hint := httpStatusHint(code); hint != "" && !strings.Contains(strings.ToLower(s), strings.ToLower(hint)) {
 				return fmt.Errorf("%s — %s", hint, s)
 			}
 		}
@@ -732,6 +910,13 @@ func formatFinalProviderErr(err error, attempts int) error {
 		hint := httpStatusHint(code)
 		if hint == "" {
 			hint = "upstream error"
+		}
+		// The last attempt's message usually starts with the same words the
+		// hint would ("provider HTTP 520 (…): cloudflare/origin unreachable"),
+		// and prefixing them again reads as two faults. Name the cause once and
+		// keep the attempt count on the end.
+		if strings.Contains(strings.ToLower(s), strings.ToLower(hint)) {
+			return fmt.Errorf("%s (failed after %d attempts)", s, attempts)
 		}
 		return fmt.Errorf("%s (failed after %d attempts; last: %s)", hint, attempts, s)
 	}

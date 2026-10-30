@@ -365,8 +365,22 @@ func summarizeProviderRetryReason(err error) string {
 	case strings.Contains(s, "stream error") || strings.Contains(s, "internal_error"):
 		return "upstream stream reset"
 	default:
-		// Keep short for chat noise control.
+		// Keep short for chat noise control. The line this feeds already opens
+		// with "Provider", so an error that begins with the same word would
+		// read "Provider provider HTTP 520".
 		msg := err.Error()
+		if len(msg) >= len("provider ") && strings.EqualFold(msg[:len("provider ")], "provider ") {
+			msg = msg[len("provider "):]
+		}
+		// The parenthesised URL can be longer than the sentence after it, and
+		// truncating from the front would keep the host and lose the cause.
+		// Only the exact " (http…): " span httpStatusErr emits is dropped, so a
+		// reason that merely contains parentheses keeps its text.
+		if open := strings.Index(msg, " (http"); open >= 0 {
+			if sep := strings.Index(msg[open:], "): "); sep >= 0 {
+				msg = msg[:open] + msg[open+sep+1:]
+			}
+		}
 		if len(msg) > 120 {
 			msg = truncateUTF8(msg, 120, "…")
 		}

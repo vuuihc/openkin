@@ -74,7 +74,7 @@ func ListModels(ctx context.Context, cfg Config) ([]string, error) {
 		return nil, httpStatusErr(res.StatusCode, url, string(body))
 	}
 	if !looksJSON {
-		return nil, fmt.Errorf("decode %s: non-JSON body=%s", url, truncate(string(body), 200))
+		return nil, fmt.Errorf("decode %s: non-JSON body=%s", url, bodyExcerpt(string(body), 200))
 	}
 
 	ids := make([]string, 0, len(parsed.Data))
