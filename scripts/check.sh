@@ -54,6 +54,11 @@ changed_ui_files() {
     grep -E '^ui/(src/|package\.json$|package-lock\.json$|tsconfig|vite\.config|index\.html$)' || true
 }
 
+changed_api_files() {
+  git status --porcelain=v1 2>/dev/null | awk '{print $NF}' |
+    grep -E '^(api/openapi\.yaml|ui/src/api/generated/openapi\.ts)$' || true
+}
+
 job_gofmt() {
   local files
   files="$(changed_go_files)"
@@ -130,6 +135,17 @@ job_ui_tsc() {
   ( cd ui && npx tsc --noEmit )
 }
 
+# The checked-in OpenAPI types are a build artifact: a spec edit without
+# `npm run generate:api` fails CI and `make test`, and neither the Go nor the
+# console job above would see it.
+job_api_contract() {
+  if [[ "$ALL" != "1" ]] && [[ -z "$(changed_api_files)" ]]; then
+    echo "no changed API contract files"
+    return 0
+  fi
+  ./scripts/check-openapi.sh
+}
+
 job_shell_syntax() {
   local files
   files="$(changed_shell_files)"
@@ -166,6 +182,7 @@ start desktop-test job_desktop_test
 start desktop-tsc job_desktop_tsc
 start ui-test job_ui_test
 start ui-tsc job_ui_tsc
+start api-contract job_api_contract
 start shell-syntax job_shell_syntax
 start python-syntax job_python_syntax
 
