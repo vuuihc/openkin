@@ -37,13 +37,19 @@
   .menu div + div { margin-top:2px; }
   .menu .sel { background:#eef; color:var(--accent); }
   .menu .warn { color:var(--warn); }
-  .sheet { border:1px solid #bbb; border-radius:12px 12px 0 0; background:#fff; padding:10px; font-size:12px; display:flex; flex-direction:column; gap:6px; }
+  .sheet { border:1px solid #bbb; border-radius:12px 12px 0 0; background:#fff; padding:10px; font-size:12px; display:flex; flex-direction:column; gap:6px; position:relative; }
+  .layer { border:1px solid #bbb; border-radius:8px; box-shadow:0 10px 28px rgba(0,0,0,.18); background:#fff; padding:6px; font-size:12px; }
+  .layer div { padding:5px 8px; border-radius:6px; }
+  .layer .sel { background:#eef; color:var(--accent); }
   .phone { width:260px; }
   .phone .body { display:block; min-height:300px; }
+  .foot { margin-top:auto; border-top:1px solid #e3e3e3; padding-top:8px; display:flex; gap:8px; justify-content:space-around; }
+  .ico { width:28px; height:28px; border:1px solid #bbb; border-radius:7px; display:flex; align-items:center; justify-content:center; font-size:11px; color:#555; background:#fff; }
   .state { border:1px solid var(--line); border-radius:8px; padding:10px; background:#fff; font-size:13px; }
   .states { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; }
   .legend { font-size:12px; color:var(--muted); margin-top:6px; }
   .sign { margin-top:28px; padding:14px 16px; border:1px solid var(--line); border-radius:10px; background:#fff; }
+  .changed { margin-top:18px; padding:14px 16px; border:1px solid #bcd3f7; border-radius:10px; background:#f2f7ff; }
   code { background:#f2f2f2; padding:1px 5px; border-radius:4px; font-size:13px; }
   @media (max-width:820px) { .cols, .states { grid-template-columns:1fr; } }
 </style>
@@ -56,24 +62,36 @@
   <p><span class="tag">审批看这一页</span></p>
 
   <h2>一句话</h2>
-  <p>当我上午那件事还没问完，我想在 Mac 或手机上找回那段对话，看清它跑到哪了，再发一条往下问，必要时换模型或放宽权限，以便不用从头再讲一遍。</p>
+  <p>当我上午那件事还没问完，我想在 Mac 或手机上找回那段对话，看清它跑到哪了，再发一条往下问，必要时换 agent、模型或放宽权限，以便不用从头再讲一遍。</p>
+
+  <div class="changed">
+    <strong>这次按你的三条反馈改了什么</strong>
+    <ol>
+      <li><strong>左栏是一整块</strong>：会话列表在上面，导入、归档、设置等收进底部一行图标，不再分成两块面板。别的会话列表都删掉；<strong>设备名一直显示</strong>，单设备也不收起。</li>
+      <li><strong>agent / 模型 / 权限两面都能换</strong>：选项贴着触发它的控件<strong>外弹</strong>，盖在内容上，不内嵌展开、不用原生 <code>select</code>，打开前后面板高度不变。已写进 <code>TASTE.md</code> 第 14 条。</li>
+      <li><strong>切换不再整页白屏</strong>：列表↔对话、对话↔对话切换时外壳不动，只有对话区局部更新，旧内容留到新内容到达。已写进 <code>TASTE.md</code> 第 15 条。</li>
+    </ol>
+  </div>
 
   <h2>现在 → 之后</h2>
   <div class="cols">
     <div class="card">
       <h3 class="bad">现在</h3>
       <ul>
+        <li>Mac 左栏底下还有一块文字导航，和列表抢同一栏。</li>
         <li>Mac 左栏、右边主区、⌘K 里各有一份对话列表，三个搜索框。</li>
-        <li>Mac 点"权限"弹出 iPhone 式底部面板。</li>
-        <li>手机列表只有两层，K 面板里又是一份列表和搜索。</li>
+        <li>Mac 只有模型和权限，没有换 agent 的入口；点"权限"弹出 iPhone 式底部面板。</li>
+        <li>手机运行设置点一行，选项在原行下展开，整张面板被撑高，下面的行被推走。</li>
+        <li>切换对话时整页先变骨架屏，外壳也重绘，闪一次白。</li>
       </ul>
     </div>
     <div class="card">
       <h3 class="good">之后</h3>
       <ul>
+        <li>左栏一整块：列表 + 底部一行图标；设备名一直显示。</li>
         <li>每个宽度只有一份列表，层级是 设备 → 项目 → 对话，搜索只有一处。</li>
-        <li>Mac 的模型和权限贴着按钮弹出；手机仍是底部面板。</li>
-        <li>K 面板只剩入口（新建、设置、设备、归档）。</li>
+        <li>agent、模型、权限在 Mac 上都是贴 chip 的浮层，在手机上是盖在面板上的第二层。</li>
+        <li>切换对话时外壳和已加载内容都不动，只有对话区局部更新。</li>
       </ul>
     </div>
   </div>
@@ -82,24 +100,48 @@
 
   <h3>2. 找到 · Mac</h3>
   <div class="frame">
-    <div class="top"><span>Mac 1100×760</span><span>左栏是唯一列表，搜索只在这里</span></div>
+    <div class="top"><span>Mac 1100×760</span><span>左栏是唯一列表，也是一整块</span></div>
     <div class="body">
       <div class="side">
+        <div class="row"><span class="chip on">新建</span><span class="chip">导入</span></div>
         <div class="box solid">搜索</div>
-        <div class="box hi">本机（只有一台时收起）</div>
+        <div class="box hi">本机（一直显示）</div>
         <div class="box">项目 A</div>
         <div class="box solid">对话：上午那件事</div>
         <div class="box dim">对话：另一条</div>
         <div class="box">项目 B</div>
         <div class="box">已归档</div>
+        <div class="foot">
+          <span class="ico" title="导入">导</span>
+          <span class="ico" title="归档">档</span>
+          <span class="ico" title="设置">设</span>
+          <span class="ico" title="更多">…</span>
+        </div>
       </div>
       <div class="pane">
         <div class="box solid" style="flex:1">对话主区（不再有第二份列表）</div>
-        <div class="row"><span class="chip">模型</span><span class="chip">权限</span><span class="chip on">发送</span></div>
+        <div class="row"><span class="chip">agent</span><span class="chip">模型</span><span class="chip">权限</span><span class="chip on">发送</span></div>
       </div>
     </div>
   </div>
-  <p class="legend">⌘K 仍能打开命令面板，但里面没有"任务"表格；主区不再出现列表。</p>
+  <p class="legend">底部图标是左栏唯一的一组导航；⌘K 仍能打开命令面板，但里面没有"任务"表格；主区不再出现列表。</p>
+
+  <h3>5. 换 agent · Mac</h3>
+  <div class="frame">
+    <div class="top"><span>Mac 1100×760</span><span>贴 chip 外弹，不撑高任何东西</span></div>
+    <div class="body">
+      <div class="pane" style="justify-content:flex-end">
+        <div class="menu" style="width:280px">
+          <div class="note">agent</div>
+          <div class="sel">✓ Claude <span class="note">擅长改代码</span></div>
+          <div>Codex <span class="note">另一种模型</span></div>
+          <div>本地 <span class="note">离线</span></div>
+        </div>
+        <div class="row"><span class="chip on">agent：Claude</span><span class="chip">模型</span><span class="chip">权限</span></div>
+        <div class="box" style="height:42px">输入框</div>
+      </div>
+    </div>
+  </div>
 
   <h3>5. 改权限 · Mac</h3>
   <div class="frame">
@@ -111,31 +153,12 @@
           <div>自动编辑 <span class="note">文件改动不问，命令仍问</span></div>
           <div class="warn">YOLO <span class="note">不再询问，风险自负</span></div>
         </div>
-        <div class="row"><span class="chip">模型</span><span class="chip on">权限：询问</span></div>
+        <div class="row"><span class="chip">agent</span><span class="chip">模型</span><span class="chip on">权限：询问</span></div>
         <div class="box" style="height:42px">输入框</div>
       </div>
     </div>
   </div>
-  <p class="legend">Esc / 点外面关闭且不改值；选完焦点回到 chip。</p>
-
-  <h3>5. 改模型 · Mac</h3>
-  <div class="frame">
-    <div class="top"><span>Mac 1100×760</span><span>带分组和目录的桌面面板</span></div>
-    <div class="body">
-      <div class="pane" style="justify-content:flex-end">
-        <div class="menu" style="width:320px">
-          <div class="note">搜索模型</div>
-          <div>最近使用</div>
-          <div class="sel">✓ 模型 A <span class="note">快</span></div>
-          <div>模型 B <span class="note">强</span></div>
-          <div class="note">全部</div>
-          <div>模型 C</div>
-        </div>
-        <div class="row"><span class="chip on">模型：A</span><span class="chip">权限</span></div>
-        <div class="box" style="height:42px">输入框</div>
-      </div>
-    </div>
-  </div>
+  <p class="legend">Esc / 点外面关闭且不改值；选完焦点回到 chip。模型面板同样贴 chip 向上弹，带分组、目录和搜索。</p>
 
   <h3>2. 找到 · 手机</h3>
   <div class="frame phone">
@@ -143,17 +166,17 @@
     <div class="body">
       <div class="pane">
         <div class="box solid">搜索</div>
-        <div class="box hi">本机</div>
+        <div class="box hi">本机（一直显示）</div>
         <div class="box">项目 A</div>
         <div class="box solid">对话：昨天的</div>
         <div class="box">对话：更早的</div>
-        <div class="box hi">另一台（多设备时才出现）</div>
+        <div class="box hi">另一台</div>
         <div class="box">项目 C</div>
         <div class="box">已归档</div>
       </div>
     </div>
   </div>
-  <p class="legend">层级和 Mac 左栏一致；单设备时第一层收起。</p>
+  <p class="legend">层级和 Mac 左栏一致；设备名一直显示，单设备也不收起。</p>
 
   <h3>2. 找 · 手机 K 面板</h3>
   <div class="frame phone">
@@ -161,35 +184,46 @@
     <div class="body">
       <div class="pane">
         <div class="box solid">新建对话</div>
-        <div class="box">设备</div>
-        <div class="box">设置</div>
+        <div class="box">导入</div>
+        <div class="box">收件箱</div>
         <div class="box">已归档</div>
+        <div class="box">产物库</div>
+        <div class="box">例行任务</div>
+        <div class="box">Agent 运维</div>
+        <div class="box">设置</div>
         <div class="box dim">对话列表（删掉）</div>
         <div class="box dim">搜索框（删掉）</div>
       </div>
     </div>
   </div>
 
-  <h3>5. 改模型 / 权限 · 手机</h3>
-  <div class="frame phone">
-    <div class="top"><span>390×844</span><span>底栏一个入口，面板里三行</span></div>
+  <h3>5. 换 agent / 模型 / 权限 · 手机</h3>
+  <div class="frame phone" style="width:300px">
+    <div class="top"><span>390×844</span><span>第二层盖在面板上，面板高度不变</span></div>
     <div class="body">
       <div class="pane">
         <div class="box solid" style="flex:1">对话</div>
-        <div class="row"><span class="chip on">模型 A · 询问</span></div>
+        <div class="row"><span class="chip on">Claude · 模型 A · 询问</span></div>
         <div class="sheet">
-          <div class="box">Agent：…</div>
-          <div class="box hi">模型：A（展开的选项在下面）</div>
+          <div class="box">Agent：Claude</div>
+          <div class="box hi">模型：A</div>
           <div class="box">权限：询问</div>
+          <div class="layer">
+            <div class="sel">✓ 模型 A <span class="note">快</span></div>
+            <div>模型 B <span class="note">强</span></div>
+            <div class="note">搜索模型…</div>
+          </div>
         </div>
       </div>
     </div>
   </div>
+  <p class="legend">点哪一行，第二层就贴那一行出现；面板本身不增高，下面的行不移动。选完第二层关闭、面板还在；再返回才关面板。</p>
 
   <h2>状态</h2>
   <div class="states">
     <div class="state"><strong>空</strong><br>"还没有对话" + 新建按钮；项目下空时也这么说。</div>
     <div class="state"><strong>加载</strong><br>列表出骨架；历史出骨架，不显示空白。</div>
+    <div class="state"><strong>切换中</strong><br>外壳不动，旧对话留在原地，只有顶部一条细进度；新内容到达再替换。</div>
     <div class="state"><strong>失败</strong><br>说原因 + 重试；已加载的内容不清空。</div>
     <div class="state"><strong>断线</strong><br>顶部一条"连接断开，正在重试"；发不出的消息进本地队列。</div>
     <div class="state"><strong>锁定</strong><br>权限 chip 不可点，锁定提示仍可见，不隐藏控件。</div>
@@ -198,10 +232,10 @@
 
   <h2>要你拍板的</h2>
   <ol>
-    <li><strong>搜索只留在左栏</strong>，⌘K 保留命令面板但不列对话。推荐这么做：一处搜索，一处结果。</li>
-    <li><strong>权限菜单向上弹</strong>，因为它下面就是输入框；模型面板也向上。推荐：都贴 chip，不遮输入框。</li>
-    <li><strong>手机 K 面板保留哪几个入口</strong>：新建、设备、设置、归档。推荐这四个，其它都进设置。</li>
-    <li><strong>这台故事的轮次</strong>：第 1 轮 Mac 列表，第 2 轮手机列表和 K 面板，第 3 轮运行设置，第 4 轮整条走查。</li>
+    <li><strong>搜索只留在左栏</strong>，⌘K 保留命令面板但不列对话。推荐：一处搜索，一处结果。</li>
+    <li><strong>agent / 模型 / 权限都外弹</strong>：Mac 贴 chip 的浮层，手机盖在面板上的第二层；打开前后高度不变，不用原生 select。推荐：两面同一个形态。</li>
+    <li><strong>手机 K 面板只留入口</strong>（新建、导入、收件箱、归档、产物库、例行任务、Agent 运维、设置），去掉列表和搜索。推荐：入口原样保留，不在这条里重设计。</li>
+    <li><strong>轮次</strong>：第 1 轮 Mac 列表和左栏一整块；第 2 轮手机列表和 K 面板；第 3 轮 agent / 模型 / 权限外弹；第 4 轮整条走查，含切换不白屏。</li>
   </ol>
 
   <div class="sign">
