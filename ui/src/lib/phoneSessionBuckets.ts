@@ -116,7 +116,10 @@ export function phoneProjectBuckets(
   };
 
   for (const task of tasks) {
-    if (!keepProject(task.cwd)) continue;
+    // A conversation is archived on its own, so it answers to its own flag
+    // first: in the list it is gone even though its project is still filed,
+    // and in the archive view it is present even though its project is not.
+    if (task.archived_at ? scope !== "archived" : !keepProject(task.cwd)) continue;
     const at = taskActivityAt(task);
     const bucket = bucketFor(task.cwd);
     const device = (task.executing_device_id ?? "").trim();

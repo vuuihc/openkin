@@ -44,23 +44,30 @@ describe("the phone list's delete wiring", () => {
     // is deleting, and turn its success into a round of "not found" errors.
     expect(SOURCE).toContain("if (deletingSelectionRef.current) return;");
     // The delete chip specifically: matching the expression anywhere would
-    // still pass if only pin and archive kept their guard.
+    // still pass if only pin and archive kept their guard. The busy state is
+    // shared with the archive batch, so neither can start during the other —
+    // both write the selection, and the second would act on rows the first is
+    // already changing.
     expect(SOURCE).toContain(
-      "onClick={deleteSelected}\n              disabled={selectedIds.size === 0 || deletingSelection}",
+      "onClick={deleteSelected}\n              disabled={selectedIds.size === 0 || selectionBusy}",
+    );
+    expect(SOURCE).toContain(
+      "onClick={scope === \"archived\" ? restoreSelected : archiveSelected}\n              disabled={selectedIds.size === 0 || selectionBusy}",
     );
     // Row taps would change the selection the batch captured while it runs.
-    expect(SOURCE).toContain("selectionLocked={deletingSelection}");
+    expect(SOURCE).toContain("selectionLocked={selectionBusy}");
     // The tap path specifically: the keyboard path has the same guard, so a
     // bare substring would still pass if only one of them kept it.
     expect(SOURCE).toContain(
-      "captured, so taps wait for it to land.\n          if (row.task && !selectionLocked) onToggleSelect();",
+      "if (rowSelectable(row, scope) && !selectionLocked) onToggleSelect();",
     );
   });
 
   it("clears a selection the visible list no longer shows", () => {
     // Select all, then search, then Delete would remove rows invisible under
-    // the new question; the filter change has to disarm the selection.
-    expect(SOURCE).toContain("}, [query, status]);");
+    // the new question; the filter change has to disarm the selection, and
+    // switching sides of the archive is the same kind of change.
+    expect(SOURCE).toContain("}, [query, status, scope]);");
   });
 
   it("drops a selected id whose row has left the list", () => {

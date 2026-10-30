@@ -335,6 +335,17 @@ export function IconArchive(p: IconProps) {
   );
 }
 
+/** Out of the archive: the circular arrow that means "put it back". */
+export function IconRestore(p: IconProps) {
+  return base(
+    p,
+    <>
+      <path d="M3 12a9 9 0 1 0 3-6.7" />
+      <path d="M3 4v5h5" />
+    </>,
+  );
+}
+
 /** Animated spinning loader icon. */
 export function IconSpinner({ className = "", size = 16, strokeWidth = 2 }: IconProps) {
   return (

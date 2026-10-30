@@ -270,6 +270,93 @@ describe("LiveResourceStore", () => {
     releasePending();
   });
 
+  it("moves a conversation between the list and the archive as its flag changes", async () => {
+    // Archiving is a write on one row, and the answer arrives as a normal
+    // task_update. Both feeds are open while the archive view is, so the same
+    // frame has to remove the row from one list and add it to the other.
+    const row = task();
+    const client = api({
+      listTasks: vi.fn(async (params?: { archived?: boolean }) =>
+        params?.archived ? [] : [row],
+      ),
+    });
+    const store = new LiveResourceStore(client);
+    const live = { limit: 50 };
+    const archive = { limit: 50, archived: true };
+    const releaseLive = store.acquireTaskList(live);
+    const releaseArchive = store.acquireTaskList(archive);
+    await store.refreshTaskList(live);
+    await store.refreshTaskList(archive);
+    expect(store.getTaskList(taskListKey(live)).data.map((item) => item.id)).toEqual(["task-1"]);
+    expect(store.getTaskList(taskListKey(archive)).data).toEqual([]);
+
+    store.applyMessage({ kind: "task_update", data: { ...row, archived_at: 99 } });
+    expect(store.getTaskList(taskListKey(live)).data).toEqual([]);
+    expect(store.getTaskList(taskListKey(archive)).data.map((item) => item.id)).toEqual(["task-1"]);
+
+    store.applyMessage({ kind: "task_update", data: row });
+    expect(store.getTaskList(taskListKey(live)).data.map((item) => item.id)).toEqual(["task-1"]);
+    expect(store.getTaskList(taskListKey(archive)).data).toEqual([]);
+
+    releaseLive();
+    releaseArchive();
+  });
+
+  it("keys the archive apart from the live list", () => {
+    // Both lists are open at once in the archive view. One cache key would
+    // make the second acquisition hand back the first list's rows.
+    expect(taskListKey({ limit: 50, archived: true })).not.toBe(taskListKey({ limit: 50 }));
+  });
+
+  it("remembers that a page was full after live updates shrink it", async () => {
+    // "There is more" is a fact about the answer, not about the array: the
+    // list drops a row the moment it is archived, and a full first page minus
+    // one row is still a full page. Reading the shrunken array would hide the
+    // whole tail after a single archive — and the store, not the page, is the
+    // only place that still has the server's answer.
+    const rows = [task({ id: "task-3" }), task({ id: "task-2" })];
+    const store = new LiveResourceStore(api({ listTasks: vi.fn(async () => rows) }));
+    const params = { limit: 2 };
+    const release = store.acquireTaskList(params);
+    await store.refreshTaskList(params);
+    expect(store.getTaskList(taskListKey(params)).pageFull).toBe(true);
+
+    store.applyMessage({
+      kind: "task_update",
+      data: task({ id: "task-3", archived_at: 9 }),
+    });
+
+    const resource = store.getTaskList(taskListKey(params));
+    expect(resource.data.map((item) => item.id)).toEqual(["task-2"]);
+    expect(resource.pageFull).toBe(true);
+    release();
+  });
+
+  it("does not call a short page full", async () => {
+    const store = new LiveResourceStore(
+      api({ listTasks: vi.fn(async () => [task({ id: "task-2" })]) }),
+    );
+    const params = { limit: 2 };
+    const release = store.acquireTaskList(params);
+    await store.refreshTaskList(params);
+    expect(store.getTaskList(taskListKey(params)).pageFull).toBe(false);
+    release();
+  });
+
+  it("reads a non-positive limit the way the daemon does", async () => {
+    // The daemon answers 50 rows when the request asks for 0 or less. Taking
+    // the request literally would call a one-row answer full and offer a
+    // "load older" that has nothing to load.
+    const store = new LiveResourceStore(
+      api({ listTasks: vi.fn(async () => [task({ id: "task-2" })]) }),
+    );
+    const params = { limit: 0 };
+    const release = store.acquireTaskList(params);
+    await store.refreshTaskList(params);
+    expect(store.getTaskList(taskListKey(params)).pageFull).toBe(false);
+    release();
+  });
+
   it("does not inject live tasks outside a paginated cursor", async () => {
     const store = new LiveResourceStore(api());
     const params = { limit: 20, before: "task-5" };

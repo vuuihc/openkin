@@ -44,4 +44,19 @@ describe("sessionListParams", () => {
     expect(sessionListParams("", "")).toEqual(sessionListParams(""));
     expect(sessionListParams("note", "")).not.toHaveProperty("status");
   });
+
+  it("asks for the other side of the archive, never for both", () => {
+    // The daemon reads `archived` as a side, not a widening: absent means the
+    // live list, `1` means only archived rows. Sending `archived: false`
+    // would be a parameter the daemon rejects, so absence is the live list.
+    expect(sessionListParams("", "", true)).toEqual({ limit: LIST_LIMIT, archived: true });
+    expect(sessionListParams("note", "failed", true)).toEqual({
+      limit: SEARCH_LIMIT,
+      q: "note",
+      status: "failed",
+      archived: true,
+    });
+    expect(sessionListParams("", "", false)).toEqual({ limit: LIST_LIMIT });
+    expect(sessionListParams("note")).not.toHaveProperty("archived");
+  });
 });

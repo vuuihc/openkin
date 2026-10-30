@@ -21,6 +21,8 @@ import { describe, expect, it } from "vitest";
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 const SOURCE = readFileSync(join(UI, "src/pages/SessionsPage.tsx"), "utf8");
+/** The selection rule moved to its own module so it can be tested without a daemon. */
+const FEED = readFileSync(join(UI, "src/lib/sessionFeed.ts"), "utf8");
 
 const count = (needle: string) => SOURCE.split(needle).length - 1;
 
@@ -81,8 +83,11 @@ describe("the phone list's search wiring", () => {
     // The server page is authoritative but not instant: between the filter
     // change and its answer the list still holds the previous page, and a row
     // the tail carries may have finished a moment ago. Without this line both
-    // flash under a status they no longer match.
-    expect(count("task.status === status")).toBe(1);
+    // flash under a status they no longer match. It lives in `sessionFeed.ts`
+    // now, where it is covered directly; what this pins is that the page asks
+    // it for every scope instead of carrying a second copy of the rule.
+    expect(FEED.split("task.status === status").length - 1).toBe(1);
+    expect(SOURCE).toContain("sessionFeedTasks(liveRows, archivedRows, scope, status)");
   });
 
   it("reconciles the older page with the live store", () => {
@@ -94,9 +99,10 @@ describe("the phone list's search wiring", () => {
   });
 
   it("ignores a page that lands after the filter moved on", () => {
-    // Both feeds check the generation their request started in: a slow answer
+    // Every feed checks the generation its request started in: a slow answer
     // for the previous filter must not append rows under this one, and a stale
-    // cursor must not keep paging from it.
-    expect(count("requestGeneration.current !== generation")).toBe(2);
+    // cursor must not keep paging from it. Three feeds page here — the live
+    // list, the archive's own list and the imported sessions.
+    expect(count("requestGeneration.current !== generation")).toBe(3);
   });
 });

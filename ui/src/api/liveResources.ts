@@ -17,6 +17,8 @@ export type TaskListParams = {
   limit?: number;
   before?: string;
   q?: string;
+  /** The archive view: archived rows instead of live ones. */
+  archived?: boolean;
 };
 
 type Resource<T> = {
@@ -24,6 +26,20 @@ type Resource<T> = {
   loading: boolean;
   error: unknown;
   loaded: boolean;
+};
+
+/**
+ * A task list, plus whether the answer it holds filled the requested page.
+ *
+ * `pageFull` is read from the snapshot the daemon sent, before live updates
+ * are merged in. It has to be: the list shrinks when a row is archived or
+ * deleted, and inferring "there is more" from the array afterwards would hide
+ * the tail the moment one row left a full page. Each successful fetch
+ * replaces it with that answer's truth, so a refetch — a new search, the
+ * archive view being reopened — re-decides instead of inheriting a stale no.
+ */
+export type TaskListResource = Resource<Task[]> & {
+  pageFull: boolean;
 };
 
 export type TaskDetailResource = Resource<{
@@ -42,7 +58,7 @@ export type TaskEventReset = {
 };
 
 export type LiveResourceState = {
-  taskLists: Readonly<Record<string, Resource<Task[]>>>;
+  taskLists: Readonly<Record<string, TaskListResource>>;
   pending: Resource<{
     approvals: Approval[];
     questions: UserQuestion[];
@@ -65,11 +81,12 @@ const EMPTY_PENDING: { approvals: Approval[]; questions: UserQuestion[] } = {
   questions: [],
 };
 
-const EMPTY_TASK_LIST: Resource<Task[]> = {
+const EMPTY_TASK_LIST: TaskListResource = {
   data: EMPTY_TASKS,
   loading: false,
   error: null,
   loaded: false,
+  pageFull: false,
 };
 
 const EMPTY_TASK_DETAIL: TaskDetailResource = {
@@ -84,9 +101,25 @@ function sortTasks(tasks: Iterable<Task>, limit?: number): Task[] {
   return limit ? sorted.slice(0, limit) : sorted;
 }
 
+/**
+ * The page size the daemon will really answer with, mirroring
+ * `store.ListTasks`: 50 when the request names none or a non-positive one,
+ * 200 at most. "The page was full" only means anything against the size that
+ * was actually asked for.
+ */
+function effectiveTaskLimit(params: TaskListParams): number {
+  const asked = params.limit ?? 50;
+  return asked <= 0 ? 50 : Math.min(asked, 200);
+}
+
 function taskMatches(task: Task, params: TaskListParams): boolean {
   if (params.status && task.status !== params.status) return false;
   if (params.before && task.id >= params.before) return false;
+  // The archive is a place, not a flag: a row is on one side of it or the
+  // other, so a live update that arrives while the list is open can move the
+  // row out of the list (an archive) or into the archive view (a restore)
+  // without a refetch.
+  if (params.archived ? !task.archived_at : Boolean(task.archived_at)) return false;
   const query = params.q?.trim().toLowerCase();
   if (!query) return true;
   return [task.title, task.prompt, task.cwd, task.agent, task.id]
@@ -102,6 +135,7 @@ export function taskListKey(params: TaskListParams): string {
     limit: params.limit ?? 0,
     before: params.before ?? "",
     q: params.q?.trim() ?? "",
+    archived: params.archived ?? false,
   });
 }
 
@@ -165,7 +199,7 @@ export class LiveResourceStore {
     return () => this.listeners.delete(listener);
   };
 
-  getTaskList(key: string): Resource<Task[]> {
+  getTaskList(key: string): TaskListResource {
     return this.state.taskLists[key] ?? EMPTY_TASK_LIST;
   }
 
@@ -457,6 +491,9 @@ export class LiveResourceStore {
           loading: false,
           error: null,
           loaded: true,
+          // Read from the server's answer, not from `data` above: the answer is
+          // what the page size means, and live updates only shrink `data`.
+          pageFull: snapshot.length >= effectiveTaskLimit(params),
         });
       })
       .catch((error: unknown) => {
@@ -891,7 +928,7 @@ export class LiveResourceStore {
     });
   }
 
-  private setTaskList(key: string, resource: Resource<Task[]>): void {
+  private setTaskList(key: string, resource: TaskListResource): void {
     this.state = {
       ...this.state,
       taskLists: { ...this.state.taskLists, [key]: resource },

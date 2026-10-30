@@ -2,7 +2,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { t } from "../../i18n";
-import SessionRowActions from "./SessionRowActions";
+import SessionRowActions, {
+  SESSION_ROW_ACTION_CHIP_WIDTH,
+  SESSION_ROW_ACTIONS_WIDTH,
+  SESSION_ROW_RESTORE_ACTIONS_WIDTH,
+  sessionRowActionsWidth,
+} from "./SessionRowActions";
 
 /**
  * What a phone row uncovers. The contract the list depends on: three actions,
@@ -46,5 +51,43 @@ describe("SessionRowActions", () => {
     fireEvent.click(screen.getByRole("button", { name: t("sessions.unpin") }));
     expect(onPin).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("button", { name: t("sessions.pin") })).toBeNull();
+  });
+
+  it("uncovers restore and delete, not pin and archive, in the archive view", () => {
+    // Inside the archive the actions are the ones that view is for. A pin chip
+    // there would pin a row the list does not show; an archive chip would ask
+    // to archive something already archived.
+    const onPin = vi.fn();
+    const onArchive = vi.fn();
+    const onRestore = vi.fn();
+    const onDelete = vi.fn();
+    render(
+      <SessionRowActions
+        mode="archived"
+        onPin={onPin}
+        onArchive={onArchive}
+        onRestore={onRestore}
+        onDelete={onDelete}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: t("sessions.pin") })).toBeNull();
+    expect(screen.queryByRole("button", { name: t("sessions.archive") })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: t("sessions.restore") }));
+    expect(onRestore).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: t("sessions.delete") }));
+    expect(onDelete).toHaveBeenCalledTimes(1);
+    expect(onPin).not.toHaveBeenCalled();
+    expect(onArchive).not.toHaveBeenCalled();
+  });
+
+  it("reports a slide width that covers exactly the chips it renders", () => {
+    // The chips and the slide are one measurement: a strip wider than the
+    // slide leaves its last chip under the row's opaque cover — mounted,
+    // visible to a screen reader, and impossible to tap.
+    expect(SESSION_ROW_ACTIONS_WIDTH).toBe(3 * SESSION_ROW_ACTION_CHIP_WIDTH);
+    expect(SESSION_ROW_RESTORE_ACTIONS_WIDTH).toBe(2 * SESSION_ROW_ACTION_CHIP_WIDTH);
+    expect(sessionRowActionsWidth("active")).toBe(SESSION_ROW_ACTIONS_WIDTH);
+    expect(sessionRowActionsWidth("archived")).toBe(SESSION_ROW_RESTORE_ACTIONS_WIDTH);
   });
 });

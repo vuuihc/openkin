@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
+  archiveTask,
   isTerminal,
   listAgentSessionsPage,
   listTasks,
+  unarchiveTask,
   type AgentSession,
   type Task,
 } from "../api/client";
@@ -22,6 +24,9 @@ import {
 } from "../lib/phoneSessionBuckets";
 import { getPinnedTaskIds, setTaskPinned } from "../lib/taskPins";
 import { sessionListParams } from "../lib/sessionListParams";
+import { sessionFeedTasks } from "../lib/sessionFeed";
+import { settleArchiveBatch } from "../lib/archiveBatch";
+import { rowSelectable, selectableTaskIds } from "../lib/sessionSelection";
 import {
   getViewedSessionIds,
   markSessionViewed,
@@ -30,7 +35,6 @@ import {
 import { taskCardStatusView } from "../lib/taskCardStatus";
 import { mergeTaskTail } from "../lib/taskTail";
 import {
-  archiveProject,
   getArchivedProjects,
   subscribeProjectSidebar,
   unarchiveProject,
@@ -56,14 +60,17 @@ import {
   IconMachine,
   IconPin,
   IconRefresh,
+  IconRestore,
   IconSessions,
   IconTrash,
 } from "../components/icons";
 import SwipeReveal from "../components/mobile/SwipeReveal";
 import SessionRowActions, {
-  SESSION_ROW_ACTIONS_WIDTH,
+  sessionRowActionsWidth,
+  type SessionRowActionMode,
 } from "../components/mobile/SessionRowActions";
 import { useSessionDeletion } from "../hooks/useSessionDeletion";
+import { useAppStore } from "../store/appStore";
 
 /**
  * The phone's conversation list, grouped by project.
@@ -99,6 +106,7 @@ const SEARCH_DEBOUNCE_MS = 200;
 
 export default function SessionsPage() {
   const tr = useT();
+  const pushToast = useAppStore((s) => s.pushToast);
   const { deleteOne, deleteMany } = useSessionDeletion();
   // The memo below bakes copy into the buckets ("No project", "Untitled"), so
   // it has to rebuild on a locale switch — `tr` is a stable function and would
@@ -135,12 +143,17 @@ export default function SessionsPage() {
   // first page, and mixing a static tail into that would make every update
   // re-scan rows that can no longer change.
   const [olderTasks, setOlderTasks] = useState<Task[]>([]);
+  // The archive view's tail. It has its own cursor: an archived conversation's
+  // id is not a bound in the live list, and paging one feed with the other's
+  // cursor either repeats a page forever or skips the rows in between.
+  const [olderArchivedTasks, setOlderArchivedTasks] = useState<Task[]>([]);
   const [olderSessions, setOlderSessions] = useState<AgentSession[]>([]);
   // The imported-sessions feed answers with a keyset cursor; the tasks feed
   // has none, so "is there more" is inferred from a full page (`null` = not
   // asked yet).
   const [sessionCursor, setSessionCursor] = useState<string | undefined>(undefined);
   const [taskMore, setTaskMore] = useState<boolean | null>(null);
+  const [archiveMore, setArchiveMore] = useState<boolean | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [sessionsFailed, setSessionsFailed] = useState(false);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
@@ -159,6 +172,11 @@ export default function SessionsPage() {
   // so a second tap cannot fire a second round at rows the first is removing.
   const [deletingSelection, setDeletingSelection] = useState(false);
   const deletingSelectionRef = useRef(false);
+  // Archiving a batch is the same shape: a second tap must not fire a second
+  // round at rows the first is already removing.
+  const [archivingSelection, setArchivingSelection] = useState(false);
+  const archivingSelectionRef = useRef(false);
+  const selectionBusy = deletingSelection || archivingSelection;
   // Which selection a slow batch answered. A search or filter change clears
   // the selection and bumps this, so a batch that lands afterwards cannot put
   // rows nobody selected back into a toolbar.
@@ -169,23 +187,16 @@ export default function SessionsPage() {
   // archive lives in sidebar prefs: subscribe rather than read once.
   const [prefsTick, setPrefsTick] = useState(0);
   useEffect(() => subscribeProjectSidebar(() => setPrefsTick((n) => n + 1)), []);
-  // The archived view has no batch actions. A selection made before switching
-  // would leave its toolbar over a list whose buttons are no-ops.
-  useEffect(() => {
-    if (scope !== "archived") return;
-    selectionEpoch.current += 1;
-    setSelectionMode(false);
-    setSelectedIds(new Set());
-  }, [scope]);
-
   // A different question is a different list. A selection made under the old
   // one would let Delete remove rows the person can no longer see — "select
-  // all, then search, then Delete" would arm exactly that.
+  // all, then search, then Delete" would arm exactly that. Switching sides of
+  // the archive is the same kind of change: the toolbar's actions differ
+  // between them.
   useEffect(() => {
     selectionEpoch.current += 1;
     setSelectionMode(false);
     setSelectedIds(new Set());
-  }, [query, status]);
+  }, [query, status, scope]);
 
   useEffect(() => {
     let cancelled = false;
@@ -233,8 +244,21 @@ export default function SessionsPage() {
   useEffect(() => {
     requestGeneration.current += 1;
     setOlderTasks([]);
+    setOlderArchivedTasks([]);
     setTaskMore(null);
+    setArchiveMore(null);
   }, [searchTerm, status]);
+
+  // Re-entering the archive acquires that feed again, and the store may fetch
+  // it from scratch, so the previous visit's tail and its "is there more"
+  // answer no longer describe it. The live feed is left alone: its key did not
+  // change and its resource still holds the page-full answer for that key.
+  useEffect(() => {
+    if (scope !== "archived") return;
+    requestGeneration.current += 1;
+    setOlderArchivedTasks([]);
+    setArchiveMore(null);
+  }, [scope]);
 
   const selfDeviceId = (machines.find((machine) => machine.isSelf)?.id ?? "").trim();
   // A settled query is a new live-list key, and the hook hands back an empty
@@ -247,28 +271,76 @@ export default function SessionsPage() {
     if (taskList.loaded) lastLoadedTasks.current = taskList.data;
   }, [taskList.loaded, taskList.data]);
   const liveTasks = taskList.loaded ? taskList.data : lastLoadedTasks.current;
+  // The archive view's own feed. Kept beside the live list rather than swapped
+  // for it: the view shows archived conversations *and* archived projects, and
+  // a project's chats are not archived rows. Asked for only while that view is
+  // open — every other screen would pay a request it never reads.
+  const archivedList = useTaskList(
+    sessionListParams(searchTerm, status, true),
+    scope === "archived",
+  );
+  // Same retention as the live feed: a settled search is a new list key, and
+  // the hook answers it with an empty resource until the server replies. The
+  // previous archive stays on screen narrowed by the local filter; without it
+  // the view blinks to a full-screen spinner on every pause in typing.
+  const lastLoadedArchivedTasks = useRef<readonly Task[]>([]);
+  useEffect(() => {
+    // Only a good answer replaces the retained one: a failed re-ask must not
+    // throw away the archive that is still on screen.
+    if (archivedList.loaded && !archivedList.error) {
+      lastLoadedArchivedTasks.current = archivedList.data;
+    }
+  }, [archivedList.loaded, archivedList.error, archivedList.data]);
+  // An errored answer is not a usable one: the store marks it `loaded` with
+  // the error attached, and rendering its empty data would turn a failed
+  // re-ask into "the archive is empty". The retained rows stay until a good
+  // answer replaces them.
+  const archivedTasks =
+    archivedList.loaded && !archivedList.error
+      ? archivedList.data
+      : lastLoadedArchivedTasks.current;
   // The live list first, then the older pages a person asked for. The merge
   // asks the live store about each tail id — a row deleted since its page was
   // fetched disappears instead of navigating to a 404, and one that changed
-  // status is shown as it is now rather than as it was. Deduped by id: a row
-  // can arrive through both feeds.
-  //
-  // The status filter is applied here as well as on the server. A filter
-  // change is a new live-list key, and the hook hands back an unloaded
-  // resource until it answers; without local narrowing the previous filter's
-  // rows would sit under the new chip for a whole round trip, which over the
-  // relay is seconds, not milliseconds.
-  const tasks = useMemo(() => {
-    const merged = mergeTaskTail(liveTasks, olderTasks, (id) => liveResources.taskSnapshot(id));
-    return status ? merged.filter((task) => task.status === status) : merged;
-  }, [liveTasks, olderTasks, status]);
+  // status is shown as it is now rather than as it was.
+  const liveRows = useMemo(
+    () => mergeTaskTail(liveTasks, olderTasks, (id) => liveResources.taskSnapshot(id)),
+    [liveTasks, olderTasks],
+  );
+  // The archive view's tail, reconciled the same way: a row restored from
+  // another surface must not linger in this feed as a stale copy.
+  const archivedRows = useMemo(
+    () => mergeTaskTail(archivedTasks, olderArchivedTasks, (id) => liveResources.taskSnapshot(id)),
+    [archivedTasks, olderArchivedTasks],
+  );
+  // `sessionFeedTasks` picks which of those rows this scope shows; see its
+  // comment for why the live side drops archived rows and the archive side
+  // adds its own feed.
+  const tasks = useMemo(
+    () => sessionFeedTasks(liveRows, archivedRows, scope, status),
+    [liveRows, archivedRows, status, scope],
+  );
   const allSessions = useMemo(() => {
     if (olderSessions.length === 0) return sessions;
     const seen = new Set(sessions.map((session) => session.id));
     return [...sessions, ...olderSessions.filter((session) => !seen.has(session.id))];
   }, [sessions, olderSessions]);
   const taskLimit = sessionListParams(searchTerm, status).limit;
-  const hasMoreTasks = taskMore ?? (taskList.loaded && tasks.length >= taskLimit);
+  const archiveLimit = sessionListParams(searchTerm, status, true).limit;
+  // "Is there more" is asked per feed. The answer comes from the resource,
+  // which recorded whether the server's page was full before live updates
+  // started shrinking it: a full first page minus one archived row is still a
+  // full page, and re-reading the array would hide the tail. The length
+  // check is the other direction — the shell holds the unfiltered key for the
+  // life of the app, and a short answer plus enough new rows can fill it
+  // again after evicting the oldest loaded ones, which means the window is no
+  // longer the whole list. Once a person pages, the tail's own answer wins
+  // (`taskMore`/`archiveMore`), because the first page no longer describes
+  // where the tail ended.
+  const hasMoreTasks = taskMore ?? (taskList.pageFull || liveTasks.length >= taskLimit);
+  const hasMoreArchive =
+    scope === "archived" &&
+    (archiveMore ?? (archivedList.pageFull || archivedTasks.length >= archiveLimit));
   // Imported sessions carry no status, so a status filter excludes them rather
   // than showing rows that cannot match it.
   const hasMoreSessions = Boolean(sessionCursor) && !status;
@@ -306,24 +378,34 @@ export default function SessionsPage() {
       ),
     [filtered, pinnedIds, scope, tr],
   );
+  // Select-all counts what this view can actually select; in the archive view
+  // that is the put-away conversations, not the archived projects' live chats.
+  const selectableCount = selectableTaskIds(listed, scope).length;
   // A selected id can lose its row while the batch is in flight — another
   // device deleted it, so the delete came back 404 and our own `task_deleted`
-  // never arrived. Keeping it selected makes the count and the select-all
-  // checkbox describe a row nobody can see, so the selection follows the list.
+  // never arrived. Or it can stop being selectable: a conversation restored
+  // from another surface while its project stays archived is still listed,
+  // but this view's Restore no longer applies to it. Keeping such an id makes
+  // the count and the select-all checkbox describe a row nobody can act on,
+  // so the selection follows what the view can actually select.
   useEffect(() => {
     if (selectedIds.size === 0) return;
-    const present = new Set(
-      listed.flatMap((bucket) =>
-        bucket.rows.filter((row) => row.task).map((row) => row.task!.id),
-      ),
-    );
+    const present = new Set(selectableTaskIds(listed, scope));
     const next = Array.from(selectedIds).filter((id) => present.has(id));
     if (next.length !== selectedIds.size) setSelectedIds(new Set(next));
-  }, [listed, selectedIds]);
+  }, [listed, scope, selectedIds]);
 
   // Loading is only the first paint. A later fetch keeps the previous rows up
-  // (above), so it is not a reason to blank the screen.
-  const loading = (!taskList.loaded && tasks.length === 0) || machinesLoading;
+  // (above), so it is not a reason to blank the screen. The archive view reads
+  // a second feed, and until that one answers, "nothing archived" would be a
+  // claim rather than a state — but only when there is nothing retained to
+  // show while it answers; a settled search keeps the old archive on screen.
+  const archiveWaiting =
+    scope === "archived" &&
+    !archivedList.loaded &&
+    !archivedList.error &&
+    lastLoadedArchivedTasks.current.length === 0;
+  const loading = (!taskList.loaded && tasks.length === 0) || machinesLoading || archiveWaiting;
   // One clock for the whole render, so two rows never disagree about "now".
   const now = Date.now();
   // Read once per render, not once per row: `isSessionViewed` re-parses the
@@ -337,7 +419,16 @@ export default function SessionsPage() {
   // The field is ahead of the request: until the server answers the settled
   // term, an empty list means "not answered yet", not "no matches".
   const pendingQuery = query.trim() !== searchTerm;
-  const loadFailed = Boolean(taskList.error) && tasks.length === 0;
+  // A failed feed is not an empty one. The archive view reads two, so either
+  // one failing on an otherwise empty screen is an error, and a failure with
+  // rows already on screen still has to say so — a timeout must never read as
+  // "the archive is empty". `listed` is what is actually rendered: the live
+  // feed can be non-empty while this view shows nothing at all, so its length
+  // is the wrong question to ask.
+  const archiveFailed = scope === "archived" && Boolean(archivedList.error);
+  const archiveProjectsFailed =
+    scope === "archived" && !archiveFailed && Boolean(taskList.error);
+  const loadFailed = (Boolean(taskList.error) || archiveFailed) && listed.length === 0;
   // The pin chip flips its label when the whole selection is already pinned.
   const selectionAllPinned =
     selectedIds.size > 0 && Array.from(selectedIds).every((id) => pinnedIds.has(id));
@@ -402,11 +493,13 @@ export default function SessionsPage() {
   /** Long-press: enter multi-select with this row selected (the reference's
    *  gesture for batch actions on a touch screen). */
   function enterSelection(row: PhoneSessionRow) {
-    // Imported sessions cannot be pinned or archived; the archived view's
-    // batch actions would be "archive what is already archived".
-    if (!row.task || scope === "archived") return;
+    // Imported sessions cannot be pinned, archived or restored. In the archive
+    // view the one batch action is Restore, so only a conversation that was
+    // put away can lead a selection there; a project's live chats are put back
+    // with the project's own heading.
+    if (!rowSelectable(row, scope)) return;
     setSelectionMode(true);
-    setSelectedIds(new Set([row.task.id]));
+    setSelectedIds(new Set([row.task!.id]));
     setSwipeOpen(null);
   }
 
@@ -421,11 +514,7 @@ export default function SessionsPage() {
 
   function selectAll() {
     setSelectedIds((current) => {
-      const all = new Set(
-        listed.flatMap((bucket) =>
-          bucket.rows.filter((row) => row.task).map((row) => row.key),
-        ),
-      );
+      const all = new Set(selectableTaskIds(listed, scope));
       return current.size === all.size && all.size > 0 ? new Set() : all;
     });
   }
@@ -447,15 +536,57 @@ export default function SessionsPage() {
     exitSelection();
   }
 
-  function archiveSelected() {
-    const cwds = new Set<string>();
-    for (const bucket of listed) {
-      for (const row of bucket.rows) {
-        if (row.task && selectedIds.has(row.task.id)) cwds.add(row.task.cwd);
+  /**
+   * Move the selection to one side of the archive.
+   *
+   * Nothing is lost either way, so this asks nothing; a row that fails stays
+   * selected so the retry is one tap, and the toast counts what did not go.
+   * The daemon publishes each moved row, and the answer is applied here too,
+   * so the rest of the batch leaves (or enters) the list the same way a single
+   * row does. Archiving and restoring are the same call in opposite
+   * directions, and in the archive view the toolbar must offer the direction
+   * that view is for.
+   */
+  async function moveSelected(archived: boolean) {
+    if (archivingSelectionRef.current) return;
+    archivingSelectionRef.current = true;
+    setArchivingSelection(true);
+    const epoch = selectionEpoch.current;
+    const ids = Array.from(selectedIds);
+    try {
+      const results = await Promise.allSettled(
+        ids.map((id) => (archived ? archiveTask(id) : unarchiveTask(id))),
+      );
+      const outcome = settleArchiveBatch(ids, results);
+      for (const moved of outcome.moved) {
+        liveResources.applyMessage({ kind: "task_update", data: moved });
       }
+      // The list moved on while this was in flight; its answer is about rows
+      // nobody is looking at.
+      if (selectionEpoch.current !== epoch) return;
+      if (outcome.failed.length > 0) {
+        setSelectedIds(new Set(outcome.failed));
+        pushToast(
+          tr(archived ? "sessions.archiveFailedCount" : "sessions.restoreFailedCount", {
+            count: String(outcome.failed.length),
+          }),
+          "error",
+        );
+        return;
+      }
+      exitSelection();
+    } finally {
+      archivingSelectionRef.current = false;
+      setArchivingSelection(false);
     }
-    for (const cwd of cwds) archiveProject(cwd);
-    exitSelection();
+  }
+
+  function archiveSelected() {
+    void moveSelected(true);
+  }
+
+  function restoreSelected() {
+    void moveSelected(false);
   }
 
   function pinRow(row: PhoneSessionRow) {
@@ -464,10 +595,37 @@ export default function SessionsPage() {
     setSwipeOpen(null);
   }
 
-  function archiveRow(row: PhoneSessionRow) {
+  /** Put this one conversation away. Undo is the archive view's Restore; the
+   *  row leaving the list is the confirmation, so there is no toast for it. */
+  async function archiveRow(row: PhoneSessionRow) {
     if (!row.task) return;
-    archiveProject(row.task.cwd);
+    const id = row.task.id;
     setSwipeOpen(null);
+    try {
+      const archived = await archiveTask(id);
+      liveResources.applyMessage({ kind: "task_update", data: archived });
+    } catch (err) {
+      pushToast(
+        err instanceof Error && err.message ? err.message : tr("sessions.archiveFailed"),
+        "error",
+      );
+    }
+  }
+
+  /** Put an archived conversation back, from the archive view's row. */
+  async function restoreRow(row: PhoneSessionRow) {
+    if (!row.task) return;
+    const id = row.task.id;
+    setSwipeOpen(null);
+    try {
+      const live = await unarchiveTask(id);
+      liveResources.applyMessage({ kind: "task_update", data: live });
+    } catch (err) {
+      pushToast(
+        err instanceof Error && err.message ? err.message : tr("sessions.restoreFailed"),
+        "error",
+      );
+    }
   }
 
   /** Delete from the row's swipe reveal. The confirm lives in the hook, so
@@ -550,11 +708,13 @@ export default function SessionsPage() {
   }
 
   /**
-   * Older pages for both feeds.
+   * Older pages for every feed on screen.
    *
-   * Tasks have no cursor, so the oldest loaded id is the cursor (`?before=`
-   * is an exclusive id bound, and the list is id-desc). The imported feed has
-   * a keyset cursor of its own. A page shorter than the limit is the end.
+   * Tasks have no cursor, so the oldest loaded id of that feed is the cursor
+   * (`?before=` is an exclusive id bound, and the list is id-desc). The
+   * archive view has its own feed and its own cursor; the imported sessions
+   * have a keyset cursor of their own. A page shorter than the limit is the
+   * end.
    */
   async function loadOlder() {
     if (loadingOlder) return;
@@ -565,7 +725,10 @@ export default function SessionsPage() {
     setLoadingOlder(true);
     try {
       if (hasMoreTasks) {
-        const oldest = tasks[tasks.length - 1]?.id;
+        // Each feed pages from its own tail. `liveRows` is the live list and
+        // its pages; the archive feed's rows are not bounds in it, and a bound
+        // from the wrong feed either repeats a page or skips one.
+        const oldest = liveRows[liveRows.length - 1]?.id;
         if (oldest) {
           const page = await listTasks({
             ...sessionListParams(searchTerm, status),
@@ -576,6 +739,20 @@ export default function SessionsPage() {
           setTaskMore(page.length >= taskLimit);
         } else {
           setTaskMore(false);
+        }
+      }
+      if (hasMoreArchive) {
+        const oldest = archivedRows[archivedRows.length - 1]?.id;
+        if (oldest) {
+          const page = await listTasks({
+            ...sessionListParams(searchTerm, status, true),
+            before: oldest,
+          });
+          if (requestGeneration.current !== generation) return;
+          setOlderArchivedTasks((current) => [...current, ...page]);
+          setArchiveMore(page.length >= archiveLimit);
+        } else {
+          setArchiveMore(false);
         }
       }
       if (hasMoreSessions && sessionCursor) {
@@ -665,8 +842,8 @@ export default function SessionsPage() {
         <div className="sticky top-0 z-[3] flex min-h-12 items-center gap-2 border-b border-[var(--kin-hairline)] bg-[var(--kin-page)] px-3 kin-glass">
           <label className="flex min-h-11 items-center gap-2 text-strong font-medium text-kin-text">
             <SelectAllCheckbox
-              checked={selectedIds.size > 0 && selectedIds.size === taskRowCount(listed)}
-              partial={selectedIds.size > 0 && selectedIds.size < taskRowCount(listed)}
+              checked={selectedIds.size > 0 && selectedIds.size === selectableCount}
+              partial={selectedIds.size > 0 && selectedIds.size < selectableCount}
               onChange={selectAll}
               label={tr("sessions.selectAll")}
             />
@@ -677,32 +854,42 @@ export default function SessionsPage() {
                 with labels; below `sm` the chips are icon-only and the label
                 becomes their accessible name. Colour alone never carries the
                 delete: it is a trash icon and it says "Delete". */}
+            {/* Pin is the live list's own ordering; the archived view does not
+                put pins on a heading, so the chip would reorder a list that
+                never shows a pinned bucket. */}
+            {scope !== "archived" && (
+              <button
+                type="button"
+                onClick={pinSelected}
+                disabled={selectedIds.size === 0 || selectionBusy}
+                aria-label={pinLabel}
+                title={pinLabel}
+                className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-[var(--kin-fill)] px-2.5 text-body font-medium text-kin-text disabled:opacity-40 sm:px-3"
+              >
+                <IconPin size={14} />
+                <span className="hidden sm:inline">{pinLabel}</span>
+              </button>
+            )}
+            {/* The archive view's batch offers the direction that view is for:
+                a selection there is archived already, so archiving it again
+                would only re-stamp the date and change nothing. */}
             <button
               type="button"
-              onClick={pinSelected}
-              disabled={selectedIds.size === 0 || deletingSelection}
-              aria-label={pinLabel}
-              title={pinLabel}
+              onClick={scope === "archived" ? restoreSelected : archiveSelected}
+              disabled={selectedIds.size === 0 || selectionBusy}
+              aria-label={tr(scope === "archived" ? "sessions.restore" : "sessions.archive")}
+              title={tr(scope === "archived" ? "sessions.restore" : "sessions.archive")}
               className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-[var(--kin-fill)] px-2.5 text-body font-medium text-kin-text disabled:opacity-40 sm:px-3"
             >
-              <IconPin size={14} />
-              <span className="hidden sm:inline">{pinLabel}</span>
-            </button>
-            <button
-              type="button"
-              onClick={archiveSelected}
-              disabled={selectedIds.size === 0 || deletingSelection}
-              aria-label={tr("sessions.archive")}
-              title={tr("sessions.archive")}
-              className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-[var(--kin-fill)] px-2.5 text-body font-medium text-kin-text disabled:opacity-40 sm:px-3"
-            >
-              <IconArchive size={14} />
-              <span className="hidden sm:inline">{tr("sessions.archive")}</span>
+              {scope === "archived" ? <IconRestore size={14} /> : <IconArchive size={14} />}
+              <span className="hidden sm:inline">
+                {tr(scope === "archived" ? "sessions.restore" : "sessions.archive")}
+              </span>
             </button>
             <button
               type="button"
               onClick={deleteSelected}
-              disabled={selectedIds.size === 0 || deletingSelection}
+              disabled={selectedIds.size === 0 || selectionBusy}
               aria-label={
                 deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")
               }
@@ -742,7 +929,7 @@ export default function SessionsPage() {
             onToggleShowAll={() => toggleShowAll(bucket.key)}
             onOpen={openRow}
             selectionMode={selectionMode}
-            selectionLocked={deletingSelection}
+            selectionLocked={selectionBusy}
             selectedIds={selectedIds}
             onToggleSelect={toggleSelected}
             onLongPress={enterSelection}
@@ -752,8 +939,18 @@ export default function SessionsPage() {
             onPin={pinRow}
             onArchive={archiveRow}
             onDelete={deleteRow}
-            onRestore={scope === "archived" ? () => restoreBucket(bucket) : undefined}
-            actionsEnabled={scope !== "archived"}
+            // Only a heading that stands for an archived project gets the
+            // project's Restore. The archive view also lists conversations put
+            // away on their own, and their heading is just the project they
+            // happen to sit in — a Restore button there would promise to put
+            // back something that was never archived and silently do nothing.
+            onRestore={
+              scope === "archived" && archivedCwdFor(bucket.key, archivedCwds)
+                ? () => restoreBucket(bucket)
+                : undefined
+            }
+            onRestoreRow={restoreRow}
+            scope={scope}
             query={query}
           />
         ))}
@@ -761,7 +958,7 @@ export default function SessionsPage() {
       {/* Older rows are a choice, not an infinite scroll: the list is a place
           people scan, and a viewport that keeps growing under the thumb loses
           the row that was being read. */}
-      {!loading && (hasMoreTasks || hasMoreSessions) && (
+      {!loading && (hasMoreTasks || hasMoreArchive || hasMoreSessions) && (
         <button
           type="button"
           onClick={loadOlder}
@@ -770,6 +967,20 @@ export default function SessionsPage() {
         >
           {loadingOlder ? tr("sessions.loadingOlder") : tr("sessions.loadOlder")}
         </button>
+      )}
+
+      {/* One archive feed failed but the other answered: the rows on screen
+          are real, the rest are missing, and silence would read as "there are
+          none". Told apart because the fix differs — one side is the archive
+          itself, the other the archived projects' chats. */}
+      {!loading && (archiveFailed || archiveProjectsFailed) && listed.length > 0 && (
+        <p className="px-4 py-6 text-center text-body text-kin-muted">
+          {tr(
+            archiveFailed
+              ? "sessions.archiveLoadFailed"
+              : "sessions.archiveProjectsLoadFailed",
+          )}
+        </p>
       )}
 
       {!loading && !status && sessionsFailed && buckets.length > 0 && (
@@ -784,11 +995,6 @@ export default function SessionsPage() {
       <div className="h-60" aria-hidden />
     </MobileScreen>
   );
-}
-
-/** The rows a select-all can actually select: tasks only. */
-function taskRowCount(buckets: PhoneProjectBucket[]): number {
-  return buckets.reduce((sum, bucket) => sum + bucket.rows.filter((row) => row.task).length, 0);
 }
 
 /** The select-all control. `indeterminate` is not a React prop, so the DOM
@@ -843,7 +1049,8 @@ function ProjectBucket({
   onArchive,
   onDelete,
   onRestore,
-  actionsEnabled,
+  onRestoreRow,
+  scope,
   query,
 }: {
   bucket: PhoneProjectBucket;
@@ -874,8 +1081,9 @@ function ProjectBucket({
   onDelete: (row: PhoneSessionRow) => void;
   /** Present only in the archived view: put this project back in the list. */
   onRestore?: () => void;
-  /** Rows reveal pin/archive/delete on a swipe; the archived view has none. */
-  actionsEnabled: boolean;
+  /** Present only in the archived view: put this conversation back. */
+  onRestoreRow: (row: PhoneSessionRow) => void;
+  scope: SessionScopeFilter;
 }) {
   const tr = useT();
   const rows = showAll ? bucket.rows : bucket.rows.slice(0, ROWS_BEFORE_SHOW_ALL);
@@ -956,7 +1164,8 @@ function ProjectBucket({
               onPin={() => onPin(row)}
               onArchive={() => onArchive(row)}
               onDelete={() => onDelete(row)}
-              actionsEnabled={actionsEnabled}
+              onRestore={() => onRestoreRow(row)}
+              scope={scope}
               query={query}
             />
           ))}
@@ -1000,7 +1209,8 @@ function SessionRow({
   onPin,
   onArchive,
   onDelete,
-  actionsEnabled,
+  onRestore,
+  scope,
   query,
 }: {
   row: PhoneSessionRow;
@@ -1021,8 +1231,10 @@ function SessionRow({
   onPin: () => void;
   onArchive: () => void;
   onDelete: () => void;
-  /** False in the archived view, where pin and archive would be no-ops. */
-  actionsEnabled: boolean;
+  /** Put this one conversation back; only archived rows carry it. */
+  onRestore: () => void;
+  /** Which list this row is drawn in: it decides which strip it uncovers. */
+  scope: SessionScopeFilter;
 }) {
   const tr = useT();
   // The sidebar's dot, on the phone: green means a run finished and has not
@@ -1050,9 +1262,10 @@ function SessionRow({
       onClick={() => {
         if (selectionMode) {
           // Imported agent sessions have no task id and no batch actions;
-          // they are not selectable. A batch in flight owns the selection it
-          // captured, so taps wait for it to land.
-          if (row.task && !selectionLocked) onToggleSelect();
+          // neither has a live chat in the archive view, whose batch restores.
+          // A batch in flight owns the selection it captured, so taps wait for
+          // it to land.
+          if (rowSelectable(row, scope) && !selectionLocked) onToggleSelect();
           return;
         }
         // A tap on a swipe-revealed row closes the reveal instead of opening
@@ -1068,7 +1281,7 @@ function SessionRow({
         // (the equivalent of a long press, which a keyboard cannot do).
         if (event.key === "Enter" && event.shiftKey) {
           event.preventDefault();
-          if (row.task && !selectionLocked) onToggleSelect();
+          if (rowSelectable(row, scope) && !selectionLocked) onToggleSelect();
         }
       }}
       aria-disabled={selectionMode && selectionLocked ? true : undefined}
@@ -1080,7 +1293,7 @@ function SessionRow({
       ].join(" ")}
     >
       <span className="flex w-2 flex-none justify-center">
-        {selectionMode ? (
+        {selectionMode && rowSelectable(row, scope) ? (
           <span
             className={[
               "flex h-4 w-4 items-center justify-center rounded-full border",
@@ -1116,9 +1329,17 @@ function SessionRow({
     </button>
   );
 
-  // The archived view shows what is already archived: a "Archive" action there
-  // would be a no-op and a "Pin" would move a row into a list it is not in.
-  if (selectionMode || !row.task || !actionsEnabled) return rowButton;
+  // A row uncovers the strip that describes where it is. In the archive view
+  // that is restore + delete, and only for a conversation that was archived on
+  // its own: a live chat listed under an archived project is put back by the
+  // project's own Restore, and a per-row "Restore" there would do nothing.
+  if (selectionMode || !row.task) return rowButton;
+  const mode: SessionRowActionMode | null = row.task.archived_at
+    ? "archived"
+    : scope === "archived"
+      ? null
+      : "active";
+  if (!mode) return rowButton;
 
   // Swipe left to reveal the same batch actions the multi-select owns, plus
   // the delete only the list offers (a session can be deleted from inside it,
@@ -1132,12 +1353,14 @@ function SessionRow({
       open={swipeOpen}
       onOpenChange={onSwipeOpenChange}
       onLongPress={onLongPress}
-      width={SESSION_ROW_ACTIONS_WIDTH}
+      width={sessionRowActionsWidth(mode)}
       actions={
         <SessionRowActions
+          mode={mode}
           pinned={pinned}
           onPin={onPin}
           onArchive={onArchive}
+          onRestore={onRestore}
           onDelete={onDelete}
         />
       }

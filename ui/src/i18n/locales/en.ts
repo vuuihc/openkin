@@ -97,8 +97,15 @@ const en: MessageTree = {
     // A count-first phrase ("1 filters applied") reads broken at one, so the
     // number trails a colon instead of needing a plural form.
     filterActiveCount: "Filters applied: {count}",
-    archiveEmpty: "No archived projects",
-    archiveEmptyHint: "A project removed from the drawer shows up here, ready to restore.",
+    archiveEmpty: "Nothing archived",
+    archiveEmptyHint:
+      "Conversations you put away, and projects removed from the drawer, wait here — nothing is deleted.",
+    archiveFailed: "Failed to archive conversation",
+    archiveFailedCount: "{count} could not be archived",
+    restoreFailed: "Failed to restore conversation",
+    restoreFailedCount: "{count} could not be restored",
+    archiveLoadFailed: "Could not load archived conversations",
+    archiveProjectsLoadFailed: "Chats in archived projects could not be loaded",
     loadOlder: "Load older chats",
     loadingOlder: "Loading older chats…",
     deleteSelectedConfirm:
@@ -456,6 +463,12 @@ const en: MessageTree = {
     deleteConfirm: "Delete this session permanently? History cannot be recovered.",
     deleted: "Session deleted",
     deleteFailed: "Failed to delete session",
+    archiveSession: "Archive session",
+    unarchiveSession: "Put back in the list",
+    archived: "Session archived",
+    archiveFailed: "Failed to archive session",
+    unarchived: "Session back in the list",
+    unarchiveFailed: "Failed to put the session back",
     sessionActions: "Session actions",
     share: "Share",
     shareTitle: "Share this conversation",

@@ -13,6 +13,7 @@ import { IonActionSheet } from "@ionic/react";
 import type { ActionSheetButton } from "@ionic/core";
 import {
   ApiError,
+  archiveTask,
   cancelTask,
   cancelWorkerStep,
   deleteTask,
@@ -35,6 +36,7 @@ import {
   restoreTaskWorkspace,
   retryTask,
   searchTaskSourceFiles,
+  unarchiveTask,
   withdrawQueuedPrompt,
   type AgentInfo,
   type LimitHit,
@@ -61,11 +63,13 @@ import PermissionModePicker from "../components/chat/PermissionModePicker";
 import ModelPicker from "../components/chat/ModelPicker";
 import {
   IconAlert,
+  IconArchive,
   IconBack,
   IconMachine,
   IconMore,
   IconPanel,
   IconPullRequest,
+  IconRestore,
   IconSessions,
   IconShare,
   IconTrash,
@@ -238,6 +242,7 @@ export default function TaskDetailPage({
   /** The task the page is showing now; a late cancel answer must check it. */
   const taskIdRef = useRef(id);
   const [deleting, setDeleting] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   /** Phone-only overflow sheet; the same actions stay as chips from `md` up. */
   const [actionsOpen, setActionsOpen] = useState(false);
   /** The public-link dialog, reachable from the sheet and from the chip row. */
@@ -1084,6 +1089,39 @@ export default function TaskDetailPage({
     }
   }
 
+  /**
+   * Put this conversation away, or bring it back.
+   *
+   * One button, because the row knows which side of the archive it is on. The
+   * answer is a task like any other change, so it is applied through the same
+   * live-resource path the console uses for streaming updates — the list and
+   * the drawer learn about it without a refetch. Archiving then leaves the
+   * page: it is how a chat is put away, and staying inside it would be reading
+   * a conversation the list no longer offers. Restoring stays put.
+   */
+  async function onToggleArchive() {
+    if (!task) return;
+    const wasArchived = Boolean(task.archived_at);
+    setArchiving(true);
+    try {
+      const updated = wasArchived ? await unarchiveTask(task.id) : await archiveTask(task.id);
+      liveResources.applyMessage({ kind: "task_update", data: updated });
+      pushToast(tr(wasArchived ? "task.unarchived" : "task.archived"), "info");
+      // Leaving is only right if this is still the conversation on screen: a
+      // slow answer must not pull the person off the one they opened next.
+      if (!wasArchived && taskIdRef.current === task.id) navigate("/");
+    } catch (err) {
+      pushToast(
+        err instanceof Error
+          ? err.message
+          : tr(wasArchived ? "task.unarchiveFailed" : "task.archiveFailed"),
+        "error",
+      );
+    } finally {
+      setArchiving(false);
+    }
+  }
+
   async function onDelete() {
     if (!task) return;
     const title = (task.title || displayUserPrompt(task.prompt || "") || task.id).trim();
@@ -1473,6 +1511,11 @@ export default function TaskDetailPage({
         ]
       : []),
     {
+      text: task?.archived_at ? tr("task.unarchiveSession") : tr("task.archiveSession"),
+      disabled: archiving,
+      handler: () => void onToggleArchive(),
+    },
+    {
       text: tr("task.deleteSession"),
       role: "destructive" as const,
       disabled: deleting,
@@ -1610,6 +1653,16 @@ export default function TaskDetailPage({
             >
               <IconShare size={13} />
               <span>{tr("task.share")}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => void onToggleArchive()}
+              disabled={archiving}
+              className="inline-flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-secondary transition-colors hover:text-kin-text disabled:opacity-40"
+              title={task?.archived_at ? tr("task.unarchiveSession") : tr("task.archiveSession")}
+              aria-label={task?.archived_at ? tr("task.unarchiveSession") : tr("task.archiveSession")}
+            >
+              {task?.archived_at ? <IconRestore size={13} /> : <IconArchive size={13} />}
             </button>
             <button
               type="button"

@@ -199,6 +199,46 @@ describe("the archived scope", () => {
   });
 });
 
+describe("a conversation archived on its own", () => {
+  const putAway = task({ id: "put-away", cwd: "/work/alpha", created_at: 10, archived_at: 99 });
+  const neighbour = task({ id: "sibling", cwd: "/work/alpha", created_at: 20 });
+
+  it("leaves the list without taking its project with it", () => {
+    // Archiving a project hides every chat under a heading; archiving one
+    // conversation hides that row only. The row's own flag answers first.
+    const rows = buckets([putAway, neighbour]);
+    expect(rows.map((bucket) => bucket.key)).toEqual(["/work/alpha"]);
+    expect(rows[0]!.rows.map((row) => row.key)).toEqual(["sibling"]);
+  });
+
+  it("appears in the archive view even though its project is still filed", () => {
+    const rows = buckets([putAway, neighbour], [], "self", [], "archived");
+    expect(rows.map((bucket) => bucket.key)).toEqual(["/work/alpha"]);
+    expect(rows[0]!.rows.map((row) => row.key)).toEqual(["put-away"]);
+  });
+
+  it("stays out of the list when its project is archived too, and shows under it in the archive", () => {
+    const rows = buckets([putAway], [], "self", ["/work/alpha"], "active");
+    expect(rows).toEqual([]);
+    const archived = buckets([putAway], [], "self", ["/work/alpha"], "archived");
+    expect(archived[0]!.rows.map((row) => row.key)).toEqual(["put-away"]);
+  });
+
+  it("never files an imported agent session under the archive", () => {
+    // Only Kin's own tasks carry the flag; an imported session in the same
+    // project stays on the live side while its neighbour is put away.
+    const rows = buckets(
+      [putAway],
+      [session({ id: "s1", cwd: "/work/alpha", updated_at: 40 })],
+      "self",
+      [],
+      "active",
+    );
+    expect(rows.map((bucket) => bucket.key)).toEqual(["/work/alpha"]);
+    expect(rows[0]!.rows.map((row) => row.key)).toEqual(["s1"]);
+  });
+});
+
 describe("archivedCwdFor", () => {
   it("returns the stored entry, not the bucket's normalized key", () => {
     // Restoring has to remove the entry as stored: `unarchiveProject` matches
