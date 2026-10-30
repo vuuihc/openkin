@@ -1,6 +1,6 @@
 # Common-feature parity program — inventory, gaps, plan
 
-Status: rounds 1–23 landed. This is the living ledger for
+Status: rounds 1–28 landed. This is the living ledger for
 the open-ended "beat Lody on the features I actually use" program: inventory →
 gap matrix → plan → implement → evaluate → repeat.
 
@@ -48,8 +48,8 @@ attachment lost when the task runs on another machine, closed with F4 below.
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Server-backed list with filters (repo / project / status / PR / machine), mine-vs-team scope, archive screen, unread dots (`mobile-chat-list.tsx`, `mobile-filter-drawer.tsx:45`, `mobile-archive-screen.tsx:85`) | Search is server-side over the whole library (`sessionListParams.ts`); a filter control carries status to the daemon in `?status=`, `?scope=archived` is the archived-projects view with per-project restore, and "load older" pages both feeds by `before=` (`SessionFilters.tsx`, `SessionsPage.tsx`); rows carry a status/unread dot (`sessionViewed.ts:111-119`) | No project or machine filter, and the archive view restores but does not delete | S3 | — |
-| Swipe: pin / archive / restore / **delete**, long swipe auto-archives (`mobile-swipeable-row.tsx:341`) | Swipe reveals pin/unpin, archive and **delete** on one measured strip (`SessionRowActions.tsx`, R26); delete confirms once and forgets the row in the list, the scroll memory, the unsent draft and the pin preference (`useSessionDeletion.ts`); archive still archives the row's whole project (`SessionsPage.tsx:467`) | No restore from a row and no long-swipe auto-archive; the row's 归档 hides every conversation in its project, not the one row | S3 | — |
+| Server-backed list with filters (repo / project / status / PR / machine), mine-vs-team scope, archive screen, unread dots (`mobile-chat-list.tsx`, `mobile-filter-drawer.tsx:45`, `mobile-archive-screen.tsx:85`) | Search is server-side over the whole library (`sessionListParams.ts`); a filter control carries status to the daemon in `?status=`, `?scope=archived` is the archive view — archived conversations (restore or delete per row, and a batch restore in the toolbar) beside archived projects (project rows are not conversations, so a project is restored from its heading and never deleted from here) — and "load older" pages each feed from its own `before=` cursor (`SessionFilters.tsx`, `SessionsPage.tsx`, R28); rows carry a status/unread dot (`sessionViewed.ts:111-119`) | No project or machine filter | S3 | — |
+| Swipe: pin / archive / restore / **delete**, long swipe auto-archives (`mobile-swipeable-row.tsx:341`) | Swipe reveals pin/unpin, archive and **delete** on one measured strip (`SessionRowActions.tsx`, R26); archive is per conversation (`POST /api/tasks/{id}/archive`, R28), so the row leaves the list and its project's other chats stay; an archived row's strip is restore + delete | No long-swipe auto-archive; imported agent sessions carry no archive (they are filed by project only) | S3 | — |
 | Multi-select: select all, delete (`mobile-chat-list.tsx:1018`) | Multi-select: select all, pin, archive, and **delete** — per-row failures stay selected, a second batch is refused while one runs, a filter change disarms the selection (R26, `SessionsPage.tsx`) | Closed (R26) | — | — |
 
 ### 2.2 Open conversation
@@ -3801,3 +3801,185 @@ cannot be recovered but not that a live run stops, and a destructive-copy
 change was out of scope. Keyboard focus after a deleted row falls to `body`.
 `DELETE /api/tasks/{id}` is operator-only, so a pairing-token console would get
 403. The list tab says 会话 while the product elsewhere says 对话.
+
+### Round 28 — one conversation goes away, not its project (2026-10-30)
+
+**28A 归档 hid every chat in the project.** Found by reading the handler behind
+the row chip that Round 26 added: `archiveRow` called
+`archiveProject(row.task.cwd)`, which is the *drawer's* project preference. One
+swipe on one conversation removed its whole project from the list, and every
+other chat filed under the same cwd went with it. The reference archives the
+session you swiped; its archive screen lists what was put away and restores it.
+This round makes archive a property of the conversation.
+
+What changed:
+
+- `tasks.archived_at` (migration 044, plus the `ensureTaskArchiveSchema`
+  reconciler that repairs a table which reached 44 without the column).
+  Additive and 0 by default, so every row that predates it reads as still
+  filed. It sits on the task and not in the sidebar's project preferences
+  because the two questions are different: a project can be removed from the
+  drawer while its chats stay filed, and a chat can be put away while its
+  project stays.
+- `POST /api/tasks/{id}/archive` and `/unarchive`. Holder-only, like the other
+  reversible writes: a paired phone tidies its own list, and delete stays
+  operator-only. Each answers the updated task and publishes `task_update`;
+  the patch goes through `UpdateTask`, so `hub_seq` advances and a client that
+  is already synced learns about the archive from its change cursor instead of
+  keeping a row that is gone.
+- `GET /api/tasks?archived=1` is the archive view; absent or `0` is the list.
+  The two are exclusive sides, not a widening, and an unknown value is a 400
+  rather than a silently answered half. `ListTasksOpts.Archived` keeps
+  `ArchivedAny` as its zero value, so the reconcilers that ask "is any task
+  still holding this workspace" (`workspace_lifecycle`, `limit_policy`) keep
+  seeing archived rows; the routine-runs feed and the MCP `listTasks` pass
+  `ArchivedExclude`, because a conversation its owner put away is not work in
+  flight.
+- Console: the row's archive chip archives the row (`archiveTask`), the batch
+  toolbar archives the selected conversations with the same
+  keep-failures-selected and epoch rules as delete, and the archive view reads
+  a second feed (`?archived=1`) beside the live one — archived conversations
+  (restore + delete per row) and, as before, the rows of an archived project
+  (restored from the heading, whose button now appears only on a heading that
+  stands for one). `liveResources.taskMatches` treats the archive as a place,
+  so a `task_update` moves a row between the two open feeds without a refetch.
+  The session sheet and the desktop toolbar get the same toggle; archiving from
+  there leaves the page, restoring stays. `sessionFeedTasks` holds the
+  which-rows rule so it is testable without a daemon. English and Chinese copy
+  in the same change.
+- Review pass (same model, over the whole diff) found the archive view still
+  half-built, and those are fixed here: "load older" paged the combined array's
+  tail, so it asked the *live* feed for rows older than the newest archived one
+  and never paged the archive feed at all — each feed now pages from its own
+  tail with its own `before=`; the archive resource's loading and error were
+  ignored, so "Nothing archived" showed while the fetch was in flight and again
+  after it failed — the empty state waits for `loaded`, a failed fetch with
+  rows on screen gets an inline banner, and a failed fetch with nothing else
+  gets the load-error state; the batch toolbar in the archive view offered
+  Archive, which re-stamped `archived_at` and moved nothing — it now offers
+  Restore, and `settleArchiveBatch` (its own module and tests) splits the
+  all-settled round into moved rows and the ids that stay selected; a row
+  restored from the screen could linger in the archive feed's "load older"
+  tail, which the store prunes by id but not by flag — `sessionFeedTasks`
+  now drops archived-feed rows without `archived_at`; archiving from the
+  session sheet navigated away even if the person had opened another
+  conversation while the request was in flight — it now leaves only when
+  `taskIdRef` still names the row; and the OpenAPI prose for `archived_at` said
+  "0 means it is in the list" while the field is `omitempty` from Go, so it now
+  says absent or 0.
+
+**Verification.**
+Store tests: the row leaves the list while its two neighbours in the same
+project stay, archiving advances `hub_seq`, unarchive puts it back, migration
+044 over a populated v43 database adds the column empty and keeps the row, and
+a 44 database whose column was dropped is repaired on open. HTTP tests drive
+the real routes: archive answers the row, publishes `task_update`, the list
+drops it, `?archived=1` shows it, `archived=0` answers the live list, an
+unknown value is a 400, an unknown id a 404, restore reverses all of it, and a
+paired device may archive and restore but still gets 403 for delete. Console:
+`sessionFeed.test.ts` (both scopes, the shared row, status narrowing, a
+restored row leaving the archive's own feed, the feed unread in the live
+scope), `archiveBatch.test.ts` (the moved/failed split, alignment with the
+answers, a missing answer read as a failure, a fully failed batch),
+`sessionSelection.test.ts` (what each view may select, and that imported
+sessions never are), the live-store test that moves one row between two open
+feeds on a single `task_update` and the one that keeps `pageFull` after a
+`task_update` shrinks a full page, the bucket tests for a conversation
+archived on its own, the chip tests for the archived strip and its slide
+width, and source-wiring tests for the page-level contract — each feed's own
+paging cursor, the archive feed's waiting/retention/failure states, the
+Restore batch chip, the selection rule shared by every path, and the session
+sheet's navigate guard. Full console suite 158 files / 1607 tests. 42
+mutants, all red, each file restored byte for byte. `./scripts/check.sh` clean
+(10 jobs).
+
+**Review.** REVIEWED — four same-model passes over the whole diff, each after
+the previous pass's fixes. First pass: 0 blockers, 2 majors, 6 nits. Both
+majors were the archive view being half-built, and both are fixed and
+red-verified: "load older" took its cursor from the combined array's tail, so
+the live feed could be asked for rows older than an archived one and the
+archive feed was never paged at all; and the archive resource's loading and
+error were dropped on the floor, so "Nothing archived" stood in for a fetch in
+flight and for a failed one. All 6 nits fixed in the same pass: the batch's
+settle logic moved to `archiveBatch.ts` with its own tests instead of
+source-text assertions; the session sheet only leaves the page if the row that
+answered is still the one on screen; the archive view's batch now offers
+Restore rather than Archive; the OpenAPI prose for `archived_at` says "absent
+or 0" to match its `omitempty`; and this document no longer claims a project
+is deletable from the archive view (only conversations are — a project is
+restored from its heading, see Not done).
+
+The second pass found that two of those fixes were only half real, and one
+regression: **0 blockers, 3 majors, 6 nits**. The archive batch toolbar was
+unreachable — `enterSelection` still refused the archive scope, so the
+Restore chip was dead code behind a live-looking test — and it is now entered
+from an archived conversation, holds only conversations that were put away
+(a project's live chats are restored from the heading), and hides Pin, which
+orders a list this view does not show. The failure states asked the raw feed
+instead of the rendered list, so with any live conversation in the library a
+failed archive fetch still printed "Nothing archived" next to the error; both
+the empty-vs-error gate and the inline banner now ask `listed`, and a live
+feed failing inside the archive view gets its own line because what is
+missing differs. And "load older" inferred "there is more" from the current
+array, which shrinks when a row is archived or restored — one row leaving a
+full first page hid the whole tail; the page's fullness is now latched when
+the feed answers. The 6 nits fixed in the same pass: the archive feed keeps
+its last answer on screen while a settled search re-asks (it used to blink to
+a spinner); fresh installs carry `archived_at` in `migration001`; the batch's
+in-flight ref and selection epoch are pinned by tests; the batch guards, the
+per-feed cursors and the render gates all got mutants.
+
+The third pass confirmed the batch, empty-state and migration fixes and found
+the latch itself wrong in two ways: the archive's latch outlived the feed
+(leaving the view released the resource and re-entry fetched a fresh first
+page, but the previous visit's "no more" stayed), and the live latch read the
+app shell's first page, which is fetched once at start and shrinks with every
+archive — so opening the list after archiving could hide its tail. The fact
+moved to where it stays true: `refreshTaskList` records `pageFull` from the
+server's snapshot before live updates touch it, the page reads that instead of
+inferring from the array, and entering the archive view resets that feed's
+tail and its "more". The same pass found the retained archive was dead code
+behind the waiting gate (the view blanked anyway), a failed re-ask overwrote
+the retained copy, and a row restored from another surface while its project
+stayed archived could remain selected; all three are fixed, and the selection
+rules moved to `sessionSelection.ts` with their own tests so the checkbox, the
+tap, the keyboard, select-all, the selected count and the prune effect share
+one definition. A fourth pass checked the result and found no blocker or
+major; its four code nits are fixed here. A failed re-ask kept the retained
+archive in the ref but rendered the errored (empty) answer over it, so the
+render now treats an errored answer as unusable and keeps the retained rows;
+`pageFull` recorded at fetch time could not see rows evicted from the loaded
+window after a short first page, so both tails also read a window filled to
+its limit as "more"; an explicit `limit` of zero or less was clamped to the
+cap instead of read as the daemon's default of 50; and a dangling doc comment
+left by the selection refactor was removed.
+
+Two nits are recorded in Not done rather than fixed: the session sheet's
+destination, and a one-frame window in the navigate guard.
+
+**Not done.** `ListTasksForProject` still returns archived conversations and
+the project pulse counts them, so a project's own page and its activity line
+include what was put away; the phone list is the surface that hides them. That
+is deliberately left for a separate round: a project page arguably should show
+everything the project did, and choosing otherwise is a product decision, not
+a missing filter. The archive view inherits the live page's paging limits, so
+a conversation archived long ago is reachable only after paging the archive
+feed — there is no date jump. Archiving from the session sheet lands on `/`,
+which redirects to New Chat: it matches Delete, but returning to the list the
+person came from would be kinder, and that is a navigation decision for the
+whole detail page rather than one button. The `taskIdRef` guard closes the
+reported bug but the ref is assigned in a passive effect, so an answer landing
+between a route commit and that effect can still navigate; the pre-existing
+cancel guard has the same window, and closing it belongs in one change for
+both. Finally, the two Go call sites that pass `ArchivedExclude` (the routine
+runs feed and MCP `listTasks`) are covered by the store filter's own tests,
+not by an end-to-end test of each caller. Three smaller gaps are known and left
+open: entering the archive view resets its tail in an effect, so one frame can
+still render the previous visit's archive tail and its "more" answer before the
+reset commits (the in-flight page that would answer it is already dropped by
+the request generation); a search paused before the first archived answer can
+still show the empty state for a frame, because there is no retained archive to
+hold it; and the page-level "more"/retention mutants are text pins rather than
+behavioral ones — mounting `SessionsPage` needs a daemon and two live
+subscriptions — while the rules underneath (`pageFull`, `sessionFeedTasks`,
+`settleArchiveBatch`, the selection rule) each have behavioral tests.
