@@ -3580,3 +3580,70 @@ into a blob before it is saved, which browsers back with disk but which is not
 the streaming path a native download link takes, and the raw cap is a constant,
 not a setting. A workspace on another machine still cannot preview or download
 an image at all (501), because the worker protocol carries text only.
+
+### Round 25 — the file panel finds its workspace (2026-10-30)
+
+**25A Every generation route answered "workspace not found".** Found while
+walking Round 24 on the desktop shell: opening the files panel for a task with
+an active generation showed the words `workspace not found` where the file list
+belongs, at both widths, and Round 24's image and table never got a chance to
+run there because the requests behind them had already 404'd.
+
+The cause was a contract mismatch, not a missing row. A generation id is
+`<taskULID>:g<N>`, and the console builds API paths with `encodeURIComponent` —
+correct encoding for a path segment, and it turns the colon into `%3A`. chi v5
+matches routes against the request's escaped path, so `chi.URLParam` hands the
+handler the matched text with its escapes intact, and the handler passed
+`01ABC…%3Ag1` to `Store.GetWorkspace`, which knows only `01ABC…:g1`. All four
+generation-scoped routes were affected — tree, file read, file write, diff —
+which is the whole generation lens of the panel, and with it Round 24's
+`raw=1` preview and `download=1` save inside a generation. Source-root tasks
+were untouched: `/source/...` carries no workspace id, and a task without a
+generation opens straight to the source view, which is why the panel looked
+healthy on probe tasks and in every test that mocked the client.
+
+One helper, `workspaceIDParam`, decodes the parameter with `url.PathUnescape`
+and falls back to the raw value when it is not a valid escape sequence.
+`PathUnescape` and not `QueryUnescape`: the former leaves `+` alone, the latter
+would turn it into a space. An id that arrives still encoded twice (`%253A`)
+decodes twice and names the same row; ids are generated and never contain a
+literal `%`, so the leniency cannot reach a row the client did not mean. The
+decoded value only ever selects a database row — every filesystem path still
+comes from the row's own columns and keeps its `os.OpenRoot` containment — so a
+hostile `%2F..%2F` id can only fail to match.
+
+The fix is on the server on purpose. Percent-encoding a path segment is what a
+standards-compliant client does; accepting it is the server's job, and doing it
+here covers the Hub proxy and any future client that encodes the same way.
+
+**Verification.** `TestWorkspaceRoutesResolveAPercentEncodedID` drives the real
+router with `%3A` ids through tree, file read, diff and file write, asserts the
+diff carries its live change list, and pins the cross-task ownership check; it
+failed on all four positive cases before the fix and passes after. 5 mutants
+red before and after the test rewrite — the helper stops decoding, and each of
+the four handlers stops using it. `./scripts/check.sh --all` ran clean on the
+code before the test rewrite; the rewrite itself (test file only, plus one
+comment) passed a full `./scripts/check.sh` afterwards. Live on the rebuilt
+node: the escaped tree answered 200 with the file list and the diff 200; the
+panel opened on `工作区 1 活跃` with its three changes, and a PNG drew inline and
+a CSV laid out as a table through the generation's `raw=1` route at 1280 and at
+390. The demo files were removed from the generation worktree afterwards.
+
+**Review.** REVIEWED — one same-model pass plus a confirmation. No blockers and
+no majors. Four nits, all fixed: the double-decode leniency is now documented in
+the helper rather than gated on `RawPath` (gating would 404 an over-encoded id
+the store can still resolve); `requireGitBin` now gates only the diff subtest,
+so tree/file/write stay covered on a machine without git; the diff subtest
+leaves one untracked file and asserts the live view with exactly one change
+instead of a bare 200; and a cross-task subtest pins the ownership check. The
+confirmation pass re-ran the focused test and a per-route mutation with
+`-overlay` and found nothing new. It also caught a stale index — the staged
+test was pre-rewrite — which was restaged before the commit.
+
+**Not done.** A released-and-pruned generation still answers "workspace not
+found": true, but flat — the panel could say the generation was released and
+offer the source view. The decode is a per-route helper, not a router-wide rule;
+every other path parameter is a ULID or a hex token that cannot carry an
+encodable character, and a blanket decode would hide the next id that grows a
+`:` rather than name it. The over-encoded `%253A` form is accepted rather than
+refused, as noted above.
