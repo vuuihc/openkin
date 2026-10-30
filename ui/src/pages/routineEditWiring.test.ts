@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 const PAGE = readFileSync(join(UI, "src/pages/RoutinesPage.tsx"), "utf8");
+const NEW_CHAT = readFileSync(join(UI, "src/pages/NewChatPage.tsx"), "utf8");
 
 /** The source between two markers, so a test can speak about one function. */
 function block(start: string, end: string): string {
@@ -70,6 +71,7 @@ describe("editing a routine", () => {
       "prompt",
       "cwd",
       "agentId",
+      "model",
       "permissionMode",
       "intervalSecs",
       "routineRule",
@@ -84,6 +86,7 @@ describe("editing a routine", () => {
       "setPrompt",
       "setCwd",
       "setAgentId",
+      "setModel",
       "setPermissionMode",
       "setIntervalSecs",
       "setRoutineRule",
@@ -115,5 +118,50 @@ describe("editing a routine", () => {
     );
     // Four row actions: run now, edit, pause/resume, delete.
     expect(PAGE.split("disabled={!!busy[r.id] || creating}").length - 1).toBe(4);
+  });
+});
+
+describe("a routine's model", () => {
+  it("is picked from the routine's own agent, not from a free list", () => {
+    // A model id from another agent's catalog is a run that fails at start,
+    // so the picker lists exactly the models the selected agent reports.
+    const picker = block("<ModelPicker", "/>");
+    expect(picker).toContain("value={model}");
+    expect(picker).toContain("models={modelsForAgent(agents, agentId)}");
+    expect(picker).toContain("onChange={setModel}");
+    expect(picker).toContain("disabled={creating}");
+    // The picker's "Custom" flag survives a value change by design, so a
+    // cleared model needs a fresh mount to stop reading "Custom" with a blank
+    // box. The key is what makes the form identity part of that mount.
+    expect(picker).toContain('key={`${editing?.id ?? "new"}:${agentId}`}');
+  });
+
+  it("is cleared when the agent changes", () => {
+    // The same rule New Chat applies: the new agent does not know the old
+    // catalog's id, and a stored one it cannot run would fail every fire
+    // instead of falling back to its default.
+    const handler = block("setAgentId(e.target.value);", "</select>");
+    expect(handler).toContain('setModel("");');
+  });
+
+  it("travels with create and with a patch", () => {
+    expect(PAGE).toContain("...(model.trim() ? { model: model.trim() } : {}),");
+    // A patch has to carry an emptied picker too — "" is what puts a routine
+    // back on the agent default.
+    const edit = block("const patch = routinePatch(editing, {", "});");
+    expect(edit).toContain("model,");
+    // Opening an edit shows the routine's own model, not the last draft's.
+    // The adjacency is what makes this openEdit's line and not applyDraft's.
+    expect(PAGE).toContain("setAgentId(draft.agent);\n    setModel(draft.model);");
+  });
+
+  it("is carried by New Chat's routine mode instead of being dropped", () => {
+    // The model picker stays visible in routine mode; without this line the
+    // control looked applied while every run started on the agent's default.
+    // The indentation is part of the assertion: the ordinary send a few lines
+    // below carries the same expression, and only this one is the schedule's.
+    expect(NEW_CHAT).toContain(
+      "\n          ...(selectedModel.trim() ? { model: selectedModel.trim() } : {}),",
+    );
   });
 });

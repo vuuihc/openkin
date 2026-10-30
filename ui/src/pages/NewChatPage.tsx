@@ -364,6 +364,10 @@ export default function NewChatPage() {
                 ...(nextMs != null ? { next_due_at: nextMs } : {}),
               }),
           agent: mainAgentId || undefined,
+          // The model picker stays visible in routine mode, so its value has
+          // to travel with the schedule; dropping it made the control look
+          // applied while every run started on the agent's default.
+          ...(selectedModel.trim() ? { model: selectedModel.trim() } : {}),
           permission_mode: permissionMode,
           project_id: project?.id,
         });

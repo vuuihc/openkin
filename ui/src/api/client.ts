@@ -1442,6 +1442,8 @@ export type Routine = {
   project_id?: string;
   cwd: string;
   agent: string;
+  /** The model its runs start with; absent/empty means the agent's default. */
+  model?: string;
   permission_mode: string;
   prompt: string;
   interval_secs: number;
@@ -1472,6 +1474,8 @@ export type CreateRoutineBody = {
   project_id?: string;
   cwd: string;
   agent?: string;
+  /** Omit or empty for the agent's own default model. */
+  model?: string;
   permission_mode?: string;
   prompt: string;
   /** Required for an interval routine; the daemon derives it from a rule. */
@@ -1488,6 +1492,8 @@ export type PatchRoutineBody = {
   project_id?: string;
   cwd?: string;
   agent?: string;
+  /** "" clears the model back to whatever the agent chooses. */
+  model?: string;
   permission_mode?: string;
   prompt?: string;
   interval_secs?: number;

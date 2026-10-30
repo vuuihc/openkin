@@ -283,6 +283,19 @@ describe("routinePatch", () => {
     expect(routinePatch(r, form(r, { agent: "claude-code" }))).toEqual({ agent: "claude-code" });
   });
 
+  it("sends the model only when it changed, and can clear it", () => {
+    const r = routine();
+    expect(routinePatch(r, form(r, { model: "claude-sonnet-5-5" }))).toEqual({
+      model: "claude-sonnet-5-5",
+    });
+    // Empty is a real value: it puts the routine back on the agent's default,
+    // so the field has to be sent, not omitted.
+    const picked = routine({ model: "claude-sonnet-5-5" });
+    expect(routinePatch(picked, form(picked, { model: "" }))).toEqual({ model: "" });
+    // Surrounding space is not a change.
+    expect(routinePatch(picked, form(picked, { model: "  claude-sonnet-5-5 " }))).toBeNull();
+  });
+
   it("does not call a prompt with different surrounding space a change", () => {
     const r = routine({ prompt: "summarise the open issues\n" });
     expect(routinePatch(r, form(r, { prompt: "  summarise the open issues  " }))).toBeNull();

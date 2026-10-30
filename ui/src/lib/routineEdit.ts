@@ -29,6 +29,8 @@ export type RoutineForm = {
   prompt: string;
   cwd: string;
   agent: string;
+  /** The agent model the routine's runs start with; "" = the agent default. */
+  model: string;
   permissionMode: string;
   intervalSecs: number;
   rule: RoutineRule | null;
@@ -49,6 +51,7 @@ export function routineForm(routine: Routine): RoutineForm {
     prompt: routine.prompt,
     cwd: routine.cwd,
     agent: routine.agent ?? "",
+    model: routine.model ?? "",
     permissionMode: routine.permission_mode,
     intervalSecs: routine.interval_secs,
     rule: parseRoutineRule(routine.recurrence),
@@ -177,6 +180,11 @@ export function routinePatch(
   const cwd = form.cwd.trim();
   if (cwd !== routine.cwd) patch.cwd = cwd;
   if ((form.agent ?? "") !== (routine.agent ?? "")) patch.agent = form.agent;
+  // "" is a real value here — it means "the agent default" — so an edit that
+  // clears the picker has to send it, not omit the field.
+  if ((form.model ?? "").trim() !== (routine.model ?? "").trim()) {
+    patch.model = form.model.trim();
+  }
   if (
     normalizePermissionMode(form.permissionMode) !==
     normalizePermissionMode(routine.permission_mode)

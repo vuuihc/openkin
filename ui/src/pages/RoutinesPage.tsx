@@ -19,6 +19,7 @@ import {
   type Task,
 } from "../api/client";
 import CwdPicker from "../components/chat/CwdPicker";
+import ModelPicker from "../components/chat/ModelPicker";
 import PermissionModePicker from "../components/chat/PermissionModePicker";
 import RoutineScheduleFields, {
   defaultNextRunLocal,
@@ -39,6 +40,7 @@ import {
   normalizePermissionMode,
   type PermissionMode,
 } from "../lib/permissionMode";
+import { modelsForAgent } from "../lib/agentModels";
 import { routineForm, routinePatch, routineTitle } from "../lib/routineEdit";
 import { subscribeWS, useAppStore } from "../store/appStore";
 
@@ -90,6 +92,7 @@ type FormDraft = {
   prompt: string;
   cwd: string;
   agentId: string;
+  model: string;
   permissionMode: PermissionMode;
   intervalSecs: number;
   rule: RoutineRule | null;
@@ -145,6 +148,9 @@ export default function RoutinesPage() {
   const [nextRunLocal, setNextRunLocal] = useState(() => defaultNextRunLocal());
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [agentId, setAgentId] = useState("");
+  // The model its runs start with; "" means the agent's own default, which is
+  // what every routine ran with before the field existed.
+  const [model, setModel] = useState("");
   const [creating, setCreating] = useState(false);
   // The routine the form is editing; null means it is creating a new one.
   const [editing, setEditing] = useState<Routine | null>(null);
@@ -232,6 +238,10 @@ export default function RoutinesPage() {
   );
 
   const availableAgents = useMemo(() => agents.filter((a) => a.available), [agents]);
+  // The agent whose catalog the model picker lists. It is read from all agents,
+  // not just the available ones: a routine keeps its agent when that agent goes
+  // offline, and the catalog it last reported is still the best list to offer.
+  const modelAgent = agents.find((a) => a.id === agentId);
 
   const onToggle = async (r: Routine) => {
     setBusy((b) => ({ ...b, [r.id]: true }));
@@ -375,6 +385,7 @@ export default function RoutinesPage() {
   const resetForm = () => {
     setTitle("");
     setPrompt("");
+    setModel("");
     setRoutineRule(null);
     setRuleZone(null);
     setNextRunLocal(defaultNextRunLocal());
@@ -385,6 +396,7 @@ export default function RoutinesPage() {
     prompt,
     cwd,
     agentId,
+    model,
     permissionMode,
     intervalSecs,
     rule: routineRule,
@@ -397,6 +409,7 @@ export default function RoutinesPage() {
     setPrompt(draft.prompt);
     setCwd(draft.cwd);
     setAgentId(draft.agentId);
+    setModel(draft.model);
     setPermissionMode(draft.permissionMode);
     setIntervalSecs(draft.intervalSecs);
     setRoutineRule(draft.rule);
@@ -438,6 +451,7 @@ export default function RoutinesPage() {
     setCwd(draft.cwd);
     setPermissionMode(normalizePermissionMode(draft.permissionMode));
     setAgentId(draft.agent);
+    setModel(draft.model);
     setIntervalSecs(draft.intervalSecs);
     setRoutineRule(draft.rule);
     setRuleZone(draft.ruleZone);
@@ -479,6 +493,7 @@ export default function RoutinesPage() {
         prompt: p,
         cwd,
         agent: agentId,
+        model,
         permissionMode,
         intervalSecs,
         rule: routineRule,
@@ -524,6 +539,7 @@ export default function RoutinesPage() {
               ...(nextMs != null ? { next_due_at: nextMs } : {}),
             }),
         agent: agentId || undefined,
+        ...(model.trim() ? { model: model.trim() } : {}),
         permission_mode: permissionMode,
       });
       setRoutines((list) => [r, ...list]);
@@ -624,7 +640,14 @@ export default function RoutinesPage() {
                   <select
                     value={agentId}
                     disabled={creating}
-                    onChange={(e) => setAgentId(e.target.value)}
+                    onChange={(e) => {
+                      setAgentId(e.target.value);
+                      // A model from the old agent's catalog is not one this
+                      // agent has; New Chat clears the same way on a host
+                      // change, and a stored id the agent does not know would
+                      // fail every run instead of falling back.
+                      setModel("");
+                    }}
                     className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-text"
                   >
                     {/* A routine keeps the agent it was created with, even if
@@ -641,6 +664,22 @@ export default function RoutinesPage() {
                     ))}
                   </select>
                 </label>
+              )}
+              {agentId && (
+                <ModelPicker
+                  // The picker's own "Custom" state survives a value change by
+                  // design (picking Custom opens an empty input), so a model
+                  // cleared here would leave it reading "Custom" with a blank
+                  // box. Remounting on form identity and agent re-initialises
+                  // that state from the value the form now holds.
+                  key={`${editing?.id ?? "new"}:${agentId}`}
+                  value={model}
+                  models={modelsForAgent(agents, agentId)}
+                  source={modelAgent?.model_list_source}
+                  status={modelAgent?.model_list_status}
+                  disabled={creating}
+                  onChange={setModel}
+                />
               )}
             </div>
 
