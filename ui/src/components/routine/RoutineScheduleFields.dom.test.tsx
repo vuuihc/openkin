@@ -16,7 +16,11 @@ import RoutineScheduleFields from "./RoutineScheduleFields";
  * choice clears the rule and sets the interval, and a clock choice sets the
  * rule and stops asking for a first run.
  */
-function setup(rule: RoutineRule | null = null, ruleZone?: string | null) {
+function setup(
+  rule: RoutineRule | null = null,
+  ruleZone?: string | null,
+  nextRunPreview?: number | null,
+) {
   const onRuleChange = vi.fn();
   const onIntervalChange = vi.fn();
   const onNextRunLocalChange = vi.fn();
@@ -29,6 +33,7 @@ function setup(rule: RoutineRule | null = null, ruleZone?: string | null) {
       rule={rule}
       onRuleChange={onRuleChange}
       ruleZone={ruleZone}
+      nextRunPreview={nextRunPreview}
     />,
   );
   return { onRuleChange, onIntervalChange, onNextRunLocalChange };
@@ -157,5 +162,52 @@ describe("RoutineScheduleFields", () => {
     // cannot name; it must not claim the reader's zone instead.
     setup({ kind: "daily", hour: 9, minute: 0 }, "");
     expect(screen.getByText(t("routines.ruleTimezoneDaemon"))).toBeTruthy();
+  });
+
+  it("shows the next run the daemon computed for a repeated rule", () => {
+    // The line is the daemon's answer, not the form's arithmetic: the same
+    // instant create would store. It is formatted in the reader's locale.
+    const at = new Date("2026-03-02T09:30:00").getTime();
+    setup({ kind: "daily", hour: 9, minute: 30 }, undefined, at);
+    expect(
+      screen.getByText(t("routines.nextRunPreview", { when: new Date(at).toLocaleString() })),
+    ).toBeTruthy();
+  });
+
+  it("reads the line on the rule's own clock", () => {
+    // The time field above shows the rule's wall clock, not the reader's, so
+    // the sentence underneath has to use that same face. The zone is picked by
+    // rendered output, not name: zones that share an offset (Asia/Shanghai and
+    // Asia/Singapore) print the same wall clock, and a name-only pick would let
+    // the assertion pass on the reader's own formatting.
+    const at = new Date("2026-03-02T09:30:00").getTime();
+    const foreign = ["Asia/Shanghai", "America/New_York", "Europe/Berlin"].find(
+      (z) =>
+        new Date(at).toLocaleString(undefined, { timeZone: z }) !== new Date(at).toLocaleString(),
+    )!;
+    setup({ kind: "daily", hour: 9, minute: 30 }, foreign, at);
+    expect(
+      screen.getByText(
+        t("routines.nextRunPreview", {
+          when: new Date(at).toLocaleString(undefined, { timeZone: foreign }),
+        }),
+      ),
+    ).toBeTruthy();
+  });
+
+  it("shows no next run until the daemon has answered", () => {
+    // A missing answer is not "now" and not a client-side guess: the line is
+    // simply absent, and a transport failure reads the same way.
+    setup({ kind: "daily", hour: 9, minute: 30 }, undefined, null);
+    const prefix = t("routines.nextRunPreview", { when: "" }).trim();
+    expect(document.body.textContent).not.toContain(prefix);
+  });
+
+  it("does not repeat a one-off's instant above its own field", () => {
+    // The date-time control already shows when it fires; a second line naming
+    // the same instant would only crowd the form.
+    setup({ kind: "once" }, undefined, 1_800_000_000_000);
+    const prefix = t("routines.nextRunPreview", { when: "" }).trim();
+    expect(document.body.textContent).not.toContain(prefix);
   });
 });

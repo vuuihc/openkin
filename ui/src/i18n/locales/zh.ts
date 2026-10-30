@@ -1504,6 +1504,7 @@ const zh = {
     firstRunLabel: "首次运行",
     nextRunAsap: "将在调度器下一次扫描时触发（约 30 秒内）。",
     nextRunAt: "首次运行：{when}",
+    nextRunPreview: "下次运行：{when}",
     clearFirstRun: "尽快执行",
     repeatLabel: "重复",
     repeatIntervalGroup: "按间隔",

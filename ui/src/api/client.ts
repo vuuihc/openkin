@@ -1505,6 +1505,11 @@ export type PatchRoutineBody = {
   recurrence?: string;
 };
 
+/** What a rule means before it is saved, as the daemon reads it. */
+export type RoutinePreview = {
+  next_due_at: number;
+};
+
 export function listRoutines(params?: {
   project_id?: string;
   enabled?: boolean;
@@ -1542,6 +1547,19 @@ export function patchRoutine(id: string, body: PatchRoutineBody): Promise<Routin
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Ask the daemon what a rule means: the instant its next run would land on.
+ * The form shows this rather than computing it, so the preview cannot disagree
+ * with the schedule create would store.
+ */
+export function previewRoutine(recurrence: string): Promise<RoutinePreview> {
+  return apiFetch<RoutinePreview>("/api/routines/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ recurrence }),
   });
 }
 

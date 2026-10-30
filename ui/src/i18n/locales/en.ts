@@ -1573,6 +1573,7 @@ const en: MessageTree = {
     firstRunLabel: "First run",
     nextRunAsap: "Runs on the next scheduler tick (about every 30s).",
     nextRunAt: "First run at {when}",
+    nextRunPreview: "Next run: {when}",
     clearFirstRun: "Use ASAP",
     repeatLabel: "Repeat",
     repeatIntervalGroup: "On a timer",

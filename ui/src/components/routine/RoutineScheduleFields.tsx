@@ -38,6 +38,26 @@ export function toLocalInputValue(d: Date): string {
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
+/**
+ * The instant on the clock the schedule itself is read in.
+ *
+ * A rule written in another zone is edited as that zone's wall clock, so the
+ * next-run line has to use the same face or the form shows 09:00 in the field
+ * and another hour in the sentence under it. A zone-less rule ("" — the
+ * daemon's own clock) has no face to borrow and stays on the reader's.
+ */
+function formatRuleInstant(ms: number, zone?: string | null): string {
+  const date = new Date(ms);
+  if (!zone) return date.toLocaleString();
+  try {
+    return date.toLocaleString(undefined, { timeZone: zone });
+  } catch {
+    // A zone name this browser does not know should not blank the line; the
+    // hint above still names it, and the reader's clock is a true instant.
+    return date.toLocaleString();
+  }
+}
+
 const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6] as const;
 
 type Props = {
@@ -61,6 +81,12 @@ type Props = {
    * shows that zone's wall clock rather than the reader's.
    */
   ruleZone?: string | null;
+  /**
+   * The next run the daemon computes for this rule, in ms. Null/undefined
+   * while there is no rule, the request is in flight, or it failed — the form
+   * shows nothing rather than a guess.
+   */
+  nextRunPreview?: number | null;
   disabled?: boolean;
   /** Compact single-row layout for composer footer. */
   compact?: boolean;
@@ -89,6 +115,7 @@ export default function RoutineScheduleFields({
   rule,
   onRuleChange,
   ruleZone,
+  nextRunPreview,
   disabled,
   compact,
 }: Props) {
@@ -310,6 +337,17 @@ export default function RoutineScheduleFields({
       {/* Its own line: in the compact strip the hint shares the row with the
           fields, and a wrapping sentence there squeezes the input it explains. */}
       <span className="block basis-full text-caption text-kin-muted">{hint}</span>
+
+      {/* The daemon's own answer, not the form's arithmetic: for a repeated
+          rule this is the first time its runs would actually land. A one-off
+          already shows its instant in the field above. */}
+      {rule && rule.kind !== "once" && nextRunPreview != null && (
+        <span className="block basis-full text-caption text-kin-secondary">
+          {tr("routines.nextRunPreview", {
+            when: formatRuleInstant(nextRunPreview, ruleZone),
+          })}
+        </span>
+      )}
 
       {!rule && nextRunLocal && (
         <button

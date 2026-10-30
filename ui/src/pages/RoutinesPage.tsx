@@ -28,11 +28,13 @@ import RoutineScheduleFields, {
 } from "../components/routine/RoutineScheduleFields";
 import {
   describeRoutineRule,
+  localTimeZone,
   parseRoutineRule,
   serializeRoutineRule,
   type RoutineRule,
 } from "../lib/routineRecurrence";
 import { SlowConnectHint } from "../components/Skeleton";
+import { useRoutinePreview } from "../hooks/useRoutinePreview";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useT } from "../i18n/react";
 import {
@@ -242,6 +244,18 @@ export default function RoutinesPage() {
   // not just the available ones: a routine keeps its agent when that agent goes
   // offline, and the catalog it last reported is still the best list to offer.
   const modelAgent = agents.find((a) => a.id === agentId);
+
+  // The rule as create or a patch would send it. A one-off shows its instant in
+  // the date field itself, so only repeated rules are worth asking about.
+  const rulePayload = useMemo(() => {
+    if (!routineRule || routineRule.kind === "once") return "";
+    // A stored rule keeps the zone it was written in; a new one is written in
+    // the browser's. Defaulting the same way the edit path does
+    // (`schedulePatch` in routineEdit.ts) keeps the preview on the clock the
+    // save would store, not just one that happens to match today.
+    return serializeRoutineRule(routineRule, null, ruleZone ?? localTimeZone());
+  }, [routineRule, ruleZone]);
+  const rulePreviewAt = useRoutinePreview(rulePayload);
 
   const onToggle = async (r: Routine) => {
     setBusy((b) => ({ ...b, [r.id]: true }));
@@ -696,6 +710,7 @@ export default function RoutinesPage() {
                 rule={routineRule}
                 onRuleChange={setRoutineRule}
                 ruleZone={ruleZone}
+                nextRunPreview={rulePreviewAt}
                 disabled={creating}
               />
             </div>
