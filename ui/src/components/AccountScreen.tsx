@@ -242,11 +242,12 @@ export default function AccountScreen({ mode }: { mode: AccountMode }) {
             {busy ? tr("account.working") : tr(copy.action)}
           </button>
 
-          {/* OIDC is hidden while joining, because it cannot work there:
-              LoginIdentity refuses to attach a provider to a Hub that closed
-              registration. Offering a button whose only outcome is an error is
-              worse than offering nothing. */}
-          {mode !== "join" && oidcProviders.length > 0 && (
+          {/* Federated sign-in is offered only when signing in. Claiming and
+              joining both spend a code that the provider flow does not carry,
+              so the callback can only answer "this hub already has an owner" —
+              a false statement on an unclaimed Hub and a dead end either way.
+              The account is created with a password, then linked from Settings. */}
+          {mode === "login" && oidcProviders.length > 0 && (
             <div className="space-y-3 pt-1">
               <div className="flex items-center gap-3">
                 <span className="h-px flex-1 bg-kin-hairline-strong" />
@@ -299,6 +300,10 @@ export default function AccountScreen({ mode }: { mode: AccountMode }) {
             <code className="block rounded-lg bg-kin-bg px-2 py-1.5 text-kin-secondary">
               {tr("account.forgotCommand")}
             </code>
+            <p className="pt-1">{tr("account.containerCommandHint")}</p>
+            <code className="block rounded-lg bg-kin-bg px-2 py-1.5 text-kin-secondary">
+              {tr("account.forgotContainerCommand")}
+            </code>
           </div>
         )}
 
@@ -308,6 +313,10 @@ export default function AccountScreen({ mode }: { mode: AccountMode }) {
             <p>{tr("account.whereBody")}</p>
             <code className="block rounded-lg bg-kin-bg px-2 py-1.5 text-kin-secondary">
               {tr("account.claimCommand")}
+            </code>
+            <p className="pt-1">{tr("account.containerCommandHint")}</p>
+            <code className="block rounded-lg bg-kin-bg px-2 py-1.5 text-kin-secondary">
+              {tr("account.claimContainerCommand")}
             </code>
             {!account.claimable && (
               <p className="text-kin-orange-ink/90">{tr("account.codeExpired")}</p>

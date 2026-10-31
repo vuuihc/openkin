@@ -24,6 +24,7 @@ type AuthStatusResponse = {
   user?: {
     email?: string;
     display_name?: string;
+    identities?: string[];
   };
 };
 
@@ -54,6 +55,7 @@ function toState(res: AuthStatusResponse): AccountState {
     providers,
     email: res.user?.email,
     displayName: res.user?.display_name,
+    identities: Array.isArray(res.user?.identities) ? res.user.identities : [],
   };
 }
 

@@ -1156,6 +1156,14 @@ const en: MessageTree = {
       blurb: "The account this Hub signs you in with. Signing out requires signing in again.",
       unknownUser: "Signed in",
       deviceCountNote: "Every device connected to this Hub shares this one account.",
+      methods: "Sign-in methods",
+      methodsHint:
+        "Any of these signs you in. Linking a provider lets you skip the password.",
+      methodPassword: "Password",
+      methodOther: "Another sign-in",
+      linkProvider: "Link {provider}",
+      linkAnotherProvider: "Link another sign-in",
+      linked: "Sign-in method linked.",
       signOut: "Sign out",
       signingOut: "Signing out…",
     },
@@ -1492,13 +1500,19 @@ const en: MessageTree = {
       "The one created for you on this Hub — when it was claimed, or when you accepted an invitation. There is no default account.",
     forgotTitle: "Forgot the password?",
     forgotBody:
-      "On the Hub host, run this for the address you sign in with. It prints a new password (container deployment: prefix it with docker compose exec kin):",
+      "Run this for the address you sign in with. It prints a new password once.",
     forgotCommand: "kin hub reset-password --email you@example.com",
+    containerCommandHint:
+      "Container deployment — the same command, with no compose file or working directory:",
+    forgotContainerCommand: "docker exec openkin-hub kin hub reset-password --email you@example.com",
+    claimContainerCommand: "docker exec openkin-hub kin hub claim-code",
     errors: {
       invalid_credentials: "Email or password is incorrect.",
       claim_code_invalid: "That claim code is not valid or has expired.",
       invite_invalid: "That invitation is not valid or has expired.",
       registration_closed: "This Hub already has an owner. Sign in instead.",
+      identity_not_linked:
+        "This sign-in isn't linked to an account here yet. Sign in with your password, then link it under Settings → Account.",
       weak_password: "That password is too weak. Use at least 8 characters.",
       identity_taken: "That login is already linked to another account.",
       email_taken: "That email already has an account here. Sign in instead.",
