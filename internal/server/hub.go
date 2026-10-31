@@ -166,7 +166,8 @@ func RunHubAccounts() error {
 	}
 	defer st.Close()
 
-	users, err := st.ListUsers(context.Background())
+	ctx := context.Background()
+	users, err := st.ListUsers(ctx)
 	if err != nil {
 		return err
 	}
@@ -178,6 +179,12 @@ func RunHubAccounts() error {
 	fmt.Println("  Accounts on this hub, by sign-in address:")
 	for _, user := range users {
 		line := fmt.Sprintf("  %-6s  %s", user.Role, printable(user.Email, accountEmailMax))
+		// Which credentials exist is the next question a locked-out operator
+		// has, and the answer is already here: an account that signs in with
+		// GitHub has no password to reset.
+		if methods := signInMethods(ctx, st, user.ID); len(methods) > 0 {
+			line += "  sign-in: " + printable(strings.Join(methods, ", "), accountNameMax)
+		}
 		if user.DisplayName != "" && user.DisplayName != user.Email {
 			line += fmt.Sprintf("  (%s)", printable(user.DisplayName, accountNameMax))
 		}
@@ -187,6 +194,57 @@ func RunHubAccounts() error {
 		fmt.Println(line)
 	}
 	fmt.Println()
+	return nil
+}
+
+// signInMethods names the credentials attached to an account. Labels are
+// stored with the identity, so the operator reads "GitHub" rather than an
+// issuer URL, and the password credential says "password" like the rest of the
+// CLI does.
+func signInMethods(ctx context.Context, st *store.Store, userID string) []string {
+	identities, err := st.ListIdentities(ctx, userID)
+	if err != nil {
+		return nil
+	}
+	seen := make(map[string]bool, len(identities))
+	methods := make([]string, 0, len(identities))
+	for _, identity := range identities {
+		label := strings.TrimSpace(identity.Label)
+		if label == "" {
+			label = strings.TrimSpace(strings.TrimPrefix(identity.Provider, authsvc.ProviderOIDCPrefix))
+		}
+		if label == "" || seen[label] {
+			continue
+		}
+		seen[label] = true
+		methods = append(methods, label)
+	}
+	return methods
+}
+
+// explainNoPassword answers the case ErrAccountNotFound conflates: the address
+// does belong to an account, but that account has no password credential. On a
+// Hub that offers federated sign-in this is a normal state, and "no password
+// account with that email" would send the operator looking for a typo that is
+// not there.
+func explainNoPassword(ctx context.Context, st *store.Store, email string) error {
+	want := authsvc.NormalizeEmail(email)
+	users, err := st.ListUsers(ctx)
+	if err != nil {
+		return nil
+	}
+	for _, user := range users {
+		if authsvc.NormalizeEmail(user.Email) != want {
+			continue
+		}
+		methods := signInMethods(ctx, st, user.ID)
+		how := "a federated login"
+		if len(methods) > 0 {
+			how = strings.Join(methods, ", ")
+		}
+		return fmt.Errorf("account %s signs in with %s; there is no password to reset",
+			printable(user.Email, accountEmailMax), printable(how, accountNameMax))
+	}
 	return nil
 }
 
@@ -271,9 +329,13 @@ func RunHubResetPassword(email string) error {
 		return err
 	}
 	accounts := authsvc.New(st, authsvc.Config{})
-	user, err := accounts.ResetPassword(context.Background(), email, password)
+	ctx := context.Background()
+	user, err := accounts.ResetPassword(ctx, email, password)
 	if err != nil {
 		if errors.Is(err, authsvc.ErrAccountNotFound) {
+			if hint := explainNoPassword(ctx, st, email); hint != nil {
+				return hint
+			}
 			// A typo is the likely cause, and the answer is right here.
 			_ = RunHubAccounts()
 		}
