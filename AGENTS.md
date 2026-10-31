@@ -244,7 +244,9 @@ checks pass, do **not** stop at self-review. Finish with this gate in order:
    Codex high / Claude Opus-class) to review the full diff and nearby call
    sites. Ask for correctness, regressions, security, missing tests, API/UI
    contract drift, and residual risk. Prefer a structured severity report
-   (`blocker` / `major` / `nit`).
+   (`blocker` / `major` / `nit`). Follow the review protocol and risk-surface
+   checklist in `docs/product/LESSONS.md` (freeze the tree, mutants before
+   review, one full report, fix once, verify the delta).
 2. **Fix review findings.** Address every `blocker` and `major` item. Re-run
    the relevant tests/build. Request another review pass after material fixes.
    Repeat until the latest review reports **no blocker or major issues**.
