@@ -97,7 +97,17 @@ func (s *Server) authUserView(r *http.Request, user store.User) *authUser {
 		DisplayName:   user.DisplayName,
 	}
 	if identities, err := s.Store.ListIdentities(r.Context(), user.ID); err == nil {
+		// One provider can hold more than one identity for this account: Dex
+		// gives GitHub and Google different subjects, so both connectors can be
+		// linked to the same person through the one OIDC provider. The console
+		// shows a chip per provider, not per subject, so dedupe here rather
+		// than making the client guess.
+		seen := make(map[string]bool, len(identities))
 		for _, identity := range identities {
+			if seen[identity.Provider] {
+				continue
+			}
+			seen[identity.Provider] = true
 			view.Identities = append(view.Identities, identity.Provider)
 		}
 	}
@@ -387,6 +397,8 @@ func authErrorMessage(err error) string {
 		return "that invitation is not valid or has expired"
 	case errors.Is(err, auth.ErrRegistrationClosed):
 		return "this hub already has an owner; sign in instead"
+	case errors.Is(err, auth.ErrIdentityNotLinked):
+		return "this sign-in is not linked to an account here; sign in with your password, then link it under Settings"
 	case errors.Is(err, auth.ErrWeakPassword):
 		return err.Error()
 	case errors.Is(err, auth.ErrIdentityTaken):
@@ -411,6 +423,8 @@ func authErrorCode(err error) string {
 		return "invite_invalid"
 	case errors.Is(err, auth.ErrRegistrationClosed):
 		return "registration_closed"
+	case errors.Is(err, auth.ErrIdentityNotLinked):
+		return "identity_not_linked"
 	case errors.Is(err, auth.ErrWeakPassword):
 		return "weak_password"
 	case errors.Is(err, auth.ErrIdentityTaken):

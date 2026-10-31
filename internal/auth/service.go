@@ -46,11 +46,20 @@ const (
 	inviteGroupLen = 5
 )
 
-// ErrRegistrationClosed is returned when an unknown federated identity tries to
-// sign in on an already-claimed Hub. New accounts are never created implicitly:
-// the first owner is established by the terminal bootstrap code, and any later
-// identity must be linked from an authenticated session.
+// ErrRegistrationClosed is returned when a bootstrap path is used on a Hub that
+// already has an owner. New accounts are never created implicitly: the first
+// owner is established by the terminal bootstrap code, and any later identity
+// must be linked from an authenticated session.
 var ErrRegistrationClosed = errors.New("auth: this hub already has an owner")
+
+// ErrIdentityNotLinked means the provider authenticated somebody, but that
+// identity is not attached to any account here. It is separate from
+// ErrRegistrationClosed because the remedy is different and the provider
+// callback is the only place that knows the difference: registration is not
+// being attempted, a link is missing. Telling this person the Hub "already has
+// an owner" hides the one action that fixes it (sign in with the password, then
+// link the provider in Settings).
+var ErrIdentityNotLinked = errors.New("auth: this sign-in is not linked to an account on this hub")
 
 // ErrBootstrapUnavailable means the supplied claim code is unknown, expired, or
 // already spent. The three cases are intentionally indistinguishable.
@@ -511,7 +520,7 @@ func (s *Service) LoginIdentity(ctx context.Context, ident ExternalIdentity, met
 	user, identity, err := s.store.UserByIdentity(ctx, ident.Provider, ident.Subject)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return Session{}, ErrRegistrationClosed
+			return Session{}, ErrIdentityNotLinked
 		}
 		return Session{}, err
 	}

@@ -973,6 +973,7 @@ func TestEveryAuthErrorHasItsOwnCodeAndMessage(t *testing.T) {
 		{auth.ErrBootstrapUnavailable, "claim_code_invalid"},
 		{auth.ErrInviteUnavailable, "invite_invalid"},
 		{auth.ErrRegistrationClosed, "registration_closed"},
+		{auth.ErrIdentityNotLinked, "identity_not_linked"},
 		{auth.ErrWeakPassword, "weak_password"},
 		{auth.ErrIdentityTaken, "identity_taken"},
 		{auth.ErrEmailTaken, "email_taken"},

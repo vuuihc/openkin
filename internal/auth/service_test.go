@@ -250,8 +250,11 @@ func TestLoginIdentityRefusesUnlinkedIdentityOnClaimedHub(t *testing.T) {
 		Email:         "owner@example.com",
 		EmailVerified: true,
 	}, SessionMeta{})
-	if !errors.Is(err, ErrRegistrationClosed) {
-		t.Fatalf("unlinked identity = %v, want ErrRegistrationClosed", err)
+	// A distinct error, not ErrRegistrationClosed: nothing was being registered,
+	// and the person needs to be told to link this provider, not that the Hub
+	// has an owner.
+	if !errors.Is(err, ErrIdentityNotLinked) {
+		t.Fatalf("unlinked identity = %v, want ErrIdentityNotLinked", err)
 	}
 
 	count, err := st.CountUsers(ctx)
