@@ -41,23 +41,6 @@ func TestIsTrueAcceptsOnlyBooleanTrue(t *testing.T) {
 	}
 }
 
-func TestHostOf(t *testing.T) {
-	cases := map[string]string{
-		"https://kin.example.com":          "kin.example.com",
-		"https://kin.example.com/dex":      "kin.example.com",
-		"https://kin.example.com:8443/dex": "kin.example.com",
-		"http://dex:5556/dex":              "dex",
-		"https://kin.example.com/dex?x=1":  "kin.example.com",
-		"kin.example.com":                  "kin.example.com",
-		"kin.example.com:443":              "kin.example.com",
-	}
-	for in, want := range cases {
-		if got := hostOf(in); got != want {
-			t.Errorf("hostOf(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestOIDCProviderKeySeparatesIssuers(t *testing.T) {
 	// Two issuers can mint the same subject value. Namespacing by issuer is
 	// what keeps those from colliding into one identity.
@@ -83,6 +66,16 @@ func TestOIDCConfigValidate(t *testing.T) {
 		{"missing issuer", OIDCConfig{ClientID: "c", RedirectURL: "https://x/cb"}},
 		{"missing client id", OIDCConfig{Issuer: "https://x", RedirectURL: "https://x/cb"}},
 		{"missing redirect", OIDCConfig{Issuer: "https://x", ClientID: "c"}},
+		// A scheme or a path here would fail discovery with an error that reads
+		// like a provider outage, long after the operator could fix the value.
+		{"backchannel with scheme", OIDCConfig{Issuer: "https://x", ClientID: "c", RedirectURL: "https://x/cb", BackchannelAddr: "http://dex:5556"}},
+		{"backchannel with path", OIDCConfig{Issuer: "https://x", ClientID: "c", RedirectURL: "https://x/cb", BackchannelAddr: "dex:5556/dex"}},
+		{"backchannel without port", OIDCConfig{Issuer: "https://x", ClientID: "c", RedirectURL: "https://x/cb", BackchannelAddr: "dex"}},
+		// An empty host would dial localhost: whatever else is listening there,
+		// it is not the Dex the operator meant; a non-numeric port fails at dial
+		// time with a message that names neither the setting nor the value.
+		{"backchannel without host", OIDCConfig{Issuer: "https://x", ClientID: "c", RedirectURL: "https://x/cb", BackchannelAddr: ":5556"}},
+		{"backchannel with named port", OIDCConfig{Issuer: "https://x", ClientID: "c", RedirectURL: "https://x/cb", BackchannelAddr: "dex:https"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -90,6 +83,14 @@ func TestOIDCConfigValidate(t *testing.T) {
 				t.Fatal("expected a validation error")
 			}
 		})
+	}
+	if err := (OIDCConfig{
+		Issuer:          "https://x",
+		ClientID:        "c",
+		RedirectURL:     "https://x/cb",
+		BackchannelAddr: "dex:5556",
+	}).validate(); err != nil {
+		t.Fatalf("a host:port backchannel address was rejected: %v", err)
 	}
 }
 
@@ -349,8 +350,13 @@ func TestOIDCBeginCapsPendingRequests(t *testing.T) {
 
 func TestBackchannelClientRedirectsOnlyTheIssuerHost(t *testing.T) {
 	var issuerHits, otherHits int
+	var issuerPath string
+	// The sidecar is plain HTTP on an internal port. A client that only
+	// rewrites the dial address would still try a TLS handshake here and fail,
+	// which is exactly the failure the Compose overlay hit.
 	issuerSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		issuerHits++
+		issuerPath = r.URL.Path
 		if got := r.Host; got != issuerHost {
 			t.Errorf("backchannel request carried Host %q, want %q", got, issuerHost)
 		}
@@ -364,16 +370,21 @@ func TestBackchannelClientRedirectsOnlyTheIssuerHost(t *testing.T) {
 	defer otherSrv.Close()
 
 	// Kin's own public hostname deliberately does not resolve from inside the
-	// container in this test, which is the situation the backchannel exists for.
-	client := backchannelClient("http://"+issuerHost, strings.TrimPrefix(issuerSrv.URL, "http://"))
+	// container in this test, which is the situation the backchannel exists
+	// for. The issuer is HTTPS even though the sidecar is HTTP: that mismatch
+	// is the production shape.
+	client := backchannelClient("https://"+issuerHost+"/dex", strings.TrimPrefix(issuerSrv.URL, "http://"))
 
-	resp, err := client.Get("http://" + issuerHost + "/.well-known/openid-configuration")
+	resp, err := client.Get("https://" + issuerHost + "/dex/.well-known/openid-configuration")
 	if err != nil {
 		t.Fatalf("request through backchannel: %v", err)
 	}
 	_ = resp.Body.Close()
 	if issuerHits != 1 {
 		t.Fatalf("issuer hits = %d, want 1", issuerHits)
+	}
+	if issuerPath != "/dex/.well-known/openid-configuration" {
+		t.Fatalf("backchannel path = %q; the issuer prefix must be preserved", issuerPath)
 	}
 
 	// An unrelated host must resolve normally rather than be rewritten.
