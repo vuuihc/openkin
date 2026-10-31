@@ -262,14 +262,11 @@ checks pass, do **not** stop at self-review. Finish with this gate in order:
    `main` (fast-forward preferred; merge commit when needed). Do not leave a
    completed feature only on a side branch. Push to `origin` only when the user
    or release process requires it; local `main` must still contain the merge.
-5. **Release the feature worktree.** Kin-managed agents must not remove their
-   current worktree or branch; Kin releases both only after its durable
-   integration record. Without the lifecycle tool, after the merge is on
-   `main` and the working tree is clean of needed changes, delete the
-   development worktree (`git worktree remove <path>`, then delete the feature
-   branch if it is fully merged and no longer needed). If removal fails (dirty
-   tree, lock, path in use), stop, report the blocker, and do not force-delete
-   uncommitted work.
+5. **Leave the worktree and branch in place.** Do not remove the development
+   worktree or delete its branch after integration. The user keeps working on a
+   branch after it lands, and a merged branch is cheap to keep; only the user or
+   the workspace owner removes it. Kin releases Kin-managed workspaces itself,
+   after its durable integration record.
 6. **Repackage desktop.** Run `./scripts/desktop-rebuild.sh` (or
    `make desktop-rebuild`) from the primary checkout so the Electron shell
    picks up the new UI embed and `kin` binary. A console change rebuilds in the
@@ -285,7 +282,7 @@ Scope notes:
   exploratory edit mid-iteration.
 - **Default isolation:** start feature work in a worktree; land on `main` only
   through the integration step above. Kin tears down Kin-managed generations;
-  otherwise remove the external worktree manually after a successful merge.
+  elsewhere leave the worktree and branch in place.
 - Docs-only or pure chore changes may skip worktree creation and desktop
   rebuild when no binary or UI embed changed; still commit (and merge to
   `main` when that was the goal).
@@ -315,8 +312,8 @@ Scope notes:
   branches, force-push, or push to a remote unless explicitly requested.
 - Prefer developing on a dedicated worktree/branch rather than dirtying the
   primary `main` checkout. Integrate finished feature/task branches into local
-  `main` as part of the Feature completion gate. Let Kin release Kin-managed
-  workspaces; otherwise remove the worktree and merged branch manually. Push
+  `main` as part of the Feature completion gate. Leave the worktree and merged
+  branch in place; Kin releases Kin-managed workspaces itself. Push
   to `origin` only when explicitly requested or required by the release
   process.
 - After a UI change lands on `main`, run `./scripts/desktop-rebuild.sh`
