@@ -5,9 +5,16 @@
 #   3. docker compose logs kin        (find the claim code)
 #   4. Open https://<KIN_DOMAIN> and enter it
 #
-# Sign in with email and password. To add GitHub as well, layer the second file:
+# Sign in with email and password. To add GitHub and Google as well, layer the
+# second file:
 #
-#   docker compose -f docker-compose.yml -f docker-compose.github.yml up -d
+#   docker compose -f docker-compose.yml -f docker-compose.oauth.yml up -d
+#
+# Operator commands run inside the container, so they do not depend on the
+# compose file name or the current directory:
+#
+#   docker exec openkin-hub kin hub accounts
+#   docker exec openkin-hub kin hub reset-password --email you@example.com
 #
 # Requirements: the domain must resolve to this host and ports 80 and 443 must
 # be forwarded to it. Let's Encrypt issues the certificate on first request.
@@ -16,6 +23,9 @@ name: openkin
 
 services:
   kin:
+    # A fixed name is what makes the recovery commands in the header work from
+    # any shell. Scaling a Hub is not a thing; one owner, one writer.
+    container_name: openkin-hub
     image: ghcr.io/vuuihc/openkin:latest
     build:
       context: .
@@ -30,7 +40,7 @@ services:
       - "443:443"
     environment:
       KIN_STATE_DIR: /data
-      # Empty unless docker-compose.github.yml is layered on top.
+      # Empty unless docker-compose.oauth.yml is layered on top.
       KIN_OIDC_ISSUER: ${KIN_OIDC_ISSUER:-}
       KIN_OIDC_CLIENT_ID: ${KIN_OIDC_CLIENT_ID:-}
       KIN_OIDC_CLIENT_SECRET: ${KIN_OIDC_CLIENT_SECRET:-}

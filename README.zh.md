@@ -45,6 +45,32 @@ MVP agent 控制台（daemon + web UI）已实现。macOS 菜单栏 **桌面壳*
 - **产物（Artifacts）** —— 会话学习资料 / 长文入库与阅读器；见 [docs/TODO.md](./docs/TODO.md)
 - **小而美** —— 如无必要勿增实体；痛感驱动长大（见 [PRINCIPLE §5.11](./PRINCIPLE.zh.md)）
 
+## 运行 Hub
+
+Hub 是常驻的 daemon，会话存在它这里，所以每台设备登录后看到的是同一个工作区。
+
+```bash
+cp .env.example .env          # 把 KIN_DOMAIN 设成解析到本机的域名
+docker compose up -d --build  # 80 / 443 端口要能到达这台机器
+docker compose logs kin       # 首次启动会打印一次性认领码
+```
+
+默认用邮箱 + 密码登录。要加 GitHub / Google，先按 `.env.example` 里的说明创建两个
+OAuth 应用，再叠加 OAuth 覆盖文件：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.oauth.yml up -d
+```
+
+已经认领过的 Hub，先用密码登录一次，在**设置 → 账号**里绑定第三方账号；之后两种方式都能登录。
+
+恢复命令在容器里执行，不依赖 compose 文件名，也不依赖当前目录：
+
+```bash
+docker exec openkin-hub kin hub accounts
+docker exec openkin-hub kin hub reset-password --email you@example.com
+```
+
 ## 桌面应用
 
 macOS 菜单栏壳（darwin-arm64）。以 sidecar 方式托管本地 `kin` daemon，在 BrowserWindow 中嵌入 web 控制台，并用系统通知呈现确认请求。

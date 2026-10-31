@@ -39,6 +39,34 @@ kin serve --relay wss://kin-relay.your-domain.workers.dev
 
 **iOS app** — a Capacitor shell that runs the Hub's own console; see [mobile/README.md](./mobile/README.md) to build it.
 
+## Run a Hub
+
+A Hub is the always-on daemon that holds your sessions, so every device signs in to the same workspace.
+
+```bash
+cp .env.example .env          # set KIN_DOMAIN to a hostname that resolves here
+docker compose up -d --build  # ports 80 and 443 must reach this machine
+docker compose logs kin       # the first start prints a one-time claim code
+```
+
+Sign-in is email + password by default. To add GitHub and Google, create the two
+OAuth apps described in `.env.example`, then layer the overlay:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.oauth.yml up -d
+```
+
+On an already-claimed Hub, sign in with the password once and link the provider
+under **Settings → Account**; after that either method works.
+
+Recovery runs inside the container, so it does not depend on the compose file
+name or the current directory:
+
+```bash
+docker exec openkin-hub kin hub accounts
+docker exec openkin-hub kin hub reset-password --email you@example.com
+```
+
 ## Docs
 
 | Doc | What it is |
