@@ -23,9 +23,9 @@ function run(id: string, extra: Partial<Task> = {}): Task {
 describe("foldRoutineRun", () => {
   it("replaces a known run in place", () => {
     const list = [run("003"), run("002"), run("001")];
-    const next = foldRoutineRun(list, run("002", { status: "done" }))!;
+    const next = foldRoutineRun(list, run("002", { status: "succeeded" }))!;
     expect(next.map((x) => x.id)).toEqual(["003", "002", "001"]);
-    expect(next[1].status).toBe("done");
+    expect(next[1].status).toBe("succeeded");
     // The old array is untouched: React state compares by identity.
     expect(list[1].status).toBe("running");
   });

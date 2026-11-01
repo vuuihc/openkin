@@ -24,7 +24,7 @@ vi.mock("../api/liveResources", () => ({ liveResources: resources }));
 
 import { useApprovalDecision } from "./useApprovalDecision";
 
-function approval(decision: string): Approval {
+function approval(decision: Approval["decision"]): Approval {
   return {
     id: "a1",
     task_id: "task-1",
