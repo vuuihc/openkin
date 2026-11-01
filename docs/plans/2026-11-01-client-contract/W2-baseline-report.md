@@ -370,7 +370,13 @@ are red-verified with `scripts/mutants.py`. The nested probe module is wired
 into `scripts/check.sh` when probe files change or under `--all`; CI does not
 invoke `check.sh`, so the probe suite runs in the local completion gate rather
 than in CI. The final run quoted in §2/§3.6 was made from the probe source
-committed here.
+committed here. A fifth pass verified those fixes against the committed tree
+and found no remaining blocker or major issue; two failure-path nits were
+deferred: the "extra" catch-up message should say "outside the expected set"
+rather than "not in the full transcript" when catch-up applies an inclusive
+`since_seq`, and a turn-scoped durable-read failure can be masked by an
+earlier-turn `error` event because that skip branch runs first. Neither can
+emit the bypass finding or change a passing result.
 
 ## 8. Elapsed-time caveat
 
