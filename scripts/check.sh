@@ -146,6 +146,13 @@ job_api_contract() {
   ./scripts/check-openapi.sh
 }
 
+# The contract must name every path a shipped client calls, and no path the
+# daemon no longer registers. Always run: a new client call is drift even when
+# the spec itself did not change, and neither the Go nor the console job sees it.
+job_api_coverage() {
+  ./scripts/check-api-coverage.sh
+}
+
 job_shell_syntax() {
   local files
   files="$(changed_shell_files)"
@@ -190,6 +197,7 @@ start desktop-tsc job_desktop_tsc
 start ui-test job_ui_test
 start ui-tsc job_ui_tsc
 start api-contract job_api_contract
+start api-coverage job_api_coverage
 start shell-syntax job_shell_syntax
 start python-syntax job_python_syntax
 start stories job_stories
