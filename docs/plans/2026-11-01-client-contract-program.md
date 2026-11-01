@@ -132,10 +132,16 @@ versus W4, and write the final Chinese digest.
 
 | Workstream | Owner | Branch | Status | Report |
 | --- | --- | --- | --- | --- |
-| W1 | W1 session | `lody/w1-client-contract-api` | running | `W1-report.md` |
-| W2 | W2 session | `probe/client-contract-w2` | running | `W2-baseline-report.md` |
-| W3 | W3 session | `w3-desktop-footprint` | running | `W3-footprint-report.md` |
-| W4 | — | — | waiting on W1 | `W4-report.md` |
+| W1 | W1 session | `lody/w1-client-contract-api` | **done** — merged in `4cb239f0` | `W1-report.md` |
+| W1b | W1b session | `lody/w1b-contract-payloads` | running — closes the W2 §5 gaps | `W1b-report.md` |
+| W2 | W2 session | `probe/client-contract-w2` | **done** — merged in `34d27e71` | `W2-baseline-report.md` |
+| W3 | W3 session | `w3-desktop-footprint` | resumed — first run did not finish | `W3-footprint-report.md` |
+| W4 | W4 session | session worktree from `4cb239f0` | running — W1-only baseline | `W4-report.md` |
+
+W4 was branched from `4cb239f0` (W1 merged, W2 not yet merged) so the
+re-run measures the contract delta rather than reading W2's findings. W1b
+starts from the later `main` that includes W2's report, because its job is to
+close those gaps. A second re-run can measure W1b once it lands.
 
 ## Safety
 
