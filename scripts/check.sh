@@ -42,7 +42,7 @@ changed_go_pkgs() {
 }
 
 changed_probe_files() {
-  git status --porcelain=v1 2>/dev/null | awk '{print $NF}' | grep -E '^probe/kin-probe/.*\.go$' || true
+  git status --porcelain=v1 2>/dev/null | awk '{print $NF}' | grep -E '^probe/[^/]+/.*\.go$' || true
 }
 
 changed_shell_files() {
@@ -112,13 +112,17 @@ job_gotest() {
   go test -timeout 120s -count=1 $pkgs
 }
 
-# probe/kin-probe is its own Go module, so the root vet/test jobs cannot see it.
+# The probes are their own Go modules, so the root vet/test jobs cannot see
+# them. Run each module; a failure in either fails the job.
 job_probe() {
   if [[ "$ALL" != "1" ]] && [[ -z "$(changed_probe_files)" ]]; then
     echo "no changed probe files"
     return 0
   fi
-  ( cd probe/kin-probe && go vet ./... && go test -race -timeout 300s -count=1 ./... )
+  local mod
+  for mod in probe/kin-probe probe/kin-probe-w4; do
+    ( cd "$mod" && go vet ./... && go test -race -timeout 300s -count=1 ./... ) || return 1
+  done
 }
 
 job_desktop_test() {
