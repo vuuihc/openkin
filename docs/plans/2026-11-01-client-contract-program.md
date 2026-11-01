@@ -130,11 +130,11 @@ versus W4, and write the final Chinese digest.
 
 ## Status
 
-| Workstream | Session | Branch/worktree | Status | Report |
+| Workstream | Owner | Branch | Status | Report |
 | --- | --- | --- | --- | --- |
-| W1 | TBD | TBD | queued | `W1-report.md` |
-| W2 | TBD | TBD | queued | `W2-baseline-report.md` |
-| W3 | TBD | TBD | queued | `W3-footprint-report.md` |
+| W1 | W1 session | `lody/w1-client-contract-api` | running | `W1-report.md` |
+| W2 | W2 session | `probe/client-contract-w2` | running | `W2-baseline-report.md` |
+| W3 | W3 session | `w3-desktop-footprint` | running | `W3-footprint-report.md` |
 | W4 | — | — | waiting on W1 | `W4-report.md` |
 
 ## Safety
