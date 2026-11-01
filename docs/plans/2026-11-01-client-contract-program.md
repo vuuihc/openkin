@@ -136,12 +136,20 @@ versus W4, and write the final Chinese digest.
 | W1b | W1b session | `lody/w1b-contract-payloads` | **done** — merged in `b6287cff` | `W1b-report.md` |
 | W2 | W2 session | `probe/client-contract-w2` | **done** — merged in `34d27e71` | `W2-baseline-report.md` |
 | W3 | W3 session | `w3-desktop-footprint` | **done** — merged in `f9260ffe` | `W3-footprint-report.md` |
-| W4 | W4 session | session worktree from `4cb239f0` | running — W1-only baseline | `W4-report.md` |
+| W4 | W4 session | `w4-cold-start-probe` | **done** — merged in `c1a4b7c2` | `W4-report.md` |
+| W5 | coordinator | `main` | in progress — final digest | — |
 
 W4 was branched from `4cb239f0` (W1 merged, W2 not yet merged) so the
 re-run measures the contract delta rather than reading W2's findings. W1b
 starts from the later `main` that includes W2's report, because its job is to
-close those gaps. A second re-run can measure W1b once it lands.
+close those gaps.
+
+W4 therefore measured the W1-only contract. Of the gaps it reports, the event
+vocabulary, status vocabulary, default-agent rule, `event_epoch` semantics,
+and `permission_mode` vocabulary are closed by W1b on `main`; the pending
+approval representation is closed by the `Approval.decision` enum. The one
+remaining W4 gap is the undocumented `status` query filter on
+`GET /api/approvals`. A second re-run against W1b would measure that delta.
 
 ## Safety
 
