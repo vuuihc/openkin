@@ -41,6 +41,10 @@ changed_go_pkgs() {
   printf './%s\n' $dirs
 }
 
+changed_probe_files() {
+  git status --porcelain=v1 2>/dev/null | awk '{print $NF}' | grep -E '^probe/kin-probe/.*\.go$' || true
+}
+
 changed_shell_files() {
   git status --porcelain=v1 2>/dev/null | awk '{print $NF}' | grep -E '\.sh$' || true
 }
@@ -106,6 +110,15 @@ job_gotest() {
   echo "packages: $pkgs"
   # shellcheck disable=SC2086
   go test -timeout 120s -count=1 $pkgs
+}
+
+# probe/kin-probe is its own Go module, so the root vet/test jobs cannot see it.
+job_probe() {
+  if [[ "$ALL" != "1" ]] && [[ -z "$(changed_probe_files)" ]]; then
+    echo "no changed probe files"
+    return 0
+  fi
+  ( cd probe/kin-probe && go vet ./... && go test -race -timeout 300s -count=1 ./... )
 }
 
 job_desktop_test() {
@@ -192,6 +205,7 @@ job_stories() {
 start gofmt job_gofmt
 start vet job_vet
 start gotest job_gotest
+start probe job_probe
 start desktop-test job_desktop_test
 start desktop-tsc job_desktop_tsc
 start ui-test job_ui_test

@@ -1,0 +1,9 @@
+# Local probe state, evidence, and working directories; never committed.
+# Evidence JSON names live sessions, devices, and absolute paths.
+.kin-probe-state.json
+.kin-probe-state.json.tmp
+kin-probe-evidence.json
+*evidence*.json
+.kin-probe-cwd/
+agent-cwd/
+kin-probe
