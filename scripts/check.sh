@@ -231,6 +231,13 @@ if ((${#FAILED[@]})); then
   for name in "${FAILED[@]}"; do
     echo ""
     echo "--- $name ---"
+    # A package failure can be hundreds of ok lines above the end of the log;
+    # name it before the tail so a load-induced or ordering failure is
+    # diagnosable without re-running the whole gate.
+    if grep -qE '(^FAIL|--- FAIL|panic:|test timed out|signal: killed)' "$LOG_DIR/$name.log"; then
+      grep -nE '(^FAIL|--- FAIL|panic:|test timed out|signal: killed)' "$LOG_DIR/$name.log" | head -20
+      echo "--- tail ---"
+    fi
     tail -25 "$LOG_DIR/$name.log"
   done
   exit 1
