@@ -95,7 +95,9 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Revoke a paired device. Operator only. */
+        /** @description Revoke a paired device. Operator only. The device id is the one the
+         *     pairing exchange returned or that this list reports.
+         *      */
         post: operations["revokeDevice"];
         delete?: never;
         options?: never;
@@ -461,11 +463,43 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Server-Sent Events. Each frame is `event: <kind>` with one WSMessage as
-         *     its data, so a client shares one message handler with the WebSocket bus.
-         *     Realtime is an accelerant, never the truth: a client advances its cursor
-         *     only from /api/sessions, because a frame says nothing about the changes
-         *     it did not carry. Comment lines (`: ping`) are heartbeats.
+        /** @description Server-Sent Events stream of change notifications for the caller's
+         *     scope. Each frame is `event: <kind>` with one `WSMessage` JSON object
+         *     on its data line, so a client shares one message handler with the
+         *     WebSocket bus. Kinds seen on this stream: `task_update`,
+         *     `task_deleted`, `event`, `approval_update`, `user_question_update`.
+         *
+         *     Transport behavior, as implemented:
+         *
+         *     - The daemon writes `retry: 3000` once when the stream opens. It is a
+         *       reconnect-delay hint for the client, not a heartbeat.
+         *     - While nothing happens the daemon writes a `: ping` comment line
+         *       every 15 seconds. Comment lines are keep-alives; a client must
+         *       ignore them.
+         *     - There is no readiness or "caught up" frame, no replay, and no
+         *       `Last-Event-ID` handling. Opening the stream says nothing about
+         *       what was missed, and the stream never carries history.
+         *     - Realtime is an accelerant, never the truth. Open the stream first,
+         *       then drain `GET /api/sessions` until `has_more` is false. A change
+         *       arriving during that catch-up is delivered twice, which is safe
+         *       because clients apply changes by id; the opposite order has a window
+         *       where a change is delivered by neither. Advance the cursor only
+         *       from a feed page, never from a frame.
+         *     - A gap is detected from the durable records, not from this stream:
+         *       per task by `seq` continuity on `GET /api/tasks/{taskId}/events`
+         *       together with `event_epoch`, and globally by draining the
+         *       `GET /api/sessions` cursor.
+         *     - A device token or browser session behind the stream is re-validated
+         *       every 10 seconds; revoking the device or ending the session closes
+         *       the stream. The master token is never re-checked because it cannot
+         *       be revoked.
+         *     - A client that falls behind the bus is disconnected instead of being
+         *       fed with skipped messages, so it reconnects and catches up through
+         *       the cursor.
+         *
+         *     The response is `503` before streaming starts when the engine is
+         *     unavailable or the bus refuses a subscriber. A writer that cannot flush
+         *     (a test recorder, not the real server) answers `500`.
          *      */
         get: operations["streamEvents"];
         put?: never;
@@ -485,6 +519,13 @@ export interface paths {
         };
         get: operations["listTasks"];
         put?: never;
+        /** @description Create and queue a task. The owner is taken from the authenticated
+         *     principal, never from the body. Every failure to create — invalid
+         *     JSON, an unknown or unavailable agent, a permission mode the chosen
+         *     agent cannot run, a `cwd` the workspace cannot use, or a
+         *     `workspace_mode` that cannot be honoured — answers `400` with
+         *     `{"error": "<reason>"}`.
+         *      */
         post: operations["createTask"];
         delete?: never;
         options?: never;
@@ -518,8 +559,9 @@ export interface paths {
         get: operations["getTask"];
         put?: never;
         post?: never;
-        /** @description Delete one conversation and its rows. Operator only. Archiving is the
-         *     reversible alternative and is available to the holder.
+        /** @description Delete one conversation and its rows. Operator only: the master token
+         *     or an owner account, not a paired device. Archiving is the reversible
+         *     alternative and is available to the holder.
          *      */
         delete: operations["deleteTask"];
         options?: never;
@@ -665,6 +707,21 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @description The durable event log for one task, oldest first. This is the record a
+         *     client replays; the SSE stream is only an accelerant.
+         *
+         *     `since_seq` is exclusive: the response contains events whose `seq` is
+         *     greater than the cursor. `seq` is 1-based and contiguous within one
+         *     `event_epoch`. A retry or other tail rewrite deletes the events from
+         *     that point and increments `event_epoch`; appended events then reuse
+         *     those `seq` values. The identity of an event is therefore
+         *     `(event_epoch, seq)`. A client that sees a higher `event_epoch` than it
+         *     last read must discard its tail and refetch from `since_seq=0` rather
+         *     than assume a gap.
+         *
+         *     The response is unbounded: it returns every event after the cursor.
+         *     The endpoint answers `404` when the task does not exist.
+         *      */
         get: operations["listTaskEvents"];
         put?: never;
         post?: never;
@@ -2567,7 +2624,9 @@ export interface components {
             label?: string;
         };
         PairingSessionResponse: {
+            /** @description One-time secret for POST /api/pairing/exchange. */
             secret: string;
+            /** @description When the secret stops working, in epoch milliseconds. The lifetime is five minutes from creation. */
             expires_at: number;
         };
         PairingExchangeRequest: {
@@ -2575,7 +2634,9 @@ export interface components {
             label?: string;
         };
         PairingExchangeResponse: {
+            /** @description The paired device's id. The daemon mints it as `ios-` followed by 16 hex characters, regardless of the client's platform: a phone, a desktop, and a browser that pair here all receive the same prefix. Treat it as an opaque id. */
             device_id: string;
+            /** @description The device token. Send it as `Authorization: Bearer <token>` or as the `token` query parameter. */
             token: string;
             label?: string;
             desktop_id?: string;
@@ -2771,12 +2832,50 @@ export interface components {
             "agent_sessions.auto_import_mode"?: "prompt" | "enabled" | "disabled";
             "provider.clear_api_key"?: string;
         };
+        /** @description One paired device credential plus what its machine reported about itself. The local daemon's own row has no credential and is not listed here. */
         Device: {
+            /** @description Device id minted by the pairing exchange: `ios-` plus 16 hex characters, whatever the client platform. Opaque to clients. */
             id: string;
             label?: string;
+            platform?: string;
+            arch?: string;
+            /**
+             * @description `client` for a paired console that has not dialled in as a machine; `node` once the machine reported itself and can run turns. The daemon's own Hub row has no credential and is not listed here.
+             * @enum {string}
+             */
+            role?: "client" | "node";
+            kin_version?: string;
+            /**
+             * @description `online` when the Hub holds a live connection for the device, or when the last recorded report said online; `offline` after the device disconnected; `unknown` before the first report.
+             * @enum {string}
+             */
+            reachability: "unknown" | "online" | "offline";
+            /** @description Last contact in epoch milliseconds, falling back to the credential's last use when the machine never reported. Absent when neither has a value. */
+            last_seen_at?: number;
+            /** @description When the device was paired, in epoch milliseconds. */
             created_at: number;
-            last_used_at?: number | null;
-            revoked_at?: number | null;
+            /** @description When the device was revoked, in epoch milliseconds. Absent while active. */
+            revoked_at?: number;
+            /** @description Agents the machine reported. Empty, never null. */
+            agents: components["schemas"]["DeviceAgent"][];
+            /** @description Workspace roots the machine reported. Paths, not secrets. */
+            workspace_roots?: string[];
+        };
+        DeviceAgent: {
+            id: string;
+            name?: string;
+            kind?: string;
+            family?: string;
+            transport?: string;
+            installed: boolean;
+            available: boolean;
+            version?: string;
+            reason?: string;
+            default_model?: string;
+            models?: string[];
+            /** @description Permission ladder this machine advertises for a turn dispatched to this agent, in ladder order, after removing the modes it would refuse. An agent that never asks has an intrinsic ladder of only `default`; an agent whose `accept_edits` already bypasses approvals omits that rung. The executor refuses a mode only when it bypasses approvals and the machine was not started with `--allow-yolo`, so omission means "do not offer", not "always refused". When that filter leaves no mode at all, the agent is reported with `available: false` and a reason, and this field may be empty or absent. An absent field can also mean a machine that did not report a list at all (an older node); a client must read absent as the modes that do not bypass and check `available` before offering the agent. */
+            permission_modes?: string[];
+            is_default?: boolean;
         };
         WorkerCapability: {
             name: string;
@@ -2814,12 +2913,82 @@ export interface components {
             revoked_at?: number;
         };
         CreateTaskRequest: {
+            /** @description Agent id. Empty picks the default available agent. */
             agent?: string;
+            /** @description Directory the task works in. Required. Prefer an absolute path.
+             *     For a task prepared on this machine the workspace probe resolves
+             *     it to an absolute, symlink-resolved path before the first turn,
+             *     and a path that is missing or not a directory is refused. For a
+             *     task with `executing_device_id`, this is a path on that machine,
+             *     sent as typed and not stat'ed by the Hub.
+             *
+             *     When the task runs in a generated checkout (`workspace_mode:
+             *     worktree`, including `auto` after promotion), the checkout is
+             *     materialized from the base commit: a path that exists in the
+             *     source directory but not in that commit — a gitignored directory,
+             *     an untracked directory not present at HEAD — has no counterpart
+             *     there, and the turn fails at start with
+             *     `task execution directory is unavailable: <path>`. Use
+             *     `workspace_mode: shared` for a directory that must be used in
+             *     place rather than copied.
+             *      */
             cwd: string;
+            /** @description Non-empty first user message. */
             prompt: string;
             model?: string;
             title?: string;
+            /** @description Applied to every agent run in the task. Meaningful values are
+             *     `default`, `accept_edits`, and `yolo`; absent means `default`.
+             *     Aliases are normalized on input: `acceptEdits` and `accept-edits`
+             *     become `accept_edits`; `bypass`, `bypassPermissions`, and
+             *     `dangerously-skip-permissions` become `yolo`. Any other value
+             *     becomes `default`. A generic CLI agent that has no Kin approval
+             *     channel cannot run under `default` and is refused with `400`; it
+             *     requires `accept_edits` or `yolo`. `yolo` bypasses agent permission
+             *     prompts, so approvals may never be requested. `accept_edits` is a
+             *     distinct rung only for an agent that has one: on an agent whose
+             *     accept-edits setting already bypasses approvals, or that never
+             *     asks, `accept_edits` bypasses them too. `AgentInfo.permission_modes`
+             *     and `DeviceAgent.permission_modes` state the ladder an agent
+             *     actually has.
+             *
+             *     Whether a turn asks for approval is the agent's decision under the
+             *     mode, and Kin records no per-turn "bypassed" flag: a turn that
+             *     needed no approval is indistinguishable from one whose gate was
+             *     bypassed. A client can infer that no approval will arrive when the
+             *     mode leaves the agent nothing to ask about: `yolo`; `accept_edits`
+             *     when the advertised ladder omits that rung; `default` when the
+             *     ladder is only `default`. Otherwise the turn may ask.
+             *      */
             permission_mode?: string;
+            /** @description Requested workspace isolation. Meaningful values are `auto`
+             *     (default), `shared`, and `worktree`; `Task.workspace_mode` reports
+             *     what was actually resolved, which is only `shared` or `worktree`.
+             *
+             *     - `auto` — probe `cwd`. A git repository with a commit is marked
+             *       `worktree`. An agent that supports lazy promotion runs its first
+             *       turn read-only in the source checkout and promotes a generated
+             *       checkout when a turn needs to write. Other agents prepare the
+             *       generated checkout before the task starts, and on that path a
+             *       dirty source worktree falls back to `shared`. A directory that is
+             *       not a repository, has no commit, is bare, or has no usable git is
+             *       marked `shared` and used as it is.
+             *     - `shared` — run in `cwd` exactly as it is.
+             *     - `worktree` — prepare a generated checkout before the task starts.
+             *       Refused with `400` when `cwd` cannot host one (not a repository,
+             *       no commit, bare, or git unavailable), and refused with `400` for
+             *       a task that runs on another machine, whose workspace is that
+             *       machine's own checkout. A dirty source worktree is allowed: the
+             *       checkout is cut from HEAD and leaves the uncommitted changes
+             *       behind. A `worktree` task whose `cwd` path does not exist in the
+             *       base commit also fails at turn start (see `cwd`).
+             *
+             *     Any other non-empty value is not the same answer everywhere. A
+             *     local task is refused with `400` (`invalid workspace mode`); a task
+             *     that runs on another machine has no local workspace to prepare and
+             *     runs in that machine's checkout as if `shared` were sent. Send one
+             *     of the three values.
+             *      */
             workspace_mode?: string;
             project_id?: string;
             routine_id?: string;
@@ -2829,8 +2998,14 @@ export interface components {
         };
         FollowUpRequest: {
             prompt: string;
+            /** @description When set to a different agent, hand the task off: the agent session is cleared and context is injected into the new agent. */
             agent?: string;
+            /** @description When set, updates the task model for this and subsequent turns. A same-agent resume uses the new model on the next start. */
             model?: string;
+            /** @description When set, updates the task permission mode for this and subsequent
+             *     turns without resetting session continuity. Values, aliases, and
+             *     normalization are the same as `CreateTaskRequest.permission_mode`.
+             *      */
             permission_mode?: string;
             /** @description Cut the running turn short and deliver this prompt next, instead of
              *     waiting for the turn to end. Opt-in: it discards the work in flight,
@@ -2844,6 +3019,7 @@ export interface components {
             prompt: string;
             agent?: string;
             model?: string;
+            /** @description The permission mode requested with the queued prompt. Absent when the prompt did not set one; otherwise the value as sent, so an alias may appear here. It is normalized when the prompt becomes a turn. */
             permission_mode?: string;
             /** @description Seq of the message event written when this prompt was accepted. Zero
              *     when that write failed, in which case the delivery writes it. Always
@@ -2851,6 +3027,7 @@ export interface components {
              *     cannot decide what to mark as waiting.
              *      */
             user_seq: number;
+            /** @description When the prompt was queued, in epoch milliseconds. */
             queued_at: number;
         };
         ReplayRequest: {
@@ -3007,30 +3184,71 @@ export interface components {
             prompt: string;
             model?: string | null;
             session_ref?: string | null;
-            permission_mode?: string | null;
-            status: string;
+            /**
+             * @description Normalized permission mode applied to every agent run in the task. Rows written before the mode was recorded read `default`.
+             * @enum {string}
+             */
+            permission_mode?: "default" | "accept_edits" | "yolo";
+            /**
+             * @description `succeeded`, `failed`, and `canceled` are terminal. `queued` means no turn has started yet; `retrying` means a retry is being prepared (files restored) before the new turn starts; `running`, `waiting_approval`, and `waiting_input` mean a turn is live or blocked on the user. A row in `retrying` cannot be canceled or deleted until its file restoration finishes.
+             * @enum {string}
+             */
+            status: "queued" | "running" | "waiting_approval" | "waiting_input" | "succeeded" | "failed" | "canceled" | "retrying";
             exit_code?: number | null;
             tokens_in: number;
             tokens_out: number;
             cost_usd?: number | null;
+            /** @description When the task was created, in epoch milliseconds. */
             created_at: number;
+            /** @description When the first turn started, in epoch milliseconds. */
             started_at?: number | null;
+            /** @description When the last turn ended, in epoch milliseconds. */
             finished_at?: number | null;
             project_id?: string | null;
-            workspace_mode?: string | null;
+            /**
+             * @description The resolved workspace isolation, not the requested mode.
+             *
+             *     - `shared` — turns run in `cwd` itself; a local task may store it
+             *       as the probe-resolved absolute path. A task that runs
+             *       on another machine is always `shared`, and a local `auto` task
+             *       falls back to it when there is nothing to isolate from (not a
+             *       repository, bare, no commit, or no usable git) or, on the eager
+             *       path, when the source worktree is dirty.
+             *     - `worktree` — the task runs against an isolated copy. An agent
+             *       with lazy promotion starts with a read-only turn in the source
+             *       checkout and promotes a generated checkout when a turn needs to
+             *       write; before promotion, the workspace fields describe the
+             *       source checkout. Other agents have the generated checkout when
+             *       the task starts. After promotion, `workspace_root` is the
+             *       generated checkout, `execution_cwd` is `workspace_root` plus
+             *       `workspace_scope`, and `workspace_branch` is the branch its work
+             *       is on.
+             *
+             * @enum {string}
+             */
+            workspace_mode?: "shared" | "worktree";
+            /** @description Repository root that `cwd` belongs to, when it is in a repository. */
             workspace_source_root?: string | null;
+            /** @description Root of the checkout this task's turns run in. For a shared task it is the directory itself, the same path as `execution_cwd`. For a lazy `auto` task before promotion it is the source repository root; after promotion, and for an eager worktree task, it is the generated checkout. Null only on rows written before the field was recorded. */
             workspace_root?: string | null;
+            /** @description Directory turns actually run in. For a shared task it is the directory itself: `cwd` as given for a task on another machine or a lazy `auto` task with nothing to isolate from, and the probe-resolved absolute path (symlinks followed) for one prepared on this machine. For a lazy `auto` task before promotion it is the source directory the read-only turn runs in; after promotion, and for an eager worktree task, it is inside the generated checkout. */
             execution_cwd?: string | null;
+            /** @description The part of the repository `cwd` selected, relative to `workspace_source_root` with `/` separators; `.` at the root. For an isolated task (a lazy `auto` task, or a generated worktree), `execution_cwd` is `workspace_root` joined with this scope. Once the generated checkout exists (from the start for an eager worktree task, after promotion for a lazy one), a scope directory absent from the base commit leaves no directory to run in; before promotion the turn runs in the source checkout. For a shared task in a repository on this machine, `execution_cwd` equals `workspace_root`, and `workspace_source_root` joined with this scope reconstructs it. Other shared tasks — on another machine, or where the probe found no repository — have a null `workspace_source_root` and a scope of `.`. */
             workspace_scope?: string | null;
             workspace_base_oid?: string | null;
-            /** @description For a task with a workspace lifecycle, the branch its current generation runs on. For a session that runs on another machine, the branch that machine reported for its checkout — the same column, because both answer "which branch is this session's work on". */
+            /** @description The branch this task's work is on. Before a lazy promotion it is the source checkout's current branch, from which the generated checkout will be cut; afterwards, and for an eager worktree task, it is the generated checkout's branch. For a session that runs on another machine, the branch that machine reported for its checkout — the same column, because both answer "which branch is this session's work on". */
             workspace_branch?: string | null;
             /** @description The repository a session that runs on another machine was recorded on, canonical (host/owner/name, no transport, no credentials), as that machine reported it when the session started. Empty for a task that runs here, whose repository is derived from its workspace generation when a pull request is looked up. */
             workspace_repo?: string | null;
-            workspace_policy?: string | null;
+            /**
+             * @description The isolation path the task was created under. `auto` — the lazy path for an agent that supports promotion: a read-only first turn in the source that may be promoted. `worktree` — the eager path: the generated checkout is prepared before the task starts. An `auto` request on this path still falls back to shared when the source is dirty, not a repository, bare, has no commit, or has no usable git, and then `workspace_mode` reads `shared` with no checkout created. `shared` — the directory is used as it is: an explicit `shared` request, a task that runs on another machine, or a lazy `auto` task with nothing to isolate from.
+             * @enum {string}
+             */
+            workspace_policy?: "auto" | "shared" | "worktree";
             current_workspace_id?: string | null;
             /** @description The device that runs every turn of this task. Empty means the daemon that stores it; a device id means the turn is dispatched to that machine, which executes it with its own agents and its own filesystem. */
             executing_device_id?: string;
+            /** @description Version of this task's event log. It starts at 0 and increments whenever the log's tail is rewritten; `(event_epoch, seq)` is the identity of an event. */
             event_epoch: number;
             /** @description Position in the global change feed; null only for rows written before the cursor existed. */
             hub_seq?: number | null;
@@ -3068,11 +3286,297 @@ export interface components {
         };
         TaskEvent: {
             task_id: string;
+            /** @description Version of the task's event log. A retry or other tail rewrite increments it and reuses the seq values from that point, so an event's identity is (event_epoch, seq). */
             event_epoch: number;
+            /** @description Position in this task's log, 1-based and contiguous within one event_epoch. */
             seq: number;
+            /** @description When the daemon appended the event, in epoch milliseconds. */
             ts: number;
+            /** @description Event kind. This is an open set: adapters and the engine both
+             *     append, and a client must tolerate a kind it does not know.
+             *     Known values:
+             *
+             *     - `message` — assistant or user text. Streaming updates set
+             *       `payload.partial`; see `TaskEventPayload`.
+             *     - `tool_use` — an agent tool call, or a status update for one.
+             *     - `tool_result` — the outcome of a tool call.
+             *     - `result` — end of a turn, with the final text and usage.
+             *     - `error` — a turn error.
+             *     - `usage` — incremental token accounting.
+             *     - `plan` — the agent's plan, replaced whole on each update.
+             *     - `notice` — a status line from the adapter or daemon.
+             *     - `limit_hit` — the provider's rate limit or quota was reached.
+             *       The console renders a limit card from it; see `reset_at` and
+             *       `status` in `TaskEventPayload`.
+             *     - `task_started` — the agent session started.
+             *     - `approval_requested` / `approval_decided` — the approval audit
+             *       trail.
+             *     - `user_question_requested` / `user_question_answered` — the
+             *       question audit trail.
+             *     - `route_decision` / `route_fallback` — model or agent routing.
+             *     - `skill_context` — skills injected into a turn.
+             *     - `eval_metadata` / `replay_metadata` — eval and replay bookkeeping.
+             *     - `connector_call` — a connector invocation audit record.
+             *     - `checkpoint_skipped` — the round snapshot could not be taken.
+             *     - `round_changed` — files changed between two round checkpoints.
+             *     - `workspace_provisioning`, `workspace_ready`, `workspace_active`,
+             *       `workspace_finalizing`, `workspace_integrated`,
+             *       `workspace_released`, `workspace_merge_blocked`,
+             *       `workspace_finalize_blocked`, `workspace_orphaned`,
+             *       `workspace_legacy_pending` — workspace lifecycle transitions.
+             *     - `workspace_restored` — a checkpoint was restored.
+             *     - `meta` — daemon annotation, for example fork lineage.
+             *     - `raw_output` — an unparsed adapter line, kept for diagnostics.
+             *      */
             type: string;
-            payload: unknown;
+            payload: components["schemas"]["TaskEventPayload"];
+        };
+        /** @description Event body. The event `type` selects which fields are meaningful; every
+         *     field here is optional because the set of event kinds is open and older
+         *     rows predate some fields. Unknown fields must be preserved.
+         *
+         *     Two groups are documented:
+         *
+         *     **Canonical attribution.** The engine stamps these onto the events it
+         *     authors, and adapters set their own: identity (`agent`, `speaker`),
+         *     origin (`source`), orchestration stage (`phase`), the model and role
+         *     that produced the text, the audience (`visibility`), and the
+         *     execution/workspace the event belongs to. They stay optional because
+         *     not every kind carries every field.
+         *
+         *     **Per-kind body.** The rest is the adapter's own payload, passed
+         *     through unchanged. For `message`, the delta rule is: chunks with
+         *     `partial: true` belong to one growing message and are concatenated in
+         *     `seq` order; a later event with `partial: false` replaces the
+         *     accumulated text rather than appending to it. `message_id` plus
+         *     `index` identify the same block across updates when an adapter sets
+         *     them. `content[]` is the canonical block list; `text` is the flattened
+         *     alternative some adapters send instead.
+         *      */
+        TaskEventPayload: {
+            /** @description Agent id that produced the event. */
+            agent?: string;
+            /** @description The chat column the event belongs to, usually the agent id or `user`. */
+            speaker?: string;
+            /** @description Origin. The engine writes `user`, `host`, `worker`, `orchestrator`, `delegate`, `create`, `follow_up`, and on specific paths `interrupt`, `handoff`, `orchestrate`, `retry`, `fork`, `skill_runtime`, `user_wait`, or `user_action`. Adapters pass their own label (`kin`, `droid`, `claude-code`, `codex`, `grok`). Read it as an open set. */
+            source?: string;
+            /** @description Orchestration stage, when the event belongs to one. The engine writes `plan`, `progress`, or `summary`; adapters may pass other labels through, so read it as an open set. */
+            phase?: string;
+            /** @description Model reported by the agent for this event. */
+            model?: string;
+            /** @description Message role, for example `user`, `assistant`, `reasoning`, or `tool`. */
+            role?: string;
+            /** @description Audience. `user` false keeps the event out of the main chat column; `task` true keeps it in the task log. */
+            visibility?: {
+                user?: boolean;
+                task?: boolean;
+            };
+            /** @description The adapter run (attempt) this event belongs to. */
+            execution_id?: string;
+            /** @description The turn this event belongs to. A retry starts a new `execution_id` under the same `run_execution_id`. */
+            run_execution_id?: string;
+            execution_agent?: string;
+            execution_step?: number;
+            execution_model?: string;
+            /** @description Provider profile that served the run, when routing used one. */
+            provider_id?: string;
+            /** @description Provider that served the run (`route_decision`, `route_fallback`) or that refused it (`limit_hit`). */
+            provider?: string;
+            /** @description For `route_decision` / `route_fallback`, the routing team that resolved the turn. */
+            team?: string;
+            /** @description For `route_fallback`, the provider and model that failed first. At least `provider` and `model`; may also carry `class` and `message`. */
+            fallback_from?: {
+                [key: string]: unknown;
+            };
+            /** @description Workspace generation id, on `workspace_*` lifecycle events and bound turns. */
+            workspace_id?: string;
+            /**
+             * @description What the turn was allowed to do with its workspace: `source_read_only` is the person's checkout before a worktree is promoted; `writable` is a generated checkout; `shared` is the directory used as it is.
+             * @enum {string}
+             */
+            workspace_access?: "pending_isolation" | "source_read_only" | "writable" | "shared";
+            workspace_generation?: number;
+            /** @description For `message`: the content blocks, or a plain string equivalent to
+             *     one text block. For `tool_use`: the adapter's content object, when
+             *     it has one.
+             *      */
+            content?: components["schemas"]["TaskEventContentBlock"][] | string | {
+                [key: string]: unknown;
+            };
+            /** @description Flattened text for a `message` or `result` event. Some adapters carry it under `result` or `message` instead; the daemon reads those as the same value. */
+            text?: string;
+            /** @description For `message`: true marks a streaming chunk to concatenate; false marks the authoritative text that replaces the accumulated chunks. */
+            partial?: boolean;
+            /** @description Adapter message id, enabling block identity across updates. */
+            message_id?: string;
+            /** @description Block index within `message_id`, when the adapter reports one. */
+            index?: number | string;
+            /** @description True when a subagent, not the main agent, wrote this text. */
+            sidechain?: boolean;
+            /** @description On a user message, true when this prompt cut the running turn short instead of waiting for it to end. */
+            interrupted?: boolean;
+            /** @description Joins a `tool_use` to its `tool_result`. */
+            tool_use_id?: string;
+            /** @description Legacy reader alias for a tool-call id. Some adapters write a top-level `tool_use_id`; claude-code and codex nest the id under `content` or `item`. Kin and the console still accept `id` on older rows. */
+            id?: string;
+            name?: string;
+            tool_name?: string;
+            input?: unknown;
+            /** @description Short human summary of a tool call, when the adapter supplies one. */
+            summary?: string;
+            /** @description Tool result text, for `tool_result`. */
+            output?: string;
+            /** @description Producer-specific state for the event. For `tool_use`, the values seen are `running` (kinagent) and `pending` / `in_progress` (ACP). For `tool_result`, `done` (kinagent), `completed` (droid), or `error`, when the adapter reports one; some adapters omit it. For `user_question_answered`, the question's status. For `limit_hit`, the limit card's state (`open`, `waiting`, `continued`, `switched`, `dismissed`; open set). Read it as an open set; `ok` or `is_error` is the authoritative tool outcome. */
+            status?: string;
+            /** @description For `tool_result`, false means the tool failed. */
+            ok?: boolean;
+            /** @description Set when this tool call was made by a subagent inside another tool call. */
+            parent_tool_use_id?: string;
+            /** @description Adapter item envelope, when the adapter wraps the tool in one. */
+            item?: {
+                [key: string]: unknown;
+            };
+            approval_id?: string;
+            /** @description For `approval_requested`, what is being approved (`tool_use`, `browser_side_effect`, or another relayed kind). For `notice`, the adapter's notice kind (for example `updateCurrentMode`). For `error`, a machine-readable kind such as `rate_limited`. Open. */
+            kind?: string;
+            /** @description For `approval_requested`, the adapter's tool request body, verbatim. For `user_question_requested`, the question and its options. */
+            payload?: {
+                [key: string]: unknown;
+            };
+            question_id?: string;
+            /** @description For `user_question_answered`: `selected` labels and optional `other_text`. */
+            response?: {
+                [key: string]: unknown;
+            };
+            /** @description For `user_question_answered`. Who answered:
+             *
+             *     - `ios:<device-id>` — a paired device token, where `<device-id>` is
+             *       the `ios-…` id from the pairing exchange, so the stored value
+             *       reads `ios:ios-…`.
+             *     - `web` — the fallback for a console request whose
+             *       `X-Client-Type` header is absent, blank after trimming, or longer
+             *       than 64 characters.
+             *     - `<X-Client-Type>` — the trimmed header value, at most 64
+             *       characters, for any other console.
+             *     - `mcp` — a Kin MCP client. Unlike `Approval.decided_via`, the
+             *       client id is not appended.
+             *     - `a2a` — an A2A caller.
+             *     - `timeout` — the question was answered on the user's behalf when
+             *       its wait expired.
+             *     - `interrupt` — the turn was stopped.
+             *
+             *     Not a closed enum. There is no `device_disconnected` value for
+             *     questions.
+             *      */
+            answered_via?: string;
+            /**
+             * @description For `approval_decided`.
+             * @enum {string}
+             */
+            decision?: "approved" | "denied" | "expired";
+            /** @description For `approval_decided`. Same attribution vocabulary as `Approval.decided_via`; not a closed enum. */
+            decided_via?: string;
+            /** @description For `approval_decided`, in epoch milliseconds. */
+            decided_at?: number;
+            /** @description For `result`. Canonical result payloads always carry it. A legacy result that omits it is treated as a failure. */
+            is_error?: boolean;
+            /** @description Agent session id, for `task_started` and `result`. Some adapters write it as `session_id` (claude-code, codex, grok, kinagent, generic CLI); droid and ACP write `session_ref`. `sessionId` is a read-side alias; the daemon and clients read all three as the same value. */
+            session_ref?: string;
+            /** @description For `usage`, and nested in a canonical `result`. Adapter-reported
+             *     token fields, not normalized in place; the daemon normalizes them
+             *     for accounting with these aliases, nested under `usage` or flat on
+             *     the payload:
+             *
+             *     - input: `input_tokens` | `prompt_tokens` | `tokens_in`
+             *     - output: `output_tokens` | `completion_tokens` | `tokens_out`
+             *     - cached input: `cache_read_tokens` | `cache_read_input_tokens` |
+             *       `cached_input_tokens`
+             *     - cache writes: `cache_write_tokens` | `cache_creation_input_tokens`
+             *     - cost: `cost_usd` | `total_cost_usd`
+             *
+             *     Also recognized: `reasoning_output_tokens`, `cached_tokens`,
+             *     `cache_read_reported`, `cache_status`, `input_semantics`,
+             *     `cost_source`, `model`, `provider_id`, `source`, `agent`.
+             *      */
+            usage?: {
+                [key: string]: unknown;
+            };
+            /** @description Input tokens, flat on a legacy `result` or `usage` payload. Canonical events nest the normalized count under `usage`. */
+            tokens_in?: number;
+            /** @description Output tokens, flat on a legacy `result` or `usage` payload. Canonical events nest the normalized count under `usage`. */
+            tokens_out?: number;
+            /** @description Reported cost in US dollars, when the adapter or provider gives one. Canonical results carry it inside `usage`; legacy `result` payloads may carry it at the top level, and a `usage` payload may send null when no cost was reported. */
+            cost_usd?: number | null;
+            /** @description Provider-reported total cost in US dollars, passed through on some `result` payloads alongside `cost_usd`. */
+            total_cost_usd?: number;
+            /** @description A human-readable line: the failure for `error`, a status line for daemon-authored notices, and the annotation for `meta`. */
+            message?: string;
+            error?: unknown;
+            result?: unknown;
+            raw?: unknown;
+            /** @description For `notice`. */
+            title?: string;
+            /** @description For `notice`, for example `info` or `warning`. */
+            severity?: string;
+            /** @description For `plan`: the current plan, whole. An empty array withdraws the previous plan. */
+            entries?: ({
+                content?: string;
+                status?: string;
+            } & {
+                [key: string]: unknown;
+            })[];
+            /** @description For `checkpoint_skipped` and `workspace_restored`: the user-message seq the checkpoint was taken at. */
+            event_seq?: number;
+            /** @description Why, when the producer attaches one. For `checkpoint_skipped` the value is `too_large`, `unavailable`, or `git_error`. For `route_decision` / `route_fallback` it is the router's free-text sentence, for example `manual dispatch`. Read it as an open set. */
+            reason?: string;
+            /** @description For `round_changed`, the user seq that opened the round. */
+            from_seq?: number;
+            /** @description For `round_changed`, the user seq that closed the round. */
+            to_seq?: number;
+            base_tree?: string;
+            head_tree?: string;
+            /** @description For `round_changed`: total paths changed. `files` is capped at 200 entries, so compare it with this count to know what was omitted. */
+            total?: number;
+            /** @description For `round_changed`, the changed paths, capped at 200. */
+            files?: components["schemas"]["RoundChangedFile"][];
+            /** @description For a forked task, the source task id. Written on the first user `message` (whose `source` is `fork`) when the fork starts with a turn; otherwise on the `meta` annotation. */
+            forked_from?: string;
+            /** @description For a forked task, the seq the fork branched from. Written on the same event as `forked_from`. */
+            fork_from_seq?: number;
+            /** @description For `raw_output`, one unparsed adapter line. */
+            line?: string;
+            /** @description For a `message` with `source: handoff`, the agent the task came from. */
+            from_agent?: string;
+            /** @description For a `message` with `source: handoff`, the agent the task moved to. For `limit_hit`, the agent a `switched` card moved to. */
+            to_agent?: string;
+            /** @description For `limit_hit`, when the provider's window resets, in epoch seconds, not milliseconds. The daemon normalizes a provider value in milliseconds down to seconds. */
+            reset_at?: number;
+            /** @description For `limit_hit`, the provider's window label, when it reports one. */
+            window?: string;
+            /** @description For `limit_hit`, the seq of the earlier limit card this one replaces, when it updates one. */
+            replaces_seq?: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description One block of a message. The daemon writes `{"type":"text","text":...}`; adapters may add other block types, so `type` is an open string and unknown blocks must be preserved. */
+        TaskEventContentBlock: {
+            type: string;
+            text?: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description One changed path in a `round_changed` event. The daemon always writes `path` and `status`; both stay optional here because a stored event is untrusted input and a client drops a malformed entry rather than failing the round. */
+        RoundChangedFile: {
+            path?: string;
+            /** @description Present when `status` is `renamed`. */
+            old_path?: string;
+            /** @enum {string} */
+            status?: "added" | "modified" | "deleted" | "renamed" | "binary";
+            additions?: number;
+            deletions?: number;
+            binary?: boolean;
+        } & {
+            [key: string]: unknown;
         };
         WorkerStep: {
             task_id: string;
@@ -3096,11 +3600,43 @@ export interface components {
         Approval: {
             id: string;
             task_id: string;
+            /** @description What is being approved. `tool_use` for an agent tool call and
+             *     `browser_side_effect` for a browser action that changes state; a
+             *     machine relaying an approval may pass another non-empty kind
+             *     through unchanged. Read it as an open set.
+             *      */
             kind: string;
+            /** @description The adapter's request body, stored verbatim and opaque to clients. For `browser_side_effect` it carries `request_id`, `action`, and `source`. */
             payload: unknown;
-            decision: string;
+            /**
+             * @description `pending` until a person decides; then `approved`, `denied`, or `expired`. `expired` is written by the daemon when the one-hour approval TTL passes or the machine holding the turn disconnects.
+             * @enum {string}
+             */
+            decision: "pending" | "approved" | "denied" | "expired";
+            /** @description Who decided, when known:
+             *
+             *     - `ios:<device-id>` — a paired device token, where `<device-id>` is
+             *       the `ios-…` id from the pairing exchange, so the stored value
+             *       reads `ios:ios-…`. The prefix is used for any paired device, not
+             *       only iOS.
+             *     - `web` — the fallback for a console request whose
+             *       `X-Client-Type` header is absent, blank after trimming, or longer
+             *       than 64 characters.
+             *     - `<X-Client-Type>` — the trimmed header value, at most 64
+             *       characters, for any other console.
+             *     - `mcp:<client-id>` — a Kin MCP client.
+             *     - `a2a` — an A2A caller.
+             *     - `interrupt` — the engine denied it because the turn was stopped.
+             *     - `timeout` — the approval TTL passed.
+             *     - `device_disconnected` — the machine holding the turn went away.
+             *
+             *     Not a closed enum: a relayed approval carries the deciding
+             *     machine's own attribution.
+             *      */
             decided_via?: string | null;
+            /** @description When the approval was requested, in epoch milliseconds. */
             created_at: number;
+            /** @description When the decision was recorded, in epoch milliseconds. */
             decided_at?: number | null;
             execution_id?: string | null;
             execution_agent?: string | null;
@@ -3344,7 +3880,7 @@ export interface components {
             model_list_source: "configured" | "discovered" | "recommended" | "none";
             /** @enum {string} */
             model_list_status: "available" | "default_only" | "unavailable";
-            /** @description Absent when the machine could not report its ladder. */
+            /** @description The permission ladder this agent actually has on this machine. An agent that never asks reports only `default`; an agent whose `accept_edits` setting already bypasses approvals reports `default` and `yolo` with no `accept_edits` rung; otherwise the ladder is `default`, `accept_edits`, `yolo`. Absent when the machine could not report its ladder, in which case a console falls back to offering every mode. `DeviceAgent.permission_modes` is the filtered version for turns dispatched to another machine. */
             permission_modes?: string[];
         };
         AgentManagementInfo: {
@@ -4230,6 +4766,20 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Missing, invalid, or revoked credential */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authenticated, but not an operator */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     listDevices: {
@@ -4250,6 +4800,20 @@ export interface operations {
                     "application/json": components["schemas"]["Device"][];
                 };
             };
+            /** @description Missing, invalid, or revoked credential */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authenticated, but not an operator */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     revokeDevice: {
@@ -4265,6 +4829,34 @@ export interface operations {
         responses: {
             /** @description Device revoked */
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The device id is empty */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing, invalid, or revoked credential */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authenticated, but not an operator */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Device not found or already revoked */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5077,6 +5669,13 @@ export interface operations {
                     "text/event-stream": string;
                 };
             };
+            /** @description Engine is unavailable or the event bus refuses a subscriber */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     listTasks: {
@@ -5131,6 +5730,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Task"];
                 };
+            };
+            /** @description Invalid request or the task cannot be created as asked */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -5234,6 +5840,20 @@ export interface operations {
             };
             /** @description The task cannot be deleted in its current state */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing, invalid, or revoked credential */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authenticated, but not an operator */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5436,6 +6056,7 @@ export interface operations {
     listTaskEvents: {
         parameters: {
             query?: {
+                /** @description Return events with a greater seq. Zero or absent reads from the start. */
                 since_seq?: number;
             };
             header?: never;
@@ -5454,6 +6075,20 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TaskEvent"][];
                 };
+            };
+            /** @description since_seq is not a non-negative integer */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Task not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
