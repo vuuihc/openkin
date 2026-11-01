@@ -35,23 +35,24 @@ type SessionChangePage struct {
 }
 
 type Task struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Agent       string `json:"agent"`
-	Cwd         string `json:"cwd"`
-	Prompt      string `json:"prompt"`
-	Status      string `json:"status"`
-	EventEpoch  int64  `json:"event_epoch"`
-	HubSeq      *int64 `json:"hub_seq"`
-	ArchivedAt  int64  `json:"archived_at"`
-	CreatedAt   int64  `json:"created_at"`
-	StartedAt   int64  `json:"started_at"`
-	FinishedAt  int64  `json:"finished_at"`
-	ProjectID   string `json:"project_id"`
-	SessionRef  string `json:"session_ref"`
-	TokensIn    int64  `json:"tokens_in"`
-	TokensOut   int64  `json:"tokens_out"`
-	WorkspaceID string `json:"current_workspace_id"`
+	ID             string `json:"id"`
+	Title          string `json:"title"`
+	Agent          string `json:"agent"`
+	Cwd            string `json:"cwd"`
+	Prompt         string `json:"prompt"`
+	Status         string `json:"status"`
+	EventEpoch     int64  `json:"event_epoch"`
+	HubSeq         *int64 `json:"hub_seq"`
+	ArchivedAt     int64  `json:"archived_at"`
+	CreatedAt      int64  `json:"created_at"`
+	StartedAt      int64  `json:"started_at"`
+	FinishedAt     int64  `json:"finished_at"`
+	ProjectID      string `json:"project_id"`
+	SessionRef     string `json:"session_ref"`
+	PermissionMode string `json:"permission_mode"`
+	TokensIn       int64  `json:"tokens_in"`
+	TokensOut      int64  `json:"tokens_out"`
+	WorkspaceID    string `json:"current_workspace_id"`
 }
 
 type TaskEvent struct {

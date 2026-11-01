@@ -1,0 +1,191 @@
+[
+  {
+    "label": "snapshot drains before subscribing (ADR 0024 order)",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestRunAcceptanceWithApproval$'",
+    "old": "\tif _, err := p.startStream(ctx); err != nil {\n\t\treturn \"\", fmt.Errorf(\"events stream: %w\", err)\n\t}\n\tvar cur CursorResponse",
+    "new": "\tvar cur CursorResponse"
+  },
+  {
+    "label": "reconnect drains before resubscribing (ADR 0024 order)",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestRunAcceptanceWithApproval$'",
+    "old": "\tframes, err := p.startStream(ctx)\n\tif err != nil {\n\t\treturn \"\", fmt.Errorf(\"reconnect: %w\", err)\n\t}\n\n\tstart := cursorStart(p.sum)\n\trebuilt, deleted, pages, last, err := p.drainFeed(ctx, start)\n\tif err != nil {\n\t\treturn \"\", err\n\t}\n",
+    "new": "\tstart := cursorStart(p.sum)\n\trebuilt, deleted, pages, last, err := p.drainFeed(ctx, start)\n\tif err != nil {\n\t\treturn \"\", err\n\t}\n\tframes, err := p.startStream(ctx)\n\tif err != nil {\n\t\treturn \"\", fmt.Errorf(\"reconnect: %w\", err)\n\t}\n"
+  },
+  {
+    "label": "a new subscription leaves the previous one open",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestStartStreamReplacesPrevious$'",
+    "old": "\tif p.stream != nil {\n\t\tp.closeStream()\n\t}\n\tstreamCtx, cancel := context.WithCancel(ctx)",
+    "new": "\tstreamCtx, cancel := context.WithCancel(ctx)"
+  },
+  {
+    "label": "page cap reports a finding on a complete feed",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestSnapshotCompleteAtPageCapHasNoFinding$'",
+    "old": "\tif pages == 100 && more {",
+    "new": "\tif pages == 100 {"
+  },
+  {
+    "label": "stuck feed cursor no longer stops the walk",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestSnapshotStopsOnStuckFeedCursor$'",
+    "old": "\t\tif page.NextCursor == since {\n\t\t\tp.findingf(\"the change feed reported has_more=true but next_cursor did not advance (stuck at %d); workaround: stop paging to avoid an infinite loop\", since)\n\t\t\tbreak\n\t\t}",
+    "new": "\t\tif false && page.NextCursor == since {\n\t\t\tp.findingf(\"the change feed reported has_more=true but next_cursor did not advance (stuck at %d); workaround: stop paging to avoid an infinite loop\", since)\n\t\t\tbreak\n\t\t}"
+  },
+  {
+    "label": "durable-only marker counts as live",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestStepPromptRequiresLiveMarker$'",
+    "old": "\tif !markerLive {",
+    "new": "\tif false {"
+  },
+  {
+    "label": "echo subtraction is a no-op",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestStepPromptRejectsPromptEcho$'",
+    "old": "func echoFreeText(text string) string {\n\treturn strings.ReplaceAll(text, w4Prompt(), \"\")\n}",
+    "new": "func echoFreeText(text string) string {\n\treturn text\n}"
+  },
+  {
+    "label": "event identity drops the epoch",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestDurableIndexKeepsEpochsApart|TestHandleFrameKeepsEpochsApart$'",
+    "old": "\treturn eventKey{Epoch: ev.EventEpoch, Seq: ev.Seq}",
+    "new": "\treturn eventKey{Seq: ev.Seq}"
+  },
+  {
+    "label": "live event map drops the epoch",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestHandleFrameKeepsEpochsApart$'",
+    "old": "\t\tp.liveEvents[eventKeyOf(te)] = te",
+    "new": "\t\tp.liveEvents[eventKey{Seq: te.Seq}] = te"
+  },
+  {
+    "label": "unseen durable row is not named epoch:seq:type",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestDurableUnseenLiveReported$'",
+    "old": "\t\t\tunseen = append(unseen, fmt.Sprintf(\"%d:%d:%s\", key.Epoch, key.Seq, ev.Type))",
+    "new": "\t\t\tunseen = append(unseen, fmt.Sprintf(\"%d:%s\", key.Seq, ev.Type))"
+  },
+  {
+    "label": "a silent reopened stream passes step 6",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestReconnectRequiresFrameProof$'",
+    "old": "\t\tcase <-deadline:\n\t\t\tp.observe(\"reconnect_frame_seen\", false)\n\t\t\treturn \"\", fmt.Errorf(\"the reopened SSE stream delivered no task_update for a change made after resubscribing within %s\", timeout)",
+    "new": "\t\tcase <-deadline:\n\t\t\tp.observe(\"reconnect_frame_seen\", false)\n\t\t\treturn \"the stream stayed silent\", nil"
+  },
+  {
+    "label": "approval decision posts denied",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestRunAcceptanceWithApproval$'",
+    "old": "ApprovalDecisionRequest{Decision: \"approved\"}",
+    "new": "ApprovalDecisionRequest{Decision: \"denied\"}"
+  },
+  {
+    "label": "live approval is not marked exercised",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestRunAcceptanceWithApproval$'",
+    "old": "\tp.observe(\"approval_exercised_live\", true)",
+    "new": "\tp.observe(\"approval_exercised_live\", false)"
+  },
+  {
+    "label": "cleanup retries the delete without cancelling",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestCleanupCancelsThenDeletes$'",
+    "old": "\t\t\tif cancelErr := p.master.PostJSON(ctx, \"/api/tasks/\"+p.taskID+\"/cancel\", nil, nil); cancelErr != nil {\n\t\t\t\tp.log.Logf(\"cleanup: cancel probe task: %v\", cancelErr)\n\t\t\t}",
+    "new": "\t\t\t// mutant: retry without cancelling first"
+  },
+  {
+    "label": "cleanup reports the task as not deleted",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestCleanupCancelsThenDeletes$'",
+    "old": "\t\t\tdeleted = true",
+    "new": "\t\t\tdeleted = false"
+  },
+  {
+    "label": "cleanup reports the device as not revoked",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestRunAcceptanceWithApproval$'",
+    "old": "\t\t\trevoked = true",
+    "new": "\t\t\trevoked = false"
+  },
+  {
+    "label": "text-before-terminal observation is hard-coded false",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestRunAcceptanceWithApproval$'",
+    "old": "\tstreamedBeforeTerminal := !p.firstTextAt.IsZero() && p.firstTextAt.Before(p.terminalAt)",
+    "new": "\tstreamedBeforeTerminal := false"
+  },
+  {
+    "label": "marker attribution is never recorded",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestRunAcceptanceWithApproval$'",
+    "old": "\t\t\tif !hadMarker && strings.Contains(echoFreeText(p.textBuilder.String()), w4Marker) {",
+    "new": "\t\t\tif false && !hadMarker && strings.Contains(echoFreeText(p.textBuilder.String()), w4Marker) {"
+  },
+  {
+    "label": "text extractor ignores delta payloads",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestTextFragments$'",
+    "old": "\tcase \"text\", \"delta\", \"content\", \"chunk\", \"output\", \"message\", \"result\":",
+    "new": "\tcase \"text\", \"content\", \"chunk\", \"output\", \"message\", \"result\":"
+  },
+  {
+    "label": "compareTask ignores status",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestCompareTask$'",
+    "old": "\tif feed.Status != current.Status {",
+    "new": "\tif false {"
+  },
+  {
+    "label": "SSE frames without an event field get no default kind",
+    "file": "probe/kin-probe-w4/client.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestSSEStreamParsesFrames$'",
+    "old": "\t\t\tif event == \"\" {\n\t\t\t\tevent = \"message\"\n\t\t\t}\n",
+    "new": ""
+  },
+  {
+    "label": "live marker check reads the raw transcript",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestStepPromptRejectsSplitPromptEcho$'",
+    "old": "\ttext := echoFreeText(p.textBuilder.String())\n\tmarkerLive := strings.Contains(text, w4Marker)",
+    "new": "\ttext := p.textBuilder.String()\n\tmarkerLive := strings.Contains(text, w4Marker)"
+  },
+  {
+    "label": "durable marker check reads the raw transcript",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestStepPromptRejectsPromptEcho$'",
+    "old": "\tmarkerDurable = strings.Contains(echoFreeText(durableText.String()), w4Marker)",
+    "new": "\tmarkerDurable = strings.Contains(durableText.String(), w4Marker)"
+  },
+  {
+    "label": "marker attribution reads the raw transcript",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestStepPromptRejectsSplitPromptEcho$'",
+    "old": "\t\t\tif !hadMarker && strings.Contains(echoFreeText(p.textBuilder.String()), w4Marker) {",
+    "new": "\t\t\tif !hadMarker && strings.Contains(p.textBuilder.String(), w4Marker) {"
+  },
+  {
+    "label": "approval counts even when the decision does not read back",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestApprovalRequiresApprovedResponse$'",
+    "old": "\t\tif updated.Decision != \"approved\" {",
+    "new": "\t\tif false {"
+  },
+  {
+    "label": "approval absence is asserted without a readable list",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestApprovalAbsenceRequiresReadableList$'",
+    "old": "\t\tif !p.approvalListOK {\n\t\t\treturn \"\", errors.New(\"no approval was seen, and GET /api/approvals was never readable, so its absence cannot be asserted\")\n\t\t}",
+    "new": "\t\t// mutant: assert absence without a readable list"
+  },
+  {
+    "label": "approval rows for the task are not recorded",
+    "file": "probe/kin-probe-w4/flow.go",
+    "test": "cd probe/kin-probe-w4 && go test ./ -count=1 -run '^TestRunAcceptanceWithApproval$'",
+    "old": "\t\t\tp.approvalRows[approval.ID] = true",
+    "new": "\t\t\t_ = approval.ID"
+  }
+]

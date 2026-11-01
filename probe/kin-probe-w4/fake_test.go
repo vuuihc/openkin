@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -25,6 +26,17 @@ type fakeDaemon struct {
 	withApproval bool
 	pageSize     int
 
+	// Failure modes used by the negative tests.
+	stuckCursor            bool // feed reports has_more with a non-advancing cursor
+	suppressReconnectFrame bool // archive changes the row but emits no frame
+	userEchoOnly           bool // the turn only echoes the prompt, with no assistant text
+	splitEcho              bool // the prompt echo is split across two text fragments
+	markerDurableOnly      bool // the marker is durable but never sent live
+	echoDurableOnly        bool // the prompt echo is durable but never sent live
+	ignoreDecision         bool // the decision endpoint returns the row unchanged
+	approvalListFails      bool // GET /api/approvals always fails
+	deleteFailures         int  // DELETE /api/tasks/{id} fails this many times
+
 	mu          sync.Mutex
 	cursor      int64
 	tasks       map[string]*Task
@@ -35,6 +47,12 @@ type fakeDaemon struct {
 	subs        map[chan SSEEvent]struct{}
 	approvalCh  chan struct{}
 	approveOnce sync.Once
+	limits      []int
+	prompts     []string
+	requests    []string
+	cancelCalls int
+	deletes     int
+	revokes     int
 
 	server *httptest.Server
 }
@@ -98,6 +116,14 @@ func newFakeDaemon(t *testing.T, withApproval bool) *fakeDaemon {
 		if v := r.URL.Query().Get("updated_since"); v != "" {
 			fmt.Sscanf(v, "%d", &since)
 		}
+		limit := 0
+		if v := r.URL.Query().Get("limit"); v != "" {
+			fmt.Sscanf(v, "%d", &limit)
+		}
+		f.mu.Lock()
+		f.limits = append(f.limits, limit)
+		f.requests = append(f.requests, "feed")
+		f.mu.Unlock()
 		page := f.feedPage(since)
 		writeJSON(w, http.StatusOK, page)
 	})
@@ -165,12 +191,34 @@ func newFakeDaemon(t *testing.T, withApproval bool) *fakeDaemon {
 	mux.HandleFunc("POST /api/tasks/{taskId}/unarchive", func(w http.ResponseWriter, r *http.Request) {
 		f.setArchived(w, r, false)
 	})
+	mux.HandleFunc("POST /api/tasks/{taskId}/cancel", func(w http.ResponseWriter, r *http.Request) {
+		if !f.authorized(r, testMasterToken) {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "operator only"})
+			return
+		}
+		f.mu.Lock()
+		f.cancelCalls++
+		if task, ok := f.tasks[r.PathValue("taskId")]; ok {
+			task.Status = "cancelled"
+			task.FinishedAt = time.Now().UnixMilli()
+			f.bumpLocked(task)
+		}
+		f.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("DELETE /api/tasks/{taskId}", func(w http.ResponseWriter, r *http.Request) {
 		if !f.authorized(r, testMasterToken) {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "operator only"})
 			return
 		}
 		f.mu.Lock()
+		f.deletes++
+		if f.deleteFailures > 0 {
+			f.deleteFailures--
+			f.mu.Unlock()
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "still running"})
+			return
+		}
 		id := r.PathValue("taskId")
 		if _, ok := f.tasks[id]; ok {
 			delete(f.tasks, id)
@@ -185,11 +233,18 @@ func newFakeDaemon(t *testing.T, withApproval bool) *fakeDaemon {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "operator only"})
 			return
 		}
+		f.mu.Lock()
+		f.revokes++
+		f.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("GET /api/approvals", func(w http.ResponseWriter, r *http.Request) {
 		if !f.authorized(r, testDeviceToken) {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		if f.approvalListFails {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "approval store unavailable"})
 			return
 		}
 		f.mu.Lock()
@@ -212,7 +267,7 @@ func newFakeDaemon(t *testing.T, withApproval bool) *fakeDaemon {
 		}
 		f.mu.Lock()
 		approval, ok := f.approvals[r.PathValue("approvalId")]
-		if ok {
+		if ok && !f.ignoreDecision {
 			approval.Decision = req.Decision
 			approval.DecidedAt = time.Now().UnixMilli()
 		}
@@ -280,10 +335,12 @@ func (f *fakeDaemon) handleSSE(w http.ResponseWriter, r *http.Request) {
 	ch := make(chan SSEEvent, 256)
 	f.mu.Lock()
 	f.subs[ch] = struct{}{}
+	f.requests = append(f.requests, "sse")
 	f.mu.Unlock()
 	defer func() {
 		f.mu.Lock()
 		delete(f.subs, ch)
+		f.requests = append(f.requests, "sse_close")
 		f.mu.Unlock()
 	}()
 	fmt.Fprint(w, ": ping\n\n")
@@ -329,17 +386,19 @@ func (f *fakeDaemon) createTask(req CreateTaskRequest) Task {
 	defer f.mu.Unlock()
 	id := fmt.Sprintf("task-%d", len(f.order)+1)
 	task := &Task{
-		ID:         id,
-		Title:      req.Title,
-		Agent:      req.Agent,
-		Cwd:        req.Cwd,
-		Prompt:     req.Prompt,
-		Status:     "queued",
-		EventEpoch: 1,
-		CreatedAt:  time.Now().UnixMilli(),
+		ID:             id,
+		Title:          req.Title,
+		Agent:          req.Agent,
+		Cwd:            req.Cwd,
+		Prompt:         req.Prompt,
+		Status:         "queued",
+		EventEpoch:     1,
+		PermissionMode: "default",
+		CreatedAt:      time.Now().UnixMilli(),
 	}
 	f.tasks[id] = task
 	f.order = append(f.order, id)
+	f.prompts = append(f.prompts, req.Prompt)
 	f.bumpLocked(task)
 	return *task
 }
@@ -351,6 +410,12 @@ func (f *fakeDaemon) bumpLocked(task *Task) {
 }
 
 func (f *fakeDaemon) addEvent(taskID, typ string, payload map[string]string) {
+	f.addEventLive(taskID, typ, payload, true)
+}
+
+// addEventLive writes the durable row always and emits it on the bus only when
+// live is true, which models a stream that lost a row.
+func (f *fakeDaemon) addEventLive(taskID, typ string, payload map[string]string, live bool) {
 	f.mu.Lock()
 	task, ok := f.tasks[taskID]
 	if !ok {
@@ -369,7 +434,9 @@ func (f *fakeDaemon) addEvent(taskID, typ string, payload map[string]string) {
 	f.events[taskID] = append(f.events[taskID], ev)
 	f.bumpLocked(task)
 	f.mu.Unlock()
-	f.emit("event", ev)
+	if live {
+		f.emit("event", ev)
+	}
 }
 
 func (f *fakeDaemon) runTurn(taskID string) {
@@ -383,13 +450,32 @@ func (f *fakeDaemon) runTurn(taskID string) {
 	task.Status = "running"
 	task.StartedAt = time.Now().UnixMilli()
 	f.bumpLocked(task)
+	prompt := task.Prompt
 	snapshot := *task
 	f.mu.Unlock()
 	f.emit("task_update", snapshot)
 
-	f.addEvent(taskID, "assistant_delta", map[string]string{"delta": "probe-w4-"})
-	time.Sleep(20 * time.Millisecond)
-	f.addEvent(taskID, "assistant_delta", map[string]string{"delta": "ok"})
+	// The daemon writes the prompt back as a user event. It contains the reply
+	// marker, so it must never satisfy the assistant-text check.
+	if f.splitEcho {
+		split := strings.Index(prompt, w4Marker)
+		if split <= 0 {
+			split = len(prompt) / 2
+		}
+		f.addEventLive(taskID, "user_message", map[string]string{"delta": prompt[:split]}, true)
+		f.addEventLive(taskID, "user_message", map[string]string{"delta": prompt[split:]}, true)
+	} else {
+		f.addEventLive(taskID, "user_message", map[string]string{"content": prompt}, !f.echoDurableOnly)
+	}
+
+	if f.markerDurableOnly {
+		f.addEventLive(taskID, "assistant_delta", map[string]string{"delta": "partial "}, true)
+		f.addEventLive(taskID, "assistant_delta", map[string]string{"delta": w4Marker}, false)
+	} else if !f.userEchoOnly && !f.splitEcho {
+		f.addEvent(taskID, "assistant_delta", map[string]string{"delta": "probe-w4-"})
+		time.Sleep(20 * time.Millisecond)
+		f.addEvent(taskID, "assistant_delta", map[string]string{"delta": "ok"})
+	}
 
 	if f.withApproval {
 		approval := &Approval{ID: "approval-1", TaskID: taskID, Kind: "permission", Payload: json.RawMessage(`{"tool":"Bash"}`), CreatedAt: time.Now().UnixMilli()}
@@ -437,12 +523,15 @@ func (f *fakeDaemon) setArchived(w http.ResponseWriter, r *http.Request, archive
 	if ok {
 		snapshot = *task
 	}
+	suppress := f.suppressReconnectFrame && archived
 	f.mu.Unlock()
 	if !ok {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return
 	}
-	f.emit("task_update", snapshot)
+	if !suppress {
+		f.emit("task_update", snapshot)
+	}
 	writeJSON(w, http.StatusOK, snapshot)
 }
 
@@ -488,6 +577,11 @@ func (f *fakeDaemon) feedPage(since int64) SessionChangePage {
 		page.NextCursor = entry.pos
 	}
 	page.HasMore = len(entries) > limit
+	if f.stuckCursor {
+		// A broken feed: there is more, but the cursor never advances.
+		page.NextCursor = since
+		page.HasMore = true
+	}
 	return page
 }
 
@@ -495,4 +589,10 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+func (f *fakeDaemon) requestLog() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.requests...)
 }
