@@ -133,9 +133,9 @@ versus W4, and write the final Chinese digest.
 | Workstream | Owner | Branch | Status | Report |
 | --- | --- | --- | --- | --- |
 | W1 | W1 session | `lody/w1-client-contract-api` | **done** — merged in `4cb239f0` | `W1-report.md` |
-| W1b | W1b session | `lody/w1b-contract-payloads` | running — closes the W2 §5 gaps | `W1b-report.md` |
+| W1b | W1b session | `lody/w1b-contract-payloads` | **done** — merged in `b6287cff` | `W1b-report.md` |
 | W2 | W2 session | `probe/client-contract-w2` | **done** — merged in `34d27e71` | `W2-baseline-report.md` |
-| W3 | W3 session | `w3-desktop-footprint` | resumed — first run did not finish | `W3-footprint-report.md` |
+| W3 | W3 session | `w3-desktop-footprint` | soak complete — finalizing the report and commit | `W3-footprint-report.md` |
 | W4 | W4 session | session worktree from `4cb239f0` | running — W1-only baseline | `W4-report.md` |
 
 W4 was branched from `4cb239f0` (W1 merged, W2 not yet merged) so the
