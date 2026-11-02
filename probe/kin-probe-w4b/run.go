@@ -342,15 +342,14 @@ func RunAcceptance(ctx context.Context, cfg Config) *Outcome {
 	}
 	// Let the turn finish so the final (non-partial) message is on record
 	// before the next prompt is sent.
-	streamedChunks := snap.PartialChunks - partialsBefore
 	if _, err := waitTerminal(ctx, device, taskID, 180*time.Second); err != nil {
 		out.add("4 streaming", statusFail, "turn did not finish after streaming began: %v", err)
 		return out
 	}
 	snap = live.Snapshot()
 	out.Metrics.PartialChunks = snap.PartialChunks - partialsBefore
-	out.add("4 streaming", statusPass, "%d partial message chunk(s) for this prompt; %d total tracked, final message seen=%t", streamedChunks, snap.PartialChunks, snap.HaveFinal)
-	logf("step 4 streaming: ok (%d new partial chunks)", snap.PartialChunks-partialsBefore)
+	out.add("4 streaming", statusPass, "%d partial message chunk(s) for this prompt; %d total tracked, final message seen=%t", out.Metrics.PartialChunks, snap.PartialChunks, snap.HaveFinal)
+	logf("step 4 streaming: ok (%d new partial chunks)", out.Metrics.PartialChunks)
 
 	// ---- Step 5: receive and approve a permission request ----
 	approvalStatus, approvalDetail := attemptApproval(ctx, cfg, device, live, taskID, out)
@@ -568,6 +567,17 @@ func attemptApproval(ctx context.Context, cfg Config, device *Client, live *Live
 		if durableErr != nil {
 			return statusFail, fmt.Sprintf("no approval was observed, and the durable log could not be read to classify the outcome: %v", durableErr)
 		}
+		allForTask, pendingForTask := 0, 0
+		for _, a := range all {
+			if a.TaskID == taskID {
+				allForTask++
+			}
+		}
+		for _, a := range pending {
+			if a.TaskID == taskID {
+				pendingForTask++
+			}
+		}
 		var requested, toolUse, toolResult, embedded int
 		var statuses []string
 		for _, ev := range durable {
@@ -582,7 +592,7 @@ func attemptApproval(ctx context.Context, cfg Config, device *Client, live *Live
 			}
 		}
 		embedded = embeddedToolResults(durable)
-		evidence := fmt.Sprintf("list readable (%d total, %d pending); durable approval_requested=%d tool_use=%d tool_result=%d embedded_tool_result=%d", len(all), len(pending), requested, toolUse, toolResult, embedded)
+		evidence := fmt.Sprintf("list readable (%d total, %d for this session; %d pending, %d for this session); durable approval_requested=%d tool_use=%d tool_result=%d embedded_tool_result=%d", len(all), allForTask, len(pending), pendingForTask, requested, toolUse, toolResult, embedded)
 		if len(statuses) > 0 {
 			evidence += fmt.Sprintf(" (tool_use statuses: %s)", strings.Join(statuses, ","))
 		}
@@ -595,11 +605,14 @@ func attemptApproval(ctx context.Context, cfg Config, device *Client, live *Live
 			return statusFail, fmt.Sprintf("the durable log records %d approval_requested event(s), but GET /api/approvals exposed no pending row for the session; %s", requested, evidence)
 		}
 		if statusErr != nil {
-			return statusFail, fmt.Sprintf("inconclusive after %s: the turn was still running and no approval row appeared; %s", time.Since(started).Round(time.Second), evidence)
+			return statusFail, fmt.Sprintf("inconclusive after %s: %v; %s", time.Since(started).Round(time.Second), statusErr, evidence)
 		}
 		evidence = fmt.Sprintf("turn reached %s after %s; %s", finalTask.Status, time.Since(started).Round(time.Second), evidence)
-		if finalTask.Status == "failed" {
-			return statusFail, "the tool-prompt turn failed without an approval row; " + evidence
+		if finalTask.Status != "succeeded" {
+			return statusFail, fmt.Sprintf("the tool-prompt turn reached %s without an approval row; %s", finalTask.Status, evidence)
+		}
+		if toolUse == 0 && toolResult == 0 && embedded == 0 {
+			return statusFail, "the turn succeeded without attempting the invited tool; " + evidence
 		}
 		if lastListErr != nil {
 			evidence += fmt.Sprintf("; a mid-wait list read failed transiently: %v", lastListErr)
@@ -620,6 +633,10 @@ func attemptApproval(ctx context.Context, cfg Config, device *Client, live *Live
 	via := decided.DecidedVia
 	if via == "" {
 		via = "unreported"
+	} else if i := strings.IndexByte(via, ':'); i >= 0 {
+		// The contract documents ios:<device-id>; keep the mechanism only so
+		// the outcome never carries a device identifier.
+		via = via[:i] + " (identifier redacted)"
 	}
 	return statusPass, fmt.Sprintf("pending approval received and approved (kind=%s, decided_via=%s); turn finished", approved.Kind, via)
 }

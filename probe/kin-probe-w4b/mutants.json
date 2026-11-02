@@ -103,5 +103,47 @@
     "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceFailsWhenApprovalRequestedButNoRow -count=1 ./...",
     "old": "\t\tif requested > 0 {",
     "new": "\t\tif false {"
+  },
+  {
+    "label": "an unexpected stream EOF is ignored",
+    "file": "probe/kin-probe-w4b/state.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceFailsOnStreamError -count=1 ./...",
+    "old": "\tif s.StreamErr == nil && err != nil {",
+    "new": "\tif false {"
+  },
+  {
+    "label": "a canceled tool-prompt turn is reported as a skip",
+    "file": "probe/kin-probe-w4b/run.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceFailsWhenApprovalTurnCanceled -count=1 ./...",
+    "old": "\t\tif finalTask.Status != \"succeeded\" {",
+    "new": "\t\tif false {"
+  },
+  {
+    "label": "a turn that never attempted the tool is reported as a skip",
+    "file": "probe/kin-probe-w4b/run.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceFailsWhenToolNotAttempted -count=1 ./...",
+    "old": "\t\tif toolUse == 0 && toolResult == 0 && embedded == 0 {",
+    "new": "\t\tif false {"
+  },
+  {
+    "label": "an unreadable durable log is reported as a skip",
+    "file": "probe/kin-probe-w4b/run.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceFailsWhenDurableLogUnreadable -count=1 ./...",
+    "old": "\t\t\treturn statusFail, fmt.Sprintf(\"no approval was observed, and the durable log could not be read to classify the outcome: %v\", durableErr)",
+    "new": "\t\t\treturn statusSkip, fmt.Sprintf(\"no approval was observed, and the durable log could not be read to classify the outcome: %v\", durableErr)"
+  },
+  {
+    "label": "a still-running approval turn is reported as a skip",
+    "file": "probe/kin-probe-w4b/run.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceFailsWhenApprovalTurnStillRunning -count=1 ./...",
+    "old": "\t\t\treturn statusFail, fmt.Sprintf(\"inconclusive after %s: %v; %s\", time.Since(started).Round(time.Second), statusErr, evidence)",
+    "new": "\t\t\treturn statusSkip, fmt.Sprintf(\"inconclusive after %s: %v; %s\", time.Since(started).Round(time.Second), statusErr, evidence)"
+  },
+  {
+    "label": "SetTaskID releases the lock before replaying buffered frames",
+    "file": "probe/kin-probe-w4b/state.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestSetTaskIDConcurrentWithPump -count=1 ./...",
+    "old": "\ts.mu.Lock()\n\tdefer s.mu.Unlock()\n\ts.TaskID = id",
+    "new": "\ts.mu.Lock()\n\tdefer s.mu.Unlock()\n\ts.mu.Unlock()\n\ts.TaskID = id"
   }
 ]

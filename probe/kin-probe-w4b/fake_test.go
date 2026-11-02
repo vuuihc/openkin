@@ -69,10 +69,15 @@ type fakeDaemon struct {
 	corruptFeedStatus   bool
 	mangleDurableType   string
 	breakStream         bool
+	breakTaskEvents     bool
 	failDelete          bool
 	failRevoke          bool
 	suppressTaskUpdate  bool
 	requestedWithoutRow bool
+	ignoreToolPrompt    bool
+	cancelToolPrompt    bool
+	failToolTurn        bool
+	slowToolTurn        time.Duration
 	pairingUsed         bool
 	pairingLabel        string
 	deviceLabel         string
@@ -302,6 +307,10 @@ func (f *fakeDaemon) start() *httptest.Server {
 	})
 	mux.HandleFunc("GET /api/tasks/{taskId}/events", func(w http.ResponseWriter, r *http.Request) {
 		if !f.holder(w, r) {
+			return
+		}
+		if f.breakTaskEvents {
+			writeJSON(w, 500, map[string]string{"error": "injected events failure"})
 			return
 		}
 		since, _ := strconv.ParseInt(r.URL.Query().Get("since_seq"), 10, 64)
@@ -557,35 +566,49 @@ func (f *fakeDaemon) runTurn(taskID, prompt string) {
 	f.appendEvent(taskID, "message", TaskEventPayload{Role: "user", Speaker: "user", Source: "user", Text: prompt})
 
 	if strings.Contains(prompt, "echo") {
-		if f.approvalCut == "pending" {
-			ap := f.createApproval(taskID)
-			f.appendEvent(taskID, "tool_use", TaskEventPayload{ToolName: "Bash", Status: "pending", ApprovalID: ap.ID})
-			select {
-			case <-ap.ch:
-			case <-time.After(5 * time.Second):
-				f.mu.Lock()
-				if ap.Decision == "pending" {
-					ap.Decision = "expired"
-					now := time.Now().UnixMilli()
-					ap.DecidedAt = &now
-					ap.DecidedVia = "timeout"
-					f.emitLocked("approval_update", ap.Approval)
+		if f.cancelToolPrompt {
+			f.setStatus(taskID, "canceled")
+			return
+		}
+		if f.failToolTurn {
+			f.appendEvent(taskID, "error", TaskEventPayload{Text: "injected failure"})
+			f.setStatus(taskID, "failed")
+			return
+		}
+		if f.slowToolTurn > 0 {
+			time.Sleep(f.slowToolTurn)
+		}
+		if !f.ignoreToolPrompt {
+			if f.approvalCut == "pending" {
+				ap := f.createApproval(taskID)
+				f.appendEvent(taskID, "tool_use", TaskEventPayload{ToolName: "Bash", Status: "pending", ApprovalID: ap.ID})
+				select {
+				case <-ap.ch:
+				case <-time.After(5 * time.Second):
+					f.mu.Lock()
+					if ap.Decision == "pending" {
+						ap.Decision = "expired"
+						now := time.Now().UnixMilli()
+						ap.DecidedAt = &now
+						ap.DecidedVia = "timeout"
+						f.emitLocked("approval_update", ap.Approval)
+					}
+					f.mu.Unlock()
 				}
-				f.mu.Unlock()
+			} else {
+				if f.requestedWithoutRow {
+					f.appendEvent(taskID, "approval_requested", TaskEventPayload{Kind: "tool_use"})
+				}
+				f.appendEvent(taskID, "tool_use", TaskEventPayload{ToolName: "Bash", Status: "running"})
+				// The live daemon can deliver a tool result as a message content
+				// block (role user, type tool_result) rather than a tool_result
+				// event; the contract treats block types as an open set.
+				f.appendEvent(taskID, "message", TaskEventPayload{
+					Role:    "user",
+					Partial: ptr(false),
+					Content: json.RawMessage(`[{"type":"tool_result","content":"probe-w4b-ok","is_error":false}]`),
+				})
 			}
-		} else {
-			if f.requestedWithoutRow {
-				f.appendEvent(taskID, "approval_requested", TaskEventPayload{Kind: "tool_use"})
-			}
-			f.appendEvent(taskID, "tool_use", TaskEventPayload{ToolName: "Bash", Status: "running"})
-			// The live daemon can deliver a tool result as a message content
-			// block (role user, type tool_result) rather than a tool_result
-			// event; the contract treats block types as an open set.
-			f.appendEvent(taskID, "message", TaskEventPayload{
-				Role:    "user",
-				Partial: ptr(false),
-				Content: json.RawMessage(`[{"type":"tool_result","content":"probe-w4b-ok","is_error":false}]`),
-			})
 		}
 	}
 
@@ -762,6 +785,11 @@ func runFakeAcceptance(t *testing.T, approvalCut string) (*Outcome, *fakeDaemon)
 
 func runFakeAcceptanceWith(t *testing.T, approvalCut string, configure func(*fakeDaemon)) (*Outcome, *fakeDaemon) {
 	t.Helper()
+	return runFakeAcceptanceConfig(t, approvalCut, 5*time.Second, configure)
+}
+
+func runFakeAcceptanceConfig(t *testing.T, approvalCut string, approvalWait time.Duration, configure func(*fakeDaemon)) (*Outcome, *fakeDaemon) {
+	t.Helper()
 	f := newFakeDaemon(t, approvalCut)
 	if configure != nil {
 		configure(f)
@@ -773,7 +801,7 @@ func runFakeAcceptanceWith(t *testing.T, approvalCut string, configure func(*fak
 	out := RunAcceptance(ctx, Config{
 		BaseURL:      srv.URL,
 		MasterToken:  fakeMasterToken,
-		ApprovalWait: 5 * time.Second,
+		ApprovalWait: approvalWait,
 		Logf:         t.Logf,
 	})
 	return out, f
@@ -802,6 +830,12 @@ func TestRunAcceptanceAgainstFake(t *testing.T) {
 	}
 	if out.Steps[4].Status != statusPass {
 		t.Fatalf("approval step = %s (%s), want pass", out.Steps[4].Status, out.Steps[4].Detail)
+	}
+	if strings.Contains(out.Steps[4].Detail, fakeDeviceID) {
+		t.Fatalf("approval detail leaks the device id: %s", out.Steps[4].Detail)
+	}
+	if !strings.Contains(out.Steps[4].Detail, "decided_via=ios") {
+		t.Fatalf("approval detail does not record the decision mechanism: %s", out.Steps[4].Detail)
 	}
 	if out.Metrics.PartialChunks < 1 {
 		t.Fatalf("partial chunks = %d, want at least 1", out.Metrics.PartialChunks)
@@ -1235,6 +1269,9 @@ func TestRunAcceptanceFailsOnStreamError(t *testing.T) {
 	if step.Status != statusFail {
 		t.Fatalf("live-events step = %s (%s), want fail", step.Status, step.Detail)
 	}
+	if !strings.Contains(step.Detail, "event stream failed") {
+		t.Fatalf("failure does not name the stream error: %s", step.Detail)
+	}
 }
 
 func TestRunAcceptanceFailsWithoutTaskUpdate(t *testing.T) {
@@ -1256,6 +1293,86 @@ func TestRunAcceptanceFailsWhenApprovalRequestedButNoRow(t *testing.T) {
 	}
 	if !strings.Contains(step.Detail, "approval_requested") {
 		t.Fatalf("failure does not name the durable evidence: %s", step.Detail)
+	}
+}
+
+func TestRunAcceptanceFailsWhenApprovalTurnCanceled(t *testing.T) {
+	out, _ := runFakeAcceptanceWith(t, "none", func(f *fakeDaemon) { f.cancelToolPrompt = true })
+	step := stepByName(t, out, "5 approval")
+	if step.Status != statusFail {
+		t.Fatalf("approval step = %s (%s), want fail", step.Status, step.Detail)
+	}
+	if !strings.Contains(step.Detail, "tool-prompt turn reached canceled") {
+		t.Fatalf("failure does not name the canceled turn's own gate: %s", step.Detail)
+	}
+}
+
+func TestRunAcceptanceFailsWhenToolNotAttempted(t *testing.T) {
+	out, _ := runFakeAcceptanceWith(t, "none", func(f *fakeDaemon) { f.ignoreToolPrompt = true })
+	step := stepByName(t, out, "5 approval")
+	if step.Status != statusFail {
+		t.Fatalf("approval step = %s (%s), want fail", step.Status, step.Detail)
+	}
+	if !strings.Contains(step.Detail, "without attempting the invited tool") {
+		t.Fatalf("failure does not name the missing tool attempt: %s", step.Detail)
+	}
+}
+
+func TestRunAcceptanceFailsWhenToolTurnFailed(t *testing.T) {
+	out, _ := runFakeAcceptanceWith(t, "none", func(f *fakeDaemon) { f.failToolTurn = true })
+	step := stepByName(t, out, "5 approval")
+	if step.Status != statusFail {
+		t.Fatalf("approval step = %s (%s), want fail", step.Status, step.Detail)
+	}
+	if !strings.Contains(step.Detail, "reached failed") {
+		t.Fatalf("failure does not name the failed turn: %s", step.Detail)
+	}
+}
+
+func TestRunAcceptanceFailsWhenApprovalTurnStillRunning(t *testing.T) {
+	out, _ := runFakeAcceptanceConfig(t, "none", 200*time.Millisecond, func(f *fakeDaemon) {
+		f.slowToolTurn = 3 * time.Second
+	})
+	step := stepByName(t, out, "5 approval")
+	if step.Status != statusFail {
+		t.Fatalf("approval step = %s (%s), want fail", step.Status, step.Detail)
+	}
+	if !strings.Contains(step.Detail, "inconclusive") {
+		t.Fatalf("failure does not name the inconclusive wait: %s", step.Detail)
+	}
+}
+
+func TestRunAcceptanceFailsWhenDurableLogUnreadable(t *testing.T) {
+	out, _ := runFakeAcceptanceWith(t, "none", func(f *fakeDaemon) { f.breakTaskEvents = true })
+	step := stepByName(t, out, "5 approval")
+	if step.Status != statusFail {
+		t.Fatalf("approval step = %s (%s), want fail", step.Status, step.Detail)
+	}
+	if !strings.Contains(step.Detail, "durable log could not be read") {
+		t.Fatalf("failure does not name the unreadable log: %s", step.Detail)
+	}
+}
+
+func TestSetTaskIDConcurrentWithPump(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		s := NewLiveState("")
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			for seq := int64(1); seq <= 50; seq++ {
+				s.ApplyFrame(frame("event", TaskEvent{TaskID: "t1", EventEpoch: 0, Seq: seq, Type: "message"}))
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			s.SetTaskID("t1")
+		}()
+		wg.Wait()
+		snap := s.Snapshot()
+		if snap.EventCount != 50 || snap.TaskFrames != 50 || len(snap.Gaps) != 0 {
+			t.Fatalf("iteration %d: events=%d taskFrames=%d gaps=%v", i, snap.EventCount, snap.TaskFrames, snap.Gaps)
+		}
 	}
 }
 

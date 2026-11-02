@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"sync"
 )
 
@@ -307,13 +306,16 @@ func (s *LiveState) NoteComment() {
 	s.mu.Unlock()
 }
 
+// SetStreamErr records an unexpected stream end. A clean EOF is a failure
+// unless the client itself asked to close the connection: the acceptance
+// stream must stay open for the whole connected phase.
 func (s *LiveState) SetStreamErr(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ignoreStreamErr {
 		return
 	}
-	if s.StreamErr == nil && err != nil && err != io.EOF {
+	if s.StreamErr == nil && err != nil {
 		s.StreamErr = err
 	}
 }
