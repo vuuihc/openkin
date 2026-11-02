@@ -78,6 +78,8 @@ type fakeDaemon struct {
 	cancelToolPrompt    bool
 	failToolTurn        bool
 	slowToolTurn        time.Duration
+	toolUseBeforePrompt bool
+	endStreamCleanly    bool
 	pairingUsed         bool
 	pairingLabel        string
 	deviceLabel         string
@@ -564,6 +566,11 @@ func (f *fakeDaemon) runTurn(taskID, prompt string) {
 	f.appendEvent(taskID, "task_started", TaskEventPayload{Status: "running", Source: "host"})
 	f.setStatus(taskID, "running")
 	f.appendEvent(taskID, "message", TaskEventPayload{Role: "user", Speaker: "user", Source: "user", Text: prompt})
+	if f.toolUseBeforePrompt && !strings.Contains(prompt, "echo") {
+		// Evidence from an earlier turn must not be mistaken for the tool
+		// call the approval step explicitly invites.
+		f.appendEvent(taskID, "tool_use", TaskEventPayload{ToolName: "Read", Status: "succeeded"})
+	}
 
 	if strings.Contains(prompt, "echo") {
 		if f.cancelToolPrompt {
@@ -718,6 +725,16 @@ func (f *fakeDaemon) handleEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", 500)
+		return
+	}
+	if f.endStreamCleanly {
+		// A clean EOF with no SSE terminator: the client must still treat an
+		// unrequested stream end as a failure.
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(200)
+		fmt.Fprint(w, "retry: 3000\n\n")
+		flusher.Flush()
 		return
 	}
 	if f.breakStream {
@@ -1204,6 +1221,26 @@ func TestPairingRecovery(t *testing.T) {
 	}
 }
 
+func TestToolNameAliases(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload TaskEventPayload
+		want    string
+	}{
+		{name: "tool_name", payload: TaskEventPayload{ToolName: "Bash"}, want: "Bash"},
+		{name: "name", payload: TaskEventPayload{Name: "Read"}, want: "Read"},
+		{name: "content object", payload: TaskEventPayload{Content: json.RawMessage(`{"name":"Write"}`)}, want: "Write"},
+		{name: "absent", payload: TaskEventPayload{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := toolName(tc.payload); got != tc.want {
+				t.Fatalf("toolName() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCleanupRecoversDeviceByLabel(t *testing.T) {
 	f := newFakeDaemon(t, "none")
 	srv := f.start()
@@ -1324,8 +1361,33 @@ func TestRunAcceptanceFailsWhenToolTurnFailed(t *testing.T) {
 	if step.Status != statusFail {
 		t.Fatalf("approval step = %s (%s), want fail", step.Status, step.Detail)
 	}
-	if !strings.Contains(step.Detail, "reached failed") {
-		t.Fatalf("failure does not name the failed turn: %s", step.Detail)
+	if !strings.Contains(step.Detail, "tool-prompt turn reached failed") {
+		t.Fatalf("failure does not name the failed turn's own gate: %s", step.Detail)
+	}
+}
+
+func TestRunAcceptanceFailsWhenToolEvidenceIsOnlyFromEarlierTurns(t *testing.T) {
+	out, _ := runFakeAcceptanceWith(t, "none", func(f *fakeDaemon) {
+		f.toolUseBeforePrompt = true
+		f.ignoreToolPrompt = true
+	})
+	step := stepByName(t, out, "5 approval")
+	if step.Status != statusFail {
+		t.Fatalf("approval step = %s (%s), want fail", step.Status, step.Detail)
+	}
+	if !strings.Contains(step.Detail, "without attempting the invited tool") {
+		t.Fatalf("earlier-turn tool evidence masked the missing attempt: %s", step.Detail)
+	}
+}
+
+func TestRunAcceptanceFailsOnCleanStreamEOF(t *testing.T) {
+	out, _ := runFakeAcceptanceWith(t, "pending", func(f *fakeDaemon) { f.endStreamCleanly = true })
+	step := stepByName(t, out, "3 live events")
+	if step.Status != statusFail {
+		t.Fatalf("live-events step = %s (%s), want fail", step.Status, step.Detail)
+	}
+	if !strings.Contains(step.Detail, "event stream failed") {
+		t.Fatalf("failure does not name the clean EOF: %s", step.Detail)
 	}
 }
 
@@ -1354,25 +1416,38 @@ func TestRunAcceptanceFailsWhenDurableLogUnreadable(t *testing.T) {
 }
 
 func TestSetTaskIDConcurrentWithPump(t *testing.T) {
-	for i := 0; i < 50; i++ {
-		s := NewLiveState("")
-		var wg sync.WaitGroup
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			for seq := int64(1); seq <= 50; seq++ {
-				s.ApplyFrame(frame("event", TaskEvent{TaskID: "t1", EventEpoch: 0, Seq: seq, Type: "message"}))
+	const total = 5000
+	s := NewLiveState("")
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for seq := 1; seq <= total; seq++ {
+			s.ApplyFrame(frame("event", TaskEvent{TaskID: "t1", EventEpoch: 0, Seq: int64(seq), Type: "message"}))
+			// Pace the pump so naming the task overlaps a live backlog and a
+			// replay that ran outside the lock would race with it.
+			if seq%10 == 0 {
+				time.Sleep(100 * time.Microsecond)
 			}
-		}()
-		go func() {
-			defer wg.Done()
-			s.SetTaskID("t1")
-		}()
-		wg.Wait()
-		snap := s.Snapshot()
-		if snap.EventCount != 50 || snap.TaskFrames != 50 || len(snap.Gaps) != 0 {
-			t.Fatalf("iteration %d: events=%d taskFrames=%d gaps=%v", i, snap.EventCount, snap.TaskFrames, snap.Gaps)
 		}
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		s.mu.Lock()
+		pending := len(s.pending)
+		s.mu.Unlock()
+		if pending >= 3000 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pump never buffered a backlog: pending=%d", pending)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	s.SetTaskID("t1")
+	<-done
+	snap := s.Snapshot()
+	if snap.EventCount != total || snap.TaskFrames != total || len(snap.Gaps) != 0 {
+		t.Fatalf("events=%d taskFrames=%d gaps=%v", snap.EventCount, snap.TaskFrames, snap.Gaps)
 	}
 }
 

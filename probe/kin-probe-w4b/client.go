@@ -317,6 +317,8 @@ type TaskEventPayload struct {
 	Decision    string          `json:"decision"`
 	Interrupted bool            `json:"interrupted"`
 	ToolName    string          `json:"tool_name"`
+	Name        string          `json:"name"`
+	Input       json.RawMessage `json:"input"`
 	Output      string          `json:"output"`
 	OK          bool            `json:"ok"`
 	Content     json.RawMessage `json:"content"`

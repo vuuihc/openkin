@@ -567,6 +567,22 @@ func attemptApproval(ctx context.Context, cfg Config, device *Client, live *Live
 		if durableErr != nil {
 			return statusFail, fmt.Sprintf("no approval was observed, and the durable log could not be read to classify the outcome: %v", durableErr)
 		}
+		if beforeErr != nil {
+			return statusFail, fmt.Sprintf("no approval was observed, and the pre-prompt durable baseline could not be read, so the turn's tool evidence cannot be attributed: %v", beforeErr)
+		}
+		if len(durable) < len(before) {
+			return statusFail, fmt.Sprintf("the durable log shrank from %d to %d events across the tool prompt; the turn's evidence cannot be attributed (possible retry or rewrite)", len(before), len(durable))
+		}
+		if len(before) > 0 {
+			last := before[len(before)-1]
+			if durable[len(before)-1].EventEpoch != last.EventEpoch || durable[len(before)-1].Seq != last.Seq {
+				return statusFail, fmt.Sprintf("the durable log changed shape across the tool prompt at position %d; the turn's evidence cannot be attributed (possible retry or rewrite)", len(before)-1)
+			}
+		}
+		// Count only events this prompt produced. A tool call from an earlier
+		// turn must not stand in for the invited tool, and an earlier approval
+		// must not turn this turn's outcome into a failure.
+		after := durable[len(before):]
 		allForTask, pendingForTask := 0, 0
 		for _, a := range all {
 			if a.TaskID == taskID {
@@ -579,27 +595,31 @@ func attemptApproval(ctx context.Context, cfg Config, device *Client, live *Live
 			}
 		}
 		var requested, toolUse, toolResult, embedded int
-		var statuses []string
-		for _, ev := range durable {
+		var statuses, toolNames []string
+		for _, ev := range after {
 			switch ev.Type {
 			case "approval_requested":
 				requested++
 			case "tool_use":
 				toolUse++
 				statuses = append(statuses, ev.Payload.Status)
+				if name := toolName(ev.Payload); name != "" {
+					toolNames = append(toolNames, name)
+				}
 			case "tool_result":
 				toolResult++
 			}
 		}
-		embedded = embeddedToolResults(durable)
-		evidence := fmt.Sprintf("list readable (%d total, %d for this session; %d pending, %d for this session); durable approval_requested=%d tool_use=%d tool_result=%d embedded_tool_result=%d", len(all), allForTask, len(pending), pendingForTask, requested, toolUse, toolResult, embedded)
+		embedded = embeddedToolResults(after)
+		evidence := fmt.Sprintf("list readable (%d total, %d for this session; %d pending, %d for this session); durable after the tool prompt: approval_requested=%d tool_use=%d tool_result=%d embedded_tool_result=%d", len(all), allForTask, len(pending), pendingForTask, requested, toolUse, toolResult, embedded)
 		if len(statuses) > 0 {
 			evidence += fmt.Sprintf(" (tool_use statuses: %s)", strings.Join(statuses, ","))
 		}
-		if beforeErr != nil {
-			evidence += fmt.Sprintf("; pre-prompt durable read failed: %v", beforeErr)
-		} else if len(durable) >= len(before) {
-			evidence += fmt.Sprintf("; events after the tool prompt: %s", durableTypeSummary(durable[len(before):]))
+		if len(toolNames) > 0 {
+			evidence += fmt.Sprintf(" (tool names: %s)", strings.Join(toolNames, ","))
+		}
+		if len(after) > 0 {
+			evidence += fmt.Sprintf("; events after the tool prompt: %s", durableTypeSummary(after))
 		}
 		if requested > 0 {
 			return statusFail, fmt.Sprintf("the durable log records %d approval_requested event(s), but GET /api/approvals exposed no pending row for the session; %s", requested, evidence)
@@ -809,6 +829,26 @@ func formatCounts(counts map[string]int) string {
 		parts = append(parts, fmt.Sprintf("%s=%d", k, counts[k]))
 	}
 	return strings.Join(parts, ", ")
+}
+
+// toolName reads the documented aliases for a tool-use name. Adapters may put
+// it at the top level under tool_name or name, or inside the content object.
+func toolName(p TaskEventPayload) string {
+	if p.ToolName != "" {
+		return p.ToolName
+	}
+	if p.Name != "" {
+		return p.Name
+	}
+	if len(p.Content) > 0 {
+		var obj struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(p.Content, &obj); err == nil && obj.Name != "" {
+			return obj.Name
+		}
+	}
+	return ""
 }
 
 func embeddedToolResults(events []TaskEvent) int {

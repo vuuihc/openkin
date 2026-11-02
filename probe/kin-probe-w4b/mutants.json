@@ -112,9 +112,23 @@
     "new": "\tif false {"
   },
   {
+    "label": "a clean EOF is excluded from the stream error",
+    "file": "probe/kin-probe-w4b/state.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceFailsOnCleanStreamEOF -count=1 ./...",
+    "old": "\tif s.StreamErr == nil && err != nil {",
+    "new": "\tif s.StreamErr == nil && err != nil && err.Error() != \"EOF\" {"
+  },
+  {
     "label": "a canceled tool-prompt turn is reported as a skip",
     "file": "probe/kin-probe-w4b/run.go",
     "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceFailsWhenApprovalTurnCanceled -count=1 ./...",
+    "old": "\t\tif finalTask.Status != \"succeeded\" {",
+    "new": "\t\tif false {"
+  },
+  {
+    "label": "a failed tool-prompt turn is reported as a skip",
+    "file": "probe/kin-probe-w4b/run.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceFailsWhenToolTurnFailed -count=1 ./...",
     "old": "\t\tif finalTask.Status != \"succeeded\" {",
     "new": "\t\tif false {"
   },
@@ -140,10 +154,17 @@
     "new": "\t\t\treturn statusSkip, fmt.Sprintf(\"inconclusive after %s: %v; %s\", time.Since(started).Round(time.Second), statusErr, evidence)"
   },
   {
+    "label": "tool evidence is counted across the whole task log, not the invited turn",
+    "file": "probe/kin-probe-w4b/run.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceFailsWhenToolEvidenceIsOnlyFromEarlierTurns -count=1 ./...",
+    "old": "\t\tfor _, ev := range after {",
+    "new": "\t\tfor _, ev := range durable {"
+  },
+  {
     "label": "SetTaskID releases the lock before replaying buffered frames",
     "file": "probe/kin-probe-w4b/state.go",
-    "test": "cd probe/kin-probe-w4b && go test -run TestSetTaskIDConcurrentWithPump -count=1 ./...",
-    "old": "\ts.mu.Lock()\n\tdefer s.mu.Unlock()\n\ts.TaskID = id",
-    "new": "\ts.mu.Lock()\n\tdefer s.mu.Unlock()\n\ts.mu.Unlock()\n\ts.TaskID = id"
+    "test": "cd probe/kin-probe-w4b && go test -race -run TestSetTaskIDConcurrentWithPump -count=1 ./...",
+    "old": "\ts.mu.Lock()\n\tdefer s.mu.Unlock()\n\ts.TaskID = id\n\tpending := s.pending\n\ts.pending = nil\n\tfor _, ev := range pending {",
+    "new": "\ts.mu.Lock()\n\ts.TaskID = id\n\tpending := s.pending\n\ts.pending = nil\n\ts.mu.Unlock()\n\tfor _, ev := range pending {"
   }
 ]
