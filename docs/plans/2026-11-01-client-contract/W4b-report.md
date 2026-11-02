@@ -39,9 +39,9 @@ The probe and report were written without reading `internal/`, `ui/src/`,
    revealed the names of W1/W2/W3/W4 reports. Resolved by not reading them.
 3. **Default agent failure.** When the daemon's default agent (`kin`) returned
    an `error` event on every turn, the shortest path to an explanation was
-   `internal/`. Resolved by not reading it: the probe queried the documented
-   `GET /api/agents` instead and the operator selected an available agent
-   explicitly.
+   `internal/`. Resolved by not reading it: the operator queried the documented
+   `GET /api/agents` outside the probe and selected an available agent
+   explicitly for the run.
 4. **Approval suppression.** When the Bash tool ran without an approval row,
    the shortest path to an explanation was the daemon's permission bridge in
    `internal/`. Resolved by not reading it: the probe recorded the durable event
@@ -59,19 +59,21 @@ Source-read violations: **0**.
 | `main.go` | 85 | flags, token file, outcome output |
 | `sse.go` | 127 | SSE framing (`event`, `data`, comments, `retry`) |
 | `client.go` | 368 | HTTP client for the documented routes |
-| `state.go` | 432 | cursor/feed, event identity, message accumulation, live pump |
-| `run.go` | 958 | six-step acceptance driver, reconciliation, cleanup |
-| **Total** | **1,970** | non-test Go LOC |
+| `state.go` | 434 | cursor/feed, event identity, message accumulation, live pump |
+| `run.go` | 975 | six-step acceptance driver, reconciliation, cleanup |
+| **Total** | **1,989** | non-test Go LOC |
 
-Tests: `fake_test.go` (1,282 LOC) runs the whole six-step driver against an
+Tests: `fake_test.go` (1,399 LOC) runs the whole six-step driver against an
 in-process fake daemon that implements the documented routes and plays a
 scripted agent (streaming chunks, one approval path, one suppressed-approval
 path). Negative tests cover an unreadable approval list, a durable approval
-request with no row, a missing `task_update`, a broken stream, feed/resource
-drift, durable type drift, a failed delete, a failed revoke, and a device
-recovered by label after a lost exchange response.
+request with no row, an unreadable durable log, a still-running turn, a
+canceled turn, a failed turn, a turn that never attempts the tool, a missing
+`task_update`, an unexpected stream EOF, feed/resource drift, durable type
+drift, a failed delete, a failed revoke, and a device recovered by label after
+a lost exchange response.
 
-`mutants.json` has 15 mutants, all red under `scripts/mutants.py`.
+`mutants.json` has 21 mutants, all red under `scripts/mutants.py`.
 
 ## Acceptance method
 
@@ -94,15 +96,18 @@ recovered by label after a lost exchange response.
    frame overflow.
 4. **Streaming.** A follow-up prompt is sent with
    `POST /api/tasks/{id}/prompt`. The client requires at least one `message`
-   event with `partial: true`, then waits for the turn to finish.
+   event with `partial: true`, then waits for the turn to finish and reports
+   the turn's final partial-chunk count.
 5. **Approval.** A prompt invites one benign tool call (`echo probe-w4b-ok`).
    The client watches both the SSE `approval_update` frames and
    `GET /api/approvals?status=pending`, and approves a pending row for its own
    session with `POST /api/approvals/{id}/decision`. A skip is accepted only
    when both approval-list reads succeed, the durable log is readable, the turn
-   is terminal, no `approval_requested` event exists, and the turn did not
-   fail. An unreadable list, an unreadable log, a durable request with no row,
-   a still-running turn, or a failed turn is a step failure.
+   reached `succeeded`, no `approval_requested` event exists, and the durable
+   log shows the invited tool was attempted (`tool_use`, `tool_result`, or an
+   embedded `tool_result` block). An unreadable list, an unreadable log, a
+   durable request with no row, a still-running, failed, or canceled turn, or a
+   successful turn with no tool attempt is a step failure.
 6. **Catch-up.** The feed is drained to the current cursor, the SSE stream is
    closed, a prompt is sent while disconnected, the turn is awaited through
    `GET /api/tasks/{id}`, and `GET /api/sessions?updated_since=<cursor>` is
@@ -121,11 +126,11 @@ device token now answers `401`, and re-reads the device list.
 | Step | Result | Evidence |
 | --- | --- | --- |
 | 1 pair | pass | secret expiry 5m0s; exchange accepted; device token accepted; device visible to the operator list |
-| 2 snapshot | pass | cursor 1483 read before the snapshot; 1 page; 163 sessions; snapshot end == cursor |
+| 2 snapshot | pass | cursor 1631 read before the snapshot; 1 page; 163 sessions; snapshot end == cursor |
 | 3 live events | pass | `task_update` and `event` frames received for the probe session (3 task frames: 2 updates + 1 event) |
-| 4 streaming | pass | 4 partial `message` chunks for the follow-up prompt; 7 total tracked |
+| 4 streaming | pass | 7 partial `message` chunks for the follow-up prompt; 8 total tracked |
 | 5 approval | **skip** | no approval row; list readable; exact reason below |
-| 6 catch-up | pass | disconnected, caught up 1 page, reconnected, 2 new live frames, 50 durable events matched |
+| 6 catch-up | pass | disconnected, caught up 1 page, reconnected, 3 new live frames, 49 durable events matched |
 | cleanup | pass | session deleted (404) and tombstoned; device revoked and its token now 401 |
 
 ### Step 5 skip reason
@@ -139,28 +144,35 @@ message, task_started, raw_output, tool_use, message, message, message, message,
 
 The `tool_use` event named `Bash` with input `echo probe-w4b-ok`; a following
 `message` event carried a `tool_result` content block with the output
-`probe-w4b-ok`. There was no `approval_requested` event
-(`approval_requested=0`), exactly one `tool_use`, zero standalone
-`tool_result` events, and one embedded `tool_result` block. No
-`POST /api/approvals` row existed for the session, and no SSE
-`approval_update` frame arrived. Both `GET /api/approvals` and
-`GET /api/approvals?status=pending` were readable (HTTP 200, 28 total rows and
-0 pending at the time), and the turn reached `succeeded` after 10 s. This
-matches the brief's pre-declared condition: the daemon runs with
-`--allow-yolo`, so a turn may be suppressed from asking. It is not counted as
-a contract gap.
+`probe-w4b-ok`. The turn reached `succeeded` after 9 s. There was no
+`approval_requested` event (`approval_requested=0`), exactly one `tool_use`,
+zero standalone `tool_result` events, and one embedded `tool_result` block.
+Both approval-list reads succeeded: 28 rows total, **0 for this session**;
+0 pending overall and **0 for this session**. No SSE `approval_update` frame
+arrived.
+
+The documented contract says whether a `default` turn asks is the agent's
+decision, and that a turn which needed no approval is indistinguishable on the
+wire from one whose gate was bypassed; a client can predict suppression only
+from the advertised permission ladder, which this probe did not read. The
+operator runs the daemon with `--allow-yolo`, which the documentation says
+controls whether a bypassing mode is offered. The probe therefore records the
+client-visible facts above and treats the outcome as the brief's pre-declared
+suppression case; it does not claim to attribute the cause. It is not counted
+as a contract gap.
 
 ## Measurements
 
-- **Elapsed, first prompt → final recorded step:** 45,717 ms (45.7 s).
+- **Elapsed, first prompt → final recorded step:** 44,174 ms (44.2 s).
   Definition: from the `POST /api/tasks` that carries the first prompt to the
-  moment step 6's final state match is recorded. Total process time: 45,811 ms.
-- **Non-test Go LOC:** 1,970.
-- **Peak client RSS:** 13,811,712 bytes (≈13.2 MiB), from `getrusage`.
+  end of step 6's final durable-log and subset checks. Total process time:
+  44,273 ms.
+- **Non-test Go LOC:** 1,989.
+- **Peak client RSS:** 14,680,064 bytes (≈14.0 MiB), from `getrusage`.
 - **Snapshot:** 163 sessions, 1 feed page.
-- **Live stream:** 3 task frames in step 3 (2 `task_update`, 1 `event`), 2 task
+- **Live stream:** 3 task frames in step 3 (2 `task_update`, 1 `event`), 3 task
   frames after reconnect, 0 unrecognized/mismatched frames.
-- **Catch-up:** 50 durable events, one epoch, contiguous `seq`, every streamed
+- **Catch-up:** 49 durable events, one epoch, contiguous `seq`, every streamed
   identity present.
 
 ## Undocumented behaviors
@@ -197,37 +209,59 @@ Final state of the frozen probe and report:
 
 - `gofmt -l` clean.
 - `go vet ./...` clean.
-- `go test -race -count=1 ./...` pass (33.6 s, includes every fake-daemon and
+- `go test -race -count=1 ./...` pass (53.2 s, includes every fake-daemon and
   negative-path test).
-- `scripts/mutants.py probe/kin-probe-w4b/mutants.json` **15/15 red**, each
+- `scripts/mutants.py probe/kin-probe-w4b/mutants.json` **21/21 red**, each
   restore byte-for-byte.
+- `./scripts/check.sh`: gofmt, vet, Go tests, probe, desktop tests, ui tests,
+  ui tsc, api contract, api coverage, shell syntax, Python syntax, and stories
+  all pass. `desktop-tsc` could not run in this fresh worktree because
+  `desktop/node_modules` is absent; it is unrelated to this probe-only change.
 - Live acceptance run: as tabled above, against the running daemon on
-  `http://127.0.0.1:7777` with `-agent claude-code`.
+  `http://127.0.0.1:7777` with `-agent claude-code`. The daemon was never
+  restarted or stopped.
 
-One independent high-model review pass ran over the frozen probe and report.
-It found **0 blockers, 4 majors, 6 nits**. All four majors were fixed:
-step 5 now fails (rather than skipping) on unreadable or contradictory
-observation; step 3 requires a `task_update`; the buffered-frame replay in
-`SetTaskID` runs under the stream mutex; and negative tests plus mutants cover
-`matchTask`, `checkContiguous`, `checkSubset`, the replay, and the approval
-classification. All nits were addressed: the epoch-bump comment and test now
-reuse a seq above 1, the contiguity check is documented as this run's shape,
-frame counts are per task and pending drops are surfaced, pairing has a
-recovery path and a label-based cleanup fallback, bodyless routes send no body,
-and this report states every operator-credential use.
+Two independent high-model review passes ran over the probe and report.
+
+- **First pass:** 0 blockers, 4 majors, 6 nits. Fixed: step 5 fails rather than
+  skips on unreadable or contradictory observation; step 3 requires a
+  `task_update`; `SetTaskID` replays buffered frames under the stream mutex;
+  negative tests and mutants cover `matchTask`, `checkContiguous`,
+  `checkSubset`, the replay, and the approval classification. Nits fixed: the
+  epoch-bump test reuses a rewrite-point seq above 1; the contiguity check is
+  documented as this run's shape; frame counts are per task and pending drops
+  are surfaced; pairing has a recovery path and a label-based cleanup fallback;
+  bodyless routes send no body; the report states every operator-credential
+  use.
+- **Second pass:** 0 blockers, 1 major, 8 nits. Fixed: a skip now requires a
+  succeeded turn with tool evidence, so canceled, failed, running, and no-tool
+  turns fail; unexpected clean EOF on the stream is recorded as a failure;
+  added a concurrent `SetTaskID`/`ApplyFrame` regression test; step-5 failure
+  details keep the wait error; `decided_via` is redacted to its mechanism;
+  approval rows are counted for the probe session; step 4's detail and metric
+  share the final chunk count; added negative tests and mutants for the
+  durable-log, still-running, canceled, failed, no-tool, and stream-error
+  branches. The remaining nit is the original probe commit body, which lists
+  mutant categories without claiming the list is exhaustive; the final count
+  is 21.
 
 ## Remaining gaps and residual risk
 
 - Step 5's **decision** endpoint was exercised only against the fake daemon;
   the live daemon never asked, so `POST /api/approvals/{id}/decision` has no
   live evidence in this run.
+- The probe does not read the agent's advertised `permission_modes`, so it
+  cannot predict suppression from the documented ladder; it observes the
+  durable and approval-list facts instead.
 - The daemon's **default agent** (`kin`) reported `available: true` but every
   turn produced `error` in this environment. The recorded run therefore names
   `claude-code` explicitly through the documented `agent` field. A client that
   trusts the default would see agent errors, not a contract error; this is an
   environment/agent observation, not a protocol gap.
-- SSE keep-alive comments and `retry:` were parsed and unit-tested but not seen
-  live, because no turn left the stream idle long enough.
+- SSE keep-alive comments and `retry:` were parsed and unit-tested. The client
+  ignores `retry:` and does not count keep-alive comments, so their live
+  presence is not recorded; no turn left the stream idle long enough to
+  observe a ping.
 - Feed pagination beyond one page was exercised against the fake daemon only.
   The live snapshot and every catch-up drain fit in one page.
 - The `event_epoch` bump path is unit-tested (including a rewrite-point seq
@@ -241,12 +275,16 @@ The probe deleted its session and re-read it as `404`, and its deletion
 tombstone was observed in the session feed. It revoked its device, the token
 answered `401`, and the device list showed it with `revoked_at` set. An
 independent post-run query of `GET /api/devices` and `GET /api/sessions`
-reported **0 active `probe-w4b-*` devices**, 7 revoked devices from earlier
+reported **0 active `probe-w4b-*` devices**, 9 revoked devices from earlier
 runs, and **0 `probe-w4b-*` sessions** in the feed.
 
 ## Commits
 
 - `9b1e904b` — `feat(probe): add the W4b independent client acceptance probe`
   (probe module, fake daemon, tests, mutants).
-- The report is committed immediately after in a `docs(plans): …` commit whose
-  parent is the probe commit; the handoff names both branch-head SHAs.
+- `5562aef2` — `docs(plans): record the final W4b independent probe run`
+  (the first version of this report).
+- `f4eb8774` — `fix(probe): require tool evidence for a suppressed approval`
+  (second-review fixes, 21 mutants, final run).
+- The final report update is committed immediately after; the handoff names
+  the branch-head SHA.
