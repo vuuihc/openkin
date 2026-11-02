@@ -137,8 +137,8 @@ versus W4, and write the final Chinese digest.
 | W2 | W2 session | `probe/client-contract-w2` | **done** — merged in `34d27e71` | `W2-baseline-report.md` |
 | W3 | W3 session | `w3-desktop-footprint` | **done** — merged in `f9260ffe` | `W3-footprint-report.md` |
 | W4 | W4 session | `w4-cold-start-probe` | **done** — merged in `c1a4b7c2` | `W4-report.md` |
-| W4b | W4b session | worktree from `ad996dda` | running — final-contract re-run | `W4b-report.md` |
-| W5 | coordinator | `main` | in progress — final digest | — |
+| W4b | W4b session | `w4b-independent-client-probe` | **done** — merged in `11df069e` | `W4b-report.md` |
+| W5 | coordinator | `main` | **done** — final digest below | — |
 
 W4 was branched from `4cb239f0` (W1 merged, W2 not yet merged) so the
 re-run measures the contract delta rather than reading W2's findings. W1b
@@ -151,6 +151,39 @@ and `permission_mode` vocabulary are closed by W1b on `main`; the pending
 approval representation is closed by the `Approval.decision` enum. The last
 gap, the `status` query filter on `GET /api/approvals`, is documented in
 `ad996dda`. W4b starts from that commit and measures the final contract.
+
+## Result
+
+Three independent probe sessions implemented and ran the six-step P0 loop from
+public documentation only:
+
+| Run | Contract measured | Steps | Undocumented behaviors | Server changes | Recorded time |
+| --- | --- | --- | ---: | ---: | --- |
+| W2 | pre-W1 | 5/6, step 5 skipped | 9 (5 in the final run) | 0 | 73 min wall-clock; 26 s acceptance run |
+| W4 | W1-only | 5/6, step 5 skipped | 3 live (+1 latent) | 0 | 96 min to the final run; 6.5 s final run |
+| W4b | final | 5/6, step 5 skipped | **0** | 0 | 47.7 s acceptance run |
+
+W4b's time is the recorded acceptance run, not development wall-clock; its
+report does not define a development-elapsed metric. All three runs were agent
+sessions, so the ≤2-working-day bar is met only as an agent measurement; the
+reliable signal is the gap count. Step 5 was never exercised live in any run
+because the daemon runs `--allow-yolo`; W4b proves the turn attempted the
+invited tool and records the client-visible facts instead of attributing the
+suppression.
+
+Remaining unverified against the live daemon, from W4b's residual-risk section:
+
+- `POST /api/approvals/{id}/decision` (fake daemon only);
+- predicting approval suppression from the advertised `permission_modes`;
+- multi-page feed drains (one page live);
+- an `event_epoch` bump (one epoch live);
+- SSE keep-alive comments (no idle window long enough to observe one);
+- the default `kin` agent (it reported available but errored on every turn);
+- P0 endpoints outside the six-step loop: uploads, workspaces, questions, and
+  browser actions.
+
+The six-step P0 loop is contract-complete for an independent client. The
+remaining contract risk is breadth beyond that loop, not the loop itself.
 
 ## Safety
 
