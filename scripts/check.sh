@@ -120,7 +120,7 @@ job_probe() {
     return 0
   fi
   local mod
-  for mod in probe/kin-probe probe/kin-probe-w4; do
+  for mod in probe/kin-probe probe/kin-probe-w4 probe/kin-probe-w4b; do
     ( cd "$mod" && go vet ./... && go test -race -timeout 300s -count=1 ./... ) || return 1
   done
 }
