@@ -258,14 +258,43 @@ provider，「GitHub / Google」是准确的名字）。
   `reset-password --email nobody@example.com` 走到「列账号 + 报错」路径，不再依赖
   compose 文件名或 cwd。**没有**对真实账号执行重置——那会改掉现有密码；无密码账号
   的专门提示由单测覆盖。
-- 最终版 `docker-compose.oauth.yml` 已同步到 NAS，但**没有叠加**：`.env` 里仍缺
-  GitHub / Google 的 client 值（见 §5.5）。
+- 最终版 `docker-compose.oauth.yml` 已同步到 NAS，但当时**没有叠加**：`.env` 里
+  仍缺 GitHub / Google 的 client 值。
+
+### 5.4a 凭据与 overlay 落地（2026-11-02）
+
+- GitHub 侧使用一个已有的 GitHub App（占位名 `<github-app>`），回调地址
+  `https://<KIN_DOMAIN>/dex/callback`；Account permissions 里
+  **Email addresses 设为 Read-only**，因为 Dex 的 GitHub connector 用
+  `/user/emails` 取主邮箱，GitHub App 也不接受 `user:email` scope。
+  App 的私钥（`.pem`）Dex 不使用——它只用于以 App 身份签发 JWT——必须只留在
+  本机，不能提交或外发。
+- Google 侧是 Web application 类型的 OAuth Client：JavaScript origin
+  `https://<KIN_DOMAIN>`，redirect `https://<KIN_DOMAIN>/dex/callback`。
+- 四个 client 值与 `DEX_CLIENT_SECRET` 已写入 NAS 的 `.env`（gitignored，
+  `chmod 600`）；仓库与本文只保留占位符。写入前的校验方式：用 GitHub token
+  端点提交一个假 code，返回 `bad_verification_code` 说明 client 凭据有效
+  （`incorrect_client_credentials` 才是凭据错）。
+- `docker compose -f docker-compose.dogfood.yml -f docker-compose.oauth.yml up -d`
+  之后 `openkin-dex-1` 与 `openkin-hub` 均 `Up (healthy)`。首次启动时 Kin 的
+  discovery 早于 Dex 就绪，Hub 连续重启 5 次后自愈；`restart: unless-stopped`
+  承担了这个等待，不需要手工干预。
+- 公网验证：`/dex/.well-known/openid-configuration` 的 issuer 是
+  `https://<KIN_DOMAIN>/dex`；`/api/auth/status` 的 providers 含
+  `GitHub / Google`；登录页出现「使用 GitHub / Google 继续」，Dex 选择页同时
+  列出 GitHub 与 Google；GitHub 授权跳转携带正确的
+  `redirect_uri=…/dex/callback` 与 `scope=user:email`。
+- 控制台行为：GitHub App 与 Google 的 client secret 都只在创建时显示一次，
+  之后只能轮换不能查看。轮换顺序是「先生成新的、再删旧的」，因为两家都不允许
+  删除最后一个 secret。
 
 ### 5.5 遗留风险
 
-- **OAuth 尚未生效**：GitHub OAuth App 与 Google OAuth Client 需要在用户自己的
-  控制台创建，并把四个 client 值写进 NAS 的 `.env`；在那之前 overlay 不能叠加
-  （`:?` 会让整个 `up` 失败），Hub 继续只用密码登录。
+- **身份尚未绑定**：Hub 已有 owner，OAuth 只对已绑定身份生效。需要先用密码
+  登录，在「设置 → 账号」里绑定 GitHub 与 Google，之后才能用它们登录；未绑定时
+  会得到「这个登录方式还没有绑定」。首次真实登录仍需人工各走一遍。
+- GitHub App 当 OAuth client 的验证目前只到授权页：完整链路要求
+  Email addresses 权限已保存（§5.4a），以及 App 未被用户撤销授权。
 - Dex 启动失败会让整个 Hub 不可用（已文档化回滚）。
 - 无解绑入口；重复绑定提示偏乐观。
 - 全量测试的计时 flake（见 §5.3）。
