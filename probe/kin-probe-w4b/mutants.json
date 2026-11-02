@@ -133,11 +133,25 @@
     "new": "\t\tif false {"
   },
   {
+    "label": "an empty pre-prompt durable baseline is reported as a skip",
+    "file": "probe/kin-probe-w4b/run.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceFailsWhenBaselineEmpty -count=1 ./...",
+    "old": "\t\t\treturn statusFail, \"no approval was observed, and the pre-prompt durable baseline is empty after two completed turns, so the turn's tool evidence cannot be attributed to it\"",
+    "new": "\t\t\treturn statusSkip, \"no approval was observed, and the pre-prompt durable baseline is empty after two completed turns, so the turn's tool evidence cannot be attributed to it\""
+  },
+  {
     "label": "an unreadable pre-prompt durable baseline is reported as a skip",
     "file": "probe/kin-probe-w4b/run.go",
     "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceFailsWhenBaselineUnreadable -count=1 ./...",
     "old": "\t\t\treturn statusFail, fmt.Sprintf(\"no approval was observed, and the pre-prompt durable baseline could not be read, so the turn's tool evidence cannot be attributed: %v\", beforeErr)",
     "new": "\t\t\treturn statusSkip, fmt.Sprintf(\"no approval was observed, and the pre-prompt durable baseline could not be read, so the turn's tool evidence cannot be attributed: %v\", beforeErr)"
+  },
+  {
+    "label": "a repeated identity inside the pre-prompt baseline is trusted",
+    "file": "probe/kin-probe-w4b/run.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceFailsWhenBaselineRepeatsIdentity -count=1 ./...",
+    "old": "\t\tfor _, ev := range before {\n\t\t\tkey := EventKey{Epoch: ev.EventEpoch, Seq: ev.Seq}\n\t\t\tif _, dup := seen[key]; dup {\n\t\t\t\treturn statusFail, fmt.Sprintf(\"the pre-prompt durable baseline repeats event identity (epoch %d, seq %d), so the turn's tool evidence cannot be attributed\", ev.EventEpoch, ev.Seq)\n\t\t\t}\n\t\t\tseen[key] = struct{}{}\n\t\t}",
+    "new": "\t\tfor _, ev := range before {\n\t\t\tseen[EventKey{Epoch: ev.EventEpoch, Seq: ev.Seq}] = struct{}{}\n\t\t}"
   },
   {
     "label": "a repeated pre-prompt event identity after the prompt is trusted",

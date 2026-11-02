@@ -65,27 +65,28 @@ type fakeDaemon struct {
 	approvalCut string // "pending" or "none"
 
 	// Negative-path knobs, set before start().
-	breakApprovals       bool
-	corruptFeedStatus    bool
-	mangleDurableType    string
-	breakStream          bool
-	breakTaskEvents      bool
-	failBaselineRead     bool
-	emptyBaselineRead    bool
-	duplicateAfterPrompt bool
-	failDelete           bool
-	failRevoke           bool
-	suppressTaskUpdate   bool
-	requestedWithoutRow  bool
-	ignoreToolPrompt     bool
-	cancelToolPrompt     bool
-	failToolTurn         bool
-	slowToolTurn         time.Duration
-	toolUseBeforePrompt  bool
-	endStreamCleanly     bool
-	pairingUsed          bool
-	pairingLabel         string
-	deviceLabel          string
+	breakApprovals        bool
+	corruptFeedStatus     bool
+	mangleDurableType     string
+	breakStream           bool
+	breakTaskEvents       bool
+	failBaselineRead      bool
+	emptyBaselineRead     bool
+	duplicateBaselineRead bool
+	duplicateAfterPrompt  bool
+	failDelete            bool
+	failRevoke            bool
+	suppressTaskUpdate    bool
+	requestedWithoutRow   bool
+	ignoreToolPrompt      bool
+	cancelToolPrompt      bool
+	failToolTurn          bool
+	slowToolTurn          time.Duration
+	toolUseBeforePrompt   bool
+	endStreamCleanly      bool
+	pairingUsed           bool
+	pairingLabel          string
+	deviceLabel           string
 
 	// The baseline is the first durable read after the first follow-up turn
 	// finished and before the next prompt.
@@ -357,6 +358,11 @@ func (f *fakeDaemon) start() *httptest.Server {
 				f.mu.Unlock()
 				writeJSON(w, 500, map[string]string{"error": "injected baseline failure"})
 				return
+			}
+			if f.duplicateBaselineRead && len(task.events) > 0 {
+				// Repeating an identity inside the baseline itself must also
+				// fail closed: the slice boundary would otherwise be ambiguous.
+				task.events = append(task.events, task.events[len(task.events)-1])
 			}
 		}
 		out := make([]TaskEvent, 0, len(task.events))
@@ -1475,6 +1481,17 @@ func TestRunAcceptanceFailsWhenBaselineEmpty(t *testing.T) {
 	}
 	if strings.Contains(step.Detail, "without attempting the invited tool") {
 		t.Fatalf("an empty baseline was misreported as a missing tool attempt: %s", step.Detail)
+	}
+}
+
+func TestRunAcceptanceFailsWhenBaselineRepeatsIdentity(t *testing.T) {
+	out, _ := runFakeAcceptanceWith(t, "none", func(f *fakeDaemon) { f.duplicateBaselineRead = true })
+	step := stepByName(t, out, "5 approval")
+	if step.Status != statusFail {
+		t.Fatalf("approval step = %s (%s), want fail", step.Status, step.Detail)
+	}
+	if !strings.Contains(step.Detail, "pre-prompt durable baseline repeats event identity") {
+		t.Fatalf("a repeated baseline identity was accepted: %s", step.Detail)
 	}
 }
 
