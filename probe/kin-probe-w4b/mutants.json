@@ -1,0 +1,107 @@
+[
+  {
+    "label": "SSE data value keeps its optional leading space",
+    "file": "probe/kin-probe-w4b/sse.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestSSEParser -count=1 ./...",
+    "old": "\t\t\t\tvalue = strings.TrimPrefix(value, \" \")",
+    "new": "\t\t\t\t_ = value"
+  },
+  {
+    "label": "multi-line SSE data is concatenated without separators",
+    "file": "probe/kin-probe-w4b/sse.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestSSEParser -count=1 ./...",
+    "old": "\t\tev := SSEEvent{Name: name, Data: strings.Join(data, \"\\n\")}",
+    "new": "\t\tev := SSEEvent{Name: name, Data: strings.Join(data, \"\")}"
+  },
+  {
+    "label": "partial chunks overwrite instead of concatenating",
+    "file": "probe/kin-probe-w4b/state.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestMessageAccumulator -count=1 ./...",
+    "old": "\t\tm.PartialText += p.Text",
+    "new": "\t\tm.PartialText = p.Text"
+  },
+  {
+    "label": "a final message leaves the partial text in place",
+    "file": "probe/kin-probe-w4b/state.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestMessageAccumulator -count=1 ./...",
+    "old": "\t\tm.PartialText = \"\"",
+    "new": "\t\t_ = m.PartialText"
+  },
+  {
+    "label": "the feed drain stops after the first page",
+    "file": "probe/kin-probe-w4b/state.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestDrainFeedPaginationAndGuard -count=1 ./...",
+    "old": "\t\tif !page.HasMore {",
+    "new": "\t\tif true {"
+  },
+  {
+    "label": "an approval is denied instead of approved",
+    "file": "probe/kin-probe-w4b/run.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceAgainstFake -count=1 ./...",
+    "old": "\tdecided, err := device.DecideApproval(ctx, approved.ID, \"approved\")",
+    "new": "\tdecided, err := device.DecideApproval(ctx, approved.ID, \"denied\")"
+  },
+  {
+    "label": "cleanup never revokes the paired device",
+    "file": "probe/kin-probe-w4b/run.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceAgainstFake -count=1 ./...",
+    "old": "\t\tif err := master.RevokeDevice(ctx, deviceID); err != nil {",
+    "new": "\t\tif err := error(nil); err != nil {"
+  },
+  {
+    "label": "requests omit the Authorization header",
+    "file": "probe/kin-probe-w4b/client.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceAgainstFake -count=1 ./...",
+    "old": "\t\treq.Header.Set(\"Authorization\", \"Bearer \"+c.token)",
+    "new": "\t\t_ = c.token"
+  },
+  {
+    "label": "matchTask ignores hub_seq",
+    "file": "probe/kin-probe-w4b/run.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestMatchTask -count=1 ./...",
+    "old": "\tif fh != rh {",
+    "new": "\tif false {"
+  },
+  {
+    "label": "checkContiguous accepts a gap",
+    "file": "probe/kin-probe-w4b/run.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestCheckContiguous -count=1 ./...",
+    "old": "\t\tif seq != int64(i+1) {",
+    "new": "\t\tif false {"
+  },
+  {
+    "label": "checkSubset accepts a streamed event absent from the durable log",
+    "file": "probe/kin-probe-w4b/run.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestCheckSubset -count=1 ./...",
+    "old": "\t\t\treturn fmt.Errorf(\"streamed event (epoch %d, seq %d) absent from the durable log\", key.Epoch, key.Seq)",
+    "new": "\t\t\tcontinue"
+  },
+  {
+    "label": "SetTaskID drops the buffered frames",
+    "file": "probe/kin-probe-w4b/state.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestSetTaskIDReplaysBufferedFrames -count=1 ./...",
+    "old": "\tfor _, ev := range pending {\n\t\ts.applyLocked(ev)\n\t}",
+    "new": "\t_ = pending"
+  },
+  {
+    "label": "step 3 accepts a stream without task_update",
+    "file": "probe/kin-probe-w4b/run.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceFailsWithoutTaskUpdate -count=1 ./...",
+    "old": "\tif !snap.HasTask {",
+    "new": "\tif false {"
+  },
+  {
+    "label": "an unreadable approval list is reported as a skip",
+    "file": "probe/kin-probe-w4b/run.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceFailsWhenApprovalListUnreadable -count=1 ./...",
+    "old": "\t\t\treturn statusFail, fmt.Sprintf(\"no approval was observed, and the approval list could not be read to classify the outcome (all: %v; pending: %v)\", allErr, pendingErr)",
+    "new": "\t\t\treturn statusSkip, fmt.Sprintf(\"no approval was observed, and the approval list could not be read to classify the outcome (all: %v; pending: %v)\", allErr, pendingErr)"
+  },
+  {
+    "label": "a durable approval request with no row is reported as a skip",
+    "file": "probe/kin-probe-w4b/run.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceFailsWhenApprovalRequestedButNoRow -count=1 ./...",
+    "old": "\t\tif requested > 0 {",
+    "new": "\t\tif false {"
+  }
+]
