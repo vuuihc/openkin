@@ -6164,7 +6164,8 @@ export interface operations {
     listApprovals: {
         parameters: {
             query?: {
-                status?: string;
+                /** @description Filter by the approval's decision. Omit to return every decision. The value is matched exactly against `Approval.decision`; an unrecognized value returns an empty list rather than an error. */
+                status?: "pending" | "approved" | "denied" | "expired";
             };
             header?: never;
             path?: never;
