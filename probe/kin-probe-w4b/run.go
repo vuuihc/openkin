@@ -570,19 +570,36 @@ func attemptApproval(ctx context.Context, cfg Config, device *Client, live *Live
 		if beforeErr != nil {
 			return statusFail, fmt.Sprintf("no approval was observed, and the pre-prompt durable baseline could not be read, so the turn's tool evidence cannot be attributed: %v", beforeErr)
 		}
+		// Two completed turns precede this prompt, so an empty baseline means
+		// the log could not be trusted for attribution; accepting it would make
+		// the whole log look like this turn's output.
+		if len(before) == 0 {
+			return statusFail, "no approval was observed, and the pre-prompt durable baseline is empty after two completed turns, so the turn's tool evidence cannot be attributed to it"
+		}
 		if len(durable) < len(before) {
 			return statusFail, fmt.Sprintf("the durable log shrank from %d to %d events across the tool prompt; the turn's evidence cannot be attributed (possible retry or rewrite)", len(before), len(durable))
 		}
-		if len(before) > 0 {
-			last := before[len(before)-1]
-			if durable[len(before)-1].EventEpoch != last.EventEpoch || durable[len(before)-1].Seq != last.Seq {
-				return statusFail, fmt.Sprintf("the durable log changed shape across the tool prompt at position %d; the turn's evidence cannot be attributed (possible retry or rewrite)", len(before)-1)
+		seen := make(map[EventKey]struct{}, len(before))
+		for _, ev := range before {
+			key := EventKey{Epoch: ev.EventEpoch, Seq: ev.Seq}
+			if _, dup := seen[key]; dup {
+				return statusFail, fmt.Sprintf("the pre-prompt durable baseline repeats event identity (epoch %d, seq %d), so the turn's tool evidence cannot be attributed", ev.EventEpoch, ev.Seq)
 			}
+			seen[key] = struct{}{}
+		}
+		last := before[len(before)-1]
+		if durable[len(before)-1].EventEpoch != last.EventEpoch || durable[len(before)-1].Seq != last.Seq {
+			return statusFail, fmt.Sprintf("the durable log changed shape across the tool prompt at position %d; the turn's evidence cannot be attributed (possible retry or rewrite)", len(before)-1)
 		}
 		// Count only events this prompt produced. A tool call from an earlier
 		// turn must not stand in for the invited tool, and an earlier approval
 		// must not turn this turn's outcome into a failure.
 		after := durable[len(before):]
+		for _, ev := range after {
+			if _, repeated := seen[EventKey{Epoch: ev.EventEpoch, Seq: ev.Seq}]; repeated {
+				return statusFail, fmt.Sprintf("the durable log repeats a pre-prompt event identity (epoch %d, seq %d) after the tool prompt; the turn's evidence cannot be attributed", ev.EventEpoch, ev.Seq)
+			}
+		}
 		allForTask, pendingForTask := 0, 0
 		for _, a := range all {
 			if a.TaskID == taskID {

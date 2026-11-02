@@ -65,24 +65,32 @@ type fakeDaemon struct {
 	approvalCut string // "pending" or "none"
 
 	// Negative-path knobs, set before start().
-	breakApprovals      bool
-	corruptFeedStatus   bool
-	mangleDurableType   string
-	breakStream         bool
-	breakTaskEvents     bool
-	failDelete          bool
-	failRevoke          bool
-	suppressTaskUpdate  bool
-	requestedWithoutRow bool
-	ignoreToolPrompt    bool
-	cancelToolPrompt    bool
-	failToolTurn        bool
-	slowToolTurn        time.Duration
-	toolUseBeforePrompt bool
-	endStreamCleanly    bool
-	pairingUsed         bool
-	pairingLabel        string
-	deviceLabel         string
+	breakApprovals       bool
+	corruptFeedStatus    bool
+	mangleDurableType    string
+	breakStream          bool
+	breakTaskEvents      bool
+	failBaselineRead     bool
+	emptyBaselineRead    bool
+	duplicateAfterPrompt bool
+	failDelete           bool
+	failRevoke           bool
+	suppressTaskUpdate   bool
+	requestedWithoutRow  bool
+	ignoreToolPrompt     bool
+	cancelToolPrompt     bool
+	failToolTurn         bool
+	slowToolTurn         time.Duration
+	toolUseBeforePrompt  bool
+	endStreamCleanly     bool
+	pairingUsed          bool
+	pairingLabel         string
+	deviceLabel          string
+
+	// The baseline is the first durable read after the first follow-up turn
+	// finished and before the next prompt.
+	prompts      int
+	baselineRead bool
 }
 
 func newFakeDaemon(t *testing.T, approvalCut string) *fakeDaemon {
@@ -259,6 +267,25 @@ func (f *fakeDaemon) start() *httptest.Server {
 			writeJSON(w, 404, map[string]string{"error": "task not found"})
 			return
 		}
+		f.prompts++
+		if f.duplicateAfterPrompt && strings.Contains(req.Prompt, "echo") {
+			// A daemon-side rewrite that repeats a pre-prompt identity must not
+			// let that earlier event count as this turn's evidence. Prefer a
+			// prior tool_use, which is the evidence the probe attributes.
+			dup := -1
+			for i := len(task.events) - 1; i >= 0; i-- {
+				if task.events[i].Type == "tool_use" {
+					dup = i
+					break
+				}
+			}
+			if dup < 0 && len(task.events) > 0 {
+				dup = len(task.events) - 1
+			}
+			if dup >= 0 {
+				task.events = append(task.events, task.events[dup])
+			}
+		}
 		f.setStatusLocked(task, "running")
 		out := task.task
 		f.mu.Unlock()
@@ -323,13 +350,24 @@ func (f *fakeDaemon) start() *httptest.Server {
 			writeJSON(w, 404, map[string]string{"error": "task not found"})
 			return
 		}
+		isBaseline := !f.baselineRead && f.prompts == 1 && task.task.Status == "succeeded"
+		if isBaseline {
+			f.baselineRead = true
+			if f.failBaselineRead {
+				f.mu.Unlock()
+				writeJSON(w, 500, map[string]string{"error": "injected baseline failure"})
+				return
+			}
+		}
 		out := make([]TaskEvent, 0, len(task.events))
-		for _, ev := range task.events {
-			if ev.Seq > since {
-				if f.mangleDurableType != "" && ev.Type == f.mangleDurableType {
-					ev.Type += "-mangled"
+		if !(isBaseline && f.emptyBaselineRead) {
+			for _, ev := range task.events {
+				if ev.Seq > since {
+					if f.mangleDurableType != "" && ev.Type == f.mangleDurableType {
+						ev.Type += "-mangled"
+					}
+					out = append(out, ev)
 				}
-				out = append(out, ev)
 			}
 		}
 		f.mu.Unlock()
@@ -1415,36 +1453,78 @@ func TestRunAcceptanceFailsWhenDurableLogUnreadable(t *testing.T) {
 	}
 }
 
+func TestRunAcceptanceFailsWhenBaselineUnreadable(t *testing.T) {
+	out, _ := runFakeAcceptanceWith(t, "none", func(f *fakeDaemon) { f.failBaselineRead = true })
+	step := stepByName(t, out, "5 approval")
+	if step.Status != statusFail {
+		t.Fatalf("approval step = %s (%s), want fail", step.Status, step.Detail)
+	}
+	if !strings.Contains(step.Detail, "pre-prompt durable baseline could not be read") {
+		t.Fatalf("failure does not name the unreadable baseline: %s", step.Detail)
+	}
+}
+
+func TestRunAcceptanceFailsWhenBaselineEmpty(t *testing.T) {
+	out, _ := runFakeAcceptanceWith(t, "none", func(f *fakeDaemon) { f.emptyBaselineRead = true })
+	step := stepByName(t, out, "5 approval")
+	if step.Status != statusFail {
+		t.Fatalf("approval step = %s (%s), want fail", step.Status, step.Detail)
+	}
+	if !strings.Contains(step.Detail, "pre-prompt durable baseline is empty") {
+		t.Fatalf("failure does not name the empty baseline: %s", step.Detail)
+	}
+	if strings.Contains(step.Detail, "without attempting the invited tool") {
+		t.Fatalf("an empty baseline was misreported as a missing tool attempt: %s", step.Detail)
+	}
+}
+
+func TestRunAcceptanceFailsWhenDurableLogRepeatsPrePromptIdentity(t *testing.T) {
+	out, _ := runFakeAcceptanceWith(t, "none", func(f *fakeDaemon) {
+		f.toolUseBeforePrompt = true
+		f.duplicateAfterPrompt = true
+		f.ignoreToolPrompt = true
+	})
+	step := stepByName(t, out, "5 approval")
+	if step.Status != statusFail {
+		t.Fatalf("approval step = %s (%s), want fail", step.Status, step.Detail)
+	}
+	if !strings.Contains(step.Detail, "repeats a pre-prompt event identity") {
+		t.Fatalf("a repeated prior identity was accepted as this turn's evidence: %s", step.Detail)
+	}
+}
+
 func TestSetTaskIDConcurrentWithPump(t *testing.T) {
 	const total = 5000
+	const backlog = 3000
 	s := NewLiveState("")
-	done := make(chan struct{})
+	parked := make(chan struct{})
+	release := make(chan struct{})
+	pumpDone := make(chan struct{})
 	go func() {
-		defer close(done)
+		defer close(pumpDone)
 		for seq := 1; seq <= total; seq++ {
 			s.ApplyFrame(frame("event", TaskEvent{TaskID: "t1", EventEpoch: 0, Seq: int64(seq), Type: "message"}))
-			// Pace the pump so naming the task overlaps a live backlog and a
-			// replay that ran outside the lock would race with it.
+			if seq == backlog {
+				// Hold the pump with a full backlog so naming the task starts
+				// while frames are still being applied, and release it while
+				// SetTaskID is in flight rather than after it returns.
+				close(parked)
+				<-release
+			}
 			if seq%10 == 0 {
 				time.Sleep(100 * time.Microsecond)
 			}
 		}
 	}()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		s.mu.Lock()
-		pending := len(s.pending)
-		s.mu.Unlock()
-		if pending >= 3000 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("pump never buffered a backlog: pending=%d", pending)
-		}
-		time.Sleep(time.Millisecond)
-	}
-	s.SetTaskID("t1")
-	<-done
+	<-parked
+	setDone := make(chan struct{})
+	go func() {
+		defer close(setDone)
+		s.SetTaskID("t1")
+	}()
+	close(release)
+	<-setDone
+	<-pumpDone
 	snap := s.Snapshot()
 	if snap.EventCount != total || snap.TaskFrames != total || len(snap.Gaps) != 0 {
 		t.Fatalf("events=%d taskFrames=%d gaps=%v", snap.EventCount, snap.TaskFrames, snap.Gaps)

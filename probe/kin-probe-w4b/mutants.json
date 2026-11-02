@@ -119,18 +119,32 @@
     "new": "\tif s.StreamErr == nil && err != nil && err.Error() != \"EOF\" {"
   },
   {
-    "label": "a canceled tool-prompt turn is reported as a skip",
+    "label": "the terminal-status gate is removed (canceled turn)",
     "file": "probe/kin-probe-w4b/run.go",
     "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceFailsWhenApprovalTurnCanceled -count=1 ./...",
     "old": "\t\tif finalTask.Status != \"succeeded\" {",
     "new": "\t\tif false {"
   },
   {
-    "label": "a failed tool-prompt turn is reported as a skip",
+    "label": "an empty pre-prompt durable baseline is trusted",
     "file": "probe/kin-probe-w4b/run.go",
-    "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceFailsWhenToolTurnFailed -count=1 ./...",
-    "old": "\t\tif finalTask.Status != \"succeeded\" {",
+    "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceFailsWhenBaselineEmpty -count=1 ./...",
+    "old": "\t\tif len(before) == 0 {",
     "new": "\t\tif false {"
+  },
+  {
+    "label": "an unreadable pre-prompt durable baseline is reported as a skip",
+    "file": "probe/kin-probe-w4b/run.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceFailsWhenBaselineUnreadable -count=1 ./...",
+    "old": "\t\t\treturn statusFail, fmt.Sprintf(\"no approval was observed, and the pre-prompt durable baseline could not be read, so the turn's tool evidence cannot be attributed: %v\", beforeErr)",
+    "new": "\t\t\treturn statusSkip, fmt.Sprintf(\"no approval was observed, and the pre-prompt durable baseline could not be read, so the turn's tool evidence cannot be attributed: %v\", beforeErr)"
+  },
+  {
+    "label": "a repeated pre-prompt event identity after the prompt is trusted",
+    "file": "probe/kin-probe-w4b/run.go",
+    "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceFailsWhenDurableLogRepeatsPrePromptIdentity -count=1 ./...",
+    "old": "\t\tfor _, ev := range after {\n\t\t\tif _, repeated := seen[EventKey{Epoch: ev.EventEpoch, Seq: ev.Seq}]; repeated {\n\t\t\t\treturn statusFail, fmt.Sprintf(\"the durable log repeats a pre-prompt event identity (epoch %d, seq %d) after the tool prompt; the turn's evidence cannot be attributed\", ev.EventEpoch, ev.Seq)\n\t\t\t}\n\t\t}",
+    "new": "\t\t_ = seen"
   },
   {
     "label": "a turn that never attempted the tool is reported as a skip",
@@ -157,8 +171,8 @@
     "label": "tool evidence is counted across the whole task log, not the invited turn",
     "file": "probe/kin-probe-w4b/run.go",
     "test": "cd probe/kin-probe-w4b && go test -run TestRunAcceptanceFailsWhenToolEvidenceIsOnlyFromEarlierTurns -count=1 ./...",
-    "old": "\t\tfor _, ev := range after {",
-    "new": "\t\tfor _, ev := range durable {"
+    "old": "\t\tfor _, ev := range after {\n\t\t\tswitch ev.Type {",
+    "new": "\t\tfor _, ev := range durable {\n\t\t\tswitch ev.Type {"
   },
   {
     "label": "SetTaskID releases the lock before replaying buffered frames",
