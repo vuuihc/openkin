@@ -1394,7 +1394,7 @@ const zh = {
   account: {
     claimTitle: "认领这台 Hub",
     claimBlurb:
-      "这台 Hub 还没有所有者。输入服务端日志里打印的认领码，然后设置以后用来登录的邮箱和密码。",
+      "这台 Hub 还没有所有者。粘贴 agent 给你的认领码，或直接打开认领链接，然后设置以后用来登录的邮箱和密码。",
     loginTitle: "登录 Kin",
     loginBlurb: "登录后即可访问这台 Hub 以及连接到它的设备。",
     joinTitle: "加入这台 Hub",
@@ -1418,23 +1418,23 @@ const zh = {
     working: "处理中…",
     orDivider: "或",
     continueWith: "使用 {provider} 继续",
-    whereTitle: "认领码在哪里",
+    whereTitle: "认领码从哪里来？",
     whereBody:
-      "认领码在 Hub 首次启动时打印，24 小时内有效且只能用一次。在 Hub 主机上运行下面这条命令可以重新打印：",
-    claimCommand: "kin hub claim-code",
-    codeExpired: "当前没有有效的认领码。请在服务器上运行 kin hub claim-code 生成新的。",
+      "让安装这个 Hub 的 agent 给你一条认领链接。打开后认领码会自动填好，你只需要设置邮箱和密码。",
+    claimLinkBody:
+      "认领码已经从链接填入。设置这个 Hub 所有者以后登录用的邮箱和密码即可。",
+    codeExpired: "当前没有有效的认领码。让管理这个 Hub 的 agent 重新生成一条认领链接。",
     loginWhereTitle: "这是哪个账号？",
-    loginWhereBody: "这是你在本 Hub 上的账号——认领 Hub 时创建，或接受邀请时创建。没有默认账号。",
+    loginWhereBody:
+      "这是你在本 Hub 上的账号——安装 Hub 时创建，或接受邀请时创建。没有默认账号。",
     forgotTitle: "忘记密码了？",
-    forgotBody: "用你登录的邮箱运行下面这条命令，它会打印一个新密码（只显示一次）。",
-    forgotCommand: "kin hub reset-password --email you@example.com",
-    containerCommandHint: "容器部署——同样的命令，不需要 compose 文件，也不依赖当前目录：",
-    forgotContainerCommand: "docker exec openkin-hub kin hub reset-password --email you@example.com",
-    claimContainerCommand: "docker exec openkin-hub kin hub claim-code",
+    forgotBody:
+      "让管理这个 Hub 的 agent 给你一条一次性登录链接。打开就会直接登录，不需要密码。",
     errors: {
       invalid_credentials: "邮箱或密码不正确。",
       claim_code_invalid: "认领码无效或已过期。",
       invite_invalid: "邀请码无效或已过期。",
+      login_link_invalid: "这条登录链接无效或已过期。让 agent 重新生成一条。",
       registration_closed: "这台 Hub 已有所有者，请直接登录。",
       identity_not_linked: "这个登录方式还没有绑定到本 Hub 的账号。请先用密码登录，再到「设置 → 账号」里绑定。",
       weak_password: "密码太弱，请至少使用 8 个字符。",

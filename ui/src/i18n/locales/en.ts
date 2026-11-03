@@ -1464,7 +1464,7 @@ const en: MessageTree = {
   account: {
     claimTitle: "Claim this Hub",
     claimBlurb:
-      "This Hub has no owner yet. Enter the claim code printed in the server logs, then choose the email and password you will sign in with.",
+      "This Hub has no owner yet. Paste the claim code your agent gave you, or open the claim link directly, then choose the email and password you will sign in with.",
     loginTitle: "Sign in to Kin",
     loginBlurb: "Sign in to reach this Hub and the devices connected to it.",
     joinTitle: "Join this Hub",
@@ -1489,27 +1489,24 @@ const en: MessageTree = {
     working: "Working…",
     orDivider: "or",
     continueWith: "Continue with {provider}",
-    whereTitle: "Where to find the claim code",
+    whereTitle: "Where does the code come from?",
     whereBody:
-      "The Hub prints it on first start. It is valid for 24 hours and can be used once. Run this on the Hub host to print a new one:",
-    claimCommand: "kin hub claim-code",
+      "Ask the agent that installed this Hub for a claim link. Opening it fills the code in for you; you only choose the email and password.",
+    claimLinkBody:
+      "Your claim code came from the link you followed. Choose the email and password this Hub's owner will sign in with.",
     codeExpired:
-      "There is no active claim code right now. Run kin hub claim-code on the server to print a new one.",
+      "There is no active claim code right now. Ask the agent that runs this Hub to issue a new claim link.",
     loginWhereTitle: "What account is this?",
     loginWhereBody:
-      "The one created for you on this Hub — when it was claimed, or when you accepted an invitation. There is no default account.",
+      "The one created on this Hub — when it was set up, or when you accepted an invitation. There is no default account.",
     forgotTitle: "Forgot the password?",
     forgotBody:
-      "Run this for the address you sign in with. It prints a new password once.",
-    forgotCommand: "kin hub reset-password --email you@example.com",
-    containerCommandHint:
-      "Container deployment — the same command, with no compose file or working directory:",
-    forgotContainerCommand: "docker exec openkin-hub kin hub reset-password --email you@example.com",
-    claimContainerCommand: "docker exec openkin-hub kin hub claim-code",
+      "Ask the agent that runs this Hub for a one-time sign-in link. Opening it signs you in without a password.",
     errors: {
       invalid_credentials: "Email or password is incorrect.",
       claim_code_invalid: "That claim code is not valid or has expired.",
       invite_invalid: "That invitation is not valid or has expired.",
+      login_link_invalid: "This sign-in link is not valid or has expired. Ask your agent for a new one.",
       registration_closed: "This Hub already has an owner. Sign in instead.",
       identity_not_linked:
         "This sign-in isn't linked to an account here yet. Sign in with your password, then link it under Settings → Account.",

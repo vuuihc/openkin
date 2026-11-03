@@ -1,6 +1,7 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { AuthError, claimOwner, joinHub, signIn, startOIDC } from "../api/account";
 import { authErrorText, CODE_FIELDS, prefilledCode } from "../lib/accountGate";
+import { withoutClaimHash } from "../lib/loginLink";
 import { hasFinePointer } from "../lib/pointer";
 import { useT } from "../i18n/react";
 import { useAppStore, type AccountMode, type AccountProvider } from "../store/appStore";
@@ -59,15 +60,15 @@ function takeAuthErrorFromURL(): { code: string; message: string } | null {
 /**
  * Reload in place with the auth query parameters cleared.
  *
- * `invite` goes with them: the account it created now exists, and leaving a
- * spent code in the address bar leaves it in the history too.
+ * The code parameters go with them: the account they created now exists, and
+ * leaving a spent code in the address bar leaves it in the history too.
  */
 function reloadClean(): void {
   const url = new URL(window.location.href);
-  for (const key of ["auth_error", "auth_error_code", "auth_notice", "invite"]) {
+  for (const key of ["auth_error", "auth_error_code", "auth_notice", "invite", "claim"]) {
     url.searchParams.delete(key);
   }
-  window.location.replace(url.toString());
+  window.location.replace(withoutClaimHash(url.toString()));
 }
 
 export default function AccountScreen({ mode }: { mode: AccountMode }) {
@@ -86,18 +87,47 @@ export default function AccountScreen({ mode }: { mode: AccountMode }) {
   // at 13px). Desktop keeps the convenience. See `lib/pointer`.
   const focusOnMount = hasFinePointer();
 
-  // An invitation link carries its code, so the person who was invited never
-  // types it. Reading it once is enough: nothing below changes the URL.
-  const [code, setCode] = useState(() => prefilledCode(mode, window.location.search));
+  // An invitation link carries its code, and so does the claim link an agent
+  // prints. Reading it once is enough: the fragment is cleared below, and
+  // nothing else changes the URL.
+  const [code, setCode] = useState(() =>
+    prefilledCode(mode, window.location.search, window.location.hash),
+  );
+  // Whether the code arrived in the URL, as opposed to being typed. The input's
+  // value cannot answer that: it becomes truthy on the first keystroke, and the
+  // help text would then claim a link the person never followed.
+  const [codeCameFromLink] = useState(
+    () => prefilledCode(mode, window.location.search, window.location.hash) !== "",
+  );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ code: string; message: string } | null>(null);
 
-  // An OIDC round trip that failed lands back here with the reason on the URL.
+  // An OIDC round trip that failed lands back here with the reason on the URL,
+  // and a claim link carries its code in the fragment. Both are consumed once:
+  // the error is moved into state and the code into the form above, and the
+  // fragment is removed so the credential does not stay in history.
+  //
+  // StrictMode mounts every effect twice in development. The first pass spends
+  // the URL, so the second would read nothing and set the error back to null.
+  // The ref makes this mount work happen once; StrictMode preserves it across
+  // the simulated remount, which is exactly the lifetime this needs.
+  const readVisitURL = useRef(false);
   useEffect(() => {
+    if (readVisitURL.current) return;
+    readVisitURL.current = true;
     setError(takeAuthErrorFromURL());
+    // The code was read into the form above, so neither shape needs to stay in
+    // the address bar. The query form is what links printed by older versions
+    // use; the fragment is the current one.
+    const url = new URL(window.location.href);
+    url.searchParams.delete("claim");
+    const cleaned = withoutClaimHash(url.toString());
+    if (cleaned !== window.location.href) {
+      window.history.replaceState({}, "", cleaned);
+    }
   }, []);
 
   /**
@@ -285,8 +315,10 @@ export default function AccountScreen({ mode }: { mode: AccountMode }) {
         {/* What the login form is asking for, and what to do when the answer is
             gone. Both sentences exist because the account is chosen at claim
             time and then never shown again: the console stores only an argon2
-            hash, so "I forgot" has no self-service path by design. The command
-            is the path, and it is run on the machine the Hub already lives on. */}
+            hash, so "I forgot" has no self-service path by design. The way back
+            in is a one-time link the operator's agent mints on the Hub, which is
+            why this text names an agent rather than a shell command: the person
+            reading a login screen is not the person who can run one. */}
         {mode === "login" && (
           <div className="rounded-xl border border-kin-hairline-strong bg-kin-elevated/40 px-4 py-3 text-body text-kin-muted space-y-2 leading-prose">
             <p>
@@ -297,27 +329,23 @@ export default function AccountScreen({ mode }: { mode: AccountMode }) {
               <span className="font-medium text-kin-muted">{tr("account.forgotTitle")}</span>{" "}
               {tr("account.forgotBody")}
             </p>
-            <code className="block rounded-lg bg-kin-bg px-2 py-1.5 text-kin-secondary">
-              {tr("account.forgotCommand")}
-            </code>
-            <p className="pt-1">{tr("account.containerCommandHint")}</p>
-            <code className="block rounded-lg bg-kin-bg px-2 py-1.5 text-kin-secondary">
-              {tr("account.forgotContainerCommand")}
-            </code>
           </div>
         )}
 
+        {/* A claim link arrives with the code already in the field, so the
+            "where do I find it" paragraph is left out in that case -- telling
+            somebody to look for what is on their screen is how a working link
+            reads as broken. */}
         {mode === "claim" && (
           <div className="rounded-xl border border-kin-hairline-strong bg-kin-elevated/40 px-4 py-3 text-body text-kin-muted space-y-2 leading-prose">
-            <p className="font-medium text-kin-muted">{tr("account.whereTitle")}</p>
-            <p>{tr("account.whereBody")}</p>
-            <code className="block rounded-lg bg-kin-bg px-2 py-1.5 text-kin-secondary">
-              {tr("account.claimCommand")}
-            </code>
-            <p className="pt-1">{tr("account.containerCommandHint")}</p>
-            <code className="block rounded-lg bg-kin-bg px-2 py-1.5 text-kin-secondary">
-              {tr("account.claimContainerCommand")}
-            </code>
+            {codeCameFromLink ? (
+              <p>{tr("account.claimLinkBody")}</p>
+            ) : (
+              <>
+                <p className="font-medium text-kin-muted">{tr("account.whereTitle")}</p>
+                <p>{tr("account.whereBody")}</p>
+              </>
+            )}
             {!account.claimable && (
               <p className="text-kin-orange-ink/90">{tr("account.codeExpired")}</p>
             )}
