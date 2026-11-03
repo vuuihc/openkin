@@ -184,6 +184,13 @@ job_shell_syntax() {
   done
 }
 
+# The installer is the path an agent runs end to end. Its contract tests use a
+# fake Docker, so they are fast and need no daemon; no other job executes the
+# script's behavior.
+job_shell_test() {
+  ./scripts/install-hub.test.sh
+}
+
 job_python_syntax() {
   local files
   files="$(changed_python_files)"
@@ -217,6 +224,7 @@ start ui-tsc job_ui_tsc
 start api-contract job_api_contract
 start api-coverage job_api_coverage
 start shell-syntax job_shell_syntax
+start shell-test job_shell_test
 start python-syntax job_python_syntax
 start stories job_stories
 
