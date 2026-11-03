@@ -50,10 +50,30 @@ MVP agent 控制台（daemon + web UI）已实现。macOS 菜单栏 **桌面壳*
 Hub 是常驻的 daemon，会话存在它这里，所以每台设备登录后看到的是同一个工作区。
 
 ```bash
+scripts/install-hub.sh --domain kin.example.com --email you@example.com
+```
+
+脚本会检查 Docker、写入 `.env`（不会覆盖已有文件）、启动整套服务（沿用当前运行中的
+同一组 Compose 文件，因此 OAuth 覆盖文件不会在修复时被丢掉），最后只在 stdout
+打印一条一次性登录链接。打开就登录，不需要从终端抄密码再输入。
+链接 30 分钟内有效；重新运行脚本会生成新链接，并让上一条失效。
+
+它要求 Docker + Compose v2、域名解析到这台机器、80 / 443 端口可达。首次运行会构建或
+拉取镜像，需要几分钟。agent 可以用 `scripts/install-hub.sh --help` 读到完整约定。
+
+手动部署仍然支持：
+
+```bash
 cp .env.example .env          # 把 KIN_DOMAIN 设成解析到本机的域名
 docker compose up -d --build  # 80 / 443 端口要能到达这台机器
-docker compose logs kin       # 首次启动会打印一次性认领码
+docker exec openkin-hub kin hub init --domain kin.example.com --email you@example.com
 ```
+
+不带 `--email` 时，`kin hub init` 为还没有所有者的 Hub 打印认领链接；带上它就创建
+所有者并打印登录链接。两种链接都把密钥放在 URL fragment 里，服务端日志看不到；
+都只能使用一次：登录链接 30 分钟、认领链接 24 小时。未使用前请当作密码对待。
+用这种方式创建的 owner 有一个没人知道的随机密码；打开链接即可登录，之后也可以用
+`reset-password` 设置一个自己知道的密码（重置同时会让未使用的登录链接失效）。
 
 默认用邮箱 + 密码登录。要加 GitHub / Google，先按 `.env.example` 里的说明创建两个
 OAuth 应用，再叠加 OAuth 覆盖文件：
@@ -64,12 +84,16 @@ docker compose -f docker-compose.yml -f docker-compose.oauth.yml up -d
 
 已经认领过的 Hub，先用密码登录一次，在**设置 → 账号**里绑定第三方账号；之后两种方式都能登录。
 
-恢复命令在容器里执行，不依赖 compose 文件名，也不依赖当前目录：
+恢复命令也在容器里执行，不依赖 compose 文件名，也不依赖当前目录：
 
 ```bash
 docker exec openkin-hub kin hub accounts
+docker exec openkin-hub kin hub login-link --email you@example.com --domain kin.example.com
 docker exec openkin-hub kin hub reset-password --email you@example.com
 ```
+
+`login-link` 打印一次性登录链接，不改密码；`reset-password` 打印新密码，并让所有
+已登录会话失效。
 
 ## 桌面应用
 
