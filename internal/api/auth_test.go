@@ -369,7 +369,7 @@ func TestOwnerSessionReachesOperatorRoutes(t *testing.T) {
 	if rec := owner.get("/api/settings"); rec.Code != http.StatusOK {
 		t.Fatalf("owner reading settings: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := owner.do(http.MethodPut, "/api/settings", `{"notify.bark_url":""}`); rec.Code != http.StatusOK {
+	if rec := owner.do(http.MethodPut, "/api/settings", `{"ui.base_url":"http://example.test:7777"}`); rec.Code != http.StatusOK {
 		t.Fatalf("owner writing settings: %d %s", rec.Code, rec.Body.String())
 	}
 }
@@ -462,7 +462,7 @@ func TestMemberAccountCannotReachOperatorRoutes(t *testing.T) {
 	if rec := member.get("/api/settings"); rec.Code != http.StatusForbidden {
 		t.Fatalf("member reading settings: %d %s, want 403", rec.Code, rec.Body.String())
 	}
-	if rec := member.do(http.MethodPut, "/api/settings", `{"notify.bark_url":""}`); rec.Code != http.StatusForbidden {
+	if rec := member.do(http.MethodPut, "/api/settings", `{"ui.base_url":"http://example.test:7777"}`); rec.Code != http.StatusForbidden {
 		t.Fatalf("member writing settings: %d %s, want 403", rec.Code, rec.Body.String())
 	}
 	if rec := member.get("/api/devices"); rec.Code != http.StatusForbidden {

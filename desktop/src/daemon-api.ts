@@ -23,7 +23,10 @@ export type Task = {
 export type WSMessage =
   | { kind: "task_update"; data: Task }
   | { kind: "event"; data: { task_id: string; type: string; payload: unknown } }
-  | { kind: "approval_update"; data: Approval };
+  | { kind: "approval_update"; data: Approval }
+  // KIN-NOTIFY-001: the node's one notification fan-out. `data` is validated by
+  // native-notifications.ts before anything is shown, so it stays unknown here.
+  | { kind: "notify"; data: unknown };
 
 export function parseToolSummary(payload: unknown): string {
   const p = (payload ?? {}) as Record<string, unknown>;

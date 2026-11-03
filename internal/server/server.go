@@ -23,6 +23,7 @@ import (
 	"github.com/vuuihc/openkin/internal/adapter/detect"
 	"github.com/vuuihc/openkin/internal/agent"
 	"github.com/vuuihc/openkin/internal/api"
+	"github.com/vuuihc/openkin/internal/apns"
 	authsvc "github.com/vuuihc/openkin/internal/auth"
 	"github.com/vuuihc/openkin/internal/browserworker"
 	"github.com/vuuihc/openkin/internal/cloudflare"
@@ -35,7 +36,6 @@ import (
 	"github.com/vuuihc/openkin/internal/node"
 	"github.com/vuuihc/openkin/internal/notify"
 	"github.com/vuuihc/openkin/internal/provider"
-	pushsvc "github.com/vuuihc/openkin/internal/push"
 	"github.com/vuuihc/openkin/internal/remote"
 	remotetsnet "github.com/vuuihc/openkin/internal/remote/tsnet"
 	"github.com/vuuihc/openkin/internal/routines"
@@ -326,18 +326,48 @@ func ServeWith(version string, flags ServeFlags) error {
 		pref, err := st.GetSetting(c, "agent.default")
 		return strings.TrimSpace(pref), err
 	}
-	// Browser push shares the notification fan-out: an approval that reaches
-	// Bark or ntfy also reaches a subscribed browser, from the same event.
-	// The VAPID contact is the console's own origin when one is configured —
-	// a push service may use it to report a misbehaving sender.
-	pushSubject := "https://openkin.local"
-	if v, err := st.GetSetting(ctx, notify.KeyBaseURL); err == nil {
-		if base := strings.TrimRight(strings.TrimSpace(v), "/"); strings.HasPrefix(base, "https://") {
-			pushSubject = base
-		}
+	// Native notifications: one event becomes a desktop banner through the
+	// event bus and an APNs alert for every registered iPhone. The node that
+	// runs the engine owns both, so a device token never has to be forwarded to
+	// another machine. Missing APNs credentials are a normal state: the desktop
+	// channel still works and the settings page says what the node is missing.
+	apnsClient, apnsErr := apns.FromSettings(ctx, st)
+	if apnsErr != nil && !errors.Is(apnsErr, apns.ErrNotConfigured) {
+		fmt.Fprintf(os.Stderr, "kin: apns: %v\n", apnsErr)
 	}
-	pushService := &pushsvc.Service{Store: st, Subject: pushSubject}
-	notifier := &notify.Sender{Store: st, Push: pushService}
+	var apnsSender api.APNsSender
+	if apnsClient != nil {
+		apnsSender = apnsClient
+	}
+	// `kin notify apns` writes settings from another process, so the daemon
+	// reads them per delivery rather than pinning the startup snapshot. An
+	// unconfigured node is a normal state, not an error to log on every event.
+	loadAPNs := func(ctx context.Context) (*apns.Client, error) {
+		client, err := apns.FromSettings(ctx, st)
+		if errors.Is(err, apns.ErrNotConfigured) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		return client, nil
+	}
+	notifier := &notify.Sender{
+		Store:   st,
+		Devices: st,
+		APNs:    apnsSender,
+		APNsFor: func(ctx context.Context) (notify.APNsSender, error) {
+			client, err := loadAPNs(ctx)
+			if client == nil {
+				return nil, err
+			}
+			return client, nil
+		},
+		Events:       busNotifier{bus: taskBus, ownerOf: st.TaskOwner},
+		SessionLive:  st.AuthSessionLive,
+		OwnerOf:      st.TaskOwner,
+		OwnerAccount: st.OwnerAccountID,
+	}
 	workerRegistry := workers.NewRegistry(workers.DefaultLeaseTTL, func(record workers.Record) {
 		notifier.NotifyWorkerOffline(context.Background(), record.WorkerID, "", record.Label)
 	})
@@ -649,7 +679,21 @@ func ServeWith(version string, flags ServeFlags) error {
 		Workers:      workerRegistry,
 		Nodes:        nodeConns,
 		Queries:      nodeQueries,
-		Push:         pushService,
+		APNs:         apnsSender,
+		APNsFor: func(ctx context.Context) (api.APNsSender, error) {
+			client, err := loadAPNs(ctx)
+			if client == nil {
+				return nil, err
+			}
+			return client, nil
+		},
+		// The API and the engine share one notifier on purpose: a phone
+		// registering through /api/push/devices lands in the same store this
+		// daemon's notifier reads, so whichever tasks this daemon owns ring the
+		// phones registered with it. A Hub serves the phone console and runs the
+		// tasks created there; a node does the same for the console paired with
+		// it. No token is forwarded between machines.
+		Notify: notifier,
 		// This daemon is a machine too, and its own console picks directories on
 		// it. The answer comes from the same code that answers a Hub, with the
 		// same list of directories the executor works in, so a directory this
@@ -1377,15 +1421,14 @@ func configureBrowserWorker(
 // staticCacheControl is the cache policy for one embedded console file.
 //
 // Hashed Vite assets are content-addressed and can live forever. index.html
-// (and the SPA routes that serve it), the manifest, and the push worker must
-// revalidate: each is a small hand-written file whose cached copy would
-// outlive the deploy that fixed it, and a stale service worker is the classic
-// way a web app keeps running yesterday's code.
+// (and the SPA routes that serve it) and the manifest must revalidate: each is
+// a small hand-written file whose cached copy would outlive the deploy that
+// fixed it.
 func staticCacheControl(path string, serveIndex bool) string {
 	switch {
 	case strings.HasPrefix(path, "/assets/"):
 		return "public, max-age=31536000, immutable"
-	case serveIndex || path == "/manifest.webmanifest" || path == "/sw.js":
+	case serveIndex || path == "/manifest.webmanifest":
 		return "no-cache"
 	}
 	return ""

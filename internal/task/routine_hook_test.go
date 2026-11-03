@@ -1,17 +1,15 @@
 package task
 
+// KIN-NOTIFY-001: a routine report reaches the same pipeline, or stays silent.
+
 import (
 	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"path/filepath"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/vuuihc/openkin/internal/adapter"
-	"github.com/vuuihc/openkin/internal/notify"
 	"github.com/vuuihc/openkin/internal/store"
 )
 
@@ -57,25 +55,13 @@ func (h *resultHandle) Events() <-chan adapter.Event {
 func (h *resultHandle) Cancel() error { return nil }
 
 func TestRoutineCompletionNoteworthyPush(t *testing.T) {
-	var hits atomic.Int32
-	var body atomic.Value
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits.Add(1)
-		buf := make([]byte, 4096)
-		n, _ := r.Body.Read(buf)
-		body.Store(string(buf[:n]))
-		w.WriteHeader(200)
-	}))
-	t.Cleanup(srv.Close)
-
 	st, err := store.Open(filepath.Join(t.TempDir(), "kin.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	ctx := context.Background()
-	_ = st.SetSetting(ctx, notify.KeyNtfyTopic, srv.URL)
-	_ = st.SetSetting(ctx, notify.KeyBaseURL, "http://host:7777")
+	_ = st.SetSetting(ctx, "ui.base_url", "http://host:7777")
 
 	now := time.Now().UnixMilli()
 	if err := st.InsertRoutine(ctx, store.Routine{
@@ -85,11 +71,12 @@ func TestRoutineCompletionNoteworthyPush(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	rec := &notifyRecorder{}
 	e := NewEngineFromAdapters(st, map[string]adapter.Adapter{
 		"claude-code": resultAdapter{text: "done\nTLDR: auth middleware touched\nnoteworthy: true\n"},
 	}, NewBus(), 4)
 	t.Cleanup(e.Close)
-	e.SetNotifier(&notify.Sender{Store: st, Client: &http.Client{Timeout: 2 * time.Second}})
+	e.SetNotifier(testSender(st, rec))
 
 	task, err := e.Create(ctx, CreateRequest{
 		Agent: "claude-code", Cwd: t.TempDir(), Prompt: "p", RoutineID: "r1",
@@ -119,30 +106,22 @@ func TestRoutineCompletionNoteworthyPush(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 
-	deadline = time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) && hits.Load() == 0 {
-		time.Sleep(20 * time.Millisecond)
+	events := rec.waitFor(t, 1)
+	if events[0].Kind != "routine" || events[0].Body != "auth middleware touched" {
+		t.Fatalf("event=%+v", events[0])
 	}
-	if hits.Load() == 0 {
-		t.Fatal("expected noteworthy push")
+	if events[0].URL != "http://host:7777/tasks/"+task.ID {
+		t.Fatalf("url=%q", events[0].URL)
 	}
 }
 
 func TestRoutineSilentNoPush(t *testing.T) {
-	var hits atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits.Add(1)
-		w.WriteHeader(200)
-	}))
-	t.Cleanup(srv.Close)
-
 	st, err := store.Open(filepath.Join(t.TempDir(), "kin.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	ctx := context.Background()
-	_ = st.SetSetting(ctx, notify.KeyNtfyTopic, srv.URL)
 
 	now := time.Now().UnixMilli()
 	_ = st.InsertRoutine(ctx, store.Routine{
@@ -150,11 +129,12 @@ func TestRoutineSilentNoPush(t *testing.T) {
 		IntervalSecs: 60, Enabled: true, NextDueAt: now, CreatedAt: now,
 	})
 
+	rec := &notifyRecorder{}
 	e := NewEngineFromAdapters(st, map[string]adapter.Adapter{
 		"claude-code": resultAdapter{text: "TLDR: 0 new PRs\nnoteworthy: false\n"},
 	}, NewBus(), 4)
 	t.Cleanup(e.Close)
-	e.SetNotifier(&notify.Sender{Store: st, Client: &http.Client{Timeout: 2 * time.Second}})
+	e.SetNotifier(testSender(st, rec))
 
 	task, err := e.Create(ctx, CreateRequest{
 		Agent: "claude-code", Cwd: t.TempDir(), Prompt: "p", RoutineID: "r1",
@@ -164,8 +144,8 @@ func TestRoutineSilentNoPush(t *testing.T) {
 	}
 	waitStatus(t, e, task.ID, StatusSucceeded, 3*time.Second)
 	time.Sleep(200 * time.Millisecond)
-	if hits.Load() != 0 {
-		t.Fatalf("silent run should not push, hits=%d", hits.Load())
+	if events := rec.snapshot(); len(events) != 0 {
+		t.Fatalf("silent run should not push, got %+v", events)
 	}
 	got, _ := st.GetTask(ctx, task.ID)
 	if got.RoutineNoteworthy || !got.RoutineUnread || got.RoutineTLDR != "0 new PRs" {

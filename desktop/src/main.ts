@@ -13,6 +13,7 @@ import { AppTray } from "./tray";
 import { TrayPopover } from "./tray-popover";
 import { DaemonWS } from "./ws-client";
 import { Notifier } from "./notifications";
+import { routeNotifyMessage } from "./native-notifications";
 import { taskIdFromURL } from "./task-notifications";
 import { retryWhileUnavailable } from "./daemon-retry";
 import { registerIpcHandlers } from "./ipc";
@@ -173,12 +174,17 @@ async function refreshPending(): Promise<Approval[]> {
 }
 
 function handleWSMessage(msg: WSMessage): void {
+  // One notification path for every kind. The state messages below still
+  // refresh the tray and pending list; they no longer raise banners of their
+  // own, because the node already decided what this event should say.
+  if (msg.kind === "notify") {
+    if (notifier) routeNotifyMessage(msg, notifier);
+    return;
+  }
+
   if (msg.kind === "approval_update") {
     if (msg.data.decision === "pending") {
-      void refreshPending().then((list) => {
-        const full = list.find((x) => x.id === msg.data.id) ?? msg.data;
-        notifier?.onApproval(full);
-      });
+      void refreshPending();
     } else {
       pending = pending.filter((x) => x.id !== msg.data.id);
       tray?.setPending(pending);
@@ -194,7 +200,6 @@ function handleWSMessage(msg: WSMessage): void {
   }
 
   if (msg.kind === "task_update") {
-    notifier?.onTaskUpdate(msg.data);
     if (
       msg.data.status === "succeeded" ||
       msg.data.status === "failed" ||
@@ -404,8 +409,7 @@ if (!gotLock) {
       setupTray();
 
       notifier = new Notifier({
-        openApproval: (id) => mainWindow.openApproval(id),
-        openTask: (id) => mainWindow.show(`/tasks/${encodeURIComponent(id)}`),
+        openPath: (path) => mainWindow.show(path),
         getToken: () => sidecar.readToken(),
         onDecided: () => {
           void refreshPending();
@@ -415,6 +419,13 @@ if (!gotLock) {
         isFocused: () => mainWindow.browserWindow?.isFocused() ?? false,
         viewingTaskId: () =>
           taskIdFromURL(mainWindow.browserWindow?.webContents.getURL() ?? ""),
+        origin: () => {
+          try {
+            return new URL(mainWindow.browserWindow?.webContents.getURL() ?? "").origin;
+          } catch {
+            return null;
+          }
+        },
       });
 
       const status = await sidecar.ensureRunning();

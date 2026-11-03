@@ -12,11 +12,15 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/vuuihc/openkin/internal/apns"
 	"github.com/vuuihc/openkin/internal/cloudflare"
 	"github.com/vuuihc/openkin/internal/notify"
 	"github.com/vuuihc/openkin/internal/provider"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 type memorySecretStore struct {
@@ -125,7 +129,7 @@ func TestSettingsGetPut(t *testing.T) {
 	}
 
 	// PUT
-	body := `{"notify.ntfy_topic":"http://127.0.0.1:9999/t","notify.bark_url":"","ui.base_url":"http://override:7777"}`
+	body := `{"ui.base_url":"http://override:7777"}`
 	rr = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPut, "/api/settings", bytes.NewReader([]byte(body)))
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -138,18 +142,17 @@ func TestSettingsGetPut(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got["notify.ntfy_topic"] != "http://127.0.0.1:9999/t" {
-		t.Fatalf("ntfy = %q", got["notify.ntfy_topic"])
-	}
 	if got["ui.base_url"] != "http://override:7777" {
 		t.Fatalf("base = %q", got["ui.base_url"])
 	}
 
-	// Reject unknown key, and specifically the VAPID private key: a client
-	// that could write it could sign notifications no browser subscribed to.
+	// Reject unknown keys, and specifically every push secret: the APNs private
+	// key and the legacy VAPID key must only ever be written by the operator
+	// CLI, because a client that could write them could sign notifications.
 	for _, body := range []string{
 		`{"evil":"1"}`,
 		`{"push.vapid_private":"AAAA"}`,
+		`{"push.apns.private_key":"AAAA"}`,
 	} {
 		rr = httptest.NewRecorder()
 		req = httptest.NewRequest(http.MethodPut, "/api/settings", bytes.NewReader([]byte(body)))
@@ -718,27 +721,18 @@ func TestCloudflareRelayDeployRollsBackRelayURLWhenConfigureFails(t *testing.T) 
 
 func TestNotifyTestEndpoint(t *testing.T) {
 	s, token := newTestServer(t)
-	h := s.Handler()
 
-	var hit bool
-	oldTransport := http.DefaultTransport
-	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		hit = true
-		if got := r.URL.String(); got != "https://notify.test/kin" {
-			t.Fatalf("url = %q", got)
-		}
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Header:     make(http.Header),
-			Body:       http.NoBody,
-			Request:    r,
-		}, nil
-	})
-	defer func() { http.DefaultTransport = oldTransport }()
-
-	if err := s.Store.SetSetting(t.Context(), notify.KeyNtfyTopic, "https://notify.test/kin"); err != nil {
+	const deviceToken = "aabbccdd00112233445566778899aabbccddeeff00112233445566778899aabb"
+	if _, err := s.Store.SavePushDevice(t.Context(), store.PushDevice{
+		ID: "pd1", InstallID: "install-0001", Platform: "ios", Token: deviceToken,
+		Environment: "production", Name: "iPhone", OwnerUserID: "user-owner",
+		UpdatedAt: time.Now().UnixMilli(),
+	}); err != nil {
 		t.Fatal(err)
 	}
+	fake := &fakeAPNs{}
+	s.Notify = &notify.Sender{Store: s.Store, Devices: s.Store, APNs: fake}
+	h := s.Handler()
 
 	// Auth required
 	rr := httptest.NewRecorder()
@@ -758,24 +752,43 @@ func TestNotifyTestEndpoint(t *testing.T) {
 		OK      bool `json:"ok"`
 		Results []struct {
 			Channel string `json:"channel"`
+			Device  string `json:"device"`
 			OK      bool   `json:"ok"`
 		} `json:"results"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if !body.OK || len(body.Results) != 1 || body.Results[0].Channel != "ntfy" || !body.Results[0].OK {
+	if !body.OK || len(body.Results) != 1 || body.Results[0].Channel != "apns" || !body.Results[0].OK {
 		t.Fatalf("body = %#v", body)
 	}
-	if !hit {
-		t.Fatal("expected fake ntfy to be hit")
+	if body.Results[0].Device != "pd1" {
+		t.Fatalf("device = %q", body.Results[0].Device)
+	}
+	if got := fake.sent(); len(got) != 1 || got[0] != deviceToken {
+		t.Fatalf("sent tokens = %v", got)
 	}
 }
 
-type roundTripFunc func(*http.Request) (*http.Response, error)
+// fakeAPNs records sends without talking to Apple.
+type fakeAPNs struct {
+	mu     sync.Mutex
+	tokens []string
+}
 
-func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
-	return f(r)
+func (f *fakeAPNs) Configured() bool { return true }
+
+func (f *fakeAPNs) Send(ctx context.Context, token string, env apns.Environment, n apns.Notification) apns.Result {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.tokens = append(f.tokens, token)
+	return apns.Result{OK: true, Status: http.StatusOK}
+}
+
+func (f *fakeAPNs) sent() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.tokens...)
 }
 
 func TestPutAgentDefaultRequiresAvailable(t *testing.T) {

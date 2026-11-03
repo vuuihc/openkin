@@ -100,6 +100,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/push/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Native push registrations this principal may manage. A device or member sees only the rows its own credential or account registered; an operator sees every row. The APNs token is never returned. */
+        get: operations["listPushDevices"];
+        put?: never;
+        /** @description Register (upsert by install_id) the phone this console is running on. The row is stamped with the calling account or paired device so APNs delivery does not ring it for someone else's work. */
+        post: operations["registerPushDevice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/push/devices/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Remove one registration. A device may only delete its own row. */
+        delete: operations["deletePushDevice"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/push/devices/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Send one test notification to one registered phone. */
+        post: operations["testPushDevice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notify/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Send one test notification through the node. With channel=desktop only the Mac is told, so testing this shell does not ring every paired phone. */
+        post: operations["testNotify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workers": {
         parameters: {
             query?: never;
@@ -1314,10 +1383,10 @@ export interface components {
             truncated?: boolean;
         };
         Settings: {
-            "notify.bark_url": string;
-            "notify.ntfy_topic": string;
-            "notify.quota_wait_after_secs"?: string;
             "ui.base_url": string;
+            /** @description Whether this node has Apple push credentials. The key itself is never part of this response. */
+            push_apns_configured?: boolean;
+            "notify.quota_wait_after_secs"?: string;
             price_table: string;
             agent_limits: string;
             agent_roles: string;
@@ -1373,8 +1442,6 @@ export interface components {
             script_name?: string;
         };
         SettingsUpdate: {
-            "notify.bark_url"?: string;
-            "notify.ntfy_topic"?: string;
             "notify.quota_wait_after_secs"?: string;
             "ui.base_url"?: string;
             price_table?: string;
@@ -1398,6 +1465,61 @@ export interface components {
             created_at: number;
             last_used_at?: number | null;
             revoked_at?: number | null;
+        };
+        PushDevice: {
+            id: string;
+            /** @enum {string} */
+            platform: "ios";
+            name: string;
+            /** @enum {string} */
+            environment: "sandbox" | "production";
+            /** @description Unix milliseconds when this installation first registered. */
+            created_at: number;
+            /** @description Unix milliseconds when the row last changed. */
+            updated_at: number;
+            /** @description Unix milliseconds of the last accepted send; 0 means never. */
+            last_ok_at: number;
+            /** @description The APNs reason for the last failed send, empty after a success. */
+            last_error: string;
+        };
+        PushDevicesResponse: {
+            devices: components["schemas"]["PushDevice"][];
+            /** @description Whether this node has Apple push credentials right now. */
+            apns_configured: boolean;
+        };
+        PushDeviceRegistration: {
+            /** @description The app's stable per-install id. Registration upserts on it, so a rotated token replaces the row instead of creating a second one. */
+            install_id: string;
+            /** @enum {string} */
+            platform: "ios";
+            /** @description APNs device token, hex, at least 32 bytes. */
+            token: string;
+            /** @enum {string} */
+            environment: "sandbox" | "production";
+            name?: string;
+        };
+        NotifyChannelResult: {
+            /** @enum {string} */
+            channel: "desktop" | "apns";
+            /** @description The push_devices row this result belongs to, for APNs. */
+            device?: string;
+            ok: boolean;
+            /** @description A short success token, e.g. "ok". */
+            status?: string;
+            /** @description The provider's reason when ok is false. */
+            error?: string;
+        };
+        PushDeviceTestResponse: {
+            ok: boolean;
+            configured: boolean;
+            /** @description The node deleted the row because Apple will never accept the token again. The console must leave the on state and offer enable again. */
+            expired?: boolean;
+            results: components["schemas"]["NotifyChannelResult"][];
+        };
+        NotifyTestResponse: {
+            /** @description True when at least one requested channel accepted the test. */
+            ok: boolean;
+            results: components["schemas"]["NotifyChannelResult"][];
         };
         WorkerCapability: {
             name: string;
@@ -2042,6 +2164,177 @@ export interface operations {
         responses: {
             /** @description Device revoked */
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listPushDevices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Registrations and whether this node can send */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushDevicesResponse"];
+                };
+            };
+        };
+    };
+    registerPushDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushDeviceRegistration"];
+            };
+        };
+        responses: {
+            /** @description The stored row; a re-register returns the original id */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                    };
+                };
+            };
+            /** @description Invalid install id, platform, token, environment, or name */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    deletePushDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Registration removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The row belongs to another account */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such registration */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    testPushDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description What Apple said. expired=true means the node deleted the row because the token will never be accepted again. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushDeviceTestResponse"];
+                };
+            };
+            /** @description The row belongs to another account */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such registration */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The login this registration belongs to has ended. Nothing was sent to Apple, and the node removes the registration. */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    testNotify: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /**
+                     * @default all
+                     * @enum {string}
+                     */
+                    channel?: "desktop" | "all";
+                };
+            };
+        };
+        responses: {
+            /** @description What each requested channel did */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotifyTestResponse"];
+                };
+            };
+            /** @description Notifications are unavailable on this node */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -6,7 +6,8 @@
     "J3": "开始：任一端 → 新建 → 选 agent、模型、权限 → 发送",
     "J4": "资料：找到产物、项目或例行任务并操作",
     "J5": "管理：找到一段对话 → 改名、置顶、归档或删除 → 列表恢复秩序",
-    "J6": "设置：打开设置 → 改 agent、模型、设备或权限默认 → 新建对话用上新值"
+    "J6": "设置：打开设置 → 改 agent、模型、设备或权限默认 → 新建对话用上新值",
+    "J7": "通知：离开控制台 → 设备收到原生通知 → 点开落到那一条 → 处理完安静"
   },
   "stories": [
     {
@@ -174,6 +175,76 @@
         "ui/src/components/settings/PhoneSection.tsx"
       ],
       "tests": [],
+      "blockedReason": null
+    },
+    {
+      "id": "KIN-NOTIFY-001",
+      "state": "approved",
+      "priority": "P0",
+      "journeys": [
+        "J7"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "离开时被叫回来",
+      "file": "docs/product/stories/KIN-NOTIFY-001.md",
+      "surface": "设置 → 通知 / 系统通知中心",
+      "ownerPaths": [
+        "cmd/kin/main.go",
+        "internal/apns/apns.go",
+        "internal/api/api.go",
+        "internal/api/push_devices.go",
+        "internal/auth/service.go",
+        "internal/notify/notify.go",
+        "internal/remote/auth.go",
+        "internal/server/notify.go",
+        "internal/server/server.go",
+        "internal/store/identity.go",
+        "internal/store/migrate.go",
+        "internal/store/push_devices.go",
+        "internal/store/store.go",
+        "ui/src/App.tsx",
+        "ui/src/api/account.ts",
+        "ui/src/api/client.ts",
+        "ui/src/components/NotificationTaps.tsx",
+        "ui/src/components/settings/AccountSection.tsx",
+        "ui/src/components/settings/NativePushSettings.tsx",
+        "ui/src/i18n/locales/en.ts",
+        "ui/src/i18n/locales/zh.ts",
+        "ui/src/lib/nativePush.ts",
+        "ui/src/lib/notificationRoute.ts",
+        "ui/src/pages/SettingsPage.tsx",
+        "desktop/src/daemon-api.ts",
+        "desktop/src/main.ts",
+        "desktop/src/native-notifications.ts",
+        "desktop/src/notifications.ts",
+        "mobile/ios/App/App/AppDelegate.swift",
+        "mobile/ios/App/App/App.entitlements",
+        "mobile/ios/App/App/Info.plist",
+        "mobile/ios/App/App/KinBridgeViewController.swift",
+        "mobile/ios/App/App/KinNativePushPlugin.swift",
+        "mobile/ios/App/App/KinPushState.swift",
+        "mobile/ios/App/App/SceneDelegate.swift",
+        "mobile/ios/App/App.xcodeproj/project.pbxproj"
+      ],
+      "tests": [
+        "internal/apns/apns_test.go",
+        "internal/api/push_devices_test.go",
+        "internal/notify/native_test.go",
+        "internal/store/push_devices_test.go",
+        "internal/task/notifyfake_test.go",
+        "internal/task/notify_hook_test.go",
+        "internal/task/routine_hook_test.go",
+        "ui/src/components/NotificationTaps.dom.test.tsx",
+        "ui/src/components/settings/NativePushSettings.dom.test.tsx",
+        "ui/src/api/account.test.ts",
+        "ui/src/lib/nativePush.test.ts",
+        "ui/src/lib/notificationRoute.test.ts",
+        "desktop/src/native-notifications.wiring.test.ts",
+        "desktop/src/notifications.test.ts"
+      ],
       "blockedReason": null
     }
   ]

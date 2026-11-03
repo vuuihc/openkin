@@ -6,6 +6,7 @@ import App from "./App";
 import { bootstrapTokenFromURL, getToken } from "./api/client";
 import { applyVisitGate, refreshAccount } from "./api/account";
 import { initTheme } from "./lib/theme";
+import { cleanupLegacyWebPush } from "./lib/legacyWebPush";
 import "@ionic/react/css/core.css";
 import "./index.css";
 
@@ -20,6 +21,8 @@ import "./index.css";
 setupIonicReact({ mode: "ios" });
 
 initTheme();
+// Web Push is gone; retire the worker an older console may have installed.
+void cleanupLegacyWebPush();
 
 const root = document.getElementById("root");
 if (!root) {

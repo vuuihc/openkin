@@ -268,7 +268,7 @@ func TestLegacyProviderSettingsRejectAtomicallyWhenProviderIsReferenced(t *testi
 	req = httptest.NewRequest(
 		http.MethodPut,
 		"/api/settings",
-		bytes.NewBufferString(`{"provider.base_url":"","provider.model":"","notify.ntfy_topic":"must-not-persist"}`),
+		bytes.NewBufferString(`{"provider.base_url":"","provider.model":"","ui.base_url":"http://must-not-persist"}`),
 	)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec = httptest.NewRecorder()
@@ -284,7 +284,7 @@ func TestLegacyProviderSettingsRejectAtomicallyWhenProviderIsReferenced(t *testi
 	if !ok || entry.BaseURL != "https://example.com/v1" || entry.Model != "m1" {
 		t.Fatalf("provider changed after rejected settings update: %+v", entry)
 	}
-	if _, err := s.Store.GetSetting(context.Background(), "notify.ntfy_topic"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.Store.GetSetting(context.Background(), "ui.base_url"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("unrelated setting persisted after rejected request: %v", err)
 	}
 }

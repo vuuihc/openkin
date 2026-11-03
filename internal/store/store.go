@@ -1950,6 +1950,27 @@ func (s *Store) SetSettings(ctx context.Context, values map[string]string) error
 	return tx.Commit()
 }
 
+// DeleteSettings removes settings keys. Missing keys are not an error, so a
+// clear command is idempotent.
+func (s *Store) DeleteSettings(ctx context.Context, keys ...string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, key := range keys {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM settings WHERE key = ?`, key); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// DeleteSetting removes one settings key; absent is not an error.
+func (s *Store) DeleteSetting(ctx context.Context, key string) error {
+	return s.DeleteSettings(ctx, key)
+}
+
 // UsageRow is one day × agent aggregate for GET /api/usage/summary (M4).
 type UsageRow struct {
 	Date  string `json:"date"` // YYYY-MM-DD (UTC)

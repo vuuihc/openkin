@@ -17,7 +17,6 @@ import {
   listProviders,
   refreshRelayPairing,
   startCloudflareOAuth,
-  testNotify,
   updateProvider,
   updateSettings,
   type AgentInfo,
@@ -44,7 +43,7 @@ import {
 } from "../components/settings/LocalAgentSettingsSection";
 import { ProviderSettingsSection } from "../components/settings/ProviderSettingsSection";
 import { AccountSection } from "../components/settings/AccountSection";
-import { PushSettingsSection } from "../components/settings/PushSettingsSection";
+import { NativePushSettings } from "../components/settings/NativePushSettings";
 import { PhoneSection } from "../components/settings/PhoneSection";
 import { relayPrimaryAction } from "../components/settings/RelayGuidance";
 import {
@@ -94,8 +93,6 @@ function defaultRelayHostname(zoneName: string): string {
 export default function SettingsPage() {
   const tr = useT();
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [bark, setBark] = useState("");
-  const [ntfy, setNtfy] = useState("");
   const [quotaWaitNotifySecs, setQuotaWaitNotifySecs] = useState("900");
   const [baseURL, setBaseURL] = useState("");
   const [relayURL, setRelayURL] = useState("");
@@ -144,7 +141,6 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [reveal, setReveal] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [testing, setTesting] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => getThemeMode());
   const [activeTab, setActiveTab] = useState<SettingsTabId>(() =>
     typeof window === "undefined" ? "general" : settingsTabFromSearch(window.location.search),
@@ -160,8 +156,6 @@ export default function SettingsPage() {
     try {
       const s = await getSettings();
       setSettings(s);
-      setBark(s["notify.bark_url"] ?? "");
-      setNtfy(s["notify.ntfy_topic"] ?? "");
       setQuotaWaitNotifySecs(s["notify.quota_wait_after_secs"] || "900");
       setBaseURL(s["ui.base_url"] ?? "");
       setRelayURL(s["relay.url"] ?? "");
@@ -267,8 +261,6 @@ export default function SettingsPage() {
     }
     try {
       const body: Parameters<typeof updateSettings>[0] = {
-        "notify.bark_url": bark.trim(),
-        "notify.ntfy_topic": ntfy.trim(),
         "notify.quota_wait_after_secs": quotaWaitNotifySecs.trim() || "900",
         "ui.base_url": baseURL.trim(),
         price_table: priceTable,
@@ -740,26 +732,6 @@ export default function SettingsPage() {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
       setCloudflareDeploying(false);
-    }
-  };
-
-  const sendTest = async () => {
-    setTesting(true);
-    try {
-      const res = await testNotify();
-      if (!res.results?.length) {
-        pushToast(tr("settings.notify.noChannels"), "error");
-        return;
-      }
-      const parts = res.results.map((r) =>
-        r.ok ? `${r.channel}: ok` : `${r.channel}: ${r.error || "failed"}`,
-      );
-      pushToast(parts.join(" · "), res.ok ? "info" : "error");
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) return;
-      pushToast(e instanceof ApiError ? e.message : String(e), "error");
-    } finally {
-      setTesting(false);
     }
   };
 
@@ -1390,30 +1362,6 @@ export default function SettingsPage() {
           </p>
           <label className="block space-y-1">
             <span className="text-body leading-4 font-medium text-kin-secondary">
-              {tr("settings.notify.barkUrl")}
-            </span>
-            <input
-              type="url"
-              value={bark}
-              onChange={(e) => setBark(e.target.value)}
-              placeholder="https://api.day.app/DEVICE_KEY"
-              className="kin-input min-h-11"
-            />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-body leading-4 font-medium text-kin-secondary">
-              {tr("settings.notify.ntfyTopic")}
-            </span>
-            <input
-              type="text"
-              value={ntfy}
-              onChange={(e) => setNtfy(e.target.value)}
-              placeholder="my-kin-topic or https://ntfy.sh/my-kin-topic"
-              className="kin-input min-h-11"
-            />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-body leading-4 font-medium text-kin-secondary">
               {tr("settings.notify.uiBaseUrl")}
             </span>
             <input
@@ -1452,14 +1400,6 @@ export default function SettingsPage() {
             >
               {busy ? tr("settings.saving") : tr("settings.notify.save")}
             </button>
-            <button
-              type="button"
-              disabled={testing || busy}
-              onClick={() => void sendTest()}
-              className="kin-btn-secondary disabled:opacity-50"
-            >
-              {testing ? tr("settings.notify.sending") : tr("settings.notify.sendTest")}
-            </button>
             {saved && (
               <span className="text-body leading-4 text-kin-green-ink">
                 {tr("settings.notify.savedShort")}
@@ -1468,7 +1408,7 @@ export default function SettingsPage() {
             {error && <span className="text-body leading-4 text-kin-red-ink">{error}</span>}
           </div>
         </section>
-        <PushSettingsSection />
+        <NativePushSettings />
       </SettingsTabPanel>
 
       {/* Price table (M4) — defaults from open LiteLLM price list */}

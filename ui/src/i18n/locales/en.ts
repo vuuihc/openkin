@@ -1146,9 +1146,9 @@ const en: MessageTree = {
         "Approvals and questions both land on the inbox, scrolled to the item the notification named.",
       noBaseUrl:
         "No UI base URL yet: notification links carry a bare path, which a phone has nothing to open. Set one under Notifications.",
-      channelLabel: "Push channel",
+      channelLabel: "Notification channel",
       channelHint:
-        "Bark or ntfy, either or both, with a test button on the same page. Terminal task updates go out the same way.",
+        "Native notifications in the Kin app on this Mac and iPhone. This browser console does not receive them.",
       openNotify: "Open notification settings",
     },
     account: {
@@ -1221,41 +1221,79 @@ const en: MessageTree = {
     },
     notify: {
       heading: "Notifications",
-      descA: "Fire-and-forget webhooks on approval requests and task completion. Deep links use ",
+      descA:
+        "Approvals, questions, finished tasks, quota waits, routine reports and offline workers all use one notification pipeline. Deep links use ",
       descB: ".",
-      barkUrl: "Bark URL",
-      ntfyTopic: "ntfy topic",
       uiBaseUrl: "UI base URL",
       uiBaseUrlHint:
         "Set automatically from the most-public listener at serve start; override for tunnels.",
       quotaWaitAfter: "Quota wait notification threshold (seconds)",
       quotaWaitAfterHint: "Notify once when a quota wait has lasted this long. Minimum 60 seconds.",
       save: "Save",
-      sendTest: "Send test notification",
-      sending: "Sending…",
       savedShort: "Saved",
-      noChannels: "No notification channels configured",
     },
-    push: {
-      heading: "Browser push",
-      desc:
-        "Get an approval, a finished routine, or a task failure on this device even when the console is closed. Works wherever the browser supports Web Push — on iOS, add the console to the Home Screen first.",
-      unsupported: "This browser cannot receive push notifications.",
-      blocked:
-        "Notifications are blocked for this site. Allow them in the browser's site settings, then reload.",
-      on: "This device is subscribed.",
-      enable: "Enable on this device",
+    nativePush: {
+      heading: "Notifications on this device",
+      browserOnly:
+        "Notifications are delivered by the Kin apps for Mac and iPhone. This browser console does not register for them.",
+      browserHint: "Open Kin on your Mac or iPhone to turn notifications on there.",
+      macTitle: "This Mac",
+      macDesc:
+        "Kin uses the macOS Notification Center. The first test asks macOS for the notification permission.",
+      macManaged: "Managed by macOS",
+      eventsHint:
+        "Approvals, questions, finished or failed conversations, quota waits, routine reports, and offline workers all arrive here.",
+      macSettingsHint:
+        "macOS does not give the app its notification permission state. If no banner appears, check System Settings → Notifications → Kin.",
+      openSettingsFailed:
+        "Could not open System Settings. Open System Settings → Notifications yourself.",
+      iphoneTitle: "This iPhone",
+      on: "On",
+      off: "Off",
+      blocked: "Blocked by iOS",
+      blockedHint: "Allow notifications for Kin in iOS Settings, then come back here.",
+      openSettings: "Open Settings",
+      enable: "Turn on for this iPhone",
+      enabled: "Notifications are on for this iPhone.",
+      enabling: "Registering…",
       disable: "Turn off",
       sendTest: "Send test",
-      enabled: "Push enabled on this device",
-      disabled: "Push disabled on this device",
+      testing: "Sending…",
       testSent: "Test notification sent",
-      testFailed: "Could not send — check the subscription",
-      hint:
-        "The browser talks to its own push service; this node only sends the message. Tapping the notification opens what it is about — an approval or a question lands on its item in the inbox.",
-      subscribeFailed: "The browser returned an incomplete subscription",
-      enableFailed: "Could not enable push",
-      disableFailed: "Could not disable push",
+      testFailed: "The test did not arrive",
+      testTimeout: "No receipt within 10 seconds",
+      apnsMissing:
+        "This node cannot send to iPhone yet. The node administrator must configure APNs credentials with `kin notify apns`.",
+      devicesHeading: "Registered iPhones",
+      noDevices: "No iPhone registered yet.",
+      lastOk: "Last success",
+      lastError: "Last error",
+      never: "Never",
+      platformIos: "iPhone",
+      environmentSandbox: "Sandbox",
+      environmentProduction: "Production",
+      remove: "Remove",
+      removeFailed:
+        "Turned off on this iPhone, but the node still lists it. Try removing it again.",
+      removePending:
+        "Turned off on this iPhone. The node could not be reached, so its registration will be removed the next time this page loads.",
+      expired:
+        "This iPhone's notification token is no longer valid. Turn notifications on again to register a new one.",
+      sessionEnded:
+        "This device's sign-in has ended, so the node stopped sending it notifications. Sign in again, then turn notifications back on.",
+      notRegistered:
+        "The node no longer has a registration for this iPhone. Turn notifications on again to register it.",
+      enableFailed: "Could not turn on notifications.",
+      disabled: "Notifications are off on this device.",
+      unknown: "Unknown",
+      notConfigured: "Node has no APNs credentials",
+      apnsErrors: {
+        token: "Apple rejected this phone's notification token. Turn notifications off and on again.",
+        credentials:
+          "Apple rejected the node's APNs credentials. The node administrator must run `kin notify apns` again.",
+        rateLimited: "Apple is rate-limiting this node. Try again in a moment.",
+        unavailable: "Apple's notification service is temporarily unavailable. Try again later.",
+      },
     },
     price: {
       heading: "Price table",

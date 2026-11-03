@@ -1902,9 +1902,9 @@ export async function uploadFile(file: File): Promise<Upload> {
 export const uploadImage = uploadFile;
 
 export type Settings = {
-  "notify.bark_url": string;
-  "notify.ntfy_topic": string;
   "notify.quota_wait_after_secs"?: string;
+  /** Whether this node can send to iPhones; never the key itself. */
+  push_apns_configured?: boolean;
   "ui.base_url": string;
   price_table: string;
   agent_limits: string;
@@ -1944,8 +1944,6 @@ export type Settings = {
 export type SettingsUpdate = Partial<
   Pick<
     Settings,
-    | "notify.bark_url"
-    | "notify.ntfy_topic"
     | "notify.quota_wait_after_secs"
     | "ui.base_url"
     | "price_table"
@@ -2356,6 +2354,7 @@ export function listProviderModels(body: ProviderModelsQuery): Promise<{ models:
 
 export type NotifyChannelResult = {
   channel: string;
+  device?: string;
   ok: boolean;
   status?: string;
   error?: string;
@@ -2366,48 +2365,80 @@ export type NotifyTestResponse = {
   results: NotifyChannelResult[];
 };
 
-/** POST /api/notify/test — send a test push via all configured channels. */
-export function testNotify(): Promise<NotifyTestResponse> {
+/** POST /api/notify/test — send a test notification through the node. */
+export function testNotify(channel?: "desktop" | "all"): Promise<NotifyTestResponse> {
   return apiFetch<NotifyTestResponse>("/api/notify/test", {
     method: "POST",
+    ...(channel
+      ? {
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ channel }),
+        }
+      : {}),
   });
 }
 
-/** Browser push: one VAPID key per node, one registration per browser. */
-export type PushConfig = {
-  public_key: string;
-  subscribed: number;
+/**
+ * Native push devices registered with this node.
+ *
+ * The device token is deliberately absent: it is a capability, and the settings
+ * page only needs to know which phone this is and whether it last worked.
+ */
+export type PushDevice = {
+  id: string;
+  platform: string;
+  name: string;
+  environment: "sandbox" | "production" | string;
+  created_at: number;
+  updated_at: number;
+  last_ok_at: number;
+  last_error: string;
 };
 
-export type PushSubscriptionBody = {
-  endpoint: string;
-  keys: { p256dh: string; auth: string };
+export type PushDevicesResponse = {
+  devices: PushDevice[];
+  apns_configured: boolean;
 };
 
-export function getPushConfig(): Promise<PushConfig> {
-  return apiFetch<PushConfig>("/api/push/config");
+export type PushDeviceRegistration = {
+  install_id: string;
+  platform: "ios";
+  token: string;
+  environment: "sandbox" | "production";
+  name?: string;
+};
+
+export function listPushDevices(): Promise<PushDevicesResponse> {
+  return apiFetch<PushDevicesResponse>("/api/push/devices");
 }
 
-export function subscribePush(body: PushSubscriptionBody): Promise<{ id: string }> {
-  return apiFetch<{ id: string }>("/api/push/subscribe", {
+export function registerPushDevice(body: PushDeviceRegistration): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>("/api/push/devices", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
 }
 
-export function unsubscribePush(endpoint: string): Promise<void> {
-  return apiFetch<void>("/api/push/subscribe", {
+export function deletePushDevice(id: string, headers?: HeadersInit): Promise<void> {
+  return apiFetch<void>(`/api/push/devices/${encodeURIComponent(id)}`, {
     method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ endpoint }),
+    ...(headers ? { headers } : {}),
   });
 }
 
-/** POST /api/push/test — deliver one message to this node's registrations. */
-export function testPush(): Promise<NotifyTestResponse> {
-  return apiFetch<NotifyTestResponse>("/api/push/test", {
+export type PushTestResponse = NotifyTestResponse & {
+  configured: boolean;
+  /** The node deleted this row because Apple will never accept the token. */
+  expired?: boolean;
+};
+
+/** POST /api/push/devices/test — one explicit send to one registered phone. */
+export function testPushDevice(id: string): Promise<PushTestResponse> {
+  return apiFetch<PushTestResponse>("/api/push/devices/test", {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id }),
   });
 }
 

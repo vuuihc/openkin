@@ -33,6 +33,7 @@ export type KinDesktopAPI = {
     path: string,
     appId: ExternalAppId,
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
+  openNotificationSettings?: () => Promise<{ ok: true } | { ok: false; error: string }>;
 };
 
 declare global {
@@ -85,6 +86,23 @@ export async function openInExternalApp(
       return { ok: false, error: result.error || "Open failed" };
     }
     return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/** Open macOS Settings → Notifications when the shell can (desktop only). */
+export async function openNotificationSettings(): Promise<
+  { ok: true } | { ok: false; error: string }
+> {
+  if (!window.kinDesktop?.openNotificationSettings) {
+    return { ok: false, error: "Desktop shell required" };
+  }
+  try {
+    return await window.kinDesktop.openNotificationSettings();
   } catch (err) {
     return {
       ok: false,

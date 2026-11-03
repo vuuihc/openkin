@@ -2,7 +2,7 @@
  * Main-process IPC handlers for the desktop shell.
  */
 
-import { BrowserWindow, dialog, ipcMain } from "electron";
+import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import {
   listExternalApps,
   openPathInApp,
@@ -58,6 +58,25 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("kin:list-external-apps", async () => {
     return listExternalApps();
   });
+
+  // Notification permission is owned by macOS and is not exposed to the app.
+  // The settings page can still take the reader to the pane that decides it.
+  ipcMain.handle(
+    "kin:open-notification-settings",
+    async (): Promise<{ ok: true } | { ok: false; error: string }> => {
+      if (process.platform !== "darwin") {
+        return { ok: false, error: "notification settings are macOS-only" };
+      }
+      try {
+        await shell.openExternal(
+          "x-apple.systempreferences:com.apple.Notifications-Settings.extension",
+        );
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
 
   ipcMain.handle(
     "kin:open-in-app",

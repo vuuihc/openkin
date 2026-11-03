@@ -11,11 +11,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/vuuihc/openkin/internal/apns"
 	"github.com/vuuihc/openkin/internal/approvemcp"
 	"github.com/vuuihc/openkin/internal/daemonlock"
 	"github.com/vuuihc/openkin/internal/mcp"
 	"github.com/vuuihc/openkin/internal/notify"
-	pushsvc "github.com/vuuihc/openkin/internal/push"
 	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/server"
 	"github.com/vuuihc/openkin/internal/store"
@@ -194,11 +194,18 @@ func runToken(args []string) error {
 	}
 }
 
-// runNotify handles `kin notify test`: send a test push using settings in ~/.kin/kin.db
-// without requiring the daemon.
+// runNotify handles `kin notify test` and `kin notify apns`.
+//
+// The APNs credentials are written here rather than through the settings API:
+// the private key must never be readable through a browser session, an export,
+// or a backup of the settings response. `test` opens the same database the
+// daemon uses, so it exercises the real registry and the real provider token.
 func runNotify(args []string) error {
+	if len(args) >= 1 && args[0] == "apns" {
+		return runNotifyAPNs(args[1:])
+	}
 	if len(args) < 1 || args[0] != "test" {
-		return fmt.Errorf("usage: kin notify test")
+		return fmt.Errorf("usage: kin notify test | kin notify apns [flags]")
 	}
 	stateDir, err := remote.StateDir()
 	if err != nil {
@@ -211,40 +218,120 @@ func runNotify(args []string) error {
 	}
 	defer st.Close()
 
-	// Browser push is a channel the daemon owns, not a setting this command
-	// reads: the registrations and the VAPID key are already in this database,
-	// and a test run that skipped them would report "no channels" to an
-	// operator whose phone is in fact subscribed.
-	sender := &notify.Sender{
-		Store: st,
-		Push:  &pushsvc.Service{Store: st, Subject: "https://openkin.local"},
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+	client, err := apns.FromSettings(ctx, st)
+	if err != nil {
+		return fmt.Errorf("apns: %w (run `kin notify apns --key-file …`)", err)
+	}
+	sender := &notify.Sender{Store: st, Devices: st, APNs: client, SessionLive: st.AuthSessionLive}
 
 	payload := notify.Payload{
 		Title: "Kin test",
 		Body:  "Notification test from kin",
 		URL:   sender.DeepLink(ctx, "/settings"),
+		Kind:  "test",
+		ID:    "test",
+		// `kin notify test` is the operator asking every registered phone to
+		// ring; it is not work owned by one account.
+		Broadcast: true,
 	}
 	results := sender.Deliver(ctx, payload)
 	if len(results) == 0 {
-		fmt.Println("no notification channels configured (set notify.bark_url and/or notify.ntfy_topic, or enable browser push in the console's settings)")
-		return fmt.Errorf("no channels configured")
+		fmt.Println("no registered iPhone devices (enable notifications in the app's settings)")
+		return fmt.Errorf("no devices registered")
 	}
 
 	anyOK := false
 	for _, r := range results {
 		if r.OK {
 			anyOK = true
-			fmt.Printf("%s: ok\n", r.Channel)
+			fmt.Printf("%s %s: ok\n", r.Channel, r.Device)
 			continue
 		}
-		fmt.Printf("%s: failed: %s\n", r.Channel, r.Error)
+		fmt.Printf("%s %s: failed: %s\n", r.Channel, r.Device, r.Error)
 	}
 	if !anyOK {
-		return fmt.Errorf("all channels failed")
+		return fmt.Errorf("all devices failed")
 	}
+	return nil
+}
+
+// runNotifyAPNs configures the node's Apple push identity.
+func runNotifyAPNs(args []string) error {
+	fs := flag.NewFlagSet("notify apns", flag.ContinueOnError)
+	keyFile := fs.String("key-file", "", "path to the Apple .p8 signing key")
+	keyID := fs.String("key-id", "", "APNs key id (the file name suffix)")
+	teamID := fs.String("team-id", "", "Apple developer team id")
+	topic := fs.String("topic", "", "bundle id notifications are sent to")
+	env := fs.String("env", "production", "production or sandbox")
+	status := fs.Bool("status", false, "print whether credentials are configured")
+	clear := fs.Bool("clear", false, "remove the configured credentials")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	stateDir, err := remote.StateDir()
+	if err != nil {
+		return err
+	}
+	dbPath := filepath.Join(stateDir, "kin.db")
+	st, err := store.Open(dbPath)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", dbPath, err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+
+	if *clear {
+		if err := st.DeleteSettings(ctx,
+			apns.KeyKeyID, apns.KeyTeamID, apns.KeyPrivateKey, apns.KeyTopic, apns.KeyEnvironment,
+		); err != nil {
+			return err
+		}
+		fmt.Println("APNs credentials removed")
+		return nil
+	}
+	if *status {
+		topic, env, ok := apns.Status(ctx, st)
+		if !ok {
+			fmt.Println("APNs: not configured")
+			return nil
+		}
+		fmt.Printf("APNs: configured for %s (%s)\n", topic, env)
+		return nil
+	}
+	if *keyFile == "" || *keyID == "" || *teamID == "" || *topic == "" {
+		return fmt.Errorf("usage: kin notify apns --key-file AuthKey.p8 --key-id KEYID --team-id TEAMID --topic BUNDLE_ID [--env production]")
+	}
+	if *env != "production" && *env != "sandbox" {
+		return fmt.Errorf("--env must be production or sandbox")
+	}
+	raw, err := os.ReadFile(*keyFile)
+	if err != nil {
+		return err
+	}
+	key, err := apns.ParsePrivateKey(raw)
+	if err != nil {
+		return err
+	}
+	if _, err := apns.New(apns.Config{
+		KeyID: *keyID, TeamID: *teamID, Topic: *topic,
+		Environment: apns.Environment(*env), PrivateKey: key,
+	}); err != nil {
+		return err
+	}
+	for key, value := range map[string]string{
+		apns.KeyKeyID:       *keyID,
+		apns.KeyTeamID:      *teamID,
+		apns.KeyPrivateKey:  string(raw),
+		apns.KeyTopic:       *topic,
+		apns.KeyEnvironment: *env,
+	} {
+		if err := st.SetSetting(ctx, key, value); err != nil {
+			return err
+		}
+	}
+	fmt.Printf("APNs configured for %s (%s)\n", *topic, *env)
 	return nil
 }
 
@@ -255,7 +342,8 @@ Usage:
   kin serve [flags]   start the daemon
   kin supervise       run the daemon with bounded crash recovery
   kin token rotate    regenerate ~/.kin/token
-  kin notify test     send a test notification via Bark/ntfy/browser push
+  kin notify test     send a test notification to registered iPhones
+  kin notify apns     configure the node's Apple push credentials
   kin export --output <path.zip>
   kin approve-mcp     stdio MCP server for Claude Code permission prompts
   kin mcp              public MCP client bridge for local hosts

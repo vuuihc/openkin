@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -115,6 +116,30 @@ func TestDevicePairingScopesAndRevocation(t *testing.T) {
 		t.Fatalf("device management access: %d %s", rec.Code, rec.Body.String())
 	}
 
+	// A paired console registers the phone it is running on, and that row is
+	// what APNs delivery reads. Revoking the credential has to take the row
+	// with it, or an unpaired phone keeps ringing with task titles.
+	pushBody := `{"install_id":"install-phone-1","platform":"ios","token":"` +
+		"aabbccdd00112233445566778899aabbccddeeff00112233445566778899aabb" +
+		`","environment":"sandbox"}`
+	rec = request(http.MethodPost, "/api/push/devices", exchanged.Token, pushBody)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("device push register: %d %s", rec.Code, rec.Body.String())
+	}
+	var pushCreated struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &pushCreated); err != nil {
+		t.Fatal(err)
+	}
+	devices, err := s.Store.ListPushDevices(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(devices) != 1 || devices[0].OwnerDeviceID != exchanged.DeviceID {
+		t.Fatalf("registration not tied to the paired device: %+v", devices)
+	}
+
 	rec = request(http.MethodPost, "/api/devices/"+exchanged.DeviceID+"/revoke", master, "")
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("revoke device: %d %s", rec.Code, rec.Body.String())
@@ -122,6 +147,9 @@ func TestDevicePairingScopesAndRevocation(t *testing.T) {
 	rec = request(http.MethodGet, "/api/tasks", exchanged.Token, "")
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("revoked device access: %d %s", rec.Code, rec.Body.String())
+	}
+	if _, err := s.Store.GetPushDevice(context.Background(), pushCreated.ID); err == nil {
+		t.Fatal("revoked device is still registered for notifications")
 	}
 }
 

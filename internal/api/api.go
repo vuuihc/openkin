@@ -32,7 +32,6 @@ import (
 	"github.com/vuuihc/openkin/internal/node"
 	"github.com/vuuihc/openkin/internal/notify"
 	"github.com/vuuihc/openkin/internal/provider"
-	"github.com/vuuihc/openkin/internal/push"
 	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/store"
@@ -79,8 +78,15 @@ type Server struct {
 	Engine     *task.Engine
 	MCP        *mcp.Server
 	Connectors *connectors.Manager
-	// Push sends browser notifications. Nil disables the push endpoints.
-	Push                 *push.Service
+	// APNs delivers to registered iPhones. Nil when the node has no credentials.
+	APNs APNsSender
+	// APNsFor loads credentials from settings on demand, so an operator CLI
+	// that writes them while the daemon is running takes effect without a
+	// restart. Nil falls back to the static APNs field.
+	APNsFor func(ctx context.Context) (APNsSender, error)
+	// Notify is the daemon's notification sender, used by the explicit test
+	// action. Nil disables /api/notify/test.
+	Notify               *notify.Sender
 	Terminals            *terminal.Manager
 	Version              string
 	DesktopID            string
@@ -242,15 +248,16 @@ func (s *Server) Handler() http.Handler {
 	}
 	if s.Auth != nil && s.Accounts != nil {
 		s.Auth.SetSessionLookup(func(ctx context.Context, token string) (remote.Principal, bool) {
-			user, err := s.Accounts.Authenticate(ctx, token)
+			session, user, err := s.Accounts.AuthenticateSession(ctx, token)
 			if err != nil {
 				return remote.Principal{}, false
 			}
 			return remote.Principal{
-				Kind:   remote.PrincipalUser,
-				UserID: user.ID,
-				Role:   user.Role,
-				Label:  user.DisplayName,
+				Kind:      remote.PrincipalUser,
+				UserID:    user.ID,
+				Role:      user.Role,
+				Label:     user.DisplayName,
+				SessionID: session.ID,
 			}, true
 		})
 	}
@@ -454,14 +461,16 @@ func (s *Server) Handler() http.Handler {
 		r.With(operatorOnly).Delete("/api/providers/{id}", s.handleDeleteProvider)
 		r.With(operatorOnly).Post("/api/providers/{id}/activate", s.handleActivateProvider)
 		r.With(operatorOnly).Post("/api/notify/test", s.handleNotifyTest)
-		// Browser push. All four are operator actions, like the settings page
-		// they live on: a notification carries task titles, and handing the
-		// daemon an address to post them to is not something a scoped device
-		// should be able to do for itself.
-		r.With(operatorOnly).Get("/api/push/config", s.handlePushConfig)
-		r.With(operatorOnly).Post("/api/push/subscribe", s.handlePushSubscribe)
-		r.With(operatorOnly).Delete("/api/push/subscribe", s.handlePushUnsubscribe)
-		r.With(operatorOnly).Post("/api/push/test", s.handlePushTest)
+		// Native push. Every authenticated principal may register the phone it
+		// is running on; the handlers scope list/delete/test to rows the
+		// principal owns, and an operator additionally sees and manages every
+		// registration. The test send is scoped the same way: a notification
+		// carries a task title, so a scoped device must not be able to ring
+		// another account's phone.
+		r.Get("/api/push/devices", s.handleListPushDevices)
+		r.Post("/api/push/devices", s.handleRegisterPushDevice)
+		r.Delete("/api/push/devices/{id}", s.handleDeletePushDevice)
+		r.Post("/api/push/devices/test", s.handleTestPushDevice)
 		r.With(holderOnly).Get("/api/usage/summary", s.handleUsageSummary)
 		r.With(holderOnly).Get("/api/usage/limits", s.handleUsageLimits)
 		r.With(holderOnly).Get("/api/routing/options", s.handleGetRoutingOptions)
@@ -548,7 +557,21 @@ func (s *Server) Handler() http.Handler {
 	})
 
 	if s.Static != nil {
-		r.Handle("/*", s.Static)
+		static := s.Static
+		// The SPA fallback is a NotFound handler, not a wildcard route: chi
+		// still answers 405 for a wrong method on a real endpoint, and only
+		// paths that matched nothing reach here.
+		r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+			// A path under /api that matched no route is not a console page.
+			// Without this, a retired endpoint would get index.html and a 200
+			// — which looks like a live endpoint that changed shape rather
+			// than one that is gone.
+			if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+				return
+			}
+			static.ServeHTTP(w, r)
+		})
 	}
 
 	return r
@@ -1667,11 +1690,12 @@ func (s *Server) handleRecentCwds(w http.ResponseWriter, r *http.Request) {
 
 // settingsResponse is GET /api/settings (spec §8 / §9 page 4).
 type settingsResponse struct {
-	NotifyBarkURL   string `json:"notify.bark_url"`
-	NotifyNtfyTopic string `json:"notify.ntfy_topic"`
-	UIBaseURL       string `json:"ui.base_url"`
-	PriceTable      string `json:"price_table"`
-	AgentLimits     string `json:"agent_limits"`
+	UIBaseURL   string `json:"ui.base_url"`
+	PriceTable  string `json:"price_table"`
+	AgentLimits string `json:"agent_limits"`
+	// PushAPNsConfigured says whether this node can send to iPhones at all.
+	// Credentials themselves are never returned.
+	PushAPNsConfigured bool `json:"push_apns_configured"`
 	// AgentRoles is a JSON array of role presets. The daemon stores and returns
 	// it without interpreting it: a role is a prompt prefix the console inserts
 	// into a draft, and the meaning of the rows belongs to the surface that
@@ -1699,8 +1723,6 @@ type settingsResponse struct {
 
 // Allowed settings keys for PUT (subset of store keys).
 var puttableSettings = map[string]bool{
-	"notify.bark_url":              true,
-	"notify.ntfy_topic":            true,
 	"ui.base_url":                  true,
 	"price_table":                  true,
 	"agent_limits":                 true,
@@ -1826,9 +1848,8 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		connect = relayStatus.PairingURL
 	}
 	writeJSON(w, http.StatusOK, settingsResponse{
-		NotifyBarkURL:         get("notify.bark_url"),
-		NotifyNtfyTopic:       get("notify.ntfy_topic"),
 		UIBaseURL:             base,
+		PushAPNsConfigured:    s.apnsConfigured(ctx),
 		PriceTable:            priceTable,
 		AgentLimits:           agentLimits,
 		AgentRoles:            get("agent_roles"),
@@ -2176,16 +2197,49 @@ type notifyTestResponse struct {
 	Results []notify.ChannelResult `json:"results"`
 }
 
+type notifyTestRequest struct {
+	// Channel is "desktop" to ring only this Mac, or empty/"all" for every
+	// channel. A Mac test must not ring every registered phone, and a phone
+	// failure must not be reported as the Mac's failure.
+	Channel string `json:"channel"`
+}
+
 func (s *Server) handleNotifyTest(w http.ResponseWriter, r *http.Request) {
-	sender := &notify.Sender{Store: s.Store, Push: s.Push}
+	if s.Notify == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "notifications are unavailable"})
+		return
+	}
+	var body notifyTestRequest
+	if r.Body != nil {
+		// An empty body is the original contract (every channel); a malformed
+		// one is a client error rather than a silent fallback.
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+			return
+		}
+	}
+	channel := strings.TrimSpace(body.Channel)
+	if channel != "" && channel != "all" && channel != "desktop" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "channel must be desktop or all"})
+		return
+	}
+	sender := s.Notify
 	payload := notify.Payload{
 		Title: "Kin test",
 		Body:  "Notification test from kin",
 		URL:   sender.DeepLink(r.Context(), "/settings"),
+		Kind:  "test",
+		ID:    "test",
+		// The endpoint's contract is "every channel"; an owner-scoped test
+		// would silently skip account-owned phones on a node with accounts.
+		Broadcast: true,
 	}
-	results := sender.Deliver(r.Context(), payload)
-	if results == nil {
-		results = []notify.ChannelResult{}
+	results := make([]notify.ChannelResult, 0, 2)
+	if sender.Publish(payload) {
+		results = append(results, notify.ChannelResult{Channel: "desktop", OK: true, Status: "ok"})
+	}
+	if channel != "desktop" {
+		results = append(results, sender.DeliverAPNs(r.Context(), payload)...)
 	}
 	anyOK := false
 	for _, res := range results {
@@ -2194,8 +2248,9 @@ func (s *Server) handleNotifyTest(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	// ok is true only when at least one channel succeeded.
-	// Empty configuration returns ok=false with an empty results list.
+	// ok is true when any requested channel succeeded. A node with no phones
+	// still answers true for the desktop test, and a failing phone no longer
+	// makes the Mac's own banner look broken.
 	writeJSON(w, http.StatusOK, notifyTestResponse{OK: anyOK, Results: results})
 }
 

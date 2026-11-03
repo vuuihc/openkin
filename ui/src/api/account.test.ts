@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * `applyVisitGate` is the one piece of the gate that is not a pure decision: it
@@ -17,7 +17,14 @@ const win = {
 };
 vi.stubGlobal("window", win);
 
-const { applyVisitGate } = await import("./account");
+const push = vi.hoisted(() => ({
+  disableNativePushOnSignOut: vi.fn(
+    async (_api: { deletePushDevice(id: string): Promise<void> }): Promise<void> => {},
+  ),
+}));
+vi.mock("../lib/nativePush", () => push);
+
+const { applyVisitGate, signOut } = await import("./account");
 const { NO_ACCOUNT, useAppStore } = await import("../store/appStore");
 
 const INVITE = "?invite=HZ9EW-V3DPK-4MNQB-7RTXS";
@@ -158,5 +165,102 @@ describe("applyVisitGate", () => {
     applyVisitGate();
 
     expect(win.history.replaceState).not.toHaveBeenCalled();
+  });
+});
+
+describe("signOut", () => {
+  const stored = new Map<string, string>();
+  const stubLocalStorage = (key: string, value: string): void => {
+    stored.clear();
+    stored.set(key, value);
+    vi.stubGlobal("localStorage", {
+      getItem: (k: string) => stored.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        stored.set(k, v);
+      },
+      removeItem: (k: string) => {
+        stored.delete(k);
+      },
+    });
+  };
+
+  // KIN-NOTIFY-001: signing out stops this phone before the session ends.
+  beforeEach(() => {
+    push.disableNativePushOnSignOut.mockClear();
+    useAppStore.getState().setAuthOk();
+    useAppStore.getState().setAccount(NO_ACCOUNT);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.stubGlobal("window", win);
+  });
+
+  it("drops the stored token before the network can hang", async () => {
+    // The token is a second way in. A request that never settles must not
+    // leave it in localStorage for the next reload to pick up.
+    stubLocalStorage("kin_token", "t-1");
+    push.disableNativePushOnSignOut.mockImplementationOnce(() => new Promise<void>(() => {}));
+
+    void signOut();
+
+    expect(stored.has("kin_token")).toBe(false);
+  });
+
+  it("unregisters with the token it just dropped", async () => {
+    // Clearing first is only safe because the requests carry the captured
+    // token themselves; otherwise the phone's row could never be deleted.
+    stubLocalStorage("kin_token", "t-1");
+    push.disableNativePushOnSignOut.mockImplementationOnce(async (api) => {
+      await api.deletePushDevice("row-1");
+    });
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(null, { status: 204 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await signOut();
+
+    const call = fetchMock.mock.calls.find((c) =>
+      String(c[0]).includes("/api/push/devices/row-1"),
+    );
+    expect(call).toBeTruthy();
+    const init = call?.[1] as RequestInit | undefined;
+    expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer t-1");
+  });
+
+  it("still ends the session when this phone's cleanup fails", async () => {
+    // Leaving is the point. The node deletes session-bound rows on logout, so
+    // a broken local unregister must not strand the person on the old account.
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    push.disableNativePushOnSignOut.mockRejectedValueOnce(new Error("boom"));
+
+    await signOut();
+
+    expect(fetchMock).toHaveBeenCalled();
+    expect(useAppStore.getState().account.authenticated).toBe(false);
+  });
+
+  it("stops this phone before revoking the session it registered under", async () => {
+    // The delete is authorized by the cookie logout revokes, so the order is
+    // the contract: unregister first, then end the session.
+    const order: string[] = [];
+    push.disableNativePushOnSignOut.mockImplementation(async () => {
+      order.push("push");
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        order.push("logout");
+        return new Response(null, { status: 204 });
+      }),
+    );
+
+    await signOut();
+
+    expect(order).toEqual(["push", "logout"]);
+    expect(useAppStore.getState().account.authenticated).toBe(false);
   });
 });

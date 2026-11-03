@@ -162,6 +162,21 @@ MCP approve-mcp children started before rotate still carry the old `KIN_TOKEN` i
 
 ### Notifications
 
+**Superseded by KIN-NOTIFY-001 (2026-11).** Bark and ntfy were removed; the
+node now fans out native notifications (APNs to iPhones, a desktop IPC event to
+the Electron shell). The paragraphs below record M3 as it shipped and are kept
+for history, not as the current contract.
+
+A `push_devices` row belongs to the credential that created it. One registered
+through a browser login carries `owner_session_id`; signing out, a password
+reset, or revocation deletes the row in the same transaction, and delivery
+skips any bound row whose session is no longer live. Expiry is caught at
+delivery first; there is no scheduled prune today, so an expired row stays
+listed until its owner tests it (the test endpoint deletes it) or re-registers.
+Operator-wide rows and paired-device rows carry no session and keep their own
+lifetime. Without this a phone handed over after sign-out kept ringing with the
+previous account's task titles.
+
 `internal/notify`: settings `notify.bark_url`, `notify.ntfy_topic`, `ui.base_url`. On `approval_requested` and task terminal status, fire-and-forget POST (5s client timeout, one retry after 200ms). ntfy: `Title` + `Click` headers; Bark: JSON `{title,body,url}` to `{bark_url}/push`.
 
 `ui.base_url` is set at serve start to the most-public active listener URL (https/funnel > tsnet > lan > loopback) and is overridable via `PUT /api/settings`.
@@ -301,6 +316,11 @@ Single app-wide WebSocket (pages subscribe via `subscribeWS` fan-out). Nav shows
 None new. `zustand` (already whitelisted) used for auth/WS/toasts. Chi Compress is part of `go-chi/chi/v5`.
 
 ## Notify (Bark path fix)
+
+**Superseded by KIN-NOTIFY-001 (2026-11):** Bark is gone, so this fix no longer
+describes shipped code. It is kept because the lesson — append no path to a
+provider's device URL, and never discard a delivery error silently — still
+applies to the APNs client.
 
 ### Root cause
 

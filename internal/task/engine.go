@@ -507,7 +507,7 @@ func (e *Engine) SetClock(fn func() time.Time) { e.clock = fn }
 // SetApprovalTTL overrides the 1h default (tests).
 func (e *Engine) SetApprovalTTL(d time.Duration) { e.approvalTTL = d }
 
-// SetNotifier wires Bark/ntfy notifications (M3). Optional.
+// SetNotifier wires the notification pipeline. Optional.
 func (e *Engine) SetNotifier(n Notifier) { e.notify = n }
 
 // WorkspaceRuntime prepares isolated task workspaces and (later) checkpoints.

@@ -25,6 +25,8 @@ export type KinDesktopAPI = {
     path: string,
     appId: ExternalAppId,
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /** Open macOS Settings → Notifications, where Kin's banner is allowed. */
+  openNotificationSettings: () => Promise<{ ok: true } | { ok: false; error: string }>;
 };
 
 const api: KinDesktopAPI = {
@@ -35,6 +37,8 @@ const api: KinDesktopAPI = {
   listExternalApps: () => ipcRenderer.invoke("kin:list-external-apps"),
   openInApp: (path, appId) =>
     ipcRenderer.invoke("kin:open-in-app", { path, appId }),
+  openNotificationSettings: () =>
+    ipcRenderer.invoke("kin:open-notification-settings"),
 };
 
 contextBridge.exposeInMainWorld("kinDesktop", api);

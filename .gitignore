@@ -74,5 +74,9 @@ nohup.out
 # Per-machine dev code-signing identity (see scripts/dev-sign.sh)
 .kin-codesign-identity
 
+# APNs authentication keys, downloaded once from Apple. The node reads the key
+# from the operator's keychain/settings, never from the repository.
+*.p8
+
 # Wrangler's local state, written by deploying relay/ (holds the account id)
 relay/.wrangler/

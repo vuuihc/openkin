@@ -20,6 +20,11 @@ We rejected an earlier design that added a deterministic **probe** ("cheaply che
 
 A **Routine** is a saved, recurring Task whose entire reason to exist is the **result feed + notification**. Kin owns the trigger (so it can capture the output and notify) but adds no new execution concept — it reuses four existing subsystems: **Task engine, Artifacts, notify (Bark/ntfy), Projects.**
 
+> **Superseded channel (2026-11):** KIN-NOTIFY-001 removed Bark, ntfy, and Web
+> Push. `notify` now delivers through APNs to iPhones and the desktop shell's
+> native notification channel. The subsystem boundary described here is
+> unchanged; only the transport was replaced.
+
 > **Routine** = `{cwd/project, agent, permission_mode, prompt, interval_secs, enabled}` + last-status/next-due bookkeeping.
 > **Routine run** = a **normal Task** tagged with `routine_id`; its Artifact **is** the report.
 > There is no probe, no DAG, no conditional branching, no workflow engine.

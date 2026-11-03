@@ -547,12 +547,20 @@ func (s *Service) LinkIdentity(ctx context.Context, userID string, ident Externa
 	return s.store.AddIdentity(ctx, identityFromExternal(userID, ident, now))
 }
 
+// AuthenticateSession resolves a session cookie to its account and the login
+// row it came through. Callers that need to bind something to this specific
+// login — a push registration, for one — need the session id, which the
+// account alone does not carry.
+func (s *Service) AuthenticateSession(ctx context.Context, token string) (store.AuthSession, store.User, error) {
+	if token == "" {
+		return store.AuthSession{}, store.User{}, store.ErrNotFound
+	}
+	return s.store.AuthenticateSession(ctx, HashToken(token), s.now().UnixMilli())
+}
+
 // Authenticate resolves a session cookie value to its account.
 func (s *Service) Authenticate(ctx context.Context, token string) (store.User, error) {
-	if token == "" {
-		return store.User{}, store.ErrNotFound
-	}
-	_, user, err := s.store.AuthenticateSession(ctx, HashToken(token), s.now().UnixMilli())
+	_, user, err := s.AuthenticateSession(ctx, token)
 	return user, err
 }
 

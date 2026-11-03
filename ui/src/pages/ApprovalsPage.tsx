@@ -9,6 +9,7 @@ import { ApprovalListSkeleton, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useApprovalDecision, type PendingDecision } from "../hooks/useApprovalDecision";
 import { focusedId, resolveInboxFocus } from "../lib/inboxFocus";
+import { clearDeliveredNotification } from "../lib/nativePush";
 import { inboxKeyOutcome, inboxViewState } from "../lib/inboxKeyboard";
 import { useAppStore } from "../store/appStore";
 import { isTerminal } from "../api/client";
@@ -170,6 +171,7 @@ export default function ApprovalsPage() {
     try {
       const updated = await answerUserQuestion(id, body);
       liveResources.applyMessage({ kind: "user_question_update", data: updated });
+      clearDeliveredNotification("question", id);
       setAnswerBusy((b) => {
         const next = { ...b };
         delete next[id];

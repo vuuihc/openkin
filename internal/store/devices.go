@@ -224,6 +224,13 @@ func (s *Store) RevokeDeviceCredential(ctx context.Context, id string, now int64
 		WHERE id = ?`, now, ReachabilityOffline, id); err != nil {
 		return fmt.Errorf("revoke device credential: mark device: %w", err)
 	}
+	// The registration goes with the credential, in the same transaction. A
+	// phone that is no longer paired must stop ringing, and a row left behind
+	// would keep delivering task titles and approval text to it.
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM push_devices WHERE owner_device_id = ?`, id); err != nil {
+		return fmt.Errorf("revoke device credential: delete push registration: %w", err)
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("revoke device credential: %w", err)
 	}

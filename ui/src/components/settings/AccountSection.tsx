@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { clearToken } from "../../api/client";
 import { signOut } from "../../api/account";
 import { useT } from "../../i18n/react";
 import { useAppStore } from "../../store/appStore";
@@ -40,9 +39,9 @@ export function AccountSection() {
           disabled={busy}
           onClick={() => {
             setBusy(true);
-            // The token is a second way into this console; signing out has to
-            // close both, or the button would appear to do nothing.
-            clearToken();
+            // signOut drops the stored token before its first request, so a
+            // hung network cannot leave the second credential behind; the
+            // redirect happens once the attempt settles either way.
             void signOut().finally(() => {
               window.location.assign("/");
             });

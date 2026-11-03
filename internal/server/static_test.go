@@ -5,8 +5,8 @@ import "testing"
 // The console's cache policy. What is pinned here is the pair of mistakes that
 // cost the most: a hashed asset served with a revalidating header (every
 // screen load re-downloads the bundle), and a hand-written root file served
-// with an immutable one (a fixed service worker never reaches the browser that
-// needs it).
+// with an immutable one (a manifest fix never reaches the browser that needs
+// it).
 func TestStaticCacheControl(t *testing.T) {
 	cases := []struct {
 		path       string
@@ -19,7 +19,6 @@ func TestStaticCacheControl(t *testing.T) {
 		{"/index.html", true, "no-cache"},
 		{"/sessions", true, "no-cache"},
 		{"/manifest.webmanifest", false, "no-cache"},
-		{"/sw.js", false, "no-cache"},
 		{"/icons/icon-192.png", false, ""},
 	}
 	for _, tc := range cases {

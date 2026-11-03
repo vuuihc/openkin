@@ -7,7 +7,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 44
+const schemaVersion = 47
 
 // migrationTaskTombstones records deleted tasks in the sync cursor's own terms.
 //
@@ -575,7 +575,7 @@ CREATE TABLE IF NOT EXISTS mcp_task_origins (
 ALTER TABLE tasks ADD COLUMN workspace_policy TEXT NOT NULL DEFAULT 'auto';
 ALTER TABLE tasks ADD COLUMN current_workspace_id TEXT NOT NULL DEFAULT '';
 
-` + migrationEvalTables + migrationA2ATables + migrationA2AOperations + migrationSessionTables + migrationIdentityTables + migrationDeviceRegistry + migrationTaskTombstones + migrationPRObservations + migrationPendingPrompts + SessionSharesDDL + PushSubscriptionsDDL
+` + migrationEvalTables + migrationA2ATables + migrationA2AOperations + migrationSessionTables + migrationIdentityTables + migrationDeviceRegistry + migrationTaskTombstones + migrationPRObservations + migrationPendingPrompts + SessionSharesDDL + PushDevicesDDL
 
 // The newest table is appended to the fresh-install schema rather than copied
 // into it: the same text has to apply on a brand-new database and on every
@@ -2393,9 +2393,19 @@ ON eval_results(run_id, case_id, rep_idx);
 		if err != nil {
 			return fmt.Errorf("begin migration 042: %w", err)
 		}
-		// Browser push registrations. Additive: a daemon whose owner never
-		// enabled notifications simply has an empty table.
-		if _, err := tx.Exec(PushSubscriptionsDDL); err != nil {
+		// Browser push registrations, as they were introduced. The table is
+		// dropped again by migration 045 when the channel was removed; the text
+		// is inlined here because a migration is a historical fact and must not
+		// change when today's schema does.
+		if _, err := tx.Exec(`
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id         TEXT PRIMARY KEY,
+  endpoint   TEXT NOT NULL UNIQUE,
+  p256dh     TEXT NOT NULL,
+  auth       TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_created ON push_subscriptions(created_at);`); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("migration 042 push subscriptions: %w", err)
 		}
@@ -2473,6 +2483,158 @@ ON eval_results(run_id, case_id, rep_idx);
 		v = 44
 	}
 
+	if v == 44 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 045: %w", err)
+		}
+		// Native notifications replace every earlier delivery channel. The
+		// browser subscription table and its key material have no reader after
+		// this version, and leaving them behind would keep a second, silently
+		// dead fan-out in the schema.
+		if _, err := tx.Exec(PushDevicesDDL); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("create push_devices: %w", err)
+		}
+		if _, err := tx.Exec(`DROP TABLE IF EXISTS push_subscriptions`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("drop push_subscriptions: %w", err)
+		}
+		// A database that entered the migration chain before the settings table
+		// existed (the hand-built fixtures in tests are one) must not fail here:
+		// there is nothing to delete when the table was never created.
+		var hasSettings int
+		if err := tx.QueryRow(
+			`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'settings'`,
+		).Scan(&hasSettings); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("check settings table: %w", err)
+		}
+		if hasSettings > 0 {
+			if _, err := tx.Exec(`
+				DELETE FROM settings
+				WHERE key IN ('notify.bark_url', 'notify.ntfy_topic', 'push.vapid_private')`,
+			); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("remove legacy notification settings: %w", err)
+			}
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 45`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 045: %w", err)
+		}
+		v = 45
+	}
+
+	if v == 45 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 046: %w", err)
+		}
+		// A push registration has to know whose work it is for (so a member's
+		// phone does not ring for the owner's tasks) and which paired device
+		// created it (so unpairing can delete it). Both are additive and empty
+		// for rows written before this version.
+		for _, column := range []struct{ name, ddl string }{
+			{"owner_user_id", `ALTER TABLE push_devices ADD COLUMN owner_user_id TEXT NOT NULL DEFAULT ''`},
+			{"owner_device_id", `ALTER TABLE push_devices ADD COLUMN owner_device_id TEXT NOT NULL DEFAULT ''`},
+			{"last_attempt_at", `ALTER TABLE push_devices ADD COLUMN last_attempt_at INTEGER NOT NULL DEFAULT 0`},
+		} {
+			var exists int
+			if err := tx.QueryRow(
+				`SELECT COUNT(*) FROM pragma_table_info('push_devices') WHERE name = ?`, column.name,
+			).Scan(&exists); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("inspect push_devices.%s: %w", column.name, err)
+			}
+			if exists > 0 {
+				continue
+			}
+			if _, err := tx.Exec(column.ddl); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("add push_devices.%s: %w", column.name, err)
+			}
+		}
+		if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_push_devices_owner ON push_devices(owner_user_id)`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("index push_devices owner: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 46`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 046: %w", err)
+		}
+		v = 46
+	}
+
+	if v == 46 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 047: %w", err)
+		}
+		// A registration made from a browser session has to end with that
+		// session. Without the column a signed-out phone keeps its row, and the
+		// next delivery rings it with the previous account's task titles.
+		//
+		// A v46 database normally has the registry (v44 created it). A file that
+		// does not is left to the reconciler below, which creates it with the
+		// column already in place, rather than failing the whole upgrade here.
+		var hasTable int
+		if err := tx.QueryRow(
+			`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'push_devices'`,
+		).Scan(&hasTable); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("inspect push_devices: %w", err)
+		}
+		if hasTable > 0 {
+			var exists int
+			if err := tx.QueryRow(
+				`SELECT COUNT(*) FROM pragma_table_info('push_devices') WHERE name = 'owner_session_id'`,
+			).Scan(&exists); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("inspect push_devices.owner_session_id: %w", err)
+			}
+			if exists == 0 {
+				if _, err := tx.Exec(
+					`ALTER TABLE push_devices ADD COLUMN owner_session_id TEXT NOT NULL DEFAULT ''`,
+				); err != nil {
+					_ = tx.Rollback()
+					return fmt.Errorf("add push_devices.owner_session_id: %w", err)
+				}
+			}
+			if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_push_devices_session ON push_devices(owner_session_id)`); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("index push_devices session: %w", err)
+			}
+			// Rows written before the column existed came from a login (an
+			// operator row has no owner, a paired row names its device) but carry
+			// no session, so nothing can ever end them. They are removed rather
+			// than left fail-open; the phone re-registers when its settings page
+			// next loads.
+			if _, err := tx.Exec(`
+				DELETE FROM push_devices
+				WHERE owner_session_id = ''
+				  AND owner_user_id <> ''
+				  AND owner_device_id = ''`); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("remove unbound session registrations: %w", err)
+			}
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 47`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 047: %w", err)
+		}
+		v = 47
+	}
+
 	// Every path out of here has to reach the same shape, so the assertion runs
 	// on the upgraded path too rather than only on the already-current one.
 	return s.ensureCurrentSchema()
@@ -2517,6 +2679,12 @@ func (s *Store) ensureCurrentSchema() error {
 	if err := s.ensureSessionShareSchema(); err != nil {
 		return err
 	}
+	// The owner columns are reconciled before the registry DDL runs: that text
+	// also names owner_session_id in an index, and on a table restored without
+	// the column the index would be the first statement to fail.
+	if err := s.ensurePushDeviceOwnerSchema(); err != nil {
+		return err
+	}
 	if err := s.ensurePushSchema(); err != nil {
 		return err
 	}
@@ -2546,8 +2714,54 @@ func (s *Store) ensureSessionShareSchema() error {
 // table would surface as a delivery that silently does nothing — exactly the
 // failure the settings page cannot distinguish from "no one subscribed".
 func (s *Store) ensurePushSchema() error {
-	if _, err := s.db.Exec(PushSubscriptionsDDL); err != nil {
-		return fmt.Errorf("ensure push subscriptions: %w", err)
+	if _, err := s.db.Exec(PushDevicesDDL); err != nil {
+		return fmt.Errorf("ensure push devices: %w", err)
+	}
+	return nil
+}
+
+// ensurePushDeviceOwnerSchema adds the ownership columns to a push registry
+// written before they existed.
+//
+// Same reasoning as the routine columns: a version number says which migrations
+// ran, not what a table looks like. Without this, a database restored at the
+// current version but taken before 046 would fail every notification with
+// "no such column" — and the failure would be inside a delivery goroutine where
+// nobody is watching.
+func (s *Store) ensurePushDeviceOwnerSchema() error {
+	present, err := s.tableExists("push_devices")
+	if err != nil {
+		return err
+	}
+	if !present {
+		return nil
+	}
+	for _, column := range []struct{ name, ddl string }{
+		{"owner_user_id", `ALTER TABLE push_devices ADD COLUMN owner_user_id TEXT NOT NULL DEFAULT ''`},
+		{"owner_device_id", `ALTER TABLE push_devices ADD COLUMN owner_device_id TEXT NOT NULL DEFAULT ''`},
+		{"owner_session_id", `ALTER TABLE push_devices ADD COLUMN owner_session_id TEXT NOT NULL DEFAULT ''`},
+		{"last_attempt_at", `ALTER TABLE push_devices ADD COLUMN last_attempt_at INTEGER NOT NULL DEFAULT 0`},
+	} {
+		var exists int
+		if err := s.db.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info('push_devices') WHERE name = ?`, column.name,
+		).Scan(&exists); err != nil {
+			return fmt.Errorf("inspect push_devices.%s: %w", column.name, err)
+		}
+		if exists > 0 {
+			continue
+		}
+		if _, err := s.db.Exec(column.ddl); err != nil {
+			return fmt.Errorf("add push_devices.%s: %w", column.name, err)
+		}
+	}
+	for _, index := range []struct{ name, ddl string }{
+		{"idx_push_devices_owner", `CREATE INDEX IF NOT EXISTS idx_push_devices_owner ON push_devices(owner_user_id)`},
+		{"idx_push_devices_session", `CREATE INDEX IF NOT EXISTS idx_push_devices_session ON push_devices(owner_session_id)`},
+	} {
+		if _, err := s.db.Exec(index.ddl); err != nil {
+			return fmt.Errorf("index push_devices %s: %w", index.name, err)
+		}
 	}
 	return nil
 }

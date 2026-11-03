@@ -27,6 +27,10 @@
 	     until someone answers the export question by hand. -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<!-- Sandbox or production APNs, from the same build setting the
+	     aps-environment entitlement uses. Read by KinNativePushPlugin. -->
+	<key>KinAPNsEnvironment</key>
+	<string>$(APS_ENVIRONMENT)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

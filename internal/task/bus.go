@@ -10,7 +10,7 @@ import (
 
 // WSMessage is pushed on the global bus (spec §6).
 type WSMessage struct {
-	Kind string `json:"kind"` // task_update | task_deleted | event | approval_update
+	Kind string `json:"kind"` // task_update | task_deleted | event | approval_update | user_question_update | notify
 	Data any    `json:"data"`
 	// OwnerUserID is who the message is about, and is never sent: it exists so a
 	// subscriber can decide whether to deliver at all.

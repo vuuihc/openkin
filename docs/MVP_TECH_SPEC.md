@@ -38,7 +38,7 @@ kin/
 │   ├── store/                # SQLite persistence
 │   ├── api/                  # handwritten HTTP + WS handlers
 │   ├── remote/               # Transport interface; loopback/lan/tsnet impls, auth
-│   └── notify/               # Bark / ntfy webhooks (M3)
+│   └── notify/               # notification fan-out (native: APNs)
 ├── api/openapi.yaml          # task live-resource contract (partial API surface)
 ├── ui/                       # Vite + React + TS + Tailwind
 │   └── src/{pages,components,api}
@@ -241,6 +241,12 @@ Flag `--ts-control-url <url>` (setting `tailscale.control_url`) is passed to `ts
 Ship `docs/REMOTE_ACCESS.md` with tested walkthroughs for **frp** (the recommended path where Tailscale is unreachable or unreliable, e.g. mainland China) and **Cloudflare Tunnel**. Key points to cover: Kin is a plain HTTP port, so any tunnel works unmodified; token auth still protects every request; a public tunnel endpoint makes the token the only barrier — treat it as a secret and rotate via `kin token rotate` (implement this subcommand: regenerates `~/.kin/token`, invalidates old sessions).
 
 ## 8. Notifications (M3)
+
+**Superseded by KIN-NOTIFY-001 (2026-11).** Bark and ntfy were removed; native
+notifications (macOS Notification Center and APNs) are the only channel. The
+node fans one event out through `internal/notify` to the desktop shell and to
+every phone registered with that node. The M3 contract below is kept as
+history.
 
 Settings keys `notify.bark_url`, `notify.ntfy_topic`. On `approval_requested` and task finish, POST fire-and-forget (5s timeout, one retry) with title/body/deep-link URL.
 

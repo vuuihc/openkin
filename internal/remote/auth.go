@@ -31,6 +31,11 @@ type Principal struct {
 	// accounts that registered later, so it must be copied from the account
 	// record rather than inferred from Kind.
 	Role string
+	// SessionID is the browser login this request came through, set only for
+	// PrincipalUser. It is what lets work done under one login be ended with
+	// that login: a push registration bound to it stops when it is revoked,
+	// expires, or signs out, even though the account itself still exists.
+	SessionID string
 }
 
 const (

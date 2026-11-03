@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2240" height="1212.4" viewBox="0 0 2240 1212.4">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect x="0" y="0" width="2240" height="1400" fill="#f7f7f8"/>
+<text x="120" y="92" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="34" fill="#1a1a1a" font-weight="600">KIN-NOTIFY-001 · 离开时被叫回来</text>
+<text x="120" y="126" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13" fill="#6b6b6b" font-weight="400">状态：draft · 面：Mac / 手机 · 对应 KIN-NOTIFY-001.md · 2026-10-31</text>
+<rect x="120" y="146" width="104" height="28" fill="#eef2ff" rx="14" stroke="#1f6feb" stroke-width="1"/>
+<text x="172" y="164.5" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13" fill="#1f6feb" font-weight="400" text-anchor="middle">审批看这一页</text>
+<text x="120" y="220" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="21" fill="#1a1a1a" font-weight="600">一句话</text>
+<line x1="120" y1="234" x2="2120" y2="234" stroke="#d9d9d9" stroke-width="1"/>
+<text x="120" y="276.3" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="15" xml:space="preserve"><tspan fill="#1a1a1a">当我离开控制台、只带着 iPhone，或把 Kin 收进菜单栏时，我想在批准、提问、跑完、额度变化的那一刻被这台设备叫住，点一下就落到那一条，以便不用每隔几分钟回来找一遍。</tspan></text>
+<text x="120" y="310.8" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="21" fill="#1a1a1a" font-weight="600">MECE：这条故事切在哪</text>
+<line x1="120" y1="324.8" x2="2120" y2="324.8" stroke="#d9d9d9" stroke-width="1"/>
+<text x="120" y="361.4" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13" xml:space="preserve"><tspan fill="#6b6b6b">前五条意图都发生在控制台里；这一条发生在人已经离开控制台之后。它互斥于那五条，也覆盖了“离开以后怎么被叫回来”这一整件事。</tspan></text>
+<rect x="120" y="380.9" width="2000" height="268" fill="#ffffff" stroke="#d9d9d9" stroke-width="1"/>
+<rect x="120" y="380.9" width="2000" height="40" fill="#f3f3f3"/>
+<line x1="920" y1="380.9" x2="920" y2="648.9" stroke="#d9d9d9" stroke-width="1"/>
+<line x1="1560" y1="380.9" x2="1560" y2="648.9" stroke="#d9d9d9" stroke-width="1"/>
+<line x1="120" y1="420.9" x2="2120" y2="420.9" stroke="#d9d9d9" stroke-width="1"/>
+<line x1="120" y1="458.9" x2="2120" y2="458.9" stroke="#d9d9d9" stroke-width="1"/>
+<line x1="120" y1="496.9" x2="2120" y2="496.9" stroke="#d9d9d9" stroke-width="1"/>
+<line x1="120" y1="534.9" x2="2120" y2="534.9" stroke="#d9d9d9" stroke-width="1"/>
+<line x1="120" y1="572.9" x2="2120" y2="572.9" stroke="#d9d9d9" stroke-width="1"/>
+<line x1="120" y1="610.9" x2="2120" y2="610.9" stroke="#d9d9d9" stroke-width="1"/>
+<text x="132" y="406.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="14" fill="#333333" font-weight="600">意图（主导轴）</text>
+<text x="932" y="406.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="14" fill="#333333" font-weight="600">谁负责</text>
+<text x="1572" y="406.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="14" fill="#333333" font-weight="600">现在</text>
+<text x="132" y="444.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="14" fill="#1a1a1a" font-weight="400">接着问一段对话</text>
+<text x="932" y="444.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="14" fill="#1a1a1a" font-weight="400">KIN-CONTINUE-001</text>
+<text x="1572" y="444.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="14" fill="#1a1a1a" font-weight="400">approved</text>
+<text x="132" y="482.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="14" fill="#1a1a1a" font-weight="400">新建一段对话</text>
+<text x="932" y="482.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="14" fill="#1a1a1a" font-weight="400">KIN-START-001</text>
+<text x="1572" y="482.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="14" fill="#1a1a1a" font-weight="400">draft</text>
+<text x="132" y="520.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="14" fill="#1a1a1a" font-weight="400">看它改了什么</text>
+<text x="932" y="520.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="14" fill="#1a1a1a" font-weight="400">KIN-RESULT-001</text>
+<text x="1572" y="520.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="14" fill="#1a1a1a" font-weight="400">draft</text>
+<text x="132" y="558.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="14" fill="#1a1a1a" font-weight="400">管理对话</text>
+<text x="932" y="558.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="14" fill="#1a1a1a" font-weight="400">KIN-MANAGE-001</text>
+<text x="1572" y="558.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="14" fill="#1a1a1a" font-weight="400">draft</text>
+<text x="132" y="596.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="14" fill="#1a1a1a" font-weight="400">设置与环境</text>
+<text x="932" y="596.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="14" fill="#1a1a1a" font-weight="400">KIN-SETTINGS-001</text>
+<text x="1572" y="596.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="14" fill="#1a1a1a" font-weight="400">draft</text>
+<text x="132" y="634.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="14" fill="#1a1a1a" font-weight="400">被叫回来（离开控制台）</text>
+<text x="932" y="634.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="14" fill="#1f6feb" font-weight="400">KIN-NOTIFY-001（这条）</text>
+<text x="1572" y="634.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="14" fill="#1f6feb" font-weight="400">本页</text>
+<circle cx="125" cy="683.9" r="3" fill="#1f6feb"/>
+<text x="140" y="686" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13.5" xml:space="preserve"><tspan fill="#1a1a1a" font-weight="600">为什么是第六条意图</tspan><tspan fill="#1a1a1a">：前五条回答“人在控制台里能做什么”；这一条回答“人不在控制台时，怎么被带回那一条”。它不依赖打开哪个页面，所以既不属于“接着问”，也不属于“设置”。</tspan></text>
+<circle cx="125" cy="713.8" r="3" fill="#1f6feb"/>
+<text x="140" y="715.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13.5" xml:space="preserve"><tspan fill="#1a1a1a" font-weight="600">为什么不和设置合并</tspan><tspan fill="#1a1a1a">：设置故事管默认值；这里管的是离开以后设备会不会叫、点开落到哪。设置页只是权限和状态的入口，不是这件事本身。</tspan></text>
+<circle cx="125" cy="743.7" r="3" fill="#1f6feb"/>
+<text x="140" y="745.8" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13.5" xml:space="preserve"><tspan fill="#1a1a1a" font-weight="600">设备是修饰维度</tspan><tspan fill="#1a1a1a">：这条声明 Mac 和手机，差异写在故事「各面差异」；没有把 Mac 和 iPhone 拆成两条，因为同一条要求写两遍迟早漏一遍。</tspan></text>
+<circle cx="125" cy="773.7" r="3" fill="#1f6feb"/>
+<text x="140" y="775.7" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13.5" xml:space="preserve"><tspan fill="#1a1a1a" font-weight="600">job map 覆盖</tspan><tspan fill="#1a1a1a">：准备（让设备可以叫我）、定位/确认（通知叫的是哪一件事）、执行（点开落到那一条）、监控（没叫到、叫错了）、修改（关掉、换设备）、收尾（处理完就安静）。定义并入准备；定位和确认由通知本身完成，不单独占一步。</tspan></text>
+<circle cx="125" cy="803.6" r="3" fill="#1f6feb"/>
+<text x="140" y="805.7" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13.5" xml:space="preserve"><tspan fill="#1a1a1a" font-weight="600">不在这一条</tspan><tspan fill="#1a1a1a">：iOS 锁屏上的一键批准/拒绝 → KIN-NOTIFY-002；按事件类型开关、免打扰、静音时段 → KIN-SETTINGS-001；Android 原生推送（没有 Android 壳）；保留 Bark / ntfy / Web Push 或兼容开关（相反，这一条删除它们）。</tspan></text>
+<circle cx="125" cy="833.5" r="3" fill="#1f6feb"/>
+<text x="140" y="835.6" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13.5" xml:space="preserve"><tspan fill="#1a1a1a" font-weight="600">大小自检</tspan><tspan fill="#1a1a1a">：标题是一个动作；一次走查是“离开 → 被叫 → 点开 → 处理完”，一个人、一台设备、一件事；一次交付装得下测试、复审、390/1100 截图和 iOS 模拟器/真机；6 步。</tspan></text>
+<text x="120" y="892.4" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="21" fill="#1a1a1a" font-weight="600">现在 → 之后</text>
+<line x1="120" y1="906.4" x2="2120" y2="906.4" stroke="#d9d9d9" stroke-width="1"/>
+<rect x="120" y="932.4" width="980" height="200" fill="#ffffff" rx="12" stroke="#d9d9d9" stroke-width="1"/>
+<text x="142" y="966.4" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="18" fill="#b42318" font-weight="600">现在</text>
+<text x="142" y="997.5" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13.5" xml:space="preserve"><tspan fill="#1a1a1a">Mac：桌面壳只听批准和任务终态，提问、额度、例行报告没有原生通知；设置页里只有 Bark / ntfy 和一块在桌面壳里永远显示“不能接收推送”的浏览器</tspan></text>
+<text x="142" y="1019.1" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13.5" xml:space="preserve"><tspan fill="#1a1a1a">推送。</tspan></text>
+<text x="142" y="1052.7" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13.5" xml:space="preserve"><tspan fill="#1a1a1a">iPhone：Capacitor 壳里 PushManager 不存在，设置页同样说“这个浏览器不能接收推送”；后台提醒只能靠 Bark / ntfy 这类第三方 app。节点没有 AP</tspan></text>
+<text x="142" y="1074.3" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13.5" xml:space="preserve"><tspan fill="#1a1a1a">Ns，也没有“这台设备能不能收到”的状态。</tspan></text>
+<rect x="1140" y="932.4" width="980" height="200" fill="#ffffff" rx="12" stroke="#d9d9d9" stroke-width="1"/>
+<text x="1162" y="966.4" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="18" fill="#137a3f" font-weight="600">之后</text>
+<text x="1162" y="997.5" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13.5" xml:space="preserve"><tspan fill="#1a1a1a">Mac 和 iPhone 都用各自的原生通知中心：批准、提问、跑完、失败、额度、例行报告、worker 离线都走同一条事件管道；点通知落到那一条；设置页第一</tspan></text>
+<text x="1162" y="1019.1" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13.5" xml:space="preserve"><tspan fill="#1a1a1a">块就是“这台设备”，状态、测试和失败原因都在。</tspan></text>
+<text x="1162" y="1052.7" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13.5" xml:space="preserve"><tspan fill="#1a1a1a">通知丢了不影响收件箱；发送成功不等于看到。Bark / ntfy / Web Push 删除，浏览器和 Android 不再收到 Kin 通知。</tspan></text>
+</g>
+</svg>

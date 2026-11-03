@@ -5,6 +5,7 @@ import { liveResources } from "./api/liveResources";
 import { SessionSync } from "./api/sessionSync";
 import { usePendingResources } from "./api/useLiveResources";
 import ConnectScreen from "./components/ConnectScreen";
+import NotificationTaps from "./components/NotificationTaps";
 import AppShell from "./components/layout/AppShell";
 import ToastHost from "./components/ToastHost";
 import ApprovalsPage from "./pages/ApprovalsPage";
@@ -130,6 +131,9 @@ export default function App() {
   if (auth.status !== "ok") {
     return (
       <>
+        {/* A tap that arrives at the sign-in gate still changes the route, so
+            the item is there once the reader is through it. */}
+        <NotificationTaps />
         <AuthGate auth={auth} />
         <ToastHost />
       </>
@@ -173,6 +177,7 @@ export default function App() {
           </Routes>
         </ErrorBoundary>
       </AppShell>
+      <NotificationTaps />
       <ToastHost />
     </>
   );

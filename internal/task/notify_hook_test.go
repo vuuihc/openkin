@@ -1,18 +1,15 @@
 package task
 
+// KIN-NOTIFY-001: an approval reaches the node's one notification pipeline.
+
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"path/filepath"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/vuuihc/openkin/internal/adapter"
-	"github.com/vuuihc/openkin/internal/notify"
 	"github.com/vuuihc/openkin/internal/store"
 )
 
@@ -28,29 +25,18 @@ func (a *hangAd) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.RunH
 }
 
 func TestNotifyOnApproval(t *testing.T) {
-	var hits atomic.Int32
-	var click atomic.Value
-	click.Store("")
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits.Add(1)
-		click.Store(r.Header.Get("Click"))
-		_, _ = io.Copy(io.Discard, r.Body)
-		w.WriteHeader(200)
-	}))
-	t.Cleanup(srv.Close)
-
 	st, err := store.Open(filepath.Join(t.TempDir(), "kin.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	ctx := context.Background()
-	_ = st.SetSetting(ctx, notify.KeyNtfyTopic, srv.URL)
-	_ = st.SetSetting(ctx, notify.KeyBaseURL, "http://host:7777")
+	_ = st.SetSetting(ctx, "ui.base_url", "http://host:7777")
 
+	rec := &notifyRecorder{}
 	e := NewEngineFromAdapters(st, map[string]adapter.Adapter{"claude-code": &hangAd{}}, NewBus(), 4)
 	t.Cleanup(e.Close)
-	e.SetNotifier(&notify.Sender{Store: st, Client: &http.Client{Timeout: 2 * time.Second}})
+	e.SetNotifier(testSender(st, rec))
 
 	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: t.TempDir(), Prompt: "p"})
 	if err != nil {
@@ -64,17 +50,15 @@ func TestNotifyOnApproval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) && hits.Load() == 0 {
-		time.Sleep(20 * time.Millisecond)
-	}
-	if hits.Load() == 0 {
-		t.Fatal("expected notification POST")
-	}
-	// The click has to name the approval this call created, not the inbox in
+	events := rec.waitFor(t, 1)
+	// The link has to name the approval this call created, not the inbox in
 	// general: that is the whole difference between a push you can act on from
 	// the lock screen and one that makes you go looking.
-	if got, _ := click.Load().(string); got != "http://host:7777/inbox?focus="+appr.ID {
-		t.Fatalf("click=%q, want focus on %s", got, appr.ID)
+	want := "http://host:7777/inbox?focus=" + appr.ID
+	if events[0].URL != want {
+		t.Fatalf("url=%q, want focus on %s", events[0].URL, appr.ID)
+	}
+	if events[0].Kind != "approval" || events[0].ID != appr.ID {
+		t.Fatalf("event=%+v", events[0])
 	}
 }

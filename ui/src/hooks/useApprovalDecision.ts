@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { decideApproval } from "../api/client";
 import { liveResources } from "../api/liveResources";
 import { useT } from "../i18n/react";
+import { clearDeliveredNotification } from "../lib/nativePush";
 import { useAppStore } from "../store/appStore";
 
 export type PendingDecision = "approved" | "denied";
@@ -40,6 +41,9 @@ export function useApprovalDecision(fallbackKey = "inbox.decisionFailed") {
       try {
         const updated = await decideApproval(id, decision);
         liveResources.applyMessage({ kind: "approval_update", data: updated });
+        // The banner said "needs you"; it no longer does. Only after the node
+        // accepted the decision, so a failed call leaves the reminder in place.
+        clearDeliveredNotification("approval", id);
         // The answer, so the surface that asked can keep the decided card in
         // place after the pending list drops it. A failure returns null: there
         // is no decision to show, and the toast says why.

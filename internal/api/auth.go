@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -247,7 +248,16 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 	if s.accountsEnabled() {
 		if cookie, err := r.Cookie(remote.SessionCookieName); err == nil {
-			_ = s.Accounts.Logout(r.Context(), cookie.Value)
+			if err := s.Accounts.Logout(r.Context(), cookie.Value); err != nil {
+				// The session and its push registrations are deleted in one
+				// transaction; a failure leaves both. The browser is still
+				// signed out locally, but answering 200 would claim the row is
+				// gone when it is not.
+				log.Printf("auth: logout: %v", err)
+				s.clearSessionCookie(w, r)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not end the session"})
+				return
+			}
 		}
 	}
 	s.clearSessionCookie(w, r)

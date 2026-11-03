@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2240" height="929.6" viewBox="0 0 2240 929.6">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect x="0" y="0" width="2240" height="1200" fill="#f7f7f8"/>
+<text x="120" y="78" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="24" fill="#1a1a1a" font-weight="600">要你拍板的</text>
+<line x1="120" y1="96" x2="2120" y2="96" stroke="#d9d9d9" stroke-width="1"/>
+<text x="120" y="126" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13" fill="#6b6b6b" font-weight="400">D1 已定；D2–D5 每条都写了推荐；签字前可以只回不同意的编号。</text>
+<rect x="100" y="168" width="3" height="73.6" fill="#1f6feb" rx="1.5"/>
+<text x="124" y="190" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="16" fill="#1a1a1a" font-weight="600">D1 删除 Bark / ntfy / Web Push 吗？</text>
+<text x="124" y="217.1" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13.5" xml:space="preserve"><tspan fill="#1a1a1a">已定：删除。原生是 Mac/iPhone 的唯一通道；设置页不再有第二套通道，节点不再维护第二套扇出。升级时清理旧配置，不留回退开关。代价：浏览器控制台、Android 和其他设备不再收到 Kin 通知；如果以后要，另开故事。</tspan></text>
+<rect x="100" y="277.6" width="3" height="95.2" fill="#1f6feb" rx="1.5"/>
+<text x="124" y="299.6" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="16" fill="#1a1a1a" font-weight="600">D2 APNs 凭据放在哪？</text>
+<text x="124" y="326.7" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13.5" xml:space="preserve"><tspan fill="#1a1a1a">推荐放在节点，由节点管理员用 CLI 配置，设置页只显示“已配置/未配置”和最后错误。私钥不进 GET /api/settings、不进导出、不进日志。登记和发送必须在同一个 daemon：谁运行任务引擎、发通知，token 和凭据就登记在谁那里；Hub 只转发控制台请求，不能把 token 只留在</tspan></text>
+<text x="124" y="348.3" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13.5" xml:space="preserve"><tspan fill="#1a1a1a">另一台机器上。</tspan></text>
+<rect x="100" y="408.8" width="3" height="73.6" fill="#1f6feb" rx="1.5"/>
+<text x="124" y="430.8" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="16" fill="#1a1a1a" font-weight="600">D3 iOS 锁屏一键批准/拒绝现在做吗？</text>
+<text x="124" y="457.9" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13.5" xml:space="preserve"><tspan fill="#1a1a1a">推荐不在这一条做。先把“叫得到、点得开”做稳；锁屏上做决定涉及权限、审计和误触，单独作为 KIN-NOTIFY-002。Mac 现有的批准/拒绝按钮保持不动。</tspan></text>
+<rect x="100" y="518.4" width="3" height="73.6" fill="#1f6feb" rx="1.5"/>
+<text x="124" y="540.4" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="16" fill="#1a1a1a" font-weight="600">D4 Mac 通知由谁触发？</text>
+<text x="124" y="567.5" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13.5" xml:space="preserve"><tspan fill="#1a1a1a">推荐由节点统一扇出：同一个事件管道产出 APNs / 桌面原生两路，桌面壳只负责显示和点击。这样提问、额度、例行报告不会漏，也不需要两端各写一套触发条件。</tspan></text>
+<rect x="100" y="628" width="3" height="73.6" fill="#1f6feb" rx="1.5"/>
+<text x="124" y="650" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="16" fill="#1a1a1a" font-weight="600">D5 事件范围？</text>
+<text x="124" y="677.1" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13.5" xml:space="preserve"><tspan fill="#1a1a1a">推荐六类事件全走同一条管道：批准、提问、任务终态、额度、例行报告、worker 离线。验收重点放在前三类（它们挡住工作），其余靠同一路径的 payload 测试覆盖。</tspan></text>
+<rect x="120" y="749.6" width="2000" height="110" fill="#ffffff" rx="12" stroke="#d9d9d9" stroke-width="1"/>
+<text x="142" y="783.6" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="16" fill="#1a1a1a" font-weight="600">签字</text>
+<text x="142" y="810.3" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13" xml:space="preserve"><tspan fill="#6b6b6b">看过这一页后：把 KIN-NOTIFY-001.md 的状态改成 approved，并写一句“按此草图开发”。改动再走一遍这一页。</tspan></text>
+</g>
+</svg>

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // ProviderPassword is the provider name for a locally-stored password identity.
@@ -44,6 +45,24 @@ type User struct {
 // than inherit the claim the column exists to record.
 func (u User) IsOwner() bool {
 	return u.Role == RoleOwner
+}
+
+// OwnerAccountID returns the account that claimed this node, or "" when the
+// node has no accounts (the token-only local mode). Node-wide events — a
+// routine disabling itself, a worker going offline — are the operator's, and
+// this is how the notifier names them without a task to look up.
+func (s *Store) OwnerAccountID(ctx context.Context) (string, error) {
+	var id string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id FROM users WHERE role = ? ORDER BY created_at, id LIMIT 1`,
+		RoleOwner).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("owner account: %w", err)
+	}
+	return id, nil
 }
 
 // UserIdentity is one login credential attached to an account. A user may have
@@ -229,6 +248,16 @@ func (s *Store) ReplacePasswordAndEndSessions(ctx context.Context, identityID, u
 	if n == 0 {
 		return ErrNotFound
 	}
+	// A password reset ends every login this account holds, so the phones
+	// registered through those logins end with it. Leaving the rows would keep
+	// a lost phone listed and testable even though its session is gone.
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM push_devices
+		WHERE owner_session_id <> ''
+		  AND owner_session_id IN (SELECT id FROM auth_sessions WHERE user_id = ?)`,
+		userID); err != nil {
+		return fmt.Errorf("end password reset push devices: %w", err)
+	}
 	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM auth_sessions WHERE user_id = ?`, userID); err != nil {
 		return fmt.Errorf("end auth sessions: %w", err)
@@ -345,9 +374,29 @@ func (s *Store) AuthenticateSession(ctx context.Context, tokenHash string, now i
 const authSessionTouchInterval = int64(60 * 60 * 1000)
 
 // DeleteAuthSession revokes one session by token hash (logout).
+//
+// The push registrations made from that session go with it. They are deleted by
+// subquery before the session row, because once the row is gone there is
+// nothing left to match them to — and a phone showing the sign-in screen must
+// not keep ringing with the account that just left.
 func (s *Store) DeleteAuthSession(ctx context.Context, tokenHash string) error {
-	if _, err := s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("delete auth session: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM push_devices
+		WHERE owner_session_id <> ''
+		  AND owner_session_id IN (SELECT id FROM auth_sessions WHERE token_hash = ?)`,
+		tokenHash); err != nil {
+		return fmt.Errorf("delete session push devices: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM auth_sessions WHERE token_hash = ?`, tokenHash); err != nil {
+		return fmt.Errorf("delete auth session: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("delete auth session: %w", err)
 	}
 	return nil
@@ -355,25 +404,84 @@ func (s *Store) DeleteAuthSession(ctx context.Context, tokenHash string) error {
 
 // DeleteUserAuthSessions revokes every session for an account, keeping one
 // optional session alive (the caller's own) so a password change does not log
-// the actor out of the page they are standing on.
+// the actor out of the page they are standing on. Registrations bound to a
+// revoked session are removed with it.
 func (s *Store) DeleteUserAuthSessions(ctx context.Context, userID, keepTokenHash string) (int64, error) {
-	res, err := s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("delete user auth sessions: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM push_devices
+		WHERE owner_session_id <> ''
+		  AND owner_session_id IN (
+			SELECT id FROM auth_sessions WHERE user_id = ? AND token_hash <> ?
+		  )`, userID, keepTokenHash); err != nil {
+		return 0, fmt.Errorf("delete user session push devices: %w", err)
+	}
+	res, err := tx.ExecContext(ctx,
 		`DELETE FROM auth_sessions WHERE user_id = ? AND token_hash <> ?`, userID, keepTokenHash)
 	if err != nil {
 		return 0, fmt.Errorf("delete user auth sessions: %w", err)
 	}
 	n, _ := res.RowsAffected()
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("delete user auth sessions: %w", err)
+	}
 	return n, nil
 }
 
 // PruneAuthSessions deletes expired rows and reports how many were removed.
+// Expired registrations are removed with their session for the same reason a
+// logout removes them: the phone no longer has a live credential.
 func (s *Store) PruneAuthSessions(ctx context.Context, now int64) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM auth_sessions WHERE expires_at <= ?`, now)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("prune auth sessions: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM push_devices
+		WHERE owner_session_id <> ''
+		  AND owner_session_id IN (SELECT id FROM auth_sessions WHERE expires_at <= ?)`,
+		now); err != nil {
+		return 0, fmt.Errorf("prune session push devices: %w", err)
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM auth_sessions WHERE expires_at <= ?`, now)
 	if err != nil {
 		return 0, fmt.Errorf("prune auth sessions: %w", err)
 	}
 	n, _ := res.RowsAffected()
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("prune auth sessions: %w", err)
+	}
 	return n, nil
+}
+
+// AuthSessionLive reports whether a browser session still exists, has not
+// expired, and belongs to an account that is still enabled. Delivery asks this
+// before ringing a phone whose registration is bound to that session, so a
+// revocation that raced a send — or a row left behind by a crash between the
+// two deletes — still cannot deliver. A disabled account is not live either:
+// authentication already refuses it, so its phone must not keep ringing.
+//
+// An empty id, a missing row, or a read failure all answer false: a
+// notification nobody can vouch for is not sent.
+func (s *Store) AuthSessionLive(ctx context.Context, sessionID string) bool {
+	if sessionID == "" {
+		return false
+	}
+	var n int
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM auth_sessions s
+		JOIN users u ON u.id = s.user_id
+		WHERE s.id = ? AND s.expires_at > ? AND u.disabled_at IS NULL`,
+		sessionID, time.Now().UnixMilli()).Scan(&n); err != nil {
+		return false
+	}
+	return n > 0
 }
 
 // IssueBootstrapToken stores the one-time owner-claim secret by hash. Any

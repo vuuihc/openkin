@@ -1,5 +1,6 @@
-import { apiFetch, ApiError } from "./client";
+import { apiFetch, ApiError, clearToken, deletePushDevice, getToken } from "./client";
 import { gateForVisit, type AuthErrorCode } from "../lib/accountGate";
+import { disableNativePushOnSignOut } from "../lib/nativePush";
 import {
   NO_ACCOUNT,
   useAppStore,
@@ -164,8 +165,31 @@ export function joinHub(input: {
 }
 
 export async function signOut(): Promise<void> {
+  // Drop this console's copy of the token before the first request. The token
+  // is a second way in; a network that never settles must not leave it behind,
+  // and waiting for the requests would do exactly that. The requests below
+  // carry the captured token explicitly, so the unregister-then-logout order
+  // still runs under the credential it revokes.
+  const token = getToken();
+  clearToken();
+  const headers: HeadersInit | undefined = token
+    ? { Authorization: `Bearer ${token}` }
+    : undefined;
+  // Unregister first: the delete is authorized by the cookie logout revokes,
+  // and a phone left showing the sign-in screen must not keep ringing with
+  // this account's work. The node deletes session-bound rows on logout too;
+  // this covers the shell's own row while it still has a credential. A failure
+  // here must not trap the person: leaving is the point, and the node's own
+  // logout deletion is the backstop.
   try {
-    await apiFetch("/api/auth/logout", { method: "POST" });
+    await disableNativePushOnSignOut({
+      deletePushDevice: (id) => deletePushDevice(id, headers),
+    });
+  } catch {
+    // Best effort; logout below still ends the session and its registrations.
+  }
+  try {
+    await apiFetch("/api/auth/logout", { method: "POST", headers });
   } catch {
     // Clearing the local session matters more than the server's answer.
   }

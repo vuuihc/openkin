@@ -16,7 +16,11 @@ import (
 var excludedExportTables = map[string]bool{
 	"device_credentials": true,
 	"pairing_sessions":   true,
-	"sqlite_sequence":    true,
+	// A push token is a capability: whoever holds it can deliver a banner to
+	// that phone. The API never returns it and the app re-registers when it
+	// opens, so a backup has no reason to carry it.
+	"push_devices":    true,
+	"sqlite_sequence": true,
 }
 
 // ExportDirectory writes a consistent, secret-free database snapshot as JSONL
@@ -108,6 +112,9 @@ func secretSettingKey(key string) bool {
 		strings.Contains(key, "secret") ||
 		strings.Contains(key, "password") ||
 		strings.Contains(key, "api_key") ||
+		// The APNs signing key is a PEM private key stored under
+		// push.apns.private_key; its name is not a secret word, its value is.
+		strings.Contains(key, "private_key") ||
 		key == "providers"
 }
 

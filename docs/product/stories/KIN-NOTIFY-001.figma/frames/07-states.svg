@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2240" height="892" viewBox="0 0 2240 892">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect x="0" y="0" width="2240" height="900" fill="#f7f7f8"/>
+<text x="120" y="78" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="24" fill="#1a1a1a" font-weight="600">4. 监控 · 状态</text>
+<line x1="120" y1="96" x2="2120" y2="96" stroke="#d9d9d9" stroke-width="1"/>
+<text x="120" y="126" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13" fill="#6b6b6b" font-weight="400">每张卡是一个可能的状态；文案是草稿，交付时按 i18n 落地。</text>
+<rect x="120" y="160" width="640" height="150" fill="#ffffff" rx="10" stroke="#d9d9d9" stroke-width="1"/>
+<text x="138" y="192" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="15" fill="#1a1a1a" font-weight="600">未开启</text>
+<text x="138" y="218.7" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13" xml:space="preserve"><tspan fill="#6b6b6b">“这台设备还没有开启通知。”主按钮“在这台设备上启用”。</tspan></text>
+<rect x="800" y="160" width="640" height="150" fill="#ffffff" rx="10" stroke="#d9d9d9" stroke-width="1"/>
+<text x="818" y="192" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="15" fill="#1a1a1a" font-weight="600">登记中</text>
+<text x="818" y="218.7" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13" xml:space="preserve"><tspan fill="#6b6b6b">按钮变成“正在登记…”，可离开；回来后看结果。</tspan></text>
+<rect x="1480" y="160" width="640" height="150" fill="#ffffff" rx="10" stroke="#d9d9d9" stroke-width="1"/>
+<text x="1498" y="192" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="15" fill="#1a1a1a" font-weight="600">已开启</text>
+<text x="1498" y="218.7" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13" xml:space="preserve"><tspan fill="#6b6b6b">平台、最近一次成功时间、发送测试、关闭。</tspan></text>
+<rect x="120" y="334" width="640" height="150" fill="#ffffff" rx="10" stroke="#d9d9d9" stroke-width="1"/>
+<text x="138" y="366" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="15" fill="#1a1a1a" font-weight="600">被系统阻止</text>
+<text x="138" y="392.7" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13" xml:space="preserve"><tspan fill="#6b6b6b">“系统没有允许 Kin 发通知。”给“打开系统设置”，不反复弹权限。</tspan></text>
+<rect x="800" y="334" width="640" height="150" fill="#ffffff" rx="10" stroke="#d9d9d9" stroke-width="1"/>
+<text x="818" y="366" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="15" fill="#1a1a1a" font-weight="600">节点缺 APNs 凭据</text>
+<text x="818" y="392.7" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13" xml:space="preserve"><tspan fill="#6b6b6b">“这个节点还不能发到 iPhone。”说明由节点管理员配置，不假装已开启。</tspan></text>
+<rect x="1480" y="334" width="640" height="150" fill="#ffffff" rx="10" stroke="#d9d9d9" stroke-width="1"/>
+<text x="1498" y="366" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="15" fill="#1a1a1a" font-weight="600">测试失败</text>
+<text x="1498" y="392.7" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13" xml:space="preserve"><tspan fill="#6b6b6b">按设备列原因：超时、token 失效、网络不可达；不显示笼统的“发送失败”。</tspan></text>
+<rect x="120" y="508" width="640" height="150" fill="#ffffff" rx="10" stroke="#d9d9d9" stroke-width="1"/>
+<text x="138" y="540" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="15" fill="#1a1a1a" font-weight="600">离线</text>
+<text x="138" y="566.7" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13" xml:space="preserve"><tspan fill="#6b6b6b">状态“未知”，保留上次成功时间；不把旧的“已开启”当现在。</tspan></text>
+<rect x="800" y="508" width="640" height="150" fill="#ffffff" rx="10" stroke="#d9d9d9" stroke-width="1"/>
+<text x="818" y="540" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="15" fill="#1a1a1a" font-weight="600">没有设备</text>
+<text x="818" y="566.7" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13" xml:space="preserve"><tspan fill="#6b6b6b">“还没有设备。”给启用入口；不显示空表格。</tspan></text>
+<rect x="1480" y="508" width="640" height="150" fill="#ffffff" rx="10" stroke="#d9d9d9" stroke-width="1"/>
+<text x="1498" y="540" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="15" fill="#1a1a1a" font-weight="600">已关闭</text>
+<text x="1498" y="566.7" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13" xml:space="preserve"><tspan fill="#6b6b6b">这一行在节点上也删掉了；可重新开启。</tspan></text>
+<rect x="120" y="682" width="640" height="150" fill="#ffffff" rx="10" stroke="#d9d9d9" stroke-width="1"/>
+<text x="138" y="714" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="15" fill="#1a1a1a" font-weight="600">同一条已处理</text>
+<text x="138" y="740.7" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="13" xml:space="preserve"><tspan fill="#6b6b6b">通知中心里移除；再点旧通知落到收件箱并说明“这一条已经不在了”。</tspan></text>
+</g>
+</svg>

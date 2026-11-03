@@ -1,145 +1,211 @@
-import { Notification, type NotificationAction } from "electron";
-import type { Approval, Task } from "./daemon-api";
-import { parseToolSummary, decideApproval } from "./daemon-api";
-import { isTerminalStatus, shouldAnnounceTask } from "./task-notifications";
+import type { NotificationAction } from "electron";
+import {
+  NotifyDeduper,
+  notifyHasDecisionActions,
+  safeNotifyPath,
+  shouldAnnounceNotify,
+  type NotifyEvent,
+} from "./native-notifications.ts";
 
 /**
- * Native notification policy (macOS):
+ * Native notification display (macOS).
+ *
+ * The node owns the decision to notify and fans one event out to this shell and
+ * to every registered iPhone; the shell only displays what arrives. That is why
+ * there is one `onNotify` here rather than a handler per event type — approvals,
+ * questions, terminal tasks, quota waits, routine reports and offline workers
+ * all travel the same path, with the same title and body the phone sees.
  *
  * Electron's Notification API supports `actions` on macOS, but action buttons
  * are unreliable: they require alert-style banners, may not appear when the
- * app is focused, and behavior varies by macOS version / focus state.
- *
- * We still attach Approve / Deny actions when the platform reports support.
- * The reliable path is always: click the notification → open the approval
- * in the main window. Actions, when they fire, call the daemon decision API
- * from the main process (Bearer token) so the user can act without focusing.
+ * app is focused, and behavior varies by macOS version / focus state. Approve /
+ * Deny are still attached for approvals when the platform reports support; the
+ * reliable path is always: click the notification → open the item in the main
+ * window.
  */
 export type NotificationCallbacks = {
-  openApproval: (approvalId: string) => void;
-  openTask: (taskId: string) => void;
+  /** Open a console path in the main window. */
+  openPath: (path: string) => void;
   getToken: () => string | null;
   onDecided?: (id: string, decision: "approved" | "denied") => void;
   /** Whether the main window is the focused window. */
   isFocused?: () => boolean;
   /** The task the main window is showing, if any. */
   viewingTaskId?: () => string | null;
+  /** Origin of the console the window is showing, for resolving relative links. */
+  origin?: () => string | null;
 };
+
+/** The slice of Electron's Notification the shell uses. */
+export type NotificationHandle = {
+  on(event: "click", listener: () => void): void;
+  on(event: "action", listener: (event: unknown, index: number) => void): void;
+  show(): void;
+  /** Remove an earlier banner for the same target. */
+  close?(): void;
+};
+
+export type NotificationOptions = {
+  title: string;
+  body: string;
+  silent: boolean;
+  actions: NotificationAction[];
+  urgency: "critical" | "normal";
+};
+
+/** The approval decision the shell sends when an action button is pressed. */
+export type DecideApproval = (
+  token: string,
+  id: string,
+  decision: "approved" | "denied",
+) => Promise<unknown>;
+
+/** Injectable seams, so the display policy can be tested without Electron. */
+export type NotifierDeps = {
+  createNotification?: (options: NotificationOptions) => NotificationHandle;
+  isSupported?: () => boolean;
+  decideApproval?: DecideApproval;
+};
+
+/** The real Electron notification, loaded lazily: under plain Node (the
+ * tests) `import "electron"` resolves to the binary path, not the API. */
+function electronNotification(options: NotificationOptions): NotificationHandle {
+  const { Notification } = require("electron") as typeof import("electron");
+  return new Notification(options);
+}
+
+function electronSupported(): boolean {
+  const { Notification } = require("electron") as typeof import("electron");
+  return Notification.isSupported();
+}
+
+/** Loaded lazily for the same reason, and because daemon-api pulls in the
+ * Electron `app` module that the policy tests must not need. */
+function daemonDecideApproval(
+  token: string,
+  id: string,
+  decision: "approved" | "denied",
+): Promise<unknown> {
+  const { decideApproval } = require("./daemon-api") as typeof import("./daemon-api");
+  return decideApproval(token, id, decision);
+}
 
 export class Notifier {
   private cb: NotificationCallbacks;
-  /** Dedupe approval notifications per id (WS can rebroadcast). */
-  private seenApprovals = new Set<string>();
-  private seenTerminal = new Set<string>();
+  private dedupe = new NotifyDeduper();
+  private createNotification: (options: NotificationOptions) => NotificationHandle;
+  private isSupported: () => boolean;
+  private decideApproval: DecideApproval;
+  // One slot per kind and target, mirroring apns-collapse-id on the phone.
+  // Without it a quota wait and its resume stack in Notification Center even
+  // though the phone shows one banner.
+  private showing = new Map<string, NotificationHandle>();
+  static readonly MAX_SHOWN = 512;
 
-  constructor(cb: NotificationCallbacks) {
+  constructor(cb: NotificationCallbacks, deps: NotifierDeps = {}) {
     this.cb = cb;
+    this.createNotification = deps.createNotification ?? electronNotification;
+    this.isSupported = deps.isSupported ?? electronSupported;
+    this.decideApproval = deps.decideApproval ?? daemonDecideApproval;
   }
 
-  onApproval(a: Approval): void {
-    if (a.decision !== "pending") {
-      this.seenApprovals.delete(a.id);
+  onNotify(ev: NotifyEvent): void {
+    const announce = shouldAnnounceNotify(ev, {
+      focused: this.cb.isFocused?.() ?? false,
+      viewingTaskId: this.cb.viewingTaskId?.() ?? null,
+    });
+    // Record suppressed events too: the reader already saw that task end on
+    // screen, and a later rebroadcast must not turn it into a banner.
+    if (!this.dedupe.remember(ev)) return;
+    const key = notificationKey(ev);
+    const previous = this.showing.get(key);
+    if (!announce) {
+      // The new state still replaces the banner it supersedes. A quota wait
+      // that resumed while the reader is looking at the task must not leave
+      // the "waiting" banner behind offering a stale tap.
+      if (previous) this.closeBanner(key, previous);
+      console.log(`[kin-desktop] notification: ${ev.kind} ${ev.id} on screen — not announced`);
       return;
     }
-    if (this.seenApprovals.has(a.id)) return;
-    this.seenApprovals.add(a.id);
-
-    if (!Notification.isSupported()) {
+    if (!this.isSupported()) {
       console.warn("[kin-desktop] Notification API not supported");
       return;
     }
 
-    const title = a.task_title?.trim() || "Approval needed";
-    const body = parseToolSummary(a.payload);
-    const actions = notificationActions();
-
-    const n = new Notification({
-      title,
-      body,
+    const actions = notifyHasDecisionActions(ev.kind) ? notificationActions() : [];
+    const n = this.createNotification({
+      title: ev.title.trim() || "Kin",
+      body: ev.body,
       silent: false,
       // macOS actions (best-effort; see module comment).
       actions,
-      // Keep urgency high for approvals.
-      urgency: "critical",
+      // Approvals are the one kind that blocks an agent until a person acts.
+      urgency: ev.kind === "approval" ? "critical" : "normal",
     });
 
-    n.on("click", () => {
-      this.cb.openApproval(a.id);
-    });
-
-    n.on("action", (_ev, index) => {
-      const decision = index === 0 ? "approved" : "denied";
-      void this.decide(a.id, decision);
-    });
-
-    n.show();
-    console.log(`[kin-desktop] notification: approval ${a.id} — ${title}`);
-  }
-
-  onTaskUpdate(t: Task): void {
-    if (!isTerminalStatus(t.status)) {
-      // Reset so a re-run of the same task id can notify again.
-      if (t.status === "running" || t.status === "queued") {
-        this.seenTerminal.delete(t.id);
+    // The new state replaces the banner it supersedes, on the phone and here.
+    this.showing.get(key)?.close?.();
+    this.showing.delete(key);
+    if (this.showing.size >= Notifier.MAX_SHOWN) {
+      const oldest = this.showing.keys().next().value;
+      if (oldest !== undefined) {
+        // Evicting the entry without closing its banner would leave one on
+        // screen that dismiss and decision can no longer reach.
+        this.showing.get(oldest)?.close?.();
+        this.showing.delete(oldest);
       }
-      return;
     }
-    // A task that ends on screen, in the focused window, needs no banner: the
-    // transcript is the announcement. Being in front is not enough on its own —
-    // a reader watching one task still wants to hear about another.
-    if (
-      !shouldAnnounceTask(t, {
-        focused: this.cb.isFocused?.() ?? false,
-        viewingTaskId: this.cb.viewingTaskId?.() ?? null,
-      })
-    ) {
-      // Record it all the same: the task is over, and a later rebroadcast must
-      // not turn a finish the reader already watched on screen into a banner.
-      this.seenTerminal.add(`${t.id}:${t.status}`);
-      console.log(
-        `[kin-desktop] notification: task ${t.id} ended on screen — not announced`,
-      );
-      return;
-    }
-    const key = `${t.id}:${t.status}`;
-    if (this.seenTerminal.has(key)) return;
-    this.seenTerminal.add(key);
+    this.showing.set(key, n);
 
-    if (!Notification.isSupported()) return;
-
-    const title = t.title?.trim() || "Task finished";
-    const body = statusLabel(t.status);
-    const n = new Notification({
-      title,
-      body,
-      // Audible: silent+low was effectively invisible on macOS when Kin is
-      // frontmost / banners are brief. Still lower urgency than approvals.
-      silent: false,
-      urgency: "normal",
-    });
     n.on("click", () => {
-      this.cb.openTask(t.id);
+      this.closeBanner(key, n);
+      this.cb.openPath(this.pathFor(ev));
     });
+
+    if (actions.length > 0) {
+      n.on("action", (_ev, index) => {
+        const decision = index === 0 ? "approved" : "denied";
+        void this.decide(ev, decision);
+      });
+    }
+
     n.show();
-    console.log(`[kin-desktop] notification: task ${t.id} → ${t.status}`);
+    console.log(`[kin-desktop] notification: ${ev.kind} ${ev.id} — ${ev.title}`);
   }
 
-  private async decide(id: string, decision: "approved" | "denied"): Promise<void> {
+  private closeBanner(key: string, handle: NotificationHandle): void {
+    if (this.showing.get(key) !== handle) return;
+    this.showing.delete(key);
+    handle.close?.();
+  }
+
+  private pathFor(ev: NotifyEvent): string {
+    return safeNotifyPath(ev.url, this.cb.origin?.() ?? undefined);
+  }
+
+  private async decide(ev: NotifyEvent, decision: "approved" | "denied"): Promise<void> {
     const token = this.cb.getToken();
     if (!token) {
       console.error("[kin-desktop] cannot decide: no token");
-      this.cb.openApproval(id);
+      this.cb.openPath(this.pathFor(ev));
       return;
     }
     try {
-      await decideApproval(token, id, decision);
-      console.log(`[kin-desktop] decided ${id} → ${decision} via notification`);
-      this.cb.onDecided?.(id, decision);
+      await this.decideApproval(token, ev.id, decision);
+      const key = notificationKey(ev);
+      const shown = this.showing.get(key);
+      if (shown) this.closeBanner(key, shown);
+      console.log(`[kin-desktop] decided ${ev.id} → ${decision} via notification`);
+      this.cb.onDecided?.(ev.id, decision);
     } catch (err) {
       console.error("[kin-desktop] decide failed", err);
-      this.cb.openApproval(id);
+      this.cb.openPath(this.pathFor(ev));
     }
   }
+}
+
+function notificationKey(ev: NotifyEvent): string {
+  return `${ev.kind}:${ev.id}`;
 }
 
 function notificationActions(): NotificationAction[] {
@@ -151,17 +217,4 @@ function notificationActions(): NotificationAction[] {
     { type: "button", text: "Approve" },
     { type: "button", text: "Deny" },
   ];
-}
-
-function statusLabel(status: string): string {
-  switch (status) {
-    case "succeeded":
-      return "Succeeded";
-    case "failed":
-      return "Failed";
-    case "canceled":
-      return "Canceled";
-    default:
-      return status;
-  }
 }

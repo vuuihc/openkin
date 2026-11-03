@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="kin-review-format" content="figma-flow-v1">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231f6feb'/%3E%3Cpath d='M16 7a5 5 0 0 0-5 5v3l-2 3h14l-2-3v-3a5 5 0 0 0-5-5zm0 18a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 16 25z' fill='white'/%3E%3C/svg%3E">
+<title>KIN-NOTIFY-001 · 离开时被叫回来 · Figma 审阅</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --ink: #1a1a1a;
+    --muted: #666a73;
+    --line: #dedee3;
+    --bg: #f1f1f4;
+    --page: #fbfbfd;
+    --card: #ffffff;
+    --accent: #1f6feb;
+    --accent-soft: #eef3ff;
+    --warn: #b42318;
+    --warn-soft: #fff1f0;
+    --ok: #137a3f;
+    --ok-soft: #eef8f1;
+    --gutter: clamp(16px, 5vw, 24px);
+    --radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #f5f5f7;
+      --muted: #a1a1aa;
+      --line: #35353a;
+      --bg: #0b0b0d;
+      --page: #141416;
+      --card: #1d1d20;
+      --accent: #6ea8fe;
+      --accent-soft: #17243a;
+      --warn: #ff8a80;
+      --warn-soft: #2a1717;
+      --ok: #6dd58c;
+      --ok-soft: #13251b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); }
+  code {
+    padding: 1px 5px;
+    border-radius: 5px;
+    background: var(--bg);
+    font-size: 0.9em;
+    overflow-wrap: anywhere;
+  }
+  .page {
+    max-width: 860px;
+    min-height: 100vh;
+    margin: 0 auto;
+    padding: 0 var(--gutter) calc(48px + env(safe-area-inset-bottom));
+    background: var(--page);
+  }
+  header { padding: 30px 0 12px; }
+  .eyebrow { color: var(--muted); font-size: 12.5px; letter-spacing: .02em; }
+  h1 { margin: 6px 0 8px; font-size: 26px; line-height: 1.28; letter-spacing: -.02em; }
+  h1 small { display: block; margin-top: 2px; font-size: 18px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .meta { margin: 2px 0; color: var(--muted); font-size: 13px; }
+  .meta a { display: inline-flex; align-items: center; min-height: 44px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+  .pill {
+    display: inline-flex; align-items: center;
+    height: 25px; padding: 0 10px;
+    border-radius: 999px; font-size: 12px; white-space: nowrap;
+  }
+  .pill.here { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); }
+  .pill.plain { color: var(--muted); background: var(--card); border: 1px solid var(--line); }
+  .pill.ok { color: var(--ok); background: var(--ok-soft); }
+  .pill.draft { color: var(--muted); background: var(--bg); }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 14px;
+  }
+  .summary { margin-top: 12px; border-left: 4px solid var(--accent); }
+  .summary p { margin: 0; font-size: 15.5px; }
+  .howto { margin-top: 12px; background: var(--accent-soft); border-color: transparent; }
+  .howto h2 { margin: 0 0 6px; font-size: 17px; }
+  .howto ol { margin: 6px 0 8px; padding-left: 20px; font-size: 14.5px; }
+  .howto li { margin: 5px 0; }
+  .note { color: var(--muted); font-size: 13.5px; }
+  .howto .note { margin: 4px 0 0; }
+
+  .toc {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; gap: 8px;
+    margin: 0 calc(-1 * var(--gutter));
+    padding: 8px var(--gutter);
+    overflow-x: auto;
+    background: var(--page);
+    border-bottom: 1px solid var(--line);
+    scrollbar-width: none;
+  }
+  .toc::-webkit-scrollbar { display: none; }
+  .toc a {
+    flex: none;
+    display: inline-flex; align-items: center;
+    min-height: 44px; padding: 0 14px;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink);
+    font-size: 13px; text-decoration: none; white-space: nowrap;
+  }
+  .toc a.primary { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+
+  section { padding-top: 30px; scroll-margin-top: 72px; }
+  h2 { margin: 0 0 10px; font-size: 20px; line-height: 1.35; letter-spacing: -.01em; }
+  h3 { margin: 0 0 6px; font-size: 16px; line-height: 1.4; }
+  h4 { margin: 16px 0 8px; font-size: 15px; line-height: 1.4; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 20px; }
+  li { margin: 6px 0; }
+  .lead { font-size: 15px; }
+  .bullets { font-size: 14.5px; }
+
+  .mece { margin-top: 10px; padding: 2px 14px; }
+  .mece-row {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+    padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 14.5px;
+  }
+  .mece-row:last-child { border-bottom: 0; }
+  .mece-row .name { min-width: 0; }
+  .mece-row .who { margin-top: 2px; color: var(--muted); font-size: 12.5px; }
+  .mece-row.here {
+    margin: 2px -8px; padding: 11px 8px;
+    border-bottom: 0; border-radius: 10px;
+    background: var(--accent-soft);
+  }
+  .mece-row.here strong { color: var(--accent); }
+
+  .two { display: grid; gap: 10px; }
+  .two .card { border-left-width: 4px; }
+  .two .card h3 { font-size: 15px; }
+  .two .card ul { margin: 6px 0 0; padding-left: 18px; font-size: 14px; }
+  .now { border-left-color: var(--warn) !important; background: var(--warn-soft); }
+  .after { border-left-color: var(--ok) !important; background: var(--ok-soft); }
+
+  .screen-index { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 16px; }
+  .screen-index a {
+    display: inline-flex; align-items: center; min-height: 44px;
+    padding: 0 12px; border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink); font-size: 13px; text-decoration: none;
+  }
+
+  .screen {
+    margin: 16px 0;
+    padding: 14px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+  }
+  .screen-head {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+    margin-bottom: 10px;
+  }
+  .screen-head h3 { margin: 2px 0 0; }
+  .frame { margin: 0; }
+  .frame-scroll {
+    max-width: 100%;
+    overflow-x: auto; overflow-y: hidden;
+    border: 1px solid var(--line); border-radius: 12px;
+    background: #ffffff;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+  .frame-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .frame img { display: block; height: auto; max-width: none; }
+  .fig-phone .frame-scroll { max-width: 390px; margin: 0 auto; }
+  .fig-phone img { width: 100%; }
+  .fig-wide img { width: 1100px; }
+  .fig-board img { width: 1600px; }
+  .frame figcaption {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;
+    margin-top: 8px; color: var(--muted); font-size: 12.5px; line-height: 1.5;
+  }
+  .frame figcaption a { display: inline-flex; align-items: center; min-height: 44px; }
+
+  .flow { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .flow li {
+    display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 10px;
+    padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--bg); font-size: 14.5px;
+  }
+  .flow b { color: var(--accent); font-weight: 600; }
+  .flow span { min-width: 0; overflow-wrap: anywhere; }
+
+  .state-list { display: grid; gap: 8px; margin-top: 10px; }
+  .state {
+    padding: 11px 13px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    font-size: 14px;
+  }
+  .state b { display: block; margin-bottom: 2px; font-size: 14.5px; }
+  .state span { color: var(--muted); }
+
+  .decision {
+    margin: 12px 0;
+    padding: 14px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--accent);
+    border-radius: 14px;
+  }
+  .decision h3 { font-size: 16px; }
+  .decision p { font-size: 14.5px; }
+  .decision .rec { margin: 6px 0; }
+  .decision .rec strong { color: var(--accent); }
+  .decision .tradeoff { color: var(--muted); font-size: 13.5px; }
+  .decision.settled { border-left-color: var(--ok); }
+  .decision.settled .rec strong { color: var(--ok); }
+
+  .reply { margin-top: 10px; }
+  .reply pre {
+    margin: 8px 0 0;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--bg);
+    color: var(--ink);
+    font: 13.5px/1.9 -apple-system, BlinkMacSystemFont, "SF Mono", Menlo, monospace;
+    white-space: pre-wrap;
+  }
+  .sign { border-left: 4px solid var(--ok); }
+  .sign p { margin: 6px 0; }
+
+  footer { margin-top: 34px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  footer p { margin: 4px 0; }
+
+  a:focus-visible, .screen-index a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+
+  @media (min-width: 600px) {
+    body { padding: 26px 0; }
+    .page { min-height: auto; border-radius: 28px; box-shadow: 0 20px 60px rgba(0,0,0,.12); }
+    .toc { border-radius: 0; }
+    .two { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 380px) {
+    .flow li { grid-template-columns: 1fr; gap: 4px; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+
+  <header>
+    <div class="eyebrow">Figma 审阅版 · 已批准 · D1–D5 全部已定</div>
+    <h1>KIN-NOTIFY-001 <small>离开时被叫回来</small></h1>
+    <p class="meta">approved · Mac + 手机 · 对照 <code>KIN-NOTIFY-001.md</code></p>
+    <p class="meta">2026-11-01 · 8 屏 · 10 个状态 · 2026-11-02 批准并实现</p>
+    <p class="meta">
+      <a href="KIN-NOTIFY-001.figma/KIN-NOTIFY-001.board.svg">打开整张 Figma 板（SVG，2240×6744）</a>
+      <a href="KIN-NOTIFY-001.figma/frames/00-overview.svg">只看切法</a>
+    </p>
+    <div class="tags">
+      <span class="pill ok">已批准 2026-11-02</span>
+      <span class="pill plain">J7 · 被叫回来</span>
+      <span class="pill plain">Mac / 手机</span>
+      <span class="pill ok">D1 已定：原生唯一</span>
+    </div>
+  </header>
+
+  <section class="card summary" aria-label="一句话">
+    <p><strong>一句话：</strong>当我合上 Mac、只带着 iPhone，我想在批准、提问、跑完、额度变化的那一刻被这台设备叫住，点一下就落到那一条。</p>
+  </section>
+
+  <section class="card howto" aria-labelledby="how-title">
+    <h2 id="how-title">怎么审</h2>
+    <ol>
+      <li><strong>先看切法</strong>：这条为什么单独成一条，不并进设置。</li>
+      <li><strong>再看每一屏</strong>：先看 Figma 帧，再读帧下面六段用户流程；宽帧在卡片内左右滑动，点「打开原图」可全尺寸看。</li>
+      <li><strong>最后回决定</strong>：D1–D5 已全部定为推荐项，下面保留当时的推荐和代价，作为实现依据。</li>
+    </ol>
+    <p class="note">2026-11-02 已批准「全部同意」：D1 删除旧通道，D2 凭据在节点，D3 锁屏批准留到 KIN-NOTIFY-002，D4 节点统一扇出，D5 六类事件同一管道。</p>
+  </section>
+
+  <nav class="toc" aria-label="页内导航">
+    <a href="#mece" class="primary">切法</a>
+    <a href="#before-after">现在→之后</a>
+    <a href="#screens" class="primary">界面</a>
+    <a href="#states">状态</a>
+    <a href="#decisions" class="primary">决定</a>
+    <a href="#reply">回复模板</a>
+  </nav>
+
+  <section id="mece">
+    <h2>MECE：这条故事切在哪</h2>
+    <p class="note">前五条是人在控制台里做什么；这一条是人离开以后，怎么被带回那一条。</p>
+
+    <div class="card mece">
+      <div class="mece-row">
+        <div class="name">接着问一段对话<div class="who">KIN-CONTINUE-001</div></div>
+        <span class="pill ok">approved</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">新建一段对话<div class="who">KIN-START-001</div></div>
+        <span class="pill draft">draft</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">看它改了什么<div class="who">KIN-RESULT-001</div></div>
+        <span class="pill draft">draft</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">管理对话<div class="who">KIN-MANAGE-001</div></div>
+        <span class="pill draft">draft</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">设置与环境<div class="who">KIN-SETTINGS-001</div></div>
+        <span class="pill draft">draft</span>
+      </div>
+      <div class="mece-row here">
+        <div class="name"><strong>被叫回来（离开控制台）</strong><div class="who">KIN-NOTIFY-001 · 这条</div></div>
+        <span class="pill here">本页</span>
+      </div>
+    </div>
+
+    <ul class="bullets">
+      <li><strong>为什么单独一条：</strong>它不依赖打开哪个页面，既不属于「接着问」，也不属于「设置」。</li>
+      <li><strong>为什么不并进设置：</strong>设置管默认值；这条管离开后叫不叫、点开落到哪。设置页只是权限和状态的入口。</li>
+      <li><strong>设备只是差异：</strong>Mac 和手机一条故事；差异写在「各面差异」，不拆成两条，免得同一条要求写两遍、漏一遍。</li>
+      <li><strong>不在这一条：</strong>iOS 锁屏批准/拒绝 → <code>KIN-NOTIFY-002</code>；按事件开关、免打扰 → <code>KIN-SETTINGS-001</code>；Android 原生推送不做；UI base URL / 额度阈值不动。删除 Bark / ntfy / Web Push 在这一条里做。</li>
+      <li><strong>不改什么：</strong>通知的触发条件、文案语义、收件箱路由沿用今天；APNs 私钥不进设置页、导出或日志。</li>
+      <li><strong>大小：</strong>6 步、8 屏；一次交付；两端都成立。</li>
+    </ul>
+  </section>
+
+  <section id="before-after">
+    <h2>现在 → 之后</h2>
+    <div class="two">
+      <div class="card now">
+        <h3>现在</h3>
+        <ul>
+          <li>Mac 只弹批准和任务终态；提问、额度、例行报告没有原生通知。</li>
+          <li>iPhone 壳里没有 APNs，也没有 Web Push；设置页说“这个浏览器不能接收推送”。</li>
+          <li>节点只有 Bark / ntfy / Web Push 扇出，没有设备登记、没有 APNs，也没有“这台设备能不能收到”的状态。</li>
+        </ul>
+      </div>
+      <div class="card after">
+        <h3>之后</h3>
+        <ul>
+          <li>两端都用各自的原生通知中心；六类事件走同一条管道。</li>
+          <li>点通知落到收件箱的那一条；设置页第一块是“这台设备”。</li>
+          <li>Bark / ntfy / Web Push 删除，升级时清理旧配置；浏览器控制台和 Android 不再收到 Kin 通知。</li>
+          <li>通知丢了不影响收件箱；发送成功不等于看到。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="screens">
+    <h2>界面与用户流程</h2>
+    <p class="note">每一屏先看 Figma 帧，再读下面六段流程。帧是设计源；手机上的小字点「打开原图」放大看。宽帧只在卡片内左右滑动，页面本身不横滚。</p>
+
+    <div class="screen-index" aria-label="界面索引">
+      <a href="#screen-01">01 · Mac 设置</a>
+      <a href="#screen-02">02 · iPhone 设置</a>
+      <a href="#screen-03">03 · iPhone 锁屏</a>
+      <a href="#screen-04">04 · Mac 通知中心</a>
+      <a href="#screen-05">05 · iPhone 收件箱</a>
+      <a href="#screen-06">06 · Mac 收件箱</a>
+      <a href="#screen-07">07 · 十种状态</a>
+      <a href="#screen-08">08 · 修改与收尾</a>
+    </div>
+
+    <article class="screen" id="screen-01">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">01 · Mac · 1100×760 · 步骤 1 / 4</div>
+          <h3>设置 → 通知 · 这台 Mac</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="Mac 设置页通知区块的 Figma 帧" tabindex="0" data-start="330">
+          <img src="KIN-NOTIFY-001.figma/frames/01-mac-settings.svg" width="1100" height="760" alt="Mac 设置页通知区块：顶部是这台 Mac 的已开启状态、发送测试和系统设置按钮，下面列出会收到的六类事件；没有其他通道。" loading="lazy" decoding="async">
+        </div>
+        <figcaption>
+          <span>1100×760 · Mac 帧 · 主区优先，左右滑动看完整</span>
+          <a href="KIN-NOTIFY-001.figma/frames/01-mac-settings.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>菜单栏 Kin → 设置 → 通知。页首只有“这台 Mac”，没有“其他通道”。</span></li>
+        <li><b>动作</b><span>点“在这台 Mac 上启用”；第一次由 macOS 弹通知权限；点“发送测试”验证。</span></li>
+        <li><b>立刻看到</b><span>按钮从“正在登记…”变成“已开启”；同一块写 macOS 权限、最近一次成功/失败、会收到的六类事件；测试结果按这台设备列出。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>权限被拒 → “被系统阻止” + “打开系统设置”；节点离线 → “连不上节点” + 重试；测试 10 秒无回执 → 说清超时和原因；没有设备 → “还没有设备” + 启用入口。</span></li>
+        <li><b>键盘与焦点</b><span>Tab 依次到启用、发送测试、系统设置；触发后焦点留在状态行；Space / Return 可操作；VoiceOver 读状态和下一步。</span></li>
+        <li><b>离开再回来</b><span>状态跨启动保留；已开启不再显示“启用”；从系统设置返回重新读权限，不缓存过期的“已开启”。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-02">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">02 · iPhone · 390×844 · 步骤 1 / 4</div>
+          <h3>设置 → 通知 · 这台 iPhone</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="iPhone 设置页通知区块的 Figma 帧" tabindex="0">
+          <img src="KIN-NOTIFY-001.figma/frames/02-phone-settings.svg" width="390" height="844" alt="iPhone 设置页通知区块：顶部是这台 iPhone 的已开启状态、发送测试和关闭按钮，下面列出 APNs 和会收到的六类事件；没有其他通道。" loading="lazy" decoding="async">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-NOTIFY-001.figma/frames/02-phone-settings.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>iPhone 上的 Kin → 设置 → 通知；页首是“这台 iPhone”。</span></li>
+        <li><b>动作</b><span>点“在这台 iPhone 上启用”；系统权限框选“允许”；点“发送测试”。</span></li>
+        <li><b>立刻看到</b><span>“正在登记…”变成“已开启”；写 APNs 是唯一通道；显示系统权限、最近一次成功/失败和六类事件；测试结果按这台设备列出。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>权限被拒 → “被系统阻止” + “打开 iOS 设置”；节点缺 APNs 凭据 → “这个节点还不能发到 iPhone” + 由管理员配置；token 失效 → 这一行消失 + “需要重新开启”；离线 → “未知”，不拿上次“已开启”充数。</span></li>
+        <li><b>键盘与焦点</b><span>外部键盘 Tab 到启用/测试；权限框返回后焦点回状态行；VoiceOver 读“已开启 / 被阻止”和下一步。</span></li>
+        <li><b>离开再回来</b><span>关闭状态跨启动保留；重新打开不偷偷登记；从 iOS 设置返回重新读权限。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-03">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">03 · iPhone · 390×844 · 步骤 2</div>
+          <h3>锁屏通知 · 叫的是哪一件事</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="iPhone 锁屏通知的 Figma 帧" tabindex="0">
+          <img src="KIN-NOTIFY-001.figma/frames/03-phone-lock.svg" width="390" height="844" alt="iPhone 锁屏上的两条 Kin 通知：一条等待批准，一条已跑完；同一对话的通知归一组。" loading="lazy" decoding="async">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-NOTIFY-001.figma/frames/03-phone-lock.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>应用在后台或锁屏；节点产生一个批准、提问、跑完、失败、额度或例行报告。</span></li>
+        <li><b>动作</b><span>不做任何事，只看锁屏。</span></li>
+        <li><b>立刻看到</b><span>原生横幅/通知中心：标题是对话标题，正文说清事件；同一对话归一组；同一目标的新事件替换旧的那条；不同目标并存。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>设备离线 → APNs 尽力而为，不承诺必达；节点没凭据或发送失败 → 设置页显示最后一次失败原因；同一件事重复上报 → 只留一条，不叠加。</span></li>
+        <li><b>键盘与焦点</b><span>iPhone 上只有点按打开，不做锁屏批准/拒绝（归 <code>KIN-NOTIFY-002</code>）；VoiceOver 读标题和正文。</span></li>
+        <li><b>离开再回来</b><span>通知留在通知中心直到点开或清除；同一目标的新事件替换旧的那条，不同目标并存。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-04">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">04 · Mac · 1100×760 · 步骤 2 / 6</div>
+          <h3>通知中心 · 右上角那一条</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="Mac 右上角通知的 Figma 帧" tabindex="0" data-start="330">
+          <img src="KIN-NOTIFY-001.figma/frames/04-mac-notification-center.svg" width="1100" height="760" alt="Mac 右上角原生通知：标题是对话标题，正文是需要批准的动作，带批准和拒绝按钮；主窗口在通知后面。" loading="lazy" decoding="async">
+        </div>
+        <figcaption>
+          <span>1100×760 · Mac 帧 · 主区优先，左右滑动看完整</span>
+          <a href="KIN-NOTIFY-001.figma/frames/04-mac-notification-center.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>Kin 在菜单栏或后台；节点事件到达。通知不改变窗口状态。</span></li>
+        <li><b>动作</b><span>不做任何事，或者直接点横幅里的“批准 / 拒绝”。</span></li>
+        <li><b>立刻看到</b><span>右上角原生横幅：标题对话、正文事件；批准/提问带批准/拒绝按钮；正在看的那条终态不弹；同一目标新事件替换旧的那条。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>通知权限关 → 设置页“被系统阻止”；重复事件按 kind + id 去重；已处理的事不再弹；发送失败 → 设置页显示最后一次失败原因，不静默。</span></li>
+        <li><b>键盘与焦点</b><span>批准/拒绝可 Tab 和聚焦；点横幅窗口到前台，批准卡片主按钮先接焦点；Esc 回列表；VoiceOver 读标题/正文/按钮。</span></li>
+        <li><b>离开再回来</b><span>通知留在通知中心直到点开或清除；同一条再点不重复跳转；目标只消费一次。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-05">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">05 · iPhone · 390×844 · 步骤 3</div>
+          <h3>收件箱落点 · 点一下就到那一条</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="iPhone 收件箱落点的 Figma 帧" tabindex="0">
+          <img src="KIN-NOTIFY-001.figma/frames/05-phone-inbox.svg" width="390" height="844" alt="iPhone 收件箱：等待批准的卡片被高亮，周围是已处理和提问；通知点开后落到这张卡片。" loading="lazy" decoding="async">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-NOTIFY-001.figma/frames/05-phone-inbox.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>点锁屏或横幅里的通知。</span></li>
+        <li><b>动作</b><span>点一下。</span></li>
+        <li><b>立刻看到</b><span>应用启动或回到前台，落到收件箱里被点名的批准/提问卡片，或那段对话的末尾；目标卡片高亮，标题与通知一致。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>冷启动先显示连接/加载，加载完再落点，不丢目标；那条已处理 → “这一条已经不在了” + 周围列表；节点不可达 → 连接页可重试，目标保留；地址不认识 → 落收件箱，不打开任意 URL。</span></li>
+        <li><b>键盘与焦点</b><span>外部键盘/VoiceOver 焦点落到被点名的卡片；返回回列表；目标只消费一次。</span></li>
+        <li><b>离开再回来</b><span>同一条通知再点不重复跳转；返回后不再次自动跳转；收件箱仍是唯一真相。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-06">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">06 · Mac · 1100×760 · 步骤 3</div>
+          <h3>收件箱落点 · 窗口来到那一条</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="Mac 收件箱落点的 Figma 帧" tabindex="0" data-start="330">
+          <img src="KIN-NOTIFY-001.figma/frames/06-mac-inbox.svg" width="1100" height="760" alt="Mac 收件箱：等待批准的卡片被高亮，侧栏是对话列表和收件箱；通知点开后窗口到前台并定位到这张卡片。" loading="lazy" decoding="async">
+        </div>
+        <figcaption>
+          <span>1100×760 · Mac 帧 · 主区优先，左右滑动看完整</span>
+          <a href="KIN-NOTIFY-001.figma/frames/06-mac-inbox.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>点右上角横幅或通知中心里的一条。</span></li>
+        <li><b>动作</b><span>点通知。</span></li>
+        <li><b>立刻看到</b><span>Kin 窗口到前台并打开那一条；收件箱定位并高亮目标卡片；对话终态落到那段对话的末尾。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>冷启动加载后落点；那条已处理 → 说明 + 周围列表；节点不可达 → 可重试，目标保留；未知 URL → 收件箱。</span></li>
+        <li><b>键盘与焦点</b><span>窗口获得焦点；批准卡片主按钮先接焦点；Esc/返回回列表；VoiceOver 读目标标题。</span></li>
+        <li><b>离开再回来</b><span>目标只消费一次；返回后不自动跳转；同一条再点不重复。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-07">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">07 · 两端 · 2240×892 · 状态</div>
+          <h3>十种状态 · 设置页和通知列表</h3>
+        </div>
+        <span class="pill plain">Figma 板</span>
+      </div>
+      <figure class="frame fig-board">
+        <div class="frame-scroll" role="region" aria-label="十种通知状态的 Figma 板" tabindex="0">
+          <img src="KIN-NOTIFY-001.figma/frames/07-states.svg" width="2240" height="892" alt="十种通知状态的设计板：未开启、登记中、已开启、被系统阻止、节点缺 APNs 凭据、测试失败、离线、没有设备、已关闭、同一条已处理。" loading="lazy" decoding="async">
+        </div>
+        <figcaption>
+          <span>2240×892 · 状态板 · 左右滑动或打开原图</span>
+          <a href="KIN-NOTIFY-001.figma/frames/07-states.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>状态流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>新安装，或刚打开设置 → 通知：未开启。</span></li>
+        <li><b>动作</b><span>点“在这台设备上启用”；系统可能弹权限。</span></li>
+        <li><b>立刻看到</b><span>登记中 → 已开启；或者落到被系统阻止、节点缺 APNs 凭据、测试失败、离线、没有设备。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>每个失败态都有原因和下一步：打开系统设置、重试、找管理员配置；不把上次的“已开启”当现在。</span></li>
+        <li><b>键盘与焦点</b><span>每张状态卡的按钮可 Tab；错误文本可被读屏读到；焦点不丢。</span></li>
+        <li><b>离开再回来</b><span>已关闭跨启动保留；同一条已处理从通知中心移除；状态重新读取，不缓存过期值。</span></li>
+      </ol>
+      <p class="note">浏览器控制台不是通知面：删除 Web Push 后，这一页只说明通知在 Mac / iPhone 原生应用里，不显示启用或测试。</p>
+    </article>
+
+    <article class="screen" id="screen-08">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">08 · 两端 · 2240×720 · 步骤 5 / 6</div>
+          <h3>修改与收尾 · 关掉、重新开启、处理完</h3>
+        </div>
+        <span class="pill plain">Figma 板</span>
+      </div>
+      <figure class="frame fig-board">
+        <div class="frame-scroll" role="region" aria-label="关闭、重新开启、处理完和没处理完的 Figma 板" tabindex="0">
+          <img src="KIN-NOTIFY-001.figma/frames/08-change-quiet.svg" width="2240" height="720" alt="修改与收尾的设计板：在这台设备上关闭、重新开启、处理完通知从通知中心移除、没处理完仍留在收件箱。" loading="lazy" decoding="async">
+        </div>
+        <figcaption>
+          <span>2240×720 · 修改 / 收尾板 · 左右滑动或打开原图</span>
+          <a href="KIN-NOTIFY-001.figma/frames/08-change-quiet.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>一台已开启的设备；或刚处理完一条通知。</span></li>
+        <li><b>动作</b><span>点“在这台设备上关闭”；在手机上解除与节点的配对；或在应用里批准/回答/等它超时。</span></li>
+        <li><b>立刻看到</b><span>这一行变成“已关闭”并从节点删除，不再收新通知；重新开启可以恢复；处理完的通知从通知中心移除；同一目标后续事件替换而不是叠加。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>删除失败 → 保留“已关闭”但标明“节点上的登记还没删掉” + 重试；离线 → 说明关闭只在本机生效，节点恢复后重试；解除配对时登记一并删除；移除失败不报错；重复事件按 kind + id 去重。</span></li>
+        <li><b>键盘与焦点</b><span>按钮可 Tab；没有二次确认（可逆）；成功后焦点留在状态行。</span></li>
+        <li><b>离开再回来</b><span>关闭状态跨启动保留；重新打开应用不会偷偷重新登记，除非用户点启用；通知中心里没有已经处理完的事；收件箱仍是唯一真相。</span></li>
+      </ol>
+    </article>
+  </section>
+
+  <section id="states">
+    <h2>状态检查表</h2>
+    <p class="note">样子看上面 07 的 Figma 板；这里只列每一态必须说出的话和下一步。</p>
+    <div class="state-list">
+      <div class="state"><b>未开启</b><span>说“这台设备还没有开启通知”，给“在这台设备上启用”。</span></div>
+      <div class="state"><b>登记中</b><span>说“正在登记…”，允许离开，回来后看结果。</span></div>
+      <div class="state"><b>已开启</b><span>平台、最近一次成功时间、发送测试、关闭。</span></div>
+      <div class="state"><b>被系统阻止</b><span>说“系统没有允许 Kin 发通知”，给“打开系统设置”，不反复弹权限。</span></div>
+      <div class="state"><b>节点缺 APNs 凭据</b><span>说“这个节点还不能发到 iPhone”，指出由节点管理员配置，不假装已开启。</span></div>
+      <div class="state"><b>测试失败</b><span>按这台设备列原因：超时、token 失效、网络不可达；不给笼统的“发送失败”。</span></div>
+      <div class="state"><b>离线</b><span>状态“未知”，保留上次成功时间；不把旧的“已开启”当现在。</span></div>
+      <div class="state"><b>没有设备</b><span>说“还没有设备”，给启用入口；不显示空表格。</span></div>
+      <div class="state"><b>已关闭</b><span>这一行在节点上也删掉了；可以重新开启。</span></div>
+      <div class="state"><b>同一条已处理</b><span>从通知中心移除；再点旧通知落到收件箱并说明“这一条已经不在了”。</span></div>
+    </div>
+  </section>
+
+  <section id="decisions">
+    <h2>要你拍板的</h2>
+    <p class="note">D1–D5 已全部批准，均按推荐项定下；下面保留当时的推荐和代价。</p>
+    <p class="meta"><a href="KIN-NOTIFY-001.figma/frames/09-decisions.svg">在 Figma 板上看 D1–D5</a></p>
+
+    <div class="card">
+      <h3>先解释两个词</h3>
+      <p><strong>APNs</strong>（Apple Push Notification service）：苹果的推送服务器。iPhone 上的应用退到后台后自己弹不出通知，必须由苹果代送；节点要发，就得先在苹果开发者后台做一把专用钥匙（<strong>APNs 凭据</strong>），由节点管理员配置一次。没有这把钥匙，节点就发不到 iPhone。</p>
+      <p><strong>设备 token</strong>：这台 iPhone 向苹果登记后拿到的一串地址，节点靠它把通知送到这一台手机；重装应用或恢复备份会换新的，旧的要删掉。</p>
+    </div>
+
+    <div class="decision settled">
+      <h3>D1 删除 Bark / ntfy / Web Push 吗？</h3>
+      <p class="rec"><strong>已定：删除。</strong>原生是 Mac/iPhone 的唯一通道；设置页不再有第二套通道，节点不再维护第二套扇出。升级时清理旧配置，不留回退开关。</p>
+      <p class="tradeoff"><strong>代价：</strong>浏览器控制台、Android 和其他设备不再收到 Kin 通知；如果以后要，另开故事。</p>
+    </div>
+
+    <div class="decision settled">
+      <h3>D2 APNs 凭据放在哪？</h3>
+      <p class="rec"><strong>已定：</strong>放在节点，由节点管理员用 CLI 配置；设置页只显示“已配置/未配置”和最后一次错误。</p>
+      <p class="tradeoff"><strong>代价：</strong>管理员要配一次；换来私钥不进 <code>GET /api/settings</code>、导出或日志，登记和发送在同一个 daemon。谁运行任务引擎、发通知，token 和凭据就登记在谁那里；Hub 只转发控制台请求，不能把 token 只留在另一台机器上。</p>
+    </div>
+
+    <div class="decision settled">
+      <h3>D3 iOS 锁屏一键批准/拒绝现在做吗？</h3>
+      <p class="rec"><strong>已定：</strong>不做，归 <code>KIN-NOTIFY-002</code>。先把“叫得到、点得开”做稳。</p>
+      <p class="tradeoff"><strong>代价：</strong>锁屏上只能点开再批准；换来避免权限、审计和误触一起上。</p>
+    </div>
+
+    <div class="decision settled">
+      <h3>D4 Mac 通知由谁触发？</h3>
+      <p class="rec"><strong>已定：</strong>节点统一扇出；桌面壳只负责显示和点击。同一个事件管道产出 APNs / 桌面原生两路。</p>
+      <p class="tradeoff"><strong>代价：</strong>节点多一条扇出路径；换来提问、额度、例行报告不漏，两端不各写一套触发条件。</p>
+    </div>
+
+    <div class="decision settled">
+      <h3>D5 事件范围？</h3>
+      <p class="rec"><strong>已定：</strong>六类事件全走同一条管道：批准、提问、任务终态、额度、例行报告、worker 离线；验收重点前三类。</p>
+      <p class="tradeoff"><strong>代价：</strong>测试面更大；换来后续加事件不用再开一条故事。</p>
+    </div>
+  </section>
+
+  <section id="reply">
+    <h2>回复模板</h2>
+    <div class="card reply">
+      <p class="note">这一轮已结束：2026-11-02 收到「全部同意」。下面是当时发出的回复，留作记录。</p>
+      <pre>D2 同意
+D3 同意
+D4 同意
+D5 同意</pre>
+    </div>
+  </section>
+
+  <section id="sign">
+    <h2>签字</h2>
+    <div class="card sign">
+      <p><code>KIN-NOTIFY-001.md</code> 已是 <code>approved</code>，2026-11-02 起按整条故事交付；真机/模拟器验收待补，补齐后改 <code>covered</code>。</p>
+      <p class="note">Figma 帧或流程改了会重新发这一页；设计源始终是 <code>KIN-NOTIFY-001.figma/frames/</code> 里的 SVG 帧和本页的流程。</p>
+    </div>
+  </section>
+
+  <footer>
+    <p>设计源：<code>KIN-NOTIFY-001.figma/frames/</code>（SVG 帧）</p>
+    <p>审阅编排：<code>KIN-NOTIFY-001.review.html</code>（本页）</p>
+    <p>合同：<code>KIN-NOTIFY-001.md</code></p>
+    <p>Figma 审阅版 · figma-flow-v1</p>
+  </footer>
+
+</main>
+<script>
+  // 宽帧默认露出主区；仍可左右滑回侧栏。无脚本时从左侧开始，不影响阅读。
+  for (const el of document.querySelectorAll('.frame-scroll[data-start]')) {
+    el.scrollLeft = Number(el.dataset.start) || 0;
+  }
+</script>
+</body>
+</html>
