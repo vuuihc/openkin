@@ -181,10 +181,26 @@ docker exec openkin-hub kin hub login-link --email owner@example.com --domain ki
 - 安装脚本：`scripts/install-hub.test.sh` 已入库并由 `scripts/check.sh` 执行，用假
   `docker` 覆盖首次写入 `.env`（600）、重复运行保留 OAuth 键与 overlay、拒绝改域名、
   stdout 只有一行 URL、认领/登录两种提示与各自的 TTL。
-- 真机：在 NAS 上跑一次脚本，stdout 得到的链接在浏览器里打开后直接进入已登录界面；
-  同一链接第二次打开落到登录页并显示「登录链接无效或已过期」。
+- 真机端到端（未做，见 §8）：在 NAS 上跑一次脚本，stdout 得到的链接在浏览器里打开后
+  直接进入已登录界面；同一链接第二次打开落到登录页并显示「登录链接无效或已过期」。
 
-## 8. 遗留风险
+## 8. 部署记录（2026-11-03）
+
+- 镜像在本机用 `docker buildx build --platform linux/amd64 --load` 构建；NAS 上原镜像
+  保留为 `openkin:dogfood-prev`，`docker save | ssh docker load` 传输后用
+  `docker compose -f docker-compose.dogfood.yml -f docker-compose.oauth.yml up -d`
+  重建。openkin-hub 与 openkin-dex-1 均为 `Up (healthy)`，容器内 `kin health` 通过。
+- 公网首页返回 `assets/index-DXS-1lQZ.js`，与本次提交的 `web/dist/index.html` 一致；
+  `POST /api/auth/login-link` 用一个不存在的 64 位十六进制令牌请求返回 401，说明路由
+  已上线且没有签发任何真实链接（真实令牌不打印、不外传）。
+- 本机 desktop 重建：`scripts/desktop-rebuild.sh` 构建 UI 与 `kin`、刷新
+  `~/.kin/node/kin` 并重启本地节点；`:7777` 首页同样返回 `index-DXS-1lQZ.js`，
+  Electron 已连上 `ws://127.0.0.1:7777/api/ws`。
+- **未做**：没有在 NAS 上端到端跑 `scripts/install-hub.sh`——那会重建现有 Hub，而本轮
+  只做镜像替换。脚本行为由假 Docker 契约测试覆盖，真实 Compose 上的首次安装仍应在
+  一台干净机器上验证一次。
+
+## 9. 遗留风险
 
 - 链接一经发出就等价于密码；在过期前被转发给第三方，第三方也能登录。TTL 与一次性
   是仅有的约束。
