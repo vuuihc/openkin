@@ -2502,6 +2502,9 @@ func (s *Store) ensureCurrentSchema() error {
 	if err := s.ensureInviteSchema(); err != nil {
 		return err
 	}
+	if err := s.ensureLoginLinkSchema(); err != nil {
+		return err
+	}
 	if err := s.ensureDeviceAgentSchema(); err != nil {
 		return err
 	}
@@ -2730,6 +2733,36 @@ CREATE INDEX IF NOT EXISTS idx_invite_tokens_active
   ON invite_tokens(expires_at, used_at);
 `); err != nil {
 		return fmt.Errorf("create invite_tokens: %w", err)
+	}
+	return nil
+}
+
+// ensureLoginLinkSchema creates the one-time sign-in link table, on every open,
+// for databases written before it existed. Like ensureInviteSchema this is the
+// table's only definition: nothing else creates login_tokens, so a second copy
+// in the base schema could only disagree with this one.
+//
+// These are separate from auth_sessions, which they end up creating: a session
+// is a credential the browser keeps, while a login link is a credential handed
+// over chat or a terminal and spent exactly once. Storing one as the other would
+// make a link either long-lived or a session single-use.
+//
+// user_id is what lets a fresh link retire the account's older ones. Links are
+// pasted into places that keep them, so "issue a new one" has to mean the
+// previous one stopped working rather than that both are now live.
+func (s *Store) ensureLoginLinkSchema() error {
+	if _, err := s.db.Exec(`
+CREATE TABLE IF NOT EXISTS login_tokens (
+  token_hash TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at    INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_login_tokens_user
+  ON login_tokens(user_id, used_at);
+`); err != nil {
+		return fmt.Errorf("create login_tokens: %w", err)
 	}
 	return nil
 }

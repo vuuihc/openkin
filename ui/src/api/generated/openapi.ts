@@ -1337,6 +1337,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/login-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Spend a one-time sign-in link. The token is the value the Hub printed in
+         *     the URL fragment (`#login=…`); the console reads it and posts it here so
+         *     it never appears in a server access log or a link preview. A successful
+         *     spend sets the same `kin_session` cookie as a password login. Unknown,
+         *     expired, already-used, and disabled-account links answer the same 401.
+         *      */
+        post: operations["loginWithLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/logout": {
         parameters: {
             query?: never;
@@ -3849,6 +3871,10 @@ export interface components {
             email: string;
             /** Format: password */
             password: string;
+        };
+        AuthLoginLinkRequest: {
+            /** @description The one-time token from the sign-in link's URL fragment. */
+            token: string;
         };
         AuthSessionResponse: {
             user: components["schemas"]["AuthUser"];
@@ -7332,6 +7358,54 @@ export interface operations {
                 };
             };
             /** @description Invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+            /** @description Accounts are not enabled on this daemon */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many attempts from this client */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    loginWithLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthLoginLinkRequest"];
+            };
+        };
+        responses: {
+            /** @description Signed in */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthSessionResponse"];
+                };
+            };
+            /** @description The link is not valid, has expired, or was already spent */
             401: {
                 headers: {
                     [name: string]: unknown;

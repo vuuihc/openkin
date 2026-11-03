@@ -254,6 +254,41 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type loginLinkRequest struct {
+	Token string `json:"token"`
+}
+
+// handleAuthLoginLink spends a one-time sign-in link. It lives beside the
+// password login because it answers the same question by a different proof:
+// possession of a secret the operator printed on the Hub, rather than a password
+// the person chose. The link is consumed even when opening the session then
+// fails, which is the safe direction -- a retry needs a new link.
+func (s *Server) handleAuthLoginLink(w http.ResponseWriter, r *http.Request) {
+	if !s.accountsEnabled() {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "accounts are not enabled"})
+		return
+	}
+	if !s.Auth.AllowAttempt(r) {
+		writeJSON(w, http.StatusTooManyRequests, authErrorBody("rate_limited", "too many attempts"))
+		return
+	}
+	var req loginLinkRequest
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+	session, err := s.Accounts.ConsumeLoginLink(r.Context(), req.Token, sessionMeta(r))
+	if err != nil {
+		s.Auth.NoteFailure(r)
+		writeJSON(w, http.StatusUnauthorized, authError(err))
+		return
+	}
+	s.setSessionCookie(w, r, session)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user":       s.authUserView(r, session.User),
+		"expires_at": session.ExpiresAt.UnixMilli(),
+	})
+}
+
 func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 	if s.accountsEnabled() {
 		if cookie, err := r.Cookie(remote.SessionCookieName); err == nil {
@@ -395,6 +430,8 @@ func authErrorMessage(err error) string {
 		return "that claim code is not valid or has expired"
 	case errors.Is(err, auth.ErrInviteUnavailable):
 		return "that invitation is not valid or has expired"
+	case errors.Is(err, auth.ErrLoginLinkUnavailable):
+		return "that sign-in link is not valid or has expired"
 	case errors.Is(err, auth.ErrRegistrationClosed):
 		return "this hub already has an owner; sign in instead"
 	case errors.Is(err, auth.ErrIdentityNotLinked):
@@ -421,6 +458,8 @@ func authErrorCode(err error) string {
 		return "claim_code_invalid"
 	case errors.Is(err, auth.ErrInviteUnavailable):
 		return "invite_invalid"
+	case errors.Is(err, auth.ErrLoginLinkUnavailable):
+		return "login_link_invalid"
 	case errors.Is(err, auth.ErrRegistrationClosed):
 		return "registration_closed"
 	case errors.Is(err, auth.ErrIdentityNotLinked):

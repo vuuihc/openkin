@@ -2,9 +2,11 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -176,6 +178,250 @@ func TestLoginPassword(t *testing.T) {
 			t.Fatalf("unknown account = %v, want ErrInvalidCredentials", err)
 		}
 	})
+}
+
+func TestLoginLinkSignsInOnce(t *testing.T) {
+	svc, st := newTestService(t)
+	ctx := context.Background()
+	owner := claimOwner(t, svc, st, "owner@example.com", "hunter2hunter2")
+
+	link, err := svc.IssueLoginLink(ctx, owner.ID)
+	if err != nil {
+		t.Fatalf("issue login link: %v", err)
+	}
+	if len(link.Token) != 64 {
+		t.Fatalf("token length = %d, want 64 hex characters", len(link.Token))
+	}
+	if !link.ExpiresAt.After(time.Now()) {
+		t.Fatalf("link expiry %v is not in the future", link.ExpiresAt)
+	}
+
+	// Case is the one thing a chat client may change about a hex token; the
+	// service lowercases before hashing so the link still works.
+	session, err := svc.ConsumeLoginLink(ctx, strings.ToUpper(link.Token), SessionMeta{UserAgent: "phone", IP: "192.0.2.10"})
+	if err != nil {
+		t.Fatalf("consume login link: %v", err)
+	}
+	user, err := svc.Authenticate(ctx, session.Token)
+	if err != nil {
+		t.Fatalf("authenticate the new session: %v", err)
+	}
+	if user.ID != owner.ID {
+		t.Fatalf("link signed in as %s, want %s", user.ID, owner.ID)
+	}
+
+	if _, err := svc.ConsumeLoginLink(ctx, link.Token, SessionMeta{}); !errors.Is(err, ErrLoginLinkUnavailable) {
+		t.Fatalf("second use = %v, want ErrLoginLinkUnavailable", err)
+	}
+	if _, err := svc.ConsumeLoginLink(ctx, strings.Repeat("0", 64), SessionMeta{}); !errors.Is(err, ErrLoginLinkUnavailable) {
+		t.Fatalf("unknown token = %v, want ErrLoginLinkUnavailable", err)
+	}
+	if _, err := svc.ConsumeLoginLink(ctx, "  ", SessionMeta{}); !errors.Is(err, ErrLoginLinkUnavailable) {
+		t.Fatalf("empty token = %v, want ErrLoginLinkUnavailable", err)
+	}
+}
+
+func TestLoginLinkExpires(t *testing.T) {
+	now := time.Now()
+	svc, st := newTestService(t)
+	svc.cfg.Now = func() time.Time { return now }
+	owner := claimOwner(t, svc, st, "owner@example.com", "hunter2hunter2")
+
+	link, err := svc.IssueLoginLink(context.Background(), owner.ID)
+	if err != nil {
+		t.Fatalf("issue login link: %v", err)
+	}
+	if got, want := link.ExpiresAt, now.Add(DefaultLoginLinkTTL); !got.Equal(want) {
+		t.Fatalf("expiry = %v, want %v", got, want)
+	}
+	svc.cfg.Now = func() time.Time { return now.Add(DefaultLoginLinkTTL + time.Second) }
+	if _, err := svc.ConsumeLoginLink(context.Background(), link.Token, SessionMeta{}); !errors.Is(err, ErrLoginLinkUnavailable) {
+		t.Fatalf("expired link = %v, want ErrLoginLinkUnavailable", err)
+	}
+}
+
+// Minting a replacement has to retire the old link: these are pasted into chat
+// transcripts and shell scrollback, so "issue a new one" cannot mean both work.
+// Another account's link is untouched -- links are per person, like invitations.
+func TestIssuingALoginLinkRetiresOnlyThatAccountsPreviousLink(t *testing.T) {
+	svc, st := newTestService(t)
+	ctx := context.Background()
+	owner := claimOwner(t, svc, st, "owner@example.com", "hunter2hunter2")
+
+	invite, err := svc.IssueInvite(ctx)
+	if err != nil {
+		t.Fatalf("issue invitation: %v", err)
+	}
+	member, err := svc.RedeemInvite(ctx, invite.Code, "member@example.com", "hunter2hunter2", "", SessionMeta{})
+	if err != nil {
+		t.Fatalf("redeem invitation: %v", err)
+	}
+
+	oldOwnerLink, err := svc.IssueLoginLink(ctx, owner.ID)
+	if err != nil {
+		t.Fatalf("issue first owner link: %v", err)
+	}
+	memberLink, err := svc.IssueLoginLink(ctx, member.User.ID)
+	if err != nil {
+		t.Fatalf("issue member link: %v", err)
+	}
+	newOwnerLink, err := svc.IssueLoginLink(ctx, owner.ID)
+	if err != nil {
+		t.Fatalf("issue second owner link: %v", err)
+	}
+
+	if _, err := svc.ConsumeLoginLink(ctx, oldOwnerLink.Token, SessionMeta{}); !errors.Is(err, ErrLoginLinkUnavailable) {
+		t.Fatalf("retired owner link = %v, want ErrLoginLinkUnavailable", err)
+	}
+	if _, err := svc.ConsumeLoginLink(ctx, newOwnerLink.Token, SessionMeta{}); err != nil {
+		t.Fatalf("current owner link: %v", err)
+	}
+	if _, err := svc.ConsumeLoginLink(ctx, memberLink.Token, SessionMeta{}); err != nil {
+		t.Fatalf("member link was retired by the owner's link: %v", err)
+	}
+}
+
+// The link is a bearer credential with no second factor, so only one concurrent
+// caller may spend it.
+func TestLoginLinkIsSingleUseUnderConcurrency(t *testing.T) {
+	svc, st := newTestService(t)
+	ctx := context.Background()
+	owner := claimOwner(t, svc, st, "owner@example.com", "hunter2hunter2")
+	link, err := svc.IssueLoginLink(ctx, owner.ID)
+	if err != nil {
+		t.Fatalf("issue login link: %v", err)
+	}
+
+	const callers = 8
+	var wg sync.WaitGroup
+	results := make(chan error, callers)
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := svc.ConsumeLoginLink(ctx, link.Token, SessionMeta{})
+			results <- err
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	var succeeded int
+	for err := range results {
+		if err == nil {
+			succeeded++
+			continue
+		}
+		if !errors.Is(err, ErrLoginLinkUnavailable) {
+			t.Fatalf("losing caller = %v, want ErrLoginLinkUnavailable", err)
+		}
+	}
+	if succeeded != 1 {
+		t.Fatalf("%d callers spent one link, want exactly 1", succeeded)
+	}
+}
+
+// A reset is what an operator runs when a credential leaked. Ending sessions
+// but leaving an unspent sign-in link live would leave exactly the way back in
+// the reset was meant to close.
+func TestResetPasswordRetiresUnusedLoginLinks(t *testing.T) {
+	svc, st := newTestService(t)
+	ctx := context.Background()
+	owner := claimOwner(t, svc, st, "owner@example.com", "hunter2hunter2")
+	link, err := svc.IssueLoginLink(ctx, owner.ID)
+	if err != nil {
+		t.Fatalf("issue login link: %v", err)
+	}
+
+	if _, err := svc.ResetPassword(ctx, "owner@example.com", "newpassword123"); err != nil {
+		t.Fatalf("reset password: %v", err)
+	}
+
+	if _, err := svc.ConsumeLoginLink(ctx, link.Token, SessionMeta{}); !errors.Is(err, ErrLoginLinkUnavailable) {
+		t.Fatalf("link issued before a reset = %v, want ErrLoginLinkUnavailable", err)
+	}
+}
+
+// The disabled column has no product command yet, so the test writes it the way
+// an operator eventually would: straight to the database.
+func TestLoginLinkRefusesADisabledAccount(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "kin.db")
+	st, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	svc := New(st, Config{})
+	ctx := context.Background()
+	owner := claimOwner(t, svc, st, "owner@example.com", "hunter2hunter2")
+	link, err := svc.IssueLoginLink(ctx, owner.ID)
+	if err != nil {
+		t.Fatalf("issue login link: %v", err)
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open second connection: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(ctx,
+		`UPDATE users SET disabled_at = ? WHERE id = ?`, time.Now().UnixMilli(), owner.ID); err != nil {
+		t.Fatalf("disable account: %v", err)
+	}
+
+	if _, err := svc.IssueLoginLink(ctx, owner.ID); !errors.Is(err, ErrAccountDisabled) {
+		t.Fatalf("issue for a disabled account = %v, want ErrAccountDisabled", err)
+	}
+	if _, err := svc.ConsumeLoginLink(ctx, link.Token, SessionMeta{}); !errors.Is(err, ErrLoginLinkUnavailable) {
+		t.Fatalf("link for a disabled account = %v, want ErrLoginLinkUnavailable", err)
+	}
+}
+
+// A Hub created before sign-in links existed has no login_tokens table. The
+// upgrade path has to be opening the same database with the new binary: if the
+// table is only created alongside new accounts, the first `kin hub init` on an
+// upgraded deployment fails at the one moment somebody is locked out.
+func TestLoginLinkSchemaIsAddedToAnOlderDatabase(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "kin.db")
+	st, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	svc := New(st, Config{})
+	ctx := context.Background()
+	owner := claimOwner(t, svc, st, "owner@example.com", "hunter2hunter2")
+	if err := st.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+
+	// The database as an older build left it.
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open raw connection: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `DROP TABLE login_tokens`); err != nil {
+		db.Close()
+		t.Fatalf("drop login_tokens: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close raw connection: %v", err)
+	}
+
+	st, err = store.Open(dbPath)
+	if err != nil {
+		t.Fatalf("reopen upgraded store: %v", err)
+	}
+	defer st.Close()
+	svc = New(st, Config{})
+	link, err := svc.IssueLoginLink(ctx, owner.ID)
+	if err != nil {
+		t.Fatalf("issue login link after the upgrade: %v", err)
+	}
+	if _, err := svc.ConsumeLoginLink(ctx, link.Token, SessionMeta{}); err != nil {
+		t.Fatalf("consume login link after the upgrade: %v", err)
+	}
 }
 
 func TestSessionLifecycle(t *testing.T) {

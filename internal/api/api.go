@@ -284,6 +284,10 @@ func (s *Server) Handler() http.Handler {
 	r.Post("/api/auth/bootstrap", s.handleAuthBootstrap)
 	r.Post("/api/auth/join", s.handleAuthJoin)
 	r.Post("/api/auth/login", s.handleAuthLogin)
+	// A one-time sign-in link is spent by the console after it reads the token
+	// from the URL fragment; the token never reaches the server as part of a
+	// page request, so link previews and access logs cannot replay it.
+	r.Post("/api/auth/login-link", s.handleAuthLoginLink)
 	r.Post("/api/auth/logout", s.handleAuthLogout)
 	r.Get("/api/auth/me", s.handleAuthMe)
 	r.Get("/api/auth/oidc/start", s.handleOIDCStart)

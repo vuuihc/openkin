@@ -64,6 +64,10 @@ info:
     - Later members are created by `POST /api/auth/join` with an invitation
       code. The route decides the role; the body never does.
     - Password sign-in is `POST /api/auth/login`.
+    - A one-time sign-in link is spent by `POST /api/auth/login-link`. The
+      token comes from the URL fragment (`#login=…`) that `kin hub init` or
+      `kin hub login-link` printed; the console posts it so it never reaches a
+      server as part of a page request, an access log, or a link preview.
     - OIDC sign-in starts at `GET /api/auth/oidc/start` and completes at
       `GET /api/auth/oidc/callback`, which redirects into the console. A caller
       that already has a session links the provider identity to that account
@@ -2038,6 +2042,43 @@ paths:
                 $ref: "#/components/schemas/AuthSessionResponse"
         "401":
           description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthErrorResponse"
+        "404":
+          description: Accounts are not enabled on this daemon
+        "429":
+          description: Too many attempts from this client
+  /api/auth/login-link:
+    post:
+      operationId: loginWithLink
+      security: []
+      description: |
+        Spend a one-time sign-in link. The token is the value the Hub printed in
+        the URL fragment (`#login=…`); the console reads it and posts it here so
+        it never appears in a server access log or a link preview. A successful
+        spend sets the same `kin_session` cookie as a password login. Unknown,
+        expired, already-used, and disabled-account links answer the same 401.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthLoginLinkRequest"
+      responses:
+        "200":
+          description: Signed in
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSessionResponse"
+        "401":
+          description: The link is not valid, has expired, or was already spent
           content:
             application/json:
               schema:
@@ -6601,6 +6642,13 @@ components:
         password:
           type: string
           format: password
+    AuthLoginLinkRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: The one-time token from the sign-in link's URL fragment.
     AuthSessionResponse:
       type: object
       required: [user, expires_at]
