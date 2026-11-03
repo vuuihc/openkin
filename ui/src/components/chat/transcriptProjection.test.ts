@@ -25,7 +25,7 @@ import {
   type Turn,
 } from "./transcriptProjection";
 
-function ev(seq: number, type: string, payload: unknown): TaskEvent {
+function ev(seq: number, type: string, payload: TaskEvent["payload"]): TaskEvent {
   return {
     task_id: "task-1",
     event_epoch: 0,

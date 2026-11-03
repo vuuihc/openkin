@@ -1,0 +1,212 @@
+[
+  {
+    "label": "a sign-in link never expires",
+    "file": "internal/store/identity.go",
+    "test": "go test ./internal/auth -run TestLoginLinkExpires -count=1",
+    "old": "\tif usedAt.Valid || expiresAt <= now {\n\t\treturn \"\", ErrNotFound\n\t}",
+    "new": "\tif false {\n\t\treturn \"\", ErrNotFound\n\t}"
+  },
+  {
+    "label": "both single-use guards are gone",
+    "file": "internal/store/identity.go",
+    "test": "go test ./internal/auth -run TestLoginLinkSignsInOnce -count=1",
+    "old": "\tif usedAt.Valid || expiresAt <= now {\n\t\treturn \"\", ErrNotFound\n\t}\n\tres, err := tx.ExecContext(ctx,\n\t\t`UPDATE login_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL`,\n\t\tnow, tokenHash)",
+    "new": "\tif false {\n\t\treturn \"\", ErrNotFound\n\t}\n\tres, err := tx.ExecContext(ctx,\n\t\t`UPDATE login_tokens SET used_at = ? WHERE token_hash = ?`,\n\t\tnow, tokenHash)"
+  },
+  {
+    "label": "a new link does not retire the account's old link",
+    "file": "internal/store/identity.go",
+    "test": "go test ./internal/auth -run TestIssuingALoginLinkRetiresOnlyThatAccountsPreviousLink -count=1",
+    "old": "\t\t`UPDATE login_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL`,\n\t\tnow, userID); err != nil {\n\t\treturn fmt.Errorf(\"invalidate login tokens: %w\", err)",
+    "new": "\t\t`UPDATE login_tokens SET used_at = ? WHERE 0 AND user_id = ? AND used_at IS NULL`,\n\t\tnow, userID); err != nil {\n\t\treturn fmt.Errorf(\"invalidate login tokens: %w\", err)"
+  },
+  {
+    "label": "a link stops accepting the upper-case hex a chat client may produce",
+    "file": "internal/auth/service.go",
+    "test": "go test ./internal/auth -run TestLoginLinkSignsInOnce -count=1",
+    "old": "\ttoken = strings.ToLower(strings.TrimSpace(token))",
+    "new": "\ttoken = strings.TrimSpace(token)"
+  },
+  {
+    "label": "the sign-in token moves out of the fragment and into the query string",
+    "file": "internal/server/hub.go",
+    "test": "go test ./internal/server -run TestRunHubInitCreatesTheOwnerAndPrintsAWorkingLoginLink -count=1",
+    "old": "\treturn hubOrigin(domain) + \"/#login=\" + token",
+    "new": "\treturn hubOrigin(domain) + \"/?login=\" + token"
+  },
+  {
+    "label": "a claim link no longer fills the claim code in",
+    "file": "ui/src/lib/accountGate.ts",
+    "test": "cd ui && npx vitest run src/lib/accountGate.test.ts src/components/AccountScreen.test.tsx",
+    "old": "  if (mode === \"claim\") return claimFromQuery(search) || claimFromHash(hash);",
+    "new": "  if (mode === \"claim\") return \"\";"
+  },
+  {
+    "label": "a truncated token is posted as if it were a sign-in link",
+    "file": "ui/src/lib/loginLink.ts",
+    "test": "cd ui && npx vitest run src/lib/loginLink.test.ts",
+    "old": "  return LOGIN_TOKEN.test(token) ? token : \"\";",
+    "new": "  return token;"
+  },
+  {
+    "label": "the sign-in token stays in the address bar",
+    "file": "ui/src/lib/loginLink.ts",
+    "test": "cd ui && npx vitest run src/lib/loginLink.test.ts",
+    "old": "  params.delete(\"login\");\n  url.hash = params.toString();",
+    "new": "  params.delete(\"login\");\n  void params;"
+  },
+  {
+    "label": "the claim help calls any typed code a followed link",
+    "file": "ui/src/components/AccountScreen.tsx",
+    "test": "cd ui && npx vitest run src/components/AccountScreen.test.tsx",
+    "old": "            {codeCameFromLink ? (",
+    "new": "            {code ? ("
+  },
+  {
+    "label": "the claim code moves out of the fragment and into the query string",
+    "file": "internal/server/hub.go",
+    "test": "go test ./internal/server -run TestRunHubInitPrintsAClaimLinkThatClaimsTheHub -count=1",
+    "old": "\treturn hubOrigin(domain) + \"/#claim=\" + code",
+    "new": "\treturn hubOrigin(domain) + \"/?claim=\" + code"
+  },
+  {
+    "label": "a password reset leaves unspent sign-in links live",
+    "file": "internal/store/identity.go",
+    "test": "go test ./internal/auth -run TestResetPasswordRetiresUnusedLoginLinks -count=1",
+    "old": "\t\t`UPDATE login_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL`,\n\t\tnow, userID); err != nil {\n\t\treturn fmt.Errorf(\"retire login tokens: %w\", err)",
+    "new": "\t\t`UPDATE login_tokens SET used_at = ? WHERE 0 AND user_id = ? AND used_at IS NULL`,\n\t\tnow, userID); err != nil {\n\t\treturn fmt.Errorf(\"retire login tokens: %w\", err)"
+  },
+  {
+    "label": "the console ignores a claim code carried in the fragment",
+    "file": "ui/src/lib/accountGate.ts",
+    "test": "cd ui && npx vitest run src/lib/accountGate.test.ts src/components/AccountScreen.test.tsx",
+    "old": "  if (mode === \"claim\") return claimFromQuery(search) || claimFromHash(hash);",
+    "new": "  if (mode === \"claim\") return claimFromQuery(search);"
+  },
+  {
+    "label": "the claim code stays in the address bar after the form reads it",
+    "file": "ui/src/components/AccountScreen.tsx",
+    "test": "cd ui && npx vitest run src/components/AccountScreen.test.tsx",
+    "old": "    const cleaned = withoutClaimHash(url.toString());",
+    "new": "    const cleaned = url.toString();"
+  },
+  {
+    "label": "the installer parses .env itself instead of asking Compose",
+    "file": "scripts/install-hub.sh",
+    "test": "./scripts/install-hub.test.sh",
+    "old": "file_domain=$(compose_env KIN_DOMAIN file)",
+    "new": "file_domain=$(env_value KIN_DOMAIN)"
+  },
+  {
+    "label": "the installer drops the Compose files a running Hub was started with",
+    "file": "scripts/install-hub.sh",
+    "test": "./scripts/install-hub.test.sh",
+    "old": "\t\t\tcompose_files+=(-f \"$recorded_file\")",
+    "new": "\t\t\t: \"$recorded_file\""
+  },
+  {
+    "label": "the installer never builds the checkout it was handed",
+    "file": "scripts/install-hub.sh",
+    "test": "./scripts/install-hub.test.sh",
+    "old": "config_out=$(compose config 2>/dev/null || true)\nif grep -qE '^[[:space:]]+build:' <<<\"$config_out\"; then",
+    "new": "if false; then"
+  },
+  {
+    "label": "the installer waits for a healthcheck that does not exist",
+    "file": "scripts/install-hub.sh",
+    "test": "./scripts/install-hub.test.sh",
+    "old": "\t\tif [ -z \"$has_health\" ] && compose exec -T \"$service\" kin health >/dev/null 2>&1; then",
+    "new": "\t\tif false; then"
+  },
+  {
+    "label": "the installer hands out a link before the daemon answers",
+    "file": "scripts/install-hub.sh",
+    "test": "./scripts/install-hub.test.sh",
+    "old": "if ! compose exec -T \"$service\" kin health >/dev/null 2>&1; then",
+    "new": "if false; then"
+  },
+  {
+    "label": "the installer lets an exported-but-empty hostname through",
+    "file": "scripts/install-hub.sh",
+    "test": "./scripts/install-hub.test.sh",
+    "old": "if [ \"${KIN_DOMAIN+set}\" = set ] && [ -z \"$KIN_DOMAIN\" ]; then",
+    "new": "if false; then"
+  },
+  {
+    "label": "kin health calls any HTTP answer healthy",
+    "file": "cmd/kin/main.go",
+    "test": "go test ./cmd/kin -run TestRunHealthChecksTheDaemonsAnswer -count=1",
+    "old": "\tif resp.StatusCode != http.StatusOK {",
+    "new": "\tif false {"
+  },
+  {
+    "label": "an old-style claim link keeps its code in the address bar",
+    "file": "ui/src/components/AccountScreen.tsx",
+    "test": "cd ui && npx vitest run src/components/AccountScreen.test.tsx",
+    "old": "    const url = new URL(window.location.href);\n    url.searchParams.delete(\"claim\");",
+    "new": "    const url = new URL(window.location.href);"
+  },
+  {
+    "label": "a dead-link message stays in a signed-in visitor's URL",
+    "file": "ui/src/api/account.ts",
+    "test": "cd ui && npx vitest run src/api/account.test.ts",
+    "old": "  if (cleaned) window.history.replaceState({}, \"\", url.toString());\n}",
+    "new": "  void cleaned;\n}"
+  },
+  {
+    "label": "human mode prints a bare slash as the front door",
+    "file": "internal/server/hub.go",
+    "test": "go test ./internal/server -run TestRunHubInitWithoutAnAddressOrAHostAsksForOne -count=1",
+    "old": "\t\tif domain == \"\" {",
+    "new": "\t\tif false {"
+  },
+  {
+    "label": "the installer joins a new key onto an unterminated last line",
+    "file": "scripts/install-hub.sh",
+    "test": "./scripts/install-hub.test.sh",
+    "old": "\tif [ -s \"$env_file\" ] && [ \"$(tail -c 1 \"$env_file\" | wc -l | tr -d ' ')\" -eq 0 ]; then",
+    "new": "\tif false; then"
+  },
+  {
+    "label": "the installer decides build from a pipeline that can fail early",
+    "file": "scripts/install-hub.sh",
+    "test": "./scripts/install-hub.test.sh",
+    "old": "config_out=$(compose config 2>/dev/null || true)\nif grep -qE '^[[:space:]]+build:' <<<\"$config_out\"; then",
+    "new": "if compose config 2>/dev/null | grep -qE '^[[:space:]]+build:'; then"
+  },
+  {
+    "label": "a non-numeric install timeout reaches shell arithmetic",
+    "file": "scripts/install-hub.sh",
+    "test": "./scripts/install-hub.test.sh",
+    "old": "case \"$timeout\" in\n*[!0-9]* | \"\") die \"KIN_INSTALL_TIMEOUT must be a whole number of seconds (got: $timeout)\" ;;\nesac",
+    "new": ": \"$timeout\""
+  },
+  {
+    "label": "the console posts the link with the wrong body key",
+    "file": "ui/src/api/account.ts",
+    "test": "cd ui && npx vitest run src/api/account.test.ts",
+    "old": "      body: JSON.stringify({ token }),",
+    "new": "      body: JSON.stringify({ link: token }),"
+  },
+  {
+    "label": "a mangled sign-in link is treated as no link at all",
+    "file": "ui/src/lib/loginLink.ts",
+    "test": "cd ui && npx vitest run src/lib/loginLink.test.ts",
+    "old": "  return { token, malformed: token === \"\" };",
+    "new": "  return { token, malformed: false };"
+  },
+  {
+    "label": "clearing a sign-in token also clears the rest of the fragment",
+    "file": "ui/src/lib/loginLink.ts",
+    "test": "cd ui && npx vitest run src/lib/loginLink.test.ts",
+    "old": "  params.delete(\"login\");\n  url.hash = params.toString();",
+    "new": "  params.delete(\"login\");\n  url.hash = \"\";"
+  },
+  {
+    "label": "a failed link leaves a signed-in visitor on the sign-in gate",
+    "file": "ui/src/api/account.ts",
+    "test": "cd ui && npx vitest run src/api/account.test.ts",
+    "old": "    useAppStore.getState().setAuthOk();\n    return;",
+    "new": "    return;"
+  }
+]

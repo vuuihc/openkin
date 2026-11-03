@@ -40,6 +40,12 @@ export type AccountState = {
   providers: AccountProvider[];
   email?: string;
   displayName?: string;
+  /**
+   * Provider ids this account can actually sign in with, as reported by the
+   * Hub. A provider in `providers` is merely offered; one in `identities` is
+   * linked to this account and usable at the login screen.
+   */
+  identities: string[];
 };
 
 export const NO_ACCOUNT: AccountState = {
@@ -48,6 +54,7 @@ export const NO_ACCOUNT: AccountState = {
   needsBootstrap: false,
   claimable: false,
   providers: [],
+  identities: [],
 };
 
 export type WSStatus = "connecting" | "connected" | "disconnected";

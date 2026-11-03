@@ -554,7 +554,7 @@ func TestPasswordResetDeletesEverySessionsRegistration(t *testing.T) {
 		}
 	}
 
-	if err := s.ReplacePasswordAndEndSessions(ctx, "identity-1", "user-1", "new-hash"); err != nil {
+	if err := s.ReplacePasswordAndEndSessions(ctx, "identity-1", "user-1", "new-hash", time.Now().UnixMilli()); err != nil {
 		t.Fatal(err)
 	}
 	devices, err := s.ListPushDevices(ctx)

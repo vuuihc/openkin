@@ -6,7 +6,7 @@ import type { TaskEvent } from "../../api/client";
 import { t } from "../../i18n";
 import ChatStream from "./ChatStream";
 
-function event(seq: number, type: string, payload: unknown): TaskEvent {
+function event(seq: number, type: string, payload: TaskEvent["payload"]): TaskEvent {
   return { task_id: "task-find", event_epoch: 0, seq, ts: seq, type, payload };
 }
 

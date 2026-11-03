@@ -213,19 +213,20 @@ func (s *Store) TouchIdentity(ctx context.Context, id string, now int64) error {
 }
 
 // ReplacePasswordAndEndSessions swaps one password credential and ends every
-// session that account holds, in one transaction.
+// session and unspent sign-in link that account holds, in one transaction.
 //
-// The two writes are one act. Landing the new hash but failing to end the
-// sessions leaves the retired credential working; ending the sessions but
-// failing to land the hash leaves an account whose password nobody knows. Both
-// halves under one commit mean the CLI can print the new password only after
-// the reset is real, and that a contention failure is a failure the operator
-// sees and retries rather than a half-applied one.
+// The writes are one act. Landing the new hash but failing to end the sessions
+// leaves the retired credential working; ending them but failing to land the
+// hash leaves an account whose password nobody knows; and retiring neither the
+// sessions nor the links leaves a reset that did not reset. All of it under one
+// commit means the CLI can print the new password only after the reset is real,
+// and that a contention failure is a failure the operator sees and retries
+// rather than a half-applied one.
 //
 // It takes the identity and its account together so a mismatched pair updates
 // nothing. The old secret is not required: whoever runs this already holds the
 // database.
-func (s *Store) ReplacePasswordAndEndSessions(ctx context.Context, identityID, userID, secret string) error {
+func (s *Store) ReplacePasswordAndEndSessions(ctx context.Context, identityID, userID, secret string, now int64) error {
 	if strings.TrimSpace(identityID) == "" || strings.TrimSpace(userID) == "" {
 		return fmt.Errorf("invalid password reset")
 	}
@@ -261,6 +262,14 @@ func (s *Store) ReplacePasswordAndEndSessions(ctx context.Context, identityID, u
 	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM auth_sessions WHERE user_id = ?`, userID); err != nil {
 		return fmt.Errorf("end auth sessions: %w", err)
+	}
+	// An unspent sign-in link is a bearer credential too. A reset is what an
+	// operator runs when one leaked, so leaving the link live would leave the
+	// attacker a way back in that the reset appeared to close.
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE login_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL`,
+		now, userID); err != nil {
+		return fmt.Errorf("retire login tokens: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit password reset: %w", err)
@@ -637,6 +646,81 @@ func (s *Store) ConsumeBootstrapToken(ctx context.Context, tokenHash string, now
 		return fmt.Errorf("commit consume bootstrap token: %w", err)
 	}
 	return nil
+}
+
+// IssueLoginToken stores a one-time sign-in link secret for one account.
+//
+// Issuing a new link retires that account's outstanding links. A link is handed
+// over in chat or terminal output, which are the two places credentials outlive
+// the conversation, so minting a replacement has to mean the previous one
+// stopped working. Other accounts are untouched: links are issued one per
+// person, exactly like invitations.
+func (s *Store) IssueLoginToken(ctx context.Context, tokenHash, userID string, now, expiresAt int64) error {
+	if tokenHash == "" || userID == "" || expiresAt <= now {
+		return fmt.Errorf("invalid login token")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin issue login token: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE login_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL`,
+		now, userID); err != nil {
+		return fmt.Errorf("invalidate login tokens: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO login_tokens (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)`,
+		tokenHash, userID, now, expiresAt); err != nil {
+		return fmt.Errorf("insert login token: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit issue login token: %w", err)
+	}
+	return nil
+}
+
+// ConsumeLoginToken atomically spends a sign-in link and returns the account it
+// belongs to. ErrNotFound covers unknown, expired, and already-used links so a
+// caller cannot tell them apart.
+//
+// Single use is enforced the same two ways ConsumeInviteToken explains: the read
+// refuses a spent row, and the conditional UPDATE only matches an unspent one.
+func (s *Store) ConsumeLoginToken(ctx context.Context, tokenHash string, now int64) (string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", fmt.Errorf("begin consume login token: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var userID string
+	var expiresAt int64
+	var usedAt sql.NullInt64
+	err = tx.QueryRowContext(ctx,
+		`SELECT user_id, expires_at, used_at FROM login_tokens WHERE token_hash = ?`, tokenHash).
+		Scan(&userID, &expiresAt, &usedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("read login token: %w", err)
+	}
+	if usedAt.Valid || expiresAt <= now {
+		return "", ErrNotFound
+	}
+	res, err := tx.ExecContext(ctx,
+		`UPDATE login_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL`,
+		now, tokenHash)
+	if err != nil {
+		return "", fmt.Errorf("consume login token: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return "", ErrNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("commit consume login token: %w", err)
+	}
+	return userID, nil
 }
 
 // HasActiveBootstrapToken reports whether an unspent, unexpired code exists.

@@ -7,11 +7,112 @@ info:
     task, approval, question, workspace, device-pairing, and live update APIs.
     Go handlers remain handwritten; TypeScript types are generated from this
     document. Relay requests add room and key query credentials.
+
+    ## Authentication
+
+    Every operation below inherits the `security` requirement declared at the
+    root unless it overrides it: public operations declare `security: []`, and
+    `GET /api/auth/me` declares the session cookie alone. The daemon accepts
+    four credentials, and they are not equivalent:
+
+    - **Master token** — the bearer credential in `~/.kin/token` on the machine
+      running the daemon. It is the operator's own credential.
+    - **Paired device token** — minted by the pairing exchange. A device token
+      acts for the machine's holder: it can read the holder's tasks and files
+      and act on them (prompt, approve, answer, publish a branch), but cannot
+      administer the Hub. Operator-only routes — uploads, workspace file
+      writes, device management — still require the master token or an owner
+      account. The integrated terminal is local-desktop-only and stays operator
+      and loopback gated.
+    - **Browser session cookie** — `kin_session`, set by login, bootstrap, join,
+      or the OIDC callback. It belongs to an account, and the account's role
+      decides what it may do.
+    - **`?token=` query parameter** — the same master or device token, for
+      clients that cannot set an `Authorization` header (the WebSocket and SSE
+      routes, and relay-forwarded requests). Prefer the header elsewhere.
+
+    Tokens are presented as `Authorization: Bearer <token>`. `kin_session` is
+    HttpOnly and SameSite=Lax; it is marked Secure when the daemon serves TLS.
+    The relay's `room` and `key` query parameters are transport credentials for
+    the Cloudflare Worker in front of a daemon, not daemon credentials: the
+    Worker validates them, forwards the request, converts `?token=` to a Bearer
+    header, and strips `room`, `key`, `role`, and `token` before the daemon sees
+    it. The daemon still authenticates the request.
+
+    ### Pairing a device
+
+    1. `POST /api/pairing/sessions` with the master token or an owner session.
+       The response carries a one-time secret valid for five minutes.
+    2. `POST /api/pairing/exchange` with that secret and a label. A successful
+       exchange answers 201 with the device id, the device token, and this
+       daemon's `desktop_id` and `desktop_name`.
+    3. A client that loses the exchange response — not the secret — may repeat
+       the same exchange with `X-Kin-Pairing-Recovery: 1` within five minutes of
+       the successful exchange. The daemon then answers 200 with the same
+       credential instead of consuming a second pairing. The recovery window
+       starts at the exchange, not at the pairing session's creation.
+
+    ### Accounts and browser sessions
+
+    `GET /api/auth/status` is the unauthenticated probe that tells a client
+    whether accounts exist, whether an owner can still be claimed, and which
+    sign-in providers are configured. A standalone daemon reports no providers,
+    and clients keep using their device token.
+
+    - The first owner is created by `POST /api/auth/bootstrap` with the Hub's
+      bootstrap code.
+    - Later members are created by `POST /api/auth/join` with an invitation
+      code. The route decides the role; the body never does.
+    - Password sign-in is `POST /api/auth/login`.
+    - A one-time sign-in link is spent by `POST /api/auth/login-link`. The
+      token comes from the URL fragment (`#login=…`) that `kin hub init` or
+      `kin hub login-link` printed; the console posts it so it never reaches a
+      server as part of a page request, an access log, or a link preview.
+    - OIDC sign-in starts at `GET /api/auth/oidc/start` and completes at
+      `GET /api/auth/oidc/callback`, which redirects into the console. A caller
+      that already has a session links the provider identity to that account
+      instead of creating a new one.
+    - `POST /api/auth/logout` ends the session and clears the cookie.
+
+    ### Authorization classes
+
+    Three narrower classes refine "any authenticated caller"; an operation's
+    description names the class where it applies:
+
+    - **Operator only** — the master token, or an account whose role is
+      `owner`. These routes administer this machine and the Hub.
+    - **Holder only** — the operator or a paired device acting for the machine's
+      holder. These routes read or change the holder's work.
+    - **Loopback only** — the request must arrive on the loopback interface.
+      This covers the internal approval bridge and the integrated terminal.
+
+    ### Authentication failures
+
+    A request with no credential, an invalid token, or a revoked device token
+    answers `401` with `{"error": "<reason>"}` and
+    `WWW-Authenticate: Bearer realm="kin"`. An authenticated request that the
+    operation's class refuses answers `403`; the operator class answers
+    `{"error": "operator access required"}`. Operations below list these
+    statuses only where they narrow access beyond the root requirement.
+
+    ### Optional surfaces
+
+    `/a2a/*` is mounted only when the daemon starts with `KIN_A2A_ENABLED=1`;
+    otherwise those paths answer 404. The root `/.well-known/agent-card.json`
+    is registered under the same condition and also answers 404 when A2A is
+    disabled. The integrated terminal routes exist on a local desktop only and
+    answer 503 when no terminal manager is configured.
+
 servers:
   - url: /
+security:
+  - bearerAuth: []
+  - sessionCookie: []
+  - tokenQuery: []
 paths:
   /api/health:
     get:
+      security: []
       operationId: health
       responses:
         "200":
@@ -28,6 +129,7 @@ paths:
                     type: integer
   /api/version:
     get:
+      security: []
       operationId: version
       responses:
         "200":
@@ -48,10 +150,21 @@ paths:
                     description: Human-readable desktop name, returned only to authenticated clients.
   /api/pairing/exchange:
     post:
+      security: []
       operationId: exchangePairingSecret
       parameters:
         - $ref: "#/components/parameters/RelayRoom"
         - $ref: "#/components/parameters/RelayKey"
+        - in: header
+          name: X-Kin-Pairing-Recovery
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+          description: |
+            Set to `1` to retry an exchange whose response was lost. Within five
+            minutes of the successful exchange the daemon answers 200 with the
+            same device credential instead of 401.
       requestBody:
         required: true
         content:
@@ -59,18 +172,28 @@ paths:
             schema:
               $ref: "#/components/schemas/PairingExchangeRequest"
       responses:
+        "200":
+          description: Recovered credential for a lost response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairingExchangeResponse"
         "201":
           description: Scoped device credential
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/PairingExchangeResponse"
+        "400":
+          description: Invalid JSON, or the secret is missing
         "401":
           description: Expired, replayed, or invalid pairing secret
   /api/pairing/sessions:
     post:
       operationId: createPairingSession
+      description: Mint a one-time pairing secret. Operator only.
       requestBody:
+        required: true
         content:
           application/json:
             schema:
@@ -82,9 +205,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PairingSessionResponse"
+        "400":
+          description: Invalid JSON; an absent body is refused. Send at least `{}`.
+        "401":
+          description: Missing, invalid, or revoked credential
+        "403":
+          description: Authenticated, but not an operator
   /api/devices:
     get:
       operationId: listDevices
+      description: Paired devices. Operator only.
       responses:
         "200":
           description: Paired devices
@@ -94,9 +224,16 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Device"
+        "401":
+          description: Missing, invalid, or revoked credential
+        "403":
+          description: Authenticated, but not an operator
   /api/devices/{deviceId}/revoke:
     post:
       operationId: revokeDevice
+      description: |
+        Revoke a paired device. Operator only. The device id is the one the
+        pairing exchange returned or that this list reports.
       parameters:
         - in: path
           name: deviceId
@@ -106,6 +243,14 @@ paths:
       responses:
         "204":
           description: Device revoked
+        "400":
+          description: The device id is empty
+        "401":
+          description: Missing, invalid, or revoked credential
+        "403":
+          description: Authenticated, but not an operator
+        "404":
+          description: Device not found or already revoked
   /api/push/devices:
     get:
       operationId: listPushDevices
@@ -769,11 +914,43 @@ paths:
     get:
       operationId: streamEvents
       description: |
-        Server-Sent Events. Each frame is `event: <kind>` with one WSMessage as
-        its data, so a client shares one message handler with the WebSocket bus.
-        Realtime is an accelerant, never the truth: a client advances its cursor
-        only from /api/sessions, because a frame says nothing about the changes
-        it did not carry. Comment lines (`: ping`) are heartbeats.
+        Server-Sent Events stream of change notifications for the caller's
+        scope. Each frame is `event: <kind>` with one `WSMessage` JSON object
+        on its data line, so a client shares one message handler with the
+        WebSocket bus. Kinds seen on this stream: `task_update`,
+        `task_deleted`, `event`, `approval_update`, `user_question_update`.
+
+        Transport behavior, as implemented:
+
+        - The daemon writes `retry: 3000` once when the stream opens. It is a
+          reconnect-delay hint for the client, not a heartbeat.
+        - While nothing happens the daemon writes a `: ping` comment line
+          every 15 seconds. Comment lines are keep-alives; a client must
+          ignore them.
+        - There is no readiness or "caught up" frame, no replay, and no
+          `Last-Event-ID` handling. Opening the stream says nothing about
+          what was missed, and the stream never carries history.
+        - Realtime is an accelerant, never the truth. Open the stream first,
+          then drain `GET /api/sessions` until `has_more` is false. A change
+          arriving during that catch-up is delivered twice, which is safe
+          because clients apply changes by id; the opposite order has a window
+          where a change is delivered by neither. Advance the cursor only
+          from a feed page, never from a frame.
+        - A gap is detected from the durable records, not from this stream:
+          per task by `seq` continuity on `GET /api/tasks/{taskId}/events`
+          together with `event_epoch`, and globally by draining the
+          `GET /api/sessions` cursor.
+        - A device token or browser session behind the stream is re-validated
+          every 10 seconds; revoking the device or ending the session closes
+          the stream. The master token is never re-checked because it cannot
+          be revoked.
+        - A client that falls behind the bus is disconnected instead of being
+          fed with skipped messages, so it reconnects and catches up through
+          the cursor.
+
+        The response is `503` before streaming starts when the engine is
+        unavailable or the bus refuses a subscriber. A writer that cannot flush
+        (a test recorder, not the real server) answers `500`.
       parameters:
         - $ref: "#/components/parameters/RelayRoom"
         - $ref: "#/components/parameters/RelayKey"
@@ -784,6 +961,8 @@ paths:
             text/event-stream:
               schema:
                 type: string
+        "503":
+          description: Engine is unavailable or the event bus refuses a subscriber
   /api/tasks:
     get:
       operationId: listTasks
@@ -839,6 +1018,13 @@ paths:
                   $ref: "#/components/schemas/Task"
     post:
       operationId: createTask
+      description: |
+        Create and queue a task. The owner is taken from the authenticated
+        principal, never from the body. Every failure to create — invalid
+        JSON, an unknown or unavailable agent, a permission mode the chosen
+        agent cannot run, a `cwd` the workspace cannot use, or a
+        `workspace_mode` that cannot be honoured — answers `400` with
+        `{"error": "<reason>"}`.
       requestBody:
         required: true
         content:
@@ -852,6 +1038,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Task"
+        "400":
+          description: Invalid request or the task cannot be created as asked
   /api/tasks/{taskId}/browser/actions:
     post:
       operationId: runBrowserAction
@@ -896,6 +1084,25 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Task"
+    delete:
+      operationId: deleteTask
+      description: |
+        Delete one conversation and its rows. Operator only: the master token
+        or an owner account, not a paired device. Archiving is the reversible
+        alternative and is available to the holder.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "204":
+          description: Deleted
+        "400":
+          description: The task cannot be deleted in its current state
+        "401":
+          description: Missing, invalid, or revoked credential
+        "403":
+          description: Authenticated, but not an operator
+        "404":
+          description: Task not found
   /api/tasks/{taskId}/limit-wait:
     get:
       operationId: getTaskLimitWait
@@ -1015,10 +1222,26 @@ paths:
   /api/tasks/{taskId}/events:
     get:
       operationId: listTaskEvents
+      description: |
+        The durable event log for one task, oldest first. This is the record a
+        client replays; the SSE stream is only an accelerant.
+
+        `since_seq` is exclusive: the response contains events whose `seq` is
+        greater than the cursor. `seq` is 1-based and contiguous within one
+        `event_epoch`. A retry or other tail rewrite deletes the events from
+        that point and increments `event_epoch`; appended events then reuse
+        those `seq` values. The identity of an event is therefore
+        `(event_epoch, seq)`. A client that sees a higher `event_epoch` than it
+        last read must discard its tail and refetch from `since_seq=0` rather
+        than assume a gap.
+
+        The response is unbounded: it returns every event after the cursor.
+        The endpoint answers `404` when the task does not exist.
       parameters:
         - $ref: "#/components/parameters/TaskId"
         - in: query
           name: since_seq
+          description: Return events with a greater seq. Zero or absent reads from the start.
           schema:
             type: integer
             minimum: 0
@@ -1032,6 +1255,10 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/TaskEvent"
+        "400":
+          description: since_seq is not a non-negative integer
+        "404":
+          description: Task not found
   /api/tasks/{taskId}/workers:
     get:
       operationId: listTaskWorkerSteps
@@ -1085,8 +1312,14 @@ paths:
       parameters:
         - in: query
           name: status
+          required: false
+          description: >-
+            Filter by the approval's decision. Omit to return every decision.
+            The value is matched exactly against `Approval.decision`; an
+            unrecognized value returns an empty list rather than an error.
           schema:
             type: string
+            enum: [pending, approved, denied, expired]
       responses:
         "200":
           description: Approval snapshot
@@ -1246,6 +1479,39 @@ paths:
               schema:
                 type: string
                 format: binary
+    put:
+      operationId: writeWorkspaceFile
+      description: |
+        Write a file into a writable workspace generation. Operator only. The
+        path is validated against the generation's scope.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceFileWriteRequest"
+      responses:
+        "200":
+          description: The written file
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceFileResponse"
+        "400":
+          description: Invalid JSON, missing path, or a refused write
+        "403":
+          description: Path escapes the workspace scope
+        "404":
+          description: Workspace not found for this task
+        "409":
+          description: The workspace is not writable
+        "413":
+          description: Request body too large
+        "503":
+          description: Workspace manager unavailable
   /api/tasks/{taskId}/workspaces/{workspaceId}/diff:
     get:
       operationId: getWorkspaceDiff
@@ -1625,7 +1891,19 @@ paths:
                 additionalProperties: true
   /.well-known/agent-card.json:
     get:
+      security: []
       operationId: getAgentCard
+      responses:
+        "200":
+          description: Opt-in A2A capability card
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentCard"
+  /a2a/.well-known/agent-card.json:
+    get:
+      operationId: getMountedAgentCard
+      description: The same capability card, served from under the authenticated `/a2a` mount.
       responses:
         "200":
           description: Opt-in A2A capability card
@@ -1720,6 +1998,7 @@ paths:
                 additionalProperties: true
   /api/public/shares/{token}:
     get:
+      security: []
       operationId: getPublicShare
       description: >-
         The shared conversation, read by someone who has the link and nothing
@@ -1743,6 +2022,7 @@ paths:
           description: No readable share for this token
   /s/{token}:
     get:
+      security: []
       operationId: getPublicSharePage
       description: >-
         The same conversation as a standalone HTML page, so the link opens in a
@@ -1764,8 +2044,2065 @@ paths:
                 type: string
         "404":
           description: No readable share for this token
+  /api/auth/status:
+    get:
+      operationId: getAuthStatus
+      security: []
+      description: |
+        The Hub's account state, served unauthenticated. A standalone daemon
+        has no account system and answers with an empty `providers` list; a
+        client then keeps using its device token. Never includes an email, a
+        user id, or whether a claim code exists beyond `claimable`.
+      responses:
+        "200":
+          description: Account state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthStatus"
+  /api/auth/bootstrap:
+    post:
+      operationId: bootstrapAccount
+      security: []
+      description: |
+        Claim the Hub's owner account with the one-time bootstrap code. Sets the
+        `kin_session` cookie on success. Rate limited; a refusal is reported
+        through the same indistinguishable error shape.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthEnrollRequest"
+      responses:
+        "200":
+          description: Owner account created and signed in
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: HttpOnly `kin_session` cookie.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSessionResponse"
+        "400":
+          description: Invalid or expired code, or an unusable email or password
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthErrorResponse"
+        "404":
+          description: Accounts are not enabled on this daemon
+        "429":
+          description: Too many attempts from this client
+  /api/auth/join:
+    post:
+      operationId: joinAccount
+      security: []
+      description: |
+        Create a member account from an invitation code. The role is decided by
+        the route, never by the request body. Sets the `kin_session` cookie.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthEnrollRequest"
+      responses:
+        "200":
+          description: Member account created and signed in
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSessionResponse"
+        "400":
+          description: Invalid or expired invitation, or an unusable email or password
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthErrorResponse"
+        "404":
+          description: Accounts are not enabled on this daemon
+        "429":
+          description: Too many attempts from this client
+  /api/auth/login:
+    post:
+      operationId: loginAccount
+      security: []
+      description: Sign in with email and password. Sets the `kin_session` cookie.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthLoginRequest"
+      responses:
+        "200":
+          description: Signed in
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSessionResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthErrorResponse"
+        "404":
+          description: Accounts are not enabled on this daemon
+        "429":
+          description: Too many attempts from this client
+  /api/auth/login-link:
+    post:
+      operationId: loginWithLink
+      security: []
+      description: |
+        Spend a one-time sign-in link. The token is the value the Hub printed in
+        the URL fragment (`#login=…`); the console reads it and posts it here so
+        it never appears in a server access log or a link preview. A successful
+        spend sets the same `kin_session` cookie as a password login. Unknown,
+        expired, already-used, and disabled-account links answer the same 401.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthLoginLinkRequest"
+      responses:
+        "200":
+          description: Signed in
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSessionResponse"
+        "401":
+          description: The link is not valid, has expired, or was already spent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthErrorResponse"
+        "404":
+          description: Accounts are not enabled on this daemon
+        "429":
+          description: Too many attempts from this client
+  /api/auth/logout:
+    post:
+      operationId: logoutAccount
+      security: []
+      description: |
+        End the session named by the `kin_session` cookie and clear it. Answers
+        success even when no session was presented, so a client can always
+        finish signing out.
+      responses:
+        "200":
+          description: Signed out
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+  /api/auth/me:
+    get:
+      operationId: getAuthMe
+      security:
+        - sessionCookie: []
+      description: The account behind the `kin_session` cookie.
+      responses:
+        "200":
+          description: Signed-in account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthMeResponse"
+        "401":
+          description: No valid session cookie
+  /api/auth/oidc/start:
+    get:
+      operationId: startOIDCSignIn
+      security: []
+      description: |
+        Begin an OIDC sign-in by redirecting to the identity provider. When the
+        caller already has a valid session cookie, the flow links the provider
+        identity to that account instead of signing in.
+      parameters:
+        - in: query
+          name: return_to
+          required: false
+          schema:
+            type: string
+          description: Same-origin path to return to after the callback.
+      responses:
+        "302":
+          description: Redirect to the identity provider
+        "404":
+          description: No identity provider is configured
+  /api/auth/oidc/callback:
+    get:
+      operationId: completeOIDCSignIn
+      security: []
+      description: |
+        Complete an OIDC sign-in or link. Always redirects into the console: on
+        success with `auth_notice` (`signed-in` or `linked`), on failure with
+        `auth_error` and `auth_error_code` query parameters.
+      parameters:
+        - in: query
+          name: code
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: state
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: error
+          required: false
+          schema:
+            type: string
+          description: Provider-supplied error, passed through to the console.
+      responses:
+        "302":
+          description: Redirect back into the console
+        "404":
+          description: No identity provider is configured
+  /api/agents:
+    get:
+      operationId: listAgents
+      description: |
+        Agent runtimes this machine can start. A caller that does not act for
+        the holder receives the catalogue with `binary` blanked.
+      responses:
+        "200":
+          description: Agent catalogue
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AgentInfo"
+  /api/agents/management:
+    get:
+      operationId: listAgentManagement
+      description: Install, version, and sign-in metadata for known agents, cached. Holder only.
+      parameters:
+        - in: query
+          name: refresh
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+          description: Bypass the cache and probe again.
+      responses:
+        "200":
+          description: Per-agent management metadata
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AgentManagementInfo"
+  /api/agents/smoke:
+    post:
+      operationId: smokeAgents
+      description: |
+        Run a headless smoke turn against installed generic CLI agents. Operator
+        only. Answers 503 when smoke probing is not wired on this daemon.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentSmokeRequest"
+      responses:
+        "200":
+          description: One result per probed agent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSmokeResponse"
+        "503":
+          description: Smoke probing is unavailable
+  /api/artifacts:
+    get:
+      operationId: listArtifacts
+      description: Artifacts, newest first. Holder only.
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema:
+            type: string
+            enum: [proposed, saved, archived]
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Artifacts, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Artifact"
+    post:
+      operationId: createArtifact
+      description: |
+        Store an artifact body on disk and its metadata in the database. The
+        on-disk path is server-generated; a client never supplies one. Operator
+        only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ArtifactCreateRequest"
+      responses:
+        "201":
+          description: Created artifact
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Artifact"
+        "400":
+          description: Invalid kind or invalid JSON
+        "413":
+          description: Artifact content exceeds the server's size limit
+        "503":
+          description: Artifacts are not configured
+  /api/artifacts/{id}:
+    get:
+      operationId: getArtifact
+      description: Artifact metadata. Holder only.
+      parameters:
+        - $ref: "#/components/parameters/ArtifactId"
+      responses:
+        "200":
+          description: Artifact metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Artifact"
+        "404":
+          description: Not found
+  /api/artifacts/{id}/content:
+    get:
+      operationId: getArtifactContent
+      description: |
+        The artifact body as `text/plain; charset=utf-8`. Stored HTML is never
+        served as `text/html`; the console sandboxes it for display. Holder only.
+      parameters:
+        - $ref: "#/components/parameters/ArtifactId"
+      responses:
+        "200":
+          description: Artifact body
+          content:
+            text/plain:
+              schema:
+                type: string
+        "404":
+          description: Artifact or its file is missing
+        "503":
+          description: Artifacts are not configured
+  /api/artifacts/{id}/status:
+    post:
+      operationId: setArtifactStatus
+      description: Move an artifact between proposed, saved, and archived. Operator only.
+      parameters:
+        - $ref: "#/components/parameters/ArtifactId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ArtifactStatusRequest"
+      responses:
+        "200":
+          description: Updated artifact
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Artifact"
+        "400":
+          description: Invalid status
+        "404":
+          description: Not found
+  /api/git/branches:
+    get:
+      operationId: listGitBranches
+      description: |
+        Local branches for one working directory. `device` names the machine
+        the directory is on: omitted, empty, or `self` is this daemon; anything
+        else is forwarded to that machine. A non-git directory answers
+        `is_git: false` with a reason rather than an error. Holder only.
+      parameters:
+        - in: query
+          name: cwd
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: device
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Branch listing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitBranchStatus"
+        "400":
+          description: Missing cwd, or the directory was refused
+        "409":
+          description: The named machine is offline
+        "500":
+          description: The machine answered in a shape this Hub could not read
+        "501":
+          description: The machine's build does not understand this question
+        "503":
+          description: This Hub cannot ask machines questions, or the local workspace is unavailable
+        "504":
+          description: The named machine did not answer in time
+  /api/git/checkout:
+    post:
+      operationId: checkoutGitBranch
+      description: |
+        Check out a branch in a working directory. `device` selects the machine
+        whose checkout moves. Holder only on the route; moving a checkout on
+        this daemon itself is operator only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GitCheckoutRequest"
+      responses:
+        "200":
+          description: The directory and its current branch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitCheckoutResponse"
+        "400":
+          description: Invalid request, or the machine refused the question
+        "403":
+          description: Moving a checkout on this daemon requires the operator
+        "409":
+          description: The named machine is offline, or the local checkout has uncommitted changes
+        "500":
+          description: The machine answered in a shape this Hub could not read
+        "501":
+          description: The machine's build does not understand this question
+        "503":
+          description: This Hub cannot ask machines questions, or the local workspace or git is unavailable
+        "504":
+          description: The named machine did not answer in time
+  /api/machines:
+    get:
+      operationId: listMachines
+      description: |
+        Machines work can be sent to. Revoked machines and devices that never
+        dialled in as a node are omitted rather than reported. A subset of the
+        operator-only device list: what a picker needs and no more. Holder only.
+      responses:
+        "200":
+          description: Machines
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Machine"
+  /api/machines/{device}/dirs:
+    get:
+      operationId: listMachineDirs
+      description: |
+        Directories inside one path on one machine. `{device}` is a machine id,
+        the literal `self`, or a paired device. Holder only.
+      parameters:
+        - $ref: "#/components/parameters/DeviceRef"
+        - in: query
+          name: path
+          required: false
+          schema:
+            type: string
+          description: Absolute path on that machine. Empty asks for its roots.
+      responses:
+        "200":
+          description: One directory listing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MachineDirs"
+        "400":
+          description: Invalid path, or the machine refused the question
+        "409":
+          description: The machine is offline
+        "500":
+          description: The machine answered in a shape this Hub could not read
+        "501":
+          description: The machine's build does not understand this question
+        "503":
+          description: This Hub cannot ask machines questions
+        "504":
+          description: The machine did not answer in time
+  /api/machines/{device}/repo/branches:
+    get:
+      operationId: listMachineRepoBranches
+      description: |
+        Branches one repository has on one machine, without cloning it here.
+        The answer names the clone URL the machine understood, which is what
+        `repo/prepare` must be asked for next.
+      parameters:
+        - $ref: "#/components/parameters/DeviceRef"
+        - in: query
+          name: repo
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Repository branches
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MachineRepoBranches"
+        "400":
+          description: Invalid repository, or the machine refused the question
+        "409":
+          description: The machine is offline
+        "500":
+          description: The machine answered in a shape this Hub could not read
+        "501":
+          description: The machine's build does not understand this question
+        "503":
+          description: This Hub cannot ask machines questions
+        "504":
+          description: The machine did not answer in time
+  /api/machines/{device}/repo/prepare:
+    post:
+      operationId: prepareMachineRepo
+      description: |
+        Make one repository available on one machine and answer where it now
+        is. The destination is chosen by the machine inside its own roots; the
+        request carries no path.
+      parameters:
+        - $ref: "#/components/parameters/DeviceRef"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MachineRepoPrepareRequest"
+      responses:
+        "200":
+          description: Where the repository is on that machine
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MachineRepoPrepareResult"
+        "400":
+          description: Invalid repository, or the machine refused the question
+        "409":
+          description: The machine is offline
+        "500":
+          description: The machine answered in a shape this Hub could not read
+        "501":
+          description: The machine's build does not understand this question
+        "503":
+          description: This Hub cannot ask machines questions
+        "504":
+          description: The machine did not answer in time
+  /api/projects:
+    get:
+      operationId: listProjects
+      description: Projects. Holder only.
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema:
+            type: string
+            default: active
+          description: Project status, or `all`.
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+        "503":
+          description: Projects are not configured
+    post:
+      operationId: createProject
+      description: Create a project with a generated one-pager. Operator only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectCreateRequest"
+      responses:
+        "201":
+          description: Created project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          description: Invalid JSON, mode, or missing name and roots
+        "503":
+          description: Projects are not configured
+  /api/projects/ensure:
+    post:
+      operationId: ensureProject
+      description: |
+        Return the project rooted at `path`, creating one when none matches.
+        Operator only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectEnsureRequest"
+      responses:
+        "200":
+          description: The existing project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "201":
+          description: A project was created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          description: Missing path or invalid mode
+        "503":
+          description: Projects are not configured
+  /api/projects/by-root:
+    get:
+      operationId: findProjectByRoot
+      description: |
+        Find the project whose roots contain `path`. The answer carries the
+        project under `project` and flattens its fields at the top level for
+        older clients. Holder only.
+      parameters:
+        - in: query
+          name: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Matching project and one-pager summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectByRoot"
+        "400":
+          description: Missing path
+        "404":
+          description: No project contains that path
+        "503":
+          description: Projects are not configured
+  /api/projects/{id}:
+    get:
+      operationId: getProject
+      description: Project. Holder only.
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          description: Not found
+        "503":
+          description: Projects are not configured
+    patch:
+      operationId: patchProject
+      description: Update project fields. Operator only.
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectPatchRequest"
+      responses:
+        "200":
+          description: Updated project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          description: Invalid JSON or mode
+        "404":
+          description: Not found
+  /api/projects/{id}/artifacts:
+    get:
+      operationId: listProjectArtifacts
+      description: Artifacts linked to this project. Holder only.
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: query
+          name: status
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Artifacts linked to this project
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Artifact"
+        "404":
+          description: Project not found
+        "503":
+          description: Projects are not configured
+  /api/projects/{id}/one-pager:
+    get:
+      operationId: getOnePager
+      description: One-pager markdown and a parsed summary. Holder only.
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: One-pager markdown and a parsed summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnePager"
+        "404":
+          description: Project or one-pager file not found
+        "503":
+          description: Projects are not configured
+    put:
+      operationId: putOnePager
+      description: Replace the one-pager markdown. Operator only.
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OnePagerUpdateRequest"
+      responses:
+        "200":
+          description: Stored markdown and the file's modification time
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnePagerUpdateResponse"
+        "404":
+          description: Project not found
+        "409":
+          description: The one-pager changed since `updated_at`; the body carries the current value
+        "503":
+          description: Projects are not configured
+  /api/projects/{id}/pulse:
+    get:
+      operationId: getProjectPulse
+      description: Project pulse. Holder only.
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: query
+          name: window_days
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 90
+      responses:
+        "200":
+          description: Project pulse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectPulse"
+        "404":
+          description: Project not found
+        "503":
+          description: Projects are not configured
+  /api/projects/{id}/pulse/refresh:
+    post:
+      operationId: refreshProjectPulse
+      description: |
+        Rebuild the pulse and merge its managed block into the one-pager.
+        Content outside the `kin:auto` markers is preserved. Operator only.
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectPulseRefreshRequest"
+      responses:
+        "200":
+          description: The rebuilt pulse and the merged markdown
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectPulseRefreshResponse"
+        "404":
+          description: Project not found
+        "503":
+          description: Projects are not configured
+  /api/projects/{id}/tasks:
+    get:
+      operationId: listProjectTasks
+      description: Tasks linked to this project, or run in one of its roots. Holder only.
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 50
+      responses:
+        "200":
+          description: Tasks linked to this project, or run in one of its roots
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Task"
+        "404":
+          description: Project not found
+        "503":
+          description: Projects are not configured
+  /api/providers:
+    get:
+      operationId: listProviders
+      description: Registered model providers and the active one. Operator only.
+      responses:
+        "200":
+          description: Provider registry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProvidersResponse"
+    post:
+      operationId: createProvider
+      description: |
+        Add a provider entry. When no provider is active yet the new entry
+        becomes active, unless `active` says otherwise. Operator only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProviderWriteRequest"
+      responses:
+        "201":
+          description: Updated provider registry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProvidersResponse"
+        "400":
+          description: Invalid JSON or provider fields
+  /api/providers/models:
+    post:
+      operationId: listProviderModels
+      description: |
+        Discover the models a provider endpoint serves. Accepts either a saved
+        entry (`id`) or unsaved form values. An omitted or masked `api_key` on a
+        saved entry reuses the stored secret. Operator only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProviderModelsRequest"
+      responses:
+        "200":
+          description: Model ids
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderModelsResponse"
+        "400":
+          description: Invalid JSON or provider fields
+        "502":
+          description: The provider endpoint could not be read
+  /api/providers/{id}:
+    put:
+      operationId: updateProvider
+      description: |
+        Update a provider entry. An omitted or masked `api_key` keeps the stored
+        secret; `clear_api_key` removes it explicitly. Operator only.
+      parameters:
+        - $ref: "#/components/parameters/ProviderId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProviderWriteRequest"
+      responses:
+        "200":
+          description: Updated provider registry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProvidersResponse"
+        "400":
+          description: Invalid JSON or provider fields
+    delete:
+      operationId: deleteProvider
+      description: Remove a provider entry. Operator only.
+      parameters:
+        - $ref: "#/components/parameters/ProviderId"
+      responses:
+        "200":
+          description: Updated provider registry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProvidersResponse"
+        "400":
+          description: Missing provider id
+  /api/providers/{id}/activate:
+    post:
+      operationId: activateProvider
+      description: Make one provider entry the active one. Operator only.
+      parameters:
+        - $ref: "#/components/parameters/ProviderId"
+      responses:
+        "200":
+          description: Updated provider registry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProvidersResponse"
+        "400":
+          description: Unknown provider id
+  /api/recent-cwds:
+    get:
+      operationId: listRecentCwds
+      description: Recently used working directories, most recent first. Holder only.
+      responses:
+        "200":
+          description: Recent absolute paths
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+  /api/routines:
+    get:
+      operationId: listRoutines
+      description: |
+        Routine definitions, newest first. A request with none of `page`,
+        `cursor`, or `q` receives the legacy bare array, except that `runs=1`
+        always receives the page object with a `runs` feed. Holder only.
+      parameters:
+        - in: query
+          name: project_id
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: enabled
+          required: false
+          schema:
+            type: boolean
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - in: query
+          name: cursor
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: q
+          required: false
+          schema:
+            type: string
+          description: Case-insensitive match on title and prompt.
+        - in: query
+          name: page
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: runs
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+        - in: query
+          name: runs_limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 50
+      responses:
+        "200":
+          description: Routine page, or a bare array for a legacy request
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/RoutinePage"
+                  - type: array
+                    items:
+                      $ref: "#/components/schemas/Routine"
+    post:
+      operationId: createRoutine
+      description: Create a routine. Operator only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoutineCreateRequest"
+      responses:
+        "201":
+          description: Created routine
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Routine"
+        "400":
+          description: Invalid JSON or schedule
+  /api/routines/mark-all-read:
+    post:
+      operationId: markAllRoutineRunsRead
+      description: Mark every unread routine run read. Operator only.
+      responses:
+        "200":
+          description: How many runs were marked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoutineMarkAllReadResponse"
+  /api/routines/preview:
+    post:
+      operationId: previewRoutine
+      description: |
+        Resolve a wall-clock recurrence rule to its next run. Reads no state, so
+        a holder token may ask.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoutinePreviewRequest"
+      responses:
+        "200":
+          description: The next occurrence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoutinePreviewResponse"
+        "400":
+          description: Invalid or missing recurrence, or no future occurrence
+  /api/routines/runs/{taskID}/read:
+    post:
+      operationId: markRoutineRunRead
+      description: |
+        Mark one routine run read and publish its task update. Answers the task,
+        or `{"ok":"true"}` when the task row has already gone.
+      parameters:
+        - $ref: "#/components/parameters/RoutineRunTaskId"
+      responses:
+        "200":
+          description: The task, or an ok marker
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Task"
+                  - type: object
+                    required: [ok]
+                    properties:
+                      ok:
+                        type: string
+        "404":
+          description: No such routine run
+  /api/routines/unread-count:
+    get:
+      operationId: getRoutineUnreadCount
+      description: Unread routine runs. Holder only.
+      responses:
+        "200":
+          description: Unread routine runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoutineUnreadCount"
+  /api/routines/{id}:
+    get:
+      operationId: getRoutine
+      description: Routine. Holder only.
+      parameters:
+        - $ref: "#/components/parameters/RoutineId"
+      responses:
+        "200":
+          description: Routine
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Routine"
+        "404":
+          description: Not found
+    patch:
+      operationId: patchRoutine
+      description: Update routine fields. Operator only.
+      parameters:
+        - $ref: "#/components/parameters/RoutineId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoutinePatchRequest"
+      responses:
+        "200":
+          description: Updated routine
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Routine"
+        "400":
+          description: Invalid JSON or schedule
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteRoutine
+      description: Delete a routine. Operator only.
+      parameters:
+        - $ref: "#/components/parameters/RoutineId"
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+        "409":
+          description: The routine has a dispatch in progress
+  /api/routines/{id}/run-now:
+    post:
+      operationId: runRoutineNow
+      description: Start one run of a routine immediately. Operator only.
+      parameters:
+        - $ref: "#/components/parameters/RoutineId"
+      responses:
+        "201":
+          description: The task the run started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "400":
+          description: The scheduler could not start the run
+        "404":
+          description: Not found
+        "409":
+          description: The routine is already running
+        "503":
+          description: The routine scheduler is unavailable
+  /api/routing/defaults:
+    get:
+      operationId: getRoutingDefaults
+      description: Routing defaults. Holder only.
+      responses:
+        "200":
+          description: Routing defaults
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoutingDefaults"
+    put:
+      operationId: putRoutingDefaults
+      description: Replace routing defaults. Operator only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoutingDefaults"
+      responses:
+        "200":
+          description: Stored defaults
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoutingDefaults"
+        "400":
+          description: Invalid JSON or defaults
+  /api/routing/options:
+    get:
+      operationId: getRoutingOptions
+      description: Everything a dispatch picker offers, plus the current defaults. Holder only.
+      responses:
+        "200":
+          description: Routing options
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoutingOptions"
+  /api/routing/preview:
+    get:
+      operationId: getRoutingPreview
+      description: |
+        Resolve a dispatch selection to the phases it would run. Auto mode
+        requires a team; manual mode requires an agent, a provider, and a
+        model. Holder only.
+      parameters:
+        - in: query
+          name: mode
+          required: false
+          schema:
+            type: string
+            enum: [auto, manual]
+            default: auto
+        - in: query
+          name: team
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: objective
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: agent
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: provider
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: model
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: prompt
+          required: false
+          schema:
+            type: string
+          description: Classified locally for the quality floor; never sent to a provider.
+        - in: query
+          name: routine
+          required: false
+          schema:
+            type: string
+            enum: ["1", "true"]
+      responses:
+        "200":
+          description: Resolved preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoutingPreview"
+        "400":
+          description: Unknown team, or an incomplete manual selection
+  /api/routing/profiles:
+    get:
+      operationId: getRoutingProfiles
+      description: Team profiles. Holder only.
+      responses:
+        "200":
+          description: Team profiles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoutingTeamProfileList"
+    put:
+      operationId: putRoutingProfiles
+      description: Replace team profiles. Operator only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoutingTeamProfileList"
+      responses:
+        "200":
+          description: Stored team profiles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoutingTeamProfileList"
+        "400":
+          description: Invalid JSON or profiles
+  /api/routing/provider-profiles:
+    get:
+      operationId: getProviderProfiles
+      description: Provider profiles. Holder only.
+      responses:
+        "200":
+          description: Provider profiles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoutingProviderProfileList"
+    put:
+      operationId: putProviderProfiles
+      description: Replace provider profiles. Operator only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoutingProviderProfileList"
+      responses:
+        "200":
+          description: Stored provider profiles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoutingProviderProfileList"
+        "400":
+          description: Invalid JSON or profiles
+  /api/search/transcript:
+    get:
+      operationId: searchTranscript
+      description: |
+        Search what was actually said in the library's conversations. Scoped
+        like the task list, so one account cannot read another's transcripts.
+        An empty query is refused rather than answered with everything.
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema:
+            type: string
+            maxLength: 200
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 20
+      responses:
+        "200":
+          description: Matching messages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TranscriptSearchResponse"
+        "400":
+          description: Missing, too long, or non-printable query, or invalid limit
+        "503":
+          description: Store unavailable
+        "504":
+          description: The search ran out of its budget
+  /api/tasks/{taskId}/fork:
+    post:
+      operationId: forkTask
+      description: |
+        Branch a new task from a transcript prefix. `from_seq` keeps everything
+        up to and including that event; 0 copies the whole transcript. A
+        `prompt` is appended and run on the forked task.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForkRequest"
+      responses:
+        "201":
+          description: The new task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "400":
+          description: Invalid JSON or from_seq
+        "404":
+          description: Task not found
+        "409":
+          description: No checkpoint is available for that point
+  /api/tasks/{taskId}/limit/continue:
+    post:
+      operationId: limitContinue
+      description: |
+        Resolve a provider rate-limit stop. `wait` waits for the quota to reset,
+        `continue` resumes immediately, `switch` moves the task to another agent
+        (`agent` required), and `dismiss` closes the limit notice.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LimitContinueRequest"
+      responses:
+        "200":
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "400":
+          description: Invalid action or missing agent
+        "404":
+          description: Task not found
+        "409":
+          description: The task is not in a state this action applies to
+  /api/tasks/{taskId}/retry:
+    post:
+      operationId: retryTask
+      description: |
+        Rewind a terminal task to a user turn and run it again, under the same
+        task id. `from_seq` names the event to rewind to; 0 uses the last user
+        turn. `restore_files` restores the workspace checkpoint when available.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetryRequest"
+      responses:
+        "200":
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "400":
+          description: Invalid JSON, from_seq, or an unusable retry
+        "404":
+          description: Task not found
+        "409":
+          description: Task is not terminal, or its workspace cannot be restored
+  /api/tasks/{taskId}/source/changes:
+    get:
+      operationId: getTaskSourceChanges
+      description: |
+        Uncommitted changes in a task's checkout, including untracked files.
+        A task that runs on another machine is answered by that machine.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Changes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceChangesResponse"
+        "400":
+          description: The task has no readable checkout
+        "404":
+          description: Task not found
+        "409":
+          description: The workspace is on another machine that is offline, or its location cannot be resolved
+        "500":
+          description: The task could not be read, or the machine's answer could not be decoded
+        "501":
+          description: The machine's build does not support this query
+        "503":
+          description: Workspace manager or machine channel unavailable
+        "504":
+          description: The machine did not answer in time
+  /api/tasks/{taskId}/source/file:
+    get:
+      operationId: readTaskSourceFile
+      description: |
+        One file from a task's checkout. `raw=1` returns the bytes and
+        `download=1` returns them as an attachment; both require the file to be
+        on this machine.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - in: query
+          name: path
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: raw
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+        - in: query
+          name: download
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+      responses:
+        "200":
+          description: File text, or raw bytes for raw/download
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceFileResponse"
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Missing path or an unreadable file
+        "403":
+          description: Path escapes the workspace scope
+        "404":
+          description: Task not found
+        "409":
+          description: The workspace is on another machine that is offline, or its location cannot be resolved
+        "500":
+          description: The task could not be read, or the machine's answer could not be decoded
+        "501":
+          description: Raw preview or download requested for a remote workspace, or the machine's build does not support the query
+        "503":
+          description: Workspace manager or machine channel unavailable
+        "504":
+          description: The machine did not answer in time
+  /api/tasks/{taskId}/source/files:
+    get:
+      operationId: searchTaskSourceFiles
+      description: File-name search inside a task's checkout, bounded for the composer's mention menu.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - in: query
+          name: q
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Matching repository-relative paths
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceFilesResponse"
+        "400":
+          description: Missing, too long, or non-printable query
+        "404":
+          description: Task not found
+        "409":
+          description: The workspace is on another machine that is offline, or its location cannot be resolved
+        "500":
+          description: The task could not be read, or the machine's answer could not be decoded
+        "501":
+          description: The machine's build does not support this query
+        "503":
+          description: Workspace manager or machine channel unavailable
+        "504":
+          description: The machine did not answer in time
+  /api/tasks/{taskId}/source/tree:
+    get:
+      operationId: listTaskSourceTree
+      description: One level of a task's checkout.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - in: query
+          name: path
+          required: false
+          schema:
+            type: string
+          description: Repository-relative directory; defaults to the workspace scope.
+      responses:
+        "200":
+          description: Directory entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceTreeResponse"
+        "400":
+          description: The task has no readable checkout
+        "403":
+          description: Path escapes the workspace scope
+        "404":
+          description: Task not found
+        "409":
+          description: The workspace is on another machine that is offline, or its location cannot be resolved
+        "500":
+          description: The task could not be read, or the machine's answer could not be decoded
+        "501":
+          description: The machine's build does not support this query
+        "503":
+          description: Workspace manager or machine channel unavailable
+        "504":
+          description: The machine did not answer in time
+  /api/tasks/{taskId}/usage:
+    get:
+      operationId: getTaskUsage
+      description: Token, cache, and cost totals for one task, plus the model's context window.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Task usage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskUsageResponse"
+        "404":
+          description: Task not found
+  /api/tasks/{taskId}/workspace/file:
+    get:
+      operationId: readTaskWorkspaceFile
+      description: |
+        Read a file from a task's workspace. The route delegates to the current
+        workspace generation when one exists; otherwise it reads the checkout
+        directly. A task that runs on another machine is answered by it.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - in: query
+          name: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: File text
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceFileResponse"
+        "400":
+          description: Missing path or an unreadable file
+        "404":
+          description: File not found
+        "413":
+          description: File is too large to read
+    put:
+      operationId: writeTaskWorkspaceFile
+      description: |
+        Write a file in a task's workspace. Operator only. The route delegates
+        to the current workspace generation when one exists.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceFileWriteRequest"
+      responses:
+        "200":
+          description: The written file
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceFileResponse"
+        "400":
+          description: Invalid JSON, missing path, or a refused write
+        "403":
+          description: Path escapes the workspace scope
+        "404":
+          description: Task not found or not visible to this caller
+        "409":
+          description: No active writable workspace generation, the workspace is not writable, or the task runs on another machine
+        "413":
+          description: Request body too large
+  /api/tasks/{taskId}/workspace/list:
+    get:
+      operationId: listTaskWorkspace
+      description: One directory level in a task's workspace. Delegates to the current generation when one exists.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - in: query
+          name: path
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Directory listing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceListResponse"
+        "400":
+          description: Invalid path or not a directory
+        "404":
+          description: Path not found
+  /api/tasks/{taskId}/workspace/restore:
+    post:
+      operationId: restoreTaskWorkspace
+      description: |
+        Restore isolated task files to a checkpoint. `event_seq` 0 restores the
+        initial state. Operator only.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceRestoreRequest"
+      responses:
+        "200":
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "400":
+          description: Invalid JSON
+        "404":
+          description: Task not found, or no checkpoint for that event
+        "409":
+          description: Task is not terminal, or its files are not isolated
+  /api/terminal/profiles:
+    get:
+      operationId: listTerminalProfiles
+      description: Shell profiles available to this desktop. Loopback and operator only.
+      responses:
+        "200":
+          description: Profiles and the default profile id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TerminalProfilesResponse"
+        "503":
+          description: Terminal is unavailable
+  /api/terminal/sessions:
+    get:
+      operationId: listTerminalSessions
+      description: Terminal sessions on this desktop. Loopback and operator only.
+      responses:
+        "200":
+          description: Sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TerminalSession"
+        "503":
+          description: Terminal is unavailable
+    post:
+      operationId: createTerminalSession
+      description: Start a terminal session. Loopback and operator only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TerminalSessionCreateRequest"
+      responses:
+        "201":
+          description: Created session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TerminalSession"
+        "400":
+          description: Unknown profile, invalid cwd, or invalid size
+        "429":
+          description: Session limit reached
+        "503":
+          description: Terminal is unavailable
+  /api/terminal/sessions/{id}:
+    delete:
+      operationId: deleteTerminalSession
+      description: |
+        Close a terminal session. Removing a session that is already gone
+        succeeds. Loopback and operator only.
+      parameters:
+        - $ref: "#/components/parameters/TerminalSessionId"
+      responses:
+        "204":
+          description: Closed
+        "503":
+          description: Terminal is unavailable
+  /api/terminal/sessions/{id}/ws:
+    get:
+      operationId: attachTerminalSession
+      description: |
+        Upgrade to a WebSocket attached to one terminal session. Loopback and
+        operator only; when an `Origin` header is present it must be a loopback
+        origin. A session accepts one attachment at a time.
+
+        Server binary frames are raw terminal output; server text frames are
+        JSON: `{"type":"ready","session":...}`, `{"type":"exit","exit_code":N}`,
+        or `{"type":"error","message":"..."}`. Client binary frames are
+        keyboard input; client text frames are
+        `{"type":"resize","cols":N,"rows":N}`. Because a WebSocket cannot set an
+        Authorization header, the credential may be passed as `?token=`.
+      parameters:
+        - $ref: "#/components/parameters/TerminalSessionId"
+      responses:
+        "101":
+          description: Switching Protocols
+        "400":
+          description: Not a WebSocket upgrade
+        "403":
+          description: Origin is not loopback, or the caller is not the operator
+        "404":
+          description: No such terminal session
+        "409":
+          description: Session is already attached to another client
+        "503":
+          description: Terminal is unavailable, or the session has closed
+  /api/uploads:
+    post:
+      operationId: uploadFile
+      description: |
+        Upload one attachment as `multipart/form-data` with a `file` field, up
+        to 20 MiB. Images and common text/binary types are accepted. Operator
+        only.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "201":
+          description: Stored upload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Upload"
+        "400":
+          description: Missing file field
+        "413":
+          description: File exceeds 20 MiB
+        "503":
+          description: Uploads are not configured
+        "415":
+          description: The file type is not accepted
+  /api/usage/limits:
+    get:
+      operationId: getUsageLimits
+      description: Today's spend and token usage per agent, against configured limits. Holder only.
+      responses:
+        "200":
+          description: Per-agent limit status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AgentLimitStatus"
+  /api/usage/summary:
+    get:
+      operationId: getUsageSummary
+      description: Per-day, per-agent aggregates over a recent window. Holder only.
+      parameters:
+        - in: query
+          name: days
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 30
+          description: Window length in days, inclusive of today. Capped at 366.
+      responses:
+        "200":
+          description: Usage rows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UsageRow"
+        "400":
+          description: Invalid days
+  /api/uploads/{name}:
+    get:
+      operationId: serveUpload
+      description: |
+        Serve a stored upload by its stored filename. Holder only. The response
+        is the file's bytes typed by extension, with a private one-hour cache.
+      parameters:
+        - $ref: "#/components/parameters/UploadName"
+      responses:
+        "200":
+          description: The stored file
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Invalid filename
+        "404":
+          description: Not found
+  /api/auth/invite:
+    post:
+      operationId: createInvitation
+      description: |
+        Mint a one-time invitation code for a new member. Operator only. The
+        code is returned in plaintext exactly once; only its digest is stored.
+      responses:
+        "200":
+          description: The invitation code and its expiry
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, expires_at]
+                properties:
+                  code:
+                    type: string
+                  expires_at:
+                    type: integer
+                    description: Expiry in unix milliseconds.
+        "404":
+          description: Accounts are not enabled on this daemon
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        The master token from `~/.kin/token`, or a device token minted by the
+        pairing exchange. Sent as `Authorization: Bearer <token>`.
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: kin_session
+      description: |
+        Browser login session created by bootstrap, join, login, or the OIDC
+        callback. HttpOnly, SameSite=Lax, Secure when the daemon serves TLS.
+    tokenQuery:
+      type: apiKey
+      in: query
+      name: token
+      description: |
+        The master or device token as a query parameter, for clients that
+        cannot set an Authorization header. The relay Worker converts this to a
+        Bearer header before forwarding.
+    relayRoom:
+      type: apiKey
+      in: query
+      name: room
+      description: |
+        Relay transport credential, validated and stripped by the Cloudflare
+        Worker. Not a daemon credential; declared here so clients can describe
+        the URL they build.
+    relayKey:
+      type: apiKey
+      in: query
+      name: key
+      description: |
+        Relay transport credential, validated and stripped by the Cloudflare
+        Worker. Not a daemon credential.
   parameters:
+    ArtifactId:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+    ProjectId:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+    ProviderId:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+    RoutineId:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+    RoutineRunTaskId:
+      in: path
+      name: taskID
+      required: true
+      schema:
+        type: string
+    TerminalSessionId:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+    UploadName:
+      in: path
+      name: name
+      required: true
+      schema:
+        type: string
+      description: The stored filename returned as `id` by the upload response.
+    DeviceRef:
+      in: path
+      name: device
+      required: true
+      schema:
+        type: string
+      description: A machine id, the literal `self`, or a paired device id.
     TaskId:
       in: path
       name: taskId
@@ -1833,8 +4170,12 @@ components:
       properties:
         secret:
           type: string
+          description: One-time secret for POST /api/pairing/exchange.
         expires_at:
           type: integer
+          description: >-
+            When the secret stops working, in epoch milliseconds. The lifetime
+            is five minutes from creation.
     PairingExchangeRequest:
       type: object
       required: [secret]
@@ -1849,8 +4190,16 @@ components:
       properties:
         device_id:
           type: string
+          description: >-
+            The paired device's id. The daemon mints it as `ios-` followed by
+            16 hex characters, regardless of the client's platform: a phone, a
+            desktop, and a browser that pair here all receive the same prefix.
+            Treat it as an opaque id.
         token:
           type: string
+          description: >-
+            The device token. Send it as `Authorization: Bearer <token>` or as
+            the `token` query parameter.
         label:
           type: string
         desktop_id:
@@ -2294,18 +4643,109 @@ components:
           type: string
     Device:
       type: object
-      required: [id, created_at]
+      required: [id, reachability, created_at, agents]
+      description: >-
+        One paired device credential plus what its machine reported about
+        itself. The local daemon's own row has no credential and is not
+        listed here.
       properties:
         id:
           type: string
+          description: >-
+            Device id minted by the pairing exchange: `ios-` plus 16 hex
+            characters, whatever the client platform. Opaque to clients.
         label:
           type: string
+        platform:
+          type: string
+        arch:
+          type: string
+        role:
+          type: string
+          enum: [client, node]
+          description: >-
+            `client` for a paired console that has not dialled in as a machine;
+            `node` once the machine reported itself and can run turns. The
+            daemon's own Hub row has no credential and is not listed here.
+        kin_version:
+          type: string
+        reachability:
+          type: string
+          enum: [unknown, online, offline]
+          description: >-
+            `online` when the Hub holds a live connection for the device, or
+            when the last recorded report said online; `offline` after the
+            device disconnected; `unknown` before the first report.
+        last_seen_at:
+          type: integer
+          description: >-
+            Last contact in epoch milliseconds, falling back to the
+            credential's last use when the machine never reported. Absent when
+            neither has a value.
         created_at:
           type: integer
-        last_used_at:
-          type: [integer, "null"]
+          description: When the device was paired, in epoch milliseconds.
         revoked_at:
-          type: [integer, "null"]
+          type: integer
+          description: When the device was revoked, in epoch milliseconds. Absent while active.
+        agents:
+          type: array
+          description: Agents the machine reported. Empty, never null.
+          items:
+            $ref: "#/components/schemas/DeviceAgent"
+        workspace_roots:
+          type: array
+          description: Workspace roots the machine reported. Paths, not secrets.
+          items:
+            type: string
+    DeviceAgent:
+      type: object
+      required: [id, installed, available]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+        family:
+          type: string
+        transport:
+          type: string
+        installed:
+          type: boolean
+        available:
+          type: boolean
+        version:
+          type: string
+        reason:
+          type: string
+        default_model:
+          type: string
+        models:
+          type: array
+          items:
+            type: string
+        permission_modes:
+          type: array
+          description: >-
+            Permission ladder this machine advertises for a turn dispatched to
+            this agent, in ladder order, after removing the modes it would
+            refuse. An agent that never asks has an intrinsic ladder of only
+            `default`; an agent whose `accept_edits` already bypasses
+            approvals omits that rung. The executor refuses a mode only when
+            it bypasses approvals and the machine was not started with
+            `--allow-yolo`, so omission means "do not offer", not "always
+            refused". When that filter leaves no mode at all, the agent is
+            reported with `available: false` and a reason, and this field may
+            be empty or absent. An absent field can also mean a machine that
+            did not report a list at all (an older node); a client must read
+            absent as the modes that do not bypass and check `available`
+            before offering the agent.
+          items:
+            type: string
+        is_default:
+          type: boolean
     PushDevice:
       type: object
       required: [id, platform, name, environment, created_at, updated_at, last_ok_at, last_error]
@@ -2495,18 +4935,88 @@ components:
       properties:
         agent:
           type: string
+          description: Agent id. Empty picks the default available agent.
         cwd:
           type: string
+          description: |
+            Directory the task works in. Required. Prefer an absolute path.
+            For a task prepared on this machine the workspace probe resolves
+            it to an absolute, symlink-resolved path before the first turn,
+            and a path that is missing or not a directory is refused. For a
+            task with `executing_device_id`, this is a path on that machine,
+            sent as typed and not stat'ed by the Hub.
+
+            When the task runs in a generated checkout (`workspace_mode:
+            worktree`, including `auto` after promotion), the checkout is
+            materialized from the base commit: a path that exists in the
+            source directory but not in that commit — a gitignored directory,
+            an untracked directory not present at HEAD — has no counterpart
+            there, and the turn fails at start with
+            `task execution directory is unavailable: <path>`. Use
+            `workspace_mode: shared` for a directory that must be used in
+            place rather than copied.
         prompt:
           type: string
+          description: Non-empty first user message.
         model:
           type: string
         title:
           type: string
         permission_mode:
           type: string
+          description: |
+            Applied to every agent run in the task. Meaningful values are
+            `default`, `accept_edits`, and `yolo`; absent means `default`.
+            Aliases are normalized on input: `acceptEdits` and `accept-edits`
+            become `accept_edits`; `bypass`, `bypassPermissions`, and
+            `dangerously-skip-permissions` become `yolo`. Any other value
+            becomes `default`. A generic CLI agent that has no Kin approval
+            channel cannot run under `default` and is refused with `400`; it
+            requires `accept_edits` or `yolo`. `yolo` bypasses agent permission
+            prompts, so approvals may never be requested. `accept_edits` is a
+            distinct rung only for an agent that has one: on an agent whose
+            accept-edits setting already bypasses approvals, or that never
+            asks, `accept_edits` bypasses them too. `AgentInfo.permission_modes`
+            and `DeviceAgent.permission_modes` state the ladder an agent
+            actually has.
+
+            Whether a turn asks for approval is the agent's decision under the
+            mode, and Kin records no per-turn "bypassed" flag: a turn that
+            needed no approval is indistinguishable from one whose gate was
+            bypassed. A client can infer that no approval will arrive when the
+            mode leaves the agent nothing to ask about: `yolo`; `accept_edits`
+            when the advertised ladder omits that rung; `default` when the
+            ladder is only `default`. Otherwise the turn may ask.
         workspace_mode:
           type: string
+          description: |
+            Requested workspace isolation. Meaningful values are `auto`
+            (default), `shared`, and `worktree`; `Task.workspace_mode` reports
+            what was actually resolved, which is only `shared` or `worktree`.
+
+            - `auto` — probe `cwd`. A git repository with a commit is marked
+              `worktree`. An agent that supports lazy promotion runs its first
+              turn read-only in the source checkout and promotes a generated
+              checkout when a turn needs to write. Other agents prepare the
+              generated checkout before the task starts, and on that path a
+              dirty source worktree falls back to `shared`. A directory that is
+              not a repository, has no commit, is bare, or has no usable git is
+              marked `shared` and used as it is.
+            - `shared` — run in `cwd` exactly as it is.
+            - `worktree` — prepare a generated checkout before the task starts.
+              Refused with `400` when `cwd` cannot host one (not a repository,
+              no commit, bare, or git unavailable), and refused with `400` for
+              a task that runs on another machine, whose workspace is that
+              machine's own checkout. A dirty source worktree is allowed: the
+              checkout is cut from HEAD and leaves the uncommitted changes
+              behind. A `worktree` task whose `cwd` path does not exist in the
+              base commit also fails at turn start (see `cwd`).
+
+            Any other non-empty value is not the same answer everywhere. A
+            local task is refused with `400` (`invalid workspace mode`); a task
+            that runs on another machine has no local workspace to prepare and
+            runs in that machine's checkout as if `shared` were sent. Send one
+            of the three values.
         project_id:
           type: string
         routine_id:
@@ -2526,10 +5036,20 @@ components:
           type: string
         agent:
           type: string
+          description: >-
+            When set to a different agent, hand the task off: the agent session
+            is cleared and context is injected into the new agent.
         model:
           type: string
+          description: >-
+            When set, updates the task model for this and subsequent turns.
+            A same-agent resume uses the new model on the next start.
         permission_mode:
           type: string
+          description: |
+            When set, updates the task permission mode for this and subsequent
+            turns without resetting session continuity. Values, aliases, and
+            normalization are the same as `CreateTaskRequest.permission_mode`.
         interrupt:
           type: boolean
           description: |
@@ -2551,6 +5071,11 @@ components:
           type: string
         permission_mode:
           type: string
+          description: >-
+            The permission mode requested with the queued prompt. Absent when
+            the prompt did not set one; otherwise the value as sent, so an
+            alias may appear here. It is normalized when the prompt becomes a
+            turn.
         user_seq:
           type: integer
           description: |
@@ -2560,6 +5085,7 @@ components:
             cannot decide what to mark as waiting.
         queued_at:
           type: integer
+          description: When the prompt was queued, in epoch milliseconds.
     ReplayRequest:
       type: object
       required: [mode]
@@ -2900,11 +5426,29 @@ components:
             - string
             - "null"
         permission_mode:
-          type:
-            - string
-            - "null"
+          type: string
+          enum: [default, accept_edits, yolo]
+          description: >-
+            Normalized permission mode applied to every agent run in the task.
+            Rows written before the mode was recorded read `default`.
         status:
           type: string
+          enum:
+            - queued
+            - running
+            - waiting_approval
+            - waiting_input
+            - succeeded
+            - failed
+            - canceled
+            - retrying
+          description: >-
+            `succeeded`, `failed`, and `canceled` are terminal. `queued` means
+            no turn has started yet; `retrying` means a retry is being prepared
+            (files restored) before the new turn starts; `running`,
+            `waiting_approval`, and `waiting_input` mean a turn is live or
+            blocked on the user. A row in `retrying` cannot be canceled or
+            deleted until its file restoration finishes.
         exit_code:
           type:
             - integer
@@ -2919,38 +5463,88 @@ components:
             - "null"
         created_at:
           type: integer
+          description: When the task was created, in epoch milliseconds.
         started_at:
           type:
             - integer
             - "null"
+          description: When the first turn started, in epoch milliseconds.
         finished_at:
           type:
             - integer
             - "null"
+          description: When the last turn ended, in epoch milliseconds.
         project_id:
           type:
             - string
             - "null"
         workspace_mode:
-          type:
-            - string
-            - "null"
+          type: string
+          enum: [shared, worktree]
+          description: |
+            The resolved workspace isolation, not the requested mode.
+
+            - `shared` — turns run in `cwd` itself; a local task may store it
+              as the probe-resolved absolute path. A task that runs
+              on another machine is always `shared`, and a local `auto` task
+              falls back to it when there is nothing to isolate from (not a
+              repository, bare, no commit, or no usable git) or, on the eager
+              path, when the source worktree is dirty.
+            - `worktree` — the task runs against an isolated copy. An agent
+              with lazy promotion starts with a read-only turn in the source
+              checkout and promotes a generated checkout when a turn needs to
+              write; before promotion, the workspace fields describe the
+              source checkout. Other agents have the generated checkout when
+              the task starts. After promotion, `workspace_root` is the
+              generated checkout, `execution_cwd` is `workspace_root` plus
+              `workspace_scope`, and `workspace_branch` is the branch its work
+              is on.
         workspace_source_root:
           type:
             - string
             - "null"
+          description: Repository root that `cwd` belongs to, when it is in a repository.
         workspace_root:
           type:
             - string
             - "null"
+          description: >-
+            Root of the checkout this task's turns run in. For a shared task it
+            is the directory itself, the same path as `execution_cwd`. For a
+            lazy `auto` task before promotion it is the source repository root;
+            after promotion, and for an eager worktree task, it is the
+            generated checkout. Null only on rows written before the field was
+            recorded.
         execution_cwd:
           type:
             - string
             - "null"
+          description: >-
+            Directory turns actually run in. For a shared task it is the
+            directory itself: `cwd` as given for a task on another machine or
+            a lazy `auto` task with nothing to isolate from, and the
+            probe-resolved absolute path (symlinks followed) for one prepared
+            on this machine. For a lazy `auto` task before promotion it is the
+            source directory the read-only turn runs in; after promotion, and
+            for an eager worktree task, it is inside the generated checkout.
         workspace_scope:
           type:
             - string
             - "null"
+          description: >-
+            The part of the repository `cwd` selected, relative to
+            `workspace_source_root` with `/` separators; `.` at the root. For
+            an isolated task (a lazy `auto` task, or a generated worktree),
+            `execution_cwd` is `workspace_root` joined with this scope. Once
+            the generated checkout exists (from the start for an eager
+            worktree task, after promotion for a lazy one), a scope directory
+            absent from the base commit leaves no directory to run in; before
+            promotion the turn runs in the source checkout. For a shared task
+            in a repository on this machine, `execution_cwd` equals
+            `workspace_root`, and `workspace_source_root` joined with this
+            scope reconstructs it. Other shared tasks — on another machine, or
+            where the probe found no repository — have a null
+            `workspace_source_root` and a scope of `.`.
         workspace_base_oid:
           type:
             - string
@@ -2960,10 +5554,13 @@ components:
             - string
             - "null"
           description: >-
-            For a task with a workspace lifecycle, the branch its current
-            generation runs on. For a session that runs on another machine, the
-            branch that machine reported for its checkout — the same column,
-            because both answer "which branch is this session's work on".
+            The branch this task's work is on. Before a lazy promotion it is
+            the source checkout's current branch, from which the generated
+            checkout will be cut; afterwards, and for an eager worktree task,
+            it is the generated checkout's branch. For a session that runs on
+            another machine, the branch that machine reported for its checkout
+            — the same column, because both answer "which branch is this
+            session's work on".
         workspace_repo:
           type:
             - string
@@ -2975,9 +5572,19 @@ components:
             that runs here, whose repository is derived from its workspace
             generation when a pull request is looked up.
         workspace_policy:
-          type:
-            - string
-            - "null"
+          type: string
+          enum: [auto, shared, worktree]
+          description: >-
+            The isolation path the task was created under. `auto` — the lazy
+            path for an agent that supports promotion: a read-only first turn
+            in the source that may be promoted. `worktree` — the eager path:
+            the generated checkout is prepared before the task starts. An
+            `auto` request on this path still falls back to shared when the
+            source is dirty, not a repository, bare, has no commit, or has no
+            usable git, and then `workspace_mode` reads `shared` with no
+            checkout created. `shared` — the directory is used as it is: an
+            explicit `shared` request, a task that runs on another machine, or
+            a lazy `auto` task with nothing to isolate from.
         current_workspace_id:
           type:
             - string
@@ -2990,6 +5597,10 @@ components:
             machine, which executes it with its own agents and its own filesystem.
         event_epoch:
           type: integer
+          description: >-
+            Version of this task's event log. It starts at 0 and increments
+            whenever the log's tail is rewritten; `(event_epoch, seq)` is the
+            identity of an event.
         hub_seq:
           type:
             - integer
@@ -3029,6 +5640,7 @@ components:
           type: string
         reset_at:
           type: integer
+          description: Reset time reported by the provider, in unix seconds; 0 when unknown.
         state:
           type: string
           enum: [waiting, probing, retrying, completed, canceled, blocked]
@@ -3036,8 +5648,10 @@ components:
           type: integer
         next_probe_at:
           type: integer
+          description: When the next probe is due, in unix milliseconds.
         first_wait_at:
           type: integer
+          description: When the wait began, in unix milliseconds.
         last_probe_at:
           type:
             - integer
@@ -3051,6 +5665,7 @@ components:
         updated_at:
           type: integer
           minimum: 0
+          description: Row update time, in unix milliseconds.
     TaskEvent:
       type: object
       additionalProperties: false
@@ -3067,14 +5682,518 @@ components:
         event_epoch:
           type: integer
           minimum: 0
+          description: >-
+            Version of the task's event log. A retry or other tail rewrite
+            increments it and reuses the seq values from that point, so an
+            event's identity is (event_epoch, seq).
         seq:
           type: integer
           minimum: 1
+          description: >-
+            Position in this task's log, 1-based and contiguous within one
+            event_epoch.
         ts:
           type: integer
+          description: When the daemon appended the event, in epoch milliseconds.
         type:
           type: string
-        payload: {}
+          description: |
+            Event kind. This is an open set: adapters and the engine both
+            append, and a client must tolerate a kind it does not know.
+            Known values:
+
+            - `message` — assistant or user text. Streaming updates set
+              `payload.partial`; see `TaskEventPayload`.
+            - `tool_use` — an agent tool call, or a status update for one.
+            - `tool_result` — the outcome of a tool call.
+            - `result` — end of a turn, with the final text and usage.
+            - `error` — a turn error.
+            - `usage` — incremental token accounting.
+            - `plan` — the agent's plan, replaced whole on each update.
+            - `notice` — a status line from the adapter or daemon.
+            - `limit_hit` — the provider's rate limit or quota was reached.
+              The console renders a limit card from it; see `reset_at` and
+              `status` in `TaskEventPayload`.
+            - `task_started` — the agent session started.
+            - `approval_requested` / `approval_decided` — the approval audit
+              trail.
+            - `user_question_requested` / `user_question_answered` — the
+              question audit trail.
+            - `route_decision` / `route_fallback` — model or agent routing.
+            - `skill_context` — skills injected into a turn.
+            - `eval_metadata` / `replay_metadata` — eval and replay bookkeeping.
+            - `connector_call` — a connector invocation audit record.
+            - `checkpoint_skipped` — the round snapshot could not be taken.
+            - `round_changed` — files changed between two round checkpoints.
+            - `workspace_provisioning`, `workspace_ready`, `workspace_active`,
+              `workspace_finalizing`, `workspace_integrated`,
+              `workspace_released`, `workspace_merge_blocked`,
+              `workspace_finalize_blocked`, `workspace_orphaned`,
+              `workspace_legacy_pending` — workspace lifecycle transitions.
+            - `workspace_restored` — a checkpoint was restored.
+            - `meta` — daemon annotation, for example fork lineage.
+            - `raw_output` — an unparsed adapter line, kept for diagnostics.
+        payload:
+          $ref: "#/components/schemas/TaskEventPayload"
+    TaskEventPayload:
+      type: object
+      additionalProperties: true
+      description: |
+        Event body. The event `type` selects which fields are meaningful; every
+        field here is optional because the set of event kinds is open and older
+        rows predate some fields. Unknown fields must be preserved.
+
+        Two groups are documented:
+
+        **Canonical attribution.** The engine stamps these onto the events it
+        authors, and adapters set their own: identity (`agent`, `speaker`),
+        origin (`source`), orchestration stage (`phase`), the model and role
+        that produced the text, the audience (`visibility`), and the
+        execution/workspace the event belongs to. They stay optional because
+        not every kind carries every field.
+
+        **Per-kind body.** The rest is the adapter's own payload, passed
+        through unchanged. For `message`, the delta rule is: chunks with
+        `partial: true` belong to one growing message and are concatenated in
+        `seq` order; a later event with `partial: false` replaces the
+        accumulated text rather than appending to it. `message_id` plus
+        `index` identify the same block across updates when an adapter sets
+        them. `content[]` is the canonical block list; `text` is the flattened
+        alternative some adapters send instead.
+      properties:
+        # ---- canonical attribution ----
+        agent:
+          type: string
+          description: Agent id that produced the event.
+        speaker:
+          type: string
+          description: The chat column the event belongs to, usually the agent id or `user`.
+        source:
+          type: string
+          description: >-
+            Origin. The engine writes `user`, `host`, `worker`, `orchestrator`,
+            `delegate`, `create`, `follow_up`, and on specific paths
+            `interrupt`, `handoff`, `orchestrate`, `retry`, `fork`,
+            `skill_runtime`, `user_wait`, or `user_action`. Adapters pass their
+            own label (`kin`, `droid`, `claude-code`, `codex`, `grok`). Read it
+            as an open set.
+        phase:
+          type: string
+          description: >-
+            Orchestration stage, when the event belongs to one. The engine
+            writes `plan`, `progress`, or `summary`; adapters may pass other
+            labels through, so read it as an open set.
+        model:
+          type: string
+          description: Model reported by the agent for this event.
+        role:
+          type: string
+          description: Message role, for example `user`, `assistant`, `reasoning`, or `tool`.
+        visibility:
+          type: object
+          additionalProperties: false
+          description: >-
+            Audience. `user` false keeps the event out of the main chat
+            column; `task` true keeps it in the task log.
+          properties:
+            user:
+              type: boolean
+            task:
+              type: boolean
+        execution_id:
+          type: string
+          description: The adapter run (attempt) this event belongs to.
+        run_execution_id:
+          type: string
+          description: >-
+            The turn this event belongs to. A retry starts a new
+            `execution_id` under the same `run_execution_id`.
+        execution_agent:
+          type: string
+        execution_step:
+          type: integer
+        execution_model:
+          type: string
+        provider_id:
+          type: string
+          description: Provider profile that served the run, when routing used one.
+        provider:
+          type: string
+          description: >-
+            Provider that served the run (`route_decision`, `route_fallback`)
+            or that refused it (`limit_hit`).
+        team:
+          type: string
+          description: For `route_decision` / `route_fallback`, the routing team that resolved the turn.
+        fallback_from:
+          type: object
+          additionalProperties: true
+          description: >-
+            For `route_fallback`, the provider and model that failed first.
+            At least `provider` and `model`; may also carry `class` and
+            `message`.
+        workspace_id:
+          type: string
+          description: Workspace generation id, on `workspace_*` lifecycle events and bound turns.
+        workspace_access:
+          type: string
+          enum: [pending_isolation, source_read_only, writable, shared]
+          description: >-
+            What the turn was allowed to do with its workspace:
+            `source_read_only` is the person's checkout before a worktree is
+            promoted; `writable` is a generated checkout; `shared` is the
+            directory used as it is.
+        workspace_generation:
+          type: integer
+          minimum: 1
+
+        # ---- message ----
+        content:
+          description: |
+            For `message`: the content blocks, or a plain string equivalent to
+            one text block. For `tool_use`: the adapter's content object, when
+            it has one.
+          oneOf:
+            - type: array
+              items:
+                $ref: "#/components/schemas/TaskEventContentBlock"
+            - type: string
+            - type: object
+              additionalProperties: true
+        text:
+          type: string
+          description: >-
+            Flattened text for a `message` or `result` event. Some adapters
+            carry it under `result` or `message` instead; the daemon reads
+            those as the same value.
+        partial:
+          type: boolean
+          description: >-
+            For `message`: true marks a streaming chunk to concatenate; false
+            marks the authoritative text that replaces the accumulated chunks.
+        message_id:
+          type: string
+          description: Adapter message id, enabling block identity across updates.
+        index:
+          oneOf:
+            - type: integer
+            - type: string
+          description: Block index within `message_id`, when the adapter reports one.
+        sidechain:
+          type: boolean
+          description: True when a subagent, not the main agent, wrote this text.
+        interrupted:
+          type: boolean
+          description: >-
+            On a user message, true when this prompt cut the running turn short
+            instead of waiting for it to end.
+
+        # ---- tool_use / tool_result ----
+        tool_use_id:
+          type: string
+          description: Joins a `tool_use` to its `tool_result`.
+        id:
+          type: string
+          description: >-
+            Legacy reader alias for a tool-call id. Some adapters write a
+            top-level `tool_use_id`; claude-code and codex nest the id under
+            `content` or `item`. Kin and the console still accept `id` on
+            older rows.
+        name:
+          type: string
+        tool_name:
+          type: string
+        input: {}
+        summary:
+          type: string
+          description: Short human summary of a tool call, when the adapter supplies one.
+        output:
+          type: string
+          description: Tool result text, for `tool_result`.
+        status:
+          type: string
+          description: >-
+            Producer-specific state for the event. For `tool_use`, the values
+            seen are `running` (kinagent) and `pending` / `in_progress` (ACP).
+            For `tool_result`, `done` (kinagent), `completed` (droid), or
+            `error`, when the adapter reports one; some adapters omit it. For
+            `user_question_answered`, the question's status. For `limit_hit`,
+            the limit card's state (`open`, `waiting`, `continued`, `switched`,
+            `dismissed`; open set). Read it as an open set; `ok` or `is_error`
+            is the authoritative tool outcome.
+        ok:
+          type: boolean
+          description: >-
+            For `tool_result`, false means the tool failed.
+        parent_tool_use_id:
+          type: string
+          description: Set when this tool call was made by a subagent inside another tool call.
+        item:
+          type: object
+          additionalProperties: true
+          description: Adapter item envelope, when the adapter wraps the tool in one.
+
+        # ---- approval_requested / approval_decided ----
+        approval_id:
+          type: string
+        kind:
+          type: string
+          description: >-
+            For `approval_requested`, what is being approved (`tool_use`,
+            `browser_side_effect`, or another relayed kind). For `notice`, the
+            adapter's notice kind (for example `updateCurrentMode`). For
+            `error`, a machine-readable kind such as `rate_limited`. Open.
+        payload:
+          type: object
+          additionalProperties: true
+          description: >-
+            For `approval_requested`, the adapter's tool request body, verbatim.
+            For `user_question_requested`, the question and its options.
+        question_id:
+          type: string
+        response:
+          type: object
+          additionalProperties: true
+          description: >-
+            For `user_question_answered`: `selected` labels and optional
+            `other_text`.
+        answered_via:
+          type: string
+          description: |
+            For `user_question_answered`. Who answered:
+
+            - `ios:<device-id>` — a paired device token, where `<device-id>` is
+              the `ios-…` id from the pairing exchange, so the stored value
+              reads `ios:ios-…`.
+            - `web` — the fallback for a console request whose
+              `X-Client-Type` header is absent, blank after trimming, or longer
+              than 64 characters.
+            - `<X-Client-Type>` — the trimmed header value, at most 64
+              characters, for any other console.
+            - `mcp` — a Kin MCP client. Unlike `Approval.decided_via`, the
+              client id is not appended.
+            - `a2a` — an A2A caller.
+            - `timeout` — the question was answered on the user's behalf when
+              its wait expired.
+            - `interrupt` — the turn was stopped.
+
+            Not a closed enum. There is no `device_disconnected` value for
+            questions.
+        decision:
+          type: string
+          enum: [approved, denied, expired]
+          description: For `approval_decided`.
+        decided_via:
+          type: string
+          description: >-
+            For `approval_decided`. Same attribution vocabulary as
+            `Approval.decided_via`; not a closed enum.
+        decided_at:
+          type: integer
+          description: For `approval_decided`, in epoch milliseconds.
+
+        # ---- result / error / usage ----
+        is_error:
+          type: boolean
+          description: >-
+            For `result`. Canonical result payloads always carry it. A legacy
+            result that omits it is treated as a failure.
+        session_ref:
+          type: string
+          description: >-
+            Agent session id, for `task_started` and `result`. Some adapters
+            write it as `session_id` (claude-code, codex, grok, kinagent,
+            generic CLI); droid and ACP write `session_ref`. `sessionId` is a
+            read-side alias; the daemon and clients read all three as the same
+            value.
+        usage:
+          type: object
+          additionalProperties: true
+          description: |
+            For `usage`, and nested in a canonical `result`. Adapter-reported
+            token fields, not normalized in place; the daemon normalizes them
+            for accounting with these aliases, nested under `usage` or flat on
+            the payload:
+
+            - input: `input_tokens` | `prompt_tokens` | `tokens_in`
+            - output: `output_tokens` | `completion_tokens` | `tokens_out`
+            - cached input: `cache_read_tokens` | `cache_read_input_tokens` |
+              `cached_input_tokens`
+            - cache writes: `cache_write_tokens` | `cache_creation_input_tokens`
+            - cost: `cost_usd` | `total_cost_usd`
+
+            Also recognized: `reasoning_output_tokens`, `cached_tokens`,
+            `cache_read_reported`, `cache_status`, `input_semantics`,
+            `cost_source`, `model`, `provider_id`, `source`, `agent`.
+        tokens_in:
+          type: integer
+          description: >-
+            Input tokens, flat on a legacy `result` or `usage` payload. Canonical
+            events nest the normalized count under `usage`.
+        tokens_out:
+          type: integer
+          description: >-
+            Output tokens, flat on a legacy `result` or `usage` payload. Canonical
+            events nest the normalized count under `usage`.
+        cost_usd:
+          type:
+            - number
+            - "null"
+          description: >-
+            Reported cost in US dollars, when the adapter or provider gives one.
+            Canonical results carry it inside `usage`; legacy `result` payloads
+            may carry it at the top level, and a `usage` payload may send null
+            when no cost was reported.
+        total_cost_usd:
+          type: number
+          description: >-
+            Provider-reported total cost in US dollars, passed through on some
+            `result` payloads alongside `cost_usd`.
+        message:
+          type: string
+          description: >-
+            A human-readable line: the failure for `error`, a status line for
+            daemon-authored notices, and the annotation for `meta`.
+        error: {}
+        # adapter payloads may carry the failure under `result` instead of `message`
+        result: {}
+        raw: {}
+        # ^ adapter's verbatim source line, diagnostics only; opaque. Present on
+        #   some `message` and `result` payloads (for example `claude-code`).
+
+        # ---- notice / plan / lifecycle ----
+        title:
+          type: string
+          description: For `notice`.
+        severity:
+          type: string
+          description: For `notice`, for example `info` or `warning`.
+        entries:
+          type: array
+          description: >-
+            For `plan`: the current plan, whole. An empty array withdraws the
+            previous plan.
+          items:
+            type: object
+            additionalProperties: true
+            properties:
+              content:
+                type: string
+              status:
+                type: string
+        event_seq:
+          type: integer
+          description: >-
+            For `checkpoint_skipped` and `workspace_restored`: the user-message
+            seq the checkpoint was taken at.
+        reason:
+          type: string
+          description: >-
+            Why, when the producer attaches one. For `checkpoint_skipped` the
+            value is `too_large`, `unavailable`, or `git_error`. For
+            `route_decision` / `route_fallback` it is the router's free-text
+            sentence, for example `manual dispatch`. Read it as an open set.
+        from_seq:
+          type: integer
+          description: >-
+            For `round_changed`, the user seq that opened the round.
+        to_seq:
+          type: integer
+          description: >-
+            For `round_changed`, the user seq that closed the round.
+        base_tree:
+          type: string
+        head_tree:
+          type: string
+        total:
+          type: integer
+          description: >-
+            For `round_changed`: total paths changed. `files` is capped at 200
+            entries, so compare it with this count to know what was omitted.
+        files:
+          type: array
+          maxItems: 200
+          description: >-
+            For `round_changed`, the changed paths, capped at 200.
+          items:
+            $ref: "#/components/schemas/RoundChangedFile"
+        forked_from:
+          type: string
+          description: >-
+            For a forked task, the source task id. Written on the first user
+            `message` (whose `source` is `fork`) when the fork starts with a
+            turn; otherwise on the `meta` annotation.
+        fork_from_seq:
+          type: integer
+          description: >-
+            For a forked task, the seq the fork branched from. Written on the
+            same event as `forked_from`.
+        line:
+          type: string
+          description: >-
+            For `raw_output`, one unparsed adapter line.
+
+        # ---- handoff / rate limits ----
+        from_agent:
+          type: string
+          description: >-
+            For a `message` with `source: handoff`, the agent the task came
+            from.
+        to_agent:
+          type: string
+          description: >-
+            For a `message` with `source: handoff`, the agent the task moved
+            to. For `limit_hit`, the agent a `switched` card moved to.
+        reset_at:
+          type: integer
+          description: >-
+            For `limit_hit`, when the provider's window resets, in epoch
+            seconds, not milliseconds. The daemon normalizes a provider value
+            in milliseconds down to seconds.
+        window:
+          type: string
+          description: For `limit_hit`, the provider's window label, when it reports one.
+        replaces_seq:
+          type: integer
+          description: >-
+            For `limit_hit`, the seq of the earlier limit card this one
+            replaces, when it updates one.
+    TaskEventContentBlock:
+      type: object
+      additionalProperties: true
+      required: [type]
+      description: >-
+        One block of a message. The daemon writes `{"type":"text","text":...}`;
+        adapters may add other block types, so `type` is an open string and
+        unknown blocks must be preserved.
+      properties:
+        type:
+          type: string
+        text:
+          type: string
+    RoundChangedFile:
+      type: object
+      additionalProperties: true
+      description: >-
+        One changed path in a `round_changed` event. The daemon always writes
+        `path` and `status`; both stay optional here because a stored event is
+        untrusted input and a client drops a malformed entry rather than
+        failing the round.
+      properties:
+        path:
+          type: string
+        old_path:
+          type: string
+          description: Present when `status` is `renamed`.
+        status:
+          type: string
+          enum: [added, modified, deleted, renamed, binary]
+        additions:
+          type: integer
+        deletions:
+          type: integer
+        binary:
+          type: boolean
     WorkerStep:
       type: object
       additionalProperties: false
@@ -3144,19 +6263,55 @@ components:
           type: string
         kind:
           type: string
-        payload: {}
+          description: |
+            What is being approved. `tool_use` for an agent tool call and
+            `browser_side_effect` for a browser action that changes state; a
+            machine relaying an approval may pass another non-empty kind
+            through unchanged. Read it as an open set.
+        payload:
+          description: >-
+            The adapter's request body, stored verbatim and opaque to clients.
+            For `browser_side_effect` it carries `request_id`, `action`, and
+            `source`.
         decision:
           type: string
+          enum: [pending, approved, denied, expired]
+          description: >-
+            `pending` until a person decides; then `approved`, `denied`, or
+            `expired`. `expired` is written by the daemon when the one-hour
+            approval TTL passes or the machine holding the turn disconnects.
         decided_via:
           type:
             - string
             - "null"
+          description: |
+            Who decided, when known:
+
+            - `ios:<device-id>` — a paired device token, where `<device-id>` is
+              the `ios-…` id from the pairing exchange, so the stored value
+              reads `ios:ios-…`. The prefix is used for any paired device, not
+              only iOS.
+            - `web` — the fallback for a console request whose
+              `X-Client-Type` header is absent, blank after trimming, or longer
+              than 64 characters.
+            - `<X-Client-Type>` — the trimmed header value, at most 64
+              characters, for any other console.
+            - `mcp:<client-id>` — a Kin MCP client.
+            - `a2a` — an A2A caller.
+            - `interrupt` — the engine denied it because the turn was stopped.
+            - `timeout` — the approval TTL passed.
+            - `device_disconnected` — the machine holding the turn went away.
+
+            Not a closed enum: a relayed approval carries the deciding
+            machine's own attribution.
         created_at:
           type: integer
+          description: When the approval was requested, in epoch milliseconds.
         decided_at:
           type:
             - integer
             - "null"
+          description: When the decision was recorded, in epoch milliseconds.
         execution_id:
           type:
             - string
@@ -3536,3 +6691,1557 @@ components:
                   in a team session. Absent means the agent named at the top.
               ts:
                 type: integer
+    AuthErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+          description: Stable machine-readable refusal code, e.g. `invalid_credentials`.
+    AuthProvider:
+      type: object
+      required: [id, label, kind]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        kind:
+          type: string
+          enum: [password, oidc]
+        start_url:
+          type: string
+          description: Where to navigate to begin this provider's flow.
+    AuthUser:
+      type: object
+      required: [id, email_verified]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        email_verified:
+          type: boolean
+        email_source:
+          type: string
+        display_name:
+          type: string
+        identities:
+          type: array
+          items:
+            type: string
+          description: Provider ids linked to this account, deduplicated.
+    AuthStatus:
+      type: object
+      required: [needs_bootstrap, claimable, authenticated, providers]
+      properties:
+        needs_bootstrap:
+          type: boolean
+          description: No owner account exists yet.
+        claimable:
+          type: boolean
+          description: A bootstrap code is live, so the owner account can be claimed now.
+        authenticated:
+          type: boolean
+          description: The request carried a valid session cookie.
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuthProvider"
+          description: Empty on a standalone daemon with no account system.
+        user:
+          $ref: "#/components/schemas/AuthUser"
+    AuthEnrollRequest:
+      type: object
+      required: [code, email, password]
+      properties:
+        code:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+        display_name:
+          type: string
+    AuthLoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+    AuthLoginLinkRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: The one-time token from the sign-in link's URL fragment.
+    AuthSessionResponse:
+      type: object
+      required: [user, expires_at]
+      properties:
+        user:
+          $ref: "#/components/schemas/AuthUser"
+        expires_at:
+          type: integer
+          description: Session expiry in unix milliseconds.
+    AuthMeResponse:
+      type: object
+      required: [user]
+      properties:
+        user:
+          $ref: "#/components/schemas/AuthUser"
+    AgentModelOption:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        tier:
+          type: string
+    AgentInfo:
+      type: object
+      required: [id, name, installed, available, default, model_list_source, model_list_status]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        binary:
+          type: string
+          description: Absolute install path; blanked for a caller that does not hold the machine.
+        installed:
+          type: boolean
+        available:
+          type: boolean
+        default:
+          type: boolean
+        reason:
+          type: string
+        install_url:
+          type: string
+        models:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentModelOption"
+        model_list_source:
+          type: string
+          enum: [configured, discovered, recommended, none]
+        model_list_status:
+          type: string
+          enum: [available, default_only, unavailable]
+        permission_modes:
+          type: array
+          items:
+            type: string
+          description: >-
+            The permission ladder this agent actually has on this machine. An
+            agent that never asks reports only `default`; an agent whose
+            `accept_edits` setting already bypasses approvals reports
+            `default` and `yolo` with no `accept_edits` rung; otherwise the
+            ladder is `default`, `accept_edits`, `yolo`. Absent when the
+            machine could not report its ladder, in which case a console falls
+            back to offering every mode. `DeviceAgent.permission_modes` is the
+            filtered version for turns dispatched to another machine.
+    AgentManagementInfo:
+      type: object
+      required: [id, auth_status]
+      properties:
+        id:
+          type: string
+        version:
+          type: string
+        auth_status:
+          type: string
+          enum: [signed_in, not_signed_in, unknown]
+        auth_detail:
+          type: string
+        install_cmd:
+          type: string
+        update_cmd:
+          type: string
+    AgentSmokeRequest:
+      type: object
+      properties:
+        ids:
+          type: array
+          items:
+            type: string
+          description: Agents to probe; empty means every installed generic CLI agent.
+    AgentSmokeResult:
+      type: object
+      required: [id, ok, installed, available]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        skipped:
+          type: boolean
+        ok:
+          type: boolean
+        installed:
+          type: boolean
+        available:
+          type: boolean
+        binary:
+          type: string
+        detail:
+          type: string
+        checked_at:
+          type: integer
+    AgentSmokeResponse:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentSmokeResult"
+    MachineAgent:
+      type: object
+      required: [id, installed, available]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+        family:
+          type: string
+        transport:
+          type: string
+        installed:
+          type: boolean
+        available:
+          type: boolean
+        version:
+          type: string
+        reason:
+          type: string
+        default_model:
+          type: string
+        models:
+          type: array
+          items:
+            type: string
+        permission_modes:
+          type: array
+          items:
+            type: string
+        is_default:
+          type: boolean
+    Machine:
+      type: object
+      required: [id, reachability, agents]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        reachability:
+          type: string
+        agents:
+          type: array
+          items:
+            $ref: "#/components/schemas/MachineAgent"
+        workspace_roots:
+          type: array
+          items:
+            type: string
+    MachineDirs:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+          description: The directory that was listed, as it was walked.
+        parent:
+          type: string
+          description: What "up" means from here; absent at a root.
+        roots:
+          type: array
+          items:
+            type: string
+        entries:
+          type: array
+          items:
+            type: string
+          description: Directory names inside `path`, never files.
+        truncated:
+          type: boolean
+    MachineRepoBranches:
+      type: object
+      required: [clone_url]
+      properties:
+        clone_url:
+          type: string
+          description: The repository spelled as a remote the machine will fetch.
+        default_branch:
+          type: string
+        branches:
+          type: array
+          items:
+            type: string
+        truncated:
+          type: boolean
+    MachineRepoPrepareRequest:
+      type: object
+      required: [repo]
+      properties:
+        repo:
+          type: string
+          description: The clone URL returned by repo/branches.
+        branch:
+          type: string
+          description: Branch to check out; empty uses the remote default.
+    MachineRepoPrepareResult:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+          description: Absolute path inside the machine's roots.
+        branch:
+          type: string
+        cloned:
+          type: boolean
+          description: True when this call is what put the repository there.
+    GitBranch:
+      type: object
+      required: [name, current]
+      properties:
+        name:
+          type: string
+        current:
+          type: boolean
+    GitBranchStatus:
+      type: object
+      required: [cwd, is_git, branches]
+      properties:
+        cwd:
+          type: string
+        is_git:
+          type: boolean
+        current:
+          type: string
+        detached:
+          type: boolean
+        dirty:
+          type: boolean
+        branches:
+          type: array
+          items:
+            $ref: "#/components/schemas/GitBranch"
+        reason:
+          type: string
+          description: Why the directory could not be read as a repository.
+    GitCheckoutRequest:
+      type: object
+      required: [cwd, branch]
+      properties:
+        cwd:
+          type: string
+        branch:
+          type: string
+        device:
+          type: string
+          description: Machine whose checkout moves; empty or `self` is this daemon.
+    GitCheckoutResponse:
+      type: object
+      required: [cwd, current]
+      properties:
+        cwd:
+          type: string
+        current:
+          type: string
+    Artifact:
+      type: object
+      required: [id, title, kind, size, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        kind:
+          type: string
+          enum: [markdown, html, text]
+        size:
+          type: integer
+        status:
+          type: string
+          enum: [proposed, saved, archived]
+        source_task_id:
+          type: string
+        source_task_title:
+          type: string
+        created_at:
+          type: integer
+        updated_at:
+          type: integer
+    ArtifactCreateRequest:
+      type: object
+      required: [kind]
+      properties:
+        title:
+          type: string
+        kind:
+          type: string
+          enum: [markdown, html, text]
+        content:
+          type: string
+        source_task_id:
+          type: string
+        status:
+          type: string
+          enum: [proposed, saved, archived]
+    ArtifactStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [proposed, saved, archived]
+    Project:
+      type: object
+      required: [id, name, mode, status, created_at, updated_at, last_active_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        mode:
+          type: string
+          enum: [ship, learn, explore, maintain]
+        status:
+          type: string
+        soft_progress:
+          type: string
+        created_at:
+          type: integer
+        updated_at:
+          type: integer
+        last_active_at:
+          type: integer
+        roots:
+          type: array
+          items:
+            type: string
+        one_pager_path:
+          type: string
+          description: Absolute path to the one-pager, when projects are configured.
+    ProjectCreateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Defaults to the basename of the first root.
+        mode:
+          type: string
+          enum: [ship, learn, explore, maintain]
+          default: ship
+        roots:
+          type: array
+          items:
+            type: string
+    ProjectEnsureRequest:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+        name:
+          type: string
+        mode:
+          type: string
+          enum: [ship, learn, explore, maintain]
+    ProjectPatchRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        mode:
+          type: string
+          enum: [ship, learn, explore, maintain]
+        status:
+          type: string
+        soft_progress:
+          type: string
+        roots:
+          type: array
+          items:
+            type: string
+    OnePagerSummary:
+      type: object
+      required: [empty]
+      properties:
+        name:
+          type: string
+        mode:
+          type: string
+        north_star:
+          type: string
+        focus:
+          type: string
+        next:
+          type: array
+          items:
+            type: string
+        empty:
+          type: boolean
+    OnePager:
+      type: object
+      required: [project_id, markdown, updated_at]
+      properties:
+        project_id:
+          type: string
+        markdown:
+          type: string
+        updated_at:
+          type: integer
+          description: One-pager file modification time in unix milliseconds.
+        one_pager_summary:
+          $ref: "#/components/schemas/OnePagerSummary"
+    OnePagerUpdateRequest:
+      type: object
+      required: [markdown]
+      properties:
+        markdown:
+          type: string
+        updated_at:
+          type: integer
+          description: |
+            Optimistic lock: the `updated_at` last read for this one-pager. If
+            the file's modification time no longer matches, the write is
+            rejected with 409 and the current value in the body. Omit to
+            overwrite unconditionally.
+    OnePagerUpdateResponse:
+      type: object
+      required: [project_id, markdown, updated_at]
+      properties:
+        project_id:
+          type: string
+        markdown:
+          type: string
+        updated_at:
+          type: integer
+    ProjectByRoot:
+      type: object
+      required: [project]
+      properties:
+        project:
+          $ref: "#/components/schemas/Project"
+        one_pager_summary:
+          $ref: "#/components/schemas/OnePagerSummary"
+        one_pager_updated_at:
+          type: integer
+        id:
+          type: string
+        name:
+          type: string
+        mode:
+          type: string
+        status:
+          type: string
+        soft_progress:
+          type: string
+        created_at:
+          type: integer
+        updated_at:
+          type: integer
+        last_active_at:
+          type: integer
+        roots:
+          type: array
+          items:
+            type: string
+        one_pager_path:
+          type: string
+      description: |
+        The matching project, with its fields also flattened at the top level
+        for older clients.
+    PulseDay:
+      type: object
+      required: [date, count]
+      properties:
+        date:
+          type: string
+        count:
+          type: integer
+    PulsePathStat:
+      type: object
+      required: [path, count]
+      properties:
+        path:
+          type: string
+        count:
+          type: integer
+    ProjectPulse:
+      type: object
+      required: [project_id, generated_at, window_days, session_total, session_window, sessions_running, sessions_waiting, session_heat, git_available, commit_window, auto_markdown]
+      properties:
+        project_id:
+          type: string
+        generated_at:
+          type: integer
+        window_days:
+          type: integer
+        session_total:
+          type: integer
+        session_window:
+          type: integer
+        sessions_running:
+          type: integer
+        sessions_waiting:
+          type: integer
+        last_session_at:
+          type: integer
+        session_heat:
+          type: array
+          items:
+            $ref: "#/components/schemas/PulseDay"
+        git_available:
+          type: boolean
+        git_root:
+          type: string
+        commit_window:
+          type: integer
+        commit_heat:
+          type: array
+          items:
+            $ref: "#/components/schemas/PulseDay"
+        top_paths:
+          type: array
+          items:
+            $ref: "#/components/schemas/PulsePathStat"
+        auto_markdown:
+          type: string
+          description: Managed block suitable for the `kin:auto` section of the one-pager.
+    ProjectPulseRefreshRequest:
+      type: object
+      properties:
+        window_days:
+          type: integer
+          minimum: 1
+          default: 90
+        write:
+          type: boolean
+          default: true
+          description: Merge the managed block back into the one-pager file.
+    ProjectPulseRefreshResponse:
+      type: object
+      required: [pulse, markdown, updated_at, written]
+      properties:
+        pulse:
+          $ref: "#/components/schemas/ProjectPulse"
+        markdown:
+          type: string
+        updated_at:
+          type: integer
+        written:
+          type: boolean
+    ProviderModelSpec:
+      type: object
+      required: [id, tier, cost_label]
+      properties:
+        id:
+          type: string
+        tier:
+          type: string
+          enum: [smart, balanced, fast, free]
+        cost_label:
+          type: string
+          enum: [paid, company, free, unknown]
+    ProviderEntry:
+      type: object
+      required: [id, name, kind, base_url, model, stream, active]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+        base_url:
+          type: string
+        api_key:
+          type: string
+          description: Masked when a secret is stored.
+        model:
+          type: string
+        stream:
+          type: boolean
+        active:
+          type: boolean
+        supports_agents:
+          type: array
+          items:
+            type: string
+        models:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProviderModelSpec"
+        enabled:
+          type: boolean
+    ProvidersResponse:
+      type: object
+      required: [active_id, providers]
+      properties:
+        active_id:
+          type: string
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProviderEntry"
+    ProviderWriteRequest:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+        base_url:
+          type: string
+        api_key:
+          type: string
+          description: Omitted or masked on update keeps the stored secret.
+        model:
+          type: string
+        stream:
+          type: boolean
+          description: Omitted on update keeps the previous value.
+        active:
+          type: boolean
+        clear_api_key:
+          type: boolean
+          description: Remove the stored secret explicitly.
+    ProviderModelsRequest:
+      type: object
+      required: [base_url]
+      properties:
+        id:
+          type: string
+          description: Saved entry to read the stored secret from, when the key is omitted.
+        kind:
+          type: string
+        base_url:
+          type: string
+        api_key:
+          type: string
+    ProviderModelsResponse:
+      type: object
+      required: [models]
+      properties:
+        models:
+          type: array
+          items:
+            type: string
+    Routine:
+      type: object
+      required: [id, cwd, agent, permission_mode, prompt, interval_secs, enabled, next_due_at, consec_failures, created_at, title, missed_run_policy, lane]
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        cwd:
+          type: string
+        agent:
+          type: string
+        model:
+          type: string
+          description: Empty means the agent's own default.
+        permission_mode:
+          type: string
+        prompt:
+          type: string
+        interval_secs:
+          type: integer
+        enabled:
+          type: boolean
+        last_run_at:
+          type: integer
+        next_due_at:
+          type: integer
+        consec_failures:
+          type: integer
+        created_at:
+          type: integer
+        title:
+          type: string
+        missed_run_policy:
+          type: string
+          enum: [coalesce, skip]
+        lane:
+          type: string
+        recurrence:
+          type: string
+          description: Wall-clock rule as JSON; empty for an interval routine.
+        claim_until_at:
+          type: integer
+        last_outcome:
+          type: string
+        last_error:
+          type: string
+    RoutinePage:
+      type: object
+      required: [routines, has_more]
+      properties:
+        routines:
+          type: array
+          items:
+            $ref: "#/components/schemas/Routine"
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+        runs:
+          type: array
+          items:
+            $ref: "#/components/schemas/Task"
+          description: Present only when the request asked for `runs=1`.
+    RoutineCreateRequest:
+      type: object
+      required: [cwd, prompt]
+      properties:
+        title:
+          type: string
+        project_id:
+          type: string
+        cwd:
+          type: string
+        agent:
+          type: string
+        model:
+          type: string
+        permission_mode:
+          type: string
+        prompt:
+          type: string
+        interval_secs:
+          type: integer
+        enabled:
+          type: boolean
+        next_due_at:
+          type: integer
+        missed_run_policy:
+          type: string
+          enum: [coalesce, skip]
+        lane:
+          type: string
+        recurrence:
+          type: string
+    RoutinePatchRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        project_id:
+          type: string
+        cwd:
+          type: string
+        agent:
+          type: string
+        model:
+          type: string
+          description: Empty string clears back to the agent default.
+        permission_mode:
+          type: string
+        prompt:
+          type: string
+        interval_secs:
+          type: integer
+        enabled:
+          type: boolean
+        next_due_at:
+          type: integer
+        missed_run_policy:
+          type: string
+          enum: [coalesce, skip]
+        lane:
+          type: string
+        recurrence:
+          type: string
+          description: Empty string clears the rule and returns to interval_secs.
+    RoutinePreviewRequest:
+      type: object
+      required: [recurrence]
+      properties:
+        recurrence:
+          type: string
+    RoutinePreviewResponse:
+      type: object
+      required: [next_due_at]
+      properties:
+        next_due_at:
+          type: integer
+    RoutineUnreadCount:
+      type: object
+      required: [count]
+      properties:
+        count:
+          type: integer
+    RoutineMarkAllReadResponse:
+      type: object
+      required: [marked]
+      properties:
+        marked:
+          type: integer
+    RoutingModelSpec:
+      type: object
+      required: [id, tier, cost_label]
+      properties:
+        id:
+          type: string
+        tier:
+          type: string
+        cost_label:
+          type: string
+    RoutingAgentOption:
+      type: object
+      required: [id, name, supported_kinds, compatible_count]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        supported_kinds:
+          type: array
+          items:
+            type: string
+        compatible_count:
+          type: integer
+          description: Enabled provider profiles this agent can run on.
+    RoutingProviderOption:
+      type: object
+      required: [id, name, kind, enabled, supports_agents, model_count, models]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+        enabled:
+          type: boolean
+        supports_agents:
+          type: array
+          items:
+            type: string
+        model_count:
+          type: integer
+        models:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoutingModelSpec"
+    RoutingTeamOption:
+      type: object
+      required: [id, name, enabled]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        alias:
+          type: string
+        enabled:
+          type: boolean
+        default_objective:
+          type: string
+    RoutingDefaults:
+      type: object
+      required: [enabled, default_team, objective, max_attempts_per_step, terminal_limit_policy, manual_fallback]
+      properties:
+        enabled:
+          type: boolean
+        default_team:
+          type: string
+        objective:
+          type: string
+          enum: [balanced, cost-min, intelligent-max]
+        max_attempts_per_step:
+          type: integer
+        terminal_limit_policy:
+          type: string
+          enum: [wait, ask, switch]
+        manual_fallback:
+          type: boolean
+        quality_floor:
+          type: string
+          enum: [light, medium, heavy, ""]
+        force_phases:
+          type: array
+          items:
+            type: string
+            enum: [plan, execute, review, chat]
+    RoutingOptions:
+      type: object
+      required: [agents, providers, teams, defaults]
+      properties:
+        agents:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoutingAgentOption"
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoutingProviderOption"
+        teams:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoutingTeamOption"
+        defaults:
+          $ref: "#/components/schemas/RoutingDefaults"
+    RoutingPhasePolicy:
+      type: object
+      required: [agent, tier, provider_priority, fallback]
+      properties:
+        agent:
+          type: string
+        tier:
+          type: string
+          enum: [smart, balanced, fast]
+        provider_priority:
+          type: array
+          items:
+            type: string
+        fallback:
+          type: array
+          items:
+            type: string
+    RoutingTeamProfile:
+      type: object
+      required: [id, name, enabled, phases]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        alias:
+          type: string
+        default_objective:
+          type: string
+        enabled:
+          type: boolean
+        phases:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/RoutingPhasePolicy"
+    RoutingTeamProfileList:
+      type: object
+      required: [profiles]
+      properties:
+        profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoutingTeamProfile"
+    RoutingProviderProfile:
+      type: object
+      required: [id, name, kind, supports_agents, enabled, models]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [subscription, anthropic-compatible, openai-compatible, grok-compatible, custom]
+        supports_agents:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+        models:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoutingModelSpec"
+    RoutingProviderProfileList:
+      type: object
+      required: [profiles]
+      properties:
+        profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoutingProviderProfile"
+    RoutingSkippedCandidate:
+      type: object
+      required: [provider, model, reason]
+      properties:
+        provider:
+          type: string
+        model:
+          type: string
+        reason:
+          type: string
+    RoutingPreviewPhase:
+      type: object
+      required: [phase, agent, provider, model, tier, status]
+      properties:
+        phase:
+          type: string
+          enum: [plan, execute, review, chat]
+        agent:
+          type: string
+        provider:
+          type: string
+        model:
+          type: string
+        tier:
+          type: string
+        status:
+          type: string
+          enum: [resolved, unresolved, blocked]
+        fallback_summary:
+          type: string
+        skipped:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoutingSkippedCandidate"
+    RoutingPreview:
+      type: object
+      required: [mode, phases, blocked]
+      properties:
+        mode:
+          type: string
+          enum: [auto, manual]
+        team:
+          type: string
+        objective:
+          type: string
+        agent:
+          type: string
+        provider:
+          type: string
+        model:
+          type: string
+        phases:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoutingPreviewPhase"
+        blocked:
+          type: boolean
+        blocked_reason:
+          type: string
+    TranscriptHit:
+      type: object
+      required: [task_id, task_title, seq, ts, role, snippet]
+      properties:
+        task_id:
+          type: string
+        task_title:
+          type: string
+        seq:
+          type: integer
+        ts:
+          type: integer
+        role:
+          type: string
+        snippet:
+          type: string
+    TranscriptSearchResponse:
+      type: object
+      required: [matches, truncated]
+      properties:
+        matches:
+          type: array
+          items:
+            $ref: "#/components/schemas/TranscriptHit"
+        truncated:
+          type: boolean
+    UsageTotals:
+      type: object
+      required: [tokens_in, tokens_out, cost_usd, request_count, reasoning_output_tokens, cache_read_tokens, cache_write_tokens, cache_eligible_input_tokens, cache_hit_rate, cache_coverage, cache_status]
+      properties:
+        tokens_in:
+          type: integer
+        tokens_out:
+          type: integer
+        cost_usd:
+          type: [number, "null"]
+        request_count:
+          type: integer
+        reasoning_output_tokens:
+          type: integer
+        cache_read_tokens:
+          type: integer
+        cache_write_tokens:
+          type: integer
+        cache_eligible_input_tokens:
+          type: integer
+        cache_hit_rate:
+          type: [number, "null"]
+        cache_coverage:
+          type: [number, "null"]
+        cache_status:
+          type: string
+    UsageRow:
+      allOf:
+        - $ref: "#/components/schemas/UsageTotals"
+        - type: object
+          required: [date, agent, tasks]
+          properties:
+            date:
+              type: string
+              description: UTC day, YYYY-MM-DD.
+            agent:
+              type: string
+            provider:
+              type: string
+            tasks:
+              type: integer
+    UsageContext:
+      type: object
+      required: [tokens, model]
+      properties:
+        tokens:
+          type: integer
+          description: Input side of the most recent request.
+        model:
+          type: string
+    UsageModelSubtotal:
+      allOf:
+        - $ref: "#/components/schemas/UsageTotals"
+        - type: object
+          required: [model]
+          properties:
+            model:
+              type: string
+    UsageCostSourceSubtotal:
+      allOf:
+        - $ref: "#/components/schemas/UsageTotals"
+        - type: object
+          required: [cost_source]
+          properties:
+            cost_source:
+              type: string
+    TaskUsage:
+      allOf:
+        - $ref: "#/components/schemas/UsageTotals"
+        - type: object
+          required: [task_id, context, model_subtotals, cost_source_subtotals]
+          properties:
+            task_id:
+              type: string
+            context:
+              $ref: "#/components/schemas/UsageContext"
+            model_subtotals:
+              type: array
+              items:
+                $ref: "#/components/schemas/UsageModelSubtotal"
+            cost_source_subtotals:
+              type: array
+              items:
+                $ref: "#/components/schemas/UsageCostSourceSubtotal"
+    TaskUsageResponse:
+      allOf:
+        - $ref: "#/components/schemas/TaskUsage"
+        - type: object
+          required: [context_window]
+          properties:
+            context_window:
+              type: integer
+              description: The model's input ceiling; 0 when unknown.
+    AgentLimitStatus:
+      type: object
+      required: [agent, used_spend_usd, used_tokens, status, period_start]
+      properties:
+        agent:
+          type: string
+        limit_spend_usd:
+          type: number
+        used_spend_usd:
+          type: number
+        limit_tokens:
+          type: integer
+        used_tokens:
+          type: integer
+        status:
+          type: string
+          enum: [ok, warn, over]
+        period_start:
+          type: string
+          description: RFC3339 start of the server-local day.
+    SourceTreeEntry:
+      type: object
+      required: [name, type]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [blob, tree]
+        size:
+          type: integer
+    SourceTreeResponse:
+      type: object
+      required: [workspace_id, generation, view, path, entries]
+      properties:
+        workspace_id:
+          type: string
+        generation:
+          type: integer
+        view:
+          type: string
+          enum: [source]
+        path:
+          type: string
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceTreeEntry"
+        truncated:
+          type: boolean
+    SourceFileResponse:
+      type: object
+      required: [workspace_id, generation, view, path, size, truncated, content]
+      properties:
+        workspace_id:
+          type: string
+        generation:
+          type: integer
+        view:
+          type: string
+          enum: [source]
+        path:
+          type: string
+        size:
+          type: integer
+        truncated:
+          type: boolean
+        content:
+          type: string
+    SourceFilesResponse:
+      type: object
+      required: [view, files]
+      properties:
+        view:
+          type: string
+          enum: [source]
+        files:
+          type: array
+          items:
+            type: string
+        truncated:
+          type: boolean
+    SourceChange:
+      type: object
+      required: [path, status]
+      properties:
+        path:
+          type: string
+        old_path:
+          type: string
+        status:
+          type: string
+          enum: [added, modified, deleted, renamed, binary]
+        additions:
+          type: integer
+        deletions:
+          type: integer
+        binary:
+          type: boolean
+    SourceChangesResponse:
+      type: object
+      required: [workspace_id, generation, view, changes]
+      properties:
+        workspace_id:
+          type: string
+        generation:
+          type: integer
+        view:
+          type: string
+          enum: [source]
+        changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceChange"
+        truncated:
+          type: boolean
+    WorkspaceListEntry:
+      type: object
+      required: [name, path, type]
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+          description: Path relative to the workspace root.
+        type:
+          type: string
+          enum: [dir, file]
+        size:
+          type: integer
+    WorkspaceListResponse:
+      type: object
+      required: [root, path, entries]
+      properties:
+        root:
+          type: string
+        path:
+          type: string
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceListEntry"
+        truncated:
+          type: boolean
+    WorkspaceFileResponse:
+      type: object
+      required: [root, path, size, truncated, content]
+      properties:
+        root:
+          type: string
+        path:
+          type: string
+        size:
+          type: integer
+          description: Full file size, before truncation.
+        truncated:
+          type: boolean
+        content:
+          type: string
+    WorkspaceFileWriteRequest:
+      type: object
+      required: [path, content]
+      properties:
+        path:
+          type: string
+        content:
+          type: string
+    WorkspaceRestoreRequest:
+      type: object
+      properties:
+        event_seq:
+          type: integer
+          minimum: 0
+          description: Checkpoint event seq; 0 restores the initial state.
+    RetryRequest:
+      type: object
+      properties:
+        from_seq:
+          type: integer
+          minimum: 0
+          description: Event seq to rewind to; 0 uses the last user turn.
+        restore_files:
+          type: boolean
+          description: Restore the workspace checkpoint when one exists.
+    ForkRequest:
+      type: object
+      properties:
+        from_seq:
+          type: integer
+          minimum: 0
+          description: Last event seq to keep, inclusive; 0 copies the full transcript.
+        prompt:
+          type: string
+          description: Appended as a new user message and run on the forked task.
+        agent:
+          type: string
+    LimitContinueRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [wait, continue, switch, dismiss]
+        agent:
+          type: string
+          description: Required for action=switch.
+        reset_at:
+          type: integer
+          description: Overrides the detected reset time for action=wait, in unix seconds.
+    Upload:
+      type: object
+      required: [id, name, mime, size, url, path]
+      properties:
+        id:
+          type: string
+          description: Stored filename, used in the URL.
+        name:
+          type: string
+          description: Original client filename.
+        mime:
+          type: string
+        size:
+          type: integer
+        url:
+          type: string
+          description: GET path that serves the stored file.
+        path:
+          type: string
+          description: Absolute on-disk path, for agents that read files by path.
+    TerminalProfile:
+      type: object
+      required: [id, name, executable, default]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        executable:
+          type: string
+        default:
+          type: boolean
+    TerminalProfilesResponse:
+      type: object
+      required: [profiles, default_profile_id]
+      properties:
+        profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/TerminalProfile"
+        default_profile_id:
+          type: string
+    TerminalSession:
+      type: object
+      required: [id, profile_id, name, cwd, status, created_at]
+      properties:
+        id:
+          type: string
+        profile_id:
+          type: string
+        name:
+          type: string
+        cwd:
+          type: string
+        status:
+          type: string
+          enum: [running, exited, closing]
+        exit_code:
+          type: [integer, "null"]
+        created_at:
+          type: integer
+    TerminalSessionCreateRequest:
+      type: object
+      required: [profile_id, cwd, cols, rows]
+      properties:
+        profile_id:
+          type: string
+        cwd:
+          type: string
+        cols:
+          type: integer
+          minimum: 1
+        rows:
+          type: integer
+          minimum: 1

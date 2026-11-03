@@ -173,10 +173,10 @@ iPhone：`mobile/` 是 Capacitor 壳，加载 Hub 自己的控制台；没有推
   - 1100：设置 → 通知 只有"通知"（UI base URL、额度阈值、保存）和"这台设备上的通知"两块；没有 Bark / ntfy / 浏览器推送；浏览器端明确说通知在 Mac / iPhone 原生应用里，不显示启用或测试。
   - 390：同一页单列、无横滚，两块内容和按钮完整可见。
   - 截图为本地临时文件，未入库。
-- 自动化（2026-11-03，第三轮复查修复后，最终交付状态）：
-  - `./scripts/check.sh --all` 11 项全过：gofmt、vet、`go test ./...`、desktop test/tsc、UI test/tsc、`api-contract`（生成的 API 类型与 `api/openapi.yaml` 一致）、shell/python 语法、`stories`。
+- 自动化（2026-11-03，合并 `main`、第三轮复查修复后，最终交付状态）：
+  - `./scripts/check.sh --all` 14 项全过：gofmt、vet、`go test ./...`、probe、desktop test/tsc、UI test/tsc、`api-contract`（生成的 API 类型与 `api/openapi.yaml` 一致）、`api-coverage`（退役的 Web Push 路径与 schema 已从 spec 删除）、shell 语法与 shell 测试、python 语法、`stories`。
   - `go test -race ./internal/store ./internal/notify ./internal/api ./internal/apns ./internal/auth` 通过。
-  - UI：`npx tsc --noEmit` 通过；`vitest run` 174 个文件、1758 个测试通过。
+  - UI：`npx tsc --noEmit` 通过；`vitest run` 178 个文件、1818 个测试通过。
   - 桌面：`node --test "src/**/*.test.ts"` 96 个测试、23 个套件通过。
   - 42 个变异体全部变红，每个都先跑绿基线再变异，还原后逐字节比对；覆盖 APNs 扇出与错误脱敏、会话绑定与登出/撤销/过期/密码重置、迁移 046→047 与缺表缺列及执行顺序、无主事件路由、桌面横幅去重与替换、手机点按与冷启动、设置页 410 与终态删除、退役 API、SPA 回退。
   - 早前一轮 `go test ./...` 曾遇到 `internal/github` 一个 2 秒宽限计时测试在并行负载下超时一次，单独重跑通过；与本次改动无关。
@@ -192,3 +192,4 @@ iPhone：`mobile/` 是 Capacitor 壳，加载 Hub 自己的控制台；没有推
 - 2026-11-03 复查发现的 blocker：登出、会话过期或被撤销后，那台手机仍会收到 APNs。`push_devices` 现在记录建立登记的浏览器会话（schema 47）；登出、撤销其他会话、清理过期会话在各自事务里删除绑定的登记；扇出前用 `AuthSessionLive` 复核会话仍存在、未过期且账号未停用，没有检查器时按失败关闭；手机退出登录先注销自己记住的那一行并停止原生壳，删除失败留待下次重试，清理失败也不阻塞退出。顺带修掉三条 nit：`kin notify apns --status` 只读非敏感元数据，不再解析私钥；设置页设备行的 `ios` / `sandbox` / `production` 走中英文案；桌面横幅被淘汰时先关闭再忘记。保留的 nit（已知、不阻塞）：同一安装 id 的重新登记会接管旧行，未加 409 所有权校验；发送前没有本地 4 KB APNs 载荷预检，超限由 Apple 拒绝并记入最后一次错误；桌面接线测试断言的是发布返回值，不是 IPC 送达。
 - 2026-11-03 同日第二轮复查（0 blocker / 3 major / 8 nit）后修复三条 major：密码重置在结束该账号全部登录的同一事务里删除这些登录登记的手机；`POST /api/push/devices/test` 发送前复核会话，已结束则删行并返回 410；手机退出登录先同步清掉本地 token，再用捕获的 token 完成注销与登出，网络永不返回也不会把 token 留在设备上；成员登记缺少会话 id 时拒绝，不写入无法结束的行。顺带修的 nit：迁移 047 对没有 `push_devices` 表的 v46 文件跳过 ALTER，并清理旧版本留下的无会话成员行；每次开库先补列再跑注册表 DDL（否则索引先于列报错）；登出失败返回 500 并记日志；会话过期后没有定时清理，扇出先行拒绝、测试推送删行，这一点写进本故事与 `IMPL_NOTES`。保留的 nit：待删列表只记一个 id（连续两次失败时后一个覆盖前一个，节点端登出删除仍是兜底）；没有一条集成测试直接断言 `SessionLive` 的接线（`notify` 与 `store` 各自有测试）；同一安装 id 重新登记会接管旧行，未加 409；发送前没有 4 KB 载荷预检；桌面接线测试断言发布返回值而非 IPC 送达。
 - 2026-11-03 第三轮复查（0 blocker / 1 major / 7 nit）后修复 major：没有 task owner 的 routine / eval / CLI 事件此前只匹配 owner 为空的行，而操作员用自己的登录登记的手机带着账号，结果 routine 报告永远不响；扇出现在先把空 owner 解析成 operator 账号再圈定收件人，standalone 节点（无账号）仍只到无主行。顺带修的 nit：测试推送的 410 在 OpenAPI 与设置页都有交代（设置页忘掉本机登记并刷新，不再显示英文原文）；测试推送的 404 同样忘掉登记并显示"节点上已没有登记"，不再显示 `device not found`；410 文案与 OpenAPI 不再断言删行一定成功；`ownerAccount` 读取失败会记日志，并有测试钉住失败时只到无主行；退出登录时 404/401/403 不再当作可重试，不会每次打开设置都重试一条永远删不掉的行。保留的 nit：被动状态只看元数据，私钥丢失或从导出恢复后会显示已配置而实际发不出去；过期会话行没有定时清理，只会被扇出拒绝或被测试推送删掉；APNs 客户端每条事件重建，provider token 缓存没有跨事件复用；`pushOwner` 吞掉 registry 读取错误（DB 故障时设备登记会退化成无主行）；`RevokeAllDeviceCredentials` 不删绑定登记（当前无生产调用）。
+- 2026-11-03 合并 `main`（Hub 一次性登录链接）：登出仍先清本地 token、再注销手机、最后登出；测试改为断言注入的 `apiFetch`，不再依赖全局 `fetch`。OpenAPI 合掉了两处重复的 `/api/notify/test` 与重复 schema，并删除退役的 Web Push 路径与四个旧 schema；`AccountSection` 采用 main 的新布局，但移除重复的 `clearToken()`，因为 `signOut()` 已先捕获并清除 token。

@@ -1,0 +1,133 @@
+# Adds GitHub and Google as sign-in methods.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.oauth.yml up -d
+#
+# Kin implements exactly one federation protocol (OIDC) and nothing
+# provider-specific. GitHub speaks OAuth 2.0 and is not an OIDC provider, so Dex
+# sits in front of both providers and presents one OIDC issuer to Kin. Adding
+# GitLab later means adding a connector to the block below, not touching Kin.
+#
+# Both connectors are required by this file because Dex validates every
+# connector it is given: an empty client id is a startup error, not a hidden
+# button. To offer only one provider, delete the other connector block and its
+# two variables.
+#
+# Set the client ids and secrets in .env first. See .env.example for the exact
+# redirect URLs each provider needs.
+#
+# If Dex cannot start (for example the host has no egress to Google or GitHub),
+# Kin's own discovery fails and the Hub stops serving, password login included.
+# The rollback is to bring the same base file up without this overlay:
+#
+#   docker compose -f <base-file> up -d
+
+services:
+  kin:
+    environment:
+      # The issuer must match the public URL exactly, including the /dex prefix.
+      # Dex is published there through Kin itself, which is what makes the two
+      # agree while the backchannel talks over the Compose network.
+      KIN_OIDC_ISSUER: https://${KIN_DOMAIN:?set KIN_DOMAIN in .env}/dex
+      KIN_OIDC_CLIENT_ID: kin
+      KIN_OIDC_CLIENT_SECRET: ${DEX_CLIENT_SECRET:?set DEX_CLIENT_SECRET in .env}
+      # Shown on the login button. Dex shows its own chooser with the
+      # individual provider names once the button is pressed.
+      KIN_OIDC_DISPLAY_NAME: ${KIN_OIDC_DISPLAY_NAME:-GitHub / Google}
+      # Kin cannot resolve its own public hostname from inside the container, so
+      # discovery and token exchange dial Dex directly. That hop is plain HTTP on
+      # the Compose network: it carries the client secret, so it must not be
+      # published outside the project.
+      KIN_OIDC_BACKCHANNEL_ADDR: dex:5556
+    depends_on:
+      - dex
+
+  dex:
+    image: dexidp/dex:v2.46.1-alpine
+    restart: unless-stopped
+    healthcheck:
+      # Readiness for `docker compose ps` and `up --wait`. Kin still uses the
+      # start order rather than `condition: service_healthy`: if Dex is briefly
+      # slow, a hard dependency would leave Kin uncreated, while Kin's restart
+      # policy retries discovery until Dex answers.
+      test:
+        [
+          "CMD",
+          "wget",
+          "-q",
+          "-O",
+          "/dev/null",
+          "http://127.0.0.1:5556/dex/.well-known/openid-configuration",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    environment:
+      # Dex calls github.com and accounts.google.com itself — the browser half
+      # is not enough. Containers do not inherit the Docker daemon's proxy, so
+      # a host that needs one for those domains sets KIN_OAUTH_PROXY in .env.
+      # Empty means direct egress.
+      HTTPS_PROXY: ${KIN_OAUTH_PROXY:-}
+      HTTP_PROXY: ${KIN_OAUTH_PROXY:-}
+      NO_PROXY: ${KIN_OAUTH_NO_PROXY:-localhost,127.0.0.1,dex,kin}
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    volumes:
+      - dex-data:/var/dex
+    configs:
+      - source: dex_config
+        target: /etc/dex/config.yaml
+
+# Dex's config format has no environment expansion of its own. Compose
+# substitutes ${VARS} into this block from .env before Dex ever parses it. That
+# is why the config lives here rather than in a mounted file: a mounted file
+# would ship the literal string "${KIN_DOMAIN}" to Dex.
+configs:
+  dex_config:
+    content: |
+      issuer: https://${KIN_DOMAIN:?set KIN_DOMAIN in .env}/dex
+
+      storage:
+        type: sqlite3
+        config:
+          file: /var/dex/dex.db
+
+      web:
+        http: 0.0.0.0:5556
+
+      # Dex has no self-service registration. The only account Kin cares about
+      # is the owner's, and that is created by the terminal claim code.
+      staticClients:
+        - id: kin
+          name: Kin
+          secret: ${DEX_CLIENT_SECRET:?set DEX_CLIENT_SECRET in .env}
+          redirectURIs:
+            - https://${KIN_DOMAIN}/api/auth/oidc/callback
+
+      connectors:
+        - type: github
+          id: github
+          name: GitHub
+          config:
+            clientID: ${GITHUB_CLIENT_ID:?set GITHUB_CLIENT_ID in .env}
+            clientSecret: ${GITHUB_CLIENT_SECRET:?set GITHUB_CLIENT_SECRET in .env}
+            # The provider sends the browser here directly, so this is the
+            # public URL and reaches Dex through Kin's reverse proxy at /dex.
+            redirectURI: https://${KIN_DOMAIN}/dex/callback
+
+        # Google is a real OIDC provider, but Kin still sees one issuer: Dex.
+        # Keeping both behind Dex is what lets the Hub stay provider-agnostic.
+        - type: google
+          id: google
+          name: Google
+          config:
+            clientID: ${GOOGLE_CLIENT_ID:?set GOOGLE_CLIENT_ID in .env}
+            clientSecret: ${GOOGLE_CLIENT_SECRET:?set GOOGLE_CLIENT_SECRET in .env}
+            redirectURI: https://${KIN_DOMAIN}/dex/callback
+
+      # Dex logs per-request lines at info. Kin's own log is the operator-facing
+      # surface; keep Dex to warnings.
+      logger:
+        level: warn
+
+volumes:
+  dex-data:

@@ -61,6 +61,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** @description Mint a one-time pairing secret. Operator only. */
         post: operations["createPairingSession"];
         delete?: never;
         options?: never;
@@ -75,6 +76,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @description Paired devices. Operator only. */
         get: operations["listDevices"];
         put?: never;
         post?: never;
@@ -93,6 +95,9 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** @description Revoke a paired device. Operator only. The device id is the one the
+         *     pairing exchange returned or that this list reports.
+         *      */
         post: operations["revokeDevice"];
         delete?: never;
         options?: never;
@@ -527,11 +532,43 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Server-Sent Events. Each frame is `event: <kind>` with one WSMessage as
-         *     its data, so a client shares one message handler with the WebSocket bus.
-         *     Realtime is an accelerant, never the truth: a client advances its cursor
-         *     only from /api/sessions, because a frame says nothing about the changes
-         *     it did not carry. Comment lines (`: ping`) are heartbeats.
+        /** @description Server-Sent Events stream of change notifications for the caller's
+         *     scope. Each frame is `event: <kind>` with one `WSMessage` JSON object
+         *     on its data line, so a client shares one message handler with the
+         *     WebSocket bus. Kinds seen on this stream: `task_update`,
+         *     `task_deleted`, `event`, `approval_update`, `user_question_update`.
+         *
+         *     Transport behavior, as implemented:
+         *
+         *     - The daemon writes `retry: 3000` once when the stream opens. It is a
+         *       reconnect-delay hint for the client, not a heartbeat.
+         *     - While nothing happens the daemon writes a `: ping` comment line
+         *       every 15 seconds. Comment lines are keep-alives; a client must
+         *       ignore them.
+         *     - There is no readiness or "caught up" frame, no replay, and no
+         *       `Last-Event-ID` handling. Opening the stream says nothing about
+         *       what was missed, and the stream never carries history.
+         *     - Realtime is an accelerant, never the truth. Open the stream first,
+         *       then drain `GET /api/sessions` until `has_more` is false. A change
+         *       arriving during that catch-up is delivered twice, which is safe
+         *       because clients apply changes by id; the opposite order has a window
+         *       where a change is delivered by neither. Advance the cursor only
+         *       from a feed page, never from a frame.
+         *     - A gap is detected from the durable records, not from this stream:
+         *       per task by `seq` continuity on `GET /api/tasks/{taskId}/events`
+         *       together with `event_epoch`, and globally by draining the
+         *       `GET /api/sessions` cursor.
+         *     - A device token or browser session behind the stream is re-validated
+         *       every 10 seconds; revoking the device or ending the session closes
+         *       the stream. The master token is never re-checked because it cannot
+         *       be revoked.
+         *     - A client that falls behind the bus is disconnected instead of being
+         *       fed with skipped messages, so it reconnects and catches up through
+         *       the cursor.
+         *
+         *     The response is `503` before streaming starts when the engine is
+         *     unavailable or the bus refuses a subscriber. A writer that cannot flush
+         *     (a test recorder, not the real server) answers `500`.
          *      */
         get: operations["streamEvents"];
         put?: never;
@@ -551,6 +588,13 @@ export interface paths {
         };
         get: operations["listTasks"];
         put?: never;
+        /** @description Create and queue a task. The owner is taken from the authenticated
+         *     principal, never from the body. Every failure to create — invalid
+         *     JSON, an unknown or unavailable agent, a permission mode the chosen
+         *     agent cannot run, a `cwd` the workspace cannot use, or a
+         *     `workspace_mode` that cannot be honoured — answers `400` with
+         *     `{"error": "<reason>"}`.
+         *      */
         post: operations["createTask"];
         delete?: never;
         options?: never;
@@ -584,7 +628,11 @@ export interface paths {
         get: operations["getTask"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** @description Delete one conversation and its rows. Operator only: the master token
+         *     or an owner account, not a paired device. Archiving is the reversible
+         *     alternative and is available to the holder.
+         *      */
+        delete: operations["deleteTask"];
         options?: never;
         head?: never;
         patch?: never;
@@ -728,6 +776,21 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @description The durable event log for one task, oldest first. This is the record a
+         *     client replays; the SSE stream is only an accelerant.
+         *
+         *     `since_seq` is exclusive: the response contains events whose `seq` is
+         *     greater than the cursor. `seq` is 1-based and contiguous within one
+         *     `event_epoch`. A retry or other tail rewrite deletes the events from
+         *     that point and increments `event_epoch`; appended events then reuse
+         *     those `seq` values. The identity of an event is therefore
+         *     `(event_epoch, seq)`. A client that sees a higher `event_epoch` than it
+         *     last read must discard its tail and refetch from `since_seq=0` rather
+         *     than assume a gap.
+         *
+         *     The response is unbounded: it returns every event after the cursor.
+         *     The endpoint answers `404` when the task does not exist.
+         *      */
         get: operations["listTaskEvents"];
         put?: never;
         post?: never;
@@ -892,7 +955,10 @@ export interface paths {
             cookie?: never;
         };
         get: operations["readWorkspaceFile"];
-        put?: never;
+        /** @description Write a file into a writable workspace generation. Operator only. The
+         *     path is validated against the generation's scope.
+         *      */
+        put: operations["writeWorkspaceFile"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1116,6 +1182,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/a2a/.well-known/agent-card.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The same capability card, served from under the authenticated `/a2a` mount. */
+        get: operations["getMountedAgentCard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/a2a/v1/tasks": {
         parameters: {
             query?: never;
@@ -1246,6 +1329,1310 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The Hub's account state, served unauthenticated. A standalone daemon
+         *     has no account system and answers with an empty `providers` list; a
+         *     client then keeps using its device token. Never includes an email, a
+         *     user id, or whether a claim code exists beyond `claimable`.
+         *      */
+        get: operations["getAuthStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/bootstrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Claim the Hub's owner account with the one-time bootstrap code. Sets the
+         *     `kin_session` cookie on success. Rate limited; a refusal is reported
+         *     through the same indistinguishable error shape.
+         *      */
+        post: operations["bootstrapAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Create a member account from an invitation code. The role is decided by
+         *     the route, never by the request body. Sets the `kin_session` cookie.
+         *      */
+        post: operations["joinAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Sign in with email and password. Sets the `kin_session` cookie. */
+        post: operations["loginAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/login-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Spend a one-time sign-in link. The token is the value the Hub printed in
+         *     the URL fragment (`#login=…`); the console reads it and posts it here so
+         *     it never appears in a server access log or a link preview. A successful
+         *     spend sets the same `kin_session` cookie as a password login. Unknown,
+         *     expired, already-used, and disabled-account links answer the same 401.
+         *      */
+        post: operations["loginWithLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description End the session named by the `kin_session` cookie and clear it. Answers
+         *     success even when no session was presented, so a client can always
+         *     finish signing out.
+         *      */
+        post: operations["logoutAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The account behind the `kin_session` cookie. */
+        get: operations["getAuthMe"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oidc/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Begin an OIDC sign-in by redirecting to the identity provider. When the
+         *     caller already has a valid session cookie, the flow links the provider
+         *     identity to that account instead of signing in.
+         *      */
+        get: operations["startOIDCSignIn"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oidc/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Complete an OIDC sign-in or link. Always redirects into the console: on
+         *     success with `auth_notice` (`signed-in` or `linked`), on failure with
+         *     `auth_error` and `auth_error_code` query parameters.
+         *      */
+        get: operations["completeOIDCSignIn"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Agent runtimes this machine can start. A caller that does not act for
+         *     the holder receives the catalogue with `binary` blanked.
+         *      */
+        get: operations["listAgents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/management": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Install, version, and sign-in metadata for known agents, cached. Holder only. */
+        get: operations["listAgentManagement"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/smoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Run a headless smoke turn against installed generic CLI agents. Operator
+         *     only. Answers 503 when smoke probing is not wired on this daemon.
+         *      */
+        post: operations["smokeAgents"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Artifacts, newest first. Holder only. */
+        get: operations["listArtifacts"];
+        put?: never;
+        /** @description Store an artifact body on disk and its metadata in the database. The
+         *     on-disk path is server-generated; a client never supplies one. Operator
+         *     only.
+         *      */
+        post: operations["createArtifact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/artifacts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Artifact metadata. Holder only. */
+        get: operations["getArtifact"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/artifacts/{id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The artifact body as `text/plain; charset=utf-8`. Stored HTML is never
+         *     served as `text/html`; the console sandboxes it for display. Holder only.
+         *      */
+        get: operations["getArtifactContent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/artifacts/{id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Move an artifact between proposed, saved, and archived. Operator only. */
+        post: operations["setArtifactStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/git/branches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Local branches for one working directory. `device` names the machine
+         *     the directory is on: omitted, empty, or `self` is this daemon; anything
+         *     else is forwarded to that machine. A non-git directory answers
+         *     `is_git: false` with a reason rather than an error. Holder only.
+         *      */
+        get: operations["listGitBranches"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/git/checkout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Check out a branch in a working directory. `device` selects the machine
+         *     whose checkout moves. Holder only on the route; moving a checkout on
+         *     this daemon itself is operator only.
+         *      */
+        post: operations["checkoutGitBranch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/machines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Machines work can be sent to. Revoked machines and devices that never
+         *     dialled in as a node are omitted rather than reported. A subset of the
+         *     operator-only device list: what a picker needs and no more. Holder only.
+         *      */
+        get: operations["listMachines"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/machines/{device}/dirs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Directories inside one path on one machine. `{device}` is a machine id,
+         *     the literal `self`, or a paired device. Holder only.
+         *      */
+        get: operations["listMachineDirs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/machines/{device}/repo/branches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Branches one repository has on one machine, without cloning it here.
+         *     The answer names the clone URL the machine understood, which is what
+         *     `repo/prepare` must be asked for next.
+         *      */
+        get: operations["listMachineRepoBranches"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/machines/{device}/repo/prepare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Make one repository available on one machine and answer where it now
+         *     is. The destination is chosen by the machine inside its own roots; the
+         *     request carries no path.
+         *      */
+        post: operations["prepareMachineRepo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Projects. Holder only. */
+        get: operations["listProjects"];
+        put?: never;
+        /** @description Create a project with a generated one-pager. Operator only. */
+        post: operations["createProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/ensure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Return the project rooted at `path`, creating one when none matches.
+         *     Operator only.
+         *      */
+        post: operations["ensureProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/by-root": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Find the project whose roots contain `path`. The answer carries the
+         *     project under `project` and flattens its fields at the top level for
+         *     older clients. Holder only.
+         *      */
+        get: operations["findProjectByRoot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Project. Holder only. */
+        get: operations["getProject"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Update project fields. Operator only. */
+        patch: operations["patchProject"];
+        trace?: never;
+    };
+    "/api/projects/{id}/artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Artifacts linked to this project. Holder only. */
+        get: operations["listProjectArtifacts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{id}/one-pager": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description One-pager markdown and a parsed summary. Holder only. */
+        get: operations["getOnePager"];
+        /** @description Replace the one-pager markdown. Operator only. */
+        put: operations["putOnePager"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{id}/pulse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Project pulse. Holder only. */
+        get: operations["getProjectPulse"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{id}/pulse/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Rebuild the pulse and merge its managed block into the one-pager.
+         *     Content outside the `kin:auto` markers is preserved. Operator only.
+         *      */
+        post: operations["refreshProjectPulse"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{id}/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Tasks linked to this project, or run in one of its roots. Holder only. */
+        get: operations["listProjectTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Registered model providers and the active one. Operator only. */
+        get: operations["listProviders"];
+        put?: never;
+        /** @description Add a provider entry. When no provider is active yet the new entry
+         *     becomes active, unless `active` says otherwise. Operator only.
+         *      */
+        post: operations["createProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/providers/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Discover the models a provider endpoint serves. Accepts either a saved
+         *     entry (`id`) or unsaved form values. An omitted or masked `api_key` on a
+         *     saved entry reuses the stored secret. Operator only.
+         *      */
+        post: operations["listProviderModels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/providers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Update a provider entry. An omitted or masked `api_key` keeps the stored
+         *     secret; `clear_api_key` removes it explicitly. Operator only.
+         *      */
+        put: operations["updateProvider"];
+        post?: never;
+        /** @description Remove a provider entry. Operator only. */
+        delete: operations["deleteProvider"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/providers/{id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Make one provider entry the active one. Operator only. */
+        post: operations["activateProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/recent-cwds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Recently used working directories, most recent first. Holder only. */
+        get: operations["listRecentCwds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/routines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Routine definitions, newest first. A request with none of `page`,
+         *     `cursor`, or `q` receives the legacy bare array, except that `runs=1`
+         *     always receives the page object with a `runs` feed. Holder only.
+         *      */
+        get: operations["listRoutines"];
+        put?: never;
+        /** @description Create a routine. Operator only. */
+        post: operations["createRoutine"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/routines/mark-all-read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Mark every unread routine run read. Operator only. */
+        post: operations["markAllRoutineRunsRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/routines/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Resolve a wall-clock recurrence rule to its next run. Reads no state, so
+         *     a holder token may ask.
+         *      */
+        post: operations["previewRoutine"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/routines/runs/{taskID}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Mark one routine run read and publish its task update. Answers the task,
+         *     or `{"ok":"true"}` when the task row has already gone.
+         *      */
+        post: operations["markRoutineRunRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/routines/unread-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Unread routine runs. Holder only. */
+        get: operations["getRoutineUnreadCount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/routines/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Routine. Holder only. */
+        get: operations["getRoutine"];
+        put?: never;
+        post?: never;
+        /** @description Delete a routine. Operator only. */
+        delete: operations["deleteRoutine"];
+        options?: never;
+        head?: never;
+        /** @description Update routine fields. Operator only. */
+        patch: operations["patchRoutine"];
+        trace?: never;
+    };
+    "/api/routines/{id}/run-now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Start one run of a routine immediately. Operator only. */
+        post: operations["runRoutineNow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/routing/defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Routing defaults. Holder only. */
+        get: operations["getRoutingDefaults"];
+        /** @description Replace routing defaults. Operator only. */
+        put: operations["putRoutingDefaults"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/routing/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Everything a dispatch picker offers, plus the current defaults. Holder only. */
+        get: operations["getRoutingOptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/routing/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Resolve a dispatch selection to the phases it would run. Auto mode
+         *     requires a team; manual mode requires an agent, a provider, and a
+         *     model. Holder only.
+         *      */
+        get: operations["getRoutingPreview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/routing/profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Team profiles. Holder only. */
+        get: operations["getRoutingProfiles"];
+        /** @description Replace team profiles. Operator only. */
+        put: operations["putRoutingProfiles"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/routing/provider-profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Provider profiles. Holder only. */
+        get: operations["getProviderProfiles"];
+        /** @description Replace provider profiles. Operator only. */
+        put: operations["putProviderProfiles"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/search/transcript": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Search what was actually said in the library's conversations. Scoped
+         *     like the task list, so one account cannot read another's transcripts.
+         *     An empty query is refused rather than answered with everything.
+         *      */
+        get: operations["searchTranscript"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{taskId}/fork": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Branch a new task from a transcript prefix. `from_seq` keeps everything
+         *     up to and including that event; 0 copies the whole transcript. A
+         *     `prompt` is appended and run on the forked task.
+         *      */
+        post: operations["forkTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{taskId}/limit/continue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Resolve a provider rate-limit stop. `wait` waits for the quota to reset,
+         *     `continue` resumes immediately, `switch` moves the task to another agent
+         *     (`agent` required), and `dismiss` closes the limit notice.
+         *      */
+        post: operations["limitContinue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{taskId}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Rewind a terminal task to a user turn and run it again, under the same
+         *     task id. `from_seq` names the event to rewind to; 0 uses the last user
+         *     turn. `restore_files` restores the workspace checkpoint when available.
+         *      */
+        post: operations["retryTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{taskId}/source/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Uncommitted changes in a task's checkout, including untracked files.
+         *     A task that runs on another machine is answered by that machine.
+         *      */
+        get: operations["getTaskSourceChanges"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{taskId}/source/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description One file from a task's checkout. `raw=1` returns the bytes and
+         *     `download=1` returns them as an attachment; both require the file to be
+         *     on this machine.
+         *      */
+        get: operations["readTaskSourceFile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{taskId}/source/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description File-name search inside a task's checkout, bounded for the composer's mention menu. */
+        get: operations["searchTaskSourceFiles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{taskId}/source/tree": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description One level of a task's checkout. */
+        get: operations["listTaskSourceTree"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{taskId}/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Token, cache, and cost totals for one task, plus the model's context window. */
+        get: operations["getTaskUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{taskId}/workspace/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Read a file from a task's workspace. The route delegates to the current
+         *     workspace generation when one exists; otherwise it reads the checkout
+         *     directly. A task that runs on another machine is answered by it.
+         *      */
+        get: operations["readTaskWorkspaceFile"];
+        /** @description Write a file in a task's workspace. Operator only. The route delegates
+         *     to the current workspace generation when one exists.
+         *      */
+        put: operations["writeTaskWorkspaceFile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{taskId}/workspace/list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description One directory level in a task's workspace. Delegates to the current generation when one exists. */
+        get: operations["listTaskWorkspace"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{taskId}/workspace/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Restore isolated task files to a checkpoint. `event_seq` 0 restores the
+         *     initial state. Operator only.
+         *      */
+        post: operations["restoreTaskWorkspace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/terminal/profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Shell profiles available to this desktop. Loopback and operator only. */
+        get: operations["listTerminalProfiles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/terminal/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Terminal sessions on this desktop. Loopback and operator only. */
+        get: operations["listTerminalSessions"];
+        put?: never;
+        /** @description Start a terminal session. Loopback and operator only. */
+        post: operations["createTerminalSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/terminal/sessions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Close a terminal session. Removing a session that is already gone
+         *     succeeds. Loopback and operator only.
+         *      */
+        delete: operations["deleteTerminalSession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/terminal/sessions/{id}/ws": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Upgrade to a WebSocket attached to one terminal session. Loopback and
+         *     operator only; when an `Origin` header is present it must be a loopback
+         *     origin. A session accepts one attachment at a time.
+         *
+         *     Server binary frames are raw terminal output; server text frames are
+         *     JSON: `{"type":"ready","session":...}`, `{"type":"exit","exit_code":N}`,
+         *     or `{"type":"error","message":"..."}`. Client binary frames are
+         *     keyboard input; client text frames are
+         *     `{"type":"resize","cols":N,"rows":N}`. Because a WebSocket cannot set an
+         *     Authorization header, the credential may be passed as `?token=`.
+         *      */
+        get: operations["attachTerminalSession"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Upload one attachment as `multipart/form-data` with a `file` field, up
+         *     to 20 MiB. Images and common text/binary types are accepted. Operator
+         *     only.
+         *      */
+        post: operations["uploadFile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/usage/limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Today's spend and token usage per agent, against configured limits. Holder only. */
+        get: operations["getUsageLimits"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/usage/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Per-day, per-agent aggregates over a recent window. Holder only. */
+        get: operations["getUsageSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/uploads/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Serve a stored upload by its stored filename. Holder only. The response
+         *     is the file's bytes typed by extension, with a private one-hour cache.
+         *      */
+        get: operations["serveUpload"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/invite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Mint a one-time invitation code for a new member. Operator only. The
+         *     code is returned in plaintext exactly once; only its digest is stored.
+         *      */
+        post: operations["createInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1257,7 +2644,9 @@ export interface components {
             label?: string;
         };
         PairingSessionResponse: {
+            /** @description One-time secret for POST /api/pairing/exchange. */
             secret: string;
+            /** @description When the secret stops working, in epoch milliseconds. The lifetime is five minutes from creation. */
             expires_at: number;
         };
         PairingExchangeRequest: {
@@ -1265,7 +2654,9 @@ export interface components {
             label?: string;
         };
         PairingExchangeResponse: {
+            /** @description The paired device's id. The daemon mints it as `ios-` followed by 16 hex characters, regardless of the client's platform: a phone, a desktop, and a browser that pair here all receive the same prefix. Treat it as an opaque id. */
             device_id: string;
+            /** @description The device token. Send it as `Authorization: Bearer <token>` or as the `token` query parameter. */
             token: string;
             label?: string;
             desktop_id?: string;
@@ -1459,12 +2850,50 @@ export interface components {
             "agent_sessions.auto_import_mode"?: "prompt" | "enabled" | "disabled";
             "provider.clear_api_key"?: string;
         };
+        /** @description One paired device credential plus what its machine reported about itself. The local daemon's own row has no credential and is not listed here. */
         Device: {
+            /** @description Device id minted by the pairing exchange: `ios-` plus 16 hex characters, whatever the client platform. Opaque to clients. */
             id: string;
             label?: string;
+            platform?: string;
+            arch?: string;
+            /**
+             * @description `client` for a paired console that has not dialled in as a machine; `node` once the machine reported itself and can run turns. The daemon's own Hub row has no credential and is not listed here.
+             * @enum {string}
+             */
+            role?: "client" | "node";
+            kin_version?: string;
+            /**
+             * @description `online` when the Hub holds a live connection for the device, or when the last recorded report said online; `offline` after the device disconnected; `unknown` before the first report.
+             * @enum {string}
+             */
+            reachability: "unknown" | "online" | "offline";
+            /** @description Last contact in epoch milliseconds, falling back to the credential's last use when the machine never reported. Absent when neither has a value. */
+            last_seen_at?: number;
+            /** @description When the device was paired, in epoch milliseconds. */
             created_at: number;
-            last_used_at?: number | null;
-            revoked_at?: number | null;
+            /** @description When the device was revoked, in epoch milliseconds. Absent while active. */
+            revoked_at?: number;
+            /** @description Agents the machine reported. Empty, never null. */
+            agents: components["schemas"]["DeviceAgent"][];
+            /** @description Workspace roots the machine reported. Paths, not secrets. */
+            workspace_roots?: string[];
+        };
+        DeviceAgent: {
+            id: string;
+            name?: string;
+            kind?: string;
+            family?: string;
+            transport?: string;
+            installed: boolean;
+            available: boolean;
+            version?: string;
+            reason?: string;
+            default_model?: string;
+            models?: string[];
+            /** @description Permission ladder this machine advertises for a turn dispatched to this agent, in ladder order, after removing the modes it would refuse. An agent that never asks has an intrinsic ladder of only `default`; an agent whose `accept_edits` already bypasses approvals omits that rung. The executor refuses a mode only when it bypasses approvals and the machine was not started with `--allow-yolo`, so omission means "do not offer", not "always refused". When that filter leaves no mode at all, the agent is reported with `available: false` and a reason, and this field may be empty or absent. An absent field can also mean a machine that did not report a list at all (an older node); a client must read absent as the modes that do not bypass and check `available` before offering the agent. */
+            permission_modes?: string[];
+            is_default?: boolean;
         };
         PushDevice: {
             id: string;
@@ -1557,12 +2986,82 @@ export interface components {
             revoked_at?: number;
         };
         CreateTaskRequest: {
+            /** @description Agent id. Empty picks the default available agent. */
             agent?: string;
+            /** @description Directory the task works in. Required. Prefer an absolute path.
+             *     For a task prepared on this machine the workspace probe resolves
+             *     it to an absolute, symlink-resolved path before the first turn,
+             *     and a path that is missing or not a directory is refused. For a
+             *     task with `executing_device_id`, this is a path on that machine,
+             *     sent as typed and not stat'ed by the Hub.
+             *
+             *     When the task runs in a generated checkout (`workspace_mode:
+             *     worktree`, including `auto` after promotion), the checkout is
+             *     materialized from the base commit: a path that exists in the
+             *     source directory but not in that commit — a gitignored directory,
+             *     an untracked directory not present at HEAD — has no counterpart
+             *     there, and the turn fails at start with
+             *     `task execution directory is unavailable: <path>`. Use
+             *     `workspace_mode: shared` for a directory that must be used in
+             *     place rather than copied.
+             *      */
             cwd: string;
+            /** @description Non-empty first user message. */
             prompt: string;
             model?: string;
             title?: string;
+            /** @description Applied to every agent run in the task. Meaningful values are
+             *     `default`, `accept_edits`, and `yolo`; absent means `default`.
+             *     Aliases are normalized on input: `acceptEdits` and `accept-edits`
+             *     become `accept_edits`; `bypass`, `bypassPermissions`, and
+             *     `dangerously-skip-permissions` become `yolo`. Any other value
+             *     becomes `default`. A generic CLI agent that has no Kin approval
+             *     channel cannot run under `default` and is refused with `400`; it
+             *     requires `accept_edits` or `yolo`. `yolo` bypasses agent permission
+             *     prompts, so approvals may never be requested. `accept_edits` is a
+             *     distinct rung only for an agent that has one: on an agent whose
+             *     accept-edits setting already bypasses approvals, or that never
+             *     asks, `accept_edits` bypasses them too. `AgentInfo.permission_modes`
+             *     and `DeviceAgent.permission_modes` state the ladder an agent
+             *     actually has.
+             *
+             *     Whether a turn asks for approval is the agent's decision under the
+             *     mode, and Kin records no per-turn "bypassed" flag: a turn that
+             *     needed no approval is indistinguishable from one whose gate was
+             *     bypassed. A client can infer that no approval will arrive when the
+             *     mode leaves the agent nothing to ask about: `yolo`; `accept_edits`
+             *     when the advertised ladder omits that rung; `default` when the
+             *     ladder is only `default`. Otherwise the turn may ask.
+             *      */
             permission_mode?: string;
+            /** @description Requested workspace isolation. Meaningful values are `auto`
+             *     (default), `shared`, and `worktree`; `Task.workspace_mode` reports
+             *     what was actually resolved, which is only `shared` or `worktree`.
+             *
+             *     - `auto` — probe `cwd`. A git repository with a commit is marked
+             *       `worktree`. An agent that supports lazy promotion runs its first
+             *       turn read-only in the source checkout and promotes a generated
+             *       checkout when a turn needs to write. Other agents prepare the
+             *       generated checkout before the task starts, and on that path a
+             *       dirty source worktree falls back to `shared`. A directory that is
+             *       not a repository, has no commit, is bare, or has no usable git is
+             *       marked `shared` and used as it is.
+             *     - `shared` — run in `cwd` exactly as it is.
+             *     - `worktree` — prepare a generated checkout before the task starts.
+             *       Refused with `400` when `cwd` cannot host one (not a repository,
+             *       no commit, bare, or git unavailable), and refused with `400` for
+             *       a task that runs on another machine, whose workspace is that
+             *       machine's own checkout. A dirty source worktree is allowed: the
+             *       checkout is cut from HEAD and leaves the uncommitted changes
+             *       behind. A `worktree` task whose `cwd` path does not exist in the
+             *       base commit also fails at turn start (see `cwd`).
+             *
+             *     Any other non-empty value is not the same answer everywhere. A
+             *     local task is refused with `400` (`invalid workspace mode`); a task
+             *     that runs on another machine has no local workspace to prepare and
+             *     runs in that machine's checkout as if `shared` were sent. Send one
+             *     of the three values.
+             *      */
             workspace_mode?: string;
             project_id?: string;
             routine_id?: string;
@@ -1572,8 +3071,14 @@ export interface components {
         };
         FollowUpRequest: {
             prompt: string;
+            /** @description When set to a different agent, hand the task off: the agent session is cleared and context is injected into the new agent. */
             agent?: string;
+            /** @description When set, updates the task model for this and subsequent turns. A same-agent resume uses the new model on the next start. */
             model?: string;
+            /** @description When set, updates the task permission mode for this and subsequent
+             *     turns without resetting session continuity. Values, aliases, and
+             *     normalization are the same as `CreateTaskRequest.permission_mode`.
+             *      */
             permission_mode?: string;
             /** @description Cut the running turn short and deliver this prompt next, instead of
              *     waiting for the turn to end. Opt-in: it discards the work in flight,
@@ -1587,6 +3092,7 @@ export interface components {
             prompt: string;
             agent?: string;
             model?: string;
+            /** @description The permission mode requested with the queued prompt. Absent when the prompt did not set one; otherwise the value as sent, so an alias may appear here. It is normalized when the prompt becomes a turn. */
             permission_mode?: string;
             /** @description Seq of the message event written when this prompt was accepted. Zero
              *     when that write failed, in which case the delivery writes it. Always
@@ -1594,6 +3100,7 @@ export interface components {
              *     cannot decide what to mark as waiting.
              *      */
             user_seq: number;
+            /** @description When the prompt was queued, in epoch milliseconds. */
             queued_at: number;
         };
         ReplayRequest: {
@@ -1750,30 +3257,71 @@ export interface components {
             prompt: string;
             model?: string | null;
             session_ref?: string | null;
-            permission_mode?: string | null;
-            status: string;
+            /**
+             * @description Normalized permission mode applied to every agent run in the task. Rows written before the mode was recorded read `default`.
+             * @enum {string}
+             */
+            permission_mode?: "default" | "accept_edits" | "yolo";
+            /**
+             * @description `succeeded`, `failed`, and `canceled` are terminal. `queued` means no turn has started yet; `retrying` means a retry is being prepared (files restored) before the new turn starts; `running`, `waiting_approval`, and `waiting_input` mean a turn is live or blocked on the user. A row in `retrying` cannot be canceled or deleted until its file restoration finishes.
+             * @enum {string}
+             */
+            status: "queued" | "running" | "waiting_approval" | "waiting_input" | "succeeded" | "failed" | "canceled" | "retrying";
             exit_code?: number | null;
             tokens_in: number;
             tokens_out: number;
             cost_usd?: number | null;
+            /** @description When the task was created, in epoch milliseconds. */
             created_at: number;
+            /** @description When the first turn started, in epoch milliseconds. */
             started_at?: number | null;
+            /** @description When the last turn ended, in epoch milliseconds. */
             finished_at?: number | null;
             project_id?: string | null;
-            workspace_mode?: string | null;
+            /**
+             * @description The resolved workspace isolation, not the requested mode.
+             *
+             *     - `shared` — turns run in `cwd` itself; a local task may store it
+             *       as the probe-resolved absolute path. A task that runs
+             *       on another machine is always `shared`, and a local `auto` task
+             *       falls back to it when there is nothing to isolate from (not a
+             *       repository, bare, no commit, or no usable git) or, on the eager
+             *       path, when the source worktree is dirty.
+             *     - `worktree` — the task runs against an isolated copy. An agent
+             *       with lazy promotion starts with a read-only turn in the source
+             *       checkout and promotes a generated checkout when a turn needs to
+             *       write; before promotion, the workspace fields describe the
+             *       source checkout. Other agents have the generated checkout when
+             *       the task starts. After promotion, `workspace_root` is the
+             *       generated checkout, `execution_cwd` is `workspace_root` plus
+             *       `workspace_scope`, and `workspace_branch` is the branch its work
+             *       is on.
+             *
+             * @enum {string}
+             */
+            workspace_mode?: "shared" | "worktree";
+            /** @description Repository root that `cwd` belongs to, when it is in a repository. */
             workspace_source_root?: string | null;
+            /** @description Root of the checkout this task's turns run in. For a shared task it is the directory itself, the same path as `execution_cwd`. For a lazy `auto` task before promotion it is the source repository root; after promotion, and for an eager worktree task, it is the generated checkout. Null only on rows written before the field was recorded. */
             workspace_root?: string | null;
+            /** @description Directory turns actually run in. For a shared task it is the directory itself: `cwd` as given for a task on another machine or a lazy `auto` task with nothing to isolate from, and the probe-resolved absolute path (symlinks followed) for one prepared on this machine. For a lazy `auto` task before promotion it is the source directory the read-only turn runs in; after promotion, and for an eager worktree task, it is inside the generated checkout. */
             execution_cwd?: string | null;
+            /** @description The part of the repository `cwd` selected, relative to `workspace_source_root` with `/` separators; `.` at the root. For an isolated task (a lazy `auto` task, or a generated worktree), `execution_cwd` is `workspace_root` joined with this scope. Once the generated checkout exists (from the start for an eager worktree task, after promotion for a lazy one), a scope directory absent from the base commit leaves no directory to run in; before promotion the turn runs in the source checkout. For a shared task in a repository on this machine, `execution_cwd` equals `workspace_root`, and `workspace_source_root` joined with this scope reconstructs it. Other shared tasks — on another machine, or where the probe found no repository — have a null `workspace_source_root` and a scope of `.`. */
             workspace_scope?: string | null;
             workspace_base_oid?: string | null;
-            /** @description For a task with a workspace lifecycle, the branch its current generation runs on. For a session that runs on another machine, the branch that machine reported for its checkout — the same column, because both answer "which branch is this session's work on". */
+            /** @description The branch this task's work is on. Before a lazy promotion it is the source checkout's current branch, from which the generated checkout will be cut; afterwards, and for an eager worktree task, it is the generated checkout's branch. For a session that runs on another machine, the branch that machine reported for its checkout — the same column, because both answer "which branch is this session's work on". */
             workspace_branch?: string | null;
             /** @description The repository a session that runs on another machine was recorded on, canonical (host/owner/name, no transport, no credentials), as that machine reported it when the session started. Empty for a task that runs here, whose repository is derived from its workspace generation when a pull request is looked up. */
             workspace_repo?: string | null;
-            workspace_policy?: string | null;
+            /**
+             * @description The isolation path the task was created under. `auto` — the lazy path for an agent that supports promotion: a read-only first turn in the source that may be promoted. `worktree` — the eager path: the generated checkout is prepared before the task starts. An `auto` request on this path still falls back to shared when the source is dirty, not a repository, bare, has no commit, or has no usable git, and then `workspace_mode` reads `shared` with no checkout created. `shared` — the directory is used as it is: an explicit `shared` request, a task that runs on another machine, or a lazy `auto` task with nothing to isolate from.
+             * @enum {string}
+             */
+            workspace_policy?: "auto" | "shared" | "worktree";
             current_workspace_id?: string | null;
             /** @description The device that runs every turn of this task. Empty means the daemon that stores it; a device id means the turn is dispatched to that machine, which executes it with its own agents and its own filesystem. */
             executing_device_id?: string;
+            /** @description Version of this task's event log. It starts at 0 and increments whenever the log's tail is rewritten; `(event_epoch, seq)` is the identity of an event. */
             event_epoch: number;
             /** @description Position in the global change feed; null only for rows written before the cursor existed. */
             hub_seq?: number | null;
@@ -1794,24 +3342,314 @@ export interface components {
             agent?: string;
             provider?: string;
             window?: string;
+            /** @description Reset time reported by the provider, in unix seconds; 0 when unknown. */
             reset_at?: number;
             /** @enum {string} */
             state: "waiting" | "probing" | "retrying" | "completed" | "canceled" | "blocked";
             attempts: number;
+            /** @description When the next probe is due, in unix milliseconds. */
             next_probe_at: number;
+            /** @description When the wait began, in unix milliseconds. */
             first_wait_at: number;
             last_probe_at?: number | null;
             last_error?: string;
             claimed_at?: number | null;
+            /** @description Row update time, in unix milliseconds. */
             updated_at: number;
         };
         TaskEvent: {
             task_id: string;
+            /** @description Version of the task's event log. A retry or other tail rewrite increments it and reuses the seq values from that point, so an event's identity is (event_epoch, seq). */
             event_epoch: number;
+            /** @description Position in this task's log, 1-based and contiguous within one event_epoch. */
             seq: number;
+            /** @description When the daemon appended the event, in epoch milliseconds. */
             ts: number;
+            /** @description Event kind. This is an open set: adapters and the engine both
+             *     append, and a client must tolerate a kind it does not know.
+             *     Known values:
+             *
+             *     - `message` — assistant or user text. Streaming updates set
+             *       `payload.partial`; see `TaskEventPayload`.
+             *     - `tool_use` — an agent tool call, or a status update for one.
+             *     - `tool_result` — the outcome of a tool call.
+             *     - `result` — end of a turn, with the final text and usage.
+             *     - `error` — a turn error.
+             *     - `usage` — incremental token accounting.
+             *     - `plan` — the agent's plan, replaced whole on each update.
+             *     - `notice` — a status line from the adapter or daemon.
+             *     - `limit_hit` — the provider's rate limit or quota was reached.
+             *       The console renders a limit card from it; see `reset_at` and
+             *       `status` in `TaskEventPayload`.
+             *     - `task_started` — the agent session started.
+             *     - `approval_requested` / `approval_decided` — the approval audit
+             *       trail.
+             *     - `user_question_requested` / `user_question_answered` — the
+             *       question audit trail.
+             *     - `route_decision` / `route_fallback` — model or agent routing.
+             *     - `skill_context` — skills injected into a turn.
+             *     - `eval_metadata` / `replay_metadata` — eval and replay bookkeeping.
+             *     - `connector_call` — a connector invocation audit record.
+             *     - `checkpoint_skipped` — the round snapshot could not be taken.
+             *     - `round_changed` — files changed between two round checkpoints.
+             *     - `workspace_provisioning`, `workspace_ready`, `workspace_active`,
+             *       `workspace_finalizing`, `workspace_integrated`,
+             *       `workspace_released`, `workspace_merge_blocked`,
+             *       `workspace_finalize_blocked`, `workspace_orphaned`,
+             *       `workspace_legacy_pending` — workspace lifecycle transitions.
+             *     - `workspace_restored` — a checkpoint was restored.
+             *     - `meta` — daemon annotation, for example fork lineage.
+             *     - `raw_output` — an unparsed adapter line, kept for diagnostics.
+             *      */
             type: string;
-            payload: unknown;
+            payload: components["schemas"]["TaskEventPayload"];
+        };
+        /** @description Event body. The event `type` selects which fields are meaningful; every
+         *     field here is optional because the set of event kinds is open and older
+         *     rows predate some fields. Unknown fields must be preserved.
+         *
+         *     Two groups are documented:
+         *
+         *     **Canonical attribution.** The engine stamps these onto the events it
+         *     authors, and adapters set their own: identity (`agent`, `speaker`),
+         *     origin (`source`), orchestration stage (`phase`), the model and role
+         *     that produced the text, the audience (`visibility`), and the
+         *     execution/workspace the event belongs to. They stay optional because
+         *     not every kind carries every field.
+         *
+         *     **Per-kind body.** The rest is the adapter's own payload, passed
+         *     through unchanged. For `message`, the delta rule is: chunks with
+         *     `partial: true` belong to one growing message and are concatenated in
+         *     `seq` order; a later event with `partial: false` replaces the
+         *     accumulated text rather than appending to it. `message_id` plus
+         *     `index` identify the same block across updates when an adapter sets
+         *     them. `content[]` is the canonical block list; `text` is the flattened
+         *     alternative some adapters send instead.
+         *      */
+        TaskEventPayload: {
+            /** @description Agent id that produced the event. */
+            agent?: string;
+            /** @description The chat column the event belongs to, usually the agent id or `user`. */
+            speaker?: string;
+            /** @description Origin. The engine writes `user`, `host`, `worker`, `orchestrator`, `delegate`, `create`, `follow_up`, and on specific paths `interrupt`, `handoff`, `orchestrate`, `retry`, `fork`, `skill_runtime`, `user_wait`, or `user_action`. Adapters pass their own label (`kin`, `droid`, `claude-code`, `codex`, `grok`). Read it as an open set. */
+            source?: string;
+            /** @description Orchestration stage, when the event belongs to one. The engine writes `plan`, `progress`, or `summary`; adapters may pass other labels through, so read it as an open set. */
+            phase?: string;
+            /** @description Model reported by the agent for this event. */
+            model?: string;
+            /** @description Message role, for example `user`, `assistant`, `reasoning`, or `tool`. */
+            role?: string;
+            /** @description Audience. `user` false keeps the event out of the main chat column; `task` true keeps it in the task log. */
+            visibility?: {
+                user?: boolean;
+                task?: boolean;
+            };
+            /** @description The adapter run (attempt) this event belongs to. */
+            execution_id?: string;
+            /** @description The turn this event belongs to. A retry starts a new `execution_id` under the same `run_execution_id`. */
+            run_execution_id?: string;
+            execution_agent?: string;
+            execution_step?: number;
+            execution_model?: string;
+            /** @description Provider profile that served the run, when routing used one. */
+            provider_id?: string;
+            /** @description Provider that served the run (`route_decision`, `route_fallback`) or that refused it (`limit_hit`). */
+            provider?: string;
+            /** @description For `route_decision` / `route_fallback`, the routing team that resolved the turn. */
+            team?: string;
+            /** @description For `route_fallback`, the provider and model that failed first. At least `provider` and `model`; may also carry `class` and `message`. */
+            fallback_from?: {
+                [key: string]: unknown;
+            };
+            /** @description Workspace generation id, on `workspace_*` lifecycle events and bound turns. */
+            workspace_id?: string;
+            /**
+             * @description What the turn was allowed to do with its workspace: `source_read_only` is the person's checkout before a worktree is promoted; `writable` is a generated checkout; `shared` is the directory used as it is.
+             * @enum {string}
+             */
+            workspace_access?: "pending_isolation" | "source_read_only" | "writable" | "shared";
+            workspace_generation?: number;
+            /** @description For `message`: the content blocks, or a plain string equivalent to
+             *     one text block. For `tool_use`: the adapter's content object, when
+             *     it has one.
+             *      */
+            content?: components["schemas"]["TaskEventContentBlock"][] | string | {
+                [key: string]: unknown;
+            };
+            /** @description Flattened text for a `message` or `result` event. Some adapters carry it under `result` or `message` instead; the daemon reads those as the same value. */
+            text?: string;
+            /** @description For `message`: true marks a streaming chunk to concatenate; false marks the authoritative text that replaces the accumulated chunks. */
+            partial?: boolean;
+            /** @description Adapter message id, enabling block identity across updates. */
+            message_id?: string;
+            /** @description Block index within `message_id`, when the adapter reports one. */
+            index?: number | string;
+            /** @description True when a subagent, not the main agent, wrote this text. */
+            sidechain?: boolean;
+            /** @description On a user message, true when this prompt cut the running turn short instead of waiting for it to end. */
+            interrupted?: boolean;
+            /** @description Joins a `tool_use` to its `tool_result`. */
+            tool_use_id?: string;
+            /** @description Legacy reader alias for a tool-call id. Some adapters write a top-level `tool_use_id`; claude-code and codex nest the id under `content` or `item`. Kin and the console still accept `id` on older rows. */
+            id?: string;
+            name?: string;
+            tool_name?: string;
+            input?: unknown;
+            /** @description Short human summary of a tool call, when the adapter supplies one. */
+            summary?: string;
+            /** @description Tool result text, for `tool_result`. */
+            output?: string;
+            /** @description Producer-specific state for the event. For `tool_use`, the values seen are `running` (kinagent) and `pending` / `in_progress` (ACP). For `tool_result`, `done` (kinagent), `completed` (droid), or `error`, when the adapter reports one; some adapters omit it. For `user_question_answered`, the question's status. For `limit_hit`, the limit card's state (`open`, `waiting`, `continued`, `switched`, `dismissed`; open set). Read it as an open set; `ok` or `is_error` is the authoritative tool outcome. */
+            status?: string;
+            /** @description For `tool_result`, false means the tool failed. */
+            ok?: boolean;
+            /** @description Set when this tool call was made by a subagent inside another tool call. */
+            parent_tool_use_id?: string;
+            /** @description Adapter item envelope, when the adapter wraps the tool in one. */
+            item?: {
+                [key: string]: unknown;
+            };
+            approval_id?: string;
+            /** @description For `approval_requested`, what is being approved (`tool_use`, `browser_side_effect`, or another relayed kind). For `notice`, the adapter's notice kind (for example `updateCurrentMode`). For `error`, a machine-readable kind such as `rate_limited`. Open. */
+            kind?: string;
+            /** @description For `approval_requested`, the adapter's tool request body, verbatim. For `user_question_requested`, the question and its options. */
+            payload?: {
+                [key: string]: unknown;
+            };
+            question_id?: string;
+            /** @description For `user_question_answered`: `selected` labels and optional `other_text`. */
+            response?: {
+                [key: string]: unknown;
+            };
+            /** @description For `user_question_answered`. Who answered:
+             *
+             *     - `ios:<device-id>` — a paired device token, where `<device-id>` is
+             *       the `ios-…` id from the pairing exchange, so the stored value
+             *       reads `ios:ios-…`.
+             *     - `web` — the fallback for a console request whose
+             *       `X-Client-Type` header is absent, blank after trimming, or longer
+             *       than 64 characters.
+             *     - `<X-Client-Type>` — the trimmed header value, at most 64
+             *       characters, for any other console.
+             *     - `mcp` — a Kin MCP client. Unlike `Approval.decided_via`, the
+             *       client id is not appended.
+             *     - `a2a` — an A2A caller.
+             *     - `timeout` — the question was answered on the user's behalf when
+             *       its wait expired.
+             *     - `interrupt` — the turn was stopped.
+             *
+             *     Not a closed enum. There is no `device_disconnected` value for
+             *     questions.
+             *      */
+            answered_via?: string;
+            /**
+             * @description For `approval_decided`.
+             * @enum {string}
+             */
+            decision?: "approved" | "denied" | "expired";
+            /** @description For `approval_decided`. Same attribution vocabulary as `Approval.decided_via`; not a closed enum. */
+            decided_via?: string;
+            /** @description For `approval_decided`, in epoch milliseconds. */
+            decided_at?: number;
+            /** @description For `result`. Canonical result payloads always carry it. A legacy result that omits it is treated as a failure. */
+            is_error?: boolean;
+            /** @description Agent session id, for `task_started` and `result`. Some adapters write it as `session_id` (claude-code, codex, grok, kinagent, generic CLI); droid and ACP write `session_ref`. `sessionId` is a read-side alias; the daemon and clients read all three as the same value. */
+            session_ref?: string;
+            /** @description For `usage`, and nested in a canonical `result`. Adapter-reported
+             *     token fields, not normalized in place; the daemon normalizes them
+             *     for accounting with these aliases, nested under `usage` or flat on
+             *     the payload:
+             *
+             *     - input: `input_tokens` | `prompt_tokens` | `tokens_in`
+             *     - output: `output_tokens` | `completion_tokens` | `tokens_out`
+             *     - cached input: `cache_read_tokens` | `cache_read_input_tokens` |
+             *       `cached_input_tokens`
+             *     - cache writes: `cache_write_tokens` | `cache_creation_input_tokens`
+             *     - cost: `cost_usd` | `total_cost_usd`
+             *
+             *     Also recognized: `reasoning_output_tokens`, `cached_tokens`,
+             *     `cache_read_reported`, `cache_status`, `input_semantics`,
+             *     `cost_source`, `model`, `provider_id`, `source`, `agent`.
+             *      */
+            usage?: {
+                [key: string]: unknown;
+            };
+            /** @description Input tokens, flat on a legacy `result` or `usage` payload. Canonical events nest the normalized count under `usage`. */
+            tokens_in?: number;
+            /** @description Output tokens, flat on a legacy `result` or `usage` payload. Canonical events nest the normalized count under `usage`. */
+            tokens_out?: number;
+            /** @description Reported cost in US dollars, when the adapter or provider gives one. Canonical results carry it inside `usage`; legacy `result` payloads may carry it at the top level, and a `usage` payload may send null when no cost was reported. */
+            cost_usd?: number | null;
+            /** @description Provider-reported total cost in US dollars, passed through on some `result` payloads alongside `cost_usd`. */
+            total_cost_usd?: number;
+            /** @description A human-readable line: the failure for `error`, a status line for daemon-authored notices, and the annotation for `meta`. */
+            message?: string;
+            error?: unknown;
+            result?: unknown;
+            raw?: unknown;
+            /** @description For `notice`. */
+            title?: string;
+            /** @description For `notice`, for example `info` or `warning`. */
+            severity?: string;
+            /** @description For `plan`: the current plan, whole. An empty array withdraws the previous plan. */
+            entries?: ({
+                content?: string;
+                status?: string;
+            } & {
+                [key: string]: unknown;
+            })[];
+            /** @description For `checkpoint_skipped` and `workspace_restored`: the user-message seq the checkpoint was taken at. */
+            event_seq?: number;
+            /** @description Why, when the producer attaches one. For `checkpoint_skipped` the value is `too_large`, `unavailable`, or `git_error`. For `route_decision` / `route_fallback` it is the router's free-text sentence, for example `manual dispatch`. Read it as an open set. */
+            reason?: string;
+            /** @description For `round_changed`, the user seq that opened the round. */
+            from_seq?: number;
+            /** @description For `round_changed`, the user seq that closed the round. */
+            to_seq?: number;
+            base_tree?: string;
+            head_tree?: string;
+            /** @description For `round_changed`: total paths changed. `files` is capped at 200 entries, so compare it with this count to know what was omitted. */
+            total?: number;
+            /** @description For `round_changed`, the changed paths, capped at 200. */
+            files?: components["schemas"]["RoundChangedFile"][];
+            /** @description For a forked task, the source task id. Written on the first user `message` (whose `source` is `fork`) when the fork starts with a turn; otherwise on the `meta` annotation. */
+            forked_from?: string;
+            /** @description For a forked task, the seq the fork branched from. Written on the same event as `forked_from`. */
+            fork_from_seq?: number;
+            /** @description For `raw_output`, one unparsed adapter line. */
+            line?: string;
+            /** @description For a `message` with `source: handoff`, the agent the task came from. */
+            from_agent?: string;
+            /** @description For a `message` with `source: handoff`, the agent the task moved to. For `limit_hit`, the agent a `switched` card moved to. */
+            to_agent?: string;
+            /** @description For `limit_hit`, when the provider's window resets, in epoch seconds, not milliseconds. The daemon normalizes a provider value in milliseconds down to seconds. */
+            reset_at?: number;
+            /** @description For `limit_hit`, the provider's window label, when it reports one. */
+            window?: string;
+            /** @description For `limit_hit`, the seq of the earlier limit card this one replaces, when it updates one. */
+            replaces_seq?: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description One block of a message. The daemon writes `{"type":"text","text":...}`; adapters may add other block types, so `type` is an open string and unknown blocks must be preserved. */
+        TaskEventContentBlock: {
+            type: string;
+            text?: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description One changed path in a `round_changed` event. The daemon always writes `path` and `status`; both stay optional here because a stored event is untrusted input and a client drops a malformed entry rather than failing the round. */
+        RoundChangedFile: {
+            path?: string;
+            /** @description Present when `status` is `renamed`. */
+            old_path?: string;
+            /** @enum {string} */
+            status?: "added" | "modified" | "deleted" | "renamed" | "binary";
+            additions?: number;
+            deletions?: number;
+            binary?: boolean;
+        } & {
+            [key: string]: unknown;
         };
         WorkerStep: {
             task_id: string;
@@ -1835,11 +3673,43 @@ export interface components {
         Approval: {
             id: string;
             task_id: string;
+            /** @description What is being approved. `tool_use` for an agent tool call and
+             *     `browser_side_effect` for a browser action that changes state; a
+             *     machine relaying an approval may pass another non-empty kind
+             *     through unchanged. Read it as an open set.
+             *      */
             kind: string;
+            /** @description The adapter's request body, stored verbatim and opaque to clients. For `browser_side_effect` it carries `request_id`, `action`, and `source`. */
             payload: unknown;
-            decision: string;
+            /**
+             * @description `pending` until a person decides; then `approved`, `denied`, or `expired`. `expired` is written by the daemon when the one-hour approval TTL passes or the machine holding the turn disconnects.
+             * @enum {string}
+             */
+            decision: "pending" | "approved" | "denied" | "expired";
+            /** @description Who decided, when known:
+             *
+             *     - `ios:<device-id>` — a paired device token, where `<device-id>` is
+             *       the `ios-…` id from the pairing exchange, so the stored value
+             *       reads `ios:ios-…`. The prefix is used for any paired device, not
+             *       only iOS.
+             *     - `web` — the fallback for a console request whose
+             *       `X-Client-Type` header is absent, blank after trimming, or longer
+             *       than 64 characters.
+             *     - `<X-Client-Type>` — the trimmed header value, at most 64
+             *       characters, for any other console.
+             *     - `mcp:<client-id>` — a Kin MCP client.
+             *     - `a2a` — an A2A caller.
+             *     - `interrupt` — the engine denied it because the turn was stopped.
+             *     - `timeout` — the approval TTL passed.
+             *     - `device_disconnected` — the machine holding the turn went away.
+             *
+             *     Not a closed enum: a relayed approval carries the deciding
+             *     machine's own attribution.
+             *      */
             decided_via?: string | null;
+            /** @description When the approval was requested, in epoch milliseconds. */
             created_at: number;
+            /** @description When the decision was recorded, in epoch milliseconds. */
             decided_at?: number | null;
             execution_id?: string | null;
             execution_agent?: string | null;
@@ -2006,9 +3876,794 @@ export interface components {
                 ts?: number;
             }[];
         };
+        AuthErrorResponse: {
+            error: string;
+            /** @description Stable machine-readable refusal code, e.g. `invalid_credentials`. */
+            code?: string;
+        };
+        AuthProvider: {
+            id: string;
+            label: string;
+            /** @enum {string} */
+            kind: "password" | "oidc";
+            /** @description Where to navigate to begin this provider's flow. */
+            start_url?: string;
+        };
+        AuthUser: {
+            id: string;
+            email?: string;
+            email_verified: boolean;
+            email_source?: string;
+            display_name?: string;
+            /** @description Provider ids linked to this account, deduplicated. */
+            identities?: string[];
+        };
+        AuthStatus: {
+            /** @description No owner account exists yet. */
+            needs_bootstrap: boolean;
+            /** @description A bootstrap code is live, so the owner account can be claimed now. */
+            claimable: boolean;
+            /** @description The request carried a valid session cookie. */
+            authenticated: boolean;
+            /** @description Empty on a standalone daemon with no account system. */
+            providers: components["schemas"]["AuthProvider"][];
+            user?: components["schemas"]["AuthUser"];
+        };
+        AuthEnrollRequest: {
+            code: string;
+            /** Format: email */
+            email: string;
+            /** Format: password */
+            password: string;
+            display_name?: string;
+        };
+        AuthLoginRequest: {
+            /** Format: email */
+            email: string;
+            /** Format: password */
+            password: string;
+        };
+        AuthLoginLinkRequest: {
+            /** @description The one-time token from the sign-in link's URL fragment. */
+            token: string;
+        };
+        AuthSessionResponse: {
+            user: components["schemas"]["AuthUser"];
+            /** @description Session expiry in unix milliseconds. */
+            expires_at: number;
+        };
+        AuthMeResponse: {
+            user: components["schemas"]["AuthUser"];
+        };
+        AgentModelOption: {
+            id: string;
+            label?: string;
+            tier?: string;
+        };
+        AgentInfo: {
+            id: string;
+            name: string;
+            kind?: string;
+            capabilities?: string[];
+            /** @description Absolute install path; blanked for a caller that does not hold the machine. */
+            binary?: string;
+            installed: boolean;
+            available: boolean;
+            default: boolean;
+            reason?: string;
+            install_url?: string;
+            models?: components["schemas"]["AgentModelOption"][];
+            /** @enum {string} */
+            model_list_source: "configured" | "discovered" | "recommended" | "none";
+            /** @enum {string} */
+            model_list_status: "available" | "default_only" | "unavailable";
+            /** @description The permission ladder this agent actually has on this machine. An agent that never asks reports only `default`; an agent whose `accept_edits` setting already bypasses approvals reports `default` and `yolo` with no `accept_edits` rung; otherwise the ladder is `default`, `accept_edits`, `yolo`. Absent when the machine could not report its ladder, in which case a console falls back to offering every mode. `DeviceAgent.permission_modes` is the filtered version for turns dispatched to another machine. */
+            permission_modes?: string[];
+        };
+        AgentManagementInfo: {
+            id: string;
+            version?: string;
+            /** @enum {string} */
+            auth_status: "signed_in" | "not_signed_in" | "unknown";
+            auth_detail?: string;
+            install_cmd?: string;
+            update_cmd?: string;
+        };
+        AgentSmokeRequest: {
+            /** @description Agents to probe; empty means every installed generic CLI agent. */
+            ids?: string[];
+        };
+        AgentSmokeResult: {
+            id: string;
+            name?: string;
+            skipped?: boolean;
+            ok: boolean;
+            installed: boolean;
+            available: boolean;
+            binary?: string;
+            detail?: string;
+            checked_at?: number;
+        };
+        AgentSmokeResponse: {
+            results: components["schemas"]["AgentSmokeResult"][];
+        };
+        MachineAgent: {
+            id: string;
+            name?: string;
+            kind?: string;
+            family?: string;
+            transport?: string;
+            installed: boolean;
+            available: boolean;
+            version?: string;
+            reason?: string;
+            default_model?: string;
+            models?: string[];
+            permission_modes?: string[];
+            is_default?: boolean;
+        };
+        Machine: {
+            id: string;
+            label?: string;
+            reachability: string;
+            agents: components["schemas"]["MachineAgent"][];
+            workspace_roots?: string[];
+        };
+        MachineDirs: {
+            /** @description The directory that was listed, as it was walked. */
+            path: string;
+            /** @description What "up" means from here; absent at a root. */
+            parent?: string;
+            roots?: string[];
+            /** @description Directory names inside `path`, never files. */
+            entries?: string[];
+            truncated?: boolean;
+        };
+        MachineRepoBranches: {
+            /** @description The repository spelled as a remote the machine will fetch. */
+            clone_url: string;
+            default_branch?: string;
+            branches?: string[];
+            truncated?: boolean;
+        };
+        MachineRepoPrepareRequest: {
+            /** @description The clone URL returned by repo/branches. */
+            repo: string;
+            /** @description Branch to check out; empty uses the remote default. */
+            branch?: string;
+        };
+        MachineRepoPrepareResult: {
+            /** @description Absolute path inside the machine's roots. */
+            path: string;
+            branch?: string;
+            /** @description True when this call is what put the repository there. */
+            cloned?: boolean;
+        };
+        GitBranch: {
+            name: string;
+            current: boolean;
+        };
+        GitBranchStatus: {
+            cwd: string;
+            is_git: boolean;
+            current?: string;
+            detached?: boolean;
+            dirty?: boolean;
+            branches: components["schemas"]["GitBranch"][];
+            /** @description Why the directory could not be read as a repository. */
+            reason?: string;
+        };
+        GitCheckoutRequest: {
+            cwd: string;
+            branch: string;
+            /** @description Machine whose checkout moves; empty or `self` is this daemon. */
+            device?: string;
+        };
+        GitCheckoutResponse: {
+            cwd: string;
+            current: string;
+        };
+        Artifact: {
+            id: string;
+            title: string;
+            /** @enum {string} */
+            kind: "markdown" | "html" | "text";
+            size: number;
+            /** @enum {string} */
+            status: "proposed" | "saved" | "archived";
+            source_task_id?: string;
+            source_task_title?: string;
+            created_at: number;
+            updated_at: number;
+        };
+        ArtifactCreateRequest: {
+            title?: string;
+            /** @enum {string} */
+            kind: "markdown" | "html" | "text";
+            content?: string;
+            source_task_id?: string;
+            /** @enum {string} */
+            status?: "proposed" | "saved" | "archived";
+        };
+        ArtifactStatusRequest: {
+            /** @enum {string} */
+            status: "proposed" | "saved" | "archived";
+        };
+        Project: {
+            id: string;
+            name: string;
+            /** @enum {string} */
+            mode: "ship" | "learn" | "explore" | "maintain";
+            status: string;
+            soft_progress?: string;
+            created_at: number;
+            updated_at: number;
+            last_active_at: number;
+            roots?: string[];
+            /** @description Absolute path to the one-pager, when projects are configured. */
+            one_pager_path?: string;
+        };
+        ProjectCreateRequest: {
+            /** @description Defaults to the basename of the first root. */
+            name?: string;
+            /**
+             * @default ship
+             * @enum {string}
+             */
+            mode: "ship" | "learn" | "explore" | "maintain";
+            roots?: string[];
+        };
+        ProjectEnsureRequest: {
+            path: string;
+            name?: string;
+            /** @enum {string} */
+            mode?: "ship" | "learn" | "explore" | "maintain";
+        };
+        ProjectPatchRequest: {
+            name?: string;
+            /** @enum {string} */
+            mode?: "ship" | "learn" | "explore" | "maintain";
+            status?: string;
+            soft_progress?: string;
+            roots?: string[];
+        };
+        OnePagerSummary: {
+            name?: string;
+            mode?: string;
+            north_star?: string;
+            focus?: string;
+            next?: string[];
+            empty: boolean;
+        };
+        OnePager: {
+            project_id: string;
+            markdown: string;
+            /** @description One-pager file modification time in unix milliseconds. */
+            updated_at: number;
+            one_pager_summary?: components["schemas"]["OnePagerSummary"];
+        };
+        OnePagerUpdateRequest: {
+            markdown: string;
+            /** @description Optimistic lock: the `updated_at` last read for this one-pager. If
+             *     the file's modification time no longer matches, the write is
+             *     rejected with 409 and the current value in the body. Omit to
+             *     overwrite unconditionally.
+             *      */
+            updated_at?: number;
+        };
+        OnePagerUpdateResponse: {
+            project_id: string;
+            markdown: string;
+            updated_at: number;
+        };
+        /** @description The matching project, with its fields also flattened at the top level
+         *     for older clients.
+         *      */
+        ProjectByRoot: {
+            project: components["schemas"]["Project"];
+            one_pager_summary?: components["schemas"]["OnePagerSummary"];
+            one_pager_updated_at?: number;
+            id?: string;
+            name?: string;
+            mode?: string;
+            status?: string;
+            soft_progress?: string;
+            created_at?: number;
+            updated_at?: number;
+            last_active_at?: number;
+            roots?: string[];
+            one_pager_path?: string;
+        };
+        PulseDay: {
+            date: string;
+            count: number;
+        };
+        PulsePathStat: {
+            path: string;
+            count: number;
+        };
+        ProjectPulse: {
+            project_id: string;
+            generated_at: number;
+            window_days: number;
+            session_total: number;
+            session_window: number;
+            sessions_running: number;
+            sessions_waiting: number;
+            last_session_at?: number;
+            session_heat: components["schemas"]["PulseDay"][];
+            git_available: boolean;
+            git_root?: string;
+            commit_window: number;
+            commit_heat?: components["schemas"]["PulseDay"][];
+            top_paths?: components["schemas"]["PulsePathStat"][];
+            /** @description Managed block suitable for the `kin:auto` section of the one-pager. */
+            auto_markdown: string;
+        };
+        ProjectPulseRefreshRequest: {
+            /** @default 90 */
+            window_days: number;
+            /**
+             * @description Merge the managed block back into the one-pager file.
+             * @default true
+             */
+            write: boolean;
+        };
+        ProjectPulseRefreshResponse: {
+            pulse: components["schemas"]["ProjectPulse"];
+            markdown: string;
+            updated_at: number;
+            written: boolean;
+        };
+        ProviderModelSpec: {
+            id: string;
+            /** @enum {string} */
+            tier: "smart" | "balanced" | "fast" | "free";
+            /** @enum {string} */
+            cost_label: "paid" | "company" | "free" | "unknown";
+        };
+        ProviderEntry: {
+            id: string;
+            name: string;
+            kind: string;
+            base_url: string;
+            /** @description Masked when a secret is stored. */
+            api_key?: string;
+            model: string;
+            stream: boolean;
+            active: boolean;
+            supports_agents?: string[];
+            models?: components["schemas"]["ProviderModelSpec"][];
+            enabled?: boolean;
+        };
+        ProvidersResponse: {
+            active_id: string;
+            providers: components["schemas"]["ProviderEntry"][];
+        };
+        ProviderWriteRequest: {
+            id?: string;
+            name?: string;
+            kind?: string;
+            base_url?: string;
+            /** @description Omitted or masked on update keeps the stored secret. */
+            api_key?: string;
+            model?: string;
+            /** @description Omitted on update keeps the previous value. */
+            stream?: boolean;
+            active?: boolean;
+            /** @description Remove the stored secret explicitly. */
+            clear_api_key?: boolean;
+        };
+        ProviderModelsRequest: {
+            /** @description Saved entry to read the stored secret from, when the key is omitted. */
+            id?: string;
+            kind?: string;
+            base_url: string;
+            api_key?: string;
+        };
+        ProviderModelsResponse: {
+            models: string[];
+        };
+        Routine: {
+            id: string;
+            project_id?: string;
+            cwd: string;
+            agent: string;
+            /** @description Empty means the agent's own default. */
+            model?: string;
+            permission_mode: string;
+            prompt: string;
+            interval_secs: number;
+            enabled: boolean;
+            last_run_at?: number;
+            next_due_at: number;
+            consec_failures: number;
+            created_at: number;
+            title: string;
+            /** @enum {string} */
+            missed_run_policy: "coalesce" | "skip";
+            lane: string;
+            /** @description Wall-clock rule as JSON; empty for an interval routine. */
+            recurrence?: string;
+            claim_until_at?: number;
+            last_outcome?: string;
+            last_error?: string;
+        };
+        RoutinePage: {
+            routines: components["schemas"]["Routine"][];
+            next_cursor?: string;
+            has_more: boolean;
+            /** @description Present only when the request asked for `runs=1`. */
+            runs?: components["schemas"]["Task"][];
+        };
+        RoutineCreateRequest: {
+            title?: string;
+            project_id?: string;
+            cwd: string;
+            agent?: string;
+            model?: string;
+            permission_mode?: string;
+            prompt: string;
+            interval_secs?: number;
+            enabled?: boolean;
+            next_due_at?: number;
+            /** @enum {string} */
+            missed_run_policy?: "coalesce" | "skip";
+            lane?: string;
+            recurrence?: string;
+        };
+        RoutinePatchRequest: {
+            title?: string;
+            project_id?: string;
+            cwd?: string;
+            agent?: string;
+            /** @description Empty string clears back to the agent default. */
+            model?: string;
+            permission_mode?: string;
+            prompt?: string;
+            interval_secs?: number;
+            enabled?: boolean;
+            next_due_at?: number;
+            /** @enum {string} */
+            missed_run_policy?: "coalesce" | "skip";
+            lane?: string;
+            /** @description Empty string clears the rule and returns to interval_secs. */
+            recurrence?: string;
+        };
+        RoutinePreviewRequest: {
+            recurrence: string;
+        };
+        RoutinePreviewResponse: {
+            next_due_at: number;
+        };
+        RoutineUnreadCount: {
+            count: number;
+        };
+        RoutineMarkAllReadResponse: {
+            marked: number;
+        };
+        RoutingModelSpec: {
+            id: string;
+            tier: string;
+            cost_label: string;
+        };
+        RoutingAgentOption: {
+            id: string;
+            name: string;
+            supported_kinds: string[];
+            /** @description Enabled provider profiles this agent can run on. */
+            compatible_count: number;
+        };
+        RoutingProviderOption: {
+            id: string;
+            name: string;
+            kind: string;
+            enabled: boolean;
+            supports_agents: string[];
+            model_count: number;
+            models: components["schemas"]["RoutingModelSpec"][];
+        };
+        RoutingTeamOption: {
+            id: string;
+            name: string;
+            alias?: string;
+            enabled: boolean;
+            default_objective?: string;
+        };
+        RoutingDefaults: {
+            enabled: boolean;
+            default_team: string;
+            /** @enum {string} */
+            objective: "balanced" | "cost-min" | "intelligent-max";
+            max_attempts_per_step: number;
+            /** @enum {string} */
+            terminal_limit_policy: "wait" | "ask" | "switch";
+            manual_fallback: boolean;
+            /** @enum {string} */
+            quality_floor?: "light" | "medium" | "heavy" | "";
+            force_phases?: ("plan" | "execute" | "review" | "chat")[];
+        };
+        RoutingOptions: {
+            agents: components["schemas"]["RoutingAgentOption"][];
+            providers: components["schemas"]["RoutingProviderOption"][];
+            teams: components["schemas"]["RoutingTeamOption"][];
+            defaults: components["schemas"]["RoutingDefaults"];
+        };
+        RoutingPhasePolicy: {
+            agent: string;
+            /** @enum {string} */
+            tier: "smart" | "balanced" | "fast";
+            provider_priority: string[];
+            fallback: string[];
+        };
+        RoutingTeamProfile: {
+            id: string;
+            name: string;
+            alias?: string;
+            default_objective?: string;
+            enabled: boolean;
+            phases: {
+                [key: string]: components["schemas"]["RoutingPhasePolicy"];
+            };
+        };
+        RoutingTeamProfileList: {
+            profiles: components["schemas"]["RoutingTeamProfile"][];
+        };
+        RoutingProviderProfile: {
+            id: string;
+            name: string;
+            /** @enum {string} */
+            kind: "subscription" | "anthropic-compatible" | "openai-compatible" | "grok-compatible" | "custom";
+            supports_agents: string[];
+            enabled: boolean;
+            models: components["schemas"]["RoutingModelSpec"][];
+        };
+        RoutingProviderProfileList: {
+            profiles: components["schemas"]["RoutingProviderProfile"][];
+        };
+        RoutingSkippedCandidate: {
+            provider: string;
+            model: string;
+            reason: string;
+        };
+        RoutingPreviewPhase: {
+            /** @enum {string} */
+            phase: "plan" | "execute" | "review" | "chat";
+            agent: string;
+            provider: string;
+            model: string;
+            tier: string;
+            /** @enum {string} */
+            status: "resolved" | "unresolved" | "blocked";
+            fallback_summary?: string;
+            skipped?: components["schemas"]["RoutingSkippedCandidate"][];
+        };
+        RoutingPreview: {
+            /** @enum {string} */
+            mode: "auto" | "manual";
+            team?: string;
+            objective?: string;
+            agent?: string;
+            provider?: string;
+            model?: string;
+            phases: components["schemas"]["RoutingPreviewPhase"][];
+            blocked: boolean;
+            blocked_reason?: string;
+        };
+        TranscriptHit: {
+            task_id: string;
+            task_title: string;
+            seq: number;
+            ts: number;
+            role: string;
+            snippet: string;
+        };
+        TranscriptSearchResponse: {
+            matches: components["schemas"]["TranscriptHit"][];
+            truncated: boolean;
+        };
+        UsageTotals: {
+            tokens_in: number;
+            tokens_out: number;
+            cost_usd: number | null;
+            request_count: number;
+            reasoning_output_tokens: number;
+            cache_read_tokens: number;
+            cache_write_tokens: number;
+            cache_eligible_input_tokens: number;
+            cache_hit_rate: number | null;
+            cache_coverage: number | null;
+            cache_status: string;
+        };
+        UsageRow: components["schemas"]["UsageTotals"] & {
+            /** @description UTC day, YYYY-MM-DD. */
+            date: string;
+            agent: string;
+            provider?: string;
+            tasks: number;
+        };
+        UsageContext: {
+            /** @description Input side of the most recent request. */
+            tokens: number;
+            model: string;
+        };
+        UsageModelSubtotal: components["schemas"]["UsageTotals"] & {
+            model: string;
+        };
+        UsageCostSourceSubtotal: components["schemas"]["UsageTotals"] & {
+            cost_source: string;
+        };
+        TaskUsage: components["schemas"]["UsageTotals"] & {
+            task_id: string;
+            context: components["schemas"]["UsageContext"];
+            model_subtotals: components["schemas"]["UsageModelSubtotal"][];
+            cost_source_subtotals: components["schemas"]["UsageCostSourceSubtotal"][];
+        };
+        TaskUsageResponse: components["schemas"]["TaskUsage"] & {
+            /** @description The model's input ceiling; 0 when unknown. */
+            context_window: number;
+        };
+        AgentLimitStatus: {
+            agent: string;
+            limit_spend_usd?: number;
+            used_spend_usd: number;
+            limit_tokens?: number;
+            used_tokens: number;
+            /** @enum {string} */
+            status: "ok" | "warn" | "over";
+            /** @description RFC3339 start of the server-local day. */
+            period_start: string;
+        };
+        SourceTreeEntry: {
+            name: string;
+            /** @enum {string} */
+            type: "blob" | "tree";
+            size?: number;
+        };
+        SourceTreeResponse: {
+            workspace_id: string;
+            generation: number;
+            /** @enum {string} */
+            view: "source";
+            path: string;
+            entries: components["schemas"]["SourceTreeEntry"][];
+            truncated?: boolean;
+        };
+        SourceFileResponse: {
+            workspace_id: string;
+            generation: number;
+            /** @enum {string} */
+            view: "source";
+            path: string;
+            size: number;
+            truncated: boolean;
+            content: string;
+        };
+        SourceFilesResponse: {
+            /** @enum {string} */
+            view: "source";
+            files: string[];
+            truncated?: boolean;
+        };
+        SourceChange: {
+            path: string;
+            old_path?: string;
+            /** @enum {string} */
+            status: "added" | "modified" | "deleted" | "renamed" | "binary";
+            additions?: number;
+            deletions?: number;
+            binary?: boolean;
+        };
+        SourceChangesResponse: {
+            workspace_id: string;
+            generation: number;
+            /** @enum {string} */
+            view: "source";
+            changes: components["schemas"]["SourceChange"][];
+            truncated?: boolean;
+        };
+        WorkspaceListEntry: {
+            name: string;
+            /** @description Path relative to the workspace root. */
+            path: string;
+            /** @enum {string} */
+            type: "dir" | "file";
+            size?: number;
+        };
+        WorkspaceListResponse: {
+            root: string;
+            path: string;
+            entries: components["schemas"]["WorkspaceListEntry"][];
+            truncated?: boolean;
+        };
+        WorkspaceFileResponse: {
+            root: string;
+            path: string;
+            /** @description Full file size, before truncation. */
+            size: number;
+            truncated: boolean;
+            content: string;
+        };
+        WorkspaceFileWriteRequest: {
+            path: string;
+            content: string;
+        };
+        WorkspaceRestoreRequest: {
+            /** @description Checkpoint event seq; 0 restores the initial state. */
+            event_seq?: number;
+        };
+        RetryRequest: {
+            /** @description Event seq to rewind to; 0 uses the last user turn. */
+            from_seq?: number;
+            /** @description Restore the workspace checkpoint when one exists. */
+            restore_files?: boolean;
+        };
+        ForkRequest: {
+            /** @description Last event seq to keep, inclusive; 0 copies the full transcript. */
+            from_seq?: number;
+            /** @description Appended as a new user message and run on the forked task. */
+            prompt?: string;
+            agent?: string;
+        };
+        LimitContinueRequest: {
+            /** @enum {string} */
+            action: "wait" | "continue" | "switch" | "dismiss";
+            /** @description Required for action=switch. */
+            agent?: string;
+            /** @description Overrides the detected reset time for action=wait, in unix seconds. */
+            reset_at?: number;
+        };
+        Upload: {
+            /** @description Stored filename, used in the URL. */
+            id: string;
+            /** @description Original client filename. */
+            name: string;
+            mime: string;
+            size: number;
+            /** @description GET path that serves the stored file. */
+            url: string;
+            /** @description Absolute on-disk path, for agents that read files by path. */
+            path: string;
+        };
+        TerminalProfile: {
+            id: string;
+            name: string;
+            executable: string;
+            default: boolean;
+        };
+        TerminalProfilesResponse: {
+            profiles: components["schemas"]["TerminalProfile"][];
+            default_profile_id: string;
+        };
+        TerminalSession: {
+            id: string;
+            profile_id: string;
+            name: string;
+            cwd: string;
+            /** @enum {string} */
+            status: "running" | "exited" | "closing";
+            exit_code?: number | null;
+            created_at: number;
+        };
+        TerminalSessionCreateRequest: {
+            profile_id: string;
+            cwd: string;
+            cols: number;
+            rows: number;
+        };
     };
     responses: never;
     parameters: {
+        ArtifactId: string;
+        ProjectId: string;
+        ProviderId: string;
+        RoutineId: string;
+        RoutineRunTaskId: string;
+        TerminalSessionId: string;
+        /** @description The stored filename returned as `id` by the upload response. */
+        UploadName: string;
+        /** @description A machine id, the literal `self`, or a paired device id. */
+        DeviceRef: string;
         TaskId: string;
         ApprovalId: string;
         PromptId: number;
@@ -2079,7 +4734,13 @@ export interface operations {
                 room?: components["parameters"]["RelayRoom"];
                 key?: components["parameters"]["RelayKey"];
             };
-            header?: never;
+            header?: {
+                /** @description Set to `1` to retry an exchange whose response was lost. Within five
+                 *     minutes of the successful exchange the daemon answers 200 with the
+                 *     same device credential instead of 401.
+                 *      */
+                "X-Kin-Pairing-Recovery"?: "1";
+            };
             path?: never;
             cookie?: never;
         };
@@ -2089,6 +4750,15 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Recovered credential for a lost response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PairingExchangeResponse"];
+                };
+            };
             /** @description Scoped device credential */
             201: {
                 headers: {
@@ -2097,6 +4767,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PairingExchangeResponse"];
                 };
+            };
+            /** @description Invalid JSON, or the secret is missing */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Expired, replayed, or invalid pairing secret */
             401: {
@@ -2114,7 +4791,7 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
                 "application/json": components["schemas"]["PairingSessionRequest"];
             };
@@ -2128,6 +4805,27 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PairingSessionResponse"];
                 };
+            };
+            /** @description Invalid JSON; an absent body is refused. Send at least `{}`. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing, invalid, or revoked credential */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authenticated, but not an operator */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -2149,6 +4847,20 @@ export interface operations {
                     "application/json": components["schemas"]["Device"][];
                 };
             };
+            /** @description Missing, invalid, or revoked credential */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authenticated, but not an operator */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     revokeDevice: {
@@ -2164,6 +4876,34 @@ export interface operations {
         responses: {
             /** @description Device revoked */
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The device id is empty */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing, invalid, or revoked credential */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authenticated, but not an operator */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Device not found or already revoked */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3147,6 +5887,13 @@ export interface operations {
                     "text/event-stream": string;
                 };
             };
+            /** @description Engine is unavailable or the event bus refuses a subscriber */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     listTasks: {
@@ -3201,6 +5948,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Task"];
                 };
+            };
+            /** @description Invalid request or the task cannot be created as asked */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -3281,6 +6035,54 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Task"];
                 };
+            };
+        };
+    };
+    deleteTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The task cannot be deleted in its current state */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing, invalid, or revoked credential */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authenticated, but not an operator */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Task not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -3472,6 +6274,7 @@ export interface operations {
     listTaskEvents: {
         parameters: {
             query?: {
+                /** @description Return events with a greater seq. Zero or absent reads from the start. */
                 since_seq?: number;
             };
             header?: never;
@@ -3490,6 +6293,20 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TaskEvent"][];
                 };
+            };
+            /** @description since_seq is not a non-negative integer */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Task not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -3565,7 +6382,8 @@ export interface operations {
     listApprovals: {
         parameters: {
             query?: {
-                status?: string;
+                /** @description Filter by the approval's decision. Omit to return every decision. The value is matched exactly against `Approval.decision`; an unrecognized value returns an empty list rather than an error. */
+                status?: "pending" | "approved" | "denied" | "expired";
             };
             header?: never;
             path?: never;
@@ -3767,6 +6585,75 @@ export interface operations {
                     };
                     "application/octet-stream": string;
                 };
+            };
+        };
+    };
+    writeWorkspaceFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+                workspaceId: components["parameters"]["WorkspaceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceFileWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description The written file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceFileResponse"];
+                };
+            };
+            /** @description Invalid JSON, missing path, or a refused write */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Path escapes the workspace scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Workspace not found for this task */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The workspace is not writable */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Workspace manager unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -4304,6 +7191,26 @@ export interface operations {
             };
         };
     };
+    getMountedAgentCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Opt-in A2A capability card */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentCard"];
+                };
+            };
+        };
+    };
     a2aCreateTask: {
         parameters: {
             query?: never;
@@ -4494,6 +7401,3201 @@ export interface operations {
                 };
             };
             /** @description No readable share for this token */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getAuthStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Account state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthStatus"];
+                };
+            };
+        };
+    };
+    bootstrapAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthEnrollRequest"];
+            };
+        };
+        responses: {
+            /** @description Owner account created and signed in */
+            200: {
+                headers: {
+                    /** @description HttpOnly `kin_session` cookie. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthSessionResponse"];
+                };
+            };
+            /** @description Invalid or expired code, or an unusable email or password */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+            /** @description Accounts are not enabled on this daemon */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many attempts from this client */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    joinAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthEnrollRequest"];
+            };
+        };
+        responses: {
+            /** @description Member account created and signed in */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthSessionResponse"];
+                };
+            };
+            /** @description Invalid or expired invitation, or an unusable email or password */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+            /** @description Accounts are not enabled on this daemon */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many attempts from this client */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    loginAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthLoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Signed in */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthSessionResponse"];
+                };
+            };
+            /** @description Invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+            /** @description Accounts are not enabled on this daemon */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many attempts from this client */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    loginWithLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthLoginLinkRequest"];
+            };
+        };
+        responses: {
+            /** @description Signed in */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthSessionResponse"];
+                };
+            };
+            /** @description The link is not valid, has expired, or was already spent */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+            /** @description Accounts are not enabled on this daemon */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many attempts from this client */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    logoutAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Signed out */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok: boolean;
+                    };
+                };
+            };
+        };
+    };
+    getAuthMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Signed-in account */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthMeResponse"];
+                };
+            };
+            /** @description No valid session cookie */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    startOIDCSignIn: {
+        parameters: {
+            query?: {
+                /** @description Same-origin path to return to after the callback. */
+                return_to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redirect to the identity provider */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No identity provider is configured */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    completeOIDCSignIn: {
+        parameters: {
+            query?: {
+                code?: string;
+                state?: string;
+                /** @description Provider-supplied error, passed through to the console. */
+                error?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redirect back into the console */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No identity provider is configured */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listAgents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Agent catalogue */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentInfo"][];
+                };
+            };
+        };
+    };
+    listAgentManagement: {
+        parameters: {
+            query?: {
+                /** @description Bypass the cache and probe again. */
+                refresh?: "1";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-agent management metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentManagementInfo"][];
+                };
+            };
+        };
+    };
+    smokeAgents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AgentSmokeRequest"];
+            };
+        };
+        responses: {
+            /** @description One result per probed agent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSmokeResponse"];
+                };
+            };
+            /** @description Smoke probing is unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listArtifacts: {
+        parameters: {
+            query?: {
+                status?: "proposed" | "saved" | "archived";
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Artifacts, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Artifact"][];
+                };
+            };
+        };
+    };
+    createArtifact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArtifactCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Created artifact */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Artifact"];
+                };
+            };
+            /** @description Invalid kind or invalid JSON */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Artifact content exceeds the server's size limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Artifacts are not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getArtifact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ArtifactId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Artifact metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Artifact"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getArtifactContent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ArtifactId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Artifact body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            /** @description Artifact or its file is missing */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Artifacts are not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    setArtifactStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ArtifactId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArtifactStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated artifact */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Artifact"];
+                };
+            };
+            /** @description Invalid status */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listGitBranches: {
+        parameters: {
+            query: {
+                cwd: string;
+                device?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Branch listing */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitBranchStatus"];
+                };
+            };
+            /** @description Missing cwd, or the directory was refused */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The named machine is offline */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine answered in a shape this Hub could not read */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine's build does not understand this question */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This Hub cannot ask machines questions, or the local workspace is unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The named machine did not answer in time */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    checkoutGitBranch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GitCheckoutRequest"];
+            };
+        };
+        responses: {
+            /** @description The directory and its current branch */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitCheckoutResponse"];
+                };
+            };
+            /** @description Invalid request, or the machine refused the question */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Moving a checkout on this daemon requires the operator */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The named machine is offline, or the local checkout has uncommitted changes */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine answered in a shape this Hub could not read */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine's build does not understand this question */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This Hub cannot ask machines questions, or the local workspace or git is unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The named machine did not answer in time */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listMachines: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Machines */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Machine"][];
+                };
+            };
+        };
+    };
+    listMachineDirs: {
+        parameters: {
+            query?: {
+                /** @description Absolute path on that machine. Empty asks for its roots. */
+                path?: string;
+            };
+            header?: never;
+            path: {
+                /** @description A machine id, the literal `self`, or a paired device id. */
+                device: components["parameters"]["DeviceRef"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One directory listing */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MachineDirs"];
+                };
+            };
+            /** @description Invalid path, or the machine refused the question */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine is offline */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine answered in a shape this Hub could not read */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine's build does not understand this question */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This Hub cannot ask machines questions */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine did not answer in time */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listMachineRepoBranches: {
+        parameters: {
+            query: {
+                repo: string;
+            };
+            header?: never;
+            path: {
+                /** @description A machine id, the literal `self`, or a paired device id. */
+                device: components["parameters"]["DeviceRef"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Repository branches */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MachineRepoBranches"];
+                };
+            };
+            /** @description Invalid repository, or the machine refused the question */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine is offline */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine answered in a shape this Hub could not read */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine's build does not understand this question */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This Hub cannot ask machines questions */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine did not answer in time */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    prepareMachineRepo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A machine id, the literal `self`, or a paired device id. */
+                device: components["parameters"]["DeviceRef"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MachineRepoPrepareRequest"];
+            };
+        };
+        responses: {
+            /** @description Where the repository is on that machine */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MachineRepoPrepareResult"];
+                };
+            };
+            /** @description Invalid repository, or the machine refused the question */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine is offline */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine answered in a shape this Hub could not read */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine's build does not understand this question */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This Hub cannot ask machines questions */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine did not answer in time */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listProjects: {
+        parameters: {
+            query?: {
+                /** @description Project status, or `all`. */
+                status?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Projects */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"][];
+                };
+            };
+            /** @description Projects are not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    createProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Created project */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            /** @description Invalid JSON, mode, or missing name and roots */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Projects are not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ensureProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectEnsureRequest"];
+            };
+        };
+        responses: {
+            /** @description The existing project */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            /** @description A project was created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            /** @description Missing path or invalid mode */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Projects are not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    findProjectByRoot: {
+        parameters: {
+            query: {
+                path: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching project and one-pager summary */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectByRoot"];
+                };
+            };
+            /** @description Missing path */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No project contains that path */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Projects are not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Project */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Projects are not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    patchProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectPatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated project */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            /** @description Invalid JSON or mode */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listProjectArtifacts: {
+        parameters: {
+            query?: {
+                status?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Artifacts linked to this project */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Artifact"][];
+                };
+            };
+            /** @description Project not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Projects are not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getOnePager: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One-pager markdown and a parsed summary */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnePager"];
+                };
+            };
+            /** @description Project or one-pager file not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Projects are not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    putOnePager: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OnePagerUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Stored markdown and the file's modification time */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnePagerUpdateResponse"];
+                };
+            };
+            /** @description Project not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The one-pager changed since `updated_at`; the body carries the current value */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Projects are not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getProjectPulse: {
+        parameters: {
+            query?: {
+                window_days?: number;
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Project pulse */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectPulse"];
+                };
+            };
+            /** @description Project not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Projects are not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    refreshProjectPulse: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ProjectPulseRefreshRequest"];
+            };
+        };
+        responses: {
+            /** @description The rebuilt pulse and the merged markdown */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectPulseRefreshResponse"];
+                };
+            };
+            /** @description Project not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Projects are not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listProjectTasks: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tasks linked to this project, or run in one of its roots */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Task"][];
+                };
+            };
+            /** @description Project not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Projects are not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Provider registry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProvidersResponse"];
+                };
+            };
+        };
+    };
+    createProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated provider registry */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProvidersResponse"];
+                };
+            };
+            /** @description Invalid JSON or provider fields */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listProviderModels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderModelsRequest"];
+            };
+        };
+        responses: {
+            /** @description Model ids */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderModelsResponse"];
+                };
+            };
+            /** @description Invalid JSON or provider fields */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The provider endpoint could not be read */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ProviderId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated provider registry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProvidersResponse"];
+                };
+            };
+            /** @description Invalid JSON or provider fields */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    deleteProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ProviderId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Updated provider registry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProvidersResponse"];
+                };
+            };
+            /** @description Missing provider id */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    activateProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ProviderId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Updated provider registry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProvidersResponse"];
+                };
+            };
+            /** @description Unknown provider id */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listRecentCwds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recent absolute paths */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+        };
+    };
+    listRoutines: {
+        parameters: {
+            query?: {
+                project_id?: string;
+                enabled?: boolean;
+                limit?: number;
+                cursor?: string;
+                /** @description Case-insensitive match on title and prompt. */
+                q?: string;
+                page?: string;
+                runs?: "1";
+                runs_limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Routine page, or a bare array for a legacy request */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutinePage"] | components["schemas"]["Routine"][];
+                };
+            };
+        };
+    };
+    createRoutine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoutineCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Created routine */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Routine"];
+                };
+            };
+            /** @description Invalid JSON or schedule */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    markAllRoutineRunsRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description How many runs were marked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutineMarkAllReadResponse"];
+                };
+            };
+        };
+    };
+    previewRoutine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoutinePreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description The next occurrence */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutinePreviewResponse"];
+                };
+            };
+            /** @description Invalid or missing recurrence, or no future occurrence */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    markRoutineRunRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskID: components["parameters"]["RoutineRunTaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The task, or an ok marker */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Task"] | {
+                        ok: string;
+                    };
+                };
+            };
+            /** @description No such routine run */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getRoutineUnreadCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unread routine runs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutineUnreadCount"];
+                };
+            };
+        };
+    };
+    getRoutine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["RoutineId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Routine */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Routine"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    deleteRoutine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["RoutineId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The routine has a dispatch in progress */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    patchRoutine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["RoutineId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoutinePatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated routine */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Routine"];
+                };
+            };
+            /** @description Invalid JSON or schedule */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    runRoutineNow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["RoutineId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The task the run started */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Task"];
+                };
+            };
+            /** @description The scheduler could not start the run */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The routine is already running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The routine scheduler is unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getRoutingDefaults: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Routing defaults */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutingDefaults"];
+                };
+            };
+        };
+    };
+    putRoutingDefaults: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoutingDefaults"];
+            };
+        };
+        responses: {
+            /** @description Stored defaults */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutingDefaults"];
+                };
+            };
+            /** @description Invalid JSON or defaults */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getRoutingOptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Routing options */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutingOptions"];
+                };
+            };
+        };
+    };
+    getRoutingPreview: {
+        parameters: {
+            query?: {
+                mode?: "auto" | "manual";
+                team?: string;
+                objective?: string;
+                agent?: string;
+                provider?: string;
+                model?: string;
+                /** @description Classified locally for the quality floor; never sent to a provider. */
+                prompt?: string;
+                routine?: "1" | "true";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resolved preview */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutingPreview"];
+                };
+            };
+            /** @description Unknown team, or an incomplete manual selection */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getRoutingProfiles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Team profiles */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutingTeamProfileList"];
+                };
+            };
+        };
+    };
+    putRoutingProfiles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoutingTeamProfileList"];
+            };
+        };
+        responses: {
+            /** @description Stored team profiles */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutingTeamProfileList"];
+                };
+            };
+            /** @description Invalid JSON or profiles */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getProviderProfiles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Provider profiles */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutingProviderProfileList"];
+                };
+            };
+        };
+    };
+    putProviderProfiles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoutingProviderProfileList"];
+            };
+        };
+        responses: {
+            /** @description Stored provider profiles */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutingProviderProfileList"];
+                };
+            };
+            /** @description Invalid JSON or profiles */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    searchTranscript: {
+        parameters: {
+            query: {
+                q: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching messages */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranscriptSearchResponse"];
+                };
+            };
+            /** @description Missing, too long, or non-printable query, or invalid limit */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Store unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The search ran out of its budget */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    forkTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ForkRequest"];
+            };
+        };
+        responses: {
+            /** @description The new task */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Task"];
+                };
+            };
+            /** @description Invalid JSON or from_seq */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Task not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No checkpoint is available for that point */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    limitContinue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["LimitContinueRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated task */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Task"];
+                };
+            };
+            /** @description Invalid action or missing agent */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Task not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The task is not in a state this action applies to */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    retryTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RetryRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated task */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Task"];
+                };
+            };
+            /** @description Invalid JSON, from_seq, or an unusable retry */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Task not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Task is not terminal, or its workspace cannot be restored */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getTaskSourceChanges: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Changes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceChangesResponse"];
+                };
+            };
+            /** @description The task has no readable checkout */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Task not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The workspace is on another machine that is offline, or its location cannot be resolved */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The task could not be read, or the machine's answer could not be decoded */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine's build does not support this query */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Workspace manager or machine channel unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine did not answer in time */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readTaskSourceFile: {
+        parameters: {
+            query: {
+                path: string;
+                raw?: "1";
+                download?: "1";
+            };
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description File text, or raw bytes for raw/download */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceFileResponse"];
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Missing path or an unreadable file */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Path escapes the workspace scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Task not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The workspace is on another machine that is offline, or its location cannot be resolved */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The task could not be read, or the machine's answer could not be decoded */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Raw preview or download requested for a remote workspace, or the machine's build does not support the query */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Workspace manager or machine channel unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine did not answer in time */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    searchTaskSourceFiles: {
+        parameters: {
+            query: {
+                q: string;
+            };
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching repository-relative paths */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceFilesResponse"];
+                };
+            };
+            /** @description Missing, too long, or non-printable query */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Task not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The workspace is on another machine that is offline, or its location cannot be resolved */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The task could not be read, or the machine's answer could not be decoded */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine's build does not support this query */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Workspace manager or machine channel unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine did not answer in time */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listTaskSourceTree: {
+        parameters: {
+            query?: {
+                /** @description Repository-relative directory; defaults to the workspace scope. */
+                path?: string;
+            };
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Directory entries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceTreeResponse"];
+                };
+            };
+            /** @description The task has no readable checkout */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Path escapes the workspace scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Task not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The workspace is on another machine that is offline, or its location cannot be resolved */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The task could not be read, or the machine's answer could not be decoded */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine's build does not support this query */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Workspace manager or machine channel unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine did not answer in time */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getTaskUsage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Task usage */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskUsageResponse"];
+                };
+            };
+            /** @description Task not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readTaskWorkspaceFile: {
+        parameters: {
+            query: {
+                path: string;
+            };
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description File text */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceFileResponse"];
+                };
+            };
+            /** @description Missing path or an unreadable file */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description File not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description File is too large to read */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    writeTaskWorkspaceFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceFileWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description The written file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceFileResponse"];
+                };
+            };
+            /** @description Invalid JSON, missing path, or a refused write */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Path escapes the workspace scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Task not found or not visible to this caller */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No active writable workspace generation, the workspace is not writable, or the task runs on another machine */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listTaskWorkspace: {
+        parameters: {
+            query?: {
+                path?: string;
+            };
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Directory listing */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceListResponse"];
+                };
+            };
+            /** @description Invalid path or not a directory */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Path not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    restoreTaskWorkspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceRestoreRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated task */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Task"];
+                };
+            };
+            /** @description Invalid JSON */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Task not found, or no checkpoint for that event */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Task is not terminal, or its files are not isolated */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listTerminalProfiles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Profiles and the default profile id */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TerminalProfilesResponse"];
+                };
+            };
+            /** @description Terminal is unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listTerminalSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sessions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TerminalSession"][];
+                };
+            };
+            /** @description Terminal is unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    createTerminalSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TerminalSessionCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Created session */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TerminalSession"];
+                };
+            };
+            /** @description Unknown profile, invalid cwd, or invalid size */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session limit reached */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Terminal is unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    deleteTerminalSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["TerminalSessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Closed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Terminal is unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    attachTerminalSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["TerminalSessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Switching Protocols */
+            101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not a WebSocket upgrade */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Origin is not loopback, or the caller is not the operator */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such terminal session */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session is already attached to another client */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Terminal is unavailable, or the session has closed */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    uploadFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Stored upload */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Upload"];
+                };
+            };
+            /** @description Missing file field */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description File exceeds 20 MiB */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The file type is not accepted */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Uploads are not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getUsageLimits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-agent limit status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentLimitStatus"][];
+                };
+            };
+        };
+    };
+    getUsageSummary: {
+        parameters: {
+            query?: {
+                /** @description Window length in days, inclusive of today. Capped at 366. */
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Usage rows */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UsageRow"][];
+                };
+            };
+            /** @description Invalid days */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    serveUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The stored filename returned as `id` by the upload response. */
+                name: components["parameters"]["UploadName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stored file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Invalid filename */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    createInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The invitation code and its expiry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: string;
+                        /** @description Expiry in unix milliseconds. */
+                        expires_at: number;
+                    };
+                };
+            };
+            /** @description Accounts are not enabled on this daemon */
             404: {
                 headers: {
                     [name: string]: unknown;

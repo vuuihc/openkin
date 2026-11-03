@@ -39,6 +39,64 @@ kin serve --relay wss://kin-relay.your-domain.workers.dev
 
 **iOS app** — a Capacitor shell that runs the Hub's own console; see [mobile/README.md](./mobile/README.md) to build it.
 
+## Run a Hub
+
+A Hub is the always-on daemon that holds your sessions, so every device signs in to the same workspace.
+
+```bash
+scripts/install-hub.sh --domain kin.example.com --email you@example.com
+```
+
+The script checks Docker, writes `.env` (never overwriting one), starts the
+stack — with the same Compose files it was started with, so an OAuth overlay
+survives a repair — and prints a one-time sign-in link as its only line of
+stdout. Open it once and you are signed in — no password to read off a terminal
+or retype. The link expires in 30 minutes; run the script again for a new one,
+which also retires the previous link.
+
+It needs Docker with Compose v2, the domain resolving to this machine, and ports
+80 and 443 reachable. The first run builds or pulls the image and takes a few
+minutes. Agents can read the whole contract with `scripts/install-hub.sh --help`.
+
+Doing it by hand is still supported:
+
+```bash
+cp .env.example .env          # set KIN_DOMAIN to a hostname that resolves here
+docker compose up -d --build  # ports 80 and 443 must reach this machine
+docker exec openkin-hub kin hub init --domain kin.example.com --email you@example.com
+```
+
+Without `--email`, `kin hub init` prints a claim link for a Hub with no owner;
+with it, the command creates the owner and prints a sign-in link. Both links
+carry their secret in the URL fragment, so it never reaches a server log, and
+both are good once: a sign-in link for 30 minutes, a claim link for 24 hours.
+Treat them like passwords until they are spent.
+An owner created this way has a random password nobody was told; open the link,
+or run `reset-password` later to set one you know (a reset also retires any
+unspent sign-in link).
+
+Sign-in is email + password by default. To add GitHub and Google, create the two
+OAuth apps described in `.env.example`, then layer the overlay:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.oauth.yml up -d
+```
+
+On an already-claimed Hub, sign in with the password once and link the provider
+under **Settings → Account**; after that either method works.
+
+Recovery also runs inside the container, so it does not depend on the compose
+file name or the current directory:
+
+```bash
+docker exec openkin-hub kin hub accounts
+docker exec openkin-hub kin hub login-link --email you@example.com --domain kin.example.com
+docker exec openkin-hub kin hub reset-password --email you@example.com
+```
+
+`login-link` prints a one-time URL and leaves the password alone; `reset-password`
+prints a new password and signs every session out.
+
 ## Docs
 
 | Doc | What it is |

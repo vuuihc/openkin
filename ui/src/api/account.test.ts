@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * place.
  */
 const win = {
-  location: { search: "", href: "https://kin.example.com/" },
+  location: { search: "", hash: "", href: "https://kin.example.com/" },
   history: { replaceState: vi.fn() },
 };
 vi.stubGlobal("window", win);
@@ -24,15 +24,33 @@ const push = vi.hoisted(() => ({
 }));
 vi.mock("../lib/nativePush", () => push);
 
-const { applyVisitGate, signOut } = await import("./account");
+// The network layer is replaced, not stubbed: these cases assert the request
+// the console sends to the Hub, which is the contract a server change would
+// break.
+vi.mock("./client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./client")>();
+  return { ...actual, apiFetch: vi.fn() };
+});
+
+const {
+  applyVisitGate,
+  clearAuthErrorFromURL,
+  cleanVisitCredentials,
+  signInWithLink,
+  signOut,
+} = await import("./account");
+const { apiFetch, ApiError } = await import("./client");
 const { NO_ACCOUNT, useAppStore } = await import("../store/appStore");
 
 const INVITE = "?invite=HZ9EW-V3DPK-4MNQB-7RTXS";
+const CLAIM_IN_QUERY = "?claim=abcde23456";
+const CLAIM_IN_FRAGMENT = "#claim=abcde23456";
 
-/** Set both halves of the address bar the way a real navigation would. */
-function visit(search: string): void {
+/** Set every half of the address bar the way a real navigation would. */
+function visit(search: string, hash = ""): void {
   win.location.search = search;
-  win.location.href = `https://kin.example.com/${search}`;
+  win.location.hash = hash;
+  win.location.href = `https://kin.example.com/${search}${hash}`;
 }
 
 /** The URL `history.replaceState` was last asked to install, or null. */
@@ -119,6 +137,10 @@ describe("applyVisitGate", () => {
       ...useAppStore.getState().account,
       authenticated: true,
     });
+    // A dead one-time link trips the API layer's global 401 gate; an
+    // authenticated visitor has to come back out of it, not sit on a sign-in
+    // screen until App's mount effect runs.
+    useAppStore.getState().requireAccount("login");
     visit(INVITE);
 
     applyVisitGate();
@@ -155,6 +177,46 @@ describe("applyVisitGate", () => {
     expect(win.history.replaceState).not.toHaveBeenCalled();
   });
 
+  it("takes a claim code out of a signed-in visitor's fragment", () => {
+    // Current claim links carry the code in the fragment, where only the console
+    // sees it. Once the visitor turns out to be signed in it has no use, and
+    // history would keep it.
+    hub({ needsBootstrap: false });
+    useAppStore.getState().setAccount({
+      ...useAppStore.getState().account,
+      authenticated: true,
+    });
+    visit("", CLAIM_IN_FRAGMENT);
+
+    applyVisitGate();
+
+    expect(replacedURL()).toBe("https://kin.example.com/");
+  });
+
+  it("takes a claim code out of a signed-in visitor's query string too", () => {
+    // Links printed by older versions still carry `?claim=`.
+    hub({ needsBootstrap: false });
+    useAppStore.getState().setAccount({
+      ...useAppStore.getState().account,
+      authenticated: true,
+    });
+    visit(CLAIM_IN_QUERY);
+
+    applyVisitGate();
+
+    expect(replacedURL()).toBe("https://kin.example.com/");
+  });
+
+  it("leaves the claim code for the visitor who has to spend it", () => {
+    hub({ needsBootstrap: true });
+    visit("", CLAIM_IN_FRAGMENT);
+
+    applyVisitGate();
+
+    expect(gate()).toBe("claim");
+    expect(win.history.replaceState).not.toHaveBeenCalled();
+  });
+
   it("does not touch the URL of a signed-in visitor who has no invitation", () => {
     hub({ needsBootstrap: false });
     useAppStore.getState().setAccount({
@@ -187,6 +249,8 @@ describe("signOut", () => {
   // KIN-NOTIFY-001: signing out stops this phone before the session ends.
   beforeEach(() => {
     push.disableNativePushOnSignOut.mockClear();
+    vi.mocked(apiFetch).mockReset();
+    vi.mocked(apiFetch).mockResolvedValue(undefined);
     useAppStore.getState().setAuthOk();
     useAppStore.getState().setAccount(NO_ACCOUNT);
   });
@@ -233,13 +297,14 @@ describe("signOut", () => {
   it("still ends the session when this phone's cleanup fails", async () => {
     // Leaving is the point. The node deletes session-bound rows on logout, so
     // a broken local unregister must not strand the person on the old account.
-    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
-    vi.stubGlobal("fetch", fetchMock);
     push.disableNativePushOnSignOut.mockRejectedValueOnce(new Error("boom"));
 
     await signOut();
 
-    expect(fetchMock).toHaveBeenCalled();
+    expect(apiFetch).toHaveBeenCalledWith(
+      "/api/auth/logout",
+      expect.objectContaining({ method: "POST" }),
+    );
     expect(useAppStore.getState().account.authenticated).toBe(false);
   });
 
@@ -250,17 +315,98 @@ describe("signOut", () => {
     push.disableNativePushOnSignOut.mockImplementation(async () => {
       order.push("push");
     });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        order.push("logout");
-        return new Response(null, { status: 204 });
-      }),
-    );
+    vi.mocked(apiFetch).mockImplementation(async () => {
+      order.push("logout");
+    });
 
     await signOut();
 
     expect(order).toEqual(["push", "logout"]);
     expect(useAppStore.getState().account.authenticated).toBe(false);
+  });
+});
+
+describe("cleanVisitCredentials", () => {
+  beforeEach(() => {
+    useAppStore.getState().setAuthOk();
+    useAppStore.getState().setAccount(NO_ACCOUNT);
+    visit("");
+    win.history.replaceState.mockClear();
+  });
+
+  it("cleans the URL of a device-token visitor, who never reaches the gate", () => {
+    // main.tsx calls this when a device token is present instead of
+    // applyVisitGate. The token visitor also must not keep a live invitation or
+    // claim code in the address bar.
+    visit(`?invite=HZ9EW-V3DPK-4MNQB-7RTXS&claim=abcde23456`, CLAIM_IN_FRAGMENT);
+
+    cleanVisitCredentials();
+
+    expect(replacedURL()).toBe("https://kin.example.com/");
+  });
+
+  it("does nothing when there is no credential to remove", () => {
+    visit("?room=r1", "#section");
+
+    cleanVisitCredentials();
+
+    expect(win.history.replaceState).not.toHaveBeenCalled();
+  });
+});
+
+describe("signInWithLink", () => {
+  beforeEach(() => {
+    vi.mocked(apiFetch).mockReset();
+  });
+
+  it("posts the token to the one-time link route", async () => {
+    vi.mocked(apiFetch).mockResolvedValue(undefined);
+    const token = "ab".repeat(32);
+
+    await signInWithLink(token);
+
+    expect(apiFetch).toHaveBeenCalledWith("/api/auth/login-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+  });
+
+  it("keeps the server's stable code for the login screen", async () => {
+    // The screen translates by code; losing it would fall back to whatever
+    // English sentence the server happened to send.
+    vi.mocked(apiFetch).mockRejectedValue(
+      new ApiError(401, "this link is gone", { code: "login_link_invalid" }),
+    );
+
+    await expect(signInWithLink("ab".repeat(32))).rejects.toMatchObject({
+      code: "login_link_invalid",
+    });
+  });
+});
+
+describe("clearAuthErrorFromURL", () => {
+  beforeEach(() => {
+    visit("");
+    win.history.replaceState.mockClear();
+  });
+
+  it("removes a link failure a signed-in visitor will never be shown", () => {
+    // main.tsx reports a dead sign-in link through the same parameters an OIDC
+    // callback uses. With a device token the account screen never renders, so
+    // leaving them behind would show a stale failure after the next reload.
+    visit("?auth_error_code=login_link_invalid&auth_error=This+link+is+dead&room=r1");
+
+    clearAuthErrorFromURL();
+
+    expect(replacedURL()).toBe("https://kin.example.com/?room=r1");
+  });
+
+  it("does nothing when no failure was reported", () => {
+    visit("?room=r1", "#section");
+
+    clearAuthErrorFromURL();
+
+    expect(win.history.replaceState).not.toHaveBeenCalled();
   });
 });

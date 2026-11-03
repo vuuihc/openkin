@@ -25,6 +25,12 @@ const (
 	// someone who may not open it until the weekend.
 	DefaultInviteTTL = 7 * 24 * time.Hour
 
+	// DefaultLoginLinkTTL is minutes, not days, because of how the link travels:
+	// an agent prints it into a chat transcript and a terminal scrollback, both
+	// of which keep it long after it is spent. Half an hour is enough for "read
+	// the link, open it", and a new one costs one command.
+	DefaultLoginLinkTTL = 30 * time.Minute
+
 	// minPasswordLen is a floor, not a policy. The Hub is single-owner and
 	// reachable from the internet, so a trivially short password is worth
 	// rejecting outright; beyond that, length is the user's call.
@@ -46,11 +52,20 @@ const (
 	inviteGroupLen = 5
 )
 
-// ErrRegistrationClosed is returned when an unknown federated identity tries to
-// sign in on an already-claimed Hub. New accounts are never created implicitly:
-// the first owner is established by the terminal bootstrap code, and any later
-// identity must be linked from an authenticated session.
+// ErrRegistrationClosed is returned when a bootstrap path is used on a Hub that
+// already has an owner. New accounts are never created implicitly: the first
+// owner is established by the terminal bootstrap code, and any later identity
+// must be linked from an authenticated session.
 var ErrRegistrationClosed = errors.New("auth: this hub already has an owner")
+
+// ErrIdentityNotLinked means the provider authenticated somebody, but that
+// identity is not attached to any account here. It is separate from
+// ErrRegistrationClosed because the remedy is different and the provider
+// callback is the only place that knows the difference: registration is not
+// being attempted, a link is missing. Telling this person the Hub "already has
+// an owner" hides the one action that fixes it (sign in with the password, then
+// link the provider in Settings).
+var ErrIdentityNotLinked = errors.New("auth: this sign-in is not linked to an account on this hub")
 
 // ErrBootstrapUnavailable means the supplied claim code is unknown, expired, or
 // already spent. The three cases are intentionally indistinguishable.
@@ -81,6 +96,17 @@ var ErrEmailTaken = errors.New("auth: that email already has an account here")
 // reset command runs on the Hub host, where saying so is safe and useful: the
 // operator is the only audience, and a typo is the likely cause.
 var ErrAccountNotFound = errors.New("auth: no password account with that email")
+
+// ErrLoginLinkUnavailable means the supplied sign-in link is unknown, expired,
+// already spent, or belongs to a disabled account. The cases are intentionally
+// indistinguishable, exactly as they are for claim codes and invitations: the
+// endpoint that spends it is unauthenticated.
+var ErrLoginLinkUnavailable = errors.New("auth: this sign-in link is not valid")
+
+// ErrAccountDisabled means a link was requested for an account that has been
+// switched off. Only the operator's CLI can ask, so saying so is safe and
+// names the real reason instead of sending them looking for a typo.
+var ErrAccountDisabled = errors.New("auth: that account is disabled")
 
 // ExternalIdentity is a verified assertion from an OIDC provider. Subject is
 // the provider's stable user id and the only field used for matching; Email is
@@ -113,6 +139,7 @@ type Config struct {
 	SessionTTL   time.Duration
 	BootstrapTTL time.Duration
 	InviteTTL    time.Duration
+	LoginLinkTTL time.Duration
 	Now          func() time.Time
 }
 
@@ -132,6 +159,9 @@ func New(st *store.Store, cfg Config) *Service {
 	}
 	if cfg.InviteTTL <= 0 {
 		cfg.InviteTTL = DefaultInviteTTL
+	}
+	if cfg.LoginLinkTTL <= 0 {
+		cfg.LoginLinkTTL = DefaultLoginLinkTTL
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
@@ -464,7 +494,7 @@ func (s *Service) LoginPassword(ctx context.Context, email, password string, met
 }
 
 // ResetPassword replaces the password credential of an existing account and
-// ends every browser session that account holds.
+// ends every browser session and unspent sign-in link that account holds.
 //
 // This is the recovery path ADR 0022 promised: a command on the Hub host, not an
 // emailed link, because a self-hosted Hub has no mail path to send one through.
@@ -489,16 +519,86 @@ func (s *Service) ResetPassword(ctx context.Context, email, password string) (st
 	if err != nil {
 		return store.User{}, err
 	}
-	// One transaction: the new hash and the end of the old sessions land
-	// together, so the password the CLI is about to print is the only one that
-	// works once it is printed.
-	if err := s.store.ReplacePasswordAndEndSessions(ctx, identity.ID, user.ID, hash); err != nil {
+	// One transaction: the new hash, the end of the old sessions, and the
+	// retirement of unspent sign-in links land together, so the password the CLI
+	// is about to print is the only credential that works once it is printed.
+	if err := s.store.ReplacePasswordAndEndSessions(ctx, identity.ID, user.ID, hash, s.now().UnixMilli()); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return store.User{}, ErrAccountNotFound
 		}
 		return store.User{}, err
 	}
 	return user, nil
+}
+
+// LoginLink is a freshly minted one-time sign-in link. Token is the only time
+// the raw secret exists in memory; storage keeps its hash. ExpiresAt travels
+// with it so the lifetime an operator is shown is the one that was written.
+type LoginLink struct {
+	Token     string
+	ExpiresAt time.Time
+}
+
+// IssueLoginLink mints a one-time sign-in link for an account. The caller has
+// already established which account -- this method deliberately takes a user id,
+// not an address, because matching an email is an operator decision (the CLI's,
+// where it can explain an ambiguity) and never an authentication path.
+//
+// Issuing a new link retires the account's older ones; see Store.IssueLoginToken.
+func (s *Service) IssueLoginLink(ctx context.Context, userID string) (LoginLink, error) {
+	user, err := s.store.GetUser(ctx, userID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return LoginLink{}, ErrAccountNotFound
+		}
+		return LoginLink{}, err
+	}
+	if user.DisabledAt != nil {
+		return LoginLink{}, ErrAccountDisabled
+	}
+	token, err := NewToken()
+	if err != nil {
+		return LoginLink{}, err
+	}
+	now := s.now()
+	expiresAt := now.Add(s.cfg.LoginLinkTTL)
+	if err := s.store.IssueLoginToken(ctx, HashToken(token), userID,
+		now.UnixMilli(), expiresAt.UnixMilli()); err != nil {
+		return LoginLink{}, err
+	}
+	return LoginLink{Token: token, ExpiresAt: expiresAt}, nil
+}
+
+// ConsumeLoginLink spends a one-time sign-in link and opens a session.
+//
+// The token is lowercased before hashing because it is hex: a chat client or a
+// person retyping it may change the case, and the token carries no other
+// formatting that could be normalized away. A link that is expired, spent, or
+// attached to a disabled account answers the same error, so the unauthenticated
+// endpoint that calls this cannot be used to probe account state.
+func (s *Service) ConsumeLoginLink(ctx context.Context, token string, meta SessionMeta) (Session, error) {
+	token = strings.ToLower(strings.TrimSpace(token))
+	if token == "" {
+		return Session{}, ErrLoginLinkUnavailable
+	}
+	userID, err := s.store.ConsumeLoginToken(ctx, HashToken(token), s.now().UnixMilli())
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return Session{}, ErrLoginLinkUnavailable
+		}
+		return Session{}, err
+	}
+	user, err := s.store.GetUser(ctx, userID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return Session{}, ErrLoginLinkUnavailable
+		}
+		return Session{}, err
+	}
+	if user.DisabledAt != nil {
+		return Session{}, ErrLoginLinkUnavailable
+	}
+	return s.openSession(ctx, user, meta)
 }
 
 // LoginIdentity resolves a federated login to its account. An unknown identity
@@ -511,7 +611,7 @@ func (s *Service) LoginIdentity(ctx context.Context, ident ExternalIdentity, met
 	user, identity, err := s.store.UserByIdentity(ctx, ident.Provider, ident.Subject)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return Session{}, ErrRegistrationClosed
+			return Session{}, ErrIdentityNotLinked
 		}
 		return Session{}, err
 	}

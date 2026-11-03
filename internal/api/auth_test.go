@@ -274,6 +274,141 @@ func TestLoginAndLogout(t *testing.T) {
 	})
 }
 
+// A sign-in link is spent through the same route the console posts to after
+// reading it out of the URL fragment. The cookie it returns has to work on its
+// own, and the link has to be dead on the second try.
+func TestLoginLinkSpendsALinkAndOpensOneSession(t *testing.T) {
+	s, master, code := newAuthTestServer(t)
+	h := s.Handler()
+	owner := &authClient{t: t, h: h, master: master}
+	if rec := owner.post("/api/auth/bootstrap", `{"code":"`+code+`","email":"owner@example.com","password":"hunter2hunter2"}`); rec.Code != http.StatusOK {
+		t.Fatalf("claim: %d %s", rec.Code, rec.Body.String())
+	}
+	user, _, err := s.Store.UserByIdentity(context.Background(), store.ProviderPassword, "owner@example.com")
+	if err != nil {
+		t.Fatalf("read owner: %v", err)
+	}
+	link, err := s.Accounts.IssueLoginLink(context.Background(), user.ID)
+	if err != nil {
+		t.Fatalf("issue login link: %v", err)
+	}
+
+	client := &authClient{t: t, h: h, master: master}
+	rec := client.post("/api/auth/login-link", `{"token":"`+link.Token+`"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("spend login link: %d %s", rec.Code, rec.Body.String())
+	}
+	if client.cookie == nil {
+		t.Fatal("a valid sign-in link issued no session cookie")
+	}
+	if me := client.get("/api/auth/me"); me.Code != http.StatusOK {
+		t.Fatalf("cookie from a sign-in link: %d %s", me.Code, me.Body.String())
+	}
+
+	reuse := client.post("/api/auth/login-link", `{"token":"`+link.Token+`"}`)
+	if reuse.Code != http.StatusUnauthorized {
+		t.Fatalf("reused link: %d %s", reuse.Code, reuse.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(reuse.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode rejection: %v", err)
+	}
+	if body["code"] != "login_link_invalid" {
+		t.Fatalf("reused link code = %q, want login_link_invalid", body["code"])
+	}
+	if client.cookie == nil {
+		t.Fatal("a rejected link cleared the session cookie the first spend issued")
+	}
+}
+
+func TestLoginLinkRejectsUnknownTokensTheSameWay(t *testing.T) {
+	s, master, code := newAuthTestServer(t)
+	h := s.Handler()
+	owner := &authClient{t: t, h: h, master: master}
+	if rec := owner.post("/api/auth/bootstrap", `{"code":"`+code+`","email":"owner@example.com","password":"hunter2hunter2"}`); rec.Code != http.StatusOK {
+		t.Fatalf("claim: %d %s", rec.Code, rec.Body.String())
+	}
+
+	client := &authClient{t: t, h: h, master: master}
+	rec := client.post("/api/auth/login-link", `{"token":"`+strings.Repeat("0", 64)+`"}`)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unknown link: %d %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode rejection: %v", err)
+	}
+	if body["code"] != "login_link_invalid" {
+		t.Fatalf("unknown link code = %q, want login_link_invalid", body["code"])
+	}
+	if client.cookie != nil {
+		t.Fatal("an unknown link issued a session")
+	}
+}
+
+// The console posts JSON. A malformed body is the console's bug, not a dead
+// link, and either way it must not leave a session behind.
+func TestLoginLinkRejectsAMalformedBodyWithoutASession(t *testing.T) {
+	s, master, _ := newAuthTestServer(t)
+	client := &authClient{t: t, h: s.Handler(), master: master}
+
+	rec := client.post("/api/auth/login-link", "{not json")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("malformed body: %d %s", rec.Code, rec.Body.String())
+	}
+	if client.cookie != nil {
+		t.Fatal("a malformed body issued a session")
+	}
+}
+
+// A standalone daemon has no account system, so it has no sign-in links. 404
+// says that; 401 would make a missing feature look like a rejected credential.
+func TestLoginLinkIsNotOfferedByADaemonWithoutAccounts(t *testing.T) {
+	s, master := newTestServer(t)
+	client := &authClient{t: t, h: s.Handler(), master: master}
+
+	rec := client.post("/api/auth/login-link", `{"token":"`+strings.Repeat("0", 64)+`"}`)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("login-link on an accountless daemon: %d %s", rec.Code, rec.Body.String())
+	}
+	if client.cookie != nil {
+		t.Fatal("an accountless daemon issued a session")
+	}
+}
+
+// A 64-character token is guessable only by brute force, so this route shares
+// the per-IP failure window that protects password login.
+func TestLoginLinkTripsTheAuthAttemptLimit(t *testing.T) {
+	s, master, code := newAuthTestServer(t)
+	h := s.Handler()
+	owner := &authClient{t: t, h: h, master: master}
+	if rec := owner.post("/api/auth/bootstrap", `{"code":"`+code+`","email":"owner@example.com","password":"hunter2hunter2"}`); rec.Code != http.StatusOK {
+		t.Fatalf("claim: %d %s", rec.Code, rec.Body.String())
+	}
+
+	client := &authClient{t: t, h: h, master: master}
+	unknown := `{"token":"` + strings.Repeat("0", 64) + `"}`
+	for i := 0; i < 20; i++ {
+		if rec := client.post("/api/auth/login-link", unknown); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: %d %s", i+1, rec.Code, rec.Body.String())
+		}
+	}
+	rec := client.post("/api/auth/login-link", unknown)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("attempt 21: %d %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode rate-limit body: %v", err)
+	}
+	if body["code"] != "rate_limited" {
+		t.Fatalf("rate-limit code = %q, want rate_limited", body["code"])
+	}
+	if client.cookie != nil {
+		t.Fatal("a rate-limited attempt issued a session")
+	}
+}
+
 func TestAuthMeRejectsAnonymous(t *testing.T) {
 	s, master, _ := newAuthTestServer(t)
 	client := &authClient{t: t, h: s.Handler(), master: master}
@@ -972,7 +1107,9 @@ func TestEveryAuthErrorHasItsOwnCodeAndMessage(t *testing.T) {
 		{auth.ErrInvalidCredentials, "invalid_credentials"},
 		{auth.ErrBootstrapUnavailable, "claim_code_invalid"},
 		{auth.ErrInviteUnavailable, "invite_invalid"},
+		{auth.ErrLoginLinkUnavailable, "login_link_invalid"},
 		{auth.ErrRegistrationClosed, "registration_closed"},
+		{auth.ErrIdentityNotLinked, "identity_not_linked"},
 		{auth.ErrWeakPassword, "weak_password"},
 		{auth.ErrIdentityTaken, "identity_taken"},
 		{auth.ErrEmailTaken, "email_taken"},

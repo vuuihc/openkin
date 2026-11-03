@@ -1004,7 +1004,7 @@ func ServeWith(version string, flags ServeFlags) error {
 	}
 
 	if accounts != nil {
-		printBootstrapState(context.Background(), accounts)
+		printBootstrapState(context.Background(), accounts, flags.Domain)
 	}
 
 	// Print the browser link and the one-time pairing link separately.

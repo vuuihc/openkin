@@ -1156,6 +1156,14 @@ const en: MessageTree = {
       blurb: "The account this Hub signs you in with. Signing out requires signing in again.",
       unknownUser: "Signed in",
       deviceCountNote: "Every device connected to this Hub shares this one account.",
+      methods: "Sign-in methods",
+      methodsHint:
+        "Any of these signs you in. Linking a provider lets you skip the password.",
+      methodPassword: "Password",
+      methodOther: "Another sign-in",
+      linkProvider: "Link {provider}",
+      linkAnotherProvider: "Link another sign-in",
+      linked: "Sign-in method linked.",
       signOut: "Sign out",
       signingOut: "Signing out…",
     },
@@ -1494,7 +1502,7 @@ const en: MessageTree = {
   account: {
     claimTitle: "Claim this Hub",
     claimBlurb:
-      "This Hub has no owner yet. Enter the claim code printed in the server logs, then choose the email and password you will sign in with.",
+      "This Hub has no owner yet. Paste the claim code your agent gave you, or open the claim link directly, then choose the email and password you will sign in with.",
     loginTitle: "Sign in to Kin",
     loginBlurb: "Sign in to reach this Hub and the devices connected to it.",
     joinTitle: "Join this Hub",
@@ -1519,24 +1527,27 @@ const en: MessageTree = {
     working: "Working…",
     orDivider: "or",
     continueWith: "Continue with {provider}",
-    whereTitle: "Where to find the claim code",
+    whereTitle: "Where does the code come from?",
     whereBody:
-      "The Hub prints it on first start. It is valid for 24 hours and can be used once. Run this on the Hub host to print a new one:",
-    claimCommand: "kin hub claim-code",
+      "Ask the agent that installed this Hub for a claim link. Opening it fills the code in for you; you only choose the email and password.",
+    claimLinkBody:
+      "Your claim code came from the link you followed. Choose the email and password this Hub's owner will sign in with.",
     codeExpired:
-      "There is no active claim code right now. Run kin hub claim-code on the server to print a new one.",
+      "There is no active claim code right now. Ask the agent that runs this Hub to issue a new claim link.",
     loginWhereTitle: "What account is this?",
     loginWhereBody:
-      "The one created for you on this Hub — when it was claimed, or when you accepted an invitation. There is no default account.",
+      "The one created on this Hub — when it was set up, or when you accepted an invitation. There is no default account.",
     forgotTitle: "Forgot the password?",
     forgotBody:
-      "On the Hub host, run this for the address you sign in with. It prints a new password (container deployment: prefix it with docker compose exec kin):",
-    forgotCommand: "kin hub reset-password --email you@example.com",
+      "Ask the agent that runs this Hub for a one-time sign-in link. Opening it signs you in without a password.",
     errors: {
       invalid_credentials: "Email or password is incorrect.",
       claim_code_invalid: "That claim code is not valid or has expired.",
       invite_invalid: "That invitation is not valid or has expired.",
+      login_link_invalid: "This sign-in link is not valid or has expired. Ask your agent for a new one.",
       registration_closed: "This Hub already has an owner. Sign in instead.",
+      identity_not_linked:
+        "This sign-in isn't linked to an account here yet. Sign in with your password, then link it under Settings → Account.",
       weak_password: "That password is too weak. Use at least 8 characters.",
       identity_taken: "That login is already linked to another account.",
       email_taken: "That email already has an account here. Sign in instead.",

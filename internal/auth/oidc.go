@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -41,12 +43,17 @@ type OIDCConfig struct {
 	Scopes       []string
 	// DisplayName is shown on the login button. Falls back to the issuer host.
 	DisplayName string
-	// BackchannelAddr, when set, is a host:port that replaces the issuer host
-	// for outbound token and discovery requests. This exists because a Hub in a
-	// container usually cannot resolve its own public hostname back to itself:
-	// OIDC requires the issuer string to match, but the network path may not.
-	// TLS verification still uses the issuer hostname, so this cannot be used
-	// to redirect a flow to a different certificate.
+	// BackchannelAddr, when set, is a host:port that outbound discovery and
+	// token requests are sent to over plain HTTP instead of the public issuer
+	// URL. This exists because a Hub in a container usually cannot resolve its
+	// own public hostname back to itself: OIDC requires the issuer string to
+	// match, but the network path may not.
+	//
+	// The hop is unencrypted by design — a sidecar provider on the Compose
+	// network serves HTTP on an internal port while the public issuer is HTTPS.
+	// The client secret and authorization codes cross it, so it must only name
+	// an address on a network the operator trusts (the Compose bridge, not a
+	// public host).
 	BackchannelAddr string
 }
 
@@ -72,6 +79,25 @@ func (c OIDCConfig) validate() error {
 	}
 	if strings.TrimSpace(c.RedirectURL) == "" {
 		return fmt.Errorf("auth: oidc redirect url is required")
+	}
+	// The backchannel address is a dial target, not a URL. A scheme or a path
+	// here produces an opaque request error during discovery, which reads as a
+	// provider outage; reject the shape while the operator can still see the
+	// value they typed.
+	if addr := strings.TrimSpace(c.BackchannelAddr); addr != "" {
+		if strings.Contains(addr, "://") || strings.ContainsAny(addr, "/?#") {
+			return fmt.Errorf("auth: oidc backchannel address must be host:port, got %q", addr)
+		}
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil || host == "" {
+			return fmt.Errorf("auth: oidc backchannel address must be host:port, got %q", addr)
+		}
+		// A service name would depend on the container's /etc/services; the
+		// address is a dial target the operator writes, so require the number
+		// they will also see in the Compose file.
+		if _, err := strconv.Atoi(port); err != nil {
+			return fmt.Errorf("auth: oidc backchannel address must be host:port, got %q", addr)
+		}
 	}
 	return nil
 }
@@ -247,39 +273,48 @@ func (p *OIDCProvider) pruneLocked(now time.Time) {
 func (r pendingAuth) ReturnTo() string   { return r.returnTo }
 func (r pendingAuth) BindUserID() string { return r.bindUserID }
 
-// backchannelClient returns an HTTP client that dials addr whenever the request
-// targets issuerHost. TLS ServerName and certificate verification still use
-// issuerHost, so this only changes the network path, not who we trust.
+// backchannelClient returns an HTTP client that sends every request for the
+// issuer's origin to addr over plain HTTP.
+//
+// A sidecar provider on the Compose network serves HTTP on an internal port
+// while the public issuer is HTTPS. Discovery and token requests are built from
+// the issuer string, so the URL has to stay public for the protocol's own
+// checks; rewriting the scheme and host is what lets one URL be true for the
+// browser and reachable for Kin.
 func backchannelClient(issuer, addr string) *http.Client {
-	issuerHost := hostOf(issuer)
+	issuerURL, err := url.Parse(strings.TrimSpace(issuer))
+	if err != nil || issuerURL.Host == "" {
+		return &http.Client{Timeout: 30 * time.Second}
+	}
 	return &http.Client{
 		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
-				if issuerHost != "" && strings.EqualFold(hostOf(address), issuerHost) {
-					address = addr
-				}
-				var dialer net.Dialer
-				return dialer.DialContext(ctx, network, address)
-			},
-			ForceAttemptHTTP2: true,
+		Transport: &backchannelTransport{
+			issuerHost: issuerURL.Host,
+			addr:       strings.TrimSpace(addr),
+			base:       &http.Transport{ForceAttemptHTTP2: true},
 		},
 	}
 }
 
-func hostOf(rawURL string) string {
-	trimmed := rawURL
-	if i := strings.Index(trimmed, "://"); i >= 0 {
-		trimmed = trimmed[i+3:]
+// backchannelTransport rewrites requests addressed to the public issuer origin
+// onto the private plain-HTTP address, leaving every other host alone.
+type backchannelTransport struct {
+	issuerHost string
+	addr       string
+	base       http.RoundTripper
+}
+
+func (t *backchannelTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if !strings.EqualFold(req.URL.Host, t.issuerHost) {
+		return t.base.RoundTrip(req)
 	}
-	if i := strings.IndexAny(trimmed, "/?#"); i >= 0 {
-		trimmed = trimmed[:i]
-	}
-	host, _, err := net.SplitHostPort(trimmed)
-	if err != nil {
-		return trimmed
-	}
-	return host
+	out := req.Clone(req.Context())
+	out.URL.Scheme = "http"
+	out.URL.Host = t.addr
+	// The provider builds absolute URLs — its own issuer, its callback paths —
+	// from the Host it sees. Those must be the public ones, not dex:5556.
+	out.Host = t.issuerHost
+	return t.base.RoundTrip(out)
 }
 
 func randomURLSafe(n int) (string, error) {

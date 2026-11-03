@@ -1,13 +1,27 @@
 # Kin Hub — the authoritative multi-device daemon.
 #
-#   1. cp .env.example .env    and set KIN_DOMAIN
-#   2. docker compose up -d --build
-#   3. docker compose logs kin        (find the claim code)
-#   4. Open https://<KIN_DOMAIN> and enter it
+#   1. scripts/install-hub.sh --domain kin.example.com --email you@example.com
 #
-# Sign in with email and password. To add GitHub as well, layer the second file:
+# The installer writes .env, starts this stack, waits for it to become healthy,
+# and prints a one-time sign-in link as its only stdout line. Doing it by hand:
 #
-#   docker compose -f docker-compose.yml -f docker-compose.github.yml up -d
+#   cp .env.example .env    and set KIN_DOMAIN
+#   docker compose up -d --build
+#   docker exec openkin-hub kin hub init --domain kin.example.com --email you@example.com
+#
+# Without --email, `kin hub init` prints a claim link instead.
+#
+# Sign in with email and password. To add GitHub and Google as well, layer the
+# second file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.oauth.yml up -d
+#
+# Operator commands run inside the container, so they do not depend on the
+# compose file name or the current directory:
+#
+#   docker exec openkin-hub kin hub accounts
+#   docker exec openkin-hub kin hub login-link --email you@example.com
+#   docker exec openkin-hub kin hub reset-password --email you@example.com
 #
 # Requirements: the domain must resolve to this host and ports 80 and 443 must
 # be forwarded to it. Let's Encrypt issues the certificate on first request.
@@ -16,6 +30,9 @@ name: openkin
 
 services:
   kin:
+    # A fixed name is what makes the recovery commands in the header work from
+    # any shell. Scaling a Hub is not a thing; one owner, one writer.
+    container_name: openkin-hub
     image: ghcr.io/vuuihc/openkin:latest
     build:
       context: .
@@ -30,7 +47,11 @@ services:
       - "443:443"
     environment:
       KIN_STATE_DIR: /data
-      # Empty unless docker-compose.github.yml is layered on top.
+      # The same hostname the command below receives. `kin hub init` and
+      # `login-link` read it so an exec'd command can print a working link
+      # without the caller repeating --domain.
+      KIN_DOMAIN: ${KIN_DOMAIN:?set KIN_DOMAIN in .env}
+      # Empty unless docker-compose.oauth.yml is layered on top.
       KIN_OIDC_ISSUER: ${KIN_OIDC_ISSUER:-}
       KIN_OIDC_CLIENT_ID: ${KIN_OIDC_CLIENT_ID:-}
       KIN_OIDC_CLIENT_SECRET: ${KIN_OIDC_CLIENT_SECRET:-}
@@ -44,9 +65,11 @@ services:
     volumes:
       - kin-data:/data
     healthcheck:
-      # Checks the daemon is up from inside the container, without going back
-      # out through TLS.
-      test: ["CMD", "kin", "version"]
+      # Asks the daemon's own HTTP endpoint from inside the container. `kin
+      # version` only proves the binary starts, which would call a Hub that
+      # cannot answer a browser healthy and let an installer hand out a link to
+      # a dead page.
+      test: ["CMD", "kin", "health"]
       interval: 30s
       timeout: 5s
       retries: 3

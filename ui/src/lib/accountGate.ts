@@ -21,7 +21,9 @@ export const AUTH_ERROR_CODES = [
   "invalid_credentials",
   "claim_code_invalid",
   "invite_invalid",
+  "login_link_invalid",
   "registration_closed",
+  "identity_not_linked",
   "weak_password",
   "identity_taken",
   "email_taken",
@@ -172,20 +174,53 @@ export function inviteFromQuery(search: string): string {
 }
 
 /**
+ * The claim code a visitor arrived with, normalized, or "" when the URL carries
+ * none.
+ *
+ * This is the link `kin hub init` (and `kin hub claim-code --domain`) prints
+ * for an unowned Hub: the agent hands over one URL, and the person lands on the
+ * claim screen with the ten-character code already in the field. Without it the
+ * agent would have to paste the code into a chat message for a human to retype.
+ *
+ * Current links carry the code in the fragment (`#claim=`), which browsers and
+ * chat clients never send to a server. The query string stays supported because
+ * links printed by older versions are still in circulation.
+ */
+export function claimFromQuery(search: string): string {
+  return formatClaimCode(new URLSearchParams(search).get("claim") ?? "");
+}
+
+/**
+ * The claim code a link carries in its fragment, or "" when there is none.
+ *
+ * A claim code is the whole proof of ownership of an unclaimed Hub and lives
+ * for a day. In a query string it would reach server logs, a proxy, a chat
+ * client's link preview, and every `Referer` sent from the page; in the
+ * fragment only the console sees it.
+ */
+export function claimFromHash(hash: string): string {
+  const bare = hash.startsWith("#") ? hash.slice(1) : hash;
+  return formatClaimCode(new URLSearchParams(bare).get("claim") ?? "");
+}
+
+
+/**
  * The code to open `mode`'s screen with, or "" when the URL's code is not that
  * screen's to take.
  *
- * Only the join screen is entitled to what the URL carries. The query string
- * says what link somebody followed, never which screen they ended up on: a
- * visitor can arrive at the claim screen with a stale `?invite=` in the address
- * bar, and prefilling there would put twenty characters into a field that holds
- * ten. The formatter only runs on the next keystroke, so the wrong value would
- * sit there looking accepted until the claim failed.
+ * Each code belongs to exactly one screen. The query string says what link
+ * somebody followed, never which screen they ended up on: a visitor can arrive
+ * at the claim screen with a stale `?invite=` in the address bar, and prefilling
+ * there would put twenty characters into a field that holds ten. The formatter
+ * only runs on the next keystroke, so the wrong value would sit there looking
+ * accepted until the claim failed.
  *
  * It lives here, next to the gate that chose the screen, for the reason this
  * file exists: a screen deciding for itself what the URL meant is how the
  * invitation link came to render a sign-in form.
  */
-export function prefilledCode(mode: AccountMode, search: string): string {
-  return mode === "join" ? inviteFromQuery(search) : "";
+export function prefilledCode(mode: AccountMode, search: string, hash = ""): string {
+  if (mode === "join") return inviteFromQuery(search);
+  if (mode === "claim") return claimFromQuery(search) || claimFromHash(hash);
+  return "";
 }

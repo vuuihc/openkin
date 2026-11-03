@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   authErrorText,
+  claimFromHash,
+  claimFromQuery,
   formatClaimCode,
   formatInviteCode,
   gateFor,
@@ -145,11 +147,58 @@ describe("inviteFromQuery", () => {
   });
 });
 
+describe("claimFromQuery", () => {
+  it("reads a claim code out of the link an agent printed", () => {
+    expect(claimFromQuery("?claim=abcde23456")).toBe("ABCDE-23456");
+  });
+
+  it("accepts the code already grouped and lower-cased", () => {
+    expect(claimFromQuery("?claim=abcde-23456")).toBe("ABCDE-23456");
+  });
+
+  it("reports no claim code on an ordinary visit", () => {
+    expect(claimFromQuery("")).toBe("");
+    expect(claimFromQuery("?invite=HZ9EW-V3DPK-4MNQB-7RTXS")).toBe("");
+    expect(claimFromQuery("?claim=")).toBe("");
+  });
+});
+
+describe("claimFromHash", () => {
+  it("reads a claim code out of the fragment an agent printed", () => {
+    expect(claimFromHash("#claim=abcde23456")).toBe("ABCDE-23456");
+  });
+
+  it("accepts the fragment without its leading #", () => {
+    expect(claimFromHash("claim=abcde-23456")).toBe("ABCDE-23456");
+  });
+
+  it("ignores a sign-in link's fragment", () => {
+    // Both credentials travel in the fragment; one screen must not read the
+    // other's and fail with "invalid code".
+    expect(claimFromHash("#login=" + "a".repeat(64))).toBe("");
+    expect(claimFromHash("")).toBe("");
+  });
+});
+
 describe("prefilledCode", () => {
   const invite = "?invite=HZ9EW-V3DPK-4MNQB-7RTXS";
+  const claim = "?claim=abcde23456";
+  const claimHash = "#claim=abcde23456";
 
   it("opens the join screen with the invitation already in it", () => {
     expect(prefilledCode("join", invite)).toBe("HZ9EW-V3DPK-4MNQB-7RTXS");
+  });
+
+  it("opens the claim screen with the claim code already in it", () => {
+    expect(prefilledCode("claim", claim)).toBe("ABCDE-23456");
+  });
+
+  it("opens it with a claim code carried in the fragment", () => {
+    expect(prefilledCode("claim", "", claimHash)).toBe("ABCDE-23456");
+  });
+
+  it("still accepts a legacy claim link that uses the query string", () => {
+    expect(prefilledCode("claim", claim, "")).toBe("ABCDE-23456");
   });
 
   it("does not put an invitation in the claim screen's field", () => {
@@ -159,12 +208,22 @@ describe("prefilledCode", () => {
     expect(prefilledCode("claim", invite)).toBe("");
   });
 
-  it("leaves the sign-in screen empty", () => {
-    expect(prefilledCode("login", invite)).toBe("");
+  it("does not put a claim code in the join screen's field", () => {
+    // The same mistake in the other direction: a ten-character claim code in a
+    // field that holds twenty looks accepted and cannot join.
+    expect(prefilledCode("join", claim)).toBe("");
+    expect(prefilledCode("join", "", claimHash)).toBe("");
   });
 
-  it("leaves the join screen empty when the visit carried no invitation", () => {
+  it("leaves the sign-in screen empty", () => {
+    expect(prefilledCode("login", invite)).toBe("");
+    expect(prefilledCode("login", claim)).toBe("");
+    expect(prefilledCode("login", "", claimHash)).toBe("");
+  });
+
+  it("leaves an enrolling screen empty when the visit carried no code", () => {
     expect(prefilledCode("join", "")).toBe("");
+    expect(prefilledCode("claim", "")).toBe("");
   });
 });
 

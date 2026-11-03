@@ -5,9 +5,11 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -94,6 +96,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "kin hub: %v\n", err)
 			os.Exit(1)
 		}
+	case "health":
+		if err := runHealth(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "kin health: %v\n", err)
+			os.Exit(1)
+		}
 	case "version":
 		fmt.Println(version)
 	case "help", "-h", "--help":
@@ -102,6 +109,37 @@ func main() {
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		usage(2)
 	}
+}
+
+// runHealth asks a running daemon whether it is serving. Container health
+// checks use it because `kin version` only proves the binary runs: a Hub whose
+// HTTP server is wedged would still be reported healthy, and an installer would
+// hand out a sign-in link to a page nobody can open.
+func runHealth(args []string) error {
+	fs := flag.NewFlagSet("health", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	addr := fs.String("addr", "", "daemon base URL (default http://127.0.0.1:$KIN_PORT)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	base := strings.TrimRight(*addr, "/")
+	if base == "" {
+		port := os.Getenv("KIN_PORT")
+		if port == "" {
+			port = "7777"
+		}
+		base = "http://127.0.0.1:" + port
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(base + "/api/health")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s answered %s", base, resp.Status)
+	}
+	return nil
 }
 
 func runMCP(ctx context.Context, args []string) error {
@@ -134,11 +172,39 @@ func runMCP(ctx context.Context, args []string) error {
 
 func runHub(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: kin hub claim-code | kin hub accounts | kin hub reset-password --email EMAIL | kin hub invite [--domain HOST] | kin hub node-token [--domain HOST] [--label NAME]")
+		return fmt.Errorf("usage: kin hub init [--email EMAIL] [--domain HOST] | kin hub login-link --email EMAIL [--domain HOST] | kin hub claim-code [--domain HOST] | kin hub accounts | kin hub reset-password --email EMAIL | kin hub invite [--domain HOST] | kin hub node-token [--domain HOST] [--label NAME]")
 	}
 	switch args[0] {
+	case "init":
+		fs := flag.NewFlagSet("hub init", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		email := fs.String("email", "", "the owner's sign-in address (omit to print a claim link)")
+		domain := fs.String("domain", "", "this hub's public hostname, used only to print the link")
+		name := fs.String("name", "", "display name for the owner account")
+		printURL := fs.Bool("print-url", false, "print only the URL, for scripts and agents")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		return server.RunHubInit(*email, *name, *domain, *printURL)
+	case "login-link":
+		fs := flag.NewFlagSet("hub login-link", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		email := fs.String("email", "", "the account's sign-in address")
+		domain := fs.String("domain", "", "this hub's public hostname, used only to print the link")
+		printURL := fs.Bool("print-url", false, "print only the URL, for scripts and agents")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		return server.RunHubLoginLink(*email, *domain, *printURL)
 	case "claim-code":
-		return server.RunHubClaimCode()
+		fs := flag.NewFlagSet("hub claim-code", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		domain := fs.String("domain", "", "this hub's public hostname, used only to print the link")
+		printURL := fs.Bool("print-url", false, "print only the URL, for scripts and agents")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		return server.RunHubClaimCode(*domain, *printURL)
 	case "accounts":
 		return server.RunHubAccounts()
 	case "reset-password":
@@ -167,7 +233,7 @@ func runHub(args []string) error {
 		}
 		return server.RunHubNodeToken(*label, *domain)
 	default:
-		return fmt.Errorf("unknown hub subcommand %q (want: claim-code, accounts, reset-password, invite, node-token)", args[0])
+		return fmt.Errorf("unknown hub subcommand %q (want: init, login-link, claim-code, accounts, reset-password, invite, node-token)", args[0])
 	}
 }
 
@@ -347,12 +413,15 @@ Usage:
   kin export --output <path.zip>
   kin approve-mcp     stdio MCP server for Claude Code permission prompts
   kin mcp              public MCP client bridge for local hosts
+  kin hub init        claim or sign in: print a claim or one-time sign-in link
+  kin hub login-link  mint a one-time sign-in link for an existing account
   kin hub claim-code  print a fresh owner claim code for an unclaimed hub
   kin hub accounts    list the sign-in addresses on this hub
   kin hub reset-password --email EMAIL
                       replace an account's password and print the new one
   kin hub invite      mint a one-time invitation for a second person to join
   kin hub node-token  mint a device token for another machine to run kin node
+  kin health          exit nonzero unless the daemon answers /api/health
   kin version         print version
   kin help            show this help
 

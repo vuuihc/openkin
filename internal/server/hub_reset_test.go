@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	authsvc "github.com/vuuihc/openkin/internal/auth"
 	"github.com/vuuihc/openkin/internal/remote"
@@ -180,6 +181,76 @@ func TestPrintNewPasswordKeepsTheBoxClosed(t *testing.T) {
 				t.Fatalf("the password is missing:\n%s", out)
 			}
 		})
+	}
+}
+
+// Once a Hub offers federated sign-in, "which address do I use" is only half
+// the answer: an account may have no password at all. The list has to name the
+// methods, because the reset command's advice depends on them.
+func TestRunHubAccountsNamesSignInMethods(t *testing.T) {
+	st := claimedHub(t)
+	ctx := context.Background()
+	accounts := authsvc.New(st, authsvc.Config{})
+	session, err := accounts.LoginPassword(ctx, "owner@example.com", "hunter2hunter2", authsvc.SessionMeta{})
+	if err != nil {
+		t.Fatalf("owner login: %v", err)
+	}
+	if err := accounts.LinkIdentity(ctx, session.User.ID, authsvc.ExternalIdentity{
+		Provider:      "oidc:https://idp.example.com/dex",
+		Subject:       "subject-1",
+		Email:         "owner@example.com",
+		EmailVerified: true,
+		DisplayName:   "Owner",
+		Label:         "GitHub",
+	}); err != nil {
+		t.Fatalf("link identity: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		if err := RunHubAccounts(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(out, "sign-in: password, GitHub") {
+		t.Fatalf("the list does not name the account's credentials:\n%s", out)
+	}
+}
+
+// An address that exists but has no password is not a typo. Saying "no
+// password account with that email" sends the operator hunting for one; the
+// useful answer is which provider does sign in.
+func TestRunHubResetPasswordExplainsAFederatedOnlyAccount(t *testing.T) {
+	st := claimedHub(t)
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+	if err := st.CreateUserWithIdentity(ctx, store.User{
+		ID:        "fed-user",
+		Email:     "fed@example.com",
+		Role:      store.RoleMember,
+		CreatedAt: now,
+	}, store.UserIdentity{
+		ID:        "fed-identity",
+		UserID:    "fed-user",
+		Provider:  "oidc:https://idp.example.com/dex",
+		Subject:   "subject-1",
+		Label:     "GitHub",
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("create a federated-only account: %v", err)
+	}
+
+	var resetErr error
+	out := captureStdout(t, func() { resetErr = RunHubResetPassword("fed@example.com") })
+	if resetErr == nil {
+		t.Fatal("a passwordless account produced a password")
+	}
+	for _, want := range []string{"signs in with GitHub", "no password to reset"} {
+		if !strings.Contains(resetErr.Error(), want) {
+			t.Fatalf("the refusal does not say %q: %v", want, resetErr)
+		}
+	}
+	if strings.Contains(out, "New password") {
+		t.Fatalf("a failed reset still printed a password:\n%s", out)
 	}
 }
 

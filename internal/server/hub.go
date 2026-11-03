@@ -78,7 +78,7 @@ func buildFederationProxy(hub *remote.Hub, srvAPI *api.Server) (*federationProxy
 // yet. The code is delivered through the process log because that is the one
 // channel a NAS operator already has open, and it is never sent over the
 // network or written to the database in the clear.
-func printBootstrapState(ctx context.Context, accounts *authsvc.Service) {
+func printBootstrapState(ctx context.Context, accounts *authsvc.Service, domain string) {
 	needs, err := accounts.NeedsBootstrap(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "kin: warning: read account state: %v\n", err)
@@ -101,14 +101,21 @@ func printBootstrapState(ctx context.Context, accounts *authsvc.Service) {
 		fmt.Println()
 		return
 	}
-	printNewBootstrapCode(ctx, accounts)
-}
-
-// printNewBootstrapCode issues and prints a claim code.
-func printNewBootstrapCode(ctx context.Context, accounts *authsvc.Service) {
 	code, err := accounts.IssueBootstrapCode(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "kin: warning: issue claim code: %v\n", err)
+		return
+	}
+	printBootstrapCode(code, domain, false)
+}
+
+// printBootstrapCode renders a claim code, and the link that carries it when the
+// Hub's public hostname is known. printURL is the script-facing mode: one line,
+// no box, so an agent can capture it without parsing prose.
+func printBootstrapCode(code, domain string, printURL bool) {
+	link := claimLink(domain, code)
+	if printURL {
+		fmt.Println(link)
 		return
 	}
 	fmt.Println()
@@ -120,12 +127,19 @@ func printNewBootstrapCode(ctx context.Context, accounts *authsvc.Service) {
 	fmt.Printf("  │                                                         │\n")
 	fmt.Println("  │  It expires in 24 hours and can be used once.           │")
 	fmt.Println("  └─────────────────────────────────────────────────────────┘")
+	if link != "" {
+		fmt.Printf("\n  Or open this link:  %s\n", link)
+	}
 	fmt.Println()
 }
 
 // RunHubClaimCode implements `kin hub claim-code`, which exists so an operator
 // can retrieve a fresh code from a running container without restarting it.
-func RunHubClaimCode() error {
+func RunHubClaimCode(domain string, printURL bool) error {
+	domain = hubDomain(domain)
+	if printURL && domain == "" {
+		return fmt.Errorf("pass --domain HOST (the Hub's public hostname) to print a claim link")
+	}
 	stateDir, err := remote.StateDir()
 	if err != nil {
 		return err
@@ -145,8 +159,241 @@ func RunHubClaimCode() error {
 	if !needs {
 		return fmt.Errorf("this hub already has an owner; claim codes are only for an unclaimed hub")
 	}
-	printNewBootstrapCode(ctx, accounts)
+	code, err := accounts.IssueBootstrapCode(ctx)
+	if err != nil {
+		return err
+	}
+	printBootstrapCode(code, domain, printURL)
 	return nil
+}
+
+// RunHubInit implements `kin hub init`, the one command an installer or agent
+// needs to get a person into a Hub.
+//
+// It answers every state the Hub can be in rather than making the caller detect
+// it: unclaimed with no address prints a claim link, unclaimed with an address
+// creates that owner and prints a sign-in link, and an already-claimed Hub just
+// mints a fresh sign-in link. The link is always the last line, so a script can
+// capture it, and --print-url makes it the only line.
+func RunHubInit(email, displayName, domain string, printURL bool) error {
+	domain = hubDomain(domain)
+	if printURL && domain == "" {
+		return fmt.Errorf("pass --domain HOST (the Hub's public hostname) to print a link")
+	}
+	stateDir, err := remote.StateDir()
+	if err != nil {
+		return err
+	}
+	st, err := store.Open(filepath.Join(stateDir, "kin.db"))
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	accounts := authsvc.New(st, authsvc.Config{})
+	needs, err := accounts.NeedsBootstrap(ctx)
+	if err != nil {
+		return err
+	}
+	email = authsvc.NormalizeEmail(email)
+	if needs && email == "" {
+		code, err := accounts.IssueBootstrapCode(ctx)
+		if err != nil {
+			return err
+		}
+		printBootstrapCode(code, domain, printURL)
+		return nil
+	}
+	if needs {
+		// The password is generated and deliberately never printed: the link is
+		// this account's way in, and a second credential nobody chose would sit
+		// in the database unrotated. `kin hub reset-password` can set a known one
+		// later if the person wants password sign-in.
+		password, err := authsvc.NewPassword()
+		if err != nil {
+			return err
+		}
+		code, err := accounts.IssueBootstrapCode(ctx)
+		if err != nil {
+			return err
+		}
+		if _, err := accounts.ClaimWithPassword(ctx, code, email, password, displayName,
+			authsvc.SessionMeta{UserAgent: "kin hub init", IP: "local"}); err != nil {
+			return fmt.Errorf("create the owner account: %w", err)
+		}
+	}
+	if email == "" {
+		// Already claimed, and no account was named. A sign-in link has to belong
+		// to somebody, so the most this can do is name the front door -- and a
+		// front door needs a hostname. Without one, say what is missing instead of
+		// printing a relative "/" as if it were an address.
+		if printURL {
+			fmt.Println(hubOrigin(domain) + "/")
+			return nil
+		}
+		if domain == "" {
+			fmt.Println()
+			fmt.Println("  This hub already has an owner. Pass --email ADDRESS to mint a sign-in")
+			fmt.Println("  link for that account.")
+			fmt.Println()
+			return nil
+		}
+		fmt.Printf("\n  This hub already has an owner. Sign in at %s\n", hubOrigin(domain)+"/")
+		fmt.Println("  To sign in without a password, pass --email and the link is minted")
+		fmt.Println("  for that account.")
+		fmt.Println()
+		return nil
+	}
+	user, err := resolveAccountByEmail(ctx, st, email)
+	if err != nil {
+		return err
+	}
+	link, err := accounts.IssueLoginLink(ctx, user.ID)
+	if err != nil {
+		return err
+	}
+	printLoginLink(user.Email, link, loginLinkURL(domain, link.Token), printURL)
+	return nil
+}
+
+// RunHubLoginLink implements `kin hub login-link`, the recovery path for an
+// account that already exists: a one-time URL that signs in without a password.
+//
+// It replaces the printed-password handoff for the common case. A reset still
+// has its place -- the person may want a password they know -- but "get me back
+// into my own Hub" is answered by one link that expires, not by a credential
+// that does not.
+func RunHubLoginLink(email, domain string, printURL bool) error {
+	email = authsvc.NormalizeEmail(email)
+	if email == "" {
+		return fmt.Errorf("usage: kin hub login-link --email EMAIL [--domain HOST]")
+	}
+	domain = hubDomain(domain)
+	if printURL && domain == "" {
+		return fmt.Errorf("pass --domain HOST (the Hub's public hostname) to print a sign-in link")
+	}
+	stateDir, err := remote.StateDir()
+	if err != nil {
+		return err
+	}
+	st, err := store.Open(filepath.Join(stateDir, "kin.db"))
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	user, err := resolveAccountByEmail(ctx, st, email)
+	if err != nil {
+		if errors.Is(err, authsvc.ErrAccountNotFound) && !printURL {
+			_ = RunHubAccounts()
+		}
+		return err
+	}
+	accounts := authsvc.New(st, authsvc.Config{})
+	link, err := accounts.IssueLoginLink(ctx, user.ID)
+	if err != nil {
+		return err
+	}
+	printLoginLink(user.Email, link, loginLinkURL(domain, link.Token), printURL)
+	return nil
+}
+
+// resolveAccountByEmail names the account an operator means by an address.
+//
+// The password identity is checked first because its subject *is* the address,
+// which is the exact key a password login uses. Falling back to users.email is
+// what makes an account that only signs in with GitHub or Google reachable: it
+// has no password identity, and "no password account" would be true and useless.
+// More than one match is refused rather than guessed -- users.email is
+// deliberately not unique (ADR 0026), so picking one would sign somebody into
+// another person's account.
+func resolveAccountByEmail(ctx context.Context, st *store.Store, email string) (store.User, error) {
+	email = authsvc.NormalizeEmail(email)
+	if user, _, err := st.UserByIdentity(ctx, store.ProviderPassword, email); err == nil {
+		return user, nil
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return store.User{}, err
+	}
+	users, err := st.ListUsers(ctx)
+	if err != nil {
+		return store.User{}, err
+	}
+	var matches []store.User
+	for _, user := range users {
+		if authsvc.NormalizeEmail(user.Email) == email {
+			matches = append(matches, user)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return store.User{}, fmt.Errorf("no account here uses %s: %w",
+			printable(email, accountEmailMax), authsvc.ErrAccountNotFound)
+	case 1:
+		return matches[0], nil
+	default:
+		return store.User{}, fmt.Errorf("%d accounts use %s; sign in to the one you mean with its password",
+			len(matches), printable(email, accountEmailMax))
+	}
+}
+
+// printLoginLink renders a one-time sign-in URL. The URL is printed on its own
+// line rather than in a box because it is longer than the box and copying it is
+// the whole point; printURL keeps even the prose out of the way.
+func printLoginLink(email string, link authsvc.LoginLink, url string, printURL bool) {
+	if printURL {
+		fmt.Println(url)
+		return
+	}
+	fmt.Printf("\n  One-time sign-in link for %s\n\n", printable(email, accountEmailMax))
+	if url != "" {
+		fmt.Printf("      %s\n\n", url)
+	} else {
+		fmt.Printf("      token: %s\n\n", link.Token)
+		fmt.Println("  Pass --domain HOST to print a link instead of a token.")
+		fmt.Println()
+	}
+	fmt.Printf("  It works once and expires %s.\n",
+		link.ExpiresAt.Local().Format("2006-01-02 15:04 MST"))
+	fmt.Println("  Open it in the browser you use for this Hub; no password is needed.")
+	fmt.Println()
+}
+
+// loginLinkURL builds the URL that signs the browser in. The token sits in the
+// fragment, not the query string: fragments are never sent to a server, so a
+// chat client's link preview, a proxy log, or a Referer header cannot spend the
+// link before the person does. The console reads it and clears it immediately.
+func loginLinkURL(domain, token string) string {
+	if strings.TrimSpace(domain) == "" || strings.TrimSpace(token) == "" {
+		return ""
+	}
+	return hubOrigin(domain) + "/#login=" + token
+}
+
+// claimLink builds the URL that opens the claim screen with the code in it.
+//
+// Like a sign-in link, the code rides in the fragment. A claim code is the whole
+// proof of ownership of an unclaimed Hub and lives for a day: a chat client's
+// link preview, a proxy log, or a Referer would otherwise be enough for whoever
+// sees it to claim the Hub first. The console reads the code out of the
+// fragment and never sends it as part of a page request. The claim screen still
+// accepts `?claim=` for links printed by older versions.
+func claimLink(domain, code string) string {
+	if strings.TrimSpace(domain) == "" {
+		return ""
+	}
+	return hubOrigin(domain) + "/#claim=" + code
+}
+
+// hubDomain resolves the Hub's public hostname from the flag, then from the
+// environment the container already has. Keeping the fallback here means every
+// `kin hub` command that prints a link agrees about where the Hub is.
+func hubDomain(flagValue string) string {
+	if domain := strings.TrimSpace(flagValue); domain != "" {
+		return domain
+	}
+	return strings.TrimSpace(os.Getenv("KIN_DOMAIN"))
 }
 
 // RunHubAccounts implements `kin hub accounts`, which answers the one question a
@@ -166,7 +413,8 @@ func RunHubAccounts() error {
 	}
 	defer st.Close()
 
-	users, err := st.ListUsers(context.Background())
+	ctx := context.Background()
+	users, err := st.ListUsers(ctx)
 	if err != nil {
 		return err
 	}
@@ -178,6 +426,12 @@ func RunHubAccounts() error {
 	fmt.Println("  Accounts on this hub, by sign-in address:")
 	for _, user := range users {
 		line := fmt.Sprintf("  %-6s  %s", user.Role, printable(user.Email, accountEmailMax))
+		// Which credentials exist is the next question a locked-out operator
+		// has, and the answer is already here: an account that signs in with
+		// GitHub has no password to reset.
+		if methods := signInMethods(ctx, st, user.ID); len(methods) > 0 {
+			line += "  sign-in: " + printable(strings.Join(methods, ", "), accountNameMax)
+		}
 		if user.DisplayName != "" && user.DisplayName != user.Email {
 			line += fmt.Sprintf("  (%s)", printable(user.DisplayName, accountNameMax))
 		}
@@ -187,6 +441,57 @@ func RunHubAccounts() error {
 		fmt.Println(line)
 	}
 	fmt.Println()
+	return nil
+}
+
+// signInMethods names the credentials attached to an account. Labels are
+// stored with the identity, so the operator reads "GitHub" rather than an
+// issuer URL, and the password credential says "password" like the rest of the
+// CLI does.
+func signInMethods(ctx context.Context, st *store.Store, userID string) []string {
+	identities, err := st.ListIdentities(ctx, userID)
+	if err != nil {
+		return nil
+	}
+	seen := make(map[string]bool, len(identities))
+	methods := make([]string, 0, len(identities))
+	for _, identity := range identities {
+		label := strings.TrimSpace(identity.Label)
+		if label == "" {
+			label = strings.TrimSpace(strings.TrimPrefix(identity.Provider, authsvc.ProviderOIDCPrefix))
+		}
+		if label == "" || seen[label] {
+			continue
+		}
+		seen[label] = true
+		methods = append(methods, label)
+	}
+	return methods
+}
+
+// explainNoPassword answers the case ErrAccountNotFound conflates: the address
+// does belong to an account, but that account has no password credential. On a
+// Hub that offers federated sign-in this is a normal state, and "no password
+// account with that email" would send the operator looking for a typo that is
+// not there.
+func explainNoPassword(ctx context.Context, st *store.Store, email string) error {
+	want := authsvc.NormalizeEmail(email)
+	users, err := st.ListUsers(ctx)
+	if err != nil {
+		return nil
+	}
+	for _, user := range users {
+		if authsvc.NormalizeEmail(user.Email) != want {
+			continue
+		}
+		methods := signInMethods(ctx, st, user.ID)
+		how := "a federated login"
+		if len(methods) > 0 {
+			how = strings.Join(methods, ", ")
+		}
+		return fmt.Errorf("account %s signs in with %s; there is no password to reset",
+			printable(user.Email, accountEmailMax), printable(how, accountNameMax))
+	}
 	return nil
 }
 
@@ -271,9 +576,13 @@ func RunHubResetPassword(email string) error {
 		return err
 	}
 	accounts := authsvc.New(st, authsvc.Config{})
-	user, err := accounts.ResetPassword(context.Background(), email, password)
+	ctx := context.Background()
+	user, err := accounts.ResetPassword(ctx, email, password)
 	if err != nil {
 		if errors.Is(err, authsvc.ErrAccountNotFound) {
+			if hint := explainNoPassword(ctx, st, email); hint != nil {
+				return hint
+			}
 			// A typo is the likely cause, and the answer is right here.
 			_ = RunHubAccounts()
 		}

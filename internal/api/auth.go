@@ -98,7 +98,17 @@ func (s *Server) authUserView(r *http.Request, user store.User) *authUser {
 		DisplayName:   user.DisplayName,
 	}
 	if identities, err := s.Store.ListIdentities(r.Context(), user.ID); err == nil {
+		// One provider can hold more than one identity for this account: Dex
+		// gives GitHub and Google different subjects, so both connectors can be
+		// linked to the same person through the one OIDC provider. The console
+		// shows a chip per provider, not per subject, so dedupe here rather
+		// than making the client guess.
+		seen := make(map[string]bool, len(identities))
 		for _, identity := range identities {
+			if seen[identity.Provider] {
+				continue
+			}
+			seen[identity.Provider] = true
 			view.Identities = append(view.Identities, identity.Provider)
 		}
 	}
@@ -233,6 +243,41 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	session, err := s.Accounts.LoginPassword(r.Context(), req.Email, req.Password, sessionMeta(r))
+	if err != nil {
+		s.Auth.NoteFailure(r)
+		writeJSON(w, http.StatusUnauthorized, authError(err))
+		return
+	}
+	s.setSessionCookie(w, r, session)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user":       s.authUserView(r, session.User),
+		"expires_at": session.ExpiresAt.UnixMilli(),
+	})
+}
+
+type loginLinkRequest struct {
+	Token string `json:"token"`
+}
+
+// handleAuthLoginLink spends a one-time sign-in link. It lives beside the
+// password login because it answers the same question by a different proof:
+// possession of a secret the operator printed on the Hub, rather than a password
+// the person chose. The link is consumed even when opening the session then
+// fails, which is the safe direction -- a retry needs a new link.
+func (s *Server) handleAuthLoginLink(w http.ResponseWriter, r *http.Request) {
+	if !s.accountsEnabled() {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "accounts are not enabled"})
+		return
+	}
+	if !s.Auth.AllowAttempt(r) {
+		writeJSON(w, http.StatusTooManyRequests, authErrorBody("rate_limited", "too many attempts"))
+		return
+	}
+	var req loginLinkRequest
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+	session, err := s.Accounts.ConsumeLoginLink(r.Context(), req.Token, sessionMeta(r))
 	if err != nil {
 		s.Auth.NoteFailure(r)
 		writeJSON(w, http.StatusUnauthorized, authError(err))
@@ -395,8 +440,12 @@ func authErrorMessage(err error) string {
 		return "that claim code is not valid or has expired"
 	case errors.Is(err, auth.ErrInviteUnavailable):
 		return "that invitation is not valid or has expired"
+	case errors.Is(err, auth.ErrLoginLinkUnavailable):
+		return "that sign-in link is not valid or has expired"
 	case errors.Is(err, auth.ErrRegistrationClosed):
 		return "this hub already has an owner; sign in instead"
+	case errors.Is(err, auth.ErrIdentityNotLinked):
+		return "this sign-in is not linked to an account here; sign in with your password, then link it under Settings"
 	case errors.Is(err, auth.ErrWeakPassword):
 		return err.Error()
 	case errors.Is(err, auth.ErrIdentityTaken):
@@ -419,8 +468,12 @@ func authErrorCode(err error) string {
 		return "claim_code_invalid"
 	case errors.Is(err, auth.ErrInviteUnavailable):
 		return "invite_invalid"
+	case errors.Is(err, auth.ErrLoginLinkUnavailable):
+		return "login_link_invalid"
 	case errors.Is(err, auth.ErrRegistrationClosed):
 		return "registration_closed"
+	case errors.Is(err, auth.ErrIdentityNotLinked):
+		return "identity_not_linked"
 	case errors.Is(err, auth.ErrWeakPassword):
 		return "weak_password"
 	case errors.Is(err, auth.ErrIdentityTaken):
