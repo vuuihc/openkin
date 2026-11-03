@@ -288,6 +288,29 @@ provider，「GitHub / Google」是准确的名字）。
   之后只能轮换不能查看。轮换顺序是「先生成新的、再删旧的」，因为两家都不允许
   删除最后一个 secret。
 
+### 5.4b 出口代理与 Google discovery（2026-11-03）
+
+- 现象：GitHub 回调偶发 Dex 500（日志 `github: failed to get token … EOF`）；
+  Google 登录在 Dex 侧报 `failed to get provider: Get
+  "https://accounts.google.com/.well-known/openid-configuration": EOF`。
+- 根因在出口代理，不在 Hub / Dex 配置：经 `KIN_OAUTH_PROXY` 访问
+  `accounts.google.com` 时 TLS 握手会被重置，约一半请求得到 EOF 或
+  `TLS handshake timeout`；同一出口上 `github.com`、`oauth2.googleapis.com`、
+  `openidconnect.googleapis.com` 稳定可达。换出口节点后成功率会变化，说明是
+  节点 / 线路对 Google 账号域名的连通性问题。
+- **Dex 的连接器缓存**：连接器成功 `Open`（Google 的 `Open` 包含 discovery）
+  后缓存在进程内；启动时失败的连接器不入缓存，之后每次点 Google 都会重新
+  discovery。成功一次后，后续 Google 登录不再做 discovery（token、userinfo
+  仍走网络）。
+- 处理：在出口代理里选一个对 `accounts.google.com` 可用的节点，然后反复触发
+  `/dex/auth/google?…` 直到返回 302，并确认 Dex 日志不再出现
+  `Failed to get connector`。本次据此把一个连接器预热进了缓存。
+- 重启 Dex（重新部署、重建镜像、`docker restart`）会清空该缓存；启动时若
+  discovery 恰好失败，第一次 Google 登录需要重试几次。GitHub 连接器启动时
+  不做网络请求，不受影响。
+- 长期：让出口代理对 `accounts.google.com` 固定使用稳定节点，或为 Dex 准备
+  独立可靠的代理出口；不要把「某个节点当前可用」当成长期保证。
+
 ### 5.5 遗留风险
 
 - **身份尚未绑定**：Hub 已有 owner，OAuth 只对已绑定身份生效。需要先用密码
@@ -295,6 +318,9 @@ provider，「GitHub / Google」是准确的名字）。
   会得到「这个登录方式还没有绑定」。首次真实登录仍需人工各走一遍。
 - GitHub App 当 OAuth client 的验证目前只到授权页：完整链路要求
   Email addresses 权限已保存（§5.4a），以及 App 未被用户撤销授权。
+- **Google 登录依赖出口代理**：`accounts.google.com` 经当前代理约一半请求
+  失败（§5.4b）。连接器预热后可用；Dex 重启后第一次 Google 登录可能失败，
+  重试即可。GitHub 不受影响。
 - Dex 启动失败会让整个 Hub 不可用（已文档化回滚）。
 - 无解绑入口；重复绑定提示偏乐观。
 - 全量测试的计时 flake（见 §5.3）。
