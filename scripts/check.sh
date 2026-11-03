@@ -38,7 +38,13 @@ changed_go_pkgs() {
   dirs="$(changed_go_files | xargs -n1 dirname 2>/dev/null | sort -u |
     grep -E '^(cmd|internal|web)/' || true)"
   [[ -z "$dirs" ]] && return 0
-  printf './%s\n' $dirs
+  # A removed package still shows up in `git status` as its last files being
+  # deleted, but there is no directory left to vet or test. Passing it on makes
+  # the check fail with "directory not found" on exactly the change that
+  # removed it.
+  while IFS= read -r dir; do
+    [[ -d "$dir" ]] && printf './%s\n' "$dir"
+  done <<<"$dirs"
 }
 
 changed_shell_files() {

@@ -138,8 +138,9 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
   `python3 scripts/stories.py new <AREA> "<title>"` and fill it per
   `docs/product/stories/AUTHORING.md`; it stays `draft` until a person signs it,
   and signing means the readable design page `<ID>.review.html` (a MECE cut,
-  then wireframes for every step, state and surface) exists and was read. No
-  product code is written before that. One delivery finishes one whole story and
+  then Figma frames for every screen, each with a six-beat user flow, plus
+  every state and surface) exists and was read. No product code is written
+  before that. One delivery finishes one whole story and
   never mixes two: commit code, tests, the story and `registry.json` together,
   with `KIN-<AREA>-NNN` in the body. Stories are not split into rounds or
   phases; if one will not fit one delivery, cut it by intent into another story.
@@ -156,6 +157,20 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
   locale files in the same change.
 - Preserve keyboard operation, visible focus, semantic controls, loading,
   empty, error, and disconnected states.
+- Story approval pages (`docs/product/stories/<ID>.review.html`) are
+  **Figma-first and phone-readable**: the Figma frames
+  (`<ID>.figma/frames/*.svg`) are the main body, each followed by a six-beat
+  user flow (起点 / 动作 / 立刻看到 / 慢·空·失败·断线 / 键盘与焦点 / 离开再回来).
+  One column, body text at least 16px, no horizontal page scroll at 390px;
+  wide frames scroll only inside their own container. Sticky in-page
+  navigation, dark-mode support, no CDN or external assets, decisions with a
+  recommendation and trade-off (settled ones marked 已定), and a copyable
+  reply template. They must be comfortable to read in Lody on a phone via the
+  Browser preview. Include
+  `<meta name="kin-review-format" content="figma-flow-v1">`, the phrase
+  “用户流程”, and at least one `.svg` frame or Figma link; `scripts/stories.py`
+  requires these from `approved` on (`KIN-CONTINUE-001` is the legacy
+  exception). See `docs/product/stories/AUTHORING.md` §6.
 - A UI source change that affects the shipped console must regenerate
   `web/dist/` with `npm run build` and commit **`web/dist/index.html`** — it is
   tracked, and it is what names the hashed entry chunk.

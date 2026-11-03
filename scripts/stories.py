@@ -28,6 +28,12 @@ REGISTRY = DIR / "registry.json"
 COVERAGE = DIR / "COVERAGE.md"
 
 ID_RE = re.compile(r"^KIN-[A-Z]+-\d{3}$")
+
+# Approval pages are read on a phone in Lody and use the Figma frames as the
+# main body, so the template carries a marker the checker can require.
+# KIN-CONTINUE-001 was signed before this rule.
+FIGMA_FLOW_MARKER = '<meta name="kin-review-format" content="figma-flow-v1">'
+LEGACY_REVIEW_FORMAT = frozenset({"KIN-CONTINUE-001"})
 MENTION_RE = re.compile(r"KIN-[A-Z]+-\d{3}")
 STATE_RE = re.compile(r"^状态：\s*(\w+)\s*$", re.M)
 PRIORITY_RE = re.compile(r"^优先级：\s*(P[01])\s*$", re.M)
@@ -344,12 +350,32 @@ def check() -> list[str]:
                     problems.append(f"{where}: `## 设计` does not name {story_id}.review.html")
                 if not review.exists():
                     problems.append(f"{where}: design page missing: {review.name}")
-                elif story_id not in read(review):
-                    problems.append(f"{where}: {review.name} does not mention {story_id}")
-                elif "（填）" in read(review):
-                    problems.append(f"{where}: {review.name} still has template placeholders")
-                elif "<h2>MECE" not in read(review):
-                    problems.append(f"{where}: {review.name} has no MECE section")
+                else:
+                    review_text = read(review)
+                    modern = story_id not in LEGACY_REVIEW_FORMAT
+                    if story_id not in review_text:
+                        problems.append(f"{where}: {review.name} does not mention {story_id}")
+                    elif "（填）" in review_text:
+                        problems.append(f"{where}: {review.name} still has template placeholders")
+                    elif "<h2>MECE" not in review_text:
+                        problems.append(f"{where}: {review.name} has no MECE section")
+                    elif modern and FIGMA_FLOW_MARKER not in review_text:
+                        problems.append(
+                            f"{where}: {review.name} is not Figma-first "
+                            "(missing kin-review-format=figma-flow-v1)"
+                        )
+                    elif modern and "用户流程" not in review_text:
+                        problems.append(
+                            f"{where}: {review.name} has no per-screen 用户流程"
+                        )
+                    elif modern and ".svg" not in review_text and "figma.com" not in review_text:
+                        problems.append(
+                            f"{where}: {review.name} references no Figma frame or SVG"
+                        )
+                    elif modern and "width=device-width" not in review_text:
+                        problems.append(
+                            f"{where}: {review.name} has no mobile viewport meta tag"
+                        )
 
         owner_paths = story.get("ownerPaths") or []
         if not isinstance(owner_paths, list):

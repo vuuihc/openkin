@@ -46,7 +46,7 @@
 
 ## 设计
 
-草图：`KIN-<AREA>-NNN.review.html`（从 `_REVIEW.html` 复制，`open` 即可读；状态改成 `approved` 前必须有）。
+设计稿：`KIN-<AREA>-NNN.figma/frames/`（SVG 源帧，Figma 可导入）和 `KIN-<AREA>-NNN.review.html`（从 `_REVIEW.html` 复制；Figma 帧为主体，每屏六段用户流程；状态改成 `approved` 前两样都必须有）。
 
 必须画到的状态：<按故事取用：默认、空、加载、错误、断线、锁定、运行中、等待批准>
 
