@@ -1428,6 +1428,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/login-code/exchange": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Swap a device-bound login code for a one-time sign-in link. The code is
+         *     what a system-browser sign-in handed the native app back on its
+         *     `kin://auth-callback` scheme: single use, at most five minutes old, and
+         *     only spendable with the `device_key` the flow started with. The answer
+         *     is a login link the app's own webview opens, so the session cookie
+         *     becomes first-party for the Hub origin — the provider's authorization
+         *     code and the browser's cookie never enter the app. Unknown, expired,
+         *     spent, wrong-device, and disabled-account codes answer the same 401.
+         *      */
+        post: operations["exchangeLoginCode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/logout": {
         parameters: {
             query?: never;
@@ -3926,6 +3951,21 @@ export interface components {
         AuthLoginLinkRequest: {
             /** @description The one-time token from the sign-in link's URL fragment. */
             token: string;
+        };
+        AuthLoginCodeRequest: {
+            /** @description The one-time code from the app's auth-callback URL. */
+            code: string;
+            /** @description The key the app generated when it started this flow. */
+            device_key: string;
+        };
+        AuthLoginCodeResponse: {
+            /** @description A one-time sign-in link token; POST it to /api/auth/login-link. */
+            login_token: string;
+            /**
+             * Format: int64
+             * @description Unix milliseconds when the login token stops working.
+             */
+            expires_at: number;
         };
         AuthSessionResponse: {
             user: components["schemas"]["AuthUser"];
@@ -7598,6 +7638,53 @@ export interface operations {
                 };
             };
             /** @description The link is not valid, has expired, or was already spent */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+            /** @description Accounts are not enabled on this daemon */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many attempts from this client */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    exchangeLoginCode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthLoginCodeRequest"];
+            };
+        };
+        responses: {
+            /** @description Exchange succeeded; open the login link in the app's webview */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthLoginCodeResponse"];
+                };
+            };
+            /** @description The code is not valid, expired, spent, or bound to another device */
             401: {
                 headers: {
                     [name: string]: unknown;

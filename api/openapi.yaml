@@ -2199,6 +2199,42 @@ paths:
           description: Accounts are not enabled on this daemon
         "429":
           description: Too many attempts from this client
+  /api/auth/login-code/exchange:
+    post:
+      operationId: exchangeLoginCode
+      security: []
+      description: |
+        Swap a device-bound login code for a one-time sign-in link. The code is
+        what a system-browser sign-in handed the native app back on its
+        `kin://auth-callback` scheme: single use, at most five minutes old, and
+        only spendable with the `device_key` the flow started with. The answer
+        is a login link the app's own webview opens, so the session cookie
+        becomes first-party for the Hub origin — the provider's authorization
+        code and the browser's cookie never enter the app. Unknown, expired,
+        spent, wrong-device, and disabled-account codes answer the same 401.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthLoginCodeRequest"
+      responses:
+        "200":
+          description: Exchange succeeded; open the login link in the app's webview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthLoginCodeResponse"
+        "401":
+          description: The code is not valid, expired, spent, or bound to another device
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthErrorResponse"
+        "404":
+          description: Accounts are not enabled on this daemon
+        "429":
+          description: Too many attempts from this client
   /api/auth/logout:
     post:
       operationId: logoutAccount
@@ -6784,6 +6820,27 @@ components:
         token:
           type: string
           description: The one-time token from the sign-in link's URL fragment.
+    AuthLoginCodeRequest:
+      type: object
+      required: [code, device_key]
+      properties:
+        code:
+          type: string
+          description: The one-time code from the app's auth-callback URL.
+        device_key:
+          type: string
+          description: The key the app generated when it started this flow.
+    AuthLoginCodeResponse:
+      type: object
+      required: [login_token, expires_at]
+      properties:
+        login_token:
+          type: string
+          description: A one-time sign-in link token; POST it to /api/auth/login-link.
+        expires_at:
+          type: integer
+          format: int64
+          description: Unix milliseconds when the login token stops working.
     AuthSessionResponse:
       type: object
       required: [user, expires_at]
