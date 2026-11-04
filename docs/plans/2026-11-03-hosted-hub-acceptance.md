@@ -185,19 +185,19 @@
 | 件 | 状态 |
 |---|---|
 | 自部署 link-first（`a9a2fabe`、`41935ca8`、`edba1413`） | 已交付；干净机器端到端未验；Docker 未自动安装 |
-| 自部署域名/公网访问自动化 | **只有 `--domain` + Compose + 容器内健康检查；DNS、端口、外部 URL/证书验证、隧道、已有反代未做** |
+| 自部署域名/公网访问自动化 | 本轮分支已交付四种模式（direct/proxy/tunnel/LAN，`4ca6851a`）：DNS A/AAAA/CNAME、80/443 可达检查、隧道 token 0600、LAN 链接改写；干净机器端到端未验 |
 | 单 owner Hub、member/invite、任务隔离 | 已有 |
-| OAuth / Dex（自托管 dogfood） | 部分；只有单租户；移动端回传未做 |
+| OAuth / Dex（自托管 dogfood） | 部分；只有单租户；移动端回传已实现（`feat/hosted-hub-acceptance`：device_key 起始 URL → `kin://auth-callback` 一次性设备绑定 code → `/api/auth/login-code/exchange` 换一次性链接，T6 红测试齐；真机未验） |
 | 托管多租户 | 未开始 |
 | 控制面（账号/身份/租户目录） | 未开始 |
 | 统一域名入口、租户路由、cell | 未开始 |
 | 每租户 store / 存储布局 | 未开始；D4 需要托管多租户开工前的 spike |
-| iOS Capacitor 壳 | 已有；按部署构建，不支持运行时改 URL；系统浏览器 OAuth + 一次性 code 回传未做 |
+| iOS Capacitor 壳 | 已有；运行时 Hub URL + 系统浏览器 OAuth + 一次性 code 回传已实现（`feat/hosted-hub-acceptance` 的 KinHubConfig 插件，`KIN_HUB_URL` 变为可选；真机未验，G8 的扫码/深链仍缺） |
 | 桌面本地 Node | 已有；托管登录流程未做 |
-| 自部署 Node token | 配对已有；枚举/命名/撤销与显式确认未验（G7） |
+| 自部署 Node token | 本轮分支已交付：显式确认 + 指纹（`f9684768`）与重命名；撤销的 WS 立断未验 |
 | 跨设备会话同步 | 已有（单租户）；未在托管规模验证 |
 | 推送 | 自部署 Web Push 已有；APNs 已合入 `kin-multidevice` 的本地 main（`cf556915` + `92027ed7`），但当前 `feat/hub-oauth-login` 分支未包含；真机验收未做 |
-| 邮箱默认合并 | 未实现；D3/H2/H3/G19 是本轮/下一 goal 的要求 |
+| 邮箱默认合并 | 本轮分支已实现（D3：同已验证邮箱默认合并，歧义/禁用拒绝，`ab6dbb32`）；24h 通知/解绑/审计未做 |
 
 ## 11. 评审记录
 
@@ -205,4 +205,5 @@
 - **2026-11-04 GLM 5.3 第 2 轮（精简复审）**：2 blocker / 5 major / 8 nit。已处理：移动端系统浏览器 OAuth 后的一次性 code 回传、技术验收编号与阶段编号冲突、受邀用户门槛与公开注册门槛拆分、仅局域网模式不再被 DNS/证书/蜂窝门槛卡死、安全响应头/CSRF、secret 存储与轮换、备份静态加密、删除可验证判据、OAuth 最小 scope、多 provider 合并规则、会话/WS 单位。
 - **2026-11-04 GLM 5.3 第 3 轮（收尾对抗复审）**：2 blocker / 5 major。已处理：自部署门槛补 Node token、member 间 id 授权、store 根路径逃逸、Node 本地策略；T10 增加仅局域网 HTTP 分支；T12 增加隧道/反代真实客户端 IP 判据；多 provider 合并规则；公开注册封禁与开关判据；隧道分支代理头。
 - **2026-11-04 你的决定（v4 生效）**：同邮箱**默认合并**；自部署 iOS 也用**同一个原生壳**（运行时 Hub URL）；**APNs 纳入首发**（已合入 `kin-multidevice` 的本地 main）；**L3/L4 不列**，只保留 L1/L2 且不阻塞扩展；本轮按“一个 agent 一个 goal”优先做自部署 dogfood。
+- **2026-11-04 实施（本轮分支 `feat/hosted-hub-acceptance`）**：安全响应头/CSRF/可信代理（T12/G18/T14）、D3 同邮箱合并（G19 核心）、Node token 确认+指纹+重命名（G7 部分）、install-hub 四种公网模式（G3/G4）、G8/G9 全链路（运行时 Hub URL 插件 + 系统浏览器 OAuth + 一次性设备绑定 code 交换，T6/T17 红测试）。未动：扫码/深链填 URL、G5/G6、G10–G13（已有能力，待验）、G14/G15 真机、G17 导出、干净机器端到端。
 - **v4 编号说明**：v3 的 H/S/T/C 编号收敛为 G（自部署 dogfood）、H（托管 L2）、T（技术底线）；C 系列（L3/L4）删除。旧编号不再引用。
