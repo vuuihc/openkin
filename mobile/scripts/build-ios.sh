@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
-# Build the iOS app against a Hub.
+# Build the iOS app, optionally against a Hub origin.
 #
-# Usage: KIN_HUB_URL=https://kin.example.com scripts/build-ios.sh [device|simulator]
+# Usage: [KIN_HUB_URL=https://kin.example.com] scripts/build-ios.sh [device|simulator]
 #
 # The console is a build artifact of ../ui, so it is built first; the app loads
 # the Hub's own copy of it at runtime, but the shell still ships one so that a
-# Hub that cannot be reached shows the console's connection screen.
+# Hub that cannot be reached — and a phone that has not chosen a Hub yet — sees
+# the console's own connect screen.
+#
+# One universal build (G8): the Hub origin is runtime state on the phone, so
+# KIN_HUB_URL is optional. When given it is only the origin the app opens
+# first; without it the app boots on the bundled console.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-
-: "${KIN_HUB_URL:?set KIN_HUB_URL to the origin your Hub is served at, e.g. https://kin.example.com}"
 
 DESTINATION="${1:-simulator}"
 DERIVED="$PWD/ios/DerivedData"

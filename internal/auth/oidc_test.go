@@ -424,3 +424,23 @@ func beginFlow(t *testing.T, idp *fakeIdP, provider *OIDCProvider, bindUserID, r
 // issuerHost is the Hub's own public hostname, which does not resolve inside
 // the test container's network namespace.
 const issuerHost = "kin.invalid"
+
+// T17: the authorization request asks for the minimal scope set. A wider
+// request would be a silent widening of what the Hub can do in the account's
+// name; the exact string is what the regression test pins.
+func TestOIDCBeginAsksMinimalScopes(t *testing.T) {
+	idp := newFakeIdP(t, "kin-client")
+	provider := newTestOIDCProvider(t, idp)
+
+	authURL, err := provider.Begin("", "/")
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	u, err := url.Parse(authURL)
+	if err != nil {
+		t.Fatalf("parse auth url: %v", err)
+	}
+	if got := u.Query().Get("scope"); got != "openid profile email" {
+		t.Fatalf("scope = %q, want the minimal %q", got, "openid profile email")
+	}
+}

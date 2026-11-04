@@ -18,6 +18,19 @@ export type AuthState =
   | { status: "need_token"; reason: "missing" | "unauthorized" }
   | { status: "need_account"; mode: AccountMode };
 
+/**
+ * A system-browser sign-in that is out in the browser right now (G9).
+ *
+ * The device key was generated when the flow started and has to still be in
+ * memory when the callback comes back, because the exchange presents the same
+ * value — that is the whole of the device binding. `open` is the shell's way
+ * out to the system browser; the console never navigates itself there.
+ */
+export type PendingAppSignIn = {
+  deviceKey: string;
+  open: (url: string) => void;
+};
+
 /** One sign-in method offered by the Hub. Empty on a standalone daemon. */
 export type AccountProvider = {
   id: string;
@@ -122,6 +135,9 @@ type AppState = {
   requireToken: (reason: "missing" | "unauthorized") => void;
   requireAccount: (mode: AccountMode) => void;
   setAccount: (account: AccountState) => void;
+  /** Set while an app sign-in is out in the system browser; null otherwise. */
+  pendingAppSignIn: PendingAppSignIn | null;
+  setPendingAppSignIn: (pending: PendingAppSignIn | null) => void;
   setWSStatus: (s: WSStatus) => void;
   noteReconnect: () => void;
   pushToast: (message: string, tone?: "error" | "info") => void;
@@ -156,6 +172,8 @@ export const useAppStore = create<AppState>((set) => ({
   requireToken: (reason) => set({ auth: { status: "need_token", reason } }),
   requireAccount: (mode) => set({ auth: { status: "need_account", mode } }),
   setAccount: (account) => set({ account }),
+  pendingAppSignIn: null,
+  setPendingAppSignIn: (pendingAppSignIn) => set({ pendingAppSignIn }),
   setWSStatus: (wsStatus) => set({ wsStatus }),
   noteReconnect: () => set((s) => ({ reconnectGen: s.reconnectGen + 1 })),
   pushToast: (message, tone = "error") => {

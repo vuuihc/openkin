@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -1138,5 +1139,215 @@ func TestEveryAuthErrorHasItsOwnCodeAndMessage(t *testing.T) {
 	}
 	if body := authError(unknown); body["error"] != genericMessage {
 		t.Errorf("authError(unknown) message = %q, want %q", body["error"], genericMessage)
+	}
+}
+
+// G9/T6: the device-bound login code a system-browser sign-in hands the app.
+// The full OAuth hop is covered by the auth package's fake IdP tests; what the
+// API owns is the shape of the exchange — device binding, single use, and that
+// the answer is a one-time link rather than a session.
+func mintLoginCodeForOwner(t *testing.T, s *Server, master, deviceKey string) string {
+	t.Helper()
+	user, _, err := s.Store.UserByIdentity(context.Background(), store.ProviderPassword, "owner@example.com")
+	if err != nil {
+		t.Fatalf("read owner: %v", err)
+	}
+	code, err := s.Accounts.NewLoginCode(context.Background(), user.ID, deviceKey)
+	if err != nil {
+		t.Fatalf("mint login code: %v", err)
+	}
+	_ = master
+	return code.Token
+}
+
+func TestLoginCodeExchangeAnswersWithOneTimeLink(t *testing.T) {
+	s, master, code := newAuthTestServer(t)
+	h := s.Handler()
+	owner := &authClient{t: t, h: h, master: master}
+	if rec := owner.post("/api/auth/bootstrap", `{"code":"`+code+`","email":"owner@example.com","password":"hunter2hunter2"}`); rec.Code != http.StatusOK {
+		t.Fatalf("claim: %d %s", rec.Code, rec.Body.String())
+	}
+
+	app := &authClient{t: t, h: h, master: master}
+	token := mintLoginCodeForOwner(t, s, master, "device-key-1")
+	rec := app.post("/api/auth/login-code/exchange", `{"code":"`+token+`","device_key":"device-key-1"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("exchange: %d %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		LoginToken string `json:"login_token"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode exchange: %v", err)
+	}
+	if len(body.LoginToken) != 64 {
+		t.Fatalf("login_token = %q, want a 64-hex one-time link token", body.LoginToken)
+	}
+	// The link is spendable — in the app's own webview, by the console.
+	if spend := app.post("/api/auth/login-link", `{"token":"`+body.LoginToken+`"}`); spend.Code != http.StatusOK {
+		t.Fatalf("spend link from exchange: %d %s", spend.Code, spend.Body.String())
+	}
+}
+
+func TestLoginCodeExchangeBindsTheCodeToItsDevice(t *testing.T) {
+	s, master, code := newAuthTestServer(t)
+	h := s.Handler()
+	owner := &authClient{t: t, h: h, master: master}
+	if rec := owner.post("/api/auth/bootstrap", `{"code":"`+code+`","email":"owner@example.com","password":"hunter2hunter2"}`); rec.Code != http.StatusOK {
+		t.Fatalf("claim: %d %s", rec.Code, rec.Body.String())
+	}
+
+	token := mintLoginCodeForOwner(t, s, master, "device-key-1")
+	// A different device presenting the same code learns nothing: the error is
+	// the same indistinguishable refusal, and no link is issued.
+	other := &authClient{t: t, h: h, master: master}
+	rec := other.post("/api/auth/login-code/exchange", `{"code":"`+token+`","device_key":"device-key-2"}`)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong device: %d %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode refusal: %v", err)
+	}
+	if body["code"] != "login_code_invalid" {
+		t.Fatalf("code = %q, want login_code_invalid", body["code"])
+	}
+	// The right device can still spend it: a wrong-device attempt must not
+	// consume the code, or a racing retry would lock the real phone out.
+	right := &authClient{t: t, h: h, master: master}
+	if rec := right.post("/api/auth/login-code/exchange", `{"code":"`+token+`","device_key":"device-key-1"}`); rec.Code != http.StatusOK {
+		t.Fatalf("right device after wrong attempt: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestLoginCodeExchangeIsSingleUse(t *testing.T) {
+	s, master, code := newAuthTestServer(t)
+	h := s.Handler()
+	owner := &authClient{t: t, h: h, master: master}
+	if rec := owner.post("/api/auth/bootstrap", `{"code":"`+code+`","email":"owner@example.com","password":"hunter2hunter2"}`); rec.Code != http.StatusOK {
+		t.Fatalf("claim: %d %s", rec.Code, rec.Body.String())
+	}
+
+	token := mintLoginCodeForOwner(t, s, master, "device-key-1")
+	app := &authClient{t: t, h: h, master: master}
+	first := app.post("/api/auth/login-code/exchange", `{"code":"`+token+`","device_key":"device-key-1"}`)
+	if first.Code != http.StatusOK {
+		t.Fatalf("first exchange: %d %s", first.Code, first.Body.String())
+	}
+	replay := app.post("/api/auth/login-code/exchange", `{"code":"`+token+`","device_key":"device-key-1"}`)
+	if replay.Code != http.StatusUnauthorized {
+		t.Fatalf("replayed exchange: %d %s", replay.Code, replay.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(replay.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode replay: %v", err)
+	}
+	if body["code"] != "login_code_invalid" {
+		t.Fatalf("replay code = %q, want login_code_invalid", body["code"])
+	}
+}
+
+// G9/T6: the app-flow branch of the OIDC callback, driven through a real
+// provider round trip. What is pinned here is the redirect shape an app flow
+// gets — the start URL carries the device key to the provider, the callback
+// lands on kin://auth-callback with a one-time device-bound code, no cookie is
+// set on the system browser, and the code exchanges for a link the app's own
+// webview can spend.
+func TestOIDCCallbackAppFlowRedirectsWithLoginCode(t *testing.T) {
+	s, master, code := newAuthTestServer(t)
+	h := s.Handler()
+	owner := &authClient{t: t, h: h, master: master}
+	if rec := owner.post("/api/auth/bootstrap", `{"code":"`+code+`","email":"owner@example.com","password":"hunter2hunter2"}`); rec.Code != http.StatusOK {
+		t.Fatalf("claim: %d %s", rec.Code, rec.Body.String())
+	}
+	user, _, err := s.Store.UserByIdentity(context.Background(), store.ProviderPassword, "owner@example.com")
+	if err != nil {
+		t.Fatalf("read owner: %v", err)
+	}
+
+	idp := newOIDCFakeIdP(t, "kin-client")
+	idp.SetClaims(map[string]any{
+		"email":          "owner@example.com",
+		"email_verified": true,
+		"name":           "The Owner",
+	})
+	provider, err := auth.NewOIDCProvider(context.Background(), auth.OIDCConfig{
+		Issuer:       idp.Issuer(),
+		ClientID:     "kin-client",
+		ClientSecret: "secret",
+		RedirectURL:  "https://kin.example.com/api/auth/oidc/callback",
+	})
+	if err != nil {
+		t.Fatalf("new oidc provider: %v", err)
+	}
+	s.OIDC = provider
+
+	// The identity will match the claimed account, so LoginIdentity is a plain
+	// success rather than a merge decision.
+	if err := s.Accounts.LinkIdentity(context.Background(), user.ID, auth.ExternalIdentity{
+		Provider: provider.Config().ProviderKey(), Subject: "subject-1",
+		Email: "owner@example.com", EmailVerified: true, Label: "Test",
+	}); err != nil {
+		t.Fatalf("link identity: %v", err)
+	}
+
+	// Start the app flow: device_key rides on the start URL.
+	start := &authClient{t: t, h: h, master: master}
+	rec := start.get("/api/auth/oidc/start?device_key=device-key-1")
+	if rec.Code != http.StatusFound {
+		t.Fatalf("start: %d %s", rec.Code, rec.Body.String())
+	}
+	providerURL, err := url.Parse(rec.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("parse provider url: %v", err)
+	}
+	if providerURL.Query().Get("device_key") != "device-key-1" {
+		t.Fatal("the provider URL does not carry the device key")
+	}
+	state, authCode := idp.complete(t, rec.Header().Get("Location"))
+
+	// The provider bounces back with the code and echoes device_key.
+	cb := &authClient{t: t, h: h, master: master}
+	rec = cb.get("/api/auth/oidc/callback?state=" + url.QueryEscape(state) +
+		"&code=" + url.QueryEscape(authCode) + "&device_key=device-key-1")
+	if rec.Code != http.StatusFound {
+		t.Fatalf("callback: %d %s", rec.Code, rec.Body.String())
+	}
+	target := rec.Header().Get("Location")
+	u, err := url.Parse(target)
+	if err != nil {
+		t.Fatalf("parse redirect: %v", err)
+	}
+	if u.Scheme != "kin" || u.Host != "auth-callback" {
+		t.Fatalf("redirect = %q, want kin://auth-callback", target)
+	}
+	if u.Query().Get("device_key") != "device-key-1" {
+		t.Fatal("the app callback does not carry the device key")
+	}
+	appCode := u.Query().Get("code")
+	if len(appCode) != 64 {
+		t.Fatalf("code = %q, want a 64-hex login code", appCode)
+	}
+	if cb.cookie != nil {
+		t.Fatal("an app flow set a session cookie on the system browser")
+	}
+
+	// The code exchanges for a one-time link the app's own webview spends.
+	exch := &authClient{t: t, h: h, master: master}
+	rec = exch.post("/api/auth/login-code/exchange", `{"code":"`+appCode+`","device_key":"device-key-1"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("exchange: %d %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		LoginToken string `json:"login_token"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode exchange: %v", err)
+	}
+	if spend := exch.post("/api/auth/login-link", `{"token":"`+body.LoginToken+`"}`); spend.Code != http.StatusOK {
+		t.Fatalf("spend link: %d %s", spend.Code, spend.Body.String())
+	}
+	if exch.cookie == nil {
+		t.Fatal("spending the link did not open a session in the app's webview")
 	}
 }

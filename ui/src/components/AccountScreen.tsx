@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { AuthError, claimOwner, joinHub, signIn, startOIDC } from "../api/account";
+import { AuthError, claimOwner, exchangeLoginCode, joinHub, signIn, signInWithLink, startOIDC } from "../api/account";
 import { authErrorText, CODE_FIELDS, prefilledCode } from "../lib/accountGate";
+import { hubConfigPlugin, newDeviceKey, parseAuthCallback, takeAuthCallback, type HubConfigPlugin } from "../lib/hubConfig";
 import { withoutClaimHash } from "../lib/loginLink";
 import { hasFinePointer } from "../lib/pointer";
 import { useT } from "../i18n/react";
@@ -171,6 +172,14 @@ export default function AccountScreen({ mode }: { mode: AccountMode }) {
   const oidcProviders = account.providers.filter((p) => p.kind === "oidc");
   const errorText = error ? authErrorText(error, tr) : null;
 
+  // The shell half of an app sign-in (G9): the device key and the opener live
+  // in the store while the flow is out in the system browser, and this effect
+  // polls for the callback that flow ends on. The poll starts the moment the
+  // screen mounts — an ASWebAuthenticationSession can complete before the
+  // person returns to the app, and cold-start callbacks land here the same way.
+  const plugin = hubConfigPlugin();
+  useAppSignInCallback(plugin, setError);
+
   return (
     <div className="touch-lg min-h-[100dvh] flex flex-col items-center justify-center px-safe py-10 bg-[var(--kin-page)] text-kin-text">
       <div className="w-full max-w-md space-y-6">
@@ -287,7 +296,7 @@ export default function AccountScreen({ mode }: { mode: AccountMode }) {
                 <span className="h-px flex-1 bg-kin-hairline-strong" />
               </div>
               {oidcProviders.map((provider) => (
-                <OIDCButton key={provider.id} provider={provider} label={tr} />
+                <OIDCButton key={provider.id} provider={provider} label={tr} plugin={plugin} />
               ))}
             </div>
           )}
@@ -359,17 +368,112 @@ export default function AccountScreen({ mode }: { mode: AccountMode }) {
 function OIDCButton({
   provider,
   label,
+  plugin,
 }: {
   provider: AccountProvider;
   label: ReturnType<typeof useT>;
+  plugin: HubConfigPlugin | null;
 }) {
+  const setPending = useAppStore((s) => s.setPendingAppSignIn);
   return (
     <button
       type="button"
-      onClick={() => startOIDC(provider, window.location.pathname)}
+      onClick={() => {
+        if (!plugin) {
+          startOIDC(provider, window.location.pathname);
+          return;
+        }
+        // The app flow (G9): keep the device key in memory, hand the shell the
+        // opener, and let startOIDC attach the key to the start URL. The
+        // callback effect below finishes the flow when the browser reports back.
+        setPending({ deviceKey: newDeviceKey(), open: (url) => void plugin.openSystemBrowser({ url }) });
+        startOIDC(provider, window.location.pathname);
+      }}
       className="w-full min-h-12 rounded-xl border border-kin-hairline-strong bg-kin-bg px-4 py-3 text-strong leading-5 font-medium text-kin-text hover:bg-kin-elevated active:scale-[0.99] transition"
     >
       {label("account.continueWith", { provider: provider.label })}
     </button>
   );
+}
+
+/**
+ * Poll for the system-browser callback and finish the flow it belongs to.
+ *
+ * Success spends the code on an exchange, then opens the one-time link it
+ * returns — the same reload the token screen does after pasting one, so the
+ * webview lands on the Hub origin with a first-party cookie. Failure shows the
+ * same stable-code error text a browser flow would. Both paths clear the
+ * pending flow first: a callback is consumed exactly once, and leaving the
+ * flow pending after it answered would start the next tap with a stale key.
+ */
+function useAppSignInCallback(
+  plugin: HubConfigPlugin | null,
+  setError: (error: { code: string; message: string } | null) => void,
+): void {
+  const pending = useAppStore((s) => s.pendingAppSignIn);
+  const setPending = useAppStore((s) => s.setPendingAppSignIn);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!plugin || !pending || busy) return;
+    let cancelled = false;
+    const poll = async () => {
+      const raw = await takeAuthCallback(plugin);
+      if (cancelled) return;
+      if (!raw) return;
+      const callback = parseAuthCallback(raw);
+      if (callback?.kind === "code" && callback.deviceKey === pending.deviceKey) {
+        setBusy(true);
+        setPending(null);
+        try {
+          const token = await exchangeLoginCode(callback.code, callback.deviceKey);
+          await signInWithLink(token);
+          // Hard reload so the webview re-binds WS and every page to the
+          // session the link just set.
+          window.location.reload();
+        } catch (err) {
+          setBusy(false);
+          window.dispatchEvent(
+            new CustomEvent("kin:app-sign-in-failed", {
+              detail: err instanceof AuthError ? { code: err.code, message: err.message } : null,
+            }),
+          );
+        }
+        return;
+      }
+      // A callback that does not match this flow (an error redirect, a stale
+      // key) still ends *a* flow — answer it and clear the pending one so the
+      // next tap starts clean.
+      setPending(null);
+      if (callback) {
+        const detail =
+          callback.kind === "error"
+            ? { code: callback.code, message: "" }
+            : { code: "sign_in_failed", message: "" };
+        window.dispatchEvent(new CustomEvent("kin:app-sign-in-failed", { detail }));
+      }
+    };
+    const timer = window.setInterval(() => void poll(), 400);
+    void poll();
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [plugin, pending, busy, setPending]);
+
+  // The exchange's failure has no form to land in — the person is staring at
+  // this screen after coming back from the browser — so it arrives as an event
+  // and joins the same error line the form's own failures use.
+  useEffect(() => {
+    if (!plugin) return;
+    const onFailed = (event: Event) => {
+      const detail = (event as CustomEvent<{ code?: string; message?: string } | null>).detail;
+      setError({
+        code: detail?.code || "sign_in_failed",
+        message: detail?.message || "",
+      });
+    };
+    window.addEventListener("kin:app-sign-in-failed", onFailed);
+    return () => window.removeEventListener("kin:app-sign-in-failed", onFailed);
+  }, [plugin, setError]);
 }

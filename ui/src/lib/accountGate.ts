@@ -22,6 +22,7 @@ export const AUTH_ERROR_CODES = [
   "claim_code_invalid",
   "invite_invalid",
   "login_link_invalid",
+  "login_code_invalid",
   "registration_closed",
   "identity_not_linked",
   "weak_password",

@@ -1498,6 +1498,18 @@ const en: MessageTree = {
     whereSettingsHint: "(or reveal/copy token there)",
     whereTerminal: "From the terminal:",
     whereServe: "the open URL printed by",
+    hubTitle: "Which Hub is yours?",
+    hubBlurb:
+      "Paste the address your agent printed when it installed the Hub. It looks like https://kin.example.com.",
+    hubLabel: "Hub address",
+    hubPlaceholder: "https://kin.example.com",
+    hubConnect: "Use this Hub",
+    hubInsecureTitle: "This address is not HTTPS",
+    hubInsecureBody:
+      "Over the internet that means the network between you and the Hub can read everything, including the password you sign in with. Use HTTPS unless this Hub is only on your local network.",
+    hubInsecureConfirm: "Continue anyway",
+    hubInvalid: "That does not look like a Hub address. It should start with https:// or http://.",
+    hubChanged: "Opening your Hub…",
   },
   account: {
     claimTitle: "Claim this Hub",
@@ -1545,6 +1557,7 @@ const en: MessageTree = {
       claim_code_invalid: "That claim code is not valid or has expired.",
       invite_invalid: "That invitation is not valid or has expired.",
       login_link_invalid: "This sign-in link is not valid or has expired. Ask your agent for a new one.",
+      login_code_invalid: "This sign-in attempt is no longer valid. Start again from the app.",
       registration_closed: "This Hub already has an owner. Sign in instead.",
       identity_not_linked:
         "This sign-in isn't linked to an account here yet. Sign in with your password, then link it under Settings → Account.",

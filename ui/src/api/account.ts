@@ -172,6 +172,31 @@ export async function signInWithLink(token: string): Promise<void> {
   }
 }
 
+/**
+ * Swap a system-browser sign-in's code for a one-time login link (G9).
+ *
+ * The link, not a session token, is what comes back: the shell's webview opens
+ * it like any sign-in link, the cookie it sets is first-party for the Hub
+ * origin that webview is on, and the code itself was device-bound and
+ * single-use. What never crosses this call is the provider's authorization
+ * code or the browser's cookie — the exchange consumed both server-side.
+ */
+export async function exchangeLoginCode(code: string, deviceKey: string): Promise<string> {
+  try {
+    const res = await apiFetch<{ login_token?: string }>("/api/auth/login-code/exchange", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, device_key: deviceKey }),
+    });
+    if (!res?.login_token) {
+      throw new AuthError("sign_in_failed", "the exchange returned no login link");
+    }
+    return res.login_token;
+  } catch (err) {
+    throw toAuthError(err);
+  }
+}
+
 export async function signIn(email: string, password: string): Promise<void> {
   try {
     await apiFetch("/api/auth/login", {
@@ -264,12 +289,26 @@ export async function signOut(): Promise<void> {
 }
 
 /**
- * Begin an OIDC sign-in. This is a full-page navigation, not a fetch: the
- * provider needs to own the address bar for its own redirect dance.
+ * Begin an OIDC sign-in.
+ *
+ * In a browser this is a full-page navigation: the provider needs to own the
+ * address bar for its own redirect dance. Inside the native shell the address
+ * bar is the system browser's (G9) — the shell opens the start URL there, the
+ * callback lands on kin://auth-callback, and the account screen picks the flow
+ * up from the pending callback. The device key travels on the start URL and
+ * comes back with the code; the caller keeps it in memory in between.
  */
 export function startOIDC(provider: AccountProvider, returnTo = "/"): void {
   const base = provider.start_url || "/api/auth/oidc/start";
   const target = new URL(base, window.location.origin);
   target.searchParams.set("return_to", returnTo);
+  const pending = useAppStore.getState().pendingAppSignIn;
+  if (pending) {
+    target.searchParams.set("device_key", pending.deviceKey);
+    // The shell opens the URL externally; navigating this page away would
+    // lose the flow that is about to hand the callback back.
+    pending.open(target.toString());
+    return;
+  }
   window.location.assign(target.toString());
 }

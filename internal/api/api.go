@@ -322,6 +322,9 @@ func (s *Server) Handler() http.Handler {
 	// from the URL fragment; the token never reaches the server as part of a
 	// page request, so link previews and access logs cannot replay it.
 	r.Post("/api/auth/login-link", s.handleAuthLoginLink)
+	// The native shell swaps a system-browser sign-in's device-bound code for
+	// the one-time link its own webview then opens (G9).
+	r.Post("/api/auth/login-code/exchange", s.handleAuthLoginCodeExchange)
 	r.Post("/api/auth/logout", s.handleAuthLogout)
 	r.Get("/api/auth/me", s.handleAuthMe)
 	r.Get("/api/auth/oidc/start", s.handleOIDCStart)

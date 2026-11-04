@@ -31,6 +31,13 @@ const (
 	// the link, open it", and a new one costs one command.
 	DefaultLoginLinkTTL = 30 * time.Minute
 
+	// DefaultLoginCodeTTL bounds the system-browser callback hop (T6): the app
+	// is in the foreground holding an ASWebAuthenticationSession result, and
+	// the exchange happens immediately. Five minutes covers a slow handoff
+	// between browser and app; anything longer only extends the life of a
+	// credential that was never meant to be stored.
+	DefaultLoginCodeTTL = 5 * time.Minute
+
 	// minPasswordLen is a floor, not a policy. The Hub is single-owner and
 	// reachable from the internet, so a trivially short password is worth
 	// rejecting outright; beyond that, length is the user's call.
@@ -103,6 +110,13 @@ var ErrAccountNotFound = errors.New("auth: no password account with that email")
 // endpoint that spends it is unauthenticated.
 var ErrLoginLinkUnavailable = errors.New("auth: this sign-in link is not valid")
 
+// ErrLoginCodeUnavailable means the supplied device-bound login code is
+// unknown, expired, already spent, bound to a different device, or its account
+// has since been disabled. Like ErrLoginLinkUnavailable, the cases are
+// deliberately indistinguishable: the endpoint that spends it is
+// unauthenticated.
+var ErrLoginCodeUnavailable = errors.New("auth: this sign-in code is not valid")
+
 // ErrAccountDisabled means a link was requested for an account that has been
 // switched off. Only the operator's CLI can ask, so saying so is safe and
 // names the real reason instead of sending them looking for a typo.
@@ -140,6 +154,7 @@ type Config struct {
 	BootstrapTTL time.Duration
 	InviteTTL    time.Duration
 	LoginLinkTTL time.Duration
+	LoginCodeTTL time.Duration
 	Now          func() time.Time
 }
 
@@ -162,6 +177,9 @@ func New(st *store.Store, cfg Config) *Service {
 	}
 	if cfg.LoginLinkTTL <= 0 {
 		cfg.LoginLinkTTL = DefaultLoginLinkTTL
+	}
+	if cfg.LoginCodeTTL <= 0 {
+		cfg.LoginCodeTTL = DefaultLoginCodeTTL
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
@@ -599,6 +617,82 @@ func (s *Service) ConsumeLoginLink(ctx context.Context, token string, meta Sessi
 		return Session{}, ErrLoginLinkUnavailable
 	}
 	return s.openSession(ctx, user, meta)
+}
+
+// LoginCode is a freshly minted device-bound login code. Like LoginLink, Token
+// is the only time the raw secret exists in memory.
+type LoginCode struct {
+	Token string
+}
+
+// NewLoginCode mints the device-bound code a system-browser sign-in hands back
+// to the native app (G9/T6). userID is the account the OAuth callback already
+// authenticated and deviceKey is an app-generated random string that never
+// leaves the app except to start the flow and spend the code.
+//
+// The returned code travels on the app's own callback scheme — a hop no server
+// log, proxy, or Referer sees — and is spent once, within LoginCodeTTL, by the
+// one device key that started the flow.
+func (s *Service) NewLoginCode(ctx context.Context, userID, deviceKey string) (LoginCode, error) {
+	if strings.TrimSpace(deviceKey) == "" {
+		return LoginCode{}, fmt.Errorf("auth: a login code needs a device key")
+	}
+	user, err := s.store.GetUser(ctx, userID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return LoginCode{}, ErrAccountNotFound
+		}
+		return LoginCode{}, err
+	}
+	if user.DisabledAt != nil {
+		return LoginCode{}, ErrAccountDisabled
+	}
+	token, err := NewToken()
+	if err != nil {
+		return LoginCode{}, err
+	}
+	now := s.now()
+	if err := s.store.IssueLoginCode(ctx, HashToken(token), deviceKey, userID,
+		now.UnixMilli(), now.Add(s.cfg.LoginCodeTTL).UnixMilli()); err != nil {
+		return LoginCode{}, err
+	}
+	return LoginCode{Token: token}, nil
+}
+
+// ExchangeLoginCode spends a device-bound code and opens a session. It is the
+// first authenticated thing a fresh install does, so it gets the same
+// indistinguishable-error treatment as every other unauthenticated path:
+// unknown, expired, spent, wrong-device, and disabled all answer
+// ErrLoginCodeUnavailable.
+//
+// What comes back is a one-time login link, not a session: the app opens the
+// link in its own webview, where the cookie the session sets is first-party
+// for the Hub origin the webview is on. Handing the session token across the
+// bridge instead would put a live 30-day credential into code the console
+// only half-controls.
+func (s *Service) ExchangeLoginCode(ctx context.Context, token, deviceKey string, meta SessionMeta) (LoginLink, error) {
+	token = strings.TrimSpace(token)
+	deviceKey = strings.TrimSpace(deviceKey)
+	if token == "" || deviceKey == "" {
+		return LoginLink{}, ErrLoginCodeUnavailable
+	}
+	userID, err := s.store.ConsumeLoginCode(ctx, HashToken(token), deviceKey, s.now().UnixMilli())
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return LoginLink{}, ErrLoginCodeUnavailable
+		}
+		return LoginLink{}, err
+	}
+	link, err := s.IssueLoginLink(ctx, userID)
+	if err != nil {
+		if errors.Is(err, ErrAccountDisabled) || errors.Is(err, ErrAccountNotFound) {
+			// The account was disabled between the callback and the exchange.
+			// The code is spent either way; answer like any other failure.
+			return LoginLink{}, ErrLoginCodeUnavailable
+		}
+		return LoginLink{}, err
+	}
+	return link, nil
 }
 
 // LoginIdentity resolves a federated login to its account. An unknown identity

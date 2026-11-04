@@ -9,6 +9,8 @@ import Capacitor
 final class KinBridgeViewController: CAPBridgeViewController {
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(KinNativePushPlugin())
+        // Runtime Hub URL and system-browser sign-in (G8/G9).
+        bridge?.registerPluginInstance(KinHubConfigPlugin())
         if let webView = bridge?.webView {
             KinPushState.shared.attach(webView)
         }

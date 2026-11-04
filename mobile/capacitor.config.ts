@@ -11,31 +11,51 @@ import type { CapacitorConfig } from "@capacitor/cli";
  * origin, so login, and every relative /api call, behave exactly as they do in
  * a browser. The Electron desktop shell already works this way.
  *
- * The Hub origin is baked in at sync time, so this is per-deployment: build the
- * app against the domain your Hub is reachable at.
+ * The Hub origin is a fact about where the person's Hub is, not about which
+ * build they installed (G8). KIN_HUB_URL, when given, is only the origin the
+ * app opens first; at runtime the origin lives in the app's own settings —
+ * typed, scanned, or deep-linked on the connect screen, changeable in
+ * Settings, persisted by the shell (KinHubConfig plugin). One universal build
+ * works for every deployment, hosted or self-hosted.
+ *
+ * The build-time value is therefore optional. When absent the app boots on its
+ * bundled console (`webDir`), which shows the connect screen; the bundled copy
+ * also serves as the fallback when a stored Hub cannot be reached.
  */
 const hubUrl = process.env.KIN_HUB_URL;
-if (!hubUrl) {
-  throw new Error(
-    "Set KIN_HUB_URL to the origin your Hub is served at, e.g.\n" +
-      "  KIN_HUB_URL=https://kin.example.com npm run sync",
-  );
+if (hubUrl !== undefined && hubUrl !== "") {
+  // Fail at build time on something that would silently not work.
+  const parsed = new URL(hubUrl);
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error(`KIN_HUB_URL must be an http(s) origin, got: ${hubUrl}`);
+  }
 }
-const origin = new URL(hubUrl);
+
+const origin = hubUrl ? new URL(hubUrl) : null;
 
 const config: CapacitorConfig = {
   appId: "dev.openkin.ios",
   appName: "Kin",
-  // Still shipped inside the app: if the Hub cannot be reached on launch, the
-  // user sees the console's own connection screen instead of a blank webview.
+  // Still shipped inside the app: the first-run connect screen, and the
+  // fallback a phone falls back to when its Hub cannot be reached.
   webDir: "../web/dist",
-  server: {
-    url: hubUrl,
-    allowNavigation: [origin.host],
-    // A Hub on the LAN over plain http is a normal way to run this while
-    // setting the NAS up; iOS blocks it unless the app says otherwise.
-    cleartext: origin.protocol === "http:",
-  },
+  // allowNavigation cannot name every Hub a build may point at — that is the
+  // point of the runtime URL — so any https origin (and http for a LAN Hub)
+  // may take over the webview. The scheme a hostile page could reach the
+  // bridge through is not widened by this: Capacitor only honors http(s)
+  // navigations here, and the bundled console is still what executes first.
+  allowNavigation: ["*"],
+  ...(origin
+    ? {
+        server: {
+          url: origin.href,
+          allowNavigation: [origin.host],
+          // A Hub on the LAN over plain http is a normal way to run this while
+          // setting the NAS up; iOS blocks it unless the app says otherwise.
+          cleartext: origin.protocol === "http:",
+        },
+      }
+    : {}),
   ios: {
     // "never", not Capacitor's other insets: the console already pads itself
     // for the notch and the home indicator with env(safe-area-inset-*), and it

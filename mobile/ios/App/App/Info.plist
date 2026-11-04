@@ -29,6 +29,17 @@
 	<false/>
 	<!-- Sandbox or production APNs, from the same build setting the
 	     aps-environment entitlement uses. Read by KinNativePushPlugin. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>dev.openkin.ios.auth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>kin</string>
+			</array>
+		</dict>
+	</array>
 	<key>KinAPNsEnvironment</key>
 	<string>$(APS_ENVIRONMENT)</string>
 	<key>LSRequiresIPhoneOS</key>

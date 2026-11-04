@@ -723,6 +723,77 @@ func (s *Store) ConsumeLoginToken(ctx context.Context, tokenHash string, now int
 	return userID, nil
 }
 
+// IssueLoginCode stores a short-lived device-bound login code (T6): the one
+// credential a system-browser sign-in hands back to the native app. The hash
+// and the device key are stored, never the code itself, and the device key is
+// what makes the code worthless on any phone but the one that started the flow.
+//
+// userID is the account the OAuth callback already authenticated; writing it at
+// issue time (rather than resolving an email at exchange time) means the
+// exchange is a lookup, not a second matching decision a caller could steer.
+//
+// Codes are not links: a link is spent by a POST from any browser on the
+// origin, while a code is spent by the app that first showed up asking for it.
+// That binding is why no "retire the account's older codes" step exists — the
+// natural revocation is per-device, and an account-level sweep would break two
+// phones signing in at once.
+func (s *Store) IssueLoginCode(ctx context.Context, codeHash, deviceKey, userID string, now, expiresAt int64) error {
+	if codeHash == "" || deviceKey == "" || userID == "" || expiresAt <= now {
+		return fmt.Errorf("invalid login code")
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO login_codes (code_hash, device_key, user_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?)`,
+		codeHash, deviceKey, userID, now, expiresAt); err != nil {
+		return fmt.Errorf("insert login code: %w", err)
+	}
+	return nil
+}
+
+// ConsumeLoginCode atomically spends a login code for one device and returns
+// the account the flow authenticated. ErrNotFound covers unknown, expired,
+// already-used, and wrong-device codes, so an unauthenticated caller cannot
+// tell them apart.
+//
+// Single use is the same two-sided check ConsumeLoginToken uses: the read
+// refuses a spent row and the conditional UPDATE only matches an unspent one.
+func (s *Store) ConsumeLoginCode(ctx context.Context, codeHash, deviceKey string, now int64) (string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", fmt.Errorf("begin consume login code: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var userID string
+	var expiresAt int64
+	var usedAt sql.NullInt64
+	err = tx.QueryRowContext(ctx,
+		`SELECT user_id, expires_at, used_at FROM login_codes WHERE code_hash = ? AND device_key = ?`,
+		codeHash, deviceKey).
+		Scan(&userID, &expiresAt, &usedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("read login code: %w", err)
+	}
+	if usedAt.Valid || expiresAt <= now {
+		return "", ErrNotFound
+	}
+	res, err := tx.ExecContext(ctx,
+		`UPDATE login_codes SET used_at = ? WHERE code_hash = ? AND device_key = ? AND used_at IS NULL`,
+		now, codeHash, deviceKey)
+	if err != nil {
+		return "", fmt.Errorf("consume login code: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return "", ErrNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("commit consume login code: %w", err)
+	}
+	return userID, nil
+}
+
 // HasActiveBootstrapToken reports whether an unspent, unexpired code exists.
 // The Hub uses it to decide between "claim me" and "log in".
 func (s *Store) HasActiveBootstrapToken(ctx context.Context, now int64) (bool, error) {

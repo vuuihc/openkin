@@ -2667,6 +2667,9 @@ func (s *Store) ensureCurrentSchema() error {
 	if err := s.ensureLoginLinkSchema(); err != nil {
 		return err
 	}
+	if err := s.ensureLoginCodeSchema(); err != nil {
+		return err
+	}
 	if err := s.ensureDeviceAgentSchema(); err != nil {
 		return err
 	}
@@ -2977,6 +2980,35 @@ CREATE INDEX IF NOT EXISTS idx_login_tokens_user
   ON login_tokens(user_id, used_at);
 `); err != nil {
 		return fmt.Errorf("create login_tokens: %w", err)
+	}
+	return nil
+}
+
+// ensureLoginCodeSchema creates the device-bound login-code table, on every
+// open, for databases written before it existed — the same pattern as the two
+// tables above it, and for the same reason: a column that only ever needs to
+// exist is cheaper to assert on every open than to version.
+//
+// A login code is the short-lived credential a system-browser sign-in hands
+// back to the native app (T6). It is stored like a login link — hash only,
+// short TTL, single use — with one difference: the device key that must match
+// the phone spending it. user_id is written at issue time (the OAuth callback
+// already knows the account) and read by the exchange, so no unauthenticated
+// caller can move a code between accounts.
+func (s *Store) ensureLoginCodeSchema() error {
+	if _, err := s.db.Exec(`
+CREATE TABLE IF NOT EXISTS login_codes (
+  code_hash  TEXT PRIMARY KEY,
+  device_key TEXT NOT NULL,
+  user_id    TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at    INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_login_codes_expiry
+  ON login_codes(expires_at);
+`); err != nil {
+		return fmt.Errorf("create login_codes: %w", err)
 	}
 	return nil
 }
