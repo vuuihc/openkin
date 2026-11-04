@@ -112,6 +112,55 @@ seen: 2
 
 证据：`d9026cd5`
 
+## 2026-11-04 · 验收探针只能把本次受邀回合自己的输出算作证据
+seen: 1
+
+发生了什么：W4 的 step 4 用探针 prompt 的回显就能满足 live text 断言，按片段做的过滤又被拆开的回显
+绕过，第四轮复审才发现（`f2fe9bfd`）。W4b 的 step 5 连续四轮各被找出一个新的伪通过口：审批列表读不
+出来也记 skip，没有 tool 证据的回合也记 skip，上一回合的 tool_use 也能顶替，空基线让整份日志都像本回合
+（`f4eb8774`、`891a7beb`、`0d01b702`、`f21c297c`）。五次复审、mutant 从 15 加到 28 才收敛。
+
+为什么没拦住：判 pass/skip 时只看"有没有出现某个信号"，没有先问"这个信号是不是这次邀请产生的"；
+基线不可读、为空、身份重复时又选了 skip 而不是失败。
+
+规则：验收探针判一步通过前，先把探针自己的输入（prompt 回显）、历史回合和上一次基线从证据里剔除；
+只接受基线之后、属于本次受邀回合的输出；基线不可读、为空或身份重复时失败，不跳过；每个伪通过口
+配一个负向用例和一个 mutant。
+
+证据：`f2fe9bfd`、`f4eb8774`、`891a7beb`、`0d01b702`、`f21c297c`（2026-11-02）
+
+## 2026-11-04 · 改到 iOS 壳层就在合并前编译一次 Release
+seen: 1
+
+发生了什么：`cf556915` 新增的 `KinPushState` / `KinNativePushPlugin`（397 行 Swift）把
+`Result<String, String>` 当 `Result.Failure` 用；Swift 要求 Failure 满足 `Error`，这个 target 根本
+编译不过。第二天 `92027ed7` 才包出 `KinPushError`，并注明用 Release archive 加导出 IPA 验证；
+main 上的 iOS 壳层有半天多不能编译。
+
+为什么没拦住：同一次提交的 Go 测试、Vitest、`tsc` 都不编译 Swift；`scripts/check.sh` 和 CI 也没有
+iOS 构建这一步，绿色 gate 只证明了别的平台。
+
+规则：改动 `mobile/ios/`（或任何原生壳层）时，合并前至少跑一次该平台的 Release 编译/归档；JS、Go
+与单元测试不能替代平台构建；提交正文写出实际跑过的构建命令与产物。
+
+证据：`92027ed7`（2026-11-04，修复 `cf556915`，2026-11-03）
+
+## 2026-11-04 · 新模块要在同一个提交里进 gate 的模块清单
+seen: 1
+
+发生了什么：W4 新增 `probe/kin-probe-w4` 后，`scripts/check.sh` 的 probe job 仍只跑
+`probe/kin-probe`；`4893e668` 把变更检测放宽到任意 `probe/*`，但执行清单还是写死的两个模块。
+W4b 新增 `probe/kin-probe-w4b` 后同样漏掉，`213a5683` 才补上第三个。W4b 报告自己也写着
+check.sh 的 probe 阶段只覆盖两个旧模块，新模块的 gofmt/vet/race 是手工跑的。
+
+为什么没拦住：nested Go module 不在根 `go test ./...` 里；改 `changed_probe_files` 只决定"要不要跑"，
+不决定"跑哪些"。gate 绿了，但新模块一次都没跑。
+
+规则：新增 nested module、独立 probe 目录或新 workspace 包时，在同一个提交里把它加进
+`scripts/check.sh` 的执行清单（不是只改变更检测的 glob），并让 gate 的输出能看出它跑过。
+
+证据：`4893e668`、`213a5683`（2026-11-02）
+
 ---
 
 ## 升级记录
@@ -124,6 +173,9 @@ seen: 2
 | 一次性焦点标记要在落点消费 | 1 | 未升级；第三次出现时进 `AGENTS.md` |
 | 弹出层的焦点要等它真的挂载 | 1 | 未升级；三处已有回归测试 |
 | 测试只证明元素在，不证明行为发生 | 2 | 未升级；已写进下面的评审协议（送审前 mutant） |
+| 验收探针只能把本次受邀回合自己的输出算作证据 | 1 | 未升级；28 个 mutant 在 `probe/kin-probe-w4b/mutants.json` |
+| 改到 iOS 壳层就在合并前编译一次 Release | 1 | 未升级；下次改 `mobile/ios/` 时按此执行 |
+| 新模块要在同一个提交里进 gate 的模块清单 | 1 | 未升级；`scripts/check.sh` 已补 W4b，第四个模块仍按此办 |
 
 ## 评审复盘与协议
 
