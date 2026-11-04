@@ -347,10 +347,10 @@ func HashToken(token string) string {
 // on, before any middleware has rewritten RemoteAddr from a forwarding header.
 type peerAddrKey struct{}
 
-// WithPeerAddr records the TCP peer. The server installs this ahead of
-// middleware.RealIP, because RealIP rewrites RemoteAddr from X-Forwarded-For,
-// X-Real-IP or True-Client-IP -- all caller-supplied -- and anything that keys
-// on "who is asking" must not be a value the asker chooses.
+// WithPeerAddr records the TCP peer: the connection's own address, which no
+// header can change. The server installs this ahead of everything else, before
+// any header is read, so a decision that must key on the connection always has
+// it -- see ClientIP for how the trusted-proxy setting picks between them.
 func WithPeerAddr(ctx context.Context, addr string) context.Context {
 	return context.WithValue(ctx, peerAddrKey{}, addr)
 }
@@ -364,16 +364,16 @@ func PeerAddr(ctx context.Context) string {
 // ClientIP is the address a per-caller decision is made about, and the one
 // recorded as a session's origin.
 //
-// It prefers the peer captured by WithPeerAddr over RemoteAddr, because
-// middleware.RealIP rewrites RemoteAddr from a header the caller chooses. The
-// cost is real and belongs in the open: a Hub behind a tunnel that does not
-// preserve the peer address sees every caller as one address, so they share one
-// budget. That is a trusted-proxy setting waiting to be written, not a reason to
-// trust the header -- trusting it is what makes the limit unenforceable, and the
-// limit guards password guessing as well as invitation guessing. The middleware
-// answers the obvious follow-up -- so one stranger can deny the owner their own
-// machine -- by resolving credentials before consulting the limiter, so a caller
-// holding a valid one is never counted against a shared budget.
+// The default is the peer captured by WithPeerAddr: the address the connection
+// itself came from, which no header the caller sent can change. A Hub that
+// trusts its reverse proxy sets TrustProxyHeaders, and RealIP (installed after
+// the capture) rewrites RemoteAddr from X-Forwarded-For before this runs; the
+// middleware chain then reads the rewritten RemoteAddr. Which of the two a
+// given server wants is one field on api.Server (T14): trusting the header
+// unconfigured is what makes the login limiter unenforceable, and ignoring it
+// behind a tunnel that does not preserve the peer address puts every caller in
+// one bucket -- the two failure modes are documented here because they are the
+// reason the choice is explicit.
 //
 // It is exported because there is exactly one answer to this question. A second
 // helper that read RemoteAddr directly, with a comment explaining that RealIP
@@ -381,7 +381,7 @@ func PeerAddr(ctx context.Context) string {
 // record whatever address the caller asked to be recorded as.
 func ClientIP(r *http.Request) string {
 	addr := r.RemoteAddr
-	if peer := PeerAddr(r.Context()); peer != "" {
+	if peer := PeerAddr(r.Context()); peer != "" && !trustedProxy(r.Context()) {
 		addr = peer
 	}
 	host, _, err := net.SplitHostPort(addr)
@@ -389,6 +389,23 @@ func ClientIP(r *http.Request) string {
 		return addr
 	}
 	return host
+}
+
+// trustProxyKey carries the server's TrustProxyHeaders decision down the
+// request. It is a context value rather than a field the middleware chain
+// would otherwise thread through, because the consumers (this limiter, the
+// session audit) sit in different packages.
+type trustProxyKey struct{}
+
+// WithTrustedProxy marks the request as arriving through a proxy whose
+// forwarding headers may be believed.
+func WithTrustedProxy(ctx context.Context) context.Context {
+	return context.WithValue(ctx, trustProxyKey{}, true)
+}
+
+func trustedProxy(ctx context.Context) bool {
+	v, _ := ctx.Value(trustProxyKey{}).(bool)
+	return v
 }
 
 type failLimiter struct {

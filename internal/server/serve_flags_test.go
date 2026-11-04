@@ -167,3 +167,19 @@ func TestResolveCheckoutRoot(t *testing.T) {
 		})
 	}
 }
+
+// G4: a Hub that sits behind an operator's reverse proxy binds its plain port
+// instead of 443. The flag parses, and the domain stays required — links are
+// still printed for the public hostname the proxy serves.
+func TestParseServeFlagsHubBehindProxy(t *testing.T) {
+	f, err := ParseServeFlags([]string{"--role", "hub", "--domain", "kin.example.com", "--behind-proxy"})
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !f.BehindProxy {
+		t.Fatal("behind-proxy not recorded")
+	}
+	if f.Domain != "kin.example.com" {
+		t.Fatalf("domain = %q", f.Domain)
+	}
+}

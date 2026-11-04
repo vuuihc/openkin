@@ -197,6 +197,14 @@ type Server struct {
 	ConnectURL  string // full URL with ?token= for QR
 	Token       string // initial token; prefer TokenFn
 	TokenFn     func() string
+
+	// TrustProxyHeaders marks the daemon as reached through a reverse proxy
+	// or tunnel the operator configured, whose X-Forwarded-For / -Proto
+	// headers may be believed. Without it the headers are ignored: a caller
+	// could claim any address, and per-IP rate limits would be theater.
+	// The daemon still records the true TCP peer ahead of RealIP, so the
+	// loopback-only bridges keep working either way.
+	TrustProxyHeaders bool
 }
 
 // RelayStatus is the Relay projection exposed to the master-only Settings UI.
@@ -262,16 +270,35 @@ func (s *Server) Handler() http.Handler {
 		})
 	}
 	r.Use(middleware.RequestID)
-	// Capture the true peer before RealIP so anything that keys on the caller --
-	// loopback enforcement under /internal/*, and the auth attempt limiter --
-	// reads the connection rather than a header. See remote.WithPeerAddr.
+	// CSP/HSTS/nosniff/Referrer-Policy on every answer, and a cross-site
+	// refusal for state-changing requests that carry another site's Origin.
+	// Both sit ahead of auth: a probe should read the policy even when it
+	// holds no credential (T12).
+	r.Use(securityHeaders)
+	r.Use(csrfGuard)
+	// Capture the connection's own address before anything reads a header.
+	// See remote.WithPeerAddr.
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			ctx := remote.WithPeerAddr(req.Context(), req.RemoteAddr)
+			// The forwarding headers are only believed when the operator said a
+			// proxy stands in front (T14). Everything downstream that keys on
+			// the caller -- the login limiter, the session audit -- reads the
+			// address this chain lands on; untrusted, that is always the
+			// connection, whatever a header claimed.
+			if s.TrustProxyHeaders {
+				ctx = remote.WithTrustedProxy(ctx)
+			}
 			next.ServeHTTP(w, req.WithContext(ctx))
 		})
 	})
-	r.Use(middleware.RealIP)
+	// X-Forwarded-For folds the whole proxy chain into RemoteAddr. That is the
+	// right thing only under the same trust the context flag above records:
+	// exposed directly, it would let a caller choose the address every per-IP
+	// decision sees.
+	if s.TrustProxyHeaders {
+		r.Use(middleware.RealIP)
+	}
 	r.Use(middleware.Recoverer)
 	// Gzip/deflate for API JSON and HTML/static text (M5 polish).
 	r.Use(middleware.Compress(5))

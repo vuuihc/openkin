@@ -85,6 +85,11 @@ type ServeFlags struct {
 	Role         string // standalone (default) or hub
 	Domain       string // public hostname; required for --role hub
 	ACMEEmail    string // Let's Encrypt contact address; optional
+	// BehindProxy puts the Hub on its plain --port behind an operator's
+	// reverse proxy/tunnel, which terminates TLS. It implies trusting the
+	// proxy's forwarding headers, because otherwise every caller shares one
+	// rate-limit bucket (T14).
+	BehindProxy bool
 	// HubURL makes this daemon a Node: it keeps serving this machine and also
 	// runs turns the named Hub dispatches here.
 	HubURL string
@@ -118,6 +123,11 @@ func ParseServeFlags(args []string) (ServeFlags, error) {
 	fs.StringVar(&f.Role, "role", RoleStandalone, "process role: standalone or hub")
 	fs.StringVar(&f.Domain, "domain", "", "public hostname for --role hub (e.g. kin.example.com)")
 	fs.StringVar(&f.ACMEEmail, "acme-email", "", "Let's Encrypt contact address for --role hub")
+	// Behind an existing reverse proxy or tunnel: the Hub binds its plain
+	// --port instead of 443 and lets the front terminate TLS. The forwarding
+	// headers are then trusted (T14), and the certificate manager stands down.
+	fs.BoolVar(&f.BehindProxy, "behind-proxy", false,
+		"--role hub: serve on --port behind an operator-configured reverse proxy instead of terminating TLS")
 	fs.StringVar(&f.HubURL, "hub", "", "run turns for this Hub (makes this machine a Node)")
 	fs.StringVar(&f.NodeToken, "token", "", "device token for --hub; defaults to ~/.kin/node-token")
 	var roots stringList
@@ -497,24 +507,37 @@ func ServeWith(version string, flags ServeFlags) error {
 	auth := remote.NewFileAuth(tokenPath)
 	mode := networkMode(flags)
 
-	// A Hub owns accounts and terminates its own TLS. A standalone daemon does
-	// neither: it keeps the token-only behavior it has always had, so nothing
-	// about local use changes.
+	// A Hub owns accounts. It terminates its own TLS unless the operator runs
+	// it behind a proxy that does (--behind-proxy). A standalone daemon keeps
+	// the token-only behavior it has always had, so nothing about local use
+	// changes.
 	var hub *remote.Hub
 	var accounts *authsvc.Service
 	var oidcProvider *authsvc.OIDCProvider
 	if flags.Role == RoleHub {
-		hub, err = remote.NewHub(remote.HubConfig{
-			Domain:   flags.Domain,
-			Email:    flags.ACMEEmail,
-			StateDir: stateDir,
-		})
-		if err != nil {
-			return err
+		// Behind an operator's proxy or tunnel the Hub does not terminate TLS:
+		// no certificate manager, no challenge port, one plain listener on the
+		// --port the proxy forwards to. TLS and the domain stay facts about
+		// the front, which is where their errors are diagnosed (G4). The
+		// forwarding headers are trusted below, or the login limiter would
+		// put every caller in one bucket (T14).
+		if !flags.BehindProxy {
+			hub, err = remote.NewHub(remote.HubConfig{
+				Domain:   flags.Domain,
+				Email:    flags.ACMEEmail,
+				StateDir: stateDir,
+			})
+			if err != nil {
+				return err
+			}
+			defer func() { _ = hub.Close() }()
 		}
-		defer func() { _ = hub.Close() }()
 
 		accounts = authsvc.New(st, authsvc.Config{})
+		// Dex's backchannel knows the public issuer URL but cannot resolve it
+		// from inside the container; behind a proxy the same address must
+		// reach the provider by whatever name the proxy answers on, so the
+		// issuer still comes from the environment and not the domain flag.
 		oidcProvider, err = buildOIDCProvider(context.Background(), hub)
 		if err != nil {
 			return err
@@ -603,14 +626,15 @@ func ServeWith(version string, flags ServeFlags) error {
 	nodeQueries = node.NewQueries()
 
 	srvAPI := &api.Server{
-		Store:      st,
-		Auth:       auth,
-		Accounts:   accounts,
-		OIDC:       oidcProvider,
-		Engine:     eng,
-		Agents:     reg,
-		Connectors: connectorManager,
-		GitHub:     githubService,
+		Store:             st,
+		Auth:              auth,
+		Accounts:          accounts,
+		OIDC:              oidcProvider,
+		Engine:            eng,
+		Agents:            reg,
+		Connectors:        connectorManager,
+		GitHub:            githubService,
+		TrustProxyHeaders: flags.BehindProxy,
 		RunRoutine: func(c context.Context, id string) (store.Task, error) {
 			return routineScheduler.RunNow(c, id)
 		},
@@ -852,7 +876,12 @@ func ServeWith(version string, flags ServeFlags) error {
 		transports = append(transports, remote.Loopback{})
 	}
 	if hub != nil {
-		transports = append(transports, hub)
+		// --behind-proxy: no TLS listener of our own. The loopback/lan listener
+		// below is the whole front; the proxy in front of it carries the
+		// certificate and forwards to --port.
+		if !flags.BehindProxy {
+			transports = append(transports, hub)
+		}
 	}
 
 	var tsTransport *remotetsnet.Transport
@@ -1058,6 +1087,8 @@ func ServeWith(version string, flags ServeFlags) error {
 	// Serve all listeners. TLSConfig must be set before any Serve call, so it
 	// is assigned here rather than inside the loop.
 	httpServer := &http.Server{Handler: handler}
+	// --behind-proxy leaves hub nil on purpose: the proxy owns TLS and the
+	// challenge port, so neither is configured here.
 	if hub != nil {
 		httpServer.TLSConfig = hub.TLSConfig()
 		if err := hub.StartChallengeServer(); err != nil {
