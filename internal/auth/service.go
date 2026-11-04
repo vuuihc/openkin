@@ -604,16 +604,32 @@ func (s *Service) ConsumeLoginLink(ctx context.Context, token string, meta Sessi
 // LoginIdentity resolves a federated login to its account. An unknown identity
 // is refused on a claimed Hub rather than silently creating a second account:
 // the alternative lets any GitHub user who can reach the URL take ownership.
+//
+// The one exception is D3's same-verified-email merge: when the provider
+// asserts the address as verified and exactly one live account already carries
+// it, the identity binds to that account instead of being refused. Two
+// accounts sharing the address is ambiguous rather than convenient -- picking
+// one would sign somebody into another person's Hub -- so multiple matches
+// keep the refusal and the explicit link path. An unverified address never
+// merges: a provider that did not check the mailbox asserted nothing worth
+// binding an account to.
 func (s *Service) LoginIdentity(ctx context.Context, ident ExternalIdentity, meta SessionMeta) (Session, error) {
 	if err := validateExternalIdentity(ident); err != nil {
 		return Session{}, err
 	}
 	user, identity, err := s.store.UserByIdentity(ctx, ident.Provider, ident.Subject)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			return Session{}, ErrIdentityNotLinked
+		if !errors.Is(err, store.ErrNotFound) {
+			return Session{}, err
 		}
-		return Session{}, err
+		merged, merr := s.mergeByEmail(ctx, ident, meta)
+		if merr != nil {
+			if errors.Is(merr, ErrIdentityNotLinked) {
+				return Session{}, ErrIdentityNotLinked
+			}
+			return Session{}, merr
+		}
+		return merged, nil
 	}
 	_ = s.store.TouchIdentity(ctx, identity.ID, s.now().UnixMilli())
 	// The provider may have verified the address since the account was created;
@@ -626,6 +642,54 @@ func (s *Service) LoginIdentity(ctx context.Context, ident ExternalIdentity, met
 		user.EmailSource = ident.Provider
 	}
 	return s.openSession(ctx, user, meta)
+}
+
+// mergeByEmail binds a provider identity to the one live account whose address
+// matches the provider's verified assertion. It returns ErrIdentityNotLinked
+// when there is no unambiguous match: no account, more than one, or one that
+// is disabled or deleted. Binding goes through AddIdentity, the same write the
+// explicit link path uses, so an account acquires the credential by exactly
+// one road; the difference is who vouched for the address -- the provider's
+// verification instead of a live session.
+//
+// The match is decided on the password identity first, because that subject
+// *is* the address; falling back to users.email covers accounts that only
+// sign in through another provider. Disabled accounts are refused, not
+// revived: D3 names that flow as its own next step.
+func (s *Service) mergeByEmail(ctx context.Context, ident ExternalIdentity, meta SessionMeta) (Session, error) {
+	if !ident.EmailVerified || NormalizeEmail(ident.Email) == "" {
+		return Session{}, ErrIdentityNotLinked
+	}
+	email := NormalizeEmail(ident.Email)
+	var match *store.User
+	if user, _, err := s.store.UserByIdentity(ctx, store.ProviderPassword, email); err == nil {
+		match = &user
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return Session{}, err
+	}
+	if match == nil {
+		users, err := s.store.ListUsers(ctx)
+		if err != nil {
+			return Session{}, err
+		}
+		for i := range users {
+			if NormalizeEmail(users[i].Email) == email {
+				if match != nil {
+					// Two accounts carry the address. The refusal is the D3
+					// answer: sign in to one of them and link explicitly.
+					return Session{}, ErrIdentityNotLinked
+				}
+				match = &users[i]
+			}
+		}
+	}
+	if match == nil || match.DisabledAt != nil {
+		return Session{}, ErrIdentityNotLinked
+	}
+	if err := s.LinkIdentity(ctx, match.ID, ident); err != nil {
+		return Session{}, err
+	}
+	return s.openSession(ctx, *match, meta)
 }
 
 // LinkIdentity attaches a federated login to the signed-in account. This is the

@@ -483,24 +483,60 @@ func TestLogoutKeepsOtherSessions(t *testing.T) {
 	}
 }
 
-func TestLoginIdentityRefusesUnlinkedIdentityOnClaimedHub(t *testing.T) {
+func TestLoginIdentityMergesSameVerifiedEmail(t *testing.T) {
 	svc, st := newTestService(t)
 	ctx := context.Background()
-	claimOwner(t, svc, st, "owner@example.com", "hunter2hunter2")
+	claimOwner(t, svc, st, "Owner@Example.com", "hunter2hunter2")
 
-	// The provider asserts the owner's own verified address. That must still not
-	// be enough: matching on email is exactly the merge this model forbids.
-	_, err := svc.LoginIdentity(ctx, ExternalIdentity{
+	// D3 (2026-11-04): a provider asserting the owner's own address as
+	// *verified* binds the new identity to that account instead of refusing.
+	// Matching normalizes case and whitespace; it never creates a second
+	// account.
+	session, err := svc.LoginIdentity(ctx, ExternalIdentity{
+		Provider:      "oidc:https://github.com",
+		Subject:       "12345",
+		Email:         "  owner@example.com ",
+		EmailVerified: true,
+	}, SessionMeta{})
+	if err != nil {
+		t.Fatalf("same verified email = %v, want a session", err)
+	}
+	if session.User.Email != "owner@example.com" {
+		t.Fatalf("session user = %q, want the owner account", session.User.Email)
+	}
+	count, err := st.CountUsers(ctx)
+	if err != nil {
+		t.Fatalf("count users: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("user count = %d, want 1; the merge bound the identity, not a new account", count)
+	}
+	// The bound identity now signs in by itself.
+	if _, err := svc.LoginIdentity(ctx, ExternalIdentity{
 		Provider:      "oidc:https://github.com",
 		Subject:       "12345",
 		Email:         "owner@example.com",
 		EmailVerified: true,
+	}, SessionMeta{}); err != nil {
+		t.Fatalf("second sign-in through the merged identity: %v", err)
+	}
+}
+
+func TestLoginIdentityDoesNotMergeUnverifiedEmail(t *testing.T) {
+	svc, st := newTestService(t)
+	ctx := context.Background()
+	claimOwner(t, svc, st, "owner@example.com", "hunter2hunter2")
+
+	// A provider that did not verify the mailbox asserted nothing worth
+	// binding an account to: the login is refused exactly as before.
+	_, err := svc.LoginIdentity(ctx, ExternalIdentity{
+		Provider:      "oidc:https://github.com",
+		Subject:       "12345",
+		Email:         "owner@example.com",
+		EmailVerified: false,
 	}, SessionMeta{})
-	// A distinct error, not ErrRegistrationClosed: nothing was being registered,
-	// and the person needs to be told to link this provider, not that the Hub
-	// has an owner.
 	if !errors.Is(err, ErrIdentityNotLinked) {
-		t.Fatalf("unlinked identity = %v, want ErrIdentityNotLinked", err)
+		t.Fatalf("unverified email = %v, want ErrIdentityNotLinked", err)
 	}
 
 	count, err := st.CountUsers(ctx)
@@ -508,7 +544,84 @@ func TestLoginIdentityRefusesUnlinkedIdentityOnClaimedHub(t *testing.T) {
 		t.Fatalf("count users: %v", err)
 	}
 	if count != 1 {
-		t.Fatalf("user count = %d, want 1; an unlinked login created an account", count)
+		t.Fatalf("user count = %d, want 1; an unverified email must not merge", count)
+	}
+}
+
+func TestLoginIdentityRefusesMergeWhenTwoAccountsShareTheEmail(t *testing.T) {
+	svc, st := newTestService(t)
+	ctx := context.Background()
+	claimOwner(t, svc, st, "owner@example.com", "hunter2hunter2")
+	// Two accounts carry the same address, and the password lookup must not
+	// single one of them out: the ambiguity the D3 rule answers is reached
+	// through users.email, so both rows answer to it and no password identity
+	// claims the address as its subject. Picking either would sign somebody
+	// into the other's Hub.
+	code, err := svc.IssueInvite(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.RedeemInvite(ctx, code.Code, "second@example.com", "hunter2hunter2", "", SessionMeta{}); err != nil {
+		t.Fatalf("second account: %v", err)
+	}
+	users, err := st.ListUsers(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range users {
+		// Both rows answer to owner@example.com on users.email; the owner's
+		// password identity moves aside so the address has no password owner.
+		if _, err := st.DB().ExecContext(ctx,
+			`UPDATE users SET email = ? WHERE id = ?`, "owner@example.com", u.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`UPDATE user_identities SET subject = ? WHERE provider = ? AND subject = ?`,
+		"kept@example.com", store.ProviderPassword, "owner@example.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = svc.LoginIdentity(ctx, ExternalIdentity{
+		Provider:      "oidc:https://github.com",
+		Subject:       "12345",
+		Email:         "owner@example.com",
+		EmailVerified: true,
+	}, SessionMeta{})
+	if !errors.Is(err, ErrIdentityNotLinked) {
+		t.Fatalf("ambiguous email = %v, want ErrIdentityNotLinked", err)
+	}
+
+	count, err := st.CountUsers(ctx)
+	if err != nil {
+		t.Fatalf("count users: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("user count = %d, want 2", count)
+	}
+}
+
+func TestLoginIdentityDoesNotMergeIntoDisabledAccount(t *testing.T) {
+	svc, st := newTestService(t)
+	ctx := context.Background()
+	claimOwner(t, svc, st, "owner@example.com", "hunter2hunter2")
+	users, err := st.ListUsers(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`UPDATE users SET disabled_at = ? WHERE id = ?`, time.Now().UnixMilli(), users[0].ID); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = svc.LoginIdentity(ctx, ExternalIdentity{
+		Provider:      "oidc:https://github.com",
+		Subject:       "12345",
+		Email:         "owner@example.com",
+		EmailVerified: true,
+	}, SessionMeta{})
+	if !errors.Is(err, ErrIdentityNotLinked) {
+		t.Fatalf("disabled account = %v, want ErrIdentityNotLinked", err)
 	}
 }
 
