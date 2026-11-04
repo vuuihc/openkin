@@ -2,6 +2,11 @@ import Foundation
 import UIKit
 import WebKit
 
+/// A registration failure whose message is already fit to show in the console.
+struct KinPushError: Error {
+    let message: String
+}
+
 /// The values APNs delivers asynchronously, held for the two readers that need
 /// them: the plugin (JS asks for a token) and the app delegate (iOS hands one
 /// over), plus the link from a notification tap.
@@ -14,7 +19,7 @@ final class KinPushState {
 
     private let lock = NSLock()
     private var token: String?
-    private var waiters: [UUID: (Result<String, String>) -> Void] = [:]
+    private var waiters: [UUID: (Result<String, KinPushError>) -> Void] = [:]
     private var pendingURL: String?
     private weak var webView: WKWebView?
 
@@ -58,7 +63,7 @@ final class KinPushState {
         self.waiters.removeAll()
         lock.unlock()
         for (_, resolve) in waiters {
-            resolve(.failure(message))
+            resolve(.failure(KinPushError(message: message)))
         }
     }
 
@@ -73,7 +78,7 @@ final class KinPushState {
         self.waiters.removeAll()
         lock.unlock()
         for (_, resolve) in waiters {
-            resolve(.failure("registration was cancelled"))
+            resolve(.failure(KinPushError(message: "registration was cancelled")))
         }
     }
 
@@ -82,7 +87,7 @@ final class KinPushState {
     /// resolve a call twice.
     func waitForToken(
         timeout: TimeInterval,
-        completion: @escaping (Result<String, String>) -> Void
+        completion: @escaping (Result<String, KinPushError>) -> Void
     ) {
         lock.lock()
         if let token = token {
@@ -99,7 +104,7 @@ final class KinPushState {
             self.lock.lock()
             let waiter = self.waiters.removeValue(forKey: id)
             self.lock.unlock()
-            waiter?(.failure("APNs did not answer in time"))
+            waiter?(.failure(KinPushError(message: "APNs did not answer in time")))
         }
     }
 

@@ -62,8 +62,8 @@ public class KinNativePushPlugin: CAPPlugin, CAPBridgedPlugin {
             switch result {
             case .success(let token):
                 call.resolve(Self.registration(token: token))
-            case .failure(let message):
-                call.reject(message)
+            case .failure(let error):
+                call.reject(error.message)
             }
         }
     }
