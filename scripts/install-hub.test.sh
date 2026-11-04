@@ -18,8 +18,29 @@ TMP=$(mktemp -d /tmp/kin-install-test.XXXXXX)
 trap 'rm -rf "$TMP"' EXIT
 
 mkdir -p "$TMP/bin"
-cat >"$TMP/bin/docker" <<'FAKE'
+cat >"$TMP/bin/dig" <<'FAKE_DIG'
 #!/usr/bin/env bash
+# A stand-in for dig: the public-access check asks it for A/AAAA/CNAME records.
+set -u
+printf '%s\n' "$*" >>"$FAKE_DIG_LOG"
+# `${x-...}` (not `:-`): an empty FAKE_DIG_ANSWER is "no record", exactly the
+# distinction a DNS failure test needs.
+printf '%s\n' "${FAKE_DIG_ANSWER-203.0.113.7}"
+exit "${FAKE_DIG_STATUS:-0}"
+FAKE_DIG
+chmod +x "$TMP/bin/dig"
+
+cat >"$TMP/bin/nc" <<'FAKE_NC'
+#!/usr/bin/env bash
+# A stand-in for nc: every port answers unless a test says otherwise.
+set -u
+printf '%s\n' "$*" >>"$FAKE_NC_LOG"
+exit "${FAKE_NC_STATUS:-0}"
+FAKE_NC
+chmod +x "$TMP/bin/nc"
+
+cat >"$TMP/bin/docker" <<'FAKE'
+
 # A stand-in for the Docker CLI. It logs every call, then answers the subset the
 # installer uses. Behaviour is steered entirely by FAKE_* variables.
 set -u
@@ -168,6 +189,12 @@ new_case() {
 	mkdir -p "$case_dir/deploy"
 	log="$case_dir/docker.log"
 	: >"$log"
+	dig_log="$case_dir/dig.log"
+	: >"$dig_log"
+	nc_log="$case_dir/nc.log"
+	: >"$nc_log"
+	export FAKE_DIG_LOG="$dig_log"
+	export FAKE_NC_LOG="$nc_log"
 	export PATH="$TMP/bin:$PATH"
 	export FAKE_LOG="$log"
 	export FAKE_STATE="$case_dir"
@@ -175,7 +202,8 @@ new_case() {
 	unset FAKE_FILE_DOMAIN FAKE_CONTAINER_ID FAKE_CONFIG_FILES FAKE_HAS_BUILD
 	unset FAKE_LINK FAKE_HAS_HEALTH FAKE_HEALTH FAKE_STATUS FAKE_PULL_STATUS FAKE_UP_STATUS
 	unset FAKE_ENV_STATUS FAKE_EXEC_HEALTH_STATUS FAKE_CONFIG_PADDING
-	unset KIN_DOMAIN
+	unset FAKE_DIG_ANSWER FAKE_DIG_STATUS FAKE_NC_STATUS
+	unset KIN_DOMAIN KIN_TUNNEL_TOKEN
 	status=0
 }
 
@@ -512,7 +540,157 @@ case_env_fallback_reads_the_file() {
 	expect_eq "$(cat "$case_dir/stdout")" "$FAKE_LINK" "prints the link"
 }
 
+# --- G3/G4: public access ---------------------------------------------------
+
+fresh_deploy() { # sets up a deploy dir the way a checkout would
+	printf 'services:\n  kin:\n    build: .\n' >"$case_dir/deploy/compose.yaml"
+	export FAKE_HAS_BUILD=1
+	export FAKE_LINK="https://kin.example.com/#login=$(printf 'ab%.0s' {1..32})"
+}
+
+# G3: the DNS and port checks run before the stack starts, so a bad name or a
+# closed port never burns a Let's Encrypt attempt on a Hub that cannot answer.
+case_public_access_checked_before_install() {
+	new_case public-access
+	fresh_deploy
+
+	run_install --domain kin.example.com --email owner@example.com --dir "$case_dir/deploy"
+
+	expect_eq "$status" 0 "installs after public access checks pass"
+	grep -q 'kin.example.com' "$dig_log" &&
+		ok "asked DNS about the domain" || fail "asked DNS about the domain"
+	if grep -q '443' "$nc_log" && grep -q ' 80' "$nc_log"; then
+		ok "checked ports 80 and 443"
+	else
+		fail "checked ports 80 and 443"
+	fi
+	# The up comes after the checks: order in the log is order in time.
+	if grep -nq 'compose .*up' "$log"; then
+		ok "started the stack (the checks came before it)"
+	else
+		fail "started the stack (the checks came before it)"
+	fi
+}
+
+case_unresolvable_domain_is_refused() {
+	new_case unresolvable
+	fresh_deploy
+	export FAKE_DIG_ANSWER=""
+	export FAKE_DIG_STATUS=0
+
+	run_install --domain no-such.example.com --dir "$case_dir/deploy"
+
+	expect_eq "$status" 1 "refuses a name that does not resolve"
+	expect_contains "$(cat "$case_dir/stderr")" "does not resolve" "names DNS as the problem"
+	expect_eq "$(cat "$case_dir/stdout")" "" "prints no link"
+	log_lacks 'compose .*up' "never started the stack"
+}
+
+case_unreachable_port_is_refused() {
+	new_case unreachable-port
+	fresh_deploy
+	export FAKE_NC_STATUS=1
+
+	run_install --domain kin.example.com --dir "$case_dir/deploy"
+
+	expect_eq "$status" 1 "refuses when a port does not answer"
+	expect_contains "$(cat "$case_dir/stderr")" "port" "names the port as the problem"
+	expect_contains "$(cat "$case_dir/stderr")" "80" "names port 80"
+	expect_eq "$(cat "$case_dir/stdout")" "" "prints no link"
+	log_lacks 'compose .*up' "never started the stack"
+}
+
+# G4: the tunnel mode starts the base file plus the proxy overlay, which is
+# what puts the Hub on plain HTTP behind the sidecar.
+case_tunnel_mode_layers_the_proxy_overlay() {
+	new_case tunnel-overlay
+	fresh_deploy
+	cp "$ROOT/docker-compose.proxy.yml" "$case_dir/deploy/"
+	export KIN_TUNNEL_TOKEN="ttn-token-1234"
+
+	run_install --domain hub.example.com --tunnel-token - --dir "$case_dir/deploy" <<<'ttn-token-1234' 
+
+	expect_eq "$status" 0 "installs in tunnel mode"
+	log_has '\-f .*docker-compose\.proxy\.yml' "brought the overlay up over the base file"
+	grep -q '^KIN_TUNNEL_TOKEN=' "$case_dir/deploy/.env" &&
+		ok "wrote the tunnel token to .env" || fail "wrote the tunnel token to .env"
+}
+
+# G4/G15: a tunnel token is a live credential; it must not ride the script's
+# own output or the command log.
+case_tunnel_token_is_not_logged() {
+	new_case tunnel-secret
+	fresh_deploy
+	cp "$ROOT/docker-compose.proxy.yml" "$case_dir/deploy/"
+	run_install --domain hub.example.com --tunnel-token ttn-secret-value --dir "$case_dir/deploy"
+
+	expect_eq "$status" 0 "installs in tunnel mode"
+	expect_not_contains "$(cat "$case_dir/stderr")" "ttn-secret-value" "stderr never shows the token"
+	expect_not_contains "$(cat "$case_dir/stdout")" "ttn-secret-value" "stdout never shows the token"
+	log_lacks 'ttn-secret-value' "the docker log never shows the token"
+}
+
+# G4: a LAN install answers with an http:// link to the host's LAN address and
+# says, in words, that cellular phones cannot reach it.
+case_lan_mode_prints_an_http_link() {
+	new_case lan-link
+	fresh_deploy
+	# No domain, no file domain: a LAN install has neither. The daemon's own
+	# origin is a placeholder the script must rewrite to the LAN address.
+	token=$(printf 'cd%.0s' {1..32})
+	export FAKE_LINK="http://127.0.0.1:7777/#login=$token"
+
+	run_install --lan --dir "$case_dir/deploy"
+
+	expect_eq "$status" 0 "installs in LAN mode"
+	link=$(cat "$case_dir/stdout")
+	case "$link" in
+	http://127.0.0.1:7777*|"")
+		fail "the link points at the daemon's placeholder (got: $link)"
+		;;
+	http://*)
+		ok "printed an http link to a LAN address"
+		;;
+	*) fail "printed an http link (got: $link)" ;;
+	esac
+	case "$link" in
+	*"#login=$token") ok "kept the one-time token on the link" ;;
+	*) fail "kept the one-time token on the link (got: $link)" ;;
+	esac
+	expect_contains "$(cat "$case_dir/stderr")" "cellular" "says a phone on cellular cannot reach it"
+	expect_contains "$(cat "$case_dir/stderr")" "plain HTTP" "says the traffic is plaintext"
+	if grep -q '^KIN_DOMAIN=' "$case_dir/deploy/.env"; then
+		fail "wrote KIN_DOMAIN for a LAN install"
+	else
+		ok "wrote no KIN_DOMAIN for a LAN install"
+	fi
+}
+
+# The modes answer different questions about who terminates TLS; asking two at
+# once is a contradiction, not a union.
+case_modes_are_exclusive() {
+	new_case modes-exclusive
+	fresh_deploy
+
+	run_install --lan --domain kin.example.com --dir "$case_dir/deploy"
+	expect_eq "$status" 1 "refuses --lan with --domain"
+	expect_contains "$(cat "$case_dir/stderr")" "--lan" "names the conflict"
+
+	run_install --behind-proxy --lan --dir "$case_dir/deploy"
+	expect_eq "$status" 1 "refuses --behind-proxy with --lan"
+
+	run_install --behind-proxy --tunnel-token ttn-x --dir "$case_dir/deploy"
+	expect_eq "$status" 1 "refuses --behind-proxy with --tunnel-token"
+}
+
 case_fresh_install
+case_public_access_checked_before_install
+case_unresolvable_domain_is_refused
+case_unreachable_port_is_refused
+case_tunnel_mode_layers_the_proxy_overlay
+case_tunnel_token_is_not_logged
+case_lan_mode_prints_an_http_link
+case_modes_are_exclusive
 case_repair_keeps_compose_shape
 case_shell_conflict_is_refused
 case_domain_flag_conflict_is_refused

@@ -1,0 +1,45 @@
+# Run the Hub behind an operator-managed tunnel or reverse proxy.
+#
+#   KIN_TUNNEL_TOKEN=<token> docker compose -f docker-compose.yml \
+#     -f docker-compose.proxy.yml up -d
+#
+# In this mode the Hub does not terminate TLS and nothing here publishes a
+# port. The front — a Cloudflare tunnel, an nginx, a Caddy on the same host —
+# owns the certificate and forwards to the `kin` service's plain HTTP port.
+# The token on KIN_TUNNEL_TOKEN is the tunnel's own credential (a Cloudflare
+# tunnel token, for one); it is read by the tunnel sidecar and never by Kin,
+# and it must not be copied anywhere a log lives.
+#
+# `--domain` stays required: it is the hostname links are printed for, which
+# is whatever the front answers on. Point the front at
+# http://kin:7777 (compose network) or http://127.0.0.1:7777 (host port
+# loopback, published only on 127.0.0.1 below so a same-host proxy can reach
+# the Hub without joining the compose network).
+#
+# Because the front terminates TLS, the Hub trusts its forwarding headers
+# (X-Forwarded-For/Proto); without that, every caller would share one
+# rate-limit bucket and every session would record the proxy as its origin.
+
+services:
+  kin:
+    ports: !override
+      - "127.0.0.1:7777:7777"
+    # The base command's --domain/--acme-email terminate TLS; behind a proxy
+    # the serve line is the plain behind-proxy one. --domain is still passed:
+    # links are printed for the public name even though no TLS lives here.
+    command:
+      - serve
+      - --role=hub
+      - --behind-proxy
+      - --domain=${KIN_DOMAIN:?set KIN_DOMAIN in .env}
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${KIN_TUNNEL_TOKEN:?set KIN_TUNNEL_TOKEN in .env}
+    depends_on:
+      - kin
+    networks:
+      - default

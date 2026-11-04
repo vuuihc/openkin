@@ -23,15 +23,35 @@ usage() {
 	cat <<'EOF'
 Usage: scripts/install-hub.sh --domain HOST [--email ADDRESS] [--dir DIR]
                               [--service NAME]
+                              [--behind-proxy | --tunnel-token TOKEN | --lan]
 
   --domain HOST    public hostname of this Hub (e.g. kin.example.com).
-                   Ports 80 and 443 must reach this machine.
+                   Ports 80 and 443 must reach this machine, unless a mode
+                   below says otherwise.
   --email ADDRESS  the owner's sign-in address. With it, the script creates the
                    owner on a new Hub and prints a one-time sign-in link.
                    Without it, a new Hub gets a claim link instead.
   --dir DIR        the checkout or deployment directory to run Compose in.
                    Defaults to the parent of this script.
   --service NAME   the Compose service that runs the Hub (default: kin).
+
+Access modes (exactly one; default is a direct public install):
+
+  (default)        The Hub terminates TLS itself. DNS for --domain has to
+                   point at this machine and ports 80/443 have to reach it;
+                   the script checks both before starting anything.
+  --behind-proxy   An operator-configured reverse proxy on this host already
+                   terminates TLS for --domain and forwards to it. The Hub
+                   serves plain HTTP on a loopback port and trusts the
+                   proxy's forwarding headers. No ports 80/443 needed.
+  --tunnel-token T Run a cloudflared sidecar carrying this Cloudflare tunnel
+                   token; the Hub serves plain HTTP behind it. Give the token
+                   through KIN_TUNNEL_TOKEN or stdin (--tunnel-token -) so it
+                   does not sit in shell history or process listings.
+  --lan            No public access: reachable only from this machine's own
+                   network, over plain HTTP. Say so to no one; the printed
+                   link will not answer from a phone on cellular.
+
   -h, --help       show this help.
 
 Output:
@@ -44,6 +64,7 @@ Environment:
   KIN_DOMAIN           the hostname, if not given with --domain. A value in the
                        shell overrides the one in .env, exactly as it does for
                        Compose.
+  KIN_TUNNEL_TOKEN     the tunnel credential, if not given with --tunnel-token.
 EOF
 }
 
@@ -57,6 +78,9 @@ domain=""
 email=""
 dir=""
 service="kin"
+mode="direct"
+mode_flags=0
+tunnel_token=""
 
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -79,6 +103,23 @@ while [ $# -gt 0 ]; do
 		[ $# -ge 2 ] || die "--service needs a value"
 		service="$2"
 		shift 2
+		;;
+	--behind-proxy)
+		mode="proxy"
+		mode_flags=$((mode_flags + 1))
+		shift
+		;;
+	--tunnel-token)
+		[ $# -ge 2 ] || die "--tunnel-token needs a value ('-' reads stdin)"
+		mode="tunnel"
+		tunnel_token="$2"
+		mode_flags=$((mode_flags + 1))
+		shift 2
+		;;
+	--lan)
+		mode="lan"
+		mode_flags=$((mode_flags + 1))
+		shift
 		;;
 	-h | --help)
 		usage
@@ -174,7 +215,11 @@ if [ -z "$domain" ] && [ -t 0 ]; then
 	printf 'Hub hostname (e.g. kin.example.com): ' >&2
 	IFS= read -r domain || true
 fi
-[ -n "$domain" ] || die "pass --domain HOST (the Hub's public hostname)"
+if [ -z "$domain" ] && [ "$mode" != "lan" ]; then
+	# A LAN install has no public hostname by definition; every other mode
+	# needs one to print a link for.
+	[ -n "$domain" ] || die "pass --domain HOST (the Hub's public hostname)"
+fi
 
 # Accept a pasted URL as well as a bare hostname; reject anything that would
 # produce a link pointing somewhere else.
@@ -206,6 +251,93 @@ if [ -n "$email" ] && ! printf '%s' "$email" | grep -Eq '^[^@[:space:]]+@[^@[:sp
 	die "that does not look like an email address: $email"
 fi
 
+# --- access mode ------------------------------------------------------------
+
+# Exactly one mode. The combinations say contradictory things about who
+# terminates TLS, and a deployment must not have to guess.
+if [ "$mode_flags" -gt 1 ]; then
+	die "pick one access mode: (default), --behind-proxy, --tunnel-token, or --lan"
+fi
+if [ "$mode" = "lan" ]; then
+	if [ -n "$domain" ]; then
+		die "--lan takes no --domain: a LAN install has no public hostname"
+	fi
+	if [ -n "${file_domain:-}" ]; then
+		die "$env_file sets KIN_DOMAIN=$file_domain; remove it or drop --lan before running this again."
+	fi
+fi
+if [ "$mode" != "tunnel" ] && [ -n "${KIN_TUNNEL_TOKEN:-}" ]; then
+	die "KIN_TUNNEL_TOKEN is set but no mode asked for it. Pass --tunnel-token (or --tunnel-token - to read the token from stdin), then run this again."
+fi
+if [ "$mode" = "tunnel" ] && [ -z "${tunnel_token:-}" ]; then
+	tunnel_token="${KIN_TUNNEL_TOKEN:-}"
+fi
+
+case "$mode" in
+direct)
+	# G3, before anything is started: the name must resolve, and this machine
+	# must be the place it points at, on the two ports the certificate needs.
+	# A failure here is named, not implied -- DNS, port forward, and rate
+	# limit each fail the same install in a different way.
+	if [ -z "$domain" ]; then
+		die "pass --domain HOST (the Hub's public hostname)"
+	fi
+	info "checking public access for $domain"
+	# `|| true` keeps `set -o pipefail` from treating "grep found no address"
+	# as a crash: an empty answer is exactly the case being checked, and the
+	# die below is the message, not a silent exit with no diagnosis.
+	ip=$(dig +short A "$domain" +timeout=5 2>/dev/null | grep -E '^[0-9]+\.' | head -n 1 || true)
+	[ -n "$ip" ] || ip=$(dig +short AAAA "$domain" +timeout=5 2>/dev/null | grep -E ':' | head -n 1 || true)
+	[ -n "$ip" ] || ip=$(dig +short CNAME "$domain" +timeout=5 2>/dev/null | head -n 1 || true)
+	if [ -z "$ip" ]; then
+		die "$domain does not resolve (no A, AAAA, or CNAME record). Create the record at your DNS provider and wait for it to answer, then run this again."
+	fi
+	info "$domain resolves to $ip"
+	# New installations burn no Let's Encrypt budget: the check runs before
+	# the first certificate is ever requested. Rate-limit failures surface
+	# later, from the ACME log, with Let's Encrypt's own message.
+	if command -v nc >/dev/null 2>&1; then
+		for port in 443 80; do
+			if ! nc -z -w 5 "$domain" "$port" >/dev/null 2>&1; then
+				die "port $port is not reachable on $domain. Forward it to this machine (or open it in the firewall), then run this again. A missing port 80 fails certificate issuance and renewal; a missing 443 makes the Hub unreachable."
+			fi
+		done
+		info "ports 80 and 443 answer on $domain"
+	else
+		info "nc is not installed; skipping the port reachability check (ports 80/443 must still reach this machine)"
+	fi
+	;;
+proxy)
+	info "behind an operator-configured proxy: the Hub serves plain HTTP on a loopback port and trusts its forwarding headers"
+	if command -v nc >/dev/null 2>&1; then
+		# The proxy, not this script, owns the certificate; checking the two
+		# public ports would be checking a neighbor's work.
+		if ! nc -z -w 5 127.0.0.1 7777 >/dev/null 2>&1; then
+			info "nothing listens on 127.0.0.1:7777 yet (expected on a first install)"
+		else
+			info "something already listens on 127.0.0.1:7777; the Hub will replace it"
+		fi
+	fi
+	;;
+lan)
+	# G4's last path: say the truth about reachability, twice -- once here,
+	# once in the final hint.
+	info "LAN-only: the Hub will serve plain HTTP and be reachable only from this machine's network"
+	info "a phone on cellular will NOT be able to reach it; anyone on the same network can read the traffic"
+	;;
+tunnel)
+	if [ "$tunnel_token" = "-" ]; then
+		printf 'Tunnel token: ' >&2
+		IFS= read -r tunnel_token || die "no tunnel token given"
+	fi
+	[ -n "$tunnel_token" ] || die "no tunnel token given"
+	if [ -z "$domain" ]; then
+		die "pass --domain HOST (the public hostname the tunnel serves)"
+	fi
+	info "running a cloudflared sidecar with the tunnel you supplied; the Hub serves plain HTTP behind it"
+	;;
+esac
+
 # Validate before touching Docker: a non-numeric value would otherwise reach a
 # shell arithmetic expansion much later and exit with a raw syntax error.
 timeout=${KIN_INSTALL_TIMEOUT:-300}
@@ -234,7 +366,12 @@ if [ ! -f "$env_file" ]; then
 		umask 077
 		{
 			printf '%s\n' '# Written by scripts/install-hub.sh. Docker Compose reads this file.'
-			printf 'KIN_DOMAIN=%s\n' "$domain"
+			# A LAN install has no public hostname: the variable stays unset so
+			# the base compose file's :? guard cannot pass, and the deployment
+			# must be brought up with the LAN overrides below instead.
+			if [ "$mode" != "lan" ]; then
+				printf 'KIN_DOMAIN=%s\n' "$domain"
+			fi
 			# Not `[ ... ] && printf`: a false test as the last command of the
 			# group would make this whole block exit 1 under `set -e`.
 			if [ -n "$email" ]; then
@@ -244,7 +381,7 @@ if [ ! -f "$env_file" ]; then
 	)
 	info "wrote $env_file"
 else
-	if [ -z "$file_domain" ]; then
+	if [ "$mode" != "lan" ] && [ -z "$file_domain" ]; then
 		append_env "KIN_DOMAIN=$domain"
 		info "added KIN_DOMAIN to $env_file"
 	fi
@@ -252,6 +389,17 @@ else
 		append_env "ACME_EMAIL=$email"
 		info "added ACME_EMAIL to $env_file"
 	fi
+	chmod 600 "$env_file" 2>/dev/null || true
+fi
+
+# A tunnel token is a live credential for this deployment's front door. It is
+# written only here, next to the other secrets this deployment keeps, never to
+# a log: this script's stderr names it nowhere, and `compose config` renders
+# the variable rather than its value only because Compose interpolates at run
+# time.
+if [ "$mode" = "tunnel" ] && ! grep -qs '^KIN_TUNNEL_TOKEN=' "$env_file"; then
+	append_env "KIN_TUNNEL_TOKEN=$tunnel_token"
+	info "added KIN_TUNNEL_TOKEN to $env_file"
 	chmod 600 "$env_file" 2>/dev/null || true
 fi
 
@@ -263,13 +411,35 @@ fi
 # services would be orphaned. Compose records the files it used on the running
 # container, so ask it rather than guessing which overlays are in play.
 
+# A tunnel deployment layers the proxy overlay over the base file, and records
+# exactly that on its container. A first tunnel install names the pair here.
 compose_files=()
+if [ "$mode" = "tunnel" ]; then
+	base_file=""
+	for name in compose.yaml compose.yml docker-compose.yaml docker-compose.yml; do
+		if [ -f "$dir/$name" ]; then
+			base_file="$dir/$name"
+			break
+		fi
+	done
+	proxy_file=""
+	for name in "$dir/docker-compose.proxy.yml" "$dir/docker-compose.proxy.yaml"; do
+		if [ -f "$name" ]; then
+			proxy_file="$name"
+			break
+		fi
+	done
+	[ -n "$base_file" ] || die "no Compose file in $dir (pass --dir, or point it at a checkout)"
+	[ -n "$proxy_file" ] || die "no docker-compose.proxy.yml in $dir; the tunnel mode needs the overlay from a checkout"
+	compose_files+=(-f "$base_file" -f "$proxy_file")
+fi
+
 existing_id=$(cd "$dir" && docker compose ps -q "$service" 2>/dev/null | head -n 1 || true)
 if [ -n "$existing_id" ]; then
 	recorded=$(docker inspect --format \
 		'{{index .Config.Labels "com.docker.compose.project.config_files"}}' \
 		"$existing_id" 2>/dev/null || true)
-	if [ -n "$recorded" ]; then
+	if [ -n "$recorded" ] && [ "${#compose_files[@]}" -eq 0 ]; then
 		IFS=',' read -r -a recorded_files <<<"$recorded"
 		for recorded_file in "${recorded_files[@]}"; do
 			if [ ! -f "$recorded_file" ]; then
@@ -361,7 +531,34 @@ info "Hub is up"
 
 # --- mint the link ----------------------------------------------------------
 
-init_args=(hub init --domain "$domain" --print-url)
+# A LAN install has no public hostname, so the link is the LAN origin in plain
+# HTTP. The daemon is asked for the pairing address it already computed for
+# this exact purpose rather than the script guessing an interface.
+link_domain="$domain"
+if [ "$mode" = "lan" ]; then
+	lan_origin=""
+	# Reaching the host's LAN address from inside the container is the one
+	# thing the container cannot do, so the script asks the host's routing
+	# table: the default route's interface, then that interface's address.
+	lan_ip=""
+	if route -n get default >/dev/null 2>&1; then
+		lan_dev=$(route -n get default 2>/dev/null | awk '/interface:/{print $2}')
+		[ -n "$lan_dev" ] && lan_ip=$(ipconfig getifaddr "$lan_dev" 2>/dev/null)
+	fi
+	if [ -z "$lan_ip" ]; then
+		# Linux: the default interface's first address.
+		dev=$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}' | head -n 1)
+		[ -n "$dev" ] && lan_ip=$(ip -4 addr show "$dev" 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -n 1)
+	fi
+	if [ -n "$lan_ip" ]; then
+		lan_origin="http://$lan_ip:7777"
+	else
+		lan_origin="http://$(hostname):7777"
+	fi
+	init_args=(hub init --print-url)
+else
+	init_args=(hub init --domain "$domain" --print-url)
+fi
 [ -n "$email" ] && init_args+=(--email "$email")
 
 if ! link=$(compose exec -T "$service" kin "${init_args[@]}"); then
@@ -369,8 +566,18 @@ if ! link=$(compose exec -T "$service" kin "${init_args[@]}"); then
 	die "the Hub is running but could not issue a sign-in link"
 fi
 link=$(printf '%s\n' "$link" | tr -d '\r' | tail -n 1)
+if [ "$mode" = "lan" ]; then
+	# Rewrite the daemon's placeholder origin for the LAN's: the daemon knows
+	# the token, the script knows where the phone will actually point.
+	token_part=""
+	case "$link" in
+	*'#login='*) token_part="#login=${link##*#login=}" ;;
+	*'#claim='*) token_part="#claim=${link##*#claim=}" ;;
+	esac
+	link="$lan_origin/$token_part"
+fi
 case "$link" in
-https://*) ;;
+http://*|https://*) ;;
 *)
 	logs
 	die "the Hub did not print a usable link (got: $link)"
@@ -403,3 +610,8 @@ case "$link" in
 	info "It works once and expires in 24 hours. Re-run this script for a new one."
 	;;
 esac
+if [ "$mode" = "lan" ]; then
+	info ""
+	info "LAN-only deployment: this link answers only from this machine's network, over plain HTTP."
+	info "Anyone on the same network can read the traffic. A phone on cellular cannot reach it."
+fi
