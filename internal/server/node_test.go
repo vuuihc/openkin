@@ -49,10 +49,13 @@ func TestRunHubNodeTokenIssuesAUsableCredential(t *testing.T) {
 	t.Setenv(remote.StateDirEnv, dir)
 
 	out := captureStdout(t, func() {
-		if err := RunHubNodeToken("studio", "kin.example.com"); err != nil {
+		if err := runHubNodeToken("studio", "kin.example.com", strings.NewReader("y\n")); err != nil {
 			t.Fatal(err)
 		}
 	})
+	if !strings.Contains(out, "fingerprint") {
+		t.Fatalf("the confirmation did not show a fingerprint:\n%s", out)
+	}
 	if !strings.Contains(out, "--hub https://kin.example.com") {
 		t.Fatalf("printed command has no hub url:\n%s", out)
 	}
@@ -91,7 +94,7 @@ func TestRunHubNodeTokenWithoutADomain(t *testing.T) {
 	t.Setenv(remote.StateDirEnv, dir)
 
 	out := captureStdout(t, func() {
-		if err := RunHubNodeToken("", ""); err != nil {
+		if err := runHubNodeToken("", "", strings.NewReader("y\n")); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -101,6 +104,47 @@ func TestRunHubNodeTokenWithoutADomain(t *testing.T) {
 	}
 	if !strings.Contains(out, "(node)") {
 		t.Fatalf("an unlabelled device was not named:\n%s", out)
+	}
+}
+
+// G7: the mint is a decision this machine makes, not a keystroke somebody
+// foreruns. Anything but an explicit yes — an empty line, EOF, "n" — stores
+// nothing.
+func TestRunHubNodeTokenRefusedWithoutConfirmation(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(remote.StateDirEnv, dir)
+
+	for name, answer := range map[string]string{
+		"empty line": "\n",
+		"eof":        "",
+		"no":         "n\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			out := captureStdout(t, func() {
+				if err := runHubNodeToken("studio", "kin.example.com", strings.NewReader(answer)); err != nil {
+					t.Fatal(err)
+				}
+			})
+			if !strings.Contains(out, "Cancelled") {
+				t.Fatalf("a %q answer minted anyway:\n%s", name, out)
+			}
+			if strings.Contains(out, "--token") {
+				t.Fatalf("a cancelled mint printed a token:\n%s", out)
+			}
+		})
+	}
+
+	st, err := store.Open(filepath.Join(dir, "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	credentials, err := st.ListDeviceCredentials(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(credentials) != 0 {
+		t.Fatalf("refusal stored %d credential(s); a refusal stores nothing", len(credentials))
 	}
 }
 

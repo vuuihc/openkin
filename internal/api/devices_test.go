@@ -256,3 +256,81 @@ func listMachines(t *testing.T, h http.Handler, token string) []machineResponse 
 	}
 	return machines
 }
+
+// G7: a device's label stays editable after minting — the label is what the
+// operator reads when deciding what to revoke, and the node reports a
+// placeholder until it first connects.
+func TestRenameDevice(t *testing.T) {
+	s, master := newTestServer(t)
+	h := s.Handler()
+
+	request := func(method, path, token, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	rec := request(http.MethodPost, "/api/pairing/sessions", master, `{"label":"phone"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create pairing session: %d", rec.Code)
+	}
+	var pairing pairingSessionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &pairing); err != nil {
+		t.Fatal(err)
+	}
+	rec = request(http.MethodPost, "/api/pairing/exchange", "", `{"secret":"`+pairing.Secret+`"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("exchange: %d", rec.Code)
+	}
+	var exchanged pairingExchangeResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &exchanged); err != nil {
+		t.Fatal(err)
+	}
+
+	rec = request(http.MethodPost, "/api/devices/"+exchanged.DeviceID+"/rename", master, `{"label":"Studio Mac"}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("rename: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = request(http.MethodGet, "/api/devices", master, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list devices: %d", rec.Code)
+	}
+	var devices []struct {
+		ID    string `json:"id"`
+		Label string `json:"label"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &devices); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, d := range devices {
+		if d.ID == exchanged.DeviceID && d.Label == "Studio Mac" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("renamed device not in list: %+v", devices)
+	}
+
+	// An empty label is refused, not silently ignored.
+	rec = request(http.MethodPost, "/api/devices/"+exchanged.DeviceID+"/rename", master, `{"label":"  "}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("blank label: %d, want 400", rec.Code)
+	}
+	// An unknown id is 404, not a silent success.
+	rec = request(http.MethodPost, "/api/devices/desktop-nope/rename", master, `{"label":"x"}`)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown device: %d, want 404", rec.Code)
+	}
+	// The device itself may not rename anything.
+	rec = request(http.MethodPost, "/api/devices/"+exchanged.DeviceID+"/rename", exchanged.Token, `{"label":"root"}`)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("device rename: %d, want 403", rec.Code)
+	}
+}

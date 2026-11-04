@@ -354,6 +354,7 @@ func (s *Server) Handler() http.Handler {
 		r.With(operatorOnly).Post("/api/auth/invite", s.handleAuthInvite)
 		r.With(operatorOnly).Get("/api/devices", s.handleListDevices)
 		r.With(operatorOnly).Post("/api/devices/{id}/revoke", s.handleRevokeDevice)
+		r.With(operatorOnly).Post("/api/devices/{id}/rename", s.handleRenameDevice)
 		r.With(holderOnly).Get("/api/workers", s.handleListWorkers)
 		// Which machines a piece of work can be sent to.
 		//

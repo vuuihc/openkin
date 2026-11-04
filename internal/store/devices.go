@@ -261,3 +261,41 @@ func (s *Store) RevokeAllDeviceCredentials(ctx context.Context, now int64) error
 }
 
 func UnixMillis(t time.Time) int64 { return t.UnixMilli() }
+
+// RenameDeviceCredential renames a device. The label is what the device list
+// shows and what an operator greps for when deciding what to revoke, so it is
+// the one field of a credential that stays editable after minting.
+//
+// Both rows move together: the credential's label is what minting wrote, and
+// the registry's is what the machine last reported about itself. Renaming only
+// the credential would lose the race against the next hello, which re-upserts
+// the machine's own name; renaming only the registry would not move the row a
+// fresh list of credentials shows. One name, one write.
+func (s *Store) RenameDeviceCredential(ctx context.Context, id, label string) error {
+	label = strings.TrimSpace(label)
+	if id == "" || label == "" {
+		return fmt.Errorf("invalid device rename")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("rename device credential: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	result, err := tx.ExecContext(ctx, `
+		UPDATE device_credentials SET label = ? WHERE id = ?`, label, id)
+	if err != nil {
+		return fmt.Errorf("rename device credential: %w", err)
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE devices SET label = ? WHERE id = ?`, label, id); err != nil {
+		return fmt.Errorf("rename device credential: mark device: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("rename device credential: %w", err)
+	}
+	return nil
+}

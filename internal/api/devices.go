@@ -343,3 +343,32 @@ func (s *Server) handleRevokeDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// handleRenameDevice renames a device in the list the operator reads when
+// deciding what to revoke (G7). Only the label moves; the credential and its
+// sessions do not.
+func (s *Server) handleRenameDevice(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "device id is required"})
+		return
+	}
+	var req struct {
+		Label string `json:"label"`
+	}
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+	if strings.TrimSpace(req.Label) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "label is required"})
+		return
+	}
+	if err := s.Store.RenameDeviceCredential(r.Context(), id, req.Label); errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "device not found or already revoked"})
+		return
+	} else if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
