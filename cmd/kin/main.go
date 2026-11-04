@@ -172,7 +172,7 @@ func runMCP(ctx context.Context, args []string) error {
 
 func runHub(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: kin hub init [--email EMAIL] [--domain HOST] | kin hub login-link --email EMAIL [--domain HOST] | kin hub claim-code [--domain HOST] | kin hub accounts | kin hub reset-password --email EMAIL | kin hub invite [--domain HOST] | kin hub node-token [--domain HOST] [--label NAME]")
+		return fmt.Errorf("usage: kin hub init [--email EMAIL] [--domain HOST] | kin hub login-link --email EMAIL [--domain HOST] | kin hub claim-code [--domain HOST] | kin hub accounts | kin hub reset-password --email EMAIL | kin hub invite [--domain HOST] | kin hub node-token [--domain HOST] [--label NAME] | kin hub backup --output PATH.zip | kin hub restore --input PATH.zip --yes")
 	}
 	switch args[0] {
 	case "init":
@@ -232,8 +232,25 @@ func runHub(args []string) error {
 			return err
 		}
 		return server.RunHubNodeToken(*label, *domain)
+	case "backup":
+		fs := flag.NewFlagSet("hub backup", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		output := fs.String("output", "", "where the backup archive is written (0600)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		return server.RunHubBackup(*output)
+	case "restore":
+		fs := flag.NewFlagSet("hub restore", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		input := fs.String("input", "", "the backup archive to restore")
+		yes := fs.Bool("yes", false, "confirm the replace; there is no undo")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		return server.RunHubRestore(*input, *yes)
 	default:
-		return fmt.Errorf("unknown hub subcommand %q (want: init, login-link, claim-code, accounts, reset-password, invite, node-token)", args[0])
+		return fmt.Errorf("unknown hub subcommand %q (want: init, login-link, claim-code, accounts, reset-password, invite, node-token, backup, restore)", args[0])
 	}
 }
 

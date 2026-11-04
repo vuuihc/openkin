@@ -21,6 +21,20 @@ var excludedExportTables = map[string]bool{
 	// opens, so a backup has no reason to carry it.
 	"push_devices":    true,
 	"sqlite_sequence": true,
+	// Every row below is a live credential or a proof that unlocks one. Hashes
+	// at rest are not armor for an export: an auth_sessions hash replays into
+	// the same session it came from, a login link's or login code's hash spends
+	// exactly once without the origin, and identity secret hashes let an
+	// attacker confirm guesses offline. Devices re-authenticate; sessions and
+	// one-time tokens are re-issued; identities stay with the account they
+	// belong to. A restored backup therefore signs everyone out — the honest
+	// price of a backup that cannot authenticate anybody.
+	"auth_sessions":    true,
+	"user_identities":  true,
+	"login_tokens":     true,
+	"login_codes":      true,
+	"bootstrap_tokens": true,
+	"invite_tokens":    true,
 }
 
 // ExportDirectory writes a consistent, secret-free database snapshot as JSONL
