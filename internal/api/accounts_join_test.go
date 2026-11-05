@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vuuihc/openkin/internal/auth"
 	"github.com/vuuihc/openkin/internal/remote"
@@ -465,7 +466,8 @@ func TestASessionRecordsThePeerNotAForwardedHeader(t *testing.T) {
 	if token == "" {
 		t.Fatal("joining did not open a session")
 	}
-	session, _, err := s.Store.AuthenticateSession(t.Context(), remote.HashToken(token), store.NowMilli())
+	session, _, err := s.Store.AuthenticateSession(t.Context(), remote.HashToken(token),
+		store.NowMilli(), int64(30*24*time.Hour/time.Millisecond))
 	if err != nil {
 		t.Fatalf("read the session back: %v", err)
 	}

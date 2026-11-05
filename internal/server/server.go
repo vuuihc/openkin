@@ -533,7 +533,28 @@ func ServeWith(version string, flags ServeFlags) error {
 			defer func() { _ = hub.Close() }()
 		}
 
-		accounts = authsvc.New(st, authsvc.Config{})
+		accounts = authsvc.New(st, authsvc.Config{
+			// A merge by verified email (D3) adds a login the owner did not
+			// add. The notification is what makes that undoable on any device
+			// that is signed in: settings can unbind the credential, and the
+			// message tells the person there is something to unbind. It goes
+			// through the same sender as every other push, scoped to the one
+			// account the merge touched.
+			OnMergedByEmail: func(userID, provider, label string) {
+				title := "New sign-in linked to your account"
+				body := provider + " was linked by email verification. You can remove it in Settings."
+				if label != "" {
+					body = provider + " (" + label + ") was linked by email verification. You can remove it in Settings."
+				}
+				notifier.Send(context.Background(), notify.Payload{
+					Title:       title,
+					Body:        body,
+					Kind:        "account",
+					ID:          "merge-" + provider + "-" + userID,
+					OwnerUserID: userID,
+				})
+			},
+		})
 		// Dex's backchannel knows the public issuer URL but cannot resolve it
 		// from inside the container; behind a proxy the same address must
 		// reach the provider by whatever name the proxy answers on, so the
@@ -900,6 +921,7 @@ func ServeWith(version string, flags ServeFlags) error {
 	defer listenCancel()
 	go runWorkerLeaseSweep(listenCtx, workerRegistry)
 	go runPRReconcile(listenCtx, githubService)
+	go runSessionPrune(listenCtx, accounts)
 
 	var listeners []listenerInfo
 
@@ -1275,6 +1297,43 @@ func runWorkerLeaseSweep(ctx context.Context, registry *workers.Registry) {
 			return
 		case <-ticker.C:
 			registry.Sweep()
+		}
+	}
+}
+
+// sessionPruneInterval retires expired and past-the-ceiling browser sessions
+// within an hour of the moment they die. Authentication refuses them on read
+// (sliding window + absolute ceiling), so the delay only decides how long a
+// dead row sits in the account's device list — an hour is well inside the
+// window where a person would still recognize it as their own.
+const sessionPruneInterval = time.Hour
+
+// runSessionPrune deletes expired auth sessions (and the push registrations
+// bound to them) on a schedule. Without it the account system's 30-day TTL is
+// only enforced by coincidence: every device list and notification check reads
+// the rows directly, and nothing else ever deletes them. Nil accounts — the
+// standalone daemon, which has no account system — are a no-op, for the same
+// reason the other sweeps return on nil.
+func runSessionPrune(ctx context.Context, accounts *authsvc.Service) {
+	if accounts == nil {
+		return
+	}
+	prune := func() {
+		if _, err := accounts.PruneSessions(ctx); err != nil && ctx.Err() == nil {
+			fmt.Fprintf(os.Stderr, "kin: session prune: %v\n", err)
+		}
+	}
+	// Sweep once at startup: rows that expired while the daemon was down should
+	// be gone from device lists by the time a person looks, not an hour later.
+	prune()
+	ticker := time.NewTicker(sessionPruneInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			prune()
 		}
 	}
 }

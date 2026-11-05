@@ -212,6 +212,42 @@ func (s *Store) TouchIdentity(ctx context.Context, id string, now int64) error {
 	return nil
 }
 
+// DeleteUserIdentity removes one login credential from an account, scoped to
+// that account: an id guessed from another account's screen unlinks nothing.
+// ErrNotFound covers both a wrong id and a wrong account, because the two are
+// indistinguishable to the caller and neither changed anything.
+//
+// The last-credential guard lives in the delete's own transaction, not in the
+// caller's snapshot: two concurrent unbinds of an account's two credentials
+// would each see "two, safe" and both delete, leaving an account with no way
+// to sign in and no bootstrap path back. The count is re-checked in the same
+// write that removes the row, so one of the two unbinds loses instead.
+func (s *Store) DeleteUserIdentity(ctx context.Context, userID, identityID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("delete user identity: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx, `
+		DELETE FROM user_identities
+		WHERE id = ? AND user_id = ?
+		  AND (SELECT COUNT(*) FROM user_identities WHERE user_id = ?) > 1`,
+		identityID, userID, userID)
+	if err != nil {
+		return fmt.Errorf("delete user identity: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		// The two reasons a row survives are indistinguishable to the caller
+		// and neither changed anything: the id is not this account's, or it is
+		// the last credential the account holds.
+		return ErrNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("delete user identity: %w", err)
+	}
+	return nil
+}
+
 // ReplacePasswordAndEndSessions swaps one password credential and ends every
 // session and unspent sign-in link that account holds, in one transaction.
 //
@@ -343,7 +379,15 @@ func (s *Store) CreateAuthSession(ctx context.Context, session AuthSession) erro
 // AuthenticateSession resolves a session cookie to its account, rejecting
 // expired rows and disabled accounts. Last-seen is refreshed at most once per
 // hour so a busy console does not turn every request into a write.
-func (s *Store) AuthenticateSession(ctx context.Context, tokenHash string, now int64) (AuthSession, User, error) {
+//
+// slidingTTL is the account system's session lifetime, applied as a sliding
+// window (D13): a session that is used gets its expiry re-anchored on the last
+// use, so daily use keeps it alive well past created_at + slidingTTL — but no
+// renewal crosses the absolute ceiling, and a session never used within its
+// window dies on schedule. The renewal is written, not just computed: the
+// pruner sweeps on expires_at, so an expiry that only existed in read logic
+// would get sessions deleted while they were still in use.
+func (s *Store) AuthenticateSession(ctx context.Context, tokenHash string, now, slidingTTL int64) (AuthSession, User, error) {
 	var session AuthSession
 	var lastSeen sql.NullInt64
 	err := s.db.QueryRowContext(ctx, `
@@ -357,11 +401,17 @@ func (s *Store) AuthenticateSession(ctx context.Context, tokenHash string, now i
 	if err != nil {
 		return AuthSession{}, User{}, fmt.Errorf("read auth session: %w", err)
 	}
-	if session.ExpiresAt <= now {
-		return AuthSession{}, User{}, ErrNotFound
-	}
 	if lastSeen.Valid {
 		session.LastSeenAt = &lastSeen.Int64
+	}
+	// A session that has been used lives from its last use; one that never was
+	// lives from its creation. Either way the absolute ceiling ends it.
+	effectiveExpiry := session.ExpiresAt
+	if lastSeen.Valid && lastSeen.Int64 > session.CreatedAt {
+		effectiveExpiry = lastSeen.Int64 + slidingTTL
+	}
+	if effectiveExpiry <= now || session.CreatedAt+AuthSessionAbsoluteTTL <= now {
+		return AuthSession{}, User{}, ErrNotFound
 	}
 	user, err := s.GetUser(ctx, session.UserID)
 	if err != nil {
@@ -371,10 +421,19 @@ func (s *Store) AuthenticateSession(ctx context.Context, tokenHash string, now i
 		return AuthSession{}, User{}, ErrNotFound
 	}
 	if !lastSeen.Valid || now-lastSeen.Int64 > authSessionTouchInterval {
+		// The renewal rides the same write as the last-seen touch, and the new
+		// expiry is clamped to the absolute ceiling: a session first opened 179
+		// days ago gets the one day it has left, not another sliding window.
+		newExpiry := now + slidingTTL
+		if ceiling := session.CreatedAt + AuthSessionAbsoluteTTL; newExpiry > ceiling {
+			newExpiry = ceiling
+		}
 		if _, err := s.db.ExecContext(ctx,
-			`UPDATE auth_sessions SET last_seen_at = ? WHERE id = ?`, now, session.ID); err != nil {
+			`UPDATE auth_sessions SET last_seen_at = ?, expires_at = ? WHERE id = ?`,
+			now, newExpiry, session.ID); err != nil {
 			return AuthSession{}, User{}, fmt.Errorf("touch auth session: %w", err)
 		}
+		session.ExpiresAt = newExpiry
 	}
 	return session, user, nil
 }
@@ -441,9 +500,30 @@ func (s *Store) DeleteUserAuthSessions(ctx context.Context, userID, keepTokenHas
 	return n, nil
 }
 
+// AuthSessionAbsoluteTTL is the hard ceiling on a browser session's life, no
+// matter how often it is used. The sliding window (created_at + SessionTTL, or
+// last_seen_at + SessionTTL once the session has been used) answers "is this
+// login still active"; the absolute ceiling answers "should one credential
+// live forever". Together they are D13: 滑动 30 天、绝对 180 天.
+const AuthSessionAbsoluteTTL = int64(180 * 24 * 60 * 60 * 1000) // 180d in ms
+
+// MaxAuthSessionsPerUser caps concurrent device sessions per account (D13,
+// G6, T7: 单账号并发 ≤20 个设备会话). Sessions are devices, not WebSocket
+// connections — a sign-in on a new browser or phone is a new session. When the
+// cap would be exceeded, the account's oldest sessions are evicted, so the
+// twentieth sign-in on a shared kiosk silently retires the stalest login
+// instead of refusing the fresh one.
+const MaxAuthSessionsPerUser = 20
+
 // PruneAuthSessions deletes expired rows and reports how many were removed.
 // Expired registrations are removed with their session for the same reason a
 // logout removes them: the phone no longer has a live credential.
+//
+// The absolute ceiling is enforced here too: a session past created_at +
+// AuthSessionAbsoluteTTL is deleted even when a sliding window would keep it
+// alive. authenticate does the same check at read time (with the renewal that
+// only AuthenticateSession can compute), so a session can never live past the
+// ceiling even if this sweep has not run.
 func (s *Store) PruneAuthSessions(ctx context.Context, now int64) (int64, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -457,15 +537,77 @@ func (s *Store) PruneAuthSessions(ctx context.Context, now int64) (int64, error)
 		now); err != nil {
 		return 0, fmt.Errorf("prune session push devices: %w", err)
 	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM push_devices
+		WHERE owner_session_id <> ''
+		  AND owner_session_id IN (SELECT id FROM auth_sessions WHERE created_at <= ?)`,
+		now-AuthSessionAbsoluteTTL); err != nil {
+		return 0, fmt.Errorf("prune absolute-ttl push devices: %w", err)
+	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM auth_sessions WHERE expires_at <= ?`, now)
 	if err != nil {
 		return 0, fmt.Errorf("prune auth sessions: %w", err)
 	}
 	n, _ := res.RowsAffected()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM auth_sessions WHERE created_at <= ?`,
+		now-AuthSessionAbsoluteTTL); err != nil {
+		return 0, fmt.Errorf("prune absolute-ttl auth sessions: %w", err)
+	}
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("prune auth sessions: %w", err)
 	}
 	return n, nil
+}
+
+// EnforceAuthSessionCap keeps an account's live sessions at or below max,
+// deleting its oldest sessions (by created_at, then id for a stable order) and
+// their push registrations until it fits. The cap is enforced at sign-in: one
+// login opens at most one session, so deleting down to max-1 before the insert
+// leaves room. Registrations bound to an evicted session go with it — a
+// retired kiosk login must not keep ringing the kiosk's phone.
+//
+// The caller passes max explicitly so tests can exercise the eviction without
+// minting 21 rows.
+func (s *Store) EnforceAuthSessionCap(ctx context.Context, userID string, max int) error {
+	if max <= 0 {
+		return fmt.Errorf("invalid session cap")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("enforce auth session cap: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	// The eviction count is clamped at zero: SQLite reads a negative LIMIT as
+	// "no limit", so an account under its cap would delete every session it
+	// owns instead of none. The subquery selects the evictees once so the
+	// push-device delete and the session delete see the same rows: sessions the
+	// account is keeping have to stay exactly as they are, and a registration
+	// bound to a session that survives must survive with it.
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM push_devices
+		WHERE owner_session_id <> ''
+		  AND owner_session_id IN (
+			SELECT id FROM auth_sessions
+			WHERE user_id = ?
+			ORDER BY created_at, id
+			LIMIT MAX(0, (SELECT COUNT(*) FROM auth_sessions WHERE user_id = ?) - ?)
+		  )`, userID, userID, max); err != nil {
+		return fmt.Errorf("delete evicted session push devices: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM auth_sessions
+		WHERE id IN (
+			SELECT id FROM auth_sessions
+			WHERE user_id = ?
+			ORDER BY created_at, id
+			LIMIT MAX(0, (SELECT COUNT(*) FROM auth_sessions WHERE user_id = ?) - ?)
+		)`, userID, userID, max); err != nil {
+		return fmt.Errorf("delete evicted sessions: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("enforce auth session cap: %w", err)
+	}
+	return nil
 }
 
 // AuthSessionLive reports whether a browser session still exists, has not

@@ -156,6 +156,13 @@ type Config struct {
 	LoginLinkTTL time.Duration
 	LoginCodeTTL time.Duration
 	Now          func() time.Time
+	// OnMergedByEmail is called when a federated sign-in merged into an
+	// existing account by matching its verified email (D3). The daemon uses it
+	// to tell the account's devices what happened — G19: 合并后 24h 内通知设备，
+	// 可解绑 — because the person whose account just gained a login is the one
+	// who has to be able to undo it. It receives the affected account and the
+	// identity that was attached. Nil skips the notification.
+	OnMergedByEmail func(userID, provider, label string)
 }
 
 // Service owns account creation, login, and session lifecycle.
@@ -783,6 +790,13 @@ func (s *Service) mergeByEmail(ctx context.Context, ident ExternalIdentity, meta
 	if err := s.LinkIdentity(ctx, match.ID, ident); err != nil {
 		return Session{}, err
 	}
+	// The account just gained a login its owner did not add. Saying so once,
+	// here — where the merge actually happened — is what makes the unbind
+	// actionable: a device that never heard about the new credential has no
+	// reason to go looking for it.
+	if s.cfg.OnMergedByEmail != nil {
+		s.cfg.OnMergedByEmail(match.ID, ident.Provider, ident.Label)
+	}
 	return s.openSession(ctx, *match, meta)
 }
 
@@ -805,6 +819,37 @@ func (s *Service) LinkIdentity(ctx context.Context, userID string, ident Externa
 	return s.store.AddIdentity(ctx, identityFromExternal(userID, ident, now))
 }
 
+// ErrLastCredential is returned when an unbind would leave the account with no
+// way to sign in at all. The alternative is locking the owner out of their own
+// Hub with a single click, which is not a decision a settings row should be
+// able to make.
+var ErrLastCredential = errors.New("auth: cannot remove the account's only way to sign in")
+
+// UnlinkIdentity removes one login credential from the signed-in account (G19:
+// 合并后可解绑). The guard is on credentials, not on this identity: a password
+// login is removable when a federated one remains, and either federated one is
+// removable when the password remains. What cannot happen is the last
+// credential going away.
+func (s *Service) UnlinkIdentity(ctx context.Context, userID, identityID string) error {
+	err := s.store.DeleteUserIdentity(ctx, userID, identityID)
+	// The store's delete carries the last-credential guard inside its own
+	// transaction, so a refused delete of an id that does exist is the
+	// last-credential case; an unknown id is still ErrNotFound. Distinguishing
+	// them here takes one extra read of the rows that are left.
+	if errors.Is(err, store.ErrNotFound) {
+		identities, lerr := s.store.ListIdentities(ctx, userID)
+		if lerr != nil {
+			return err
+		}
+		for _, identity := range identities {
+			if identity.ID == identityID {
+				return ErrLastCredential
+			}
+		}
+	}
+	return err
+}
+
 // AuthenticateSession resolves a session cookie to its account and the login
 // row it came through. Callers that need to bind something to this specific
 // login — a push registration, for one — need the session id, which the
@@ -813,7 +858,7 @@ func (s *Service) AuthenticateSession(ctx context.Context, token string) (store.
 	if token == "" {
 		return store.AuthSession{}, store.User{}, store.ErrNotFound
 	}
-	return s.store.AuthenticateSession(ctx, HashToken(token), s.now().UnixMilli())
+	return s.store.AuthenticateSession(ctx, HashToken(token), s.now().UnixMilli(), s.cfg.SessionTTL.Milliseconds())
 }
 
 // Authenticate resolves a session cookie value to its account.
@@ -835,6 +880,12 @@ func (s *Service) RevokeOtherSessions(ctx context.Context, userID, keepToken str
 	return s.store.DeleteUserAuthSessions(ctx, userID, HashToken(keepToken))
 }
 
+// maxSessionsPerUser caps how many live browser sessions one account may hold
+// at once (D13/G6/T7: ≤20 个设备会话). Each sign-in — a new browser, a new
+// phone — opens one; the cap is devices, not WebSocket connections. When a
+// sign-in would exceed it, the account's oldest sessions are evicted.
+const maxSessionsPerUser = store.MaxAuthSessionsPerUser
+
 // PruneSessions removes expired sessions.
 func (s *Service) PruneSessions(ctx context.Context) (int64, error) {
 	return s.store.PruneAuthSessions(ctx, s.now().UnixMilli())
@@ -855,6 +906,13 @@ func (s *Service) openSession(ctx context.Context, user store.User, meta Session
 		ExpiresAt: expires.UnixMilli(),
 		UserAgent: truncate(meta.UserAgent, 300),
 		IP:        truncate(meta.IP, 64),
+	}
+	// The cap is enforced before the insert, not after: a failed insert would
+	// spend a token that never got a row. Evicting down to cap-1 leaves room
+	// for exactly one new session, and the stalest device's registration goes
+	// with its session — a retired login must not keep ringing a phone.
+	if err := s.store.EnforceAuthSessionCap(ctx, user.ID, maxSessionsPerUser-1); err != nil {
+		return Session{}, err
 	}
 	if err := s.store.CreateAuthSession(ctx, session); err != nil {
 		return Session{}, err

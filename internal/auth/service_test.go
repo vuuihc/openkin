@@ -654,6 +654,188 @@ func TestLinkIdentityThenLogin(t *testing.T) {
 	}
 }
 
+// Unbind (G19: 合并后可解绑): a credential can be removed while another
+// remains, the last credential cannot, and another account's credential id
+// unlinks nothing.
+func TestUnlinkIdentity(t *testing.T) {
+	t.Run("removes one of two and keeps the other", func(t *testing.T) {
+		svc, st := newTestService(t)
+		ctx := context.Background()
+		owner := claimOwner(t, svc, st, "owner@example.com", "hunter2hunter2")
+		if err := svc.LinkIdentity(ctx, owner.ID, ExternalIdentity{
+			Provider: "oidc:https://github.com", Subject: "12345",
+		}); err != nil {
+			t.Fatalf("link: %v", err)
+		}
+		ids, err := st.ListIdentities(ctx, owner.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(ids) != 2 {
+			t.Fatalf("identities = %d, want 2", len(ids))
+		}
+		var linked string
+		for _, id := range ids {
+			if id.Provider != store.ProviderPassword {
+				linked = id.ID
+			}
+		}
+		if err := svc.UnlinkIdentity(ctx, owner.ID, linked); err != nil {
+			t.Fatalf("unlink: %v", err)
+		}
+		ids, err = st.ListIdentities(ctx, owner.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(ids) != 1 || ids[0].Provider != store.ProviderPassword {
+			t.Fatalf("identities after unlink = %+v, want only the password", ids)
+		}
+	})
+
+	t.Run("refuses to remove the last credential", func(t *testing.T) {
+		svc, st := newTestService(t)
+		ctx := context.Background()
+		owner := claimOwner(t, svc, st, "owner@example.com", "hunter2hunter2")
+		ids, err := st.ListIdentities(ctx, owner.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.UnlinkIdentity(ctx, owner.ID, ids[0].ID); !errors.Is(err, ErrLastCredential) {
+			t.Fatalf("last credential = %v, want ErrLastCredential", err)
+		}
+		if _, err := svc.LoginPassword(ctx, "owner@example.com", "hunter2hunter2", SessionMeta{}); err != nil {
+			t.Fatalf("the refused unbind broke sign-in: %v", err)
+		}
+	})
+
+	t.Run("another account's id unlinks nothing", func(t *testing.T) {
+		svc, st := newTestService(t)
+		ctx := context.Background()
+		owner := claimOwner(t, svc, st, "owner@example.com", "hunter2hunter2")
+		if err := svc.LinkIdentity(ctx, owner.ID, ExternalIdentity{
+			Provider: "oidc:https://github.com", Subject: "12345",
+		}); err != nil {
+			t.Fatalf("link: %v", err)
+		}
+		if err := svc.UnlinkIdentity(ctx, owner.ID, "01OTHERIDENTITY000000000000"); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("foreign id = %v, want ErrNotFound", err)
+		}
+		ids, err := st.ListIdentities(ctx, owner.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(ids) != 2 {
+			t.Fatalf("the failed unbind changed the account: %d credentials left", len(ids))
+		}
+	})
+
+	// Two devices unbind the account's two credentials at the same moment. The
+	// guard lives in the delete's transaction, so exactly one of them wins and
+	// the account always keeps a way in — a read-then-delete guard would let
+	// both pass and strand the Hub.
+	t.Run("concurrent unbinds never remove the last credential", func(t *testing.T) {
+		svc, st := newTestService(t)
+		ctx := context.Background()
+		owner := claimOwner(t, svc, st, "owner@example.com", "hunter2hunter2")
+		if err := svc.LinkIdentity(ctx, owner.ID, ExternalIdentity{
+			Provider: "oidc:https://github.com", Subject: "12345",
+		}); err != nil {
+			t.Fatalf("link: %v", err)
+		}
+		ids, err := st.ListIdentities(ctx, owner.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		results := make([]error, len(ids))
+		for i, id := range ids {
+			wg.Add(1)
+			go func(i int, id string) {
+				defer wg.Done()
+				<-start
+				results[i] = svc.UnlinkIdentity(ctx, owner.ID, id)
+			}(i, id.ID)
+		}
+		close(start)
+		wg.Wait()
+
+		var succeeded int
+		for _, err := range results {
+			if err == nil {
+				succeeded++
+			} else if !errors.Is(err, ErrLastCredential) {
+				t.Fatalf("unexpected unbind error: %v", err)
+			}
+		}
+		if succeeded != 1 {
+			t.Fatalf("%d unbinds succeeded, want exactly 1", succeeded)
+		}
+		left, err := st.ListIdentities(ctx, owner.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(left) != 1 {
+			t.Fatalf("the concurrent unbinds left %d credentials, want 1", len(left))
+		}
+		// Which credential survives is whichever delete lost the race — the
+		// guard keeps one way in, not one particular way. The sign-in check
+		// must ask for the one that is actually there: the federated row signs
+		// in through LoginIdentity, the password row through LoginPassword.
+		if left[0].Provider == store.ProviderPassword {
+			if _, err := svc.LoginPassword(ctx, "owner@example.com", "hunter2hunter2", SessionMeta{}); err != nil {
+				t.Fatalf("the account can no longer sign in after two concurrent unbinds: %v", err)
+			}
+		} else {
+			if _, err := svc.LoginIdentity(ctx, ExternalIdentity{
+				Provider: left[0].Provider, Subject: "12345",
+			}, SessionMeta{}); err != nil {
+				t.Fatalf("the account can no longer sign in after two concurrent unbinds: %v", err)
+			}
+		}
+	})
+}
+
+// The merge notification (G19: 合并后 24h 内通知设备) fires exactly on the
+// merge path — a verified email that resolved to an existing account — and not
+// on a plain sign-in or a fresh account.
+func TestMergeByEmailNotifiesOnce(t *testing.T) {
+	type mergeEvent struct{ userID, provider, label string }
+	var merges []mergeEvent
+	svc, st := newTestService(t)
+	svc.cfg.OnMergedByEmail = func(userID, provider, label string) {
+		merges = append(merges, mergeEvent{userID, provider, label})
+	}
+	ctx := context.Background()
+	owner := claimOwner(t, svc, st, "owner@example.com", "hunter2hunter2")
+
+	ident := ExternalIdentity{
+		Provider: "oidc:https://github.com", Subject: "12345",
+		Email: "owner@example.com", EmailVerified: true,
+		DisplayName: "Owner",
+	}
+	session, err := svc.LoginIdentity(ctx, ident, SessionMeta{})
+	if err != nil {
+		t.Fatalf("merge login: %v", err)
+	}
+	if session.User.ID != owner.ID {
+		t.Fatalf("merged into %s, want %s", session.User.ID, owner.ID)
+	}
+	if len(merges) != 1 || merges[0].userID != owner.ID {
+		t.Fatalf("merge notifications = %+v, want exactly one for %s", merges, owner.ID)
+	}
+
+	// The second sign-in goes through the existing identity: no merge, no
+	// second notification.
+	if _, err := svc.LoginIdentity(ctx, ident, SessionMeta{}); err != nil {
+		t.Fatalf("second login: %v", err)
+	}
+	if len(merges) != 1 {
+		t.Fatalf("a plain sign-in notified again: %+v", merges)
+	}
+}
+
 func TestLinkIdentityRejectsIdentityOwnedByAnotherAccount(t *testing.T) {
 	svc, st := newTestService(t)
 	ctx := context.Background()
@@ -710,6 +892,37 @@ func TestPruneSessions(t *testing.T) {
 		t.Fatalf("second prune: %v", err)
 	} else if remaining != 0 {
 		t.Fatalf("second prune removed %d, want 0", remaining)
+	}
+}
+
+// The per-account session cap (D13/G6/T7: ≤20 个设备会话) is enforced at
+// sign-in: session 21 evicts the account's oldest session, not the one being
+// opened, and every sign-in still succeeds.
+func TestSessionCapEvictsTheOldestSignIn(t *testing.T) {
+	now := time.Now()
+	svc, st := newTestService(t)
+	svc.cfg.Now = func() time.Time { return now }
+	ctx := context.Background()
+	claimOwner(t, svc, st, "owner@example.com", "hunter2hunter2")
+
+	tokens := make([]string, 0, maxSessionsPerUser+1)
+	for i := 0; i <= maxSessionsPerUser; i++ {
+		session, err := svc.LoginPassword(ctx, "owner@example.com", "hunter2hunter2", SessionMeta{})
+		if err != nil {
+			t.Fatalf("login %d: %v", i+1, err)
+		}
+		tokens = append(tokens, session.Token)
+	}
+	// The claim session was opened first, so it is the one that had to go; the
+	// newest sign-in is the one that just opened.
+	if _, err := svc.Authenticate(ctx, tokens[0]); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("the oldest session survived the cap: %v", err)
+	}
+	if _, err := svc.Authenticate(ctx, tokens[maxSessionsPerUser]); err != nil {
+		t.Fatalf("the newest sign-in was refused: %v", err)
+	}
+	if _, err := svc.Authenticate(ctx, tokens[1]); err != nil {
+		t.Fatalf("the second-oldest session was evicted with the cap at %d: %v", maxSessionsPerUser, err)
 	}
 }
 

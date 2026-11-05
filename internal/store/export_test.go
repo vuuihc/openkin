@@ -228,7 +228,7 @@ func TestRestoreDirectoryRoundTrips(t *testing.T) {
 	}
 	// Sessions and identity secrets do not exist in the archive, so the
 	// restored database cannot authenticate anybody.
-	if _, _, err := dst.AuthenticateSession(ctx, "session-hash", now); !errors.Is(err, ErrNotFound) {
+	if _, _, err := dst.AuthenticateSession(ctx, "session-hash", now, 0); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("restored db authenticated a session the export excluded: %v", err)
 	}
 	var n int
