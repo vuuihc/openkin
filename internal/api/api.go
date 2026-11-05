@@ -355,6 +355,10 @@ func (s *Server) Handler() http.Handler {
 		// is what lets an account exist here at all, so minting one is the
 		// owner's call and not a device's.
 		r.With(operatorOnly).Post("/api/auth/invite", s.handleAuthInvite)
+		// Unbinding a login is account administration done by the account
+		// itself (G19: 合并后可解绑). The last credential cannot be removed —
+		// the service refuses and the credential stays.
+		r.Delete("/api/auth/identities/{id}", s.handleAuthUnlinkIdentity)
 		r.With(operatorOnly).Get("/api/devices", s.handleListDevices)
 		r.With(operatorOnly).Post("/api/devices/{id}/revoke", s.handleRevokeDevice)
 		r.With(operatorOnly).Post("/api/devices/{id}/rename", s.handleRenameDevice)

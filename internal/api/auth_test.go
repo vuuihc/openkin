@@ -418,6 +418,77 @@ func TestAuthMeRejectsAnonymous(t *testing.T) {
 	}
 }
 
+// Unbind over the wire (G19: 合并后可解绑). The route works on the signed-in
+// account's own credential ids — which /api/auth/me now reports — and refuses
+// to remove the account's last way in.
+func TestAuthUnlinkIdentity(t *testing.T) {
+	s, master, code := newAuthTestServer(t)
+	client := &authClient{t: t, h: s.Handler(), master: master}
+	if rec := client.post("/api/auth/bootstrap", `{"code":"`+code+`","email":"owner@example.com","password":"hunter2hunter2"}`); rec.Code != http.StatusOK {
+		t.Fatalf("claim: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Link a second credential the way the callback would, then read the ids
+	// the console would see.
+	if err := s.Accounts.LinkIdentity(t.Context(), mustMe(t, client).ID, auth.ExternalIdentity{
+		Provider: "oidc:https://github.com", Subject: "12345",
+	}); err != nil {
+		t.Fatalf("link: %v", err)
+	}
+	me := mustMe(t, client)
+	if len(me.Linked) != 2 {
+		t.Fatalf("linked = %+v, want 2 credentials", me.Linked)
+	}
+	var linkedID string
+	for _, l := range me.Linked {
+		if l.Provider != store.ProviderPassword {
+			linkedID = l.ID
+		}
+	}
+
+	if rec := client.do(http.MethodDelete, "/api/auth/identities/"+linkedID, ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("unlink: %d %s", rec.Code, rec.Body.String())
+	}
+	me = mustMe(t, client)
+	if len(me.Linked) != 1 || me.Linked[0].Provider != store.ProviderPassword {
+		t.Fatalf("linked after unlink = %+v, want only the password", me.Linked)
+	}
+
+	// The last credential cannot go: 409, and the password still signs in.
+	last := me.Linked[0].ID
+	rec := client.do(http.MethodDelete, "/api/auth/identities/"+last, "")
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("last credential: %d %s, want 409", rec.Code, rec.Body.String())
+	}
+
+	// An unknown id answers 404, not a mutation.
+	if rec := client.do(http.MethodDelete, "/api/auth/identities/01NOPE000000000000000000", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown id: %d %s, want 404", rec.Code, rec.Body.String())
+	}
+
+	// And without a session there is no account to unbind from.
+	bare := &authClient{t: t, h: s.Handler(), master: master}
+	if rec := bare.do(http.MethodDelete, "/api/auth/identities/"+last, ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous unlink: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// mustMe reads the signed-in account back through /api/auth/me.
+func mustMe(t *testing.T, client *authClient) authUser {
+	t.Helper()
+	rec := client.get("/api/auth/me")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/api/auth/me: %d %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		User authUser `json:"user"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode me: %v", err)
+	}
+	return out.User
+}
+
 func TestLoginAttemptsAreRateLimited(t *testing.T) {
 	s, master, code := newAuthTestServer(t)
 	h := s.Handler()

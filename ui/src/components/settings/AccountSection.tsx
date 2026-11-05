@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { signOut, startOIDC } from "../../api/account";
+import { signOut, startOIDC, unlinkIdentity, AuthError } from "../../api/account";
 import { authErrorText } from "../../lib/accountGate";
 import { isHubShell } from "../../lib/hubConfig";
 import { useT } from "../../i18n/react";
@@ -23,6 +23,9 @@ export function AccountSection() {
   const pushToast = useAppStore((s) => s.pushToast);
   const tr = useT();
   const [busy, setBusy] = useState(false);
+  // The credential row an unbind is currently in flight for, so one click
+  // disables the others while the Hub decides.
+  const [unlinking, setUnlinking] = useState<string | null>(null);
 
   // The provider callback returns to this page with its result in the query
   // string. The login screen owns that protocol, so nothing else here would
@@ -115,14 +118,52 @@ export function AccountSection() {
             {tr("settings.account.methods")}
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            {account.identities.map((id, index) => (
-              <span
-                key={`${id}:${index}`}
-                className="rounded-lg bg-[var(--kin-fill)] px-2.5 py-1 text-body text-kin-secondary"
-              >
-                {labelFor(id)}
-              </span>
-            ))}
+            {account.linked.length > 0
+              ? account.linked.map((linked) => (
+                  <span
+                    key={linked.id}
+                    className="flex items-center gap-1.5 rounded-lg bg-[var(--kin-fill)] px-2.5 py-1 text-body text-kin-secondary"
+                  >
+                    {labelFor(linked.provider)}
+                    {/* Removing a credential is the undo step for an
+                        email-verified merge (G19). The server owns the last
+                        credential rule; a refused removal comes back as a
+                        toast, and refreshAccount has already re-read what the
+                        Hub actually holds. */}
+                    <button
+                      type="button"
+                      disabled={unlinking !== null}
+                      aria-label={tr("settings.account.removeMethod", {
+                        method: labelFor(linked.provider),
+                      })}
+                      onClick={() => {
+                        setUnlinking(linked.id);
+                        unlinkIdentity(linked.id)
+                          .then(() => pushToast(tr("settings.account.methodRemoved"), "info"))
+                          .catch((err: unknown) => {
+                            pushToast(
+                              err instanceof AuthError
+                                ? authErrorText({ code: err.code, message: err.message }, tr)
+                                : tr("account.errors.sign_in_failed"),
+                              "error",
+                            );
+                          })
+                          .finally(() => setUnlinking(null));
+                      }}
+                      className="rounded px-0.5 text-kin-muted hover:text-kin-secondary disabled:opacity-60"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))
+              : account.identities.map((id, index) => (
+                  <span
+                    key={`${id}:${index}`}
+                    className="rounded-lg bg-[var(--kin-fill)] px-2.5 py-1 text-body text-kin-secondary"
+                  >
+                    {labelFor(id)}
+                  </span>
+                ))}
             {/* Linking signs the provider in inside THIS webview — the session
                 re-checked at the callback must be this origin's cookie, and the
                 shell's webview is the only place that cookie lives. Opening the

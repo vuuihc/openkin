@@ -33,6 +33,7 @@ export const AUTH_ERROR_CODES = [
   "provider_error",
   "session_expired",
   "sign_in_failed",
+  "last_credential",
 ] as const;
 
 export type AuthErrorCode = (typeof AUTH_ERROR_CODES)[number];

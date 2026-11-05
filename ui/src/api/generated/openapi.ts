@@ -1490,6 +1490,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/identities/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Remove one federated login credential from the signed-in account (the
+         *     undo step for an email-verified merge). The id comes from
+         *     `GET /api/auth/me`'s `linked` array. The account's last credential is
+         *     refused, so this can never lock the owner out.
+         *      */
+        delete: operations["unlinkAuthIdentity"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/oidc/start": {
         parameters: {
             query?: never;
@@ -3934,6 +3955,14 @@ export interface components {
             display_name?: string;
             /** @description Provider ids linked to this account, deduplicated. */
             identities?: string[];
+            /** @description One entry per login credential, with the id the unbind endpoint takes. A provider id is not unique — one OIDC issuer can hold several subjects — so removal targets rows, not names.
+             *      */
+            linked?: components["schemas"]["LinkedIdentity"][];
+        };
+        LinkedIdentity: {
+            /** @description The credential row id; the unbind endpoint's path parameter. */
+            id: string;
+            provider: string;
         };
         AuthStatus: {
             /** @description No owner account exists yet. */
@@ -7763,6 +7792,48 @@ export interface operations {
             };
             /** @description No valid session cookie */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    unlinkAuthIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Credential row id from the account's `linked` list. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Credential removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No valid session cookie */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such credential on this account */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The credential is the account's only way to sign in */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

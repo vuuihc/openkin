@@ -5,14 +5,23 @@ import userEvent from "@testing-library/user-event";
 import { setLocale } from "../../i18n";
 import { NO_ACCOUNT, useAppStore } from "../../store/appStore";
 import { AccountSection } from "./AccountSection";
-import { startOIDC } from "../../api/account";
+import { startOIDC, unlinkIdentity } from "../../api/account";
 
 // The real startOIDC assigns window.location, which jsdom refuses to redefine.
 // The contract this test cares about is which provider and return target reach
 // it, so the navigation itself is replaced.
 vi.mock("../../api/account", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../api/account")>();
-  return { ...actual, startOIDC: vi.fn() };
+  return {
+    ...actual,
+    startOIDC: vi.fn(),
+    unlinkIdentity: vi.fn(async () => {
+      useAppStore.getState().setAccount({
+        ...useAppStore.getState().account,
+        linked: useAppStore.getState().account.linked.filter((l) => l.id !== "id-linked"),
+      });
+    }),
+  };
 });
 
 /**
@@ -31,7 +40,10 @@ const oidc = {
   start_url: "/api/auth/oidc/start",
 };
 
-function setAccount(identities: string[]): void {
+function setAccount(
+  identities: string[],
+  linked?: { id: string; provider: string }[],
+): void {
   useAppStore.setState({
     account: {
       ...NO_ACCOUNT,
@@ -39,6 +51,7 @@ function setAccount(identities: string[]): void {
       authenticated: true,
       providers: [password, oidc],
       identities,
+      linked: linked ?? [],
     },
   });
 }
@@ -133,6 +146,62 @@ describe("the account section's sign-in methods", () => {
       ).toBeTruthy();
       // The credentials themselves stay legible on the phone.
       expect(screen.getByText("Password")).toBeTruthy();
+    } finally {
+      scope.Capacitor = previous;
+    }
+  });
+
+  // Unbind (G19: 合并后可解绑): when the Hub reports the removable rows, each
+  // chip carries its own remove action, and the row disappears when the Hub
+  // confirms. The label names what is being removed, which is what a screen
+  // reader needs from an "×".
+  it("offers per-credential removal and drops the row the Hub confirms", async () => {
+    setAccount(
+      [password.id, oidc.id],
+      [
+        { id: "id-password", provider: password.id },
+        { id: "id-linked", provider: oidc.id },
+      ],
+    );
+    const user = userEvent.setup();
+    render(<AccountSection />);
+
+    await user.click(screen.getByRole("button", { name: "Remove GitHub / Google" }));
+
+    expect(unlinkIdentity).toHaveBeenCalledWith("id-linked");
+  });
+
+  // The undo step must be reachable from the phone too — a merge notification
+  // that points at an action only a desktop can perform is not an undo step.
+  it("keeps the removal action inside the native shell", () => {
+    const scope = globalThis as { Capacitor?: unknown };
+    const previous = scope.Capacitor;
+    scope.Capacitor = {
+      isNativePlatform: () => true,
+      getPlatform: () => "ios",
+      Plugins: {
+        KinHubConfig: {
+          getHubUrl: () => Promise.resolve({ url: "https://kin.example.com" }),
+          setHubUrl: () => Promise.resolve({ url: "https://kin.example.com" }),
+          clearHubUrl: () => Promise.resolve(),
+          openSystemBrowser: () => Promise.resolve(),
+          takeAuthCallback: () => Promise.resolve({ url: "" }),
+        },
+      },
+    };
+    try {
+      setAccount(
+        [password.id, oidc.id],
+        [
+          { id: "id-password", provider: password.id },
+          { id: "id-linked", provider: oidc.id },
+        ],
+      );
+      render(<AccountSection />);
+
+      // Linking stays desktop-only; unbinding does not.
+      expect(screen.queryByRole("button", { name: "Link GitHub / Google" })).toBeNull();
+      expect(screen.getByRole("button", { name: "Remove GitHub / Google" })).toBeTruthy();
     } finally {
       scope.Capacitor = previous;
     }

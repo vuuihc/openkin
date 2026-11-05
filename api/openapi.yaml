@@ -2269,6 +2269,32 @@ paths:
                 $ref: "#/components/schemas/AuthMeResponse"
         "401":
           description: No valid session cookie
+  /api/auth/identities/{id}:
+    delete:
+      operationId: unlinkAuthIdentity
+      security:
+        - sessionCookie: []
+      description: |
+        Remove one federated login credential from the signed-in account (the
+        undo step for an email-verified merge). The id comes from
+        `GET /api/auth/me`'s `linked` array. The account's last credential is
+        refused, so this can never lock the owner out.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: Credential row id from the account's `linked` list.
+      responses:
+        "204":
+          description: Credential removed
+        "401":
+          description: No valid session cookie
+        "404":
+          description: No such credential on this account
+        "409":
+          description: The credential is the account's only way to sign in
   /api/auth/oidc/start:
     get:
       operationId: startOIDCSignIn
@@ -6794,6 +6820,23 @@ components:
           items:
             type: string
           description: Provider ids linked to this account, deduplicated.
+        linked:
+          type: array
+          description: >
+            One entry per login credential, with the id the unbind endpoint
+            takes. A provider id is not unique — one OIDC issuer can hold
+            several subjects — so removal targets rows, not names.
+          items:
+            $ref: "#/components/schemas/LinkedIdentity"
+    LinkedIdentity:
+      type: object
+      required: [id, provider]
+      properties:
+        id:
+          type: string
+          description: The credential row id; the unbind endpoint's path parameter.
+        provider:
+          type: string
     AuthStatus:
       type: object
       required: [needs_bootstrap, claimable, authenticated, providers]

@@ -27,6 +27,7 @@ type AuthStatusResponse = {
     email?: string;
     display_name?: string;
     identities?: string[];
+    linked?: { id: string; provider: string }[];
   };
 };
 
@@ -58,6 +59,7 @@ function toState(res: AuthStatusResponse): AccountState {
     email: res.user?.email,
     displayName: res.user?.display_name,
     identities: Array.isArray(res.user?.identities) ? res.user.identities : [],
+    linked: Array.isArray(res.user?.linked) ? res.user.linked : [],
   };
 }
 
@@ -286,6 +288,29 @@ export async function signOut(): Promise<void> {
     // Clearing the local session matters more than the server's answer.
   }
   useAppStore.getState().setAccount({ ...NO_ACCOUNT, enabled: true });
+}
+
+/**
+ * Remove one federated login from the signed-in account (G19: 可解绑).
+ *
+ * The Hub refuses the account's last credential — the answer to "can I remove
+ * this?" is the server's, so a 409 surfaces as a toast rather than being
+ * predicted client-side. The account state is refreshed either way: what the
+ * chips show must be what the Hub actually holds after the attempt.
+ */
+export async function unlinkIdentity(id: string): Promise<void> {
+  try {
+    await apiFetch(`/api/auth/identities/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 409) {
+      throw new AuthError("last_credential", err.message);
+    }
+    throw toAuthError(err);
+  } finally {
+    await refreshAccount();
+  }
 }
 
 /**

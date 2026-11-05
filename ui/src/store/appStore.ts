@@ -59,6 +59,13 @@ export type AccountState = {
    * linked to this account and usable at the login screen.
    */
   identities: string[];
+  /**
+   * One entry per login credential, with the row id the unbind call takes.
+   * `identities` dedupes by provider, so it cannot name what to remove — one
+   * OIDC issuer can front several connectors and hold several rows here.
+   * Older Hubs answer without it, which reads as "nothing is removable".
+   */
+  linked: { id: string; provider: string }[];
 };
 
 export const NO_ACCOUNT: AccountState = {
@@ -68,6 +75,7 @@ export const NO_ACCOUNT: AccountState = {
   claimable: false,
   providers: [],
   identities: [],
+  linked: [],
 };
 
 export type WSStatus = "connecting" | "connected" | "disconnected";

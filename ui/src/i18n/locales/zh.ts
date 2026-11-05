@@ -1108,6 +1108,8 @@ const zh = {
       linkProvider: "绑定 {provider}",
       linkAnotherProvider: "再绑定一种登录方式",
       linked: "已绑定新的登录方式。",
+      removeMethod: "移除{method}",
+      methodRemoved: "已移除该登录方式。",
       signOut: "退出登录",
       signingOut: "正在退出…",
     },
@@ -1488,6 +1490,7 @@ const zh = {
       provider_error: "第三方登录失败，请重试。",
       session_expired: "登录已过期，请重新登录。",
       sign_in_failed: "登录失败，请重试。",
+      last_credential: "这是账户唯一的登录方式，请先添加其他方式再移除。",
     },
   },
   terminal: {

@@ -1166,6 +1166,8 @@ const en: MessageTree = {
       linkProvider: "Link {provider}",
       linkAnotherProvider: "Link another sign-in",
       linked: "Sign-in method linked.",
+      removeMethod: "Remove {method}",
+      methodRemoved: "Sign-in method removed.",
       signOut: "Sign out",
       signingOut: "Signing out…",
     },
@@ -1572,6 +1574,8 @@ const en: MessageTree = {
       provider_error: "The provider could not sign you in. Try again.",
       session_expired: "Your session expired. Sign in again.",
       sign_in_failed: "Sign-in failed. Try again.",
+      last_credential:
+        "This is the account's only way to sign in. Add another method before removing it.",
     },
   },
   terminal: {

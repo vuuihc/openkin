@@ -38,6 +38,7 @@ const {
   cleanVisitCredentials,
   signInWithLink,
   signOut,
+  unlinkIdentity,
 } = await import("./account");
 const { apiFetch, ApiError } = await import("./client");
 const { NO_ACCOUNT, useAppStore } = await import("../store/appStore");
@@ -408,5 +409,65 @@ describe("clearAuthErrorFromURL", () => {
     clearAuthErrorFromURL();
 
     expect(win.history.replaceState).not.toHaveBeenCalled();
+  });
+});
+
+// G19: 合并后可解绑 — the client half of the unbind contract. The server owns
+// the last-credential rule; the client's job is to translate its answer and to
+// re-read the account either way, so the chips show what the Hub actually
+// holds after the attempt.
+describe("unlinkIdentity", () => {
+  beforeEach(() => {
+    vi.mocked(apiFetch).mockReset();
+  });
+
+  it("deletes by id and refreshes the account when the Hub confirms", async () => {
+    vi.mocked(apiFetch)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({
+        needs_bootstrap: false,
+        authenticated: true,
+        providers: [{ id: "password", label: "password", kind: "password" }],
+        user: { identities: ["password"], linked: [{ id: "id-pw", provider: "password" }] },
+      } as never);
+
+    await unlinkIdentity("id-linked");
+
+    expect(apiFetch).toHaveBeenNthCalledWith(
+      1,
+      "/api/auth/identities/id-linked",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(useAppStore.getState().account.linked).toEqual([
+      { id: "id-pw", provider: "password" },
+    ]);
+  });
+
+  it("maps the Hub's 409 to the last_credential code", async () => {
+    vi.mocked(apiFetch).mockRejectedValueOnce(
+      new ApiError(409, "this is the account's only way to sign in"),
+    );
+
+    const err = await unlinkIdentity("id-pw").then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeTruthy();
+    expect((err as { code?: string }).code).toBe("last_credential");
+  });
+
+  it("refreshes the account even when the unbind fails", async () => {
+    vi.mocked(apiFetch)
+      .mockRejectedValueOnce(new ApiError(500, "no"))
+      .mockResolvedValueOnce({
+        needs_bootstrap: false,
+        authenticated: true,
+        providers: [{ id: "password", label: "password", kind: "password" }],
+        user: { identities: ["password"] },
+      } as never);
+
+    await unlinkIdentity("id-pw").catch(() => null);
+
+    expect(useAppStore.getState().account.linked).toEqual([]);
   });
 });

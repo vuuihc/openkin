@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/vuuihc/openkin/internal/auth"
 	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/store"
@@ -39,6 +41,17 @@ type authUser struct {
 	EmailSource   string   `json:"email_source,omitempty"`
 	DisplayName   string   `json:"display_name,omitempty"`
 	Identities    []string `json:"identities,omitempty"`
+	// Linked is one entry per login credential, with the id the unbind route
+	// takes. Identities stays for readers that only need provider names; a
+	// chip that can be removed needs the row, and a provider name is not a
+	// row — one OIDC issuer can hold several subjects for this account.
+	Linked []linkedIdentity `json:"linked,omitempty"`
+}
+
+// linkedIdentity is one removable login credential of the signed-in account.
+type linkedIdentity struct {
+	ID       string `json:"id"`
+	Provider string `json:"provider"`
 }
 
 // accountsEnabled reports whether this process has an account system at all.
@@ -105,6 +118,10 @@ func (s *Server) authUserView(r *http.Request, user store.User) *authUser {
 		// than making the client guess.
 		seen := make(map[string]bool, len(identities))
 		for _, identity := range identities {
+			view.Linked = append(view.Linked, linkedIdentity{
+				ID:       identity.ID,
+				Provider: identity.Provider,
+			})
 			if seen[identity.Provider] {
 				continue
 			}
@@ -356,6 +373,33 @@ func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"user": s.authUserView(r, user)})
+}
+
+// handleAuthUnlinkIdentity removes one federated login from the signed-in
+// account (G19: 合并后可解绑). The id comes from /api/auth/me, which is the
+// only place the account's own credential ids appear; asking for another
+// account's id answers 404, the same thing an id that never existed answers.
+func (s *Server) handleAuthUnlinkIdentity(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.currentUser(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "not signed in"})
+		return
+	}
+	// chi's {id} pattern cannot match an empty segment, so a missing id is
+	// already 404 by routing — no 400 branch to write.
+	id := chi.URLParam(r, "id")
+	switch err := s.Accounts.UnlinkIdentity(r.Context(), user.ID, id); {
+	case errors.Is(err, auth.ErrLastCredential):
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "this is the account's only way to sign in; add another login before removing it",
+		})
+	case errors.Is(err, store.ErrNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "identity not found"})
+	case err != nil:
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not remove the sign-in method"})
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 // handleOIDCStart redirects to the identity provider. When the caller already
