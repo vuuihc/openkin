@@ -21,6 +21,15 @@ import type { CapacitorConfig } from "@capacitor/cli";
  * The build-time value is therefore optional. When absent the app boots on its
  * bundled console (`webDir`), which shows the connect screen; the bundled copy
  * also serves as the fallback when a stored Hub cannot be reached.
+ *
+ * Navigation is gated by the KinHubConfig plugin, not by an allowNavigation
+ * wildcard: Capacitor injects the native bridge into every main-frame
+ * document, so a wildcard would hand the plugin surface — including the
+ * pending auth callback — to whatever origin the webview lands on. The plugin
+ * allows only the stored Hub origin (and the bundled console) and sends
+ * everything else to the system browser. `server.allowNavigation` stays empty
+ * for the same reason; the build-time origin, when present, is listed there so
+ * the very first load is allowed before any plugin state exists.
  */
 const hubUrl = process.env.KIN_HUB_URL;
 if (hubUrl !== undefined && hubUrl !== "") {
@@ -39,16 +48,12 @@ const config: CapacitorConfig = {
   // Still shipped inside the app: the first-run connect screen, and the
   // fallback a phone falls back to when its Hub cannot be reached.
   webDir: "../web/dist",
-  // allowNavigation cannot name every Hub a build may point at — that is the
-  // point of the runtime URL — so any https origin (and http for a LAN Hub)
-  // may take over the webview. The scheme a hostile page could reach the
-  // bridge through is not widened by this: Capacitor only honors http(s)
-  // navigations here, and the bundled console is still what executes first.
-  allowNavigation: ["*"],
   ...(origin
     ? {
         server: {
           url: origin.href,
+          // The build-time origin may take over the webview; every runtime
+          // origin is the plugin's decision (see above).
           allowNavigation: [origin.host],
           // A Hub on the LAN over plain http is a normal way to run this while
           // setting the NAS up; iOS blocks it unless the app says otherwise.

@@ -40,6 +40,18 @@
 			</array>
 		</dict>
 	</array>
+	<!-- A Hub on the LAN over plain http is a normal way to run it while
+	     setting the NAS up (G8); the console gates the choice with an explicit
+	     insecure warning before the shell saves or navigates. ATS still blocks
+	     it by default, and NSAllowsLocalNetworking is the narrow exception: it
+	     unblocks private-network addresses (RFC 1918, .local, direct IPs)
+	     without re-enabling cleartext to arbitrary public hosts. Loopback was
+	     always exempt; this adds the 192.168.x.x NAS the person actually has. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>KinAPNsEnvironment</key>
 	<string>$(APS_ENVIRONMENT)</string>
 	<key>LSRequiresIPhoneOS</key>
