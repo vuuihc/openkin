@@ -6,6 +6,7 @@ import {
   isHubShell,
   newDeviceKey,
   parseAuthCallback,
+  parseConnectLink,
   type HubConfigPlugin,
 } from "./hubConfig";
 
@@ -98,5 +99,35 @@ describe("newDeviceKey", () => {
 
   it("does not repeat", () => {
     expect(newDeviceKey()).not.toBe(newDeviceKey());
+  });
+});
+
+// G8: 深链填入 Hub URL. The link says where the Hub is, not that the person
+// has decided to trust it — so the parser stops at the origin and the connect
+// screen keeps its own submit (and insecure-HTTP confirm) as the deciding tap.
+describe("parseConnectLink", () => {
+  it("reads the origin out of a connect deep link", () => {
+    expect(parseConnectLink("kin://connect?url=https%3A%2F%2Fkin.example.com")).toBe(
+      "https://kin.example.com",
+    );
+    // Path, port, and query are preserved as given; only the scheme normalization
+    // a URL constructor applies may change them.
+    expect(
+      parseConnectLink("kin://connect?url=https%3A%2F%2Fhub.example.com%3A8443%2Fconsole"),
+    ).toBe("https://hub.example.com:8443");
+    expect(parseConnectLink("kin://connect?url=http%3A%2F%2F192.168.1.42%3A7777")).toBe(
+      "http://192.168.1.42:7777",
+    );
+  });
+
+  it("rejects anything that is not an http(s) origin", () => {
+    expect(parseConnectLink("kin://connect?url=ftp://kin.example.com")).toBeNull();
+    expect(parseConnectLink("kin://connect?url=javascript:alert(1)")).toBeNull();
+    expect(parseConnectLink("kin://connect")).toBeNull();
+    expect(parseConnectLink("kin://connect?url=")).toBeNull();
+    expect(parseConnectLink("https://kin.example.com")).toBeNull();
+    expect(parseConnectLink("kin://other?url=https://kin.example.com")).toBeNull();
+    expect(parseConnectLink("")).toBeNull();
+    expect(parseConnectLink("not a url")).toBeNull();
   });
 });

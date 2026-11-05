@@ -23,6 +23,9 @@ export type HubConfigPlugin = {
   clearHubUrl(): Promise<void>;
   openSystemBrowser(input: { url: string }): Promise<void>;
   takeAuthCallback(): Promise<{ url?: string }>;
+  /** Read-and-clear the pending kin://connect deep link (G8). Optional: an
+   * older shell build has no such method and no connect links to read. */
+  takeConnectLink?(): Promise<{ url?: string }>;
 };
 
 type CapacitorGlobal = {
@@ -92,6 +95,19 @@ export async function takeAuthCallback(plugin: HubConfigPlugin): Promise<string>
 }
 
 /**
+ * The pending `kin://connect?url=…` deep link, or "".
+ *
+ * The connect link has its own shell slot — a shared one would let an address
+ * overwrite a one-time sign-in code mid-flight — and its own read-and-clear.
+ * An older shell build has no method and no links, which reads as "".
+ */
+export async function takeConnectLink(plugin: HubConfigPlugin): Promise<string> {
+  if (typeof plugin.takeConnectLink !== "function") return "";
+  const answer = await plugin.takeConnectLink();
+  return typeof answer?.url === "string" ? answer.url : "";
+}
+
+/**
  * What a callback URL carries.
  *
  * The shape is the server's choice (internal/api/auth.go): success carries only
@@ -144,4 +160,36 @@ export function newDeviceKey(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * The Hub origin a `kin://connect?url=…` deep link carries, or null.
+ *
+ * The link is how an owner walks a second phone onto their Hub without typing
+ * the origin on its keyboard (G8: 深链填入 Hub URL). It carries an address,
+ * not a credential: the shell only pre-fills the connect screen, and the
+ * person still taps connect — the same tap, and the same insecure-HTTP
+ * confirm, a typed URL would need.
+ *
+ * Only an http(s) origin with a host parses; anything else is not an address
+ * the shell could act on, so it reads as "no link".
+ */
+export function parseConnectLink(raw: string): string | null {
+  if (!raw) return null;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "kin:" || url.host !== "connect") return null;
+  const value = (url.searchParams.get("url") ?? "").trim();
+  if (!/^https?:\/\//i.test(value)) return null;
+  try {
+    const hub = new URL(value);
+    if (!hub.host) return null;
+    return hub.origin;
+  } catch {
+    return null;
+  }
 }

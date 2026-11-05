@@ -34,16 +34,11 @@ public class KinHubConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "clearHubUrl", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "openSystemBrowser", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "takeAuthCallback", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "takeConnectLink", returnType: CAPPluginReturnPromise),
     ]
 
     static let hubURLKey = "kin.hub_url"
     static let callbackKey = "kin.auth_callback"
-
-    /// A callback URL only counts when it is this app's own scheme (G9: a
-    /// random app cannot be handed another app's code by a link that names a
-    /// different scheme) and carries a short, opaque value.
-    static let callbackScheme = "kin"
-    static let callbackHost = "auth-callback"
 
     @objc func getHubUrl(_ call: CAPPluginCall) {
         let raw = UserDefaults.standard.string(forKey: Self.hubURLKey) ?? ""
@@ -128,6 +123,21 @@ public class KinHubConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         let raw = UserDefaults.standard.string(forKey: Self.callbackKey) ?? ""
         if !raw.isEmpty {
             UserDefaults.standard.removeObject(forKey: Self.callbackKey)
+        }
+        call.resolve(["url": raw])
+    }
+
+    /// Read and clear a pending `kin://connect?url=…` deep link (G8).
+    ///
+    /// It has its own slot, not the auth callback's: the two messages travel
+    /// through the same scheme, and a connect link landing in the window
+    /// between a sign-in's callback and the console's 400ms poll would
+    /// otherwise overwrite a one-time code mid-flight. Each consumer reads
+    /// exactly the message kind it is waiting for.
+    @objc func takeConnectLink(_ call: CAPPluginCall) {
+        let raw = UserDefaults.standard.string(forKey: Self.connectKey) ?? ""
+        if !raw.isEmpty {
+            UserDefaults.standard.removeObject(forKey: Self.connectKey)
         }
         call.resolve(["url": raw])
     }
@@ -220,15 +230,48 @@ public class KinHubConfigPlugin: CAPPlugin, CAPBridgedPlugin {
 
 /// The scheme's receiving half. SceneDelegate already forwards open URL
 /// contexts to Capacitor; the app's own scheme additionally lands the callback
-/// where openSystemBrowser's session expects it.
+/// where openSystemBrowser's session expects it, and a connect deep link where
+/// the console's connect screen reads it (G8: 深链填入 Hub URL).
 extension KinHubConfigPlugin {
-    /// Called by SceneDelegate when the app is handed `kin://auth-callback?…`.
-    /// Only this app's own callback host is stored: any other kin:// host is
-    /// not a sign-in answer, and treating it as one would let a web page
-    /// plant a value the console reads as a completed flow.
+    /// The app's own callback host.
+    static let callbackScheme = "kin"
+    static let callbackHost = "auth-callback"
+    /// The connect deep link's host: `kin://connect?url=…` pre-fills the Hub
+    /// URL on a first-run shell. It carries an address, not a credential —
+    /// the person still taps connect — so the worst a forged link does is
+    /// put text in a field the person then reads.
+    static let connectHost = "connect"
+    /// The connect link's handoff slot. Separate from the auth callback's on
+    /// purpose: the two message kinds travel through the same scheme, and one
+    /// shared slot would let a connect link overwrite a one-time sign-in code
+    /// in the window before the console's poll reads it.
+    static let connectKey = "kin.connect_link"
+
+    /// Called by SceneDelegate when the app is handed a kin:// URL.
+    ///
+    /// Only the two hosts this app defined are acted on. `auth-callback` is a
+    /// completed sign-in; `connect` is an address to pre-fill. Any other kin://
+    /// host is neither, and treating it as either would let a web page plant a
+    /// value the console reads as its own.
     static func receiveAuthCallback(_ url: URL) {
-        guard url.scheme?.lowercased() == callbackScheme,
-              url.host?.lowercased() == callbackHost else { return }
-        UserDefaults.standard.set(url.absoluteString, forKey: callbackKey)
+        guard url.scheme?.lowercased() == callbackScheme else { return }
+        switch url.host?.lowercased() {
+        case callbackHost:
+            UserDefaults.standard.set(url.absoluteString, forKey: callbackKey)
+        case connectHost:
+            // The URL parameter is the Hub origin to fill in. Stored to the
+            // connect slot; the console reads it once and clears it, and a
+            // second link simply overwrites the first.
+            if let raw = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "url" })?.value,
+                let hub = URL(string: raw),
+                let scheme = hub.scheme?.lowercased(),
+                scheme == "https" || scheme == "http",
+                hub.host != nil {
+                UserDefaults.standard.set(url.absoluteString, forKey: connectKey)
+            }
+        default:
+            break
+        }
     }
 }

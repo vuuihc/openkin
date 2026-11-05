@@ -192,12 +192,13 @@
 | 控制面（账号/身份/租户目录） | 未开始 |
 | 统一域名入口、租户路由、cell | 未开始 |
 | 每租户 store / 存储布局 | 未开始；D4 需要托管多租户开工前的 spike |
-| iOS Capacitor 壳 | 已有；运行时 Hub URL + 系统浏览器 OAuth + 一次性 code 回传已实现（`feat/hosted-hub-acceptance` 的 KinHubConfig 插件，`KIN_HUB_URL` 变为可选；真机未验，G8 的扫码/深链仍缺） |
+| iOS Capacitor 壳 | 已有；运行时 Hub URL + 系统浏览器 OAuth + 一次性 code 回传 + `kin://connect?url=` 深链填 URL 已实现（`feat/hosted-hub-acceptance` 的 KinHubConfig 插件；解析器 `parseConnectLink` 红测试齐，`swiftc -parse` 过；真机未验） |
 | 桌面本地 Node | 已有；托管登录流程未做 |
-| 自部署 Node token | 本轮分支已交付：显式确认 + 指纹（`f9684768`）与重命名；撤销的 WS 立断未验 |
-| 跨设备会话同步 | 已有（单租户）；未在托管规模验证 |
+| 自部署 Node token | 本轮分支已交付：显式确认 + 指纹（`f9684768`）与重命名；撤销后 WS 立断已验（`TestNodeChannelDropsARevokedDevice`：关闭帧 StatusPolicyViolation、重连被拒） |
+| 跨设备会话同步 | 已有（单租户）；`TestRemoteTurnEndToEnd`、agent_sessions_device 11 例（含拒绝任何 wire 可携带的 cursor）、eventStream 重放 7 例；托管规模未验 |
 | 推送 | 自部署 Web Push 已有；APNs 已合入 `kin-multidevice` 的本地 main（`cf556915` + `92027ed7`），但当前 `feat/hub-oauth-login` 分支未包含；真机验收未做 |
-| 邮箱默认合并 | 本轮分支已实现（D3：同已验证邮箱默认合并，歧义/禁用拒绝，`ab6dbb32`）；24h 通知/解绑/审计未做 |
+| 邮箱默认合并 | 已实现（D3 同已验证邮箱默认合并，歧义/禁用拒绝，`ab6db32`）；24h 内合并通知（`TestMergeByEmailNotifiesOnce` + `OnMergedByEmail` 接 notifier，仅合并路径触发一次）、可解绑（`DELETE /api/auth/identities/{id}` + 最后一个凭证 409 拒绝，`TestAuthUnlinkIdentity`）已交付 |
+| 会话生命周期（D13/G6/T7） | 已交付：滑动 30 天（`AuthenticateSession` 按最后使用重锚 `expires_at` 并写回）、绝对 180 天上限（读时拒绝 + `PruneAuthSessions` 清扫，两者都有红测试）、单账号 ≤20 会话（第 21 次登录逐出最旧，`TestSessionCapEvictsTheOldestSignIn`）；prune 循环已接入 daemon（`runSessionPrune` 每小时，随 listenCtx 生命周期） |
 
 ## 11. 评审记录
 
@@ -209,4 +210,5 @@
 - **2026-11-04 评审修复（第 1 轮实现复审，2 blocker / 5 major）**：B1/B2 修复——`device_key` 改为服务端 pendingAuth 记录（不再经浏览器回显，callback 成功只回 code）；移动端导航门改由插件 `shouldOverrideLoad` 单点裁决（白名单=存储 Hub origin + 构建期 origin + 内置控制台，其余进系统浏览器），`allowNavigation` 不再用 `*`；`setHubUrl` 对非回环 HTTP 先拒绝（不落盘不导航），确认后（`confirm:true`）才生效，Info.plist 加 `NSAllowsLocalNetworking`；restore 在同一事务内额外清空八张无 FK 的凭证表（含 device_credentials/pairing_sessions，Node 需重新配对），打印文案同步；console 侧未归因 code 不再误清 pending 流程，错误回调带 `device_key` 归属。未动：扫码/深链填 URL、G5/G6、G10–G13（已有能力，待验）、G14/G15 真机、干净机器端到端。
 - **2026-11-05 评审修复（第 2 轮，1 major / 6 nit）**：M-A——导航门收紧后，设置页的 OIDC 绑定流程（无 pending 流程、走 `window.location.assign`）会被网关取消并整体落到系统浏览器，Set-Cookie 进了 Safari 的 jar，绑定永远完不成。本轮取舍：**壳内隐藏绑定按钮**，文案指向桌面控制台（手机绑定待 G9 code 桥扩展覆盖 bind 流程，是后续决定，不是本轮）。因为绑定回调要求重新校验发起会话的 cookie，那个 cookie 只存在于 webview 的 jar 里，系统浏览器替代不了——这不是可以“顺手修”的缺口，而是 G9 协议当前的边界。nits：Abort/provider-error 路由补红测试（含未知 state 走浏览器路径）；restore 测试补 device_credentials/pairing_sessions 清空断言；sameOrigin 补默认端口归一（443/80）；URL 编辑即撤销 insecure 确认态；restore 文案说明 push 注册保留；openapi 文档与文案同步。
 - **2026-11-05 评审第 2 轮结论 READY（0 blocker / 0 major，3 nit 已处理）**：①壳内隐藏绑定按钮补回归测试（jsdom 模拟 G8/G9 插件，断言按钮不渲染、提示文案替换、凭证 chip 保留）；②过渡窗口记录在案——Hub 更新到新 console 而手机 app 还是 G8 之前的旧构建时，`isHubShell()` 为 false，绑定按钮会照常渲染，而旧壳没有导航门：这是一个已接受的过渡期纵深防御缺口（可利用前提是 issuer 域名本身被攻破，且 app 更新后即关闭）；③`openSystemBrowser` 被壳拒绝（https-only，LAN 纯 HTTP Hub）不再静默挂起——清掉 pending 流程并派发 `browser_unavailable` 稳定错误码（双语 + accountGate 注册）。
+- **2026-11-05 验收补全（Stop-hook 挑战后逐项核实 + 补差距）**：逐项核实在会话内可验的项并记录证据——G7 撤销 WS 立断（`TestNodeChannelDropsARevokedDevice`）、G5 链接一次性/过期/并发（`TestLoginLink*`）、G1–G4 安装器契约（install-hub.test.sh 96 检）、G10–G13 跨设备同步/审批幂等/断线重放/离线拒绝（agent_sessions_device、eventStream、user_questions 套件）、G16 双语同步（locales.test 迭代 AUTH_ERROR_CODES）。补上三块真差距：①**会话生命周期**（D13/G6/T7 此前只有 30 天 TTL、无滑动/无上限/无清扫）——store 层滑动窗口重锚 + 绝对 180 天上限 + ≤20 会话逐出（负数 LIMIT 陷阱：SQLite 读负 LIMIT 为无限制，未钳零会清空整个账号，补回归测试），auth 服务登录时逐出最旧，daemon 起每小时 prune 循环；②**G19 余项**——`DELETE /api/auth/identities/{id}` 解绑（存在性检查先于最后凭证守卫，404/409/204 契约红测试）、`/api/auth/me` 增 `linked` 行级列表（provider 名不唯一）、合并通知经 `OnMergedByEmail` 回调接 notifier（仅真实合并路径触发，测试证明普通登录不触发）；UI chips 带 × 移除、壳内可用（绑定仍是桌面专属——那是 G9 边界），`last_credential` 错误码双语入表。③**G8 深链**——`kin://connect?url=` 深链（插件侧仅收 http(s) origin，console 侧 `parseConnectLink` 红测试；链接只填表单，连接/不安全确认仍是人的动作）。取舍记录：合并"审计一次"以合并通知本身承载（通知即审计事件，不另建审计表——应用层行为优先 prompt/现有回路，§3a）；扫码输入留待真机验收决定是否需要（深链已覆盖"不手打 URL"的主路径）。
 - **v4 编号说明**：v3 的 H/S/T/C 编号收敛为 G（自部署 dogfood）、H（托管 L2）、T（技术底线）；C 系列（L3/L4）删除。旧编号不再引用。

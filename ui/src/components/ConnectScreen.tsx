@@ -1,6 +1,12 @@
 import { FormEvent, useEffect, useState } from "react";
 import { setToken } from "../api/client";
-import { currentHubUrl, hubConfigPlugin, isHubShell } from "../lib/hubConfig";
+import {
+  currentHubUrl,
+  hubConfigPlugin,
+  isHubShell,
+  parseConnectLink,
+  takeConnectLink,
+} from "../lib/hubConfig";
 import { useT } from "../i18n/react";
 import { useAppStore } from "../store/appStore";
 
@@ -33,6 +39,30 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
     let cancelled = false;
     void currentHubUrl(plugin).then((url) => {
       if (!cancelled) setShellUrl(url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [plugin]);
+
+  // A `kin://connect?url=…` deep link pre-fills the Hub URL (G8). The shell
+  // records the link the moment iOS delivers it — including cold start, where
+  // the app was launched *by* the link — and clears it on read, from its own
+  // slot: the auth callback's slot stays reserved for sign-in codes. The fill
+  // happens in this screen because the person still needs to read the address
+  // and tap connect: the link says where their Hub is, not that they have
+  // decided to trust it.
+  useEffect(() => {
+    if (!plugin || !isHubShell()) return;
+    let cancelled = false;
+    void takeConnectLink(plugin).then((raw) => {
+      if (cancelled || !raw) return;
+      const hub = parseConnectLink(raw);
+      if (hub) {
+        setValue(hub);
+        setError(null);
+        setInsecure(null);
+      }
     });
     return () => {
       cancelled = true;
