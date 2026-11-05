@@ -386,7 +386,26 @@ function OIDCButton({
         // The app flow (G9): keep the device key in memory, hand the shell the
         // opener, and let startOIDC attach the key to the start URL. The
         // callback effect below finishes the flow when the browser reports back.
-        setPending({ deviceKey: newDeviceKey(), open: (url) => void plugin.openSystemBrowser({ url }) });
+        setPending({
+          deviceKey: newDeviceKey(),
+          open: (url) => {
+            plugin
+              .openSystemBrowser({ url })
+              .catch(() => {
+                // The shell refuses what it cannot carry — an https-only URL
+                // is a plain-HTTP Hub, a supported but untrusted-for-OAuth
+                // configuration. A silent rejection would leave this flow
+                // polling forever; the failure event lands in the same error
+                // line every other sign-in failure uses.
+                setPending(null);
+                window.dispatchEvent(
+                  new CustomEvent("kin:app-sign-in-failed", {
+                    detail: { code: "browser_unavailable", message: "" },
+                  }),
+                );
+              });
+          },
+        });
         startOIDC(provider, window.location.pathname);
       }}
       className="w-full min-h-12 rounded-xl border border-kin-hairline-strong bg-kin-bg px-4 py-3 text-strong leading-5 font-medium text-kin-text hover:bg-kin-elevated active:scale-[0.99] transition"
@@ -399,12 +418,23 @@ function OIDCButton({
 /**
  * Poll for the system-browser callback and finish the flow it belongs to.
  *
- * Success spends the code on an exchange, then opens the one-time link it
- * returns — the same reload the token screen does after pasting one, so the
- * webview lands on the Hub origin with a first-party cookie. Failure shows the
- * same stable-code error text a browser flow would. Both paths clear the
- * pending flow first: a callback is consumed exactly once, and leaving the
- * flow pending after it answered would start the next tap with a stale key.
+ * Success spends the code on an exchange — presenting the device key this flow
+ * generated and still holds in memory, which never came back through the
+ * browser — then opens the one-time link it returns: the same reload the token
+ * screen does after pasting one, so the webview lands on the Hub origin with a
+ * first-party cookie.
+ *
+ * An error naming *another* flow (a device key this page did not start, from a
+ * second sign-in that raced this one) is left to whoever started it: it is
+ * consumed — each callback is delivered exactly once — but this pending flow
+ * stays up and keeps polling, because its own browser may still be on its way
+ * back. An error naming this flow, or a success (which carries no attribution
+ * and is claimed by the only pending flow), finishes this one.
+ *
+ * Failure shows the same stable-code error text a browser flow would. Both the
+ * success and the attributed-failure paths clear the pending flow first: a
+ * callback is consumed exactly once, and leaving the flow pending after it
+ * answered would start the next tap with a stale key.
  */
 function useAppSignInCallback(
   plugin: HubConfigPlugin | null,
@@ -422,35 +452,42 @@ function useAppSignInCallback(
       if (cancelled) return;
       if (!raw) return;
       const callback = parseAuthCallback(raw);
-      if (callback?.kind === "code" && callback.deviceKey === pending.deviceKey) {
-        setBusy(true);
-        setPending(null);
-        try {
-          const token = await exchangeLoginCode(callback.code, callback.deviceKey);
-          await signInWithLink(token);
-          // Hard reload so the webview re-binds WS and every page to the
-          // session the link just set.
-          window.location.reload();
-        } catch (err) {
-          setBusy(false);
-          window.dispatchEvent(
-            new CustomEvent("kin:app-sign-in-failed", {
-              detail: err instanceof AuthError ? { code: err.code, message: err.message } : null,
-            }),
-          );
-        }
+      if (!callback) return; // mangled URL: not ours to answer, keep polling
+      if (callback.kind === "error" && callback.deviceKey !== pending.deviceKey) {
+        // An error naming another flow — a second sign-in that raced this one —
+        // is theirs, not ours, and this flow's browser may still be on its way
+        // back. The callback is consumed either way; this flow keeps waiting.
         return;
       }
-      // A callback that does not match this flow (an error redirect, a stale
-      // key) still ends *a* flow — answer it and clear the pending one so the
-      // next tap starts clean.
+      // This callback completes this flow. A success code carries no
+      // attribution by design: it is spent with the key this flow has held in
+      // memory since it started, and the exchange's device binding is what
+      // proves the pairing — presenting this key with a code minted for
+      // another flow simply fails there.
+      setBusy(true);
       setPending(null);
-      if (callback) {
-        const detail =
-          callback.kind === "error"
-            ? { code: callback.code, message: "" }
-            : { code: "sign_in_failed", message: "" };
-        window.dispatchEvent(new CustomEvent("kin:app-sign-in-failed", { detail }));
+      if (callback.kind === "error") {
+        setBusy(false);
+        window.dispatchEvent(
+          new CustomEvent("kin:app-sign-in-failed", {
+            detail: { code: callback.code, message: "" },
+          }),
+        );
+        return;
+      }
+      try {
+        const token = await exchangeLoginCode(callback.code, pending.deviceKey);
+        await signInWithLink(token);
+        // Hard reload so the webview re-binds WS and every page to the
+        // session the link just set.
+        window.location.reload();
+      } catch (err) {
+        setBusy(false);
+        window.dispatchEvent(
+          new CustomEvent("kin:app-sign-in-failed", {
+            detail: err instanceof AuthError ? { code: err.code, message: err.message } : null,
+          }),
+        );
       }
     };
     const timer = window.setInterval(() => void poll(), 400);
@@ -461,9 +498,10 @@ function useAppSignInCallback(
     };
   }, [plugin, pending, busy, setPending]);
 
-  // The exchange's failure has no form to land in — the person is staring at
-  // this screen after coming back from the browser — so it arrives as an event
-  // and joins the same error line the form's own failures use.
+  // Finishing a flow has no form to land in — the person is staring at this
+  // screen after coming back from the browser — so both the exchange's failure
+  // and the provider's arrive as events and join the same error line the
+  // form's own failures use.
   useEffect(() => {
     if (!plugin) return;
     const onFailed = (event: Event) => {

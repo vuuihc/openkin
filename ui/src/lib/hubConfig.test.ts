@@ -22,7 +22,8 @@ function iosScope(plugin: Partial<HubConfigPlugin>) {
 function fullPlugin(): Partial<HubConfigPlugin> {
   return {
     getHubUrl: () => Promise.resolve({}),
-    setHubUrl: () => Promise.resolve({ url: "https://kin.example.com" }),
+    setHubUrl: (_input: { url: string; confirm?: boolean }) =>
+      Promise.resolve({ url: "https://kin.example.com" }),
     clearHubUrl: () => Promise.resolve(),
     openSystemBrowser: () => Promise.resolve(),
     takeAuthCallback: () => Promise.resolve({}),
@@ -51,31 +52,40 @@ describe("hubConfigPlugin", () => {
 });
 
 describe("parseAuthCallback", () => {
-  it("reads a success callback", () => {
+  it("reads a success callback: code only, no device key in the browser hop", () => {
     const code = "a".repeat(64);
-    expect(parseAuthCallback(`kin://auth-callback?code=${code}&device_key=k1`)).toEqual({
+    expect(parseAuthCallback(`kin://auth-callback?code=${code}`)).toEqual({
       kind: "code",
       code,
-      deviceKey: "k1",
     });
   });
 
-  it("reads an error callback as the server's stable code", () => {
+  it("reads an error callback with its device key for attribution", () => {
+    expect(parseAuthCallback("kin://auth-callback?error=identity_not_linked&device_key=k1")).toEqual({
+      kind: "error",
+      code: "identity_not_linked",
+      deviceKey: "k1",
+    });
     expect(parseAuthCallback("kin://auth-callback?error=identity_not_linked")).toEqual({
       kind: "error",
       code: "identity_not_linked",
+      deviceKey: "",
     });
   });
 
   it("rejects a foreign scheme or host", () => {
     const code = "a".repeat(64);
-    expect(parseAuthCallback(`https://auth-callback?code=${code}&device_key=k1`)).toBeNull();
-    expect(parseAuthCallback(`kin://other?code=${code}&device_key=k1`)).toBeNull();
+    expect(parseAuthCallback(`https://auth-callback?code=${code}`)).toBeNull();
+    expect(parseAuthCallback(`kin://other?code=${code}`)).toBeNull();
   });
 
-  it("rejects a malformed code and a missing device key", () => {
-    expect(parseAuthCallback("kin://auth-callback?code=short&device_key=k1")).toBeNull();
-    expect(parseAuthCallback(`kin://auth-callback?code=${"a".repeat(64)}`)).toBeNull();
+  it("rejects a malformed code", () => {
+    expect(parseAuthCallback("kin://auth-callback?code=short")).toBeNull();
+    expect(parseAuthCallback("kin://auth-callback?code=short&error=x")).toEqual({
+      kind: "error",
+      code: "x",
+      deviceKey: "",
+    });
     expect(parseAuthCallback("")).toBeNull();
     expect(parseAuthCallback("not a url")).toBeNull();
   });

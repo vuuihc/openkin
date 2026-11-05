@@ -55,11 +55,15 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
   /**
    * Hand the typed origin to the shell.
    *
-   * The shell persists it and points the webview at it in one action — that
-   * navigation is what makes the session cookie first-party, so "saved" and
-   * "opened" are deliberately not two steps. A plain-HTTP answer means a LAN
-   * origin: the shell allows it but says so, and this confirm step is where
-   * the person decides knowing what the network can see.
+   * For HTTPS the shell persists it and points the webview at it in one action
+   * — that navigation is what makes the session cookie first-party, so "saved"
+   * and "opened" are deliberately not two steps.
+   *
+   * A plain-HTTP answer means a non-loopback origin: the shell refuses to act
+   * until the person has been told what the network can see, and answers
+   * `insecure` without saving or navigating. This re-submit (same form, after
+   * the warning is on screen) is the confirming tap; the shell only then
+   * persists and navigates.
    */
   async function submitHubUrl(e: FormEvent) {
     e.preventDefault();
@@ -76,11 +80,11 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
     setBusy(true);
     setError(null);
     try {
-      const result = await plugin.setHubUrl({ url: raw });
-      if (result.insecure && !insecure) {
-        // The shell refused nothing — it navigated — but it flagged the origin.
-        // Show why HTTPS matters and require the tap that means it was read.
-        // The URL is already saved, so confirming just re-sets it and reloads.
+      const confirmed = insecure !== null;
+      const result = await plugin.setHubUrl({ url: raw, confirm: confirmed });
+      if (result.insecure && !confirmed) {
+        // The shell saved nothing and went nowhere; the warning on screen is
+        // what the confirm tap is for.
         setInsecure(result.url);
         setBusy(false);
         return;
@@ -139,6 +143,11 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
                 onChange={(e) => {
                   setValue(e.target.value);
                   setError(null);
+                  // The warning — and with it the confirm tap — belongs to the
+                  // exact origin it described. Editing the field starts the
+                  // decision over, or a resubmit would carry `confirm:true` to
+                  // an address the warning was never shown for.
+                  setInsecure(null);
                 }}
                 placeholder={tr("connect.hubPlaceholder")}
                 className="w-full min-h-11 rounded-xl border border-kin-hairline-strong bg-kin-bg px-3 py-2.5 text-strong leading-5 text-kin-text placeholder:text-kin-muted focus:outline-none focus:ring-1 focus:ring-kin-focus-ring"

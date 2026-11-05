@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { signOut, startOIDC } from "../../api/account";
 import { authErrorText } from "../../lib/accountGate";
+import { isHubShell } from "../../lib/hubConfig";
 import { useT } from "../../i18n/react";
 import { useAppStore, type AccountProvider } from "../../store/appStore";
 import { SettingsSection } from "./SettingsPrimitives";
@@ -122,20 +123,32 @@ export function AccountSection() {
                 {labelFor(id)}
               </span>
             ))}
-            {oidcProviders.map((provider) => (
-              <button
-                key={provider.id}
-                type="button"
-                onClick={() => startOIDC(provider, "/settings")}
-                className="rounded-lg border border-kin-hairline-strong px-2.5 py-1 text-body font-medium text-kin-blue hover:bg-[var(--kin-fill)]"
-              >
-                {hasLinkedOIDC
-                  ? tr("settings.account.linkAnotherProvider")
-                  : tr("settings.account.linkProvider", { provider: provider.label })}
-              </button>
-            ))}
+            {/* Linking signs the provider in inside THIS webview — the session
+                re-checked at the callback must be this origin's cookie, and the
+                shell's webview is the only place that cookie lives. Opening the
+                provider hop in the system browser would leave the Set-Cookie
+                in Safari's jar, and the webview gate rightly refuses to send
+                the bridge to a foreign origin. So on the shell the action is
+                not offered rather than offered-and-doomed (G9: linking from
+                the phone waits for the sign-in code bridge to cover bind
+                flows). The identity chips above stay visible either way. */}
+            {!isHubShell() &&
+              oidcProviders.map((provider) => (
+                <button
+                  key={provider.id}
+                  type="button"
+                  onClick={() => startOIDC(provider, "/settings")}
+                  className="rounded-lg border border-kin-hairline-strong px-2.5 py-1 text-body font-medium text-kin-blue hover:bg-[var(--kin-fill)]"
+                >
+                  {hasLinkedOIDC
+                    ? tr("settings.account.linkAnotherProvider")
+                    : tr("settings.account.linkProvider", { provider: provider.label })}
+                </button>
+              ))}
           </div>
-          <p className="text-caption text-kin-muted">{tr("settings.account.methodsHint")}</p>
+          <p className="text-caption text-kin-muted">
+            {isHubShell() ? tr("settings.account.methodsHintShell") : tr("settings.account.methodsHint")}
+          </p>
         </div>
       </div>
     </SettingsSection>

@@ -98,6 +98,45 @@ describe("the account section's sign-in methods", () => {
 
     expect(screen.getByText("Another sign-in")).toBeTruthy();
   });
+
+  // The shell's webview cannot host a link flow: the provider hop would be
+  // cancelled by the shell's navigation gate and the resulting Set-Cookie
+  // would land in the system browser's jar, so the bind never completes (G9).
+  // Offering the button there would be offering a dead end — it stays a
+  // console-in-a-desktop-browser action.
+  it("hides the link action inside the native shell and says where to link instead", () => {
+    const scope = globalThis as { Capacitor?: unknown };
+    const previous = scope.Capacitor;
+    // A G8/G9 shell: the platform check plus every method the console calls.
+    scope.Capacitor = {
+      isNativePlatform: () => true,
+      getPlatform: () => "ios",
+      Plugins: {
+        KinHubConfig: {
+          getHubUrl: () => Promise.resolve({ url: "https://kin.example.com" }),
+          setHubUrl: () => Promise.resolve({ url: "https://kin.example.com" }),
+          clearHubUrl: () => Promise.resolve(),
+          openSystemBrowser: () => Promise.resolve(),
+          takeAuthCallback: () => Promise.resolve({ url: "" }),
+        },
+      },
+    };
+    try {
+      setAccount([password.id]);
+      render(<AccountSection />);
+
+      expect(screen.queryByRole("button", { name: "Link GitHub / Google" })).toBeNull();
+      expect(
+        screen.getByText(
+          "Any of these signs you in. Linking another provider is done from the console in a desktop browser.",
+        ),
+      ).toBeTruthy();
+      // The credentials themselves stay legible on the phone.
+      expect(screen.getByText("Password")).toBeTruthy();
+    } finally {
+      scope.Capacitor = previous;
+    }
+  });
 });
 
 describe("the result of a link flow", () => {

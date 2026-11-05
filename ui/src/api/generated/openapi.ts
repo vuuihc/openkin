@@ -1500,6 +1500,12 @@ export interface paths {
         /** @description Begin an OIDC sign-in by redirecting to the identity provider. When the
          *     caller already has a valid session cookie, the flow links the provider
          *     identity to that account instead of signing in.
+         *
+         *     A `device_key` marks the flow as started by the native app shell (G9):
+         *     the callback then redirects to the app's own scheme with a one-time
+         *     device-bound code instead of opening a browser session. The key is
+         *     recorded server-side in the pending flow and never travels on the
+         *     provider URL.
          *      */
         get: operations["startOIDCSignIn"];
         put?: never;
@@ -1520,6 +1526,12 @@ export interface paths {
         /** @description Complete an OIDC sign-in or link. Always redirects into the console: on
          *     success with `auth_notice` (`signed-in` or `linked`), on failure with
          *     `auth_error` and `auth_error_code` query parameters.
+         *
+         *     An app-started flow (recorded server-side via `device_key` on
+         *     `/api/auth/oidc/start`) redirects to `kin://auth-callback` instead:
+         *     success carries only a one-time `code`, which the app exchanges —
+         *     presenting its device key — for a login link; failure carries `error`
+         *     plus the flow's `device_key` for attribution.
          *      */
         get: operations["completeOIDCSignIn"];
         put?: never;
@@ -7763,6 +7775,12 @@ export interface operations {
             query?: {
                 /** @description Same-origin path to return to after the callback. */
                 return_to?: string;
+                /** @description App-generated random key binding this flow to one device. Present
+                 *     only when the native app started the flow; the app presents the
+                 *     same value when it later spends the code at
+                 *     `/api/auth/login-code/exchange`.
+                 *      */
+                device_key?: string;
             };
             header?: never;
             path?: never;
@@ -7800,7 +7818,9 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Redirect back into the console */
+            /** @description Redirect back into the console, or — for an app-started flow — to
+             *     the app's own `kin://auth-callback` scheme.
+             *      */
             302: {
                 headers: {
                     [name: string]: unknown;

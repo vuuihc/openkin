@@ -19,7 +19,7 @@
 /** The Capacitor plugin implemented by the iOS app target. */
 export type HubConfigPlugin = {
   getHubUrl(): Promise<{ url?: string }>;
-  setHubUrl(input: { url: string }): Promise<{ url: string; insecure?: boolean }>;
+  setHubUrl(input: { url: string; confirm?: boolean }): Promise<{ url: string; insecure?: boolean }>;
   clearHubUrl(): Promise<void>;
   openSystemBrowser(input: { url: string }): Promise<void>;
   takeAuthCallback(): Promise<{ url?: string }>;
@@ -94,15 +94,17 @@ export async function takeAuthCallback(plugin: HubConfigPlugin): Promise<string>
 /**
  * What a callback URL carries.
  *
- * The shape is the server's choice (internal/api/auth.go): success carries a
- * 64-hex code and the device key the flow started with; failure carries the
- * same stable code the console's error table translates. Anything else — a
- * foreign scheme, a mangled URL — reads as a failure the reader must show,
- * never as a silent success.
+ * The shape is the server's choice (internal/api/auth.go): success carries only
+ * a 64-hex code — the device key never travels back through the browser hop,
+ * the app still holds the one it generated; failure carries the stable code the
+ * console's error table translates, plus the device key so an app juggling
+ * several pending flows can tell which one died. Anything else — a foreign
+ * scheme, a mangled URL — reads as a failure the reader must show, never as a
+ * silent success.
  */
 export type AuthCallback =
-  | { kind: "code"; code: string; deviceKey: string }
-  | { kind: "error"; code: string };
+  | { kind: "code"; code: string }
+  | { kind: "error"; code: string; deviceKey: string };
 
 export function parseAuthCallback(raw: string): AuthCallback | null {
   if (!raw) return null;
@@ -115,25 +117,28 @@ export function parseAuthCallback(raw: string): AuthCallback | null {
   if (url.protocol !== "kin:" || url.host !== "auth-callback") return null;
   const errorCode = url.searchParams.get("error");
   if (errorCode) {
-    return { kind: "error", code: errorCode.slice(0, 64) };
+    return {
+      kind: "error",
+      code: errorCode.slice(0, 64),
+      deviceKey: (url.searchParams.get("device_key") ?? "").slice(0, 128),
+    };
   }
   const code = url.searchParams.get("code") ?? "";
-  const deviceKey = url.searchParams.get("device_key") ?? "";
-  // The code is auth.NewToken's shape; the device key is the one this shell
-  // generated. Neither matches when the flow died somewhere else, and the
-  // exchange would refuse them anyway — checking here just spares a round trip.
-  if (!/^[0-9a-f]{64}$/.test(code) || !deviceKey) return null;
-  return { kind: "code", code, deviceKey };
+  // The code is auth.NewToken's shape. A missing or malformed one is a flow
+  // that died somewhere else; the exchange would refuse it anyway — checking
+  // here just spares a round trip.
+  if (!/^[0-9a-f]{64}$/.test(code)) return null;
+  return { kind: "code", code };
 }
 
 /**
  * The random device key that binds a sign-in flow to this install.
  *
  * It is generated fresh for each flow and lives only in memory across the
- * browser hop: the app sends it on the start URL, the provider echoes it, the
- * callback hands it back with the code, and the exchange presents the same
- * value. A code without its key is worthless (T6), which is the whole of the
- * device binding.
+ * browser hop: the app sends it on the start URL, the server records it in the
+ * pending flow, the callback hands back only the code, and the exchange
+ * presents the key from memory. A code without its key is worthless (T6),
+ * which is the whole of the device binding.
  */
 export function newDeviceKey(): string {
   const bytes = new Uint8Array(32);
