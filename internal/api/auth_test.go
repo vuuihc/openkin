@@ -1291,7 +1291,9 @@ func TestOIDCCallbackAppFlowRedirectsWithLoginCode(t *testing.T) {
 		t.Fatalf("link identity: %v", err)
 	}
 
-	// Start the app flow: device_key rides on the start URL.
+	// Start the app flow: device_key rides on the start URL, and is recorded
+	// server-side in the pending flow. The provider URL must NOT carry it — the
+	// browser hop is untrusted, and a key echoed back from it proves nothing.
 	start := &authClient{t: t, h: h, master: master}
 	rec := start.get("/api/auth/oidc/start?device_key=device-key-1")
 	if rec.Code != http.StatusFound {
@@ -1301,15 +1303,17 @@ func TestOIDCCallbackAppFlowRedirectsWithLoginCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse provider url: %v", err)
 	}
-	if providerURL.Query().Get("device_key") != "device-key-1" {
-		t.Fatal("the provider URL does not carry the device key")
+	if providerURL.Query().Get("device_key") != "" {
+		t.Fatal("the provider URL leaks the device key to the browser hop")
 	}
 	state, authCode := idp.complete(t, rec.Header().Get("Location"))
 
-	// The provider bounces back with the code and echoes device_key.
+	// The provider bounces back with only state and code; the server knows the
+	// flow is an app flow from its own records, and the app callback carries
+	// only the code — the device key stays in the app's memory.
 	cb := &authClient{t: t, h: h, master: master}
 	rec = cb.get("/api/auth/oidc/callback?state=" + url.QueryEscape(state) +
-		"&code=" + url.QueryEscape(authCode) + "&device_key=device-key-1")
+		"&code=" + url.QueryEscape(authCode))
 	if rec.Code != http.StatusFound {
 		t.Fatalf("callback: %d %s", rec.Code, rec.Body.String())
 	}
@@ -1321,8 +1325,8 @@ func TestOIDCCallbackAppFlowRedirectsWithLoginCode(t *testing.T) {
 	if u.Scheme != "kin" || u.Host != "auth-callback" {
 		t.Fatalf("redirect = %q, want kin://auth-callback", target)
 	}
-	if u.Query().Get("device_key") != "device-key-1" {
-		t.Fatal("the app callback does not carry the device key")
+	if u.Query().Get("device_key") != "" {
+		t.Fatal("the success callback must not carry the device key")
 	}
 	appCode := u.Query().Get("code")
 	if len(appCode) != 64 {
@@ -1349,5 +1353,88 @@ func TestOIDCCallbackAppFlowRedirectsWithLoginCode(t *testing.T) {
 	}
 	if exch.cookie == nil {
 		t.Fatal("spending the link did not open a session in the app's webview")
+	}
+}
+
+// A provider that bounces before completing must still route its failure to
+// the surface that started the flow. The state is the only thing the callback
+// has to go on — the provider's error parameters carry no device key — so the
+// routing reads the key from the pending flow the server recorded at Begin,
+// and includes it on the app redirect for attribution. A state the server
+// never minted routes to the browser path instead.
+func TestOIDCCallbackProviderErrorRoutesBackToTheApp(t *testing.T) {
+	s, master, code := newAuthTestServer(t)
+	h := s.Handler()
+	owner := &authClient{t: t, h: h, master: master}
+	if rec := owner.post("/api/auth/bootstrap", `{"code":"`+code+`","email":"owner@example.com","password":"hunter2hunter2"}`); rec.Code != http.StatusOK {
+		t.Fatalf("claim: %d %s", rec.Code, rec.Body.String())
+	}
+
+	idp := newOIDCFakeIdP(t, "kin-client")
+	provider, err := auth.NewOIDCProvider(context.Background(), auth.OIDCConfig{
+		Issuer:       idp.Issuer(),
+		ClientID:     "kin-client",
+		ClientSecret: "secret",
+		RedirectURL:  "https://kin.example.com/api/auth/oidc/callback",
+	})
+	if err != nil {
+		t.Fatalf("new oidc provider: %v", err)
+	}
+	s.OIDC = provider
+
+	// Start an app flow, then have the provider cancel it.
+	start := &authClient{t: t, h: h, master: master}
+	rec := start.get("/api/auth/oidc/start?device_key=device-key-2")
+	if rec.Code != http.StatusFound {
+		t.Fatalf("start: %d %s", rec.Code, rec.Body.String())
+	}
+	location, err := url.Parse(rec.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("parse provider url: %v", err)
+	}
+	state := location.Query().Get("state")
+	if state == "" {
+		t.Fatal("authorization URL carries no state")
+	}
+
+	cb := &authClient{t: t, h: h, master: master}
+	rec = cb.get("/api/auth/oidc/callback?state=" + url.QueryEscape(state) +
+		"&error=access_denied")
+	if rec.Code != http.StatusFound {
+		t.Fatalf("callback: %d %s", rec.Code, rec.Body.String())
+	}
+	target := rec.Header().Get("Location")
+	u, err := url.Parse(target)
+	if err != nil {
+		t.Fatalf("parse redirect: %v", err)
+	}
+	if u.Scheme != "kin" || u.Host != "auth-callback" {
+		t.Fatalf("redirect = %q, want kin://auth-callback", target)
+	}
+	if u.Query().Get("error") != "provider_error" {
+		// The provider's own error text never crosses the scheme boundary; the
+		// stable code is what the console translates.
+		t.Fatalf("error param = %q, want provider_error", u.Query().Get("error"))
+	}
+	if u.Query().Get("device_key") != "device-key-2" {
+		t.Fatalf("error redirect device_key = %q, want the flow's key for attribution", u.Query().Get("device_key"))
+	}
+	if cb.cookie != nil {
+		t.Fatal("a failed app flow set a session cookie on the system browser")
+	}
+
+	// The same error with a state the server never minted routes to the
+	// browser path: there is no app flow to attribute it to.
+	cb2 := &authClient{t: t, h: h, master: master}
+	rec = cb2.get("/api/auth/oidc/callback?state=not-a-state&error=access_denied")
+	if rec.Code != http.StatusFound {
+		t.Fatalf("unknown-state callback: %d %s", rec.Code, rec.Body.String())
+	}
+	target = rec.Header().Get("Location")
+	if strings.HasPrefix(target, "kin://") {
+		t.Fatalf("an unknown state was routed to the app scheme: %q", target)
+	}
+	if !strings.Contains(target, "auth_error") {
+		t.Fatalf("unknown-state redirect = %q, want the browser error path", target)
 	}
 }

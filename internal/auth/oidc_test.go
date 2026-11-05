@@ -339,11 +339,11 @@ func TestOIDCBeginCapsPendingRequests(t *testing.T) {
 	provider := newTestOIDCProvider(t, idp)
 
 	for i := 0; i < maxPendingAuthRequests; i++ {
-		if _, err := provider.Begin("", ""); err != nil {
+		if _, err := provider.Begin("", "", ""); err != nil {
 			t.Fatalf("begin %d: %v", i, err)
 		}
 	}
-	if _, err := provider.Begin("", ""); err == nil {
+	if _, err := provider.Begin("", "", ""); err == nil {
 		t.Fatal("pending authorization requests are unbounded; an unauthenticated caller can grow memory")
 	}
 }
@@ -402,7 +402,7 @@ func TestBackchannelClientRedirectsOnlyTheIssuerHost(t *testing.T) {
 // into the fake IdP, standing in for the browser hop this test skips.
 func beginFlow(t *testing.T, idp *fakeIdP, provider *OIDCProvider, bindUserID, returnTo string) string {
 	t.Helper()
-	authURL, err := provider.Begin(bindUserID, returnTo)
+	authURL, err := provider.Begin(bindUserID, returnTo, "")
 	if err != nil {
 		t.Fatalf("begin: %v", err)
 	}
@@ -432,7 +432,7 @@ func TestOIDCBeginAsksMinimalScopes(t *testing.T) {
 	idp := newFakeIdP(t, "kin-client")
 	provider := newTestOIDCProvider(t, idp)
 
-	authURL, err := provider.Begin("", "/")
+	authURL, err := provider.Begin("", "/", "")
 	if err != nil {
 		t.Fatalf("begin: %v", err)
 	}

@@ -365,7 +365,10 @@ func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 // A `device_key` query parameter marks the flow as started by the native app
 // (G9): the callback then redirects to the app's own scheme with a one-time
 // device-bound code instead of setting a cookie, because a Set-Cookie issued
-// to the system browser belongs to the browser, not to the app's webview.
+// to the system browser belongs to the browser, not to the app's webview. The
+// key is recorded server-side in the pending flow, not on the provider URL —
+// the browser hop is untrusted, and the provider echoing a parameter back is
+// not proof the app started the flow.
 func (s *Server) handleOIDCStart(w http.ResponseWriter, r *http.Request) {
 	if s.OIDC == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no identity provider is configured"})
@@ -377,25 +380,10 @@ func (s *Server) handleOIDCStart(w http.ResponseWriter, r *http.Request) {
 	}
 	deviceKey := loginCodeDeviceKey(r.URL.Query().Get("device_key"))
 	returnTo := safeReturnTo(r.URL.Query().Get("return_to"))
-	authURL, err := s.OIDC.Begin(bindUserID, returnTo)
+	authURL, err := s.OIDC.Begin(bindUserID, returnTo, deviceKey)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "start sign-in"})
 		return
-	}
-	if deviceKey != "" {
-		// The provider URL carries the key through the browser hop, so the
-		// callback can tell an app flow from a browser flow. It is the same
-		// random string the app will present when spending the code; nothing
-		// here needs to keep it.
-		u, perr := url.Parse(authURL)
-		if perr != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "start sign-in"})
-			return
-		}
-		q := u.Query()
-		q.Set("device_key", deviceKey)
-		u.RawQuery = q.Encode()
-		authURL = u.String()
 	}
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
@@ -403,27 +391,33 @@ func (s *Server) handleOIDCStart(w http.ResponseWriter, r *http.Request) {
 // handleOIDCCallback completes the flow. It redirects back into the console
 // rather than returning JSON, because the browser arrives here by navigation.
 //
-// An app-initiated flow (one whose authorization URL carried a device_key, which
-// the provider echoes back) ends on the app's own scheme instead: the app gets
-// a one-time device-bound code, and the session cookie is only set later, when
-// the app's own webview spends it. Nothing about the account identity crosses
-// the scheme boundary except that code.
+// An app-initiated flow (recorded server-side at Begin) ends on the app's own
+// scheme instead: the app gets a one-time device-bound code, and the session
+// cookie is only set later, when the app's own webview spends it. Nothing about
+// the account identity crosses the scheme boundary except that code, and the
+// device key itself is only ever sent back on an error redirect — the app
+// already holds it in memory and presents it at the exchange.
 func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	if s.OIDC == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no identity provider is configured"})
 		return
 	}
 	query := r.URL.Query()
-	deviceKey := loginCodeDeviceKey(query.Get("device_key"))
 	if providerErr := query.Get("error"); providerErr != "" {
-		s.redirectAuthOutcome(w, r, deviceKey, "", "provider_error", providerErr)
+		// The provider bounced before completing: take the flow out of play and
+		// route the failure by where it started.
+		req := s.OIDC.Abort(query.Get("state"))
+		s.redirectAuthOutcome(w, r, req.DeviceKey(), "", "provider_error", providerErr)
 		return
 	}
 	ident, req, err := s.OIDC.Complete(r.Context(), query.Get("state"), query.Get("code"))
 	if err != nil {
-		s.redirectAuthOutcome(w, r, deviceKey, "", "sign_in_failed", "sign-in could not be completed")
+		// Complete returns the flow's metadata even on failure (empty only for
+		// an unknown or replayed state, which started on no surface at all).
+		s.redirectAuthOutcome(w, r, req.DeviceKey(), "", "sign_in_failed", "sign-in could not be completed")
 		return
 	}
+	deviceKey := loginCodeDeviceKey(req.DeviceKey())
 	returnTo := safeReturnTo(req.ReturnTo())
 
 	if req.BindUserID() != "" {
@@ -452,10 +446,10 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		code, cerr := s.Accounts.NewLoginCode(r.Context(), session.User.ID, deviceKey)
 		if cerr != nil {
 			log.Printf("api: mint login code: %v", cerr)
-			redirectLoginCodeError(w, "sign_in_failed")
+			redirectLoginCodeError(w, "sign_in_failed", deviceKey)
 			return
 		}
-		redirectLoginCode(w, code.Token, deviceKey)
+		redirectLoginCode(w, code.Token)
 		return
 	}
 	s.setSessionCookie(w, r, session)
@@ -464,43 +458,44 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 
 // redirectLoginCode sends the app back to its own scheme with the code. The
 // target is kin://auth-callback?code=…; ASWebAuthenticationSession turns it
-// into the app's callback, and the console's exchange call presents the same
-// device key the flow started with, which is the whole of the device binding.
-func redirectLoginCode(w http.ResponseWriter, code, deviceKey string) {
+// into the app's callback, and the console's exchange call presents the device
+// key the app has held in memory since it started the flow, which is the whole
+// of the device binding — the callback URL carries nothing an observer in the
+// browser hop could spend.
+func redirectLoginCode(w http.ResponseWriter, code string) {
 	target := url.URL{Scheme: "kin", Host: "auth-callback"}
 	q := url.Values{}
 	q.Set("code", code)
-	q.Set("device_key", deviceKey)
 	target.RawQuery = q.Encode()
 	http.Redirect(w, dummyRequest(), target.String(), http.StatusFound)
 }
 
-// redirectAuthOutcome routes a flow's failure (or link-flow success) to the
-// surface that started it: app flows land on kin://auth-callback with the
-// stable code, browser flows back into the console with the same parameters
-// the console already translates. Success on a browser flow is handled by the
-// caller directly, because it also sets a cookie.
+// redirectAuthOutcome routes a flow's failure to the surface that started it:
+// app flows land on kin://auth-callback with the stable code — plus the device
+// key, so an app juggling more than one pending flow can tell which one failed
+// — and browser flows back into the console with the same parameters the
+// console already translates. Successes are handled by the callers directly,
+// because both shapes need more than a code (a cookie, or the login code).
 func (s *Server) redirectAuthOutcome(w http.ResponseWriter, r *http.Request, deviceKey, returnTo, code, message string) {
 	if deviceKey != "" {
-		if code == "" {
-			// A success the caller still needed to redirect; nothing to say to
-			// an app flow that is not the code itself.
-			return
-		}
-		redirectLoginCodeError(w, code)
+		redirectLoginCodeError(w, code, deviceKey)
 		return
 	}
 	s.redirectAuthError(w, r, returnTo, code, message)
 }
 
 // redirectLoginCodeError reports a failed app flow on the app's own scheme. The
-// stable code is what the console translates; the AS session completes either
-// way, so the app reads the failure from the callback URL rather than waiting
-// on a browser that is never coming back.
-func redirectLoginCodeError(w http.ResponseWriter, code string) {
+// stable code is what the console translates; the device key attributes the
+// failure to the flow the app started. The AS session completes either way, so
+// the app reads the failure from the callback URL rather than waiting on a
+// browser that is never coming back.
+func redirectLoginCodeError(w http.ResponseWriter, code, deviceKey string) {
 	target := url.URL{Scheme: "kin", Host: "auth-callback"}
 	q := url.Values{}
 	q.Set("error", code)
+	if deviceKey != "" {
+		q.Set("device_key", deviceKey)
+	}
 	target.RawQuery = q.Encode()
 	http.Redirect(w, dummyRequest(), target.String(), http.StatusFound)
 }

@@ -118,7 +118,13 @@ type pendingAuth struct {
 	verifier   string
 	returnTo   string
 	bindUserID string
-	expiresAt  time.Time
+	// deviceKey, when non-empty, marks a flow started by the native app (G9).
+	// It is recorded here rather than carried on the provider URL: the browser
+	// hop is untrusted middle ground, and a key that merely travels through it
+	// says nothing about who started the flow. The app proves possession of the
+	// key later, when it spends the code the callback minted.
+	deviceKey string
+	expiresAt time.Time
 }
 
 // NewOIDCProvider performs discovery and returns a ready provider.
@@ -159,7 +165,9 @@ func (p *OIDCProvider) Config() OIDCConfig { return p.cfg }
 // Begin starts an authorization flow and returns the URL to send the browser
 // to. bindUserID is non-empty for a link flow started from a live session; the
 // callback then attaches the identity instead of opening a new session.
-func (p *OIDCProvider) Begin(bindUserID, returnTo string) (string, error) {
+// deviceKey is non-empty for a flow started by the native app (G9): the
+// callback then routes back to the app instead of opening a browser session.
+func (p *OIDCProvider) Begin(bindUserID, returnTo, deviceKey string) (string, error) {
 	state, err := randomURLSafe(32)
 	if err != nil {
 		return "", err
@@ -182,6 +190,7 @@ func (p *OIDCProvider) Begin(bindUserID, returnTo string) (string, error) {
 		verifier:   verifier,
 		returnTo:   returnTo,
 		bindUserID: bindUserID,
+		deviceKey:  deviceKey,
 		expiresAt:  now.Add(authRequestTTL),
 	}
 	p.mu.Unlock()
@@ -193,7 +202,10 @@ func (p *OIDCProvider) Begin(bindUserID, returnTo string) (string, error) {
 }
 
 // Complete exchanges the callback code, verifies the ID token, and returns the
-// asserted identity along with the flow metadata recorded at Begin.
+// asserted identity along with the flow metadata recorded at Begin. On failure
+// it still returns the flow metadata when the state was known, so the caller
+// can route the failure to the surface (app or browser) that started the flow;
+// with an unknown, expired, or replayed state the returned pendingAuth is zero.
 func (p *OIDCProvider) Complete(ctx context.Context, state, code string) (ExternalIdentity, pendingAuth, error) {
 	req, ok := p.take(state)
 	if !ok {
@@ -204,19 +216,19 @@ func (p *OIDCProvider) Complete(ctx context.Context, state, code string) (Extern
 	}
 	token, err := p.oauth.Exchange(ctx, code, oauth2.VerifierOption(req.verifier))
 	if err != nil {
-		return ExternalIdentity{}, pendingAuth{}, fmt.Errorf("auth: exchange authorization code: %w", err)
+		return ExternalIdentity{}, req, fmt.Errorf("auth: exchange authorization code: %w", err)
 	}
 	rawID, ok := token.Extra("id_token").(string)
 	if !ok || rawID == "" {
-		return ExternalIdentity{}, pendingAuth{}, fmt.Errorf("auth: provider returned no id_token")
+		return ExternalIdentity{}, req, fmt.Errorf("auth: provider returned no id_token")
 	}
 	idToken, err := p.verifier.Verify(ctx, rawID)
 	if err != nil {
-		return ExternalIdentity{}, pendingAuth{}, fmt.Errorf("auth: verify id_token: %w", err)
+		return ExternalIdentity{}, req, fmt.Errorf("auth: verify id_token: %w", err)
 	}
 	if idToken.Nonce != req.nonce {
 		// A mismatched nonce means the token was not minted for this flow.
-		return ExternalIdentity{}, pendingAuth{}, fmt.Errorf("auth: id_token nonce does not match the request")
+		return ExternalIdentity{}, req, fmt.Errorf("auth: id_token nonce does not match the request")
 	}
 
 	var claims struct {
@@ -226,7 +238,7 @@ func (p *OIDCProvider) Complete(ctx context.Context, state, code string) (Extern
 		PreferredUsername string `json:"preferred_username"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
-		return ExternalIdentity{}, pendingAuth{}, fmt.Errorf("auth: decode id_token claims: %w", err)
+		return ExternalIdentity{}, req, fmt.Errorf("auth: decode id_token claims: %w", err)
 	}
 
 	displayName := strings.TrimSpace(claims.Name)
@@ -272,6 +284,17 @@ func (p *OIDCProvider) pruneLocked(now time.Time) {
 // returnToFrom exposes the recorded post-login target to the callback.
 func (r pendingAuth) ReturnTo() string   { return r.returnTo }
 func (r pendingAuth) BindUserID() string { return r.bindUserID }
+func (r pendingAuth) DeviceKey() string  { return r.deviceKey }
+
+// Abort takes a pending flow out of play without completing it — the callback's
+// provider-error branch. It returns the recorded flow metadata so the caller can
+// still route the failure to whichever surface (app or browser) started it;
+// after a mismatched or replayed state it returns an empty pendingAuth, and the
+// caller treats the failure as coming from nowhere.
+func (p *OIDCProvider) Abort(state string) pendingAuth {
+	req, _ := p.take(state)
+	return req
+}
 
 // backchannelClient returns an HTTP client that sends every request for the
 // issuer's origin to addr over plain HTTP.

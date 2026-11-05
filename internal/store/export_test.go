@@ -154,11 +154,24 @@ func TestRestoreDirectoryRoundTrips(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A live session exists in the source; the export must not carry it and the
-	// restore must not resurrect it.
+	// restore must not resurrect it. The one-time token tables have no foreign
+	// keys, so nothing cascades into them — the restore must clear them itself.
 	if err := src.CreateAuthSession(ctx, AuthSession{
 		ID: "01SESSION", TokenHash: "session-hash", UserID: user.ID,
 		CreatedAt: now, ExpiresAt: now + 1000,
 	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.IssueLoginToken(ctx, "login-hash", user.ID, now, now+1000); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.IssueLoginCode(ctx, "code-hash", "device-key", user.ID, now, now+1000); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.IssueBootstrapToken(ctx, "bootstrap-hash", now, now+1000); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.IssueInviteToken(ctx, "invite-hash", now, now+1000); err != nil {
 		t.Fatal(err)
 	}
 
@@ -168,6 +181,33 @@ func TestRestoreDirectoryRoundTrips(t *testing.T) {
 	}
 
 	dst := openDeviceTestStore(t)
+	// The destination has been running: it minted its own one-time tokens and
+	// paired its own node. None of that may survive a replace — the snapshot
+	// is the whole of the state, and the restore message promises nodes
+	// re-pair.
+	dstNow := NowMilli()
+	if err := dst.IssueLoginToken(ctx, "dst-login-hash", "01OTHER", dstNow, dstNow+1000); err != nil {
+		t.Fatal(err)
+	}
+	if err := dst.IssueLoginCode(ctx, "dst-code-hash", "dst-device", "01OTHER", dstNow, dstNow+1000); err != nil {
+		t.Fatal(err)
+	}
+	if err := dst.IssueBootstrapToken(ctx, "dst-bootstrap-hash", dstNow, dstNow+1000); err != nil {
+		t.Fatal(err)
+	}
+	if err := dst.IssueInviteToken(ctx, "dst-invite-hash", dstNow, dstNow+1000); err != nil {
+		t.Fatal(err)
+	}
+	if err := dst.CreatePairingSession(ctx, PairingSession{
+		SecretHash: "dst-pairing-hash", CreatedAt: dstNow, ExpiresAt: dstNow + 1000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := dst.InsertDeviceCredential(ctx, DeviceCredential{
+		ID: "dst-node", TokenHash: "dst-node-hash", CreatedAt: dstNow,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if err := dst.RestoreDirectory(ctx, dir); err != nil {
 		t.Fatalf("restore: %v", err)
 	}
@@ -198,6 +238,19 @@ func TestRestoreDirectoryRoundTrips(t *testing.T) {
 	}
 	if n != 0 {
 		t.Fatalf("restored db carries %d identities the export excluded", n)
+	}
+	// One-time tokens are dead on both sides: the archive carries none (the
+	// source's were excluded) and the destination's own were replaced. They
+	// have no foreign keys, so the table deletes must reach them explicitly.
+	for _, table := range []string{"login_tokens", "login_codes", "bootstrap_tokens",
+		"invite_tokens", "device_credentials", "pairing_sessions"} {
+		if err := dst.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM `+table).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 0 {
+			t.Fatalf("restored db kept %d %s rows; a snapshot replaces the whole table", n, table)
+		}
 	}
 	// The secret setting stays out of the round trip; the non-secret one lands.
 	settings, err := dst.GetSetting(ctx, "ui.theme")

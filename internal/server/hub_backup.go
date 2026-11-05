@@ -202,8 +202,10 @@ func RunHubRestore(input string, yes bool) error {
 	}
 
 	fmt.Printf("restored from %s\n", input)
-	fmt.Println("Sessions and one-time tokens were never in the archive, so every device is")
-	fmt.Println("signed out. Mint a fresh sign-in link with `kin hub login-link --email ADDRESS`.")
+	fmt.Println("Sessions, one-time tokens, and device pairings were never in the archive, so")
+	fmt.Println("every browser is signed out and every node re-pairs. Phone push registrations")
+	fmt.Println("are kept: a paired phone keeps receiving notifications after a restore.")
+	fmt.Println("Mint a fresh sign-in link with `kin hub login-link --email ADDRESS`.")
 	fmt.Println("Start the Hub again to serve the restored data.")
 	return nil
 }

@@ -13,6 +13,19 @@ import (
 	"strings"
 )
 
+// credentialFreeTables are the credential-bearing tables an export excludes
+// and that have no foreign keys pointing into them, so the snapshot-table
+// deletes above never reach them. Left alive, a restore would silently keep
+// the destination's own one-time tokens — rows the restored snapshot's state
+// does not explain. device_credentials and pairing_sessions are here too:
+// they are the node-pairing half of the same promise, and a restored Hub
+// whose old devices can still pair or authenticate is not a Hub that "signs
+// everyone out".
+var credentialFreeTables = []string{
+	"auth_sessions", "user_identities", "login_tokens", "login_codes",
+	"bootstrap_tokens", "invite_tokens", "device_credentials", "pairing_sessions",
+}
+
 // RestoreDirectory is the write half of ExportDirectory (G17): it reads the
 // JSONL snapshot the export wrote and replaces this database's user data with
 // it, inside one transaction, so a half-restored database cannot exist.
@@ -76,6 +89,14 @@ func (s *Store) RestoreDirectory(ctx context.Context, dir string) error {
 	for i := len(ordered) - 1; i >= 0; i-- {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM "`+ordered[i]+`"`); err != nil {
 			return fmt.Errorf("clear %s for restore: %w", ordered[i], err)
+		}
+	}
+	// The credential tables the snapshot does not carry are emptied too — see
+	// credentialFreeTables. Same transaction, so an aborted restore leaves
+	// them exactly as they were.
+	for _, table := range credentialFreeTables {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM "`+table+`"`); err != nil {
+			return fmt.Errorf("clear credentials in %s for restore: %w", table, err)
 		}
 	}
 	for _, table := range ordered {
