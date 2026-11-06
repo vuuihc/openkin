@@ -339,6 +339,35 @@ Scope notes:
 - End with a clean working tree when all visible files are in scope. Otherwise,
   list every intentional uncommitted or ignored exception.
 
+## Round-based goals (no marathon sessions)
+
+A plan doc is executed in **rounds, one session per round** — never as a single
+multi-day `/goal` session. Marathon sessions produce giant transcripts (a
+crashed session mid-turn: the 2026-11-05 ACP OOM), invisible progress, and
+hours of work lost at once. A round is a G-cluster from the plan's goal
+section (e.g. G8/G9, G17, G3) sized to a 1–3 hour session.
+
+- **One round = one session = one reviewable landing.** The session runs the
+  full Feature completion gate for its slice: check → red-verify → review →
+  commit → integrate → rebuild when applicable. Progress is measured in
+  commits on `main`, not session uptime.
+- **Progress lives in the plan doc, not in anyone's memory.** Before a session
+  ends — even if interrupted mid-review — update the plan's status section
+  (e.g. "现在的位置"): each item green/red/unverified with a pointer to its
+  test name, commit, or screenshot. A reader should learn the round's state
+  from that table alone in under a minute.
+- **Session lifecycle.** Close a session after its round or ~4–6 hours,
+  whichever comes first; hand off to the next session with the plan doc (the
+  `handoff` skill exists for this). Do not resume work in a session whose
+  transcript already survived a crash or a wedge.
+- **Waiting work must self-terminate.** Any background task that waits for a
+  condition (a process, a URL, a shell appearing) carries a timeout and an
+  explicit exit condition; a watcher that matches its own command line and
+  never exits is a defect. Waits longer than a few minutes belong in a
+  schedule/cron wake-up, not a live poll.
+- **Small diffs review cheaper.** If a round's diff exceeds ~800 lines, split
+  the cluster; review findings compound when they land on a 4000-line branch.
+
 ## Documentation and safety
 
 - Keep English and Chinese top-level documentation aligned when changing shared
