@@ -79,6 +79,7 @@ var frameSamples = map[string]any{
 	"turn.started": TurnStarted{TurnID: "turn-1"},
 	"turn.finish":  TurnFinish{TurnID: "turn-1", Status: TurnError, Error: "boom"},
 	"turn.cancel":  TurnCancel{TurnID: "turn-1", Reason: "user stopped it"},
+	"turn.resume":  TurnResume{TurnIDs: []string{"turn-1", "turn-2"}},
 	"approval.request": ApprovalRequest{
 		RequestID: "req-1", TurnID: "turn-1", Kind: "tool_use",
 		Payload: json.RawMessage(`{"tool":"Bash"}`), Agent: "claude-code",

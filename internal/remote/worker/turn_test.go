@@ -2,6 +2,7 @@ package worker
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -102,6 +103,30 @@ func TestTurnFinishValidation(t *testing.T) {
 	}
 	if err := (TurnFinish{TurnID: "", Status: TurnOK}).Validate(); err == nil {
 		t.Fatal("a finish with no turn was accepted")
+	}
+}
+
+func TestTurnResumeValidation(t *testing.T) {
+	// An empty list is a real answer: it is how a machine that reconnected with
+	// nothing tells the Hub to stop holding its old turns.
+	if err := (TurnResume{}).Validate(); err != nil {
+		t.Fatalf("an empty resume was refused: %v", err)
+	}
+	if err := (TurnResume{TurnIDs: []string{"turn-1", "turn-2"}}).Validate(); err != nil {
+		t.Fatalf("Validate() = %v", err)
+	}
+	if err := (TurnResume{TurnIDs: []string{""}}).Validate(); err == nil {
+		t.Fatal("a resume with an empty turn id was accepted")
+	}
+	if err := (TurnResume{TurnIDs: []string{"turn-1", "turn-1"}}).Validate(); err == nil {
+		t.Fatal("a resume that lists one turn twice was accepted")
+	}
+	tooMany := make([]string, MaxResumeTurns+1)
+	for i := range tooMany {
+		tooMany[i] = fmt.Sprintf("turn-%d", i)
+	}
+	if err := (TurnResume{TurnIDs: tooMany}).Validate(); err == nil {
+		t.Fatal("a resume past the bound was accepted")
 	}
 }
 

@@ -22,6 +22,11 @@ const (
 	// DefaultPushGrace is how long the reason for a stalled turn waits for room
 	// in a reader's buffer before the turn is closed without it.
 	DefaultPushGrace = 30 * time.Second
+	// DefaultReconnectGrace is how long a turn may outlive the connection it was
+	// dispatched on while its device reconnects. A dropped control channel is a
+	// network event, not an answer, and a machine that comes back within this
+	// window gets to keep running the work it never stopped.
+	DefaultReconnectGrace = 60 * time.Second
 	// cancelTimeout bounds one "stop that turn" write. It is short because the
 	// answer to a cancel that cannot be delivered is the connection ending, not
 	// a longer wait.
@@ -40,6 +45,9 @@ type Turns struct {
 	// Zero means the defaults above; tests set them short.
 	StartTimeout time.Duration
 	PushGrace    time.Duration
+	// ReconnectGrace is how long a turn survives the end of the connection it
+	// was dispatched on. Zero means DefaultReconnectGrace; tests set it short.
+	ReconnectGrace time.Duration
 	// Warn receives problems that have nowhere else to go. Nil means quiet.
 	Warn func(format string, args ...any)
 
@@ -68,12 +76,33 @@ type turn struct {
 	// falls back to the id, which is all a device that never said its name has.
 	deviceLabel string
 
-	// sender is the connection this turn was dispatched on, and the only one
+	// sender is the connection this turn is speaking on, and the only one
 	// allowed to speak for it. A device that reconnects gets a new connection
 	// with a new generation, so a stale socket's late frame is refused instead
 	// of being accepted as the current run's, and a turn opened on the new
 	// connection is not killed along with the old one's.
+	//
+	// It moves to the new connection when that connection claims the turn in a
+	// turn.resume (see Adopt). Guarded by Turns.mu; a copy is taken under the
+	// lock everywhere else.
 	sender Sender
+
+	// orphaned marks a turn whose connection ended while the turn was still
+	// running. It stays in the registry for ReconnectGrace, waiting for the
+	// device to reconnect and claim it; if nothing claims it by then, it fails
+	// with the same message a turn used to get immediately. Guarded by
+	// Turns.mu.
+	orphaned bool
+	// graceTimer is the deadline armed by Abandon and stopped by Adopt or
+	// close. Guarded by Turns.mu.
+	graceTimer *time.Timer
+	// failing marks a turn one of the two deadlines has already decided to end.
+	// The decision is taken under Turns.mu, but the transcript write that
+	// follows is not, so a turn.resume arriving in that window must not adopt a
+	// turn that is about to close: it is told the id is unknown, which stops the
+	// machine's run instead of letting it wait for the next refusal. Guarded by
+	// Turns.mu.
+	failing bool
 
 	// events is buffered because its reader is the engine's run loop, which is
 	// doing store writes, and its writer is the device's frame reader, which is
@@ -135,6 +164,13 @@ func (t *Turns) pushGrace() time.Duration {
 		return t.PushGrace
 	}
 	return DefaultPushGrace
+}
+
+func (t *Turns) reconnectGrace() time.Duration {
+	if t.ReconnectGrace > 0 {
+		return t.ReconnectGrace
+	}
+	return DefaultReconnectGrace
 }
 
 // Open registers a turn on the connection that is dispatching it, and returns
@@ -206,13 +242,22 @@ func (t *Turns) Started(sender Sender, started worker.TurnStarted) error {
 		return err
 	}
 	t.mu.Lock()
-	// A turn that is already over — given up on by the deadline, or closed while
+	// A turn that is already over — given up on by a deadline, or closed while
 	// the ack was in flight — answers the device the same way: the caller sends a
 	// cancel, so an agent that has not produced anything yet still hears that
 	// nobody is waiting for it.
-	if item.answered || item.closed {
+	if item.closed {
 		t.mu.Unlock()
 		return fmt.Errorf("%w: %s was given up on before the device answered", ErrTurnUnknown, started.TurnID)
+	}
+	// A second ack for a live turn is not a mistake to punish: the first write
+	// may have reached the Hub even though the Node saw it fail, and the Node
+	// resends everything it could not confirm. Treating the duplicate as an
+	// unknown turn would cancel the healthy run it is describing — and adoption
+	// is the same statement for a device whose ack died with the socket.
+	if item.answered {
+		t.mu.Unlock()
+		return nil
 	}
 	item.answered = true
 	if item.startTimer != nil {
@@ -230,13 +275,18 @@ func (t *Turns) owned(sender Sender, turnID string) (*turn, error) {
 	}
 	t.mu.Lock()
 	item, ok := t.byID[turnID]
-	t.mu.Unlock()
 	if !ok {
+		t.mu.Unlock()
 		return nil, fmt.Errorf("%w: %s", ErrTurnUnknown, turnID)
 	}
-	if item.deviceID != sender.DeviceID() || item.sender.Generation() != sender.Generation() {
+	// The sender moves when a reconnected device claims the turn, so ownership
+	// is decided under the lock that moves it: a lookup followed by a read
+	// outside the lock could refuse a frame the adoption had just made valid.
+	if item.deviceID != sender.DeviceID() || item.sender == nil || item.sender.Generation() != sender.Generation() {
+		t.mu.Unlock()
 		return nil, fmt.Errorf("turn %s belongs to another connection", turnID)
 	}
+	t.mu.Unlock()
 	return item, nil
 }
 
@@ -305,10 +355,15 @@ func (t *Turns) Finish(sender Sender, finish worker.TurnFinish) error {
 	return nil
 }
 
-// Abandon ends every turn that was dispatched on a connection that has ended.
+// Abandon marks every turn that was dispatched on a connection that has ended
+// as orphaned, and gives its device ReconnectGrace to claim it back.
 //
-// The failure is reported into each transcript, so the engine fails the turn
-// with a reason rather than hanging on a socket that is gone.
+// A control channel dropping is a network event, not an answer about the work:
+// the machine on the other end may still be running the agent and may reconnect
+// in seconds. The turn is therefore held open rather than failed on the spot.
+// Its events keep flowing into the transcript if the device comes back and
+// claims it (Adopt); if nothing claims it before the grace ends, it fails with
+// the same reason it used to get immediately, so the engine still converges.
 //
 // It is scoped to one connection, not to the device: a machine that reconnects
 // while a turn is being dispatched must not have the new turn killed by the old
@@ -319,20 +374,120 @@ func (t *Turns) Abandon(sender Sender) []string {
 	}
 	deviceID, gen := sender.DeviceID(), sender.Generation()
 	t.mu.Lock()
-	var doomed []*turn
+	abandoned := make([]string, 0)
 	for _, item := range t.byID {
-		if item.deviceID == deviceID && item.sender.Generation() == gen {
-			doomed = append(doomed, item)
+		if item.deviceID != deviceID || item.closed || item.orphaned {
+			continue
 		}
+		if item.sender == nil || item.sender.Generation() != gen {
+			continue
+		}
+		item.orphaned = true
+		// Armed under the same lock that publishes the orphan: a resume that
+		// lands after this point either finds the turn and stops the timer, or
+		// waits for the lock while the timer fires — and the timer checks
+		// orphaned under that same lock, so exactly one of the two wins.
+		item.graceTimer = time.AfterFunc(t.reconnectGrace(), func() {
+			t.failIfOrphaned(item, fmt.Sprintf("device %s disconnected mid-turn", item.name()))
+		})
+		abandoned = append(abandoned, item.id)
+	}
+	t.mu.Unlock()
+	return abandoned
+}
+
+// Adopt hands the turns a reconnected device still holds to its new connection,
+// and fails the ones it used to hold but no longer lists.
+//
+// The list is the device's own account of what it is running, sent as a
+// turn.resume on every connection. A turn in the list is rebound to the new
+// connection generation, so its events, its start ack and its finish are
+// accepted again; a turn this device was holding that is not in the list has no
+// run behind it any more, and waiting out the grace would only delay an answer
+// the machine has already given.
+//
+// A turn dispatched on some other device's connection is never adopted, and the
+// ids that could not be adopted are returned so the caller can tell that machine
+// to stop running them.
+func (t *Turns) Adopt(sender Sender, turnIDs []string) (adopted, unknown []string) {
+	if sender == nil {
+		return nil, nil
+	}
+	want := make(map[string]bool, len(turnIDs))
+	for _, id := range turnIDs {
+		if strings.TrimSpace(id) != "" {
+			want[id] = true
+		}
+	}
+
+	var doomed []*turn
+	t.mu.Lock()
+	adopted = make([]string, 0, len(want))
+	unknown = make([]string, 0)
+	for id := range want {
+		item, ok := t.byID[id]
+		if !ok || item.closed || item.failing || item.deviceID != sender.DeviceID() {
+			unknown = append(unknown, id)
+			continue
+		}
+		if item.sender == nil || item.sender.Generation() != sender.Generation() {
+			// This is the moment the turn changes hands. Everything the old
+			// connection queued behind it is refused on its generation, and
+			// everything the new one sends is accepted from here on.
+			item.sender = sender
+		}
+		if item.orphaned {
+			item.orphaned = false
+			if item.graceTimer != nil {
+				item.graceTimer.Stop()
+				item.graceTimer = nil
+			}
+		}
+		// Listing the turn is the device answering the start question in its own
+		// words: it holds the dispatch whether or not the ack survived the socket.
+		// The start deadline is therefore settled here, and a duplicate ack the
+		// Node resends is accepted as a no-op (see Started).
+		item.answered = true
+		if item.startTimer != nil {
+			item.startTimer.Stop()
+			item.startTimer = nil
+		}
+		adopted = append(adopted, id)
+	}
+	for _, item := range t.byID {
+		if item.closed || item.deviceID != sender.DeviceID() || !item.orphaned || want[item.id] {
+			continue
+		}
+		// Still bound to the dead connection and not claimed by this one: the
+		// machine reconnected without it, so there is no run left to report.
+		doomed = append(doomed, item)
 	}
 	t.mu.Unlock()
 
-	abandoned := make([]string, 0, len(doomed))
 	for _, item := range doomed {
 		t.fail(item, fmt.Sprintf("device %s disconnected mid-turn", item.name()))
-		abandoned = append(abandoned, item.id)
 	}
-	return abandoned
+	return adopted, unknown
+}
+
+// failIfOrphaned is the reconnect deadline. It settles the turn unless the
+// device claimed it in the meantime; claiming and giving up are decided under
+// the registry lock, so a resume that arrives as the timer fires cannot be
+// followed by the failure it already prevented. A resume that arrives after the
+// decision finds the failing marker and is told the id is unknown, which stops
+// the machine's run instead of leaving it to discover the ending on its next
+// refused frame.
+func (t *Turns) failIfOrphaned(item *turn, message string) {
+	t.mu.Lock()
+	if item.closed || !item.orphaned || item.failing {
+		t.mu.Unlock()
+		return
+	}
+	item.orphaned = false
+	item.failing = true
+	item.graceTimer = nil
+	t.mu.Unlock()
+	t.fail(item, message)
 }
 
 // Running reports the turns in flight, for one device or for all of them.
@@ -349,7 +504,14 @@ func (t *Turns) Running(deviceID string) []string {
 }
 
 // fail ends a turn as failed, putting the reason in the transcript first.
+//
+// Every failing path leaves the marker, not only the two deadlines: a resume on
+// another connection can be racing this one, and it must not adopt a turn whose
+// ending is already being written.
 func (t *Turns) fail(item *turn, message string) {
+	t.mu.Lock()
+	item.failing = true
+	t.mu.Unlock()
 	t.push(item, errorEvent(message))
 	t.close(item)
 }
@@ -359,14 +521,22 @@ func (t *Turns) fail(item *turn, message string) {
 //
 // Claiming the turn and deciding to fail it are one step under the registry
 // lock: checking first and failing afterwards would let an ack land in between,
-// be accepted, and then be failed anyway.
+// be accepted, and then be failed anyway. The failing marker closes the other
+// side of that window: a resume arriving after the decision is told the id is
+// unknown, so it cannot adopt a turn this timer is already ending.
+//
+// An orphaned turn is not this deadline's to end. Its connection dropped, which
+// may be exactly why the ack never arrived, and the machine may still be running
+// the agent; the reconnect grace (Abandon) is the deadline that decides, and a
+// device that comes back without listing it is failed at once by Adopt.
 func (t *Turns) failIfOpen(item *turn, message string) {
 	t.mu.Lock()
-	if item.closed || item.answered {
+	if item.closed || item.answered || item.orphaned || item.failing {
 		t.mu.Unlock()
 		return
 	}
 	item.answered = true
+	item.failing = true
 	t.mu.Unlock()
 	t.fail(item, message)
 }
@@ -440,16 +610,49 @@ func (t *Turns) push(item *turn, event adapter.Event) bool {
 // write means the control channel is already gone, and the connection ending is
 // what ends the turn on that side.
 func (t *Turns) cancelDevice(item *turn, reason string) error {
-	if item.sender == nil {
+	t.mu.Lock()
+	owner := item.sender
+	t.mu.Unlock()
+	return t.cancelOn(item.id, owner, reason)
+}
+
+// cancelOn asks a specific connection to stop a turn.
+func (t *Turns) cancelOn(turnID string, sender Sender, reason string) error {
+	if sender == nil {
 		return errors.New("no control channel")
 	}
-	frame, err := worker.NewFrame("turn.cancel", worker.TurnCancel{TurnID: item.id, Reason: reason})
+	frame, err := worker.NewFrame("turn.cancel", worker.TurnCancel{TurnID: turnID, Reason: reason})
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cancelTimeout)
 	defer cancel()
-	return item.sender.Send(ctx, frame)
+	return sender.Send(ctx, frame)
+}
+
+// cancelAll asks one connection to stop several turns under a single deadline.
+//
+// A resume can name up to MaxResumeTurns ids this Hub does not have, and the
+// caller is the connection's frame reader: one timeout per id would hold every
+// other frame from that machine for the sum of them. The first failed write
+// ends the batch — the socket is gone, and the connection ending is what the
+// machine converges from anyway.
+func (t *Turns) cancelAll(sender Sender, turnIDs []string, reason string) {
+	if sender == nil || len(turnIDs) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cancelTimeout)
+	defer cancel()
+	for _, id := range turnIDs {
+		frame, err := worker.NewFrame("turn.cancel", worker.TurnCancel{TurnID: id, Reason: reason})
+		if err != nil {
+			continue
+		}
+		if err := sender.Send(ctx, frame); err != nil {
+			t.warn("turn %s: tell the device to stop: %v", id, err)
+			return
+		}
+	}
 }
 
 // close ends a turn and closes its event channel, which is what the engine's
@@ -464,11 +667,17 @@ func (t *Turns) close(item *turn) {
 	item.closeOnce.Do(func() {
 		t.mu.Lock()
 		item.closed = true
+		item.orphaned = false
 		timer := item.startTimer
 		item.startTimer = nil
+		grace := item.graceTimer
+		item.graceTimer = nil
 		t.mu.Unlock()
 		if timer != nil {
 			timer.Stop()
+		}
+		if grace != nil {
+			grace.Stop()
 		}
 		close(item.ended)
 		item.senders.Wait()

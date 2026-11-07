@@ -85,7 +85,9 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 // unhandled frame is visible rather than silently dropped.
 //
 // Its signature is the one api.Server.NodeFrames wants, so the composition root
-// wires it in directly.
+// wires it in directly. The frame's context is not used: a cancel for a turn the
+// Hub does not know is bounded by cancelAll's own deadline, not by the lifetime
+// of the connection that carried the resume.
 func (t *Turns) RouteFrame(_ context.Context, sender Sender, frame worker.Frame) error {
 	switch frame.Kind {
 	case "turn.event":
@@ -115,6 +117,21 @@ func (t *Turns) RouteFrame(_ context.Context, sender Sender, frame worker.Frame)
 			return err
 		}
 		return t.Finish(sender, finish)
+	case "turn.resume":
+		resume, err := Decode[worker.TurnResume](frame)
+		if err != nil {
+			return err
+		}
+		if err := resume.Validate(); err != nil {
+			return err
+		}
+		_, unknown := t.Adopt(sender, resume.TurnIDs)
+		// A turn this machine says it holds but this Hub does not is either
+		// from before a Hub restart or one the Hub has already finished with.
+		// Either way no one is collecting its result, so it gets the same
+		// answer any other frame for an unknown turn gets: stop.
+		t.cancelAll(sender, unknown, "the hub is no longer running this turn")
+		return nil
 	default:
 		return fmt.Errorf("unhandled frame kind %q", frame.Kind)
 	}

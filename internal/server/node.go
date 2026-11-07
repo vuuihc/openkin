@@ -461,13 +461,17 @@ func runNode(ctx context.Context, version string, flags ServeFlags, st *store.St
 		// different halves of this machine: a question the Hub is answering for
 		// an agent here, a question about this machine itself, and everything
 		// else, which is work.
-		OnFrame: func(ctx context.Context, frame worker.Frame) error {
+		OnFrame: func(frameCtx context.Context, frame worker.Frame) error {
 			switch frame.Kind {
 			case "approval.status", "approval.decision":
-				return approvals.Handle(ctx, frame)
+				return approvals.Handle(frameCtx, frame)
 			case "query":
-				return responder.Handle(ctx, frame)
+				return responder.Handle(frameCtx, frame)
 			default:
+				// A turn outlives the connection that dispatched it: the daemon's
+				// lifetime, not the socket's, is what stops the agent. A dropped
+				// control channel is a network event, and the turn holds its
+				// frames until the reconnect (see node.Executor.send).
 				return executor.Handle(ctx, frame)
 			}
 		},

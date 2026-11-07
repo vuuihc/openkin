@@ -269,6 +269,36 @@ device registration, turn assignment reconciliation, and a definite terminal
 state for a turn whose Node disconnects mid-flight, including preserving the
 partial transcript and never auto-approving a pending permission request.
 
+*Amended 2026-11-07.* "A definite terminal state" does not have to mean
+"immediately". A control channel dropping is a network event, not an answer
+about the work: the machine on the other end may still be running the agent and
+may reconnect in seconds, and killing the turn on the spot throws away a run
+nobody asked to stop. A dropped connection therefore leaves its turns
+**orphaned** for a bounded reconnect grace (60s). Each connection opens with a
+`turn.resume` naming the turns the Node still holds — running, or finished with
+an ending it could not confirm had arrived — and the Hub rebinds those turns to
+the new connection generation; turns the device no longer lists are failed at
+once, and unclaimed orphans fail when the grace runs out with the same
+`disconnected mid-turn` reason as before. An ending the Hub did receive is
+answered as an unknown turn, which the Node takes as its cue to drop what it
+was holding for it. On the Node side a turn's lifetime is
+the daemon's, not the socket's: events and the terminal frame wait in a bounded
+outbox, and the last written frames are replayed on reconnect (the Hub drops
+duplicate events by sequence, and a repeated start ack for a live turn is a
+no-op). Listing a turn is also the Node answering the start question: adoption
+settles the Hub's start deadline, and while a turn is orphaned that deadline
+defers to the reconnect grace instead of firing on its own, so an ack lost with
+the socket cannot fail a run that is still going. The terminal state is still
+definite and still bounded; only its deadline moved, from the socket closing to
+the grace ending.
+
+Upgrade order is Hub first, then Node. An older Node simply never resumes, so
+its turns take the full grace to fail; a newer Node against an older Hub would
+have its resume frame refused as an unknown kind — and because the Hub closes
+the control channel on a frame it cannot read, a Node-first rollout takes
+remote execution for that machine offline until the Hub is updated, rather than
+merely losing resume. Both sides of a deployment should be updated together.
+
 Adopting the Hub role also means the daemon is expected to face a network. It
 currently serves plaintext HTTP with no request timeouts and enforces
 authorization with a coarse master-or-device split, so a deployment exposed

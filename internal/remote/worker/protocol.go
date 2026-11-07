@@ -151,7 +151,7 @@ type Frame struct {
 var allowedFrameKinds = map[string]bool{
 	"hello": true, "hello_ack": true, "heartbeat": true, "error": true,
 	"turn.dispatch": true, "turn.event": true, "turn.started": true,
-	"turn.finish": true, "turn.cancel": true,
+	"turn.finish": true, "turn.cancel": true, "turn.resume": true,
 	"approval.request": true, "approval.status": true, "approval.decision": true,
 	"query": true, "query.result": true,
 }

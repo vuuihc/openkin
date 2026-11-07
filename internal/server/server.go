@@ -423,7 +423,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		}
 		if nodeTurns != nil {
 			for _, turnID := range nodeTurns.Abandon(ended) {
-				fmt.Fprintf(os.Stderr, "kin: warning: turn %s lost its connection\n", turnID)
+				fmt.Fprintf(os.Stderr, "kin: warning: turn %s is waiting for its device to reconnect\n", turnID)
 			}
 		}
 	})

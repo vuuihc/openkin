@@ -55,6 +55,10 @@ func remoteHub(t *testing.T, onEnded ...func(*node.Turns, node.Sender)) (*Server
 	eng.SetWorkspaceRuntime(workspace.NewManager(t.TempDir()))
 
 	turns := node.NewTurns()
+	// Disconnects in these tests are final: no machine is coming back to claim
+	// a turn, so the reconnect grace is shortened from its production minute to
+	// something a test can wait out.
+	turns.ReconnectGrace = 200 * time.Millisecond
 	conns := node.NewConnections(func(sender node.Sender) {
 		for _, hook := range onEnded {
 			hook(turns, sender)
@@ -213,10 +217,16 @@ func startRunners(t *testing.T, hubURL, deviceToken string, roots []string, runn
 	t.Cleanup(cancel)
 	go func() {
 		_ = node.Run(ctx, node.ClientConfig{
-			HubURL:  hubURL,
-			Token:   deviceToken,
-			Hello:   nodeHello(roots...),
-			OnFrame: executor.Handle,
+			HubURL: hubURL,
+			Token:  deviceToken,
+			Hello:  nodeHello(roots...),
+			// The production wiring (internal/server/node.go): a dispatched turn
+			// belongs to the daemon, not to the socket that delivered it. Passing
+			// the connection's context here would cancel the agent on every flap,
+			// which is the bug this harness would otherwise be unable to see.
+			OnFrame: func(_ context.Context, frame worker.Frame) error {
+				return executor.Handle(ctx, frame)
+			},
 			OnReady: executor.SetSender,
 			Warn:    func(format string, args ...any) { t.Logf("node: "+format, args...) },
 		})
@@ -460,6 +470,143 @@ func (a *blockingAgent) Start(ctx context.Context, _ adapter.TaskSpec) (adapter.
 		close(ch)
 	}()
 	return &e2eHandle{ch: ch}, nil
+}
+
+// flapAgent emits one event, then holds the rest until release. It keeps a turn
+// open while the test drops the control channel underneath it.
+type flapAgent struct {
+	started chan struct{}
+	release <-chan struct{}
+	events  []adapter.Event
+}
+
+func (a *flapAgent) Start(ctx context.Context, _ adapter.TaskSpec) (adapter.RunHandle, error) {
+	ch := make(chan adapter.Event, len(a.events)+1)
+	go func() {
+		defer close(ch)
+		for i, event := range a.events {
+			if i == 1 {
+				close(a.started)
+				select {
+				case <-a.release:
+				case <-ctx.Done():
+					return
+				}
+			}
+			select {
+			case ch <- event:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return &e2eHandle{ch: ch}, nil
+}
+
+// TestRemoteTurnSurvivesADroppedConnection is the whole reason turns outlive
+// their socket: a control channel drops mid-run, the machine reconnects, and
+// the same task still reaches a successful end with a transcript that has no
+// holes. The Hub half (grace, adopt) and the Node half (daemon-owned turn
+// lifetime, outbox, replay) are only exercised together here.
+//
+// The flap is caused on the Hub side and the daemon context is left alone, so
+// this is a network event, not a shutdown — exactly the case that used to fail
+// the task with "device ... disconnected mid-turn".
+func TestRemoteTurnSurvivesADroppedConnection(t *testing.T) {
+	s, master, conns, turns := remoteHub(t)
+	// The machine comes back after the client's one-second backoff; the shared
+	// test hub shortens the grace for disconnect tests, so widen it here.
+	turns.ReconnectGrace = 10 * time.Second
+	hub := httptest.NewServer(s.Handler())
+	defer hub.Close()
+
+	deviceToken, deviceID := pairDevice(t, s.Handler(), master)
+
+	work := t.TempDir()
+	release := make(chan struct{})
+	agent := &flapAgent{
+		started: make(chan struct{}),
+		release: release,
+		events: []adapter.Event{
+			{Type: "message", Payload: json.RawMessage(`{"text":"before the flap"}`)},
+			{Type: "message", Payload: json.RawMessage(`{"text":"after the flap"}`)},
+			{Type: "result", Payload: json.RawMessage(`{"is_error":false}`)},
+		},
+	}
+	executor := startRunners(t, hub.URL, deviceToken, []string{work}, e2eRunners{agent: agent})
+	awaitOnline(t, conns, deviceID)
+
+	created := createTask(t, s.Handler(), master, map[string]any{
+		"agent": "claude-code", "cwd": work, "prompt": "keep working through the flap",
+		"executing_device_id": deviceID,
+	})
+	select {
+	case <-agent.started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the turn never reached the other machine")
+	}
+	// Wait for the first event to be in the transcript: the turn is genuinely
+	// running, and the socket has carried at least one of its frames.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		events, err := s.Store.ListEvents(context.Background(), created.ID, 0)
+		if err == nil && len(events) >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the first event never reached the hub")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Pull the cable from the Hub's end. The daemon stays up; only the control
+	// channel dies.
+	sender, err := conns.Get(deviceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender.Close(websocket.StatusGoingAway, "test flap")
+	deadline = time.Now().Add(5 * time.Second)
+	for conns.Connected(deviceID) {
+		if time.Now().After(deadline) {
+			t.Fatal("the hub never noticed the dropped connection")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// Let the agent finish while the machine is offline: the remaining events
+	// and the ending have to wait in the outbox for the reconnect.
+	close(release)
+
+	stored := awaitTaskStatus(t, s, created.ID, task.StatusSucceeded)
+	if stored.Status != task.StatusSucceeded {
+		t.Fatalf("status = %q", stored.Status)
+	}
+	events, err := s.Store.ListEvents(context.Background(), created.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 4 {
+		t.Fatalf("events = %+v, want the prompt and the three the agent produced", events)
+	}
+	for i, event := range events {
+		if event.Seq != i+1 {
+			t.Fatalf("event %d has seq %d", i, event.Seq)
+		}
+	}
+	if message := said(t, s, created.ID); message != "" {
+		t.Fatalf("the flap was reported as a failure: %s", message)
+	}
+	if running := turns.Running(""); len(running) != 0 {
+		t.Fatalf("turns still open on the hub: %v", running)
+	}
+	deadline = time.Now().Add(10 * time.Second)
+	for len(executor.Running()) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("turns still running on the machine: %v", executor.Running())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // TestRemoteTaskIsNotPreparedOnTheHub pins the boundary the whole feature rests

@@ -21,6 +21,9 @@ type fakeAgent struct {
 	events []adapter.Event
 	// block, when set, keeps the run open until the handle is canceled.
 	block bool
+	// finished, when set, is closed after every event has been handed over.
+	// It is how a test knows the run is done producing, not just started.
+	finished chan struct{}
 
 	mu     sync.Mutex
 	specs  []adapter.TaskSpec
@@ -49,6 +52,9 @@ func (f *fakeAgent) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.R
 			case <-ctx.Done():
 				return
 			}
+		}
+		if f.finished != nil {
+			close(f.finished)
 		}
 	}()
 	return &fakeHandle{ch: ch}, nil
@@ -168,15 +174,29 @@ func TestExecutorRunsTheTurnAndReportsEveryEvent(t *testing.T) {
 		t.Fatalf("finish = %+v", finish)
 	}
 
+	// Every connection opens with the turns this machine still holds — here,
+	// none — so the Hub can settle what it kept for the device instead of
+	// waiting out the reconnect grace.
+	frames := rec.collected(t)
+	if len(frames) < 2 || frames[0].Kind != "turn.resume" {
+		t.Fatalf("the connection did not open with a resume: %+v", frames)
+	}
+	resume, err := Decode[worker.TurnResume](frames[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resume.TurnIDs) != 0 {
+		t.Fatalf("resume = %+v, want no turns on a fresh connection", resume)
+	}
+
 	// Taking the work is the first thing the machine says, because it is the
 	// only thing that tells the Hub the dispatch arrived: a node that ran the
 	// turn and stayed quiet looks exactly like a node that never got it, and
 	// the Hub ends a turn nobody started.
-	frames := rec.collected(t)
-	if len(frames) == 0 || frames[0].Kind != "turn.started" {
-		t.Fatalf("the first frame is not the start ack: %+v", frames)
+	if frames[1].Kind != "turn.started" {
+		t.Fatalf("the frame after the resume is not the start ack: %+v", frames)
 	}
-	started, err := Decode[worker.TurnStarted](frames[0])
+	started, err := Decode[worker.TurnStarted](frames[1])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -703,5 +723,379 @@ func TestExecutorWithoutAFetcherStillRunsTheTurn(t *testing.T) {
 	}
 	if got := agent.lastSpec(t).Prompt; got != dispatch.Prompt {
 		t.Fatalf("prompt = %q, want it unchanged", got)
+	}
+}
+
+// TestExecutorResumesARunningTurnWhenTheConnectionReturns is the whole point of
+// the resume frame: the hub dropped, the agent never stopped, and the machine
+// comes back saying which work it still has.
+func TestExecutorResumesARunningTurnWhenTheConnectionReturns(t *testing.T) {
+	agent := &fakeAgent{block: true}
+	work := t.TempDir()
+	exec := &Executor{Runners: runners{agents: map[string]*fakeAgent{"claude-code": agent}}, Roots: []string{work}}
+
+	// The dispatch arrives while there is no connection at all. The machine
+	// takes the work anyway: the hub may be back before the agent is done.
+	if err := exec.Handle(context.Background(), dispatchFrame(t, testDispatch(work))); err != nil {
+		t.Fatal(err)
+	}
+	// The agent being up is the signal that the start ack has been written —
+	// the ack goes out before the runner is asked for an agent.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		agent.mu.Lock()
+		started := agent.starts
+		agent.mu.Unlock()
+		if started == 1 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(exec.Running()) != 1 {
+		t.Fatal("the turn never started")
+	}
+
+	rec := &recorder{}
+	exec.SetSender(rec.send)
+	frames := rec.collected(t)
+	if len(frames) < 2 || frames[0].Kind != "turn.resume" || frames[1].Kind != "turn.started" {
+		t.Fatalf("frames = %+v", frames)
+	}
+	resume, err := Decode[worker.TurnResume](frames[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resume.TurnIDs) != 1 || resume.TurnIDs[0] != "turn-1" {
+		t.Fatalf("resume = %+v, want the running turn", resume)
+	}
+	resumed, err := Decode[worker.TurnStarted](frames[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.TurnID != "turn-1" {
+		t.Fatalf("start ack after the resume = %+v", resumed)
+	}
+
+	// The turn still answers a stop on the new connection, which is how the
+	// hub learns it ended.
+	cancel, err := worker.NewFrame("turn.cancel", worker.TurnCancel{TurnID: "turn-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Handle(context.Background(), cancel); err != nil {
+		t.Fatal(err)
+	}
+	if finish := rec.awaitFinish(t, "turn-1"); finish.Status != worker.TurnCanceled {
+		t.Fatalf("finish = %+v", finish)
+	}
+}
+
+// TestExecutorHoldsAFinishedTurnUntilTheConnectionReturns: an agent that runs to
+// completion while the hub is away still gets its transcript delivered. The
+// events and the ending wait for the connection instead of being dropped —
+// which is exactly how the run that started all this was lost.
+func TestExecutorHoldsAFinishedTurnUntilTheConnectionReturns(t *testing.T) {
+	agent := &fakeAgent{
+		events: []adapter.Event{
+			{Type: "task_started", Payload: json.RawMessage(`{"session_id":"s-1"}`)},
+			{Type: "message", Payload: json.RawMessage(`{"text":"working"}`)},
+			{Type: "result", Payload: json.RawMessage(`{"is_error":false}`)},
+		},
+		finished: make(chan struct{}),
+	}
+	work := t.TempDir()
+	exec := &Executor{Runners: runners{agents: map[string]*fakeAgent{"claude-code": agent}}, Roots: []string{work}}
+
+	if err := exec.Handle(context.Background(), dispatchFrame(t, testDispatch(work))); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-agent.finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the agent never produced its events")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && len(exec.Running()) != 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if running := exec.Running(); len(running) != 0 {
+		t.Fatalf("the turn is still running: %v", running)
+	}
+
+	rec := &recorder{}
+	exec.SetSender(rec.send)
+	frames := rec.collected(t)
+	if len(frames) < 2 || frames[0].Kind != "turn.resume" {
+		t.Fatalf("frames = %+v", frames)
+	}
+	resume, err := Decode[worker.TurnResume](frames[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resume.TurnIDs) != 1 || resume.TurnIDs[0] != "turn-1" {
+		t.Fatalf("resume = %+v, want the turn whose ending was never delivered", resume)
+	}
+	var kinds []string
+	var seqs []int
+	for _, frame := range frames[1:] {
+		switch frame.Kind {
+		case "turn.started":
+			kinds = append(kinds, frame.Kind)
+		case "turn.event":
+			event, err := Decode[worker.TurnEvent](frame)
+			if err != nil {
+				t.Fatal(err)
+			}
+			kinds = append(kinds, frame.Kind)
+			seqs = append(seqs, event.Seq)
+		case "turn.finish":
+			kinds = append(kinds, frame.Kind)
+		}
+	}
+	if strings.Join(kinds, ",") != "turn.started,turn.event,turn.event,turn.event,turn.finish" {
+		t.Fatalf("frames after the resume = %v", kinds)
+	}
+	if len(seqs) != 3 || seqs[0] != 1 || seqs[1] != 2 || seqs[2] != 3 {
+		t.Fatalf("event sequences = %v, want 1..3 with no holes", seqs)
+	}
+	if finish, err := Decode[worker.TurnFinish](frames[len(frames)-1]); err != nil || finish.Status != worker.TurnOK {
+		t.Fatalf("finish = %+v (%v)", finish, err)
+	}
+}
+
+// TestExecutorReplaysTheTailOfATurnAfterAReconnect covers the frame that was
+// written but lost with the socket. The hub drops a duplicate event by its
+// sequence and accepts a repeated start ack for a live turn, so writing the
+// tail again is how the machine makes sure the transcript has no hole.
+func TestExecutorReplaysTheTailOfATurnAfterAReconnect(t *testing.T) {
+	agent := &fakeAgent{events: []adapter.Event{
+		{Type: "message", Payload: json.RawMessage(`{"text":"one"}`)},
+		{Type: "message", Payload: json.RawMessage(`{"text":"two"}`)},
+	}}
+	work := t.TempDir()
+	exec := &Executor{Runners: runners{agents: map[string]*fakeAgent{"claude-code": agent}}, Roots: []string{work}}
+	first := &recorder{}
+	exec.SetSender(first.send)
+
+	if err := exec.Handle(context.Background(), dispatchFrame(t, testDispatch(work))); err != nil {
+		t.Fatal(err)
+	}
+	if finish := first.awaitFinish(t, "turn-1"); finish.Status != worker.TurnOK {
+		t.Fatalf("finish = %+v", finish)
+	}
+
+	// The socket is replaced. Nothing was waiting in the outbox, but the last
+	// frames written may have died with the old connection.
+	exec.SetSender(nil)
+	second := &recorder{}
+	exec.SetSender(second.send)
+
+	frames := second.collected(t)
+	if len(frames) < 2 || frames[0].Kind != "turn.resume" {
+		t.Fatalf("frames = %+v", frames)
+	}
+	resume, err := Decode[worker.TurnResume](frames[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resume.TurnIDs) != 1 || resume.TurnIDs[0] != "turn-1" {
+		t.Fatalf("resume = %+v, want the turn whose tail is replayed", resume)
+	}
+	var replayed []string
+	for _, frame := range frames[1:] {
+		switch frame.Kind {
+		case "turn.started", "turn.event", "turn.finish":
+			replayed = append(replayed, frame.Kind)
+		default:
+			t.Fatalf("replayed a frame the hub does not deduplicate: %s", frame.Kind)
+		}
+	}
+	if len(replayed) < 2 || replayed[0] != "turn.started" || replayed[len(replayed)-1] != "turn.finish" {
+		t.Fatalf("replayed = %v, want the tail from the start ack to the finish", replayed)
+	}
+	if finish, err := Decode[worker.TurnFinish](frames[len(frames)-1]); err != nil || finish.TurnID != "turn-1" {
+		t.Fatalf("finish = %+v (%v)", finish, err)
+	}
+}
+
+// TestExecutorStopsATurnItsOutboxCannotHold: an agent can produce faster than a
+// dead hub can drain, and the holding area is bounded. The turn is stopped and
+// reported with the real reason instead of growing the process until it dies.
+func TestExecutorStopsATurnItsOutboxCannotHold(t *testing.T) {
+	agent := &fakeAgent{
+		events: []adapter.Event{
+			{Type: "message", Payload: json.RawMessage(`{"text":"one"}`)},
+			{Type: "message", Payload: json.RawMessage(`{"text":"two"}`)},
+			{Type: "message", Payload: json.RawMessage(`{"text":"three"}`)},
+		},
+		finished: make(chan struct{}),
+	}
+	work := t.TempDir()
+	exec := &Executor{
+		Runners:     runners{agents: map[string]*fakeAgent{"claude-code": agent}},
+		Roots:       []string{work},
+		OutboxLimit: 1,
+	}
+
+	if err := exec.Handle(context.Background(), dispatchFrame(t, testDispatch(work))); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-agent.finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the agent never produced its events")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && len(exec.Running()) != 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	rec := &recorder{}
+	exec.SetSender(rec.send)
+	frames := rec.collected(t)
+	if len(frames) != 2 || frames[0].Kind != "turn.resume" || frames[1].Kind != "turn.finish" {
+		t.Fatalf("frames = %+v, want a resume and one ending", frames)
+	}
+	resume, err := Decode[worker.TurnResume](frames[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resume.TurnIDs) != 1 || resume.TurnIDs[0] != "turn-1" {
+		t.Fatalf("resume = %+v", resume)
+	}
+	finish, err := Decode[worker.TurnFinish](frames[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finish.Status != worker.TurnError || !strings.Contains(finish.Error, "fell behind") {
+		t.Fatalf("finish = %+v, want the overflow reason", finish)
+	}
+}
+
+// TestExecutorBoundsTheResumeToTheProtocolLimit: a Hub refuses a resume that
+// names more turns than the protocol allows, and a refused resume adopts
+// nothing. The Node therefore trims its own list instead of sending one the
+// peer will throw away.
+func TestExecutorBoundsTheResumeToTheProtocolLimit(t *testing.T) {
+	exec := &Executor{running: make(map[string]*execution)}
+	for i := 0; i < worker.MaxResumeTurns+5; i++ {
+		id := fmt.Sprintf("turn-%03d", i)
+		exec.running[id] = &execution{turnID: id}
+	}
+	rec := &recorder{}
+	exec.SetSender(rec.send)
+
+	frames := rec.collected(t)
+	if len(frames) == 0 || frames[0].Kind != "turn.resume" {
+		t.Fatalf("frames = %+v", frames)
+	}
+	resume, err := Decode[worker.TurnResume](frames[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := resume.Validate(); err != nil {
+		t.Fatalf("the node sent a resume its hub would refuse: %v", err)
+	}
+	if len(resume.TurnIDs) != worker.MaxResumeTurns {
+		t.Fatalf("resume names %d turns, want the bound %d", len(resume.TurnIDs), worker.MaxResumeTurns)
+	}
+	if resume.TurnIDs[0] != "turn-000" {
+		t.Fatalf("resume starts at %q, want the first held turn", resume.TurnIDs[0])
+	}
+}
+
+// TestExecutorReplaysABurstOfFrames: a reset socket loses everything written
+// since the last data the peer acknowledged, which for a chatty agent is far
+// more than a handful of frames. The replay bound is bytes, not a small frame
+// count, or a routine flap still reaches the hub as a sequence hole.
+func TestExecutorReplaysABurstOfFrames(t *testing.T) {
+	exec := &Executor{}
+	const frames = 40
+	for i := 1; i <= frames; i++ {
+		frame, err := worker.NewFrame("turn.event", worker.TurnEvent{
+			TurnID: "turn-1", Seq: i, Event: json.RawMessage(`{"type":"delta","text":"x"}`),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		exec.rememberLocked("turn-1", frame)
+	}
+	rec := &recorder{}
+	exec.SetSender(rec.send)
+
+	replayed := rec.collected(t)
+	if len(replayed) == 0 || replayed[0].Kind != "turn.resume" {
+		t.Fatalf("frames = %+v", replayed)
+	}
+	var seqs []int
+	for _, frame := range replayed[1:] {
+		if frame.Kind != "turn.event" {
+			continue
+		}
+		event, err := Decode[worker.TurnEvent](frame)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seqs = append(seqs, event.Seq)
+	}
+	if len(seqs) != frames || seqs[0] != 1 || seqs[len(seqs)-1] != frames {
+		first, last := 0, 0
+		if len(seqs) > 0 {
+			first, last = seqs[0], seqs[len(seqs)-1]
+		}
+		t.Fatalf("replayed %d frames (first %d, last %d), want all %d", len(seqs), first, last, frames)
+	}
+}
+
+// TestExecutorForgetsAnAbortedTurnItIsToldToCancel: the overflow marker outlives
+// its turn if the ending never got out and the Hub then cancels the id. Nothing
+// is held for the turn any more, and the marker must go with it rather than
+// being kept for the life of the process.
+func TestExecutorForgetsAnAbortedTurnItIsToldToCancel(t *testing.T) {
+	agent := &fakeAgent{
+		events: []adapter.Event{
+			{Type: "message", Payload: json.RawMessage(`{"text":"one"}`)},
+			{Type: "message", Payload: json.RawMessage(`{"text":"two"}`)},
+		},
+		finished: make(chan struct{}),
+	}
+	work := t.TempDir()
+	exec := &Executor{
+		Runners:     runners{agents: map[string]*fakeAgent{"claude-code": agent}},
+		Roots:       []string{work},
+		OutboxLimit: 1,
+	}
+	if err := exec.Handle(context.Background(), dispatchFrame(t, testDispatch(work))); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-agent.finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the agent never produced its events")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && len(exec.Running()) != 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	exec.sendMu.Lock()
+	marked := exec.aborted["turn-1"]
+	exec.sendMu.Unlock()
+	if !marked {
+		t.Fatal("the overflow did not mark the turn it stopped")
+	}
+
+	cancel, err := worker.NewFrame("turn.cancel", worker.TurnCancel{TurnID: "turn-1", Reason: "the hub is no longer running this turn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Handle(context.Background(), cancel); err != nil {
+		t.Fatal(err)
+	}
+	exec.sendMu.Lock()
+	_, still := exec.aborted["turn-1"]
+	exec.sendMu.Unlock()
+	if still {
+		t.Fatal("the abort marker outlived everything held for the turn")
 	}
 }

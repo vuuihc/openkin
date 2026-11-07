@@ -55,9 +55,10 @@ func NewConnections(onEnded func(sender Sender)) *Connections {
 // The displaced connection counts as ended, so the caller hears about it here
 // rather than when its handler eventually returns: its Detach will not report it
 // (it is no longer the current connection), and anything it was running would
-// otherwise never be settled. Its turns really are dead — the Node derives a
-// turn's lifetime from the connection that dispatched it, so closing the socket
-// stops the work on that machine too.
+// otherwise never be settled. Its turns are marked orphaned rather than failed:
+// the machine may still be running them, and the new connection gets to claim
+// them back with a turn.resume before the reconnect grace runs out (see
+// Turns.Abandon and Turns.Adopt).
 func (c *Connections) Attach(sender Sender) (previous Sender) {
 	c.mu.Lock()
 	previous = c.byID[sender.DeviceID()]

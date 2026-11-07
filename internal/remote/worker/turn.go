@@ -32,6 +32,10 @@ const (
 	// already bounded; this bounds the list beside it, which is what a frame
 	// carries in addition.
 	MaxAttachments = 16
+	// MaxResumeTurns bounds the turns one reconnect may claim. It is generous
+	// beside the few turns a machine actually runs: the point is a frame small
+	// enough to parse without being a way to make the Hub hold arbitrary state.
+	MaxResumeTurns = 64
 	// MaxAttachmentPath is the same ceiling as a working directory: both are
 	// addresses on the Hub's filesystem, and the longer one is not more useful.
 	MaxAttachmentPath = MaxCwd
@@ -127,6 +131,40 @@ type TurnFinish struct {
 type TurnCancel struct {
 	TurnID string `json:"turn_id"`
 	Reason string `json:"reason,omitempty"`
+}
+
+// TurnResume is the first thing a Node says after reconnecting: which turns it
+// still holds.
+//
+// A control channel can drop while an agent is working. Treating that as the
+// end of the work wastes a run the machine is still finishing, and the Hub
+// cannot tell a machine that reconnected with its turns from one that
+// reconnected empty. So the machine answers the question on arrival: the Hub
+// keeps the turns listed here on the new connection, and ends the ones this
+// device used to hold that are not listed — the run is gone, and saying so is
+// better than waiting for a report that will never come.
+//
+// It is sent on every connection, not only after a drop, exactly because an
+// empty list is an answer too.
+type TurnResume struct {
+	TurnIDs []string `json:"turn_ids"`
+}
+
+func (r TurnResume) Validate() error {
+	if len(r.TurnIDs) > MaxResumeTurns {
+		return fmt.Errorf("turn resume lists %d turns, more than %d", len(r.TurnIDs), MaxResumeTurns)
+	}
+	seen := make(map[string]bool, len(r.TurnIDs))
+	for i, id := range r.TurnIDs {
+		if err := bounded(fmt.Sprintf("turn_ids[%d]", i), id, MaxTurnID); err != nil {
+			return err
+		}
+		if seen[id] {
+			return fmt.Errorf("turn_ids[%d] repeats %q", i, id)
+		}
+		seen[id] = true
+	}
+	return nil
 }
 
 func (d Dispatch) Validate() error {

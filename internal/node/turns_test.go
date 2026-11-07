@@ -295,6 +295,7 @@ func TestTurnsRefuseADuplicateID(t *testing.T) {
 
 func TestTurnsAbandonADisconnectedDevice(t *testing.T) {
 	turns := NewTurns()
+	turns.ReconnectGrace = 40 * time.Millisecond
 	mine, err := turns.Open("turn-1", "task-1", testConnFor("device-1"), "")
 	if err != nil {
 		t.Fatal(err)
@@ -303,15 +304,35 @@ func TestTurnsAbandonADisconnectedDevice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Both turns said they started, so the reconnect grace is the only deadline
+	// in play: a turn whose device never answered has its own start timeout.
+	if err := turns.Started(testConnFor("device-1"), worker.TurnStarted{TurnID: "turn-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := turns.Started(testConnFor("device-2"), worker.TurnStarted{TurnID: "turn-2"}); err != nil {
+		t.Fatal(err)
+	}
 
 	if abandoned := turns.Abandon(testConnFor("device-1")); len(abandoned) != 1 || abandoned[0] != "turn-1" {
 		t.Fatalf("abandoned = %v", abandoned)
 	}
-	// A turn whose device walked away has to end, or the engine waits on a
-	// socket that no longer exists.
+	// The turn is held, not failed: the machine may still be running it and may
+	// reconnect to claim it. Abandon fails synchronously when it is going to, so
+	// checking the buffer now is deterministic — waiting a fixed moment would
+	// race the grace timer on a loaded machine.
+	select {
+	case event := <-mine.Events():
+		t.Fatalf("a turn failed before the reconnect grace ended: %+v", event)
+	default:
+	}
+	// Nobody claimed it, so it ends the way it always did, with a reason in the
+	// transcript rather than a reader parked on a socket that no longer exists.
 	got := drain(t, mine)
 	if len(got) != 1 || got[0].Type != "error" {
 		t.Fatalf("events = %+v", got)
+	}
+	if !strings.Contains(string(got[0].Payload), "disconnected mid-turn") {
+		t.Fatalf("the reason was lost: %s", got[0].Payload)
 	}
 	// The other device's turn is untouched.
 	if err := turns.Deliver(testConnFor("device-2"), worker.TurnEvent{TurnID: "turn-2", Seq: 1, Event: event(t, "message")}); err != nil {
@@ -321,6 +342,252 @@ func TestTurnsAbandonADisconnectedDevice(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := drain(t, theirs); len(got) != 1 || got[0].Type != "message" {
+		t.Fatalf("events = %+v", got)
+	}
+}
+
+// A device that drops and comes back with the turn still running keeps it: the
+// work never stopped on that machine, so the Hub must not stop waiting for it.
+func TestTurnsAdoptATurnAcrossAReconnect(t *testing.T) {
+	turns := NewTurns()
+	first := newTestConn("device-1")
+	handle, err := turns.Open("turn-1", "task-1", first, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := turns.Started(first, worker.TurnStarted{TurnID: "turn-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := turns.Deliver(first, worker.TurnEvent{TurnID: "turn-1", Seq: 1, Event: event(t, "message")}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The socket drops, and the machine reconnects with the turn still open.
+	turns.Abandon(first)
+	second := newTestConn("device-1")
+	adopted, unknown := turns.Adopt(second, []string{"turn-1"})
+	if len(adopted) != 1 || adopted[0] != "turn-1" || len(unknown) != 0 {
+		t.Fatalf("adopted = %v, unknown = %v", adopted, unknown)
+	}
+
+	// The old connection can no longer speak for it; the new one can, and the
+	// sequence carries on where the machine left off.
+	if err := turns.Deliver(first, worker.TurnEvent{TurnID: "turn-1", Seq: 2, Event: event(t, "message")}); err == nil {
+		t.Fatal("a replaced connection was allowed to speak for an adopted turn")
+	}
+	if err := turns.Deliver(second, worker.TurnEvent{TurnID: "turn-1", Seq: 2, Event: event(t, "message")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := turns.Finish(second, worker.TurnFinish{TurnID: "turn-1", Status: worker.TurnOK}); err != nil {
+		t.Fatal(err)
+	}
+	if got := drain(t, handle); len(got) != 2 || got[0].Type != "message" || got[1].Type != "message" {
+		t.Fatalf("events = %+v", got)
+	}
+}
+
+// A second start ack for a live turn is the Node resending a frame it could not
+// confirm, not a mistake: refusing it as an unknown turn would make the Hub
+// cancel the healthy run it describes.
+func TestTurnsAcceptADuplicateStartAck(t *testing.T) {
+	turns := NewTurns()
+	conn := newTestConn("device-1")
+	handle, err := turns.Open("turn-1", "task-1", conn, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := turns.Started(conn, worker.TurnStarted{TurnID: "turn-1"}); err != nil {
+			t.Fatalf("start ack %d: %v", i+1, err)
+		}
+	}
+	if err := turns.Deliver(conn, worker.TurnEvent{TurnID: "turn-1", Seq: 1, Event: event(t, "message")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := turns.Finish(conn, worker.TurnFinish{TurnID: "turn-1", Status: worker.TurnOK}); err != nil {
+		t.Fatal(err)
+	}
+	if got := drain(t, handle); len(got) != 1 || got[0].Type != "message" {
+		t.Fatalf("events = %+v", got)
+	}
+	// Once the turn is over the answer changes: there is no run left, so the
+	// device should stop rather than keep reporting into it.
+	if err := turns.Started(conn, worker.TurnStarted{TurnID: "turn-1"}); !errors.Is(err, ErrTurnUnknown) {
+		t.Fatalf("start ack after the turn ended = %v, want ErrTurnUnknown", err)
+	}
+}
+
+// Listing a turn in a resume is the device saying it holds the dispatch. That
+// answers the start question even when the ack itself died with the socket, so
+// adoption must settle the start deadline rather than let it fire later on a
+// run that is doing fine.
+func TestTurnsAdoptionSettlesTheStartDeadline(t *testing.T) {
+	turns := NewTurns()
+	first := newTestConn("device-1")
+	handle, err := turns.Open("turn-1", "task-1", first, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No Started here: the ack is exactly what the socket lost.
+	turns.Abandon(first)
+
+	second := newTestConn("device-1")
+	adopted, unknown := turns.Adopt(second, []string{"turn-1"})
+	if len(adopted) != 1 || adopted[0] != "turn-1" || len(unknown) != 0 {
+		t.Fatalf("adopted = %v, unknown = %v", adopted, unknown)
+	}
+
+	turns.mu.Lock()
+	item := turns.byID["turn-1"]
+	answered, armed := item.answered, item.startTimer != nil
+	turns.mu.Unlock()
+	if !answered || armed {
+		t.Fatalf("adoption left the start question open (answered=%v, timer=%v)", answered, armed)
+	}
+	// The deadline may still be running when the decision lands. Firing it now
+	// must be a no-op, not the end of a turn nobody gave up on.
+	turns.failIfOpen(item, "device never started the turn")
+	if err := turns.Deliver(second, worker.TurnEvent{TurnID: "turn-1", Seq: 1, Event: event(t, "message")}); err != nil {
+		t.Fatalf("the adopted turn was failed by its start deadline: %v", err)
+	}
+	if err := turns.Finish(second, worker.TurnFinish{TurnID: "turn-1", Status: worker.TurnOK}); err != nil {
+		t.Fatal(err)
+	}
+	if got := drain(t, handle); len(got) != 1 || got[0].Type != "message" {
+		t.Fatalf("events = %+v", got)
+	}
+}
+
+// The start deadline does not preempt the reconnect grace. A turn whose ack
+// died with the socket is orphaned, not unstarted: the machine may still be
+// running it, and the grace is the deadline that decides.
+func TestTurnsAnOrphanedTurnOutlivesTheStartDeadline(t *testing.T) {
+	turns := NewTurns()
+	first := newTestConn("device-1")
+	handle, err := turns.Open("turn-1", "task-1", first, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No Started: the ack is exactly what the drop swallowed.
+	turns.Abandon(first)
+	turns.mu.Lock()
+	item := turns.byID["turn-1"]
+	turns.mu.Unlock()
+
+	// The start timer fires while the turn is orphaned.
+	turns.failIfOpen(item, "device never started the turn")
+	select {
+	case event := <-handle.Events():
+		t.Fatalf("the start deadline ended an orphaned turn: %+v", event)
+	default:
+	}
+
+	second := newTestConn("device-1")
+	adopted, unknown := turns.Adopt(second, []string{"turn-1"})
+	if len(adopted) != 1 || len(unknown) != 0 {
+		t.Fatalf("adopted = %v, unknown = %v", adopted, unknown)
+	}
+	if err := turns.Deliver(second, worker.TurnEvent{TurnID: "turn-1", Seq: 1, Event: event(t, "message")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := turns.Finish(second, worker.TurnFinish{TurnID: "turn-1", Status: worker.TurnOK}); err != nil {
+		t.Fatal(err)
+	}
+	if got := drain(t, handle); len(got) != 1 || got[0].Type != "message" {
+		t.Fatalf("events = %+v", got)
+	}
+}
+
+// A deadline that has already decided to end a turn must not have it adopted in
+// the window before the transcript write lands: the machine would keep running
+// work the Hub is ending. The claim is taken under the registry lock, so this
+// test sets the state that claim leaves behind.
+func TestTurnsDoNotAdoptATurnTheyAreAlreadyFailing(t *testing.T) {
+	turns := NewTurns()
+	first := newTestConn("device-1")
+	handle, err := turns.Open("turn-1", "task-1", first, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := turns.Started(first, worker.TurnStarted{TurnID: "turn-1"}); err != nil {
+		t.Fatal(err)
+	}
+	turns.Abandon(first)
+
+	turns.mu.Lock()
+	item := turns.byID["turn-1"]
+	item.orphaned = false
+	item.failing = true
+	turns.mu.Unlock()
+
+	second := newTestConn("device-1")
+	adopted, unknown := turns.Adopt(second, []string{"turn-1"})
+	if len(adopted) != 0 || len(unknown) != 1 || unknown[0] != "turn-1" {
+		t.Fatalf("adopted = %v, unknown = %v, want the failing turn refused", adopted, unknown)
+	}
+	turns.fail(item, "device device-1 disconnected mid-turn")
+	got := drain(t, handle)
+	if len(got) != 1 || got[0].Type != "error" {
+		t.Fatalf("events = %+v", got)
+	}
+}
+
+// A device that reconnects without a turn it used to hold is telling the Hub
+// the run is gone. Waiting out the grace would only delay the answer it has
+// already given.
+func TestTurnsFailATurnTheReconnectedDeviceDidNotClaim(t *testing.T) {
+	turns := NewTurns()
+	first := newTestConn("device-1")
+	handle, err := turns.Open("turn-1", "task-1", first, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := turns.Started(first, worker.TurnStarted{TurnID: "turn-1"}); err != nil {
+		t.Fatal(err)
+	}
+	turns.Abandon(first)
+
+	second := newTestConn("device-1")
+	adopted, unknown := turns.Adopt(second, nil)
+	if len(adopted) != 0 || len(unknown) != 0 {
+		t.Fatalf("adopted = %v, unknown = %v", adopted, unknown)
+	}
+	got := drain(t, handle)
+	if len(got) != 1 || got[0].Type != "error" {
+		t.Fatalf("events = %+v", got)
+	}
+	if !strings.Contains(string(got[0].Payload), "disconnected mid-turn") {
+		t.Fatalf("the reason was lost: %s", got[0].Payload)
+	}
+}
+
+// A turn id is not a capability: a reconnecting machine can only claim turns
+// the Hub dispatched to that same device.
+func TestTurnsRefuseToAdoptAnotherDevicesTurn(t *testing.T) {
+	turns := NewTurns()
+	turns.ReconnectGrace = 20 * time.Millisecond
+	owner := newTestConn("device-1")
+	handle, err := turns.Open("turn-1", "task-1", owner, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := turns.Started(owner, worker.TurnStarted{TurnID: "turn-1"}); err != nil {
+		t.Fatal(err)
+	}
+	turns.Abandon(owner)
+
+	intruder := newTestConn("device-2")
+	adopted, unknown := turns.Adopt(intruder, []string{"turn-1"})
+	if len(adopted) != 0 || len(unknown) != 1 || unknown[0] != "turn-1" {
+		t.Fatalf("adopted = %v, unknown = %v", adopted, unknown)
+	}
+	// The turn still belongs to the first machine, which has not reconnected:
+	// the intruder cannot speak for it, and the grace still ends it.
+	if err := turns.Deliver(intruder, worker.TurnEvent{TurnID: "turn-1", Seq: 1, Event: event(t, "message")}); err == nil {
+		t.Fatal("another device was allowed to speak for the turn")
+	}
+	got := drain(t, handle)
+	if len(got) != 1 || got[0].Type != "error" {
 		t.Fatalf("events = %+v", got)
 	}
 }
@@ -478,14 +745,17 @@ func TestRouteFrameRejectsRubbish(t *testing.T) {
 	}
 }
 
-// A turn belongs to the connection that dispatched it, not to the device. A
-// machine that reconnects while work is being handed to it must not have the
-// new turn killed by the old socket's ending, and the old socket's late frames
-// must not be read as the new run's.
+// A turn belongs to the connection that dispatched it until the same device
+// claims it on a newer one. A machine that reconnects while work is being
+// handed to it must not have the new turn killed by the old socket's ending,
+// and the old socket's late frames must not be read as the new run's.
 func TestTurnsBindToTheConnectionThatDispatchedThem(t *testing.T) {
 	turns := NewTurns()
 	first := newTestConn("device-1")
 	if _, err := turns.Open("turn-old", "task-1", first, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := turns.Started(first, worker.TurnStarted{TurnID: "turn-old"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -499,13 +769,16 @@ func TestTurnsBindToTheConnectionThatDispatchedThem(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The old connection ending settles its own turn and nothing else.
+	// The old connection ending holds its own turn for the reconnect grace and
+	// does not touch the new connection's turn.
 	abandoned := turns.Abandon(first)
 	if len(abandoned) != 1 || abandoned[0] != "turn-old" {
 		t.Fatalf("abandoned = %v", abandoned)
 	}
-	if running := turns.Running("device-1"); len(running) != 1 || running[0] != "turn-new" {
-		t.Fatalf("running = %v", running)
+	// The new connection claims the old turn back, as a reconnecting machine
+	// with the work still running does.
+	if adopted, unknown := turns.Adopt(second, []string{"turn-old"}); len(adopted) != 1 || len(unknown) != 0 {
+		t.Fatalf("adopted = %v, unknown = %v", adopted, unknown)
 	}
 
 	// Frames from the replaced connection are refused, even for a turn id it
@@ -515,6 +788,9 @@ func TestTurnsBindToTheConnectionThatDispatchedThem(t *testing.T) {
 	}
 	if err := turns.Finish(first, worker.TurnFinish{TurnID: "turn-new", Status: worker.TurnOK}); err == nil {
 		t.Fatal("a replaced connection was allowed to finish the new turn")
+	}
+	if err := turns.Deliver(first, worker.TurnEvent{TurnID: "turn-old", Seq: 1, Event: event(t, "message")}); err == nil {
+		t.Fatal("a replaced connection was allowed to speak for an adopted turn")
 	}
 	// The new connection can.
 	if err := turns.Deliver(second, worker.TurnEvent{TurnID: "turn-new", Seq: 1, Event: event(t, "message")}); err != nil {
@@ -843,5 +1119,60 @@ func TestATurnNamesItsDeviceTheWayAPersonDoes(t *testing.T) {
 	}
 	if said := string(got[0].Payload); !strings.Contains(said, "device studio did not start the turn") {
 		t.Fatalf("the transcript says %s", said)
+	}
+}
+
+// RouteFrame's turn.resume is the wire half of adoption: the listed turns move
+// to the new connection, and the ones this machine claims but the Hub no longer
+// has are told to stop.
+func TestRouteFrameResumeAdoptsAndStopsUnknownTurns(t *testing.T) {
+	turns := NewTurns()
+	first := newTestConn("device-1")
+	handle, err := turns.Open("turn-1", "task-1", first, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := turns.Started(first, worker.TurnStarted{TurnID: "turn-1"}); err != nil {
+		t.Fatal(err)
+	}
+	turns.Abandon(first)
+
+	second := newTestConn("device-1")
+	frame, err := worker.NewFrame("turn.resume", worker.TurnResume{
+		TurnIDs: []string{"turn-1", "turn-from-before-the-restart"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := turns.RouteFrame(context.Background(), second, frame); err != nil {
+		t.Fatal(err)
+	}
+
+	// The known turn is adopted: its next event arrives on the new connection.
+	if err := turns.Deliver(second, worker.TurnEvent{TurnID: "turn-1", Seq: 1, Event: event(t, "message")}); err != nil {
+		t.Fatal(err)
+	}
+	// The unknown one is answered with a cancel, so the machine stops a run
+	// nobody is collecting.
+	var stopped []string
+	for _, sent := range second.sent() {
+		if sent.Kind != "turn.cancel" {
+			continue
+		}
+		cancel, err := Decode[worker.TurnCancel](sent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stopped = append(stopped, cancel.TurnID)
+	}
+	if len(stopped) != 1 || stopped[0] != "turn-from-before-the-restart" {
+		t.Fatalf("cancels = %v, want the unknown turn only", stopped)
+	}
+
+	if err := turns.Finish(second, worker.TurnFinish{TurnID: "turn-1", Status: worker.TurnOK}); err != nil {
+		t.Fatal(err)
+	}
+	if got := drain(t, handle); len(got) != 1 || got[0].Type != "message" {
+		t.Fatalf("events = %+v", got)
 	}
 }
