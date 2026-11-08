@@ -46,7 +46,7 @@ describe("agent model choices", () => {
       }),
     ).toEqual([
       { id: "", label: "Default" },
-      { id: "gw/opus", label: "Opus", detail: "strong", group: "gw" },
+      { id: "gw/opus", label: "Opus", detail: "strong · gw", group: "gw" },
       { id: "sonnet", label: "sonnet" },
       { id: CUSTOM_MODEL_ID, label: "Custom" },
     ]);

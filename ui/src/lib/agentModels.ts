@@ -72,14 +72,15 @@ export function modelPickerOptions(
     if (seen.has(key)) continue;
     seen.add(key);
     const provider = modelPickerProvider(m.id);
+    // Secondary text names both the tier and the source. The group heading
+    // disappears on a phone (SearchSelect renders a flat sheet there), so a
+    // row that spent its detail slot on the tier alone would name no provider
+    // exactly where the heading cannot help.
+    const detail = [m.tier, provider].filter(Boolean).join(" · ");
     rows.push({
       id: m.id,
       label: modelPickerLabel(m),
-      // Secondary text is either the model's tier or its provider — the two
-      // things `SearchSelect` documents there. Without a provider a row names
-      // no source at all, and the phone's flat sheet has no heading to fall
-      // back to.
-      ...(m.tier ? { detail: m.tier } : provider ? { detail: provider } : {}),
+      ...(detail ? { detail } : {}),
       ...(provider ? { group: provider } : {}),
     });
   }
