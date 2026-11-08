@@ -64,6 +64,16 @@ jobs:
           npm test
           npx vite build
 
+      # The smoke job boots the real binary against this build. It is uploaded
+      # rather than rebuilt there so the console the daemon serves in the smoke
+      # test is the same one this job's typecheck, tests and budget measured.
+      - name: Upload the built console
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          if-no-files-found: error
+
       # The build above is what this measures. It reads the files index.html
       # names — the entry chunk and the stylesheet — rather than the source, so
       # a dependency that quietly joins the first screen is a number here and
@@ -97,6 +107,32 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y sqlite3
           ./scripts/stream-health-check.sh
+
+  # The build job proves the packages compile and their tests pass. This job
+  # proves the product starts: it boots cmd/kin against a throwaway state
+  # directory, waits for /api/health, serves the console built above, reads and
+  # writes through the authenticated API, and restarts on the same database.
+  # Nothing else in CI executes the real binary, so a bad flag, a broken embed,
+  # or a migration that only fails on a real database used to reach a user.
+  smoke:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+
+      - name: Boot the daemon
+        env:
+          KIN_SMOKE_REQUIRE_ASSETS: "1"
+        run: ./scripts/smoke.sh
 
   # The floor for the desktop shell, not a test suite: nothing in CI compiled
   # these ~2,800 lines, so a change that only broke the Electron main process
