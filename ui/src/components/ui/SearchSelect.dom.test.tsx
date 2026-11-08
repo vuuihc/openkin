@@ -58,8 +58,14 @@ function setup(
   return { onChange };
 }
 
+function setViewport(width: number, height = 768) {
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: height });
+}
+
 beforeEach(() => {
   setLocale("en");
+  setViewport(1024);
 });
 
 // KIN-CONTINUE-001, step 5: a grouped catalog (a gateway's providers) puts the
@@ -232,6 +238,31 @@ describe("desktop surface", () => {
     await userEvent.keyboard("{Enter}");
     expect(onChange).toHaveBeenCalledWith("claude-opus-5-5");
     expect(screen.queryByRole("listbox")).toBeNull();
+  });
+});
+
+// #3: the panel is placed by the same `useAnchoredPanel` as the dispatch and
+// permission panels, so it clamps to the same 8px edge and flips on the same
+// rule at a phone and a desktop width. jsdom reports a zero rect, so the
+// stable contract here is the width, the viewport clamp and "one side, not
+// both" — the same limit the dispatch panel's test states.
+describe("the panel's placement", () => {
+  it.each([
+    ["390px", 390],
+    ["1280px", 1280],
+  ])("stays inside a %s viewport on one side of the trigger", async (_name, width) => {
+    setViewport(width);
+    setup();
+    await userEvent.click(desktopTrigger());
+
+    const panel = document.querySelector<HTMLElement>("[data-search-panel]");
+    expect(panel).toBeTruthy();
+    expect(panel!.style.width).toBe("288px");
+    const left = Number.parseFloat(panel!.style.left);
+    expect(left).toBeGreaterThanOrEqual(8);
+    expect(left + 288).toBeLessThanOrEqual(width - 8);
+    expect(Boolean(panel!.style.top) !== Boolean(panel!.style.bottom)).toBe(true);
+    expect(Number.parseFloat(panel!.style.maxHeight)).toBeGreaterThan(0);
   });
 });
 

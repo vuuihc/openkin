@@ -1,13 +1,13 @@
 import {
   useEffect,
   useId,
-  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type Ref,
 } from "react";
+import { useAnchoredPanel } from "../../hooks/useAnchoredPanel";
 import { useT } from "../../i18n/react";
 import { hasFinePointer } from "../../lib/pointer";
 import Sheet from "../mobile/Sheet";
@@ -60,19 +60,16 @@ type Props = {
 };
 
 /**
- * Viewport coordinates for the desktop panel.
- *
- * The trigger often sits inside an `overflow-*` strip — the task composer's
- * control row is one — and CSS makes `overflow-x: auto` compute `overflow-y`
- * to `auto` as well. An absolutely positioned panel is then clipped by that
- * ~30px-tall row and paints nowhere; on the task page the panel is anchored
- * *above* the trigger, in the strip's unscrollable top overflow, so it is not
- * merely cut but invisible. Measured from the viewport instead, exactly as
- * `BranchPicker` does it: nothing between here and <body> sets a transform,
- * filter or `contain`, so `fixed` really does mean the viewport.
+ * The desktop panel's own size and edge inset. Where it goes is
+ * `useAnchoredPanel`'s job — the same measurement the dispatch and permission
+ * panels use — because the trigger often sits inside an `overflow-*` strip
+ * (the composer's control row is one), where an absolutely positioned panel is
+ * clipped by the strip and a hand-rolled flip disagrees with its neighbours at
+ * the same viewport height. Measured from the viewport, `fixed` escapes the
+ * strip: nothing between here and <body> sets a transform, filter or
+ * `contain`. The 288px width and 8px edge are this panel's shape, so they stay
+ * here.
  */
-type Anchor = { left: number; width: number; maxHeight: number; top?: number; bottom?: number };
-
 const PANEL_WIDTH = 288;
 const PANEL_MAX_HEIGHT = 360;
 const EDGE = 8;
@@ -409,11 +406,11 @@ function Chooser({
  * scrollable list — the shape the iOS run-configuration sheets use, and the
  * reason the model picker can show every model the CLI actually offers.
  *
- * The desktop surface is a fixed-positioned panel with listbox semantics (see
- * `Anchor` for why it is not laid out relative to the trigger); the phone
- * surface is the console's own `Sheet`, which is where the safe area, the scrim
- * and Escape already live. Both read from one list component, so the two
- * surfaces cannot disagree about what is selected.
+ * The desktop surface is a fixed-positioned panel with listbox semantics,
+ * placed by `useAnchoredPanel` so it flips and clamps exactly like the other
+ * composer pickers; the phone surface is the console's own `Sheet`, which is
+ * where the safe area, the scrim and Escape already live. Both read from one
+ * list component, so the two surfaces cannot disagree about what is selected.
  */
 export default function SearchSelect({
   label,
@@ -433,7 +430,6 @@ export default function SearchSelect({
   const tr = useT();
   const [menuOpen, setMenuOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [anchor, setAnchor] = useState<Anchor | null>(null);
   const rootRef = useRef<HTMLSpanElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listId = useId();
@@ -502,61 +498,20 @@ export default function SearchSelect({
   /**
    * Where to put the panel, in viewport coordinates.
    *
-   * A layout effect, so the first painted frame is already in place instead of
-   * one frame at 0,0. Re-measured on resize and on scroll *in the capture
-   * phase*, because the strip the trigger sits in scrolls independently of the
-   * window.
+   * The shared hook measures on a layout effect and again on resize, on scroll
+   * in the capture phase (the strip the trigger sits in scrolls independently
+   * of the window), on the visual viewport (a phone keyboard moves the trigger
+   * without a window resize) and on the trigger's own resize. Keeping the flip
+   * here in one place is what makes this panel and the dispatch panel agree
+   * about which side has room.
    */
-  useLayoutEffect(() => {
-    if (!menuOpen) {
-      setAnchor(null);
-      return;
-    }
-    const place = () => {
-      const trigger = triggerRef.current?.getBoundingClientRect();
-      if (!trigger) return;
-      const vw = window.innerWidth;
-      const width = Math.min(PANEL_WIDTH, vw - EDGE * 2);
-      // Space on each side of the trigger, minus the six-pixel gap and the
-      // eight-pixel edge. The prop states a preference; a side with no room is
-      // not a side — opening upward from a trigger 100px below the top edge
-      // would paint the panel off the top of the screen.
-      const above = trigger.top - EDGE - 6;
-      const below = window.innerHeight - trigger.bottom - EDGE - 6;
-      const preferUp = placement === "top";
-      const preferred = preferUp ? above : below;
-      const other = preferUp ? below : above;
-      const openUp = preferred < 120 && other > preferred ? !preferUp : preferUp;
-      const next: Anchor = {
-        width,
-        // Right-aligned to the trigger, then kept inside the viewport.
-        left: Math.min(Math.max(EDGE, trigger.right - width), Math.max(EDGE, vw - width - EDGE)),
-        maxHeight: Math.max(0, Math.min(PANEL_MAX_HEIGHT, openUp ? above : below)),
-        ...(openUp
-          ? { bottom: window.innerHeight - trigger.top + 6 }
-          : { top: trigger.bottom + 6 }),
-      };
-      // `scroll` fires per frame while a finger is moving; returning the same
-      // object lets React skip the re-render when the anchor has not moved.
-      setAnchor((prev) =>
-        prev &&
-        prev.left === next.left &&
-        prev.width === next.width &&
-        prev.maxHeight === next.maxHeight &&
-        prev.top === next.top &&
-        prev.bottom === next.bottom
-          ? prev
-          : next,
-      );
-    };
-    place();
-    window.addEventListener("resize", place);
-    window.addEventListener("scroll", place, true);
-    return () => {
-      window.removeEventListener("resize", place);
-      window.removeEventListener("scroll", place, true);
-    };
-  }, [menuOpen, placement]);
+  const anchor = useAnchoredPanel(menuOpen, triggerRef, {
+    placement: placement === "top" ? "above" : "below",
+    align: "right",
+    width: PANEL_WIDTH,
+    maxHeight: PANEL_MAX_HEIGHT,
+    edge: EDGE,
+  });
 
   const choose = (id: string) => {
     onChange(id);
@@ -599,6 +554,7 @@ export default function SearchSelect({
         />
         {menuOpen && anchor ? (
           <div
+            data-search-panel
             style={{
               left: anchor.left,
               width: anchor.width,

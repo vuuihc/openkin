@@ -29,8 +29,13 @@ function viewport(wide: boolean) {
   }));
 }
 
+function setViewport(width: number) {
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+}
+
 function setup(wide: boolean) {
   viewport(wide);
+  setViewport(wide ? 1280 : 390);
   const onChange = vi.fn();
   render(<PermissionModePicker value="default" compact onChange={onChange} />);
   return { onChange, chip: screen.getByRole("button", { name: /^Permission/ }) };
@@ -52,6 +57,13 @@ describe("the permission picker", () => {
     expect(menu.className).toContain("fixed");
     expect(menu.parentElement).toBe(document.body);
     expect(document.querySelector("ion-action-sheet")).toBeNull();
+    // #3: the same viewport measurement as the model and agent panels — the
+    // menu stays inside the 1280px window and uses one side of the chip.
+    const left = Number.parseFloat(menu.style.left);
+    const width = Number.parseFloat(menu.style.width);
+    expect(left).toBeGreaterThanOrEqual(8);
+    expect(left + width).toBeLessThanOrEqual(1280 - 8);
+    expect(Boolean(menu.style.top) !== Boolean(menu.style.bottom)).toBe(true);
     // The consequences travel with the names: "ask" is only the safe choice if
     // the row says so.
     expect(screen.getByRole("menuitemradio", { name: /YOLO.*trusted/i })).toBeTruthy();
