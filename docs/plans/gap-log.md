@@ -30,6 +30,37 @@ person can see; the fix and its verification belong in the issue or the PR.
 
 ## Open
 
+### 2026-11-09 · 中 · 无缓存进入会话时整页骨架，顶栏和输入框一起消失
+
+从侧边栏/会话列表第一次点进一个会话，或在 `/new` 发出消息、任务创建后跳到
+`/tasks/:id`，只要这个会话没有已挂载的 pane（冷启动、超出 8 个的 keep-alive
+上限 `ui/src/lib/sessionCache.ts:4`、或刚创建的新任务），整个内容区就变成骨架
+页：顶部只有一条假的 header 骨架，正文两条气泡骨架，真实的 `MobileHeader`
+（返回、标题、⋯）、桌面标题栏和 Composer 全部不在，直到 `GET /api/tasks/:id`
+返回才一次性出现。手机上是全屏骨架，看起来像页面重载，而不是会话在加载。
+
+`TaskSessionHost` 已经为"切换"做了保底：新 pane 没加载完时继续显示上一个
+pane，只加一条顶部进度线（`ui/src/pages/TaskSessionHost.tsx:101`–`:135`）。
+但 `shownId` 初始为 null，"没有上一个 pane"的冷进入仍是新 pane 自己画首次
+加载——`TaskDetailPage.tsx:1377` 的 `if (loading)` 分支 return 的是整页，而
+真正的 `MobileHeader` 在加载完成后的分支里（`:1635`）。发送路径还多一层：
+`createTask` 返回的 Task 没有 seed 进 `liveResources`，`NewChatPage.tsx:456`
+拿着 id 直接跳转，于是新任务必然空等一次详情请求。
+
+期望：进入会话时顶栏和底部输入框先出现，只有中间的对话区显示加载。已有列表
+缓存（`useTaskList`）时标题、项目、状态直接用缓存，不等详情；详情返回后是
+内容替换，不是整页重新挂载，也不产生滚动跳动。发送后的新任务用 `createTask`
+的返回值先写详情快照（`liveResources.applyTaskSnapshot` 已有路径），事件再
+补齐。验收：DOM 测试让 `GET /api/tasks/:id` 挂起，断言 `MobileHeader`/桌面
+标题栏与 Composer 已在 DOM、只有对话区是 loading；请求返回后布局不跳。
+
+待定：详情未到时 Composer 是否可发送。建议先渲染、禁用发送（agent/model 还
+未知），不要用空配置发出下一轮；报告人确认后把这条待定删掉。
+
+线索：`ui/src/pages/TaskDetailPage.tsx:1377`、`:1635`；
+`ui/src/pages/TaskSessionHost.tsx:114`；`ui/src/pages/NewChatPage.tsx:432`、
+`:456`；`ui/src/api/liveResources.ts` 的 `applyTaskSnapshot`。
+
 ### 2026-11-08 · 中 · iPad 全屏后最上面的 UI 压在系统状态栏下面
 
 iPad 客户端全屏后，最上面一行 UI 和 iPad 的状态栏（时间、电量）重叠：左侧栏的
