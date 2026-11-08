@@ -213,6 +213,13 @@ npm run build
 make test
 ```
 
+- `./scripts/smoke.sh` boots the real `kin` binary in a throwaway state
+  directory: `/api/health`, the embedded console, the authenticated API, one
+  routine write, and a restart on the same database. CI runs it as the `smoke`
+  job after the console build; it is the gate for a binary that compiles and
+  passes unit tests but cannot start. `KIN_SMOKE_REQUIRE_ASSETS=1` makes the
+  entry-chunk check strict (CI sets it; a fresh clone's placeholder index has
+  no assets).
 - Use a focused `go test ./internal/<package> -run <TestName>` during iteration,
   but do not substitute it for the relevant full suite at handoff.
 - `./scripts/check.sh` runs the checks that match the working tree — changed Go
