@@ -46,6 +46,17 @@ def scan(pattern: str, *, skip_comments: bool = False) -> tuple[int, int]:
     return total, files
 
 
+def per_file(pattern: str) -> list[tuple[int, str]]:
+    """Occurrences per file, biggest first, for planning a migration round."""
+    rx = re.compile(pattern)
+    out = []
+    for path in sources():
+        hits = sum(len(rx.findall(line)) for line in path.read_text(encoding="utf-8").splitlines())
+        if hits:
+            out.append((hits, str(path.relative_to(ROOT))))
+    return sorted(out, reverse=True)
+
+
 def main() -> int:
     rows = [
         ("裸 <button", *scan(r"<button")),
@@ -77,6 +88,14 @@ def main() -> int:
     print("|---|---:|---:|")
     for name, total, files in rows:
         print(f"| {name} | {total} | {files} |")
+
+    print()
+    print("裸 <button> 最多的 12 个文件（迁移轮次按这个排）：")
+    print()
+    print("| 文件 | 次数 |")
+    print("|---|---:|")
+    for hits, path in per_file(r"<button")[:12]:
+        print(f"| `{path}` | {hits} |")
     return 0
 
 
