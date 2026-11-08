@@ -1097,8 +1097,20 @@ func ServeWith(version string, flags ServeFlags) error {
 			Warn:     warnToStderr,
 		}
 		srvAPI.ApprovalRelay = approvalRelay
+		// The Hub's copy of what this machine can run is only as fresh as the
+		// last hello. A setting that changes the answer — the default agent is
+		// one — asks the connection to redial so the phone sees it without
+		// waiting for a restart. One pending refresh is enough: a second dial
+		// reads the same settings anyway.
+		nodeRefresh := make(chan struct{}, 1)
+		srvAPI.RefreshNodeHello = func() {
+			select {
+			case nodeRefresh <- struct{}{}:
+			default:
+			}
+		}
 		go func() {
-			err := runNode(nodeCtx, version, flags, st, reg, executor, approvalRelay, srvAPI.LocalMachine)
+			err := runNode(nodeCtx, version, flags, st, reg, executor, approvalRelay, srvAPI.LocalMachine, nodeRefresh)
 			// A canceled context is this daemon shutting down, not a failure.
 			if err != nil && nodeCtx.Err() == nil {
 				fmt.Fprintf(os.Stderr, "kin: node: %v\n", err)

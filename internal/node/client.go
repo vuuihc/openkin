@@ -34,8 +34,15 @@ type ClientConfig struct {
 	// Token is the device credential from pairing. It is the same credential a
 	// browser or phone uses; a Node is a device like any other.
 	Token string
-	// Hello is what this machine reports about itself.
-	Hello worker.Hello
+	// Hello describes this machine. It is called for every connection attempt,
+	// so a setting that changes while the daemon is running is announced on
+	// the next dial instead of waiting for a restart.
+	Hello func() worker.Hello
+	// Refresh, when it fires, drops the current connection so Run dials again
+	// and asks Hello for a fresh description. It is a signal, never closed: a
+	// closed channel would read as an endless stream of refreshes. Nil never
+	// refreshes.
+	Refresh <-chan struct{}
 	// OnFrame receives every frame that is not part of the handshake or the
 	// heartbeat.
 	OnFrame FrameHandler
@@ -59,7 +66,14 @@ func (cfg ClientConfig) warn(format string, args ...any) {
 // returns. Reconnection belongs to Run, so one dropped socket does not turn
 // into a reconnect storm here.
 func RunOnce(ctx context.Context, cfg ClientConfig) error {
-	conn, ack, err := dial(ctx, cfg)
+	if cfg.Hello == nil {
+		return errors.New("node hello is not configured")
+	}
+	hello := cfg.Hello()
+	if err := hello.Validate(); err != nil {
+		return fmt.Errorf("node hello: %w", err)
+	}
+	conn, ack, err := dial(ctx, cfg, hello)
 	if err != nil {
 		return err
 	}
@@ -81,7 +95,7 @@ func RunOnce(ctx context.Context, cfg ClientConfig) error {
 
 	heartbeatErr := make(chan error, 1)
 	go func() {
-		heartbeatErr <- heartbeatLoop(readCtx, conn, cfg.Hello.WorkerID, ack.HeartbeatSeconds)
+		heartbeatErr <- heartbeatLoop(readCtx, conn, hello.WorkerID, ack.HeartbeatSeconds)
 	}()
 
 	for {
@@ -126,9 +140,55 @@ func RunOnce(ctx context.Context, cfg ClientConfig) error {
 func Run(ctx context.Context, cfg ClientConfig) error {
 	attempt := 0
 	for ctx.Err() == nil {
-		err := RunOnce(ctx, cfg)
+		// A refresh asks this machine to re-announce itself: it tears down the
+		// current connection and skips the backoff, because it is a request to
+		// redial rather than a failure to recover from.
+		attemptCtx, cancel := context.WithCancel(ctx)
+		refreshed := make(chan struct{})
+		if cfg.Refresh != nil {
+			go func() {
+				select {
+				case _, ok := <-cfg.Refresh:
+					// A closed channel means no more signals; it must not be
+					// mistaken for one, or every attempt would cancel itself.
+					if !ok {
+						return
+					}
+					close(refreshed)
+					cancel()
+				case <-attemptCtx.Done():
+				}
+			}()
+		}
+		err := RunOnce(attemptCtx, cfg)
+		cancel()
+		// The watcher may not have run yet when the connection ended: closing
+		// refreshed and cancelling happen together, so a signal that raced the
+		// disconnection is still sitting in cfg.Refresh. Drain it before
+		// deciding this was a failure, or the reconnect pays a needless backoff.
+		didRefresh := false
+		select {
+		case <-refreshed:
+			didRefresh = true
+		default:
+		}
+		if !didRefresh && cfg.Refresh != nil {
+			select {
+			case _, ok := <-cfg.Refresh:
+				if ok {
+					didRefresh = true
+				} else {
+					cfg.Refresh = nil
+				}
+			default:
+			}
+		}
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+		if didRefresh {
+			attempt = 0
+			continue
 		}
 		if err != nil && !errors.Is(err, context.Canceled) {
 			cfg.warn("node disconnected: %v", err)
@@ -138,6 +198,13 @@ func Run(ctx context.Context, cfg ClientConfig) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case _, ok := <-cfg.Refresh:
+			if ok {
+				// A refresh during the wait is still a request to redial now.
+				attempt = 0
+				continue
+			}
+			cfg.Refresh = nil
 		case <-time.After(delay):
 		}
 	}
@@ -145,10 +212,7 @@ func Run(ctx context.Context, cfg ClientConfig) error {
 }
 
 // dial opens the control channel and completes the hello exchange.
-func dial(ctx context.Context, cfg ClientConfig) (*websocket.Conn, worker.HelloAck, error) {
-	if err := cfg.Hello.Validate(); err != nil {
-		return nil, worker.HelloAck{}, fmt.Errorf("node hello: %w", err)
-	}
+func dial(ctx context.Context, cfg ClientConfig, hello worker.Hello) (*websocket.Conn, worker.HelloAck, error) {
 	wsURL, err := wsEndpoint(cfg.HubURL)
 	if err != nil {
 		return nil, worker.HelloAck{}, err
@@ -174,11 +238,11 @@ func dial(ctx context.Context, cfg ClientConfig) (*websocket.Conn, worker.HelloA
 		return nil, worker.HelloAck{}, err
 	}
 
-	hello, err := worker.NewFrame("hello", cfg.Hello)
+	helloFrame, err := worker.NewFrame("hello", hello)
 	if err != nil {
 		return refuse(err)
 	}
-	if err := WriteFrame(dialCtx, conn, hello); err != nil {
+	if err := WriteFrame(dialCtx, conn, helloFrame); err != nil {
 		return refuse(fmt.Errorf("send hello: %w", err))
 	}
 

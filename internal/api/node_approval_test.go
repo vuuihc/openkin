@@ -65,7 +65,7 @@ func startRelayExecutor(
 		_ = node.Run(ctx, node.ClientConfig{
 			HubURL: hubURL,
 			Token:  deviceToken,
-			Hello:  nodeHello(roots...),
+			Hello:  helloFunc(nodeHello(roots...)),
 			OnFrame: func(ctx context.Context, frame worker.Frame) error {
 				switch frame.Kind {
 				case "approval.status", "approval.decision":

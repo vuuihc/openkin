@@ -219,7 +219,7 @@ func startRunners(t *testing.T, hubURL, deviceToken string, roots []string, runn
 		_ = node.Run(ctx, node.ClientConfig{
 			HubURL: hubURL,
 			Token:  deviceToken,
-			Hello:  nodeHello(roots...),
+			Hello:  helloFunc(nodeHello(roots...)),
 			// The production wiring (internal/server/node.go): a dispatched turn
 			// belongs to the daemon, not to the socket that delivered it. Passing
 			// the connection's context here would cancel the agent on every flap,
@@ -424,7 +424,7 @@ func TestRemoteTurnEndsWhenTheMachineDisconnects(t *testing.T) {
 		_ = node.Run(ctx, node.ClientConfig{
 			HubURL:  hub.URL,
 			Token:   deviceToken,
-			Hello:   nodeHello(work),
+			Hello:   helloFunc(nodeHello(work)),
 			OnFrame: executor.Handle,
 			OnReady: executor.SetSender,
 			Warn:    func(format string, args ...any) { t.Logf("node: "+format, args...) },

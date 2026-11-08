@@ -150,6 +150,10 @@ type Server struct {
 	ConfigureRelay func(context.Context, string) (RelayStatus, error)
 	// RefreshRelayPairing creates a fresh, short-lived phone pairing URL.
 	RefreshRelayPairing func(context.Context) (RelayStatus, error)
+	// RefreshNodeHello asks this daemon's Node connection, when one is running,
+	// to redial and re-announce what this machine can run. Nil when the daemon
+	// is not a Node.
+	RefreshNodeHello func()
 	// Cloudflare optionally deploys the user-owned Relay Worker from Settings.
 	Cloudflare *cloudflare.Service
 
@@ -2020,6 +2024,7 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	if oldRelayURL == "" && s.RelaySnapshot != nil {
 		oldRelayURL = s.RelaySnapshot().URL
 	}
+	oldAgentDefault, _ := s.Store.GetSetting(ctx, "agent.default")
 	// Keep multi-provider registry and its legacy mirror in the same atomic
 	// settings write as the rest of this request.
 	if providerSlotTouched {
@@ -2030,6 +2035,16 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	} else if err := s.Store.SetSettings(ctx, body); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
+	}
+	// The Hub chose the phone's default from this machine's last hello. A
+	// changed default is only visible there after a fresh handshake, so ask the
+	// Node connection to redial; the local console already reads the setting on
+	// its next request. Unchanged values do not cost a reconnect. The write has
+	// already landed here, so this must not sit behind a later failure such as
+	// ConfigureRelay: a retry would compare the same value and never refresh.
+	if v, ok := body["agent.default"]; ok && s.RefreshNodeHello != nil &&
+		strings.TrimSpace(v) != strings.TrimSpace(oldAgentDefault) {
+		s.RefreshNodeHello()
 	}
 	if relayURL, ok := body["relay.url"]; ok && s.ConfigureRelay != nil {
 		if _, err := s.ConfigureRelay(ctx, strings.TrimSpace(relayURL)); err != nil {

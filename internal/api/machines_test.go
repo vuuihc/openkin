@@ -68,7 +68,7 @@ func runResponder(t *testing.T, hubURL, deviceToken string, responder *node.Resp
 		_ = node.Run(ctx, node.ClientConfig{
 			HubURL:  hubURL,
 			Token:   deviceToken,
-			Hello:   testHello(),
+			Hello:   helloFunc(testHello()),
 			OnFrame: responder.Handle,
 			OnReady: responder.SetSender,
 			Warn:    func(format string, args ...any) { t.Logf("node: "+format, args...) },

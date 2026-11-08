@@ -829,3 +829,75 @@ func TestPutAgentDefaultRequiresAvailable(t *testing.T) {
 		t.Fatalf("claude-code default: status %d body %s", rr.Code, rr.Body.String())
 	}
 }
+
+// TestPutAgentDefaultRefreshesTheNodeHello pins live propagation: the Hub's
+// copy of this machine's agents — and therefore the phone's default — is built
+// from the last hello, so a changed default has to make the node re-announce
+// instead of waiting for a restart.
+func TestPutAgentDefaultRefreshesTheNodeHello(t *testing.T) {
+	s, token := newTestServer(t)
+	refreshes := 0
+	s.RefreshNodeHello = func() { refreshes++ }
+	h := s.Handler()
+
+	put := func(body string) {
+		t.Helper()
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPut, "/api/settings", bytes.NewReader([]byte(body)))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("%s: status %d body %s", body, rr.Code, rr.Body.String())
+		}
+	}
+
+	// The store starts with no preference, so writing the same empty value is
+	// not a change and must not churn the connection.
+	put(`{"agent.default":""}`)
+	if refreshes != 0 {
+		t.Fatalf("an unchanged default refreshed the node %d time(s)", refreshes)
+	}
+
+	put(`{"agent.default":"claude-code"}`)
+	if refreshes != 1 {
+		t.Fatalf("changing the default refreshed the node %d time(s), want 1", refreshes)
+	}
+
+	// Saving the same value again is still not a change.
+	put(`{"agent.default":"claude-code"}`)
+	if refreshes != 1 {
+		t.Fatalf("an unchanged default refreshed the node %d time(s), want 1", refreshes)
+	}
+
+	// Clearing it back to "no preference" is a change too.
+	put(`{"agent.default":""}`)
+	if refreshes != 2 {
+		t.Fatalf("clearing the default refreshed the node %d time(s), want 2", refreshes)
+	}
+
+	// A write that does not touch the default leaves the connection alone.
+	put(`{"ui.base_url":"http://example.test:7777"}`)
+	if refreshes != 2 {
+		t.Fatalf("an unrelated setting refreshed the node %d time(s), want 2", refreshes)
+	}
+
+	// The hook follows the write, not the whole request. A later failure (a
+	// rejected relay URL) must not leave the Hub on the old default while a
+	// retry compares equal and never refreshes.
+	s.ConfigureRelay = func(context.Context, string) (RelayStatus, error) {
+		return RelayStatus{}, errors.New("relay rejected")
+	}
+	body := `{"agent.default":"claude-code","relay.url":"http://relay.test"}`
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/settings", bytes.NewReader([]byte(body)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("relay failure: status %d body %s", rr.Code, rr.Body.String())
+	}
+	if refreshes != 3 {
+		t.Fatalf("a persisted default behind a relay failure refreshed %d time(s), want 3", refreshes)
+	}
+}

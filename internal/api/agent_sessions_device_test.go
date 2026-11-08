@@ -618,7 +618,7 @@ func dialFrames(
 		_ = node.Run(ctx, node.ClientConfig{
 			HubURL: hubURL,
 			Token:  deviceToken,
-			Hello:  testHello(),
+			Hello:  helloFunc(testHello()),
 			OnFrame: func(_ context.Context, frame worker.Frame) error {
 				if frame.Kind != "query" {
 					return nil

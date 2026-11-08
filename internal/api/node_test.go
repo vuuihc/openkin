@@ -27,6 +27,12 @@ func nodeTestServer(t *testing.T) (*Server, string, *node.Connections) {
 	return s, master, conns
 }
 
+// helloFunc is the supplier a ClientConfig expects. Tests build one hello and
+// hand it over; the live node rebuilds it for each dial.
+func helloFunc(h worker.Hello) func() worker.Hello {
+	return func() worker.Hello { return h }
+}
+
 func testHello() worker.Hello {
 	return worker.Hello{
 		Version:    worker.ProtocolVersion,
@@ -52,7 +58,7 @@ func startNode(t *testing.T, hubURL, token string) (*node.ClientConfig, context.
 	cfg := &node.ClientConfig{
 		HubURL: hubURL,
 		Token:  token,
-		Hello:  testHello(),
+		Hello:  helloFunc(testHello()),
 		OnFrame: func(_ context.Context, frame worker.Frame) error {
 			frames <- frame
 			return nil
@@ -323,7 +329,7 @@ func TestNodeChannelIgnoresClaimedWorkerID(t *testing.T) {
 	cfg := node.ClientConfig{
 		HubURL: hub.URL,
 		Token:  deviceToken,
-		Hello:  testHello(),
+		Hello:  helloFunc(testHello()),
 		OnFrame: func(_ context.Context, frame worker.Frame) error {
 			frames <- frame
 			return nil

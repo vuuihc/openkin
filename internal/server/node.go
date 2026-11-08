@@ -61,7 +61,7 @@ func resolveNodeToken(stateDir, flagToken string) (string, error) {
 // The agents come from the registry, not from a probe: the Hub is choosing
 // where to send work, and the honest answer is the same list this daemon would
 // run a turn with.
-func buildNodeHello(ctx context.Context, version string, roots []string, reg *agent.Registry, allowYOLO bool) worker.Hello {
+func buildNodeHello(ctx context.Context, version string, roots []string, reg *agent.Registry, allowYOLO bool, defaultAgent string) worker.Hello {
 	label, _ := os.Hostname()
 	return worker.Hello{
 		Version:        worker.ProtocolVersion,
@@ -70,7 +70,7 @@ func buildNodeHello(ctx context.Context, version string, roots []string, reg *ag
 		Platform:       runtime.GOOS,
 		Arch:           runtime.GOARCH,
 		KinVersion:     version,
-		Agents:         nodeAgents(reg, allowYOLO),
+		Agents:         nodeAgents(reg, allowYOLO, defaultAgent),
 		WorkspaceRoots: nodeWorkspaceRoots(ctx, roots),
 		MaxConcurrent:  nodeMaxConcurrent(),
 	}
@@ -137,11 +137,17 @@ func absoluteNodePath(path string) string {
 // agent that bypasses approvals in *every* mode is unavailable here for the same
 // reason. Sending the modes rather than the flag is what lets the console offer
 // a choice that will not be refused.
-func nodeAgents(reg *agent.Registry, allowYOLO bool) []worker.Agent {
+//
+// The default is the machine's own configured default (`agent.default`), not
+// just the first available entry in registry order. The console and the phone
+// have to agree on what "no @mention" means, and the Hub only knows what this
+// frame says — reading the preference anywhere else would leave the two views
+// disagreeing about the same machine.
+func nodeAgents(reg *agent.Registry, allowYOLO bool, defaultAgent string) []worker.Agent {
 	if reg == nil {
 		return nil
 	}
-	infos := reg.List(context.Background(), "")
+	infos := reg.List(context.Background(), defaultAgent)
 	out := make([]worker.Agent, 0, len(infos))
 	defaulted := false
 	for _, info := range infos {
@@ -181,14 +187,31 @@ func nodeAgents(reg *agent.Registry, allowYOLO bool) []worker.Agent {
 			Models:          models,
 			PermissionModes: modes,
 		}
-		// One default per machine: the first agent that can actually take a
-		// dispatched turn. Registry order is priority order, so this is the same
-		// choice the local console makes when no preference is configured.
-		if available && !defaulted {
+		// One default per machine. `List` resolves the configured preference
+		// through the registry, so an unavailable preference has already fallen
+		// back to priority order; the mode filter above can still remove an
+		// agent this machine will not run unattended, and the fallback below
+		// then picks the first one it will.
+		if info.Default && available {
 			entry.IsDefault = true
 			defaulted = true
 		}
 		out = append(out, entry)
+	}
+	if !defaulted {
+		for i := range out {
+			if !out[i].Available {
+				continue
+			}
+			// Registry.Default also requires a runner; an entry that only
+			// reports availability would be announced as a default the
+			// dispatcher then refuses.
+			if registration, ok := reg.Get(out[i].ID); !ok || registration.Runner == nil {
+				continue
+			}
+			out[i].IsDefault = true
+			break
+		}
 	}
 	return out
 }
@@ -407,7 +430,7 @@ func nodeMaxConcurrent() int {
 //
 // It returns when ctx ends. Losing the Hub is not fatal: the daemon keeps
 // serving this machine's own console while it retries.
-func runNode(ctx context.Context, version string, flags ServeFlags, st *store.Store, reg *agent.Registry, executor *node.Executor, approvals *node.ApprovalRelay, responder *node.Responder) error {
+func runNode(ctx context.Context, version string, flags ServeFlags, st *store.Store, reg *agent.Registry, executor *node.Executor, approvals *node.ApprovalRelay, responder *node.Responder, refresh <-chan struct{}) error {
 	stateDir, err := remote.StateDir()
 	if err != nil {
 		return err
@@ -417,18 +440,35 @@ func runNode(ctx context.Context, version string, flags ServeFlags, st *store.St
 		return err
 	}
 
+	warn := func(format string, args ...any) {
+		fmt.Fprintf(os.Stderr, "kin: node: "+format+"\n", args...)
+	}
+
 	// The directories come from the executor rather than from a second reading
 	// of the configuration: what this machine tells its Hub it works in is what
 	// it will accept work in, and what it answers questions about. Three
 	// readings of the same setting is three chances for them to differ.
 	roots := executor.Roots
-	hello := buildNodeHello(ctx, version, roots, reg, flags.AllowYOLO)
-	if err := hello.Validate(); err != nil {
-		return fmt.Errorf("cannot describe this machine to the hub: %w", err)
+	// The hello is rebuilt for every dial, and a settings change can ask for
+	// one, so a default chosen in the console reaches the Hub without a restart.
+	// It reads the same key the local console reads, which is what keeps the
+	// two views of "default" identical rather than merely similar.
+	hello := func() worker.Hello {
+		defaultAgent := ""
+		if v, err := st.GetSetting(ctx, "agent.default"); err != nil {
+			// A missing key means "no preference", which is a normal state.
+			// Anything else is a store problem worth saying out loud.
+			if !errors.Is(err, store.ErrNotFound) && ctx.Err() == nil {
+				warn("read agent.default: %v", err)
+			}
+		} else {
+			defaultAgent = strings.TrimSpace(v)
+		}
+		return buildNodeHello(ctx, version, roots, reg, flags.AllowYOLO, defaultAgent)
 	}
-
-	warn := func(format string, args ...any) {
-		fmt.Fprintf(os.Stderr, "kin: node: "+format+"\n", args...)
+	first := hello()
+	if err := first.Validate(); err != nil {
+		return fmt.Errorf("cannot describe this machine to the hub: %w", err)
 	}
 
 	// Attachments are fetched, not pushed: this machine dialled out, so it is
@@ -444,7 +484,7 @@ func runNode(ctx context.Context, version string, flags ServeFlags, st *store.St
 	executor.Attachments = attachments
 
 	fmt.Fprintf(os.Stderr, "kin: node %s → %s (%d agents, %d roots)\n",
-		hello.Label, flags.HubURL, len(hello.Agents), len(roots))
+		first.Label, flags.HubURL, len(first.Agents), len(roots))
 	if len(roots) == 0 {
 		fmt.Fprintln(os.Stderr, "kin: node: no project roots on this machine, so dispatched work will be refused; "+
 			"add a project in the console or pass --root")
@@ -454,9 +494,10 @@ func runNode(ctx context.Context, version string, flags ServeFlags, st *store.St
 	}
 
 	return node.Run(ctx, node.ClientConfig{
-		HubURL: flags.HubURL,
-		Token:  token,
-		Hello:  hello,
+		HubURL:  flags.HubURL,
+		Token:   token,
+		Hello:   hello,
+		Refresh: refresh,
 		// Three kinds of frame come down this channel and they belong to
 		// different halves of this machine: a question the Hub is answering for
 		// an agent here, a question about this machine itself, and everything

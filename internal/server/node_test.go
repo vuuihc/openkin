@@ -213,7 +213,7 @@ func TestBuildNodeHelloReportsThisMachine(t *testing.T) {
 			return agent.Status{Installed: true, Available: true}
 		},
 	})
-	hello := buildNodeHello(context.Background(), "9.9.9", []string{"/code/a", "/code/b"}, reg, false)
+	hello := buildNodeHello(context.Background(), "9.9.9", []string{"/code/a", "/code/b"}, reg, false, "")
 	if hello.Label == "" {
 		t.Fatal("a node with no label did not fall back to the hostname")
 	}
@@ -249,6 +249,107 @@ func TestBuildNodeHelloReportsThisMachine(t *testing.T) {
 	}
 }
 
+// TestNodeHelloAnnouncesTheConfiguredDefault pins the answer the phone reads.
+// The Hub turns this frame's `is_default` into the agent a fresh task starts
+// with, so a machine whose console says Claude Code must not tell its Hub that
+// some other agent is the default.
+func TestNodeHelloAnnouncesTheConfiguredDefault(t *testing.T) {
+	ready := func(context.Context) agent.Status {
+		return agent.Status{Installed: true, Available: true}
+	}
+	entry := func(id, name string, priority int) agent.Entry {
+		return agent.Entry{
+			ID: id, Name: name, Priority: priority,
+			Caps:   []agent.Capability{agent.CapabilityRun},
+			Runner: stubRunner{},
+			Status: ready,
+		}
+	}
+	// opencode at priority 0 is the shape the bug had: a generic CLI adapter
+	// sorted ahead of every native one, so it was announced as the default
+	// whatever `agent.default` said.
+	reg := agent.MustRegistry(
+		entry("opencode", "OpenCode", 0),
+		entry("kin", "Kin", 10),
+		entry("claude-code", "Claude Code", 20),
+	)
+
+	hello := buildNodeHello(context.Background(), "9.9.9", nil, reg, false, "claude-code")
+	if got := defaultAgentIn(hello.Agents); got != "claude-code" {
+		t.Fatalf("hello default = %q, want claude-code", got)
+	}
+	if n := countDefaults(hello.Agents); n != 1 {
+		t.Fatalf("%d agents claim the default, want 1", n)
+	}
+
+	// A preference this machine cannot run is not announced as a default: the
+	// Hub would dispatch work to an agent that is going to refuse it.
+	blocked := agent.MustRegistry(
+		entry("opencode", "OpenCode", 0),
+		agent.Entry{
+			ID: "claude-code", Name: "Claude Code", Priority: 20,
+			Caps:   []agent.Capability{agent.CapabilityRun},
+			Runner: stubRunner{},
+			Status: func(context.Context) agent.Status {
+				return agent.Status{Installed: true, Available: false, Reason: "not logged in"}
+			},
+		},
+	)
+	hello = buildNodeHello(context.Background(), "9.9.9", nil, blocked, false, "claude-code")
+	if got := defaultAgentIn(hello.Agents); got != "opencode" {
+		t.Fatalf("fallback default = %q, want opencode", got)
+	}
+
+	// A preference the registry calls available but this machine will not run
+	// unattended is filtered by the permission-mode rule. The default has to
+	// follow what is left, not the preference that cannot be dispatched.
+	unattended := agent.MustRegistry(
+		agent.Entry{
+			ID: "always-yolo", Name: "Always YOLO", Priority: 10,
+			Caps:   []agent.Capability{agent.CapabilityRun},
+			Runner: unattendedRunner{},
+			Status: ready,
+		},
+		entry("claude-code", "Claude Code", 20),
+	)
+	hello = buildNodeHello(context.Background(), "9.9.9", nil, unattended, false, "always-yolo")
+	if got := defaultAgentIn(hello.Agents); got != "claude-code" {
+		t.Fatalf("filtered default = %q, want claude-code", got)
+	}
+
+	// Nothing runnable means no default at all: the phone falls back to its
+	// first available entry, and a fabricated default would be a lie.
+	none := agent.MustRegistry(agent.Entry{
+		ID: "always-yolo", Name: "Always YOLO", Priority: 10,
+		Caps:   []agent.Capability{agent.CapabilityRun},
+		Runner: unattendedRunner{},
+		Status: ready,
+	})
+	hello = buildNodeHello(context.Background(), "9.9.9", nil, none, false, "")
+	if n := countDefaults(hello.Agents); n != 0 {
+		t.Fatalf("%d agents claim a default with nothing runnable, want 0", n)
+	}
+}
+
+func defaultAgentIn(agents []worker.Agent) string {
+	for _, a := range agents {
+		if a.IsDefault {
+			return a.ID
+		}
+	}
+	return ""
+}
+
+func countDefaults(agents []worker.Agent) int {
+	n := 0
+	for _, a := range agents {
+		if a.IsDefault {
+			n++
+		}
+	}
+	return n
+}
+
 // TestNodeHelloClampsALargeModelCatalog pins the contract the Hub enforces:
 // a hello carrying more models than the protocol allows is refused whole, and
 // the node only logs that refusal and retries — so a gateway with a big catalog
@@ -270,7 +371,7 @@ func TestNodeHelloClampsALargeModelCatalog(t *testing.T) {
 			return agent.ModelList{Models: options, Source: "settings"}
 		},
 	})
-	hello := buildNodeHello(context.Background(), "9.9.9", nil, reg, false)
+	hello := buildNodeHello(context.Background(), "9.9.9", nil, reg, false, "")
 	if err := hello.Validate(); err != nil {
 		t.Fatalf("a large catalog makes the hello invalid: %v", err)
 	}
@@ -305,7 +406,7 @@ func TestNodeAdvertisesOnlyModesItWillRun(t *testing.T) {
 		},
 	)
 
-	without := nodeAgents(reg, false)
+	without := nodeAgents(reg, false, "")
 	if len(without) != 2 {
 		t.Fatalf("agents = %+v", without)
 	}
@@ -319,7 +420,7 @@ func TestNodeAdvertisesOnlyModesItWillRun(t *testing.T) {
 		t.Fatalf("an unavailable agent became the default: %+v", without[1])
 	}
 
-	with := nodeAgents(reg, true)
+	with := nodeAgents(reg, true, "")
 	// One rung, not three: this agent has no approval channel, so every mode is
 	// the same unattended run. --allow-yolo decides whether the machine will take
 	// that run at all, not how many names the console puts on it.

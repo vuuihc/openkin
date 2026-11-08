@@ -37,7 +37,7 @@
 | hello 的 `agents[]` 增加 `name` / `kind` / `family` / `transport` / `permission_modes` | `internal/remote/worker/protocol.go` |
 | `family` / `transport` 的归类规则（`claude-code`+`claude-acp` → `claude`，依此类推） | `internal/agent/catalog.go`（新） |
 | 节点按执行器同一条规则裁剪权限档位：会绕过审批且没 `--allow-yolo` 的档位不广告；**每个模式都绕过的 agent 直接标为不可用**并给出原因 | `internal/server/node.go` |
-| 每台机器一个 `is_default`：按注册表优先级取第一个真正能接单的 | 同上 |
+| 每台机器一个 `is_default`：取本机 `agent.default`，该 agent 不可用或不能接单时按注册表优先级回退；默认值变更会触发重新握手 | 同上 |
 | `device_agents` 增加 `name/kind/family/transport/permission_modes`，走 `ensureCurrentSchema` 幂等补列（对空库和已有库都测过迁移） | `internal/store/migrate.go`、`device_registry.go` |
 | `/api/devices`、`/api/machines` 原样透出 | `internal/api/node.go`、`internal/api/devices.go` |
 

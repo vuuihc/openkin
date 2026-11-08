@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -46,7 +47,7 @@ func TestRunKeepsTryingAndBacksOff(t *testing.T) {
 	err = Run(ctx, ClientConfig{
 		HubURL: url,
 		Token:  "irrelevant",
-		Hello:  quietHello(),
+		Hello:  func() worker.Hello { return quietHello() },
 		Warn: func(string, ...any) {
 			mu.Lock()
 			attempts++
@@ -96,7 +97,7 @@ func TestRunOnceReturnsTheHubRefusal(t *testing.T) {
 	err := RunOnce(context.Background(), ClientConfig{
 		HubURL: hub.URL,
 		Token:  "device-token",
-		Hello:  quietHello(),
+		Hello:  func() worker.Hello { return quietHello() },
 	})
 	if err == nil {
 		t.Fatal("a refused hello was reported as success")
@@ -153,7 +154,9 @@ func TestRunOnceSendsHeartbeats(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() { _ = RunOnce(ctx, ClientConfig{HubURL: hub.URL, Token: "t", Hello: quietHello()}) }()
+	go func() {
+		_ = RunOnce(ctx, ClientConfig{HubURL: hub.URL, Token: "t", Hello: func() worker.Hello { return quietHello() }})
+	}()
 
 	select {
 	case beat := <-beats:
@@ -165,5 +168,92 @@ func TestRunOnceSendsHeartbeats(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the node never sent a heartbeat")
+	}
+}
+
+// TestRunAnnouncesAFreshHelloOnRefresh pins live propagation: the Hub builds
+// the phone's agent list from the last hello, so a default changed while the
+// daemon runs has to reach it without a restart.
+func TestRunAnnouncesAFreshHelloOnRefresh(t *testing.T) {
+	hellos := make(chan worker.Hello, 4)
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+		if err != nil {
+			return
+		}
+		defer conn.Close(websocket.StatusNormalClosure, "")
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		frame, err := ReadFrame(ctx, conn)
+		if err != nil {
+			return
+		}
+		hello, err := Decode[worker.Hello](frame)
+		if err != nil {
+			return
+		}
+		select {
+		case hellos <- hello:
+		default:
+		}
+		ack, err := worker.NewFrame("hello_ack", worker.HelloAck{
+			Version:          worker.ProtocolVersion,
+			HeartbeatSeconds: 30,
+			HubTime:          time.Now().UnixMilli(),
+		})
+		if err != nil {
+			return
+		}
+		if err := WriteFrame(ctx, conn, ack); err != nil {
+			return
+		}
+		// Hold the connection open until the node redials.
+		for {
+			if _, err := ReadFrame(ctx, conn); err != nil {
+				return
+			}
+		}
+	}))
+	defer hub.Close()
+
+	var current atomic.Value
+	current.Store("opencode")
+	refresh := make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		_ = Run(ctx, ClientConfig{
+			HubURL: hub.URL,
+			Token:  "t",
+			Hello: func() worker.Hello {
+				hello := quietHello()
+				hello.Agents = []worker.Agent{{
+					ID: current.Load().(string), Installed: true, Available: true, IsDefault: true,
+				}}
+				return hello
+			},
+			Refresh: refresh,
+		})
+	}()
+
+	next := func() worker.Hello {
+		t.Helper()
+		select {
+		case hello := <-hellos:
+			return hello
+		case <-time.After(5 * time.Second):
+			t.Fatal("the node did not announce itself")
+			return worker.Hello{}
+		}
+	}
+	if got := next().Agents[0].ID; got != "opencode" {
+		t.Fatalf("first hello names %q", got)
+	}
+
+	current.Store("claude-code")
+	refresh <- struct{}{}
+
+	if got := next().Agents[0].ID; got != "claude-code" {
+		t.Fatalf("hello after refresh names %q, want claude-code", got)
 	}
 }
