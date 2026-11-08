@@ -30,6 +30,52 @@ person can see; the fix and its verification belong in the issue or the PR.
 
 ## Open
 
+### 2026-11-09 · 中 · iOS 端没有边缘侧滑导航，对话列表只能点按钮
+
+手机（尤其 iOS 壳）里没有任何跟手的边缘手势：对话列表只能点 header 的圆形
+身份 / 菜单按钮打开（`ui/src/components/layout/AppShell.tsx:648`、
+`SessionsHeader`），会话详情页的 header 只有返回、会话切换 sheet 和 ⋯，连
+抽屉入口都没有；抽屉打开后也只能点遮罩关闭。`Sidebar` 的抽屉是 `mobileOpen`
+为真时才挂载的一段 DOM（`Sidebar.tsx:931`），进场只有 180ms 的
+`kin-drawer-enter` 动画（`ui/src/index.css:415`），没有 pointerdown/move/up。
+全仓手机手势只有会话行的 `SwipeReveal`（左滑露出固定 / 归档 / 删除），
+`Sheet.tsx:23` 还写明 swipe-to-dismiss 是故意没做的。对照 iOS 的肌肉记忆
+（左缘右滑拉出侧栏、面板下滑关闭），现在的抽屉像"点出来的弹层"，不像可以
+拖出来的导航。
+
+期望（一组同类手势，一次做齐）：
+
+- 任意手机页面，从屏幕左缘（起点约 20px 内）向右拖：对话列表跟手滑出，
+  遮罩随位移淡入；松手按位移与速度决定开或回弹。纵向为主的拖动、起点在横向
+  可滚动区域内、以及会话行的左滑动作都不触发它。
+- 抽屉打开时，在面板或遮罩上向左拖可关闭，松手同样按位移与速度判定；
+  点遮罩关闭保留。
+- 会话详情页用同一手势打开对话列表，而不是系统返回：这是报告人要的"侧滑
+  出现对话列表"，返回仍走左上角按钮（`TaskDetailPage.tsx:1582` 的 `goBack`
+  语义不变）。同一屏上左缘右滑只承担一种含义，不按路由改成返回。
+- 同类补全：底部 `Sheet` 支持从 grabber / 标题处下滑关闭；正文可滚动时，
+  只有滚到顶再下拉才交给关闭手势，避免和滚动打架。`IonActionSheet` 保持
+  Ionic 自己的关闭方式，不重复实现。
+- `prefers-reduced-motion` 下不做跟手动画，只保留阈值判定；手势只是新增
+  路径，所有按钮与键盘操作保持不变。
+
+手势应挂在 shell 根节点（`AppShell` 持有 `mobileOpen`），不要每页各写一份；
+抽屉的 DOM 与动画都已存在，缺的只是触发与跟手位移。验收：390px 的 DOM 测试
+用合成 pointer 事件覆盖打开 / 关闭 / 未过阈值回弹 / 纵向滚动不触发 / 行内
+左滑不误触；iOS 模拟器手动确认 webview 没有横向橡皮筋、抽屉跟手不掉帧；
+触控板与鼠标路径不受影响。
+
+待定：相邻会话的左右滑切换是否也要一起加。建议这批先不做——它会和正文选择、
+代码块横向滚动打架，手机的会话切换已经有 `SessionSwitcherSheet`；报告人
+确认后再决定是否单开一条。
+
+线索：`ui/src/components/layout/AppShell.tsx:648`（抽屉按钮）、
+`ui/src/components/layout/Sidebar.tsx:931`（抽屉 DOM）、
+`ui/src/index.css:415`（`kin-drawer-enter`）、
+`ui/src/components/mobile/Sheet.tsx:23`（明确放弃 swipe-to-dismiss）、
+`ui/src/components/mobile/SwipeReveal.tsx`（已有的行手势，可复用 pointer
+capture 与阈值写法）、`ui/src/pages/TaskDetailPage.tsx:1582`。
+
 ### 2026-11-09 · 中 · 无缓存进入会话时整页骨架，顶栏和输入框一起消失
 
 从侧边栏/会话列表第一次点进一个会话，或在 `/new` 发出消息、任务创建后跳到
