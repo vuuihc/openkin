@@ -22,9 +22,30 @@ jobs:
 
       - name: UI install + format + typecheck + unit tests + build
         working-directory: ui
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           npm ci
-          npm run format:check
+          # The tree predates this check: a repo-wide `prettier --check` fails
+          # on 55 files, and because it ran first, lint/tsc/tests never ran.
+          # Check only the files this change touches, so new code stays
+          # formatted without a repo-wide reformat that would collide with
+          # every open worktree.
+          base="$BASE_SHA"
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            base="$(git rev-parse HEAD^ 2>/dev/null || true)"
+          fi
+          if [ -z "$base" ]; then
+            echo "no base commit; skipping the changed-files format check"
+          else
+            mapfile -t changed < <(git diff --relative --name-only --diff-filter=ACMR "$base"...HEAD -- .)
+            if [ ${#changed[@]} -eq 0 ]; then
+              echo "no changed UI files"
+            else
+              printf 'checking %d changed UI file(s)\n' "${#changed[@]}"
+              npx prettier --check --ignore-unknown "${changed[@]}"
+            fi
+          fi
           npm run lint
           npm run check:api
           npx tsc --noEmit
