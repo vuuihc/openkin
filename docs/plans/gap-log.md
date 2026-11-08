@@ -42,16 +42,21 @@ person can see; the fix and its verification belong in the issue or the PR.
 的库。两套控制面在 routines 上没有打通（tasks 有 `executing_device_id`，
 routines 没有）。
 
-期望：在任一客户端上能看到并管理“这台机器上在跑的”例行任务；如果产品决定
-例行任务属于 Hub，那么 Agent 在节点上建任务也必须落到 Hub，并且运行要派发回
-目标机器。
+期望：在任一客户端上选中一台机器，就能看到并管理那台机器上在跑的例行任务。
 
-待定（记录时已问报告人）：两条路选一条——
-A. 例行任务属于机器：Hub 通过现有的节点查询通道读取/代理该机器的 routines，
-   节点继续自己调度。改动小，但手机上呈现为“某台机器的例行任务”。
-B. 例行任务属于 Hub：routines 增加 `executing_device_id`，Hub 调度、节点执行，
-   与 ADR 0022 的“Hub owns the scheduler”一致；要迁移已有的节点本地任务。
-当前推荐 B（与长期模型一致），A 可作为更快的止血。
+已定（报告人 2026-11-08）：Routines 属于 Device（Node），Hub 只做转发和鉴权，
+不拥有 routines。
+- Hub 上最多保留一份用于列表展示的投影/缓存，事实以节点为准；多设备部署下
+  Hub 自己的 `routines` 表不应再是来源。
+- Hub 通过现有的节点查询通道（`internal/node/queries.go` + `worker.Query*`）
+  读取/修改/触发目标机器的 routines；节点自己的调度器继续负责到点触发。
+- 不做“Hub 调度 + `executing_device_id`”那条路：那是把 Node 概念塞进 Hub，
+  和“Hub 不是云端 Node”的边界相反。将来若要有云端执行者，它应以一个真正的
+  Node 加入（自己的 device id、hello、调度器），而不是让 Hub 兼任。
+- 这条同时澄清 ADR 0022 的 “Hub … and the scheduler”：Hub 拥有会话/任务队列
+  的调度；机器本地的 routine 由 Node 调度。
+- standalone（Hub + 进程内 Node 共用一个进程和库）不受影响：那份 routines
+  属于进程内的 Node。
 
 线索：`internal/api/routines.go`、`internal/routines/scheduler.go`（派发的
 `task.CreateRequest` 没有 `ExecutingDeviceID`）、`internal/remote/worker/query.go`
@@ -59,7 +64,8 @@ B. 例行任务属于 Hub：routines 增加 `executing_device_id`，Hub 调度�
 （只有 `list_routines` / `run_routine`，没有创建）、`ui/src/pages/RoutinesPage.tsx`、
 `ui/src/components/chat/CwdPicker.tsx`（RoutinesPage 的 cwd 选择没有 device，
 在 Hub 上列的是 Hub 自己的文件系统）。验收：同一条 routine 在 iPad 与 Mac 两端
-都可见；在 iPad 上 run-now 落到 Mac 执行。
+都可见；在 iPad 上 run-now 落到 Mac 执行；纯 Hub 部署下 Hub 的 routines 表
+保持为空，创建/修改都写到目标节点。
 
 ### 2026-11-08 · 高 · 回车直接发送，写不了多行
 
