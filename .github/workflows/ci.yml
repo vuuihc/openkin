@@ -9,6 +9,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The changed-files format check diffs against the PR's base SHA.
+          # The default shallow checkout does not contain that commit (or
+          # HEAD^), so the check would silently skip.
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
