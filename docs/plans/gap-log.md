@@ -15,6 +15,21 @@ person can see; the fix and its verification belong in the issue or the PR.
 
 ## Open
 
+### 2026-11-08 · 高 · 会话 cookie 不随使用滑动，约每 30 天要重登一次
+
+Hub 的 `auth_sessions.expires_at` 会在每次使用时滑动（1 小时节流，180 天绝对
+上限），但 `kin_session` cookie 的 `Expires` 只在登录时写一次；已认证请求不会
+重新下发 `Set-Cookie`。表现：即使每天使用，登录约 30 天后控制台仍会要求重新
+输入密码。壳层的 Keychain 副本存的是同一个过期时间，所以卸载重装也救不了。
+期望：会话滑动成功时按同样的 1 小时节流重发 `Set-Cookie`（`Expires` 用滑动后
+的值，仍受 180 天上限约束），并补一条测试：touch 之后的一次请求带新的
+`Expires`；未到节流窗口的请求不重发。
+
+线索：`internal/api/auth.go` 的 `setSessionCookie`（只在登录/兑换等端点调用）、
+`internal/api/api.go` 的 `SetSessionLookup`、`internal/store/identity.go` 的
+`AuthenticateSession`（返回滑动后的 `ExpiresAt`）、`internal/remote/auth.go`
+的 cookie 解析。
+
 ### 2026-11-08 · 中 · iOS 壳启动只认构建期 Hub URL，不认配对时存下的地址
 
 在连接页配对过的手机，重开应用后壳仍按构建期 `server.url` 启动；运行时的
