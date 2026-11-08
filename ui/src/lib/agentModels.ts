@@ -42,23 +42,49 @@ export function normalizeModelSelection(value: string | null | undefined): strin
  */
 export const CUSTOM_MODEL_ID = "__custom__";
 
+/**
+ * The provider path of a catalog id: everything before the model name.
+ *
+ * A gateway nests its providers (`gateway/dashscope/glm-5.3`), so the first
+ * segment alone puts every one of its models under one heading and leaves
+ * same-named rows (six "GLM 5.3"s from six upstreams) indistinguishable. The
+ * full prefix, minus the model name, is what actually names the source. An id
+ * with no slash has no provider to name.
+ */
+export function modelPickerProvider(id: string): string {
+  const trimmed = id.trim();
+  const slash = trimmed.lastIndexOf("/");
+  return slash > 0 ? trimmed.slice(0, slash) : "";
+}
+
 /** Rows every model picker shows: Default, the agent's catalog, Custom. */
 export function modelPickerOptions(
   models: AgentModelOption[],
   copy: { default: string; custom: string },
 ): { id: string; label: string; detail?: string; group?: string }[] {
-  return [
-    { id: "", label: copy.default },
-    ...models.map((m) => ({
+  const rows: { id: string; label: string; detail?: string; group?: string }[] = [];
+  // A choice is one row no matter how many settings name it; the catalog
+  // adapters already dedupe, but the pickers are also fed by remote agents and
+  // older daemons. Keep the first row so the keyboard order stays stable.
+  const seen = new Set<string>();
+  for (const m of models) {
+    const key = m.id.trim();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const provider = modelPickerProvider(m.id);
+    // Secondary text names both the tier and the source. The group heading
+    // disappears on a phone (SearchSelect renders a flat sheet there), so a
+    // row that spent its detail slot on the tier alone would name no provider
+    // exactly where the heading cannot help.
+    const detail = [m.tier, provider].filter(Boolean).join(" · ");
+    rows.push({
       id: m.id,
       label: modelPickerLabel(m),
-      ...(m.tier ? { detail: m.tier } : {}),
-      // A catalog is a set of providers; the provider is the heading that makes
-      // forty-seven rows scannable. An id with no slash has no provider to name.
-      ...(m.id.includes("/") ? { group: m.id.slice(0, m.id.indexOf("/")) } : {}),
-    })),
-    { id: CUSTOM_MODEL_ID, label: copy.custom },
-  ];
+      ...(detail ? { detail } : {}),
+      ...(provider ? { group: provider } : {}),
+    });
+  }
+  return [{ id: "", label: copy.default }, ...rows, { id: CUSTOM_MODEL_ID, label: copy.custom }];
 }
 
 /**

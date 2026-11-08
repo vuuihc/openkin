@@ -119,4 +119,40 @@ describe("the desktop model panel", () => {
     await userEvent.keyboard("{ArrowDown}");
     expect(document.activeElement).toBe(screen.getAllByRole("option")[0]);
   });
+
+  it("separates same-named gateway models under their full provider path", async () => {
+    const { default: SearchSelect } =
+      await vi.importActual<typeof import("../ui/SearchSelect")>("../ui/SearchSelect");
+    // A gateway fronts several upstreams; every row is labelled "GLM 5.3" and
+    // only the nested segment says which one will run. Grouping by the first
+    // segment alone left all of them under one heading.
+    const options = modelPickerOptions(
+      [
+        { id: "volcengine-gw/dashscope/glm-5.3[1m]", label: "GLM 5.3" },
+        { id: "volcengine-gw/volcengine/glm-5.3[1m]", label: "GLM 5.3" },
+      ],
+      { default: "Default model", custom: "Custom model…" },
+    );
+
+    render(
+      <SearchSelect
+        label="Model"
+        value=""
+        options={options}
+        onChange={() => {}}
+        searchable
+        searchPlaceholder="Search models"
+      />,
+    );
+    await userEvent.click(screen.getAllByRole("button", { name: /^Model/ })[0]);
+
+    expect(screen.getByText("volcengine-gw/dashscope")).toBeTruthy();
+    expect(screen.getByText("volcengine-gw/volcengine")).toBeTruthy();
+    expect(screen.getAllByText("GLM 5.3")).toHaveLength(2);
+
+    // The provider is searchable text, not only a heading: typing it narrows
+    // the list to that upstream's row.
+    await userEvent.type(screen.getByRole("combobox"), "dashscope");
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+  });
 });
