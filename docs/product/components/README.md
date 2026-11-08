@@ -26,3 +26,9 @@
 
 先回答“哪个已有控件长不出这个”（TASTE 第 13 条）。答不上来就是加变体，不是
 加控件。答上来了，按上面的表写文档，和组件同一次提交。
+
+## 还缺什么、按什么顺序补
+
+现状盘点、抽取规则、轮次和判定标准在
+[`../../plans/2026-11-08-design-system-middle-layer.md`](../../plans/2026-11-08-design-system-middle-layer.md)。
+数字用 `python3 scripts/ui_inventory.py` 重新测量，不要手抄。
