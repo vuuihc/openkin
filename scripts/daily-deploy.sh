@@ -223,13 +223,6 @@ ensure_desktop_deps() {
   fi
 }
 
-ensure_relay_deps() {
-  if [[ ! -d relay/node_modules ]]; then
-    say "installing relay dependencies"
-    ( cd relay && npm ci ) || return 1
-  fi
-}
-
 # Is this checkout's Electron actually running? The main process's argv can be
 # just "Kin", so check the executable the app was launched from, then fall back
 # to a process named Kin whose cwd is this checkout (the same test
@@ -457,7 +450,6 @@ say "HEAD is ${HEAD_AFTER:0:9}"
 
 ensure_ui_deps || fail "ui dependencies failed"
 ensure_desktop_deps || fail "desktop dependencies failed"
-ensure_relay_deps || fail "relay dependencies failed"
 
 # npm install can rewrite a lockfile. That is a real tree change; do not build
 # or deploy it as if it were the gated commit.
