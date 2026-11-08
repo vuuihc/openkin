@@ -8,13 +8,16 @@
 # The handoff is the point. `desktop-rebuild.sh` restarts the :7777 node, and
 # that node is the process running this script's task. A rebuild started as a
 # child of the task would kill its own parent; a launchd job is not in that
-# process tree, so it survives the restart and relaunches the app.
+# process tree, so it survives the restart and relaunches the app. The job
+# verifies its own result (health + the Electron process) and writes the
+# success marker the next run uses to skip an unchanged HEAD.
 #
 # Guarantees:
 #   - a commit whose origin/main CI is not green is never deployed;
 #   - a tree that fails the local gate is never deployed (the local branch has
 #     commits CI has not seen);
-#   - tracked uncommitted changes block the deploy instead of riding along;
+#   - tracked or untracked uncommitted files block the deploy instead of
+#     riding along, and the rebuild re-checks the tree after the delay;
 #   - nothing is pushed, force-pushed, reset, or rewritten.
 #
 # Usage, from the primary checkout:
@@ -24,8 +27,9 @@
 #   ./scripts/daily-deploy.sh --force       # rebuild even if HEAD already shipped
 #
 # Environment:
-#   KIN_DEPLOY_DIR    state/log directory (default ~/.kin/deploy)
-#   KIN_DEPLOY_DELAY  seconds between scheduling and the rebuild (default 180)
+#   KIN_DEPLOY_DIR         state/log directory (default ~/.kin/deploy)
+#   KIN_DEPLOY_DELAY       seconds between scheduling and the rebuild (default 300)
+#   KIN_DEPLOY_NO_NOTIFY   set to 1 to suppress system notifications (tests)
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -34,24 +38,35 @@ cd "$ROOT" || exit 1
 GIT=/usr/bin/git
 GH=/opt/homebrew/bin/gh
 DEPLOY_DIR="${KIN_DEPLOY_DIR:-$HOME/.kin/deploy}"
-DELAY="${KIN_DEPLOY_DELAY:-180}"
+DELAY="${KIN_DEPLOY_DELAY:-300}"
 LABEL=dev.openkin.daily-deploy
 LAST_RUN="$DEPLOY_DIR/last-run.json"
+LAST_SUCCESS="$DEPLOY_DIR/last-success.json"
+LAST_REBUILD_FAILURE="$DEPLOY_DIR/last-rebuild-failure.json"
 LOCK="$DEPLOY_DIR/lock"
 
 MODE=deploy
 FORCE=0
-for arg in "$@"; do
-  case "$arg" in
-    --check-only) MODE=check ;;
-    --dry-run) MODE=dry ;;
-    --force) FORCE=1 ;;
-    -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
-    *) echo "unknown argument: $arg" >&2; exit 2 ;;
+RUN_HEAD=""
+RUN_LOG=""
+while (($#)); do
+  case "$1" in
+    --check-only) MODE=check; shift ;;
+    --dry-run) MODE=dry; shift ;;
+    --force) FORCE=1; shift ;;
+    --run-rebuild)
+      [[ $# -ge 3 ]] || { echo "usage: $0 --run-rebuild <head> <log>" >&2; exit 2; }
+      MODE=rebuild
+      RUN_HEAD="$2"
+      RUN_LOG="$3"
+      shift 3
+      ;;
+    -h|--help) awk 'NR > 1 && /^set -uo/{exit} NR > 1' "$0"; exit 0 ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 
-[[ "$DELAY" =~ ^[0-9]+$ ]] || DELAY=180
+[[ "$DELAY" =~ ^[0-9]+$ ]] || DELAY=300
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
@@ -62,6 +77,7 @@ REPO=""
 say() { printf '%s %s\n' "$(date '+%H:%M:%S')" "$*"; }
 
 notify() { # title message
+  [[ "${KIN_DEPLOY_NO_NOTIFY:-0}" == "1" ]] && return 0
   if command -v terminal-notifier >/dev/null 2>&1; then
     terminal-notifier -title "$1" -message "$2" -sound Glass >/dev/null 2>&1 || true
   else
@@ -69,39 +85,28 @@ notify() { # title message
   fi
 }
 
-write_failure() { # reason
-  python3 - "$DEPLOY_DIR/last-failure.json" "$1" "${ORIGIN_SHA:-}" "$($GIT rev-parse HEAD 2>/dev/null || true)" <<'PY' 2>/dev/null || true
+json_field() { # file key
+  python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get(sys.argv[2], ""))' \
+    "$1" "$2" 2>/dev/null || true
+}
+
+write_status() { # path status reason head log
+  python3 - "$1" "$2" "$3" "$4" "$5" <<'PY' 2>/dev/null || true
 import datetime, json, os, sys
-path, reason, origin, head = sys.argv[1:5]
+path, status, reason, head, log = sys.argv[1:6]
 now = datetime.datetime.now().astimezone()
 data = {
-    "at": now.isoformat(timespec="seconds"),
-    "status": "failed",
+    "at": int(now.timestamp()),
+    "at_iso": now.isoformat(timespec="seconds"),
+    "status": status,
     "reason": reason,
-    "origin_sha": origin,
     "head": head,
+    "log": log,
 }
 tmp = path + ".tmp"
 with open(tmp, "w") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
 os.replace(tmp, path)
-PY
-}
-
-fail() { # reason
-  say "FAIL: $*"
-  write_failure "$*"
-  notify "OpenKin 每日部署" "未发布：$*"
-  exit 1
-}
-
-# Last scheduled deploy, if one is recorded. Prints "<epoch> <head> <log>".
-last_scheduled() {
-  [[ -f "$LAST_RUN" ]] || return 1
-  python3 - "$LAST_RUN" <<'PY' 2>/dev/null || return 1
-import json, sys
-d = json.load(open(sys.argv[1]))
-print(d.get("at", 0), d.get("head", ""), d.get("log", ""))
 PY
 }
 
@@ -113,11 +118,11 @@ now = datetime.datetime.now().astimezone()
 data = {
     "at": int(now.timestamp()),
     "at_iso": now.isoformat(timespec="seconds"),
+    "status": "scheduled",
     "origin_sha": origin,
     "head": head,
     "log": log,
     "method": method,
-    "status": "scheduled",
 }
 tmp = path + ".tmp"
 with open(tmp, "w") as f:
@@ -126,9 +131,20 @@ os.replace(tmp, path)
 PY
 }
 
+fail() { # reason
+  say "FAIL: $*"
+  if [[ "$MODE" != "dry" ]]; then
+    mkdir -p "$DEPLOY_DIR" 2>/dev/null || true
+    write_status "$DEPLOY_DIR/last-failure.json" failed "$*" \
+      "$("$GIT" rev-parse HEAD 2>/dev/null || true)" ""
+    notify "OpenKin 每日部署" "未发布：$*"
+  fi
+  exit 1
+}
+
 acquire_lock() {
   if ! mkdir "$LOCK" 2>/dev/null; then
-    if [[ -n "$(find "$LOCK" -maxdepth 0 -mmin +180 2>/dev/null)" ]]; then
+    if [[ -n "$(find "$LOCK" -maxdepth 1 -mmin +180 2>/dev/null)" ]]; then
       say "removing a stale lock ($LOCK)"
       rmdir "$LOCK" 2>/dev/null || true
     fi
@@ -139,11 +155,20 @@ acquire_lock() {
 
 # The CI gate. A green local gate on a merge of an unverified tip is not the
 # contract the user asked for: origin/main's own checks must have passed first.
+#
+# GitHub keeps superseded check runs (a rerun leaves the old failure in the
+# list), and this repo's commits can also carry checks from other apps. Take
+# only GitHub Actions runs and only the latest attempt per job name; otherwise
+# a rerun-to-green tip looks red forever and the deploy never runs.
 require_ci() {
-  local deadline=$((SECONDS + 900)) summary total pending failed missing names
+  local deadline=$((SECONDS + 900)) summary pending failed missing names
   while :; do
     summary="$("$GH" api "repos/$REPO/commits/$ORIGIN_SHA/check-runs" --jq '
-      [.check_runs[] | {name, status, conclusion}] as $r
+      [.check_runs[]
+       | select(.app.slug == "github-actions")
+       | {name, status, conclusion, started_at}]
+      | group_by(.name)
+      | map(max_by(.started_at // "")) as $r
       | [($r | length),
          ([$r[] | select(.status != "completed")] | length),
          ([$r[] | select(.status == "completed" and .conclusion != "success")] | length),
@@ -153,7 +178,7 @@ require_ci() {
       | @tsv
     ' 2>/dev/null)" || fail "cannot read check runs for ${ORIGIN_SHA:0:9}"
 
-    IFS=$'\t' read -r total pending failed missing names <<<"$summary"
+    IFS=$'\t' read -r _ pending failed missing names <<<"$summary"
     if [[ "${failed:-1}" != "0" ]]; then
       fail "origin/main CI has a failing check (${names:-none})"
     fi
@@ -173,7 +198,156 @@ require_ci() {
   done
 }
 
+ensure_ui_deps() {
+  local stamp=ui/node_modules/.package-lock.json
+  if [[ ! -d ui/node_modules || ! -f "$stamp" \
+    || ui/package.json -nt "$stamp" || ui/package-lock.json -nt "$stamp" ]]; then
+    say "installing console dependencies"
+    ( cd ui && npm ci ) || return 1
+  fi
+}
+
+ensure_desktop_deps() {
+  if [[ ! -d desktop/node_modules ]]; then
+    say "installing desktop dependencies (first run downloads Electron)"
+    ( cd desktop && npm install ) || return 1
+  fi
+  # `npm ci --ignore-scripts` leaves a tree that typechecks and passes the
+  # node tests but has no Electron binary; desktop-rebuild.sh would then skip
+  # its own install and the launch would fail after printing [5/5].
+  local bin="desktop/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+  if [[ ! -x "$bin" ]]; then
+    say "the Electron binary is missing; running its install script"
+    ( cd desktop && npm rebuild electron ) || return 1
+    [[ -x "$bin" ]] || { say "still missing $bin"; return 1; }
+  fi
+}
+
+ensure_relay_deps() {
+  if [[ ! -d relay/node_modules ]]; then
+    say "installing relay dependencies"
+    ( cd relay && npm ci ) || return 1
+  fi
+}
+
+# Is this checkout's Electron actually running? The main process's argv can be
+# just "Kin", so check the executable the app was launched from, then fall back
+# to a process named Kin whose cwd is this checkout (the same test
+# desktop-rebuild.sh uses to stop the previous instance).
+desktop_running() {
+  local markers=(
+    "$ROOT/desktop/node_modules/electron/dist/Kin.app/Contents/MacOS/Kin"
+    "$ROOT/desktop/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+    "$ROOT/desktop/.dev-app/Kin.app/Contents/MacOS/Kin"
+  )
+  local m pid cwd
+  if command -v lsof >/dev/null 2>&1; then
+    for m in "${markers[@]}"; do
+      [[ -e "$m" ]] || continue
+      if [[ -n "$(lsof -t "$m" 2>/dev/null || true)" ]]; then
+        return 0
+      fi
+    done
+    if command -v pgrep >/dev/null 2>&1; then
+      while IFS= read -r pid; do
+        [[ -z "$pid" ]] && continue
+        cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1 || true)"
+        case "$cwd" in
+          "$ROOT/desktop"|"$ROOT/desktop"/*) return 0 ;;
+        esac
+      done < <(pgrep -x Kin 2>/dev/null || true)
+    fi
+  fi
+  return 1
+}
+
+# Internal mode, run by the launchd job after the delay. It re-checks the tree
+# at the last moment, starts the rebuild, and only writes the success marker
+# after both the node and the desktop process are actually up. The final `wait`
+# keeps the job alive as the Electron parent.
+if [[ "$MODE" == "rebuild" ]]; then
+  [[ -n "$RUN_HEAD" && -n "$RUN_LOG" ]] || { echo "missing --run-rebuild arguments" >&2; exit 2; }
+  mkdir -p "$DEPLOY_DIR" || exit 1
+  mkdir -p "$(dirname "$RUN_LOG")" || exit 1
+  exec >>"$RUN_LOG" 2>&1
+  say "rebuild wrapper: verifying the gated tree"
+
+  now="$("$GIT" rev-parse HEAD 2>/dev/null || true)"
+  if [[ "$now" != "$RUN_HEAD" ]]; then
+    say "refusing to rebuild: HEAD is ${now:-unknown}, gated $RUN_HEAD"
+    write_status "$LAST_REBUILD_FAILURE" head-changed "HEAD moved after the gate" "${now:-}" "$RUN_LOG"
+    notify "OpenKin 每日部署" "重建已取消：HEAD 在闸门后变化"
+    exit 1
+  fi
+  dirty="$("$GIT" status --porcelain --untracked-files=no)"
+  if [[ -n "$dirty" ]]; then
+    say "refusing to rebuild: tracked changes appeared after the gate"
+    write_status "$LAST_REBUILD_FAILURE" dirty-tree "tracked changes after the gate" "$RUN_HEAD" "$RUN_LOG"
+    notify "OpenKin 每日部署" "重建已取消：闸门后工作树变脏"
+    exit 1
+  fi
+
+  say "starting desktop-rebuild.sh"
+  ./scripts/desktop-rebuild.sh &
+  rebuild_pid=$!
+
+  launched=0
+  deadline=$((SECONDS + 1200))
+  while ((SECONDS < deadline)); do
+    if grep -qF '==> [5/5] launch desktop app' "$RUN_LOG"; then
+      launched=1
+      break
+    fi
+    if ! kill -0 "$rebuild_pid" 2>/dev/null; then
+      break
+    fi
+    sleep 5
+  done
+  if ((launched == 0)); then
+    say "the rebuild exited or stalled before the launch stage"
+    write_status "$LAST_REBUILD_FAILURE" build-failed "did not reach the launch stage" "$RUN_HEAD" "$RUN_LOG"
+    notify "OpenKin 每日部署" "重建失败：未到启动阶段（见日志）"
+    exit 1
+  fi
+
+  # [5/5] only means the launch was attempted. Wait for the evidence the user
+  # cares about: the console answers and this checkout's Electron is running.
+  ok=0
+  deadline=$((SECONDS + 240))
+  while ((SECONDS < deadline)); do
+    code="$(curl -sS --connect-timeout 2 --max-time 5 -o /dev/null -w '%{http_code}' \
+      http://127.0.0.1:7777/api/health 2>/dev/null || true)"
+    if [[ "$code" == "200" ]] && desktop_running; then
+      ok=1
+      break
+    fi
+    if ! kill -0 "$rebuild_pid" 2>/dev/null; then
+      break
+    fi
+    sleep 5
+  done
+
+  if ((ok == 1)); then
+    say "verified: /api/health is 200 and this checkout's Electron is running"
+    write_status "$LAST_SUCCESS" succeeded "" "$RUN_HEAD" "$RUN_LOG"
+    notify "OpenKin 每日部署" "已发布 ${RUN_HEAD:0:9}"
+  else
+    say "the console or the desktop did not come up"
+    write_status "$LAST_REBUILD_FAILURE" launch-failed "health or desktop process did not come up" "$RUN_HEAD" "$RUN_LOG"
+    notify "OpenKin 每日部署" "重建后应用未起来（见日志）"
+    if kill -0 "$rebuild_pid" 2>/dev/null; then
+      kill "$rebuild_pid" 2>/dev/null || true
+    fi
+    exit 1
+  fi
+
+  wait "$rebuild_pid" || true
+  exit 0
+fi
+
 say "repository: $ROOT"
+
+[[ "$MODE" == "dry" ]] || mkdir -p "$DEPLOY_DIR"
 
 if [[ "$MODE" != "dry" ]]; then
   acquire_lock
@@ -204,26 +378,26 @@ say "origin/main is ${ORIGIN_SHA:0:9}"
 
 head_now="$("$GIT" rev-parse HEAD)"
 
-# Nothing to do only when this exact HEAD was already scheduled and the
-# rebuild from that schedule reached its launch stage. A failed rebuild is
-# retried; a rebuild still in flight is left alone.
+# Skip only when this exact HEAD already passed the full gate *and* the rebuild
+# that followed verified both the node and the desktop. A build that dies after
+# printing [5/5] leaves no success marker, so the next run retries it.
 if [[ "$MODE" == "deploy" && "$FORCE" != "1" ]]; then
-  if scheduled="$(last_scheduled)"; then
-    read -r last_at last_head last_log <<<"$scheduled"
-    if [[ "$last_head" == "$head_now" ]] \
-      && "$GIT" merge-base --is-ancestor origin/main HEAD; then
-      if [[ -n "$last_log" && -f "$last_log" ]] \
-        && grep -qF '==> [5/5] launch desktop app' "$last_log"; then
-        say "nothing to do: ${head_now:0:9} is already deployed (log: $last_log)"
-        exit 0
-      fi
-      if [[ -n "$last_log" && -f "$last_log" ]] \
-        && [[ $(( $(date +%s) - ${last_at:-0} )) -lt 1800 ]]; then
-        say "a rebuild is still in progress (log: $last_log)"
-        exit 0
-      fi
-      say "the previous rebuild did not reach the launch stage; retrying"
+  success_head="$(json_field "$LAST_SUCCESS" head)"
+  if [[ "$success_head" == "$head_now" ]] \
+    && "$GIT" merge-base --is-ancestor "$ORIGIN_SHA" HEAD; then
+    say "nothing to do: ${head_now:0:9} is already deployed (log: $(json_field "$LAST_SUCCESS" log))"
+    exit 0
+  fi
+  sched_at="$(json_field "$LAST_RUN" at)"
+  sched_head="$(json_field "$LAST_RUN" head)"
+  if [[ "$sched_head" == "$head_now" && "$sched_at" =~ ^[0-9]+$ ]] \
+    && (( $(date +%s) - sched_at < 2700 )); then
+    failure_head="$(json_field "$LAST_REBUILD_FAILURE" head)"
+    if [[ "$failure_head" != "$head_now" ]]; then
+      say "a rebuild for ${head_now:0:9} is still in progress (log: $(json_field "$LAST_RUN" log)); not starting another"
+      exit 0
     fi
+    say "the previous rebuild for ${head_now:0:9} failed; retrying"
   fi
 fi
 
@@ -235,26 +409,32 @@ if [[ "$MODE" == "dry" ]]; then
   exit 0
 fi
 
-dirty="$("$GIT" status --porcelain --untracked-files=no)"
-[[ -z "$dirty" ]] || fail "uncommitted tracked changes; commit or restore them first: $(printf '%s' "$dirty" | head -5 | tr '\n' ';')"
+# Untracked files matter too: an untracked .go or .tsx file is compiled by the
+# gate and the rebuild but is absent from the commit the gate claims to verify.
+dirty="$("$GIT" status --porcelain)"
+[[ -z "$dirty" ]] || fail "uncommitted changes; commit or restore them first: $(printf '%s' "$dirty" | head -5 | tr '\n' ';')"
 
-BASE="$("$GIT" merge-base HEAD origin/main 2>/dev/null)" || fail "no merge base with origin/main"
+BASE="$("$GIT" merge-base HEAD "$ORIGIN_SHA" 2>/dev/null)" || fail "no merge base with origin/main"
 
-if "$GIT" merge-base --is-ancestor origin/main HEAD; then
+# The conflict path below rebuilds the console, so its dependencies must exist
+# before the merge starts, not after a failed build.
+ensure_ui_deps || fail "console dependencies could not be installed"
+
+if "$GIT" merge-base --is-ancestor "$ORIGIN_SHA" HEAD; then
   say "origin/main is already merged"
 else
   say "merging origin/main into main"
   if ! "$GIT" -c user.name=vuuihc \
       -c user.email=vuuihc@users.noreply.github.com \
       -c commit.gpgsign=false \
-      merge --no-edit -m "merge: sync origin/main into main" origin/main; then
+      merge --no-edit -m "merge: sync origin/main into main" "$ORIGIN_SHA"; then
     conflicts="$("$GIT" diff --name-only --diff-filter=U)"
     if [[ "$conflicts" == "web/dist/index.html" ]]; then
       # Both sides rebuilt the console, so the generated entry names two
       # different asset hashes. Rebuild from the merged sources instead of
       # picking a side that does not match them.
       say "rebuilding the console to resolve web/dist/index.html"
-      if ! ( cd ui && npm run build ); then
+      if ! ensure_ui_deps || ! ( cd ui && npm run build ); then
         "$GIT" merge --abort || true
         fail "the console build failed while resolving web/dist/index.html"
       fi
@@ -275,18 +455,14 @@ fi
 HEAD_AFTER="$("$GIT" rev-parse HEAD)"
 say "HEAD is ${HEAD_AFTER:0:9}"
 
-if [[ ! -d ui/node_modules ]]; then
-  say "installing console dependencies"
-  ( cd ui && npm ci ) || fail "ui npm ci failed"
-fi
-if [[ ! -d desktop/node_modules ]]; then
-  say "installing desktop dependencies (first run downloads Electron)"
-  ( cd desktop && npm install ) || fail "desktop npm install failed"
-fi
-if [[ ! -d relay/node_modules ]]; then
-  say "installing relay dependencies"
-  ( cd relay && npm ci ) || fail "relay npm ci failed"
-fi
+ensure_ui_deps || fail "ui dependencies failed"
+ensure_desktop_deps || fail "desktop dependencies failed"
+ensure_relay_deps || fail "relay dependencies failed"
+
+# npm install can rewrite a lockfile. That is a real tree change; do not build
+# or deploy it as if it were the gated commit.
+dirty="$("$GIT" status --porcelain --untracked-files=no)"
+[[ -z "$dirty" ]] || fail "dependency installation changed tracked files; commit or restore them: $(printf '%s' "$dirty" | head -5 | tr '\n' ';')"
 
 say "building the console"
 ( cd ui && npm run build ) || fail "ui build failed"
@@ -329,6 +505,9 @@ say "linting the console"
 say "checking the first-screen budget"
 ./scripts/check-bundle-budget.sh || fail "console bundle budget failed"
 
+say "bundling the desktop shell"
+( cd desktop && npm run build ) || fail "desktop bundle failed"
+
 say "testing the relay"
 ( cd relay && npm test && npm run build ) || fail "relay tests failed"
 
@@ -343,12 +522,13 @@ fi
 
 LOG="$DEPLOY_DIR/rebuild-$(date +%Y%m%d-%H%M%S).log"
 : > "$LOG" || fail "cannot create $LOG"
-say "scheduled for ${DELAY}s from now (origin ${ORIGIN_SHA:0:9}, log: $LOG)" >>"$LOG"
+printf '%s scheduled by daily-deploy (origin %s, head %s)\n' \
+  "$(date '+%H:%M:%S')" "${ORIGIN_SHA:0:9}" "${HEAD_AFTER:0:9}" >>"$LOG"
 
 # The inner shell gets this script's PATH, because launchd starts it without
 # the login shell's environment. `sleep` is the handoff: the task that ran us
 # must be allowed to finish before the node it runs on is restarted.
-cmd="export PATH=$(printf %q "$PATH"); sleep $DELAY; cd $(printf %q "$ROOT") && exec ./scripts/desktop-rebuild.sh >> $(printf %q "$LOG") 2>&1"
+cmd="export PATH=$(printf %q "$PATH"); sleep $DELAY; cd $(printf %q "$ROOT") && exec ./scripts/daily-deploy.sh --run-rebuild $(printf %q "$HEAD_AFTER") $(printf %q "$LOG") >> $(printf %q "$LOG") 2>&1"
 
 launchctl remove "$LABEL" >/dev/null 2>&1 || true
 if launchctl submit -l "$LABEL" -- /bin/bash -lc "$cmd"; then
@@ -366,6 +546,5 @@ if ! write_last_run "$HEAD_AFTER" "$LOG" "$method"; then
   say "WARN: cannot write $LAST_RUN; the next run will re-check instead of skipping"
 fi
 
-say "scheduled the rebuild in ${DELAY}s via $method"
-say "the rebuild restarts the :7777 node; this task will have exited by then"
-notify "OpenKin 每日部署" "检查通过，已安排重建（${HEAD_AFTER:0:9}）"
+say "scheduled the rebuild in ${DELAY}s via $method (log: $LOG)"
+say "the rebuild restarts the :7777 node and verifies the app before marking success"
