@@ -39,7 +39,7 @@ GIT=/usr/bin/git
 GH=/opt/homebrew/bin/gh
 DEPLOY_DIR="${KIN_DEPLOY_DIR:-$HOME/.kin/deploy}"
 DELAY="${KIN_DEPLOY_DELAY:-300}"
-LABEL=dev.openkin.daily-deploy
+LABEL_PREFIX=dev.openkin.daily-deploy
 LAST_RUN="$DEPLOY_DIR/last-run.json"
 LAST_SUCCESS="$DEPLOY_DIR/last-success.json"
 LAST_REBUILD_FAILURE="$DEPLOY_DIR/last-rebuild-failure.json"
@@ -49,17 +49,19 @@ MODE=deploy
 FORCE=0
 RUN_HEAD=""
 RUN_LOG=""
+RUN_LABEL=""
 while (($#)); do
   case "$1" in
     --check-only) MODE=check; shift ;;
     --dry-run) MODE=dry; shift ;;
     --force) FORCE=1; shift ;;
     --run-rebuild)
-      [[ $# -ge 3 ]] || { echo "usage: $0 --run-rebuild <head> <log>" >&2; exit 2; }
+      [[ $# -ge 4 ]] || { echo "usage: $0 --run-rebuild <head> <log> <label>" >&2; exit 2; }
       MODE=rebuild
       RUN_HEAD="$2"
       RUN_LOG="$3"
-      shift 3
+      RUN_LABEL="$4"
+      shift 4
       ;;
     -h|--help) awk 'NR > 1 && /^set -uo/{exit} NR > 1' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -110,10 +112,10 @@ os.replace(tmp, path)
 PY
 }
 
-write_last_run() { # head log method
-  python3 - "$LAST_RUN" "$ORIGIN_SHA" "$1" "$2" "$3" <<'PY' || return 1
+write_last_run() { # head log method label
+  python3 - "$LAST_RUN" "$ORIGIN_SHA" "$1" "$2" "$3" "$4" <<'PY' || return 1
 import datetime, json, os, sys
-path, origin, head, log, method = sys.argv[1:6]
+path, origin, head, log, method, label = sys.argv[1:7]
 now = datetime.datetime.now().astimezone()
 data = {
     "at": int(now.timestamp()),
@@ -123,6 +125,7 @@ data = {
     "head": head,
     "log": log,
     "method": method,
+    "label": label,
 }
 tmp = path + ".tmp"
 with open(tmp, "w") as f:
@@ -168,7 +171,7 @@ require_ci() {
        | select(.app.slug == "github-actions")
        | {name, status, conclusion, started_at}]
       | group_by(.name)
-      | map(max_by(.started_at // "")) as $r
+      | map(max_by(.id // 0)) as $r
       | [($r | length),
          ([$r[] | select(.status != "completed")] | length),
          ([$r[] | select(.status == "completed" and .conclusion != "success")] | length),
@@ -254,30 +257,106 @@ desktop_running() {
   return 1
 }
 
+# Count Kin tasks that are still doing work. The rebuild restarts the node
+# that hosts them; 06:00 is also the hourly gap sweep's slot, so waiting for
+# idle keeps the two routines from stepping on each other. Returns 2 when the
+# list cannot be read (the node may be down; no task can be running in it).
+kin_active_tasks() {
+  local token json
+  token="$(cat "$HOME/.kin/token" 2>/dev/null || true)"
+  [[ -n "$token" ]] || return 2
+  json="$(curl -sS --connect-timeout 2 --max-time 10 \
+    -H "Authorization: Bearer $token" \
+    'http://127.0.0.1:7777/api/tasks?limit=200' 2>/dev/null)" || return 2
+  printf '%s' "$json" | python3 -c '
+import json, sys
+try:
+    tasks = json.load(sys.stdin)
+except Exception:
+    sys.exit(2)
+active = [t for t in tasks if t.get("status") in ("queued", "running", "waiting_approval", "waiting_input")]
+print(len(active))
+for t in active[:5]:
+    print(t.get("id", ""), t.get("status", ""), (t.get("title") or "")[:60])
+' 2>/dev/null
+}
+
+verify_gated_tree() {
+  local now dirty
+  now="$("$GIT" rev-parse HEAD 2>/dev/null || true)"
+  if [[ "$now" != "$RUN_HEAD" ]]; then
+    say "refusing to rebuild: HEAD is ${now:-unknown}, gated $RUN_HEAD"
+    return 1
+  fi
+  dirty="$("$GIT" status --porcelain)"
+  if [[ -n "$dirty" ]]; then
+    say "refusing to rebuild: uncommitted changes appeared after the gate"
+    printf '%s\n' "$dirty" | head -5
+    return 1
+  fi
+  return 0
+}
+
 # Internal mode, run by the launchd job after the delay. It re-checks the tree
 # at the last moment, starts the rebuild, and only writes the success marker
 # after both the node and the desktop process are actually up. The final `wait`
 # keeps the job alive as the Electron parent.
 if [[ "$MODE" == "rebuild" ]]; then
-  [[ -n "$RUN_HEAD" && -n "$RUN_LOG" ]] || { echo "missing --run-rebuild arguments" >&2; exit 2; }
+  [[ -n "$RUN_HEAD" && -n "$RUN_LOG" && -n "$RUN_LABEL" ]] \
+    || { echo "missing --run-rebuild arguments" >&2; exit 2; }
   mkdir -p "$DEPLOY_DIR" || exit 1
   mkdir -p "$(dirname "$RUN_LOG")" || exit 1
   exec >>"$RUN_LOG" 2>&1
   say "rebuild wrapper: verifying the gated tree"
 
-  now="$("$GIT" rev-parse HEAD 2>/dev/null || true)"
-  if [[ "$now" != "$RUN_HEAD" ]]; then
-    say "refusing to rebuild: HEAD is ${now:-unknown}, gated $RUN_HEAD"
-    write_status "$LAST_REBUILD_FAILURE" head-changed "HEAD moved after the gate" "${now:-}" "$RUN_LOG"
-    notify "OpenKin 每日部署" "重建已取消：HEAD 在闸门后变化"
+  if ! verify_gated_tree; then
+    write_status "$LAST_REBUILD_FAILURE" tree-changed "HEAD or working tree changed after the gate" "$RUN_HEAD" "$RUN_LOG"
+    notify "OpenKin 每日部署" "重建已取消：闸门后代码或工作树变化"
     exit 1
   fi
-  dirty="$("$GIT" status --porcelain --untracked-files=no)"
-  if [[ -n "$dirty" ]]; then
-    say "refusing to rebuild: tracked changes appeared after the gate"
-    write_status "$LAST_REBUILD_FAILURE" dirty-tree "tracked changes after the gate" "$RUN_HEAD" "$RUN_LOG"
-    notify "OpenKin 每日部署" "重建已取消：闸门后工作树变脏"
+
+  # The gap sweep runs on the hour too. Restarting the node under one of its
+  # tasks kills it and counts toward the routine auto-disable limit, so let the
+  # node go idle first, with a bound so one stuck task cannot block forever.
+  say "waiting for other Kin tasks to finish before restarting the node"
+  idle_deadline=$((SECONDS + 1800))
+  while ((SECONDS < idle_deadline)); do
+    if ! active="$(kin_active_tasks)"; then
+      say "the Kin task list is unavailable; assuming no active tasks"
+      break
+    fi
+    count="${active%%$'\n'*}"
+    if [[ "$count" == "0" ]]; then
+      say "no other Kin tasks are running"
+      break
+    fi
+    say "still active: $count Kin task(s); waiting"
+    sleep 30
+  done
+  if ((SECONDS >= idle_deadline)); then
+    say "Kin tasks are still running after 30m; postponing the rebuild"
+    write_status "$LAST_REBUILD_FAILURE" tasks-still-running "active Kin tasks after 30m" "$RUN_HEAD" "$RUN_LOG"
+    notify "OpenKin 每日部署" "重建推迟：仍有 Kin 任务在运行"
     exit 1
+  fi
+
+  # The idle wait may have taken half an hour; the working tree is what gets
+  # built, so check it again immediately before starting.
+  if ! verify_gated_tree; then
+    write_status "$LAST_REBUILD_FAILURE" tree-changed "HEAD or working tree changed after the gate" "$RUN_HEAD" "$RUN_LOG"
+    notify "OpenKin 每日部署" "重建已取消：闸门后代码或工作树变化"
+    exit 1
+  fi
+
+  # Stop the previous daily-deploy job only now: it is likely the Electron
+  # parent, and any refusal above must leave the running app alone. Each run
+  # has its own label, so this also cleans up jobs whose app already exited.
+  if command -v launchctl >/dev/null 2>&1; then
+    launchctl list 2>/dev/null | awk '/dev\.openkin\.daily-deploy/ {print $3}' | while IFS= read -r old_label; do
+      [[ -z "$old_label" || "$old_label" == "$RUN_LABEL" ]] && continue
+      say "stopping the previous deploy job: $old_label"
+      launchctl remove "$old_label" >/dev/null 2>&1 || true
+    done
   fi
 
   say "starting desktop-rebuild.sh"
@@ -340,7 +419,12 @@ fi
 
 say "repository: $ROOT"
 
-[[ "$MODE" == "dry" ]] || mkdir -p "$DEPLOY_DIR"
+if [[ "$MODE" != "dry" ]]; then
+  mkdir -p "$DEPLOY_DIR" 2>/dev/null || {
+    echo "cannot create $DEPLOY_DIR" >&2
+    exit 1
+  }
+fi
 
 if [[ "$MODE" != "dry" ]]; then
   acquire_lock
@@ -372,11 +456,16 @@ say "origin/main is ${ORIGIN_SHA:0:9}"
 head_now="$("$GIT" rev-parse HEAD)"
 
 # Skip only when this exact HEAD already passed the full gate *and* the rebuild
-# that followed verified both the node and the desktop. A build that dies after
-# printing [5/5] leaves no success marker, so the next run retries it.
+# that followed verified both the node and the desktop. The success marker is
+# cleared when a new rebuild is scheduled, so a failed retry of the same HEAD
+# cannot hide behind an older success.
 if [[ "$MODE" == "deploy" && "$FORCE" != "1" ]]; then
   success_head="$(json_field "$LAST_SUCCESS" head)"
-  if [[ "$success_head" == "$head_now" ]] \
+  success_at="$(json_field "$LAST_SUCCESS" at)"
+  failure_head="$(json_field "$LAST_REBUILD_FAILURE" head)"
+  failure_at="$(json_field "$LAST_REBUILD_FAILURE" at)"
+  if [[ "$success_head" == "$head_now" && "$success_at" =~ ^[0-9]+$ ]] \
+    && { [[ ! "$failure_at" =~ ^[0-9]+$ ]] || (( success_at >= failure_at )); } \
     && "$GIT" merge-base --is-ancestor "$ORIGIN_SHA" HEAD; then
     say "nothing to do: ${head_now:0:9} is already deployed (log: $(json_field "$LAST_SUCCESS" log))"
     exit 0
@@ -385,12 +474,13 @@ if [[ "$MODE" == "deploy" && "$FORCE" != "1" ]]; then
   sched_head="$(json_field "$LAST_RUN" head)"
   if [[ "$sched_head" == "$head_now" && "$sched_at" =~ ^[0-9]+$ ]] \
     && (( $(date +%s) - sched_at < 2700 )); then
-    failure_head="$(json_field "$LAST_REBUILD_FAILURE" head)"
-    if [[ "$failure_head" != "$head_now" ]]; then
+    if [[ "$failure_head" == "$head_now" && "$failure_at" =~ ^[0-9]+$ ]] \
+      && (( failure_at >= sched_at )); then
+      say "the previous rebuild for ${head_now:0:9} failed; retrying"
+    else
       say "a rebuild for ${head_now:0:9} is still in progress (log: $(json_field "$LAST_RUN" log)); not starting another"
       exit 0
     fi
-    say "the previous rebuild for ${head_now:0:9} failed; retrying"
   fi
 fi
 
@@ -519,10 +609,15 @@ printf '%s scheduled by daily-deploy (origin %s, head %s)\n' \
 
 # The inner shell gets this script's PATH, because launchd starts it without
 # the login shell's environment. `sleep` is the handoff: the task that ran us
-# must be allowed to finish before the node it runs on is restarted.
-cmd="export PATH=$(printf %q "$PATH"); sleep $DELAY; cd $(printf %q "$ROOT") && exec ./scripts/daily-deploy.sh --run-rebuild $(printf %q "$HEAD_AFTER") $(printf %q "$LOG") >> $(printf %q "$LOG") 2>&1"
+# must be allowed to finish before the node it runs on is restarted. The label
+# is per-run so a refusal in the wrapper leaves the previous app running.
+LABEL="$LABEL_PREFIX.$(date +%s)"
+cmd="export PATH=$(printf %q "$PATH"); sleep $DELAY; cd $(printf %q "$ROOT") && exec ./scripts/daily-deploy.sh --run-rebuild $(printf %q "$HEAD_AFTER") $(printf %q "$LOG") $(printf %q "$LABEL") >> $(printf %q "$LOG") 2>&1"
 
-launchctl remove "$LABEL" >/dev/null 2>&1 || true
+# A new attempt owns the markers from here on: a failed retry of the same HEAD
+# must not be skipped because an older success for that HEAD is still on disk.
+rm -f "$LAST_SUCCESS" "$LAST_REBUILD_FAILURE" || fail "cannot clear deploy markers"
+
 if launchctl submit -l "$LABEL" -- /bin/bash -lc "$cmd"; then
   method=launchctl
 else
@@ -532,7 +627,7 @@ else
   method=nohup
 fi
 
-if ! write_last_run "$HEAD_AFTER" "$LOG" "$method"; then
+if ! write_last_run "$HEAD_AFTER" "$LOG" "$method" "$LABEL"; then
   # The rebuild is already scheduled; a missing marker only means tomorrow's
   # run checks again instead of skipping.
   say "WARN: cannot write $LAST_RUN; the next run will re-check instead of skipping"
