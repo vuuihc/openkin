@@ -85,8 +85,10 @@ iPad 左侧栏（≥768px，走桌面布局）里，点一条对话第一次不�
 点项目行右边的 + 新建对话（Task）也要点两次。手机布局（<768px、抽屉）没有这个
 问题。
 
-疑似 iOS 的 hover 模拟：桌面布局把鼠标态原样给了 iPad。对话行里有只在 hover 时
-出现的删除按钮（`ui/src/components/layout/Sidebar.tsx:1507`，`opacity-0
+已确认（报告人 2026-11-08，iPad 实机）：第一次点按只落成 hover——行底色变了、
+没有跳转，第二次点才进入对话。机制是 iOS 把触摸当鼠标的 hover 模拟，而桌面布局
+把鼠标态原样给了 iPad：对话行里有只在 hover 时出现的删除按钮
+（`ui/src/components/layout/Sidebar.tsx:1507`，`opacity-0
 group-hover/session:opacity-100`），项目行里有三个同类按钮（`:1240`、`:1254`、
 `:1272`），+ 自己也从 `opacity-70` 变成 `group-hover/proj:opacity-100`（`:1288`）。
 第一次点按先落成 hover（行底色变化、隐藏按钮显形），点击被吃掉，第二次才算真正
@@ -94,9 +96,6 @@ group-hover/session:opacity-100`），项目行里有三个同类按钮（`:1240
 宽度上——`.touch-hide` / `.touch-only` 的媒体查询是 `max-width: 639.98px` 或
 `(pointer: coarse) and (max-width: 767.98px)`（`:113`），iPad 宽度 ≥768 正好
 漏掉；`:98` 的注释也明说“iPad 拿到桌面布局”。
-
-待确认：在 iPad 上点第一次之后，行是否已经进入 hover 态（底色/按钮变化）。若是，
-就按下面修；若不是，先量点击落到了哪个元素上，不要直接改 CSS。
 
 期望：iPad（触摸、任意宽度）上每次点击第一次就生效：点对话直接进入，点 + 直接
 进入新建草稿；触摸布局里不出现只能 hover 才看得见的控件——需要常驻的操作要么
