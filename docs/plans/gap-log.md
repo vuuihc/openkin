@@ -30,6 +30,87 @@ person can see; the fix and its verification belong in the issue or the PR.
 
 ## Open
 
+### 2026-11-08 · 中 · iPad 全屏后最上面的 UI 压在系统状态栏下面
+
+iPad 客户端全屏后，最上面一行 UI 和 iPad 的状态栏（时间、电量）重叠：左侧栏的
+K 标识和标题首当其冲，右侧页面顶部也一起进去；手机布局没有这个问题。
+
+这不是某一条 bar 少写了 padding，而是桌面布局里没有元素承担顶部安全区。根节点
+的 `.safe-pad` 只负责左、右、下（`ui/src/index.css:223`），顶部 inset 的约定是
+由每个宽度下最上面那一条 bar 自己用 `.pt-safe` 承担；但承担者都是手机专属的
+——`MobileHeader` 是 `md:hidden`（`ui/src/components/mobile/MobileHeader.tsx:49`），
+`AppShell` 里两处 `pt-safe` 也都在 `md:hidden` 的分支里（`AppShell.tsx:618`、
+`:694`）。壳层这边是有意的：`viewport-fit=cover`（`ui/index.html:11`）加
+`contentInset: "never"`（`mobile/capacitor.config.ts:73`），注释写明“控制台自己
+用 env(safe-area-inset-*) 补”。≥768px 一换成桌面布局，这个约定就断了；各页只剩
+自己碰巧写的 padding（`ui/src/pages/SessionsPage.tsx:861` 的 `md:pt-6`），所以
+重叠程度随页面而变。
+
+期望：任意宽度、横竖屏、全屏与否，两栏顶部的内容都不进入
+`env(safe-area-inset-top)` 区域，也不重复补出第二条空白。验收：iPad 模拟器
+1024×1366 与 820×1180 各一组横竖屏截图，状态栏下没有控件；iPhone 现有的
+`pt-safe` 行为不回归。
+
+待定：顶部 inset 在桌面布局里归谁——加一条跨两列的顶条，还是左右两列各自补
+padding？`aside` 是从 `pt-3` 开始的（`ui/src/components/layout/Sidebar.tsx:847`、
+`:403`），选哪个都要同时覆盖桌面侧栏和它的抽屉副本。
+
+### 2026-11-08 · 中 · 侧栏看不出设备 → 项目 → 对话的层级
+
+iPad 左侧对话栏里，设备、项目、对话三层看起来在同一个平面上，看不出谁包含谁，
+也看不出哪些对话属于哪个项目。项目名用的是全大写小节标签的样式
+（`kin-section-label`：`text-caption`、uppercase、muted），比对话标题还小还淡；
+缩进也没有递进——在 248px 的桌面侧栏上量：设备名约 45px、项目名约 35px、对话
+标题约 34px，项目和对话几乎同深，设备反而最深。
+
+IA 已经定了对话列表是“设备 → 项目 → 对话”三级（`docs/product/IA.md`），这条
+不是 IA 要改，是层级没有在视觉上成立。
+
+期望：三层由缩进和字重一起表达，左边缘严格递进（设备 < 项目 < 对话），项目名
+不再像小节标题；折叠箭头待在能看出它属于哪一级的位置；iPad 桌面侧栏和 390px
+抽屉两种宽度都成立。
+
+待定：具体形态要报告人定——缩进步长（建议 8/8px 或 12/12px）、项目行要不要
+分组背景、要不要加一条竖线。没定之前不要只改颜色交差。
+
+线索：`ui/src/components/layout/Sidebar.tsx:1082`（设备子层只有 `pl-1`，4px）、
+`:1195`（项目行，`kin-section-label`，没有左内边距）、`:1315`（对话容器，没有
+左内边距）、`:1488`（对话行 `px-2`）；`kin-section-label` 的定义在
+`ui/src/index.css:538`。验收：iPad 与 390px 抽屉各一张截图，三层左边缘严格
+递增；折叠/展开项目后层级不变。
+
+### 2026-11-08 · 高 · iPad 上点对话、点项目的加号，第一次点击不生效
+
+iPad 左侧栏（≥768px，走桌面布局）里，点一条对话第一次不跳转，第二次才进入；
+点项目行右边的 + 新建对话（Task）也要点两次。手机布局（<768px、抽屉）没有这个
+问题。
+
+疑似 iOS 的 hover 模拟：桌面布局把鼠标态原样给了 iPad。对话行里有只在 hover 时
+出现的删除按钮（`ui/src/components/layout/Sidebar.tsx:1507`，`opacity-0
+group-hover/session:opacity-100`），项目行里有三个同类按钮（`:1240`、`:1254`、
+`:1272`），+ 自己也从 `opacity-70` 变成 `group-hover/proj:opacity-100`（`:1288`）。
+第一次点按先落成 hover（行底色变化、隐藏按钮显形），点击被吃掉，第二次才算真正
+的点击。仓库自己在 `ui/src/index.css:126` 写过这个机制；但“触摸”的判断绑在了
+宽度上——`.touch-hide` / `.touch-only` 的媒体查询是 `max-width: 639.98px` 或
+`(pointer: coarse) and (max-width: 767.98px)`（`:113`），iPad 宽度 ≥768 正好
+漏掉；`:98` 的注释也明说“iPad 拿到桌面布局”。
+
+待确认：在 iPad 上点第一次之后，行是否已经进入 hover 态（底色/按钮变化）。若是，
+就按下面修；若不是，先量点击落到了哪个元素上，不要直接改 CSS。
+
+期望：iPad（触摸、任意宽度）上每次点击第一次就生效：点对话直接进入，点 + 直接
+进入新建草稿；触摸布局里不出现只能 hover 才看得见的控件——需要常驻的操作要么
+常显，要么走已有的项目 `⋯` 动作单（`Sidebar.tsx:1294`）。
+
+待定：修法选哪个——(a) 把 hover 揭示统一收进 `@media (hover: hover)`，触摸设备
+改用常显或 `⋯` sheet；(b) 保留控件，只在 `(pointer: coarse)` 下覆盖首次点击的
+hover。倾向 (a)：它同时解释桌面为什么不变，也和 `.touch-hide` 的初衷一致。
+
+线索：`ui/src/components/layout/Sidebar.tsx:1471`（对话行的 `group/session` 与
+hover 背景）、`:1480`（NavLink 本体）、`:1195`（项目行 `group/proj`）。
+验收：iPad 真机或模拟器上，对话行与 + 都是单点即入；桌面 hover 行为不变；
+`<768px` 抽屉行为不变。
+
 ### 2026-11-08 · 高 · 手机上点“例行任务”看不到刚在 Mac 上建好的例行任务
 
 在 iPad（Hub 客户端）点“例行任务”，列表是空的；同一时刻在 Mac 上由 Agent 建
