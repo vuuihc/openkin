@@ -30,6 +30,37 @@ person can see; the fix and its verification belong in the issue or the PR.
 
 ## Open
 
+### 2026-11-08 · 高 · 手机上点“例行任务”看不到刚在 Mac 上建好的例行任务
+
+在 iPad（Hub 客户端）点“例行任务”，列表是空的；同一时刻在 Mac 上由 Agent 建
+好的例行任务（`OpenKin gap sweep (Kin dogfood)`，21:09 建）在 Mac 控制台
+（`:7777`）里能看见，而且已经在按小时跑。这不是列表没刷新：Hub 的
+`/api/routines` 用节点凭据直接返回 `[]`。
+
+根因是 Hub 和节点各自有一份 `routines` 表：另一个会话里的 Agent 通过本机
+`:7777` 的 `POST /api/routines` 建任务，写进了 Mac 节点的库；iPad 读的是 Hub
+的库。两套控制面在 routines 上没有打通（tasks 有 `executing_device_id`，
+routines 没有）。
+
+期望：在任一客户端上能看到并管理“这台机器上在跑的”例行任务；如果产品决定
+例行任务属于 Hub，那么 Agent 在节点上建任务也必须落到 Hub，并且运行要派发回
+目标机器。
+
+待定（记录时已问报告人）：两条路选一条——
+A. 例行任务属于机器：Hub 通过现有的节点查询通道读取/代理该机器的 routines，
+   节点继续自己调度。改动小，但手机上呈现为“某台机器的例行任务”。
+B. 例行任务属于 Hub：routines 增加 `executing_device_id`，Hub 调度、节点执行，
+   与 ADR 0022 的“Hub owns the scheduler”一致；要迁移已有的节点本地任务。
+当前推荐 B（与长期模型一致），A 可作为更快的止血。
+
+线索：`internal/api/routines.go`、`internal/routines/scheduler.go`（派发的
+`task.CreateRequest` 没有 `ExecutingDeviceID`）、`internal/remote/worker/query.go`
+（没有 routines 查询）、`internal/node/responder.go`、`internal/mcp/server.go`
+（只有 `list_routines` / `run_routine`，没有创建）、`ui/src/pages/RoutinesPage.tsx`、
+`ui/src/components/chat/CwdPicker.tsx`（RoutinesPage 的 cwd 选择没有 device，
+在 Hub 上列的是 Hub 自己的文件系统）。验收：同一条 routine 在 iPad 与 Mac 两端
+都可见；在 iPad 上 run-now 落到 Mac 执行。
+
 ### 2026-11-08 · 高 · 回车直接发送，写不了多行
 
 在 iPad 的 iOS 客户端里，输入框的回车键直接发送消息。软键盘没有 Shift，
