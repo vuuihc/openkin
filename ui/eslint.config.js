@@ -69,6 +69,23 @@ export default tseslint.config(
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "warn",
       /**
+       * The IME guard is one predicate, not sixteen inline copies.
+       *
+       * `isComposing` alone is not enough — some IMEs and older Safari deliver
+       * the composing keydown before the flag flips, and only `keyCode` 229
+       * says so. Reading the property directly is how that fallback gets lost
+       * one call site at a time, so the property is restricted: call
+       * `isImeKeyEvent()` from `src/lib/ime.ts`, which reads both signals.
+       */
+      "no-restricted-properties": [
+        "error",
+        {
+          property: "isComposing",
+          message:
+            "call isImeKeyEvent() from `src/lib/ime.ts` — it also reads the 229 sentinel that some IMEs report alone",
+        },
+      ],
+      /**
        * Colour literals live in `src/design/`, and nowhere else.
        *
        * The design system's whole claim is that a colour has a name and the
@@ -138,6 +155,12 @@ export default tseslint.config(
     // token layer's own files would be reporting its own subject.
     files: ["src/design/**/*.{ts,tsx}"],
     rules: { "no-restricted-syntax": "off", "kin/no-undefined-token": "off" },
+  },
+  {
+    // The predicate itself is where both signals are read; every other file
+    // asks it instead. The colour rule above still applies here.
+    files: ["src/lib/ime.ts"],
+    rules: { "no-restricted-properties": "off" },
   },
   {
     // Plain JS at the root: the rules themselves, and this file. They read

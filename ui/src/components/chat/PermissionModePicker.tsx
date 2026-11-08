@@ -7,6 +7,7 @@ import {
   type PermissionMode,
 } from "../../lib/permissionMode";
 import { useT } from "../../i18n/react";
+import { isImeKeyEvent } from "../../lib/ime";
 import { useAnchoredPanel } from "../../hooks/useAnchoredPanel";
 import { useMinWidth } from "../../hooks/useMinWidth";
 import { IconCheck, IconChevronDown } from "../icons";
@@ -244,7 +245,7 @@ function PermissionMenu({
   }, [open, anchored]);
 
   const onMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.nativeEvent.isComposing) return;
+    if (isImeKeyEvent(event.nativeEvent)) return;
     const items = Array.from(
       menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? [],
     );

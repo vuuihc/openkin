@@ -9,6 +9,7 @@ import {
   type Ref,
 } from "react";
 import { useT } from "../../i18n/react";
+import { isImeKeyEvent } from "../../lib/ime";
 import { hasFinePointer } from "../../lib/pointer";
 import Sheet from "../mobile/Sheet";
 import { IconCheck, IconChevronDown, IconSearch } from "../icons";
@@ -221,7 +222,7 @@ function Chooser({
   const onListKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     // An IME candidate list owns the arrow keys until the composition ends;
     // moving focus mid-composition would abort the word the user is typing.
-    if (event.nativeEvent.isComposing) return;
+    if (isImeKeyEvent(event.nativeEvent)) return;
     if (event.key === "Tab") {
       // The panel would otherwise stay open behind a focus it no longer owns.
       onDismiss?.();
@@ -247,7 +248,7 @@ function Chooser({
   };
 
   const onSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (event.nativeEvent.isComposing) return;
+    if (isImeKeyEvent(event.nativeEvent)) return;
     if (event.key === "Tab") {
       onDismiss?.();
       return;

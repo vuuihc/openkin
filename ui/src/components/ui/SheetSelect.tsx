@@ -9,6 +9,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../../i18n/react";
+import { isImeKeyEvent } from "../../lib/ime";
 import { useAnchoredPanel } from "../../hooks/useAnchoredPanel";
 import { useMinWidth } from "../../hooks/useMinWidth";
 import { IconCheck, IconChevronDown } from "../icons";
@@ -253,7 +254,7 @@ function MenuSelect({
   }, [open, anchored]);
 
   const onMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.nativeEvent.isComposing) return;
+    if (isImeKeyEvent(event.nativeEvent)) return;
     const items = Array.from(
       menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? [],
     );

@@ -19,6 +19,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { searchTaskSourceFiles } from "../../api/client";
 import { useT } from "../../i18n/react";
+import { isImeKeyEvent } from "../../lib/ime";
 import { IconSearch, IconSpinner } from "../icons";
 
 /**
@@ -205,7 +206,7 @@ export default function FileQuickOpen({ taskId, open, onClose, onOpenPath }: Pro
   useEffect(() => {
     if (!open) return;
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.isComposing || event.defaultPrevented) return;
+      if (isImeKeyEvent(event) || event.defaultPrevented) return;
       if (event.key !== "Escape" && event.key !== "Tab") return;
       const root = rootRef.current;
       if (!root) return;
@@ -255,7 +256,7 @@ export default function FileQuickOpen({ taskId, open, onClose, onOpenPath }: Pro
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     // Escape during IME composition cancels the composition, not the dialog.
-    if (event.nativeEvent.isComposing) return;
+    if (isImeKeyEvent(event.nativeEvent)) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
       if (rows.length > 0) setActive((i) => Math.min(rows.length - 1, i + 1));

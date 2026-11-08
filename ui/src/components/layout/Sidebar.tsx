@@ -17,6 +17,7 @@ import {
   type Task,
 } from "../../api/client";
 import { useT } from "../../i18n/react";
+import { isImeKeyEvent } from "../../lib/ime";
 import { getDraftCwd, getDraftPrompt, subscribeDraft } from "../../lib/draftChat";
 import {
   archiveProject,
@@ -201,7 +202,7 @@ export default function Sidebar({
   }
 
   function onSearchKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
-    if (event.nativeEvent.isComposing) return;
+    if (isImeKeyEvent(event.nativeEvent)) return;
     if (event.key === "Escape") {
       event.preventDefault();
       onSearchQueryChange?.("");
@@ -216,7 +217,7 @@ export default function Sidebar({
   }
 
   function onListKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
-    if (event.defaultPrevented || event.nativeEvent.isComposing) return;
+    if (event.defaultPrevented || isImeKeyEvent(event.nativeEvent)) return;
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     const rows = sessionRows();
     const at = rows.indexOf(document.activeElement as HTMLElement);

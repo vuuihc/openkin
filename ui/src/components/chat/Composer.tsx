@@ -16,6 +16,7 @@ import {
   uploadFile,
 } from "../../api/client";
 import { useT } from "../../i18n/react";
+import { isImeKeyEvent } from "../../lib/ime";
 import { filterRoles, insertRole, type AgentRole } from "../../lib/agentRoles";
 import { agentDisplayName } from "../../lib/agentMention";
 import { agentCatalogState } from "../../lib/agentCatalog";
@@ -616,7 +617,7 @@ export default function Composer({
     // row — or send the draft — under the composition the person is still
     // writing, which is the one way this composer breaks for a language that
     // types through an IME.
-    if (e.nativeEvent.isComposing) return;
+    if (isImeKeyEvent(e.nativeEvent)) return;
 
     // Holding Enter repeats the keydown; by the second one the menu has already
     // picked and closed, so the repeat would send the prompt the first keydown

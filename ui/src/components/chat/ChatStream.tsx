@@ -18,6 +18,7 @@ import type { TaskEvent } from "../../api/client";
 import { findMatches, stepMatch } from "../../lib/findInTranscript";
 import { friendlyErrorLabel } from "../../lib/friendlyError";
 import { useLocale, useT } from "../../i18n/react";
+import { isImeKeyEvent } from "../../lib/ime";
 import { isMessageQueued } from "../../lib/queuedPrompts";
 import { overlayOwnsKeyboard } from "../../lib/overlayOwnsKeyboard";
 import { agentAvatarMeta } from "../../lib/agentMention";
@@ -280,7 +281,7 @@ export default function ChatStream({
     if (!findShortcut) return;
     const onKeyDown = (event: KeyboardEvent) => {
       // Escape during IME composition cancels the composition, not the bar.
-      if (event.isComposing) return;
+      if (isImeKeyEvent(event)) return;
       // A handler closer to the key already claimed it — the editor's own
       // find, an open dialog's shortcut. A window listener runs last, and
       // reopening this bar over whatever just handled the key is the wrong
@@ -520,7 +521,7 @@ export default function ChatStream({
               }}
               onKeyDown={(event) => {
                 // Enter that confirms an IME candidate is not "next match".
-                if (event.nativeEvent.isComposing) return;
+                if (isImeKeyEvent(event.nativeEvent)) return;
                 if (event.key === "Enter") {
                   event.preventDefault();
                   stepFind(event.shiftKey ? -1 : 1);

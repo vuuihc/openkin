@@ -51,6 +51,7 @@ import { liveResources } from "../api/liveResources";
 import { useFindSeed } from "./useFindSeed";
 import { useMinWidth } from "../hooks/useMinWidth";
 import { usePendingResources, useTaskResource } from "../api/useLiveResources";
+import { isImeKeyEvent } from "../lib/ime";
 import ApprovalCard from "../components/cards/ApprovalCard";
 import LimitCard from "../components/cards/LimitCard";
 import UserQuestionCard from "../components/cards/UserQuestionCard";
@@ -861,7 +862,7 @@ export default function TaskDetailPage({
   useEffect(() => {
     if (!canFindFile) return;
     function onKey(event: KeyboardEvent) {
-      if (event.defaultPrevented || event.isComposing || event.repeat) return;
+      if (event.defaultPrevented || isImeKeyEvent(event) || event.repeat) return;
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
       if (event.key.toLowerCase() !== "p") return;
       const target = event.target;
@@ -890,7 +891,7 @@ export default function TaskDetailPage({
   useEffect(() => {
     if (!active || !wide) return;
     function onKey(event: KeyboardEvent) {
-      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      if (event.key !== "Escape" || event.defaultPrevented || isImeKeyEvent(event)) return;
       if (overlayOwnsKeyboard()) return;
       window.setTimeout(() => {
         if (event.defaultPrevented) return;

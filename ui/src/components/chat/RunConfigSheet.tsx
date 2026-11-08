@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import type { AgentInfo } from "../../api/client";
 import { useAnchoredPanel } from "../../hooks/useAnchoredPanel";
 import { useT } from "../../i18n/react";
+import { isImeKeyEvent } from "../../lib/ime";
 import { agentAvatarMeta } from "../../lib/agentMention";
 import {
   isListedModel,
@@ -604,7 +605,7 @@ function moveListFocus(event: ReactKeyboardEvent<HTMLDivElement>) {
   // An IME candidate list owns the arrow keys until the composition ends;
   // moving focus mid-composition would abort the word being typed. Same guard
   // as `SearchSelect`, which is where this keyboard contract is written down.
-  if (event.nativeEvent.isComposing) return;
+  if (isImeKeyEvent(event.nativeEvent)) return;
   if (
     event.key !== "ArrowDown" &&
     event.key !== "ArrowUp" &&
@@ -846,7 +847,7 @@ function SearchField({
         onKeyDown={(event) => {
           // The IME guard is the load-bearing line for a Chinese model name:
           // the candidate list owns the arrows and Enter until it closes.
-          if (event.nativeEvent.isComposing) return;
+          if (isImeKeyEvent(event.nativeEvent)) return;
           if (event.key === "ArrowDown") {
             event.preventDefault();
             onArrowDown();

@@ -14,6 +14,7 @@ import {
 } from "../../api/client";
 import { liveResources } from "../../api/liveResources";
 import { useTaskList, useTaskResource } from "../../api/useLiveResources";
+import { isImeKeyEvent } from "../../lib/ime";
 import {
   DRAFT_PATH,
   draftSurfaceActive,
@@ -518,7 +519,7 @@ export default function AppShell({
   // the find bar over the list the reader was looking at.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.repeat || e.isComposing || e.defaultPrevented) return;
+      if (e.repeat || isImeKeyEvent(e) || e.defaultPrevented) return;
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
       if (e.key.toLowerCase() !== "f") return;
       // Ask the focused element which pane it is in, not the document which
