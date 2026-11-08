@@ -1,13 +1,14 @@
 # 设计系统中间层：从手写控件到有契约的组件库
 
-状态：**进行中 · G0 完成**
+状态：**进行中 · G0 完成 · G0.5 待决策**
 建立：2026-11-08
+2026-11-09 接入 spike 完成，固定成本比预估低一个量级；先做 G0.5 决定要不要整套采用 Astryx，再决定 G1 之后怎么走。见 [`2026-11-09-astryx-spike.md`](2026-11-09-astryx-spike.md)。
 配套：[`../product/TASTE.md`](../product/TASTE.md)、[`../product/components/README.md`](../product/components/README.md)、`ui/src/design/`
 测量：`python3 scripts/ui_inventory.py` —— §2 的盘点数字由它生成，不手抄；其他数字标注了出处
 
 ## 0. 一句话
 
-Kin 已经有 token 层和规则层，缺的是中间层：没有 Button、Input、Field、Select、Menu、Dialog、Tabs 这些**有 props、有契约、能被 lint 强制使用**的组件。本计划不换设计系统，只把已有的视觉语言升格成组件，再用同一把尺子证明采用率真的变了。
+Kin 已经有 token 层和规则层，缺的是中间层：没有 Button、Input、Field、Select、Menu、Dialog、Tabs 这些**有 props、有契约、能被 lint 强制使用**的组件。本计划的 G0.5 先决定这层是自己写还是采用 Astryx；无论哪条，**视觉语言与 `--kin-*` token 都不换**，再用同一把尺子证明采用率真的变了。
 
 ## 1. 为什么不是「换一套设计系统」
 
@@ -151,6 +152,7 @@ Kin 已经有 token 层和规则层，缺的是中间层：没有 Button、Input
 | 轮次 | 内容 | 验收 |
 |---|---|---|
 | **G0** | 盘点 + 本计划 | ✅ 完成（2026-11-08） |
+| **G0.5** | 决定组件层：整套采用 Astryx，还是自己抽 | 定 preflight 方案；用选定方案把 `SettingsPage` 整页迁一次（含 Kin 主题、i18n、390px）；计时 + 截图 + 决策记录。不通过就按原计划走 |
 | **G1** | dev-only 组件目录页 `/dev/components` | 开发模式下能看到现有 3 个控件 × 全部状态；生产构建不含该路由 |
 
 ### 阶段 B · 表单
@@ -197,6 +199,7 @@ Kin 已经有 token 层和规则层，缺的是中间层：没有 Button、Input
 | 项 | 状态 | 证据 |
 |---|---|---|
 | G0 盘点 | 🟢 完成 | `scripts/ui_inventory.py` 输出；§2 的表 |
+| G0.5 组件层决策 | 🟡 待决策 | [`2026-11-09-astryx-spike.md`](2026-11-09-astryx-spike.md)：固定成本约 3–5 天，剩余风险见该文 §4 |
 | G1 目录页 | ⚪ 未开始 | — |
 | G2 Button 抽取 | ⚪ 未开始 | — |
 | G3–G7 Button 迁移 | ⚪ 未开始 | — |
@@ -227,18 +230,29 @@ Kin 已经有 token 层和规则层，缺的是中间层：没有 Button、Input
 | Q3 | `SettingsPrimitives` 要不要提升到 `ui/`？ | 暂不：它是设置页布局，不是通用控件 | G8 之后回看 |
 | Q4 | 原生 `<select>` 的 27 处要不要全迁？ | 先包一层 `Select`，触屏走 `SheetSelect`；不强行改设置页布局 | G10 |
 | Q5 | 是否把 `docs/product/components/` 扩成完整清单？ | 是：每加一个控件加一行 | 持续 |
+| Q6 | 组件层：整套采用 Astryx，还是自己抽？ | 先做 G0.5 的整页迁移再定；spike 显示固定成本约 3–5 天 | G0.5 |
 
 ## 11. 与 Astryx 的关系
 
-借三样，不借一样：
+**2026-11-09 的 spike 推翻了本节原先的结论。** 原来写的是「借格式与清单，不借样式」，实测结果：
 
-| 借 | 怎么用 |
+- 预编译 CSS，不需要构建插件，也不强制 Tailwind 4；
+- React 19 在 98 个文件里只有 1 个真实类型错误；
+- 自带和我们同源的 IME 守卫（`isComposing || keyCode === 229`）与焦点归还工具；
+- 约 20 行 `defineTheme` 就能接近 Kin 的暗色外观；
+- 120 个组件，含 BottomSheet、SnapPaging、gestures、CommandPalette、Table。
+
+唯一的结构性阻塞是 **Tailwind 3 的 preflight（无层级）压过 Astryx 的 `@layer`**，解法见 spike §3.1。
+
+所以「借什么」现在取决于 G0.5：
+
+| 若决定自己抽 | 若决定整套采用 |
 |---|---|
-| 组件清单 | 决定「还缺哪些控件」，避免拍脑袋 |
-| `*.doc.mjs` 契约格式 | 已经是 `components/README.md` 的格式来源 |
-| 状态分类法（用户 / 系统 / agent） | 已经用于 [`../product/design/agentic-states.md`](../product/design/agentic-states.md) |
+| 借组件清单、`*.doc.mjs` 格式、状态分类法 | 借组件实现；用 `defineTheme` 把 `--kin-*` 映射成 Astryx 主题 |
+| 不借样式 | **仍然不直接用 neutral 主题**：视觉决策留在 Kin，token 值与对比度约束继续由 `tokens.test.ts` 守 |
+| G2–G17 按原样执行 | G2–G17 变成迁移顺序表，控件清单不变 |
 
-**不借**：它的样式与 token 模型。Astryx 是带样式的系统，接进来就要换掉 `--kin-*`，而 Kin 的 token 约束更严、有测试。只有当一个组件自建成本明显高于迁移成本时（G18 的 combobox / table / date picker），才单独评估它的代码。
+无论走哪条，**都不把 Astryx 的默认外观原样上线**——差别只在“皮肤是我们画的还是映射的”。
 
 ## 12. 怎么维护这份文档
 
