@@ -51,4 +51,44 @@ describe("agent model choices", () => {
       { id: CUSTOM_MODEL_ID, label: "Custom" },
     ]);
   });
+
+  it("groups a nested gateway id by its full provider path", () => {
+    // The gateway's own first segment is shared by every upstream it fronts;
+    // heading the rows with it left six same-named models under one heading.
+    const options = modelPickerOptions(
+      [
+        { id: "gw/dashscope/glm-5.3[1m]", label: "GLM 5.3" },
+        { id: "gw/volcengine/glm-5.3[1m]", label: "GLM 5.3" },
+        { id: "gw/glm-5.3[1m]", label: "GLM 5.3" },
+      ],
+      { default: "Default", custom: "Custom" },
+    );
+    expect(options.slice(1, -1)).toEqual([
+      {
+        id: "gw/dashscope/glm-5.3[1m]",
+        label: "GLM 5.3",
+        detail: "gw/dashscope",
+        group: "gw/dashscope",
+      },
+      {
+        id: "gw/volcengine/glm-5.3[1m]",
+        label: "GLM 5.3",
+        detail: "gw/volcengine",
+        group: "gw/volcengine",
+      },
+      { id: "gw/glm-5.3[1m]", label: "GLM 5.3", detail: "gw", group: "gw" },
+    ]);
+  });
+
+  it("lists a repeated catalog id once, keeping the first row", () => {
+    const options = modelPickerOptions(
+      [
+        { id: "gw/opus", label: "Opus" },
+        { id: " gw/opus ", label: "Opus (duplicate)" },
+        { id: "gw/sonnet", label: "Sonnet" },
+      ],
+      { default: "Default", custom: "Custom" },
+    );
+    expect(options.map((option) => option.label)).toEqual(["Default", "Opus", "Sonnet", "Custom"]);
+  });
 });
