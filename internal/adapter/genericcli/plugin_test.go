@@ -20,6 +20,12 @@ func TestPluginFactoryDescriptor(t *testing.T) {
 	if d.ID != "gemini-cli" || d.Kind != agent.KindCLI {
 		t.Fatalf("%+v", d)
 	}
+	// The catalog priority is the only ranking a generic CLI has against the
+	// native adapters; dropping it makes every generic agent priority 0 and
+	// puts an arbitrary one first when no default is configured.
+	if d.Priority != spec.Priority {
+		t.Fatalf("priority = %d, want %d", d.Priority, spec.Priority)
+	}
 	if d.Has(agent.CapabilityApprovals) || d.Has(agent.CapabilityOrchestrate) || d.Has(agent.CapabilityTools) {
 		t.Fatalf("tier2 must not declare approvals/orchestrate/tools: %+v", d.Capabilities)
 	}

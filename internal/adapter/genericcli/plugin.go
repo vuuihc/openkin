@@ -29,9 +29,14 @@ func NewPluginFactory(spec detect.DiscoverySpec, inv detect.Invocation) *PluginF
 // Descriptor implements agent.Factory.
 func (f *PluginFactory) Descriptor() agent.Descriptor {
 	return agent.Descriptor{
-		ID:           f.Spec.ID,
-		Name:         f.Spec.Name,
-		Kind:         agent.KindCLI,
+		ID:   f.Spec.ID,
+		Name: f.Spec.Name,
+		Kind: agent.KindCLI,
+		// The catalog's priority is what ranks this agent against the native
+		// adapters. Dropping it left every generic CLI at 0 and sorted an
+		// arbitrary one — opencode, by id, on this machine — ahead of Kin and
+		// Claude Code when no preference was configured.
+		Priority:     f.Spec.Priority,
 		Capabilities: []agent.Capability{agent.CapabilityRun},
 	}
 }
