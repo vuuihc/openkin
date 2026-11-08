@@ -69,6 +69,27 @@ Kin 已经有 token 层和规则层，缺的是中间层：没有 Button、Input
 | 图标 | `components/icons.tsx` | 单文件，保持 |
 | IME 守卫 | `ui/src/lib/ime.ts` | 所有键盘控件必须走它 |
 
+### 2.3 按钮最多的地方（迁移从这里开始）
+
+脚本按文件排序的前 12 名：
+
+| 文件 | 裸 `<button>` |
+|---|---:|
+| `ui/src/components/layout/Sidebar.tsx` | 22 |
+| `ui/src/pages/SettingsPage.tsx` | 16 |
+| `ui/src/pages/ProjectDetailPage.tsx` | 15 |
+| `ui/src/components/chat/ChatStream.tsx` | 14 |
+| `ui/src/pages/RoutinesPage.tsx` | 13 |
+| `ui/src/components/settings/ProviderSettingsSection.tsx` | 12 |
+| `ui/src/pages/SessionsPage.tsx` | 9 |
+| `ui/src/components/workspace/CodeViewer.tsx` | 9 |
+| `ui/src/components/workspace/ChangedFilesBar.tsx` | 9 |
+| `ui/src/components/chat/Composer.tsx` | 9 |
+| `ui/src/components/settings/RoutingSettings.tsx` | 8 |
+| `ui/src/components/chat/MachineBrowser.tsx` | 8 |
+
+前 12 个文件占 144 个，接近一半。迁移按这张表从大到小做，不按页面新旧做。
+
 ## 3. 目标 / 非目标
 
 **目标**
@@ -137,34 +158,39 @@ Kin 已经有 token 层和规则层，缺的是中间层：没有 Button、Input
 | 轮次 | 内容 | 验收 |
 |---|---|---|
 | **G2** | `Button` + `IconButton` 抽取 | 变体来自 `.kin-btn*`；`loading`/`disabled`/`iconOnly` 有测试；lint 禁止 `kin-btn` 出现在组件外 |
-| **G3** | Button 迁移：composer + 对话页 | 该区域裸 `<button>` 归零；键盘与焦点测试通过；截图对比无视觉回归 |
-| **G4** | Button 迁移：设置页 | 同上 |
-| **G5** | `Input` + `Textarea` + `Field` 抽取 | label/hint/error/`aria-describedby` 由 Field 统一；`kin-input` 收敛 |
-| **G6** | 表单迁移：设置页 + 项目页 | 19 个自写 `<label>` 降到 < 5 |
-| **G7** | `Select`（原生 select 的包装） | 27 个例外收进一个组件；触屏下走 `SheetSelect`；lint 禁止新增裸 `<select>` |
+| **G3** | Button 迁移：左栏与会话列表（`Sidebar` 22、`SessionsPage` 9，共 31） | 该区域裸 `<button>` 归零；键盘与焦点测试通过；截图对比无视觉回归 |
+| **G4** | Button 迁移：对话面（`ChatStream` 14、`Composer` 9、`MachineBrowser` 8，共 31） | 同上 |
+| **G5** | Button 迁移：工作区与项目（`ProjectDetailPage` 15、`ChangedFilesBar` 9、`CodeViewer` 9，共 33） | 同上 |
+| **G6** | Button 迁移：设置页（`SettingsPage` 16、`ProviderSettingsSection` 12、`RoutingSettings` 8，共 36） | 同上 |
+| **G7** | Button 迁移：`RoutinesPage` 13 | **等并发的设备维度改动落地后再排**，避免和别人的在途 diff 打架 |
+| **G8** | `Input` + `Textarea` + `Field` 抽取 | label/hint/error/`aria-describedby` 由 Field 统一；`kin-input` 收敛 |
+| **G9** | 表单迁移：设置页 + 项目页 | 19 个自写 `<label>` 降到 < 5 |
+| **G10** | `Select`（原生 select 的包装） | 27 个例外收进一个组件；触屏下走 `SheetSelect`；lint 禁止新增裸 `<select>` |
 
 ### 阶段 C · 浮层
 
 | 轮次 | 内容 | 验收 |
 |---|---|---|
-| **G8** | `Menu` + `Popover` 抽取（基于 `useAnchoredPanel`） | 5 处手写菜单收敛到 1 个组件；翻边/夹取/焦点归还/IME 有测试 |
-| **G9** | Menu 迁移：`PermissionModePicker`、`TerminalProfileMenu`、`OpenInMenu`、`Sidebar` | `role="menu"` 只剩 `Menu.tsx` |
-| **G10** | `Dialog` 抽取（`Sheet` 作为手机变体） | 焦点陷阱、Escape 分层（`overlayOwnsKeyboard`）、焦点归还 |
-| **G11** | Dialog 迁移：`CommandPalette`、`ShareDialog`、`MachineBrowser`、`DispatchSelector`、`FileQuickOpen` | `role="dialog"` 只剩 `Dialog.tsx` + `Sheet.tsx` |
+| **G11** | `Menu` + `Popover` 抽取（基于 `useAnchoredPanel`） | 5 处手写菜单收敛到 1 个组件；翻边/夹取/焦点归还/IME 有测试 |
+| **G12** | Menu 迁移：`PermissionModePicker`、`TerminalProfileMenu`、`OpenInMenu`、`Sidebar` | `role="menu"` 只剩 `Menu.tsx` |
+| **G13** | `Dialog` 抽取（`Sheet` 作为手机变体） | 焦点陷阱、Escape 分层（`overlayOwnsKeyboard`）、焦点归还 |
+| **G14** | Dialog 迁移：`CommandPalette`、`ShareDialog`、`MachineBrowser`、`DispatchSelector`、`FileQuickOpen` | `role="dialog"` 只剩 `Dialog.tsx` + `Sheet.tsx` |
 
 ### 阶段 D · 结构与状态
 
 | 轮次 | 内容 | 验收 |
 |---|---|---|
-| **G12** | `Tabs` 抽取 + 5 处迁移 | `role="tab"` 只剩组件内部；URL 同步仍在页面层 |
-| **G13** | `StateView`（空 / 加载 / 错误 / 断线） | TASTE 第 10 条变成组件默认值；`role="status"`/`role="alert"` 的用法收敛 |
-| **G14** | `Card` / `Surface` | 145 处 `rounded-* border` 里的重复写法收敛到 `.kin-card` + 组件 |
+| **G15** | `Tabs` 抽取 + 5 处迁移 | `role="tab"` 只剩组件内部；URL 同步仍在页面层 |
+| **G16** | `StateView`（空 / 加载 / 错误 / 断线） | TASTE 第 10 条变成组件默认值；`role="status"`/`role="alert"` 的用法收敛 |
+| **G17** | `Card` / `Surface` | 145 处 `rounded-* border` 里的重复写法收敛到 `.kin-card` + 组件 |
 
 ### 阶段 E · 难组件
 
 | 轮次 | 内容 | 验收 |
 |---|---|---|
-| **G15** | 评估 combobox / data table / date-time picker：自建、React Aria、Radix、Astryx | 写一份对比，给出每类的选型结论；不写代码 |
+| **G18** | 评估 combobox / data table / date-time picker：自建、React Aria、Radix、Astryx | 写一份对比，给出每类的选型结论；不写代码 |
+
+一轮如果超过 ~40 处替换，拆成两次会话——大 diff 的评审成本会吃掉抽取的收益。
 
 ## 8. 现在的位置
 
@@ -172,11 +198,12 @@ Kin 已经有 token 层和规则层，缺的是中间层：没有 Button、Input
 |---|---|---|
 | G0 盘点 | 🟢 完成 | `scripts/ui_inventory.py` 输出；§2 的表 |
 | G1 目录页 | ⚪ 未开始 | — |
-| G2–G4 Button | ⚪ 未开始 | — |
-| G5–G7 表单 | ⚪ 未开始 | — |
-| G8–G11 浮层 | ⚪ 未开始 | — |
-| G12–G14 结构 | ⚪ 未开始 | — |
-| G15 选型 | ⚪ 未开始 | — |
+| G2 Button 抽取 | ⚪ 未开始 | — |
+| G3–G7 Button 迁移 | ⚪ 未开始 | — |
+| G8–G10 表单 | ⚪ 未开始 | — |
+| G11–G14 浮层 | ⚪ 未开始 | — |
+| G15–G17 结构 | ⚪ 未开始 | — |
+| G18 选型 | ⚪ 未开始 | — |
 
 每轮结束后更新这张表：绿=有测试名或提交号，红=试过但失败，灰=未验证。
 
@@ -189,16 +216,16 @@ Kin 已经有 token 层和规则层，缺的是中间层：没有 Button、Input
 | **迁移期视觉回归** | 换组件时顺手改了间距/颜色 | 迁移提交只换实现，不改样式；每个面截图对比 |
 | **并发改动** | 多个会话同时改同一批页面 | 一轮只碰一类控件、一组页面；小 diff，易重放 |
 | **目录页腐烂** | 组件加了，目录页没加，半年后又看不见 | DoD 第 7 条；目录页缺一个状态就算没交付 |
-| **Astryx 版本漂移** | 上游 0.7.x 变动，参考的文档失效 | 只借格式与清单，不 pin 代码；选型留到 G15 |
+| **Astryx 版本漂移** | 上游 0.7.x 变动，参考的文档失效 | 只借格式与清单，不 pin 代码；选型留到 G18 |
 
 ## 10. 开放问题
 
 | # | 问题 | 当前倾向 | 何时定 |
 |---|---|---|---|
-| Q1 | 是否引入无样式底层（React Aria / Radix）？ | 阶段 A–D 不引入；难组件时再评估 | G15 |
+| Q1 | 是否引入无样式底层（React Aria / Radix）？ | 阶段 A–D 不引入；难组件时再评估 | G18 |
 | Q2 | 组件目录页用 `/dev/components` 还是 Ladle/Storybook？ | 先 `/dev/components`：零依赖、dev-only、不增加构建面 | G1 |
-| Q3 | `SettingsPrimitives` 要不要提升到 `ui/`？ | 暂不：它是设置页布局，不是通用控件 | G5 之后回看 |
-| Q4 | 原生 `<select>` 的 27 处要不要全迁？ | 先包一层 `Select`，触屏走 `SheetSelect`；不强行改设置页布局 | G7 |
+| Q3 | `SettingsPrimitives` 要不要提升到 `ui/`？ | 暂不：它是设置页布局，不是通用控件 | G8 之后回看 |
+| Q4 | 原生 `<select>` 的 27 处要不要全迁？ | 先包一层 `Select`，触屏走 `SheetSelect`；不强行改设置页布局 | G10 |
 | Q5 | 是否把 `docs/product/components/` 扩成完整清单？ | 是：每加一个控件加一行 | 持续 |
 
 ## 11. 与 Astryx 的关系
@@ -211,7 +238,7 @@ Kin 已经有 token 层和规则层，缺的是中间层：没有 Button、Input
 | `*.doc.mjs` 契约格式 | 已经是 `components/README.md` 的格式来源 |
 | 状态分类法（用户 / 系统 / agent） | 已经用于 [`../product/design/agentic-states.md`](../product/design/agentic-states.md) |
 
-**不借**：它的样式与 token 模型。Astryx 是带样式的系统，接进来就要换掉 `--kin-*`，而 Kin 的 token 约束更严、有测试。只有当一个组件自建成本明显高于迁移成本时（G15 的 combobox / table / date picker），才单独评估它的代码。
+**不借**：它的样式与 token 模型。Astryx 是带样式的系统，接进来就要换掉 `--kin-*`，而 Kin 的 token 约束更严、有测试。只有当一个组件自建成本明显高于迁移成本时（G18 的 combobox / table / date picker），才单独评估它的代码。
 
 ## 12. 怎么维护这份文档
 
