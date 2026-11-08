@@ -19,6 +19,13 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # internal/workspace's tests create throwaway repositories and assert the
+      # integration branch is "main". A runner's `git init` defaults to
+      # "master", so every one of them failed here while passing on a developer
+      # machine whose global config says main.
+      - name: Default new repositories to main
+        run: git config --global init.defaultBranch main
+
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
