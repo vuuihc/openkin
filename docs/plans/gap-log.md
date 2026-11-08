@@ -147,6 +147,64 @@ routines 没有）。
 都可见；在 iPad 上 run-now 落到 Mac 执行；纯 Hub 部署下 Hub 的 routines 表
 保持为空，创建/修改都写到目标节点。
 
+已修（2026-11-09）：按上面的 A 落地。
+- 协议：`worker.QueryRoutines`（`routines.call`）。请求是原样的 console 请求
+  （method + `/api/routines` 子树内的 path + body），回答是原样的 status /
+  content type / body。上限按“一帧装得下”算：path 4 KiB、body 128 KiB
+  （base64 后 < 256 KiB 的 params）、回答 640 KiB（base64 后 874 KB < 1 MiB
+  的帧）。路由段拒绝 `%`、`..`、反斜杠，`device` 不往下传。等待 30s。
+- 节点：`Responder.Routines` + `node.LocalRoutineCaller`，把 relay 来的请求打回
+  本机 loopback 控制台（带本进程 token，客户端超时比 Hub 的等待少 5s），走的是
+  同一套 handler，所以校验、默认值、调度和回答形状不会和本机创建分叉。
+- Hub：`Server.routineDevice` 中间件挂在全部 `/api/routines*` 路由上；`device`
+  为空 / `self` / 本机 desktop id 时走本机，其余经 `askDeviceQuietly` 转发。
+  转发路径用 `EscapedPath`，避免编码过的 `?` 在机器侧重新变成查询分隔符；机器
+  自己的 401/429 映射成 502，免得轮换过的节点 token 把手机踢出 Hub。preview 不
+  转发：它是对未保存规则的纯计算，表单每敲一个键都要问。
+- UI：RoutinesPage 顶部有机器选择（SheetSelect），选择持久化在
+  `kin_routines_device`；首次打开默认落到第一台在线非本机机器（手机上“本机”
+  是 Hub，那里没有 routines），没有别的机器才落到本机。机器列表读失败时不解析、
+  不覆盖已存选择（否则一次网络抖动就会把页面退回 Hub 的空列表）；读失败时按
+  慢速重试。创建表单的 cwd / agent / model 跟着所选机器，换机器会关掉表单；
+  New Chat 里“存为例行任务”保留机器和目录两行控件，远程机器也能建，并把这个
+  选择带到 Routines 页。
+- 远程运行时：feed、run-now、已读、编辑、删除都走 relay；远程 run 的标题不再
+  是链接（任务在节点库里，Hub 打不开），单条 routine 的历史取自 relay 回来的
+  feed，空状态写明“只是最近转发过来的运行”，没有更早分页。Hub 自己的
+  `task_update` 不再折进远程 feed，run-now 的响应在换机器后丢弃。
+- 文档：OpenAPI 给每个 routine 操作加了 `device` 查询参数并重新生成类型；
+  ADR 0022 写明 Hub 调度会话、routine 归机器；`docs/product/IA.md` 补了归属表。
+- 验证：`TestRoutineRequestsAreRelayedToTheirMachine`、
+  `TestRoutineRelayStripsOnlyTheDeviceParameter`、
+  `TestRoutineRelayReportsAMachineThatCannotAnswer`、
+  `TestRoutineRelayReportsAnOfflineMachine`、
+  `TestRoutineRelayRefusesAnOversizedBody`、
+  `TestRoutineRelayDoesNotForwardTheMachinesOwnAuthFailure`、
+  `TestRoutineRequestsForThisMachineStayLocal`、
+  `TestRoutineQuestionsRunOnThisMachine`、
+  `TestRoutineQuestionsRefuseAPathOutsideTheSubtree`、
+  `TestRoutineAnswersOverTheFrameAreRefused`、
+  `TestRoutinesParamsStayInsideTheRoutineSubtree`、
+  `TestARoutineAnswerAtTheBoundFitsOneFrame`、
+  `TestLocalRoutineCallerSpeaksToThisConsolesAPI`、
+  `ui/src/lib/routineDevice.test.ts`、
+  `ui/src/api/client.routineDevice.test.ts`、
+  `ui/src/pages/routinesDeviceWiring.test.ts`；mutant 9/9 红。
+
+仍待办（同一决策下的后续，不属于这次修复）：
+- 侧栏 routine 未读角标仍读本机（`App.tsx` / Sidebar 的
+  `getRoutineUnreadCount()` 没带 device），多设备下会一直显示本机的 0。
+- ProjectDetailPage 的项目内 routine 仍写本机：project 是 Hub 侧按 cwd 建的记录，
+  节点并不认识它。多设备下这条路径要改成“按 cwd 找机器上的 routine”或收掉。
+- 远程 run 的 task 详情 / transcript 打不开：节点上的 task 只存在节点库里，
+  Hub 没有查询通道；远程 run 的实时更新也不会经 Hub 的 WS 推过来，页面上一条
+  运行中的 run 会一直停在旧状态，直到重新加载。
+- MCP 仍只有 `list_routines` / `run_routine`，没有创建工具。
+- 旧版本写进 Hub 库的 routines 没有迁移：升级后它们仍由 Hub 调度，而 Routines
+  页默认落在节点上，只有选“本机”才看得到。要不要禁用 / 迁移需要产品决定。
+- ADR 0022 已补一句（Hub 调度会话，机器本地的 routine 由 Node 调度）；
+  `docs/product/IA.md` 已补“例行任务”归属表和项目页的遗留说明。
+
 ### 2026-11-08 · 高 · 回车直接发送，写不了多行
 
 在 iPad 的 iOS 客户端里，输入框的回车键直接发送消息。软键盘没有 Shift，

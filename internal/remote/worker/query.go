@@ -180,6 +180,98 @@ const QueryAgentSessions = "agent.sessions"
 // be inventing a transcript.
 const QueryAgentHistory = "agent.history"
 
+// QueryRoutines asks a machine to run one routine request against its own
+// console.
+//
+// Routines belong to a machine: their cwd, agent, credentials, and scheduler
+// all live there, and the Hub cannot run them on the machine's behalf (ADR 0022
+// separates session ownership from execution; a routine is a machine fact, not
+// a session). The Hub therefore relays the request instead of translating it:
+// the machine's own handler validates, writes, and schedules, and the answer is
+// the same one its local console would have received.
+//
+// The relayed path is limited to /api/routines on the answering side. The Hub
+// has already authorized the caller, and the machine still enforces its own
+// boundary, the same way it does for every other question in this table.
+const QueryRoutines = "routines.call"
+
+// MaxRoutineBody bounds one relayed routine request body. It is deliberately
+// below MaxQueryParams because the body travels base64-encoded inside the
+// params envelope; a prompt larger than this is refused by the machine rather
+// than silently truncated.
+const MaxRoutineBody = 128 << 10
+
+// MaxRoutineResponse bounds one relayed routine response.
+//
+// The bound is the frame's, not a judgement about routines: the body travels
+// base64-encoded inside the answer (4 bytes for every 3), and MaxFrameBytes is
+// 1 MiB *including* the JSON envelope, so a bound near the frame's own number
+// would produce an answer NewFrame refuses — and the machine can only log that,
+// leaving the Hub to report a timeout. 640 KiB encodes to 873,813 bytes, which
+// leaves about 170 KiB for the envelope and the rest of the answer.
+const MaxRoutineResponse = 640 << 10
+
+// MaxRoutinePath bounds one relayed console route — the path before its query
+// string. Every route this table answers is a fixed segment plus an id, so a
+// longer route is a mistake worth refusing before it is encoded into a query's
+// params. The query is not held to the route's shape: it carries a person's
+// search words, and the params envelope already bounds it.
+const MaxRoutinePath = 4 << 10
+
+// RoutinesParams is one routine request, on its way to the machine that owns
+// the routines.
+type RoutinesParams struct {
+	Method string `json:"method"`
+	// Path is a root-relative console path, starting with /api/routines, with
+	// its query string when it has one.
+	Path string `json:"path"`
+	Body []byte `json:"body,omitempty"`
+}
+
+// RoutinesResult is the machine's own console answer, relayed unchanged.
+type RoutinesResult struct {
+	Status      int    `json:"status"`
+	ContentType string `json:"content_type,omitempty"`
+	Body        []byte `json:"body,omitempty"`
+}
+
+// Validate refuses a relayed request outside the routine subtree, with a method
+// the console does not answer, or with a body over the bound.
+func (p RoutinesParams) Validate() error {
+	switch p.Method {
+	case "GET", "POST", "PATCH", "DELETE":
+	default:
+		return fmt.Errorf("routine request method %q is not allowed", p.Method)
+	}
+	if !strings.HasPrefix(p.Path, "/api/routines") {
+		return errors.New("routine request path is outside /api/routines")
+	}
+	rest := strings.TrimPrefix(p.Path, "/api/routines")
+	if rest != "" && !strings.HasPrefix(rest, "/") && !strings.HasPrefix(rest, "?") {
+		return errors.New("routine request path is outside /api/routines")
+	}
+	// Only the route is held to a console route's shape and length. A query
+	// value is a person's search words, and refusing ".." or a backslash inside
+	// one would reject a search rather than a request that leaves the subtree.
+	//
+	// A percent sign in the route is refused too: the Hub reconstructs this
+	// path from the request's escaped form, so a legitimate routine route never
+	// contains one, and an encoded "?" would otherwise turn into a query
+	// separator again on the machine — a parameter the Hub believed it had
+	// stripped.
+	route, _, _ := strings.Cut(p.Path, "?")
+	if len(route) > MaxRoutinePath {
+		return fmt.Errorf("routine request route exceeds %d bytes", MaxRoutinePath)
+	}
+	if strings.ContainsAny(route, "%\\#\r\n") || strings.Contains(route, "..") {
+		return errors.New("routine request path is not a plain console path")
+	}
+	if len(p.Body) > MaxRoutineBody {
+		return fmt.Errorf("routine request body exceeds %d bytes", MaxRoutineBody)
+	}
+	return nil
+}
+
 // Bounds on one question.
 const (
 	MaxQueryID     = 128

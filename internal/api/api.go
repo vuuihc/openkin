@@ -543,19 +543,25 @@ func (s *Server) Handler() http.Handler {
 		r.With(operatorOnly).Post("/api/projects/{id}/pulse/refresh", s.handleRefreshProjectPulse)
 		r.With(holderOnly).Get("/api/projects/{id}/tasks", s.handleListProjectTasks)
 		r.With(holderOnly).Get("/api/projects/{id}/artifacts", s.handleListProjectArtifacts)
-		r.With(holderOnly).Get("/api/routines", s.handleListRoutines)
-		r.With(operatorOnly).Post("/api/routines", s.handleCreateRoutine)
-		r.With(holderOnly).Get("/api/routines/unread-count", s.handleRoutineUnreadCount)
-		r.With(holderOnly).Get("/api/routines/health", s.handleRoutineHealth)
-		r.With(operatorOnly).Post("/api/routines/mark-all-read", s.handleMarkAllRoutineRunsRead)
+		// Routines belong to the machine that runs them, so every route here
+		// names a machine with ?device=. The device middleware relays the
+		// request to that machine and lets "this machine" answer in process;
+		// see Server.routineDevice. Preview is the one exception: it is
+		// arithmetic on a rule the client has not saved yet, touching no store
+		// and no machine fact, and it is asked on every keystroke in the form.
+		r.With(holderOnly, s.routineDevice).Get("/api/routines", s.handleListRoutines)
+		r.With(operatorOnly, s.routineDevice).Post("/api/routines", s.handleCreateRoutine)
+		r.With(holderOnly, s.routineDevice).Get("/api/routines/unread-count", s.handleRoutineUnreadCount)
+		r.With(holderOnly, s.routineDevice).Get("/api/routines/health", s.handleRoutineHealth)
+		r.With(operatorOnly, s.routineDevice).Post("/api/routines/mark-all-read", s.handleMarkAllRoutineRunsRead)
 		// Preview is a read of a rule the client has not saved yet; it touches
 		// no state, so a holder token may ask.
 		r.With(holderOnly).Post("/api/routines/preview", s.handlePreviewRoutine)
-		r.With(holderOnly).Get("/api/routines/{id}", s.handleGetRoutine)
-		r.With(operatorOnly).Patch("/api/routines/{id}", s.handlePatchRoutine)
-		r.With(operatorOnly).Delete("/api/routines/{id}", s.handleDeleteRoutine)
-		r.With(operatorOnly).Post("/api/routines/{id}/run-now", s.handleRunRoutineNow)
-		r.With(holderOnly).Post("/api/routines/runs/{taskID}/read", s.handleMarkRoutineRunRead)
+		r.With(holderOnly, s.routineDevice).Get("/api/routines/{id}", s.handleGetRoutine)
+		r.With(operatorOnly, s.routineDevice).Patch("/api/routines/{id}", s.handlePatchRoutine)
+		r.With(operatorOnly, s.routineDevice).Delete("/api/routines/{id}", s.handleDeleteRoutine)
+		r.With(operatorOnly, s.routineDevice).Post("/api/routines/{id}/run-now", s.handleRunRoutineNow)
+		r.With(holderOnly, s.routineDevice).Post("/api/routines/runs/{taskID}/read", s.handleMarkRoutineRunRead)
 		r.With(holderOnly).Get("/api/evals/suites", s.handleListEvalSuites)
 		r.With(holderOnly).Get("/api/evals/runs", s.handleListEvalRuns)
 		r.With(holderOnly).Get("/api/evals/runs/{id}", s.handleGetEvalRun)

@@ -44,7 +44,7 @@ describe("editing a routine", () => {
     // Sending every field is what moves a routine's next run when only its
     // title was edited, so the page must not call `patchRoutine` with the form.
     expect(PAGE).toContain("const patch = routinePatch(editing, {");
-    expect(PAGE).toContain("await patchRoutine(editing.id, patch)");
+    expect(PAGE).toContain("await patchRoutine(editing.id, patch, deviceId)");
     // Nothing changed is a valid save: close, and do not send an empty PATCH.
     expect(PAGE).toContain("if (!patch) {");
     // The form's zone is part of the schedule: without it a rule written in
@@ -127,7 +127,7 @@ describe("a routine's model", () => {
     // so the picker lists exactly the models the selected agent reports.
     const picker = block("<ModelPicker", "/>");
     expect(picker).toContain("value={model}");
-    expect(picker).toContain("models={modelsForAgent(agents, agentId)}");
+    expect(picker).toContain("models={modelsForAgent(machineAgents, agentId)}");
     expect(picker).toContain("onChange={setModel}");
     expect(picker).toContain("disabled={creating}");
     // The picker's "Custom" flag survives a value change by design, so a

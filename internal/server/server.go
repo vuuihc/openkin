@@ -752,6 +752,13 @@ func ServeWith(version string, flags ServeFlags) error {
 		LocalMachine: &node.Responder{
 			Roots: machineRoots, CheckoutRoot: checkoutRoot, Workspace: wsMgr,
 			Sessions: reg, Warn: warnToStderr,
+			// A routine belongs to the machine that runs it, and this machine's
+			// routines are in this daemon's own store. A Hub relaying a request
+			// from a console says "run this against that machine's console";
+			// this is what runs it here, through the same handlers the local
+			// console uses, so the relayed answer and the local one cannot
+			// drift apart.
+			Routines: node.LocalRoutineCaller(daemonURL, tokenFn),
 		},
 		NodeFrames: node.RouteFrame(nodeTurns, nodeApprovals, nodeQueries),
 		Browser:    browser,

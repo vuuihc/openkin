@@ -238,6 +238,16 @@ func queryTimeout(method string) time.Duration {
 	switch method {
 	case worker.QueryRepoPrepare:
 		return 5 * time.Minute
+	case worker.QueryRoutines:
+		// A relayed routine request runs through the machine's own console
+		// handler over loopback HTTP, so the wait is one local round trip plus
+		// whatever that handler does — a store read or write, never an agent
+		// run (a routine's run is a task, dispatched separately). The listing
+		// answers a page of routines and their recent runs, which is why this
+		// is above the 15s a directory walk gets rather than below it: a phone
+		// opening the page should not be told its machine is away because the
+		// machine was busy writing a schedule.
+		return 30 * time.Second
 	case worker.QueryPRPublish:
 		// A publish is the one question whose answer arrives after something
 		// irreversible has already happened on the machine. It contains a push — an

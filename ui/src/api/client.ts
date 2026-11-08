@@ -1570,14 +1570,31 @@ export type RoutinePreview = {
   next_due_at: number;
 };
 
-export function listRoutines(params?: {
-  project_id?: string;
-  enabled?: boolean;
-  limit?: number;
-  cursor?: string;
-  q?: string;
-  runs?: boolean;
-}): Promise<RoutinePage> {
+/**
+ * A routine belongs to the machine that runs it, so every routine request may
+ * name one. No device is the daemon serving this console; a device id (or
+ * "self") is a machine the Hub relays the request to, because the routines are
+ * in that machine's own store and the Hub only carries the answer back.
+ *
+ * The parameter rides the same query string the console's own request uses, so
+ * a relayed request and a local one are the same request with one extra word.
+ */
+function routinePath(path: string, device?: string): string {
+  if (!device) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}device=${encodeURIComponent(device)}`;
+}
+
+export function listRoutines(
+  params?: {
+    project_id?: string;
+    enabled?: boolean;
+    limit?: number;
+    cursor?: string;
+    q?: string;
+    runs?: boolean;
+  },
+  device?: string,
+): Promise<RoutinePage> {
   const q = new URLSearchParams();
   q.set("page", "1");
   if (params?.project_id) q.set("project_id", params.project_id);
@@ -1587,23 +1604,27 @@ export function listRoutines(params?: {
   if (params?.q) q.set("q", params.q);
   if (params?.runs) q.set("runs", "1");
   const qs = q.toString();
-  return apiFetch<RoutinePage>(`/api/routines${qs ? `?${qs}` : ""}`);
+  return apiFetch<RoutinePage>(routinePath(`/api/routines${qs ? `?${qs}` : ""}`, device));
 }
 
-export function getRoutine(id: string): Promise<Routine> {
-  return apiFetch<Routine>(`/api/routines/${encodeURIComponent(id)}`);
+export function getRoutine(id: string, device?: string): Promise<Routine> {
+  return apiFetch<Routine>(routinePath(`/api/routines/${encodeURIComponent(id)}`, device));
 }
 
-export function createRoutine(body: CreateRoutineBody): Promise<Routine> {
-  return apiFetch<Routine>("/api/routines", {
+export function createRoutine(body: CreateRoutineBody, device?: string): Promise<Routine> {
+  return apiFetch<Routine>(routinePath("/api/routines", device), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
 }
 
-export function patchRoutine(id: string, body: PatchRoutineBody): Promise<Routine> {
-  return apiFetch<Routine>(`/api/routines/${encodeURIComponent(id)}`, {
+export function patchRoutine(
+  id: string,
+  body: PatchRoutineBody,
+  device?: string,
+): Promise<Routine> {
+  return apiFetch<Routine>(routinePath(`/api/routines/${encodeURIComponent(id)}`, device), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -1614,6 +1635,10 @@ export function patchRoutine(id: string, body: PatchRoutineBody): Promise<Routin
  * Ask the daemon what a rule means: the instant its next run would land on.
  * The form shows this rather than computing it, so the preview cannot disagree
  * with the schedule create would store.
+ *
+ * No device: this is arithmetic on a rule nothing has saved yet, touching no
+ * store and no machine fact, and the form asks on every keystroke. Relaying it
+ * would put a round trip between a person and a calendar they are typing.
  */
 export function previewRoutine(recurrence: string): Promise<RoutinePreview> {
   return apiFetch<RoutinePreview>("/api/routines/preview", {
@@ -1623,28 +1648,31 @@ export function previewRoutine(recurrence: string): Promise<RoutinePreview> {
   });
 }
 
-export function deleteRoutine(id: string): Promise<void> {
-  return apiFetch<void>(`/api/routines/${encodeURIComponent(id)}`, { method: "DELETE" });
+export function deleteRoutine(id: string, device?: string): Promise<void> {
+  return apiFetch<void>(routinePath(`/api/routines/${encodeURIComponent(id)}`, device), {
+    method: "DELETE",
+  });
 }
 
-export function runRoutineNow(id: string): Promise<Task> {
-  return apiFetch<Task>(`/api/routines/${encodeURIComponent(id)}/run-now`, {
+export function runRoutineNow(id: string, device?: string): Promise<Task> {
+  return apiFetch<Task>(routinePath(`/api/routines/${encodeURIComponent(id)}/run-now`, device), {
     method: "POST",
   });
 }
 
-export function getRoutineUnreadCount(): Promise<{ count: number }> {
-  return apiFetch<{ count: number }>("/api/routines/unread-count");
+export function getRoutineUnreadCount(device?: string): Promise<{ count: number }> {
+  return apiFetch<{ count: number }>(routinePath("/api/routines/unread-count", device));
 }
 
-export function markRoutineRunRead(taskId: string): Promise<Task> {
-  return apiFetch<Task>(`/api/routines/runs/${encodeURIComponent(taskId)}/read`, {
-    method: "POST",
-  });
+export function markRoutineRunRead(taskId: string, device?: string): Promise<Task> {
+  return apiFetch<Task>(
+    routinePath(`/api/routines/runs/${encodeURIComponent(taskId)}/read`, device),
+    { method: "POST" },
+  );
 }
 
-export function markAllRoutineRunsRead(): Promise<{ marked: number }> {
-  return apiFetch<{ marked: number }>("/api/routines/mark-all-read", {
+export function markAllRoutineRunsRead(device?: string): Promise<{ marked: number }> {
+  return apiFetch<{ marked: number }>(routinePath("/api/routines/mark-all-read", device), {
     method: "POST",
   });
 }
@@ -1691,10 +1719,10 @@ export function getA2ATask(id: string): Promise<A2ATask> {
   return apiFetch<A2ATask>(`/a2a/v1/tasks/${encodeURIComponent(id)}`);
 }
 
-export function listRoutineRuns(limit = 50): Promise<Task[]> {
-  return apiFetch<RoutinePage>(`/api/routines?runs=1&runs_limit=${limit}`).then(
-    (r) => r.runs ?? [],
-  );
+export function listRoutineRuns(limit = 50, device?: string): Promise<Task[]> {
+  return apiFetch<RoutinePage>(
+    routinePath(`/api/routines?runs=1&runs_limit=${limit}`, device),
+  ).then((r) => r.runs ?? []);
 }
 
 export function decideApproval(id: string, decision: "approved" | "denied"): Promise<Approval> {

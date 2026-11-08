@@ -308,3 +308,67 @@ func TestASessionAnswerKeepsItsFieldNames(t *testing.T) {
 		t.Fatalf("the history encodes as\n%s\nwant\n%s", read.Result, want)
 	}
 }
+
+// The routine relay carries a console request, so the path check is the whole
+// boundary: without it a Hub asking about routines could ask a machine to run
+// any request its console answers. The subtree is matched as a subtree, not as a
+// string prefix, and a body is bounded before it reaches the wire.
+func TestRoutinesParamsStayInsideTheRoutineSubtree(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		params  RoutinesParams
+		wantErr string
+	}{
+		{name: "list", params: RoutinesParams{Method: "GET", Path: "/api/routines"}},
+		{name: "page with a query", params: RoutinesParams{Method: "GET", Path: "/api/routines?page=1&runs=1&runs_limit=50"}},
+		{name: "a search term is not a route", params: RoutinesParams{Method: "GET", Path: "/api/routines?page=1&q=..%2Fnotes"}},
+		{name: "one routine", params: RoutinesParams{Method: "GET", Path: "/api/routines/01ARZ3NDEKTSV4RRFFQ69G5FAV"}},
+		{name: "create", params: RoutinesParams{Method: "POST", Path: "/api/routines", Body: []byte(`{"title":"t"}`)}},
+		{name: "patch", params: RoutinesParams{Method: "PATCH", Path: "/api/routines/x", Body: []byte(`{}`)}},
+		{name: "delete", params: RoutinesParams{Method: "DELETE", Path: "/api/routines/x"}},
+		{name: "run now", params: RoutinesParams{Method: "POST", Path: "/api/routines/x/run-now"}},
+		{name: "mark a run read", params: RoutinesParams{Method: "POST", Path: "/api/routines/runs/t-1/read"}},
+		{name: "a method the console does not answer", params: RoutinesParams{Method: "PUT", Path: "/api/routines"}, wantErr: "method"},
+		{name: "another subtree", params: RoutinesParams{Method: "GET", Path: "/api/tasks"}, wantErr: "/api/routines"},
+		{name: "a path that only looks like the subtree", params: RoutinesParams{Method: "GET", Path: "/api/routinesx"}, wantErr: "/api/routines"},
+		{name: "a traversal out of the subtree", params: RoutinesParams{Method: "GET", Path: "/api/routines/../../api/tasks"}, wantErr: "plain console path"},
+		{name: "an encoded separator in the route", params: RoutinesParams{Method: "GET", Path: "/api/routines/x%3Fdevice%3Dother"}, wantErr: "plain console path"},
+		{name: "an absolute URL", params: RoutinesParams{Method: "GET", Path: "http://elsewhere/api/routines"}, wantErr: "/api/routines"},
+		{name: "a route over the bound", params: RoutinesParams{Method: "GET", Path: "/api/routines/" + strings.Repeat("x", MaxRoutinePath)}, wantErr: "route"},
+		// A person's search words are not a route: a long one is carried, not
+		// refused as though the path had left the subtree.
+		{name: "a search query longer than a route", params: RoutinesParams{Method: "GET", Path: "/api/routines?q=" + strings.Repeat("q", MaxRoutinePath)}},
+		{name: "a body over the bound", params: RoutinesParams{Method: "POST", Path: "/api/routines", Body: make([]byte, MaxRoutineBody+1)}, wantErr: "body"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.params.Validate()
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Validate() = %v, want the request accepted", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Validate() accepted %s", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("Validate() = %q, want it to name %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// The answer bound is only useful if the answer actually fits one frame. The
+// body travels base64-encoded inside the result, so a bound chosen against the
+// raw frame size would produce an answer NewFrame refuses — and the machine can
+// only log that, leaving the Hub to report a timeout for an answer it never
+// saw.
+func TestARoutineAnswerAtTheBoundFitsOneFrame(t *testing.T) {
+	answer, err := Answer("q-1", RoutinesResult{Status: 200, Body: make([]byte, MaxRoutineResponse)})
+	if err != nil {
+		t.Fatalf("the answer at the bound cannot be built: %v", err)
+	}
+	if _, err := NewFrame("query.result", answer); err != nil {
+		t.Fatalf("a routine answer at %d bytes does not fit one frame: %v", MaxRoutineResponse, err)
+	}
+}

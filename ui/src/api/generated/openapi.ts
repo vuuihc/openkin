@@ -2082,7 +2082,7 @@ export interface paths {
          *      */
         get: operations["listRoutines"];
         put?: never;
-        /** @description Create a routine. Operator only. */
+        /** @description Create a routine on a machine. Operator only. */
         post: operations["createRoutine"];
         delete?: never;
         options?: never;
@@ -2173,11 +2173,11 @@ export interface paths {
         get: operations["getRoutine"];
         put?: never;
         post?: never;
-        /** @description Delete a routine. Operator only. */
+        /** @description Delete a routine on the machine that owns it. Operator only. */
         delete: operations["deleteRoutine"];
         options?: never;
         head?: never;
-        /** @description Update routine fields. Operator only. */
+        /** @description Update routine fields on the machine that owns the routine. Operator only. */
         patch: operations["patchRoutine"];
         trace?: never;
     };
@@ -2190,7 +2190,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Start one run of a routine immediately. Operator only. */
+        /** @description Start one run of a routine immediately, on the machine that owns it. Operator only. */
         post: operations["runRoutineNow"];
         delete?: never;
         options?: never;
@@ -4745,6 +4745,18 @@ export interface components {
         UploadName: string;
         /** @description A machine id, the literal `self`, or a paired device id. */
         DeviceRef: string;
+        /** @description The machine that owns the routines. Omitted, empty, or `self` is this
+         *     daemon; a paired device id is relayed over the node control channel to
+         *     that machine, and its content type and body come back unchanged. Its
+         *     status comes back unchanged too, except for two that are not about the
+         *     caller: a `401` (the machine's own loopback credential) and a `429` (its
+         *     limit on this Hub's traffic) both become `502`. A relayed request can
+         *     answer the machine's own 4xx/5xx, plus `409` when the machine is
+         *     offline, `413` when the body is larger than the relay carries, `501`
+         *     when that machine's build does not answer routine questions, and `504`
+         *     when it did not answer in time.
+         *      */
+        RoutineDevice: string;
         TaskId: string;
         ApprovalId: string;
         PromptId: number;
@@ -9201,6 +9213,18 @@ export interface operations {
                 page?: string;
                 runs?: "1";
                 runs_limit?: number;
+                /** @description The machine that owns the routines. Omitted, empty, or `self` is this
+                 *     daemon; a paired device id is relayed over the node control channel to
+                 *     that machine, and its content type and body come back unchanged. Its
+                 *     status comes back unchanged too, except for two that are not about the
+                 *     caller: a `401` (the machine's own loopback credential) and a `429` (its
+                 *     limit on this Hub's traffic) both become `502`. A relayed request can
+                 *     answer the machine's own 4xx/5xx, plus `409` when the machine is
+                 *     offline, `413` when the body is larger than the relay carries, `501`
+                 *     when that machine's build does not answer routine questions, and `504`
+                 *     when it did not answer in time.
+                 *      */
+                device?: components["parameters"]["RoutineDevice"];
             };
             header?: never;
             path?: never;
@@ -9221,7 +9245,20 @@ export interface operations {
     };
     createRoutine: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The machine that owns the routines. Omitted, empty, or `self` is this
+                 *     daemon; a paired device id is relayed over the node control channel to
+                 *     that machine, and its content type and body come back unchanged. Its
+                 *     status comes back unchanged too, except for two that are not about the
+                 *     caller: a `401` (the machine's own loopback credential) and a `429` (its
+                 *     limit on this Hub's traffic) both become `502`. A relayed request can
+                 *     answer the machine's own 4xx/5xx, plus `409` when the machine is
+                 *     offline, `413` when the body is larger than the relay carries, `501`
+                 *     when that machine's build does not answer routine questions, and `504`
+                 *     when it did not answer in time.
+                 *      */
+                device?: components["parameters"]["RoutineDevice"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -9252,7 +9289,20 @@ export interface operations {
     };
     markAllRoutineRunsRead: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The machine that owns the routines. Omitted, empty, or `self` is this
+                 *     daemon; a paired device id is relayed over the node control channel to
+                 *     that machine, and its content type and body come back unchanged. Its
+                 *     status comes back unchanged too, except for two that are not about the
+                 *     caller: a `401` (the machine's own loopback credential) and a `429` (its
+                 *     limit on this Hub's traffic) both become `502`. A relayed request can
+                 *     answer the machine's own 4xx/5xx, plus `409` when the machine is
+                 *     offline, `413` when the body is larger than the relay carries, `501`
+                 *     when that machine's build does not answer routine questions, and `504`
+                 *     when it did not answer in time.
+                 *      */
+                device?: components["parameters"]["RoutineDevice"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -9303,7 +9353,20 @@ export interface operations {
     };
     markRoutineRunRead: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The machine that owns the routines. Omitted, empty, or `self` is this
+                 *     daemon; a paired device id is relayed over the node control channel to
+                 *     that machine, and its content type and body come back unchanged. Its
+                 *     status comes back unchanged too, except for two that are not about the
+                 *     caller: a `401` (the machine's own loopback credential) and a `429` (its
+                 *     limit on this Hub's traffic) both become `502`. A relayed request can
+                 *     answer the machine's own 4xx/5xx, plus `409` when the machine is
+                 *     offline, `413` when the body is larger than the relay carries, `501`
+                 *     when that machine's build does not answer routine questions, and `504`
+                 *     when it did not answer in time.
+                 *      */
+                device?: components["parameters"]["RoutineDevice"];
+            };
             header?: never;
             path: {
                 taskID: components["parameters"]["RoutineRunTaskId"];
@@ -9334,7 +9397,20 @@ export interface operations {
     };
     getRoutineUnreadCount: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The machine that owns the routines. Omitted, empty, or `self` is this
+                 *     daemon; a paired device id is relayed over the node control channel to
+                 *     that machine, and its content type and body come back unchanged. Its
+                 *     status comes back unchanged too, except for two that are not about the
+                 *     caller: a `401` (the machine's own loopback credential) and a `429` (its
+                 *     limit on this Hub's traffic) both become `502`. A relayed request can
+                 *     answer the machine's own 4xx/5xx, plus `409` when the machine is
+                 *     offline, `413` when the body is larger than the relay carries, `501`
+                 *     when that machine's build does not answer routine questions, and `504`
+                 *     when it did not answer in time.
+                 *      */
+                device?: components["parameters"]["RoutineDevice"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -9354,7 +9430,20 @@ export interface operations {
     };
     getRoutine: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The machine that owns the routines. Omitted, empty, or `self` is this
+                 *     daemon; a paired device id is relayed over the node control channel to
+                 *     that machine, and its content type and body come back unchanged. Its
+                 *     status comes back unchanged too, except for two that are not about the
+                 *     caller: a `401` (the machine's own loopback credential) and a `429` (its
+                 *     limit on this Hub's traffic) both become `502`. A relayed request can
+                 *     answer the machine's own 4xx/5xx, plus `409` when the machine is
+                 *     offline, `413` when the body is larger than the relay carries, `501`
+                 *     when that machine's build does not answer routine questions, and `504`
+                 *     when it did not answer in time.
+                 *      */
+                device?: components["parameters"]["RoutineDevice"];
+            };
             header?: never;
             path: {
                 id: components["parameters"]["RoutineId"];
@@ -9383,7 +9472,20 @@ export interface operations {
     };
     deleteRoutine: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The machine that owns the routines. Omitted, empty, or `self` is this
+                 *     daemon; a paired device id is relayed over the node control channel to
+                 *     that machine, and its content type and body come back unchanged. Its
+                 *     status comes back unchanged too, except for two that are not about the
+                 *     caller: a `401` (the machine's own loopback credential) and a `429` (its
+                 *     limit on this Hub's traffic) both become `502`. A relayed request can
+                 *     answer the machine's own 4xx/5xx, plus `409` when the machine is
+                 *     offline, `413` when the body is larger than the relay carries, `501`
+                 *     when that machine's build does not answer routine questions, and `504`
+                 *     when it did not answer in time.
+                 *      */
+                device?: components["parameters"]["RoutineDevice"];
+            };
             header?: never;
             path: {
                 id: components["parameters"]["RoutineId"];
@@ -9417,7 +9519,20 @@ export interface operations {
     };
     patchRoutine: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The machine that owns the routines. Omitted, empty, or `self` is this
+                 *     daemon; a paired device id is relayed over the node control channel to
+                 *     that machine, and its content type and body come back unchanged. Its
+                 *     status comes back unchanged too, except for two that are not about the
+                 *     caller: a `401` (the machine's own loopback credential) and a `429` (its
+                 *     limit on this Hub's traffic) both become `502`. A relayed request can
+                 *     answer the machine's own 4xx/5xx, plus `409` when the machine is
+                 *     offline, `413` when the body is larger than the relay carries, `501`
+                 *     when that machine's build does not answer routine questions, and `504`
+                 *     when it did not answer in time.
+                 *      */
+                device?: components["parameters"]["RoutineDevice"];
+            };
             header?: never;
             path: {
                 id: components["parameters"]["RoutineId"];
@@ -9457,7 +9572,20 @@ export interface operations {
     };
     runRoutineNow: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The machine that owns the routines. Omitted, empty, or `self` is this
+                 *     daemon; a paired device id is relayed over the node control channel to
+                 *     that machine, and its content type and body come back unchanged. Its
+                 *     status comes back unchanged too, except for two that are not about the
+                 *     caller: a `401` (the machine's own loopback credential) and a `429` (its
+                 *     limit on this Hub's traffic) both become `502`. A relayed request can
+                 *     answer the machine's own 4xx/5xx, plus `409` when the machine is
+                 *     offline, `413` when the body is larger than the relay carries, `501`
+                 *     when that machine's build does not answer routine questions, and `504`
+                 *     when it did not answer in time.
+                 *      */
+                device?: components["parameters"]["RoutineDevice"];
+            };
             header?: never;
             path: {
                 id: components["parameters"]["RoutineId"];

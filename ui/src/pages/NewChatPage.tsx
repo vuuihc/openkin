@@ -50,6 +50,7 @@ import {
   setDraftMachine,
   setDraftPrompt,
 } from "../lib/draftChat";
+import { THIS_MACHINE, writeRoutineDevice } from "../lib/routineDevice";
 import { useMachines } from "../hooks/useMachines";
 import {
   catalogFor,
@@ -326,7 +327,6 @@ export default function NewChatPage() {
     // for the machine being left.
     setSelectedHost("");
     setSelectedModel("");
-    if (next && !next.isSelf) setAsRoutine(false);
   }
 
   async function onSubmit(text: string) {
@@ -373,7 +373,11 @@ export default function NewChatPage() {
           ...(selectedModel.trim() ? { model: selectedModel.trim() } : {}),
           permission_mode: permissionMode,
           project_id: project?.id,
-        });
+        }, machineId || undefined);
+        // The routine was created on that machine, so the Routines page opens
+        // there. Without this the page would stay on whatever machine it was
+        // last showing, and the routine just created would be missing from it.
+        writeRoutineDevice(machineId || THIS_MACHINE);
         clearDraftPrompt();
         setAsRoutine(false);
         navigate(`/routines`, { replace: true, state: { createdId: routine.id } });
@@ -472,8 +476,12 @@ export default function NewChatPage() {
    *  routine mode is on the location controls step aside (the composer
    *  becomes a scheduler), exactly as the old panel folded them. */
   const phoneExtraRows = (
+    // A routine is created on a machine and runs in a directory on it, so
+    // those two controls stay even when the composer becomes a scheduler.
+    // Branch and dispatch do not: a routine has no branch to switch and the
+    // Hub's team dispatch does not cross machines.
     asRoutine
-      ? (["routine"] as const)
+      ? (["machine", "cwd", "routine"] as const)
       : (["role", "machine", "cwd", "branch", "dispatch", "routine"] as const)
   ) as readonly NewChatControlId[];
   const desktopStrip: NewChatControlId[] = [
@@ -491,7 +499,7 @@ export default function NewChatPage() {
       // No saved roles, no row: a picker whose only entry is "none" is a
       // control that exists to be dismissed.
       (id !== "role" || roleList.length > 0) &&
-      !(asRoutine && (id === "machine" || id === "cwd" || id === "branch" || id === "dispatch")),
+      !(asRoutine && (id === "branch" || id === "dispatch")),
   );
   const visiblePhoneExtraRows = phoneExtraRows.filter(
     (id) => id !== "role" || roleList.length > 0,

@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,10 +12,103 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/oklog/ulid/v2"
 
+	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/routines"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/task"
 )
+
+// routineDevice sends a routine request to the machine that owns the routines,
+// or answers it here when that machine is this one.
+//
+// A routine is a machine fact, not a session fact: its cwd, its agent, its
+// credentials, and its schedule all live on one machine, and only that machine
+// can run it. A Hub that kept its own copy would be a second source of truth —
+// the routine would be created on the phone, run on the Hub, and be invisible
+// to the machine the person was actually looking at. So the Hub authorizes the
+// caller (which its route middleware has already done) and relays the request;
+// it does not translate it, copy it, or schedule it.
+//
+// The relay is the raw request rather than a translation, and that is the point:
+// the answering machine runs it through the same handler its own console uses,
+// so validation, defaults, scheduling, and the response shape cannot disagree
+// between "created on the machine" and "created from a phone".
+//
+// device names a machine the Hub knows: its own id, "self", a paired device, or
+// nothing at all. The three ways to say "this machine" are the same three
+// localDevice already knows, and they take the local path below — no loopback
+// HTTP, no wire, just the handler.
+func (s *Server) routineDevice(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		device := strings.TrimSpace(r.URL.Query().Get("device"))
+		if s.localDevice(device) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, worker.MaxRoutineBody))
+		if err != nil {
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{
+					"error": "the routine request body is too large",
+				})
+				return
+			}
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		// The machine is asked in the console's own vocabulary — the same path
+		// and query its local console would have received — minus the parameter
+		// that named the machine, which is this Hub's word and not the machine's.
+		//
+		// The escaped path, not the decoded one: a path segment holding an
+		// encoded "?" would otherwise turn into a query separator again on the
+		// machine, and a parameter this Hub believed it had stripped would
+		// reappear there.
+		query := r.URL.Query()
+		query.Del("device")
+		path := r.URL.EscapedPath()
+		if encoded := query.Encode(); encoded != "" {
+			path += "?" + encoded
+		}
+		asked := worker.RoutinesParams{Method: r.Method, Path: path, Body: body}
+		// Checked here as well as there: a request this Hub would not put on the
+		// wire should be refused before a machine is made to answer it, and the
+		// reason should name the request rather than a version skew.
+		if err := asked.Validate(); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		var answer worker.RoutinesResult
+		if err := s.askDeviceQuietly(r.Context(), device, worker.QueryRoutines, asked, &answer); err != nil {
+			writeMachineQueryError(w, err)
+			return
+		}
+		if answer.ContentType != "" {
+			w.Header().Set("Content-Type", answer.ContentType)
+		}
+		// The machine's status is part of its answer: a routine that is gone is
+		// a 404 because the machine said so, not because this Hub decided what
+		// its words meant.
+		//
+		// Two statuses are translated rather than passed through, because on
+		// this path they are not about the caller: a 401 is the machine's own
+		// loopback auth failing (a rotated or unreadable token), and a 429 is
+		// its rate limit on this Hub's traffic. Forwarding either would sign
+		// the person out of the Hub, or blame them for a limit they never hit.
+		status := answer.Status
+		switch {
+		case status == http.StatusUnauthorized, status == http.StatusTooManyRequests:
+			status = http.StatusBadGateway
+		case status < 100 || status > 599:
+			status = http.StatusBadGateway
+		}
+		w.WriteHeader(status)
+		if len(answer.Body) > 0 {
+			_, _ = w.Write(answer.Body)
+		}
+	})
+}
 
 type createRoutineBody struct {
 	Title     string `json:"title"`

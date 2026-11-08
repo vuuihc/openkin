@@ -79,6 +79,14 @@ type Responder struct {
 	// because the Hub's own import reads the same thing through the same
 	// interface on itself.
 	Sessions SessionCatalog
+	// Routines runs one routine request against this machine's own console.
+	// Nil means it has no routines to speak of, and the routine question is
+	// refused.
+	//
+	// It is a field for the same reason Sessions is: a routine is a property of
+	// the machine — its cwd, its agent, its credentials, its scheduler — and the
+	// caller that can reach them is the one built where the machine is built.
+	Routines RoutineCaller
 	// Warn receives problems that have nowhere else to go. Nil means quiet.
 	Warn func(format string, args ...any)
 
@@ -325,6 +333,28 @@ func (r *Responder) answer(ctx context.Context, id, method string, params json.R
 			return refused(id, err)
 		}
 		return answered(id, read)
+	case worker.QueryRoutines:
+		var asked worker.RoutinesParams
+		if err := decodeParams(params, &asked); err != nil {
+			return refused(id, err)
+		}
+		if err := asked.Validate(); err != nil {
+			return refused(id, err)
+		}
+		if r.Routines == nil {
+			return refused(id, errors.New("this machine does not answer routine questions"))
+		}
+		answer, err := r.Routines(ctx, asked)
+		if err != nil {
+			return refused(id, err)
+		}
+		if len(answer.Body) > worker.MaxRoutineResponse {
+			return refused(id, fmt.Errorf("the routine answer is %d bytes, over the %d-byte limit",
+				len(answer.Body), worker.MaxRoutineResponse))
+		}
+		return answered(id, worker.RoutinesResult{
+			Status: answer.Status, ContentType: answer.ContentType, Body: answer.Body,
+		})
 	default:
 		return refused(id, fmt.Errorf("this machine does not know the question %q", method))
 	}

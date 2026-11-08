@@ -6,7 +6,6 @@ import {
   deleteRoutine,
   isAuthenticated,
   isTerminal,
-  listAgents,
   listRoutineRuns,
   listRoutines,
   listTasks,
@@ -14,7 +13,6 @@ import {
   markRoutineRunRead,
   patchRoutine,
   runRoutineNow,
-  type AgentInfo,
   type Routine,
   type Task,
 } from "../api/client";
@@ -42,9 +40,19 @@ import {
   ROUTINE_HISTORY_PAGE,
 } from "../lib/routineHistory";
 import { SlowConnectHint } from "../components/Skeleton";
+import SheetSelect from "../components/ui/SheetSelect";
+import { useMachines } from "../hooks/useMachines";
 import { useRoutinePreview } from "../hooks/useRoutinePreview";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useT } from "../i18n/react";
+import { catalogFor, isRemoteDevice } from "../lib/devices";
+import {
+  machineForRoutineDevice,
+  readRoutineDevice,
+  resolveRoutineDevice,
+  THIS_MACHINE,
+  writeRoutineDevice,
+} from "../lib/routineDevice";
 import {
   getDraftPermissionMode,
   normalizePermissionMode,
@@ -163,8 +171,37 @@ export default function RoutinesPage() {
   // The zone the rule's time is expressed in; null = the browser's zone.
   const [ruleZone, setRuleZone] = useState<string | null>(null);
   const [nextRunLocal, setNextRunLocal] = useState(() => defaultNextRunLocal());
-  const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [agentId, setAgentId] = useState("");
+  // A routine belongs to one machine, and this page reads one machine's
+  // routines. The remembered choice is resolved once the machine list arrives;
+  // see resolveRoutineDevice for why "this machine" is not the default on a
+  // phone (there, this machine is the Hub, which holds no routines).
+  const [deviceId, setDeviceId] = useState<string>(() => readRoutineDevice());
+  // Set once the reader picks a machine themselves, so a list refresh cannot
+  // overrule them.
+  const deviceTouched = useRef(false);
+  const {
+    machines,
+    agents: localAgents,
+    loading: machinesLoading,
+    failed: machinesFailed,
+  } = useMachines();
+  const machine = machineForRoutineDevice(machines, deviceId);
+  // Read from the id, not from the machine cache: when the machine list could
+  // not be read the cache degrades to this machine alone, and a page that then
+  // believed its remote routines were local would link to tasks the Hub cannot
+  // serve and read its own task store under another machine's routine name.
+  const remote = isRemoteDevice(deviceId) && !machine?.isSelf;
+  // The websocket handler is registered once, and it must not fold the Hub's
+  // own task updates into a remote machine's feed.
+  const remoteRef = useRef(remote);
+  remoteRef.current = remote;
+  const deviceRef = useRef(deviceId);
+  deviceRef.current = deviceId;
+  // What that machine says it can run. For this machine that is the local
+  // registry; for another it is what the machine reported, because that is the
+  // list the Hub validates a routine's agent against.
+  const machineAgents = useMemo(() => catalogFor(machine, localAgents), [machine, localAgents]);
   // The model its runs start with; "" means the agent's own default, which is
   // what every routine ran with before the field existed.
   const [model, setModel] = useState("");
@@ -177,43 +214,63 @@ export default function RoutinesPage() {
   // The create draft an edit temporarily took over (see `closeForm`).
   const createDraftRef = useRef<FormDraft | null>(null);
 
+  // A device switch and a reconnect can both start a load; only the newest
+  // answer may land, or one machine's routines would be shown under another
+  // machine's name.
+  const loadSeq = useRef(0);
+  // When the last load failed, so a retry can be armed. A sleeping machine or a
+  // Hub coming back from a restart is a normal state, and the person should not
+  // have to reload the page to see it end.
+  const [failedAt, setFailedAt] = useState(0);
+  // Each consecutive failure widens the wait: a page left open on a machine
+  // that stays offline should keep trying, but not relay a request every 15
+  // seconds forever. A good load puts it back to the short wait.
+  const retryDelay = useRef(15_000);
   const load = useCallback(async () => {
     if (!isAuthenticated()) return;
+    // Until the machine list settles, the page has not chosen a machine yet.
+    // Asking now would read this daemon's empty store for a moment and then
+    // ask again for the machine the page was going to open on.
+    if (machinesLoading) return;
+    const seq = ++loadSeq.current;
     try {
-      const [rs, feed, agentList] = await Promise.all([
-        listRoutines({ limit: 100, q: routineQuery.trim() || undefined }),
-        listRoutineRuns(80),
-        listAgents().catch(() => [] as AgentInfo[]),
+      const [rs, feed] = await Promise.all([
+        listRoutines({ limit: 100, q: routineQuery.trim() || undefined }, deviceId),
+        listRoutineRuns(80, deviceId),
       ]);
+      if (seq !== loadSeq.current) return;
       setRoutines(rs.routines ?? []);
       setRoutineCursor(rs.next_cursor ?? "");
       setRoutineHasMore(rs.has_more);
       setRuns(feed);
-      setAgents(agentList);
-      setAgentId((cur) => {
-        if (cur) return cur;
-        const available = agentList.filter((a) => a.available);
-        const def = available.find((a) => a.default) ?? available[0];
-        return def?.id ?? "";
-      });
       setError(null);
+      setFailedAt(0);
     } catch (e) {
+      if (seq !== loadSeq.current) return;
       if (e instanceof ApiError && e.status === 401) return;
       setError(e instanceof Error ? e.message : tr("routines.loadFailed"));
+      setFailedAt(Date.now());
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
-  }, [tr, routineQuery]);
+  }, [tr, routineQuery, deviceId, machinesLoading]);
 
   const loadMoreRoutines = async () => {
     if (!routineCursor || !routineHasMore || loadingMoreRoutines) return;
     setLoadingMoreRoutines(true);
+    const seq = loadSeq.current;
     try {
-      const page = await listRoutines({
-        limit: 100,
-        cursor: routineCursor,
-        q: routineQuery.trim() || undefined,
-      });
+      const page = await listRoutines(
+        {
+          limit: 100,
+          cursor: routineCursor,
+          q: routineQuery.trim() || undefined,
+        },
+        deviceId,
+      );
+      // A page from the machine the page has since left is not this machine's
+      // second page.
+      if (seq !== loadSeq.current) return;
       setRoutines((current) => [...current, ...(page.routines ?? [])]);
       setRoutineCursor(page.next_cursor ?? "");
       setRoutineHasMore(page.has_more);
@@ -228,9 +285,67 @@ export default function RoutinesPage() {
     void load();
   }, [load, reconnectGen]);
 
+  // The page opens on a machine, and the remembered choice is only a preference
+  // until the list confirms it still exists. `deviceTouched` keeps a later list
+  // refresh from overruling a choice the reader made in this session.
+  //
+  // A list that failed to load is not confirmation of anything: it degrades to
+  // "this machine", and resolving against it would overwrite a good remembered
+  // machine with the Hub — which is the empty page this whole change exists to
+  // fix. The saved choice stands until a real list arrives.
+  useEffect(() => {
+    if (machinesLoading || machinesFailed || deviceTouched.current) return;
+    const resolved = resolveRoutineDevice(machines, deviceId);
+    if (resolved === deviceId) return;
+    setDeviceId(resolved);
+    writeRoutineDevice(resolved);
+  }, [machinesLoading, machinesFailed, machines, deviceId]);
+
+  // A failure re-arms this; a success clears the timestamp, resets the wait,
+  // and cancels it. The wait doubles when a retry fires, so it is the previous
+  // failure's delay that is armed here.
+  useEffect(() => {
+    if (!failedAt) {
+      retryDelay.current = 15_000;
+      return;
+    }
+    const timer = setTimeout(() => {
+      retryDelay.current = Math.min(retryDelay.current * 2, 120_000);
+      void load();
+    }, retryDelay.current);
+    return () => clearTimeout(timer);
+  }, [failedAt, load]);
+
+  // A different machine has different routines, different runs, and different
+  // paths. Nothing from the old one may stay on screen while the new one loads:
+  // a row from the wrong machine reads as that machine's routine.
+  useEffect(() => {
+    setRoutines([]);
+    setRuns([]);
+    setRoutineCursor("");
+    setRoutineHasMore(false);
+    setHistory({});
+    setError(null);
+    setFailedAt(0);
+    setLoading(true);
+    // The form's directory, agent, and model are the machine it was opened on.
+    // Carrying them across would make a routine that fails on its first run.
+    setShowCreate(false);
+    setEditing(null);
+    createDraftRef.current = null;
+    setCwd("");
+    setAgentId("");
+    setModel("");
+  }, [deviceId]);
+
   useEffect(() => {
     return subscribeWS((msg) => {
       if (msg.kind !== "task_update") return;
+      // The Hub's stream carries the Hub's tasks. While the page is showing
+      // another machine's routines, one of those updates would appear in that
+      // machine's feed — and marking it read would relay to a machine that has
+      // never heard of it.
+      if (remoteRef.current) return;
       const t = msg.data;
       if (!t.routine_id) return;
       setRuns((prev) => {
@@ -261,11 +376,26 @@ export default function RoutinesPage() {
     [runs],
   );
 
-  const availableAgents = useMemo(() => agents.filter((a) => a.available), [agents]);
+  const availableAgents = useMemo(
+    () => machineAgents.filter((a) => a.available),
+    [machineAgents],
+  );
+  // A new routine starts on the agent this machine would use. The choice is
+  // only filled in when there is none: an edit's agent — which may be offline
+  // but is still the agent that routine runs with — must not be displaced by a
+  // catalog refresh.
+  useEffect(() => {
+    if (availableAgents.length === 0) return;
+    setAgentId((cur) => {
+      if (cur) return cur;
+      const def = availableAgents.find((a) => a.default) ?? availableAgents[0];
+      return def?.id ?? "";
+    });
+  }, [availableAgents]);
   // The agent whose catalog the model picker lists. It is read from all agents,
   // not just the available ones: a routine keeps its agent when that agent goes
   // offline, and the catalog it last reported is still the best list to offer.
-  const modelAgent = agents.find((a) => a.id === agentId);
+  const modelAgent = machineAgents.find((a) => a.id === agentId);
 
   // The rule as create or a patch would send it. A one-off shows its instant in
   // the date field itself, so only repeated rules are worth asking about.
@@ -282,7 +412,7 @@ export default function RoutinesPage() {
   const onToggle = async (r: Routine) => {
     setBusy((b) => ({ ...b, [r.id]: true }));
     try {
-      const updated = await patchRoutine(r.id, { enabled: !r.enabled });
+      const updated = await patchRoutine(r.id, { enabled: !r.enabled }, deviceId);
       setRoutines((list) => list.map((x) => (x.id === r.id ? updated : x)));
     } catch (e) {
       pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
@@ -295,7 +425,7 @@ export default function RoutinesPage() {
     if (!window.confirm(tr("routines.deleteConfirm", { title: r.title || r.id }))) return;
     setBusy((b) => ({ ...b, [r.id]: true }));
     try {
-      await deleteRoutine(r.id);
+      await deleteRoutine(r.id, deviceId);
       setRoutines((list) => list.filter((x) => x.id !== r.id));
       // Deleting the routine the form is editing would leave Save pointed at a
       // row that no longer exists.
@@ -309,8 +439,12 @@ export default function RoutinesPage() {
 
   const onRunNow = async (r: Routine) => {
     setBusy((b) => ({ ...b, [r.id]: true }));
+    const at = deviceId;
     try {
-      const t = await runRoutineNow(r.id);
+      const t = await runRoutineNow(r.id, at);
+      // The page moved to another machine while the run was starting. This
+      // task belongs to the machine that was showing, not the one that is.
+      if (deviceRef.current !== at) return;
       setRuns((prev) => [t, ...prev].slice(0, 80));
       // The editor may be open on this routine; Run now should show up there
       // without waiting for the websocket echo (which the fold then dedupes).
@@ -328,7 +462,7 @@ export default function RoutinesPage() {
 
   const onMarkRead = async (taskId: string) => {
     try {
-      const t = await markRoutineRunRead(taskId);
+      const t = await markRoutineRunRead(taskId, deviceId);
       knownRead.current.add(taskId);
       // Explicit false: API used to omit false bools via omitempty.
       setRuns((prev) =>
@@ -361,6 +495,21 @@ export default function RoutinesPage() {
     // An empty id means "no filter" to the daemon, which would show the newest
     // tasks of any kind under one routine's name.
     if (!id) return;
+    if (remote) {
+      // The Hub cannot read this machine's task table, and the relayed routine
+      // feed is its only window into that machine's runs: the newest runs of
+      // every routine on it, which this page already holds. That is the whole
+      // history this console can show, and there is no older page to ask for.
+      setHistory((prev) => ({ ...prev, [id]: runs.filter((x) => x.routine_id === id) }));
+      setHistoryHasMore((prev) => ({ ...prev, [id]: false }));
+      setHistoryError((prev) => {
+        if (!(id in prev)) return prev;
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      return;
+    }
     // Reopening the same routine starts a second fetch; the older one must not
     // overwrite the newer list when it lands late.
     const seq = (historySeq.current[id] ?? 0) + 1;
@@ -407,6 +556,9 @@ export default function RoutinesPage() {
    * that straddles the cap keeps its newer rows and drops its oldest.
    */
   const loadOlderHistory = async (id: string) => {
+    // A remote machine's runs come from the feed, which has no older pages the
+    // Hub can ask for; the button is not shown there.
+    if (remote) return;
     const cursor = historyCursor[id] ?? "";
     if (
       !id ||
@@ -451,7 +603,7 @@ export default function RoutinesPage() {
 
   const onMarkAllRead = async () => {
     try {
-      await markAllRoutineRunsRead();
+      await markAllRoutineRunsRead(deviceId);
       // Mark-all names no ids, so it beats every fetch that was already out.
       readAllEpoch.current += 1;
       setRuns((prev) => prev.map((x) => ({ ...x, routine_unread: false })));
@@ -603,7 +755,7 @@ export default function RoutinesPage() {
       }
       setCreating(true);
       try {
-        const updated = await patchRoutine(editing.id, patch);
+        const updated = await patchRoutine(editing.id, patch, deviceId);
         setRoutines((list) => list.map((x) => (x.id === updated.id ? updated : x)));
         closeForm();
         pushToast(tr("routines.saved"), "info");
@@ -635,7 +787,7 @@ export default function RoutinesPage() {
         agent: agentId || undefined,
         ...(model.trim() ? { model: model.trim() } : {}),
         permission_mode: permissionMode,
-      });
+      }, deviceId);
       setRoutines((list) => [r, ...list]);
       closeForm();
       resetForm();
@@ -645,6 +797,39 @@ export default function RoutinesPage() {
     } finally {
       setCreating(false);
     }
+  };
+
+  const machineOptions = useMemo(() => {
+    const rows = machines.map((m) => ({
+      id: m.isSelf ? THIS_MACHINE : m.id,
+      label: m.isSelf
+        ? tr("machine.thisMachine")
+        : `${m.label}${m.online ? "" : ` · ${tr("machine.offline")}`}`,
+    }));
+    // Before the list arrives there is still one machine: this one.
+    return rows.length > 0 ? rows : [{ id: THIS_MACHINE, label: tr("machine.thisMachine") }];
+  }, [machines, tr]);
+
+  /**
+   * Point the page at another machine.
+   *
+   * An open form goes with the old machine: its directory, its agent, and its
+   * model are that machine's, and carrying any of them into a routine on
+   * another machine would make a routine that fails on its first run.
+   */
+  const chooseMachine = (id: string) => {
+    if (id === (deviceId || THIS_MACHINE)) return;
+    deviceTouched.current = true;
+    if (editing) {
+      createDraftRef.current = null;
+      setEditing(null);
+    }
+    setShowCreate(false);
+    resetForm();
+    setCwd("");
+    setAgentId("");
+    writeRoutineDevice(id);
+    setDeviceId(id);
   };
 
   return (
@@ -682,6 +867,32 @@ export default function RoutinesPage() {
               {tr("routines.markAllRead")}
             </button>
           </div>
+        </div>
+
+        {/* Which machine's routines this page is showing. Above the list
+            because everything below it — the routines, their runs, the form's
+            directories and agents — is that machine's, not this console's. */}
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-body text-kin-secondary">
+          <span className="text-kin-muted">{tr("routines.machineLabel")}</span>
+          <SheetSelect
+            label={tr("machine.title")}
+            // This machine has three spellings; the picker has one row for it.
+            value={machine?.isSelf ? THIS_MACHINE : deviceId || THIS_MACHINE}
+            display={
+              !machine && !machinesLoading && isRemoteDevice(deviceId)
+                ? machinesFailed
+                  ? // The list failed; the id is still what the page is
+                    // reading, and calling it "gone" would invent a fact.
+                    deviceId
+                  : tr("machine.gone", { name: deviceId })
+                : undefined
+            }
+            placeholder={machinesLoading ? tr("machine.detecting") : undefined}
+            options={machineOptions}
+            disabled={creating || machinesLoading}
+            className="text-kin-text"
+            onChange={chooseMachine}
+          />
         </div>
 
         {showCreate && (
@@ -768,7 +979,7 @@ export default function RoutinesPage() {
                   // that state from the value the form now holds.
                   key={`${editing?.id ?? "new"}:${agentId}`}
                   value={model}
-                  models={modelsForAgent(agents, agentId)}
+                  models={modelsForAgent(machineAgents, agentId)}
                   source={modelAgent?.model_list_source}
                   status={modelAgent?.model_list_status}
                   disabled={creating}
@@ -778,7 +989,16 @@ export default function RoutinesPage() {
             </div>
 
             <div className="mt-3">
-              <CwdPicker className="w-full" cwd={cwd} locked={false} onChange={setCwd} />
+              <CwdPicker
+                className="w-full"
+                cwd={cwd}
+                locked={false}
+                // The cwd is a path on the machine the routine runs on. Without
+                // this the panel would list this console's directories and the
+                // saved path would be one that machine has never heard of.
+                device={deviceId || undefined}
+                onChange={setCwd}
+              />
             </div>
 
             <div className="mt-3 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2.5">
@@ -833,7 +1053,9 @@ export default function RoutinesPage() {
                 ) : historyError[editing.id] ? (
                   <p className="mt-2 text-body text-kin-red-ink">{historyError[editing.id]}</p>
                 ) : (history[editing.id]?.length ?? 0) === 0 ? (
-                  <p className="mt-2 text-body text-kin-secondary">{tr("routines.historyEmpty")}</p>
+                  <p className="mt-2 text-body text-kin-secondary">
+                    {remote ? tr("routines.historyEmptyRemote") : tr("routines.historyEmpty")}
+                  </p>
                 ) : (
                   <ul className="mt-2 max-h-[min(320px,40vh)] space-y-2 overflow-y-auto kin-scroll">
                     {history[editing.id].map((run) => (
@@ -844,6 +1066,7 @@ export default function RoutinesPage() {
                         tr={tr}
                         quiet
                         ownRoutine
+                        linkable={!remote}
                       />
                     ))}
                     {/* Inside the scroll box: the click happens at the bottom,
@@ -914,7 +1137,13 @@ export default function RoutinesPage() {
                   {noteworthy.length > 0 && (
                     <ul className="space-y-2.5">
                       {noteworthy.map((run) => (
-                        <RunCard key={run.id} run={run} onMarkRead={onMarkRead} tr={tr} />
+                        <RunCard
+                          key={run.id}
+                          run={run}
+                          onMarkRead={onMarkRead}
+                          tr={tr}
+                          linkable={!remote}
+                        />
                       ))}
                     </ul>
                   )}
@@ -932,7 +1161,14 @@ export default function RoutinesPage() {
                       {showSilent && (
                         <ul className="mt-3 space-y-2 opacity-80">
                           {silent.map((run) => (
-                            <RunCard key={run.id} run={run} onMarkRead={onMarkRead} tr={tr} quiet />
+                            <RunCard
+                              key={run.id}
+                              run={run}
+                              onMarkRead={onMarkRead}
+                              tr={tr}
+                              quiet
+                              linkable={!remote}
+                            />
                           ))}
                         </ul>
                       )}
@@ -1058,6 +1294,7 @@ function RunCard({
   tr,
   quiet,
   ownRoutine,
+  linkable = true,
 }: {
   run: Task;
   onMarkRead: (id: string) => void;
@@ -1065,7 +1302,14 @@ function RunCard({
   quiet?: boolean;
   /** The card already sits under its own routine; the id prefix is noise. */
   ownRoutine?: boolean;
+  /**
+   * Whether this console can open the run. It can for this machine's tasks; a
+   * run on another machine lives in that machine's store, which the Hub cannot
+   * read, so a link here would lead to a task page that does not exist.
+   */
+  linkable?: boolean;
 }) {
+  const title = run.title || run.id.slice(0, 8);
   return (
     <li
       className={[
@@ -1079,15 +1323,19 @@ function RunCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <Link
-              to={`/tasks/${run.id}`}
-              className="truncate text-strong font-medium text-kin-text hover:underline"
-              onClick={() => {
-                if (run.routine_unread) onMarkRead(run.id);
-              }}
-            >
-              {run.title || run.id.slice(0, 8)}
-            </Link>
+            {linkable ? (
+              <Link
+                to={`/tasks/${run.id}`}
+                className="truncate text-strong font-medium text-kin-text hover:underline"
+                onClick={() => {
+                  if (run.routine_unread) onMarkRead(run.id);
+                }}
+              >
+                {title}
+              </Link>
+            ) : (
+              <span className="truncate text-strong font-medium text-kin-text">{title}</span>
+            )}
             {run.routine_noteworthy && (
               <span className="rounded-full bg-kin-orange/15 px-2 py-0.5 text-caption font-medium text-kin-orange-ink">
                 {tr("routines.noteworthy")}

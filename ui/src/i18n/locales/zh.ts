@@ -1536,6 +1536,7 @@ const zh = {
   },
   routines: {
     title: "例行任务",
+    machineLabel: "机器",
     subtitle: "定时报告与收件箱。有价值的结果会推送；安静的结果只进 feed。",
     loadFailed: "加载例行任务失败",
     actionFailed: "操作失败",
@@ -1546,6 +1547,7 @@ const zh = {
     historyTitle: "运行历史",
     historyLoading: "正在加载运行记录…",
     historyEmpty: "还没有运行记录。",
+    historyEmptyRemote: "这台机器转发过来的最近运行里没有它。",
     historyLoadOlder: "加载更早的运行",
     historyLoadingOlder: "正在加载更早的运行…",
     searchPlaceholder: "搜索 Routine",

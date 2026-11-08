@@ -3185,6 +3185,7 @@ paths:
             type: integer
             minimum: 1
             default: 50
+        - $ref: "#/components/parameters/RoutineDevice"
       responses:
         "200":
           description: Routine page, or a bare array for a legacy request
@@ -3198,7 +3199,9 @@ paths:
                       $ref: "#/components/schemas/Routine"
     post:
       operationId: createRoutine
-      description: Create a routine. Operator only.
+      description: Create a routine on a machine. Operator only.
+      parameters:
+        - $ref: "#/components/parameters/RoutineDevice"
       requestBody:
         required: true
         content:
@@ -3218,6 +3221,8 @@ paths:
     post:
       operationId: markAllRoutineRunsRead
       description: Mark every unread routine run read. Operator only.
+      parameters:
+        - $ref: "#/components/parameters/RoutineDevice"
       responses:
         "200":
           description: How many runs were marked
@@ -3254,6 +3259,7 @@ paths:
         or `{"ok":"true"}` when the task row has already gone.
       parameters:
         - $ref: "#/components/parameters/RoutineRunTaskId"
+        - $ref: "#/components/parameters/RoutineDevice"
       responses:
         "200":
           description: The task, or an ok marker
@@ -3273,6 +3279,8 @@ paths:
     get:
       operationId: getRoutineUnreadCount
       description: Unread routine runs. Holder only.
+      parameters:
+        - $ref: "#/components/parameters/RoutineDevice"
       responses:
         "200":
           description: Unread routine runs
@@ -3286,6 +3294,7 @@ paths:
       description: Routine. Holder only.
       parameters:
         - $ref: "#/components/parameters/RoutineId"
+        - $ref: "#/components/parameters/RoutineDevice"
       responses:
         "200":
           description: Routine
@@ -3297,9 +3306,10 @@ paths:
           description: Not found
     patch:
       operationId: patchRoutine
-      description: Update routine fields. Operator only.
+      description: Update routine fields on the machine that owns the routine. Operator only.
       parameters:
         - $ref: "#/components/parameters/RoutineId"
+        - $ref: "#/components/parameters/RoutineDevice"
       requestBody:
         required: true
         content:
@@ -3319,9 +3329,10 @@ paths:
           description: Not found
     delete:
       operationId: deleteRoutine
-      description: Delete a routine. Operator only.
+      description: Delete a routine on the machine that owns it. Operator only.
       parameters:
         - $ref: "#/components/parameters/RoutineId"
+        - $ref: "#/components/parameters/RoutineDevice"
       responses:
         "204":
           description: Deleted
@@ -3332,9 +3343,10 @@ paths:
   /api/routines/{id}/run-now:
     post:
       operationId: runRoutineNow
-      description: Start one run of a routine immediately. Operator only.
+      description: Start one run of a routine immediately, on the machine that owns it. Operator only.
       parameters:
         - $ref: "#/components/parameters/RoutineId"
+        - $ref: "#/components/parameters/RoutineDevice"
       responses:
         "201":
           description: The task the run started
@@ -4190,6 +4202,23 @@ components:
       schema:
         type: string
       description: A machine id, the literal `self`, or a paired device id.
+    RoutineDevice:
+      in: query
+      name: device
+      required: false
+      schema:
+        type: string
+      description: |
+        The machine that owns the routines. Omitted, empty, or `self` is this
+        daemon; a paired device id is relayed over the node control channel to
+        that machine, and its content type and body come back unchanged. Its
+        status comes back unchanged too, except for two that are not about the
+        caller: a `401` (the machine's own loopback credential) and a `429` (its
+        limit on this Hub's traffic) both become `502`. A relayed request can
+        answer the machine's own 4xx/5xx, plus `409` when the machine is
+        offline, `413` when the body is larger than the relay carries, `501`
+        when that machine's build does not answer routine questions, and `504`
+        when it did not answer in time.
     TaskId:
       in: path
       name: taskId

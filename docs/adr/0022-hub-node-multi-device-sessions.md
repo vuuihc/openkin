@@ -73,13 +73,22 @@ Separate **session ownership** from **agent execution**. A Kin deployment
 gains two roles, carried by one binary:
 
 - a **Hub** owns sessions: it is the authoritative store, the sole allocator
-  of event sequence numbers, the approval authority, and the scheduler;
+  of event sequence numbers, the approval authority, and the scheduler of
+  sessions. A **routine** is not a session in this sense: its directory, agent,
+  credentials, and schedule live on one machine, so that machine owns and
+  schedules it and the Hub only relays console requests to it.
 - a **Node** executes turns: it owns locally installed agents, workspaces, and
   credentials, and streams turn events to the Hub.
 
 `kin serve` with no role remains **standalone** — Hub and one local Node in the
 same process. This is the default and preserves today's behaviour exactly, so
 no existing user configures anything or learns a new concept.
+
+A cloud executor, if one is ever wanted, joins as a real Node — its own device
+id, hello, and scheduler — rather than the Hub growing execution duties. The
+Hub's routine surface (`/api/routines?device=…`) is a relay: the answering
+machine runs the request through its own console handler, and the Hub passes
+the answer back unchanged (2026-11-09).
 
 The following boundaries are part of the decision, not implementation detail:
 
