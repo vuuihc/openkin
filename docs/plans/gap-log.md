@@ -3,6 +3,11 @@
 Small, real defects found while dogfooding that are not worth interrupting the
 current round for. The scheduled gap sweep reads this file every six hours.
 
+> 2026-11-08: the sweep's configured path for this file is a stale absolute path
+> from another machine, so the six-hourly run reaches GitHub but not this file.
+> Until the schedule prompt is updated, `已开 issue` notes here are maintained by
+> hand.
+
 How an entry moves:
 
 - **高** — older than 7 days with no issue: the sweep opens one.
@@ -57,6 +62,13 @@ Hub 的 `auth_sessions.expires_at` 会在每次使用时滑动（1 小时节流�
 `ui/src/components/chat/ModelPicker.tsx`、`ui/src/components/chat/PermissionModePicker.tsx`，
 翻转逻辑在 `ui/src/components/ui/SearchSelect.tsx`。
 
+2026-11-08 复现（首日 dogfooding）：同一行工具栏里 Agent 与模型的方向就不一致。
+现在实际有三套：`AgentModelPicker.tsx:96`、`:128` 和 `ModelPicker.tsx:109` 固定
+`placement="top"`（`SearchSelect` 自己的翻转）；`PermissionModePicker.tsx:181`
+用 `useAnchoredPanel` 的 `above`；新建会话的 `RunConfigSheet.tsx:369` 又是 Agent
+`below`、模型与权限 `above`。窄屏下 `SearchSelect` 还会换成 `Sheet`，和
+`useAnchoredPanel` 的浮层不是同一种形态，所以“统一 placement”要连形态一起定。
+
 已开 issue #3
 
 ### 2026-11-07 · 中 · 模型列表出现重名项且不显示来源
@@ -70,16 +82,33 @@ Hub 的 `auth_sessions.expires_at` 会在每次使用时滑动（1 小时节流�
 `ui/src/components/chat/AgentModelPicker.tsx` 的 `modelPickerOptions`，
 模型清单由 Node 的 hello 上报（`internal/remote/worker/protocol.go`）。
 
+2026-11-08 复现（首日 dogfooding，实测运行中的 node）：`claude-code` 上报 59 个
+模型，其中 6 个都叫 GLM 5.3（DashScope / Volcengine / Baidu / Tencent / Zhipu /
+裸 `glm-5.3`），看起来就是一串重名。根因在分组：`ui/src/lib/agentModels.ts:58`
+取 id 的第一段当组名，`volcengine-gw/dashscope/glm-5.3[1m]` 全被归到
+`volcengine-gw`，于是 59 行落在同一个组头下；真正的来源在第二段
+（dashscope/volcengine/baidu/tencent/zhipu），却只以不同位置的前缀混在标签里。
+裸 `volcengine-gw/glm-5.3[1m]` 和 `volcengine-gw/volcengine/glm-5.3[1m]` 还可能是
+同一条上游路由的两种写法，需要 provider 侧确认后再决定是否合并。
+
 已开 issue #2
 
-### 2026-11-07 · 中 · 分享 / 分发按钮的气泡向左展开且内容被裁切
+### 2026-11-07 · 中 · 分发按钮的气泡向左展开且内容被裁切
 
-消息上的分享 / 分发按钮打开气泡时向左展开，超出视口后被裁切，右侧内容看
+输入框工具栏的分发按钮打开气泡时向左展开，超出视口后被裁切，右侧内容看
 不全也点不到（手机宽度最明显）。期望气泡或弹层锚定在触发按钮附近，按视口
 空间选择展开方向，任何宽度下完整可见、可操作、可关闭，且不产生横向滚动。
 
-线索：`ui/src/components/chat/ChatStream.tsx` 的分享入口、
-`ui/src/components/task/ShareDialog.tsx`，移动端弹层见
-`ui/src/components/mobile/Sheet.tsx`。
+线索：`ui/src/components/chat/DispatchSelector.tsx`（气泡本体），
+定位/夹取可参考 `ui/src/components/ui/SearchSelect.tsx` 与
+`ui/src/hooks/useAnchoredPanel.ts`；消息上的分享入口与
+`ui/src/components/task/ShareDialog.tsx` 是另一条路径，不要混在一起修。
+
+2026-11-08 复现（首日 dogfooding）：触发点确认是输入框工具栏的 **分发**
+（`ui/src/components/chat/DispatchSelector.tsx`），不是消息上的分享；
+`ShareDialog` 是居中的 portal 弹层，不受影响。气泡在 `DispatchSelector.tsx:245`：
+`absolute bottom-full right-0 sm:left-0 sm:right-auto` 加固定 `w-popover`，
+既不 portal 也不按视口夹取，只按断点选左/右锚点；祖先一旦有 `overflow` 就被整块
+裁掉，窄屏最明显。修法应和 issue #3 共用同一套测量/夹取逻辑，而不是再写一套。
 
 已开 issue #1
