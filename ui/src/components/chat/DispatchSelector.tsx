@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   getRoutingOptions,
   getRoutingPreview,
@@ -6,6 +7,7 @@ import {
   type RoutingPreview,
   type ModelSpec,
 } from "../../api/client";
+import { useAnchoredPanel } from "../../hooks/useAnchoredPanel";
 import { useT } from "../../i18n/react";
 
 type DispatchMode = "auto" | "manual" | "";
@@ -106,6 +108,23 @@ export function DispatchSelector({
   const popoverId = useId();
   const popRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  // Viewport coordinates, not `absolute bottom-full`: the composer's control
+  // row is an `overflow-x-auto` strip, and CSS computes `overflow-y: auto` from
+  // it too, so an absolutely positioned panel is clipped by the strip it lives
+  // in. Portaled to <body>, the panel is measured against the viewport and
+  // cannot be cut by an ancestor's overflow. `align: "right"` matches the
+  // other composer pickers; the hook clamps the panel into the viewport, so on
+  // a phone the trigger near the right edge still opens a fully visible panel.
+  const anchor = useAnchoredPanel(open, triggerRef, {
+    placement: "above",
+    align: "right",
+    width: 320,
+    maxHeight: 360,
+  });
+  // The panel is portaled to the end of <body>, so it is no longer the next
+  // stop in the tab order after the trigger. Move focus into it when it opens,
+  // the same way the permission menu does.
+  const anchored = Boolean(anchor);
 
   const loadOptions = useCallback(async () => {
     try {
@@ -147,6 +166,14 @@ export function DispatchSelector({
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [open]);
+
+  // The panel mounts a layout effect after the click, so focus waits for the
+  // measured anchor; without that the portal never receives focus and Tab would
+  // continue through the strip behind it.
+  useEffect(() => {
+    if (!open || !anchored) return;
+    popRef.current?.querySelector<HTMLElement>("button, select")?.focus({ preventScroll: true });
+  }, [open, anchored]);
 
   // Fetch preview when selection changes and popover is open.
   useEffect(() => {
@@ -230,192 +257,198 @@ export function DispatchSelector({
       </button>
 
       {/* Popover */}
-      {open && (
-        <div
-          id={popoverId}
-          ref={popRef}
-          role="dialog"
-          aria-label={tr("dispatch.popoverLabel")}
-          /*
-            Anchored to the trigger's *right* edge below `sm`. On a phone this
-            control is the last one in its row, so a left-anchored 240px panel
-            ran off the screen — and the sheet's own `overflow` swallowed the
-            overflow, so nothing reported it.
-          */
-          className="absolute bottom-full right-0 sm:left-0 sm:right-auto mb-2 z-50 rounded-lg border border-[var(--kin-hairline)] bg-kin-panel p-3 shadow-e2 w-popover sm:w-auto sm:min-w-popover sm:max-w-popover"
-        >
-          <div className="text-body leading-4 space-y-2">
-            {/* Mode toggle */}
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                disabled={disabled}
-                onClick={() => onChange({ mode: "auto" })}
-                className={`px-2 py-1 rounded text-caption font-medium min-h-7 ${
-                  mode === "auto"
-                    ? "bg-kin-blue text-kin-on-brand"
-                    : "border border-[var(--kin-hairline)] text-kin-secondary hover:bg-[var(--kin-fill)]"
-                }`}
-              >
-                {tr("dispatch.auto")}
-              </button>
-              <button
-                type="button"
-                disabled={disabled}
-                onClick={() => onChange({ mode: "manual" })}
-                className={`px-2 py-1 rounded text-caption font-medium min-h-7 ${
-                  mode === "manual"
-                    ? "bg-kin-blue text-kin-on-brand"
-                    : "border border-[var(--kin-hairline)] text-kin-secondary hover:bg-[var(--kin-fill)]"
-                }`}
-              >
-                {tr("dispatch.manual")}
-              </button>
-            </div>
-
-            {/* Auto mode */}
-            {mode === "auto" && (
-              <div className="space-y-1.5">
-                <select
-                  value={value.team || ""}
-                  onChange={(e) =>
-                    onChange({ mode: "auto", team: e.target.value, objective: value.objective })
-                  }
+      {open &&
+        anchor &&
+        createPortal(
+          <div
+            id={popoverId}
+            ref={popRef}
+            role="dialog"
+            aria-label={tr("dispatch.popoverLabel")}
+            style={{
+              left: anchor.left,
+              width: anchor.width,
+              maxHeight: anchor.maxHeight,
+              top: anchor.top,
+              bottom: anchor.bottom,
+            }}
+            className="fixed z-50 overflow-y-auto kin-scroll rounded-lg border border-[var(--kin-hairline)] bg-kin-panel p-3 shadow-e2"
+          >
+            <div className="text-body leading-4 space-y-2">
+              {/* Mode toggle */}
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
                   disabled={disabled}
-                  className="kin-input min-h-8 text-body leading-4 w-full"
+                  onClick={() => onChange({ mode: "auto" })}
+                  className={`px-2 py-1 rounded text-caption font-medium min-h-7 ${
+                    mode === "auto"
+                      ? "bg-kin-blue text-kin-on-brand"
+                      : "border border-[var(--kin-hairline)] text-kin-secondary hover:bg-[var(--kin-fill)]"
+                  }`}
                 >
-                  <option value="">{tr("settings.routing.defaultTeamPlaceholder")}</option>
-                  {enabledTeams.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name} ({t.id})
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={value.objective || "balanced"}
-                  onChange={(e) =>
-                    onChange({ mode: "auto", team: value.team, objective: e.target.value })
-                  }
+                  {tr("dispatch.auto")}
+                </button>
+                <button
+                  type="button"
                   disabled={disabled}
-                  className="kin-input min-h-8 text-body leading-4 w-full"
+                  onClick={() => onChange({ mode: "manual" })}
+                  className={`px-2 py-1 rounded text-caption font-medium min-h-7 ${
+                    mode === "manual"
+                      ? "bg-kin-blue text-kin-on-brand"
+                      : "border border-[var(--kin-hairline)] text-kin-secondary hover:bg-[var(--kin-fill)]"
+                  }`}
                 >
-                  <option value="balanced">{tr("settings.routing.objectiveBalanced")}</option>
-                  <option value="cost-min">{tr("settings.routing.objectiveCostMin")}</option>
-                  <option value="intelligent-max">
-                    {tr("settings.routing.objectiveIntelligentMax")}
-                  </option>
-                </select>
+                  {tr("dispatch.manual")}
+                </button>
               </div>
-            )}
 
-            {/* Manual mode */}
-            {mode === "manual" && (
-              <div className="space-y-1.5">
-                <select
-                  value={value.agent || ""}
-                  onChange={(e) => onChange({ mode: "manual", agent: e.target.value })}
-                  disabled={disabled}
-                  className="kin-input min-h-8 text-body leading-4 w-full"
-                >
-                  <option value="">{tr("dispatch.agentPlaceholder")}</option>
-                  {agents.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name} ({a.id})
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={value.provider || ""}
-                  onChange={(e) =>
-                    onChange({
-                      mode: "manual",
-                      agent: value.agent,
-                      provider: e.target.value,
-                      model: "",
-                    })
-                  }
-                  disabled={disabled || !value.agent}
-                  className="kin-input min-h-8 text-body leading-4 w-full"
-                >
-                  <option value="">{tr("dispatch.providerPlaceholder")}</option>
-                  {compatibleProviders.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.id})
-                    </option>
-                  ))}
-                </select>
-                {/* Model: dropdown from provider's model list */}
-                {providerModels.length > 0 ? (
+              {/* Auto mode */}
+              {mode === "auto" && (
+                <div className="space-y-1.5">
                   <select
-                    value={value.model || ""}
+                    value={value.team || ""}
+                    onChange={(e) =>
+                      onChange({ mode: "auto", team: e.target.value, objective: value.objective })
+                    }
+                    disabled={disabled}
+                    className="kin-input min-h-8 text-body leading-4 w-full"
+                  >
+                    <option value="">{tr("settings.routing.defaultTeamPlaceholder")}</option>
+                    {enabledTeams.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} ({t.id})
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={value.objective || "balanced"}
+                    onChange={(e) =>
+                      onChange({ mode: "auto", team: value.team, objective: e.target.value })
+                    }
+                    disabled={disabled}
+                    className="kin-input min-h-8 text-body leading-4 w-full"
+                  >
+                    <option value="balanced">{tr("settings.routing.objectiveBalanced")}</option>
+                    <option value="cost-min">{tr("settings.routing.objectiveCostMin")}</option>
+                    <option value="intelligent-max">
+                      {tr("settings.routing.objectiveIntelligentMax")}
+                    </option>
+                  </select>
+                </div>
+              )}
+
+              {/* Manual mode */}
+              {mode === "manual" && (
+                <div className="space-y-1.5">
+                  <select
+                    value={value.agent || ""}
+                    onChange={(e) => onChange({ mode: "manual", agent: e.target.value })}
+                    disabled={disabled}
+                    className="kin-input min-h-8 text-body leading-4 w-full"
+                  >
+                    <option value="">{tr("dispatch.agentPlaceholder")}</option>
+                    {agents.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name} ({a.id})
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={value.provider || ""}
                     onChange={(e) =>
                       onChange({
                         mode: "manual",
                         agent: value.agent,
-                        provider: value.provider,
-                        model: e.target.value,
+                        provider: e.target.value,
+                        model: "",
                       })
                     }
-                    disabled={disabled || !value.provider}
+                    disabled={disabled || !value.agent}
                     className="kin-input min-h-8 text-body leading-4 w-full"
                   >
-                    <option value="">{tr("dispatch.modelPlaceholder")}</option>
-                    {providerModels.map((m: ModelSpec) => (
-                      <option key={m.id} value={m.id}>
-                        {m.id} ({m.tier || "?"})
+                    <option value="">{tr("dispatch.providerPlaceholder")}</option>
+                    {compatibleProviders.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.id})
                       </option>
                     ))}
                   </select>
-                ) : value.provider ? (
-                  <div className="text-body leading-4 text-kin-orange-ink px-1">
-                    {tr("dispatch.noModels")}
-                  </div>
-                ) : null}
-              </div>
-            )}
-
-            {/* Preview toggle */}
-            {(mode === "auto" && value.team) ||
-            (mode === "manual" && value.agent && value.provider && value.model) ? (
-              <button
-                type="button"
-                onClick={() => setShowPreview((v) => !v)}
-                className="text-micro text-kin-blue-ink hover:underline"
-              >
-                {showPreview ? tr("dispatch.hidePreview") : tr("dispatch.showPreview")}
-              </button>
-            ) : null}
-
-            {showPreview && (
-              <div className="rounded border border-[var(--kin-hairline)] p-2 space-y-1 bg-[var(--kin-fill)]">
-                {loading && (
-                  <span className="text-micro text-kin-muted">{tr("dispatch.loadingPreview")}</span>
-                )}
-                {error && <span className="text-micro text-kin-red-ink">{error}</span>}
-                {preview?.blocked && (
-                  <span className="text-micro text-kin-red-ink block">
-                    {preview.blocked_reason || tr("settings.routing.blocked")}
-                  </span>
-                )}
-                {preview?.phases.map((p) => (
-                  <div key={p.phase} className="flex items-center gap-2 text-micro">
-                    <span className="font-mono font-semibold text-kin-secondary w-14">
-                      {p.phase}
-                    </span>
-                    <span
-                      className={`${p.status === "resolved" ? "text-kin-green-ink" : p.status === "blocked" ? "text-kin-red-ink" : "text-kin-muted"}`}
+                  {/* Model: dropdown from provider's model list */}
+                  {providerModels.length > 0 ? (
+                    <select
+                      value={value.model || ""}
+                      onChange={(e) =>
+                        onChange({
+                          mode: "manual",
+                          agent: value.agent,
+                          provider: value.provider,
+                          model: e.target.value,
+                        })
+                      }
+                      disabled={disabled || !value.provider}
+                      className="kin-input min-h-8 text-body leading-4 w-full"
                     >
-                      {p.status === "resolved"
-                        ? `${p.agent} · ${p.provider} · ${p.model}`
-                        : formatPreviewStatus(p.status, tr)}
+                      <option value="">{tr("dispatch.modelPlaceholder")}</option>
+                      {providerModels.map((m: ModelSpec) => (
+                        <option key={m.id} value={m.id}>
+                          {m.id} ({m.tier || "?"})
+                        </option>
+                      ))}
+                    </select>
+                  ) : value.provider ? (
+                    <div className="text-body leading-4 text-kin-orange-ink px-1">
+                      {tr("dispatch.noModels")}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+
+              {/* Preview toggle */}
+              {(mode === "auto" && value.team) ||
+              (mode === "manual" && value.agent && value.provider && value.model) ? (
+                <button
+                  type="button"
+                  onClick={() => setShowPreview((v) => !v)}
+                  className="text-micro text-kin-blue-ink hover:underline"
+                >
+                  {showPreview ? tr("dispatch.hidePreview") : tr("dispatch.showPreview")}
+                </button>
+              ) : null}
+
+              {showPreview && (
+                <div className="rounded border border-[var(--kin-hairline)] p-2 space-y-1 bg-[var(--kin-fill)]">
+                  {loading && (
+                    <span className="text-micro text-kin-muted">
+                      {tr("dispatch.loadingPreview")}
                     </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+                  )}
+                  {error && <span className="text-micro text-kin-red-ink">{error}</span>}
+                  {preview?.blocked && (
+                    <span className="text-micro text-kin-red-ink block">
+                      {preview.blocked_reason || tr("settings.routing.blocked")}
+                    </span>
+                  )}
+                  {preview?.phases.map((p) => (
+                    <div key={p.phase} className="flex items-center gap-2 text-micro">
+                      <span className="font-mono font-semibold text-kin-secondary w-14">
+                        {p.phase}
+                      </span>
+                      <span
+                        className={`${p.status === "resolved" ? "text-kin-green-ink" : p.status === "blocked" ? "text-kin-red-ink" : "text-kin-muted"}`}
+                      >
+                        {p.status === "resolved"
+                          ? `${p.agent} · ${p.provider} · ${p.model}`
+                          : formatPreviewStatus(p.status, tr)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
