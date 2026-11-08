@@ -11,6 +11,11 @@ final class KinBridgeViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(KinNativePushPlugin())
         // Runtime Hub URL and system-browser sign-in (G8/G9).
         bridge?.registerPluginInstance(KinHubConfigPlugin())
+        // Put the Hub session back before the console's first request: a
+        // reinstall takes the webview's cookie jar with it, the Keychain copy
+        // survives. If the bridge's own first load already went out without
+        // the cookie, the restore issues that load once more.
+        KinHubConfigPlugin.startSessionKeeper(in: bridge)
         if let webView = bridge?.webView {
             KinPushState.shared.attach(webView)
         }

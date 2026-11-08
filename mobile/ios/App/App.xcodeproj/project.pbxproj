@@ -19,6 +19,7 @@
 		A11CE0022FE1000100000002 /* KinPushState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE0012FE1000100000001 /* KinPushState.swift */; };
 		A11CE0042FE1000100000004 /* KinNativePushPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE0032FE1000100000003 /* KinNativePushPlugin.swift */; };
 		A11CE0062FE1000100000006 /* KinBridgeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE0052FE1000100000005 /* KinBridgeViewController.swift */; };
+		A11CE0082FE1000100000008 /* KinHubConfigPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE0092FE1000100000009 /* KinHubConfigPlugin.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -35,6 +36,7 @@
 		A11CE0012FE1000100000001 /* KinPushState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KinPushState.swift; sourceTree = "<group>"; };
 		A11CE0032FE1000100000003 /* KinNativePushPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KinNativePushPlugin.swift; sourceTree = "<group>"; };
 		A11CE0052FE1000100000005 /* KinBridgeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KinBridgeViewController.swift; sourceTree = "<group>"; };
+		A11CE0092FE1000100000009 /* KinHubConfigPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KinHubConfigPlugin.swift; sourceTree = "<group>"; };
 		A11CE0072FE1000100000007 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
@@ -77,6 +79,7 @@
 				A11CE0012FE1000100000001 /* KinPushState.swift */,
 				A11CE0032FE1000100000003 /* KinNativePushPlugin.swift */,
 				A11CE0052FE1000100000005 /* KinBridgeViewController.swift */,
+				A11CE0092FE1000100000009 /* KinHubConfigPlugin.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -179,6 +182,7 @@
 				A11CE0022FE1000100000002 /* KinPushState.swift in Sources */,
 				A11CE0042FE1000100000004 /* KinNativePushPlugin.swift in Sources */,
 				A11CE0062FE1000100000006 /* KinBridgeViewController.swift in Sources */,
+				A11CE0082FE1000100000008 /* KinHubConfigPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
