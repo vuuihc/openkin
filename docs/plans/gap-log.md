@@ -30,25 +30,22 @@ person can see; the fix and its verification belong in the issue or the PR.
 
 ## Open
 
-### 2026-11-08 · 高 · iPad 上回车直接发送，软键盘写不了多行
+### 2026-11-08 · 高 · 回车直接发送，写不了多行
 
 在 iPad 的 iOS 客户端里，输入框的回车键直接发送消息。软键盘没有 Shift，
 `Shift+Enter` 换行用不上，长消息只能一次写完；手一快就把半句话发了出去。
-期望：触屏 / iOS 壳里回车只换行，只有发送键（输入框右侧的上箭头）提交；
-桌面与硬件键盘保持回车发送。
+已定：所有键盘——软键盘、桌面、iPad 外接硬件键盘——回车都只换行，发送只走
+发送键（输入框右侧的上箭头）。
 
 线索：`ui/src/components/chat/Composer.tsx:712` 的
 `if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submit(); }`
 ——换行完全依赖 textarea 的 `Shift+Enter` 默认行为，而软键盘拿不到 Shift。
-同一处理函数里还有 IME 保护（`:619`）、mention / slash 菜单的 Enter（`:656`、
-`:679`）和 `⌘/Ctrl+Enter` 手动换行（`:700`）；平台判定可参考
-`ui/src/index.css` 的 `@media (pointer: coarse)` 与 `ui/src/lib/nativePush.ts`
-的 Capacitor 检测。注意 `Composer.slash.dom.test.tsx` 与
-`Composer.files.dom.test.tsx` 都断言“回车发送”，改行为时要按平台拆开，不能把
-桌面一起改掉。
-
-待定：桌面和 iPad 外接硬件键盘是否也改成回车换行。当前按“只改触屏 / iOS
-软键盘，桌面仍回车发送”记录，已在记录时向报告人确认。
+同一处理函数里还有 IME 保护（`:619`）和 mention / slash 菜单的 Enter（`:656`、
+`:679`）——菜单里的回车是选行，不是发送，保持不动；`⌘/Ctrl+Enter` 现在插入
+换行（`:700`），要和图例一起改。注意 `Composer.slash.dom.test.tsx` 与
+`Composer.files.dom.test.tsx` 都断言“回车发送”，行为整体反转后要一起改。
+另外界面图例现在写的是 `⌘↵ 发送`，代码却把 `⌘/Ctrl+Enter` 当换行；实现时
+按图例把 `⌘/Ctrl+Enter` 定为桌面的发送快捷键，两者对齐。
 
 ### 2026-11-08 · 高 · 新开会话选不了模型，选择控件各写各的（原生 select 仍在用）
 
@@ -80,19 +77,16 @@ action sheet / 桌面锚定菜单），后者的顶部注释已经写明原生 s
 新开会话页在 iPad 上，底部的 Agent、权限模式、模型、项目文件夹、机器、分支、
 分发、例程挤在一起：`md` 及以上是一条可横向滚动的 chip 条，窄一点的 iPad 走
 手机 sheet 时又是九行等权卡片；“这次要跑什么”和“在哪里跑”混在同一层，第一眼
-看不出该先看哪个。期望参考 lody 重排：一行只留运行配置（Agent · 模型 · 权限，
-点开同一个设置面），位置类（机器 / 项目文件夹 / 分支 / 分发 / 例程）收进分组
-或二级入口；同一宽度只出现一种排列，不并列两套。
+看不出该先看哪个。已定：参考 lody 重排——项目 / 文件夹（cwd）的选择挪到上方
+对话 UI（新开会话的标题 / 项目区），底部只留一行、控件尽量少；机器 / 分支 /
+分发 / 例程这类位置设置收进同一个设置面，同一宽度只出现一种排列，不并列两套。
 
 线索：`ui/src/pages/NewChatPage.tsx:479` 的 `desktopStrip` 与 `:869` 的
 `hidden md:flex ... overflow-x-auto` 横滚条；手机入口是 `Composer.tsx:1027`
 的 `md:hidden` footer；设置面是 `ui/src/components/chat/RunConfigSheet.tsx` 的
-`RunConfigSheetRow`（`:663`）与 `extraRows`（`:597`）。参考形态就写在该文件顶部
-注释里：footer 一行说清当前配置，sheet 拥有控件，行内展开而不是叠第二层
-sheet。
-
-待定：iPad 上沿用手机的“一行摘要 + sheet”，还是单独做平板排列。当前按
-“沿用手机形态、同一宽度只有一种排列”记录，已在记录时向报告人确认。
+`RunConfigSheetRow`（`:663`）与 `extraRows`（`:597`）；要上移的文件夹控件是
+`ui/src/components/chat/CwdPicker.tsx`。参考形态就写在该文件顶部注释里：
+footer 一行说清当前配置，sheet 拥有控件，行内展开而不是叠第二层 sheet。
 
 ### 2026-11-08 · 高 · 会话 cookie 不随使用滑动，约每 30 天要重登一次
 
