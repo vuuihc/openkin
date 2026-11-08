@@ -2,6 +2,7 @@
 // G8/G9: the console half of the shell's Hub-URL and system-browser contract.
 import { describe, expect, it } from "vitest";
 import {
+  forgetHubSession,
   hubConfigPlugin,
   isHubShell,
   newDeviceKey,
@@ -49,6 +50,25 @@ describe("hubConfigPlugin", () => {
   it("refuses a plugin missing the methods the console calls", () => {
     const { setHubUrl: _dropped, ...partial } = fullPlugin();
     expect(hubConfigPlugin(iosScope(partial))).toBeNull();
+  });
+});
+
+describe("forgetHubSession", () => {
+  it("tells the shell to drop its durable copy", async () => {
+    let forgotten = 0;
+    const plugin = { ...fullPlugin(), forgetSession: async () => void forgotten++ };
+    await forgetHubSession(iosScope(plugin));
+    expect(forgotten).toBe(1);
+  });
+
+  it("does nothing in a browser or on an older shell build", async () => {
+    await expect(forgetHubSession({})).resolves.toBeUndefined();
+    await expect(forgetHubSession(iosScope(fullPlugin()))).resolves.toBeUndefined();
+  });
+
+  it("does not fail the sign-out when the shell refuses", async () => {
+    const plugin = { ...fullPlugin(), forgetSession: async () => Promise.reject(new Error("nope")) };
+    await expect(forgetHubSession(iosScope(plugin))).resolves.toBeUndefined();
   });
 });
 

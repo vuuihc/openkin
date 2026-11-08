@@ -1,6 +1,7 @@
 import { apiFetch, ApiError, clearToken, deletePushDevice, getToken } from "./client";
 import { gateForVisit, type AuthErrorCode } from "../lib/accountGate";
 import { disableNativePushOnSignOut } from "../lib/nativePush";
+import { forgetHubSession } from "../lib/hubConfig";
 import { withoutClaimHash } from "../lib/loginLink";
 import {
   NO_ACCOUNT,
@@ -287,6 +288,11 @@ export async function signOut(): Promise<void> {
   } catch {
     // Clearing the local session matters more than the server's answer.
   }
+  // The shell keeps a copy of this session so a reinstall does not sign the
+  // person out. Signing out is exactly when that copy must go: the request
+  // above may have failed, and a live cookie behind the login screen would
+  // sign them back in on the next install.
+  await forgetHubSession();
   useAppStore.getState().setAccount({ ...NO_ACCOUNT, enabled: true });
 }
 

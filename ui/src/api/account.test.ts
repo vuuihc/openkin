@@ -24,6 +24,13 @@ const push = vi.hoisted(() => ({
 }));
 vi.mock("../lib/nativePush", () => push);
 
+// The shell owns the copy of the session that survives a reinstall; the
+// sign-out path must tell it to drop that copy. A browser has no such module.
+const shell = vi.hoisted(() => ({
+  forgetHubSession: vi.fn(async (): Promise<void> => {}),
+}));
+vi.mock("../lib/hubConfig", () => shell);
+
 // The network layer is replaced, not stubbed: these cases assert the request
 // the console sends to the Hub, which is the contract a server change would
 // break.
@@ -250,6 +257,7 @@ describe("signOut", () => {
   // KIN-NOTIFY-001: signing out stops this phone before the session ends.
   beforeEach(() => {
     push.disableNativePushOnSignOut.mockClear();
+    shell.forgetHubSession.mockClear();
     vi.mocked(apiFetch).mockReset();
     vi.mocked(apiFetch).mockResolvedValue(undefined);
     useAppStore.getState().setAuthOk();
@@ -323,6 +331,19 @@ describe("signOut", () => {
     await signOut();
 
     expect(order).toEqual(["push", "logout"]);
+    expect(useAppStore.getState().account.authenticated).toBe(false);
+  });
+
+  it("drops the shell's durable session even when logout never reaches the Hub", async () => {
+    // The shell mirrors the cookie into the Keychain so a reinstall keeps the
+    // person signed in. A failed logout leaves the cookie live, so the copy
+    // must go anyway — otherwise reinstalling would sign them back in after
+    // they asked to leave.
+    vi.mocked(apiFetch).mockRejectedValueOnce(new Error("offline"));
+
+    await signOut();
+
+    expect(shell.forgetHubSession).toHaveBeenCalledTimes(1);
     expect(useAppStore.getState().account.authenticated).toBe(false);
   });
 });

@@ -21,6 +21,9 @@ export type HubConfigPlugin = {
   getHubUrl(): Promise<{ url?: string }>;
   setHubUrl(input: { url: string; confirm?: boolean }): Promise<{ url: string; insecure?: boolean }>;
   clearHubUrl(): Promise<void>;
+  /** Drop the shell's durable copy of the Hub session, and the live cookie
+   * with it. Optional: an older shell build has no such method. */
+  forgetSession?(): Promise<void>;
   openSystemBrowser(input: { url: string }): Promise<void>;
   takeAuthCallback(): Promise<{ url?: string }>;
   /** Read-and-clear the pending kin://connect deep link (G8). Optional: an
@@ -68,6 +71,26 @@ export function hubConfigPlugin(scope: unknown = globalThis): HubConfigPlugin | 
 /** Whether this console runs inside the shell that owns the Hub URL. */
 export function isHubShell(scope: unknown = globalThis): boolean {
   return hubConfigPlugin(scope) !== null;
+}
+
+/**
+ * Drop the shell's durable copy of the Hub session, if this build has one.
+ *
+ * Signing out is the console's call, but the copy that survives a reinstall
+ * lives in the shell. The logout request carries the cookie and normally
+ * revokes the session; when it fails — a dead network is exactly when someone
+ * signs out — the shell still has to forget its copy, or the next reinstall
+ * signs the person back in. Best effort: a browser, or a shell from before
+ * this method existed, has nothing to forget.
+ */
+export async function forgetHubSession(scope: unknown = globalThis): Promise<void> {
+  const plugin = hubConfigPlugin(scope);
+  if (!plugin || typeof plugin.forgetSession !== "function") return;
+  try {
+    await plugin.forgetSession();
+  } catch {
+    // Leaving is the point; the console is already dropping its own copies.
+  }
 }
 
 /**
