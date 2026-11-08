@@ -15,6 +15,22 @@ person can see; the fix and its verification belong in the issue or the PR.
 
 ## Open
 
+### 2026-11-08 · 中 · iOS 壳启动只认构建期 Hub URL，不认配对时存下的地址
+
+在连接页配对过的手机，重开应用后壳仍按构建期 `server.url` 启动；运行时的
+`kin.hub_url` 只有连接页会读（用来预填输入框），启动路径没有任何地方用它，
+这与 `mobile/capacitor.config.ts` 和插件注释里写的"运行时 origin 是事实、
+壳在启动后把 webview 指过去"相反。表现：用通用构建（未烘 `KIN_HUB_URL`）
+配对过的手机，每次重开都回到内置控制台，要多点一次连接；若构建期 URL 与
+配对地址不同，即使会话 cookie 还在也会落到另一个 origin 上而显示未登录。
+
+期望：壳在首个页面加载前把存储的 Hub origin 作为启动地址（存储地址不可达时
+退回内置控制台，即配置注释里写的 fallback），并补一条模拟器验证。
+
+线索：`mobile/ios/App/App/KinHubConfigPlugin.swift` 的 `storedHubURL` /
+`launchHost` / `startSessionKeeper`，`mobile/ios/App/App/KinBridgeViewController.swift`
+的 `capacitorDidLoad`，`ui/src/lib/hubConfig.ts`、`ui/src/components/ConnectScreen.tsx`。
+
 ### 2026-11-07 · 中 · Agent / 模型选择气泡的展开方向不一致
 
 同一个输入框工具栏里的选择器，弹出面板的方向不一致：Agent 选择器和模型

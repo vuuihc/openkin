@@ -12,10 +12,21 @@ browser. A bundled copy of the console still ships inside the app as a starting
 point, but the Hub's copy is what runs. (The Electron desktop shell works the
 same way.)
 
+The session outlives the app. A WKWebView's cookie jar is deleted with the app,
+so the shell mirrors the Hub's `kin_session` cookie into the Keychain and puts
+it back on launch — before the console's first request when it can be, and by
+reloading that page once if the bridge's own load already went out without it.
+Signing out removes both copies. Deleting and reinstalling the app — how a new
+development build gets onto a phone — no longer signs the person out. Signing
+out drops the shell's copy even when the logout request itself fails, because
+that is exactly the case where a surviving cookie would sign them back in.
+
 ## Build it
 
-Set the origin your Hub is reachable at and build. The origin is baked in at
-sync time, so the app is per-deployment: rebuild to point it somewhere else.
+Set the origin your Hub is reachable at and build. `KIN_HUB_URL` is optional:
+without it the app starts on its bundled console, whose connect screen collects
+the Hub address. When given, it is only the origin the app opens first — the
+runtime address is the shell's own state (G8).
 
 ```bash
 cd mobile
