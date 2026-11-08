@@ -1,12 +1,22 @@
 # Gap Log
 
 Small, real defects found while dogfooding that are not worth interrupting the
-current round for. The scheduled gap sweep reads this file every six hours.
+current round for. The scheduled gap sweep reads this file every hour.
 
-> 2026-11-08: the sweep's configured path for this file is a stale absolute path
-> from another machine, so the six-hourly run reaches GitHub but not this file.
-> Until the schedule prompt is updated, `已开 issue` notes here are maintained by
-> hand.
+> 2026-11-08: this file is not on `origin/main` yet (local docs are blocked
+> behind a history that has not been pushed), so the hourly Kin routine can read
+> it only from a local checkout. Until the docs land upstream, keep the matching
+> GitHub issue self-contained: the routine reads issues, not this file.
+
+How an entry is written — ask first, so the sweep never has to guess:
+
+- 期望行为是什么？具体到能写成一条测试。
+- 有没有哪种做法是你明确不要的？
+- 仓库里有没有已经做对的同类地方可以照抄？
+
+An entry must carry the expected behavior and any settled trade-off. If a
+question is still open, mark it 待定 and ask the person now; do not leave a
+product decision for the sweep to discover later.
 
 How an entry moves:
 
@@ -19,6 +29,70 @@ Newest first. Dates are absolute (`YYYY-MM-DD`). One entry is one symptom a
 person can see; the fix and its verification belong in the issue or the PR.
 
 ## Open
+
+### 2026-11-08 · 高 · iPad 上回车直接发送，软键盘写不了多行
+
+在 iPad 的 iOS 客户端里，输入框的回车键直接发送消息。软键盘没有 Shift，
+`Shift+Enter` 换行用不上，长消息只能一次写完；手一快就把半句话发了出去。
+期望：触屏 / iOS 壳里回车只换行，只有发送键（输入框右侧的上箭头）提交；
+桌面与硬件键盘保持回车发送。
+
+线索：`ui/src/components/chat/Composer.tsx:712` 的
+`if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submit(); }`
+——换行完全依赖 textarea 的 `Shift+Enter` 默认行为，而软键盘拿不到 Shift。
+同一处理函数里还有 IME 保护（`:619`）、mention / slash 菜单的 Enter（`:656`、
+`:679`）和 `⌘/Ctrl+Enter` 手动换行（`:700`）；平台判定可参考
+`ui/src/index.css` 的 `@media (pointer: coarse)` 与 `ui/src/lib/nativePush.ts`
+的 Capacitor 检测。注意 `Composer.slash.dom.test.tsx` 与
+`Composer.files.dom.test.tsx` 都断言“回车发送”，改行为时要按平台拆开，不能把
+桌面一起改掉。
+
+待定：桌面和 iPad 外接硬件键盘是否也改成回车换行。当前按“只改触屏 / iOS
+软键盘，桌面仍回车发送”记录，已在记录时向报告人确认。
+
+### 2026-11-08 · 高 · 新开会话选不了模型，选择控件各写各的（原生 select 仍在用）
+
+在 iPad 的 iOS 客户端上新开会话，底部运行设置只能选 Agent，模型一项看不到、
+改不了；同一带的几个选择框形状也不一致，好几处还是浏览器原生 `<select>`
+——在 iOS 上打开的是系统滚轮，样式和交互都不属于控制台。
+
+期望：新开会话能选模型；所有“从一组里选一个”的地方复用同一个全局选择控件，
+同一套触发器、同一套桌面浮层 / 手机 sheet 形态、同一套搜索与键盘行为，不再
+出现原生 `<select>`。
+
+线索：手机运行设置 `ui/src/components/chat/RunConfigSheet.tsx` 本应有
+Agent / 模型 / 权限三行（模型行在 `:432`），模型清单来自
+`ui/src/lib/agentModels.ts:19` 的 `modelsForAgent`（读 agent 上报的 `models`）。
+先确认 iPad 实际走的断点与 Hub 提供的构建：`md` = 768px，iPad mini 竖屏
+744px 走手机版，其余 iPad 走桌面条；再看是模型行没渲染，还是 agent 的
+`models` 为空。原生 select 集中在 `ui/src/components/chat/DispatchSelector.tsx:279`、
+`:294`、`:314`、`:327`、`:349`，`MachinePicker.tsx:33`、
+`MachineBrowser.tsx:434`、`RoutineScheduleFields.tsx:194` / `:224`；设置页另见
+`ProviderSettingsSection.tsx`、`RoutingSettings.tsx`、`SettingsPage.tsx` 等。
+现有两个半成品可收敛为一个原语：`ui/src/components/ui/SearchSelect.tsx`
+（桌面浮层 + 窄屏 sheet）与 `ui/src/components/ui/SheetSelect.tsx`（手机 Ionic
+action sheet / 桌面锚定菜单），后者的顶部注释已经写明原生 select 在 iOS 上
+为什么不对。验收：新开会话能改模型；全仓 `grep '<select'` 只剩合理用途；
+桌面与 390px 宽度各有 DOM 测试。
+
+### 2026-11-08 · 中 · iPad 新开会话底部控件太挤，排列没有层次
+
+新开会话页在 iPad 上，底部的 Agent、权限模式、模型、项目文件夹、机器、分支、
+分发、例程挤在一起：`md` 及以上是一条可横向滚动的 chip 条，窄一点的 iPad 走
+手机 sheet 时又是九行等权卡片；“这次要跑什么”和“在哪里跑”混在同一层，第一眼
+看不出该先看哪个。期望参考 lody 重排：一行只留运行配置（Agent · 模型 · 权限，
+点开同一个设置面），位置类（机器 / 项目文件夹 / 分支 / 分发 / 例程）收进分组
+或二级入口；同一宽度只出现一种排列，不并列两套。
+
+线索：`ui/src/pages/NewChatPage.tsx:479` 的 `desktopStrip` 与 `:869` 的
+`hidden md:flex ... overflow-x-auto` 横滚条；手机入口是 `Composer.tsx:1027`
+的 `md:hidden` footer；设置面是 `ui/src/components/chat/RunConfigSheet.tsx` 的
+`RunConfigSheetRow`（`:663`）与 `extraRows`（`:597`）。参考形态就写在该文件顶部
+注释里：footer 一行说清当前配置，sheet 拥有控件，行内展开而不是叠第二层
+sheet。
+
+待定：iPad 上沿用手机的“一行摘要 + sheet”，还是单独做平板排列。当前按
+“沿用手机形态、同一宽度只有一种排列”记录，已在记录时向报告人确认。
 
 ### 2026-11-08 · 高 · 会话 cookie 不随使用滑动，约每 30 天要重登一次
 
