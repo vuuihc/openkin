@@ -65,9 +65,9 @@ describe("the floating approval's wiring", () => {
   });
 
   it("marks the band on every composer screen", () => {
-    // On its own attribute line, so a marker inside a JSX comment or behind a
-    // `false &&` does not count.
-    expect(draft).toMatch(/^\s*data-kin-bottom-chrome=""$/m);
+    // The marker is an attribute of the band's `<div>`, not text inside a JSX
+    // comment or behind a `false &&`.
+    expect(draft).toMatch(/<div data-kin-bottom-chrome=""[\s>]/);
     expect(agentSession).toMatch(/^\s*data-kin-bottom-chrome=""$/m);
   });
 

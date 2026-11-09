@@ -31,6 +31,7 @@ import RoutineScheduleFields, {
 } from "../components/routine/RoutineScheduleFields";
 import { serializeRoutineRule, type RoutineRule } from "../lib/routineRecurrence";
 import ProjectSummaryCard from "../components/project/ProjectSummaryCard";
+import { liveResources } from "../api/liveResources";
 import { useT } from "../i18n/react";
 import { modelsForAgent } from "../lib/agentModels";
 import {
@@ -356,24 +357,27 @@ export default function NewChatPage() {
         // or a next_due_at sent alongside it would be a second, contradictory
         // schedule the scheduler never reads.
         const recurrence = serializeRoutineRule(routineRule, nextMs);
-        const routine = await createRoutine({
-          title,
-          cwd: cwd.trim(),
-          prompt: raw,
-          ...(recurrence
-            ? { recurrence }
-            : {
-                interval_secs: routineInterval,
-                ...(nextMs != null ? { next_due_at: nextMs } : {}),
-              }),
-          agent: mainAgentId || undefined,
-          // The model picker stays visible in routine mode, so its value has
-          // to travel with the schedule; dropping it made the control look
-          // applied while every run started on the agent's default.
-          ...(selectedModel.trim() ? { model: selectedModel.trim() } : {}),
-          permission_mode: permissionMode,
-          project_id: project?.id,
-        }, machineId || undefined);
+        const routine = await createRoutine(
+          {
+            title,
+            cwd: cwd.trim(),
+            prompt: raw,
+            ...(recurrence
+              ? { recurrence }
+              : {
+                  interval_secs: routineInterval,
+                  ...(nextMs != null ? { next_due_at: nextMs } : {}),
+                }),
+            agent: mainAgentId || undefined,
+            // The model picker stays visible in routine mode, so its value has
+            // to travel with the schedule; dropping it made the control look
+            // applied while every run started on the agent's default.
+            ...(selectedModel.trim() ? { model: selectedModel.trim() } : {}),
+            permission_mode: permissionMode,
+            project_id: project?.id,
+          },
+          machineId || undefined,
+        );
         // The routine was created on that machine, so the Routines page opens
         // there. Without this the page would stay on whatever machine it was
         // last showing, and the routine just created would be missing from it.
@@ -452,6 +456,10 @@ export default function NewChatPage() {
           : {}),
         ...(remote ? { executing_device_id: machine.id } : {}),
       });
+      // Seed the store with the row the create answer already carries: the
+      // conversation route then draws its header and composer immediately
+      // instead of waiting for a detail request for a task it just created.
+      liveResources.applyTaskSnapshot(task, liveResources.currentRevision());
       clearDraftPrompt();
       navigate(`/tasks/${task.id}`, { replace: true });
     } catch (err) {
@@ -475,11 +483,11 @@ export default function NewChatPage() {
    *  and permission, so every width sees each control exactly once. While
    *  routine mode is on the location controls step aside (the composer
    *  becomes a scheduler), exactly as the old panel folded them. */
-  const phoneExtraRows = (
-    // A routine is created on a machine and runs in a directory on it, so
-    // those two controls stay even when the composer becomes a scheduler.
-    // Branch and dispatch do not: a routine has no branch to switch and the
-    // Hub's team dispatch does not cross machines.
+  const phoneExtraRows = // A routine is created on a machine and runs in a directory on it, so
+  // those two controls stay even when the composer becomes a scheduler.
+  // Branch and dispatch do not: a routine has no branch to switch and the
+  // Hub's team dispatch does not cross machines.
+  (
     asRoutine
       ? (["machine", "cwd", "routine"] as const)
       : (["role", "machine", "cwd", "branch", "dispatch", "routine"] as const)
@@ -501,9 +509,7 @@ export default function NewChatPage() {
       (id !== "role" || roleList.length > 0) &&
       !(asRoutine && (id === "branch" || id === "dispatch")),
   );
-  const visiblePhoneExtraRows = phoneExtraRows.filter(
-    (id) => id !== "role" || roleList.length > 0,
-  );
+  const visiblePhoneExtraRows = phoneExtraRows.filter((id) => id !== "role" || roleList.length > 0);
 
   /** Each control's own row label. The group headings stay as sections
    *  ("Run", "Route", "Workspace"); this is what the row is asking for. */
@@ -794,10 +800,7 @@ export default function NewChatPage() {
           measures this band so it never covers the draft composer. The draft
           is the one screen a cold launch lands on, so an overlay that guessed
           here would cover the input on the first screen anyone sees. */}
-      <div
-        data-kin-bottom-chrome=""
-        className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5"
-      >
+      <div data-kin-bottom-chrome="" className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5">
         <div className="max-w-conversation mx-auto space-y-1.5">
           {hints.length > 0 && (
             // Desktop only: a line of @-mention hints is reference material, and
