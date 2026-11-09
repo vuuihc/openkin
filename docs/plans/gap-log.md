@@ -30,6 +30,42 @@ person can see; the fix and its verification belong in the issue or the PR.
 
 ## Open
 
+### 2026-11-09 · 中 · 手机端会话列表里，手机发起的同一条对话出现两行
+
+手机发起的对话（如 astryx 那条）在手机列表里出现两次：一次是 Kin 自己的任务行
+（Hub 的 `/api/tasks`，任务行带 `session_ref` + `session_ref_device_id`），一次是
+导入的 provider 会话行（`/api/agent-sessions/page`，同设备、同 `external_ref`）。
+会话页把两路 feed 按 cwd 合进同一批项目桶（`ui/src/pages/SessionsPage.tsx:329`、
+`:361`），合桶时只看 cwd、不看身份（`ui/src/lib/phoneSessionBuckets.ts:135`–`:171`
+把 tasks 和 sessions 依次推进同一个桶），于是同一条真实对话占两行。实测 Hub 第一页
+50 条导入行里，有 9 条与同页的 Kin 任务是同一条对话。
+
+`linked` 本来是「这个会话是某条任务的主会话」的信号，但它由持有任务的引擎写
+`task_agent_sessions`（`internal/task/engine.go:1830`），而远端执行的任务直接跳过
+（`engine.go:1815`）——手机发起的任务归 Hub 所有、在节点上执行，没有任何一个引擎
+在 Hub 的库里写这条绑定，所以导入行在 Hub 上永远是 `linked: false`（实测第一页
+50 行全部如此）。schema 里有身份，链路上没有人点亮它。
+
+期望行为：同一条真实对话在列表里只出现一行。判同的键是
+（任务 `session_ref_device_id` + `session_ref`）↔（导入行 `device_id` +
+`external_ref`）；两行并存时保留任务行——它带状态、可固定、可归档，手机的对话
+UI 工作在任务上；导入行只在没有对应任务时单独出现。绝不按标题判同（标题会漂移）。
+
+已定的取舍：不删导入行——没有任务对应的 provider 会话只有它一条把手（历史读取、
+续聊都走它）；不合表——ADR 0022 D7 已定 device+agent+ref 是会话身份，两台机器
+同 ref 是两条会话，不是冲突。
+
+待定（报告人）：合并后的行点进去打开哪里——推荐任务详情（续聊走任务），报告人
+推翻再改。
+
+线索：`internal/api/agent_sessions.go:333`（远端导入落行）、
+`internal/task/engine.go:1815`、`:1830`（host 绑定只在本地执行的机器上写）、
+`ui/src/pages/SessionsPage.tsx:329`、`:361`、`ui/src/lib/phoneSessionBuckets.ts:135`、
+`:156`（两路 feed 同桶，无身份去重）、`ui/src/api/generated/openapi.ts:3317`
+（`task.session_ref`）、ADR 0022 D7。验收：DOM 测试——构造一条 task
+（session_ref/device 与一条导入 session 相同）加该导入行，断言项目桶里只有一行
+（任务行）；没有对应任务的导入行仍单独出现；390px 与桌面宽度都过。
+
 ### 2026-11-09 · 中 · YOLO 会话的 plan worker 仍会弹一张 ExitPlanMode 审批卡
 
 自动路由，或「计划用聪明模型、执行用便宜模型」拆出来的 `phase=plan|review`
