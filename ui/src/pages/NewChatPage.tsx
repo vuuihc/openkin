@@ -484,14 +484,14 @@ export default function NewChatPage() {
    *  routine mode is on the location controls step aside (the composer
    *  becomes a scheduler), exactly as the old panel folded them. */
   const phoneExtraRows = // A routine is created on a machine and runs in a directory on it, so
-  // those two controls stay even when the composer becomes a scheduler.
-  // Branch and dispatch do not: a routine has no branch to switch and the
-  // Hub's team dispatch does not cross machines.
-  (
-    asRoutine
-      ? (["machine", "cwd", "routine"] as const)
-      : (["role", "machine", "cwd", "branch", "dispatch", "routine"] as const)
-  ) as readonly NewChatControlId[];
+    // those two controls stay even when the composer becomes a scheduler.
+    // Branch and dispatch do not: a routine has no branch to switch and the
+    // Hub's team dispatch does not cross machines.
+    (
+      asRoutine
+        ? (["machine", "cwd", "routine"] as const)
+        : (["role", "machine", "cwd", "branch", "dispatch", "routine"] as const)
+    ) as readonly NewChatControlId[];
   const desktopStrip: NewChatControlId[] = [
     "hostModel",
     "role",
