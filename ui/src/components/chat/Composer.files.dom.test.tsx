@@ -151,7 +151,7 @@ describe("Composer file mentions", () => {
 
   // The menu must not eat Enter. A sentence-ending `@claude.` is prose; it is
   // not a half-typed mention, and a file named CLAUDE.md matches its text.
-  it("closes on a sentence stop so Enter sends the message", async () => {
+  it("closes on a sentence stop so Enter is a newline, not a pick", async () => {
     const user = userEvent.setup();
     const fileSearch = vi.fn(async () => ["CLAUDE.md"]);
     const { onSubmit, box } = setup({ fileSearch });
@@ -162,6 +162,10 @@ describe("Composer file mentions", () => {
     expect(screen.queryByRole("option")).toBeNull();
 
     await user.keyboard("{Enter}");
+    expect((box as HTMLTextAreaElement).value).toBe("ask @claude.\n");
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
     expect(onSubmit).toHaveBeenCalledWith("ask @claude.", undefined);
   });
 
