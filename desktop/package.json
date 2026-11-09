@@ -43,6 +43,7 @@
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
+      "artifactName": "Kin-${version}-arm64.dmg",
       "target": [
         {
           "target": "dmg",

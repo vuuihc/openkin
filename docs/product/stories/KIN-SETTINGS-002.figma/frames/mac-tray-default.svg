@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="520" viewBox="0 0 480 520" font-family="-apple-system, sans-serif">
+  <rect width="480" height="520" fill="#1e1e22"/>
+  <text x="240" y="28" fill="#9a9aa2" font-size="12" text-anchor="middle">Mac · 托盘菜单 · 默认（KIN-SETTINGS-002）</text>
+  <rect x="60" y="48" width="360" height="420" rx="10" fill="#2a2a30" stroke="#4a4a52"/>
+  <text x="80" y="76" fill="#dcdce2" font-size="14" font-weight="600">Open Kin</text>
+  <text x="80" y="102" fill="#dcdce2" font-size="14">Show Popover</text>
+  <line x1="60" y1="120" x2="420" y2="120" stroke="#4a4a52"/>
+  <text x="80" y="146" fill="#8a8a92" font-size="13">No pending approvals</text>
+  <line x1="60" y1="164" x2="420" y2="164" stroke="#4a4a52"/>
+  <text x="80" y="190" fill="#8a8a92" font-size="13">Daemon: running</text>
+  <text x="80" y="216" fill="#dcdce2" font-size="13">Stop daemon</text>
+  <line x1="60" y1="234" x2="420" y2="234" stroke="#4a4a52"/>
+  <rect x="72" y="250" width="336" height="22" rx="4" fill="#0a6bd344"/>
+  <text x="80" y="266" fill="#8ab4f8" font-size="13" font-weight="600">Kin 0.3.2</text>
+  <text x="80" y="296" fill="#dcdce2" font-size="13">检查更新…</text>
+  <line x1="60" y1="314" x2="420" y2="314" stroke="#4a4a52"/>
+  <text x="80" y="340" fill="#dcdce2" font-size="13">Launch at Login</text>
+  <text x="400" y="340" fill="#8ab4f8" font-size="12">✓</text>
+  <line x1="60" y1="358" x2="420" y2="358" stroke="#4a4a52"/>
+  <text x="80" y="384" fill="#dcdce2" font-size="13">Quit Kin</text>
+  <text x="240" y="498" fill="#6a6a72" font-size="11" text-anchor="middle">新增：版本行（灰）+ 检查更新入口</text>
+</svg>

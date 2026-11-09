@@ -10,8 +10,9 @@
 | `KIN-MANAGE-001` | draft | P1 | J5 | Mac/手机 | 整理一段对话 | 0 |
 | `KIN-RESULT-001` | draft | P1 | J4 | Mac/手机 | 看它改了什么 | 0 |
 | `KIN-SETTINGS-001` | draft | P1 | J6 | Mac/手机 | 改默认设置 | 0 |
+| `KIN-SETTINGS-002` | approved | P1 | J1、J6 | Mac | 桌面壳一键升级 | 3 |
 | `KIN-START-001` | draft | P1 | J3 | Mac/手机 | 新建一段对话 | 0 |
 
 ## 汇总
 
-approved 2 · draft 4
+approved 3 · draft 4

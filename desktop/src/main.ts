@@ -4,7 +4,7 @@
  * Responsibilities: tray + design popover, sidecar lifecycle, main window
  * (loads daemon UI), native notifications driven by the daemon WebSocket.
  */
-import { app, nativeImage, Notification } from "electron";
+import { app, dialog, nativeImage, Notification, shell } from "electron";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Sidecar } from "./sidecar";
@@ -18,6 +18,13 @@ import { taskIdFromURL } from "./task-notifications";
 import { retryWhileUnavailable } from "./daemon-retry";
 import { registerIpcHandlers } from "./ipc";
 import { appIconPath, isDev } from "./config";
+import { Updater } from "./updater-wiring";
+import {
+  clearDownload,
+  dmgDownloadPath,
+  downloadDmg,
+  fetchLatestRelease,
+} from "./updater";
 import {
   listPendingApprovals,
   type Approval,
@@ -54,6 +61,7 @@ mainWindow.setTokenSource(() => sidecar.readToken());
 let tray: AppTray | null = null;
 let popover: TrayPopover | null = null;
 let ws: DaemonWS | null = null;
+let updater: Updater;
 let notifier: Notifier | null = null;
 let pending: Approval[] = [];
 let quitting = false;
@@ -273,6 +281,49 @@ function setupTray(): void {
     getToken: () => sidecar.readToken(),
   });
 
+  // KIN-SETTINGS-002: the update flow. Electron APIs live here; the rules are
+  // in updater.ts / updater-wiring.ts, injected as functions so they test
+  // without a Menu. The tray re-renders on every state change the orchestrator
+  // publishes, which is the only coupling it has to the update machinery.
+  updater = new Updater({
+    appVersion: () => app.getVersion(),
+    check: () => fetchLatestRelease(fetch),
+    download: (url, dest, onProgress) =>
+      downloadDmg(fetch, url, dest, onProgress),
+    downloadPath: (v) => dmgDownloadPath(v),
+    notify: (title, body) => {
+      if (!Notification.isSupported()) return;
+      const n = new Notification({ title, body });
+      n.on("click", () => {
+        if (updater.current.phase === "downloaded") {
+          void updater.installDownloaded();
+        } else if (updater.current.phase === "available") {
+          void updater.download();
+        }
+      });
+      n.show();
+    },
+    openPath: (path) => shell.openPath(path),
+    clear: (path) => clearDownload(path),
+    confirmQuitToInstall: async () => {
+      const { response } = await dialog.showMessageBox({
+        type: "question",
+        title: "Kin 更新",
+        message: `Kin ${updater.current.phase === "downloaded" ? updater.current.version : ""} 已下载`,
+        detail:
+          "接下来把新版本拖入 Applications 覆盖旧版本，需要先退出 Kin。",
+        buttons: ["稍后", "退出并打开"],
+        defaultId: 1,
+        cancelId: 0,
+      });
+      return response === 1;
+    },
+    quitApp: () => {
+      quitApp();
+    },
+    setState: () => tray?.refresh(),
+  });
+
   tray = new AppTray({
     openKin: () => {
       popover?.hide();
@@ -320,6 +371,20 @@ function setupTray(): void {
       return s === "external" || s === "spawned";
     },
     getWeOwnDaemon: () => sidecar.weOwnProcess,
+    checkForUpdate: () => {
+      void updater.checkNow();
+    },
+    downloadUpdate: () => {
+      void updater.download();
+    },
+    installDownloadedUpdate: () => {
+      void updater.installDownloaded();
+    },
+    clearDownloadedUpdate: () => {
+      void updater.clearDownloaded();
+    },
+    currentVersion: () => app.getVersion(),
+    updaterState: () => updater.current,
   });
   tray.create();
 }

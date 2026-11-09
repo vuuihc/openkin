@@ -42,8 +42,77 @@ jobs:
             gzip -k "$f"
           done
 
+      - name: Upload CLI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-binaries
+          path: dist/*
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
           generate_release_notes: true
+
+  # The Mac desktop shell ships as a dmg. It is built on its own runner because
+  # electron-builder needs macOS (codesign framework, hdiutil for the dmg),
+  # and it embeds a freshly built `kin` arm64 binary via extraResources — the
+  # same source, one build, so a tag's dmg can never drift from its CLI.
+  # `version` is injected from the tag (desktop/package.json stays 0.0.0-dev
+  # for local builds), which is also what the shell's updater compares against.
+  desktop-mac:
+    needs: build
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build UI (embedded console)
+        working-directory: ui
+        run: |
+          npm ci
+          npx vite build
+
+      - name: Build kin binary (darwin/arm64, embedded UI)
+        run: |
+          # Strip the v so the embedded CLI reports 0.4.0 like the app does
+          # (review N10): one release, one version string.
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${GITHUB_REF_NAME#v}" \
+            -o kin ./cmd/kin
+          mkdir -p desktop/resources
+          cp -f kin desktop/resources/kin
+          chmod +x desktop/resources/kin
+
+      - name: Build desktop shell + dmg
+        working-directory: desktop
+        run: |
+          npm ci
+          # dist/main.js is gitignored — nothing else in this job produces
+          # it, and electron-builder fails outright without it (review B1).
+          npm run build
+          npx electron-builder --mac --arm64 \
+            --config.extraMetadata.version="${GITHUB_REF_NAME#v}"
+
+      - name: Checksum the dmg
+        working-directory: desktop/dist-electron
+        run: |
+          # artifactName already stamps Kin-<version>-arm64.dmg (package.json);
+          # no rename loop to clobber if electron-builder ever emits more.
+          for f in Kin-*.dmg; do
+            shasum -a 256 "$f" > "$f.sha256"
+          done
+
+      - name: Attach dmg to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            desktop/dist-electron/Kin-*.dmg
+            desktop/dist-electron/Kin-*.dmg.sha256

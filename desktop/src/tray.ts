@@ -8,6 +8,7 @@ import {
 import { existsSync } from "node:fs";
 import { trayIconPath } from "./config";
 import type { Approval } from "./daemon-api";
+import type { UpdaterState } from "./updater-wiring.ts";
 
 export type TrayHandlers = {
   openKin: () => void;
@@ -19,6 +20,13 @@ export type TrayHandlers = {
   quit: () => void;
   getDaemonRunning: () => boolean;
   getWeOwnDaemon: () => boolean;
+  /** KIN-SETTINGS-002: tray owns no update policy — it renders UpdaterState. */
+  checkForUpdate: () => void;
+  downloadUpdate: () => void;
+  installDownloadedUpdate: () => void;
+  clearDownloadedUpdate: () => void;
+  currentVersion: () => string;
+  updaterState: () => UpdaterState;
 };
 
 export class AppTray {
@@ -149,6 +157,8 @@ export class AppTray {
         click: () => this.handlers.stopDaemon(),
       },
       { type: "separator" },
+      ...this.updateMenuItems(),
+      { type: "separator" },
       {
         label: "Launch at Login",
         type: "checkbox",
@@ -172,6 +182,74 @@ export class AppTray {
     if (process.platform !== "darwin") {
       this.tray.setContextMenu(this.menu);
     }
+  }
+
+  /**
+   * KIN-SETTINGS-002. The update block is a version line (always) plus one
+   * action item whose label follows the UpdaterState the main process last
+   * published: check / download / install, with progress and failures
+   * rendered as disabled lines rather than dialogs.
+   */
+  private updateMenuItems(): MenuItemConstructorOptions[] {
+    const version = this.handlers.currentVersion();
+    const state = this.handlers.updaterState();
+    // Contract step 1: dev builds show "Kin dev", not "Kin 0.0.0-dev".
+    const versionLabel = version === "0.0.0-dev" ? "dev" : version;
+    const items: MenuItemConstructorOptions[] = [
+      { label: `Kin ${versionLabel}`, enabled: false },
+    ];
+    switch (state.phase) {
+      case "idle":
+        items.push({
+          label: "检查更新…",
+          click: () => this.handlers.checkForUpdate(),
+        });
+        break;
+      case "checking":
+        items.push({ label: "正在检查…", enabled: false });
+        break;
+      case "current":
+        items.push({ label: `已是最新（${state.version}）`, enabled: false });
+        break;
+      case "available":
+        items.push({
+          label: `下载 ${state.version}…`,
+          click: () => this.handlers.downloadUpdate(),
+        });
+        break;
+      case "downloading":
+        items.push({
+          label:
+            state.hasTotal === false
+              ? "下载中…"
+              : `下载中… ${Math.round(state.fraction * 100)}%`,
+          enabled: false,
+        });
+        break;
+      case "downloaded":
+        items.push({
+          label: state.offered
+            ? `打开已下载的 ${state.version}`
+            : `安装 ${state.version}（已下载）`,
+          click: () => this.handlers.installDownloadedUpdate(),
+        });
+        items.push({
+          label: "删除已下载的安装包",
+          click: () => this.handlers.clearDownloadedUpdate(),
+        });
+        break;
+      case "error":
+        items.push({
+          label: `更新检查失败：${truncate(state.message, 40)}`,
+          enabled: false,
+        });
+        items.push({
+          label: "重试检查…",
+          click: () => this.handlers.checkForUpdate(),
+        });
+        break;
+    }
+    return items;
   }
 }
 

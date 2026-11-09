@@ -246,6 +246,28 @@
         "desktop/src/notifications.test.ts"
       ],
       "blockedReason": null
+    },
+    {
+      "id": "KIN-SETTINGS-002",
+      "state": "approved",
+      "priority": "P1",
+      "journeys": [
+        "J1",
+        "J6"
+      ],
+      "surfaces": [
+        "mac"
+      ],
+      "title": "桌面壳一键升级",
+      "file": "docs/product/stories/KIN-SETTINGS-002.md",
+      "surface": "",
+      "ownerPaths": [],
+      "tests": [
+        "desktop/src/updater.test.ts",
+        "desktop/src/updater-wiring.test.ts",
+        "desktop/src/tray.wiring.test.ts"
+      ],
+      "blockedReason": null
     }
   ]
 }

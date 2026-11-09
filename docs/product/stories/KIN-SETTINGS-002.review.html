@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="kin-review-format" content="figma-flow-v1">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<title>KIN-SETTINGS-002 · Figma 审阅</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --ink: #1a1a1a;
+    --muted: #666a73;
+    --line: #dedee3;
+    --bg: #f1f1f4;
+    --page: #fbfbfd;
+    --card: #ffffff;
+    --accent: #1f6feb;
+    --accent-soft: #eef3ff;
+    --warn: #b42318;
+    --warn-soft: #fff1f0;
+    --ok: #137a3f;
+    --ok-soft: #eef8f1;
+    --gutter: clamp(16px, 5vw, 24px);
+    --radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e8e8ec;
+      --muted: #9a9aa2;
+      --line: #32323a;
+      --bg: #141416;
+      --page: #101012;
+      --card: #1a1a1e;
+      --accent: #5b9bff;
+      --accent-soft: #1c2531;
+      --warn: #ff6b6b;
+      --warn-soft: #2c1a1a;
+      --ok: #4ecb71;
+      --ok-soft: #16261a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font: 16px/1.75 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif; -webkit-font-smoothing: antialiased; }
+  .page { max-width: 760px; margin: 0 auto; padding: var(--gutter) var(--gutter) 60px; background: var(--page); min-height: 100vh; }
+  .eyebrow { color: var(--muted); font-size: 12.5px; letter-spacing: .08em; text-transform: uppercase; }
+  h1 { margin: 6px 0 4px; font-size: 24px; line-height: 1.3; }
+  h2 { margin: 28px 0 10px; font-size: 19px; }
+  h3 { margin: 0 0 8px; font-size: 17px; }
+  h4 { margin: 14px 0 6px; font-size: 15px; }
+  .meta { margin: 2px 0; color: var(--muted); font-size: 13.5px; }
+  code { padding: 1px 6px; border-radius: 6px; background: var(--bg); font: 13px/1.6 "SF Mono", Menlo, Consolas, monospace; }
+  .tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .pill { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 999px; font-size: 12.5px; border: 1px solid var(--line); }
+  .pill.here, .pill.draft { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .pill.plain { color: var(--muted); }
+  .card { margin: 10px 0; padding: 16px 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); }
+  .note { color: var(--muted); font-size: 13.5px; }
+  .summary { margin-top: 12px; border-left: 4px solid var(--accent); }
+  .summary p { margin: 0; font-size: 15.5px; }
+  .howto { margin-top: 12px; background: var(--accent-soft); border-color: transparent; }
+  .howto h2 { margin: 0 0 6px; font-size: 17px; }
+  .howto ol { margin: 6px 0 8px; padding-left: 20px; font-size: 14.5px; }
+  .howto li { margin: 5px 0; }
+  .howto .note { margin: 4px 0 0; }
+
+  .toc {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; gap: 8px;
+    margin: 0 calc(-1 * var(--gutter));
+    padding: 8px var(--gutter);
+    overflow-x: auto;
+    background: var(--page);
+    border-bottom: 1px solid var(--line);
+    scrollbar-width: none;
+  }
+  .toc::-webkit-scrollbar { display: none; }
+  .toc a {
+    flex: none;
+    display: inline-flex; align-items: center;
+    min-height: 44px; padding: 0 14px;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink);
+    font-size: 13px; text-decoration: none; white-space: nowrap;
+  }
+  .toc a.primary { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+
+  section { padding-top: 30px; scroll-margin-top: 72px; }
+  .bullets { font-size: 14.5px; }
+  .two { display: grid; gap: 10px; }
+  .two .card { border-left-width: 4px; }
+  .two .card h3 { font-size: 15px; }
+  .two .card ul { margin: 6px 0 0; padding-left: 18px; font-size: 14px; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 20px; }
+  li { margin: 6px 0; }
+  .mece { margin-top: 10px; padding: 2px 14px; }
+  .mece-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+  .mece-row:last-child { border-bottom: 0; }
+  .mece-row .name { min-width: 0; }
+  .mece-row .who { margin-top: 2px; color: var(--muted); font-size: 12.5px; }
+  .mece-row.here { margin: 2px -8px; padding: 11px 8px; border-bottom: 0; border-radius: 10px; background: var(--accent-soft); }
+  .mece-row.here strong { color: var(--accent); }
+  .now { border-left-color: var(--warn) !important; background: var(--warn-soft); }
+  .after { border-left-color: var(--ok) !important; background: var(--ok-soft); }
+  .screen-index { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 16px; }
+  .screen-index a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--ink); font-size: 13px; text-decoration: none; }
+  .screen { margin: 16px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; }
+  .screen-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .screen-head h3 { margin: 2px 0 0; }
+  .frame { margin: 0; }
+  .frame-scroll { overflow-x: auto; overflow-y: hidden; border: 1px solid var(--line); border-radius: 12px; background: #fff; scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
+  .frame-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .frame img { display: block; height: auto; max-width: none; }
+  .fig-narrow .frame-scroll { max-width: 480px; margin: 0 auto; }
+  .fig-narrow img { width: 100%; }
+  .fig-board img { width: 480px; }
+  .frame figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+  .frame figcaption a { display: inline-flex; align-items: center; min-height: 44px; }
+  .flow { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .flow li { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font-size: 14.5px; }
+  .flow b { color: var(--accent); font-weight: 600; }
+  .flow span { min-width: 0; overflow-wrap: anywhere; }
+  .state-list { display: grid; gap: 8px; margin-top: 10px; }
+  .state { padding: 11px 13px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-size: 14px; }
+  .state b { display: block; margin-bottom: 2px; font-size: 14.5px; }
+  .state span { color: var(--muted); }
+  .decision { margin: 12px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 14px; }
+  .decision h3 { font-size: 16px; }
+  .decision p { font-size: 14.5px; }
+  .decision .rec { margin: 6px 0; }
+  .decision .rec strong { color: var(--accent); }
+  .decision .tradeoff { color: var(--muted); font-size: 13.5px; }
+  .decision.settled { border-left-color: var(--ok); }
+  .decision.settled .rec strong { color: var(--ok); }
+  .reply { margin-top: 10px; }
+  .reply pre { margin: 8px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font: 13.5px/1.9 -apple-system, BlinkMacSystemFont, "SF Mono", Menlo, monospace; white-space: pre-wrap; }
+  .sign { border-left: 4px solid var(--ok); }
+  .sign p { margin: 6px 0; }
+  footer { margin-top: 34px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  footer p { margin: 4px 0; }
+  a:focus-visible, .screen-index a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+  @media (min-width: 600px) {
+    .toc { border-radius: 0; }
+    .two { grid-template-columns: 1fr 1fr; }
+  }
+  @media (min-width: 600px) {
+    body { padding: 26px 0; }
+    .page { min-height: auto; border-radius: 28px; box-shadow: 0 20px 60px rgba(0,0,0,.12); }
+  }
+  @media (max-width: 380px) {
+    .flow li { grid-template-columns: 1fr; gap: 4px; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+
+  <header>
+    <div class="eyebrow">Figma 审阅版 · 约 4 分钟 · 3 个决定</div>
+    <h1>KIN-SETTINGS-002 · 桌面壳一键升级</h1>
+    <p class="meta">draft · 面：Mac（手机无此面） · 对照 <code>KIN-SETTINGS-002.md</code></p>
+    <p class="meta">2026-11-09 · 2 屏（1 界面 + 1 状态板） · 11 个状态</p>
+    <div class="tags">
+      <span class="pill draft">已签字 · 2026-11-09</span>
+      <span class="pill plain">旅程 J1、J6</span>
+      <span class="pill plain">Mac 托盘</span>
+    </div>
+  </header>
+
+  <section class="card summary" aria-label="一句话">
+    <p><strong>一句话：</strong>当我在另一台 Mac 上装了 Kin 桌面壳，我想点一下托盘的「检查更新」就装上新版，以便不用去 GitHub 手动找 dmg、猜自己跑的是哪个版本。</p>
+  </section>
+
+  <section class="card howto" aria-labelledby="how-title">
+    <h2 id="how-title">怎么审</h2>
+    <ol>
+      <li><strong>先看切法</strong>：桌面壳的升级为什么单独一条、为什么只做 Mac。</li>
+      <li><strong>再看每一屏</strong>：托盘菜单帧 + 状态板帧，每屏下面六段用户流程。</li>
+      <li><strong>最后回决定</strong>：3 条，页尾有回复模板。</li>
+    </ol>
+    <p class="note">都同意就回「全部同意」；有修改就回「D2 改成…」。宽帧在卡片内左右滑动，页面本身不横滚。</p>
+  </section>
+
+  <nav class="toc" aria-label="页内导航">
+    <a href="#mece" class="primary">切法</a>
+    <a href="#before-after">现在→之后</a>
+    <a href="#screens" class="primary">界面</a>
+    <a href="#states">状态</a>
+    <a href="#decisions" class="primary">决定</a>
+    <a href="#reply">回复模板</a>
+  </nav>
+
+  <section id="mece">
+    <h2>MECE：这条故事切在哪</h2>
+    <p class="note">升级桌面壳是「设置与环境」意图下、Mac 桌面壳独有的一件事；它不碰对话、不碰 Hub。</p>
+    <div class="card mece">
+      <div class="mece-row">
+        <div class="name">接着问一段对话<div class="who">KIN-CONTINUE-001</div></div>
+        <span class="pill plain">别的条</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">新建一段对话<div class="who">KIN-START-001</div></div>
+        <span class="pill plain">别的条</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">看它改了什么<div class="who">KIN-RESULT-001</div></div>
+        <span class="pill plain">别的条</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">管理对话<div class="who">KIN-MANAGE-001</div></div>
+        <span class="pill plain">别的条</span>
+      </div>
+      <div class="mece-row here">
+        <div class="name"><strong>设置与环境 · 桌面壳升级</strong><div class="who">KIN-SETTINGS-002 · 这条</div></div>
+        <span class="pill here">本页</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">设置与环境 · 其余（agent/模型/设备/权限默认值）<div class="who">KIN-SETTINGS-001</div></div>
+        <span class="pill plain">别的条</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">被叫回来（通知）<div class="who">KIN-NOTIFY-001</div></div>
+        <span class="pill plain">别的条</span>
+      </div>
+    </div>
+    <ul class="bullets">
+      <li><strong>为什么单独一条：</strong>升级的是桌面壳（Electron app），不是控制台、不是 daemon、不是 Hub——三者的更新通道各不相同，塞在一起必然漏一个。</li>
+      <li><strong>为什么不并进相邻故事：</strong>KIN-SETTINGS-001 是控制台里的运行默认值；这条是托盘里的壳版本，面不同、动作不同。</li>
+      <li><strong>设备只是差异：</strong>手机没有此面（PWA 由 Hub 重新部署自然更新），写在故事「各面差异」，不按设备拆故事。</li>
+      <li><strong>不在这一条：</strong>自动静默升级（app 未签名，macOS 不允许，见 D1）；Windows/Linux 桌面壳（无构建配置，等真实需求）；node CLI 的升级（<code>install-node-service.sh</code> 的通道）；「有新版」主动推送（先做拉取式）。</li>
+      <li><strong>大小：</strong>2 屏；一次交付；声明的面（Mac）成立。</li>
+    </ul>
+  </section>
+
+  <section id="before-after" class="card two" aria-label="现在和之后">
+    <div class="card now">
+      <h3>现在</h3>
+      <ul>
+        <li>升级 = 打开 GitHub Releases、肉眼找架构、下载 119MB、拖文件夹、重开。</li>
+        <li>不知道自己跑的什么版本（dmg 里是 <code>0.0.0-dev</code>）。</li>
+        <li>Release 流水线只发 CLI 二进制，没有 dmg。</li>
+      </ul>
+    </div>
+    <div class="card after">
+      <h3>之后</h3>
+      <ul>
+        <li>托盘常驻版本行；「检查更新…」一键查 GitHub。</li>
+        <li>发现新版 → 菜单下载 → 通知弹出 → 点开 dmg 拖装。</li>
+        <li>打 tag 的 release 自动产出 dmg（arm64）+ 校验和。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="screens">
+    <h2>界面与用户流程</h2>
+    <p class="note">每一屏先看 Figma 帧，再读下面六段流程。托盘是系统菜单，帧为菜单形态线框。</p>
+
+    <div class="screen-index" aria-label="界面索引">
+      <a href="#screen-1">01 · Mac · 托盘菜单</a>
+      <a href="#screen-2">02 · Mac · 更新状态板</a>
+    </div>
+
+    <article class="screen" id="screen-1">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">01 · Mac · 托盘菜单</div>
+          <h3>版本行 + 检查更新（默认态）</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-narrow">
+        <div class="frame-scroll" role="region" aria-label="托盘菜单的 Figma 帧" tabindex="0">
+          <img src="KIN-SETTINGS-002.figma/frames/mac-tray-default.svg" alt="托盘菜单：原有项不变，Launch at Login 上方新增分隔的一组两项——灰字版本行 Kin 0.3.2、可点的检查更新…" loading="lazy">
+        </div>
+        <figcaption>
+          <span>菜单帧 · 托盘</span>
+          <a href="KIN-SETTINGS-002.figma/frames/mac-tray-default.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>菜单栏任意时刻；点托盘图标弹出此菜单。</span></li>
+        <li><b>动作</b><span>看版本行确认当前版本；点「检查更新…」。</span></li>
+        <li><b>立刻看到</b><span>菜单项变「正在检查…」灰掉；GitHub 返回后菜单刷新为新状态（见状态板）。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>超时（10s）→ 菜单恢复 + 通知「检查失败：无法连接 GitHub」；无 mac 资产 → 通知「这个版本没有 Mac 安装包」；开发构建 → 通知「开发构建不检查更新」。</span></li>
+        <li><b>键盘与焦点</b><span>系统托盘菜单，方向键导航；新组插在 Launch at Login 之前，不改变原有项的顺序。</span></li>
+        <li><b>离开再回来</b><span>版本行是打包时常量，重开一致；检查进行中关菜单，结果以通知送达。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-2">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">02 · Mac · 更新状态板</div>
+          <h3>九个状态一板看全</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-board">
+        <div class="frame-scroll" role="region" aria-label="更新状态板的 Figma 帧" tabindex="0">
+          <img src="KIN-SETTINGS-002.figma/frames/mac-tray-states.svg" alt="状态板：检查中、已是最新、发现新版、下载中 62%、已下载、检查失败+重试、开发构建、下载完成通知；下面注流程链与断线/离开再回来/键盘规则" loading="lazy" decoding="async">
+        </div>
+        <figcaption>
+          <span>状态板 · 480×620</span>
+          <a href="KIN-SETTINGS-002.figma/frames/mac-tray-states.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>「检查更新…」已点，GitHub 已答。</span></li>
+        <li><b>动作</b><span>发现新版 → 点「下载 0.4.0…」；下载完点通知（或菜单「安装 0.4.0（已下载）」）。</span></li>
+        <li><b>立刻看到</b><span>下载中显示百分比（按字节）；完成后点安装 → Finder 打开 dmg + 系统确认「要退出以安装吗？退出并打开 / 稍后」；确认退出后把 Kin.app 拖入 Applications 覆盖，重开即新版。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>下载中断 → 菜单恢复「下载…」可重点（半成品写在 .part，绝不挂载）；磁盘满 → 通知「下载失败」；open 失败（dmg 损坏）→ 通知「安装包打不开，请手动下载」；检查失败 → 失败原因行 + 「重试检查…」。</span></li>
+        <li><b>键盘与焦点</b><span>全系统托盘菜单 + 系统通知；点通知即动作（下载中→无操作，已下载→安装）。</span></li>
+        <li><b>离开再回来</b><span>点「稍后」→ 菜单变「打开已下载的 0.4.0」（再点直接重开 dmg，不再追问）+「删除已下载的安装包」；重启后系统清理临时目录，自动回默认态。</span></li>
+      </ol>
+    </article>
+  </section>
+
+  <section id="states">
+    <h2>状态</h2>
+    <p class="note">九个状态都在上面的状态板里；这里给可读的文案检查表。</p>
+    <div class="state-list">
+      <div class="state"><b>默认</b><span>版本行「Kin 0.3.2」+「检查更新…」。</span></div>
+      <div class="state"><b>检查中</b><span>「正在检查…」灰掉，防双击。</span></div>
+      <div class="state"><b>已是最新</b><span>「已是最新（0.3.2）」灰掉。</span></div>
+      <div class="state"><b>发现新版</b><span>「下载 0.4.0…」可点 + 通知。</span></div>
+      <div class="state"><b>下载中</b><span>「下载中… 62%」，进度单调，无总长时不显示百分比。</span></div>
+      <div class="state"><b>已下载</b><span>「安装 0.4.0（已下载）」可点；点通知同样触发；旁边是「删除已下载的安装包」。</span></div>
+      <div class="state"><b>稍后（deferred）</b><span>确认弹窗点「稍后」后菜单变「打开已下载的 0.4.0」，再点直接重开 dmg 不再追问。</span></div>
+      <div class="state"><b>确认弹窗</b><span>系统弹窗「要退出以安装吗？」，Tab 在两钮间移动，Esc = 稍后，默认焦点「退出并打开」。</span></div>
+      <div class="state"><b>检查失败</b><span>「更新检查失败：&lt;原因&gt;」+「重试检查…」。</span></div>
+      <div class="state"><b>开发构建</b><span>菜单同默认；点击后通知「开发构建不检查更新」。</span></div>
+      <div class="state"><b>无 mac 资产</b><span>通知「这个版本没有 Mac 安装包，去 GitHub 看」。</span></div>
+    </div>
+  </section>
+
+  <section id="decisions">
+    <h2>要你拍板的</h2>
+    <p class="note">每条都写推荐和代价；只回不同意的编号。</p>
+    <div class="decision settled">
+      <h3>D1 升级的终点是「挂载 dmg + 拖装」，不是静默自替换</h3>
+      <p class="rec"><strong>已定：</strong>app 未签名（electron-builder identity: null），macOS 不允许运行中的进程替换自己；假装能静默升级是骗人。点「安装」= open dmg → Finder 拖装 → 重开。</p>
+      <p class="tradeoff"><strong>代价：</strong>多一次拖拽。换来的是对签名状态诚实；将来签名后可升级为 electron-updater 全自动。</p>
+    </div>
+    <div class="decision">
+      <h3>D2 更新检查只在用户点击时发生（第一版不做后台轮询/主动通知）</h3>
+      <p class="rec"><strong>推荐：</strong>拉取式。托盘点一次查一次，不自动轮询、不弹「有新版」。</p>
+      <p class="tradeoff"><strong>代价：</strong>新版本不会主动找你。换来的是零打扰、零后台上行流量；等真实使用后觉得需要再加轮询（另开故事）。</p>
+    </div>
+    <div class="decision">
+      <h3>D3 只发 arm64 dmg；Intel Mac 暂不打包</h3>
+      <p class="rec"><strong>推荐：</strong>arm64 先行（现在的 Mac 都在 arm64 上），CI 加 x64 会把 release 时间翻倍且没人用。</p>
+      <p class="tradeoff"><strong>代价：</strong>Intel Mac 用户第一版下载不到 dmg（CLI 二进制仍有 darwin-amd64 兜底）。有真实需求再加一行 arch。</p>
+    </div>
+  </section>
+
+  <section id="reply">
+    <h2>回复模板</h2>
+    <div class="card reply">
+      <p class="note">长按下面这段复制，改掉不同意的；都同意就回「全部同意」。</p>
+      <pre>D2 同意
+D3 同意
+（D1 已定，不用回）</pre>
+    </div>
+  </section>
+
+  <section id="sign">
+    <h2>签字</h2>
+    <div class="card sign">
+      <p><strong>已签字，2026-11-09。</strong>D1（已定）、D2、D3 全部同意；<code>KIN-SETTINGS-002.md</code> 已转 <code>approved</code>，交付与合同同一次落库。</p>
+      <p class="note">Figma 帧或流程改了会重新发这一页；设计源始终是 <code>KIN-SETTINGS-002.figma/</code> 里的 SVG 帧和本页的用户流程。</p>
+    </div>
+  </section>
+
+  <footer>
+    <p>设计源：<code>KIN-SETTINGS-002.figma/frames/</code>（SVG 帧）</p>
+    <p>审阅编排：<code>KIN-SETTINGS-002.review.html</code>（本页）</p>
+    <p>合同：<code>KIN-SETTINGS-002.md</code></p>
+    <p>Figma 审阅版 · figma-flow-v1</p>
+  </footer>
+
+</main>
+<script>
+  for (const el of document.querySelectorAll('.frame-scroll[data-start]')) {
+    el.scrollLeft = Number(el.dataset.start) || 0;
+  }
+</script>
+</body>
+</html>
