@@ -3315,6 +3315,8 @@ export interface components {
             prompt: string;
             model?: string | null;
             session_ref?: string | null;
+            /** @description The machine whose agent produced `session_ref`. A native session id is only resumable on the machine that made it, so a ref never travels without its provenance. Empty means the row predates the column, which is read as local. */
+            session_ref_device_id?: string | null;
             /**
              * @description Normalized permission mode applied to every agent run in the task. Rows written before the mode was recorded read `default`.
              * @enum {string}

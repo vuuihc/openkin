@@ -79,6 +79,28 @@ function tailOf(cwd: string | undefined): string {
   return (cwd ?? "").replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? "";
 }
 
+/**
+ * The identity one conversation has across the two feeds.
+ *
+ * Kin's task row and the imported provider session row describe the same
+ * conversation when they name the same machine and the same provider-side ref:
+ * the task stores the ref its turns ran with, the imported row stores the ref
+ * its catalog entry has. The title is deliberately not part of it — titles are
+ * rewritten from the first message and drift, while the ref stays put. An
+ * empty device means this machine on both sides, the same reading the row's
+ * `remote` flag uses.
+ */
+function conversationKey(
+  deviceId: string | undefined | null,
+  ref: string | undefined | null,
+  selfDeviceId: string,
+): string | null {
+  const value = (ref ?? "").trim();
+  if (!value) return null;
+  const device = (deviceId ?? "").trim() || selfDeviceId.trim();
+  return `${device}\u0000${value}`;
+}
+
 /** Same clock the sidebar sorts by: a finished task reads by when it finished. */
 export function taskActivityAt(task: Task): number {
   return task.finished_at ?? task.started_at ?? task.created_at ?? 0;
@@ -118,6 +140,12 @@ export function phoneProjectBuckets(
     return scope === "archived" ? isArchived : !isArchived;
   };
   const byKey = new Map<string, PhoneProjectBucket>();
+  // The conversations already spoken for by a task row in this feed. An
+  // imported row whose identity is in here is the same conversation; the task
+  // is the row that carries status, pinning and archiving, so the import is
+  // the copy that goes. It is built from the tasks that are rows — a task
+  // filtered out of this scope leaves no duplicate behind.
+  const claimed = new Set<string>();
 
   const bucketFor = (cwd: string | undefined, session?: AgentSession): PhoneProjectBucket => {
     const key = projectKeyOf(cwd);
@@ -140,6 +168,8 @@ export function phoneProjectBuckets(
     const at = taskActivityAt(task);
     const bucket = bucketFor(task.cwd);
     const device = (task.executing_device_id ?? "").trim();
+    const identity = conversationKey(task.session_ref_device_id, task.session_ref, selfDeviceId);
+    if (identity) claimed.add(identity);
     bucket.rows.push({
       key: task.id,
       at,
@@ -155,6 +185,8 @@ export function phoneProjectBuckets(
 
   for (const session of sessions) {
     if (!keepProject(session.cwd)) continue;
+    const identity = conversationKey(session.device_id, session.external_ref, selfDeviceId);
+    if (identity && claimed.has(identity)) continue;
     const at = session.updated_at ?? 0;
     const bucket = bucketFor(session.cwd, session);
     const device = (session.device_id ?? "").trim();
