@@ -1396,10 +1396,12 @@ export default function TaskDetailPage({
       <div className="flex-1 flex flex-col min-h-0 bg-kin-bg">
         {/* `min-h-11` + `pt-safe`, never `h-11` + `pt-safe`: with border-box
             sizing a fixed 44px box has nothing left once the 59px notch inset
-            is added, and the skeleton collapses into the sensor housing. The
-            shell does not reserve the top inset on this route — the loaded
-            screen's `MobileHeader` does — so the placeholder has to. */}
-        <div className="min-h-11 flex-none border-b border-[var(--kin-hairline)] px-5 flex items-center pt-safe">
+            is added, and the skeleton collapses into the sensor housing. On a
+            phone the shell does not reserve the top inset on this route — the
+            loaded screen's `MobileHeader` does — so the placeholder has to.
+            From `md` up the shell root spends it (`md:pt-safe`), hence the
+            `max-md:`; otherwise the inset lands twice. */}
+        <div className="min-h-11 flex-none border-b border-[var(--kin-hairline)] px-5 flex items-center max-md:pt-safe">
           <SkeletonLine className="h-4 w-40" />
         </div>
         <div className="flex-1 p-6 space-y-3 max-w-conversation mx-auto w-full">
@@ -1413,7 +1415,7 @@ export default function TaskDetailPage({
 
   if (error && !task) {
     return (
-      <div className="flex-1 px-6 pb-6 space-y-3 pt-safe">
+      <div className="flex-1 px-6 pb-6 space-y-3 max-md:pt-safe">
         <Link to="/" className="text-strong leading-5 text-kin-blue-ink">
           {tr("task.home")}
         </Link>
@@ -1429,7 +1431,7 @@ export default function TaskDetailPage({
 
   if (!task) {
     return (
-      <div className="flex-1 px-6 pb-6 space-y-3 pt-safe">
+      <div className="flex-1 px-6 pb-6 space-y-3 max-md:pt-safe">
         <Link to="/" className="text-strong leading-5 text-kin-blue-ink">
           {tr("task.home")}
         </Link>

@@ -65,8 +65,11 @@ body {
 
   `.safe-pad` on the AppShell root owns left, right and bottom; the top inset
   belongs to whichever bar is topmost (`.pt-safe`), because that is not always
-  the shell's own header. Screens that render *outside* that root — sign-in and
-  connect — carry their own gutter via `.px-safe`.
+  the shell's own header. On a phone that bar is `MobileHeader` or the
+  sessions bar; from `md` up the desktop layout has two columns and no shared
+  bar, so the shell root itself spends the inset once for both (`md:pt-safe`).
+  Screens that render *outside* that root — sign-in and connect — carry their
+  own gutter via `.px-safe`.
 
   `.safe-pad` reaches in-flow descendants only. A `position: fixed` overlay
   (the new-chat sheet, the drawer) takes the viewport as its containing block,

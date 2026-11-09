@@ -570,7 +570,7 @@ export default function AppShell({
       sit outside <main>. See index.css.
     */
     <div
-      className={`touch-lg h-[100dvh] flex bg-[var(--kin-page)] text-kin-text overflow-hidden safe-pad ${
+      className={`touch-lg h-[100dvh] flex bg-[var(--kin-page)] text-kin-text overflow-hidden safe-pad md:pt-safe ${
         zen ? "kin-zen" : ""
       }`}
     >
@@ -691,7 +691,10 @@ export default function AppShell({
               // load, because `wsStatus` starts as "disconnected" — rendered
               // under the sensor housing and then the header spent the inset
               // a second time beneath it.
-              pageOwnsTopInset ? "pt-safe" : "pt-1.5",
+              // `max-md:` because from `md` up the shell root spends the
+              // inset once for both columns (`md:pt-safe` above); this strip
+              // is below that edge, so it must not spend it again.
+              pageOwnsTopInset ? "max-md:pt-safe" : "pt-1.5",
             ].join(" ")}
             role="status"
           >
