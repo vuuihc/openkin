@@ -172,7 +172,7 @@ function rolePreview(prompt: string): string {
 
 /**
  * Chat composer: @agent menu for multi-agent delegation.
- * Enter sends; Shift/⌘/Ctrl+Enter inserts a newline.
+ * Enter inserts a newline on every keyboard; ⌘/Ctrl+Enter sends.
  * Arrow keys navigate the @mention menu; Enter selects; Esc closes.
  */
 export default function Composer({
@@ -696,21 +696,13 @@ export default function Composer({
       }
     }
 
-    // Enter → send. Shift+Enter → newline (textarea default).
-    // ⌘/Ctrl+Enter → newline (inserted manually; textareas don't by default).
+    // Enter → newline, on every keyboard: the textarea does this itself, and
+    // it has to, because a phone's software keyboard has no Shift — "Shift+Enter
+    // for a newline" would leave a phone unable to write a second line and send
+    // half a sentence on the first pause. Sending is the send button, or
+    // ⌘/Ctrl+Enter where there is one; the legend beside the composer reads ⌘↵,
+    // and this branch is what makes that true.
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      const el = e.currentTarget;
-      const { selectionStart, selectionEnd } = el;
-      const next = value.slice(0, selectionStart) + "\n" + value.slice(selectionEnd);
-      onChange(next, selectionStart + 1);
-      requestAnimationFrame(() => {
-        el.selectionStart = el.selectionEnd = selectionStart + 1;
-        adjustTextareaHeight();
-      });
-      return;
-    }
-    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       void submit();
     }
@@ -874,7 +866,13 @@ export default function Composer({
           // surface, a 2xl radius and a drop, so the input reads as a thing you
           // hold rather than a hole cut in the transcript. Desktop keeps the
           // flat bordered box it has always had.
-          "rounded-2xl border border-[var(--kin-hairline)] bg-kin-elevated px-2.5 py-2 max-sm:shadow-e2 transition-[padding] duration-150",
+          //
+          // The phone card is raised, so it does not draw a hairline as well:
+          // the drop is what separates it from the transcript, and a line under
+          // a raised box is the same box drawn twice. The border stays in the
+          // list as `transparent` so the desktop hairline (`sm:`) has a border
+          // to switch on and the two widths keep the same box metrics.
+          "rounded-2xl border border-transparent bg-kin-elevated px-2.5 py-2 max-sm:shadow-e2 transition-[padding] duration-150",
           "focus-within:border-kin-blue/40 sm:rounded-xl sm:border-[var(--kin-hairline-strong)] sm:bg-[var(--kin-fill)]",
           expanded ? "sm:px-3 sm:py-2.5" : "sm:px-2.5 sm:py-1.5",
         ].join(" ")}

@@ -56,8 +56,14 @@ async function openSheet() {
   return screen.getByRole("dialog", { name: "Run settings" });
 }
 
+function setViewport(width: number, height: number) {
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: height });
+}
+
 beforeEach(() => {
   setLocale("en");
+  setViewport(1024, 768);
 });
 
 describe("RunConfigControl", () => {
@@ -318,5 +324,54 @@ describe("RunConfigControl", () => {
 
     expect(screen.queryByRole("listbox", { name: "Model" })).toBeNull();
     expect(screen.getByRole("dialog", { name: "Run settings" })).toBe(dialog);
+  });
+
+  // #3: agent, model and permission are one toolbar's selectors, so they share
+  // one placement rule. The sheet sits at the bottom, so every row prefers
+  // upward and the shared hook flips only when the space above is gone. The
+  // rows are stubbed at mid-screen — both sides have room there — so what this
+  // asserts is the preference itself, not a flip. Before the fix the agent row
+  // was hard-coded downward and opened on the opposite side from the other two.
+  it("opens the three rows' options on the same side of their row", async () => {
+    setViewport(390, 844);
+    const rect = {
+      top: 300,
+      bottom: 330,
+      left: 40,
+      right: 350,
+      width: 310,
+      height: 30,
+      x: 40,
+      y: 300,
+      toJSON: () => ({}),
+    } as DOMRect;
+    const stubRows = () => {
+      for (const row of document.querySelectorAll<HTMLElement>("[data-run-config-row]")) {
+        row.getBoundingClientRect = () => rect;
+      }
+    };
+
+    setup({
+      agents: [
+        { id: "claude-code", name: "Claude Code", available: true },
+        { id: "codex", name: "Codex", available: true },
+      ] as never,
+      onAgentChange: vi.fn(),
+    });
+    await openSheet();
+    stubRows();
+
+    for (const name of [/^Agent/, /^Model/, /^Permissions/]) {
+      await userEvent.click(screen.getByRole("button", { name }));
+      const layer = document.querySelector<HTMLElement>("[data-run-config-layer]");
+      expect(layer).toBeTruthy();
+      // Upward: measured from the bottom, and no `top` on the same element.
+      expect(layer!.style.bottom).not.toBe("");
+      expect(layer!.style.top).toBe("");
+      const left = Number.parseFloat(layer!.style.left);
+      const width = Number.parseFloat(layer!.style.width);
+      expect(left).toBeGreaterThanOrEqual(8);
+      expect(left + width).toBeLessThanOrEqual(390 - 8);
+    }
   });
 });

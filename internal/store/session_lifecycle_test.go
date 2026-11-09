@@ -226,3 +226,45 @@ func TestEnforceAuthSessionCapKeepsOtherAccounts(t *testing.T) {
 		t.Fatalf("another account lost %d session(s) to user-1's cap", 1-n)
 	}
 }
+
+// Renewal is a property of the call, not the row: the cookie layer has to know
+// whether this request moved the expiry, because only then does the browser's
+// copy need reissuing.
+func TestAuthenticateSessionReportsWhetherItRenewed(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	seedSessionUser(t, s)
+
+	created := NowMilli()
+	seedSession(t, s, "fresh", "hash-fresh", "user-1", created, created+sliding30d)
+
+	session, _, err := s.AuthenticateSession(ctx, "hash-fresh", created, sliding30d)
+	if err != nil {
+		t.Fatalf("first use: %v", err)
+	}
+	if !session.Renewed {
+		t.Fatal("the first use did not report the renewal it wrote")
+	}
+
+	// Inside the hourly window the row is already current; a caller must not
+	// reissue the cookie on every request.
+	again, _, err := s.AuthenticateSession(ctx, "hash-fresh", created+60*1000, sliding30d)
+	if err != nil {
+		t.Fatalf("use inside the window: %v", err)
+	}
+	if again.Renewed {
+		t.Fatal("a use inside the touch window reported a renewal")
+	}
+
+	// Past the window the expiry moves again, and the caller has to hear it.
+	later, _, err := s.AuthenticateSession(ctx, "hash-fresh", created+2*60*60*1000, sliding30d)
+	if err != nil {
+		t.Fatalf("use past the window: %v", err)
+	}
+	if !later.Renewed {
+		t.Fatal("a use past the touch window did not report the renewal")
+	}
+	if later.ExpiresAt <= again.ExpiresAt {
+		t.Fatalf("expiry did not slide: %d -> %d", again.ExpiresAt, later.ExpiresAt)
+	}
+}

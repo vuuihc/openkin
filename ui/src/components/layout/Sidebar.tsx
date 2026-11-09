@@ -39,6 +39,7 @@ import {
   type DeviceGroup,
 } from "../../lib/deviceSidebar";
 import { useMachines } from "../../hooks/useMachines";
+import { useCoarsePointer } from "../../hooks/useMediaQuery";
 import { useMinWidth } from "../../hooks/useMinWidth";
 import { placeById, PLACES, type PlaceId } from "../../lib/places";
 import { PLACE_ICONS } from "../placeIcons";
@@ -186,6 +187,12 @@ export default function Sidebar({
   // the other's search field in the document, which is how the same list grew
   // two search boxes.
   const wide = useMinWidth(768);
+  // An iPad gets the desktop layout at ≥768px but not a mouse. On a coarse
+  // pointer a row that changes on hover spends the first tap on the hover
+  // state, and a control only revealed by hover is never reached; the two
+  // touch shapes below (no hover styling, the project action sheet) are keyed
+  // on the pointer rather than the width for exactly that reason.
+  const coarse = useCoarsePointer();
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const [archivedOpen, setArchivedOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -392,6 +399,7 @@ export default function Sidebar({
         menuLabel={tr("nav.projectActions")}
         onDeleteSession={onDeleteSession}
         deleteLabel={tr("task.deleteSession")}
+        coarse={coarse}
         externalSessions={sessionsForProject(device.sessions, g)}
         onOpenExternalSession={onOpenExternalSession}
         mode={mode}
@@ -955,12 +963,14 @@ export default function Sidebar({
       )}
 
       {/*
-        The phone's project actions. One sheet serves every project row, so the
+        The touch project actions. One sheet serves every project row, so the
         three hover-only desktop controls have a touch home that costs the row
-        no width. `role: "destructive"` is Ionic's, and the console's red ink is
-        what it paints (index.css) — the default is 2.24:1 on this panel.
+        no width. It is mounted below 768px (the phone shape) and on any coarse
+        pointer, where the desktop layout's hover reveals cannot be reached.
+        `role: "destructive"` is Ionic's, and the console's red ink is what it
+        paints (index.css) — the default is 2.24:1 on this panel.
       */}
-      {!wide && (
+      {(!wide || coarse) && (
         <IonActionSheet
           isOpen={projectMenu !== null}
           onDidDismiss={() => setProjectMenu(null)}
@@ -1151,6 +1161,7 @@ function ProjectBlock({
   newSessionLabel,
   menuLabel,
   deleteLabel,
+  coarse,
   mode,
 }: {
   group: ProjectGroup;
@@ -1176,6 +1187,8 @@ function ProjectBlock({
   newSessionLabel: string;
   menuLabel: string;
   deleteLabel: string;
+  /** The pointer is a finger: render the touch home, not hover-only controls. */
+  coarse: boolean;
   mode: "active" | "archived";
 }) {
   const navigate = useNavigate();
@@ -1207,7 +1220,12 @@ function ProjectBlock({
           aria-label={open ? collapseLabel : expandLabel}
           aria-expanded={open}
           onClick={toggle}
-          className="flex min-w-0 flex-1 items-center gap-1 text-left text-kin-muted transition-colors hover:text-kin-text max-md:min-h-11"
+          className={[
+            "flex min-w-0 flex-1 items-center gap-1 text-left text-kin-muted transition-colors max-md:min-h-11",
+            // A color change on hover is still a hover: iOS would spend the
+            // first tap applying it instead of folding the project.
+            coarse ? "" : "hover:text-kin-text",
+          ].join(" ")}
         >
           <IconChevron
             size={11}
@@ -1220,28 +1238,31 @@ function ProjectBlock({
             {g.label}
           </span>
         </button>
-        <button
-          type="button"
-          title={coverLabel}
-          aria-label={coverLabel}
-          onClick={(e) => {
-            e.stopPropagation();
-            void openCover();
-          }}
-          /*
-            Hidden on phones. These three are hover-revealed (`opacity-0
-            group-hover/proj:opacity-100`), so on a touch screen the tap that
-            would reveal them is also the tap that expands the project — they
-            were never reachable. Keeping them also squeezed the project name to
-            0px wide in the 240px drawer once the phone's 44pt floor widened
-            every button in this row. The `⋯` below opens the same actions in a
-            sheet, which is the one shape that fits a 44pt target beside a name.
-          */
-          className="touch-hide inline-flex flex-none w-[22px] h-[22px] rounded-md items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] opacity-0 group-hover/proj:opacity-100 focus:opacity-100 transition-opacity"
-        >
-          <IconFile size={12} />
-        </button>
-        {mode === "active" && (
+        {/*
+          The three hover-only controls below are desktop-only. On a touch
+          screen the tap that would reveal them is also the tap that expands
+          the project — they were never reachable there — and on an iPad
+          (desktop layout, coarse pointer) that first tap is spent on hover.
+          The `⋯` below opens the same actions in a sheet, which is the one
+          shape that fits a 44pt target beside a name. `touch-hide` still
+          covers a narrow window with a mouse; `coarse` covers a wide one with
+          a finger.
+        */}
+        {!coarse && (
+          <button
+            type="button"
+            title={coverLabel}
+            aria-label={coverLabel}
+            onClick={(e) => {
+              e.stopPropagation();
+              void openCover();
+            }}
+            className="touch-hide inline-flex flex-none w-[22px] h-[22px] rounded-md items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] opacity-0 group-hover/proj:opacity-100 focus:opacity-100 transition-opacity"
+          >
+            <IconFile size={12} />
+          </button>
+        )}
+        {mode === "active" && !coarse && (
           <button
             type="button"
             title={pinLabel}
@@ -1260,23 +1281,25 @@ function ProjectBlock({
             <IconPin size={12} strokeWidth={g.pinned ? 2.2 : 1.7} />
           </button>
         )}
-        <button
-          type="button"
-          title={archiveLabel}
-          aria-label={archiveLabel}
-          onClick={(e) => {
-            e.stopPropagation();
-            onArchive();
-          }}
-          className={[
-            "touch-hide inline-flex flex-none w-[22px] h-[22px] rounded-md items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] transition-opacity",
-            mode === "archived"
-              ? "opacity-100"
-              : "opacity-0 group-hover/proj:opacity-100 focus:opacity-100",
-          ].join(" ")}
-        >
-          <IconArchive size={12} />
-        </button>
+        {!coarse && (
+          <button
+            type="button"
+            title={archiveLabel}
+            aria-label={archiveLabel}
+            onClick={(e) => {
+              e.stopPropagation();
+              onArchive();
+            }}
+            className={[
+              "touch-hide inline-flex flex-none w-[22px] h-[22px] rounded-md items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] transition-opacity",
+              mode === "archived"
+                ? "opacity-100"
+                : "opacity-0 group-hover/proj:opacity-100 focus:opacity-100",
+            ].join(" ")}
+          >
+            <IconArchive size={12} />
+          </button>
+        )}
         <button
           type="button"
           title={newSessionLabel}
@@ -1285,12 +1308,21 @@ function ProjectBlock({
             e.stopPropagation();
             onNewSession();
           }}
-          className="max-md:hidden flex-none w-[22px] h-[22px] rounded-md inline-flex items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] opacity-70 group-hover/proj:opacity-100 transition-opacity"
+          className={[
+            "max-md:hidden flex-none w-[22px] h-[22px] rounded-md inline-flex items-center justify-center text-kin-muted transition-opacity",
+            // A finger has no hover to finish the reveal; keep the + at full
+            // strength so the first tap is the tap that opens the draft.
+            coarse
+              ? "opacity-100"
+              : "hover:text-kin-text hover:bg-[var(--kin-fill-strong)] opacity-70 group-hover/proj:opacity-100",
+          ].join(" ")}
         >
           <IconPlus size={13} strokeWidth={2.2} />
         </button>
-        {/* The phone's one project action. 44pt, at the row's trailing edge,
-            opening every hover action in an action sheet. */}
+        {/* The touch project action. 44pt, at the row's trailing edge, opening
+            every hover action in an action sheet. Below `md` it is the phone's
+            only shape; at ≥768px a coarse pointer keeps it, because the
+            hover-revealed controls above are not reachable by finger. */}
         <button
           type="button"
           title={menuLabel}
@@ -1300,7 +1332,10 @@ function ProjectBlock({
             e.stopPropagation();
             onMenu();
           }}
-          className="md:hidden flex-none inline-flex h-11 w-11 -my-2 -mr-2 items-center justify-center rounded-full text-kin-muted active:bg-[var(--kin-fill)]"
+          className={[
+            "flex-none inline-flex h-11 w-11 -my-2 -mr-2 items-center justify-center rounded-full text-kin-muted active:bg-[var(--kin-fill)]",
+            coarse ? "" : "md:hidden",
+          ].join(" ")}
         >
           <IconMore size={18} />
         </button>
@@ -1321,6 +1356,7 @@ function ProjectBlock({
               deleteLabel={deleteLabel}
               onOpenExternalSession={onOpenExternalSession}
               onCloseMobile={onCloseMobile}
+              coarse={coarse}
             />
           </div>
         </>
@@ -1335,12 +1371,14 @@ function ExternalSessionRow({
   sessionTitle,
   onOpen,
   onCloseMobile,
+  coarse,
 }: {
   session: AgentSession;
   label: string;
   sessionTitle: string;
   onOpen?: (session: AgentSession) => void;
   onCloseMobile: () => void;
+  coarse: boolean;
 }) {
   const tr = useT();
   const avatar = agentAvatarMeta(session.agent_id);
@@ -1361,7 +1399,7 @@ function ExternalSessionRow({
       }}
       className={[
         "w-full flex items-center gap-2 px-1.5 py-1.5 rounded-lg border text-left text-body min-h-9 max-md:min-h-11 max-md:text-strong transition-colors",
-        externalSessionRowClass(availability),
+        externalSessionRowClass(availability, coarse),
       ].join(" ")}
       aria-label={`${label}, ${availabilityLabel}, ${sessionTitle}`}
       title={`${label}: ${availabilityLabel}: ${sessionTitle}`}
@@ -1402,14 +1440,25 @@ function ExternalSessionRow({
   );
 }
 
-function externalSessionRowClass(availability: AgentSessionAvailability): string {
+function externalSessionRowClass(availability: AgentSessionAvailability, coarse: boolean): string {
   if (availability === "linked") {
-    return "border-kin-blue/25 bg-kin-blue/10 text-kin-text hover:bg-kin-blue/15";
+    return [
+      "border-kin-blue/25 bg-kin-blue/10 text-kin-text",
+      coarse ? "" : "hover:bg-kin-blue/15",
+    ].join(" ");
   }
   if (availability === "resumable") {
-    return "border-kin-green/25 bg-kin-green/10 text-kin-text hover:bg-kin-green/15";
+    return [
+      "border-kin-green/25 bg-kin-green/10 text-kin-text",
+      coarse ? "" : "hover:bg-kin-green/15",
+    ].join(" ");
   }
-  return "border-kin-hairline border-dashed bg-[var(--kin-fill)] text-kin-secondary hover:bg-[var(--kin-fill-strong)] hover:text-kin-text";
+  return [
+    "border-kin-hairline border-dashed bg-[var(--kin-fill)] text-kin-secondary",
+    // A conversation row is the same row on a finger; without the hover
+    // change the first tap lands as a tap.
+    coarse ? "" : "hover:bg-[var(--kin-fill-strong)] hover:text-kin-text",
+  ].join(" ");
 }
 
 function externalSessionRailClass(availability: AgentSessionAvailability): string {
@@ -1432,6 +1481,7 @@ function ProjectSessionRows({
   deleteLabel,
   onOpenExternalSession,
   onCloseMobile,
+  coarse,
 }: {
   tasks: Task[];
   sessions: AgentSession[];
@@ -1440,6 +1490,8 @@ function ProjectSessionRows({
   deleteLabel?: string;
   onOpenExternalSession?: (session: AgentSession) => void;
   onCloseMobile: () => void;
+  /** The pointer is a finger: no hover reveal, no hover-only delete. */
+  coarse: boolean;
 }) {
   const tr = useT();
   const rows = useMemo(() => mergeProjectRows(tasks, sessions), [tasks, sessions]);
@@ -1461,6 +1513,7 @@ function ProjectSessionRows({
               )}
               onOpen={onOpenExternalSession}
               onCloseMobile={onCloseMobile}
+              coarse={coarse}
             />
           );
         }
@@ -1474,7 +1527,12 @@ function ProjectSessionRows({
               "group/session flex items-center gap-0.5 rounded-lg min-h-9 max-md:min-h-11",
               active
                 ? "bg-[var(--kin-fill-strong)] text-kin-text"
-                : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
+                : [
+                    "text-kin-secondary",
+                    // iOS spends the first tap on a hover change; a finger
+                    // must see the tap land as a tap, not as a hover.
+                    coarse ? "" : "hover:bg-[var(--kin-fill)] hover:text-kin-text",
+                  ].join(" "),
             ].join(" ")}
           >
             <NavLink
@@ -1494,7 +1552,7 @@ function ProjectSessionRows({
               />
               <span className="truncate flex-1 min-w-0">{taskDisplayTitle(task)}</span>
             </NavLink>
-            {onDeleteSession && deleteLabel && (
+            {onDeleteSession && deleteLabel && !coarse && (
               <button
                 type="button"
                 title={deleteLabel}

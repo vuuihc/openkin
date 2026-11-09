@@ -36,6 +36,14 @@ type Principal struct {
 	// that login: a push registration bound to it stops when it is revoked,
 	// expires, or signs out, even though the account itself still exists.
 	SessionID string
+	// SessionExpiresAt is the session's expiry in Unix milliseconds after this
+	// request's check, set only for PrincipalUser. When SessionRenewed is true
+	// it is the value the browser's cookie should be reissued with.
+	SessionExpiresAt int64
+	// SessionRenewed reports that this request slid the session's expiry. The
+	// cookie in the browser still carries the old one, so it has to be reissued
+	// before the client reaches it.
+	SessionRenewed bool
 }
 
 const (
@@ -85,6 +93,12 @@ type DeviceLookup func(context.Context, string) (Principal, bool)
 // SessionLookup authenticates a browser login cookie and returns its principal.
 // Like DeviceLookup it keeps this package free of persistence dependencies.
 type SessionLookup func(context.Context, string) (Principal, bool)
+
+// SessionRefresh reissues the browser's session cookie after a check slid the
+// session's expiry. The cookie belongs to the serving layer (its Secure flag
+// depends on how the request arrived), so the middleware reports the renewal
+// instead of writing the attribute set itself.
+type SessionRefresh func(w http.ResponseWriter, r *http.Request, credential string, expiresAt int64)
 
 // StateDirEnv overrides the daemon state directory. Containers set it to a
 // mounted volume so the database and secrets do not live in the image layer.
@@ -173,6 +187,7 @@ type Auth struct {
 	fail    *failLimiter
 	device  DeviceLookup
 	session SessionLookup
+	refresh SessionRefresh
 }
 
 // NewAuth returns middleware-capable auth for a fixed token (tests).
@@ -203,6 +218,13 @@ func (a *Auth) SetSessionLookup(lookup SessionLookup) {
 	a.session = lookup
 }
 
+// SetSessionRefresh enables reissuing the browser cookie when a session check
+// slides its expiry. It is optional: without it the cookie keeps the expiry it
+// was issued with, which is the old behaviour.
+func (a *Auth) SetSessionRefresh(refresh SessionRefresh) {
+	a.refresh = refresh
+}
+
 func (a *Auth) loadToken() (string, error) {
 	if a.tokenPath != "" {
 		data, err := os.ReadFile(a.tokenPath)
@@ -231,6 +253,13 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		principal, credential, ok := a.resolve(r)
 		if ok {
+			// A slid session leaves the browser holding an older expiry than
+			// the row. Reissue the cookie on the same response, so daily use
+			// never walks into the expiry the client was logged in with. The
+			// store only renews once an hour, so this write rides that window.
+			if principal.SessionRenewed && a.refresh != nil {
+				a.refresh(w, r, credential, principal.SessionExpiresAt)
+			}
 			ctx := context.WithValue(r.Context(), principalContextKey{}, principal)
 			ctx = context.WithValue(ctx, tokenContextKey{}, credential)
 			next.ServeHTTP(w, r.WithContext(ctx))

@@ -3,13 +3,9 @@ package node
 import (
 	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
-
-	"nhooyr.io/websocket"
 
 	"github.com/vuuihc/openkin/internal/remote/worker"
 )
@@ -48,56 +44,20 @@ func TestASendDoesNotWaitForeverForTheWriteTurn(t *testing.T) {
 	}
 }
 
-// wedgedConnection returns a sender whose peer never reads a byte, with a write
-// already in flight that holds the connection's write turn.
+// wedgedConnection returns a sender whose write turn is held: the state a
+// write to a peer that stopped reading leaves behind.
+//
+// The turn is held directly rather than by writing a frame "larger than any
+// socket buffer". A 4 MiB frame fits in Linux's autotuned send buffer, so the
+// write completed and released the turn before the test took it; the test then
+// failed only on CI, while passing on a Mac with a smaller buffer. The property
+// under test is the interruptible wait for the turn, not the kernel's buffer
+// size.
 func wedgedConnection(t *testing.T) Sender {
 	t.Helper()
-	accepted := make(chan struct{})
-	done := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ws, err := websocket.Accept(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer ws.Close(websocket.StatusNormalClosure, "")
-		close(accepted)
-		// The peer that never reads: the socket's buffer fills, and every write
-		// from here on is a write nobody is draining.
-		<-done
-	}))
-	t.Cleanup(server.Close)
-	// Closing the peer is what unblocks the write below, so it has to happen
-	// before the server waits for its handler to return.
-	t.Cleanup(func() { close(done) })
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	ws, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case <-accepted:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the peer never accepted the connection")
-	}
-
-	sender := NewSender("device-1", ws)
-	// Larger than any socket buffer, so it is still in flight when the sends
-	// below try to take the write turn.
-	big := frameOfSize(t, 4<<20)
-	go func() {
-		writeCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-		defer cancel()
-		_ = sender.Send(writeCtx, big)
-	}()
-	deadline := time.Now().Add(5 * time.Second)
-	for len(sender.(*conn).write) == 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("the first write never took the connection's write turn")
-		}
-		time.Sleep(time.Millisecond)
-	}
+	sender := &conn{deviceID: "device-1", write: make(chan struct{}, 1)}
+	sender.write <- struct{}{}
+	t.Cleanup(func() { <-sender.write })
 	return sender
 }
 

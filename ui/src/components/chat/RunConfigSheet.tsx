@@ -39,9 +39,9 @@ import Sheet, { useSheetLayer } from "../mobile/Sheet";
  * setting without another chip. The pattern is the one the reference phone
  * client uses: the composer footer names the current configuration on one
  * line, and a sheet owns the controls. Inside the sheet every row is a card
- * with a fixed label column, and a row expands its options *under itself*
- * rather than pushing a second sheet — the value you are changing and the
- * list you are changing it from stay in one place on screen.
+ * with a fixed label column, and a row opens its options in a second layer
+ * over the sheet rather than pushing a second sheet — the value you are
+ * changing and the list you are changing it from stay in one place on screen.
  *
  * Deliberately absent: reasoning effort, which the daemon protocol this
  * console speaks does not carry — a row that cannot be honoured is worse than
@@ -367,7 +367,7 @@ function RunConfigBody({
           }
         >
           {openRow === "agent" ? (
-            <Expansion id={`${listId}-agent`} placement="below">
+            <Expansion id={`${listId}-agent`}>
               <div
                 role="listbox"
                 aria-label={tr("runConfig.agent")}
@@ -448,7 +448,7 @@ function RunConfigBody({
         }
       >
         {openRow === "model" ? (
-          <Expansion id={listId} placement="above">
+          <Expansion id={listId}>
             {searchable ? (
               <SearchField
                 value={query}
@@ -552,7 +552,7 @@ function RunConfigBody({
           }
         >
           {openRow === "permission" ? (
-            <Expansion id={`${listId}-permission`} placement="above">
+            <Expansion id={`${listId}-permission`}>
               <div
                 role="listbox"
                 aria-label={tr("permission.label")}
@@ -675,7 +675,7 @@ export function RunConfigSheetRow({
     // A row's options are a layer over this card, not a block that grows it.
     // The sheet keeps its height and the rows below keep their places while a
     // picker is open.
-    <div ref={anchorRef}>
+    <div ref={anchorRef} data-run-config-row>
       <div className="flex items-center gap-3 rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated px-3 py-2">
         <span className="w-20 flex-none text-caption font-semibold text-kin-secondary">
           {label}
@@ -752,18 +752,18 @@ function PickerTrigger({
  * The rows are a fixed list of three; growing the sheet to fit a model catalog
  * pushed the permission row out from under the thumb that was about to use
  * it, and on a phone the sheet was tall enough to lose the row being edited.
- * As a layer the sheet's height never changes. `placement` says which side of
- * the row has room: the first row opens downward, the two below it upward.
+ * As a layer the sheet's height never changes.
+ *
+ * Every row uses the same placement. The sheet sits at the bottom of the
+ * screen, so upward is the side with room — including for the first row, whose
+ * space above is the page behind the sheet rather than the rows below it. The
+ * three selectors used to disagree (the first opened downward, the other two
+ * upward), which is the inconsistency issue #3 reported. `useAnchoredPanel`
+ * still flips a row to the other side when the space above is genuinely gone
+ * (a short window, the keyboard up), so the rule is one preference plus the
+ * viewport, not a fixed side per control.
  */
-function Expansion({
-  id,
-  placement,
-  children,
-}: {
-  id: string;
-  placement: "above" | "below";
-  children: ReactNode;
-}) {
+function Expansion({ id, children }: { id: string; children: ReactNode }) {
   const anchorRef = useContext(RowAnchorContext);
   // Viewport coordinates, and portaled out of the sheet: the sheet's body is
   // the scrollport (`overflow-y: auto`), and an `absolute` layer opening
@@ -771,7 +771,7 @@ function Expansion({
   // options were painted outside the box and could never be scrolled to. A
   // portal also survives the sheet's slide-in transform.
   const anchor = useAnchoredPanel(Boolean(anchorRef), anchorRef, {
-    placement,
+    placement: "above",
     maxWidth: 480,
     maxHeight: 360,
   });

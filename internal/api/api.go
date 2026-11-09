@@ -265,12 +265,23 @@ func (s *Server) Handler() http.Handler {
 				return remote.Principal{}, false
 			}
 			return remote.Principal{
-				Kind:      remote.PrincipalUser,
-				UserID:    user.ID,
-				Role:      user.Role,
-				Label:     user.DisplayName,
-				SessionID: session.ID,
+				Kind:             remote.PrincipalUser,
+				UserID:           user.ID,
+				Role:             user.Role,
+				Label:            user.DisplayName,
+				SessionID:        session.ID,
+				SessionExpiresAt: session.ExpiresAt,
+				SessionRenewed:   session.Renewed,
 			}, true
+		})
+		// The browser's cookie carries the expiry it was issued with; when a
+		// request slides the session, reissue it so daily use keeps the same
+		// session rather than expiring it on the login-time date.
+		s.Auth.SetSessionRefresh(func(w http.ResponseWriter, r *http.Request, credential string, expiresAt int64) {
+			s.setSessionCookie(w, r, auth.Session{
+				Token:     credential,
+				ExpiresAt: time.UnixMilli(expiresAt),
+			})
 		})
 	}
 	r.Use(middleware.RequestID)
