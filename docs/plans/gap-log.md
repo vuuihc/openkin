@@ -65,9 +65,8 @@ person can see; the fix and its verification belong in the issue or the PR.
 左滑不误触；iOS 模拟器手动确认 webview 没有横向橡皮筋、抽屉跟手不掉帧；
 触控板与鼠标路径不受影响。
 
-待定：相邻会话的左右滑切换是否也要一起加。建议这批先不做——它会和正文选择、
-代码块横向滚动打架，手机的会话切换已经有 `SessionSwitcherSheet`；报告人
-确认后再决定是否单开一条。
+已定（2026-11-09，报告人）：相邻会话的左右滑切换不做。它会和正文选择、代码块
+横向滚动打架；手机的会话切换继续走 `SessionSwitcherSheet`，不要并进这批手势。
 
 线索：`ui/src/components/layout/AppShell.tsx:648`（抽屉按钮）、
 `ui/src/components/layout/Sidebar.tsx:931`（抽屉 DOM）、
