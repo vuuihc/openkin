@@ -13,7 +13,8 @@ import Composer from "./Composer";
  * draft is what the transcript shows. So the tests here are about the menu as
  * a picker — it opens on a slash token, narrows as the token grows, and Enter
  * picks rather than sends. The one thing it must not do is trap the slash:
- * when there is nothing to pick, Enter still sends the message.
+ * when there is nothing to pick, Enter is the plain newline it is everywhere
+ * else in the composer (sending is ⌘/Ctrl+Enter or the send button).
  */
 
 const review: AgentRole = {
@@ -164,7 +165,7 @@ describe("Composer prompt shortcuts", () => {
     expect(box.value).toBe("Review as a security engineer.");
   });
 
-  it("keeps the token on Escape and lets Enter send it", async () => {
+  it("keeps the token on Escape, and Enter writes a newline instead of sending it", async () => {
     const user = userEvent.setup();
     const { onSubmit, box } = setup({ roles: [review, commit] });
 
@@ -173,9 +174,15 @@ describe("Composer prompt shortcuts", () => {
     expect(screen.queryByRole("listbox")).toBeNull();
     expect(box.value).toBe("/rev");
 
-    // Escape declined the menu, not the message: the next Enter is the send it
-    // always was.
+    // Escape declined the menu, not the message. Enter is no longer a send on
+    // any keyboard — a phone has no Shift to make it a newline — so the
+    // declined token stays in the draft and a second line opens under it.
     await user.keyboard("{Enter}");
+    expect(box.value).toBe("/rev\n");
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    // Sending is the explicit shortcut the legend names.
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
     expect(onSubmit).toHaveBeenCalledWith("/rev", undefined);
   });
 
@@ -189,10 +196,14 @@ describe("Composer prompt shortcuts", () => {
     expect(screen.queryByRole("listbox")).toBeNull();
 
     await user.keyboard("{Enter}");
+    expect(box.value).toBe("/rev \n");
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await user.keyboard("{Control>}{Enter}{/Control}");
     expect(onSubmit).toHaveBeenCalledWith("/rev", undefined);
   });
 
-  it("says there are no roles yet, and still sends the slash", async () => {
+  it("says there are no roles yet, and leaves the slash to the draft", async () => {
     const user = userEvent.setup();
     const { onSubmit, box } = setup();
 
@@ -207,6 +218,10 @@ describe("Composer prompt shortcuts", () => {
     // The menu has nothing to pick, so it must not own Enter. A composer that
     // swallowed the slash would be a dead key for every daemon with no roles.
     await user.keyboard("{Enter}");
+    expect(box.value).toBe("/\n");
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
     expect(onSubmit).toHaveBeenCalledWith("/", undefined);
   });
 
@@ -222,10 +237,14 @@ describe("Composer prompt shortcuts", () => {
     expect(screen.queryAllByRole("option")).toHaveLength(0);
 
     await user.keyboard("{Enter}");
+    expect(box.value).toBe("/\n");
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
     expect(onSubmit).toHaveBeenCalledWith("/", undefined);
   });
 
-  it("says so when nothing matches, and still sends the token", async () => {
+  it("says so when nothing matches, and leaves the token in the draft", async () => {
     const user = userEvent.setup();
     const { onSubmit, box } = setup({ roles: [review, commit] });
 
@@ -237,6 +256,10 @@ describe("Composer prompt shortcuts", () => {
     expect(screen.queryByText(/edit it before sending/)).toBeNull();
 
     await user.keyboard("{Enter}");
+    expect(box.value).toBe("/zzz\n");
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
     expect(onSubmit).toHaveBeenCalledWith("/zzz", undefined);
   });
 
@@ -401,7 +424,7 @@ describe("Composer prompt shortcuts", () => {
     );
     expect(box.value).toBe("Review as a security engineer.");
     expect(screen.queryByRole("listbox")).toBeNull();
-    await user.keyboard("{Enter}");
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
     expect(onSubmit).toHaveBeenCalledWith("Review as a security engineer.", undefined);
   });
 

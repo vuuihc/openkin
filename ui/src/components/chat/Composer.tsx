@@ -171,7 +171,7 @@ function rolePreview(prompt: string): string {
 
 /**
  * Chat composer: @agent menu for multi-agent delegation.
- * Enter sends; Shift/⌘/Ctrl+Enter inserts a newline.
+ * Enter inserts a newline on every keyboard; ⌘/Ctrl+Enter sends.
  * Arrow keys navigate the @mention menu; Enter selects; Esc closes.
  */
 export default function Composer({
@@ -695,21 +695,13 @@ export default function Composer({
       }
     }
 
-    // Enter → send. Shift+Enter → newline (textarea default).
-    // ⌘/Ctrl+Enter → newline (inserted manually; textareas don't by default).
+    // Enter → newline, on every keyboard: the textarea does this itself, and
+    // it has to, because a phone's software keyboard has no Shift — "Shift+Enter
+    // for a newline" would leave a phone unable to write a second line and send
+    // half a sentence on the first pause. Sending is the send button, or
+    // ⌘/Ctrl+Enter where there is one; the legend beside the composer reads ⌘↵,
+    // and this branch is what makes that true.
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      const el = e.currentTarget;
-      const { selectionStart, selectionEnd } = el;
-      const next = value.slice(0, selectionStart) + "\n" + value.slice(selectionEnd);
-      onChange(next, selectionStart + 1);
-      requestAnimationFrame(() => {
-        el.selectionStart = el.selectionEnd = selectionStart + 1;
-        adjustTextareaHeight();
-      });
-      return;
-    }
-    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       void submit();
     }
