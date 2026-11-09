@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   ApiError,
@@ -14,8 +14,6 @@ import BranchPicker from "../components/chat/BranchPicker";
 import CwdPicker from "../components/chat/CwdPicker";
 import Composer from "../components/chat/Composer";
 import RunConfigControl, { RunConfigSheetRow } from "../components/chat/RunConfigSheet";
-import PermissionModePicker from "../components/chat/PermissionModePicker";
-import AgentModelPicker from "../components/chat/AgentModelPicker";
 import MachinePicker from "../components/chat/MachinePicker";
 import {
   DispatchSelector,
@@ -477,39 +475,19 @@ export default function NewChatPage() {
 
   const showProjectColumn =
     project != null || projectLookupState === "loading" || projectLookupState === "error";
-  /** The controls an existing session no longer owns, in one strip for the
-   *  run-config sheet: machine, workspace, branch, dispatch, routine. The
-   *  desktop strip below the composer carries the same set plus the agent
-   *  and permission, so every width sees each control exactly once. While
-   *  routine mode is on the location controls step aside (the composer
-   *  becomes a scheduler), exactly as the old panel folded them. */
-  const phoneExtraRows = // A routine is created on a machine and runs in a directory on it, so
-    // those two controls stay even when the composer becomes a scheduler.
-    // Branch and dispatch do not: a routine has no branch to switch and the
-    // Hub's team dispatch does not cross machines.
-    (
-      asRoutine
-        ? (["machine", "cwd", "routine"] as const)
-        : (["role", "machine", "cwd", "branch", "dispatch", "routine"] as const)
-    ) as readonly NewChatControlId[];
-  const desktopStrip: NewChatControlId[] = [
-    "hostModel",
-    "role",
-    "permission",
-    "machine",
-    "cwd",
-    "branch",
-    "dispatch",
-    "routine",
-  ];
-  const desktopStripIds = desktopStrip.filter(
-    (id) =>
-      // No saved roles, no row: a picker whose only entry is "none" is a
-      // control that exists to be dismissed.
-      (id !== "role" || roleList.length > 0) &&
-      !(asRoutine && (id === "branch" || id === "dispatch")),
-  );
-  const visiblePhoneExtraRows = phoneExtraRows.filter((id) => id !== "role" || roleList.length > 0);
+  /** Where the run happens, behind the composer's one face: machine, branch,
+   *  dispatch and routine. The folder is not here — it names the conversation
+   *  and sits above, with the project it belongs to, so "what this is about"
+   *  and "where it runs" are two questions on two levels instead of nine
+   *  equal rows. While routine mode is on the branch and dispatch rows step
+   *  aside (a routine has no branch to switch, and the Hub's team dispatch
+   *  does not cross machines). */
+  const sheetExtraRows = (
+    asRoutine
+      ? (["machine", "routine"] as const)
+      : (["role", "machine", "branch", "dispatch", "routine"] as const)
+  ) as readonly NewChatControlId[];
+  const visibleSheetExtraRows = sheetExtraRows.filter((id) => id !== "role" || roleList.length > 0);
 
   /** Each control's own row label. The group headings stay as sections
    *  ("Run", "Route", "Workspace"); this is what the row is asking for. */
@@ -565,20 +543,6 @@ export default function NewChatPage() {
             }}
           />
         );
-      case "permission":
-        return (
-          <PermissionModePicker
-            key={control}
-            value={permissionMode}
-            modes={allowedPermissionModes}
-            disabled={sending}
-            compact
-            onChange={(m) => {
-              setPermissionMode(m);
-              setDraftPermissionMode(m);
-            }}
-          />
-        );
       case "routine":
         return (
           <button
@@ -599,23 +563,6 @@ export default function NewChatPage() {
             <IconRoutines size={13} />
           </button>
         );
-      case "hostModel":
-        return (
-          <AgentModelPicker
-            key={`${control}:${mainAgentId}`}
-            className="max-w-full flex-wrap"
-            agents={available}
-            agentValue={mainAgentId}
-            onAgentChange={(id: string) => {
-              setSelectedHost(id);
-              setSelectedModel("");
-            }}
-            modelValue={selectedModel}
-            models={modelsForAgent(available, mainAgentId)}
-            disabled={sending}
-            onModelChange={setSelectedModel}
-          />
-        );
       case "dispatch":
         return (
           <DispatchSelector
@@ -632,7 +579,7 @@ export default function NewChatPage() {
         return (
           <CwdPicker
             key={control}
-            className="w-full sm:w-auto sm:max-w-[18rem]"
+            className="max-w-full sm:max-w-[22rem]"
             cwd={cwd}
             locked={false}
             compact
@@ -757,6 +704,12 @@ export default function NewChatPage() {
         ) : null}
 
         <div className="mt-8 w-full max-w-xl space-y-3">
+          {/* The folder belongs to the draft, not to the row of run knobs:
+              it names what the conversation is about, and the project card
+              below answers with that folder's summary. Its own line above the
+              card keeps it out of the composer's bottom row, which now holds
+              one run face at every width. */}
+          <div className="flex justify-center">{renderControl("cwd")}</div>
           {remote ? (
             <div className="rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-4 py-5 text-center text-strong text-kin-secondary">
               {machine && machine.roots.length > 0
@@ -831,13 +784,11 @@ export default function NewChatPage() {
             }}
             onSubmit={onSubmit}
             footer={
-              // The phone's only run control before the first message. The
-              // strip below starts at `md`, and on a phone the agent, model,
-              // mode, machine and workspace would otherwise be whatever the
-              // last draft left behind, with no way to see or change them
-              // until after sending. The sheet it opens is the one surface
-              // that owns every knob: agent / model / permission rows, then
-              // the location rows this page passes in.
+              // The page's only run control, at every width. The bottom row
+              // used to split into a phone face and a desktop strip of eight
+              // chips; on an iPad that strip was a sideways scroller and the
+              // same settings read as a different product from the phone's
+              // sheet. One face, one settings surface, and the strip is gone.
               <RunConfigControl
                 agentName={mainAgentName}
                 agentId={mainAgentId}
@@ -859,7 +810,7 @@ export default function NewChatPage() {
                 }}
                 extraRows={
                   <>
-                    {visiblePhoneExtraRows.map((control) => (
+                    {visibleSheetExtraRows.map((control) => (
                       <RunConfigSheetRow
                         key={control}
                         label={tr(CONTROL_LABEL_KEY[control])}
@@ -870,25 +821,8 @@ export default function NewChatPage() {
                 }
               />
             }
+            footerWide
           />
-          {/* Desktop: the same settings, one row — the shape the session page
-              uses for its own strip. Below `md` the run-config face above
-              owns everything; from `md` up this row carries the same knobs
-              plus the machine and workspace, exactly as the session page's
-              strip does, so the two pages never offer the same setting in
-              two different shapes. */}
-          <div className="hidden md:flex items-center gap-x-2 gap-y-1 px-0.5 min-w-0 overflow-x-auto kin-scroll whitespace-nowrap">
-            {desktopStripIds.map((control, index) => (
-              <Fragment key={control}>
-                {index > 0 && (
-                  <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
-                    ·
-                  </span>
-                )}
-                {renderControl(control)}
-              </Fragment>
-            ))}
-          </div>
           {asRoutine && (
             <div className="rounded-xl border border-kin-blue/25 bg-kin-blue/5 px-3 py-2.5">
               <div className="mb-2 text-caption font-medium text-kin-blue-ink">
