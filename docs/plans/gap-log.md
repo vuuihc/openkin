@@ -127,6 +127,16 @@ Claude Code 因此走 adapter 的只读分支：`--permission-mode plan` 加
 `ui/src/components/mobile/SwipeReveal.tsx`（已有的行手势，可复用 pointer
 capture 与阈值写法）、`ui/src/pages/TaskDetailPage.tsx:1582`。
 
+已修（2026-11-10，issue #24）：边缘拖拽与抽屉关闭收敛为一个 `useDrawerSwipe`
+（挂在 shell 的侧栏上，`AppShell` 仍持有 `mobileOpen`）。左缘 20px 的
+`touch-action: pan-y` 条负责起点；位移过 40% 或右向速度过阈值即开，未过回弹；
+打开后在面板/遮罩上左拖，剩余宽度低于 60% 或左向速度过阈值即关。跟手位移用
+`(progress - 1) * 100%`，不依赖测量宽度；`prefers-reduced-motion` 下不跟手、
+只保留阈值。鼠标不参与。底部 `Sheet` 的 grabber/标题可下滑关闭，正文只在
+`scrollTop === 0` 时参与（另加一个非 passive 的 touchmove 守卫，避免 iOS 把
+下拉当成 overscroll 吞掉 pointer 流）；行的左滑与横向滚动区域不触发。补了
+`useDrawerSwipe.test.tsx` 与 `Sheet.dom.test.tsx` 的合成 pointer 用例。
+
 ### 2026-11-09 · 中 · 无缓存进入会话时整页骨架，顶栏和输入框一起消失
 
 从侧边栏/会话列表第一次点进一个会话，或在 `/new` 发出消息、任务创建后跳到
