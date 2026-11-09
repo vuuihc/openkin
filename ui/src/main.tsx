@@ -4,9 +4,18 @@ import { BrowserRouter } from "react-router-dom";
 import { setupIonicReact } from "@ionic/react";
 import App from "./App";
 import { bootstrapTokenFromURL, getToken } from "./api/client";
-import { applyVisitGate, AuthError, clearAuthErrorFromURL, cleanVisitCredentials, refreshAccount, signInWithLink } from "./api/account";
+import {
+  applyVisitGate,
+  AuthError,
+  clearAuthErrorFromURL,
+  cleanVisitCredentials,
+  refreshAccount,
+  signInWithLink,
+} from "./api/account";
 import { useAppStore } from "./store/appStore";
 import { loginVisit, withoutLoginHash } from "./lib/loginLink";
+import { hubAnswers, hubBootPlan } from "./lib/hubBoot";
+import { currentHubUrl, hubConfigPlugin } from "./lib/hubConfig";
 import { initTheme } from "./lib/theme";
 import { cleanupLegacyWebPush } from "./lib/legacyWebPush";
 import "@ionic/react/css/core.css";
@@ -58,7 +67,50 @@ function showLinkFailure(err: unknown): void {
  * submitting nothing, and being reloaded. Its fragment is cleared first so the
  * credential does not stay in history.
  */
+/**
+ * Reopen onto the Hub this phone was connected to, before the bundled console
+ * paints.
+ *
+ * The shell starts on the page the build shipped with; the Hub the person
+ * paired with lives in the plugin. Handing that address back to `setHubUrl` is
+ * the same action the connect screen takes — it persists the origin, restores
+ * that Hub's session cookie, and moves the webview — so the first page the
+ * person sees is the Hub, not a connect screen that asks them to do it again.
+ *
+ * Returns true when the shell is navigating. The callers then render nothing:
+ * the document is about to be replaced. When the address does not answer, the
+ * bundled console stays up and its connect screen is the manual way back.
+ */
+async function bootIntoStoredHub(): Promise<boolean> {
+  const plugin = hubConfigPlugin();
+  if (!plugin) return false;
+  let stored = "";
+  try {
+    stored = await currentHubUrl(plugin);
+  } catch {
+    return false;
+  }
+  const plan = hubBootPlan({
+    inShell: true,
+    storedUrl: stored,
+    here: window.location.href,
+  });
+  if (plan.kind === "stay") return false;
+  if (!(await hubAnswers(plan.url))) return false;
+  try {
+    // The address was confirmed when it was connected; reopening the app is
+    // not a second consent question.
+    await plugin.setHubUrl({ url: plan.url, confirm: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 void (async () => {
+  // Before the auth probe: a stored Hub is a different origin, so asking this
+  // one who the visitor is would only produce the connect screen this avoids.
+  if (await bootIntoStoredHub()) return;
   await bootstrapTokenFromURL();
   const visit = loginVisit(window.location.hash);
   let linkFailed = false;
