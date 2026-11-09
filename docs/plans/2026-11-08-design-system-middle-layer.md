@@ -199,7 +199,7 @@ Kin 已经有 token 层和规则层，缺的是中间层：没有 Button、Input
 | 项 | 状态 | 证据 |
 |---|---|---|
 | G0 盘点 | 🟢 完成 | `scripts/ui_inventory.py` 输出；§2 的表 |
-| G0.5 组件层决策 | 🟡 待决策 | [`2026-11-09-astryx-spike.md`](2026-11-09-astryx-spike.md)：固定成本约 3–5 天，剩余风险见该文 §4 |
+| G0.5 组件层决策 | 🟡 待决策 | [`2026-11-09-astryx-spike.md`](2026-11-09-astryx-spike.md)：preflight 方案 A 0.5–1 天 / B ~2 天（§3.6），布局层清单见 §3.7，剩余风险见 §4 |
 | G1 目录页 | ⚪ 未开始 | — |
 | G2 Button 抽取 | ⚪ 未开始 | — |
 | G3–G7 Button 迁移 | ⚪ 未开始 | — |
@@ -251,6 +251,8 @@ Kin 已经有 token 层和规则层，缺的是中间层：没有 Button、Input
 | 借组件清单、`*.doc.mjs` 格式、状态分类法 | 借组件实现；用 `defineTheme` 把 `--kin-*` 映射成 Astryx 主题 |
 | 不借样式 | **仍然不直接用 neutral 主题**：视觉决策留在 Kin，token 值与对比度约束继续由 `tokens.test.ts` 守 |
 | G2–G17 按原样执行 | G2–G17 变成迁移顺序表，控件清单不变 |
+
+Astryx 还带一整层布局组件（`AppShell`、`Layout` 五槽、`Grid`、`Stack`、`SideNav`/`TopNav`/`MobileNav`、`Drawer`/`BottomSheet`），不是只有控件；清单见 spike §3.7。若整套采用，`ui/src/components/layout/` 的手写外壳是 `SettingsPage` 之外第二个该先迁的面。
 
 无论走哪条，**都不把 Astryx 的默认外观原样上线**——差别只在“皮肤是我们画的还是映射的”。
 

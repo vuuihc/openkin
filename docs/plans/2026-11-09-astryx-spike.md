@@ -1,6 +1,7 @@
 # Astryx 接入 spike（2026-11-09）
 
 状态：**完成** · 结论：固定成本比预估低一个量级，整套替换重新成为候选
+2026-11-09 追加 Tailwind 4（§3.6）与布局层（§3.7）实测。
 问题：整套替换 Astryx，是不是比 G2–G17「自己抽」更快、更便宜？
 配套：[`2026-11-08-design-system-middle-layer.md`](2026-11-08-design-system-middle-layer.md)
 
@@ -114,6 +115,54 @@ Astryx 的 token 用 `light-dark()`，由 `color-scheme` 决定。Kin 用 `data-
 
 只引了 Button、TextInput、Theme 三个入口，tree-shaking 正常。
 
+### 3.6 Tailwind 4 实测（2026-11-09 追加）
+
+在独立 worktree（`/tmp/kin-tw4`，HEAD `de467411`）把主仓库升到 `tailwindcss@4.3.5` + `@tailwindcss/postcss@4`，逐步记录：
+
+| 步骤 | 结果 | 耗时 |
+|---|---|---|
+| 安装 | 4.3.5 + PostCSS 插件 | 19s |
+| `postcss.config.js` | 换成 `@tailwindcss/postcss` | 1 行 |
+| `index.css` | `@tailwind *` → `@import "tailwindcss"` + `@config` | 1 行 |
+| `@apply kin-btn` | v4 不认自定义类，展开成共享选择器 | ~10 行 |
+| 构建 | 成功 | 19.9s |
+| `tsc --noEmit` | 4 个错误，全在两个测试文件 | — |
+| 测试 | 1814 通过 / 6 失败（2 个文件） | 16s |
+
+**v4 确实解掉了 preflight 冲突**：不关 preflight，Astryx 按钮也能正常渲染（Kin 蓝、`8px 12px` 内边距、8px 圆角）。但必须显式声明层顺序，否则会反向出事：
+
+```css
+@layer reset, theme, base, astryx-base, astryx-theme, components, utilities;
+```
+
+不加这一行时，Astryx 的 `reset` 层排在 Tailwind `utilities` 之后，把 `.kin-btn` 的 background/padding 全压回 0（实测：背景透明、padding 0、高度 24px）。
+
+**真正的成本不在构建，在语义：**
+
+1. **测试工具链**：`tokens.test.ts` 和 `tailwind.test.ts` 依赖 v3 的 `tailwindcss/resolveConfig` 与 `postcss([tailwindcss({ content })])`，v4 都已移除；要用 `@tailwindcss/node` 的 `compile()` + `build(candidates)` 重写。6 个失败用例全在这里，`tsc` 的 4 个错误也全在这里。
+2. **无层级规则反转**：v3 里未加层的 `body { background: var(--kin-page) }` 和工具类按特异性竞争，`.bg-kin-bg` 赢；v4 里工具类进了 `@layer utilities`，**无层级规则无条件获胜**，body 背景从 `--kin-bg` (#1a1a1c) 变成 `--kin-page` (#0e0e10)。`index.css` 里所有「原本可以被工具类覆盖」的无层级规则都要审一遍。
+3. **默认值变化**：`rounded-sm` 2px→4px（4 处）；默认 placeholder 色改为 `currentColor` 50%；`outline-none` 语义变化（forced-colors 下的透明轮廓没了）。边框默认色改 `currentColor` 在本仓库无影响——662 处 `border` 全部显式给了颜色。
+4. **产物**：CSS 87.6K → 108.9K（+21.3K，+24%）；JS 不变。
+5. **视觉对比**：token 门页 v3 vs v4，几何几乎一致（卡片 3px 下移、高 6px），像素差 3.78%、平均通道差 2.09——主要是文字抗锯齿；确定的结构差异只有第 2 条的 body 背景。
+
+修正后的估算：机械升级约 **0.5 天**（原估的 2–3 天在这部分偏保守），但测试重写 + 无层级规则审计 + 17 页视觉回归合计仍在 **~2 天**。
+
+### 3.7 布局层：Astryx 不只有控件
+
+布局不是示例页，是组件：
+
+| 层 | 组件 |
+|---|---|
+| 应用外壳 | `AppShell`（header / sideNav / main；默认 `md` 以下自动切 MobileNav 抽屉；`wash`/`surface`/`section`/`elevated` 四种导航底色） |
+| 页面骨架 | `Layout`（header / start / content / end / footer 五槽）、`Section`、`Divider` |
+| 排布 | `Grid`（含 `GridSpan`）、`Stack` / `HStack` / `VStack`、`Center`、`AspectRatio`、`ScrollableArea`、`Resizable` |
+| 导航 | `SideNav`、`TopNav`、`MobileNav`、`NavMenu` / `NavItem`、`Breadcrumbs`、`TabList`、`Toolbar` |
+| 浮层 | `Drawer`、`BottomSheet`、`Dialog`、`Overlay`、`Popover`、`ContextMenu` |
+
+和 antd 的差别：antd 给 `Layout.Header/Sider/Content/Footer` 四件套加示例页；Astryx 的 `AppShell` 把断点、移动端抽屉、导航变体做进了组件，`Layout` 是五槽通用骨架。包内注释还提到 CLI 带 `templates/blocks/components/AppShell/` 的 showcase blocks（未安装 CLI，未验证内容）。
+
+对 Kin 的含义：`ui/src/components/layout/` 那套手写外壳（`Sidebar` 22 个裸按钮）是它的直接替代对象；G0.5 除 `SettingsPage` 外应把外壳作为第二个验证面。
+
 ## 4. 还没验证的
 
 | 项 | 为什么重要 | 怎么验 |
@@ -123,6 +172,7 @@ Astryx 的 token 用 `light-dark()`，由 `color-scheme` 决定。Kin 用 `data-
 | i18n 归属 | Astryx 自带 i18n 模块和 `intl-messageformat`，Kin 也有一套 | 看它哪些组件强制自己的文案，能否注入 |
 | 一页端到端 | 单组件能渲染 ≠ 一页能迁 | 拿 `SettingsPage`（16 个按钮、27 个原生 select 里的一部分）整页迁一次并计时 |
 | preflight 方案 A 的回归面 | 关掉 preflight 会改全局基线 | 17 个页面截图对比 |
+| preflight 方案 B 的无层级审计 | v4 让无层级规则反过来压过工具类（§3.6 第 2 条） | 列出 `index.css` 全部无层级规则，逐条判断是否该进 `@layer base` |
 | 0.7.x 的 API 稳定性 | 上游每个月都在发版 | 读 CHANGELOG 的破坏性变更频率 |
 
 ## 5. 对原计划的修订建议
@@ -131,7 +181,7 @@ Astryx 的 token 用 `light-dark()`，由 `color-scheme` 决定。Kin 用 `data-
 
 建议在 G1 之前插一个 **G0.5 决策轮**：
 
-1. 定 preflight 方案（A 或 B）。
+1. 定 preflight 方案（A 或 B）。**实测后 B 的机械部分是 0.5 天、完整成本 ~2 天**（§3.6），A 是 0.5–1 天但回归面未知；两者都要额外加层顺序声明。
 2. 用选定方案把 `SettingsPage` 整页迁到 Astryx（含 Kin 主题、i18n、390px 验收）。
 3. 计时 + 截图 + 回归。
 4. 决策：
@@ -157,3 +207,21 @@ npx vite --port 5199
 ```
 
 截图在仓库根的 `.playwright-mcp/`（已 gitignore）：`spike-desktop.png`（冲突态）、`spike-no-preflight.png`（修复态）、`spike-kin-theme.png`（Kin 主题）。
+
+Tailwind 4 的复现（§3.6）：
+
+```bash
+git worktree add --detach /tmp/kin-tw4 HEAD
+cd /tmp/kin-tw4/ui && npm ci
+npm install tailwindcss@^4 @tailwindcss/postcss@^4
+# postcss.config.js → { plugins: { "@tailwindcss/postcss": {} } }
+# src/index.css 顶部：
+#   @layer reset, theme, base, astryx-base, astryx-theme, components, utilities;
+#   @import "tailwindcss";
+#   @import "@astryxdesign/core/reset.css";      # 顺序在 tailwindcss 之后
+#   @import "@astryxdesign/core/astryx.css";
+#   @import "@astryxdesign/theme-neutral/theme.css";
+#   @config "../tailwind.config.ts";
+npx vite build
+npx vitest run
+```
