@@ -57,6 +57,9 @@ services:
       KIN_OIDC_CLIENT_SECRET: ${KIN_OIDC_CLIENT_SECRET:-}
       KIN_OIDC_DISPLAY_NAME: ${KIN_OIDC_DISPLAY_NAME:-}
       KIN_OIDC_BACKCHANNEL_ADDR: ${KIN_OIDC_BACKCHANNEL_ADDR:-}
+      # How long an orphaned turn waits for the Node's connection to return.
+      # Empty unless the operator overrides the 5m default from .env.
+      KIN_NODE_RECONNECT_GRACE: ${KIN_NODE_RECONNECT_GRACE:-}
     command:
       - serve
       - --role=hub

@@ -12,6 +12,7 @@ require (
 	github.com/yuin/goldmark v1.8.6
 	golang.org/x/crypto v0.52.0
 	golang.org/x/oauth2 v0.36.0
+	golang.org/x/sys v0.45.0
 	modernc.org/sqlite v1.34.5
 	nhooyr.io/websocket v1.8.17
 	tailscale.com v1.100.0
@@ -57,7 +58,6 @@ require (
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/term v0.43.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/time v0.12.0 // indirect

@@ -283,14 +283,25 @@ partial transcript and never auto-approving a pending permission request.
 about the work: the machine on the other end may still be running the agent and
 may reconnect in seconds, and killing the turn on the spot throws away a run
 nobody asked to stop. A dropped connection therefore leaves its turns
-**orphaned** for a bounded reconnect grace (60s). Each connection opens with a
+**orphaned** for a bounded reconnect grace (5 minutes; `KIN_NODE_RECONNECT_GRACE`
+can lengthen or shorten it between 1s and 1h). *Amended 2026-11-09:* the grace
+was raised from 60s after two dogfood failures the same morning — both were
+grace expiries during multi-minute link outages (a fake-IP proxy hop on the LAN
+path, since removed), not node restarts; a grace shorter than the link's real
+recovery time turns every outage into a failed turn. Each connection opens with a
 `turn.resume` naming the turns the Node still holds — running, or finished with
 an ending it could not confirm had arrived — and the Hub rebinds those turns to
 the new connection generation; turns the device no longer lists are failed at
 once, and unclaimed orphans fail when the grace runs out with the same
 `disconnected mid-turn` reason as before. An ending the Hub did receive is
 answered as an unknown turn, which the Node takes as its cue to drop what it
-was holding for it. On the Node side a turn's lifetime is
+was holding for it. A cancel the Node receives for a turn it is still running
+closes the conversation from that side too: frames already on the live socket
+are out, but nothing the run still emits is held for a future connection — not
+queued, not remembered for replay, not listed on a resume — because the Hub
+closed the turn and would answer all of it with the same cancel (the echo this
+rule ended: one dogfood morning produced 6394 cancel lines from resume lists
+that kept resurrecting canceled turns). On the Node side a turn's lifetime is
 the daemon's, not the socket's: events and the terminal frame wait in a bounded
 outbox, and the last written frames are replayed on reconnect (the Hub drops
 duplicate events by sequence, and a repeated start ack for a live turn is a
