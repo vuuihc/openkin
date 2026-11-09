@@ -1509,3 +1509,81 @@ func TestOIDCCallbackProviderErrorRoutesBackToTheApp(t *testing.T) {
 		t.Fatalf("unknown-state redirect = %q, want the browser error path", target)
 	}
 }
+
+// steppedClock is a hand-wound clock for session-lifecycle tests: the touch
+// window is an hour wide, which no test should have to spend waiting.
+type steppedClock struct{ now time.Time }
+
+func (c *steppedClock) Now() time.Time { return c.now }
+
+// A session that slides has to hand the browser the moved expiry. Otherwise the
+// cookie keeps the date it was issued with, and a console used every day still
+// asks for the password once the login-time date arrives.
+func TestAUsedSessionReissuesTheBrowserCookie(t *testing.T) {
+	s, master := newTestServer(t)
+	clock := &steppedClock{now: time.Now()}
+	s.Accounts = auth.New(s.Store, auth.Config{Now: clock.Now})
+	code, err := s.Accounts.IssueBootstrapCode(t.Context())
+	if err != nil {
+		t.Fatalf("issue bootstrap code: %v", err)
+	}
+	h := s.Handler()
+
+	owner := &authClient{t: t, h: h, master: master}
+	if rec := owner.post("/api/auth/bootstrap",
+		`{"code":"`+code+`","email":"owner@example.com","password":"hunter2hunter2","display_name":"Owner"}`); rec.Code != http.StatusOK {
+		t.Fatalf("bootstrap: %d %s", rec.Code, rec.Body.String())
+	}
+	if owner.cookie == nil {
+		t.Fatal("bootstrap did not set a session cookie")
+	}
+	bare := &authClient{t: t, h: h, cookie: owner.cookie}
+
+	// The first authenticated request slides the never-used session.
+	clock.now = clock.now.Add(2 * time.Hour)
+	rec := bare.get("/api/tasks")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cookie-only tasks: %d %s", rec.Code, rec.Body.String())
+	}
+	renewed := sessionCookieOn(rec)
+	if renewed == nil {
+		t.Fatal("a slid session did not reissue the cookie")
+	}
+	if renewed.Value != owner.cookie.Value {
+		t.Fatal("the reissued cookie is a different session")
+	}
+	// Cookie dates are second-precision on the wire; the store works in
+	// milliseconds, so compare the whole seconds.
+	wantExpiry := (clock.now.UnixMilli() + auth.DefaultSessionTTL.Milliseconds()) / 1000
+	if renewed.Expires.Unix() != wantExpiry {
+		t.Fatalf("cookie expires %d, want the slid expiry %d",
+			renewed.Expires.Unix(), wantExpiry)
+	}
+
+	// Inside the hourly window the store writes nothing, so there is nothing
+	// to reissue either.
+	if got := sessionCookieOn(bare.get("/api/tasks")); got != nil {
+		t.Fatalf("a request inside the touch window reissued the cookie: %v", got)
+	}
+
+	// Past it the expiry moves again and the browser has to follow.
+	clock.now = clock.now.Add(61 * time.Minute)
+	rec = bare.get("/api/tasks")
+	again := sessionCookieOn(rec)
+	if again == nil {
+		t.Fatal("a request past the touch window did not reissue the cookie")
+	}
+	wantExpiry = (clock.now.UnixMilli() + auth.DefaultSessionTTL.Milliseconds()) / 1000
+	if again.Expires.Unix() != wantExpiry {
+		t.Fatalf("cookie expires %d, want %d", again.Expires.Unix(), wantExpiry)
+	}
+}
+
+func sessionCookieOn(rec *httptest.ResponseRecorder) *http.Cookie {
+	for _, cookie := range rec.Result().Cookies() {
+		if cookie.Name == remote.SessionCookieName {
+			return cookie
+		}
+	}
+	return nil
+}

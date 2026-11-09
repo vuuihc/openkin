@@ -90,6 +90,11 @@ type AuthSession struct {
 	LastSeenAt *int64
 	UserAgent  string
 	IP         string
+	// Renewed reports that this authentication slid ExpiresAt and wrote it.
+	// It is a property of the call, not of the row: callers that hand the
+	// expiry to a client (the session cookie) use it to know whether the
+	// client's copy is now stale.
+	Renewed bool
 }
 
 // CreateUserWithIdentity atomically creates an account and its first login
@@ -434,6 +439,7 @@ func (s *Store) AuthenticateSession(ctx context.Context, tokenHash string, now, 
 			return AuthSession{}, User{}, fmt.Errorf("touch auth session: %w", err)
 		}
 		session.ExpiresAt = newExpiry
+		session.Renewed = true
 	}
 	return session, user, nil
 }
