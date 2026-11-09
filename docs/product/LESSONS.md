@@ -249,6 +249,28 @@ seen: 1
 
 证据：`a9662bde`（2026-11-07）
 
+## 2026-11-09 · YOLO 会话的首轮不能是只读 plan 轮
+seen: 1
+
+发生了什么：控制台里 `permission_mode=yolo` 的会话仍频繁弹「需要权限」。本机数据
+显示任务首轮被标成 `source_read_only`：lazy 工作区策略把 `auto` 的第一轮固定为只读，
+Claude Code adapter 先判只读、再判权限模式，于是以 `--permission-mode plan` 加审批桥
+启动；plan 收尾的 `ExitPlanMode` 被审批桥转成 `tool_use` 卡。yolo 承诺的「跳过所有
+权限提示」在首轮就不成立，gap-log 会话里还叠了一张 `AskUserQuestion`（`64032786`）。
+
+为什么没拦住：权限模式被当成「选哪一档审批」，工作区访问被当成另一条正交的轴；两条
+轴在 adapter 里以 if 顺序相遇，只读分支先返回。测试各自覆盖了「lazy 首轮是只读」和
+「yolo 传 `--dangerously-skip-permissions`」，但没有一条同时断言
+`permission_mode=yolo` + `workspace_mode=auto` 的首轮 `RunMeta`，所以两种说法在
+组合处互相矛盾时没有信号。
+
+规则：权限模式决定「会不会问人」，工作区访问决定「能不能写」；两者冲突时按「这个
+模式承诺了什么」裁决——yolo 会话的第一轮不能进入会发问的只读探针，而由
+orchestration 显式标记的只读轮仍覆盖 yolo。新增任何一种「权限模式 × 工作区策略」
+组合，都要有一条从 `Create` 到首轮 adapter spec 的端到端断言。
+
+证据：`64032786`（2026-11-09）
+
 ---
 
 ## 升级记录
@@ -271,6 +293,7 @@ seen: 1
 | 连接断了不等于工作结束 | 1 | 未升级；ADR 0022 已补重连宽限（现 5 分钟）与 `turn.resume`，下一次改控制通道先跑拔 socket 的端到端测试 |
 | 长任务的 ctx 必须由守护进程持有 | 1 | 未升级；`internal/server/node.go` 已显式命名 `frameCtx`，下一次加长任务回调按此自查 |
 | 浮层按实测视口摆放，390px 下逐个验证 | 1 | 未升级；先修 issue #1/#3，再补一条 390px 的几何测试 |
+| YOLO 会话的首轮不能是只读 plan 轮 | 1 | 未升级；已补 Create→首轮的端到端断言，下一次新增权限模式×工作区组合先写这条测试 |
 
 ## 评审复盘与协议
 
