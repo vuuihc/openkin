@@ -61,9 +61,29 @@ function setViewport(width: number, height: number) {
   Object.defineProperty(window, "innerHeight", { configurable: true, value: height });
 }
 
+/**
+ * The control picks its container from `min-width: 768px`. jsdom has no
+ * `matchMedia`, and `useMinWidth`'s fallback is the desktop shape, so a test
+ * that says nothing about the width would silently run against the panel.
+ * Each group states which width it is about.
+ */
+function setWideScreen(wide: boolean) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: wide && query.includes("min-width: 768px"),
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
+}
+
 beforeEach(() => {
   setLocale("en");
-  setViewport(1024, 768);
+  setViewport(390, 844);
+  setWideScreen(false);
 });
 
 describe("RunConfigControl", () => {
@@ -373,5 +393,62 @@ describe("RunConfigControl", () => {
       expect(left).toBeGreaterThanOrEqual(8);
       expect(left + width).toBeLessThanOrEqual(390 - 8);
     }
+  });
+});
+
+/**
+ * The Mac shape: the same rows in an anchored panel instead of the phone's
+ * bottom sheet. A panel is a layer over the page, not a navigation entry, so
+ * the history contract that belongs to the sheet must not leak into it.
+ */
+describe("RunConfigControl on a wide screen", () => {
+  beforeEach(() => {
+    setViewport(1024, 768);
+    setWideScreen(true);
+  });
+
+  it("opens an anchored panel with the same rows, not the phone sheet", async () => {
+    setup();
+    await openSheet();
+    // The scrim is the sheet's own shape; the panel has none.
+    expect(document.querySelector(".kin-scrim-enter")).toBeNull();
+    expect(document.querySelector("[data-run-config-panel]")).toBeTruthy();
+    expect(screen.getByText("Claude Code")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Model/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Permissions/ })).toBeTruthy();
+  });
+
+  it("picks a model and keeps the panel open behind the choice", async () => {
+    const { onModelChange } = setup();
+    await openSheet();
+    await userEvent.click(screen.getByRole("button", { name: /^Model/ }));
+    await userEvent.click(screen.getByRole("option", { name: /Opus/ }));
+
+    expect(onModelChange).toHaveBeenCalledWith("opus");
+    expect(screen.getByRole("dialog", { name: "Run settings" })).toBeTruthy();
+  });
+
+  it("closes on an outside click without claiming a history entry", async () => {
+    setup();
+    const push = vi.spyOn(window.history, "pushState");
+    await openSheet();
+    // A popover is not a navigation layer: it must not put a `kinSheet`
+    // entry on the stack the way the phone sheet does.
+    expect(
+      push.mock.calls.some((call) => Boolean((call[0] as { kinSheet?: string })?.kinSheet)),
+    ).toBe(false);
+
+    await userEvent.click(document.body);
+
+    expect(screen.queryByRole("dialog", { name: "Run settings" })).toBeNull();
+  });
+
+  it("closes on Escape and returns focus to the face", async () => {
+    setup();
+    await openSheet();
+    await userEvent.keyboard("{Escape}");
+
+    expect(screen.queryByRole("dialog", { name: "Run settings" })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Run settings/ }));
   });
 });

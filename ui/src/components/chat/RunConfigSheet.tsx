@@ -12,6 +12,7 @@ import {
 import { createPortal } from "react-dom";
 import type { AgentInfo } from "../../api/client";
 import { useAnchoredPanel } from "../../hooks/useAnchoredPanel";
+import { useMinWidth } from "../../hooks/useMinWidth";
 import { useT } from "../../i18n/react";
 import { isImeKeyEvent } from "../../lib/ime";
 import { agentAvatarMeta } from "../../lib/agentMention";
@@ -118,6 +119,11 @@ export default function RunConfigControl({
 }: RunConfigControlProps) {
   const tr = useT();
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  // One face at every width; what it opens changes width. A phone gets the
+  // bottom sheet, a Mac the anchored panel — the same split `SheetSelect`
+  // already makes for every other one-choice control.
+  const wide = useMinWidth(768);
   const current = model.trim();
   const mode = normalizePermissionMode(permission);
   const permissionLabel = tr(PERMISSION_MODE_LABEL_KEY[mode]);
@@ -127,11 +133,31 @@ export default function RunConfigControl({
     fallbackModelLabel ?? tr("modelPicker.default"),
   );
 
+  const body: SheetProps = {
+    open,
+    onClose: () => setOpen(false),
+    agentName,
+    agentId,
+    agentAvatar,
+    model: current,
+    models,
+    onModelChange,
+    permission: mode,
+    permissionModes,
+    onPermissionChange,
+    disabled,
+    fallbackModelLabel,
+    agents,
+    onAgentChange,
+    extraRows,
+  };
+
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => setOpen((value) => !value)}
         disabled={disabled}
         aria-label={`${tr("runConfig.open")}${tr("common.labelSeparator")}${agentName} · ${modelLabel} · ${permissionLabel}`}
         aria-haspopup="dialog"
@@ -164,24 +190,7 @@ export default function RunConfigControl({
           {permissionLabel}
         </span>
       </button>
-      <RunConfigSheet
-        open={open}
-        onClose={() => setOpen(false)}
-        agentName={agentName}
-        agentId={agentId}
-        agentAvatar={agentAvatar}
-        model={current}
-        models={models}
-        onModelChange={onModelChange}
-        permission={mode}
-        permissionModes={permissionModes}
-        onPermissionChange={onPermissionChange}
-        disabled={disabled}
-        fallbackModelLabel={fallbackModelLabel}
-        agents={agents}
-        onAgentChange={onAgentChange}
-        extraRows={extraRows}
-      />
+      {wide ? <RunConfigPanel triggerRef={triggerRef} {...body} /> : <RunConfigSheet {...body} />}
     </>
   );
 }
@@ -202,6 +211,134 @@ function RunConfigSheet({ open, onClose, ...body }: SheetProps) {
     <Sheet open={open} onClose={onClose} title={tr("runConfig.title")} bodyClassName="pb-2">
       {open ? <RunConfigBody {...body} /> : null}
     </Sheet>
+  );
+}
+
+/**
+ * The desktop shape of the run settings: the sheet's rows in an anchored panel.
+ *
+ * A Mac is not a phone, and `Sheet` is deliberately phone-only — a bottom
+ * sheet over a desktop window is the platform mismatch `TASTE.md` rule 3
+ * names. The body is the same one the sheet draws, in the same row order, so
+ * a reader moving between a Mac and a phone finds the settings where they
+ * left them; only the container changes.
+ *
+ * Dismissal is the anchored-menu contract every other desktop picker uses
+ * (outside tap, focus leaving, Escape), with one addition: a row's own picker
+ * opens a second layer — an anchored menu, the dispatch panel, the model's
+ * option list — and those are portaled out of this panel. A click inside one
+ * must not read as "outside" and close the panel underneath it, so the
+ * outside test also accepts the markers those layers already carry.
+ */
+const SECOND_LAYER_SELECTOR =
+  '[data-run-config-panel], [data-run-config-layer], [role="menu"], [role="dialog"], [data-search-panel]';
+
+function RunConfigPanel({
+  open,
+  onClose,
+  triggerRef,
+  ...body
+}: SheetProps & { triggerRef: RefObject<HTMLButtonElement | null> }) {
+  const tr = useT();
+  const panelRef = useRef<HTMLDivElement>(null);
+  const anchor = useAnchoredPanel(open, triggerRef, {
+    placement: "above",
+    align: "left",
+    width: 400,
+    maxWidth: 520,
+    maxHeight: 560,
+  });
+  const anchored = Boolean(anchor);
+
+  useEffect(() => {
+    if (!open) return;
+    const inside = (node: Node | null) =>
+      Boolean(
+        node &&
+        (triggerRef.current?.contains(node) ||
+          panelRef.current?.contains(node) ||
+          (node instanceof Element && node.closest(SECOND_LAYER_SELECTOR))),
+      );
+    const onPointerDown = (event: MouseEvent) => {
+      if (inside(event.target as Node)) return;
+      onClose();
+    };
+    const onFocus = (event: FocusEvent) => {
+      if (inside(event.target as Node)) return;
+      onClose();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (!inside(event.target as Node) && !inside(document.activeElement)) return;
+      // A row's own layer takes the first Escape and closes itself; the
+      // panel takes the next one. Closing both at once would skip the layer
+      // the reader is actually in.
+      if (
+        document.querySelector(
+          '[data-run-config-layer], [role="menu"], [data-search-panel], ' +
+            '[role="dialog"]:not([data-run-config-panel])',
+        )
+      ) {
+        return;
+      }
+      event.stopPropagation();
+      onClose();
+      triggerRef.current?.focus({ preventScroll: true });
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("focus", onFocus, true);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("focus", onFocus, true);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, onClose, triggerRef]);
+
+  useEffect(() => {
+    if (!open || !anchored) return;
+    // A layer the keyboard cannot enter is a layer a hardware keyboard cannot
+    // use. Focus moves in after the anchor has been measured, because the
+    // panel does not exist on the render `open` first turns true.
+    panelRef.current?.focus({ preventScroll: true });
+  }, [open, anchored]);
+
+  if (!open || !anchor) return null;
+  return createPortal(
+    <div
+      ref={panelRef}
+      role="dialog"
+      aria-label={tr("runConfig.title")}
+      tabIndex={-1}
+      data-run-config-panel=""
+      style={{
+        left: anchor.left,
+        width: anchor.width,
+        maxHeight: anchor.maxHeight,
+        top: anchor.top,
+        bottom: anchor.bottom,
+      }}
+      className="fixed z-50 flex flex-col overflow-hidden rounded-2xl border border-[var(--kin-hairline)] bg-kin-elevated shadow-e3 outline-none"
+    >
+      <div className="flex flex-none items-center justify-between border-b border-[var(--kin-hairline)] px-3 py-1.5">
+        <h2 className="text-caption font-semibold text-kin-secondary">{tr("runConfig.title")}</h2>
+        <button
+          type="button"
+          onClick={() => {
+            onClose();
+            triggerRef.current?.focus({ preventScroll: true });
+          }}
+          aria-label={tr("common.close")}
+          className="flex h-7 w-7 items-center justify-center rounded-lg text-kin-muted hover:bg-[var(--kin-fill-strong)] hover:text-kin-text"
+        >
+          <IconX size={14} />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto kin-scroll px-3 pb-3 pt-2">
+        <RunConfigBody {...body} />
+      </div>
+    </div>,
+    document.body,
   );
 }
 

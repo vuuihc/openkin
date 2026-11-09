@@ -104,6 +104,14 @@ type Props = {
    */
   footer?: ReactNode;
   /**
+   * Whether the footer survives the `md` breakpoint. Off by default: the
+   * session page keeps a separate desktop strip, and drawing both would offer
+   * the same settings twice in one row. The new-chat page has no second strip
+   * — its footer face and the settings surface behind it are the only entry at
+   * every width — so it turns this on.
+   */
+  footerWide?: boolean;
+  /**
    * Fired on send. `interrupt` asks the daemon to cut the running round short and
    * answer this message next instead of at the turn boundary — which also denies
    * the round's pending approvals, so it is only ever set by the explicit action.
@@ -192,6 +200,7 @@ export default function Composer({
   hostAgentId,
   fileSearch,
   footer,
+  footerWide = false,
   onSubmit,
 }: Props) {
   const tr = useT();
@@ -1023,7 +1032,11 @@ export default function Composer({
               <IconPlus size={expanded ? 18 : 17} className="sm:hidden" strokeWidth={2} />
               <IconImage size={expanded ? 15 : 14} className="hidden sm:block" />
             </button>
-            {footer ? <div className="min-w-0 flex-1 md:hidden">{footer}</div> : null}
+            {footer ? (
+              <div className={["min-w-0 flex-1", footerWide ? "" : "md:hidden"].join(" ")}>
+                {footer}
+              </div>
+            ) : null}
             {uploading && (
               <span className="text-caption text-kin-muted">{tr("composer.uploading")}</span>
             )}
