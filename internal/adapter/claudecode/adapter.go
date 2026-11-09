@@ -97,10 +97,19 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 			if err != nil {
 				return nil, fmt.Errorf("mcp config: %w", err)
 			}
-			args = append(args,
-				"--mcp-config", mcpPath,
-				"--permission-prompt-tool", "mcp__kin__approve",
-			)
+			args = append(args, "--mcp-config", mcpPath)
+			// A yolo turn promises no approval cards. In the read-only branch
+			// the prompt tool is only needed for plan mode's ExitPlanMode — a
+			// question with no execution consequence — and attaching it turns
+			// that into a tool_use card in a session that should never ask.
+			// Without the bridge Claude Code does not expose ExitPlanMode at
+			// all (checked against CLI 2.1.319), while the read-only boundary
+			// is unchanged: plan mode and --disallowedTools still deny
+			// Bash/Edit/Write. Other modes keep the bridge so a person can
+			// approve the plan.
+			if adapter.NormalizePermissionMode(spec.PermissionMode) != adapter.PermissionYOLO {
+				args = append(args, "--permission-prompt-tool", "mcp__kin__approve")
+			}
 		}
 	} else {
 		perm := adapter.NormalizePermissionMode(spec.PermissionMode)
