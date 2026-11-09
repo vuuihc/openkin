@@ -14,7 +14,7 @@
 | 要接 StyleX 构建插件 | **不用**。只有 `@stylexjs/stylex` 作为运行时 peer |
 | React 19 迁移是大工程 | **98 个非测试文件，只有 1 个真实类型错误**（`useRef` 的 `RefObject<T \| null>`） |
 | IME 守卫、焦点归还这些行为要重新挣 | **Astryx 自带**：`dist/utils/ime.js` 的 `isComposing \|\| keyCode === 229` 和我们抽出来的完全同源；`focusReturn`、`useFocusTrap` 也在 |
-| 组件要自己补一大半 | **120 个组件**，含 BottomSheet、SnapPaging、gestures、CommandPalette、Table、TreeList、Toast |
+| 组件要自己补一大半 | **约 110 个组件**（`dist/` 下 120 个目录，去掉 animator/gestures/hooks/i18n 等基础设施），含 BottomSheet、SnapPaging、gestures、CommandPalette、Table、TreeList、Toast |
 | 主题要重做 | **约 20 行 `defineTheme`** 就接近 Kin 的暗色外观 |
 | 包体积会涨很多 | Button + TextInput + Theme：**+84 kB raw / +25 kB gzip** |
 
@@ -45,7 +45,7 @@
 | 00:55:13 | 关掉 preflight、重启：按钮完全恢复 | 约 1 分钟 |
 | 00:57:39 | 套上 Kin 主题，视觉基本对齐 | 约 2 分钟 |
 
-**从零到“一个穿 Kin 皮的 Astryx 组件渲染出来”，手工操作约 15 分钟。** 中间 25 分钟花在定位 preflight 的层级冲突上——那是诊断成本，不是每次都要付。
+**从零到“一个穿 Kin 皮的 Astryx 组件渲染出来”，墙钟 5 分 43 秒**（含两次 npm install、一次 tsc、一次 build、一次层级冲突定位）。冲突定位之所以快，是因为事先知道层叠层的优先级规则；团队第一次遇到会慢一些，但这是知识成本，不是每次都要付的工程成本。
 
 ## 3. 关键发现
 
@@ -156,4 +156,4 @@ npx vite --port 5199
 # 打开 http://localhost:5199/spike.html
 ```
 
-截图在 `.playwright-mcp/`（已 gitignore）：`spike-desktop.png`（冲突态）、`spike-no-preflight.png`（修复态）、`spike-kin-theme.png`（Kin 主题）。
+截图在仓库根的 `.playwright-mcp/`（已 gitignore）：`spike-desktop.png`（冲突态）、`spike-no-preflight.png`（修复态）、`spike-kin-theme.png`（Kin 主题）。

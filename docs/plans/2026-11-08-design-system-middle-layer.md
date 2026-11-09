@@ -240,7 +240,7 @@ Kin 已经有 token 层和规则层，缺的是中间层：没有 Button、Input
 - React 19 在 98 个文件里只有 1 个真实类型错误；
 - 自带和我们同源的 IME 守卫（`isComposing || keyCode === 229`）与焦点归还工具；
 - 约 20 行 `defineTheme` 就能接近 Kin 的暗色外观；
-- 120 个组件，含 BottomSheet、SnapPaging、gestures、CommandPalette、Table。
+- 约 110 个组件，含 BottomSheet、SnapPaging、gestures、CommandPalette、Table。
 
 唯一的结构性阻塞是 **Tailwind 3 的 preflight（无层级）压过 Astryx 的 `@layer`**，解法见 spike §3.1。
 
