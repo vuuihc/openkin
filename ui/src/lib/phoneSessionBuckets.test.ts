@@ -82,6 +82,135 @@ describe("phoneProjectBuckets", () => {
     expect(rows[2]!.label).toBe("No project");
   });
 
+  // The task feed and the imported feed describe the same provider sessions
+  // from two sides: a task that ran on a machine and the catalog row that
+  // machine imported for it. Matching them here is what keeps one real
+  // conversation from taking two rows on the phone.
+  describe("one conversation named by both feeds", () => {
+    const phoneTask = task({
+      id: "task-1",
+      cwd: "/work/alpha",
+      created_at: 10,
+      title: "Plan the trip",
+      session_ref: "sess-1",
+      session_ref_device_id: "node-a",
+    });
+
+    it("keeps the task row and drops the imported copy", () => {
+      const rows = buckets(
+        [phoneTask],
+        [
+          session({
+            id: "imported-1",
+            cwd: "/work/alpha",
+            updated_at: 99,
+            // The imported title drifts; identity is the ref, not the title.
+            title: "A different title",
+            external_ref: "sess-1",
+            device_id: "node-a",
+          }),
+        ],
+      );
+      expect(rows.flatMap((bucket) => bucket.rows.map((row) => row.key))).toEqual(["task-1"]);
+    });
+
+    it("keeps the imported row when no task names its conversation", () => {
+      const rows = buckets(
+        [phoneTask],
+        [
+          session({
+            id: "imported-1",
+            cwd: "/work/alpha",
+            updated_at: 20,
+            external_ref: "sess-2",
+            device_id: "node-a",
+          }),
+        ],
+      );
+      expect(rows[0]!.rows.map((row) => row.key)).toEqual(["imported-1", "task-1"]);
+    });
+
+    it("does not merge the same ref from another machine", () => {
+      // ADR 0022 D7: a ref is only meaningful on the machine that made it.
+      const rows = buckets(
+        [phoneTask],
+        [
+          session({
+            id: "imported-1",
+            cwd: "/work/alpha",
+            updated_at: 20,
+            external_ref: "sess-1",
+            device_id: "node-b",
+          }),
+        ],
+      );
+      expect(rows[0]!.rows.map((row) => row.key)).toEqual(["imported-1", "task-1"]);
+    });
+
+    it("does not merge a different ref on the same machine", () => {
+      const rows = buckets(
+        [phoneTask],
+        [
+          session({
+            id: "imported-1",
+            cwd: "/work/alpha",
+            updated_at: 20,
+            external_ref: "sess-2",
+            device_id: "node-a",
+          }),
+        ],
+      );
+      expect(rows[0]!.rows.map((row) => row.key)).toEqual(["imported-1", "task-1"]);
+    });
+
+    it("never merges on a shared title alone", () => {
+      const rows = buckets(
+        [phoneTask],
+        [
+          session({
+            id: "imported-1",
+            cwd: "/work/alpha",
+            updated_at: 20,
+            title: "Plan the trip",
+            external_ref: "sess-2",
+            device_id: "node-a",
+          }),
+        ],
+      );
+      expect(rows[0]!.rows.map((row) => row.key)).toEqual(["imported-1", "task-1"]);
+    });
+
+    it("reads an empty device as this machine on both sides", () => {
+      const legacyTask = task({
+        id: "task-1",
+        cwd: "/work/alpha",
+        created_at: 10,
+        session_ref: " sess-1 ",
+      });
+      const rows = buckets(
+        [legacyTask],
+        [
+          session({
+            id: "imported-1",
+            cwd: "/work/alpha",
+            updated_at: 20,
+            external_ref: "sess-1",
+            device_id: "self",
+          }),
+        ],
+      );
+      expect(rows.flatMap((bucket) => bucket.rows.map((row) => row.key))).toEqual(["task-1"]);
+    });
+
+    it("does not let a blank ref claim every imported row", () => {
+      const rows = buckets(
+        [task({ id: "task-1", cwd: "/work/alpha", created_at: 10, session_ref: "   " })],
+        [session({ id: "imported-1", cwd: "/work/alpha", updated_at: 20, external_ref: "" })],
+      );
+      expect(rows[0]!.rows.map((row) => row.key)).toEqual(["imported-1", "task-1"]);
+    });
+  });
+
   it("drops an archived project's rows, heading and all", () => {
     const rows = buckets(
       [

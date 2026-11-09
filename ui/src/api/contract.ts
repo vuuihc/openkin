@@ -71,6 +71,7 @@ function isTask(value: unknown): value is Task {
     (value.event_epoch as number) >= 0 &&
     optional(value, "model", (v) => typeof v === "string", true) &&
     optional(value, "session_ref", (v) => typeof v === "string", true) &&
+    optional(value, "session_ref_device_id", (v) => typeof v === "string", true) &&
     optional(value, "permission_mode", (v) => typeof v === "string", true) &&
     optional(value, "exit_code", (v) => Number.isInteger(v), true) &&
     optional(value, "cost_usd", (v) => typeof v === "number" && Number.isFinite(v), true) &&
