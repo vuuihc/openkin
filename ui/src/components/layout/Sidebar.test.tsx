@@ -60,6 +60,7 @@ function sidebar(props: SidebarProps) {
         // drawer is what leaves one of it in the document; the markup under
         // test is the same element either way.
         mobileOpen={false}
+        onOpenMobile={() => {}}
         onCloseMobile={() => {}}
         onNewChat={() => {}}
         agentCatalog={props.catalog ?? [provider("codex", "Codex")]}

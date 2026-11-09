@@ -592,6 +592,7 @@ export default function AppShell({
           navigate(`/agent-sessions/${encodeURIComponent(session.id)}`);
         }}
         mobileOpen={mobileOpen}
+        onOpenMobile={() => setMobileOpen(true)}
         onCloseMobile={() => setMobileOpen(false)}
         searchQuery={searchQuery}
         onSearchQueryChange={setSearchQuery}

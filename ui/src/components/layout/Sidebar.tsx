@@ -41,6 +41,7 @@ import {
 import { useMachines } from "../../hooks/useMachines";
 import { useCoarsePointer } from "../../hooks/useMediaQuery";
 import { useMinWidth } from "../../hooks/useMinWidth";
+import { useDrawerSwipe } from "../../hooks/useDrawerSwipe";
 import { placeById, PLACES, type PlaceId } from "../../lib/places";
 import { PLACE_ICONS } from "../placeIcons";
 import {
@@ -93,6 +94,7 @@ type Props = {
   onOpenExternalSession?: (session: AgentSession) => void;
   /** Mobile drawer open. Desktop always visible. */
   mobileOpen: boolean;
+  onOpenMobile: () => void;
   onCloseMobile: () => void;
   /** Controlled session search (server-side fuzzy over all tasks). */
   searchQuery?: string;
@@ -145,6 +147,7 @@ export default function Sidebar({
   onImportExternalSessions,
   onOpenExternalSession,
   mobileOpen,
+  onOpenMobile,
   onCloseMobile,
   searchQuery = "",
   onSearchQueryChange,
@@ -187,6 +190,12 @@ export default function Sidebar({
   // the other's search field in the document, which is how the same list grew
   // two search boxes.
   const wide = useMinWidth(768);
+  // The drawer's gestures live at the shell, not on any page: the same edge
+  // drag opens it from the list, a conversation, or the draft, because there
+  // is only one drawer to open.
+  const drawerSwipe = useDrawerSwipe(mobileOpen, (open) =>
+    open ? onOpenMobile() : onCloseMobile(),
+  );
   // An iPad gets the desktop layout at ≥768px but not a mouse. On a coarse
   // pointer a row that changes on hover spends the first tap on the hover
   // state, and a control only revealed by hover is never reached; the two
@@ -935,12 +944,36 @@ export default function Sidebar({
       {/* Desktop */}
       {wide && <div className="hidden md:flex h-full shrink-0 kin-zen-hide">{desktopPanel}</div>}
 
+      {/*
+        The phone's edge. It is a strip rather than a listener on the shell
+        root because a horizontal drag needs `touch-action: pan-y` from the
+        very first touch: touch-action is decided when the finger lands, so a
+        root-level listener could not stop the browser from interpreting the
+        pull as a pan. `pan-y` leaves vertical scrolling alone; every page's
+        content starts at least a thumb's width inside this 20px band.
+      */}
+      {!wide && !drawerSwipe.mounted && (
+        <div
+          aria-hidden="true"
+          className="fixed inset-y-0 left-0 z-30 w-5 md:hidden"
+          style={{ touchAction: "pan-y" }}
+          {...drawerSwipe.edgeProps}
+        />
+      )}
+
       {/* Mobile drawer */}
-      {!wide && mobileOpen && (
-        <div className="md:hidden fixed inset-0 z-40 flex">
+      {!wide && drawerSwipe.mounted && (
+        <div
+          className="md:hidden fixed inset-0 z-40 flex"
+          style={{ touchAction: "pan-y" }}
+          {...drawerSwipe.drawerProps}
+        >
           <button
             type="button"
-            className="absolute inset-0 bg-black/50"
+            className={`absolute inset-0 bg-black/50 ${
+              drawerSwipe.gestureDriven ? "" : "kin-scrim-enter"
+            }`}
+            style={{ opacity: drawerSwipe.progress }}
             aria-label={tr("app.closeMenu")}
             onClick={onCloseMobile}
           />
@@ -954,8 +987,23 @@ export default function Sidebar({
               the panel's background is what has to stay edge to edge — with the
               padding on the panel, the inset strips showed the scrim instead of
               the sidebar.
+
+              A drag owns the transform: `progress` is 0 off-screen to 1 fully
+              out, and the translation is a percentage of this box's own width
+              so no measurement can drift from the CSS `86vw`. Once the finger
+              lets go, the transition carries the same value to its threshold
+              target; the entry animation is for a tapped-open drawer only and
+              would fight the finger at the first millimetre.
             */
-            className="kin-drawer-enter relative z-10 h-full shadow-e3 bg-kin-sidebar pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
+            className={`relative z-10 h-full shadow-e3 bg-kin-sidebar pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] ${
+              drawerSwipe.gestureDriven ? "" : "kin-drawer-enter"
+            }`}
+            style={{
+              transform: `translateX(${(drawerSwipe.progress - 1) * 100}%)`,
+              transition: drawerSwipe.dragging
+                ? "none"
+                : "transform 180ms cubic-bezier(0.2, 0, 0, 1)",
+            }}
           >
             {drawerPanel}
           </div>

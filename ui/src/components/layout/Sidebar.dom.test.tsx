@@ -74,6 +74,7 @@ function sidebar(
         tasks={tasks}
         pendingCount={pendingCount}
         mobileOpen={false}
+        onOpenMobile={() => {}}
         onCloseMobile={() => {}}
         onNewChat={() => {}}
         onImportExternalSessions={onImportExternalSessions}

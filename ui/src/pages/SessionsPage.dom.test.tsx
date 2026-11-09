@@ -109,6 +109,7 @@ describe("the phone's K panel", () => {
           tasks={[task]}
           pendingCount={0}
           mobileOpen
+          onOpenMobile={() => {}}
           onCloseMobile={() => {}}
           onNewChat={() => {}}
         />

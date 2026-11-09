@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import Sheet from "./Sheet";
 
 /**
@@ -68,6 +68,129 @@ describe("Sheet breakpoint close", () => {
       </Sheet>,
     );
     media.set(false);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Pull-down dismissal.
+ *
+ * The grabber and title are the handle; the body joins only at the top of its
+ * scroll. The threshold is the same shape as the drawer's, so a short pull
+ * springs back and a committed one leaves. jsdom has no PointerEvent, so the
+ * helpers dispatch MouseEvents with an explicit `pointerType`; the hook's
+ * mouse guard must see a finger, not a cursor.
+ */
+describe("Sheet pull-down", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function pull(node: Element, from: number, to: number) {
+    const event = (type: string, y: number) => {
+      const next = new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX: 120,
+        clientY: y,
+        button: 0,
+      });
+      Object.defineProperty(next, "pointerType", { value: "touch" });
+      return next;
+    };
+    fireEvent(node, event("pointerdown", from));
+    fireEvent(node, event("pointermove", to));
+    fireEvent(node, event("pointerup", to));
+  }
+
+  it("closes when the title is pulled past the threshold", () => {
+    vi.useFakeTimers();
+    const onClose = vi.fn();
+    render(
+      <Sheet open onClose={onClose} title="Model">
+        body
+      </Sheet>,
+    );
+
+    pull(screen.getByRole("heading", { name: "Model" }), 40, 300);
+    act(() => {
+      vi.advanceTimersByTime(220);
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("springs back after a short pull", () => {
+    vi.useFakeTimers();
+    const onClose = vi.fn();
+    render(
+      <Sheet open onClose={onClose} title="Model">
+        body
+      </Sheet>,
+    );
+
+    pull(screen.getByRole("heading", { name: "Model" }), 40, 90);
+    act(() => {
+      vi.advanceTimersByTime(220);
+    });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("does not pull a body that is scrolled away from its top", () => {
+    vi.useFakeTimers();
+    const onClose = vi.fn();
+    render(
+      <Sheet open onClose={onClose} title="Model">
+        body
+      </Sheet>,
+    );
+    const body = document.querySelector<HTMLElement>("[data-sheet-body]")!;
+    body.scrollTop = 40;
+
+    pull(screen.getByText("body"), 40, 300);
+    act(() => {
+      vi.advanceTimersByTime(220);
+    });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("pulls from the body when it is already at the top", () => {
+    vi.useFakeTimers();
+    const onClose = vi.fn();
+    render(
+      <Sheet open onClose={onClose} title="Model">
+        body
+      </Sheet>,
+    );
+    const body = document.querySelector<HTMLElement>("[data-sheet-body]")!;
+    body.scrollTop = 0;
+
+    pull(screen.getByText("body"), 40, 300);
+    act(() => {
+      vi.advanceTimersByTime(220);
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a horizontal drag inside the body", () => {
+    const onClose = vi.fn();
+    render(
+      <Sheet open onClose={onClose} title="Model">
+        body
+      </Sheet>,
+    );
+    const event = (type: string, x: number) =>
+      new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX: x,
+        clientY: 60,
+        button: 0,
+      });
+    const body = screen.getByText("body");
+    fireEvent(body, event("pointerdown", 250));
+    fireEvent(body, event("pointermove", 100));
+    fireEvent(body, event("pointerup", 100));
+
     expect(onClose).not.toHaveBeenCalled();
   });
 });
