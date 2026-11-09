@@ -396,3 +396,29 @@ func TestAPublishsWordsFitInOneFrame(t *testing.T) {
 			len(frame.Data), worker.MaxFrameBytes)
 	}
 }
+
+// A session question outlives the listing budget.
+//
+// The measurement behind the shared 15s budget read a real machine's whole
+// catalogs in 1.8s. That machine's history has since grown past what the budget
+// holds: on 2026-11-09 a dogfood Mac walked 800 provider files (2.4 GB) in
+// ~8s, and the answer frame — up to 768 KiB — spent the rest of the budget
+// getting back over a slow link, so the Hub gave up at 15.00s and the phone
+// read a synced-session list as a machine that did not answer. A listing is a
+// retry, so the budget follows the round trip it actually takes.
+func TestASessionQuestionWaitsLongerThanTheListingBudget(t *testing.T) {
+	listing := queryTimeout(worker.QueryListDirs)
+	for _, method := range []string{worker.QueryAgentSessions, worker.QueryAgentHistory} {
+		budget := queryTimeout(method)
+		if budget <= listing {
+			t.Fatalf("%s waits %s, which is not longer than the listing budget (%s); a real catalog walk plus the answer frame does not fit inside it", method, budget, listing)
+		}
+		// The session answer is bounded work — the catalog's own file caps
+		// bound the walk, the frame budget bounds the answer — so the wait is
+		// not a clone's five minutes, and the test pins that: a budget that
+		// grew to the clone's scale would mean the walk stopped being bounded.
+		if budget >= queryTimeout(worker.QueryRepoPrepare) {
+			t.Fatalf("%s waits %s, which is not shorter than a clone (%s); a session answer is bounded work, not a transfer this Hub waits out", method, budget, queryTimeout(worker.QueryRepoPrepare))
+		}
+	}
+}

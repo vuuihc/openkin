@@ -223,17 +223,16 @@ func questionKey(deviceID, id string) string {
 // one of them: too short and a slow clone is reported as a missing machine, too
 // long and a machine that is not answering holds a phone's screen.
 //
-// The session questions (QueryAgentSessions, QueryAgentHistory) were considered
-// for a budget of their own and deliberately keep this one, on a measurement
-// rather than an estimate: listing all three of a real machine's catalogs —
-// claude-code, codex and droid, 1,975 files and 1.7 GB of transcripts between
-// them, at the widest page the wire allows — takes 1.8s, and one history page
-// 0.9s, repeatably. That is eight times the headroom this budget leaves, and the
-// work is bounded by the catalog's own file and line caps rather than by how
-// much history a person has. What would change the answer is a provider whose
-// files are pathological rather than numerous, which the catalog layer would
-// have to bound by the requested limit; that is recorded in the S4 notes rather
-// than paid for here with a minute of a phone's screen.
+// The session questions (QueryAgentSessions, QueryAgentHistory) have a budget
+// of their own, three times the listing's. The first measurement that set this budget
+// read 1.8s for all three of a real machine's catalogs, and that held until the
+// catalogs grew into what a working dogfooder's are: 800 files and 2.4 GB of
+// transcripts, where the walk alone is most of the 15s and the answer frame —
+// up to 768 KiB pushed back over a slow link — spends the rest. A phone syncing
+// its sessions got a 504 instead of a list, on every machine with a real
+// history. The work is still bounded by the catalog's own file and line caps
+// rather than by how much history a person has, so the budget holds a bounded
+// answer; it is the round trip that grew, and the budget follows it.
 func queryTimeout(method string) time.Duration {
 	switch method {
 	case worker.QueryRepoPrepare:
@@ -248,6 +247,17 @@ func queryTimeout(method string) time.Duration {
 		// opening the page should not be told its machine is away because the
 		// machine was busy writing a schedule.
 		return 30 * time.Second
+	case worker.QueryAgentSessions, worker.QueryAgentHistory:
+		// A session listing is a walk over every provider catalog on the
+		// machine — files, not frames — and the answer is up to 768 KiB pushed
+		// back over the same slow link the turn reports on. Both parts fit in
+		// the 15s a directory listing gets on a healthy store measured in 2026;
+		// a dogfood Mac measured on 2026-11-09 does not fit, and the phone read
+		// that as a machine that did not answer. Every history ask gets this
+		// budget too — a single page is not a cheap read: answering it begins
+		// with the same full catalog walk, through Inspect, so its worst case
+		// is the listing's.
+		return 45 * time.Second
 	case worker.QueryPRPublish:
 		// A publish is the one question whose answer arrives after something
 		// irreversible has already happened on the machine. It contains a push — an
