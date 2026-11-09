@@ -432,6 +432,16 @@ Hub 的 `auth_sessions.expires_at` 会在每次使用时滑动（1 小时节流�
 `launchHost` / `startSessionKeeper`，`mobile/ios/App/App/KinBridgeViewController.swift`
 的 `capacitorDidLoad`，`ui/src/lib/hubConfig.ts`、`ui/src/components/ConnectScreen.tsx`。
 
+已修（2026-11-10，issue #27）：控制台在首个渲染前完成这件事，不改原生壳。
+`main.tsx` 启动时读 `kin.hub_url`，与当前地址不同就交给插件已有的 `setHubUrl`
+（它会持久化、切换 cookie keeper、恢复该 Hub 的会话并导航）；页面在答案之前
+不渲染，所以内置控制台不会先闪一下。可达性探测用 `HEAD` + `no-cors`，任何
+响应都算可达，只有网络失败才退回内置控制台。带 query/hash 的访问（登录链接、
+配对 secret、claim code）不跳转，留给当前 origin 处理。取舍：壳的原生启动
+路径没动——本机无法构建 iOS（SPM 二进制依赖下载不下来），而控制台侧的实现
+可测、用户可见行为一致；原生侧若要补，仍可在首次加载时接管
+`shouldOverrideLoad`。
+
 ### 2026-11-07 · 中 · Agent / 模型选择气泡的展开方向不一致
 
 同一个输入框工具栏里的选择器，弹出面板的方向不一致：Agent 选择器和模型
