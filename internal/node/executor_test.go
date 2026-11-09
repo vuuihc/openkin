@@ -104,6 +104,23 @@ func (r *recorder) send(_ context.Context, frame worker.Frame) error {
 	return nil
 }
 
+// hasFinish reports whether the node's ending for this turn has been written,
+// without waiting for it.
+func (r *recorder) hasFinish(turnID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, frame := range r.frames {
+		if frame.Kind != "turn.finish" {
+			continue
+		}
+		finish, err := Decode[worker.TurnFinish](frame)
+		if err == nil && finish.TurnID == turnID {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *recorder) collected(t *testing.T) []worker.Frame {
 	t.Helper()
 	r.mu.Lock()
@@ -1097,5 +1114,299 @@ func TestExecutorForgetsAnAbortedTurnItIsToldToCancel(t *testing.T) {
 	exec.sendMu.Unlock()
 	if still {
 		t.Fatal("the abort marker outlived everything held for the turn")
+	}
+}
+
+// TestExecutorDropsAFinishedTurnFromResumeAfterTheHubCancelsIt reproduces the
+// reconnect ping-pong: a turn the machine finished while its Hub was reachable
+// stays in the replay memory, so every new connection lists it in turn.resume,
+// and a Hub that has closed the turn answers each resume with a turn.cancel.
+// Before the fix the cancel only warned — the turn stayed listed, and a flapping
+// control channel turned into an unbounded cancel/resume echo (6394 lines of
+// "cancel for unknown turn" in one dogfood morning, one line per reconnect).
+func TestExecutorDropsAFinishedTurnFromResumeAfterTheHubCancelsIt(t *testing.T) {
+	agent := &fakeAgent{
+		events: []adapter.Event{
+			{Type: "message", Payload: json.RawMessage(`{"text":"one"}`)},
+		},
+		finished: make(chan struct{}),
+	}
+	work := t.TempDir()
+	exec := &Executor{Runners: runners{agents: map[string]*fakeAgent{"claude-code": agent}}, Roots: []string{work}}
+	rec := &recorder{}
+	exec.SetSender(rec.send)
+
+	if err := exec.Handle(context.Background(), dispatchFrame(t, testDispatch(work))); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-agent.finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the agent never produced its events")
+	}
+	if finish := rec.awaitFinish(t, "turn-1"); finish.Status != worker.TurnOK {
+		t.Fatalf("finish = %+v", finish)
+	}
+
+	// The turn is over on both sides, yet a first reconnect still lists it:
+	// its tail may have died with the old socket, and the Hub is the one that
+	// knows whether it needs the replay. This is the frame that carries the
+	// ping-pong into a fresh connection.
+	rec1 := &recorder{}
+	exec.SetSender(rec1.send) // a new connection: the machine announces what it still holds
+	resume1 := firstResume(t, rec1.collected(t))
+	if !containsTurn(resume1.TurnIDs, "turn-1") {
+		t.Fatalf("resume = %+v, want the finished turn still listed for the Hub to judge", resume1.TurnIDs)
+	}
+
+	// The Hub answers: it is not running this turn any more. That answer is the
+	// end of the conversation, not one round of it.
+	cancel, err := worker.NewFrame("turn.cancel", worker.TurnCancel{TurnID: "turn-1", Reason: "the hub is no longer running this turn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Handle(context.Background(), cancel); err != nil {
+		t.Fatal(err)
+	}
+
+	// A second connection must not list the turn again. Before the fix this
+	// failed: the replay memory kept the turn, the next resume listed it, and
+	// the Hub sent the same cancel once more.
+	rec2 := &recorder{}
+	exec.SetSender(rec2.send)
+	resume2 := firstResume(t, rec2.collected(t))
+	if containsTurn(resume2.TurnIDs, "turn-1") {
+		t.Fatalf("a canceled turn stayed in the resume list (%+v): every reconnect would repeat the cancel", resume2.TurnIDs)
+	}
+}
+
+func firstResume(t *testing.T, frames []worker.Frame) worker.TurnResume {
+	t.Helper()
+	for _, frame := range frames {
+		if frame.Kind != "turn.resume" {
+			continue
+		}
+		resume, err := Decode[worker.TurnResume](frame)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resume
+	}
+	t.Fatalf("no turn.resume in %+v", frames)
+	return worker.TurnResume{}
+}
+
+func containsTurn(ids []string, want string) bool {
+	for _, id := range ids {
+		if id == want {
+			return true
+		}
+	}
+	return false
+}
+
+// TestExecutorDropsARunningTurnFromResumeWhenTheHubCancelsIt is the running
+// half of the same ping-pong: a cancel that reaches a turn whose agent is still
+// working stops it, and the run's late finish — delivered honestly to the Hub
+// or held in the outbox — must not walk back into the replay memory. Before the
+// fix it did exactly that, so a turn the Hub had already refused reappeared in
+// every turn.resume, and each new connection started the echo over again.
+func TestExecutorDropsARunningTurnFromResumeWhenTheHubCancelsIt(t *testing.T) {
+	agent := &fakeAgent{block: true}
+	work := t.TempDir()
+	exec := &Executor{Runners: runners{agents: map[string]*fakeAgent{"claude-code": agent}}, Roots: []string{work}}
+	rec := &recorder{}
+	exec.SetSender(rec.send)
+
+	if err := exec.Handle(context.Background(), dispatchFrame(t, testDispatch(work))); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		agent.mu.Lock()
+		starts := agent.starts
+		agent.mu.Unlock()
+		if starts == 1 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(exec.Running()) != 1 {
+		t.Fatal("the turn never started")
+	}
+	// The start ack was written on the live connection, so the turn is in the
+	// replay memory and a reconnect would list it.
+	probe := &recorder{}
+	exec.SetSender(probe.send)
+	resume := firstResume(t, probe.collected(t))
+	if !containsTurn(resume.TurnIDs, "turn-1") {
+		t.Fatalf("resume = %+v, want the running turn listed before any cancel", resume.TurnIDs)
+	}
+
+	// The Hub cancels it: this turn is over as far as either side is concerned,
+	// and the run's late frames are for a reader that has already closed.
+	cancel, err := worker.NewFrame("turn.cancel", worker.TurnCancel{TurnID: "turn-1", Reason: "the hub is no longer running this turn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Handle(context.Background(), cancel); err != nil {
+		t.Fatal(err)
+	}
+
+	// Immediately — while the agent is still winding down and the turn is
+	// still in the running table — a reconnect must not list it. Waiting for
+	// the run to drain first would test a different, easier moment: the window
+	// where a flapping link reconnects while the canceled turn is still in
+	// e.running is exactly when the echo used to restart.
+	midRun := &recorder{}
+	exec.SetSender(midRun.send)
+	resumeMidRun := firstResume(t, midRun.collected(t))
+	if containsTurn(resumeMidRun.TurnIDs, "turn-1") {
+		t.Fatalf("a canceled turn still in the running table stayed in the resume list (%+v): every reconnect would repeat the cancel", resumeMidRun.TurnIDs)
+	}
+
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && len(exec.Running()) != 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(exec.Running()) != 0 {
+		t.Fatal("the canceled turn never left the running table")
+	}
+
+	// Its late frames must not resurrect it in the resume list either.
+	after := &recorder{}
+	exec.SetSender(after.send)
+	resumeAfter := firstResume(t, after.collected(t))
+	if containsTurn(resumeAfter.TurnIDs, "turn-1") {
+		t.Fatalf("a canceled running turn stayed in the resume list (%+v): every reconnect would repeat the cancel", resumeAfter.TurnIDs)
+	}
+}
+
+// TestExecutorRefusesDeadMailAfterAHubCancel pins the stricter half of the
+// refused contract: once the Hub has cancelled a running turn, nothing the
+// run still emits waits for a future connection — not in the replay memory
+// and not in the outbox. A queued finish for a turn the Hub has closed would
+// replay to an unknown-turn cancel on every reconnect, which is the echo this
+// marker exists to end; the Hub's own cancel is the terminal state both sides
+// already agreed on, so dropping the dead mail loses nothing.
+func TestExecutorRefusesDeadMailAfterAHubCancel(t *testing.T) {
+	agent := &fakeAgent{block: true}
+	work := t.TempDir()
+	exec := &Executor{Runners: runners{agents: map[string]*fakeAgent{"claude-code": agent}}, Roots: []string{work}}
+	rec := &recorder{}
+	exec.SetSender(rec.send)
+
+	if err := exec.Handle(context.Background(), dispatchFrame(t, testDispatch(work))); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && len(exec.Running()) != 1 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(exec.Running()) != 1 {
+		t.Fatal("the turn never started")
+	}
+
+	// The connection is gone when the Hub's cancel arrives; the run's finish
+	// would have nowhere to go but the outbox.
+	exec.SetSender(nil)
+	cancel, err := worker.NewFrame("turn.cancel", worker.TurnCancel{TurnID: "turn-1", Reason: "the hub is no longer running this turn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Handle(context.Background(), cancel); err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for the run to wind down, then nothing of the turn may remain:
+	// no outbox frame, no replay memory, no running entry, no marker. All
+	// four are settled in one place — untrack's second critical section and
+	// the sends that precede it — so poll them together under the same lock
+	// rather than snapshotting a single instant between two events.
+	deadline = time.Now().Add(5 * time.Second)
+	runningCount, outbox, refused, recent := -1, -1, -1, -1
+	for time.Now().Before(deadline) {
+		exec.mu.Lock()
+		runningCount = len(exec.running)
+		exec.mu.Unlock()
+		exec.sendMu.Lock()
+		outbox = len(exec.outbox)
+		refused = len(exec.refused)
+		recent = len(exec.recent)
+		exec.sendMu.Unlock()
+		if runningCount == 0 && outbox == 0 && refused == 0 && recent == 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if runningCount != 0 || outbox != 0 || refused != 0 || recent != 0 {
+		t.Fatalf("after the run wound down: running=%d outbox=%d refused=%d recent=%d — want the canceled turn gone from every table", runningCount, outbox, refused, recent)
+	}
+
+	// And a new connection must list nothing for this turn.
+	fresh := &recorder{}
+	exec.SetSender(fresh.send)
+	resume := firstResume(t, fresh.collected(t))
+	if containsTurn(resume.TurnIDs, "turn-1") {
+		t.Fatalf("resume = %+v, want the canceled turn gone from every list", resume.TurnIDs)
+	}
+}
+
+// TestExecutorRetiresTheRefusedMarkerWhenTheRunEndsOnALiveConnection pins the
+// marker's lifetime from the live-delivery angle: a canceled run whose
+// connection stays up sends its finish straight through (the Hub drops an
+// ending for a turn it closed), and the marker retires when the run leaves the
+// running table — the same untrack that retires it on the disconnected path.
+// No cleanup anywhere may depend on the finish being delivered: live, held,
+// or dropped, the marker's exit is the run's exit.
+func TestExecutorRetiresTheRefusedMarkerWhenTheRunEndsOnALiveConnection(t *testing.T) {
+	agent := &fakeAgent{block: true}
+	work := t.TempDir()
+	exec := &Executor{Runners: runners{agents: map[string]*fakeAgent{"claude-code": agent}}, Roots: []string{work}}
+	rec := &recorder{}
+	exec.SetSender(rec.send)
+
+	if err := exec.Handle(context.Background(), dispatchFrame(t, testDispatch(work))); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && len(exec.Running()) != 1 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(exec.Running()) != 1 {
+		t.Fatal("the turn never started")
+	}
+
+	cancel, err := worker.NewFrame("turn.cancel", worker.TurnCancel{TurnID: "turn-1", Reason: "the hub is no longer running this turn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Handle(context.Background(), cancel); err != nil {
+		t.Fatal(err)
+	}
+
+	// The connection stays up, so the run's finish is written straight through
+	// on the same sender, and the run then leaves the running table. Poll under
+	// the marker's own lock until both have happened: the finish and the
+	// untrack are two events on the run goroutine, and a single instant's
+	// snapshot can sit between them.
+	deadline = time.Now().Add(5 * time.Second)
+	finished := false
+	retired := false
+	for time.Now().Before(deadline) {
+		exec.sendMu.Lock()
+		finished = rec.hasFinish("turn-1")
+		retired = len(exec.refused) == 0
+		exec.sendMu.Unlock()
+		if finished && retired {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !finished || !retired {
+		exec.sendMu.Lock()
+		remaining := len(exec.refused)
+		exec.sendMu.Unlock()
+		t.Fatalf("finished=%v retired=%v (refused=%d): the live-delivered finish did not retire with the run", finished, retired, remaining)
 	}
 }

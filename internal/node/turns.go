@@ -26,7 +26,12 @@ const (
 	// dispatched on while its device reconnects. A dropped control channel is a
 	// network event, not an answer, and a machine that comes back within this
 	// window gets to keep running the work it never stopped.
-	DefaultReconnectGrace = 60 * time.Second
+	//
+	// Five minutes because recovery on the paths this system actually runs on
+	// (phone → tunnel → Hub) was observed taking minutes, not seconds: a 60s
+	// window failed healthy runs whose machines came back late. The Hub can
+	// override this with KIN_NODE_RECONNECT_GRACE (see nodeReconnectGrace).
+	DefaultReconnectGrace = 5 * time.Minute
 	// cancelTimeout bounds one "stop that turn" write. It is short because the
 	// answer to a cancel that cannot be delivered is the connection ending, not
 	// a longer wait.

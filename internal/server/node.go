@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/agent"
@@ -424,6 +425,29 @@ func (a agentRunners) Runnable(ctx context.Context, agentID string) (adapter.Ada
 // elsewhere must not crowd out what this machine is doing for itself.
 func nodeMaxConcurrent() int {
 	return 4
+}
+
+// nodeReconnectGrace is how long the Hub holds a turn whose machine dropped,
+// before the default applies. KIN_NODE_RECONNECT_GRACE takes a duration ("90s",
+// "5m"); values outside [1s, 1h] fall back to the default rather than silently
+// meaning something else.
+//
+// The default was 60s, and one dogfood morning of phone → Hub → Mac work died
+// twice to it: a flapping link through a tunnel and a proxy can take minutes
+// to recover, and a machine that comes back late finds its run already failed.
+// Five minutes covers the recoveries that were observed while keeping the
+// cost of a machine that never comes back bounded.
+func nodeReconnectGrace() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("KIN_NODE_RECONNECT_GRACE"))
+	if raw == "" {
+		return node.DefaultReconnectGrace
+	}
+	parsed, err := time.ParseDuration(raw)
+	if err != nil || parsed < time.Second || parsed > time.Hour {
+		warnToStderr("ignoring KIN_NODE_RECONNECT_GRACE=%q: need a duration between 1s and 1h", raw)
+		return node.DefaultReconnectGrace
+	}
+	return parsed
 }
 
 // runNode keeps this daemon connected to its Hub as a Node.

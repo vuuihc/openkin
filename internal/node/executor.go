@@ -101,6 +101,14 @@ type Executor struct {
 	// turn, and an event after it would be a frame for a run that no longer has
 	// a coherent sequence.
 	aborted map[string]bool
+	// refused marks turns the Hub has cancelled while they were still running.
+	// Frames already on the live socket are out; everything the run still emits
+	// is dead mail — not held in the outbox, not remembered for replay, not
+	// listed on any resume — because a Hub that closed the turn answers all of
+	// it with the same cancel. That listing is what restarted the cancel echo
+	// on every connection; the marker goes when the run leaves the running
+	// table, where it has nothing left to guard.
+	refused map[string]bool
 }
 
 // queuedFrame is one frame waiting for a connection.
@@ -310,9 +318,34 @@ func (e *Executor) cancel(turnID, reason string) error {
 		return nil
 	}
 	// A turn that is still running is stopped, and its goroutine reports the
-	// cancellation the usual way: the Hub may have closed its side already, but
-	// a finish is what the run's reader is waiting for.
+	// cancellation the usual way: a finish still on the live socket reaches
+	// the Hub, which reads an ending for a turn it closed and drops it — the
+	// terminal state both sides already agreed on is the cancel itself.
+	//
+	// The replay memory and the outbox go now, and the marker makes everything
+	// the run still emits dead mail: the Hub just said it is not running this
+	// turn, so holding or replaying any of it would only earn the same cancel
+	// back on every reconnect.
 	entry.cancel()
+	e.sendMu.Lock()
+	// Re-check the running table under the marker's own lock order
+	// (sendMu→mu, the direction every nested path already uses): the run
+	// may have finished between the first lookup and here, and its untrack
+	// already retired any marker — setting one now would leave an entry
+	// nothing will ever clean.
+	e.mu.Lock()
+	_, still := e.running[turnID]
+	e.mu.Unlock()
+	if still {
+		e.forgetLocked(turnID)
+		e.refuseLocked(turnID)
+	} else {
+		// The run left while the cancel was in flight. Its last frames are
+		// already gone from every table untrack cleans; a marker would just
+		// be a leak. Forget covers anything the drain could not.
+		e.forgetLocked(turnID)
+	}
+	e.sendMu.Unlock()
 	return nil
 }
 
@@ -453,9 +486,11 @@ func (e *Executor) flushLocked() {
 		e.outbox = e.outbox[1:]
 		e.outboxLen -= len(queued.frame.Data)
 		if queued.frame.Kind == "turn.finish" {
-			// The ending is delivered, so the marker has done its job. Anything
-			// the stopped run still emits is for a turn the Hub has closed and
-			// is answered as such.
+			// The ending is delivered, so the aborted marker's job is done for
+			// frames: anything more this run emits is for a turn the Hub has
+			// closed and is answered as such. Refused turns never reach this
+			// queue (their frames are dead mail), so only the aborted marker
+			// retires here.
 			delete(e.aborted, queued.turnID)
 		}
 	}
@@ -476,7 +511,9 @@ func (e *Executor) writeLocked(frame worker.Frame) bool {
 
 // resumableLocked is what this machine tells a new connection it still holds:
 // the turns it is running, the turns with frames waiting to go out, and the
-// turns whose last frames may have died with the old socket.
+// turns whose last frames may have died with the old socket. A turn the Hub
+// has cancelled is held by none of those clauses: it still runs until its
+// agent exits, but a resume that listed it would only draw the same cancel.
 //
 // The list is capped at the protocol's bound, running turns first: a resume the
 // Hub refuses for being too long adopts nothing, so the turns that are still
@@ -501,10 +538,21 @@ func (e *Executor) resumableLocked() []string {
 	}
 	e.mu.Unlock()
 	sort.Strings(running)
+	// A turn the Hub has refused belongs in none of these lists: it is still
+	// running until its agent exits and its ending may still be waiting in the
+	// outbox, but every resume that lists it earns the same cancel back. The
+	// running and outbox passes check the marker here; the recent-frames pass
+	// needs no check because rememberLocked already refuses refused turns.
 	for _, id := range running {
+		if e.refused[id] {
+			continue
+		}
 		add(id)
 	}
 	for _, queued := range e.outbox {
+		if e.refused[queued.turnID] {
+			continue
+		}
 		add(queued.turnID)
 	}
 	recent := make([]string, 0, len(e.recent))
@@ -524,10 +572,19 @@ func (e *Executor) resumableLocked() []string {
 // A start ack is kept too: it is written before the first event, and a write
 // that returns successfully may still die with the socket. The Hub treats a
 // duplicate ack for a live turn as the no-op it is.
+//
+// A turn the Hub has already given up on — aborted, or cancelled while it was
+// still running — is not remembered: a late finish re-entering here would put
+// the turn back in every future resume list, each reconnect would replay it,
+// and a Hub that no longer runs it would answer every replayed frame with
+// another cancel.
 func (e *Executor) rememberLocked(turnID string, frame worker.Frame) {
 	switch frame.Kind {
 	case "turn.started", "turn.event", "turn.finish":
 	default:
+		return
+	}
+	if e.aborted[turnID] || e.refused[turnID] {
 		return
 	}
 	if e.recent == nil {
@@ -559,6 +616,13 @@ func (e *Executor) rememberLocked(turnID string, frame worker.Frame) {
 
 // enqueueLocked holds one frame until a connection can take it.
 func (e *Executor) enqueueLocked(turnID string, frame worker.Frame) {
+	// A turn the Hub has refused is dead mail from here on: holding its frames
+	// for a future connection would only replay a turn the Hub has closed, and
+	// a resume that listed them would draw the same cancel again. What already
+	// went out on the live socket is out; nothing new waits for a reconnect.
+	if e.refused[turnID] {
+		return
+	}
 	limit := e.OutboxLimit
 	if limit <= 0 {
 		limit = DefaultOutboxLimit
@@ -627,11 +691,26 @@ func (e *Executor) abortLocked(turnID string) {
 	e.aborted[turnID] = true
 }
 
-// forgetLocked drops everything held for one turn, including the marker that
-// keeps its late frames out: with nothing left to deliver there is no reason to
-// remember that the turn was given up on.
+// refuseLocked marks a turn the Hub has cancelled while it was still running.
+// What is already on the live socket is out; from here the run's frames are
+// dead mail — dropped rather than queued, kept out of the replay memory, and
+// never listed on a resume — because the Hub would answer every one of them
+// with the same cancel.
+func (e *Executor) refuseLocked(turnID string) {
+	if e.refused == nil {
+		e.refused = make(map[string]bool)
+	}
+	e.refused[turnID] = true
+}
+
+// forgetLocked drops everything held for one turn, including the markers that
+// keep its late frames out of the replay memory: with nothing left to deliver
+// there is no reason to remember that the turn was given up on. The cancel
+// path for a running turn calls this first and then re-marks it as refused,
+// so a late finish cannot resurrect what the cancel just cleared.
 func (e *Executor) forgetLocked(turnID string) {
 	delete(e.aborted, turnID)
+	delete(e.refused, turnID)
 	if _, ok := e.recent[turnID]; ok {
 		delete(e.recent, turnID)
 		for i, id := range e.recentSeq {
@@ -668,10 +747,20 @@ func (e *Executor) track(entry *execution) error {
 	return nil
 }
 
+// untrack retires a turn from the running table, and with it the refused
+// marker. This is the turn's true end from this machine's side — it runs as the
+// run's last defer, after the final frame was sent or held — and a refused turn
+// holds nothing by then (its frames are dead mail, never queued), so the marker
+// has nothing left to guard and can go. The aborted marker is different: an
+// overflowed turn keeps a synthetic finish in the outbox, and the marker must
+// stay until that finish is delivered, where flushLocked retires it.
 func (e *Executor) untrack(turnID string) {
 	e.mu.Lock()
 	delete(e.running, turnID)
 	e.mu.Unlock()
+	e.sendMu.Lock()
+	delete(e.refused, turnID)
+	e.sendMu.Unlock()
 }
 
 // Running lists the turns this machine is executing.

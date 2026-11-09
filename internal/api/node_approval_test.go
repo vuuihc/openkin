@@ -251,7 +251,7 @@ func TestAQuestionAboutATurnTheHubIsNotRunningIsAnswered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.routeNodeFrame(context.Background(), sender, frame); !errors.Is(err, node.ErrTurnUnknown) {
+	if err := s.routeNodeFrame(context.Background(), sender, frame, newUnknownTurnCancels()); !errors.Is(err, node.ErrTurnUnknown) {
 		t.Fatalf("routeNodeFrame err = %v, want the unknown turn", err)
 	}
 

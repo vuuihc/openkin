@@ -1000,3 +1000,104 @@ func writeAndExpectCancel(t *testing.T, ctx context.Context, ws *websocket.Conn,
 	}
 	return cancel
 }
+
+// TestAReplayedUnknownTurnIsCancelledOnce pins the flood half of the reconnect
+// echo: a machine that replays a dead turn sends the whole burst — start ack,
+// every event, the finish — in one connection, and before the fix the Hub
+// answered every frame with its own turn.cancel. On a flapping link one dead
+// turn with 583 events produced 583 cancels and 583 warning lines per
+// reconnect; 21 dead turns over one dogfood morning logged 6394 of them and
+// buried the real signal in the node's log. One cancel ends the same run, and
+// a fresh connection still gets its own answer (it may have missed the first).
+func TestAReplayedUnknownTurnIsCancelledOnce(t *testing.T) {
+	s, master, _, _ := remoteHub(t)
+	hub := httptest.NewServer(s.Handler())
+	defer hub.Close()
+
+	deviceToken, _ := pairDevice(t, s.Handler(), master)
+	wsURL := "ws" + hub.URL[len("http"):] + node.Path
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	ws, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		HTTPHeader: http.Header{"Authorization": []string{"Bearer " + deviceToken}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close(websocket.StatusNormalClosure, "")
+	hello, err := worker.NewFrame("hello", nodeHello("/code/kin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := node.WriteFrame(ctx, ws, hello); err != nil {
+		t.Fatal(err)
+	}
+	if ack, err := node.ReadFrame(ctx, ws); err != nil || ack.Kind != "hello_ack" {
+		t.Fatalf("handshake: %q %v", ack.Kind, err)
+	}
+
+	// The replay of a turn this Hub never heard of: an ack, a burst of events,
+	// and a finish, all naming the same id.
+	started, err := worker.NewFrame("turn.started", worker.TurnStarted{TurnID: "turn-replayed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := writeAndExpectCancel(t, ctx, ws, started); got.TurnID != "turn-replayed" {
+		t.Fatalf("start ack cancel = %+v", got)
+	}
+	for seq := 1; seq <= 5; seq++ {
+		event, err := worker.NewFrame("turn.event", worker.TurnEvent{
+			TurnID: "turn-replayed", Seq: seq,
+			Event: json.RawMessage(`{"type":"message"}`),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := node.WriteFrame(ctx, ws, event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	finish, err := worker.NewFrame("turn.finish", worker.TurnFinish{
+		TurnID: "turn-replayed", Status: worker.TurnOK,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := node.WriteFrame(ctx, ws, finish); err != nil {
+		t.Fatal(err)
+	}
+
+	// The rest of the replay is answered with silence, not with four more
+	// cancels for the run the first one already stopped. The Hub has nothing
+	// left to say to this connection, so the proof of silence is a bounded
+	// wait for a frame that never arrives.
+	heartbeat, err := worker.NewFrame("heartbeat", worker.Heartbeat{WorkerID: "w", At: time.Now().UnixMilli()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := node.WriteFrame(ctx, ws, heartbeat); err != nil {
+		t.Fatal(err)
+	}
+	type received struct {
+		frame worker.Frame
+		err   error
+	}
+	frames := make(chan received, 1)
+	go func() {
+		frame, err := node.ReadFrame(ctx, ws)
+		frames <- received{frame: frame, err: err}
+	}()
+	select {
+	case got := <-frames:
+		if got.err == nil && got.frame.Kind == "turn.cancel" {
+			stop, err := node.Decode[worker.TurnCancel](got.frame)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Fatalf("a replayed turn was cancelled twice on one connection: %+v", stop)
+		}
+		t.Fatalf("the hub said something else after the replay: %+v %v", got.frame, got.err)
+	case <-time.After(500 * time.Millisecond):
+		// Silence: one cancel ended the conversation about this turn.
+	}
+}

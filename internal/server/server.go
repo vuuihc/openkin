@@ -193,6 +193,13 @@ func Serve(version string) error {
 
 // ServeWith starts the daemon with explicit flags (tests / main).
 func ServeWith(version string, flags ServeFlags) error {
+	// The daemon's stderr is launchd's log file (StandardErrorPath in the
+	// node's plist). Timestamping it here, before anything else writes, turns
+	// every diagnostic line the daemon emits into one that can be put on a
+	// timeline — the disconnect post-mortem of 2026-11-09 read a two month
+	// old log as an undated wall of EOF and reconnect lines.
+	timestampStderr()
+
 	stateDir, err := remote.StateDir()
 	if err != nil {
 		return err
@@ -574,6 +581,7 @@ func ServeWith(version string, flags ServeFlags) error {
 	// takes the same path through the engine as one that runs here: same event
 	// storage, same cursor, same console (ADR 0022 D8).
 	nodeTurns = node.NewTurns()
+	nodeTurns.ReconnectGrace = nodeReconnectGrace()
 	nodeTurns.Warn = warnToStderr
 	// A permission question asked on a machine this Hub dispatched to is the
 	// Hub's to put in front of a person: the device is blocked, the console is

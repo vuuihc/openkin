@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"nhooyr.io/websocket"
@@ -105,7 +106,40 @@ func (s *Server) handleNodeConnect(w http.ResponseWriter, r *http.Request) {
 		_ = s.Store.SetDeviceReachability(context.WithoutCancel(ctx), deviceID, store.ReachabilityOffline)
 	}()
 
-	s.serveNode(ctx, sender, conn)
+	// One cancel per unknown turn per connection: a replaying machine sends
+	// hundreds of frames for a turn this Hub no longer runs, and answering
+	// each with its own cancel turned a flapping link into an echo of
+	// thousands (one dogfood morning produced 6394 of them on one node).
+	// A fresh connection starts with an empty set, so a machine that comes
+	// back still hears about turns a Hub restart stranded.
+	cancels := newUnknownTurnCancels()
+	s.serveNode(ctx, sender, conn, cancels)
+}
+
+// unknownTurnCancels remembers which turn ids one connection has already been
+// told this Hub is not running, so a replay burst is answered once per turn
+// rather than once per frame. It belongs to one accepted connection and never
+// outlives it: a reconnect is a new conversation that may need the same
+// refusal again, because the Hub may have restarted in between.
+type unknownTurnCancels struct {
+	mu   sync.Mutex
+	seen map[string]bool
+}
+
+func newUnknownTurnCancels() *unknownTurnCancels {
+	return &unknownTurnCancels{seen: make(map[string]bool)}
+}
+
+// claim reports whether the caller is the first to refuse this turn on this
+// connection, and records the refusal either way.
+func (c *unknownTurnCancels) claim(turnID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.seen[turnID] {
+		return false
+	}
+	c.seen[turnID] = true
+	return true
 }
 
 // watchNodeRevocation closes the control channel once the device's credential is
@@ -215,7 +249,7 @@ func (s *Server) recordNodeHello(ctx context.Context, deviceID string, hello wor
 }
 
 // serveNode routes frames until the connection ends.
-func (s *Server) serveNode(ctx context.Context, sender node.Sender, ws *websocket.Conn) {
+func (s *Server) serveNode(ctx context.Context, sender node.Sender, ws *websocket.Conn, cancels *unknownTurnCancels) {
 	deviceID := sender.DeviceID()
 	for {
 		frame, err := node.ReadFrame(ctx, ws)
@@ -236,13 +270,13 @@ func (s *Server) serveNode(ctx context.Context, sender node.Sender, ws *websocke
 			// a turn. There is no error frame in this protocol: a Node has no
 			// reader for one, so inventing it here would be a message nobody
 			// receives.
-			_ = s.routeNodeFrame(ctx, sender, frame)
+			_ = s.routeNodeFrame(ctx, sender, frame, cancels)
 		}
 	}
 }
 
 // routeNodeFrame hands a frame to whoever asked for it.
-func (s *Server) routeNodeFrame(ctx context.Context, sender node.Sender, frame worker.Frame) error {
+func (s *Server) routeNodeFrame(ctx context.Context, sender node.Sender, frame worker.Frame, cancels *unknownTurnCancels) error {
 	if s.NodeFrames == nil {
 		return fmt.Errorf("unhandled frame kind %q", frame.Kind)
 	}
@@ -252,7 +286,7 @@ func (s *Server) routeNodeFrame(ctx context.Context, sender node.Sender, frame w
 		// dispatched before a restart, or its connection was replaced. Dropping
 		// the frame would leave the agent running on that machine with nobody
 		// collecting the result, so the Hub says the one thing that stops it.
-		s.cancelUnknownTurn(ctx, sender, frame)
+		s.cancelUnknownTurn(ctx, sender, frame, cancels)
 	}
 	return err
 }
@@ -263,7 +297,11 @@ func (s *Server) routeNodeFrame(ctx context.Context, sender node.Sender, frame w
 // side: the whole point is that there is no turn object to look it up in. A
 // frame that is a question rather than a report of the turn gets its own answer
 // first — a cancelled turn does not, on its own, end a permission wait.
-func (s *Server) cancelUnknownTurn(ctx context.Context, sender node.Sender, frame worker.Frame) {
+//
+// It answers once per turn per connection: a machine replaying a dead turn
+// sends many frames for it in one burst, and the first cancel already stopped
+// the agent behind them.
+func (s *Server) cancelUnknownTurn(ctx context.Context, sender node.Sender, frame worker.Frame, cancels *unknownTurnCancels) {
 	turnID := ""
 	switch frame.Kind {
 	case "turn.event":
@@ -314,6 +352,12 @@ func (s *Server) cancelUnknownTurn(ctx context.Context, sender node.Sender, fram
 		return
 	}
 	if strings.TrimSpace(turnID) == "" {
+		return
+	}
+	if !cancels.claim(turnID) {
+		// Already refused on this connection. The frames still arriving are a
+		// replay the machine has not finished sending; a second cancel would
+		// answer the same run twice.
 		return
 	}
 	cancel, err := worker.NewFrame("turn.cancel", worker.TurnCancel{

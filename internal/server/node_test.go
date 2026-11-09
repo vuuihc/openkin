@@ -693,3 +693,36 @@ func TestNodeCeilingSurvivesTheRegistryWrapping(t *testing.T) {
 		t.Fatal("the dispatched turn was neither refused nor run")
 	}
 }
+
+// TestNodeReconnectGraceEnv pins the knob that makes the wait survivable on a
+// link that takes minutes to come back: the default is generous, the
+// environment can lengthen or shorten it, and nonsense falls back rather than
+// becoming zero (which would fail every turn the instant its link blinked).
+func TestNodeReconnectGraceEnv(t *testing.T) {
+	// The default is pinned as a value, not against the constant itself: the
+	// grace is the difference between a two-minute link outage being survived
+	// or failing the turn (both of this morning's failures were 60s expiries),
+	// and a change to it must show up here as a red test, not slip through as
+	// "still equal to whatever the constant says".
+	if node.DefaultReconnectGrace != 5*time.Minute {
+		t.Fatalf("DefaultReconnectGrace = %v, want 5m: a shorter grace fails turns on multi-minute link outages", node.DefaultReconnectGrace)
+	}
+	t.Setenv("KIN_NODE_RECONNECT_GRACE", "")
+	if got := nodeReconnectGrace(); got != node.DefaultReconnectGrace {
+		t.Fatalf("default = %v, want %v", got, node.DefaultReconnectGrace)
+	}
+	t.Setenv("KIN_NODE_RECONNECT_GRACE", "90s")
+	if got := nodeReconnectGrace(); got != 90*time.Second {
+		t.Fatalf("90s = %v", got)
+	}
+	t.Setenv("KIN_NODE_RECONNECT_GRACE", "5m")
+	if got := nodeReconnectGrace(); got != 5*time.Minute {
+		t.Fatalf("5m = %v", got)
+	}
+	for _, bad := range []string{"garbage", "0", "500ms", "2h", "-1s"} {
+		t.Setenv("KIN_NODE_RECONNECT_GRACE", bad)
+		if got := nodeReconnectGrace(); got != node.DefaultReconnectGrace {
+			t.Fatalf("%q = %v, want the default", bad, got)
+		}
+	}
+}
