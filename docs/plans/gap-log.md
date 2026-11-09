@@ -30,6 +30,23 @@ person can see; the fix and its verification belong in the issue or the PR.
 
 ## Open
 
+### 2026-11-09 · 中 · YOLO 会话的 plan worker 仍会弹一张 ExitPlanMode 审批卡
+
+自动路由，或「计划用聪明模型、执行用便宜模型」拆出来的 `phase=plan|review`
+worker 会被 `workerRunMeta` 标成 source_read_only（`internal/task/orchestrate.go:649`）。
+Claude Code 因此走 adapter 的只读分支：`--permission-mode plan` 加
+`--permission-prompt-tool mcp__kin__approve`，plan 收尾的 `ExitPlanMode` 被审批桥
+转成 `tool_use` 卡。这和刚修掉的 YOLO 首轮是同一个症状，只是首轮已经不弹了。
+
+期望行为：YOLO 会话里，只读 worker 的 `ExitPlanMode` 不生成审批卡；只读边界本身
+不变（Bash/Edit/Write 仍然禁用），只把「退出 plan mode」这个没有执行后果的问题
+从审批箱里拿掉。
+
+已定的取舍：不为了消卡把只读 worker 改成可写——`source_read_only` 覆盖 `yolo`
+是 ADR 0014 的边界；要改的是卡的生成方式，不是边界。改法有两种（只读轮在 yolo
+下不挂审批桥，或允许 `ExitPlanMode` 直接通过），选哪种要先确认真实 Claude CLI
+在 `-p` 下被拒后的行为，别凭猜。
+
 ### 2026-11-09 · 中 · iOS 端没有边缘侧滑导航，对话列表只能点按钮
 
 手机（尤其 iOS 壳）里没有任何跟手的边缘手势：对话列表只能点 header 的圆形

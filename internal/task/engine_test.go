@@ -1362,6 +1362,69 @@ func TestStartOnePreservesInitialLazyWorkspace(t *testing.T) {
 	}
 }
 
+// A yolo task is an execution session. Its first turn must not run the
+// read-only probe: for Claude Code that probe is plan mode, and plan mode ends
+// with an ExitPlanMode approval card in a session whose mode promises none.
+// The workspace the probe would have promoted to is prepared before the turn
+// instead, which is also what every later turn does.
+// yoloLazyTask is the row Create leaves behind for a yolo task under auto: a
+// resolved worktree that has not been prepared yet.
+func yoloLazyTask(id, cwd string) store.Task {
+	return store.Task{
+		ID:                  id,
+		Title:               "yolo",
+		Agent:               "claude-code",
+		Cwd:                 cwd,
+		Prompt:              "fix it",
+		Status:              StatusQueued,
+		CreatedAt:           store.NowMilli(),
+		PermissionMode:      adapter.PermissionYOLO,
+		WorkspaceMode:       string(workspace.ResolvedWorktree),
+		WorkspacePolicy:     string(store.WorkspacePolicyAuto),
+		WorkspaceSourceRoot: cwd,
+		WorkspaceRoot:       cwd,
+		ExecutionCwd:        cwd,
+		WorkspaceScope:      ".",
+	}
+}
+
+func TestStartOnePreparesWorkspaceForYoloFirstTurn(t *testing.T) {
+	ad := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 1, ad)
+	e.SetWorkspaceRuntime(&fakeWorkspaceRuntime{})
+	cwd := t.TempDir()
+	task := yoloLazyTask("01YOLOFIRSTTURN00000000001", cwd)
+	if err := st.InsertTask(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+
+	e.mu.Lock()
+	e.active = 1
+	e.mu.Unlock()
+	e.setActiveRun(task.ID, "yolo-run")
+	e.startOne(task.ID, "yolo-run")
+
+	ws, err := st.GetCurrentWorkspace(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("yolo first turn allocated no workspace: %v", err)
+	}
+	if ws.State != store.WorkspaceActive {
+		t.Fatalf("workspace state=%q want active", ws.State)
+	}
+	ad.mu.Lock()
+	spec := ad.lastSpec
+	ad.mu.Unlock()
+	if spec.RunMeta.WorkspaceAccess != adapter.AccessWritable {
+		t.Fatalf("workspace access=%q want writable", spec.RunMeta.WorkspaceAccess)
+	}
+	if spec.RunMeta.WorkspaceID != ws.ID {
+		t.Fatalf("run workspace=%q want %q", spec.RunMeta.WorkspaceID, ws.ID)
+	}
+	if spec.Cwd == cwd || spec.Cwd != ws.ExecutionCwd {
+		t.Fatalf("adapter cwd=%q want workspace %q, not source %q", spec.Cwd, ws.ExecutionCwd, cwd)
+	}
+}
+
 func TestCreateEagerWorkspaceRejectsDetachedSource(t *testing.T) {
 	ad := &fakeAdapter{events: successEvents()}
 	e, _ := testEngine(t, 1, ad)
@@ -1460,8 +1523,9 @@ func TestCreateInsertFailureCleansWorktree(t *testing.T) {
 // which is the path a task takes when it is created in a directory without an
 // explicit workspace_mode. The stock harness registers agents without that
 // capability, so the path has to be built here to be exercised at all.
-func lazyEngine(t *testing.T, ws WorkspaceRuntime) *Engine {
+func lazyEngine(t *testing.T, ws WorkspaceRuntime) (*Engine, *fakeAdapter) {
 	t.Helper()
+	ad := &fakeAdapter{events: successEvents()}
 	st, err := store.Open(filepath.Join(t.TempDir(), "kin.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -1470,7 +1534,7 @@ func lazyEngine(t *testing.T, ws WorkspaceRuntime) *Engine {
 	reg, err := agent.NewRegistry(agent.Entry{
 		ID: "claude-code", Name: "Claude Code", Kind: agent.KindCLI,
 		Caps:   []agent.Capability{agent.CapabilityRun, agent.CapabilityLazyWorkspace},
-		Runner: &fakeAdapter{events: successEvents()},
+		Runner: ad,
 		LazyWorkspace: func(context.Context) agent.LazyWorkspaceSupport {
 			return agent.LazyWorkspaceSupport{Supported: true}
 		},
@@ -1484,7 +1548,7 @@ func lazyEngine(t *testing.T, ws WorkspaceRuntime) *Engine {
 	if err := e.Recover(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	return e
+	return e, ad
 }
 
 // What a directory does with a task depends on whether there is a commit in it
@@ -1532,7 +1596,7 @@ func TestCreatePicksAWorkspaceFromWhatIsInTheDirectory(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			e := lazyEngine(t, &fakeWorkspaceRuntime{resolveSource: tc.resolve})
+			e, _ := lazyEngine(t, &fakeWorkspaceRuntime{resolveSource: tc.resolve})
 			dir := t.TempDir()
 
 			created, err := e.Create(context.Background(),
@@ -1560,4 +1624,216 @@ func TestCreatePicksAWorkspaceFromWhatIsInTheDirectory(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The lazy row and the first turn together are what a person experiences as
+// "I started a yolo session": Create writes the auto row, and the turn start
+// prepares the workspace before the adapter runs. This is the end-to-end shape
+// the unit test above fabricates.
+func TestCreateYoloTaskStartsInItsWorkspace(t *testing.T) {
+	rt := &fakeWorkspaceRuntime{}
+	e, ad := lazyEngine(t, rt)
+	dir := t.TempDir()
+
+	created, err := e.Create(context.Background(), CreateRequest{
+		Agent: "claude-code", Cwd: dir, Prompt: "fix it",
+		PermissionMode: adapter.PermissionYOLO,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.WorkspacePolicy != string(store.WorkspacePolicyAuto) {
+		t.Fatalf("policy = %q, want the lazy auto row", created.WorkspacePolicy)
+	}
+	final := waitStatus(t, e, created.ID, StatusSucceeded, 2*time.Second)
+	if final.CurrentWorkspaceID == "" {
+		t.Fatal("yolo task finished without a workspace")
+	}
+	ad.mu.Lock()
+	spec := ad.lastSpec
+	ad.mu.Unlock()
+	if spec.RunMeta.WorkspaceAccess != adapter.AccessWritable {
+		t.Fatalf("workspace access = %q, want writable", spec.RunMeta.WorkspaceAccess)
+	}
+	if wantCwd := filepath.Join(dir, final.ID+"-g1"); spec.Cwd != wantCwd {
+		t.Fatalf("adapter cwd = %q, want workspace %q", spec.Cwd, wantCwd)
+	}
+	// The promotion path is PrepareGeneration, not the eager Prepare that
+	// Create uses for explicit worktree: the latter falls back to shared on a
+	// dirty checkout, which is how a yolo turn would end up in the source.
+	if len(rt.prepares) != 0 {
+		t.Fatalf("yolo first turn took the eager Prepare path: %+v", rt.prepares)
+	}
+}
+
+// A plain folder has nothing to isolate from, so a yolo task there runs shared
+// — writable, and therefore still no plan-mode probe — without allocating a
+// worktree that could never be merged back.
+func TestCreateYoloTaskInAPlainFolderStaysShared(t *testing.T) {
+	rt := &fakeWorkspaceRuntime{resolveSource: func(context.Context, string) (workspace.SourceMetadata, error) {
+		return workspace.SourceMetadata{}, workspace.ErrNoHead
+	}}
+	e, ad := lazyEngine(t, rt)
+	dir := t.TempDir()
+
+	created, err := e.Create(context.Background(), CreateRequest{
+		Agent: "claude-code", Cwd: dir, Prompt: "fix it",
+		PermissionMode: adapter.PermissionYOLO,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.WorkspacePolicy != string(store.WorkspacePolicyShared) {
+		t.Fatalf("policy = %q, want shared", created.WorkspacePolicy)
+	}
+	final := waitStatus(t, e, created.ID, StatusSucceeded, 2*time.Second)
+	if final.CurrentWorkspaceID != "" {
+		t.Fatalf("plain folder allocated workspace %q", final.CurrentWorkspaceID)
+	}
+	ad.mu.Lock()
+	spec := ad.lastSpec
+	ad.mu.Unlock()
+	if spec.RunMeta.WorkspaceAccess != adapter.AccessShared {
+		t.Fatalf("workspace access = %q, want shared", spec.RunMeta.WorkspaceAccess)
+	}
+	if spec.Cwd != final.ExecutionCwd {
+		t.Fatalf("adapter cwd = %q, want %q", spec.Cwd, final.ExecutionCwd)
+	}
+	if len(rt.prepares) != 0 {
+		t.Fatalf("plain folder took the Prepare path: %+v", rt.prepares)
+	}
+}
+
+// A promotion that fails must not leave the task pointing at a generation that
+// never became ready: startOne skips promotion while the pointer is set, and
+// the claim below only accepts a ready workspace, so the task would be unable
+// to run again until a restart reconciled it.
+func TestStartOneRetiresFailedWorkspacePromotion(t *testing.T) {
+	ad := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 1, ad)
+	rt := &fakeWorkspaceRuntime{failPrep: errors.New("worktree add failed")}
+	e.SetWorkspaceRuntime(rt)
+	cwd := t.TempDir()
+	task := yoloLazyTask("01YOLOPROMOTIONFAILS0000001", cwd)
+	if err := st.InsertTask(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+
+	e.mu.Lock()
+	e.active = 1
+	e.mu.Unlock()
+	e.setActiveRun(task.ID, "yolo-run")
+	e.startOne(task.ID, "yolo-run")
+
+	final, err := e.Get(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.Status != StatusFailed {
+		t.Fatalf("status = %s, want failed", final.Status)
+	}
+	if _, err := st.GetCurrentWorkspace(context.Background(), task.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("failed promotion left the task pointing at a workspace: %v", err)
+	}
+	gen, err := st.GetWorkspace(context.Background(), task.ID+":g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gen.State != store.WorkspaceOrphaned {
+		t.Fatalf("workspace state = %s, want orphaned", gen.State)
+	}
+	ad.mu.Lock()
+	started := ad.started
+	ad.mu.Unlock()
+	if started != 0 {
+		t.Fatalf("adapter started = %d, want 0", started)
+	}
+
+	// The repair this retirement exists for: once provisioning can succeed, the
+	// next attempt must allocate a fresh generation instead of reusing the
+	// orphaned one.
+	rt.mu.Lock()
+	rt.failPrep = nil
+	rt.mu.Unlock()
+	queued := StatusQueued
+	if err := st.UpdateTask(context.Background(), task.ID, store.TaskPatch{Status: &queued}); err != nil {
+		t.Fatal(err)
+	}
+	e.mu.Lock()
+	e.active = 1
+	e.mu.Unlock()
+	e.setActiveRun(task.ID, "yolo-retry")
+	e.startOne(task.ID, "yolo-retry")
+
+	if _, err := st.GetWorkspace(context.Background(), task.ID+":g2"); err != nil {
+		t.Fatalf("retry did not provision a fresh generation: %v", err)
+	}
+	ad.mu.Lock()
+	spec := ad.lastSpec
+	ad.mu.Unlock()
+	if spec.RunMeta.WorkspaceAccess != adapter.AccessWritable {
+		t.Fatalf("retried turn access = %q, want writable", spec.RunMeta.WorkspaceAccess)
+	}
+}
+
+// A workspace that exists but cannot be activated must fail a yolo turn, not
+// downgrade it to the read-only probe: the probe is exactly the plan-mode card
+// the mode promises to avoid.
+func TestStartOneFailsYoloTurnWhenWorkspaceCannotActivate(t *testing.T) {
+	ad := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 1, ad)
+	e.SetWorkspaceRuntime(&fakeWorkspaceRuntime{})
+	task := yoloLazyTask("01YOLOSTALEWORKSPACE0000001", t.TempDir())
+	task.CurrentWorkspaceID = task.ID + ":g1" // a pointer with no generation behind it
+	if err := st.InsertTask(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+
+	e.mu.Lock()
+	e.active = 1
+	e.mu.Unlock()
+	e.setActiveRun(task.ID, "yolo-run")
+	e.startOne(task.ID, "yolo-run")
+
+	final, err := e.Get(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.Status != StatusFailed {
+		t.Fatalf("status = %s, want failed", final.Status)
+	}
+	ad.mu.Lock()
+	started := ad.started
+	ad.mu.Unlock()
+	if started != 0 {
+		t.Fatalf("adapter started = %d, want 0", started)
+	}
+}
+
+// The fail-don't-probe guard is yolo-only. A default-mode task with the same
+// dangling pointer keeps the read-only probe it has always had.
+func TestStartOneKeepsReadOnlyProbeForNonYoloTask(t *testing.T) {
+	ad := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 1, ad)
+	e.SetWorkspaceRuntime(&fakeWorkspaceRuntime{})
+	task := yoloLazyTask("01DEFAULTSTALEWORKSPACE00001", t.TempDir())
+	task.PermissionMode = adapter.PermissionDefault
+	task.CurrentWorkspaceID = task.ID + ":g1"
+	if err := st.InsertTask(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+
+	e.mu.Lock()
+	e.active = 1
+	e.mu.Unlock()
+	e.setActiveRun(task.ID, "default-run")
+	e.startOne(task.ID, "default-run")
+
+	ad.mu.Lock()
+	spec := ad.lastSpec
+	ad.mu.Unlock()
+	if spec.RunMeta.WorkspaceAccess != adapter.AccessSourceReadOnly {
+		t.Fatalf("workspace access = %q, want source_read_only", spec.RunMeta.WorkspaceAccess)
+	}
+	waitStatus(t, e, task.ID, StatusSucceeded, 2*time.Second)
 }

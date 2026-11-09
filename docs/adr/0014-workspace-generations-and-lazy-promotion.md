@@ -73,6 +73,18 @@ The read-only sandbox is the safety boundary. The MCP call is the transition
 signal, not the sole enforcement mechanism. Kin does not infer mutation from
 natural-language verbs or shell command strings.
 
+`yolo` is the exception to the probe turn. A yolo task under `auto` has already
+answered the question the read-only turn exists to ask — every write is allowed
+— so Kin prepares its workspace generation before the first turn instead of
+running the agent in plan mode, where the plan's `ExitPlanMode` would become an
+approval card in a session whose mode promises no cards. That preparation is
+the same promotion a write request would have produced: it isolates from the
+source's HEAD, so uncommitted source edits stay in the source checkout rather
+than following the task into the worktree. Only the plan-mode probe is
+skipped. The workspace is created when the turn starts rather than at task
+creation, so a plain folder or a repository without a HEAD still resolves to
+shared execution exactly as it did when the probe ran.
+
 Codex non-interactive runs cannot wait for a new interactive approval and
 change cwd in place. Claude and Codex therefore use the same turn-boundary
 transition: request, finish the read-only attempt, then resume in the worktree.
@@ -100,7 +112,10 @@ generation, or fails closed if isolation is unavailable.
 
 Workspace access is separate from user permission mode. `default`,
 `accept_edits`, and `yolo` control approvals inside the selected execution
-root; they may not override a task run marked source-read-only.
+root; they may not override a task run marked source-read-only. (The `auto`
+strategy's first-turn choice is not such a marking: `yolo` skips that probe as
+described above, while a run that an orchestration step marks read-only still
+wins.)
 
 ### Kin owns integration and physical release
 
@@ -259,8 +274,9 @@ leaves the intent reserved for a later recovery attempt.
 - Worktree paths and branches are derived only from validated task IDs and
   generation numbers.
 - All removal paths must remain beneath `~/.kin/worktrees`.
-- Source-read-only access overrides `yolo` and `accept_edits`; ambient provider
-  hooks and MCP servers are disabled for that run.
+- A run marked source-read-only by an orchestration step
+  overrides `yolo` and `accept_edits`; ambient provider hooks and MCP servers
+  are disabled for that run.
 - MCP lifecycle requests use short-lived, HMAC-authenticated execution
   capabilities scoped to one task, one execution, an expiry, and explicit
   lifecycle actions. The global daemon bearer is never exposed to an agent.

@@ -19,10 +19,11 @@ type WorkspaceIntentRequest struct {
 	Reason      string `json:"reason,omitempty"`
 }
 
-// RequestWorkspace creates a new writable workspace generation for a task that
-// is currently running in source-read-only mode. It provisions the Git worktree,
-// captures a checkpoint, and transitions the generation to ready.
-// startOne handles the ready → active promotion before the adapter starts.
+// RequestWorkspace creates a new writable workspace generation for a task: the
+// agent asks while a source-read-only turn is running, and startOne asks before
+// a yolo turn starts. It provisions the Git worktree, captures a checkpoint,
+// and transitions the generation to ready. startOne handles the ready → active
+// promotion before the adapter starts.
 //
 // Returns the created workspace generation on success.
 func (e *Engine) RequestWorkspace(ctx context.Context, req WorkspaceIntentRequest) (store.WorkspaceGeneration, error) {

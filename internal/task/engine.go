@@ -2373,6 +2373,28 @@ func (e *Engine) resolveRunWorkspace(ctx context.Context, t *store.Task) adapter
 	return runMeta
 }
 
+// orphanProvisioningWorkspace retires a current generation that never finished
+// provisioning, so the next attempt can create a fresh one. The transition to
+// orphaned clears the task pointer in the same statement. Best effort: the turn
+// is already failing, and a daemon restart reconciles anything this could not
+// finish.
+func (e *Engine) orphanProvisioningWorkspace(ctx context.Context, taskID, reason string) {
+	ws, err := e.store.GetCurrentWorkspace(ctx, taskID)
+	if err != nil || ws.State != store.WorkspaceProvisioning {
+		return
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "workspace provisioning failed"
+	}
+	_, _ = e.transitionWorkspace(ctx, store.WorkspaceTransition{
+		WorkspaceID: ws.ID,
+		TaskID:      taskID,
+		FromStates:  []store.WorkspaceState{store.WorkspaceProvisioning},
+		ToState:     store.WorkspaceOrphaned,
+		Patch:       store.WorkspacePatch{FailureReason: &reason},
+	})
+}
+
 func applyWorkspaceGeneration(t *store.Task, ws store.WorkspaceGeneration) {
 	t.CurrentWorkspaceID = ws.ID
 	t.WorkspaceSourceRoot = ws.SourceRoot
@@ -2501,14 +2523,32 @@ func (e *Engine) startOne(id, turnExecutionID string) {
 		return
 	}
 
-	if t.StartedAt != nil &&
+	// A turn that is going to write needs its workspace before it starts. A
+	// follow-up turn gets the generation the previous turn asked for. So does a
+	// yolo first turn: the mode has already answered the only question the
+	// read-only probe turn exists to ask, and leaving that probe in place runs
+	// Claude Code in plan mode, whose ExitPlanMode the approval bridge turns
+	// into a card — in a session whose mode promises no cards. The promotion is
+	// the same one a write request would have produced; only the empty probe
+	// turn is skipped. A run an orchestration step marks read-only still
+	// overrides yolo, and every other mode still probes.
+	needsWorkspace := t.StartedAt != nil ||
+		adapter.NormalizePermissionMode(t.PermissionMode) == adapter.PermissionYOLO
+	if needsWorkspace &&
 		t.CurrentWorkspaceID == "" &&
 		t.WorkspaceMode == string(workspace.ResolvedWorktree) {
 		ws, requestErr := e.RequestWorkspace(ctx, WorkspaceIntentRequest{
 			TaskID: id, ExecutionID: turnExecutionID, Agent: t.Agent,
 		})
 		if requestErr != nil {
-			_, _ = e.failQueuedRunStart(ctx, id, turnExecutionID, fmt.Sprintf("prepare follow-up workspace: %v", requestErr))
+			// A promotion that failed halfway leaves a provisioning generation
+			// pointed at by the task. The next attempt would skip promotion
+			// (the pointer is set) and then refuse to claim a workspace that
+			// never became ready, so the task could not run again until a
+			// restart reconciled it. Retire the generation here instead, the
+			// same way a cancel during provisioning does.
+			e.orphanProvisioningWorkspace(ctx, id, requestErr.Error())
+			_, _ = e.failQueuedRunStart(ctx, id, turnExecutionID, fmt.Sprintf("prepare workspace: %v", requestErr))
 			return
 		}
 		t.CurrentWorkspaceID = ws.ID
@@ -2545,6 +2585,19 @@ func (e *Engine) startOne(id, turnExecutionID string) {
 	e.bus.PublishTask(t)
 	runMeta := e.resolveRunWorkspace(ctx, &t)
 	runMeta.WorkspaceExecutionID = turnExecutionID
+	// A workspace that exists but cannot be activated — the ready-to-active
+	// transition failed, or the generation is blocked/finalizing — must not
+	// silently fall back to the read-only probe for a yolo turn: that probe is
+	// plan mode, and its ExitPlanMode card is the thing this mode exists to
+	// avoid. Fail the turn and say how to repair it instead.
+	if adapter.NormalizePermissionMode(t.PermissionMode) == adapter.PermissionYOLO &&
+		t.CurrentWorkspaceID != "" &&
+		runMeta.WorkspaceAccess == adapter.AccessSourceReadOnly {
+		_, _ = e.failRunningStart(ctx, id, turnExecutionID,
+			"the task's workspace could not be activated; a yolo turn does not fall back "+
+				"to the read-only probe — retry after the workspace is ready, or release it")
+		return
+	}
 	if !e.isActiveRun(id, turnExecutionID) {
 		e.mu.Lock()
 		e.active--
