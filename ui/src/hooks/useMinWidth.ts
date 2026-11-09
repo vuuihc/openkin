@@ -1,4 +1,4 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useMediaQuery } from "./useMediaQuery";
 
 /**
  * Whether the viewport is at least `px` wide, as a render-time fact.
@@ -18,30 +18,5 @@ import { useCallback, useSyncExternalStore } from "react";
  * no-DOM case.
  */
 export function useMinWidth(px: number, fallback = true): boolean {
-  const query = `(min-width: ${px}px)`;
-  // Stable per query: a fresh `subscribe` on every render makes React drop and
-  // re-add the media listener each time — every keystroke in a search field
-  // would resubscribe a viewport query.
-  const subscribe = useCallback(
-    (onChange: () => void) => {
-      if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-        return () => {};
-      }
-      const media = window.matchMedia(query);
-      if (media.addEventListener) media.addEventListener("change", onChange);
-      else media.addListener?.(onChange);
-      return () => {
-        if (media.removeEventListener) media.removeEventListener("change", onChange);
-        else media.removeListener?.(onChange);
-      };
-    },
-    [query],
-  );
-  const getSnapshot = useCallback(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-      return fallback;
-    }
-    return window.matchMedia(query).matches;
-  }, [query, fallback]);
-  return useSyncExternalStore(subscribe, getSnapshot, () => fallback);
+  return useMediaQuery(`(min-width: ${px}px)`, fallback);
 }

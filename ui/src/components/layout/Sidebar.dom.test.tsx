@@ -28,9 +28,14 @@ vi.mock("../../hooks/useMachines", () => ({
   }),
 }));
 
-function viewport(wide: boolean) {
+function viewport(wide: boolean, pointer: "fine" | "coarse" = "fine") {
   vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: query === "(min-width: 768px)" ? wide : false,
+    matches:
+      query === "(min-width: 768px)"
+        ? wide
+        : query === "(pointer: coarse)"
+          ? pointer === "coarse"
+          : false,
     media: query,
     onchange: null,
     addEventListener: vi.fn(),
@@ -61,6 +66,7 @@ function sidebar(
   tasks: Task[],
   onImportExternalSessions?: () => void,
   pendingCount = 0,
+  onDeleteSession?: (task: Task) => void,
 ) {
   return (
     <MemoryRouter>
@@ -71,6 +77,7 @@ function sidebar(
         onCloseMobile={() => {}}
         onNewChat={() => {}}
         onImportExternalSessions={onImportExternalSessions}
+        onDeleteSession={onDeleteSession}
       />
     </MemoryRouter>
   );
@@ -140,5 +147,60 @@ describe("the Mac sidebar list", () => {
     // two pieces again.
     expect(button.closest("[data-sidebar-footer]")).not.toBeNull();
     expect(button.textContent).toBe("");
+  });
+});
+
+/**
+ * An iPad gets the desktop layout at ≥768px, so a width query says "wide"
+ * there — but its pointer is a finger. iOS spends the first tap on a row with
+ * a `:hover` style applying that style, and a control revealed only by hover
+ * is never reached. The split is therefore at the pointer, not the width:
+ * wide-and-coarse gets the touch shape, wide-and-fine keeps the hover reveals.
+ */
+describe("the sidebar's pointer shapes", () => {
+  it("gives a coarse pointer the action sheet instead of hover-only controls", () => {
+    viewport(true, "coarse");
+    render(sidebar([task("one", "/work/alpha")], undefined, 0, () => {}));
+
+    expect(screen.queryByRole("button", { name: "One-Pager cover" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Pin project" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove from sidebar" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete session" })).toBeNull();
+    // The touch home is the ⋯ sheet, at desktop width too: the button is in
+    // the document for a mouse as well, and `md:hidden` is what keeps it out
+    // of the desktop row. A coarse pointer drops that half.
+    expect(screen.getByRole("button", { name: "Project actions" }).className).not.toContain(
+      "md:hidden",
+    );
+  });
+
+  it("keeps the hover-revealed controls for a mouse at the same width", () => {
+    viewport(true, "fine");
+    render(sidebar([task("one", "/work/alpha")], undefined, 0, () => {}));
+
+    expect(screen.getByRole("button", { name: "One-Pager cover" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Pin project" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove from sidebar" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Delete session" })).toBeTruthy();
+    // Present in the document either way; `md:hidden` is what keeps the ⋯
+    // sheet out of the mouse layout.
+    expect(screen.getByRole("button", { name: "Project actions" }).className).toContain(
+      "md:hidden",
+    );
+  });
+
+  it("leaves the conversation row with no hover change for a finger", () => {
+    viewport(true, "coarse");
+    const { unmount } = render(sidebar([task("one", "/work/alpha")]));
+    expect(screen.getByRole("link", { name: "one" }).parentElement?.className).not.toContain(
+      "hover:bg-",
+    );
+    unmount();
+
+    viewport(true, "fine");
+    render(sidebar([task("one", "/work/alpha")]));
+    expect(screen.getByRole("link", { name: "one" }).parentElement?.className).toContain(
+      "hover:bg-[var(--kin-fill)]",
+    );
   });
 });
