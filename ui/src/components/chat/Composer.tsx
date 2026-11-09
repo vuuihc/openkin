@@ -873,7 +873,13 @@ export default function Composer({
           // surface, a 2xl radius and a drop, so the input reads as a thing you
           // hold rather than a hole cut in the transcript. Desktop keeps the
           // flat bordered box it has always had.
-          "rounded-2xl border border-[var(--kin-hairline)] bg-kin-elevated px-2.5 py-2 max-sm:shadow-e2 transition-[padding] duration-150",
+          //
+          // The phone card is raised, so it does not draw a hairline as well:
+          // the drop is what separates it from the transcript, and a line under
+          // a raised box is the same box drawn twice. The border stays in the
+          // list as `transparent` so the desktop hairline (`sm:`) has a border
+          // to switch on and the two widths keep the same box metrics.
+          "rounded-2xl border border-transparent bg-kin-elevated px-2.5 py-2 max-sm:shadow-e2 transition-[padding] duration-150",
           "focus-within:border-kin-blue/40 sm:rounded-xl sm:border-[var(--kin-hairline-strong)] sm:bg-[var(--kin-fill)]",
           expanded ? "sm:px-3 sm:py-2.5" : "sm:px-2.5 sm:py-1.5",
         ].join(" ")}
