@@ -161,7 +161,7 @@ describe("a routine's model", () => {
     // The indentation is part of the assertion: the ordinary send a few lines
     // below carries the same expression, and only this one is the schedule's.
     expect(NEW_CHAT).toContain(
-      "\n          ...(selectedModel.trim() ? { model: selectedModel.trim() } : {}),",
+      "\n            ...(selectedModel.trim() ? { model: selectedModel.trim() } : {}),",
     );
   });
 });

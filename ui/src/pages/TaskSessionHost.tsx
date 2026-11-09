@@ -293,6 +293,10 @@ export default function TaskSessionHost() {
                 <TaskDetailPage
                   taskId={taskId}
                   active={visible && show}
+                  // The list row this host already holds is enough to draw the
+                  // header and composer on a cold entry; the detail fills the
+                  // transcript when it arrives.
+                  fallbackTask={tasksById.get(taskId)}
                   agentRoles={agentRoles}
                   onOpenSessionSwitcher={openSwitcher}
                   switcherMark={switcherMark}

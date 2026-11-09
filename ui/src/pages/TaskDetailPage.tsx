@@ -42,6 +42,7 @@ import {
   type Approval,
   type LimitHit,
   type QueuedPrompt,
+  type Task,
   type TaskUsage,
   type TaskLimitWait,
   type Upload,
@@ -158,6 +159,16 @@ type TaskDetailPageProps = {
    * composer's menu reports differently from an empty list.
    */
   agentRoles?: AgentRole[] | null;
+  /**
+   * The newest row the session list already holds for this id.
+   *
+   * A cold entry (no pane kept alive, or a task created a moment ago) has no
+   * detail yet. Rendering only after the detail answers turns the whole screen
+   * into a skeleton: header, composer and all. The list row is the same `Task`
+   * shape, so the chrome can be drawn from it while the events are still in
+   * flight; the detail then replaces the content inside the same shell.
+   */
+  fallbackTask?: Task;
 };
 
 export default function TaskDetailPage({
@@ -166,6 +177,7 @@ export default function TaskDetailPage({
   onOpenSessionSwitcher,
   switcherMark = null,
   agentRoles = [],
+  fallbackTask,
 }: TaskDetailPageProps) {
   const { id: paramId = "" } = useParams();
   const id = taskId || paramId;
@@ -178,7 +190,12 @@ export default function TaskDetailPage({
   const { machines } = useMachines();
   const detail = useTaskResource(id);
   const pending = usePendingResources();
-  const task = detail.data.task;
+  // A cached list row is for drawing the chrome while the detail is on its
+  // way; it must not keep a deleted conversation on screen. Deletion outranks
+  // the cache, so the not-found branch below still owns that answer.
+  const gone =
+    detail.data.deleted || (detail.error instanceof ApiError && detail.error.status === 404);
+  const task = detail.data.task ?? (gone ? null : fallbackTask) ?? null;
   // The title the save button reads, kept current across a memo bailout: the
   // message rows deliberately ignore changed closures, so their save handler
   // can still be the one built before the session was renamed.
@@ -1374,7 +1391,7 @@ export default function TaskDetailPage({
     }
   }
 
-  if (loading) {
+  if (loading && !task) {
     return (
       <div className="flex-1 flex flex-col min-h-0 bg-kin-bg">
         {/* `min-h-11` + `pt-safe`, never `h-11` + `pt-safe`: with border-box
@@ -1892,7 +1909,7 @@ export default function TaskDetailPage({
             onOpenPath={onOpenWorkspacePath}
             fallbackUserPrompt={displayUserPrompt(task.prompt || "")}
             messageScope={task.id}
-            loading={!terminal || sending || awaitingReply}
+            loading={!detail.loaded || !terminal || sending || awaitingReply}
             loadingSpeaker={task.agent || "kin"}
             hostSpeaker={task.agent || "kin"}
             hostModel={task.model}
@@ -1986,7 +2003,7 @@ export default function TaskDetailPage({
               busy={sending}
               running={!terminal}
               stopping={stopping}
-              disabled={sending || stopping}
+              disabled={sending || stopping || !detail.loaded}
               initialValue={followUpDraft.prompt}
               initialAttachments={followUpDraft.attachments}
               focusSignal={refill.taskID === task.id ? refill.n : 0}
