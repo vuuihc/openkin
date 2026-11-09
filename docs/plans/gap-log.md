@@ -1,12 +1,11 @@
 # Gap Log
 
 Small, real defects found while dogfooding that are not worth interrupting the
-current round for. The scheduled gap sweep reads this file every hour.
-
-> 2026-11-08: this file is not on `origin/main` yet (local docs are blocked
-> behind a history that has not been pushed), so the hourly Kin routine can read
-> it only from a local checkout. Until the docs land upstream, keep the matching
-> GitHub issue self-contained: the routine reads issues, not this file.
+current round for. The scheduled gap sweep reads this file every hour, from
+`origin/main` and from the primary checkout's local copy (merged by date +
+title). This file is committed and pushed with the session that writes it —
+an entry that exists only on local `main` still reaches the sweep through the
+local copy, but pushing it is what makes it durable.
 
 How an entry is written — ask first, so the sweep never has to guess:
 
