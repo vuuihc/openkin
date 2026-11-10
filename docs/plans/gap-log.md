@@ -34,67 +34,6 @@ person can see; the fix and its verification belong in the PR.
 
 ## Open
 
-### 2026-11-10 · 中 · 历史会话从最早 50 条往后翻，最近的内容要翻很久才看得到
-
-打开一个 Agent 历史会话（`/agent-sessions/:id`）时，首屏只取最早的 50 条，
-「加载更多」在底部继续往后翻。一条几百轮的会话要翻很多次才能读到最近几轮，
-而打开历史会话的人通常先看最近发生了什么。
-
-期望：
-
-- 首屏先显示**最后一段**（最近的消息），并停在底部。「尽量多」要有明确预算：
-  建议最近 200 条或正文合计约 1 MiB，先到者为准（数值待定，见下）。
-- 向上滚到顶自动加载更早的一页；插到列表前面时视口锚定在原第一条消息上，
-  读的人不会被弹走；没有更早内容时给出明确的到头状态。
-- 第一页从完整消息开始：provider 会把一条消息拆成多个 chunk，
-  `mergeAgentSessionMessageChunks` 只在已加载列表内合并，页边界落在 chunk
-  中间会让首条消息只剩半句。
-- 同一会话在本机和「配对机器转发」两条路径上返回同样的页大小与内容；现有
-  `internal/api/agent_sessions.go` 的注释已经把这条当作契约。
-
-明确不要：
-
-- 不要在前端先拉完所有分页再截尾，也不要一次把整个源文件读进后端内存——
-  这只是把「内容太多」的成本藏起来。
-- 不要只改 Mac 前端：provider 历史的 `HistoryQuery` 只有向前 cursor
-  （`internal/sessioncatalog/file.go:113` 起，cursor 是 JSONL 行号），
-  从尾部读需要扩展 provider 契约，并把 node / worker 的同一条路径一起改，
-  否则手机会和 Mac 翻出不同的页。
-
-可以照抄：
-
-- 例行任务的运行记录已经是「最新的先显示 + 加载更早」：
-  `ui/src/lib/routineHistory.ts` 的 `ROUTINE_HISTORY_PAGE` / `pageCursor` /
-  `ROUTINE_HISTORY_MAX`，`ui/src/pages/RoutinesPage.tsx` 的
-  `loadOlderHistory`。差别是它用 daemon 的 `before`（ULID）向后翻，
-  provider 历史还没有这个能力。
-
-待定（报告人）：
-
-- 首屏预算定成多少：建议「最近 200 条或约 1 MiB 正文，先到者为准」，
-  还是更小 / 更大？
-- 上翻是「到顶自动加载」还是「顶部按钮」：建议自动，按钮只作为失败后的重试。
-
-线索：
-
-- `ui/src/pages/AgentSessionDetailPage.tsx:107`（`limit: 50`）、`:109`（向后
-  append）、`:286`（底部「加载更多」）、`:262`（滚动容器）
-- `internal/api/agent_sessions.go:456` / `:521`（本机与远程同为默认 50）；
-  `internal/remote/worker/query.go:373` 把单帧上限定在 100 条，所以 200 条的
-  首屏要么拆成多页读，要么把预算改成字节数
-- `internal/agent/sessions.go:43`（`HistoryQuery`）、
-  `internal/sessioncatalog/file.go:113`（只能向前的 JSONL cursor）、
-  `internal/node/sessions.go:184`
-- `ui/src/lib/agentSessionHistory.ts:48`（chunk 合并只在已加载列表内）
-
-验收：
-
-- 打开一条 500 条以上的会话，首屏就是最后一段且停在底部；
-- 上滚到顶会取到上一页，prepend 后视口仍停在原第一条消息；
-- 首屏不请求全部分页；本机与远程同一会话首屏条数一致；
-- 首条可见消息是完整消息，不是 chunk 中间；
-- 「加载更早」失败时不清空已读内容，可以重试。
-
 ### 2026-11-09 · 中 · routines 改为设备归属后的遗留项
 
 routines 的跨设备主路径已按 2026-11-08 的决策落地（见 `## 已修`，`901821bf`）：
@@ -149,6 +88,7 @@ IA 已经定了对话列表是“设备 → 项目 → 对话”三级（`docs/p
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
 
+- 2026-11-10 · 历史会话从最早 50 条往后翻，最近的内容要翻很久才看得到 — PR #36（provider/node/worker 支持尾部读取与向上翻页；check.sh 全绿）
 - 2026-11-08 · 新开会话选不了模型，选择控件各写各的（原生 select 仍在用） — `90fe9232`（PR #35）
 - 2026-11-10 · 侧栏「例行任务」未读角标只读本机，多设备下一直是 0 — `3f3ebe2e`（PR #34）
 - 2026-11-09 · 手机端会话列表里，手机发起的同一条对话出现两行 — `e0599e8f`（PR #17）
