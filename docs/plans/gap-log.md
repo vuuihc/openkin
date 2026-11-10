@@ -60,40 +60,6 @@ routines 的跨设备主路径已按 2026-11-08 的决策落地（见 `## 已修
 验收：项目页不再写 Hub 库；远程 run 能打开详情并实时更新；MCP 可创建；
 旧数据有明确处置。
 
-### 2026-11-08 · 高 · 新开会话选不了模型，选择控件各写各的（原生 select 仍在用）
-
-在 iPad 的 iOS 客户端上新开会话，底部运行设置只能选 Agent，模型一项看不到、
-改不了；同一带的几个选择框形状也不一致，好几处还是浏览器原生 `<select>`
-——在 iOS 上打开的是系统滚轮，样式和交互都不属于控制台。
-
-期望：新开会话能选模型；所有“从一组里选一个”的地方复用同一个全局选择控件，
-同一套触发器、同一套桌面浮层 / 手机 sheet 形态、同一套搜索与键盘行为，不再
-出现原生 `<select>`。
-
-线索：手机运行设置 `ui/src/components/chat/RunConfigSheet.tsx` 本应有
-Agent / 模型 / 权限三行（模型行在 `:432`），模型清单来自
-`ui/src/lib/agentModels.ts:19` 的 `modelsForAgent`（读 agent 上报的 `models`）。
-先确认 iPad 实际走的断点与 Hub 提供的构建：`md` = 768px，iPad mini 竖屏
-744px 走手机版，其余 iPad 走桌面条；再看是模型行没渲染，还是 agent 的
-`models` 为空。原生 select 集中在 `ui/src/components/chat/DispatchSelector.tsx:279`、
-`:294`、`:314`、`:327`、`:349`，`MachinePicker.tsx:33`、
-`MachineBrowser.tsx:434`、`RoutineScheduleFields.tsx:194` / `:224`；设置页另见
-`ProviderSettingsSection.tsx`、`RoutingSettings.tsx`、`SettingsPage.tsx` 等。
-现有两个半成品可收敛为一个原语：`ui/src/components/ui/SearchSelect.tsx`
-（桌面浮层 + 窄屏 sheet）与 `ui/src/components/ui/SheetSelect.tsx`（手机 Ionic
-action sheet / 桌面锚定菜单），后者的顶部注释已经写明原生 select 在 iOS 上
-为什么不对。验收：新开会话能改模型；全仓 `grep '<select'` 只剩合理用途；
-桌面与 390px 宽度各有 DOM 测试。
-
-2026-11-10 复核：模型选择本身在新开会话里是可达的（手机 `RunConfigSheet` 的
-模型行无条件渲染，桌面首项是 `AgentModelPicker`，`/api/machines` 的 agent
-投影带 `models`）；`MachinePicker` 已改用 `SheetSelect`（PR #30）。剩下的缺陷
-是其余原生 `<select>`：`DispatchSelector`（5 处）、`RoutineScheduleFields`
-（2 处，选项带分组语义，要连分组呈现一起改）、`MachineBrowser`、设置页
-（`ProviderSettingsSection`、`RoutingSettings`、`LocalAgentSettingsSection`、
-`SettingsPage`）、`ProjectDetailPage`、`ProjectsPage`、`AgentsPage`、
-`RoutinesPage`。
-
 ### 2026-11-08 · 中 · 侧栏看不出设备 → 项目 → 对话的层级
 
 iPad 左侧对话栏里，设备、项目、对话三层看起来在同一个平面上，看不出谁包含谁，
@@ -122,6 +88,7 @@ IA 已经定了对话列表是“设备 → 项目 → 对话”三级（`docs/p
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
 
+- 2026-11-08 · 新开会话选不了模型，选择控件各写各的（原生 select 仍在用） — `90fe9232`（PR #35）
 - 2026-11-10 · 侧栏「例行任务」未读角标只读本机，多设备下一直是 0 — `3f3ebe2e`（PR #34）
 - 2026-11-09 · 手机端会话列表里，手机发起的同一条对话出现两行 — `e0599e8f`（PR #17）
 - 2026-11-09 · YOLO 会话的 plan worker 仍会弹一张 ExitPlanMode 审批卡 — `c84d9da0`（PR #19）
