@@ -87,9 +87,9 @@ describe("routineDeviceForProject", () => {
       roots: ["/Users/owner/work"],
       online: false,
     });
-    expect(
-      routineDeviceForProject([SELF, offline, ALSO_WORK], "/Users/owner/work", ""),
-    ).toBe(ALSO_WORK.id);
+    expect(routineDeviceForProject([SELF, offline, ALSO_WORK], "/Users/owner/work", "")).toBe(
+      ALSO_WORK.id,
+    );
     expect(routineDeviceForProject([SELF, offline], "/Users/owner/work", "")).toBe(offline.id);
   });
 

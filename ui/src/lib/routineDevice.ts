@@ -58,11 +58,7 @@ export function resolveRoutineDevice(machines: Machine[], saved: string): string
  * desktop attached to its own daemon, and a project created by path there is a
  * local record; empty means "this machine" wherever routine requests go.
  */
-export function routineDeviceForProject(
-  machines: Machine[],
-  cwd: string,
-  saved: string,
-): string {
+export function routineDeviceForProject(machines: Machine[], cwd: string, saved: string): string {
   const path = cwd.trim();
   if (!path) return "";
   const owners = machines.filter(
