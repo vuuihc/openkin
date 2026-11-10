@@ -16,8 +16,8 @@
     into each, and no name is declared twice within a scheme;
   - every `var(--kin-*)` referenced anywhere in `src/` or in the Tailwind
     config resolves here (four did not, before this file existed);
-  - every token is presented on the `/design` gallery page, so a token nobody
-    renders is a test failure rather than a discovery;
+  - every token is named in the `design/colors.ts` inventory, so a token nobody
+    uses is a test failure rather than a discovery;
   - each of `page` / `sidebar` / `inspector` / `elevated` is at least 2 L* from
     `bg`, and every ink step clears 4.5:1 on all six surfaces it is drawn on
     (`page`, `bg`, `elevated`, `panel`, `sidebar`, `inspector`). `page` is in

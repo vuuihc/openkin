@@ -9,18 +9,13 @@ import {
   type ReactNode,
 } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { IonActionSheet } from "@ionic/react";
-import type { ActionSheetButton } from "@ionic/core";
 import {
   ApiError,
   archiveTask,
   cancelTask,
   cancelWorkerStep,
   deleteTask,
-  createArtifact,
   answerUserQuestion,
-  deriveArtifactTitle,
-  detectArtifactKind,
   followUpPrompt,
   forkTask,
   markRoutineRunRead,
@@ -81,6 +76,7 @@ import {
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import PanelSurface from "../components/layout/PanelSurface";
 import MobileHeader, { MobileHeaderButton } from "../components/mobile/MobileHeader";
+import ActionSheet, { type ActionSheetRow } from "../components/ui/ActionSheet";
 import PullRequestPanel from "../components/pr/PullRequestPanel";
 import PublishPanel from "../components/pr/PublishPanel";
 import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
@@ -184,8 +180,8 @@ export default function TaskDetailPage({
   const navigate = useNavigate();
   const tr = useT();
   // The session-actions sheet is a phone surface; below `md` it is the way to
-  // stop, share or find. Keeping it mounted at desktop width leaves an
-  // `ion-action-sheet` in the Mac's document even while closed.
+  // stop, share or find. It is mounted only there, so a Mac never carries the
+  // sheet's Escape/Back handlers behind its chip row.
   const wide = useMinWidth(768);
   const { machines } = useMachines();
   const detail = useTaskResource(id);
@@ -306,10 +302,9 @@ export default function TaskDetailPage({
    */
   const findSeed = useFindSeed(active && !loading);
   /**
-   * Set by the sheet's 查找 row. The bar opens on dismissal, not on the tap:
-   * Ionic keeps keyboard focus inside the action sheet until it is removed from
-   * the DOM, so focusing the field while the sheet is still up shows a bar with
-   * no keyboard, and the removal then drops focus to `<body>`.
+   * Set by the sheet's 查找 row. The bar opens after the sheet has left, not on
+   * the tap: the sheet's cleanup returns focus to its opener, which would run
+   * after the bar had focused its field and drop the keyboard to `<body>`.
    */
   const openFindAfterSheet = useRef(false);
   const [actionBusy, setActionBusy] = useState(false);
@@ -380,6 +375,25 @@ export default function TaskDetailPage({
     openShareAfterSheet.current = false;
     openFileFinderAfterSheet.current = false;
   }, [wide]);
+  // A row that opens another layer arms one of the refs above; the layer
+  // itself opens here, in the commit after the sheet has unmounted and its
+  // focus restore has run. Opening it from the row instead would put a second
+  // focus trap on screen and let the sheet's cleanup steal the new field.
+  useEffect(() => {
+    if (actionsOpen) return;
+    if (openFindAfterSheet.current) {
+      openFindAfterSheet.current = false;
+      setFindOpen(true);
+    }
+    if (openShareAfterSheet.current) {
+      openShareAfterSheet.current = false;
+      setShareOpen(true);
+    }
+    if (openFileFinderAfterSheet.current) {
+      openFileFinderAfterSheet.current = false;
+      setFileFinderOpen(true);
+    }
+  }, [actionsOpen]);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null | undefined>(
     undefined,
   );
@@ -1298,27 +1312,6 @@ export default function TaskDetailPage({
     }
   }
 
-  async function onSaveArtifact(text: string) {
-    if (!task || actionBusy) return;
-    const content = text.trim();
-    if (!content) return;
-    setActionBusy(true);
-    try {
-      const art = await createArtifact({
-        title: deriveArtifactTitle(content, taskTitleRef.current || tr("api.untitled")),
-        kind: detectArtifactKind(content),
-        content,
-        source_task_id: task.id,
-        status: "saved",
-      });
-      pushToast(tr("task.saveArtifactDone"), "info");
-      navigate(`/artifacts/${art.id}`);
-    } catch (err) {
-      pushToast(err instanceof Error ? err.message : tr("task.saveArtifactFailed"), "error");
-    } finally {
-      setActionBusy(false);
-    }
-  }
 
   function onOpenWorkspacePath(filePath: string): boolean {
     if (!task) return false;
@@ -1610,34 +1603,44 @@ export default function TaskDetailPage({
    * answer by clipping its tail. From `md` up there is room, so the chips stay
    * and the sheet is not rendered as a second way to reach them.
    */
-  const sessionActions: ActionSheetButton[] = [
-    { text: tr("chat.find.menu"), handler: () => (openFindAfterSheet.current = true) },
-    { text: tr("task.share"), handler: () => (openShareAfterSheet.current = true) },
-    { text: tr("workspace.find.action"), handler: () => (openFileFinderAfterSheet.current = true) },
-    { text: tr("workspace.title"), handler: () => togglePanel(id, "files") },
-    { text: tr("pr.title"), handler: () => togglePrPanel() },
+  const sessionActions: ActionSheetRow[] = [
+    {
+      id: "find",
+      label: tr("chat.find.menu"),
+      onSelect: () => (openFindAfterSheet.current = true),
+    },
+    { id: "share", label: tr("task.share"), onSelect: () => (openShareAfterSheet.current = true) },
+    {
+      id: "find-file",
+      label: tr("workspace.find.action"),
+      onSelect: () => (openFileFinderAfterSheet.current = true),
+    },
+    { id: "files", label: tr("workspace.title"), onSelect: () => togglePanel(id, "files") },
+    { id: "pr", label: tr("pr.title"), onSelect: () => togglePrPanel() },
     ...(!terminal
       ? [
           {
-            text: stopping ? tr("task.stopping") : tr("composer.stop"),
-            role: "destructive" as const,
+            id: "stop",
+            label: stopping ? tr("task.stopping") : tr("composer.stop"),
+            destructive: true,
             disabled: stopping,
-            handler: () => void onStop(),
+            onSelect: () => void onStop(),
           },
         ]
       : []),
     {
-      text: task?.archived_at ? tr("task.unarchiveSession") : tr("task.archiveSession"),
+      id: "archive",
+      label: task?.archived_at ? tr("task.unarchiveSession") : tr("task.archiveSession"),
       disabled: archiving,
-      handler: () => void onToggleArchive(),
+      onSelect: () => void onToggleArchive(),
     },
     {
-      text: tr("task.deleteSession"),
-      role: "destructive" as const,
+      id: "delete",
+      label: tr("task.deleteSession"),
+      destructive: true,
       disabled: deleting,
-      handler: () => void onDelete(),
+      onSelect: () => void onDelete(),
     },
-    { text: tr("common.cancel"), role: "cancel" as const },
   ];
 
   return (
@@ -1824,38 +1827,21 @@ export default function TaskDetailPage({
         </div>
 
         {!wide && (
-          <IonActionSheet
-            isOpen={actionsOpen}
-            onDidDismiss={() => {
-              setActionsOpen(false);
-              // The bar can only take focus once the sheet is gone; see
-              // `openFindAfterSheet`.
-              if (openFindAfterSheet.current) {
-                openFindAfterSheet.current = false;
-                setFindOpen(true);
-              }
-              if (openShareAfterSheet.current) {
-                openShareAfterSheet.current = false;
-                setShareOpen(true);
-              }
-              if (openFileFinderAfterSheet.current) {
-                openFileFinderAfterSheet.current = false;
-                setFileFinderOpen(true);
-              }
-            }}
-            header={tr("task.sessionActions")}
+          <ActionSheet
+            open={actionsOpen}
+            onClose={() => setActionsOpen(false)}
+            title={tr("task.sessionActions")}
             // Which machine is about to be acted on. The footer strip that named
             // it is below `md` too, and "stop this session" on an unnamed remote
             // machine is the decision this sheet exists for.
-            subHeader={
+            subtitle={
               machine
                 ? machine.known
                   ? tr("machine.runsOn", { name: machine.text })
                   : tr("machine.runsOnUnknown", { name: machine.text })
                 : undefined
             }
-            cssClass="kin-sheet"
-            buttons={sessionActions}
+            rows={sessionActions}
           />
         )}
         <ShareDialog open={shareOpen} onClose={() => setShareOpen(false)} taskId={task.id} />
@@ -1923,7 +1909,6 @@ export default function TaskDetailPage({
             actionsBusy={actionBusy}
             onRetry={(seq) => void onRetry(seq)}
             onFork={(seq) => void onFork(seq)}
-            onSaveArtifact={(text) => void onSaveArtifact(text)}
             findOpen={findOpen}
             onFindOpenChange={setFindOpen}
             findShortcut={active && panel === null && !fileFinderOpen}

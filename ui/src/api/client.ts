@@ -1263,85 +1263,6 @@ export function parseUserQuestionPayload(payload: unknown): UserQuestionPayload 
   };
 }
 
-export type Artifact = {
-  id: string;
-  title: string;
-  kind: "markdown" | "html" | "text";
-  size: number;
-  status: "proposed" | "saved" | "archived";
-  source_task_id?: string;
-  source_task_title?: string;
-  created_at: number;
-  updated_at: number;
-};
-
-export function listArtifacts(status?: string): Promise<Artifact[]> {
-  const q = status ? `?status=${encodeURIComponent(status)}` : "";
-  return apiFetch<Artifact[]>(`/api/artifacts${q}`);
-}
-
-export function getArtifact(id: string): Promise<Artifact> {
-  return apiFetch<Artifact>(`/api/artifacts/${encodeURIComponent(id)}`);
-}
-
-/** Fetch artifact body as plain text (never JSON). */
-export async function getArtifactContent(id: string): Promise<string> {
-  const headers = new Headers({ Accept: "text/plain" });
-  const token = getToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(`/api/artifacts/${encodeURIComponent(id)}/content`, {
-    headers,
-    credentials: "same-origin",
-  });
-  if (!res.ok) {
-    if (res.status === 401) notifyUnauthorized();
-    const text = await res.text().catch(() => "");
-    throw new ApiError(res.status, text || res.statusText);
-  }
-  return res.text();
-}
-
-export function createArtifact(body: {
-  title: string;
-  kind: string;
-  content: string;
-  source_task_id?: string;
-  status?: string;
-}): Promise<Artifact> {
-  return apiFetch<Artifact>("/api/artifacts", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
-
-export function setArtifactStatus(id: string, status: string): Promise<Artifact> {
-  return apiFetch<Artifact>(`/api/artifacts/${encodeURIComponent(id)}/status`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status }),
-  });
-}
-
-/** Infer artifact kind from content (P0: trivial heuristic). */
-export function detectArtifactKind(content: string): "markdown" | "html" | "text" {
-  const head = content.slice(0, 512).toLowerCase();
-  if (head.includes("<!doctype html") || head.includes("<html")) return "html";
-  return "markdown";
-}
-
-/** Derive a short title from content or fall back. */
-export function deriveArtifactTitle(content: string, fallback: string): string {
-  const md = content.match(/^\s*#\s+(.+)$/m);
-  if (md?.[1]) return md[1].trim().slice(0, 120);
-  const line = content
-    .split("\n")
-    .map((l) => l.trim())
-    .find((l) => l.length > 0);
-  if (line) return line.replace(/^#+\s*/, "").slice(0, 120);
-  return fallback || t("api.untitled");
-}
-
 export type ProjectMode = "ship" | "learn" | "explore" | "maintain";
 
 export type Project = {
@@ -1487,10 +1408,6 @@ export function putOnePager(id: string, markdown: string, updatedAt?: number): P
 
 export function listProjectTasks(id: string, limit = 50): Promise<Task[]> {
   return apiFetch<Task[]>(`/api/projects/${encodeURIComponent(id)}/tasks?limit=${limit}`);
-}
-
-export function listProjectArtifacts(id: string, limit = 30): Promise<Artifact[]> {
-  return apiFetch<Artifact[]>(`/api/projects/${encodeURIComponent(id)}/artifacts?limit=${limit}`);
 }
 
 export function findProjectByRoot(path: string): Promise<ProjectByRoot> {

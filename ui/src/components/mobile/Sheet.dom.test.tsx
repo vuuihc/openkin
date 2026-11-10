@@ -70,6 +70,43 @@ describe("Sheet breakpoint close", () => {
     media.set(false);
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it("gives one Escape to the sheet in front", () => {
+    // A sheet can open another sheet — a run-settings choice chip, or any
+    // SheetSelect inside a sheet. Both attach an Escape handler to the window;
+    // without the stack guard one Escape closes both.
+    const outerClose = vi.fn();
+    const innerClose = vi.fn();
+    render(
+      <>
+        <Sheet open onClose={outerClose} title="Outer">
+          outer
+        </Sheet>
+        <Sheet open onClose={innerClose} title="Inner">
+          inner
+        </Sheet>
+      </>,
+    );
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(innerClose).toHaveBeenCalledTimes(1);
+    expect(outerClose).not.toHaveBeenCalled();
+  });
+
+  it("stays open at every width when asked, for a coarse-pointer tablet", () => {
+    const media = stubMatchMedia(false);
+    const onClose = vi.fn();
+    render(
+      <Sheet open onClose={onClose} title="Model" anyWidth>
+        body
+      </Sheet>,
+    );
+    // The width cap is the wide-screen shape; the phone's `md:hidden` would
+    // make the layer invisible on the one device that asked for it.
+    const root = document.querySelector("[data-kin-sheet]");
+    expect(root?.className).not.toContain("md:hidden");
+    media.set(true);
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });
 
 /**

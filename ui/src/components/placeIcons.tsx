@@ -3,7 +3,6 @@ import type { PanelId } from "../lib/panels";
 import type { PlaceId } from "../lib/places";
 import {
   IconAgents,
-  IconArtifacts,
   IconExternal,
   IconFile,
   IconInbox,
@@ -41,7 +40,6 @@ export const PLACE_ICONS: Record<PlaceId, (p: IconProps) => ReactNode> = {
   new: IconPlus,
   sessions: IconSessions,
   inbox: IconInbox,
-  artifacts: IconArtifacts,
   routines: IconRoutines,
   projects: IconProjects,
   agents: IconAgents,

@@ -4,8 +4,8 @@
  * `tailwind.config.ts` turns this into `theme.fontSize` (assignment, not
  * `extend`: the old names must stop existing, so a stray default size utility
  * emits nothing at all, and the leftover-size guard in `tokens.test.ts` fails).
- * The gallery renders the same array, so a role cannot be added here without
- * appearing on `/design`.
+ * The guards read the same array, so a role cannot be added here without being
+ * named and measured.
  *
  * `px` is the size. `weight` and `ink` are the *role's default* — what the role
  * looks like when the element says nothing — not something injected into every

@@ -7,14 +7,12 @@ import {
   getProjectPulse,
   isAuthenticated,
   listAgentSessions,
-  listProjectArtifacts,
   listProjectTasks,
   patchProject,
   putOnePager,
   refreshProjectPulse,
   listRoutines,
   createRoutine,
-  type Artifact,
   type Routine,
   type OnePagerSummary,
   type Project,
@@ -50,20 +48,6 @@ import { taskCardStatusView } from "../lib/taskCardStatus";
 import { useT } from "../i18n/react";
 import { useAppStore } from "../store/appStore";
 
-function formatWhen(ms: number): string {
-  if (!ms) return "—";
-  try {
-    return new Date(ms).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return "—";
-  }
-}
-
 /**
  * Project cover — pulse + editable One-Pager.
  * Scrolls inside AppShell main (overflow-y-auto).
@@ -78,7 +62,6 @@ export default function ProjectDetailPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [markdown, setMarkdown] = useState("");
   const [updatedAt, setUpdatedAt] = useState(0);
-  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [pulse, setPulse] = useState<ProjectPulse | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [windowDays, setWindowDays] = useState(90);
@@ -136,17 +119,15 @@ export default function ProjectDetailPage() {
     if (!isAuthenticated() || !id) return;
     setLoading(true);
     try {
-      const [p, op, arts, pu] = await Promise.all([
+      const [p, op, pu] = await Promise.all([
         getProject(id),
         getOnePager(id),
-        listProjectArtifacts(id, 20).catch(() => [] as Artifact[]),
         getProjectPulse(id, windowDays).catch(() => null),
       ]);
       setProject(p);
       setMarkdown(op.markdown);
       setUpdatedAt(op.updated_at);
       setDraft(op.markdown);
-      setArtifacts(arts);
       setPulse(pu);
       setSummary(op.one_pager_summary ?? null);
 
@@ -605,7 +586,7 @@ export default function ProjectDetailPage() {
                 )}
               </section>
 
-              <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
+              <div>
                 <section className="rounded-xl bg-kin-panel p-4 min-h-80">
                   <div className="mb-2 text-body font-medium uppercase tracking-label text-kin-secondary">
                     {tr("projects.onePager")}
@@ -623,34 +604,6 @@ export default function ProjectDetailPage() {
                   )}
                 </section>
 
-                <aside className="space-y-3">
-                  <section className="rounded-xl bg-kin-panel p-3">
-                    <div className="mb-2 text-body font-medium uppercase tracking-label text-kin-secondary">
-                      {tr("projects.relatedArtifacts")}
-                    </div>
-                    {artifacts.length === 0 ? (
-                      <div className="text-body text-kin-secondary">
-                        {tr("projects.noArtifacts")}
-                      </div>
-                    ) : (
-                      <ul className="space-y-1.5">
-                        {artifacts.map((a) => (
-                          <li key={a.id}>
-                            <Link
-                              to={`/artifacts/${a.id}`}
-                              className="block rounded-lg px-2 py-1.5 hover:bg-[var(--kin-fill-strong)]"
-                            >
-                              <div className="truncate text-body text-kin-text">{a.title}</div>
-                              <div className="mt-0.5 text-caption text-kin-secondary">
-                                {a.kind} · {formatWhen(a.created_at)}
-                              </div>
-                            </Link>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </section>
-                </aside>
               </div>
             </div>
           )}

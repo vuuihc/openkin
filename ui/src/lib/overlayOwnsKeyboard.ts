@@ -24,16 +24,16 @@ const OVERLAY_SELECTOR = [
 /**
  * Whether the element is part of what is drawn.
  *
- * A role query alone is not enough. Ionic keeps a *closed* inline action sheet
- * in the DOM as a `role="dialog"` host (`display: none`), and a keep-alive
- * session pane is hidden with CSS/`aria-hidden` while a composer menu inside
- * it stays open in state. Either would make an overlay look permanently open:
- * below `md` every session would lose `j/k/a/d` and ⌘F, and switching tabs
- * would leave the visible pane's keys dead behind a menu in the hidden one.
+ * A role query alone is not enough. A dialog can stay mounted while hidden
+ * (`display: none`), and a keep-alive session pane is hidden with
+ * CSS/`aria-hidden` while a composer menu inside it stays open in state.
+ * Either would make an overlay look permanently open: below `md` every session
+ * would lose `j/k/a/d` and ⌘F, and switching tabs would leave the visible
+ * pane's keys dead behind a menu in the hidden one.
  *
  * Walked from the element up, because `display: none` on any ancestor removes
  * the whole subtree from the page. `getComputedStyle` is what sees the
- * stylesheet rules (Tailwind's `hidden`, Ionic's overlay classes); the
+ * stylesheet rules (Tailwind's `hidden`, a layer's own display rules); the
  * attributes catch the same states before styles are applied, which is also
  * what lets jsdom tests exercise this without a layout engine.
  */

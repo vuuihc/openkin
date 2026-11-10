@@ -146,7 +146,7 @@ export function DispatchSelector({
     if (!open) return;
     const handler = (e: MouseEvent) => {
       const target = e.target as Element | null;
-      if (target?.closest("[data-search-panel], [data-kin-sheet], ion-action-sheet")) return;
+      if (target?.closest("[data-search-panel], [data-kin-sheet]")) return;
       if (
         popRef.current &&
         !popRef.current.contains(e.target as Node) &&
@@ -166,7 +166,7 @@ export function DispatchSelector({
       if (e.key !== "Escape") return;
       // A picker opened from this panel owns the key while it is up; closing
       // the panel underneath it would take the picker with it.
-      if (document.querySelector("[data-search-panel], [data-kin-sheet], ion-action-sheet")) return;
+      if (document.querySelector("[data-search-panel], [data-kin-sheet]")) return;
       setOpen(false);
       triggerRef.current?.focus();
     };

@@ -42,9 +42,9 @@ describe("the file finder's ways in", () => {
   });
 
   it("opens from the phone's sheet only after the sheet is gone", () => {
-    // Ionic keeps keyboard focus in the action sheet until it is removed, so
-    // focusing the finder's field from the row's handler shows a field that
-    // never raises a keyboard. Same rule as find-in-conversation.
+    // The sheet's cleanup returns focus to its opener, so focusing the
+    // finder's field from the row's handler shows a field that never raises a
+    // keyboard. Same rule as find-in-conversation.
     expect(PAGE).toContain('tr("workspace.find.action")');
     expect(PAGE).toContain("openFileFinderAfterSheet.current = true");
     expect(PAGE).toContain("openFileFinderAfterSheet.current = false");

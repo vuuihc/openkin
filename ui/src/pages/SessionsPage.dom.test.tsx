@@ -12,7 +12,7 @@ import Sidebar from "../components/layout/Sidebar";
  *
  * On a Mac `/sessions` is the draft, because the sidebar already holds the only
  * conversation list. On a phone the page *is* the list. The K panel is entries
- * only — new chat, import, inbox, archive, artifacts, routines, agent ops,
+ * only — new chat, import, inbox, archive, routines, agent ops,
  * settings — with no second copy of the list and no second search field.
  */
 
@@ -123,7 +123,6 @@ describe("the phone's K panel", () => {
       "New chat",
       "Inbox",
       "Archived",
-      "Artifacts",
       "Routines",
       "Agent Ops",
       "Settings",

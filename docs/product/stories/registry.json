@@ -4,7 +4,7 @@
     "J1": "手机：打开 → 找到昨天的对话 → 继续 → 回答批准",
     "J2": "Mac：打开 → 搜到上周的对话 → 继续 → 改模型和权限 → 看 diff",
     "J3": "开始：任一端 → 新建 → 选 agent、模型、权限 → 发送",
-    "J4": "资料：找到产物、项目或例行任务并操作",
+    "J4": "资料：找到项目或例行任务并操作",
     "J5": "管理：找到一段对话 → 改名、置顶、归档或删除 → 列表恢复秩序",
     "J6": "设置：打开设置 → 改 agent、模型、设备或权限默认 → 新建对话用上新值",
     "J7": "通知：离开控制台 → 设备收到原生通知 → 点开落到那一条 → 处理完安静"
@@ -29,7 +29,6 @@
         "ui/src/App.tsx",
         "ui/src/components/CommandPalette.tsx",
         "ui/src/components/cards/ApprovalCard.tsx",
-        "ui/src/components/chat/AgentModelPicker.tsx",
         "ui/src/components/chat/ChatStream.tsx",
         "ui/src/components/chat/ModelPicker.tsx",
         "ui/src/components/chat/PermissionModePicker.tsx",
@@ -121,12 +120,10 @@
       ],
       "title": "看它改了什么",
       "file": "docs/product/stories/KIN-RESULT-001.md",
-      "surface": "找产物",
+      "surface": "看改动",
       "ownerPaths": [
         "ui/src/components/changedFileFace.tsx",
         "ui/src/components/chat/shareExport.ts",
-        "ui/src/pages/ArtifactsPage.tsx",
-        "ui/src/pages/ArtifactDetailPage.tsx",
         "ui/src/pages/TaskDetailPage.tsx"
       ],
       "tests": [],

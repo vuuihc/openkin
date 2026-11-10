@@ -37,10 +37,6 @@ const NOT_A_PLACE = new Map([
     "/",
     "the start route: it resumes the last conversation or shows the draft, so its destination is decided at runtime rather than by the router; `/sessions` is the phone's list and the Mac sidebar is the Mac's",
   ],
-  [
-    "/design",
-    "the token gallery: App.tsx says it is a place to check the design layer, not a place to work",
-  ],
 ]);
 
 /**
@@ -126,7 +122,7 @@ describe("PLACES", () => {
 
   // The table is data, so the one thing it cannot do is notice that its own
   // `labelKey` is a dotted path nobody translated — `t()` falls back to the path
-  // string and the sidebar reads `nav.artifacts`.
+  // string and the sidebar reads `nav.routines`.
   it("names every place in both locales", () => {
     for (const place of PLACES) {
       expect({
@@ -189,7 +185,7 @@ describe("sidebarNavSections", () => {
     const sections = sidebarNavSections();
     const library = sections.find((s) => s.id === "library");
     const operations = sections.find((s) => s.id === "operations");
-    expect(library?.items.map((i) => i.id)).toEqual(["artifacts", "routines", "projects"]);
+    expect(library?.items.map((i) => i.id)).toEqual(["routines", "projects"]);
     expect(operations?.items.map((i) => i.id)).toEqual(["agents", "settings"]);
     // The work set belongs to the phone's bar and the draft, not to this footer —
     // and this is the assertion that says so, rather than a filter nobody wrote

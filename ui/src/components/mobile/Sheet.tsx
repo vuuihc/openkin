@@ -30,12 +30,11 @@ import {
  * close, focus into the panel and back to the opener, and the bottom inset
  * re-applied because a `position: fixed` box escapes the shell's `.safe-pad`.
  *
- * It is deliberately not Ionic's `IonModal`. Ionic's modal would bring its own
- * encapsulated styles and its own dismissal choreography; the console's sheets
- * sit inside a themed surface (panel colour, hairlines, the console typeface)
- * and the one thing Ionic would add — swipe-to-dismiss — is written here, in
- * the same pointer vocabulary as the drawer, because the two gestures must
- * feel like one hand.
+ * A stock modal component would bring its own encapsulated styles and its own
+ * dismissal choreography; the console's sheets sit inside a themed surface
+ * (panel colour, hairlines, the console typeface), and swipe-to-dismiss is
+ * written here in the same pointer vocabulary as the drawer, because the two
+ * gestures must feel like one hand.
  */
 export type SheetProps = {
   open: boolean;
@@ -48,10 +47,72 @@ export type SheetProps = {
   /** Extra classes on the panel (a wider max-height, a test hook). */
   className?: string;
   bodyClassName?: string;
+  /**
+   * Render at every width, not only below the phone breakpoint.
+   *
+   * A tablet in landscape runs the desktop layout but still has no mouse:
+   * the sidebar's project row keeps its `⋯` there, and the layer it opens is
+   * this sheet. At ≥768px the panel is capped and centred rather than
+   * stretched, and the breakpoint listener that normally closes it does not
+   * run.
+   */
+  anyWidth?: boolean;
 };
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/*
+ * Which sheet is on top.
+ *
+ * A sheet can open another sheet: a run-settings row's choice chip does, and
+ * so does any `SheetSelect` inside a sheet. Each instance attaches its own
+ * Escape and Back handlers to the window, so without an order one Escape
+ * closes both layers and one Back pops two history entries. The stack lives
+ * here because the sheets are portaled siblings with no common ancestor that
+ * could own the order.
+ */
+let sheetStack: symbol[] = [];
+const sheetSubscribers = new Set<() => void>();
+
+function publishSheets(): void {
+  for (const notify of sheetSubscribers) notify();
+}
+
+export function subscribeSheets(notify: () => void): () => void {
+  sheetSubscribers.add(notify);
+  return () => sheetSubscribers.delete(notify);
+}
+
+function topSheetId(): symbol | null {
+  return sheetStack[sheetStack.length - 1] ?? null;
+}
+
+/*
+ * A sheet that closes itself gives its history entry back with `history.back()`.
+ * That traversal raises a popstate the sheet below would otherwise read as its
+ * own Back and close too. `programmaticBacks` marks those traversals; the set
+ * makes the same event consumable once even though every open sheet listens for
+ * it. A real Back changes the entry and never comes from here.
+ */
+let programmaticBacks = 0;
+const swallowedBacks = new WeakSet<Event>();
+
+function giveBackHistoryEntry(): void {
+  // Only a sheet that still has another one below it can make that sheet
+  // mistake this traversal for its own Back. Marking the traversal with no
+  // sheet below would leave the flag armed for a later, real Back.
+  if (sheetStack.length > 0) programmaticBacks += 1;
+  window.history.back();
+}
+
+function consumeProgrammaticBack(event: PopStateEvent): boolean {
+  if (swallowedBacks.has(event)) return true;
+  if (programmaticBacks <= 0) return false;
+  programmaticBacks -= 1;
+  swallowedBacks.add(event);
+  return true;
+}
 
 /**
  * A layer that floats above the sheet but is portaled out of it (so the
@@ -79,10 +140,13 @@ export default function Sheet({
   footer,
   className = "",
   bodyClassName = "",
+  anyWidth = false,
 }: SheetProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
+  const [id] = useState(() => Symbol("sheet"));
   const layers = useSyncExternalStore(subscribeLayers, layerCount, () => 0);
+  const sheetOnTop = useSyncExternalStore(subscribeSheets, topSheetId, () => null);
   // The parent re-renders on every keystroke in some sheets (the composer's
   // controls), and an effect that depended on `onClose` would tear down and
   // re-run on each of those — restoring focus to the opener mid-typing.
@@ -271,6 +335,8 @@ export default function Sheet({
 
   useEffect(() => {
     if (!open) return;
+    sheetStack = [...sheetStack, id];
+    publishSheets();
     restoreRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     // A frame, not synchronously: the panel is mounted in this commit, and
@@ -278,7 +344,9 @@ export default function Sheet({
     const focusTimer = window.setTimeout(() => panelRef.current?.focus(), 0);
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        // One Escape, one layer.
+        // One Escape, one layer. A sheet opened from this one is a layer in
+        // front of it: it answers, this one stays.
+        if (topSheetId() !== id) return;
         //
         // This listener is on `window` in the capture phase, so it runs before
         // anything the sheet contains, and several rows open their own
@@ -343,7 +411,13 @@ export default function Sheet({
     const base = (window.history.state ?? {}) as Record<string, unknown>;
     window.history.pushState({ ...base, kinSheet: marker }, "");
     let closedByBack = false;
-    const onPopState = () => {
+    const onPopState = (event: PopStateEvent) => {
+      // The entry this sheet gave back on its own way out is not a Back aimed
+      // at the sheet below it.
+      if (consumeProgrammaticBack(event)) return;
+      // Each open sheet owns one history entry; only the top one spends the
+      // Back that just arrived.
+      if (topSheetId() !== id) return;
       if (dismissTopLayer()) {
         // The layer is gone but the sheet stayed; put the entry back so the
         // next Back still has something to close.
@@ -362,11 +436,15 @@ export default function Sheet({
     const onMediaChange = () => {
       if (media?.matches) onCloseRef.current();
     };
-    if (typeof window.matchMedia === "function") {
+    // A sheet that asked to live at every width is visible at ≥768px, so the
+    // breakpoint is not a reason to close it.
+    if (!anyWidth && typeof window.matchMedia === "function") {
       media = window.matchMedia("(min-width: 768px)");
       media.addEventListener?.("change", onMediaChange);
     }
     return () => {
+      sheetStack = sheetStack.filter((entry) => entry !== id);
+      publishSheets();
       window.clearTimeout(focusTimer);
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("popstate", onPopState);
@@ -374,11 +452,11 @@ export default function Sheet({
       // meaning "leave this page" instead of walking through a sheet the
       // reader already put away. Closed-by-Back already consumed it.
       const current = window.history.state as { kinSheet?: string } | null;
-      if (!closedByBack && current?.kinSheet === marker) window.history.back();
+      if (!closedByBack && current?.kinSheet === marker) giveBackHistoryEntry();
       media?.removeEventListener?.("change", onMediaChange);
       restoreRef.current?.focus?.({ preventScroll: true });
     };
-  }, [open]);
+  }, [open, anyWidth, id]);
 
   if (!open) return null;
 
@@ -386,7 +464,13 @@ export default function Sheet({
   const scrimOpacity = dragY > 0 ? Math.max(0, 1 - dragY / panelHeight) : undefined;
 
   return createPortal(
-    <div data-kin-sheet className="fixed inset-0 z-50 flex flex-col justify-end md:hidden">
+    <div
+      data-kin-sheet
+      className={[
+        "fixed inset-0 z-50 flex flex-col justify-end",
+        anyWidth ? "" : "md:hidden",
+      ].join(" ")}
+    >
       <button
         type="button"
         tabIndex={-1}
@@ -403,7 +487,7 @@ export default function Sheet({
         role="dialog"
         // A portaled layer is not in this subtree; claiming `aria-modal` while
         // it is up would tell a screen reader the layer does not exist.
-        aria-modal={layers > 0 ? undefined : true}
+        aria-modal={layers > 0 || sheetOnTop !== id ? undefined : true}
         aria-label={title}
         tabIndex={-1}
         onPointerDown={onPointerDown}
@@ -414,6 +498,9 @@ export default function Sheet({
           "kin-sheet-surface relative z-10 flex max-h-[85dvh] flex-col rounded-t-2xl outline-none",
           gestureDriven ? "" : "kin-sheet-enter",
           "pb-[max(1rem,env(safe-area-inset-bottom))]",
+          anyWidth
+            ? "md:mx-auto md:mb-6 md:w-[min(28rem,calc(100vw-2rem))] md:self-center md:rounded-2xl"
+            : "",
           className,
         ].join(" ")}
         style={{

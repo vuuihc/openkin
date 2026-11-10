@@ -25,6 +25,8 @@
 
 ## 3. 盘点（2026-11-10）
 
+R0a 测量（做减法之前）：
+
 | 指标 | 数值 |
 |---|---:|
 | 非测试 `.tsx` | 98 |
@@ -36,6 +38,12 @@
 | `role="menu"` | 7 处 / 6 文件 |
 | Ionic | 4 文件 / 3 个 `IonActionSheet` |
 | 页面总行数 | 11,655；>900 行的 4 个：TaskDetail 2,269 / Settings 1,596 / Sessions 1,443 / Routines 1,366 |
+
+R0b-1 之后复测（同一脚本）：非测试 `.tsx` **95**；裸 `<button>` **309 / 70 文件**；
+`components/ui/` **4**（新增 `ActionSheet`）；`<input>` **57 / 25**；**Ionic 0**；
+页面总行数 **10,924**，最大的仍是 TaskDetail 2,254 / Settings 1,596 / Sessions 1,443 /
+Routines 1,366（另有 Agents 921）。删除的页面：`/design`、`/artifacts`、`/artifacts/:id`；
+删除的死组件：`AgentModelPicker.tsx`（151 行）。
 
 注意：`2026-11-08-design-system-middle-layer.md` §2 里是 2026-11-08 的旧数字（311 / 61 / 27 个原生 select）。R0 用 2026-11-10 的新数字，并注明测量日期，不要手抄旧表。
 
@@ -118,16 +126,15 @@ R0 的主评审物是 **`2026-11-10-ui-surface-audit.review.html`**，不是下�
 
 1. `/design`：删路由、页面、import；删 `tokens.test.ts` 里只服务于画廊的断言；更新 `colors.ts` / `type.ts` / `theme.css` 中提到 `/design` 的注释。
 2. `/artifacts` + `/artifacts/:id`：删路由、两个页面、入口；删聊天消息上的「保存产物」和 `TaskDetailPage` 的 `onSaveArtifact`；删项目详情里的相关产物区块；删只被这些面使用的 API helper、i18n 键和测试。
-3. `/projects` 列表：删 `ProjectsPage`、路由、`PLACES` 的 `projects` 行；项目仍从侧栏项目行的「打开封面」创建；`ProjectDetailPage` 的冷启动返回落到 `/sessions`；删 `AppShell` 里 `/projects` 的标题分支。
-4. Ionic 清尾：`main.tsx`、`Sidebar.tsx`、`SheetSelect.tsx`、`TaskDetailPage.tsx` 里的 `@ionic/react`；3 个 `IonActionSheet` 用现有 `Sheet` / `Menu` 替掉；删 `@ionic/core` / `@ionic/react`。
-5. 确认 `AgentModelPicker.tsx` 无引用后删除。
-6. 文档同步：`IA.md`、`stories/PLAN.md`、`docs/product/components/README.md`（如删共享控件）、本文件 §11；重跑 `python3 scripts/ui_inventory.py`，把前后数字写进本文件。
+3. Ionic 清尾：`main.tsx`、`Sidebar.tsx`、`SheetSelect.tsx`、`TaskDetailPage.tsx` 里的 `@ionic/react`；3 个 `IonActionSheet` 收敛成一个 `components/ui/ActionSheet`（基于现有 `Sheet`）；删 `@ionic/core` / `@ionic/react`。`Sheet` 同时补两件事：`anyWidth`（宽屏粗指针平板上仍显示）和嵌套层栈（一个 Esc / Back 只关最上面一层）。
+4. 确认 `AgentModelPicker.tsx` 无引用后删除。
+5. 文档同步：`IA.md`、`stories/PLAN.md`、`docs/product/components/README.md`（如删共享控件）、本文件 §11；重跑 `python3 scripts/ui_inventory.py`，把前后数字写进本文件。
 
 ### R0b-2 · 对话列表合并 + 收件箱替代
 
 这一轮改变用户流程，**先补签字页再动代码**：
 
-1. `/sessions` 合并：手机 `SessionsPage` 与 Mac `Sidebar` 的列表收敛到一套数据、搜索、过滤、行操作和 UI 原语；宽度只决定壳（侧栏 / 整页），不再决定功能。
+1. `/sessions` 合并：手机 `SessionsPage` 与 Mac `Sidebar` 的列表收敛到一套数据、搜索、过滤、行操作和 UI 原语；宽度只决定壳（侧栏 / 整页），不再决定功能。同时删 `/projects` 列表和手机 dock 的「项目」tab，项目收进对话列表；`ProjectDetailPage` 的冷启动返回落到 `/sessions`。
 2. `/inbox` 删除：待批准在对话行上以 icon 提示；通知落到那一行；删 `ApprovalsPage`、`inboxFocus` 及其测试和 i18n。先补上 icon + 通知落点，再删页。
 3. `/tasks/:id`：删顶部 `SessionTabs` 和手机 `SessionSwitcherSheet` / header 按钮；删 `PullRequestPanel` 和入口；保留 `TaskSessionHost` 的会话保活。
 4. `/agent-sessions/:id`：导入会话在列表里默认收起，行样式与原生会话一致，去掉彩色 rail / 可用性徽标等特殊标记；详情页头部也收敛到原生对话的样式。
@@ -175,14 +182,14 @@ R0 的主评审物是 **`2026-11-10-ui-surface-audit.review.html`**，不是下�
 | 项 | 状态 | 证据 |
 |---|---|---|
 | R0a 只读审计 | ✅ 已签字 2026-11-10 | 13 行决策：2 保留 / 3 合并 / 4 删除 / 4 补故事；评审页 `2026-11-10-ui-surface-audit.review.html`（截图缺失时看 `.review.local.html`） |
-| R0b-1 只做减法 | 🟡 进行中 | `/design`、`/artifacts`、`/projects` 列表、Ionic、`AgentModelPicker` |
+| R0b-1 只做减法 | ✅ 已完成 | `/design`、`/artifacts` + 详情已删；`ActionSheet` 取代 3 个 `IonActionSheet`，`@ionic/*` 移除；`AgentModelPicker` 已删；`check.sh` / build / smoke 全绿；390 截图存 `.playwright-mcp/r0/page/`（ignored）。嵌套 sheet 的一次 Esc / Back 只关一层，已用真实界面复验 |
 | R0b-2 列表合并 + 收件箱替代 | ⚪ 未开始 | 等 R0b-1；先补签字页 |
 | R0b-3 设置收口 | ⚪ 未开始 | 等 R0b-2 |
 | 4 条故事 | ⚪ 未开始 | 只写合同，不写代码 |
 
 ## 12. 下一会话
 
-R0a 已签字（2026-11-10）。当前从 **R0b-1** 开始：只删 `/design`、`/artifacts` + 详情、`/projects` 列表，清 Ionic 和 `AgentModelPicker`，不新增交互。R0b-2 的 `/sessions` 合并、`/inbox` 删除、顶部切换 / PR 面板移除和导入会话样式必须先有签字页；R0b-3 的设置收口单独一轮。四条「补故事」的面只写合同，不写代码。
+R0a 已签字（2026-11-10），**R0b-1 已完成并落地**：`/design`、`/artifacts` + 详情、`AgentModelPicker` 删除；Ionic 换成 `components/ui/ActionSheet` + 现有 `Sheet`，`@ionic/*` 依赖移除。下一轮是 **R0b-2**：`/sessions` 合并、`/inbox` 删除、顶部切换 / PR 面板移除、导入会话样式、`/projects` 列表收口；这些改变用户流程，动代码前必须先有签字页。R0b-3 的设置收口单独一轮。四条「补故事」的面只写合同，不写代码。
 
 ## 13. 阅读顺序
 

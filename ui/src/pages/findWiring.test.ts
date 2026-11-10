@@ -10,9 +10,9 @@ import { describe, expect, it } from "vitest";
  * matching in `findInTranscript.test.ts`. What is left is the wiring: the sheet
  * row that opens it and the order in which the two surfaces take focus. Drop
  * the row and the phone has no find at all (no Cmd+F on a phone); open the bar
- * from the row's own handler and Ionic, which keeps keyboard focus inside the
- * action sheet until it is removed, leaves a focused-looking field that never
- * raises a keyboard. Neither failure shows up anywhere else.
+ * from the row's own handler and the sheet's cleanup returns focus to the
+ * opener after the bar has focused its field, leaving a focused-looking input
+ * that never raises a keyboard. Neither failure shows up anywhere else.
  *
  * Source rather than DOM, like `sessionSearchWiring.test.ts`: mounting this
  * page needs a daemon, a machine list and two live subscriptions.
@@ -30,9 +30,9 @@ describe("the phone's way into find-in-conversation", () => {
   });
 
   it("opens the bar on dismissal, not on the tap", () => {
-    // The row leaves a note; the sheet's `onDidDismiss` reads it. Calling
-    // `setFindOpen(true)` in the row's handler would focus the field while the
-    // overlay still owns focus.
+    // The row leaves a note; an effect that runs after the sheet has unmounted
+    // reads it. Calling `setFindOpen(true)` in the row's handler would focus
+    // the field while the overlay still owns focus.
     expect(SOURCE).toContain("openFindAfterSheet.current = true");
     expect(SOURCE).toContain("openFindAfterSheet.current = false");
   });

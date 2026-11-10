@@ -1,5 +1,3 @@
-import { IonActionSheet } from "@ionic/react";
-import type { ActionSheetButton } from "@ionic/core";
 import {
   useEffect,
   useRef,
@@ -13,6 +11,7 @@ import { isImeKeyEvent } from "../../lib/ime";
 import { useAnchoredPanel } from "../../hooks/useAnchoredPanel";
 import { useMinWidth } from "../../hooks/useMinWidth";
 import { IconCheck, IconChevronDown } from "../icons";
+import ActionSheet from "./ActionSheet";
 
 export type SheetOption = {
   id: string;
@@ -51,9 +50,9 @@ type Props = {
  *
  * A native `<select>` on iOS opens a wheel that belongs to the system, not to
  * the console, and its closed state is a grey box that ignores the design
- * tokens. The phone therefore gets Ionic's action sheet — the interaction the
- * platform would draw, themed by the console, with the safe area and the
- * touch-target size already right.
+ * tokens. The phone therefore gets the console's action sheet — the bottom
+ * layer the rest of the phone UI already uses, with the safe area and the
+ * touch-target size built in.
  *
  * A Mac is not a phone: the same chip used to open that sheet in the middle of
  * a desktop window, over the composer it was configuring. Above the breakpoint
@@ -134,23 +133,8 @@ function ActionSheetSelect({
   bordered = true,
   className,
 }: Props) {
-  const tr = useT();
   const [open, setOpen] = useState(false);
   const current = labelOf({ value, options, display, placeholder });
-
-  const buttons: ActionSheetButton[] = [
-    ...options.map((option) => ({
-      text: option.label,
-      role: option.destructive ? ("destructive" as const) : undefined,
-      cssClass: option.id === value ? "kin-sheet-selected" : undefined,
-      // Ionic only marks a selected row for radio-style buttons, and those
-      // keep the sheet open after a tap. This is a plain button that closes
-      // the sheet, so the current value is named for assistive tech instead.
-      htmlAttributes: option.id === value ? { "aria-current": "true" } : undefined,
-      handler: () => onChange(option.id),
-    })),
-    { text: tr("common.cancel"), role: "cancel" },
-  ];
 
   return (
     <>
@@ -164,12 +148,17 @@ function ActionSheetSelect({
         className={className}
         onClick={() => setOpen(true)}
       />
-      <IonActionSheet
-        isOpen={open}
-        onDidDismiss={() => setOpen(false)}
-        header={label}
-        cssClass="kin-sheet"
-        buttons={buttons}
+      <ActionSheet
+        open={open}
+        onClose={() => setOpen(false)}
+        title={label}
+        rows={options.map((option) => ({
+          id: option.id,
+          label: option.label,
+          destructive: option.destructive,
+          selected: option.id === value,
+          onSelect: () => onChange(option.id),
+        }))}
       />
     </>
   );

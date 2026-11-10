@@ -120,9 +120,7 @@ export default function AppShell({
   const listTitle = !desktop
     ? pathname === "/agents"
       ? tr("nav.agents")
-      : pathname === "/artifacts"
-        ? tr("nav.artifacts")
-        : pathname === "/projects"
+      : pathname === "/projects"
           ? tr("nav.projects")
           : pathname === "/routines"
             ? tr("nav.routines")
@@ -162,18 +160,14 @@ export default function AppShell({
    * Screens that ship their own header (back button + the real title).
    *
    * The prototype gives every phone screen exactly one nav bar. These three put
-   * theirs inside the page — a session's or an artifact's title is not knowable
-   * from the route — so the shell header would be a second bar saying nothing
-   * ("Kin") and eating 48px above the one bar that matters. Back is the way out
-   * of a detail screen, which is what iOS does too. `/artifacts` (the library)
-   * is a list, not a detail screen, and keeps the shell bar; `/projects/:id` is
-   * a scrolling page whose back link sits in its own content flow, so it keeps
-   * the bar too.
+   * theirs inside the page — a session's title is not knowable from the route —
+   * so the shell header would be a second bar saying nothing ("Kin") and eating
+   * 48px above the one bar that matters. Back is the way out of a detail
+   * screen, which is what iOS does too. `/projects/:id` is a scrolling page
+   * whose back link sits in its own content flow, so it keeps the bar.
    */
   const detailRoute =
-    selectedTaskId !== null ||
-    location.pathname.startsWith("/agent-sessions/") ||
-    location.pathname.startsWith("/artifacts/");
+    selectedTaskId !== null || location.pathname.startsWith("/agent-sessions/");
 
   /** Detail routes whose page renders `MobileHeader` (and its own top inset). */
   const pageOwnsTopInset = selectedTaskId !== null;
@@ -181,9 +175,7 @@ export default function AppShell({
   /**
    * The routes that pin a composer to the bottom and mark it with
    * `data-kin-bottom-chrome`: a conversation, the draft, and an agent session's
-   * continue box. The artifact viewer is a detail route too but pins nothing,
-   * so the card keeps its own offset there rather than waiting for a band that
-   * will never be drawn.
+   * continue box.
    */
   const measuredBottomBand =
     selectedTaskId !== null || draftActive || location.pathname.startsWith("/agent-sessions/");

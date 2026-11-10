@@ -3,14 +3,13 @@
  * that are decisions rather than measurements.
  *
  * This module exists because the same three facts have to be known in two
- * places — `pages/DesignSystemPage.tsx` renders every token, and
- * `design/tokens.test.ts` refuses to let one exist unrendered or unmeasured.
- * The page's list *was* the test's expectation before S4; the pairings are new,
+ * places — the inventory names every token, and `design/tokens.test.ts`
+ * refuses to let one exist unmeasured or unpaired. The pairings are decisions,
  * and a pairing is exactly the kind of thing that goes stale when it is copied.
  *
  * Nothing here holds a value. `design/theme.css` is the only file in the console
- * with a colour in it; these are names, and the page renders them by asking the
- * browser what they resolved to.
+ * with a colour in it; these are names, and the guards below keep the
+ * inventory complete without a gallery page.
  */
 
 /**

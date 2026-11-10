@@ -72,7 +72,7 @@ import {
   IconTrash,
   IconX,
 } from "../icons";
-import { IonActionSheet } from "@ionic/react";
+import ActionSheet from "../ui/ActionSheet";
 
 type Props = {
   tasks: Task[];
@@ -888,7 +888,7 @@ export default function Sidebar({
       icon: <IconArchive size={18} />,
       badge: 0,
     },
-    ...["artifacts", "routines", "agents", "settings"].map((id) => {
+    ...["routines", "agents", "settings"].map((id) => {
       const place = placeById(id as PlaceId);
       const Icon = PLACE_ICONS[place.id];
       return {
@@ -1014,22 +1014,23 @@ export default function Sidebar({
         The touch project actions. One sheet serves every project row, so the
         three hover-only desktop controls have a touch home that costs the row
         no width. It is mounted below 768px (the phone shape) and on any coarse
-        pointer, where the desktop layout's hover reveals cannot be reached.
-        `role: "destructive"` is Ionic's, and the console's red ink is what it
-        paints (index.css) — the default is 2.24:1 on this panel.
+        pointer, where the desktop layout's hover reveals cannot be reached;
+        `anyWidth` keeps it visible on a wide touch screen, where the shell
+        draws the desktop layout but the row still carries its `⋯`.
       */}
       {(!wide || coarse) && (
-        <IonActionSheet
-          isOpen={projectMenu !== null}
-          onDidDismiss={() => setProjectMenu(null)}
-          header={projectMenu?.group.label}
-          cssClass="kin-sheet kin-sheet-named"
-          buttons={
+        <ActionSheet
+          open={projectMenu !== null}
+          onClose={() => setProjectMenu(null)}
+          title={projectMenu?.group.label}
+          anyWidth={wide && coarse}
+          rows={
             projectMenu
               ? [
                   {
-                    text: tr("nav.newSessionIn", { project: projectMenu.group.label }),
-                    handler: () => {
+                    id: "new-session",
+                    label: tr("nav.newSessionIn", { project: projectMenu.group.label }),
+                    onSelect: () => {
                       if (projectMenu.mode === "archived") unarchiveProject(projectMenu.group.cwd);
                       touchProject(projectMenu.group.cwd);
                       if (onNewSessionInProject) onNewSessionInProject(projectMenu.group.cwd);
@@ -1040,16 +1041,18 @@ export default function Sidebar({
                   ...(projectMenu.mode === "active"
                     ? [
                         {
-                          text: projectMenu.group.pinned
+                          id: "pin",
+                          label: projectMenu.group.pinned
                             ? tr("nav.unpinProject")
                             : tr("nav.pinProject"),
-                          handler: () => toggleProjectPinned(projectMenu.group.cwd),
+                          onSelect: () => toggleProjectPinned(projectMenu.group.cwd),
                         },
                       ]
                     : []),
                   {
-                    text: tr("nav.openCover"),
-                    handler: () => {
+                    id: "cover",
+                    label: tr("nav.openCover"),
+                    onSelect: () => {
                       void ensureProject({
                         path: projectMenu.group.cwd,
                         name: projectMenu.group.label,
@@ -1065,17 +1068,17 @@ export default function Sidebar({
                     },
                   },
                   {
-                    text:
+                    id: "archive",
+                    label:
                       projectMenu.mode === "archived"
                         ? tr("nav.unarchiveProject")
                         : tr("nav.archiveProject"),
-                    role: "destructive",
-                    handler: () => {
+                    destructive: true,
+                    onSelect: () => {
                       if (projectMenu.mode === "archived") unarchiveProject(projectMenu.group.cwd);
                       else onArchive(projectMenu.group);
                     },
                   },
-                  { text: tr("common.cancel"), role: "cancel" },
                 ]
               : []
           }

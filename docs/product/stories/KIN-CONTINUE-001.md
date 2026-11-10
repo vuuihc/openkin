@@ -113,7 +113,7 @@ Mac：左边一列和右边主区各有一份同样的对话列表，各有自�
 | 面 | 这一面怎么呈现 | 为什么不同 |
 |---|---|---|
 | Mac | 左边一列是唯一的对话列表（设备 → 项目 → 对话），设备名一直显示；左栏是一整块，导入、归档、设置等是底部一行图标；搜索只在左栏；⌘K 面板里没有对话表格；agent / 模型 / 权限都是贴 chip 的浮层 | 窗口宽，列表和对话可以并排；Mac 上不该出现手机式底部面板 |
-| 手机 | 列表页是唯一的对话列表（设备 → 项目 → 对话），设备名一直显示，点进对话后列表退到上一级；K 面板只有入口（新建、导入、收件箱、归档、产物库、例行任务、Agent 运维、设置）；运行设置是底部面板，选项是盖在面板上的第二层，面板高度不变 | 一屏只能放一件事；底部面板是触屏的正确形态，但选择器不许把它撑高 |
+| 手机 | 列表页是唯一的对话列表（设备 → 项目 → 对话），设备名一直显示，点进对话后列表退到上一级；K 面板只有入口（新建、导入、收件箱、归档、例行任务、Agent 运维、设置）；运行设置是底部面板，选项是盖在面板上的第二层，面板高度不变 | 一屏只能放一件事；底部面板是触屏的正确形态，但选择器不许把它撑高 |
 | 两面 | 切换对话时外壳不动，只有对话区局部更新；骨架屏只在第一次加载时出现 | 整页重绘会闪白，位置也丢了 |
 
 ## 设计
@@ -126,7 +126,7 @@ Mac：左边一列和右边主区各有一份同样的对话列表，各有自�
 
 ## Do not
 
-- Mac 上不许出现 `IonActionSheet`、遮罩、"取消"按钮式的底部面板。
+- Mac 上不许出现底部 action sheet（`data-kin-sheet`）、遮罩、"取消"按钮式的底部面板。
 - 不许保留任何第二份对话列表或第二个列表搜索框（Mac 主区、⌘K、手机 K 面板都算）。
 - 不新增权限模式；不改存储键 `kin_permission_mode`；不改接口取值。
 - 手机上的运行设置面板形态不改，只改里面的选择器：不许内嵌展开撑高面板。
@@ -148,10 +148,10 @@ Mac：左边一列和右边主区各有一份同样的对话列表，各有自�
 | 接线 | `ui/src/pages/sessionPinnedWiring.test.ts`（新建） | Given 置顶区渲染 When 行上带设备名 Then 无障碍名字也带上它，不只画一个图标 |
 | 组件 | `ui/src/components/layout/Sidebar.dom.test.tsx`（新建） | Given Mac 宽度 When 渲染外壳 Then 文档里只有一个列表搜索框，且列表是三级；底部图标的徽标数进入无障碍名字；导入是普通按钮的展开区（Esc 关闭并还焦点），不是 `role="menu"` |
 | 组件 | `ui/src/pages/SessionsPage.dom.test.tsx`（新建） | Given Mac 宽度 When 打开 `/sessions` Then 渲染新建页而不是列表；Given `/sessions?scope=archived` When Mac 宽度 Then 仍是新建页，归档由左栏展开归档区呈现，主区不出现第二份列表和搜索框；Given 手机宽度 When 打开 K 面板 Then 文档里没有对话条目和搜索框 |
-| 组件 | `ui/src/components/chat/PermissionModePicker.dom.test.tsx`（新建） | Given `matchMedia('(min-width: 768px)')` 为真 When 点权限 chip Then 出现 `role="menu"`（`fixed` 定位、portal 到 body，不被输入框那一行的滚动容器裁切），文档里没有 `ion-action-sheet`；点一项 Then `onChange` 恰好一次、菜单关闭、焦点回 chip；When 按 Esc Then 不调用 `onChange`；Given 手机宽度 Then 仍是底部面板 |
+| 组件 | `ui/src/components/chat/PermissionModePicker.dom.test.tsx`（新建） | Given `matchMedia('(min-width: 768px)')` 为真 When 点权限 chip Then 出现 `role="menu"`（`fixed` 定位、portal 到 body，不被输入框那一行的滚动容器裁切），文档里没有 `data-kin-sheet`；点一项 Then `onChange` 恰好一次、菜单关闭、焦点回 chip；When 按 Esc Then 不调用 `onChange`；Given 手机宽度 Then 出现 `data-kin-sheet` 底部面板 |
 | 组件 | `ui/src/components/chat/ModelPicker.dom.test.tsx`（已有，扩充） | Given 桌面宽度 When 打开模型 Then 面板有分组且键盘可选；Given 手机宽度 Then 走运行设置面板 |
 | 组件 | `ui/src/components/chat/RunConfigSheet.dom.test.tsx`（已有，扩充） | Given 手机 When 点模型 / agent / 权限任一行 Then 选项出现在盖住面板的第二层（`fixed` 定位、portal 出面板的滚动容器，顶部不被裁掉），焦点进入第二层，面板高度不变、下面的行位置不变；Tab 不出面板加第二层；系统返回先关第二层、再关面板，面板自己关闭时把历史条目还回去；选完第二层关闭、面板还在，值显示在底栏；文档里没有 `<select>` |
-| 组件 | `ui/src/components/ui/SheetSelect.dom.test.tsx`（新建） | Given Mac 宽度 When 点角色这类小选择器 Then 打开贴按钮的 `role="menu"`，文档里没有 `ion-action-sheet`，当前项打勾并先接焦点；选完关闭并还焦点；Esc 关闭且不改值；Given 手机宽度 Then 仍是底部面板 |
+| 组件 | `ui/src/components/ui/SheetSelect.dom.test.tsx`（新建） | Given Mac 宽度 When 点角色这类小选择器 Then 打开贴按钮的 `role="menu"`，文档里没有 `data-kin-sheet`，当前项打勾并先接焦点；选完关闭并还焦点；Esc 关闭且不改值；Given 手机宽度 Then 出现 `data-kin-sheet` 底部面板 |
 | 组件 | `ui/src/components/ui/SearchSelect.dom.test.tsx`（已有，扩充） | Given 带分组的目录 When 打开列表 Then 每个选项都在以自己标题命名的 `role="group"` 里（没有标题的行也在列表自己的分组里），标题只作视觉 |
 | 组件 | `ui/src/pages/phoneRunConfigFace.test.ts`（已有，回归） | Given 两个宽度 When 渲染 Then 同一时刻只有一份运行设置控件 |
 | 组件 | `ui/src/components/CommandPalette.dom.test.tsx`（新建） | Given ⌘K When 打开并输入 When 停顿超过防抖 Then 只有操作和去处，没有对话行、没有消息搜索，也不请求任务表和消息接口（项目名沿用已加载的列表） |

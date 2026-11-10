@@ -117,8 +117,6 @@ type Props = {
   actionsBusy?: boolean;
   onRetry?: (fromSeq: number) => void;
   onFork?: (fromSeq: number) => void;
-  /** Save assistant message body as an artifact. */
-  onSaveArtifact?: (text: string) => void;
   /** Open a workspace path in the Files panel (from tool rows). */
   onOpenPath?: (path: string) => void;
   /**
@@ -160,7 +158,6 @@ export default function ChatStream({
   actionsBusy = false,
   onRetry,
   onFork,
-  onSaveArtifact,
   onOpenPath,
   findOpen: findOpenProp,
   onFindOpenChange,
@@ -480,7 +477,6 @@ export default function ChatStream({
             actionsBusy={actionsBusy}
             onRetry={onRetry}
             onFork={onFork}
-            onSaveArtifact={onSaveArtifact}
             onOpenPath={onOpenPath}
             activeFindKey={activeFindKey}
             selectionMode={sharing}
@@ -622,7 +618,6 @@ function AgentTurn({
   actionsBusy = false,
   onRetry,
   onFork,
-  onSaveArtifact,
   onOpenPath,
   activeFindKey,
   selectionMode = false,
@@ -647,7 +642,6 @@ function AgentTurn({
   actionsBusy?: boolean;
   onRetry?: (fromSeq: number) => void;
   onFork?: (fromSeq: number) => void;
-  onSaveArtifact?: (text: string) => void;
   onOpenPath?: (path: string) => void;
   /** The message the find bar is pointing at, if any. */
   activeFindKey?: string | null;
@@ -697,7 +691,6 @@ function AgentTurn({
                   actionsBusy={actionsBusy}
                   onRetry={onRetry}
                   onFork={onFork}
-                  onSaveArtifact={onSaveArtifact}
                   activeFindKey={activeFindKey}
                   selectionMode={selectionMode}
                   selected={selectedKeys.has(item.key)}
@@ -761,7 +754,6 @@ export type AssistantMessageItemProps = {
   actionsBusy: boolean;
   onRetry?: (fromSeq: number) => void;
   onFork?: (fromSeq: number) => void;
-  onSaveArtifact?: (text: string) => void;
   /** See ChatStream's find bar; the active hit is the one drawn with a ring. */
   activeFindKey?: string | null;
   selectionMode: boolean;
@@ -778,7 +770,6 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
   actionsBusy,
   onRetry,
   onFork,
-  onSaveArtifact,
   activeFindKey,
   selectionMode,
   selected,
@@ -787,7 +778,6 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
   onShareMessage,
 }: AssistantMessageItemProps) {
   const tr = useT();
-  const canSave = !!onSaveArtifact && !item.partial && item.text.trim().length > 0;
   const canRetryFork = showMessageActions && !item.partial && typeof item.seq === "number";
   const canCopy = !item.partial && item.text.trim().length > 0;
   // The store is module-level, so the key must name the task as well as the
@@ -803,7 +793,7 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
         item.key === activeFindKey ? "ring-2 ring-kin-blue/45" : "",
         selectionMode && selected ? "ring-1 ring-kin-blue/40 bg-kin-blue/15 p-2 -m-2" : "",
       ].join(" ")}
-      {...((canRetryFork || canSave || canCopy) && !selectionMode
+      {...((canRetryFork || canCopy) && !selectionMode
         ? {
             // Touch has no hover, so the actions rest hidden and a tap on the
             // body reveals them (one message at a time). A tap on a control
@@ -829,7 +819,7 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
         />
       )}
       <MessageBody text={item.text} partial={item.partial} />
-      {(canRetryFork || canSave || canCopy) && (
+      {(canRetryFork || canCopy) && (
         <div
           className={[
             // `sm:` is the desktop cut: hover exists there, so the row hides
@@ -890,17 +880,6 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
               </button>
             </>
           )}
-          {canSave && (
-            <button
-              type="button"
-              disabled={actionsBusy}
-              title={tr("task.saveArtifactTitle")}
-              onClick={() => onSaveArtifact?.(item.text)}
-              className="px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill disabled:opacity-40"
-            >
-              {tr("task.saveArtifact")}
-            </button>
-          )}
         </div>
       )}
     </div>
@@ -920,8 +899,7 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
  * render but their behaviour does not drift with it, and comparing them would
  * defeat the memo for the 99 messages that did not change. The one callback
  * that closes over state — selection — is covered by `selectedKeys`, which is
- * a prop of the turn and changes with it. `onSaveArtifact` is the exception:
- * its presence, not its identity, decides whether the save button exists.
+ * a prop of the turn and changes with it.
  *
  * A bailed-out row keeps the handler it rendered with, so a handler that has
  * to see current state reads it from a ref rather than its closure: the save
@@ -943,8 +921,7 @@ export function sameMessage(a: AssistantMessageItemProps, b: AssistantMessageIte
     a.actionsBusy === b.actionsBusy &&
     a.activeFindKey === b.activeFindKey &&
     a.selectionMode === b.selectionMode &&
-    a.selected === b.selected &&
-    !!a.onSaveArtifact === !!b.onSaveArtifact
+    a.selected === b.selected
   );
 }
 
