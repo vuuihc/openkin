@@ -346,13 +346,39 @@ Scope notes:
 - End with a clean working tree when all visible files are in scope. Otherwise,
   list every intentional uncommitted or ignored exception.
 
+## Estimation
+
+Estimate work in units an agent can verify, never in days or weeks. This is an
+agent-era rule, not a style preference: with agents, the work is bounded by
+decisions and verification, not by typing speed. A wall-clock estimate hides
+the variables that actually decide the outcome — open decisions, review
+rounds, and rework.
+
+| Quote this | Not this |
+|---|---|
+| Files touched and net lines, source and tests counted separately | "about two days" |
+| Test cases added or changed, and the suites that must be re-run | "a week or so" |
+| Independently verifiable behaviors (one per acceptance row) | "two weeks to finish" |
+| Blocking unknowns, each named with the answer that unblocks it | "medium risk" |
+| Measured product deltas where they apply (CSS/JS bytes, page count, control count) | "a fair amount of work" |
+
+- **Measure before estimating.** When a baseline exists — `git diff --stat`,
+  the test suite, `scripts/ui_inventory.py`, the last build's byte counts —
+  quote the measurement instead of predicting. If there is no baseline, say so.
+- **Count the unknowns as gates.** Three open questions are three decisions,
+  not "a day of work"; each one is a chance for the estimate to be wrong.
+- **Report the actuals after the round.** The next estimate is only credible if
+  the plan doc records what the last one actually cost in files, lines and
+  tests.
+
 ## Round-based goals (no marathon sessions)
 
 A plan doc is executed in **rounds, one session per round** — never as a single
 multi-day `/goal` session. Marathon sessions produce giant transcripts (a
 crashed session mid-turn: the 2026-11-05 ACP OOM), invisible progress, and
 hours of work lost at once. A round is a G-cluster from the plan's goal
-section (e.g. G8/G9, G17, G3) sized to a 1–3 hour session.
+section (e.g. G8/G9, G17, G3), sized by the units in **Estimation** (files,
+lines, tests, open decisions), not by hours.
 
 - **One round = one session = one reviewable landing.** The session runs the
   full Feature completion gate for its slice: check → red-verify → review →
