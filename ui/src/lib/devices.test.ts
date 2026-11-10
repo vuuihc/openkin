@@ -20,6 +20,7 @@ import {
   remoteMachine,
   repoAnswerFor,
   rootRowsVisible,
+  samePath,
 } from "./devices";
 
 function agent(over: Partial<AgentInfo> = {}): AgentInfo {
@@ -365,6 +366,19 @@ describe("cwdOnMachine", () => {
     expect(cwdOnMachine("/Users/me/code", undefined)).toBe("/Users/me/code");
     const rootless = machineList([device({ workspace_roots: [] })], SELF, [])[1];
     expect(cwdOnMachine("/Users/me/code", rootless)).toBe("/Users/me/code");
+  });
+});
+
+describe("samePath", () => {
+  it("sees through trailing separators and repeated slashes", () => {
+    expect(samePath("/code/kin", "/code/kin/")).toBe(true);
+    expect(samePath("C:\\code\\kin", "C:/code/kin")).toBe(true);
+  });
+
+  it("keeps siblings and empty names apart", () => {
+    expect(samePath("/code/kin", "/code/kin2")).toBe(false);
+    expect(samePath("", "")).toBe(false);
+    expect(samePath("/code/kin", "")).toBe(false);
   });
 });
 

@@ -42,9 +42,6 @@ routines 的跨设备主路径已按 2026-11-08 的决策落地（见 `## 已修
 
 期望：继续按「routines 属于 Device，Hub 只转发和鉴权」补齐：
 
-- **项目页的 routine 仍写本机**：`ProjectDetailPage` 创建/列出 routine 时不带
-  device，而 project 是 Hub 侧按 cwd 建的记录，节点并不认识它。多设备下这条
-  路径要改成「按 cwd 找机器上的 routine」或收掉。
 - **远程 run 的 task 详情 / transcript 打不开**：节点上的 task 只存在节点库里，
   Hub 没有查询通道；远程 run 的实时更新也不会经 Hub 的 WS 推过来，页面上一条
   运行中的 run 会一直停在旧状态，直到重新加载。
@@ -53,9 +50,8 @@ routines 的跨设备主路径已按 2026-11-08 的决策落地（见 `## 已修
   （待定，报告人）。
 
 线索：`internal/api/routines.go`（大多数操作已带 `device`）、
-`ui/src/pages/ProjectDetailPage.tsx`、`internal/mcp/server.go`、
-`ui/src/pages/RoutinesPage.tsx`（「本机」选项与旧数据的提示）。
-验收：项目页不再写 Hub 库；远程 run 能打开详情并实时更新；旧数据有明确处置。
+`internal/mcp/server.go`、`ui/src/pages/RoutinesPage.tsx`（「本机」选项与旧数据的提示）。
+验收：远程 run 能打开详情并实时更新；旧数据有明确处置。
 
 ### 2026-11-08 · 中 · 侧栏看不出设备 → 项目 → 对话的层级
 
@@ -85,6 +81,7 @@ IA 已经定了对话列表是“设备 → 项目 → 对话”三级（`docs/p
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
 
+- 2026-11-09 · 项目页的 routine 仍写本机 — PR #38（按 cwd 选中拥有该项目目录的机器，列表/创建都发给它；check.sh 全绿）
 - 2026-11-09 · MCP 没有创建 routine 的工具 — PR #37（抽出 `routines.Create` 复用 REST 的校验与默认值；check.sh 全绿）
 - 2026-11-10 · 历史会话从最早 50 条往后翻，最近的内容要翻很久才看得到 — PR #36（尾部优先 + 到顶自动加载；预算 200 条 / 约 1 MiB；check.sh 全绿）
 - 2026-11-08 · 新开会话选不了模型，选择控件各写各的（原生 select 仍在用） — `90fe9232`（PR #35）

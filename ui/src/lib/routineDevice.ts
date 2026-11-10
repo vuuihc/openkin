@@ -1,4 +1,4 @@
-import type { Machine } from "./devices";
+import { pathWithin, type Machine } from "./devices";
 
 const KEY = "kin_routines_device";
 
@@ -42,6 +42,33 @@ export function resolveRoutineDevice(machines: Machine[], saved: string): string
   if (wanted && machines.some((m) => m.id === wanted && !m.isSelf)) return wanted;
   const other = machines.find((m) => !m.isSelf && m.online) ?? machines.find((m) => !m.isSelf);
   return other ? other.id : THIS_MACHINE;
+}
+
+/**
+ * The machine a project's routines live on.
+ *
+ * A project is a Hub-side record keyed by a folder; a routine is a machine
+ * fact stored with the folder it runs in. The machine list is the map between
+ * them — a node reports the directories it works in — so the project's cwd
+ * names its owner. When two nodes report the same folder, the remembered
+ * Routines choice breaks the tie, then an online machine, then list order:
+ * the same preference the Routines page applies.
+ *
+ * No node naming the folder means this machine. A console with no nodes is a
+ * desktop attached to its own daemon, and a project created by path there is a
+ * local record; empty means "this machine" wherever routine requests go.
+ */
+export function routineDeviceForProject(machines: Machine[], cwd: string, saved: string): string {
+  const path = cwd.trim();
+  if (!path) return "";
+  const owners = machines.filter(
+    (m) => !m.isSelf && m.roots.some((root) => pathWithin(root, path)),
+  );
+  if (owners.length === 0) return "";
+  const remembered = owners.find((m) => m.id === saved.trim());
+  if (remembered) return remembered.id;
+  const online = owners.find((m) => m.online);
+  return (online ?? owners[0]).id;
 }
 
 /**

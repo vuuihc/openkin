@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ApiError,
@@ -36,6 +36,13 @@ import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useMachines } from "../hooks/useMachines";
 import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
+import { samePath } from "../lib/devices";
+import {
+  readRoutineDevice,
+  routineDeviceForProject,
+  THIS_MACHINE,
+  writeRoutineDevice,
+} from "../lib/routineDevice";
 import {
   loadProjectChats,
   normalizeProjectTab,
@@ -129,8 +136,19 @@ export default function ProjectDetailPage() {
   const [chatsError, setChatsError] = useState<string | null>(null);
   const [chatsPartial, setChatsPartial] = useState(false);
   const chatsRequest = useRef(0);
-  const { machines } = useMachines();
+  const { machines, loading: machinesLoading } = useMachines();
   const selfDeviceId = (machines.find((machine) => machine.isSelf)?.id ?? "").trim();
+  // Only this project's folder may name its routines. The page component
+  // outlives a route change, so the previous project's roots must not answer
+  // for the new one while its own read is still running.
+  const projectCwd = project && project.id === id ? (projectRoots(project)[0] ?? "") : "";
+  // A routine lives on the machine that owns its folder. The project page has
+  // no machine picker, and the folder is the one fact the Hub-side project and
+  // the machine both know, so the machine list answers for it.
+  const routineDevice = useMemo(
+    () => routineDeviceForProject(machines, projectCwd, readRoutineDevice()),
+    [machines, projectCwd],
+  );
 
   const load = useCallback(async () => {
     if (!isAuthenticated() || !id) return;
@@ -149,13 +167,6 @@ export default function ProjectDetailPage() {
       setArtifacts(arts);
       setPulse(pu);
       setSummary(op.one_pager_summary ?? null);
-
-      try {
-        const rs = await listRoutines({ project_id: id, limit: 50 });
-        setProjectRoutines(rs.routines ?? []);
-      } catch {
-        setProjectRoutines([]);
-      }
       setError(null);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) return;
@@ -173,6 +184,40 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     void load();
   }, [load, reconnectGen]);
+
+  /**
+   * The project's routines, read from the machine that owns its folder.
+   *
+   * A routine belongs to the machine that runs it, while a project is a
+   * Hub-side record keyed by cwd. Asking this daemon (on a phone, the Hub)
+   * lists routines the project does not own and hides the ones it does, so the
+   * request carries the resolved machine and the answer is matched by cwd.
+   * Matching by cwd rather than project id is deliberate: a node never learned
+   * the Hub's project id, and a routine created in this folder from New Chat
+   * has no project id at all.
+   */
+  useEffect(() => {
+    if (!isAuthenticated() || !id || !projectCwd) {
+      setProjectRoutines([]);
+      return;
+    }
+    // Choosing a machine before the list arrives would read this daemon and
+    // then correct itself, which on a phone is the Hub's empty store.
+    if (machinesLoading) return;
+    let stale = false;
+    void (async () => {
+      try {
+        const rs = await listRoutines({ limit: 100 }, routineDevice || undefined);
+        if (stale) return;
+        setProjectRoutines((rs.routines ?? []).filter((r) => samePath(r.cwd, projectCwd)));
+      } catch {
+        if (!stale) setProjectRoutines([]);
+      }
+    })();
+    return () => {
+      stale = true;
+    };
+  }, [id, projectCwd, routineDevice, machinesLoading, reconnectGen]);
 
   /**
    * The project's conversations, read when the tab is first shown.
@@ -345,19 +390,29 @@ export default function ProjectDetailPage() {
     try {
       const nextMs = parseLocalDateTime(routineNextLocal);
       const recurrence = serializeRoutineRule(routineRule, nextMs);
-      const r = await createRoutine({
-        title: routineTitle.trim() || undefined,
-        project_id: id,
-        cwd,
-        prompt,
-        ...(recurrence
-          ? { recurrence }
-          : {
-              interval_secs: routineInterval,
-              ...(nextMs != null ? { next_due_at: nextMs } : {}),
-            }),
-        agent: "kin",
-      });
+      const r = await createRoutine(
+        {
+          title: routineTitle.trim() || undefined,
+          // The Hub's project id means nothing on another machine; there the
+          // routine is tied to the project by the folder it runs in, which this
+          // page matches on.
+          ...(routineDevice ? {} : { project_id: id }),
+          cwd,
+          prompt,
+          ...(recurrence
+            ? { recurrence }
+            : {
+                interval_secs: routineInterval,
+                ...(nextMs != null ? { next_due_at: nextMs } : {}),
+              }),
+          agent: "kin",
+        },
+        routineDevice || undefined,
+      );
+      // The routine was created on that machine, so the Routines page opens
+      // there; otherwise the page would stay on whatever machine it last showed
+      // and the routine just created would be missing from it.
+      writeRoutineDevice(routineDevice || THIS_MACHINE);
       setProjectRoutines((list) => [r, ...list]);
       setShowRoutineModal(false);
       setRoutineTitle("");
