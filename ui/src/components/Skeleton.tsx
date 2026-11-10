@@ -59,29 +59,6 @@ export function TaskTableSkeleton({ count = 6 }: { count?: number }) {
   );
 }
 
-export function ApprovalListSkeleton({ count = 2 }: { count?: number }) {
-  return (
-    <ul className="space-y-4" role="status" aria-label={t("common.loading")}>
-      {Array.from({ length: count }).map((_, i) => (
-        <li key={i} className="rounded-2xl bg-kin-elevated overflow-hidden">
-          <div className="border-b border-kin-hairline-strong px-4 py-3 space-y-2">
-            <SkeletonLine className="h-3 w-24" />
-            <SkeletonLine className="h-5 w-40" />
-          </div>
-          <div className="px-4 py-3 space-y-2">
-            <SkeletonLine className="h-3 w-16" />
-            <SkeletonLine className="h-20 w-full" />
-          </div>
-          <div className="flex gap-3 p-4 pt-0">
-            <SkeletonLine className="h-12 flex-1 rounded-xl" />
-            <SkeletonLine className="h-12 flex-1 rounded-xl" />
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 /** Hint shown when a request has been pending longer than ~10s (slow Funnel/link). */
 export function SlowConnectHint({ show }: { show: boolean }) {
   if (!show) return null;

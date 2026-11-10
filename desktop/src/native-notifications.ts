@@ -129,7 +129,7 @@ export function notifyHasDecisionActions(kind: NotifyKind): boolean {
   return kind === "approval";
 }
 
-const KNOWN_PATHS = new Set(["/", "/inbox", "/routines", "/settings"]);
+const KNOWN_PATHS = new Set(["/", "/sessions", "/routines", "/settings"]);
 const TASK_PATH = /^\/tasks\/[A-Za-z0-9_-]+\/?$/;
 
 /**
@@ -139,10 +139,11 @@ const TASK_PATH = /^\/tasks\/[A-Za-z0-9_-]+\/?$/;
  * even when this shell is served the console from localhost. The shell only
  * ever passes a path to `mainWindow.show`, so the host is dropped rather than
  * compared: whatever origin the link names, only a known console route is
- * opened, and `javascript:`, `file:`, or a third-party path becomes the inbox.
+ * opened, and `javascript:`, `file:`, or a third-party path becomes the
+ * conversation list — whose rows say what is waiting.
  */
 export function safeNotifyPath(url: string, origin?: string): string {
-  if (!url.trim()) return "/inbox";
+  if (!url.trim()) return "/sessions";
   let base: URL | null = null;
   if (origin) {
     try {
@@ -155,12 +156,22 @@ export function safeNotifyPath(url: string, origin?: string): string {
   try {
     parsed = new URL(url, base ?? "http://kin.local");
   } catch {
-    return "/inbox";
+    return "/sessions";
   }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "/inbox";
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "/sessions";
   const path = parsed.pathname;
-  if (!KNOWN_PATHS.has(path) && !TASK_PATH.test(path)) return "/inbox";
+  if (!KNOWN_PATHS.has(path) && !TASK_PATH.test(path)) return "/sessions";
   return path + parsed.search;
+}
+
+/**
+ * Where a waiting approval opens: its conversation, with `focus` naming the
+ * card inside it. Without a task there is no conversation to name, so the list
+ * is the landing — the same rule the node writes into a push link.
+ */
+export function approvalPath(approvalId: string, taskId?: string): string {
+  if (!taskId) return "/sessions";
+  return `/tasks/${encodeURIComponent(taskId)}?focus=${encodeURIComponent(approvalId)}`;
 }
 
 /** A bus message as the shell sees it. */

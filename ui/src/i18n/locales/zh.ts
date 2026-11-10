@@ -11,7 +11,6 @@ const zh = {
   },
   nav: {
     newChat: "新建对话",
-    inbox: "收件箱",
     tasks: "任务",
     projects: "项目",
     agents: "Agents",
@@ -82,6 +81,9 @@ const zh = {
     statusRunning: "运行中",
     statusWaitingApproval: "待审批",
     statusWaitingInput: "待输入",
+    // 行尾标记：待审批 / 待输入落在它所属的那条对话上。也是徽标的可访问名称。
+    // 计数包含两类，所以措辞不点名其中一种。
+    pendingApprovals: "{count} 项待你处理",
     statusSucceeded: "已完成",
     statusFailed: "失败",
     statusCanceled: "已取消",
@@ -420,6 +422,8 @@ const zh = {
     notFound: "任务不存在",
     loadFailed: "加载失败",
     home: "← 首页",
+    // 对话区的可访问名称：通知打开的批准面板按 Esc 后把键盘交回这里。
+    transcript: "对话",
     running: "运行中",
     reconnect: "重连中…",
     statusRunning: "运行中",
@@ -823,22 +827,10 @@ const zh = {
     unavailable: "此节点未配置 GitHub，无法开 Pull Request",
     notHere: "这个会话就跑在这台机器上，没有需要从这里发布的东西",
   },
-  inbox: {
-    title: "收件箱",
-    loading: "加载中…",
-    noneWaiting: "没有待审批项",
-    approvalsSection: "审批",
-    questionsSection: "提问",
-    waiting: "{count} 项待审批",
-    allClear: "全部处理完了",
-    allClearHint: "当 agent 需要权限时，会在这里一键批准或拒绝。",
-    running: "运行中",
-    loadFailed: "加载失败",
+  needsYou: {
     decisionFailed: "操作失败",
     fromWorker: "来自 worker {agent}",
     focused: "已聚焦",
-    focusMissing: "这一条已经不在收件箱里了 —— 可能已经处理过，或者已经过期。",
-    focusShowAll: "看全部",
     execution: "执行 {id}",
     step: "步骤 {n}",
   },
@@ -1065,7 +1057,8 @@ const zh = {
         "通知里的链接只在跟本节点配对过的浏览器里有效；没配对过的浏览器打开会落到连接说明页。每个浏览器是一份独立存储，所以「添加到主屏幕」的图标也要自己配对一次。",
       openPairing: "打开连接二维码",
       landLabel: "通知落点",
-      landHint: "审批和提问都落在收件箱，并且直接滚到你收到的那一条。",
+      landHint: "审批和提问直接打开正在等你的那条对话，并定位到那张卡。",
+      landReady: "就落在对话里，没有单独的页面要进。",
       noBaseUrl:
         "还没设置 UI base URL：通知里的链接是相对路径，手机点开无处可去。在「通知」里填一个。",
       channelLabel: "通知通道",

@@ -58,8 +58,9 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
         // Enter belongs to whatever control the person is standing on. A button
         // or a link activates on Enter, and this listener is on `window`, so
         // `preventDefault` here would cancel that activation and answer the
-        // question instead. Reachable because a link can arm this card from
-        // `/inbox?focus=…`, where the page around it is full of buttons.
+        // question instead. Reachable because a notification arms this card
+        // through `?focus=…`, and the conversation around it is full of
+        // buttons.
         const ownsEnter =
           t instanceof Element && t.closest("button, a[href], select, [role='button']") !== null;
         if (ownsEnter) return;
@@ -96,7 +97,7 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
           </span>
           {focused && (
             <span className="text-micro font-semibold uppercase tracking-label text-kin-blue-ink bg-kin-blue/15 rounded px-1.5 py-0.5">
-              {tr("inbox.focused")}
+              {tr("needsYou.focused")}
             </span>
           )}
           {payload.header ? (

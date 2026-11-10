@@ -48,16 +48,16 @@ export function formatApprovalAttribution(
       : "";
   const parts: string[] = [];
   if (worker) {
-    parts.push(tr("inbox.fromWorker", { agent: worker }));
+    parts.push(tr("needsYou.fromWorker", { agent: worker }));
     if (approval.execution_step && approval.execution_step > 0) {
-      parts.push(tr("inbox.step", { n: approval.execution_step }));
+      parts.push(tr("needsYou.step", { n: approval.execution_step }));
     }
     if (approval.execution_id) {
       const short =
         approval.execution_id.length > 10
           ? `${approval.execution_id.slice(0, 8)}…`
           : approval.execution_id;
-      parts.push(tr("inbox.execution", { id: short }));
+      parts.push(tr("needsYou.execution", { id: short }));
     }
   } else if (approval.task_agent) {
     parts.push(approval.task_agent);

@@ -180,19 +180,25 @@ func (s *Sender) DeepLink(ctx context.Context, path string) string {
 	return base + path
 }
 
-// inboxFocusLink points at the inbox, naming the one item the push is about.
+// pendingLink points at the conversation a waiting item belongs to, naming the
+// item inside it.
 //
-// Approvals and questions both land on the same page, and the id is the whole
-// difference between "something needs you" and "this one needs you": the inbox
-// draws the card it names with a ring, scrolls to it, and says so when the id is
-// no longer there. An empty id falls back to the page itself — `?focus=` with
-// nothing after it is a link that claims to name an item and names nothing, and
-// a plain inbox is the honest thing to send when there is no item to name.
-func (s *Sender) inboxFocusLink(ctx context.Context, id string) string {
-	if id == "" {
-		return s.DeepLink(ctx, "/inbox")
+// Approvals and questions are drawn in their own task's transcript, so the link
+// opens that conversation and `?focus=` tells the console which card stopped
+// the agent; a tap does not take a second hop through a list. A taskless item
+// cannot name a conversation, and the conversation list — where every row
+// carries the same waiting count — is the honest place to send it. An itemless
+// link falls back to the conversation itself: `?focus=` with nothing after it
+// claims to name an item and names nothing.
+func (s *Sender) pendingLink(ctx context.Context, taskID, itemID string) string {
+	if taskID == "" {
+		return s.DeepLink(ctx, "/sessions")
 	}
-	return s.DeepLink(ctx, "/inbox?focus="+url.QueryEscape(id))
+	path := "/tasks/" + url.PathEscape(taskID)
+	if itemID != "" {
+		path += "?focus=" + url.QueryEscape(itemID)
+	}
+	return s.DeepLink(ctx, path)
 }
 
 // NotifyApproval sends an approval_requested notification.
@@ -204,7 +210,7 @@ func (s *Sender) NotifyApproval(ctx context.Context, approvalID, taskID, title s
 	if taskID != "" {
 		body = fmt.Sprintf("Task %s needs approval", shortID(taskID))
 	}
-	link := s.inboxFocusLink(ctx, approvalID)
+	link := s.pendingLink(ctx, taskID, approvalID)
 	s.Send(ctx, Payload{
 		Title: title, Body: body, URL: link,
 		Kind: "approval", ID: approvalID, TaskID: taskID,
@@ -222,7 +228,7 @@ func (s *Sender) NotifyUserQuestion(ctx context.Context, questionID, taskID, tit
 	if taskID != "" {
 		body = fmt.Sprintf("Task %s needs your answer", shortID(taskID))
 	}
-	link := s.inboxFocusLink(ctx, questionID)
+	link := s.pendingLink(ctx, taskID, questionID)
 	s.Send(ctx, Payload{
 		Title: title, Body: body, URL: link,
 		Kind: "question", ID: questionID, TaskID: taskID,
@@ -383,9 +389,9 @@ func (s *Sender) Publish(p Payload) bool {
 // desktop publish is reported by Publish.
 //
 // APNs is best-effort and never the only truth: a device that is offline
-// receives nothing, and the inbox still holds the item. A failed send is
-// recorded on the device row so the settings page can say why this phone did
-// not ring.
+// receives nothing, and the waiting card is still in its conversation, with the
+// list row carrying the count. A failed send is recorded on the device row so
+// the settings page can say why this phone did not ring.
 func (s *Sender) Deliver(ctx context.Context, p Payload) []ChannelResult {
 	if s == nil {
 		return nil

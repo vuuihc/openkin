@@ -28,7 +28,7 @@ describe("reading the task out of a console URL", () => {
   });
 
   it("says nothing for every other surface", () => {
-    assert.equal(taskIdFromURL(`${base}/inbox`), null);
+    assert.equal(taskIdFromURL(`${base}/sessions`), null);
     assert.equal(taskIdFromURL(`${base}/tasks/`), null);
     assert.equal(taskIdFromURL(`${base}/tasks/a/b`), null);
     assert.equal(taskIdFromURL(`${base}/`), null);

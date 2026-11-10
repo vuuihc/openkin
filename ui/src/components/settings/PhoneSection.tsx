@@ -5,10 +5,10 @@ import { SettingsRow, SettingsSection, type SettingsTabId } from "./SettingsPrim
  * "How do I use this from my phone" — the question the console could not answer.
  *
  * Every fact here was already true and none of it was written down anywhere the
- * person holding the phone would look: a push notification links to
- * `<ui.base_url>/inbox?focus=<id>`, that link only works in a browser that has
- * been paired once, and pairing lives on another tab. The failure is silent and
- * looks like a broken feature — the notification opens a page explaining tokens.
+ * person holding the phone would look: a push notification links to the
+ * conversation that is waiting, that link only works in a browser that has been
+ * paired once, and pairing lives on another tab. The failure is silent and looks
+ * like a broken feature — the notification opens a page explaining tokens.
  *
  * Deliberately *not* a second copy of the connection QR. That QR encodes a
  * connect URL carrying a token (`connect_url` is served only to a master
@@ -27,7 +27,6 @@ export function PhoneSection({
   onOpenTab: (tab: SettingsTabId) => void;
 }) {
   const tr = useT();
-  const inboxURL = baseUrl ? `${baseUrl.replace(/\/+$/, "")}/inbox` : "";
 
   const linkButton =
     "min-h-11 sm:min-h-10 rounded-lg border border-[var(--kin-hairline)] px-3 py-2 text-strong font-medium text-kin-secondary hover:bg-[var(--kin-fill)]";
@@ -47,10 +46,13 @@ export function PhoneSection({
         label={tr("settings.phone.landLabel")}
         description={tr("settings.phone.landHint")}
       >
-        {inboxURL ? (
-          <div className="[overflow-wrap:anywhere] font-mono text-body leading-5 text-kin-secondary">
-            {inboxURL}
-          </div>
+        {baseUrl ? (
+          // The landing route names one conversation, so there is no single URL
+          // to print any more; what matters is that a base URL exists, because
+          // without one the push carries a bare path.
+          <span className="text-body leading-5 text-kin-secondary">
+            {tr("settings.phone.landReady")}
+          </span>
         ) : (
           // Not decoration: with no base URL the pushes carry a bare path, which
           // a phone has nothing to open. That is worth saying in the colour the

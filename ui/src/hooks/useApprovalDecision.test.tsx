@@ -5,7 +5,7 @@ import type { Approval } from "../api/client";
 import { useAppStore } from "../store/appStore";
 
 /**
- * Answering an approval, shared by the inbox and the floating card. What is
+ * Answering an approval, shared by the transcript and the floating card. What is
  * pinned is the contract both surfaces depend on: the row goes busy while the
  * daemon is thinking, the answer lands in the shared resource so every list
  * drops it at once, and a failure says so and re-reads instead of pretending.
@@ -82,7 +82,7 @@ describe("useApprovalDecision", () => {
   });
 
   it("sends one answer per approval, however many times it is asked", async () => {
-    // The inbox's keyboard model does not consult `busy`, so a held Enter key
+    // The transcript's keyboard model does not consult `busy`, so a held Enter key
     // can ask twice. The second request would be a 409 — the first decided it —
     // and its toast would report a failure for something that worked.
     let answer: (value: Approval) => void = () => {};

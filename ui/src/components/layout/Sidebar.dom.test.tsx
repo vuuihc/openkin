@@ -65,14 +65,14 @@ function task(id: string, cwd: string, device?: string): Task {
 function sidebar(
   tasks: Task[],
   onImportExternalSessions?: () => void,
-  pendingCount = 0,
+  pendingByTask: ReadonlyMap<string, number> = new Map(),
   onDeleteSession?: (task: Task) => void,
 ) {
   return (
     <MemoryRouter>
       <Sidebar
         tasks={tasks}
-        pendingCount={pendingCount}
+        pendingByTask={pendingByTask}
         mobileOpen={false}
         onOpenMobile={() => {}}
         onCloseMobile={() => {}}
@@ -116,11 +116,15 @@ describe("the Mac sidebar list", () => {
     expect(screen.getByRole("button", { name: /This machine/ })).toBeTruthy();
   });
 
-  it("puts a footer badge into the icon's accessible name", () => {
-    // The number is the point of the badge; a name that stops at "Inbox"
-    // tells a screen reader nothing is waiting while the dot says otherwise.
-    render(sidebar([task("only", "/work/alpha")], undefined, 3));
-    expect(screen.getByRole("link", { name: "Inbox (3)" })).toBeTruthy();
+  it("puts the waiting count on the conversation row that owns it", () => {
+    // The number is the point of the mark; a row name that stopped at the
+    // title would tell a screen reader nothing is waiting while the badge says
+    // otherwise. The row stays one link — the count is not a second target.
+    render(sidebar([task("only", "/work/alpha")], undefined, new Map([["only", 3]])));
+    expect(
+      screen.getByRole("link", { name: "only · 3 waiting for you" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /waiting for you/i })).toBeNull();
   });
 
   it("opens import as a disclosure of plain buttons, not a menu", async () => {
@@ -161,7 +165,7 @@ describe("the Mac sidebar list", () => {
 describe("the sidebar's pointer shapes", () => {
   it("gives a coarse pointer the action sheet instead of hover-only controls", () => {
     viewport(true, "coarse");
-    render(sidebar([task("one", "/work/alpha")], undefined, 0, () => {}));
+    render(sidebar([task("one", "/work/alpha")], undefined, new Map(), () => {}));
 
     expect(screen.queryByRole("button", { name: "One-Pager cover" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Pin project" })).toBeNull();
@@ -177,7 +181,7 @@ describe("the sidebar's pointer shapes", () => {
 
   it("keeps the hover-revealed controls for a mouse at the same width", () => {
     viewport(true, "fine");
-    render(sidebar([task("one", "/work/alpha")], undefined, 0, () => {}));
+    render(sidebar([task("one", "/work/alpha")], undefined, new Map(), () => {}));
 
     expect(screen.getByRole("button", { name: "One-Pager cover" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Pin project" })).toBeTruthy();

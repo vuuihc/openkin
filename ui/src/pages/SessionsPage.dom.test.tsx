@@ -12,8 +12,8 @@ import Sidebar from "../components/layout/Sidebar";
  *
  * On a Mac `/sessions` is the draft, because the sidebar already holds the only
  * conversation list. On a phone the page *is* the list. The K panel is entries
- * only — new chat, import, inbox, archive, routines, agent ops,
- * settings — with no second copy of the list and no second search field.
+ * only — new chat, archive, routines, agent ops, settings — with no
+ * second copy of the list and no second search field.
  */
 
 vi.mock("./NewChatPage", () => ({
@@ -107,7 +107,7 @@ describe("the phone's K panel", () => {
       <MemoryRouter>
         <Sidebar
           tasks={[task]}
-          pendingCount={0}
+          pendingByTask={new Map()}
           mobileOpen
           onOpenMobile={() => {}}
           onCloseMobile={() => {}}
@@ -119,14 +119,7 @@ describe("the phone's K panel", () => {
     expect(screen.queryByRole("searchbox")).toBeNull();
     expect(screen.queryByText("hidden conversation")).toBeNull();
 
-    for (const entry of [
-      "New chat",
-      "Inbox",
-      "Archived",
-      "Routines",
-      "Agent Ops",
-      "Settings",
-    ]) {
+    for (const entry of ["New chat", "Archived", "Routines", "Agent Ops", "Settings"]) {
       expect(screen.getByText(entry), `missing entry: ${entry}`).toBeTruthy();
     }
   });

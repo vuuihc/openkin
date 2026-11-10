@@ -192,7 +192,6 @@ describe("sidebarNavSections", () => {
     // down: the sidebar reaches those destinations through its project list.
     const shown = sections.flatMap((s) => s.items.map((i) => i.id));
     expect(shown).not.toContain("sessions");
-    expect(shown).not.toContain("inbox");
   });
 
   it("gives every group a name and something to put under it", () => {

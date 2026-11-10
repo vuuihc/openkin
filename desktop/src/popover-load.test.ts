@@ -69,7 +69,7 @@ describe("loading the tray popover", () => {
 
   it("reloads when the window is showing another page", () => {
     assert.equal(
-      popoverNeedsLoad(TRAY, state({ currentURL: "http://127.0.0.1:7777/inbox" })),
+      popoverNeedsLoad(TRAY, state({ currentURL: "http://127.0.0.1:7777/sessions" })),
       true,
     );
     assert.equal(

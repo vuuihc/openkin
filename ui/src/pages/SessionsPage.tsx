@@ -9,8 +9,9 @@ import {
   type AgentSession,
   type Task,
 } from "../api/client";
-import { useTaskList } from "../api/useLiveResources";
+import { usePendingResources, useTaskList } from "../api/useLiveResources";
 import { liveResources } from "../api/liveResources";
+import { pendingCountsByTask } from "../lib/pendingCounts";
 import { useMachines } from "../hooks/useMachines";
 import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
 import { formatRelativeTime } from "../lib/relativeTime";
@@ -47,6 +48,7 @@ import {
 import { useLocale, useT } from "../i18n/react";
 import { MobileEmpty, MobileScreen } from "../components/mobile/MobileList";
 import HighlightedText from "../components/HighlightedText";
+import PendingBadge from "../components/ui/PendingBadge";
 import SessionsSearch from "../components/mobile/SessionsSearch";
 import SessionFilters, {
   normalizeScopeFilter,
@@ -145,6 +147,11 @@ export default function SessionsPage() {
   }, [query]);
 
   const taskList = useTaskList(sessionListParams(searchTerm, status));
+  // Waiting approvals and questions belong to a task, so each row says how many
+  // it carries. This is the same pending list the floating card reads; there is
+  // no second inbox and no second poll.
+  const pending = usePendingResources();
+  const pendingByTask = useMemo(() => pendingCountsByTask(pending.data), [pending.data]);
   const { machines, loading: machinesLoading } = useMachines();
   const [sessions, setSessions] = useState<AgentSession[]>([]);
   // Older pages, appended by "load older". They live beside the live list
@@ -497,6 +504,7 @@ export default function SessionsPage() {
         machines={machines}
         now={now}
         viewedIds={viewedIds}
+        pendingByTask={pendingByTask}
         // A search result must not hide behind a fold the user set before
         // they typed; the cap folds away for the same reason.
         collapsed={!searching && collapsed.has(stateKey)}
@@ -1083,6 +1091,7 @@ function ProjectBucket({
   machines,
   now,
   viewedIds,
+  pendingByTask,
   collapsed,
   showAll,
   canToggle,
@@ -1113,6 +1122,8 @@ function ProjectBucket({
   query: string;
   now: number;
   viewedIds: ReadonlySet<string>;
+  /** Waiting approvals and questions per task, for each row's tail. */
+  pendingByTask: ReadonlyMap<string, number>;
   collapsed: boolean;
   showAll: boolean;
   /** False while searching: the list is already showing every match, so a
@@ -1208,6 +1219,7 @@ function ProjectBucket({
               deviceLabel={pinnedRowDeviceName(bucket.key, row, machines)}
               now={now}
               viewedIds={viewedIds}
+              pendingCount={row.task ? (pendingByTask.get(row.task.id) ?? 0) : 0}
               onOpen={() => onOpen(row)}
               selectionMode={selectionMode}
               selectionLocked={selectionLocked}
@@ -1254,6 +1266,7 @@ function SessionRow({
   deviceLabel,
   now,
   viewedIds,
+  pendingCount,
   onOpen,
   selectionMode,
   selectionLocked,
@@ -1277,6 +1290,8 @@ function SessionRow({
   query: string;
   now: number;
   viewedIds: ReadonlySet<string>;
+  /** Approvals and questions waiting on this conversation. */
+  pendingCount: number;
   onOpen: () => void;
   selectionMode: boolean;
   selectionLocked: boolean;
@@ -1310,6 +1325,12 @@ function SessionRow({
     agentDisplayName(row.agentId),
     formatRelativeTime(row.at, now),
     row.task && dot ? tr(taskCardStatusView(row.task.status).labelKey) : "",
+    // The badge's own label is inside the button, and an explicit `aria-label`
+    // wins over that subtree: say the count here too, or a screen reader hears
+    // a name that omits the one thing the orange mark is there to say.
+    pendingCount > 0
+      ? tr("sessions.pendingApprovals", { count: String(pendingCount) })
+      : "",
     row.remote ? deviceLabel || tr("machine.remote") : "",
   ]
     .filter(Boolean)
@@ -1387,6 +1408,10 @@ function SessionRow({
           <IconMachine size={12} />
         </span>
       )}
+      {/* The waiting count is the row's only new mark: it says the conversation
+          is stopped until someone answers. The whole row stays the one click
+          target — the badge is a label, not a second button. */}
+      <PendingBadge count={pendingCount} />
       {deviceLabel ? (
         // The pinned section has no machine heading above it, so the row says
         // the machine itself. Truncated rather than wrapped: a long machine

@@ -13,7 +13,6 @@ const en: MessageTree = {
   },
   nav: {
     newChat: "New chat",
-    inbox: "Inbox",
     tasks: "Tasks",
     projects: "Projects",
     agents: "Agents",
@@ -87,6 +86,10 @@ const en: MessageTree = {
     statusRunning: "Running",
     statusWaitingApproval: "Awaiting approval",
     statusWaitingInput: "Awaiting you",
+    // The row-end mark: what a pending approval or question says on the
+    // conversation it belongs to. Also the badge's accessible name. The count
+    // covers both kinds, so the words do not name one of them.
+    pendingApprovals: "{count} waiting for you",
     statusSucceeded: "Done",
     statusFailed: "Failed",
     statusCanceled: "Canceled",
@@ -442,6 +445,9 @@ const en: MessageTree = {
     notFound: "Task not found",
     loadFailed: "Failed to load",
     home: "← Home",
+    // The transcript's accessible name: the region a notification's approval
+    // panel hands the keyboard back to on Esc.
+    transcript: "Conversation",
     running: "running",
     reconnect: "reconnect…",
     statusRunning: "running",
@@ -859,29 +865,15 @@ const en: MessageTree = {
     unavailable: "This node has no GitHub configured, so it cannot open a pull request",
     notHere: "This session runs on this machine, so there is nothing to publish from here",
   },
-  inbox: {
-    title: "Inbox",
-    loading: "Loading…",
-    noneWaiting: "No approvals waiting",
-    approvalsSection: "Approvals",
-    questionsSection: "Questions",
-    waiting: "{count} approval(s) waiting",
-    allClear: "All clear",
-    allClearHint: "When an agent needs permission, it shows up here for one-tap approve or deny.",
-    running: "Running",
-    loadFailed: "Failed to load",
+  needsYou: {
+    // The card's own vocabulary: approvals and questions both draw it, and the
+    // inbox page that used to own these words is gone.
     decisionFailed: "Decision failed",
     fromWorker: "From worker {agent}",
     // The badge on the card a notification named. Both card kinds carry it, and
     // it is also what the keyboard cursor looks like, so it says "this one" and
     // not "from a notification".
     focused: "focused",
-    // A deep link whose id is not in the box any more: handled on another
-    // device, expired, or outside the loaded window. Says what is true of all
-    // three rather than guessing which.
-    focusMissing:
-      "That one is not waiting any more — it may have been handled already, or expired.",
-    focusShowAll: "Show everything",
     execution: "execution {id}",
     step: "step {n}",
   },
@@ -1121,7 +1113,8 @@ const en: MessageTree = {
       openPairing: "Open the connection QR",
       landLabel: "Where notifications land",
       landHint:
-        "Approvals and questions both land on the inbox, scrolled to the item the notification named.",
+        "Approvals and questions open the conversation that is waiting, with that card in focus.",
+      landReady: "The conversation itself — there is no separate page to visit.",
       noBaseUrl:
         "No UI base URL yet: notification links carry a bare path, which a phone has nothing to open. Set one under Notifications.",
       channelLabel: "Notification channel",

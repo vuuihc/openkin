@@ -366,7 +366,7 @@ Electron main process
 
 Electron `Notification` supports `actions` on macOS (`Approve` / `Deny`). We attach them and, when the `action` event fires, call `POST /api/approvals/{id}/decision` from the main process with the Bearer token.
 
-**Caveat:** action buttons are not reliable across macOS focus/banner styles (sometimes only the click-to-open path works). **Primary UX:** clicking the notification opens the window at `/inbox?focus=<id>` (the same landing the Bark/ntfy pushes use). Terminal task notifications are silent (`silent: true`) with no actions.
+**Caveat:** action buttons are not reliable across macOS focus/banner styles (sometimes only the click-to-open path works). **Primary UX:** clicking the notification opens the window at `/tasks/<task>?focus=<id>` (the conversation that stopped, with the named card focused; R0b-2 removed the inbox). Terminal task notifications are silent (`silent: true`) with no actions.
 
 ### Build / dist
 

@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { approvalViaLabel, formatApprovalAttribution } from "./approvalAttribution";
 
 const tr = (key: string, vars?: Record<string, string | number>) => {
-  if (key === "inbox.fromWorker") return `From worker ${vars?.agent}`;
-  if (key === "inbox.step") return `step ${vars?.n}`;
-  if (key === "inbox.execution") return `execution ${vars?.id}`;
+  if (key === "needsYou.fromWorker") return `From worker ${vars?.agent}`;
+  if (key === "needsYou.step") return `step ${vars?.n}`;
+  if (key === "needsYou.execution") return `execution ${vars?.id}`;
   return key;
 };
 

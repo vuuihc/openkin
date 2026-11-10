@@ -12,7 +12,7 @@ import type { UpdaterState } from "./updater-wiring.ts";
 
 export type TrayHandlers = {
   openKin: () => void;
-  openApproval: (id: string) => void;
+  openApproval: (id: string, taskId?: string) => void;
   /** Left-click / primary: open design popover under the tray icon. */
   togglePopover: (bounds: Electron.Rectangle) => void;
   startDaemon: () => void;
@@ -117,7 +117,7 @@ export class AppTray {
               a.task_title?.trim() || summaryFromPayload(a.payload) || a.id,
               48,
             ),
-            click: () => this.handlers.openApproval(a.id),
+            click: () => this.handlers.openApproval(a.id, a.task_id),
           }));
 
     const template: MenuItemConstructorOptions[] = [

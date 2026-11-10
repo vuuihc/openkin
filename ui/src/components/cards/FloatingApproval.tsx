@@ -36,8 +36,7 @@ type Props = {
  * are counted in the strip above it — a reader can answer this one, or open the
  * task and deal with the queue where the transcript explains it.
  *
- * The card itself is `ApprovalCard`, the same one the inbox and the transcript
- * use. It is the decision surface, with the diff and the buttons; this
+ * The card itself is `ApprovalCard`, the same one the transcript uses. It is the decision surface, with the diff and the buttons; this
  * component only decides where it sits and which one it shows.
  */
 export default function FloatingApproval({

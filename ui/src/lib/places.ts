@@ -31,7 +31,6 @@
 export const PLACE_IDS = [
   "new",
   "sessions",
-  "inbox",
   "routines",
   "projects",
   "agents",
@@ -62,7 +61,6 @@ export type Place = {
 export const PLACES: Place[] = [
   { id: "new", path: "/new", labelKey: "nav.newChat", section: "work", hint: "⌘N" },
   { id: "sessions", path: "/sessions", labelKey: "nav.sessions", section: "work" },
-  { id: "inbox", path: "/inbox", labelKey: "nav.inbox", section: "work" },
   { id: "routines", path: "/routines", labelKey: "nav.routines", section: "library" },
   // `/projects` is where the sidebar's project rows lead when a project is
   // archived away under them (`ProjectDetailPage` navigates there), so the page

@@ -58,7 +58,8 @@ import ErrorBoundary from "../ErrorBoundary";
 
 type Props = {
   children: ReactNode;
-  pendingCount: number;
+  /** Waiting approvals and questions per task, for the sidebar's row tails. */
+  pendingByTask: ReadonlyMap<string, number>;
   /** The waiting approvals themselves, so one can be answered from any screen. */
   pendingApprovals: Approval[];
   routineUnreadCount?: number;
@@ -88,7 +89,7 @@ function taskIdFromPath(pathname: string): string | null {
  */
 export default function AppShell({
   children,
-  pendingCount,
+  pendingByTask,
   pendingApprovals,
   routineUnreadCount = 0,
 }: Props) {
@@ -105,11 +106,9 @@ export default function AppShell({
   // On the phone there is no sidebar to say where you are, so the header has to.
   const pathname = location.pathname.replace(/\/+$/, "") || "/";
   const approvalDecision = useApprovalDecision();
-  // One approval can be answered from every screen, but not from the two that
-  // already show it: the inbox lists them all, and a task's own transcript
-  // renders its approval inline. See `lib/floatingApprovals.ts`.
+  // One approval can be answered from every screen except the conversation
+  // that already draws it inline. See `lib/floatingApprovals.ts`.
   const floating = floatingApprovals(pendingApprovals, {
-    onInbox: pathname === placePath("inbox"),
     visibleTaskId: selectedTaskId,
   });
   /**
@@ -130,11 +129,9 @@ export default function AppShell({
     ? tr("nav.newChat")
     : location.pathname.startsWith("/sessions")
       ? tr("nav.sessions")
-      : location.pathname.startsWith("/inbox")
-        ? tr("nav.inbox")
-        : location.pathname.startsWith("/settings")
-          ? tr("nav.settings")
-          : listTitle || tr("app.name");
+      : location.pathname.startsWith("/settings")
+        ? tr("nav.settings")
+        : listTitle || tr("app.name");
   const onSessionsTab = location.pathname.startsWith("/sessions");
 
   /**
@@ -152,9 +149,7 @@ export default function AppShell({
    * `<h1>`, so the bar names the screen in a span.
    */
   const barIsHeading =
-    location.pathname.startsWith("/inbox") ||
-    location.pathname.startsWith("/settings") ||
-    listTitle !== "";
+    location.pathname.startsWith("/settings") || listTitle !== "";
 
   /**
    * Screens that ship their own header (back button + the real title).
@@ -570,7 +565,7 @@ export default function AppShell({
         tasks={tasks}
         selectedTaskId={selectedTaskId}
         draftActive={draftActive}
-        pendingCount={pendingCount}
+        pendingByTask={pendingByTask}
         routineUnreadCount={routineUnreadCount}
         weekCost={weekCost}
         onNewChat={openNewChat}
@@ -611,17 +606,15 @@ export default function AppShell({
           <div className="md:hidden flex-none pt-safe kin-zen-hide" />
         ) : detailRoute ? null : onSessionsTab ? (
           /*
-            The list's own bar: identity, in-place search, inbox and settings.
-            No page title — the rows are the page — and no hamburger, because
-            the identity disc is the drawer trigger here. The command palette
-            icon is gone from this route too: search is the field in the middle
-            now, and a second search affordance beside it would be a question
-            about which one filters the list.
+            The list's own bar: identity, in-place search and settings. No page
+            title — the rows are the page — and no hamburger, because the
+            identity disc is the drawer trigger here. The command palette icon
+            is gone from this route too: search is the field in the middle now,
+            and a second search affordance beside it would be a question about
+            which one filters the list.
           */
           <SessionsHeader
-            pendingCount={pendingCount}
             onOpenMenu={() => setMobileOpen(true)}
-            onOpenInbox={() => navigate(placePath("inbox"))}
             onOpenSettings={() => navigate(placePath("settings"))}
           />
         ) : (
@@ -634,7 +627,7 @@ export default function AppShell({
                 every screen including the draft. The draft used to swap this
                 button for a close ×, which left the landing screen — the one
                 the FAB opens and the one most sessions start from — with no way
-                into settings, the inbox, or any other session. The × moved to
+                into settings, the archive, or any other session. The × moved to
                 the trailing cluster, where the compose screens already put
                 cancel.
               */

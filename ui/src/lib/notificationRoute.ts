@@ -2,12 +2,16 @@
  * Where a tapped notification lands.
  *
  * A notification carries a URL written by the node. Treat it as untrusted: keep
- * only a path this console knows, and fall back to the inbox for anything else.
- * Opening an arbitrary URL — or honouring `javascript:` — from a message is not
- * a navigation, it is running someone else's code. The host is therefore
- * discarded rather than compared: the node may write its Hub URL while this
- * console is open on a LAN or localhost origin, and the path is the only part
- * that names a route here.
+ * only a path this console knows, and fall back to the conversation list for
+ * anything else. Opening an arbitrary URL — or honouring `javascript:` — from a
+ * message is not a navigation, it is running someone else's code. The host is
+ * therefore discarded rather than compared: the node may write its Hub URL
+ * while this console is open on a LAN or localhost origin, and the path is the
+ * only part that names a route here.
+ *
+ * A waiting approval or question points at its conversation, with `?focus=`
+ * naming the card inside it; the list is the honest fallback because every row
+ * there carries the same count the notification was about.
  *
  * The shell can hand the same tap over twice — a cold-start link and the event
  * that accompanies it. Whether that should move the reader is decided where the
@@ -19,20 +23,20 @@
 export type NotificationRoute = {
   /** A same-origin console path, always known. */
   path: string;
-  /** The inbox item named by `?focus=`, when there is one. */
+  /** The item named by `?focus=`, when the route can name one. */
   focus: string | null;
-  /** True when the original link was rejected and the inbox was substituted. */
+  /** True when the original link was rejected and the list was substituted. */
   fallback: boolean;
 };
 
-const FALLBACK_PATH = "/inbox";
+const FALLBACK_PATH = "/sessions";
 
 const TASK_PATH = /^\/tasks\/[A-Za-z0-9_-]+$/;
 
 function knownPath(path: string): boolean {
   return (
     path === "/" ||
-    path === "/inbox" ||
+    path === "/sessions" ||
     path === "/routines" ||
     path === "/settings" ||
     TASK_PATH.test(path)
@@ -71,7 +75,9 @@ export function parseNotificationRoute(
   if (!knownPath(url.pathname)) {
     return { path: FALLBACK_PATH, focus: null, fallback: true };
   }
-  const focus = url.pathname === "/inbox" ? url.searchParams.get("focus") : null;
+  // Any known route may name the item it is about; a route with no consumer
+  // for it simply ignores the parameter when it renders.
+  const focus = url.searchParams.get("focus");
   return { path: url.pathname + (focus ? `?focus=${encodeURIComponent(focus)}` : ""), focus, fallback: false };
 }
 

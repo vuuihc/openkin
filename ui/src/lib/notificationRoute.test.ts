@@ -19,22 +19,26 @@ beforeEach(() => {
 });
 
 describe("parseNotificationRoute", () => {
-  it("lands on the inbox and names the item", () => {
-    const route = parseNotificationRoute("/inbox?focus=appr-1", ORIGIN);
-    expect(route).toEqual({ path: "/inbox?focus=appr-1", focus: "appr-1", fallback: false });
+  it("lands on the conversation and names the item inside it", () => {
+    const route = parseNotificationRoute("/tasks/task-1?focus=appr-1", ORIGIN);
+    expect(route).toEqual({
+      path: "/tasks/task-1?focus=appr-1",
+      focus: "appr-1",
+      fallback: false,
+    });
   });
 
   it("takes the path out of an absolute URL on the node's own origin", () => {
     // The node writes ui.base_url, which is the Hub URL even when this console
-    // was opened at a LAN address or localhost. Comparing origins would send
-    // every tap on a phone to the inbox instead of the item it named.
+    // was opened at a LAN address or localhost. Comparing origins would drop
+    // every tap on a phone instead of landing on the conversation it named.
     const route = parseNotificationRoute("https://kin.example.com/tasks/task-1", ORIGIN);
     expect(route).toEqual({ path: "/tasks/task-1", focus: null, fallback: false });
   });
 
   it("keeps the path but never the host of an absolute link", () => {
-    expect(parseNotificationRoute("https://evil.example/inbox?focus=a1", ORIGIN)).toEqual({
-      path: "/inbox?focus=a1",
+    expect(parseNotificationRoute("https://evil.example/tasks/task-1?focus=a1", ORIGIN)).toEqual({
+      path: "/tasks/task-1?focus=a1",
       focus: "a1",
       fallback: false,
     });
@@ -42,7 +46,7 @@ describe("parseNotificationRoute", () => {
 
   it("still refuses an absolute link whose path is not a console route", () => {
     expect(parseNotificationRoute("https://evil.example/admin/delete?focus=a1", ORIGIN)).toEqual({
-      path: "/inbox",
+      path: "/sessions",
       focus: null,
       fallback: true,
     });
@@ -57,14 +61,14 @@ describe("parseNotificationRoute", () => {
   it("falls back for javascript: and file: links", () => {
     for (const href of ["javascript:alert(1)", "file:///etc/passwd", "data:text/html,x"]) {
       const route = parseNotificationRoute(href, ORIGIN);
-      expect(route.path).toBe("/inbox");
+      expect(route.path).toBe("/sessions");
       expect(route.fallback).toBe(true);
     }
   });
 
   it("falls back for an unknown same-origin path", () => {
     expect(parseNotificationRoute("/admin/delete?focus=a1", ORIGIN)).toEqual({
-      path: "/inbox",
+      path: "/sessions",
       focus: null,
       fallback: true,
     });
@@ -78,13 +82,13 @@ describe("parseNotificationRoute", () => {
 
 describe("consumeNotificationRoute", () => {
   it("consumes a cold-start link exactly once", () => {
-    queueNotificationRoute("/inbox?focus=a1");
+    queueNotificationRoute("/tasks/task-1?focus=a1");
     expect(consumeNotificationRoute(ORIGIN)?.focus).toBe("a1");
     expect(consumeNotificationRoute(ORIGIN)).toBeNull();
   });
 
   it("replaces a queued link rather than replaying both", () => {
-    queueNotificationRoute("/inbox?focus=a1");
+    queueNotificationRoute("/tasks/task-1?focus=a1");
     queueNotificationRoute("/tasks/task-2");
     expect(consumeNotificationRoute(ORIGIN)?.path).toBe("/tasks/task-2");
     expect(consumeNotificationRoute(ORIGIN)).toBeNull();
@@ -95,7 +99,7 @@ describe("installNotificationRouting", () => {
   it("delivers every tap and leaves dedupe to the router-aware component", () => {
     const handlers = new Map<string, (event: Event) => void>();
     const scope = {
-      __kinPendingNotification: "/inbox?focus=a1",
+      __kinPendingNotification: "/tasks/task-1?focus=a1",
       addEventListener: (type: string, listener: (event: Event) => void) => {
         handlers.set(type, listener);
       },
@@ -106,13 +110,17 @@ describe("installNotificationRouting", () => {
     const onRoute = vi.fn();
     const stop = installNotificationRouting(onRoute, scope);
 
-    expect(onRoute).toHaveBeenCalledWith({ path: "/inbox?focus=a1", focus: "a1", fallback: false });
+    expect(onRoute).toHaveBeenCalledWith({
+      path: "/tasks/task-1?focus=a1",
+      focus: "a1",
+      fallback: false,
+    });
 
     // The same target again is delivered: it may be a second, genuine tap
     // after the reader left the item. `NotificationTaps` knows the current
     // route and suppresses it only while the target is already on screen.
     handlers.get("kin:notification")?.(
-      new CustomEvent("kin:notification", { detail: { url: "/inbox?focus=a1" } }),
+      new CustomEvent("kin:notification", { detail: { url: "/tasks/task-1?focus=a1" } }),
     );
     expect(onRoute).toHaveBeenCalledTimes(2);
 
@@ -129,9 +137,9 @@ describe("installNotificationRouting", () => {
 
 describe("consumeNativeNotificationRoute", () => {
   it("drains the tap the iPhone shell held during launch", async () => {
-    const takePendingURL = vi.fn(async () => ({ url: "/inbox?focus=appr-1" }));
+    const takePendingURL = vi.fn(async () => ({ url: "/tasks/task-1?focus=appr-1" }));
     await expect(consumeNativeNotificationRoute({ takePendingURL }, ORIGIN)).resolves.toEqual({
-      path: "/inbox?focus=appr-1",
+      path: "/tasks/task-1?focus=appr-1",
       focus: "appr-1",
       fallback: false,
     });
@@ -141,7 +149,7 @@ describe("consumeNativeNotificationRoute", () => {
   it("still validates what the shell held", async () => {
     const source = { takePendingURL: vi.fn(async () => ({ url: "javascript:alert(1)" })) };
     await expect(consumeNativeNotificationRoute(source, ORIGIN)).resolves.toEqual({
-      path: "/inbox",
+      path: "/sessions",
       focus: null,
       fallback: true,
     });

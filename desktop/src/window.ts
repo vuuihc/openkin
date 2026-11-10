@@ -23,6 +23,7 @@ import {
   type RestoredWindow,
   type SavedBounds,
 } from "./window-bounds";
+import { approvalPath } from "./native-notifications";
 
 const WINDOW_TITLE = "Kin";
 
@@ -72,7 +73,7 @@ export class MainWindow {
    *
    * - No path / "/" → restore the existing window as-is (keep current session).
    *   Callers that only re-focus after blur/tray/dock must not wipe SPA state.
-   * - Explicit path (e.g. /tasks/:id, /new, /inbox) → navigate there.
+   * - Explicit path (e.g. /tasks/:id, /new, /sessions) → navigate there.
    * - If the window was destroyed, recreate at the explicit path or last pendingPath.
    */
   show(path?: string): void {
@@ -99,9 +100,10 @@ export class MainWindow {
     this.hideDockIfNoWindows();
   }
 
-  openApproval(approvalId: string): void {
-    // Inbox is the approvals surface; deep-link by query for future highlight.
-    this.show(`/inbox?focus=${encodeURIComponent(approvalId)}`);
+  openApproval(approvalId: string, taskId?: string): void {
+    // The approval lives in its conversation; the link names both, like the
+    // node's push. Without a task the list is the landing.
+    this.show(approvalPath(approvalId, taskId));
   }
 
   /**

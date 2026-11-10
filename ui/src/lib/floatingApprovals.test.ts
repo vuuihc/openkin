@@ -16,31 +16,29 @@ function approval(id: string, taskId: string): Approval {
 const waiting = [approval("a1", "task-1"), approval("a2", "task-2"), approval("a3", "task-1")];
 
 describe("floatingApprovals", () => {
-  it("floats every waiting approval away from the inbox", () => {
-    expect(
-      floatingApprovals(waiting, { onInbox: false, visibleTaskId: null }).map((a) => a.id),
-    ).toEqual(["a1", "a2", "a3"]);
-  });
-
-  it("floats nothing over the inbox, which already lists them", () => {
-    expect(floatingApprovals(waiting, { onInbox: true, visibleTaskId: null })).toEqual([]);
+  it("floats every waiting approval when no conversation owns the screen", () => {
+    expect(floatingApprovals(waiting, { visibleTaskId: null }).map((a) => a.id)).toEqual([
+      "a1",
+      "a2",
+      "a3",
+    ]);
   });
 
   it("drops the task on screen, whose transcript renders its own card", () => {
     expect(
-      floatingApprovals(waiting, { onInbox: false, visibleTaskId: "task-1" }).map((a) => a.id),
+      floatingApprovals(waiting, { visibleTaskId: "task-1" }).map((a) => a.id),
     ).toEqual(["a2"]);
   });
 
   it("keeps the other tasks' approvals while one conversation is open", () => {
     // The point of the feature: reading task-1 must not hide task-2's request.
-    const floating = floatingApprovals(waiting, { onInbox: false, visibleTaskId: "task-9" });
+    const floating = floatingApprovals(waiting, { visibleTaskId: "task-9" });
     expect(floating).toHaveLength(3);
   });
 
   it("does not mutate the list it was given", () => {
     const input = [...waiting];
-    floatingApprovals(input, { onInbox: false, visibleTaskId: "task-1" });
+    floatingApprovals(input, { visibleTaskId: "task-1" });
     expect(input).toHaveLength(3);
   });
 });

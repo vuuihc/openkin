@@ -1,6 +1,6 @@
 # R0 · 面审计与减法
 
-状态：**R0a、R0b-2 已签字；R0b-1 已完成；R0b-2b 已完成** · 2026-11-10
+状态：**R0a、R0b-2 已签字；R0b-1 已完成；R0b-2a、R0b-2b 已完成** · 2026-11-10
 配套：[`IA.md`](../product/IA.md)、[`TASTE.md`](../product/TASTE.md)、[`stories/PLAN.md`](../product/stories/PLAN.md)、[`2026-11-08-design-system-middle-layer.md`](2026-11-08-design-system-middle-layer.md)、[`2026-11-09-astryx-spike.md`](2026-11-09-astryx-spike.md)
 测量：`python3 scripts/ui_inventory.py`
 评审页：[`2026-11-10-ui-surface-audit.review.html`](2026-11-10-ui-surface-audit.review.html)（390/1100 现状截图 + 每面决策卡；截图含本机真实数据，只在本机打开，不要外发）。如果页面里的截图显示「缺失」，用同目录的 `2026-11-10-ui-surface-audit.review.local.html`（截图已内嵌，gitignored）
@@ -12,7 +12,7 @@
 | R0a 只读审计 | ✅ 已签字 2026-11-10 | 13 行决策：2 保留 / 3 合并 / 4 删除 / 4 补故事；评审页 `2026-11-10-ui-surface-audit.review.html`（截图缺失时看 `.review.local.html`） |
 | R0b-1 只做减法 | ✅ 已完成（含复审） | `/design`、`/artifacts` + 详情已删；`ActionSheet` 取代 3 个 `IonActionSheet`，`@ionic/*` 移除；`AgentModelPicker` 已删；`check.sh` / build / smoke 全绿；390 截图存 `.playwright-mcp/r0/page/`（ignored）。嵌套 sheet 的一次 Esc / Back 只关一层，已用真实界面复验。复审无 blocker：`anyWidth` 移出打开/关闭 effect、Back 以历史条目自身 marker 判定归属、补 3 条嵌套测试与 1 条宽度策略测试；9 个 mutant 全红后落地（`148abdc` → `9fcded75` → `766c705d` → `ed164db9`），桌面已重建 |
 | R0b-2 签字 | ✅ 已签 2026-11-10 | “同意，开干”；五个决定按建议执行，页面 `2026-11-10-ui-surface-audit-r0b2.review.html` |
-| R0b-2a 收件箱替代 + 删除 | ⚪ 未开始 | 行尾待批准计数、通知落点，再删 `/inbox` |
+| R0b-2a 收件箱替代 + 删除 | ✅ 已完成（含复审） | 行尾待批准计数（`PendingBadge`，approvals + questions 合并；Sidebar / SessionsPage 共用；文案不点名其中一类）；通知落 `/tasks/<id>?focus=<item>`，被点名卡片获得焦点并带可访问名称，Esc 交回对话；旧 pane、重复点击、旧快照三条竞态由测试钉住；桌面壳同步改到对话与 `/sessions`，`/inbox`、`/approvals` 重定向；`ApprovalsPage`、`inboxFocus`、`inboxKeyboard`、`RunningTaskCard`、`nav.inbox` 与入口已删。65 文件 / 新增 6 文件，+1,001 −1,417 行；全量 vitest 189 文件 1881 条、desktop 150 条、`check.sh` 全绿；17 个 mutant 全红；复审两轮无 blocker/major |
 | R0b-2b 任务页减法 | ✅ 已完成 | 删 `SessionTabs`、`SessionSwitcherSheet`、`PullRequestPanel` 及入口；`TaskSessionHost` 只保留挂载缓存；`panels` / 图标 / i18n 清零；全量 vitest 188 文件 1898 条通过 |
 | R0b-2c 导入会话收起 | ⚪ 未开始 | 每台设备末尾默认收起、同样式 |
 | R0b-2d 列表合并 + 项目 + dock | ⚪ 未开始 | 一套行与控制器；删 `/projects` 索引与 dock「项目」 |
@@ -58,6 +58,12 @@ R0b-1 之后复测（同一脚本）：非测试 `.tsx` **95**；裸 `<button>` 
 页面总行数 **10,924**，最大的仍是 TaskDetail 2,254 / Settings 1,596 / Sessions 1,443 /
 Routines 1,366（另有 Agents 921）。删除的页面：`/design`、`/artifacts`、`/artifacts/:id`；
 删除的死组件：`AgentModelPicker.tsx`（151 行）。
+
+R0b-2a 之后复测：非测试 `.tsx` **91**；裸 `<button>` **301 / 66 文件**；
+`components/ui/` **5**（新增 `PendingBadge`）；`<input>` **57 / 25**；
+页面总行数 **10,481**，最大的 TaskDetail 2,292 / Settings 1,596 / Sessions 1,468 /
+Routines 1,366。删除：`ApprovalsPage.tsx`、`RunningTaskCard.tsx`、`inboxFocus.ts`、
+`inboxKeyboard.ts` 及其测试；新增：`PendingBadge.tsx`、`pendingCounts.ts` 与 4 个测试。
 
 注意：`2026-11-08-design-system-middle-layer.md` §2 里是 2026-11-08 的旧数字（311 / 61 / 27 个原生 select）。R0 用 2026-11-10 的新数字，并注明测量日期，不要手抄旧表。
 
@@ -193,7 +199,9 @@ R0 的主评审物是 **`2026-11-10-ui-surface-audit.review.html`**，不是下�
 
 ## 11. 下一会话
 
-R0a 已签字（2026-11-10），**R0b-1 已完成并落地**：`/design`、`/artifacts` + 详情、`AgentModelPicker` 删除；Ionic 换成 `components/ui/ActionSheet` + 现有 `Sheet`，`@ionic/*` 依赖移除。下一轮是 **R0b-2**：`/sessions` 合并、`/inbox` 删除、顶部切换 / PR 面板移除、导入会话样式、`/projects` 列表收口；这些改变用户流程，动代码前必须先有签字页。R0b-3 的设置收口单独一轮。四条「补故事」的面只写合同，不写代码。
+R0a 已签字（2026-11-10），**R0b-1、R0b-2a、R0b-2b 已完成并落地**：`/design`、`/artifacts` + 详情、`AgentModelPicker`、`/inbox`、`SessionTabs`、`SessionSwitcherSheet`、`PullRequestPanel` 已删；待批准回到对话行尾，通知直接打开对话并聚焦被点名的卡片。下一轮是 **R0b-2c**（导入会话默认收起、同样式），然后 **R0b-2d**（手机与 Mac 列表合并、`/projects` 索引与 dock「项目」收口）。R0b-3 的设置收口单独一轮。四条「补故事」的面只写合同，不写代码。
+
+R0b-2a 复审留下一条已知边角，交给 R0b-2d：收件箱删除后，等待项的唯一信号是「它所在的那一行」的计数；行被收起、被搜索过滤、或在更早的分页里时没有信号。列表合并时决定是否在收起的项目/设备标题上给一个汇总计数（不要为它恢复独立页面）。待批准有浮动卡片兜底，待回答的问题没有。
 
 ## 12. 阅读顺序
 

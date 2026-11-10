@@ -8,7 +8,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ApiError,
   archiveTask,
@@ -48,6 +48,7 @@ import { useFindSeed } from "./useFindSeed";
 import { useMinWidth } from "../hooks/useMinWidth";
 import { usePendingResources, useTaskResource } from "../api/useLiveResources";
 import { isImeKeyEvent } from "../lib/ime";
+import { taskIdFromPathname } from "../lib/sessionCache";
 import ApprovalCard from "../components/cards/ApprovalCard";
 import LimitCard from "../components/cards/LimitCard";
 import UserQuestionCard from "../components/cards/UserQuestionCard";
@@ -281,8 +282,8 @@ export default function TaskDetailPage({
    */
   const openFindAfterSheet = useRef(false);
   const [actionBusy, setActionBusy] = useState(false);
-  // The same decision path the inbox and the floating card use, so a failure
-  // reads the same wherever the reader answered from.
+  // The same decision path the floating card uses, so a failure reads the same
+  // wherever the reader answered from.
   const { busy, decide } = useApprovalDecision("task.decisionFailed");
   /**
    * Answers this pane has just recorded, keyed by approval id.
@@ -821,6 +822,101 @@ export default function TaskDetailPage({
     }));
     return orderPending([...pending, ...decided].sort((a, b) => a.created_at - b.created_at));
   }, [needsYou, decidedCards, events]);
+
+  // A notification names the card it is about (`/tasks/<id>?focus=<item>`),
+  // because "open the conversation" alone makes a reader hunt for the answer
+  // they were told was waiting. Consume it once the pending list can answer:
+  // move the keyboard cursor to that card, bring it into view, and focus it.
+  // The parameter is then dropped, so a refresh or Back does not pull the
+  // reader to a card they already saw — and a later tap on the same banner is
+  // a fresh navigation rather than a replay of this one.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { pathname } = useLocation();
+  // The route names the conversation the tap was for. A pane kept alive out of
+  // sight still renders while the next one loads (`TaskSessionHost`), and it
+  // must not answer a link about a different conversation: consuming it there
+  // would drop the parameter before the routed pane ever saw it.
+  const routedId = taskIdFromPathname(pathname);
+  const focusParam = searchParams.get("focus");
+  const [revealId, setRevealId] = useState<string | null>(null);
+  // The focus key whose post-navigation pending read has landed. State rather
+  // than a ref: the answer is what lets the effect below conclude.
+  const [pendingRead, setPendingRead] = useState<string | null>(null);
+  const consumedFocus = useRef<string | null>(null);
+  const requestedFocusRefresh = useRef<string | null>(null);
+  const dropFocusParam = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("focus");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
+  // The link stops naming an item once it is consumed. Clearing on the way out
+  // is what makes a second tap on the same banner a new navigation instead of
+  // a replay this pane silently swallows.
+  useEffect(() => {
+    if (focusParam) return;
+    consumedFocus.current = null;
+    requestedFocusRefresh.current = null;
+    setPendingRead(null);
+  }, [focusParam]);
+  useEffect(() => {
+    if (!active || !focusParam || routedId !== id) return;
+    const key = `${id}:${focusParam}`;
+    if (consumedFocus.current === key) return;
+    const index = needsYou.findIndex((entry) => entry.id === focusParam);
+    if (index >= 0) {
+      consumedFocus.current = key;
+      setFocusIdx(index);
+      setRevealId(focusParam);
+      dropFocusParam();
+      return;
+    }
+    if (!detail.loaded || !pending.loaded) return;
+    // The item is not in the snapshot — but "loaded" is not "fresh": a tap that
+    // wakes the app can be judged against the list from before the push
+    // arrived. Ask once for a read that starts after this link, and let that
+    // answer decide whether the item is gone.
+    if (requestedFocusRefresh.current !== key) {
+      requestedFocusRefresh.current = key;
+      void liveResources.refreshPending(true).finally(() => setPendingRead(key));
+      return;
+    }
+    if (pendingRead !== key) return;
+    // A read that followed the link still does not list it: answered on another
+    // device, expired, or outside the window. The conversation is the right
+    // landing, but the link names nothing now, so it stops claiming otherwise.
+    consumedFocus.current = key;
+    dropFocusParam();
+  }, [
+    active,
+    routedId,
+    focusParam,
+    id,
+    needsYou,
+    detail.loaded,
+    pending.loaded,
+    pendingRead,
+    dropFocusParam,
+  ]);
+
+  // The card exists only after the render that follows `setFocusIdx`; looking
+  // for its node in the same effect would find the previous list.
+  useEffect(() => {
+    if (!revealId) return;
+    setRevealId(null);
+    const nodes = scrollRef.current?.querySelectorAll("[data-pending-id]") ?? [];
+    for (const node of nodes) {
+      if (node.getAttribute("data-pending-id") !== revealId) continue;
+      node.scrollIntoView({ block: "nearest" });
+      stickToBottomRef.current = false;
+      if (node instanceof HTMLElement) node.focus({ preventScroll: true });
+      break;
+    }
+  }, [revealId]);
 
   useEffect(() => {
     if (!active) return;
@@ -1423,7 +1519,29 @@ export default function TaskDetailPage({
       entry.kind === "approval" && (entry.decided || entry.item.decision !== "pending");
     const focused = !settled && needsYou[focusIdx]?.id === entry.id;
     return (
-      <div data-pending-id={entry.id}>
+      <div
+        data-pending-id={entry.id}
+        // A focused node with no name announces nothing, and this wrapper is
+        // what a notification focuses. The card's own title is the name; a
+        // settled card is browseable, not a landing target, so it stays
+        // unnamed.
+        role="group"
+        aria-label={
+          settled
+            ? undefined
+            : tr(entry.kind === "approval" ? "approval.cardTitle" : "question.cardTitle")
+        }
+        // Focusable only by programmatic focus: a notification puts the reader
+        // in the panel, and Esc hands the keyboard back to the conversation.
+        // It is not a tab stop — the approve and deny buttons are.
+        tabIndex={-1}
+        className="outline-none"
+        onKeyDown={(event) => {
+          if (event.key !== "Escape") return;
+          event.preventDefault();
+          scrollRef.current?.focus();
+        }}
+      >
         {entry.kind === "approval" ? (
           <ApprovalCard
             approval={entry.item}
@@ -1550,7 +1668,7 @@ export default function TaskDetailPage({
    * It used to be a `Link to="/"`, which meant opening a session from the
    * phone's session list and pressing back dropped you on the new-chat screen
    * with your place in the list gone. History is the honest answer when there
-   * is any — an approval opened from the inbox returns to the inbox — and the
+   * is any — a notification tap returns to wherever the reader was — and the
    * session list is the right fallback for a cold deep link.
    *
    * `idx > 0`, not `location.key !== "default"`: a `<Navigate replace>` mints a
@@ -1808,10 +1926,15 @@ export default function TaskDetailPage({
         <div
           ref={scrollRef}
           onScroll={onChatScroll}
+          // The focus sink the approval panel hands the keyboard back to on
+          // Esc; `-1` keeps a large scroll area out of the tab order.
+          role="region"
+          aria-label={tr("task.transcript")}
+          tabIndex={-1}
           className={
             scrollReady
-              ? "flex-1 overflow-y-auto kin-scroll py-5 min-h-0"
-              : "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 invisible"
+              ? "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 outline-none"
+              : "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 invisible outline-none"
           }
         >
           <WorkerTimeline

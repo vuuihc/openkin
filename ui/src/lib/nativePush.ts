@@ -261,7 +261,7 @@ function isFinalRemovalError(e: unknown): boolean {
  * Take a handled item's banner out of Notification Center. The native side
  * matches the node's `kin` payload, so a different item's banner stays. This is
  * best-effort by design: a delivered notification is system state, and the
- * inbox — not the banner — is the source of truth.
+ * pending list — not the banner — is the source of truth.
  */
 export function clearDeliveredNotification(kind: "approval" | "question", id: string): void {
   if (!id) return;

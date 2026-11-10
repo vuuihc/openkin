@@ -10,7 +10,7 @@
 
 当我合上 Mac、只带着 iPhone，或者把 Kin 收进菜单栏去开别的会时，我想在批准、提问、跑完、额度变化的那一刻被手上这台设备叫住，点一下就落到那一条，以便不用每隔几分钟回来找一遍，也不让一个等我批准的 agent 空等。
 
-"被叫回来"就是：离开控制台以后，**原生通知把我带回那一条**。不是发一条叫"继续"的消息，也不是打开收件箱让我自己找。
+"被叫回来"就是：离开控制台以后，**原生通知把我带回那一条**。不是发一条叫"继续"的消息，也不是把我丢进一个跨对话的列表让我自己找。
 
 ## 现在
 
@@ -27,7 +27,7 @@ iPhone：`mobile/` 是 Capacitor 壳，加载 Hub 自己的控制台；没有推
 - 做：
   - iPhone：Capacitor 壳接入 APNs（权限、注册、token 更新、注销），成为壳内唯一的通知通道。
   - Mac：桌面壳的通知改由节点统一的事件扇出驱动，覆盖批准、提问、任务终态、额度、例行报告、worker 离线；保留现有批准/拒绝按钮和"正在看的那条不弹"的规则。
-  - 两端：同一份事件、同一套文案、同一个落点；点通知落到收件箱的那一条或那段对话。
+  - 两端：同一份事件、同一套文案、同一个落点；点通知直接落到那段对话，并把被点名的那张批准/提问卡片放进焦点。
   - 节点：`push_devices` 登记表（按安装 id 去重）、APNs provider、失效 token 清理、每个通道的结果。
   - 设置 → 通知：第一块是这台设备的状态、启用/关闭、发送测试、被系统阻止时的去处；不再有浏览器推送 / Bark / ntfy 区块。
   - 删除 Bark / ntfy / Web Push 的通道、设置、配置和扇出；通知只走 macOS 通知中心和 APNs，不保留兼容开关。
@@ -38,7 +38,7 @@ iPhone：`mobile/` 是 Capacitor 壳，加载 Hub 自己的控制台；没有推
   - Android 原生推送（没有 Android 壳）。
   - 保留 Bark / ntfy / Web Push、兼容开关或回退通道。
   - 重排 UI base URL、额度阈值等非通道设置；它们保持原位，这一条只删旧通道、加这台设备。
-  - 改通知的触发条件、文案语义、收件箱路由；这些沿用今天的行为。
+  - 改通知的触发条件、文案语义；这些沿用今天的行为。落点随 R0b-2 从收件箱改到对话，见下方验收。
   - 给 Mac 接 APNs（桌面壳未签名；macOS 通知中心才是它的原生通道）。
 
 ## 每一步的预期
@@ -71,9 +71,9 @@ iPhone：`mobile/` 是 Capacitor 壳，加载 Hub 自己的控制台；没有推
 |---|---|
 | 起点 | 通知中心里的一条通知 |
 | 动作 | 点通知（Mac 上点横幅） |
-| 立刻看到 | Mac：窗口来到前台并打开那一条；iPhone：应用启动或回到前台，落到收件箱里被点名的那张批准/提问卡片，或那段对话的末尾 |
-| 慢 / 空 / 失败 / 断线 | 冷启动：先显示控制台自己的连接/加载状态，加载完再落到那一条，不丢目标；那条已经被处理：收件箱说"这一条已经不在了"，并显示它周围的列表；节点不可达：连接页可重试，目标保留到连接成功；通知里的地址不认识：落到收件箱，不打开任意 URL |
-| 键盘与焦点 | Mac：窗口获得焦点，批准卡片的主按钮先接焦点；iPhone：VoiceOver 焦点落到被点名的卡片；返回/Esc 回到收件箱或列表 |
+| 立刻看到 | Mac：窗口来到前台并打开那一条；iPhone：应用启动或回到前台，落到那段对话，被点名的那张批准/提问卡片获得焦点（任务终态、额度与例行报告落到对话或 `/routines`） |
+| 慢 / 空 / 失败 / 断线 | 冷启动：先显示控制台自己的连接/加载状态，加载完再落到那一条，不丢目标；那条已经被处理：打开它所属的对话，链接不再声称指向一张卡片；节点不可达：连接页可重试，目标保留到连接成功；通知里的地址不认识：落到会话列表（每行带待批准计数），不打开任意 URL |
+| 键盘与焦点 | Mac：窗口获得焦点，被点名的卡片接焦点，Esc 把键盘交回对话；iPhone：VoiceOver 焦点落到被点名的卡片；返回回到列表 |
 | 离开再回来 | 同一条通知再点一次不重复跳转；目标只消费一次；返回后不再次自动跳转 |
 
 ### 4. 监控：没叫到、叫错了
@@ -107,7 +107,7 @@ iPhone：`mobile/` 是 Capacitor 壳，加载 Hub 自己的控制台；没有推
 | 立刻看到 | 对应的已送达通知从通知中心移除（iPhone）；Mac 上不再出现同一件事的新横幅；同一目标的后续事件替换而不是叠加 |
 | 慢 / 空 / 失败 / 断线 | 移除失败不报错；事件重复到达时按 kind + id 去重；已经处理的事再触发一次也不会弹 |
 | 键盘与焦点 | 不适用 |
-| 离开再回来 | 通知中心里没有已经处理完的事；收件箱仍是唯一真相 |
+| 离开再回来 | 通知中心里没有已经处理完的事；待批准列表仍是唯一真相 |
 
 ## 各面差异
 
@@ -115,7 +115,7 @@ iPhone：`mobile/` 是 Capacitor 壳，加载 Hub 自己的控制台；没有推
 |---|---|---|
 | Mac | 设置 → 通知 顶部是"这台 Mac"：macOS 权限状态、发送测试、打开系统设置；通知由桌面壳的 macOS 通知中心显示；批准/拒绝按钮保留；当前正在看的对话的终态不弹；Mac 本身不是 APNs 目标 | Electron 的 Notification 走的就是 macOS 通知中心，不是网页通知；桌面壳未签名，不能接 APNs；这一条补齐触发范围和状态，不另写 Swift 壳 |
 | 手机 | 设置 → 通知 顶部是"这台 iPhone"：系统权限、启用/关闭、发送测试、打开 iOS 设置；通知由 APNs 送到 Capacitor 壳；点开落到那一条；前台时用应用内横幅，不重复弹系统通知；这一条不做锁屏按钮 | iOS 的后台送达只有 APNs；WKWebView 里没有 Web Push；原生壳带推送 entitlement，PWA 的 Web Push 随之删除 |
-| 两面 | 同一份事件、同一套标题/正文、同一个落点；收件箱是真相；发送成功不等于看到；通知丢了，东西还在收件箱 | 两端平台能力不同，但用户要完成的动作相同 |
+| 两面 | 同一份事件、同一套标题/正文、同一个落点；待批准列表是真相；发送成功不等于看到；通知丢了，对话行上的计数还在 | 两端平台能力不同，但用户要完成的动作相同 |
 
 浏览器控制台不是通知面：删除 Web Push 后，设置 → 通知只说明"通知在 Mac / iPhone 原生应用里"，不显示启用或测试。
 
@@ -139,7 +139,7 @@ iPhone：`mobile/` 是 Capacitor 壳，加载 Hub 自己的控制台；没有推
 - 不在这一条里做 iOS 锁屏一键批准/拒绝；Mac 现有的批准/拒绝按钮保持可用（iOS 的归 `KIN-NOTIFY-002`）。
 - 不做按事件类型开关、免打扰、静音时段（归 `KIN-SETTINGS-001` 或后续故事）。
 - 不做 Android。
-- 不改通知的触发条件、文案语义和收件箱路由。
+- 不改通知的触发条件、文案语义；落点由对话行承担（R0b-2），不再有收件箱路由。
 - 不在设置页显示、回传或导出 APNs 私钥；私钥不进日志、URL、导出文件。
 - 不打开通知里的任意 URL；只接受同源路径和已知路由。
 - 应用在前台且正在看那一条时，不再弹一条系统横幅。
@@ -157,7 +157,7 @@ iPhone：`mobile/` 是 Capacitor 壳，加载 Hub 自己的控制台；没有推
 | 单元 | `ui/src/lib/nativePush.test.ts`（新建） | Given Capacitor iOS When 读状态 Then 是 native 而不是 browser；Given 权限 denied Then blocked；Given registration 事件 Then POST 带安装 id 和环境；Given 普通浏览器 Then 原生不可用，也不出现浏览器推送入口；Given 退出登录 When 注销 Then 删除这台设备记住的行、停止原生壳接收，删除失败留给下次重试（404/401/403 视为终态，不再重试） |
 | 单元 | `ui/src/api/account.test.ts`（扩充） | Given 这台手机已登记推送 When 退出登录 Then 先注销这台设备的行、再结束会话；会话结束后它不再被扇出选中；Given 网络永不返回 Then 本地 token 已先清掉，两个请求仍带捕获的 token；Given 手机清理失败 Then 仍然结束会话 |
 | 组件 | `ui/src/components/settings/NativePushSettings.dom.test.tsx`（新建） | Given 原生 iPhone When 渲染 Then 只有"这台 iPhone"，没有浏览器推送 / Bark / ntfy；Given blocked Then 有"打开系统设置"；Given 测试失败 Then 显示原因；Given 旧配置还在 When 渲染 Then 不显示旧通道；Given 节点登记的 `ios` / `sandbox` / `production` When 渲染 Then 显示译名而不是机器值；Given 测试推送返回 410 Then 忘掉本机登记、刷新列表并显示登录已结束，不显示英文原文；Given 返回 404 Then 同样忘掉登记、刷新列表并显示节点上已没有这台手机的登记；中英两份文案都在 |
-| 单元 | `ui/src/lib/notificationRoute.test.ts`（新建） | Given `/inbox?focus=a1` Then 落到收件箱并点名叫 a1；Given 同源绝对 URL Then 取路径；Given 外站或 `javascript:` Then 落到收件箱；Given 冷启动待处理 Then 只消费一次 |
+| 单元 | `ui/src/lib/notificationRoute.test.ts`（新建） | Given `/tasks/t1?focus=a1` Then 落到那段对话并点名叫 a1；Given 同源绝对 URL Then 取路径；Given 外站或 `javascript:` Then 落到会话列表；Given 冷启动待处理 Then 只消费一次 |
 | 组件 | `ui/src/components/NotificationTaps.dom.test.tsx`（新建） | Given 冷启动链接和同一次点按的事件同时到达 When 路由 Then 只导航一次；Given 已在该条目 When 再点同一条 Then 不跳；Given 离开该条目后 When 再点同一条 Then 重新落回；Given 条目在另一台设备被处理 When 它从 pending 消失 Then 移除已送达横幅；Given 回到前台 When 可见 Then 刷新一次 pending |
 | 组件 | `desktop/src/notifications.test.ts`（扩充） | Given 正在看的对话终态 When 收到通知 Then 不弹；Given 批准/提问 When 收到 Then 弹；Given 重复事件 Then 只弹一次；Given 点击 Then 打开那一条；Given 旧 Bark / ntfy 配置 When 启动 Then 不再读取 |
 | 接线 | `desktop/src/native-notifications.wiring.test.ts`（新建） | Given 节点推来 `notify` 消息 When 桌面壳收到 Then Notifier 拿到 kind/id/url；Given APNs 不可用 Then 桌面通道仍然工作 |
@@ -192,4 +192,5 @@ iPhone：`mobile/` 是 Capacitor 壳，加载 Hub 自己的控制台；没有推
 - 2026-11-03 复查发现的 blocker：登出、会话过期或被撤销后，那台手机仍会收到 APNs。`push_devices` 现在记录建立登记的浏览器会话（schema 47）；登出、撤销其他会话、清理过期会话在各自事务里删除绑定的登记；扇出前用 `AuthSessionLive` 复核会话仍存在、未过期且账号未停用，没有检查器时按失败关闭；手机退出登录先注销自己记住的那一行并停止原生壳，删除失败留待下次重试，清理失败也不阻塞退出。顺带修掉三条 nit：`kin notify apns --status` 只读非敏感元数据，不再解析私钥；设置页设备行的 `ios` / `sandbox` / `production` 走中英文案；桌面横幅被淘汰时先关闭再忘记。保留的 nit（已知、不阻塞）：同一安装 id 的重新登记会接管旧行，未加 409 所有权校验；发送前没有本地 4 KB APNs 载荷预检，超限由 Apple 拒绝并记入最后一次错误；桌面接线测试断言的是发布返回值，不是 IPC 送达。
 - 2026-11-03 同日第二轮复查（0 blocker / 3 major / 8 nit）后修复三条 major：密码重置在结束该账号全部登录的同一事务里删除这些登录登记的手机；`POST /api/push/devices/test` 发送前复核会话，已结束则删行并返回 410；手机退出登录先同步清掉本地 token，再用捕获的 token 完成注销与登出，网络永不返回也不会把 token 留在设备上；成员登记缺少会话 id 时拒绝，不写入无法结束的行。顺带修的 nit：迁移 047 对没有 `push_devices` 表的 v46 文件跳过 ALTER，并清理旧版本留下的无会话成员行；每次开库先补列再跑注册表 DDL（否则索引先于列报错）；登出失败返回 500 并记日志；会话过期后没有定时清理，扇出先行拒绝、测试推送删行，这一点写进本故事与 `IMPL_NOTES`。保留的 nit：待删列表只记一个 id（连续两次失败时后一个覆盖前一个，节点端登出删除仍是兜底）；没有一条集成测试直接断言 `SessionLive` 的接线（`notify` 与 `store` 各自有测试）；同一安装 id 重新登记会接管旧行，未加 409；发送前没有 4 KB 载荷预检；桌面接线测试断言发布返回值而非 IPC 送达。
 - 2026-11-03 第三轮复查（0 blocker / 1 major / 7 nit）后修复 major：没有 task owner 的 routine / eval / CLI 事件此前只匹配 owner 为空的行，而操作员用自己的登录登记的手机带着账号，结果 routine 报告永远不响；扇出现在先把空 owner 解析成 operator 账号再圈定收件人，standalone 节点（无账号）仍只到无主行。顺带修的 nit：测试推送的 410 在 OpenAPI 与设置页都有交代（设置页忘掉本机登记并刷新，不再显示英文原文）；测试推送的 404 同样忘掉登记并显示"节点上已没有登记"，不再显示 `device not found`；410 文案与 OpenAPI 不再断言删行一定成功；`ownerAccount` 读取失败会记日志，并有测试钉住失败时只到无主行；退出登录时 404/401/403 不再当作可重试，不会每次打开设置都重试一条永远删不掉的行。保留的 nit：被动状态只看元数据，私钥丢失或从导出恢复后会显示已配置而实际发不出去；过期会话行没有定时清理，只会被扇出拒绝或被测试推送删掉；APNs 客户端每条事件重建，provider token 缓存没有跨事件复用；`pushOwner` 吞掉 registry 读取错误（DB 故障时设备登记会退化成无主行）；`RevokeAllDeviceCredentials` 不删绑定登记（当前无生产调用）。
+- 2026-11-10 R0b-2a：落点从 `/inbox?focus=` 改为 `/tasks/<task>?focus=`。收件箱删除后，批准与提问的通知直接打开所属对话，被点名的卡片获得焦点、Esc 交回键盘；不认识或已处理的链接落到会话列表。`notificationRoute` 的已知路由与回退路径、Go 的 `pendingLink`、`KIN-NOTIFY-001` 的验收行同步更新。
 - 2026-11-03 合并 `main`（Hub 一次性登录链接）：登出仍先清本地 token、再注销手机、最后登出；测试改为断言注入的 `apiFetch`，不再依赖全局 `fetch`。OpenAPI 合掉了两处重复的 `/api/notify/test` 与重复 schema，并删除退役的 Web Push 路径与四个旧 schema；`AccountSection` 采用 main 的新布局，但移除重复的 `clearToken()`，因为 `signOut()` 已先捕获并清除 token。

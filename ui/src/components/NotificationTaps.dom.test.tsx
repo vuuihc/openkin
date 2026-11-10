@@ -97,9 +97,9 @@ describe("NotificationTaps", () => {
     const { getByTestId } = mount({ takePendingURL });
     await waitFor(() => expect(takePendingURL).toHaveBeenCalled());
 
-    tap("/inbox?focus=appr-1");
+    tap("/tasks/task-1?focus=appr-1");
 
-    await waitFor(() => expect(getByTestId("location").textContent).toBe("/inbox?focus=appr-1"));
+    await waitFor(() => expect(getByTestId("location").textContent).toBe("/tasks/task-1?focus=appr-1"));
     // Once for the mount drain, once to clear the shell's copy of the tap.
     await waitFor(() => expect(takePendingURL).toHaveBeenCalledTimes(2));
   });
@@ -157,8 +157,8 @@ describe("NotificationTaps", () => {
 
   it("runs in a browser with no native plugin", async () => {
     const { getByTestId } = mount(null);
-    tap("/inbox?focus=a1");
-    await waitFor(() => expect(getByTestId("location").textContent).toBe("/inbox?focus=a1"));
+    tap("/tasks/task-1?focus=a1");
+    await waitFor(() => expect(getByTestId("location").textContent).toBe("/tasks/task-1?focus=a1"));
   });
 
   it("takes away banners for items that are no longer pending", async () => {

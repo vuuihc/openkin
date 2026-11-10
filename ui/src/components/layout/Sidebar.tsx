@@ -63,7 +63,6 @@ import {
   IconFile,
   IconChevron,
   IconDownload,
-  IconInbox,
   IconMore,
   IconPin,
   IconPlus,
@@ -73,13 +72,20 @@ import {
   IconX,
 } from "../icons";
 import ActionSheet from "../ui/ActionSheet";
+import PendingBadge from "../ui/PendingBadge";
 
 type Props = {
   tasks: Task[];
   selectedTaskId?: string | null;
   /** Highlight the draft / New chat entry. */
   draftActive?: boolean;
-  pendingCount: number;
+  /**
+   * Waiting approvals and questions per task, for the row-end count.
+   *
+   * A row is still one link: the count is a mark on it, not a second button.
+   * The map comes from the same pending list the floating card reads.
+   */
+  pendingByTask?: ReadonlyMap<string, number>;
   routineUnreadCount?: number;
   weekCost?: number | null;
   onNewChat: () => void;
@@ -101,6 +107,9 @@ type Props = {
   onSearchQueryChange?: (q: string) => void;
   searchLoading?: boolean;
 };
+
+/** One empty map, so a sidebar given no pending data keeps one identity. */
+const EMPTY_PENDING: ReadonlyMap<string, number> = new Map();
 
 /** Normalize path for cwd comparison across platforms. */
 function normCwd(cwd: string): string {
@@ -135,7 +144,7 @@ export default function Sidebar({
   tasks,
   selectedTaskId,
   draftActive,
-  pendingCount,
+  pendingByTask = EMPTY_PENDING,
   routineUnreadCount = 0,
   weekCost,
   onNewChat,
@@ -411,6 +420,7 @@ export default function Sidebar({
         coarse={coarse}
         externalSessions={sessionsForProject(device.sessions, g)}
         onOpenExternalSession={onOpenExternalSession}
+        pendingByTask={pendingByTask}
         mode={mode}
       />
     );
@@ -690,28 +700,6 @@ export default function Sidebar({
       onKeyDown={onListKeyDown}
       className="flex-1 overflow-y-auto px-2 pb-2 max-md:px-3 space-y-3"
     >
-      <button
-        type="button"
-        onClick={() => {
-          navigate("/approvals");
-          onCloseMobile();
-        }}
-        className={[
-          "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-strong min-h-9 max-md:min-h-11 max-md:rounded-xl max-md:px-2 max-md:text-body",
-          pendingCount > 0
-            ? "border border-kin-blue/40 bg-kin-blue/15 text-kin-text"
-            : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
-        ].join(" ")}
-      >
-        <IconInbox size={15} />
-        <span>{tr("nav.inbox")}</span>
-        {pendingCount > 0 && (
-          <span className="ml-auto min-w-[18px] h-[18px] px-1.5 rounded-full bg-kin-orange text-kin-on-status text-caption font-bold inline-flex items-center justify-center tabular-nums">
-            {pendingCount > 99 ? "99+" : pendingCount}
-          </span>
-        )}
-      </button>
-
       {groups.length === 0 && archivedGroups.length === 0 && (
         <div className="px-2 py-4 text-body text-kin-muted leading-prose">
           {searchQuery.trim()
@@ -797,13 +785,6 @@ export default function Sidebar({
   const footerIcons = (
     <div data-sidebar-footer className="border-t border-kin-hairline px-1.5 py-2">
       <div className="flex items-center justify-between gap-0.5">
-        <FooterIcon
-          to="/inbox"
-          label={tr("nav.inbox")}
-          icon={<IconInbox size={16} />}
-          badge={pendingCount > 0 ? (pendingCount > 99 ? "99+" : String(pendingCount)) : undefined}
-          onClick={onCloseMobile}
-        />
         {archivedGroups.length > 0 && (
           <button
             type="button"
@@ -874,13 +855,6 @@ export default function Sidebar({
   // page behind it, with its own search box and its own idea of which row was
   // open; the list already has a home one tap away.
   const drawerEntries = [
-    {
-      key: "inbox",
-      path: "/inbox",
-      label: tr("nav.inbox"),
-      icon: <IconInbox size={18} />,
-      badge: pendingCount,
-    },
     {
       key: "archived",
       path: "/sessions?scope=archived",
@@ -1213,6 +1187,7 @@ function ProjectBlock({
   menuLabel,
   deleteLabel,
   coarse,
+  pendingByTask,
   mode,
 }: {
   group: ProjectGroup;
@@ -1240,6 +1215,8 @@ function ProjectBlock({
   deleteLabel: string;
   /** The pointer is a finger: render the touch home, not hover-only controls. */
   coarse: boolean;
+  /** Waiting approvals and questions per task, for each conversation's tail. */
+  pendingByTask: ReadonlyMap<string, number>;
   mode: "active" | "archived";
 }) {
   const navigate = useNavigate();
@@ -1408,6 +1385,7 @@ function ProjectBlock({
               onOpenExternalSession={onOpenExternalSession}
               onCloseMobile={onCloseMobile}
               coarse={coarse}
+              pendingByTask={pendingByTask}
             />
           </div>
         </>
@@ -1533,6 +1511,7 @@ function ProjectSessionRows({
   onOpenExternalSession,
   onCloseMobile,
   coarse,
+  pendingByTask,
 }: {
   tasks: Task[];
   sessions: AgentSession[];
@@ -1543,6 +1522,8 @@ function ProjectSessionRows({
   onCloseMobile: () => void;
   /** The pointer is a finger: no hover reveal, no hover-only delete. */
   coarse: boolean;
+  /** Waiting approvals and questions per task, drawn on the row's tail. */
+  pendingByTask: ReadonlyMap<string, number>;
 }) {
   const tr = useT();
   const rows = useMemo(() => mergeProjectRows(tasks, sessions), [tasks, sessions]);
@@ -1571,6 +1552,8 @@ function ProjectSessionRows({
         const task = row.task!;
         const active = task.id === selectedTaskId;
         const dot = sessionStatusDotClass(task.status, isSessionViewed(task.id));
+        const title = taskDisplayTitle(task);
+        const waiting = pendingByTask.get(task.id) ?? 0;
         return (
           <div
             key={task.id}
@@ -1589,6 +1572,15 @@ function ProjectSessionRows({
             <NavLink
               to={`/tasks/${task.id}`}
               data-session-row={task.id}
+              // An explicit name, because the badge's number and its full
+              // sentence are separate nodes: concatenated by the browser they
+              // run together ("only3 waiting"). The name is the same sentence
+              // the phone's row uses.
+              aria-label={
+                waiting > 0
+                  ? `${title} · ${tr("sessions.pendingApprovals", { count: String(waiting) })}`
+                  : undefined
+              }
               onClick={() => {
                 touchProject(task.cwd);
                 if (isTerminal(task.status)) markSessionViewed(task.id);
@@ -1601,7 +1593,10 @@ function ProjectSessionRows({
                   " ",
                 )}
               />
-              <span className="truncate flex-1 min-w-0">{taskDisplayTitle(task)}</span>
+              <span className="truncate flex-1 min-w-0">{title}</span>
+              {/* The row is the one click target; the count only says the
+                  conversation is stopped until someone answers. */}
+              <PendingBadge count={waiting} className="mr-0.5" />
             </NavLink>
             {onDeleteSession && deleteLabel && !coarse && (
               <button

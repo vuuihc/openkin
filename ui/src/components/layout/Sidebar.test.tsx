@@ -54,7 +54,7 @@ function sidebar(props: SidebarProps) {
     <MemoryRouter>
       <Sidebar
         tasks={[]}
-        pendingCount={0}
+        pendingByTask={new Map()}
         // The panel is drawn twice — once for the desktop rail and once inside
         // the mobile drawer — and both copies carry this menu. Closing the
         // drawer is what leaves one of it in the document; the markup under

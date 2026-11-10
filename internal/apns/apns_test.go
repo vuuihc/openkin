@@ -75,7 +75,7 @@ func TestSendBuildsAPNsRequest(t *testing.T) {
 
 	c := testClient(t, srv.URL)
 	res := c.Send(context.Background(), "abc123", Sandbox, Notification{
-		Title: "Fix the login bug", Body: "Approval needed", URL: "/inbox?focus=a1",
+		Title: "Fix the login bug", Body: "Approval needed", URL: "/tasks/t1?focus=a1",
 		Kind: "approval", ID: "a1", ThreadID: "a1",
 	})
 	if !res.OK || res.APNSID != "APNS-1" {
@@ -122,7 +122,7 @@ func TestSendBuildsAPNsRequest(t *testing.T) {
 		t.Errorf("alert = %v", alert)
 	}
 	kin, _ := seen.body["kin"].(map[string]any)
-	if kin["kind"] != "approval" || kin["id"] != "a1" || kin["url"] != "/inbox?focus=a1" {
+	if kin["kind"] != "approval" || kin["id"] != "a1" || kin["url"] != "/tasks/t1?focus=a1" {
 		t.Errorf("kin = %v", kin)
 	}
 }

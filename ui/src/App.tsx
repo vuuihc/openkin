@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { getToken, getRoutineUnreadCount } from "./api/client";
 import { liveResources } from "./api/liveResources";
@@ -8,7 +8,6 @@ import ConnectScreen from "./components/ConnectScreen";
 import NotificationTaps from "./components/NotificationTaps";
 import AppShell from "./components/layout/AppShell";
 import ToastHost from "./components/ToastHost";
-import ApprovalsPage from "./pages/ApprovalsPage";
 import ProjectsPage from "./pages/ProjectsPage";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
 import NewChatPage from "./pages/NewChatPage";
@@ -27,6 +26,7 @@ import { dispatchWS, useAppStore, type AuthState } from "./store/appStore";
 import { clearSessionViewed } from "./lib/sessionViewed";
 import { useMachines } from "./hooks/useMachines";
 import { readRoutineDevice, routineDeviceForBadge, THIS_MACHINE } from "./lib/routineDevice";
+import { pendingCountsByTask } from "./lib/pendingCounts";
 
 /** The one thing standing between an anonymous browser and the console. */
 function AuthGate({ auth }: { auth: Exclude<AuthState, { status: "ok" }> }) {
@@ -42,7 +42,9 @@ export default function App() {
   const setAuthOk = useAppStore((s) => s.setAuthOk);
   const [routineUnreadCount, setRoutineUnreadCount] = useState(0);
   const pending = usePendingResources(auth.status === "ok");
-  const pendingCount = pending.data.approvals.length;
+  // Waiting work is drawn on the conversation row that owns it, in both list
+  // shells; this is the one read the shell hands down.
+  const pendingByTask = useMemo(() => pendingCountsByTask(pending.data), [pending.data]);
   const location = useLocation();
   const isTray = location.pathname === "/tray";
   // Routines belong to machines, so the badge counts the machine the Routines
@@ -177,7 +179,7 @@ export default function App() {
   return (
     <>
       <AppShell
-        pendingCount={pendingCount}
+        pendingByTask={pendingByTask}
         pendingApprovals={pending.data.approvals}
         routineUnreadCount={routineUnreadCount}
       >
@@ -191,8 +193,11 @@ export default function App() {
             <Route path="/" element={<StartRoute />} />
             <Route path="/new" element={<NewChatPage />} />
             <Route path="/sessions" element={<SessionsRoute />} />
-            <Route path="/inbox" element={<ApprovalsPage />} />
-            <Route path="/approvals" element={<Navigate to="/inbox" replace />} />
+            {/* Banners and bookmarks delivered before R0b-2a still name the
+                inbox. The list is its replacement, and every row there says
+                what is waiting. */}
+            <Route path="/inbox" element={<Navigate to="/sessions" replace />} />
+            <Route path="/approvals" element={<Navigate to="/sessions" replace />} />
             {/* Task detail UI is rendered by TaskSessionHost above. */}
             <Route path="/tasks/:id" element={null} />
             <Route path="/projects" element={<ProjectsPage />} />

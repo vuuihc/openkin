@@ -32,9 +32,9 @@ export default function MobileDock() {
   // On settings it floated over the last card, offering a new chat on a page
   // about configuration.
   const onSessions = location.pathname.startsWith(placePath("sessions"));
-  // The dock is for going places, not for configuration: inbox and settings
-  // moved into the conversation list's header, where the reference keeps them,
-  // which leaves the three destinations that are the product's actual loop.
+  // The dock is for going places, not for configuration: settings lives in the
+  // conversation list's header, where the reference keeps it, which leaves the
+  // three destinations that are the product's actual loop.
   const tabs: { id: PlaceId; label: string; icon: ReactNode }[] = [
     { id: "sessions", label: tr("nav.sessions"), icon: <IconSessions size={22} /> },
     { id: "routines", label: tr("nav.routines"), icon: <IconRoutines size={22} /> },
