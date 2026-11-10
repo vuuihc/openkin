@@ -1,9 +1,19 @@
 # R0 · 面审计与减法
 
-状态：**R0a 已签字；R0b-1 进行中** · 2026-11-10
+状态：**R0a 已签字；R0b-1 已完成；R0b-2 待签字页** · 2026-11-10
 配套：[`IA.md`](../product/IA.md)、[`TASTE.md`](../product/TASTE.md)、[`stories/PLAN.md`](../product/stories/PLAN.md)、[`2026-11-08-design-system-middle-layer.md`](2026-11-08-design-system-middle-layer.md)、[`2026-11-09-astryx-spike.md`](2026-11-09-astryx-spike.md)
 测量：`python3 scripts/ui_inventory.py`
 评审页：[`2026-11-10-ui-surface-audit.review.html`](2026-11-10-ui-surface-audit.review.html)（390/1100 现状截图 + 每面决策卡；截图含本机真实数据，只在本机打开，不要外发）。如果页面里的截图显示「缺失」，用同目录的 `2026-11-10-ui-surface-audit.review.local.html`（截图已内嵌，gitignored）
+
+## 现在的位置
+
+| 项 | 状态 | 证据 |
+|---|---|---|
+| R0a 只读审计 | ✅ 已签字 2026-11-10 | 13 行决策：2 保留 / 3 合并 / 4 删除 / 4 补故事；评审页 `2026-11-10-ui-surface-audit.review.html`（截图缺失时看 `.review.local.html`） |
+| R0b-1 只做减法 | ✅ 已完成（含复审） | `/design`、`/artifacts` + 详情已删；`ActionSheet` 取代 3 个 `IonActionSheet`，`@ionic/*` 移除；`AgentModelPicker` 已删；`check.sh` / build / smoke 全绿；390 截图存 `.playwright-mcp/r0/page/`（ignored）。嵌套 sheet 的一次 Esc / Back 只关一层，已用真实界面复验。复审无 blocker：`anyWidth` 移出打开/关闭 effect、Back 以历史条目自身 marker 判定归属、补 3 条嵌套测试与 1 条宽度策略测试；9 个 mutant 全红后落地（`148abdc` → `9fcded75` → `766c705d` → `ed164db9`），桌面已重建 |
+| R0b-2 列表合并 + 收件箱替代 | ⚪ 未开始 | 等签字页：`2026-11-10-ui-surface-audit-r0b2.review.html` |
+| R0b-3 设置收口 | ⚪ 未开始 | 等 R0b-2 |
+| 4 条故事 | ⚪ 未开始 | 只写合同，不写代码 |
 
 ## 0. 一句话
 
@@ -128,7 +138,7 @@ R0 的主评审物是 **`2026-11-10-ui-surface-audit.review.html`**，不是下�
 2. `/artifacts` + `/artifacts/:id`：删路由、两个页面、入口；删聊天消息上的「保存产物」和 `TaskDetailPage` 的 `onSaveArtifact`；删项目详情里的相关产物区块；删只被这些面使用的 API helper、i18n 键和测试。
 3. Ionic 清尾：`main.tsx`、`Sidebar.tsx`、`SheetSelect.tsx`、`TaskDetailPage.tsx` 里的 `@ionic/react`；3 个 `IonActionSheet` 收敛成一个 `components/ui/ActionSheet`（基于现有 `Sheet`）；删 `@ionic/core` / `@ionic/react`。`Sheet` 同时补两件事：`anyWidth`（宽屏粗指针平板上仍显示）和嵌套层栈（一个 Esc / Back 只关最上面一层）。
 4. 确认 `AgentModelPicker.tsx` 无引用后删除。
-5. 文档同步：`IA.md`、`stories/PLAN.md`、`docs/product/components/README.md`（如删共享控件）、本文件 §11；重跑 `python3 scripts/ui_inventory.py`，把前后数字写进本文件。
+5. 文档同步：`IA.md`、`stories/PLAN.md`、`docs/product/components/README.md`（如删共享控件）、本文件开头的「现在的位置」；重跑 `python3 scripts/ui_inventory.py`，把前后数字写进本文件。
 
 ### R0b-2 · 对话列表合并 + 收件箱替代
 
@@ -177,21 +187,11 @@ R0 的主评审物是 **`2026-11-10-ui-surface-audit.review.html`**，不是下�
 - 不要提交 `web/dist/assets/`。
 - 不要凭印象删面；一切以 R0a 的证据表为准。
 
-## 11. 现在的位置
-
-| 项 | 状态 | 证据 |
-|---|---|---|
-| R0a 只读审计 | ✅ 已签字 2026-11-10 | 13 行决策：2 保留 / 3 合并 / 4 删除 / 4 补故事；评审页 `2026-11-10-ui-surface-audit.review.html`（截图缺失时看 `.review.local.html`） |
-| R0b-1 只做减法 | ✅ 已完成（含复审） | `/design`、`/artifacts` + 详情已删；`ActionSheet` 取代 3 个 `IonActionSheet`，`@ionic/*` 移除；`AgentModelPicker` 已删；`check.sh` / build / smoke 全绿；390 截图存 `.playwright-mcp/r0/page/`（ignored）。嵌套 sheet 的一次 Esc / Back 只关一层，已用真实界面复验。复审无 blocker：`anyWidth` 移出打开/关闭 effect、Back 以历史条目自身 marker 判定归属、补 3 条嵌套测试与 1 条宽度策略测试；9 个 mutant 全红后落地（`148abdc` → `9fcded75` → `766c705d` → `ed164db9`），桌面已重建 |
-| R0b-2 列表合并 + 收件箱替代 | ⚪ 未开始 | 等 R0b-1；先补签字页 |
-| R0b-3 设置收口 | ⚪ 未开始 | 等 R0b-2 |
-| 4 条故事 | ⚪ 未开始 | 只写合同，不写代码 |
-
-## 12. 下一会话
+## 11. 下一会话
 
 R0a 已签字（2026-11-10），**R0b-1 已完成并落地**：`/design`、`/artifacts` + 详情、`AgentModelPicker` 删除；Ionic 换成 `components/ui/ActionSheet` + 现有 `Sheet`，`@ionic/*` 依赖移除。下一轮是 **R0b-2**：`/sessions` 合并、`/inbox` 删除、顶部切换 / PR 面板移除、导入会话样式、`/projects` 列表收口；这些改变用户流程，动代码前必须先有签字页。R0b-3 的设置收口单独一轮。四条「补故事」的面只写合同，不写代码。
 
-## 13. 阅读顺序
+## 12. 阅读顺序
 
 1. `AGENTS.md`（工作流、round 规则、完成门禁）
 2. `docs/product/IA.md`（面归属和已签字决定）

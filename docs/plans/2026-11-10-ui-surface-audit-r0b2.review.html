@@ -1,0 +1,730 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>R0b-2 签字页 · 一份列表，两种壳</title>
+<style>
+:root {
+  color-scheme: dark;
+  --page: #0e0e10;
+  --bg: #1a1a1c;
+  --elevated: #2c2c2e;
+  --panel: #222226;
+  --text: #f5f5f7;
+  --secondary: #c7c7cc;
+  --muted: #98989d;
+  --hairline: rgba(255,255,255,.08);
+  --hairline-strong: rgba(255,255,255,.16);
+  --blue: #0a84ff;
+  --blue-ink: #6cb2ff;
+  --orange: #ff9f0a;
+  --red: #ff453a;
+  --green: #30d158;
+  --radius: 16px;
+  --shadow: 0 1px 2px rgba(0,0,0,.24), 0 8px 24px -12px rgba(0,0,0,.45);
+}
+html[data-theme="light"] {
+  color-scheme: light;
+  --page: #e0e0e5;
+  --bg: #ffffff;
+  --elevated: #f4f4f6;
+  --panel: #ffffff;
+  --text: #1c1c1e;
+  --secondary: #3a3a3c;
+  --muted: #5c5c61;
+  --hairline: rgba(0,0,0,.09);
+  --hairline-strong: rgba(0,0,0,.16);
+  --blue: #0b6fe0;
+  --blue-ink: #0a52b4;
+  --orange: #7d4400;
+  --red: #a51f18;
+  --green: #105c27;
+  --shadow: 0 1px 2px rgba(0,0,0,.03), 0 8px 24px -12px rgba(0,0,0,.06);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+html { overflow-x: clip; }
+body {
+  background: var(--page);
+  color: var(--text);
+  font: 16px/1.65 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+}
+a { color: var(--blue-ink); text-underline-offset: 3px; }
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .92em;
+  background: var(--elevated);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  padding: .1em .35em;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 32px 22px 96px; }
+.skip {
+  position: absolute; left: -999px; top: 8px; z-index: 50;
+  background: var(--blue); color: #fff; padding: 8px 12px; border-radius: 8px;
+}
+.skip:focus { left: 8px; }
+.page-head { padding: 16px 0 8px; }
+.eyebrow {
+  margin: 0 0 10px; text-transform: uppercase; letter-spacing: .08em;
+  font-size: 12px; font-weight: 700; color: var(--muted);
+}
+h1 { margin: 0 0 10px; font-size: clamp(34px, 9vw, 46px); line-height: 1.08; letter-spacing: -.03em; }
+.lede { margin: 0 0 18px; max-width: 62ch; font-size: 19px; color: var(--secondary); }
+.lede strong { color: var(--text); }
+.meta { display: flex; flex-wrap: wrap; gap: 8px; }
+.meta span {
+  font-size: 13px; color: var(--secondary);
+  border: 1px solid var(--hairline); border-radius: 999px; padding: 4px 10px;
+  background: var(--bg);
+}
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 4px; }
+button {
+  font: inherit; font-size: 14px; font-weight: 650; color: var(--text);
+  background: var(--elevated); border: 1px solid var(--hairline-strong);
+  border-radius: 999px; padding: 8px 14px; cursor: pointer;
+}
+button:hover { border-color: var(--blue); }
+button:focus-visible, a:focus-visible, input:focus-visible {
+  outline: 2px solid var(--blue); outline-offset: 2px;
+}
+.toc {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; gap: 6px; overflow-x: auto; white-space: nowrap;
+  padding: 10px 0; margin: 12px 0 8px;
+  background: color-mix(in srgb, var(--page) 86%, transparent);
+  backdrop-filter: blur(14px); border-bottom: 1px solid var(--hairline);
+  scrollbar-width: none;
+}
+.toc::-webkit-scrollbar { display: none; }
+.toc a {
+  color: var(--secondary); text-decoration: none; font-size: 14px;
+  border: 1px solid transparent; border-radius: 999px; padding: 5px 10px;
+}
+.toc a:hover { border-color: var(--hairline-strong); color: var(--text); }
+section { scroll-margin-top: 64px; }
+.section-head { margin: 42px 0 10px; }
+.section-head h2 { margin: 0 0 4px; font-size: 27px; letter-spacing: -.02em; }
+.section-head p { margin: 0; color: var(--muted); max-width: 70ch; }
+.decision {
+  background: var(--bg); border: 1px solid var(--hairline);
+  border-radius: var(--radius); padding: 20px; margin: 14px 0;
+  box-shadow: var(--shadow);
+}
+.decision-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.decision h3 { margin: 0; font-size: 20px; letter-spacing: -.01em; }
+.decision .tag {
+  flex: none; font-size: 12px; font-weight: 750; border-radius: 999px; padding: 4px 10px;
+  border: 1px solid var(--hairline-strong); color: var(--secondary); white-space: nowrap;
+}
+.decision .tag.signed { color: var(--green); border-color: color-mix(in srgb, var(--green) 42%, transparent); }
+.decision .tag.proposed { color: var(--blue-ink); border-color: color-mix(in srgb, var(--blue-ink) 42%, transparent); }
+.decision .rec { margin: 10px 0 0; }
+.decision .why { margin: 8px 0 0; color: var(--secondary); }
+.decision .tradeoff { margin: 10px 0 0; padding-top: 10px; border-top: 1px solid var(--hairline); color: var(--muted); font-size: 14.5px; }
+.decision .tradeoff strong { color: var(--secondary); }
+.frame-block { margin: 20px 0 8px; }
+.frame-label {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  margin: 0 0 8px; font-size: 13px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .06em;
+}
+.frame-label span { font-weight: 500; text-transform: none; letter-spacing: 0; }
+.wide { overflow-x: auto; padding-bottom: 8px; -webkit-overflow-scrolling: touch; }
+.wire-note { margin: 6px 0 0; color: var(--muted); font-size: 13.5px; }
+
+/* ---- wireframes ---- */
+.mock {
+  background: var(--bg); color: var(--text); border: 1px solid var(--hairline-strong);
+  border-radius: 18px; overflow: hidden; box-shadow: var(--shadow);
+}
+.mock.phone { width: 100%; max-width: 390px; margin: 0 auto; }
+.mock.mac { min-width: 820px; display: grid; grid-template-columns: 300px 1fr; }
+.mock-top {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px 6px; font-size: 12px; color: var(--muted);
+}
+.mock-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 14px 10px; gap: 8px;
+}
+.mock-head.lg { font-size: 24px; font-weight: 750; letter-spacing: -.02em; }
+.mock-search {
+  margin: 0 14px 10px; padding: 8px 12px; border-radius: 10px;
+  background: var(--elevated); color: var(--muted); font-size: 13.5px;
+  display: flex; justify-content: space-between; gap: 8px;
+}
+.mock-list { padding: 0 8px 10px; display: flex; flex-direction: column; gap: 2px; }
+.mock-device {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 8px 4px; color: var(--muted); font-size: 12px; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase;
+}
+.mock-project {
+  display: flex; align-items: center; gap: 6px; justify-content: space-between;
+  padding: 8px 8px 4px; color: var(--secondary); font-size: 13px; font-weight: 700;
+}
+.mock-project span { color: var(--muted); font-weight: 600; }
+.mock-row {
+  display: flex; align-items: center; gap: 9px; min-height: 52px;
+  padding: 7px 8px; border-radius: 10px;
+}
+.mock-row.on { background: color-mix(in srgb, var(--blue) 16%, transparent); }
+.mock-row.flat { min-height: 44px; }
+.mock-glyph {
+  flex: none; width: 26px; height: 26px; border-radius: 8px;
+  display: grid; place-items: center; font-size: 11px; font-weight: 800;
+  background: var(--elevated); color: var(--secondary);
+}
+.mock-glyph.blue { background: color-mix(in srgb, var(--blue) 22%, transparent); color: var(--blue-ink); }
+.mock-main { min-width: 0; flex: 1; }
+.mock-title {
+  display: block; font-size: 13.5px; font-weight: 650; line-height: 1.3;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mock-sub {
+  display: block; font-size: 11.5px; color: var(--muted); line-height: 1.35; margin-top: 1px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mock-trail { flex: none; display: flex; align-items: center; gap: 6px; }
+.badge-count {
+  min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
+  display: grid; place-items: center; font-size: 11px; font-weight: 800;
+  background: var(--orange); color: #1c1c1e;
+}
+.badge-count.calm { background: var(--elevated); color: var(--secondary); }
+.mock-time { font-size: 11px; color: var(--muted); min-width: 34px; text-align: right; }
+.mock-more { color: var(--muted); font-size: 16px; letter-spacing: 1px; }
+.mock-group {
+  margin: 8px 6px 2px; padding: 9px 10px; border-radius: 10px;
+  border: 1px dashed var(--hairline-strong); color: var(--secondary);
+  display: flex; align-items: center; justify-content: space-between; font-size: 13px;
+}
+.mock-dock {
+  margin: 10px 12px 12px; padding: 7px; border-radius: 999px;
+  background: var(--elevated); display: flex; align-items: center; gap: 4px;
+  border: 1px solid var(--hairline);
+}
+.mock-dock div {
+  flex: 1; text-align: center; font-size: 11.5px; color: var(--muted);
+  padding: 5px 0; border-radius: 999px;
+}
+.mock-dock .on { background: color-mix(in srgb, var(--blue) 18%, transparent); color: var(--blue-ink); font-weight: 700; }
+.mock-fab {
+  flex: none; width: 38px; height: 38px; border-radius: 999px; margin-left: 2px;
+  background: var(--text); color: var(--bg); display: grid; place-items: center;
+  font-size: 18px; font-weight: 700;
+}
+.mock-side { border-right: 1px solid var(--hairline); padding-bottom: 10px; }
+.mock-side-foot {
+  display: flex; align-items: center; gap: 10px; padding: 10px 16px 12px;
+  border-top: 1px solid var(--hairline); color: var(--muted); font-size: 12px;
+}
+.mock-side-foot span { display: inline-flex; align-items: center; gap: 4px; }
+.mock-mainpane {
+  display: grid; place-items: center; color: var(--muted); font-size: 13px;
+  background: repeating-linear-gradient(135deg, transparent 0 12px, color-mix(in srgb, var(--hairline) 60%, transparent) 12px 13px);
+}
+.mock-mainpane div {
+  background: var(--bg); border: 1px solid var(--hairline); border-radius: 12px;
+  padding: 14px 18px; text-align: center; max-width: 260px;
+}
+.row-anatomy {
+  display: flex; align-items: center; gap: 12px; padding: 14px;
+  background: var(--bg); border: 1px solid var(--hairline-strong); border-radius: 14px;
+}
+.callouts { display: grid; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; font-size: 14px; color: var(--secondary); }
+.callouts b { color: var(--text); }
+.flow {
+  background: var(--bg); border: 1px solid var(--hairline); border-radius: var(--radius);
+  padding: 18px 20px; margin: 14px 0;
+}
+.flow h3 { margin: 0 0 8px; font-size: 19px; }
+.beats { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.beats li { display: grid; grid-template-columns: 6.5em 1fr; gap: 10px; font-size: 15px; }
+.beats .beat { color: var(--muted); font-weight: 700; }
+.beats .val { color: var(--secondary); }
+.dont { display: grid; gap: 8px; margin: 14px 0 0; padding: 16px 18px; border-radius: 14px; background: var(--bg); border: 1px solid var(--hairline); }
+.dont p { margin: 0; color: var(--secondary); font-size: 15px; }
+.dont b { color: var(--text); }
+pre.reply {
+  margin: 14px 0 0; padding: 18px; border-radius: 14px; background: var(--bg);
+  border: 1px solid var(--hairline-strong); color: var(--text);
+  font: 14px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.copy-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+.copy-status { color: var(--green); font-size: 13px; }
+footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--hairline); color: var(--muted); font-size: 13.5px; }
+@media (max-width: 640px) {
+  .wrap { padding: 24px 16px 88px; }
+  .lede { font-size: 18px; }
+  .decision { padding: 16px; }
+  .beats li { grid-template-columns: 5.5em 1fr; font-size: 14.5px; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">跳到正文</a>
+<div class="wrap">
+  <header class="page-head">
+    <p class="eyebrow">R0b-2 · 签字页 · 2026-11-10</p>
+    <h1>一份列表，两种壳</h1>
+    <p class="lede">
+      手机和 Mac 现在各有一套对话列表。<strong>这一轮收成一套数据、一套行、一套操作</strong>，
+      宽度只决定壳（侧栏 / 整页），不再决定功能。待批准从收件箱回到对话行，项目收进列表，
+      导入会话默认收起。
+    </p>
+    <div class="meta">
+      <span>待签字</span>
+      <span>影响 /sessions /inbox /projects /tasks/:id /agent-sessions/:id</span>
+      <span>不改视觉语言</span>
+      <span>代码零行</span>
+    </div>
+    <div class="actions">
+      <button type="button" id="theme">切换深浅色</button>
+    </div>
+  </header>
+
+  <nav class="toc" aria-label="页内导航">
+    <a href="#decisions">结论</a>
+    <a href="#list">一份列表</a>
+    <a href="#approval">待批准</a>
+    <a href="#imports">导入会话</a>
+    <a href="#projects">项目</a>
+    <a href="#task">任务页</a>
+    <a href="#flows">用户流程</a>
+    <a href="#scope">不做什么</a>
+    <a href="#reply">回复模板</a>
+  </nav>
+
+  <main id="main">
+    <section id="decisions">
+      <div class="section-head">
+        <h2>先看结论</h2>
+        <p>五个决定。前四个定交互，第五个是已签决定的执行边界。每张卡给出建议和代价；不同意就改一行字。</p>
+      </div>
+
+      <article class="decision">
+        <div class="decision-head">
+          <h3>D1 · 项目进列表，不留第二份列表</h3>
+          <span class="tag signed">R0a 已签合并</span>
+        </div>
+        <p class="rec"><strong>建议：</strong>列表只有一份，层级固定为 <strong>设备 → 项目 → 对话</strong>。项目是列表里的分组头，不是导航目的地；点项目头进 <code>/projects/:id</code>，项目详情页保留。删 <code>/projects</code> 索引页，手机 dock 去掉「项目」。</p>
+        <p class="why">理由：IA 已经把唯一列表定为这三级；`/projects` 是第二份项目列表，页头自己都写着「和侧栏按目录分组的『项目』是同一件事」。再留一个入口，就是把已经合并的东西又拆回去。</p>
+        <p class="tradeoff"><strong>代价：</strong>项目头占纵向空间；折叠状态要按设备记住。项目为空时仍显示头（带 0），否则用户会以为项目丢了。</p>
+      </article>
+
+      <article class="decision">
+        <div class="decision-head">
+          <h3>D2 · 待批准放在行尾，不放进收件箱</h3>
+          <span class="tag proposed">待签</span>
+        </div>
+        <p class="rec"><strong>建议：</strong>对话行尾放一个带数字的待批准标记（铃铛 / 计数），<strong>整行仍是唯一点击目标</strong>：点行进入对话，批准面板已经展开。系统通知点开也落这一行。删 <code>/inbox</code>，不再有独立图标按钮。</p>
+        <p class="why">理由：待批准属于那条对话，不属于一个跨对话的收件箱。行尾是视线扫过标题和时间后的落点，不会把行首的未读 / 状态挤掉；把标记本身做成按钮会产生「点图标去哪、点行去哪」的第二个问题。</p>
+        <p class="tradeoff"><strong>代价：</strong>列表很长时会有多个标记；只显示 <code>&gt;0</code>，超过 9 显示 <code>9+</code>，不聚合到顶部。通知落到对话而不是行内滚动位置，因为批准面板本来就是该对话的顶层。</p>
+      </article>
+
+      <article class="decision">
+        <div class="decision-head">
+          <h3>D3 · 一套行组件，壳只决定容器</h3>
+          <span class="tag proposed">待签</span>
+        </div>
+        <p class="rec"><strong>建议：</strong>手机整页与 Mac 左栏共用同一个 <code>SessionRow</code> 和同一套列表控制器（数据、搜索、过滤、行操作）。宽度只决定：容器是整页还是 300px 侧栏、溢出菜单是行内按钮还是长按 / 滑动加速。功能清单必须一致。</p>
+        <p class="why">理由：现在两套实现各有自己的行类型、分组和操作集合，同一个对话在两个端能做的事不一样；合并实现比「对齐两份功能」更便宜，也更难再次分叉。</p>
+        <p class="tradeoff"><strong>代价：</strong>侧栏更窄，标题截断更早；溢出菜单必须键盘可达，不能只剩滑动。手机保留单行行高，不因为共用组件退回两行卡片。</p>
+      </article>
+
+      <article class="decision">
+        <div class="decision-head">
+          <h3>D4 · 导入会话：每台设备末尾收起</h3>
+          <span class="tag proposed">待签</span>
+        </div>
+        <p class="rec"><strong>建议：</strong>导入会话按设备收进列表末尾的「导入的会话 (N)」分组，默认折叠；展开后与原生会话<strong>同样的行、同样的详情头</strong>，没有彩色 rail、没有可用性徽标。新导入的会话不自动展开，只更新计数。</p>
+        <p class="why">理由：R0a 签的是「默认收起、同样式、不特殊标记」。行本身没有展开态，所以「收起」只能落在分组上；放在设备末尾保留了设备归属，也不需要给导入会话硬造项目。</p>
+        <p class="tradeoff"><strong>代价：</strong>可发现性下降，用计数补偿；跨设备找一条导入会话要先选设备。详情页保留来源信息，但放在「更多」里，不占头部。</p>
+      </article>
+
+      <article class="decision">
+        <div class="decision-head">
+          <h3>D5 · 任务页删切换与 PR，保留会话保活</h3>
+          <span class="tag signed">R0a 已签</span>
+        </div>
+        <p class="rec"><strong>执行边界：</strong>删顶部 <code>SessionTabs</code>、手机 <code>SessionSwitcherSheet</code> 和 header 按钮；删 <code>PullRequestPanel</code> 及入口；保留 <code>TaskSessionHost</code> 的会话保活与返回位置。</p>
+        <p class="why">理由：列表切换已经覆盖顶部切换；「创建 PR」没有功能，留着只会让人以为坏了。</p>
+        <p class="tradeoff"><strong>代价：</strong>在同一项目里连续切换会话要多回一次列表；这是列表合并后本来就该承担的，不再用第二套切换器补偿。</p>
+      </article>
+    </section>
+
+    <section id="list">
+      <div class="section-head">
+        <h2>一份列表，两种壳</h2>
+        <p>线框只画结构，不是视觉定稿。桌面整帧可横向滚动。</p>
+      </div>
+
+      <div class="frame-block">
+        <p class="frame-label">手机 · /sessions <span>390 · 整页列表</span></p>
+        <div class="mock phone" role="img" aria-label="手机对话列表线框：设备、项目分组、对话行、待批准计数、导入会话收起、两项 dock">
+          <div class="mock-top"><span>9:41</span><span>Kin</span><span>5G</span></div>
+          <div class="mock-head lg"><span>对话</span><span class="mock-more">⌕ ⋯</span></div>
+          <div class="mock-search"><span>搜索对话、项目</span><span>筛选</span></div>
+          <div class="mock-list">
+            <div class="mock-device"><span>MacBook Pro · 本机</span><span>12</span></div>
+            <div class="mock-project"><span>▾ openkin</span><span>8</span></div>
+            <div class="mock-row on">
+              <span class="mock-glyph blue">C</span>
+              <span class="mock-main">
+                <span class="mock-title">整理对话列表</span>
+                <span class="mock-sub">Claude · 2 分钟前</span>
+              </span>
+              <span class="mock-trail"><span class="badge-count">2</span><span class="mock-time">14:32</span></span>
+            </div>
+            <div class="mock-row">
+              <span class="mock-glyph">X</span>
+              <span class="mock-main">
+                <span class="mock-title">夜间构建失败</span>
+                <span class="mock-sub">Codex · 21 分钟前</span>
+              </span>
+              <span class="mock-trail"><span class="mock-time">14:11</span></span>
+            </div>
+            <div class="mock-project"><span>▸ website</span><span>4</span></div>
+            <div class="mock-device"><span>NAS · 远端</span><span>3</span></div>
+            <div class="mock-project"><span>▸ ops</span><span>3</span></div>
+            <div class="mock-row">
+              <span class="mock-glyph">C</span>
+              <span class="mock-main">
+                <span class="mock-title">例行任务复盘</span>
+                <span class="mock-sub">Claude · 昨天</span>
+              </span>
+              <span class="mock-trail"><span class="badge-count calm">1</span><span class="mock-time">昨天</span></span>
+            </div>
+            <div class="mock-group"><span>▸ 导入的会话</span><span>3</span></div>
+          </div>
+          <div class="mock-dock">
+            <div class="on">对话</div>
+            <div>定时</div>
+            <div class="mock-fab">＋</div>
+          </div>
+        </div>
+        <p class="wire-note">项目头可折叠；行尾只有一组标记：待批准计数在时间左侧。导入会话默认折叠在每台设备末尾。dock 去掉「项目」后剩两项 + FAB。</p>
+      </div>
+
+      <div class="frame-block">
+        <p class="frame-label">Mac · 左栏 <span>1100 · 同一个行组件</span></p>
+        <div class="wide">
+          <div class="mock mac" role="img" aria-label="Mac 左栏线框：设备、项目分组、对话行、行尾待批准计数、底部图标行；右侧为对话区">
+            <div class="mock-side">
+              <div class="mock-head lg"><span>对话</span><span class="mock-more">＋ ⋯</span></div>
+              <div class="mock-search"><span>搜索对话、项目</span><span>⌘K</span></div>
+              <div class="mock-list">
+                <div class="mock-device"><span>MacBook Pro · 本机</span><span>12</span></div>
+                <div class="mock-project"><span>▾ openkin</span><span>8</span></div>
+                <div class="mock-row on flat">
+                  <span class="mock-glyph blue">C</span>
+                  <span class="mock-main"><span class="mock-title">整理对话列表</span></span>
+                  <span class="mock-trail"><span class="badge-count">2</span><span class="mock-time">14:32</span></span>
+                </div>
+                <div class="mock-row flat">
+                  <span class="mock-glyph">X</span>
+                  <span class="mock-main"><span class="mock-title">夜间构建失败</span></span>
+                  <span class="mock-trail"><span class="mock-time">14:11</span></span>
+                </div>
+                <div class="mock-project"><span>▸ website</span><span>4</span></div>
+                <div class="mock-device"><span>NAS · 远端</span><span>3</span></div>
+                <div class="mock-project"><span>▸ ops</span><span>3</span></div>
+                <div class="mock-group"><span>▸ 导入的会话</span><span>3</span></div>
+              </div>
+              <div class="mock-side-foot"><span>⇥ 导入</span><span>▣ 归档</span><span>⚙ 设置</span></div>
+            </div>
+            <div class="mock-mainpane"><div>选一条对话<br><span class="mock-sub">右栏仍是现在的对话页</span></div></div>
+          </div>
+        </div>
+        <p class="wire-note">左栏是 Mac 的唯一列表；`/sessions` 仍按 IA 跳到新建页，归档入口在底部图标行。行内容与手机一致，只是容器窄、标题更早截断。</p>
+      </div>
+
+      <div class="frame-block">
+        <p class="frame-label">行解剖 <span>两端同一套内容</span></p>
+        <div class="row-anatomy" role="img" aria-label="对话行结构：状态字形、标题、副标题、待批准计数、时间、溢出菜单">
+          <span class="mock-glyph blue">C</span>
+          <span class="mock-main">
+            <span class="mock-title">整理对话列表</span>
+            <span class="mock-sub">openkin · Claude</span>
+          </span>
+          <span class="mock-trail"><span class="badge-count">2</span><span class="mock-time">14:32</span><span class="mock-more">⋯</span></span>
+        </div>
+        <ul class="callouts">
+          <li><b>状态字形</b>：agent 首字母 / 运行状态，颜色只表达状态，不是导入标记。</li>
+          <li><b>标题</b>：一行截断；完整标题在悬停 / 聚焦时可见。</li>
+          <li><b>副标题</b>：项目 · agent；导入会话也走这里，不另加 rail。</li>
+          <li><b>待批准</b>：橙色计数，<code>&gt;0</code> 才出现，最多 <code>9+</code>；不是独立按钮。</li>
+          <li><b>时间与溢出</b>：相对时间；溢出菜单键盘可达，滑动只是手机加速。</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="approval">
+      <div class="section-head">
+        <h2>待批准：从收件箱回到行</h2>
+        <p>删掉 `/inbox` 之前，先把替代行为放到位：行尾计数、通知落点、批准面板的自动展开。</p>
+      </div>
+
+      <div class="frame-block">
+        <p class="frame-label">三种状态 <span>行尾计数 / 对话内批准 / 系统通知</span></p>
+        <div class="mock phone" role="img" aria-label="待批准三种状态：行尾计数、对话内批准卡片、系统通知">
+          <div class="mock-top"><span>9:41</span><span>Kin</span><span>5G</span></div>
+          <div class="mock-head lg"><span>对话</span><span class="mock-more">⌕ ⋯</span></div>
+          <div class="mock-list">
+            <div class="mock-row on">
+              <span class="mock-glyph blue">C</span>
+              <span class="mock-main"><span class="mock-title">整理对话列表</span><span class="mock-sub">Claude · 2 分钟前</span></span>
+              <span class="mock-trail"><span class="badge-count">2</span><span class="mock-time">14:32</span></span>
+            </div>
+            <div class="mock-row">
+              <span class="mock-glyph">X</span>
+              <span class="mock-main"><span class="mock-title">夜间构建失败</span><span class="mock-sub">Codex · 21 分钟前</span></span>
+              <span class="mock-trail"><span class="mock-time">14:11</span></span>
+            </div>
+          </div>
+          <div class="mock-head" style="border-top:1px solid var(--hairline);padding-top:10px">
+            <span style="font-size:13px;font-weight:700">批准后继续</span><span class="mock-sub">2 个操作等待确认</span>
+          </div>
+          <div class="mock-list">
+            <div class="mock-group" style="border-style:solid"><span>运行 <code>go test ./...</code></span><span>允许</span></div>
+            <div class="mock-group" style="border-style:solid"><span>写入 <code>docs/plans/</code></span><span>允许</span></div>
+          </div>
+          <div class="mock-group" style="margin:10px 14px">🔔 Kin · 现在<br>「整理对话列表」有 2 个操作待批准</div>
+        </div>
+        <p class="wire-note">通知点开直接进入那条对话，批准面板在顶部；不做「通知 → 收件箱 → 对话」的第二跳。</p>
+      </div>
+
+      <div class="flow">
+        <h3>六拍：被叫回来</h3>
+        <ul class="beats">
+          <li><span class="beat">起点</span><span class="val">用户离开控制台；某条对话出现待批准。</span></li>
+          <li><span class="beat">动作</span><span class="val">点系统通知，或回到列表点那条对话。</span></li>
+          <li><span class="beat">立刻看到</span><span class="val">对话已打开，批准面板在顶部，焦点在第一个操作；行尾计数在返回列表时消失。</span></li>
+          <li><span class="beat">慢 / 空 / 失败 / 断线</span><span class="val">没有待批准 → 不出现标记；设备断线 → 行仍可打开缓存内容，顶部显示重连，批准按钮禁用并说明原因。</span></li>
+          <li><span class="beat">键盘与焦点</span><span class="val">行是一个 tab 停靠点；标记有可访问名称「2 个待批准」；通知打开后焦点直接进批准面板，Esc 回到对话。</span></li>
+          <li><span class="beat">离开再回来</span><span class="val">返回列表落在同一滚动位置；计数已更新；不回到收件箱，因为收件箱已不存在。</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="imports">
+      <div class="section-head">
+        <h2>导入会话：收起，但不是另一种行</h2>
+        <p>默认收起落在分组上；行与详情头都回到原生样式。</p>
+      </div>
+
+      <div class="frame-block">
+        <p class="frame-label">收起 / 展开 <span>每台设备末尾</span></p>
+        <div class="mock phone" role="img" aria-label="导入会话分组：默认收起，展开后与原生行相同">
+          <div class="mock-list" style="padding-top:12px">
+            <div class="mock-device"><span>MacBook Pro · 本机</span><span>12</span></div>
+            <div class="mock-project"><span>▾ openkin</span><span>8</span></div>
+            <div class="mock-row"><span class="mock-glyph blue">C</span><span class="mock-main"><span class="mock-title">整理对话列表</span><span class="mock-sub">Claude · 2 分钟前</span></span><span class="mock-trail"><span class="mock-time">14:32</span></span></div>
+            <div class="mock-group"><span>▸ 导入的会话</span><span>3</span></div>
+            <div class="mock-device" style="margin-top:6px"><span>收起后（默认）</span><span></span></div>
+            <div class="mock-group" style="border-style:solid"><span>▾ 导入的会话</span><span>3</span></div>
+            <div class="mock-row"><span class="mock-glyph">◫</span><span class="mock-main"><span class="mock-title">审查支付回调</span><span class="mock-sub">导入 · Codex · 3 天前</span></span><span class="mock-trail"><span class="mock-time">3 天</span></span></div>
+            <div class="mock-row"><span class="mock-glyph">◫</span><span class="mock-main"><span class="mock-title">迁移脚本复盘</span><span class="mock-sub">导入 · Claude · 上周</span></span><span class="mock-trail"><span class="mock-time">上周</span></span></div>
+            <div class="mock-device" style="margin-top:6px"><span>展开后</span><span></span></div>
+          </div>
+        </div>
+        <p class="wire-note">展开后的行没有颜色 rail、没有「可用 / 不可用」徽标；来源只放在副标题的「导入」二字。详情页头部与原生对话一致。</p>
+      </div>
+
+      <div class="flow">
+        <h3>六拍：找一条导入会话</h3>
+        <ul class="beats">
+          <li><span class="beat">起点</span><span class="val">用户记得导入过一条外部 agent 会话，但不记得在哪台设备。</span></li>
+          <li><span class="beat">动作</span><span class="val">在列表末尾展开那台设备的「导入的会话」，或直接搜索标题。</span></li>
+          <li><span class="beat">立刻看到</span><span class="val">行与原生会话同高、同排版；打开后详情头也是同一套标题 / 状态 / 溢出。</span></li>
+          <li><span class="beat">慢 / 空 / 失败 / 断线</span><span class="val">没有导入 → 不显示该分组；导入进行中 → 计数 +1 的进度行，失败 → 该行显示重试，不阻塞列表。</span></li>
+          <li><span class="beat">键盘与焦点</span><span class="val">分组头是 disclosure 按钮，Enter / Space 展开；展开后焦点留在分组头，Tab 进入第一行。</span></li>
+          <li><span class="beat">离开再回来</span><span class="val">分组展开状态按设备记住；返回列表时仍在原滚动位置。</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="projects">
+      <div class="section-head">
+        <h2>项目：从列表进入，不再有索引页</h2>
+        <p>`/projects` 删除；项目头是入口，`/projects/:id` 保留。</p>
+      </div>
+
+      <div class="frame-block">
+        <p class="frame-label">列表 → 项目详情 <span>同一份列表</span></p>
+        <div class="mock phone" role="img" aria-label="项目入口：列表中的项目头打开项目详情，项目详情返回列表">
+          <div class="mock-list" style="padding-top:12px">
+            <div class="mock-device"><span>MacBook Pro · 本机</span><span>12</span></div>
+            <div class="mock-project" style="background:color-mix(in srgb,var(--blue) 10%,transparent);border-radius:10px"><span>openkin</span><span>8 ›</span></div>
+            <div class="mock-row"><span class="mock-glyph blue">C</span><span class="mock-main"><span class="mock-title">整理对话列表</span><span class="mock-sub">Claude · 2 分钟前</span></span><span class="mock-trail"><span class="mock-time">14:32</span></span></div>
+            <div class="mock-head" style="border-top:1px solid var(--hairline);margin-top:10px;padding-top:12px"><span style="font-size:20px;font-weight:750">‹ openkin</span><span class="mock-more">⋯</span></div>
+            <div class="mock-list">
+              <div class="mock-group" style="border-style:solid"><span>今日进展</span><span>3 条</span></div>
+              <div class="mock-group" style="border-style:solid"><span>代码改动</span><span>+412 / −98</span></div>
+              <div class="mock-group" style="border-style:solid"><span>Token</span><span>1.2M</span></div>
+            </div>
+            <div class="mock-device" style="margin-top:6px"><span>点项目头 → 详情；‹ 返回列表原位置</span><span></span></div>
+          </div>
+        </div>
+        <p class="wire-note">项目详情的内容属于 `/projects/:id` 的补故事，本轮只定入口与返回。`/projects` 索引不再有路由。</p>
+      </div>
+    </section>
+
+    <section id="task">
+      <div class="section-head">
+        <h2>任务页：删掉重复的切换与假的 PR</h2>
+        <p>已签决定的执行边界，不再讨论去留。</p>
+      </div>
+
+      <div class="frame-block">
+        <p class="frame-label">头部前后 <span>现在是两排，目标一排</span></p>
+        <div class="mock phone" role="img" aria-label="任务页头部前后对比：删除会话切换标签和创建 PR 按钮">
+          <div class="mock-head" style="border-bottom:1px solid var(--hairline)"><span class="mock-sub">现在</span><span class="mock-sub">‹ 返回 · 整理对话列表 · ⋯</span></div>
+          <div class="mock-list" style="padding-bottom:14px">
+            <div class="mock-group"><span>会话 1</span><span>会话 2</span><span>会话 3</span></div>
+            <div class="mock-group" style="border-style:solid"><span>会话切换（顶部 tabs / 手机 sheet）</span><span>删</span></div>
+            <div class="mock-group" style="border-style:solid"><span>创建 PR</span><span>删</span></div>
+          </div>
+          <div class="mock-head" style="border-top:1px solid var(--hairline);padding-top:12px"><span class="mock-sub">目标</span><span class="mock-sub">‹ 返回 · 整理对话列表 · ⋯</span></div>
+          <div class="mock-list">
+            <div class="mock-group" style="border-style:solid"><span>标题 / 状态 / 溢出</span><span>保留</span></div>
+            <div class="mock-group" style="border-style:solid"><span>会话保活与返回位置</span><span>保留</span></div>
+          </div>
+        </div>
+        <p class="wire-note">返回落回列表里那一行；不再有「同项目内直接切下一条」的第二套路径。</p>
+      </div>
+    </section>
+
+    <section id="flows">
+      <div class="section-head">
+        <h2>其它四条流程</h2>
+        <p>与上面三条同一套六拍；这里只写和合并直接相关的差异。</p>
+      </div>
+
+      <div class="flow">
+        <h3>新建之后回到列表</h3>
+        <ul class="beats">
+          <li><span class="beat">起点</span><span class="val">用户从手机 dock 的 FAB 或 Mac 的 ＋ 新建。</span></li>
+          <li><span class="beat">动作</span><span class="val">发出第一条消息。</span></li>
+          <li><span class="beat">立刻看到</span><span class="val">对话页；返回列表时新行已在对应设备和项目下，排在最前。</span></li>
+          <li><span class="beat">慢 / 空 / 失败 / 断线</span><span class="val">设备离线 → 行显示排队状态；发送失败 → 行保留并标记，不消失。</span></li>
+          <li><span class="beat">键盘与焦点</span><span class="val">新建后焦点在输入框；返回列表焦点落到新行。</span></li>
+          <li><span class="beat">离开再回来</span><span class="val">列表滚动位置不变；新行不改变已选筛选。</span></li>
+        </ul>
+      </div>
+
+      <div class="flow">
+        <h3>搜索与筛选</h3>
+        <ul class="beats">
+          <li><span class="beat">起点</span><span class="val">用户在列表顶部搜索。</span></li>
+          <li><span class="beat">动作</span><span class="val">输入标题、项目或设备名；筛选运行中 / 待批准 / 已归档。</span></li>
+          <li><span class="beat">立刻看到</span><span class="val">两端同一套结果；项目头保留，匹配的行高亮。</span></li>
+          <li><span class="beat">慢 / 空 / 失败 / 断线</span><span class="val">无结果 → 空状态带清除；远端设备离线 → 该设备结果标灰并说明。</span></li>
+          <li><span class="beat">键盘与焦点</span><span class="val">⌘K / 搜索键进入；↑↓ 走结果；Enter 打开；Esc 清除。</span></li>
+          <li><span class="beat">离开再回来</span><span class="val">返回时搜索词与筛选保留，直到用户清除。</span></li>
+        </ul>
+      </div>
+
+      <div class="flow">
+        <h3>行操作</h3>
+        <ul class="beats">
+          <li><span class="beat">起点</span><span class="val">用户在行尾的 ⋯（手机也可长按 / 滑动）。</span></li>
+          <li><span class="beat">动作</span><span class="val">置顶 / 归档 / 删除；两端同一组动作。</span></li>
+          <li><span class="beat">立刻看到</span><span class="val">行就地更新；归档后从当前 scope 消失，可在已归档找回。</span></li>
+          <li><span class="beat">慢 / 空 / 失败 / 断线</span><span class="val">失败 → 行回滚并提示；远端离线 → 动作禁用并说明。</span></li>
+          <li><span class="beat">键盘与焦点</span><span class="val">⋯ 可 Tab 到；菜单 Esc 关闭后焦点回行。</span></li>
+          <li><span class="beat">离开再回来</span><span class="val">操作结果持久；不要求刷新。</span></li>
+        </ul>
+      </div>
+
+      <div class="flow">
+        <h3>项目详情的返回</h3>
+        <ul class="beats">
+          <li><span class="beat">起点</span><span class="val">用户点项目头进入 `/projects/:id`。</span></li>
+          <li><span class="beat">动作</span><span class="val">看进展后返回。</span></li>
+          <li><span class="beat">立刻看到</span><span class="val">回到列表同一设备、同一滚动位置，项目仍展开。</span></li>
+          <li><span class="beat">慢 / 空 / 失败 / 断线</span><span class="val">项目页加载失败 → 返回仍可用；冷启动直接打开项目页 → 返回落到列表（Mac 为左栏，手机为 `/sessions`）。</span></li>
+          <li><span class="beat">键盘与焦点</span><span class="val">项目头是链接；返回后焦点回到项目头。</span></li>
+          <li><span class="beat">离开再回来</span><span class="val">折叠状态和滚动位置按设备记住。</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="scope">
+      <div class="section-head">
+        <h2>这一轮不做什么</h2>
+        <p>把范围钉住，避免一次 diff 又变成整站重写。</p>
+      </div>
+      <div class="dont">
+        <p><b>不做视觉定稿。</b>只用现有 token 和行排版；新的项目进展图、打卡图属于 `/projects/:id` 的补故事。</p>
+        <p><b>不动设置。</b>远程 / 通知的删除是 R0b-3，单独一轮。</p>
+        <p><b>不写四条故事的产品代码。</b>`/new`、`/projects/:id`、`/agents`、`/routines` 只写合同和签字页。</p>
+        <p><b>不迁 Astryx。</b>R0 只收面和控件；设计系统迁移在 G0.5 之后。</p>
+        <p><b>不碰后端契约。</b>待批准计数用现有 approvals 数据；如果缺字段，先加只读查询，不改表。</p>
+      </div>
+    </section>
+
+    <section id="reply">
+      <div class="section-head">
+        <h2>签字回复</h2>
+        <p>复制下面这段，改同意 / 不同意；签字后 R0b-2 才动代码。</p>
+      </div>
+      <pre class="reply" id="reply-text">R0b-2 签字回复（2026-11-10）
+- D1 项目进列表：同意（设备 → 项目 → 对话，删 /projects 索引）
+- D2 待批准位置：同意行尾计数（整行打开对话，通知落同一行）
+- D3 一套行：同意（手机 / Mac 共用 SessionRow 与列表控制器）
+- D4 导入会话：同意按设备末尾默认收起（同样式、无特殊标记）
+- D5 任务页：同意删会话切换与 PR，保留会话保活
+备注：</pre>
+      <div class="copy-row">
+        <button type="button" id="copy">复制回复模板</button>
+        <span class="copy-status" id="copy-status" role="status"></span>
+      </div>
+      <footer>
+        线框是结构稿，不是视觉定稿；所有设备名、项目名、对话标题均为占位。
+        配套：<code>docs/plans/2026-11-10-ui-surface-audit.md</code> §7 R0b-2、
+        <code>docs/product/IA.md</code>、<code>docs/product/TASTE.md</code>。
+      </footer>
+    </section>
+  </main>
+</div>
+<script>
+(function () {
+  var root = document.documentElement;
+  var theme = document.getElementById("theme");
+  theme.addEventListener("click", function () {
+    root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+  });
+  var copy = document.getElementById("copy");
+  var status = document.getElementById("copy-status");
+  copy.addEventListener("click", function () {
+    var text = document.getElementById("reply-text").textContent;
+    function done() {
+      status.textContent = "已复制";
+      setTimeout(function () { status.textContent = ""; }, 2000);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, fallback);
+    } else {
+      fallback();
+    }
+    function fallback() {
+      var area = document.createElement("textarea");
+      area.value = text;
+      document.body.appendChild(area);
+      area.select();
+      try { document.execCommand("copy"); done(); } catch (e) { status.textContent = "复制失败，请手动选择"; }
+      document.body.removeChild(area);
+    }
+  });
+})();
+</script>
+</body>
+</html>
