@@ -61,3 +61,12 @@ describe("pickWorkspaceLens", () => {
     expect(store().lensPick).toEqual({ taskId: "task-1", view: "source", lens: "changes" });
   });
 });
+
+describe("connection status", () => {
+  it("starts cold as connecting, because nothing has been attempted yet", () => {
+    // "disconnected" is a result — a channel that was tried and failed — and it
+    // is the state the shell turns into a reconnect strip. A store that starts
+    // there draws that strip on every cold load, before anything is wrong.
+    expect(store().wsStatus).toBe("connecting");
+  });
+});

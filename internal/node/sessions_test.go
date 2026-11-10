@@ -551,7 +551,6 @@ func TestASessionRowIsClippedOnItsWayOut(t *testing.T) {
 	for name, value := range map[string]string{
 		"external_ref":   got.ExternalRef,
 		"cwd":            got.Cwd,
-		"source_uri":     got.SourceURI,
 		"status":         got.Status,
 		"source_cursor":  got.SourceCursor,
 		"content_digest": got.ContentDigest,
@@ -559,6 +558,15 @@ func TestASessionRowIsClippedOnItsWayOut(t *testing.T) {
 		if len(value) > maxCwd {
 			t.Fatalf("%s is %d bytes, over every bound this layer has", name, len(value))
 		}
+	}
+	// The source path is bounded by the wire's own field rather than by the
+	// cwd's: it is a path, and the hub names it back when it asks for history.
+	// The fixture is longer than the bound in both directions, so the clip has
+	// to land exactly on the wire's own value: a narrower field would pass a
+	// one-sided check and quietly cut paths the hub can name back.
+	if len(got.SourceURI) != worker.MaxAgentHistorySource {
+		t.Fatalf("source_uri is %d bytes, want the wire bound %d",
+			len(got.SourceURI), worker.MaxAgentHistorySource)
 	}
 	if len(got.ExternalRef) > worker.MaxSessionRef {
 		t.Fatalf("external_ref is %d bytes, over the %d the wire carries", len(got.ExternalRef), worker.MaxSessionRef)

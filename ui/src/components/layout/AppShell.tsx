@@ -667,16 +667,15 @@ export default function AppShell({
           a gap under the banner instead of on the notch, and the bar itself
           still rendered under the sensor housing.
         */}
-        {wsStatus !== "connected" && (
+        {wsStatus === "disconnected" && (
           <div
             className={[
               "flex-none bg-kin-orange/10 border-b border-kin-orange/25 text-kin-orange-ink text-body text-center px-3 pb-1.5",
               // On the session screen the page draws its own `MobileHeader`
               // *below* this banner, so nothing above the banner owns the
-              // notch. Without this the reconnect strip — shown on every cold
-              // load, because `wsStatus` starts as "disconnected" — rendered
-              // under the sensor housing and then the header spent the inset
-              // a second time beneath it.
+              // notch. Without this the reconnect strip rendered under the
+              // sensor housing and then the header spent the inset a second
+              // time beneath it.
               // `max-md:` because from `md` up the shell root spends the
               // inset once for both columns (`md:pt-safe` above); this strip
               // is below that edge, so it must not spend it again.

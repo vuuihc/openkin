@@ -380,6 +380,11 @@ const (
 	// The agent id and the session ref are bounded by MaxAgentID and
 	// MaxSessionRef, which a dispatch already uses for the same two things.
 	MaxAgentHistoryCursor = 512
+	// MaxAgentHistorySource bounds the source path a Hub may name for a
+	// session, as a hint that saves the answering machine a catalog walk. It
+	// is generous for a path and small enough not to matter in a frame; the
+	// answering machine checks it against its own roots either way.
+	MaxAgentHistorySource = 4096
 )
 
 // Query is one question about the machine it is sent to.
@@ -1217,6 +1222,11 @@ type AgentHistoryParams struct {
 	// sees when a long transcript opens at what happened last.
 	Tail  bool `json:"tail,omitempty"`
 	Limit int  `json:"limit,omitempty"`
+	// SourceURI is where this Hub's row says the session lives. It is only a
+	// hint that saves the answering machine a walk of every catalog: the
+	// machine verifies it against its own roots and against the session's own
+	// records, and falls back to discovery when either disagrees.
+	SourceURI string `json:"source_uri,omitempty"`
 }
 
 // AgentHistoryItem is one message, as it crosses the wire.
@@ -1276,6 +1286,9 @@ func (p AgentHistoryParams) Validate() error {
 		return err
 	}
 	if err := optional("before", p.Before, MaxAgentHistoryCursor); err != nil {
+		return err
+	}
+	if err := optional("source_uri", p.SourceURI, MaxAgentHistorySource); err != nil {
 		return err
 	}
 	if p.Tail && (strings.TrimSpace(p.Cursor) != "" || strings.TrimSpace(p.Before) != "") {

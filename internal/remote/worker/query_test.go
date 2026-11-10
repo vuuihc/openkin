@@ -216,11 +216,16 @@ func TestAgentSessionQuestionsCheckWhatTheWireCarries(t *testing.T) {
 
 		{name: "one page", params: AgentHistoryParams{Agent: "claude-code", Ref: "ref-1"}},
 		{name: "one page with a cursor", params: AgentHistoryParams{Agent: "claude-code", Ref: "ref-1", Cursor: "c1", Limit: MaxAgentHistoryItems}},
+		{name: "one page with a named source", params: AgentHistoryParams{
+			Agent: "claude-code", Ref: "ref-1", Tail: true,
+			SourceURI: "file:///Users/someone/.claude/projects/p/ref-1.jsonl",
+		}},
 
 		{name: "no agent", params: AgentHistoryParams{Ref: "ref-1"}, field: "agent"},
 		{name: "no ref", params: AgentHistoryParams{Agent: "claude-code"}, field: "ref"},
 		{name: "a ref over the bound", params: AgentHistoryParams{Agent: "claude-code", Ref: strings.Repeat("r", MaxSessionRef+1)}, field: "ref"},
 		{name: "a cursor over the bound", params: AgentHistoryParams{Agent: "claude-code", Ref: "ref-1", Cursor: strings.Repeat("c", MaxAgentHistoryCursor+1)}, field: "cursor"},
+		{name: "a source over the bound", params: AgentHistoryParams{Agent: "claude-code", Ref: "ref-1", SourceURI: strings.Repeat("s", MaxAgentHistorySource+1)}, field: "source_uri"},
 		{name: "a page over the item bound", params: AgentHistoryParams{Agent: "claude-code", Ref: "ref-1", Limit: MaxAgentHistoryItems + 1}, field: "limit"},
 		{name: "a negative page", params: AgentHistoryParams{Agent: "claude-code", Ref: "ref-1", Limit: -1}, field: "limit"},
 	} {

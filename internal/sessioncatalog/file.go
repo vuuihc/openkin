@@ -111,7 +111,7 @@ func (c *FileCatalog) Inspect(ctx context.Context, externalRef string) (agent.Se
 // ReadHistory reads normalized message items directly from the source file.
 // Cursor is a JSONL line number, optionally followed by a content-block offset.
 func (c *FileCatalog) ReadHistory(ctx context.Context, externalRef string, q agent.HistoryQuery) (agent.HistoryPage, error) {
-	info, err := c.Inspect(ctx, externalRef)
+	info, err := c.sessionForRead(ctx, externalRef, q.SourceURI)
 	if err != nil {
 		return agent.HistoryPage{}, err
 	}
@@ -273,6 +273,155 @@ func (c *FileCatalog) readHistoryBackward(ctx context.Context, path string, info
 		}
 	}
 	return agent.HistoryPage{Items: items, PrevCursor: prev, SourceRev: sourceRev}, nil
+}
+
+// sessionForRead names the one file a history page is read from.
+//
+// Discovery is the fallback rather than the first step. A page is normally
+// read through a row that already recorded where the session lives, and
+// walking every provider file to find that one again is both slower and no
+// more correct — on a machine with a few hundred transcripts it is the
+// difference between a page that opens and one that sits on a skeleton.
+//
+// The hint is still treated as input from outside, because it is: it may have
+// come over a wire, or from a row written before the session moved. The file
+// must be one this catalog would have walked to, and it must still say it is
+// this session, or the hint is dropped and discovery answers instead.
+func (c *FileCatalog) sessionForRead(ctx context.Context, externalRef, hint string) (agent.SessionInfo, error) {
+	path, st, ok := c.containedSource(hint)
+	if ok {
+		ref, err := c.sourceExternalRef(ctx, path)
+		if err == nil && ref != "" && strings.TrimSpace(ref) == strings.TrimSpace(externalRef) {
+			return agent.SessionInfo{
+				AgentID:      c.AgentID,
+				ExternalRef:  ref,
+				SourceURI:    "file://" + path,
+				SourceCursor: sourceRevision(st),
+				Status:       "idle",
+				CreatedAt:    st.ModTime(),
+				UpdatedAt:    st.ModTime(),
+			}, nil
+		}
+	}
+	return c.Inspect(ctx, externalRef)
+}
+
+// containedSource answers the file a hint names, when it is a regular file
+// under one of this catalog's roots. The check belongs here rather than in the
+// caller that produced the hint: the caller does not know this catalog's roots,
+// and a path is the one field that can turn a read into a read of something
+// else entirely.
+func (c *FileCatalog) containedSource(hint string) (string, os.FileInfo, bool) {
+	hint = strings.TrimSpace(hint)
+	hint = strings.TrimSpace(strings.TrimPrefix(hint, "file://"))
+	if hint == "" || !filepath.IsAbs(hint) || filepath.Ext(hint) != ".jsonl" {
+		return "", nil, false
+	}
+	path := filepath.Clean(hint)
+	root, rel, ok := containingRoot(c.Roots, path)
+	if !ok || pathThroughSkippedDir(rel) {
+		return "", nil, false
+	}
+	// The walk does not follow symlink directories either, so a path through
+	// one is not a file discovery could have returned. Resolving the whole
+	// path is what closes that: the real file must still be under the real
+	// root, not merely look like it under a link's spelling.
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", nil, false
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", nil, false
+	}
+	resolvedRel, ok := relativeTo(resolvedRoot, resolved)
+	if !ok || pathThroughSkippedDir(resolvedRel) {
+		return "", nil, false
+	}
+	// A link as the final component is not something the walk returns either:
+	// it skips the entry, whether or not the target is inside a root.
+	st, err := os.Lstat(path)
+	if err != nil || !st.Mode().IsRegular() {
+		return "", nil, false
+	}
+	// The same size bound discovery applies. A hint is allowed to save a walk,
+	// not to lift the limit that keeps one oversized file from becoming the
+	// catalog's whole cost.
+	maxBytes := c.MaxFileBytes
+	if maxBytes <= 0 {
+		maxBytes = defaultMaxFileBytes
+	}
+	if st.Size() > maxBytes {
+		return "", nil, false
+	}
+	return path, st, true
+}
+
+// containingRoot names the configured root a path is lexically under, with the
+// path's position below it.
+func containingRoot(roots []string, path string) (string, string, bool) {
+	for _, root := range roots {
+		root = filepath.Clean(strings.TrimSpace(root))
+		if root == "" || root == "." {
+			continue
+		}
+		if rel, ok := relativeTo(root, path); ok {
+			return root, rel, true
+		}
+	}
+	return "", "", false
+}
+
+// relativeTo answers path's position under root, and whether it is under it at
+// all. The root itself is not a file, so it is not a position.
+func relativeTo(root, path string) (string, bool) {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || filepath.IsAbs(rel) ||
+		rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return rel, true
+}
+
+// pathThroughSkippedDir reports whether a relative path names one of the
+// directories the walk refuses to enter. A file below one — a subagent's own
+// transcript, say — records the parent session's id, so the ref check alone
+// would accept it and show the reader a sidechain as the conversation.
+func pathThroughSkippedDir(rel string) bool {
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		if part == "subagents" || part == "tool-results" {
+			return true
+		}
+	}
+	return false
+}
+
+// sourceExternalRef reads the file's ref the way summarize does: the last one
+// its records name. First and last can differ in a provider's forked file, and
+// answering with the first would let a hint name a file discovery associates
+// with another session. The scan is the metadata scan's own bound, so this
+// costs one file's first records rather than the whole catalog's.
+func (c *FileCatalog) sourceExternalRef(ctx context.Context, path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), maxLineBytes)
+	var info agent.SessionInfo
+	for i := 0; i < 4096 && sc.Scan(); i++ {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		default:
+		}
+		c.applySummaryRecord(&info, sc.Bytes())
+	}
+	if err := sc.Err(); err != nil {
+		return "", err
+	}
+	return info.ExternalRef, nil
 }
 
 func (c *FileCatalog) scan(ctx context.Context) ([]fileSession, error) {

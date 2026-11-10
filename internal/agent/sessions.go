@@ -52,6 +52,17 @@ type HistoryQuery struct {
 	Before string
 	Tail   bool
 	Limit  int
+	// SourceURI is where the caller last saw this session's source. It is a
+	// hint for a catalog that would otherwise rediscover every session to find
+	// the one file it was asked to read: a caller reading a row it recorded
+	// already knows the file, and walking a person's whole session store to
+	// learn it again is what made opening a large transcript take seconds.
+	//
+	// A catalog must ignore a hint that names something it could not have
+	// discovered itself — outside its roots, a symlink, a different session's
+	// file — so a stale or foreign value costs a rediscovery, never a read of
+	// the wrong transcript.
+	SourceURI string
 }
 
 // HistoryPage is a normalized view over provider-owned history. The page is

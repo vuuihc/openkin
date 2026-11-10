@@ -85,10 +85,19 @@ export default function AgentSessionDetailPage() {
   const [historyCut, setHistoryCut] = useState(false);
   const [attachBusy, setAttachBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // The transcript's own box, observed while the first screen settles. Images
+  // and long code blocks finish laying out after the commit that scrolled to
+  // the end, and each of them pushes the end further down.
+  const contentRef = useRef<HTMLDivElement | null>(null);
   // Where the viewport was before an older page was prepended: the height
   // delta keeps the message the reader was looking at under their eyes.
   const prependAnchor = useRef<{ height: number; top: number } | null>(null);
   const scrollToEnd = useRef(false);
+  // Whether the viewport is following the end of the transcript. Opening a
+  // session arms it and any later growth re-pins to the end; a reader who
+  // scrolls up clears it, so content that arrives while they read older
+  // messages never drags them back down.
+  const stickToEnd = useRef(true);
   const historyEvents = useMemo(
     () =>
       session
@@ -210,6 +219,7 @@ export default function AgentSessionDetailPage() {
     if (!el) return;
     if (scrollToEnd.current) {
       scrollToEnd.current = false;
+      stickToEnd.current = true;
       el.scrollTop = el.scrollHeight;
       return;
     }
@@ -219,9 +229,31 @@ export default function AgentSessionDetailPage() {
     el.scrollTop = anchor.top + (el.scrollHeight - anchor.height);
   }, [items]);
 
+  // Keep the end under the reader while the transcript grows. Without this the
+  // one scroll at commit time is the only scroll: a screenshot that finishes
+  // loading a moment later adds its height above the viewport, and the reader
+  // lands partway up the page they asked to open at its end.
+  useEffect(() => {
+    // `loading` is a dependency because the scroller and the transcript are
+    // not in the tree before the session is: a mount-only effect runs against
+    // the skeleton, finds no element, and never runs again.
+    const el = scrollRef.current;
+    const content = contentRef.current;
+    if (!el || !content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (stickToEnd.current) el.scrollTop = el.scrollHeight;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [loading]);
+
   const onHistoryScroll = () => {
     const el = scrollRef.current;
-    if (!el || el.scrollTop > 96) return;
+    if (!el) return;
+    // A pixel or two of slack: the observer's own correction lands at the
+    // bottom and would otherwise read as the reader having scrolled away.
+    stickToEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
+    if (el.scrollTop > 96) return;
     void loadOlder();
   };
 
@@ -389,11 +421,13 @@ export default function AgentSessionDetailPage() {
             <SkeletonLine className="h-16 w-5/6" />
           </div>
         )}
-        <ChatStream
-          events={historyEvents}
-          loadingSpeaker={session.agent_id}
-          hostSpeaker={session.agent_id}
-        />
+        <div ref={contentRef}>
+          <ChatStream
+            events={historyEvents}
+            loadingSpeaker={session.agent_id}
+            hostSpeaker={session.agent_id}
+          />
+        </div>
       </div>
 
       {canContinue && (

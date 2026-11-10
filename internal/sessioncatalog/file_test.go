@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -537,5 +538,284 @@ func TestFileCatalogMarksTheMessagesItHadToCut(t *testing.T) {
 	// three times the bytes and still one whole message.
 	if page.Items[2].Truncated {
 		t.Fatalf("a message at the cap in characters was treated as bytes: %+v", page.Items[2])
+	}
+}
+
+// A recorded source is read as named, without a walk of the whole catalog.
+//
+// This is the difference between a phone opening a large session and a page
+// that sits on a skeleton: the row that asked for the page already knows the
+// file, and rediscovering it means parsing thousands of records in every other
+// transcript first.
+func TestFileCatalogReadsANamedSourceWithoutDiscovery(t *testing.T) {
+	root := t.TempDir()
+	codexFile(t, root, "aaa-first.jsonl", "codex-first", "first session")
+	target := codexFile(t, root, "zzz-target.jsonl", "codex-target", "")
+	if err := os.WriteFile(target, []byte(
+		`{"payload":{"type":"session_meta","session_id":"codex-target","cwd":"/tmp/project"}}
+{"payload":{"type":"message","session_id":"codex-target","role":"user","content":"the newest message"}}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// One file is all discovery may return, and the target sorts after it: the
+	// catalog cannot name the target on its own, which is how this test tells a
+	// read that used the hint from one that quietly walked the tree.
+	catalog := &FileCatalog{AgentID: "codex", Format: FormatCodex, Roots: []string{root}, MaxFiles: 1}
+	if _, err := catalog.Inspect(context.Background(), "codex-target"); err == nil {
+		t.Fatal("the fixture does not hide the target from discovery")
+	}
+	page, err := catalog.ReadHistory(context.Background(), "codex-target", agent.HistoryQuery{
+		Tail:      true,
+		Limit:     10,
+		SourceURI: "file://" + target,
+	})
+	if err != nil {
+		t.Fatalf("ReadHistory with a named source: %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].Text != "the newest message" {
+		t.Fatalf("page=%+v, want the target session's message", page)
+	}
+	if page.Items[0].ExternalRef != "codex-target" {
+		t.Fatalf("item ref=%q, want the one that was asked for", page.Items[0].ExternalRef)
+	}
+}
+
+// A hint that names anything else is dropped rather than trusted.
+//
+// The value travels from a stored row and, on the device path, over a wire. A
+// stale row or a buggy caller must cost a rediscovery; reading another
+// session's transcript under this session's name would be a silent lie about
+// what the person is looking at.
+func TestFileCatalogRefusesSourceHintsItCouldNotHaveFound(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	codexFile(t, root, "a.jsonl", "codex-a", "session a")
+	b := codexFile(t, root, "b.jsonl", "codex-b", "session b")
+	c := codexFile(t, outside, "c.jsonl", "codex-c", "session c")
+	// The same session's ref, in a copy outside the catalog. A hint is allowed
+	// to skip the walk that finds a file, not to widen what counts as one.
+	codexFile(t, outside, "copy.jsonl", "codex-a", "outside copy")
+	link := filepath.Join(root, "link.jsonl")
+	if err := os.Symlink(b, link); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog := &FileCatalog{AgentID: "codex", Format: FormatCodex, Roots: []string{root}}
+	read := func(t *testing.T, ref, hint string) (agent.HistoryPage, error) {
+		t.Helper()
+		return catalog.ReadHistory(context.Background(), ref, agent.HistoryQuery{Limit: 10, SourceURI: hint})
+	}
+
+	cases := []struct {
+		name string
+		ref  string
+		hint string
+		// want is the text discovery answers for ref, empty when discovery
+		// cannot name it either.
+		want string
+	}{
+		{name: "another session in the same root", ref: "codex-a", hint: "file://" + b, want: "session a"},
+		{name: "a file outside every root", ref: "codex-a", hint: "file://" + c, want: "session a"},
+		{name: "a same-ref copy outside every root", ref: "codex-a", hint: "file://" + filepath.Join(outside, "copy.jsonl"), want: "session a"},
+		{name: "a traversal out of a root", ref: "codex-a", hint: "file://" + filepath.Join(root, "..", filepath.Base(outside), "c.jsonl"), want: "session a"},
+		{name: "a symlink", ref: "codex-b", hint: "file://" + link, want: "session b"},
+		{name: "a file discovery cannot name", ref: "codex-c", hint: "file://" + c, want: ""},
+		{name: "a file that is gone", ref: "codex-a", hint: "file://" + filepath.Join(root, "gone.jsonl"), want: "session a"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			page, err := read(t, tc.ref, tc.hint)
+			if tc.want == "" {
+				if err == nil {
+					t.Fatalf("a hint discovery could not have produced read %d items", len(page.Items))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ReadHistory: %v", err)
+			}
+			if len(page.Items) != 1 || page.Items[0].Text != tc.want {
+				t.Fatalf("items=%+v, want %q from discovery", page.Items, tc.want)
+			}
+		})
+	}
+}
+
+// codexFile writes one minimal Codex session and returns its path.
+func codexFile(t *testing.T, dir, name, ref, prompt string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	content := fmt.Sprintf(
+		`{"payload":{"type":"session_meta","session_id":%q,"cwd":"/tmp/project"}}`+"\n"+
+			`{"payload":{"type":"message","session_id":%q,"role":"user","content":%q}}`+"\n",
+		ref, ref, prompt,
+	)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// A named source does not lift the catalog's own size bound.
+//
+// The bound is what keeps one oversized file from becoming the cost of every
+// question about the catalog. A hint may skip the walk that finds a file; it
+// may not make the file one this catalog would have refused to index.
+func TestFileCatalogAppliesItsSizeBoundToANamedSource(t *testing.T) {
+	root := t.TempDir()
+	path := codexFile(t, root, "session.jsonl", "codex-1", "a message long enough to pass the bound")
+	catalog := &FileCatalog{
+		AgentID: "codex", Format: FormatCodex, Roots: []string{root}, MaxFileBytes: 16,
+	}
+	if _, err := catalog.ReadHistory(context.Background(), "codex-1", agent.HistoryQuery{
+		Limit: 10, SourceURI: "file://" + path,
+	}); err == nil {
+		t.Fatal("a named source over the size bound was read")
+	}
+}
+
+// A sidechain is not the conversation.
+//
+// A subagent's transcript records the parent session's id, so the ref check
+// alone would accept it. Discovery never enters these directories, and a hint
+// that names one must be refused for the same reason: the reader would be
+// shown a tool's side conversation as the session itself.
+func TestFileCatalogRefusesSidechainAndLinkedDirectories(t *testing.T) {
+	root := t.TempDir()
+	codexFile(t, root, "session.jsonl", "codex-1", "the conversation")
+	sidechainDir := filepath.Join(root, "session", "subagents")
+	if err := os.MkdirAll(sidechainDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sidechain := codexFile(t, sidechainDir, "agent.jsonl", "codex-1", "the sidechain")
+
+	outside := t.TempDir()
+	copied := codexFile(t, outside, "copy.jsonl", "codex-1", "a copy outside")
+	linkDir := filepath.Join(root, "linked")
+	if err := os.Symlink(outside, linkDir); err != nil {
+		t.Fatal(err)
+	}
+	// A link whose target is inside the roots but inside a skipped directory:
+	// containment alone accepts it, so only the resolved skipped-component
+	// check refuses it.
+	sidechainAlias := filepath.Join(root, "alias")
+	if err := os.Symlink(sidechainDir, sidechainAlias); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog := &FileCatalog{AgentID: "codex", Format: FormatCodex, Roots: []string{root}}
+	for name, hint := range map[string]string{
+		"a subagent transcript":         sidechain,
+		"a directory symlink":           filepath.Join(linkDir, filepath.Base(copied)),
+		"a link to a skipped directory": filepath.Join(sidechainAlias, "agent.jsonl"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			page, err := catalog.ReadHistory(context.Background(), "codex-1", agent.HistoryQuery{
+				Limit: 10, SourceURI: "file://" + hint,
+			})
+			if err != nil {
+				t.Fatalf("ReadHistory: %v", err)
+			}
+			if len(page.Items) != 1 || page.Items[0].Text != "the conversation" {
+				t.Fatalf("items=%+v, want discovery's page rather than the hinted file", page.Items)
+			}
+		})
+	}
+}
+
+// The two ways of finding a file answer the same page.
+//
+// The optimization is only safe if a hinted read is byte-for-byte what a walk
+// would have produced: the same revision, the same cursors, the same messages.
+// A field reconstructed from the row rather than the metadata scan drifts here
+// and nowhere else, and a drifting cursor is a page that skips or repeats.
+func TestFileCatalogHintAndDiscoveryReadTheSamePage(t *testing.T) {
+	root := t.TempDir()
+	path := codexFile(t, root, "session.jsonl", "codex-1", "one")
+	extra := `{"payload":{"type":"message","session_id":"codex-1","role":"assistant","content":"two"}}
+{"payload":{"type":"message","session_id":"codex-1","role":"user","content":"three"}}
+`
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(extra); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog := &FileCatalog{AgentID: "codex", Format: FormatCodex, Roots: []string{root}}
+	ctx := context.Background()
+	discovered, err := catalog.ReadHistory(ctx, "codex-1", agent.HistoryQuery{Tail: true, Limit: 2})
+	if err != nil {
+		t.Fatalf("discovery tail: %v", err)
+	}
+	hinted, err := catalog.ReadHistory(ctx, "codex-1", agent.HistoryQuery{
+		Tail: true, Limit: 2, SourceURI: "file://" + path,
+	})
+	if err != nil {
+		t.Fatalf("hinted tail: %v", err)
+	}
+	if !reflect.DeepEqual(discovered, hinted) {
+		t.Fatalf("the named source answered a different page:\n discovered=%+v\n hinted=%+v", discovered, hinted)
+	}
+	if discovered.PrevCursor == "" {
+		t.Fatal("the fixture does not exercise a backward cursor")
+	}
+	olderDiscovered, err := catalog.ReadHistory(ctx, "codex-1", agent.HistoryQuery{
+		Before: discovered.PrevCursor, Limit: 2,
+	})
+	if err != nil {
+		t.Fatalf("discovery older: %v", err)
+	}
+	olderHinted, err := catalog.ReadHistory(ctx, "codex-1", agent.HistoryQuery{
+		Before: discovered.PrevCursor, Limit: 2, SourceURI: "file://" + path,
+	})
+	if err != nil {
+		t.Fatalf("hinted older: %v", err)
+	}
+	if !reflect.DeepEqual(olderDiscovered, olderHinted) {
+		t.Fatalf("the older page differs: discovered=%+v hinted=%+v", olderDiscovered, olderHinted)
+	}
+}
+
+// A file is named by the ref its records end with, as the metadata scan names
+// it. A provider's forked file can mention two ids; answering a hint for the
+// earlier one would serve a file discovery associates with the later session.
+func TestFileCatalogNamesAFileByTheLastRefItRecords(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "session.jsonl")
+	content := `{"payload":{"type":"session_meta","session_id":"codex-old","cwd":"/tmp/project"}}
+{"payload":{"type":"message","session_id":"codex-old","role":"user","content":"one"}}
+{"payload":{"type":"session_meta","session_id":"codex-new","cwd":"/tmp/project"}}
+{"payload":{"type":"message","session_id":"codex-new","role":"user","content":"two"}}
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	catalog := &FileCatalog{AgentID: "codex", Format: FormatCodex, Roots: []string{root}}
+	sessions, err := catalog.List(context.Background(), agent.SessionQuery{Limit: 10})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(sessions) != 1 || sessions[0].ExternalRef != "codex-new" {
+		t.Fatalf("sessions=%+v, want the file under its last ref", sessions)
+	}
+	if _, err := catalog.ReadHistory(context.Background(), "codex-old", agent.HistoryQuery{
+		Limit: 10, SourceURI: "file://" + path,
+	}); err == nil {
+		t.Fatal("a hint for the earlier ref read a file discovery names by the later one")
+	}
+	page, err := catalog.ReadHistory(context.Background(), "codex-new", agent.HistoryQuery{
+		Limit: 10, SourceURI: "file://" + path,
+	})
+	if err != nil {
+		t.Fatalf("ReadHistory for the last ref: %v", err)
+	}
+	if len(page.Items) != 2 {
+		t.Fatalf("items=%+v, want both messages", page.Items)
 	}
 }

@@ -1661,6 +1661,7 @@ const zh = {
     retry: "重试",
     noResults: "没有匹配项",
     clear: "清除",
+    stillConnecting: "还在连接，可能是网络较慢。",
     // What sits between a label and its value. A locale owns its punctuation:
     // Chinese uses the fullwidth colon, which carries its own right-hand
     // spacing, and English needs the space written out. Seven call sites used

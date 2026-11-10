@@ -1756,6 +1756,7 @@ const en: MessageTree = {
     retry: "Retry",
     noResults: "No matches",
     clear: "Clear",
+    stillConnecting: "Still connecting. Your link may be slow.",
     // See the note in `zh.ts`: the space belongs to the English separator, and
     // writing it at the call site would put Chinese text one ASCII colon away
     // from correct.

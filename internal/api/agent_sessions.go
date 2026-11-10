@@ -502,11 +502,16 @@ func (s *Server) handleGetAgentSessionHistory(w http.ResponseWriter, r *http.Req
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	// The row already says where this session lives. Passing it lets the
+	// catalog open that one file instead of walking every transcript on the
+	// machine to find it again — the difference between a large session
+	// opening and a page that sits empty for seconds.
 	page, err := s.Agents.ReadSessionHistory(r.Context(), row.AgentID, row.ExternalRef, agent.HistoryQuery{
-		Cursor: cursor,
-		Before: before,
-		Tail:   tail,
-		Limit:  limit,
+		Cursor:    cursor,
+		Before:    before,
+		Tail:      tail,
+		Limit:     limit,
+		SourceURI: row.SourceURI,
 	})
 	if err != nil {
 		if errors.Is(err, agent.ErrSessionCatalogUnavailable) || errors.Is(err, errors.ErrUnsupported) {
@@ -561,13 +566,24 @@ func (s *Server) handleDeviceAgentSessionHistory(w http.ResponseWriter, r *http.
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	// The path this Hub recorded when it imported the row, offered as the same
+	// hint a local read gets. The machine that owns the file checks it against
+	// its own roots; a value it cannot vouch for costs it a catalog walk, not a
+	// read of something else. A hint longer than the wire carries is dropped
+	// rather than sent: the field is optional, and refusing the whole page over
+	// it would make one unusual path unreadable.
+	sourceURI := row.SourceURI
+	if len(sourceURI) > worker.MaxAgentHistorySource {
+		sourceURI = ""
+	}
 	params := worker.AgentHistoryParams{
-		Agent:  row.AgentID,
-		Ref:    row.ExternalRef,
-		Cursor: cursor,
-		Before: before,
-		Tail:   tail,
-		Limit:  limit,
+		Agent:     row.AgentID,
+		Ref:       row.ExternalRef,
+		Cursor:    cursor,
+		Before:    before,
+		Tail:      tail,
+		Limit:     limit,
+		SourceURI: sourceURI,
 	}
 	if err := params.Validate(); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})

@@ -67,7 +67,7 @@ export function SlowConnectHint({ show }: { show: boolean }) {
       className="text-body leading-4 text-kin-orange-ink/90 rounded-lg border border-kin-orange/30 bg-kin-orange/10 px-3 py-2"
       role="status"
     >
-      Still connecting — your link may be slow.
+      {t("common.stillConnecting")}
     </p>
   );
 }

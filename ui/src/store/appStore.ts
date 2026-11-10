@@ -165,7 +165,12 @@ function hasStoredToken(): boolean {
 export const useAppStore = create<AppState>((set) => ({
   auth: hasStoredToken() ? { status: "ok" } : { status: "need_token", reason: "missing" },
   account: NO_ACCOUNT,
-  wsStatus: "disconnected",
+  // Cold start is "connecting", not "disconnected": the console has not tried
+  // yet, and a shell that treats "has not tried" as "lost the link" opens on a
+  // reconnect strip on every launch. "disconnected" is reserved for a channel
+  // that was attempted and failed, which is the one worth telling a person
+  // about.
+  wsStatus: "connecting",
   reconnectGen: 0,
   toasts: [],
   // `showPanel` opens without toggling (clicking a changed file must not close
