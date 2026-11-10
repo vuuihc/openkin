@@ -193,10 +193,22 @@ The node now dials the LAN address, which means it is offline whenever it
 leaves that LAN. The link is one fixed URL, chosen once, with no discovery,
 health awareness, or fallback.
 
-**Scope of the dedicated round.** The node→Hub control channel only. The phone
-already has public ingress (Cloudflare Tunnel, or Tailscale Funnel via the
-existing rungs in [REMOTE_ACCESS.md](./REMOTE_ACCESS.md)); it is a browser/PWA
-and cannot join a tailnet without a client.
+**2026-11-10 phone-side outage (error 1033).** From 14:59 to 15:06 UTC the NAS
+`cloudflared` lost all four connections (`failed to dial to edge with quic:
+timeout: no recent network activity`), and Cloudflare answered
+`kin.tokenhub.ink` with error 1033, "unable to resolve": the domain and the
+tunnel route were intact, there was simply no healthy origin connection. It
+recovered on its own at 15:06:40. The container was then switched from
+`--protocol auto` to `--protocol http2` (TCP 443; compose backup kept), because
+every failure was on the UDP/QUIC path. HTTP/2 mitigates that failure mode; it
+does not make the path fast (a health request still took ~3 s).
+
+**Scope of the dedicated round.** The node→Hub control channel and the phone's
+ingress. The phone is a browser/PWA and cannot join a tailnet without a client,
+so it needs a public entry; today that entry is the same NAS Cloudflare Tunnel,
+which shares this network's path to Cloudflare's edge and fails in the same way
+(above). [REMOTE_ACCESS.md](./REMOTE_ACCESS.md) already lists the Tailscale
+Funnel rungs.
 
 **Candidates, roughly cheapest first**
 
@@ -218,7 +230,9 @@ and cannot join a tailnet without a client.
 **Constraints to design against.** The Hub may live on somebody else's NAS;
 the core loop should not require a third-party account; the link is a
 long-lived WebSocket, so selection is sticky and reconnect-driven, never
-per-request; a node that is away must read as offline, not as slow.
+per-request; a node that is away must read as offline, not as slow; and the
+phone must land in the app's own disconnected state, not on a Cloudflare error
+page.
 
 **Recommendation when the round starts:** do (1) because it is small and
 testable, and keep (3) on the table as the general answer if nodes and Hubs
@@ -230,6 +244,7 @@ stop sharing a network. (2) only if manual addresses keep hurting. (4) last.
 
 | Date | Change |
 |------|--------|
+| 2026-11-10 | Switched the NAS cloudflared to `--protocol http2` after a 7-minute QUIC outage (error 1033) on the phone's ingress; noted that the phone entry shares the node link's fault domain |
 | 2026-11-10 | Recorded the Hub ↔ node connectivity debt: one fixed URL, no discovery/failover; the LAN fix landed, the general design is deferred to its own round |
 | 2026-10-23 | Retired the Wiki / governed-memory ("Remember") theme; multi-device via a user-run Hub is now the active direction |
 | 2026-07-17 | Added Artifacts P0/P1 from study-material / multi-device reading pain |
