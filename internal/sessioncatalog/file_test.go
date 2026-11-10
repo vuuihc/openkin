@@ -819,3 +819,293 @@ func TestFileCatalogNamesAFileByTheLastRefItRecords(t *testing.T) {
 		t.Fatalf("items=%+v, want both messages", page.Items)
 	}
 }
+
+// The tail reader and a whole-file scan agree on what a page is.
+//
+// Opening a session at its end is the common case, so it is answered from the
+// end of the file. The page still has to be the page the scan would have kept:
+// a suffix of whole records, no message split in half, and no boundary where
+// two pages overlap or a message between them is lost.
+func TestFileCatalogTailPagesAreTheSuffixTheScanWouldKeep(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "tail.jsonl")
+	var b strings.Builder
+	var want []string
+	for i := 0; i < 12; i++ {
+		blocks := 1 + i%3
+		parts := make([]string, 0, blocks)
+		for j := 0; j < blocks; j++ {
+			text := fmt.Sprintf("r%d-b%d", i, j)
+			want = append(want, text)
+			parts = append(parts, fmt.Sprintf(`{"type":"text","text":%q}`, text))
+		}
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		fmt.Fprintf(&b,
+			`{"type":%q,"sessionId":"tail-session","uuid":"u%d","message":{"role":%q,"content":[%s]}}`+"\n",
+			role, i, role, strings.Join(parts, ","))
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	catalog := &FileCatalog{AgentID: "claude-code", Format: FormatClaude, Roots: []string{root}}
+	ctx := context.Background()
+
+	var pages [][]string
+	before := ""
+	for fetched := 0; ; fetched++ {
+		if fetched > 20 {
+			t.Fatal("the page walk does not end")
+		}
+		page, err := catalog.ReadHistory(ctx, "tail-session", agent.HistoryQuery{
+			Tail: before == "", Before: before, Limit: 5,
+		})
+		if err != nil {
+			t.Fatalf("page %d: %v", fetched, err)
+		}
+		pages = append(pages, itemTexts(page.Items))
+		if page.PrevCursor == "" {
+			break
+		}
+		before = page.PrevCursor
+	}
+
+	// Record boundaries in item positions: the fixture's records hold one to
+	// three blocks each, and that is what the scan keeps whole.
+	var ends []int
+	next := 0
+	for i := 0; i < 12; i++ {
+		next += 1 + i%3
+		ends = append(ends, next)
+	}
+
+	// Every page must be the suffix the whole-file scan would keep for the
+	// boundary the newer page left behind — not merely some slice that tiles.
+	// pages[0] is the tail, so it ends at the end of the transcript and each
+	// following page ends where the one before it begins.
+	end := len(want)
+	for index, page := range pages {
+		if len(page) == 0 {
+			t.Fatalf("page %d is empty", index)
+		}
+		if len(page) > end || !reflect.DeepEqual(page, want[end-len(page):end]) {
+			t.Fatalf("page %d=%v is not the entries before item %d", index, page, end)
+		}
+		// The maximal suffix ending at end: whole records, newest first, added
+		// while they fit; the newest record is kept even when it alone exceeds
+		// the limit.
+		begin, total := end, 0
+		for r := len(ends) - 1; r >= 0; r-- {
+			if ends[r] > end {
+				continue
+			}
+			from := 0
+			if r > 0 {
+				from = ends[r-1]
+			}
+			size := ends[r] - from
+			if total > 0 && total+size > 5 {
+				break
+			}
+			total += size
+			begin = from
+			if begin == 0 {
+				break
+			}
+		}
+		if got := end - begin; got != len(page) {
+			t.Fatalf("page %d has %d items, the scan keeps %d before item %d", index, len(page), got, end)
+		}
+		end = begin
+	}
+	if end != 0 {
+		t.Fatalf("the page walk stops at item %d, not 0", end)
+	}
+}
+
+// A record larger than the first window does not hide the page behind it.
+//
+// The window starts small so an ordinary session costs one small read, and it
+// grows until the page is decided. A record that alone fills a window must be
+// re-read at the wider size, not counted twice.
+func TestFileCatalogTailPageGrowsItsWindowForALongRecord(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "long.jsonl")
+	pad := strings.Repeat("p", 1<<20)
+	content := fmt.Sprintf(
+		`{"type":"user","sessionId":"long-session","uuid":"u0","message":{"role":"user","content":"first"}}`+"\n"+
+			`{"type":"assistant","sessionId":"long-session","uuid":"a0","padding":%q,"message":{"role":"assistant","content":"big"}}`+"\n"+
+			`{"type":"user","sessionId":"long-session","uuid":"u1","message":{"role":"user","content":"last"}}`+"\n",
+		pad,
+	)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	catalog := &FileCatalog{AgentID: "claude-code", Format: FormatClaude, Roots: []string{root}}
+	ctx := context.Background()
+
+	page, err := catalog.ReadHistory(ctx, "long-session", agent.HistoryQuery{Tail: true, Limit: 2})
+	if err != nil {
+		t.Fatalf("tail: %v", err)
+	}
+	if len(page.Items) != 2 || page.Items[0].Text != "big" || page.Items[1].Text != "last" {
+		t.Fatalf("tail page=%v, want [big last]", itemTexts(page.Items))
+	}
+	if page.PrevCursor == "" {
+		t.Fatal("tail page has no previous cursor")
+	}
+	older, err := catalog.ReadHistory(ctx, "long-session", agent.HistoryQuery{
+		Before: page.PrevCursor, Limit: 2,
+	})
+	if err != nil {
+		t.Fatalf("older: %v", err)
+	}
+	if len(older.Items) != 1 || older.Items[0].Text != "first" {
+		t.Fatalf("older page=%v, want [first]", itemTexts(older.Items))
+	}
+	if older.PrevCursor != "" {
+		t.Fatalf("older prev cursor=%q, want empty", older.PrevCursor)
+	}
+}
+
+// A page cut in the middle of a record names the half it kept, and the page
+// before it starts with the half it did not.
+func TestFileCatalogReadsTheOlderHalfOfACutRecord(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "cut.jsonl")
+	content := `{"type":"assistant","sessionId":"cut-session","uuid":"a0","message":{"role":"assistant","content":[{"type":"text","text":"b0"},{"type":"text","text":"b1"},{"type":"text","text":"b2"}]}}
+{"type":"user","sessionId":"cut-session","uuid":"u1","message":{"role":"user","content":"newer"}}
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev := sourceRevision(st)
+	catalog := &FileCatalog{AgentID: "claude-code", Format: FormatClaude, Roots: []string{root}}
+	ctx := context.Background()
+
+	// The answer that named this cursor had to keep only the record's third
+	// block, so this page begins with the first two.
+	page, err := catalog.ReadHistory(ctx, "cut-session", agent.HistoryQuery{
+		Before: encodeHistoryOffsetCursor(rev, 0, 2), Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("before: %v", err)
+	}
+	if got := itemTexts(page.Items); !reflect.DeepEqual(got, []string{"b0", "b1"}) {
+		t.Fatalf("older half=%v, want [b0 b1]", got)
+	}
+	if page.PrevCursor != "" {
+		t.Fatalf("prev cursor=%q, want empty", page.PrevCursor)
+	}
+
+	// A block past the record's end is a cursor from a rewritten source; the
+	// whole-file scan keeps the whole record there, and so does this reader.
+	whole, err := catalog.ReadHistory(ctx, "cut-session", agent.HistoryQuery{
+		Before: encodeHistoryOffsetCursor(rev, 0, 9), Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("before past the end: %v", err)
+	}
+	if got := itemTexts(whole.Items); !reflect.DeepEqual(got, []string{"b0", "b1", "b2"}) {
+		t.Fatalf("past-end page=%v, want the whole record", got)
+	}
+}
+
+// A source that does not end in a newline, or uses CRLF, still pages.
+func TestFileCatalogTailPageReadsAwkwardSources(t *testing.T) {
+	root := t.TempDir()
+	catalog := &FileCatalog{AgentID: "claude-code", Format: FormatClaude, Roots: []string{root}}
+	ctx := context.Background()
+	one := `{"type":"user","sessionId":%q,"uuid":"u0","message":{"role":"user","content":"one"}}`
+	two := `{"type":"assistant","sessionId":%q,"uuid":"a0","message":{"role":"assistant","content":"two"}}`
+	cases := []struct {
+		name    string
+		ref     string
+		content string
+	}{
+		{"no trailing newline", "no-newline", fmt.Sprintf(one+"\n"+two, "no-newline", "no-newline")},
+		{"crlf", "crlf-session", fmt.Sprintf(one+"\r\n"+two+"\r\n", "crlf-session", "crlf-session")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(root, tc.ref+".jsonl")
+			if err := os.WriteFile(path, []byte(tc.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			page, err := catalog.ReadHistory(ctx, tc.ref, agent.HistoryQuery{
+				Tail: true, Limit: 10, SourceURI: "file://" + path,
+			})
+			if err != nil {
+				t.Fatalf("tail: %v", err)
+			}
+			if got := itemTexts(page.Items); !reflect.DeepEqual(got, []string{"one", "two"}) {
+				t.Fatalf("page=%v, want [one two]", got)
+			}
+			if page.PrevCursor != "" {
+				t.Fatalf("prev cursor=%q, want empty", page.PrevCursor)
+			}
+		})
+	}
+}
+
+// A byte cursor from another revision is refused, and a line cursor is still
+// read by the scan that counts lines.
+func TestFileCatalogCursorShapesStayApart(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "shapes.jsonl")
+	content := `{"type":"user","sessionId":"shape-session","uuid":"u0","message":{"role":"user","content":"one"}}
+{"type":"assistant","sessionId":"shape-session","uuid":"a0","message":{"role":"assistant","content":"two"}}
+{"type":"user","sessionId":"shape-session","uuid":"u1","message":{"role":"user","content":"three"}}
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev := sourceRevision(st)
+	catalog := &FileCatalog{AgentID: "claude-code", Format: FormatClaude, Roots: []string{root}}
+	ctx := context.Background()
+
+	if _, err := catalog.ReadHistory(ctx, "shape-session", agent.HistoryQuery{
+		Before: encodeHistoryOffsetCursor("other-rev", 10, 0), Limit: 5,
+	}); err == nil || !strings.Contains(err.Error(), "stale") {
+		t.Fatalf("a byte cursor from another revision returned %v, want stale", err)
+	}
+
+	page, err := catalog.ReadHistory(ctx, "shape-session", agent.HistoryQuery{
+		Before: encodeHistoryCursor(rev, 2, 0), Limit: 5,
+	})
+	if err != nil {
+		t.Fatalf("line cursor: %v", err)
+	}
+	if got := itemTexts(page.Items); !reflect.DeepEqual(got, []string{"one", "two"}) {
+		t.Fatalf("line-cursor page=%v, want [one two]", got)
+	}
+
+	// The whole transcript fits in one page, so there is nothing older to name:
+	// an offset of zero is the start of the file, not a page before it.
+	whole, err := catalog.ReadHistory(ctx, "shape-session", agent.HistoryQuery{Tail: true, Limit: 10})
+	if err != nil {
+		t.Fatalf("tail: %v", err)
+	}
+	if len(whole.Items) != 3 || whole.PrevCursor != "" {
+		t.Fatalf("whole-file tail=%d items, prev=%q; want 3 items and no prev",
+			len(whole.Items), whole.PrevCursor)
+	}
+}
+
+func itemTexts(items []agent.HistoryItem) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		out = append(out, item.Text)
+	}
+	return out
+}
