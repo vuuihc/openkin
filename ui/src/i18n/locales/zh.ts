@@ -630,6 +630,8 @@ const zh = {
     // means both "the end" and "the machine stopped", and the reader is entitled
     // to know which one this is.
     historyTruncated: "持有该会话的机器无法发送剩余内容。",
+    historyStart: "已经到这条会话的最早一条。",
+    historyRetry: "重试",
     continueTitle: "使用 {agent} 继续",
     continueDescription: "直接调用本机 {agent}，保留原会话上下文；不需要绑定云端 Provider。",
     continueUnavailable: "这个源会话没有记录工作目录，当前只能查看历史，无法从原 Agent 继续。",

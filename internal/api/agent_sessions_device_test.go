@@ -652,6 +652,9 @@ func dialFrames(
 type hubCatalog struct {
 	sessions []agent.SessionInfo
 	page     agent.HistoryPage
+	// historyQuery is the last question this catalog was asked, so a test can
+	// assert the route passed the direction through instead of only its answer.
+	historyQuery agent.HistoryQuery
 }
 
 func (c *hubCatalog) List(context.Context, agent.SessionQuery) ([]agent.SessionInfo, error) {
@@ -667,7 +670,8 @@ func (c *hubCatalog) Inspect(_ context.Context, ref string) (agent.SessionInfo, 
 	return agent.SessionInfo{}, agent.ErrSessionCatalogUnavailable
 }
 
-func (c *hubCatalog) ReadHistory(context.Context, string, agent.HistoryQuery) (agent.HistoryPage, error) {
+func (c *hubCatalog) ReadHistory(_ context.Context, _ string, q agent.HistoryQuery) (agent.HistoryPage, error) {
+	c.historyQuery = q
 	return c.page, nil
 }
 
@@ -835,6 +839,75 @@ func TestBothHistoryPathsRefuseACursorNoWireWouldCarry(t *testing.T) {
 	if at.Code != http.StatusOK {
 		t.Fatalf("a cursor of exactly %d bytes answered %d, want 200: %s",
 			worker.MaxAgentHistoryCursor, at.Code, at.Body.String())
+	}
+}
+
+// A tail request is passed to the provider as a tail request, and the page's
+// backward cursor comes back on the wire.
+//
+// The console opens a session at its end by asking for the tail; if the route
+// dropped that word the provider would answer with the oldest page instead, and
+// every other field would still look right. The contradiction checks are the
+// other half: a caller that names two directions at once gets a 400 rather than
+// whichever one the handler happened to read last.
+func TestTheHistoryTailAndBackwardCursorCrossTheRoute(t *testing.T) {
+	now := time.Now()
+	catalog := &hubCatalog{
+		sessions: []agent.SessionInfo{{
+			AgentID: "claude-code", ExternalRef: "hub-session-1", Title: "on this machine",
+			Cwd: "/tmp/project", Status: "idle", CreatedAt: now, UpdatedAt: now,
+		}},
+		page: agent.HistoryPage{
+			Items: []agent.HistoryItem{{
+				AgentID: "claude-code", ExternalRef: "hub-session-1",
+				MessageID: "m1", Role: "user", Text: "the newest message",
+			}},
+			PrevCursor: "rev|3",
+		},
+	}
+	s, master := localSessionsServer(t, catalog)
+	if rec := postJSON(t, s.Handler(), "/api/agent-sessions/import", master, map[string]any{}); rec.Code != http.StatusOK {
+		t.Fatalf("import status %d: %s", rec.Code, rec.Body.String())
+	}
+	rows := listAgentSessions(t, s.Handler(), master)
+	if len(rows) != 1 {
+		t.Fatalf("the list has %d sessions, want 1", len(rows))
+	}
+	path := "/api/agent-sessions/" + rows[0].ID + "/history"
+
+	rec := getJSON(t, s.Handler(), master, path+"?tail=true&limit=100")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("tail history status %d: %s", rec.Code, rec.Body.String())
+	}
+	if !catalog.historyQuery.Tail {
+		t.Fatal("the route did not ask the provider for the tail")
+	}
+	if catalog.historyQuery.Limit != 100 {
+		t.Fatalf("provider limit=%d, want 100", catalog.historyQuery.Limit)
+	}
+	var page agentSessionHistoryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	if page.PrevCursor != "rev|3" {
+		t.Fatalf("prev_cursor=%q, want rev|3", page.PrevCursor)
+	}
+	if len(page.Items) != 1 || page.Items[0].Text != "the newest message" {
+		t.Fatalf("tail page=%+v", page.Items)
+	}
+
+	rec = getJSON(t, s.Handler(), master, path+"?before=rev%7C2&limit=50")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("backward history status %d: %s", rec.Code, rec.Body.String())
+	}
+	if catalog.historyQuery.Before != "rev|2" || catalog.historyQuery.Cursor != "" {
+		t.Fatalf("provider query=%+v, want Before rev|2 and no forward cursor", catalog.historyQuery)
+	}
+
+	for _, query := range []string{"?tail=true&cursor=rev%7C1", "?tail=true&before=rev%7C1", "?cursor=rev%7C1&before=rev%7C2"} {
+		if rec := getJSON(t, s.Handler(), master, path+query); rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s answered %d, want 400: %s", query, rec.Code, rec.Body.String())
+		}
 	}
 }
 

@@ -184,7 +184,7 @@ func (r *Responder) sessionHistory(ctx context.Context, asked worker.AgentHistor
 		limit = worker.MaxAgentHistoryItems
 	}
 	page, err := r.Sessions.ReadSessionHistory(ctx, strings.TrimSpace(asked.Agent), strings.TrimSpace(asked.Ref),
-		agent.HistoryQuery{Cursor: asked.Cursor, Limit: limit})
+		agent.HistoryQuery{Cursor: asked.Cursor, Before: asked.Before, Tail: asked.Tail, Limit: limit})
 	if err != nil {
 		// Including the provider having no catalog: a Hub that asked about a
 		// session it read from this machine deserves this machine's sentence
@@ -198,26 +198,48 @@ func (r *Responder) sessionHistory(ctx context.Context, asked worker.AgentHistor
 	result := worker.AgentHistoryResult{
 		Items:      []worker.AgentHistoryItem{},
 		NextCursor: clip(page.NextCursor, worker.MaxAgentHistoryCursor),
+		PrevCursor: clip(page.PrevCursor, worker.MaxAgentHistoryCursor),
 		SourceRev:  clip(page.SourceRev, maxSourceRev),
+	}
+	if asked.Tail || strings.TrimSpace(asked.Before) != "" {
+		// A backward page is read oldest-first and the reader asked for its end.
+		// When the frame budget cannot carry all of it, keep the newest items
+		// and drop the oldest: each item names its own position, so the cursor
+		// for the part that remains is still exact. The forward loop below
+		// drops the opposite end for the opposite reason.
+		kept := make([]worker.AgentHistoryItem, 0, len(page.Items))
+		size := 0
+		firstCursor := ""
+		for index := len(page.Items) - 1; index >= 0; index-- {
+			item := page.Items[index]
+			one := wireAgentHistoryItem(item)
+			encoded, err := json.Marshal(one)
+			if err != nil {
+				continue
+			}
+			if len(kept) > 0 && (len(kept) >= worker.MaxAgentHistoryItems || size+len(encoded) > maxHistoryFrame) {
+				break
+			}
+			size += len(encoded)
+			kept = append(kept, one)
+			firstCursor = item.Cursor
+		}
+		for left, right := 0, len(kept)-1; left < right; left, right = left+1, right-1 {
+			kept[left], kept[right] = kept[right], kept[left]
+		}
+		result.Items = kept
+		if firstCursor != "" {
+			result.PrevCursor = clip(firstCursor, worker.MaxAgentHistoryCursor)
+		}
+		result.Truncated = len(kept) < len(page.Items)
+		return result, nil
 	}
 	size := 0
 	for _, item := range page.Items {
 		if len(result.Items) >= worker.MaxAgentHistoryItems {
 			break
 		}
-		text, cut := clipText(item.Text, worker.MaxAgentHistoryText)
-		one := worker.AgentHistoryItem{
-			MessageID: clip(item.MessageID, maxMessageID),
-			Kind:      clip(item.Kind, maxKind),
-			Role:      clip(item.Role, maxRole),
-			ToolName:  clip(item.ToolName, maxToolName),
-			Text:      text,
-			SourceRev: clip(item.SourceRev, maxSourceRev),
-			Truncated: cut,
-		}
-		if !item.OccurredAt.IsZero() {
-			one.OccurredAt = item.OccurredAt.UnixMilli()
-		}
+		one := wireAgentHistoryItem(item)
 		encoded, err := json.Marshal(one)
 		if err != nil {
 			// A message that cannot be described is not a reason to fail a page
@@ -253,6 +275,25 @@ func (r *Responder) sessionHistory(ctx context.Context, asked worker.AgentHistor
 // cutPage reports whether this machine dropped messages the provider returned.
 func cutPage(read []agent.HistoryItem, sent []worker.AgentHistoryItem) bool {
 	return len(read) > len(sent)
+}
+
+// wireAgentHistoryItem is one provider message in the protocol's own words.
+// Every field is clipped here because this is where the wire size is decided.
+func wireAgentHistoryItem(item agent.HistoryItem) worker.AgentHistoryItem {
+	text, cut := clipText(item.Text, worker.MaxAgentHistoryText)
+	one := worker.AgentHistoryItem{
+		MessageID: clip(item.MessageID, maxMessageID),
+		Kind:      clip(item.Kind, maxKind),
+		Role:      clip(item.Role, maxRole),
+		ToolName:  clip(item.ToolName, maxToolName),
+		Text:      text,
+		SourceRev: clip(item.SourceRev, maxSourceRev),
+		Truncated: cut,
+	}
+	if !item.OccurredAt.IsZero() {
+		one.OccurredAt = item.OccurredAt.UnixMilli()
+	}
+	return one
 }
 
 // wireAgentSession is one catalog row in the protocol's own words.

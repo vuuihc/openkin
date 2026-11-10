@@ -68,7 +68,7 @@ describe("the floating approval's wiring", () => {
     // The marker is an attribute of the band's `<div>`, not text inside a JSX
     // comment or behind a `false &&`.
     expect(draft).toMatch(/<div data-kin-bottom-chrome=""[\s>]/);
-    expect(agentSession).toMatch(/^\s*data-kin-bottom-chrome=""$/m);
+    expect(agentSession).toMatch(/<div data-kin-bottom-chrome=""[\s>]/);
   });
 
   it("marks the transcript's band only for the pane on screen", () => {

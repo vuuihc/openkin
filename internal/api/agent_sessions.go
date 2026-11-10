@@ -46,7 +46,11 @@ type agentSessionListPageResponse struct {
 type agentSessionHistoryResponse struct {
 	Items      []agentHistoryItem `json:"items"`
 	NextCursor string             `json:"next_cursor,omitempty"`
-	SourceRev  string             `json:"source_rev,omitempty"`
+	// PrevCursor is where the page that is immediately older than this one
+	// begins. Empty means this page already starts at the beginning, so a
+	// reader stops instead of asking again.
+	PrevCursor string `json:"prev_cursor,omitempty"`
+	SourceRev  string `json:"source_rev,omitempty"`
 	// Truncated says this page is not the whole rest of the transcript and
 	// following NextCursor will not get the rest: the machine that read it hit
 	// its own frame budget. Without it, a page that stopped early and a
@@ -235,6 +239,35 @@ func parseAgentSessionLimit(raw string, fallback, maximum int) (int, error) {
 		return 0, fmt.Errorf("limit must be between 1 and %d", maximum)
 	}
 	return n, nil
+}
+
+// parseAgentHistoryDirection reads the three ways a caller can name the part of
+// a transcript it wants: a forward cursor, a backward one, or the tail. Both
+// history handlers use it so the local and paired-machine paths validate the
+// same request the same way and reject the same contradictions.
+func parseAgentHistoryDirection(r *http.Request) (cursor, before string, tail bool, err error) {
+	cursor = r.URL.Query().Get("cursor")
+	before = r.URL.Query().Get("before")
+	if raw := r.URL.Query().Get("tail"); raw != "" {
+		tail, err = strconv.ParseBool(raw)
+		if err != nil {
+			return "", "", false, fmt.Errorf("tail must be a boolean")
+		}
+	}
+	// The same bound the wire applies, for the reason given at both call sites:
+	// the value is the provider's, and this route can only bound its length.
+	for _, field := range []struct{ name, value string }{{"cursor", cursor}, {"before", before}} {
+		if len(field.value) > worker.MaxAgentHistoryCursor {
+			return "", "", false, fmt.Errorf("%s must be at most %d bytes", field.name, worker.MaxAgentHistoryCursor)
+		}
+	}
+	if tail && (cursor != "" || before != "") {
+		return "", "", false, fmt.Errorf("tail cannot be combined with a cursor")
+	}
+	if cursor != "" && before != "" {
+		return "", "", false, fmt.Errorf("cursor and before are mutually exclusive")
+	}
+	return cursor, before, tail, nil
 }
 
 func (s *Server) handleImportAgentSessions(w http.ResponseWriter, r *http.Request) {
@@ -464,15 +497,15 @@ func (s *Server) handleGetAgentSessionHistory(w http.ResponseWriter, r *http.Req
 	// session readable through either path — a cursor this route accepted and a
 	// paired machine refused would be the same transcript paging differently
 	// depending on where it was read from.
-	cursor := r.URL.Query().Get("cursor")
-	if len(cursor) > worker.MaxAgentHistoryCursor {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": fmt.Sprintf("cursor must be at most %d bytes", worker.MaxAgentHistoryCursor),
-		})
+	cursor, before, tail, err := parseAgentHistoryDirection(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	page, err := s.Agents.ReadSessionHistory(r.Context(), row.AgentID, row.ExternalRef, agent.HistoryQuery{
 		Cursor: cursor,
+		Before: before,
+		Tail:   tail,
 		Limit:  limit,
 	})
 	if err != nil {
@@ -494,7 +527,7 @@ func (s *Server) handleGetAgentSessionHistory(w http.ResponseWriter, r *http.Req
 		})
 	}
 	writeJSON(w, http.StatusOK, agentSessionHistoryResponse{
-		Items: items, NextCursor: page.NextCursor, SourceRev: page.SourceRev,
+		Items: items, NextCursor: page.NextCursor, PrevCursor: page.PrevCursor, SourceRev: page.SourceRev,
 	})
 }
 
@@ -523,10 +556,17 @@ func (s *Server) handleDeviceAgentSessionHistory(w http.ResponseWriter, r *http.
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	cursor, before, tail, err := parseAgentHistoryDirection(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 	params := worker.AgentHistoryParams{
 		Agent:  row.AgentID,
 		Ref:    row.ExternalRef,
-		Cursor: r.URL.Query().Get("cursor"),
+		Cursor: cursor,
+		Before: before,
+		Tail:   tail,
 		Limit:  limit,
 	}
 	if err := params.Validate(); err != nil {
@@ -553,7 +593,7 @@ func (s *Server) handleDeviceAgentSessionHistory(w http.ResponseWriter, r *http.
 		})
 	}
 	writeJSON(w, http.StatusOK, agentSessionHistoryResponse{
-		Items: items, NextCursor: answer.NextCursor, SourceRev: answer.SourceRev,
+		Items: items, NextCursor: answer.NextCursor, PrevCursor: answer.PrevCursor, SourceRev: answer.SourceRev,
 		// The answering machine's page budget is the reader's answer, not a
 		// detail of the wire: it is the difference between "this session has
 		// twelve messages" and "this session has more than I could send you".
