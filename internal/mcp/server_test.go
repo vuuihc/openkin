@@ -41,7 +41,7 @@ func TestToolsListCoversPublicSurface(t *testing.T) {
 	}
 	want := []string{
 		"list_tasks", "get_task", "list_task_events", "list_worker_steps", "list_projects",
-		"list_artifacts", "read_artifact", "list_routines", "get_usage",
+		"list_artifacts", "read_artifact", "list_routines", "create_routine", "get_usage",
 		"get_routing_status", "create_task", "send_task_message",
 		"cancel_task", "retry_task", "continue_task", "approve_task_action",
 		"answer_task_question", "run_routine",
@@ -54,6 +54,98 @@ func TestToolsListCoversPublicSurface(t *testing.T) {
 		if !got[name] {
 			t.Fatalf("tools/list missing %q: %v", name, got)
 		}
+	}
+}
+
+func TestCreateRoutineToolStoresTheSameRoutineTheConsoleWould(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	now := time.Now().UnixMilli()
+	s := &Server{Store: st, now: func() int64 { return now }}
+	auth := authContext{
+		Principal: Principal{Kind: "master", ID: "master"},
+		ClientID:  "test-client",
+		Scopes:    map[string]bool{ScopeRead: true, ScopeWrite: true},
+		Holder:    true,
+	}
+	call := func(args string) response {
+		t.Helper()
+		return s.Handle(context.Background(), request{
+			JSONRPC: "2.0",
+			ID:      json.RawMessage(`11`),
+			Method:  "tools/call",
+			Params:  json.RawMessage(`{"name":"create_routine","arguments":` + args + `}`),
+		}, auth)
+	}
+	// The result is an MCP content envelope wrapping a JSON string.
+	routineFrom := func(resp response) (map[string]any, string) {
+		t.Helper()
+		if resp.Error != nil {
+			t.Fatalf("create_routine error: %+v", resp.Error)
+		}
+		envelope, err := json.Marshal(resp.Result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var content struct {
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		}
+		if err := json.Unmarshal(envelope, &content); err != nil || len(content.Content) != 1 {
+			t.Fatalf("content envelope = %s, %v", envelope, err)
+		}
+		var routine map[string]any
+		if err := json.Unmarshal([]byte(content.Content[0].Text), &routine); err != nil {
+			t.Fatal(err)
+		}
+		id, _ := routine["id"].(string)
+		if id == "" {
+			t.Fatalf("routine result has no id: %v", routine)
+		}
+		if _, ok := routine["cwd"]; ok {
+			t.Fatalf("routine result exposes cwd: %v", routine)
+		}
+		return routine, content.Content[0].Text
+	}
+
+	args := `{"cwd":"/tmp/project","prompt":"check the build","interval_secs":3600,"idempotency_key":"r1"}`
+	firstRoutine, first := routineFrom(call(args))
+	rec, err := st.GetRoutine(context.Background(), firstRoutine["id"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Cwd != "/tmp/project" || rec.Prompt != "check the build" || rec.IntervalSecs != 3600 {
+		t.Fatalf("stored routine = %+v", rec)
+	}
+	if rec.Agent != "kin" || rec.PermissionMode != "default" || rec.Lane != "routine" || rec.MissedRunPolicy != "coalesce" {
+		t.Fatalf("defaults not applied: %+v", rec)
+	}
+	if rec.Title != "check the build" {
+		t.Fatalf("title fallback = %q", rec.Title)
+	}
+
+	// The same idempotency key replays the first answer instead of creating a
+	// second routine.
+	_, replayed := routineFrom(call(args))
+	if replayed != first {
+		t.Fatalf("replay changed the response:\nfirst: %s\nagain: %s", first, replayed)
+	}
+	page, err := st.ListRoutinesPage(context.Background(), store.ListRoutinesOpts{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Routines) != 1 {
+		t.Fatalf("routines stored = %d, want 1", len(page.Routines))
+	}
+
+	// A request the console would refuse is a client mistake here too.
+	resp := call(`{"cwd":"/tmp/project","prompt":"no interval","idempotency_key":"r2"}`)
+	if resp.Error == nil || resp.Error.Code != -32602 {
+		t.Fatalf("missing interval: want -32602, got %+v", resp.Error)
 	}
 }
 
@@ -296,6 +388,7 @@ func TestMemberMCPCannotReachAnotherAccountsTask(t *testing.T) {
 		{"list_artifacts", `{}`},
 		{"read_artifact", `{"artifact_id":"a1"}`},
 		{"list_routines", `{}`},
+		{"create_routine", `{"cwd":"/tmp","prompt":"x","interval_secs":60,"idempotency_key":"k5"}`},
 		{"run_routine", `{"routine_id":"r1","idempotency_key":"k4"}`},
 		{"get_usage", `{}`},
 		{"get_routing_status", `{}`},
