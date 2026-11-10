@@ -213,7 +213,9 @@ describe("RunConfigControl", () => {
   it("gives its history entry back when the sheet closes itself", async () => {
     setup();
     await openSheet();
-    const back = vi.spyOn(window.history, "back");
+    // Mock the traversal: the assertion is that the entry is handed back, and
+    // a real jsdom back queues a popstate that can land in a later test.
+    const back = vi.spyOn(window.history, "back").mockImplementation(() => {});
     // The scrim is the sheet's own close path; closing this way must not leave
     // an entry behind for Back to walk into after the sheet is already gone.
     await userEvent.click(document.querySelector(".kin-scrim-enter") as HTMLElement);

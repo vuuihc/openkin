@@ -121,6 +121,27 @@ describe("Sheet breakpoint close", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it("closes when it stops opting out after the breakpoint already passed", () => {
+    // A coarse pointer can disappear (a mouse is connected) while the sheet is
+    // open and the window is already wide. The sheet becomes `md:hidden` at
+    // that rerender; waiting for the next media event would leave an invisible
+    // dialog eating keys.
+    stubMatchMedia(true);
+    const onClose = vi.fn();
+    const { rerender } = render(
+      <Sheet open onClose={onClose} title="Model" anyWidth>
+        body
+      </Sheet>,
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    rerender(
+      <Sheet open onClose={onClose} title="Model">
+        body
+      </Sheet>,
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("does not churn its history entry when the width policy changes", () => {
     // `anyWidth` is the sidebar's window into the sheet: a coarse tablet can
     // flip it while the sheet is open. The history entry, focus and keyboard

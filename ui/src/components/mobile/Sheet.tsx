@@ -438,6 +438,11 @@ export default function Sheet({
       if (media.matches) onCloseRef.current();
     };
     media.addEventListener?.("change", onMediaChange);
+    // A sheet that stops opting out while the viewport is already past the
+    // breakpoint became `md:hidden` with this effect; without the immediate
+    // check it would stay mounted, invisible, still trapping focus and keys
+    // until the next resize.
+    onMediaChange();
     return () => media.removeEventListener?.("change", onMediaChange);
   }, [open, anyWidth]);
 
