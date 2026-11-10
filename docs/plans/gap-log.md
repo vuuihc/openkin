@@ -332,6 +332,8 @@ routines 没有）。
 仍待办（同一决策下的后续，不属于这次修复）：
 - 侧栏 routine 未读角标仍读本机（`App.tsx` / Sidebar 的
   `getRoutineUnreadCount()` 没带 device），多设备下会一直显示本机的 0。
+  已修（2026-11-10，issue #33）：角标改读 Routines 页会打开的那台机器
+  （记住的选择 / 页面同一套默认规则 / 列表失败时保留已存选择），换机器立即刷新。
 - ProjectDetailPage 的项目内 routine 仍写本机：project 是 Hub 侧按 cwd 建的记录，
   节点并不认识它。多设备下这条路径要改成“按 cwd 找机器上的 routine”或收掉。
 - 远程 run 的 task 详情 / transcript 打不开：节点上的 task 只存在节点库里，

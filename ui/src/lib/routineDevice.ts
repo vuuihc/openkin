@@ -44,6 +44,27 @@ export function resolveRoutineDevice(machines: Machine[], saved: string): string
   return other ? other.id : THIS_MACHINE;
 }
 
+/**
+ * The machine the sidebar's routine badge counts.
+ *
+ * It has to be the machine the Routines page would open on, or the badge and
+ * the page would disagree about which routines exist — on a phone, where this
+ * machine is the Hub, the badge would sit at 0 while a laptop has unread runs.
+ * While the list is still arriving there is no answer yet: null tells the
+ * caller to wait instead of counting this machine and correcting itself a
+ * moment later. A list that failed to load confirms nothing, so a remembered
+ * machine stands — the same rule the page applies before it writes.
+ */
+export function routineDeviceForBadge(
+  machines: Machine[],
+  saved: string,
+  loading: boolean,
+  failed: boolean,
+): string | null {
+  if (loading) return null;
+  return failed ? saved : resolveRoutineDevice(machines, saved);
+}
+
 /** Which machine record a remembered value names. */
 export function machineForRoutineDevice(machines: Machine[], id: string): Machine | undefined {
   if (!id || id === THIS_MACHINE) return machines.find((m) => m.isSelf);

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createRoutine,
   deleteRoutine,
+  getRoutineUnreadCount,
   listRoutineRuns,
   listRoutines,
   markAllRoutineRunsRead,
@@ -49,6 +50,16 @@ describe("routine requests and their machine", () => {
     for (const url of urls) {
       expect(query(url).get("device")).toBe("device-laptop");
     }
+  });
+
+  it("carries the machine on the badge's unread count", async () => {
+    // The sidebar badge sits outside the Routines page, so this call site is
+    // the one easy to leave asking the Hub's own empty store.
+    const urls = stubFetch('{"count":3}');
+    const { count } = await getRoutineUnreadCount("device-laptop");
+    expect(count).toBe(3);
+    expect(new URL(urls[0], "http://kin.example.com").pathname).toBe("/api/routines/unread-count");
+    expect(query(urls[0]).get("device")).toBe("device-laptop");
   });
 
   it("keeps the page's own parameters beside the machine", async () => {

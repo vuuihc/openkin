@@ -134,6 +134,12 @@ export type MachinesState = {
   refresh: () => void;
 };
 
+export type MachinesOptions = {
+  /** A console that has not passed its auth gate should not read the list: the
+   *  request can only 401, and the hook would retry it on every beat. */
+  enabled?: boolean;
+};
+
 /**
  * The machines this console can send work to, this one first.
  *
@@ -142,10 +148,12 @@ export type MachinesState = {
  * places that both name a machine — the composer and the task header, say —
  * from disagreeing about it.
  */
-export function useMachines(): MachinesState {
+export function useMachines(options: MachinesOptions = {}): MachinesState {
+  const enabled = options.enabled ?? true;
   const current = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
   useEffect(() => {
+    if (!enabled) return;
     if (!current.loaded || Date.now() - current.at > STALE_MS) {
       refresh();
       return;
@@ -155,7 +163,7 @@ export function useMachines(): MachinesState {
     // page, and its dependencies do not change on their own.
     const timer = setTimeout(refresh, RETRY_MS);
     return () => clearTimeout(timer);
-  }, [current.loaded, current.at, current.failed]);
+  }, [current.loaded, current.at, current.failed, enabled]);
 
   return {
     machines: current.loaded ? current.machines : [],
