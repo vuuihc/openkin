@@ -34,8 +34,8 @@ describe("the floating approval's wiring", () => {
     expect(shell).toMatch(/expectsBottomChrome=\{measuredBottomBand\}/);
     // The three screens that pin a composer: a conversation, the draft, an
     // agent session's continue box. Bound to the assignment itself — a fourth
-    // clause (`|| detailRoute`) or the artifact route creeping back in is the
-    // regression this round fixed.
+    // clause (`|| detailRoute`) creeping back in is the regression this round
+    // fixed.
     const assignment = shell.match(/const measuredBottomBand =[\s\S]*?;\n/)?.[0] ?? "";
     expect(assignment).not.toBe("");
     expect(assignment).toMatch(/selectedTaskId !== null/);

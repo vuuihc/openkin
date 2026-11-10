@@ -10,7 +10,7 @@ import { MobileChevron } from "./MobileHeader";
  *
  * The dock's reservation is the shell's (`AppShell` pads `<main>` when the dock
  * is on screen), not this container's. Reserving it here as well left every
- * page that did not use this component — settings, the artifact library — with
+ * page that did not use this component — settings, the project pages — with
  * its last card under the pill, and the pages that did use it with 100px of
  * dead space once the shell started padding.
  */

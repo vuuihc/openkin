@@ -121,10 +121,10 @@ export default function AppShell({
     ? pathname === "/agents"
       ? tr("nav.agents")
       : pathname === "/projects"
-          ? tr("nav.projects")
-          : pathname === "/routines"
-            ? tr("nav.routines")
-            : ""
+        ? tr("nav.projects")
+        : pathname === "/routines"
+          ? tr("nav.routines")
+          : ""
     : "";
   const mobileTitle = draftActive
     ? tr("nav.newChat")

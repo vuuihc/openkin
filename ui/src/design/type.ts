@@ -26,7 +26,7 @@
  * reviewable after the arbitrary values are gone. An entry ending in `px` is a
  * literal size; anything else is a name from Tailwind's default scale, written
  * without its prefix — this tree is not allowed to contain one, so the data
- * cannot spell it out and the gallery adds the prefix when it renders.
+ * cannot spell it out and the test adds the prefix when it checks.
  */
 export type TypeRole = {
   role: string;
@@ -104,7 +104,7 @@ export const FONT_SIZE: Record<string, [string, { lineHeight: string }]> = Objec
   TYPE_ROLES.map((r) => [r.role, [`${r.px}px`, { lineHeight: LEADING.ui }]]),
 );
 
-/** Weight number → the Tailwind class the gallery must render it with. */
+/** Weight number → the Tailwind class the test checks it against. */
 export const WEIGHT_CLASS: Record<number, string> = {
   400: "font-normal",
   500: "font-medium",

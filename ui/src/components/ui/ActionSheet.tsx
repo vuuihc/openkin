@@ -64,9 +64,11 @@ export default function ActionSheet({
               disabled={row.disabled}
               aria-current={row.selected ? "true" : undefined}
               onClick={() => {
-                // One state change closes the sheet and runs the action: a
-                // second modal opened from here mounts in the same commit,
-                // after the sheet's focus restore, so it keeps its own focus.
+                // Close before running the row: the sheet's cleanup returns
+                // focus to its opener and gives its history entry back. A row
+                // that needs another layer must defer it to an effect after
+                // `open` flips (TaskDetailPage's session menu is the pattern);
+                // opening a Sheet from here would race that traversal.
                 onClose();
                 row.onSelect();
               }}

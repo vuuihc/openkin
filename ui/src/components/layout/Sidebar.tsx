@@ -1023,7 +1023,7 @@ export default function Sidebar({
           open={projectMenu !== null}
           onClose={() => setProjectMenu(null)}
           title={projectMenu?.group.label}
-          anyWidth={wide && coarse}
+          anyWidth={coarse}
           rows={
             projectMenu
               ? [

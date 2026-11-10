@@ -6,8 +6,8 @@ import { setLocale } from "../../i18n";
 import ActionSheet from "./ActionSheet";
 
 /**
- * The shared action list: what the phone's project menu, session menu and
- * choice chips all render now that Ionic is gone.
+ * KIN-CONTINUE-001: the shared action list behind the phone's project menu,
+ * session menu and choice chips.
  *
  * The sheet's chrome (scrim, focus trap, Escape, Back, swipe) is `Sheet`'s and
  * is covered there. What is left is this list's contract: a row closes the
@@ -60,11 +60,15 @@ describe("the shared action sheet", () => {
   });
 
   it("does not run a disabled row", async () => {
-    setup([{ id: "stop", label: "Stopping…", disabled: true, onSelect: () => undefined }]);
+    const onSelect = vi.fn();
+    const { onClose } = setup([
+      { id: "stop", label: "Stopping…", disabled: true, onSelect },
+    ]);
     const row = screen.getByRole("button", { name: "Stopping…" });
     expect(row.hasAttribute("disabled")).toBe(true);
     await userEvent.click(row);
-    expect(row.getAttribute("aria-current")).toBeNull();
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("offers one quiet cancel that only dismisses", async () => {

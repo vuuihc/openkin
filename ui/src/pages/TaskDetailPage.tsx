@@ -192,11 +192,6 @@ export default function TaskDetailPage({
   const gone =
     detail.data.deleted || (detail.error instanceof ApiError && detail.error.status === 404);
   const task = detail.data.task ?? (gone ? null : fallbackTask) ?? null;
-  // The title the save button reads, kept current across a memo bailout: the
-  // message rows deliberately ignore changed closures, so their save handler
-  // can still be the one built before the session was renamed.
-  const taskTitleRef = useRef(task?.title);
-  taskTitleRef.current = task?.title;
   const events = detail.data.events;
   const approvals = useMemo(
     () => pending.data.approvals.filter((item) => item.task_id === id),
@@ -1311,7 +1306,6 @@ export default function TaskDetailPage({
       setActionBusy(false);
     }
   }
-
 
   function onOpenWorkspacePath(filePath: string): boolean {
     if (!task) return false;

@@ -586,25 +586,22 @@ export default function ProjectDetailPage() {
                 )}
               </section>
 
-              <div>
-                <section className="rounded-xl bg-kin-panel p-4 min-h-80">
-                  <div className="mb-2 text-body font-medium uppercase tracking-label text-kin-secondary">
-                    {tr("projects.onePager")}
+              <section className="rounded-xl bg-kin-panel p-4 min-h-80">
+                <div className="mb-2 text-body font-medium uppercase tracking-label text-kin-secondary">
+                  {tr("projects.onePager")}
+                </div>
+                {editing ? (
+                  <textarea
+                    className="min-h-[480px] w-full resize-y rounded-lg border border-kin-hairline bg-transparent p-3 font-mono text-body leading-prose text-kin-text"
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                  />
+                ) : (
+                  <div className="prose-kin text-strong leading-prose">
+                    <Markdown text={markdown} />
                   </div>
-                  {editing ? (
-                    <textarea
-                      className="min-h-[480px] w-full resize-y rounded-lg border border-kin-hairline bg-transparent p-3 font-mono text-body leading-prose text-kin-text"
-                      value={draft}
-                      onChange={(e) => setDraft(e.target.value)}
-                    />
-                  ) : (
-                    <div className="prose-kin text-strong leading-prose">
-                      <Markdown text={markdown} />
-                    </div>
-                  )}
-                </section>
-
-              </div>
+                )}
+              </section>
             </div>
           )}
 

@@ -88,32 +88,6 @@ function topSheetId(): symbol | null {
   return sheetStack[sheetStack.length - 1] ?? null;
 }
 
-/*
- * A sheet that closes itself gives its history entry back with `history.back()`.
- * That traversal raises a popstate the sheet below would otherwise read as its
- * own Back and close too. `programmaticBacks` marks those traversals; the set
- * makes the same event consumable once even though every open sheet listens for
- * it. A real Back changes the entry and never comes from here.
- */
-let programmaticBacks = 0;
-const swallowedBacks = new WeakSet<Event>();
-
-function giveBackHistoryEntry(): void {
-  // Only a sheet that still has another one below it can make that sheet
-  // mistake this traversal for its own Back. Marking the traversal with no
-  // sheet below would leave the flag armed for a later, real Back.
-  if (sheetStack.length > 0) programmaticBacks += 1;
-  window.history.back();
-}
-
-function consumeProgrammaticBack(event: PopStateEvent): boolean {
-  if (swallowedBacks.has(event)) return true;
-  if (programmaticBacks <= 0) return false;
-  programmaticBacks -= 1;
-  swallowedBacks.add(event);
-  return true;
-}
-
 /**
  * A layer that floats above the sheet but is portaled out of it (so the
  * sheet's scrollport cannot clip it) announces itself here: the sheet then
@@ -410,11 +384,12 @@ export default function Sheet({
     const marker = `kin-sheet-${Date.now()}-${Math.random()}`;
     const base = (window.history.state ?? {}) as Record<string, unknown>;
     window.history.pushState({ ...base, kinSheet: marker }, "");
-    let closedByBack = false;
-    const onPopState = (event: PopStateEvent) => {
-      // The entry this sheet gave back on its own way out is not a Back aimed
-      // at the sheet below it.
-      if (consumeProgrammaticBack(event)) return;
+    const onPopState = () => {
+      // A Back that lands on this sheet's own entry spent an entry above this
+      // sheet — another sheet closing itself handed its entry back. This
+      // sheet's entry is still current, so the Back was not aimed at it.
+      const current = window.history.state as { kinSheet?: string } | null;
+      if (current?.kinSheet === marker) return;
       // Each open sheet owns one history entry; only the top one spends the
       // Back that just arrived.
       if (topSheetId() !== id) return;
@@ -424,39 +399,47 @@ export default function Sheet({
         window.history.pushState({ ...base, kinSheet: marker }, "");
         return;
       }
-      closedByBack = true;
       onCloseRef.current();
     };
     window.addEventListener("popstate", onPopState);
-    // The panel is `md:hidden`. Past that width it is invisible but still
-    // mounted, and its Escape/Tab trap keeps eating keys meant for the page
-    // behind it; closing on the breakpoint is what makes "hidden" mean gone
-    // (a tablet rotation, or a phone window dragged wide).
-    let media: MediaQueryList | null = null;
-    const onMediaChange = () => {
-      if (media?.matches) onCloseRef.current();
-    };
-    // A sheet that asked to live at every width is visible at ≥768px, so the
-    // breakpoint is not a reason to close it.
-    if (!anyWidth && typeof window.matchMedia === "function") {
-      media = window.matchMedia("(min-width: 768px)");
-      media.addEventListener?.("change", onMediaChange);
-    }
     return () => {
       sheetStack = sheetStack.filter((entry) => entry !== id);
       publishSheets();
       window.clearTimeout(focusTimer);
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("popstate", onPopState);
-      // A sheet closed by its own controls gives the entry back, so Back keeps
-      // meaning "leave this page" instead of walking through a sheet the
-      // reader already put away. Closed-by-Back already consumed it.
+      // A sheet closed by its own controls still owns its entry; give it back
+      // so Back keeps meaning "leave this page" instead of walking through a
+      // sheet the reader already put away. A sheet closed by Back no longer
+      // has its entry current.
       const current = window.history.state as { kinSheet?: string } | null;
-      if (!closedByBack && current?.kinSheet === marker) giveBackHistoryEntry();
-      media?.removeEventListener?.("change", onMediaChange);
+      if (current?.kinSheet === marker) window.history.back();
       restoreRef.current?.focus?.({ preventScroll: true });
     };
-  }, [open, anyWidth, id]);
+  }, [open, id]);
+
+  /*
+   * The panel is `md:hidden`. Past that width it is invisible but still
+   * mounted, and its Escape/Tab trap keeps eating keys meant for the page
+   * behind it; closing on the breakpoint is what makes "hidden" mean gone
+   * (a tablet rotation, or a phone window dragged wide).
+   *
+   * This listens in its own effect, keyed on `anyWidth`: the effect above owns
+   * the history entry, focus restore and keyboard, and re-running it because a
+   * media query changed would give the entry back and push a new one while the
+   * sheet was still open. A sheet that asked to live at every width is visible
+   * at ≥768px, so the breakpoint is not a reason to close it at all.
+   */
+  useEffect(() => {
+    if (!open || anyWidth) return;
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(min-width: 768px)");
+    const onMediaChange = () => {
+      if (media.matches) onCloseRef.current();
+    };
+    media.addEventListener?.("change", onMediaChange);
+    return () => media.removeEventListener?.("change", onMediaChange);
+  }, [open, anyWidth]);
 
   if (!open) return null;
 

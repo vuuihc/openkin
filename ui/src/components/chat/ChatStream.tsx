@@ -902,9 +902,7 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
  * a prop of the turn and changes with it.
  *
  * A bailed-out row keeps the handler it rendered with, so a handler that has
- * to see current state reads it from a ref rather than its closure: the save
- * button names the artifact after the session title, which is why
- * TaskDetailPage keeps that title in `taskTitleRef`.
+ * to see current state reads it from a ref rather than its closure.
  *
  * Exported for its clause test. Every field the component reads has a row in
  * that table; a field added to the component without one is a silent stale

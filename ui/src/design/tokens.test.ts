@@ -470,7 +470,7 @@ describe("design tokens", () => {
   });
 
   it("keeps a colour literal out of the elevation geometry", () => {
-    // A literal in the config renders in both schemes and belongs to no gallery
+    // A literal in the config renders in both schemes and belongs to no token
     // group, which is exactly how the pair this replaced stayed wrong for three
     // slices: it was visible in neither the page nor the tokens.
     const literals = Object.entries(theme.boxShadow)
@@ -733,8 +733,8 @@ describe("design tokens", () => {
     // case is the measurement: it reads the colours that stylesheet actually
     // declares — so a scope recoloured later is covered without editing this —
     // and holds each to AA on the worst backdrop it can be drawn on. The surface
-    // it is drawn on is not fixed: the chat, a card and the artifact page all
-    // render markdown, so the lightest of the six is the one that decides.
+    // it is drawn on is not fixed: the chat and a card both render markdown, so
+    // the lightest of the six is the one that decides.
     const syntax = readFileSync(join(UI, "src/design/syntax.css"), "utf8").replace(
       /\/\*[\s\S]*?\*\//g,
       "",
@@ -1268,8 +1268,7 @@ describe("design tokens", () => {
     it("maps every elevation token to a class the ladder declares", () => {
       // A token is a colour and a `box-shadow` needs geometry too, so the
       // pairing lives in `ELEVATION_CLASS` beside the group; this holds it
-      // against the ladder in both directions. The gallery that used to wear
-      // the class is gone, so the map is the remaining contract.
+      // against the ladder in both directions, which is the map's contract.
       const tokens = TOKEN_GROUPS.filter((g) => g.kind === "elevation").flatMap((g) => [
         ...g.tokens,
       ]);

@@ -193,14 +193,18 @@ describe("RunConfigControl", () => {
     await userEvent.click(screen.getByRole("button", { name: /^Model/ }));
     expect(screen.getByRole("listbox", { name: "Model" })).toBeTruthy();
 
-    // The system Back gesture, as the browser delivers it.
+    // The system Back gesture, as the browser delivers it: the traversal pops
+    // the sheet's entry and lands on the one below, so the state no longer
+    // names the sheet. jsdom does not perform that move on a synthetic event.
     act(() => {
+      window.history.replaceState({}, "");
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
     expect(screen.queryByRole("listbox", { name: "Model" })).toBeNull();
     expect(screen.getByRole("dialog", { name: "Run settings" })).toBeTruthy();
 
     act(() => {
+      window.history.replaceState({}, "");
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
     expect(screen.queryByRole("dialog", { name: "Run settings" })).toBeNull();
