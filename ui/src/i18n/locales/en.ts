@@ -1626,6 +1626,16 @@ const en: MessageTree = {
     reorderHint: "Alt+←/→ moves this tab",
     untitled: "Session",
   },
+  runDetail: {
+    back: "Routines",
+    loading: "Loading run…",
+    readOnly: "Read-only · this run lives on {name}",
+    notFound: "This run is gone from {name}.",
+    loadFailed: "Could not read this run from {name}.",
+    retry: "Try again",
+    empty: "No transcript yet",
+    emptyHint: "This run has not written anything. Open it again once it starts.",
+  },
   routines: {
     title: "Routines",
     machineLabel: "Machine",

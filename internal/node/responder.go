@@ -87,6 +87,16 @@ type Responder struct {
 	// the machine — its cwd, its agent, its credentials, its scheduler — and the
 	// caller that can reach them is the one built where the machine is built.
 	Routines RoutineCaller
+	// Tasks reads the tasks that live on this machine: one run's row and its
+	// transcript. Nil means it has no task store to read, and the two task
+	// questions are refused.
+	//
+	// It is a field for the same reason Sessions is: a task is a row in this
+	// machine's database, and only the process that owns that database can read
+	// it. A routine run is the case that makes it visible — the run was created
+	// here, the Hub relays the list, and the detail behind a row in that list
+	// cannot be answered from anywhere else.
+	Tasks TaskReader
 	// Warn receives problems that have nowhere else to go. Nil means quiet.
 	Warn func(format string, args ...any)
 
@@ -352,7 +362,51 @@ func (r *Responder) answer(ctx context.Context, id, method string, params json.R
 			return refused(id, fmt.Errorf("the routine answer is %d bytes, over the %d-byte limit",
 				len(answer.Body), worker.MaxRoutineResponse))
 		}
-		return answered(id, worker.RoutinesResult{
+		return answered(id, worker.ConsoleResult{
+			Status: answer.Status, ContentType: answer.ContentType, Body: answer.Body,
+		})
+	case worker.QueryTaskDetail:
+		var asked worker.TaskDetailParams
+		if err := decodeParams(params, &asked); err != nil {
+			return refused(id, err)
+		}
+		if err := asked.Validate(); err != nil {
+			return refused(id, err)
+		}
+		if r.Tasks == nil {
+			return refused(id, errors.New("this machine does not answer questions about its tasks"))
+		}
+		answer, err := r.Tasks.Task(ctx, asked.ID)
+		if err != nil {
+			return refused(id, err)
+		}
+		if len(answer.Body) > worker.MaxTaskResponse {
+			return refused(id, fmt.Errorf("the task answer is %d bytes, over the %d-byte limit",
+				len(answer.Body), worker.MaxTaskResponse))
+		}
+		return answered(id, worker.ConsoleResult{
+			Status: answer.Status, ContentType: answer.ContentType, Body: answer.Body,
+		})
+	case worker.QueryTaskEvents:
+		var asked worker.TaskEventsParams
+		if err := decodeParams(params, &asked); err != nil {
+			return refused(id, err)
+		}
+		if err := asked.Validate(); err != nil {
+			return refused(id, err)
+		}
+		if r.Tasks == nil {
+			return refused(id, errors.New("this machine does not answer questions about its tasks"))
+		}
+		answer, err := r.Tasks.TaskEvents(ctx, asked.ID, asked.SinceSeq)
+		if err != nil {
+			return refused(id, err)
+		}
+		if len(answer.Body) > worker.MaxTaskResponse {
+			return refused(id, fmt.Errorf("the transcript answer is %d bytes, over the %d-byte limit",
+				len(answer.Body), worker.MaxTaskResponse))
+		}
+		return answered(id, worker.ConsoleResult{
 			Status: answer.Status, ContentType: answer.ContentType, Body: answer.Body,
 		})
 	default:

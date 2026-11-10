@@ -1536,6 +1536,16 @@ const zh = {
     reorderHint: "Alt+←/→ 移动此标签",
     untitled: "会话",
   },
+  runDetail: {
+    back: "返回例行任务",
+    loading: "正在加载运行…",
+    readOnly: "只读 · 这次运行在 {name} 上",
+    notFound: "{name} 上已经没有这次运行了。",
+    loadFailed: "读不到 {name} 上的这次运行。",
+    retry: "重试",
+    empty: "还没有输出",
+    emptyHint: "这次运行还没有写下任何内容。开始后再打开看看。",
+  },
   routines: {
     title: "例行任务",
     machineLabel: "机器",

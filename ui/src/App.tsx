@@ -22,6 +22,7 @@ import TaskSessionHost from "./pages/TaskSessionHost";
 import TrayPage from "./pages/TrayPage";
 import AgentsPage from "./pages/AgentsPage";
 import RoutinesPage from "./pages/RoutinesPage";
+import MachineTaskPage from "./pages/MachineTaskPage";
 import AgentSessionDetailPage from "./pages/AgentSessionDetailPage";
 import ErrorBoundary from "./components/ErrorBoundary";
 import AccountScreen from "./components/AccountScreen";
@@ -204,6 +205,10 @@ export default function App() {
             <Route path="/projects/:id" element={<ProjectDetailPage />} />
             <Route path="/agents" element={<AgentsPage />} />
             <Route path="/routines" element={<RoutinesPage />} />
+            {/* A routine run lives on the machine that ran it. The id is not a
+                conversation in this Hub's store, so it gets a route that says
+                which machine to ask instead of the ordinary session page. */}
+            <Route path="/machines/:device/tasks/:id" element={<MachineTaskPage />} />
             <Route path="/usage" element={<Navigate to="/agents" replace />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/agent-sessions/:id" element={<AgentSessionDetailPage />} />

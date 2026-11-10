@@ -34,7 +34,7 @@ func TestRoutineQuestionsRunOnThisMachine(t *testing.T) {
 	if result.Error != "" {
 		t.Fatalf("the machine refused a routine request: %s", result.Error)
 	}
-	var answer worker.RoutinesResult
+	var answer worker.ConsoleResult
 	if err := result.Into(&answer); err != nil {
 		t.Fatal(err)
 	}

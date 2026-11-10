@@ -767,6 +767,11 @@ func ServeWith(version string, flags ServeFlags) error {
 			// console uses, so the relayed answer and the local one cannot
 			// drift apart.
 			Routines: node.LocalRoutineCaller(daemonURL, tokenFn),
+			// A routine run is a task in this machine's own store. When a console
+			// opens one from the relayed runs feed, the detail and transcript are
+			// read through this machine's console, the same way the run was
+			// created through it.
+			Tasks: node.LocalTaskReader(daemonURL, tokenFn),
 		},
 		NodeFrames: node.RouteFrame(nodeTurns, nodeApprovals, nodeQueries),
 		Browser:    browser,

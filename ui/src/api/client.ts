@@ -629,6 +629,32 @@ export function getTask(id: string): Promise<Task> {
 }
 
 /**
+ * One run that lives on another machine, read where it lives.
+ *
+ * A routine run is a task in the store of the machine that ran it. The Routines
+ * page lists those rows by relaying that machine's console, so the id in the
+ * list does not exist in this Hub's task table — opening it has to ask the same
+ * machine the list came from.
+ */
+export function getMachineTask(device: string, id: string): Promise<Task> {
+  return apiFetch<Task>(
+    `/api/machines/${encodeURIComponent(device)}/tasks/${encodeURIComponent(id)}`,
+  );
+}
+
+/** One page of that machine's transcript, after `sinceSeq`. */
+export function listMachineTaskEvents(
+  device: string,
+  id: string,
+  sinceSeq = 0,
+): Promise<TaskEvent[]> {
+  const q = sinceSeq > 0 ? `?since_seq=${sinceSeq}` : "";
+  return apiFetch<TaskEvent[]>(
+    `/api/machines/${encodeURIComponent(device)}/tasks/${encodeURIComponent(id)}/events${q}`,
+  );
+}
+
+/**
  * One page of the global change feed.
  *
  * `sessions` are the tasks whose rows changed after the cursor, `deleted` the
