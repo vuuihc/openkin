@@ -1,8 +1,9 @@
 # R0 · 面审计与减法
 
-状态：**草案，待签字** · 2026-11-10
+状态：**R0a 已签字；R0b-1 进行中** · 2026-11-10
 配套：[`IA.md`](../product/IA.md)、[`TASTE.md`](../product/TASTE.md)、[`stories/PLAN.md`](../product/stories/PLAN.md)、[`2026-11-08-design-system-middle-layer.md`](2026-11-08-design-system-middle-layer.md)、[`2026-11-09-astryx-spike.md`](2026-11-09-astryx-spike.md)
 测量：`python3 scripts/ui_inventory.py`
+评审页：[`2026-11-10-ui-surface-audit.review.html`](2026-11-10-ui-surface-audit.review.html)（390/1100 现状截图 + 每面决策卡；截图含本机真实数据，只在本机打开，不要外发）。如果页面里的截图显示「缺失」，用同目录的 `2026-11-10-ui-surface-audit.review.local.html`（截图已内嵌，gitignored）
 
 ## 0. 一句话
 
@@ -20,7 +21,7 @@
 2. **如果采用 Astryx，只放在 `components/ui` façade 后面。** 页面永远 import Kin 自己的 `Button/Dialog/Select`；Astryx 是实现细节，0.7.x 升级只改包装层。
 3. **R0 不出一版新 UI。** 人工评审物是“现状截图 + 决策卡”，不是重新设计的稿；目标线框只用于合并/改版提案，且标明“线框，不是定稿”。
 4. **Ionic 在 R0 清掉。** 只剩 4 个文件、3 个 `IonActionSheet`；用现有 `Sheet` / `Menu` 替掉，删 `@ionic/*` 依赖。之后再做 React 19（Astryx 的前置）会更干净。
-5. **改变用户流程的合并/改版不在 R0 里做。** 那要回到对应故事的签字页，先画 Figma 帧，再动代码。
+5. **改变用户流程的合并/改版不在 R0b-1 里做。** 那要回到对应故事的签字页，先画 Figma 帧，再动代码；R0b-2 开工前先补这一页。
 
 ## 3. 盘点（2026-11-10）
 
@@ -75,37 +76,70 @@ R0 的主评审物是 **`2026-11-10-ui-surface-audit.review.html`**，不是下�
 
 **签核：表先给用户签，签完再动代码。** 删除是产品决定，不是 git 操作。
 
-## 6. 产品面初稿（待 R0a 补证据）
+## 6. 产品面审计结果（已签字）
 
-| 面 | 页面 | 归属 | 初判 |
-|---|---|---|---|
-| `/` `/new` | StartRoute / NewChatPage | START | keep |
-| `/sessions` | SessionsRoute（手机列表 / Mac 草稿） | CONTINUE / MANAGE | keep |
-| `/tasks/:id` | TaskSessionHost / TaskDetailPage | CONTINUE / RESULT | keep |
-| `/inbox` | ApprovalsPage | NOTIFY / CONTINUE | keep |
-| `/artifacts` `/artifacts/:id` | ArtifactsPage / ArtifactDetailPage | RESULT | keep |
-| `/projects` `/projects/:id` | ProjectsPage / ProjectDetailPage | MANAGE？ | **待定**：`IA.md` 已标 Hub 侧遗留 |
-| `/agents` | AgentsPage | 无明确故事 | **待定**：补运维故事或并入设置 |
-| `/routines` | RoutinesPage | `IA.md` 2026-11-09 已定机器维度 | 保留，但缺故事合同 |
-| `/settings` | SettingsPage | SETTINGS | keep |
-| `/agent-sessions/:id` | AgentSessionDetailPage | CONTINUE（导入会话） | keep |
-| `/design` | DesignSystemPage | 非产品面 | 移出生产或 dev-only |
+评审页：[`2026-11-10-ui-surface-audit.review.html`](2026-11-10-ui-surface-audit.review.html)。每张卡有 390/1100 现状截图、入口、测试、API、i18n 和决策勾选；签字结果为 2 保留 / 3 合并 / 4 删除 / 4 补故事。文件预览器不解析 `../../` 相对路径时，打开同目录的 `2026-11-10-ui-surface-audit.review.local.html`（26 张截图已内嵌，gitignored，含本机真实数据）。
 
-另有 `/approvals`、`/usage` 两条重定向和 `*` 兜底，已收口。
+| 面 | 页面 | 归属 | 已签 | 备注 |
+|---|---|---|---|---|
+| `/new` | NewChatPage | START | **补故事** | Mac 输入框下方的选择项太挤；设备、项目选择拆出去，另起一行或从对话初始化入口进入，不与模型、权限同排。 |
+| `/sessions` | SessionsRoute / SessionsPage + Sidebar | CONTINUE / MANAGE | **合并** | 手机 `SessionsPage` 和 Mac `Sidebar` 是两套实现；合成一套功能与 UI，选简洁稳定方案。 |
+| `/tasks/:id` | TaskSessionHost / TaskDetailPage | CONTINUE / RESULT | **合并** | 删顶部会话切换（与列表重复）；删「创建 PR」（当前无功能）。 |
+| `/inbox` | ApprovalsPage | NOTIFY / CONTINUE | **删除** | 待批准改为对话列表行内 icon + 通知；先补替代行为，再删页。 |
+| `/artifacts` | ArtifactsPage | RESULT | **删除** | 先删，后续再想。 |
+| `/artifacts/:id` | ArtifactDetailPage | RESULT | **删除** | 同上；聊天里的「保存产物」一并移除。 |
+| `/projects` | ProjectsPage | 待定 | **合并** | 第二份项目列表；保留 `/projects/:id`，列表收进侧栏 / 对话列表。 |
+| `/projects/:id` | ProjectDetailPage | 待定 | **补故事** | 每日项目进展、打卡图、代码改动量、token 消耗；精不在多。 |
+| `/agents` | AgentsPage | 无 | **补故事** | 未安装的 agent 收起；按设备展示已安装 agent 的 token 统计。 |
+| `/routines` | RoutinesPage | 无 | **补故事** | 保留；按设备保存 / 管理定时任务，远端设备可查看管理，作为后续主动 agent 的入口。 |
+| `/settings` | SettingsPage | SETTINGS | **保留** | 删远程、通知等，已改用原生方案。 |
+| `/agent-sessions/:id` | AgentSessionDetailPage | CONTINUE | **保留** | 默认收起；与原生会话同样式，不加特殊标记。 |
+| `/design` | DesignSystemPage | 无 | **删除** | 不在导航；生产移除。 |
+
+签字汇总：**2 保留 / 3 合并 / 4 删除 / 4 补故事**（2026-11-10）。
+
+签字后的三个硬发现：
+
+1. **`/projects` 是第二份项目列表。** `ProjectsPage` 页头原文：「项目 = 你工作的目录 + 一页活封面。和侧栏按目录分组的『项目』是同一件事。」已签合并：列表收掉，只留 `/projects/:id`。
+2. **`/routines` 默认落在离线机器。** 截图时默认机器是 `<device-id>`，桌面报 `node is not connected: ios-…`，手机显示 `Still connecting`。面保留，补故事，第一个缺陷是默认机器选择。
+3. **`/design` 没有入口。** 不在 `PLACES`，不在侧栏，也不在手机 dock；只有直接访问 URL。已签删除，生产不保留。
+
+其余证据：`/artifacts`、`/artifacts/:id`、`/projects`、`/agents` 没有直接页面测试；Ionic 只剩 4 个文件、3 个 `IonActionSheet`；`AgentModelPicker.tsx`（151 行）无引用。
+
+另有 `/` 回到上次对话或 `/new`，`/approvals`、`/usage` 两条重定向和 `*` 兜底，已收口。
 
 ## 7. R0b · 执行
 
-只执行表上签过字的行：
+签字后的 13 行不能装进一次 ≤800 行的 diff；按「有没有替代行为」拆，不按页面拆。每一轮都独立跑 check / build / smoke，独立提交。
 
-1. 删路由、导航入口、页面、测试、i18n 键、API 调用；同步清理 `web/dist` 的构建（只提交 `index.html`，不提交 `assets/`）。
-2. Ionic 清尾：`main.tsx`、`Sidebar.tsx`、`SheetSelect.tsx`、`TaskDetailPage.tsx` 里的 `@ionic/react`；3 个 `IonActionSheet` 用现有 `Sheet` / `Menu` 替掉；删 `@ionic/core` / `@ionic/react` 依赖。
-3. 文档同步：
-   - 本文件补上签过字的表、证据和删除清单；
-   - 更新 `docs/product/IA.md` 对应行；
-   - 更新 `docs/product/stories/PLAN.md`（新增/收掉的面）；
-   - 更新 `docs/product/components/README.md`（如果删了共享控件）；
-   - 更新 `docs/plans/2026-11-08-design-system-middle-layer.md` §8 状态表。
-4. 重新跑 `python3 scripts/ui_inventory.py`，把删除前后的数字写进本文件。
+### R0b-1 · 只做减法
+
+只删没有替代行为的面和小控件，不新增交互：
+
+1. `/design`：删路由、页面、import；删 `tokens.test.ts` 里只服务于画廊的断言；更新 `colors.ts` / `type.ts` / `theme.css` 中提到 `/design` 的注释。
+2. `/artifacts` + `/artifacts/:id`：删路由、两个页面、入口；删聊天消息上的「保存产物」和 `TaskDetailPage` 的 `onSaveArtifact`；删项目详情里的相关产物区块；删只被这些面使用的 API helper、i18n 键和测试。
+3. `/projects` 列表：删 `ProjectsPage`、路由、`PLACES` 的 `projects` 行；项目仍从侧栏项目行的「打开封面」创建；`ProjectDetailPage` 的冷启动返回落到 `/sessions`；删 `AppShell` 里 `/projects` 的标题分支。
+4. Ionic 清尾：`main.tsx`、`Sidebar.tsx`、`SheetSelect.tsx`、`TaskDetailPage.tsx` 里的 `@ionic/react`；3 个 `IonActionSheet` 用现有 `Sheet` / `Menu` 替掉；删 `@ionic/core` / `@ionic/react`。
+5. 确认 `AgentModelPicker.tsx` 无引用后删除。
+6. 文档同步：`IA.md`、`stories/PLAN.md`、`docs/product/components/README.md`（如删共享控件）、本文件 §11；重跑 `python3 scripts/ui_inventory.py`，把前后数字写进本文件。
+
+### R0b-2 · 对话列表合并 + 收件箱替代
+
+这一轮改变用户流程，**先补签字页再动代码**：
+
+1. `/sessions` 合并：手机 `SessionsPage` 与 Mac `Sidebar` 的列表收敛到一套数据、搜索、过滤、行操作和 UI 原语；宽度只决定壳（侧栏 / 整页），不再决定功能。
+2. `/inbox` 删除：待批准在对话行上以 icon 提示；通知落到那一行；删 `ApprovalsPage`、`inboxFocus` 及其测试和 i18n。先补上 icon + 通知落点，再删页。
+3. `/tasks/:id`：删顶部 `SessionTabs` 和手机 `SessionSwitcherSheet` / header 按钮；删 `PullRequestPanel` 和入口；保留 `TaskSessionHost` 的会话保活。
+4. `/agent-sessions/:id`：导入会话在列表里默认收起，行样式与原生会话一致，去掉彩色 rail / 可用性徽标等特殊标记；详情页头部也收敛到原生对话的样式。
+5. 更新 `KIN-CONTINUE-001`、`KIN-NOTIFY-001` 和 `IA.md` 的对应行。
+
+### R0b-3 · 设置收口
+
+只保留用户在用的设置；删远程 / 通知两块 tab 及其状态、handler、i18n 和测试，更新 `KIN-SETTINGS-001` / `KIN-NOTIFY-001`。`SettingsPage.tsx` 1,596 行，单独一轮。
+
+### 故事（只写合同，不写代码）
+
+`/new`、`/projects/:id`、`/agents`、`/routines` 四条先按 `docs/product/stories/AUTHORING.md` 写合同和签字页；签完再排交付。`/new` 的重点是设备 / 项目选择离开输入框下方那一条，不与模型 / 权限同排。
 
 ## 8. R0c · 收口
 
@@ -117,18 +151,18 @@ R0 的主评审物是 **`2026-11-10-ui-surface-audit.review.html`**，不是下�
 - Conventional Commit（`refactor(ui): ...` 或 `chore(ui): ...`），合入 `main`
 - `./scripts/desktop-rebuild.sh`（UI 改了，必须重建；该脚本会重启 `:7777` 节点）
 
-## 9. 开放问题（R0a 要给出答案）
+## 9. 签字后仍开放的问题（R0b 要给出答案）
 
-1. `/projects` 和 `/projects/:id`：保留还是收进对话列表的设备→项目→对话？`IA.md` 说项目是 Hub 侧按 cwd 建立的遗留记录。
-2. `/agents`：它是 Agent 运维/费用面，但六条故事里没有主人；补一条故事，还是并入 `/settings`？
-3. `/routines`：`IA.md` 已定“属于机器”，但六条故事没覆盖；补合同还是保留为运维面？
-4. `/design`：只在 dev 构建存在，还是生产也保留？它现在是“不在导航里的 token 画廊”。
-5. `AgentModelPicker`：确认无引用后删除，还是还有隐藏入口？
-6. 任何删除如果改变了用户流程（不只是删死面），就不是 R0 能决定的，要回到对应故事签字页，先画 Figma 帧。
+1. `/projects` 合并到哪个列表：侧栏的设备→项目→对话，还是 `/sessions`？R0b-2 的签字页定。
+2. `/inbox` 删除后，待批准 icon 放在行首还是行尾？通知落到对话还是行？R0b-2 的签字页定。
+3. `/sessions` 合并后，Mac 左栏和手机整页是否共用同一个行组件，只换壳？R0b-2 的签字页定。
+4. `/settings` 的「远程 / 通知」删到哪一层：只删 tab，还是连 Cloudflare relay / APNs 状态机和 API 一起删？R0b-3 定。
+5. `/agent-sessions/:id` 的「默认收起」指列表里的导入会话收起，还是详情页历史收起？R0b-2 的签字页定。
+6. `AgentModelPicker` 已确认无引用，R0b-1 删除。
 
 ## 10. 不要做
 
-- 不要在 R0 签核前删任何页面或路由。
+- 不要在 R0b-1 里删有替代行为的面（`/inbox`、`/sessions` 合并、`/settings` 远程 / 通知）；那些在 R0b-2 / R0b-3，先补签字页。
 - 不要在 R0 里开始 G0.5 / Astryx 迁移；那是下一轮。
 - 不要把“整理 UI”做成一次整站重写；diff >800 行就拆轮次。
 - 不要用通用设计系统的整页模板替代 Kin 的 IA（设备 → 项目 → 对话；Mac/手机两种形态）。
@@ -140,13 +174,15 @@ R0 的主评审物是 **`2026-11-10-ui-surface-audit.review.html`**，不是下�
 
 | 项 | 状态 | 证据 |
 |---|---|---|
-| R0a 只读审计 | ⚪ 未开始 | 下一步：14 个产品面逐条查入口 / 测试 / API / i18n，出 `review.html` |
-| R0b 删除 + Ionic | ⚪ 未开始 | 等 R0a 表签字 |
-| R0c 收口 | ⚪ 未开始 | 等 R0b |
+| R0a 只读审计 | ✅ 已签字 2026-11-10 | 13 行决策：2 保留 / 3 合并 / 4 删除 / 4 补故事；评审页 `2026-11-10-ui-surface-audit.review.html`（截图缺失时看 `.review.local.html`） |
+| R0b-1 只做减法 | 🟡 进行中 | `/design`、`/artifacts`、`/projects` 列表、Ionic、`AgentModelPicker` |
+| R0b-2 列表合并 + 收件箱替代 | ⚪ 未开始 | 等 R0b-1；先补签字页 |
+| R0b-3 设置收口 | ⚪ 未开始 | 等 R0b-2 |
+| 4 条故事 | ⚪ 未开始 | 只写合同，不写代码 |
 
 ## 12. 下一会话
 
-新会话从 **R0a** 开始，只读，不删代码。先读本文件和相关文档，产出 `2026-11-10-ui-surface-audit.review.html` 和归属表，给用户签；签完再进 R0b。
+R0a 已签字（2026-11-10）。当前从 **R0b-1** 开始：只删 `/design`、`/artifacts` + 详情、`/projects` 列表，清 Ionic 和 `AgentModelPicker`，不新增交互。R0b-2 的 `/sessions` 合并、`/inbox` 删除、顶部切换 / PR 面板移除和导入会话样式必须先有签字页；R0b-3 的设置收口单独一轮。四条「补故事」的面只写合同，不写代码。
 
 ## 13. 阅读顺序
 

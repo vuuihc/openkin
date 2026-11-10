@@ -1,0 +1,1054 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>R0 面审计 · 2026-11-10</title>
+<style>
+:root {
+  color-scheme: dark;
+  --page: #0e0e10;
+  --bg: #1a1a1c;
+  --elevated: #2c2c2e;
+  --panel: #222226;
+  --text: #f5f5f7;
+  --secondary: #c7c7cc;
+  --muted: #98989d;
+  --hairline: rgba(255,255,255,.08);
+  --hairline-strong: rgba(255,255,255,.16);
+  --blue: #0a84ff;
+  --blue-ink: #6cb2ff;
+  --orange: #ff9f0a;
+  --red: #ff453a;
+  --green: #30d158;
+  --radius: 16px;
+  --shadow: 0 1px 2px rgba(0,0,0,.24), 0 8px 24px -12px rgba(0,0,0,.45);
+}
+html[data-theme="light"] {
+  color-scheme: light;
+  --page: #e0e0e5;
+  --bg: #ffffff;
+  --elevated: #f4f4f6;
+  --panel: #ffffff;
+  --text: #1c1c1e;
+  --secondary: #3a3a3c;
+  --muted: #5c5c61;
+  --hairline: rgba(0,0,0,.09);
+  --hairline-strong: rgba(0,0,0,.16);
+  --blue: #0b6fe0;
+  --blue-ink: #0a52b4;
+  --orange: #7d4400;
+  --red: #a51f18;
+  --green: #105c27;
+  --shadow: 0 1px 2px rgba(0,0,0,.03), 0 8px 24px -12px rgba(0,0,0,.06);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+html { overflow-x: clip; }
+body {
+  background: var(--page);
+  color: var(--text);
+  font: 16px/1.65 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+}
+a { color: var(--blue-ink); text-underline-offset: 3px; }
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .92em;
+  background: var(--elevated);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  padding: .1em .35em;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 32px 22px 96px; }
+.skip {
+  position: absolute; left: -999px; top: 8px; z-index: 50;
+  background: var(--blue); color: #fff; padding: 8px 12px; border-radius: 8px;
+}
+.skip:focus { left: 8px; }
+.page-head { padding: 16px 0 8px; }
+.eyebrow {
+  margin: 0 0 10px; text-transform: uppercase; letter-spacing: .08em;
+  font-size: 12px; font-weight: 700; color: var(--muted);
+}
+h1 { margin: 0 0 10px; font-size: 44px; line-height: 1.1; letter-spacing: -.03em; }
+.lede { margin: 0 0 18px; max-width: 62ch; font-size: 19px; color: var(--secondary); }
+.lede strong { color: var(--text); }
+.meta { display: flex; flex-wrap: wrap; gap: 8px; }
+.meta span {
+  font-size: 13px; color: var(--secondary);
+  border: 1px solid var(--hairline); border-radius: 999px; padding: 4px 10px;
+  background: var(--bg);
+}
+.summary {
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px; margin: 22px 0 14px;
+}
+.summary .tile {
+  background: var(--bg); border: 1px solid var(--hairline); border-radius: 12px;
+  padding: 10px 12px;
+}
+.summary .n { display: block; font-size: 26px; font-weight: 750; line-height: 1.1; }
+.summary .k { display: block; font-size: 12px; color: var(--muted); margin-top: 3px; }
+.summary [data-status="keep"] .n { color: var(--green); }
+.summary [data-status="merge"] .n { color: var(--blue-ink); }
+.summary [data-status="delete"] .n { color: var(--red); }
+.summary [data-status="story"] .n { color: var(--orange); }
+.summary [data-status="pending"] .n { color: var(--muted); }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 8px; }
+button {
+  font: inherit; font-size: 14px; font-weight: 650; color: var(--text);
+  background: var(--elevated); border: 1px solid var(--hairline-strong);
+  border-radius: 999px; padding: 8px 14px; cursor: pointer;
+}
+button:hover { border-color: var(--blue); }
+button.primary { background: var(--blue); color: #fff; border-color: transparent; }
+button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visible {
+  outline: 2px solid var(--blue); outline-offset: 2px;
+}
+.toc {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; gap: 6px; overflow-x: auto; white-space: nowrap;
+  padding: 10px 0; margin: 8px 0 8px;
+  background: color-mix(in srgb, var(--page) 86%, transparent);
+  backdrop-filter: blur(14px); border-bottom: 1px solid var(--hairline);
+}
+.toc a {
+  color: var(--secondary); text-decoration: none; font-size: 14px;
+  border: 1px solid transparent; border-radius: 999px; padding: 5px 10px;
+}
+.toc a:hover { border-color: var(--hairline-strong); color: var(--text); }
+section { scroll-margin-top: 64px; }
+.section-head { margin: 42px 0 10px; }
+.section-head h2 { margin: 0 0 4px; font-size: 26px; letter-spacing: -.02em; }
+.section-head p { margin: 0; color: var(--muted); max-width: 70ch; }
+.how {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;
+  margin: 16px 0 8px;
+}
+.how div {
+  background: var(--bg); border: 1px solid var(--hairline); border-radius: 12px;
+  padding: 12px 14px; font-size: 14px; color: var(--secondary);
+}
+.how strong { display: block; color: var(--text); margin-bottom: 4px; }
+.card {
+  background: var(--bg); border: 1px solid var(--hairline);
+  border-radius: var(--radius); padding: 22px; margin: 18px 0;
+  box-shadow: var(--shadow); scroll-margin-top: 72px;
+}
+.card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.card-head h2 { margin: 2px 0 0; font-size: 24px; letter-spacing: -.02em; }
+.route { margin: 0; color: var(--muted); font-size: 13px; font-family: ui-monospace, Menlo, monospace; }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.badge {
+  font-size: 12px; font-weight: 700; border-radius: 999px; padding: 4px 9px;
+  border: 1px solid var(--hairline-strong); color: var(--secondary);
+  white-space: nowrap;
+}
+.badge.owner { background: var(--elevated); }
+.badge.status[data-status="keep"] { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+.badge.status[data-status="merge"] { color: var(--blue-ink); border-color: color-mix(in srgb, var(--blue) 40%, transparent); }
+.badge.status[data-status="delete"] { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+.badge.status[data-status="story"] { color: var(--orange); border-color: color-mix(in srgb, var(--orange) 40%, transparent); }
+.badge.status[data-status="pending"] { color: var(--muted); }
+.finding { margin: 14px 0 14px; font-size: 17px; max-width: 82ch; }
+.shots { display: grid; grid-template-columns: 390px minmax(0, 1fr); gap: 14px; align-items: start; }
+figure { margin: 0; min-width: 0; }
+.shot img {
+  display: block; width: 100%; height: auto; border-radius: 10px;
+  border: 1px solid var(--hairline); background: #000;
+}
+.shot-phone img { max-width: 390px; }
+.shot-wide .scroll {
+  overflow-x: auto; border-radius: 10px;
+  border: 1px solid var(--hairline); background: #000;
+}
+.shot-wide .scroll img { width: 1100px; max-width: none; border: 0; border-radius: 0; }
+.shot figcaption { margin-top: 6px; font-size: 12px; color: var(--muted); }
+figure.missing .scroll, figure.missing img { display: none; }
+figure.missing::before {
+  content: "截图缺失：文件预览器没解析相对路径；用浏览器打开，或看 review.local.html";
+  display: block; padding: 18px; text-align: center; color: var(--muted);
+  border: 1px dashed var(--hairline-strong); border-radius: 10px; font-size: 13px;
+}
+.evidence {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px; background: var(--hairline); border: 1px solid var(--hairline);
+  border-radius: 12px; overflow: hidden; margin: 16px 0 0;
+}
+.evidence div { background: var(--bg); padding: 10px 12px; min-width: 0; }
+.evidence dt {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--muted); font-weight: 700; margin: 0 0 3px;
+}
+.evidence dd { margin: 0; font-size: 14px; color: var(--secondary); overflow-wrap: anywhere; }
+.impact {
+  margin: 14px 0 0; padding: 10px 12px; font-size: 14px;
+  border-left: 3px solid var(--orange); background: color-mix(in srgb, var(--orange) 8%, transparent);
+  border-radius: 0 8px 8px 0; color: var(--secondary);
+}
+.impact strong { color: var(--text); }
+.decision {
+  border: 0; padding: 0; margin: 18px 0 0; display: flex; flex-wrap: wrap; gap: 8px 14px;
+}
+.decision legend {
+  float: left; width: 100%; font-size: 12px; font-weight: 700; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--muted); margin-bottom: 8px; padding: 0;
+}
+.decision label {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 14px;
+  color: var(--secondary); border: 1px solid var(--hairline); border-radius: 999px;
+  padding: 6px 11px; cursor: pointer; background: var(--page);
+}
+.decision label:has(input:checked) {
+  color: var(--text); border-color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 14%, transparent);
+}
+.decision input[type="radio"] { accent-color: var(--blue); margin: 0; }
+.decision .note {
+  flex: 1 1 260px; min-width: 200px; font: inherit; font-size: 14px;
+  color: var(--text); background: var(--page); border: 1px solid var(--hairline-strong);
+  border-radius: 999px; padding: 7px 12px;
+}
+.decision .note::placeholder { color: var(--muted); }
+details { margin-top: 14px; border-top: 1px solid var(--hairline); padding-top: 10px; }
+details summary { cursor: pointer; font-size: 14px; color: var(--secondary); font-weight: 600; }
+details p { margin: 8px 0 0; font-size: 14px; color: var(--secondary); max-width: 82ch; }
+.map { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+.map h3 { margin: 0 0 8px; font-size: 15px; }
+.wire {
+  border: 1px dashed var(--hairline-strong); border-radius: 12px; padding: 12px;
+  background: var(--bg);
+}
+.wire + .wire { margin-top: 8px; }
+.wire .row { display: grid; grid-template-columns: 1fr 1.2fr; gap: 8px; }
+.box {
+  background: var(--elevated); border: 1px solid var(--hairline);
+  border-radius: 8px; padding: 8px 10px; font-size: 13px; color: var(--secondary);
+}
+.box strong { display: block; color: var(--text); font-size: 13px; margin-bottom: 2px; }
+.box.dashed { border-style: dashed; color: var(--muted); }
+.stack { display: grid; gap: 6px; }
+.dock { display: flex; gap: 6px; margin-top: 8px; }
+.dock .box { flex: 1; text-align: center; }
+.k { margin-top: 8px; }
+.map-note { margin-top: 12px; font-size: 14px; color: var(--secondary); }
+.map-note p { margin: 6px 0; }
+.extras { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+.extra {
+  background: var(--bg); border: 1px solid var(--hairline); border-radius: 12px;
+  padding: 14px 16px; font-size: 14px; color: var(--secondary);
+  min-width: 0; overflow-wrap: anywhere;
+}
+.extra code { overflow-wrap: anywhere; }
+.extra h3 { margin: 0 0 6px; font-size: 16px; color: var(--text); }
+.extra ul { margin: 6px 0 0; padding-left: 18px; }
+.extra li { margin: 3px 0; }
+pre.reply {
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  background: var(--bg); border: 1px solid var(--hairline); border-radius: 12px;
+  padding: 16px; font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--secondary); margin: 14px 0 0;
+}
+.foot { margin-top: 40px; color: var(--muted); font-size: 13px; }
+@media (max-width: 860px) {
+  .wrap { padding: 20px 14px 80px; }
+  h1 { font-size: 32px; }
+  .lede { font-size: 17px; }
+  .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .how { grid-template-columns: 1fr; }
+  .card { padding: 16px; }
+  .card-head { display: block; }
+  .badges { justify-content: flex-start; margin-top: 8px; }
+  .shots { grid-template-columns: 1fr; }
+  .shot-wide .scroll { max-width: 100%; }
+  .evidence { grid-template-columns: 1fr; }
+  .map { grid-template-columns: 1fr; }
+  .extras { grid-template-columns: 1fr; }
+  .decision .note { flex-basis: 100%; }
+}
+@media print {
+  .toc, .actions, .decision, button { display: none; }
+  .card { break-inside: avoid; box-shadow: none; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#cards">跳到面卡片</a>
+<div class="wrap">
+  <header class="page-head">
+    <p class="eyebrow">OpenKin · UI 重构 R0</p>
+    <h1>面审计与减法</h1>
+    <p class="lede">先决定哪些面还应该存在。截图是<strong>现状</strong>，不是重新设计的稿；每一张卡都能直接勾决定。</p>
+    <div class="meta">
+      <span>2026-11-10</span>
+      <span>13 个产品面</span>
+      <span>状态：待签字</span>
+      <span>截图含本机真实数据，请勿外发</span>
+    </div>
+    <div class="summary" aria-label="决定汇总"><div class="tile" data-status="keep"><span class="n" id="count-keep">8</span><span class="k">保留</span></div><div class="tile" data-status="merge"><span class="n" id="count-merge">1</span><span class="k">合并</span></div><div class="tile" data-status="delete"><span class="n" id="count-delete">1</span><span class="k">删除</span></div><div class="tile" data-status="story"><span class="n" id="count-story">3</span><span class="k">补故事</span></div><div class="tile" data-status="pending"><span class="n" id="count-pending">0</span><span class="k">待定</span></div></div>
+    <div class="actions">
+      <button class="primary" id="copy" type="button">复制我的选择</button>
+      <button id="reset" type="button">重置为待定</button>
+      <button id="theme" type="button">切到亮色</button>
+    </div>
+  </header>
+
+  <nav class="toc" aria-label="页内导航">
+    <a href="#how">怎么读</a>
+    <a href="#cards">面卡片</a>
+    <a href="#target">目标地图</a>
+    <a href="#extras">代码清理</a>
+    <a href="#reply">回复模板</a>
+  </nav>
+
+  <section id="how">
+    <div class="section-head">
+      <h2>怎么读</h2>
+      <p>每张卡回答同一件事：这个面现在占不占地方，删掉以后用户还能不能完成六条故事里的动作。</p>
+    </div>
+    <div class="how">
+      <div><strong>先看截图</strong>左图是 390 手机，右图是 1100 Mac。宽图在卡片内部横向滚动，不会让整页横滚。</div>
+      <div><strong>再看证据</strong>入口、测试、API、i18n 四格是判断依据；截图只说明它长什么样，不说明有没有人用。</div>
+      <div><strong>最后勾决定</strong>保留 / 合并 / 删除 / 补故事 / 待定。勾完顶部汇总和底部回复模板会同步更新。</div>
+    </div>
+  </section>
+
+  <section id="cards">
+    <div class="section-head">
+      <h2>面卡片</h2>
+      <p>按当前路由排序。预选值是建议，不是结论；你可以逐张改。</p>
+    </div>
+    
+<article class="card" id="surface-new" data-id="new" data-route="/new" data-title="新建对话">
+  <header class="card-head">
+    <div>
+      <p class="route">/new</p>
+      <h2>新建对话</h2>
+    </div>
+    <div class="badges">
+      <span class="badge owner">归属：START</span>
+      <span class="badge status" data-status="keep">保留</span>
+    </div>
+  </header>
+  <p class="finding">Mac 是左栏 + 中间草稿；手机是同一条草稿的全屏形态。两端都只有一个输入框，没有第二份列表。</p>
+  <div class="shots">
+    <figure class="shot shot-phone">
+      <img loading="lazy" src="../../.playwright-mcp/r0/new-390.png" alt="新建对话 390 宽现状截图" onerror="this.closest('figure').classList.add('missing')">
+      <figcaption>390 · 手机</figcaption>
+    </figure>
+    <figure class="shot shot-wide">
+      <div class="scroll"><img loading="lazy" src="../../.playwright-mcp/r0/new-1100.png" alt="新建对话 1100 宽现状截图" onerror="this.closest('figure').classList.add('missing')"></div>
+      <figcaption>1100 · Mac（宽图在卡片内横向滚动）</figcaption>
+    </figure>
+  </div>
+  <dl class="evidence">
+    <div><dt>入口</dt><dd>PLACES <code>new</code> · 左栏「新建对话」· 手机铅笔 · ⌘N</dd></div>
+    <div><dt>测试</dt><dd>5 个文件</dd></div>
+    <div><dt>主要 API</dt><dd>agents · machines · projects · routing/options · settings</dd></div>
+    <div><dt>i18n</dt><dd>35 个键（页面文件）</dd></div>
+  </dl>
+  <p class="impact"><strong>删掉会怎样：</strong>没有入口开始新对话。</p>
+  <fieldset class="decision">
+    <legend>决定</legend>
+    <label><input type="radio" name="d-new" value="keep" checked> 保留</label><label><input type="radio" name="d-new" value="merge"> 合并</label><label><input type="radio" name="d-new" value="delete"> 删除</label><label><input type="radio" name="d-new" value="story"> 补故事</label><label><input type="radio" name="d-new" value="pending"> 待定</label>
+    <input class="note" type="text" placeholder="合并到 / 理由（可选）" aria-label="新建对话 的合并目标或理由">
+  </fieldset>
+  <details>
+    <summary>证据与判断</summary>
+    <p>NewChatPage 847 行；手机和 Mac 共用同一套草稿状态。它是 START 故事的主面。</p>
+  </details>
+</article>
+
+<article class="card" id="surface-sessions" data-id="sessions" data-route="/sessions" data-title="对话列表">
+  <header class="card-head">
+    <div>
+      <p class="route">/sessions</p>
+      <h2>对话列表</h2>
+    </div>
+    <div class="badges">
+      <span class="badge owner">归属：CONTINUE / MANAGE</span>
+      <span class="badge status" data-status="keep">保留</span>
+    </div>
+  </header>
+  <p class="finding">手机是一页对话列表；Mac 左栏是同一份列表，主区显示草稿。<code>SessionsRoute</code> 明确阻止第二份列表出现。</p>
+  <div class="shots">
+    <figure class="shot shot-phone">
+      <img loading="lazy" src="../../.playwright-mcp/r0/sessions-390.png" alt="对话列表 390 宽现状截图" onerror="this.closest('figure').classList.add('missing')">
+      <figcaption>390 · 手机</figcaption>
+    </figure>
+    <figure class="shot shot-wide">
+      <div class="scroll"><img loading="lazy" src="../../.playwright-mcp/r0/sessions-1100.png" alt="对话列表 1100 宽现状截图" onerror="this.closest('figure').classList.add('missing')"></div>
+      <figcaption>1100 · Mac（宽图在卡片内横向滚动）</figcaption>
+    </figure>
+  </div>
+  <dl class="evidence">
+    <div><dt>入口</dt><dd>PLACES <code>sessions</code> · 手机 dock「对话」· Mac 左栏</dd></div>
+    <div><dt>测试</dt><dd>6 个文件</dd></div>
+    <div><dt>主要 API</dt><dd>sessions · tasks · machines</dd></div>
+    <div><dt>i18n</dt><dd>32 个键</dd></div>
+  </dl>
+  <p class="impact"><strong>删掉会怎样：</strong>找不到已有对话，也无法继续。</p>
+  <fieldset class="decision">
+    <legend>决定</legend>
+    <label><input type="radio" name="d-sessions" value="keep" checked> 保留</label><label><input type="radio" name="d-sessions" value="merge"> 合并</label><label><input type="radio" name="d-sessions" value="delete"> 删除</label><label><input type="radio" name="d-sessions" value="story"> 补故事</label><label><input type="radio" name="d-sessions" value="pending"> 待定</label>
+    <input class="note" type="text" placeholder="合并到 / 理由（可选）" aria-label="对话列表 的合并目标或理由">
+  </fieldset>
+  <details>
+    <summary>证据与判断</summary>
+    <p>SessionsPage 1,443 行；手机列表有设备 → 项目 → 对话三层。Mac 主区不重复列表，符合 IA 的已签字决定。</p>
+  </details>
+</article>
+
+<article class="card" id="surface-task-detail" data-id="task-detail" data-route="/tasks/:id" data-title="对话详情">
+  <header class="card-head">
+    <div>
+      <p class="route">/tasks/:id</p>
+      <h2>对话详情</h2>
+    </div>
+    <div class="badges">
+      <span class="badge owner">归属：CONTINUE / RESULT</span>
+      <span class="badge status" data-status="keep">保留</span>
+    </div>
+  </header>
+  <p class="finding">真实对话页：顶部会话切换、文件、PR、分享、停止；中间消息流和改动卡；底部 composer。</p>
+  <div class="shots">
+    <figure class="shot shot-phone">
+      <img loading="lazy" src="../../.playwright-mcp/r0/task-detail-390.png" alt="对话详情 390 宽现状截图" onerror="this.closest('figure').classList.add('missing')">
+      <figcaption>390 · 手机</figcaption>
+    </figure>
+    <figure class="shot shot-wide">
+      <div class="scroll"><img loading="lazy" src="../../.playwright-mcp/r0/task-detail-1100.png" alt="对话详情 1100 宽现状截图" onerror="this.closest('figure').classList.add('missing')"></div>
+      <figcaption>1100 · Mac（宽图在卡片内横向滚动）</figcaption>
+    </figure>
+  </div>
+  <dl class="evidence">
+    <div><dt>入口</dt><dd>对话行 · <code>/</code> 回到上次对话</dd></div>
+    <div><dt>测试</dt><dd>13 个文件</dd></div>
+    <div><dt>主要 API</dt><dd>tasks/{id} · approvals · user-questions · workspace/*</dd></div>
+    <div><dt>i18n</dt><dd>58 个键</dd></div>
+  </dl>
+  <p class="impact"><strong>删掉会怎样：</strong>不能继续对话、看改动或批准。</p>
+  <fieldset class="decision">
+    <legend>决定</legend>
+    <label><input type="radio" name="d-task-detail" value="keep" checked> 保留</label><label><input type="radio" name="d-task-detail" value="merge"> 合并</label><label><input type="radio" name="d-task-detail" value="delete"> 删除</label><label><input type="radio" name="d-task-detail" value="story"> 补故事</label><label><input type="radio" name="d-task-detail" value="pending"> 待定</label>
+    <input class="note" type="text" placeholder="合并到 / 理由（可选）" aria-label="对话详情 的合并目标或理由">
+  </fieldset>
+  <details>
+    <summary>证据与判断</summary>
+    <p>TaskDetailPage 2,269 行，是四个大页面里最大的；RESULT 故事的大部分面在这里。R0 保留，后续按故事拆。</p>
+  </details>
+</article>
+
+<article class="card" id="surface-inbox" data-id="inbox" data-route="/inbox" data-title="收件箱">
+  <header class="card-head">
+    <div>
+      <p class="route">/inbox</p>
+      <h2>收件箱</h2>
+    </div>
+    <div class="badges">
+      <span class="badge owner">归属：NOTIFY / CONTINUE</span>
+      <span class="badge status" data-status="keep">保留</span>
+    </div>
+  </header>
+  <p class="finding">手机空态「没有待审批项」+ 运行中任务；桌面是同一份收件箱。它是唯一列出「等你处理」的地方。</p>
+  <div class="shots">
+    <figure class="shot shot-phone">
+      <img loading="lazy" src="../../.playwright-mcp/r0/inbox-390.png" alt="收件箱 390 宽现状截图" onerror="this.closest('figure').classList.add('missing')">
+      <figcaption>390 · 手机</figcaption>
+    </figure>
+    <figure class="shot shot-wide">
+      <div class="scroll"><img loading="lazy" src="../../.playwright-mcp/r0/inbox-1100.png" alt="收件箱 1100 宽现状截图" onerror="this.closest('figure').classList.add('missing')"></div>
+      <figcaption>1100 · Mac（宽图在卡片内横向滚动）</figcaption>
+    </figure>
+  </div>
+  <dl class="evidence">
+    <div><dt>入口</dt><dd>PLACES <code>inbox</code> · 手机会话列表头部 · 左栏「收件箱」</dd></div>
+    <div><dt>测试</dt><dd>1 个文件</dd></div>
+    <div><dt>主要 API</dt><dd>approvals · tasks · user-questions</dd></div>
+    <div><dt>i18n</dt><dd>13 个键</dd></div>
+  </dl>
+  <p class="impact"><strong>删掉会怎样：</strong>通知失去落点，待批准无处处理。</p>
+  <fieldset class="decision">
+    <legend>决定</legend>
+    <label><input type="radio" name="d-inbox" value="keep" checked> 保留</label><label><input type="radio" name="d-inbox" value="merge"> 合并</label><label><input type="radio" name="d-inbox" value="delete"> 删除</label><label><input type="radio" name="d-inbox" value="story"> 补故事</label><label><input type="radio" name="d-inbox" value="pending"> 待定</label>
+    <input class="note" type="text" placeholder="合并到 / 理由（可选）" aria-label="收件箱 的合并目标或理由">
+  </fieldset>
+  <details>
+    <summary>证据与判断</summary>
+    <p>截图时 47 条 approvals（含已决定），待批准为 0；运行中任务仍出现。它是 NOTIFY 故事的落点。</p>
+  </details>
+</article>
+
+<article class="card" id="surface-artifacts" data-id="artifacts" data-route="/artifacts" data-title="产物库">
+  <header class="card-head">
+    <div>
+      <p class="route">/artifacts</p>
+      <h2>产物库</h2>
+    </div>
+    <div class="badges">
+      <span class="badge owner">归属：RESULT</span>
+      <span class="badge status" data-status="keep">保留</span>
+    </div>
+  </header>
+  <p class="finding">手机和桌面都是「已保存 / 全部 / 已归档」三档的产物库；截图时默认档为空，API 有 1 条产物。</p>
+  <div class="shots">
+    <figure class="shot shot-phone">
+      <img loading="lazy" src="../../.playwright-mcp/r0/artifacts-390.png" alt="产物库 390 宽现状截图" onerror="this.closest('figure').classList.add('missing')">
+      <figcaption>390 · 手机</figcaption>
+    </figure>
+    <figure class="shot shot-wide">
+      <div class="scroll"><img loading="lazy" src="../../.playwright-mcp/r0/artifacts-1100.png" alt="产物库 1100 宽现状截图" onerror="this.closest('figure').classList.add('missing')"></div>
+      <figcaption>1100 · Mac（宽图在卡片内横向滚动）</figcaption>
+    </figure>
+  </div>
+  <dl class="evidence">
+    <div><dt>入口</dt><dd>PLACES <code>artifacts</code> · 命令面板 · 手机 K 面板</dd></div>
+    <div><dt>测试</dt><dd>0 个直接测试</dd></div>
+    <div><dt>主要 API</dt><dd>artifacts</dd></div>
+    <div><dt>i18n</dt><dd>15 个键</dd></div>
+  </dl>
+  <p class="impact"><strong>删掉会怎样：</strong>产物没有库，保存/分享出去的内容无法找回。</p>
+  <fieldset class="decision">
+    <legend>决定</legend>
+    <label><input type="radio" name="d-artifacts" value="keep" checked> 保留</label><label><input type="radio" name="d-artifacts" value="merge"> 合并</label><label><input type="radio" name="d-artifacts" value="delete"> 删除</label><label><input type="radio" name="d-artifacts" value="story"> 补故事</label><label><input type="radio" name="d-artifacts" value="pending"> 待定</label>
+    <input class="note" type="text" placeholder="合并到 / 理由（可选）" aria-label="产物库 的合并目标或理由">
+  </fieldset>
+  <details>
+    <summary>证据与判断</summary>
+    <p>ArtifactsPage 206 行；测试缺口要在 RESULT 故事里补。</p>
+  </details>
+</article>
+
+<article class="card" id="surface-artifact-detail" data-id="artifact-detail" data-route="/artifacts/:id" data-title="产物详情">
+  <header class="card-head">
+    <div>
+      <p class="route">/artifacts/:id</p>
+      <h2>产物详情</h2>
+    </div>
+    <div class="badges">
+      <span class="badge owner">归属：RESULT</span>
+      <span class="badge status" data-status="keep">保留</span>
+    </div>
+  </header>
+  <p class="finding">Markdown 详情页，可从产物库打开；标题、大小、来源任务、正文都在。</p>
+  <div class="shots">
+    <figure class="shot shot-phone">
+      <img loading="lazy" src="../../.playwright-mcp/r0/artifact-detail-390.png" alt="产物详情 390 宽现状截图" onerror="this.closest('figure').classList.add('missing')">
+      <figcaption>390 · 手机</figcaption>
+    </figure>
+    <figure class="shot shot-wide">
+      <div class="scroll"><img loading="lazy" src="../../.playwright-mcp/r0/artifact-detail-1100.png" alt="产物详情 1100 宽现状截图" onerror="this.closest('figure').classList.add('missing')"></div>
+      <figcaption>1100 · Mac（宽图在卡片内横向滚动）</figcaption>
+    </figure>
+  </div>
+  <dl class="evidence">
+    <div><dt>入口</dt><dd>产物库行</dd></div>
+    <div><dt>测试</dt><dd>0 个直接测试</dd></div>
+    <div><dt>主要 API</dt><dd>artifacts/{id}</dd></div>
+    <div><dt>i18n</dt><dd>7 个键</dd></div>
+  </dl>
+  <p class="impact"><strong>删掉会怎样：</strong>产物只能看列表，打不开。</p>
+  <fieldset class="decision">
+    <legend>决定</legend>
+    <label><input type="radio" name="d-artifact-detail" value="keep" checked> 保留</label><label><input type="radio" name="d-artifact-detail" value="merge"> 合并</label><label><input type="radio" name="d-artifact-detail" value="delete"> 删除</label><label><input type="radio" name="d-artifact-detail" value="story"> 补故事</label><label><input type="radio" name="d-artifact-detail" value="pending"> 待定</label>
+    <input class="note" type="text" placeholder="合并到 / 理由（可选）" aria-label="产物详情 的合并目标或理由">
+  </fieldset>
+  <details>
+    <summary>证据与判断</summary>
+    <p>ArtifactDetailPage 175 行；同样缺测试。</p>
+  </details>
+</article>
+
+<article class="card" id="surface-projects" data-id="projects" data-route="/projects" data-title="项目列表">
+  <header class="card-head">
+    <div>
+      <p class="route">/projects</p>
+      <h2>项目列表</h2>
+    </div>
+    <div class="badges">
+      <span class="badge owner">归属：待定（IA 标记 Hub 侧遗留）</span>
+      <span class="badge status" data-status="merge">合并</span>
+    </div>
+  </header>
+  <p class="finding">手机/桌面都列出同一批项目；桌面页头自己写着「和侧栏按目录分组的『项目』是同一件事」。它和左栏是两份项目列表。</p>
+  <div class="shots">
+    <figure class="shot shot-phone">
+      <img loading="lazy" src="../../.playwright-mcp/r0/projects-390.png" alt="项目列表 390 宽现状截图" onerror="this.closest('figure').classList.add('missing')">
+      <figcaption>390 · 手机</figcaption>
+    </figure>
+    <figure class="shot shot-wide">
+      <div class="scroll"><img loading="lazy" src="../../.playwright-mcp/r0/projects-1100.png" alt="项目列表 1100 宽现状截图" onerror="this.closest('figure').classList.add('missing')"></div>
+      <figcaption>1100 · Mac（宽图在卡片内横向滚动）</figcaption>
+    </figure>
+  </div>
+  <dl class="evidence">
+    <div><dt>入口</dt><dd>PLACES <code>projects</code> · 手机 dock「项目」</dd></div>
+    <div><dt>测试</dt><dd>0 个直接测试</dd></div>
+    <div><dt>主要 API</dt><dd>projects</dd></div>
+    <div><dt>i18n</dt><dd>16 个键</dd></div>
+  </dl>
+  <p class="impact"><strong>删掉会怎样：</strong>合并后仍能从左栏项目分组和 <code>/projects/:id</code> 进入项目；不会丢入口。</p>
+  <fieldset class="decision">
+    <legend>决定</legend>
+    <label><input type="radio" name="d-projects" value="keep"> 保留</label><label><input type="radio" name="d-projects" value="merge" checked> 合并</label><label><input type="radio" name="d-projects" value="delete"> 删除</label><label><input type="radio" name="d-projects" value="story"> 补故事</label><label><input type="radio" name="d-projects" value="pending"> 待定</label>
+    <input class="note" type="text" placeholder="合并到 / 理由（可选）" aria-label="项目列表 的合并目标或理由">
+  </fieldset>
+  <details>
+    <summary>证据与判断</summary>
+    <p>ProjectsPage 221 行。建议删掉这份列表，把「打开目录 / 项目详情」留在左栏项目分组和 <code>/projects/:id</code>；具体交互归 MANAGE 或新的项目故事。</p>
+  </details>
+</article>
+
+<article class="card" id="surface-project-detail" data-id="project-detail" data-route="/projects/:id" data-title="项目详情">
+  <header class="card-head">
+    <div>
+      <p class="route">/projects/:id</p>
+      <h2>项目详情</h2>
+    </div>
+    <div class="badges">
+      <span class="badge owner">归属：待定</span>
+      <span class="badge status" data-status="story">补故事</span>
+    </div>
+  </header>
+  <p class="finding">项目详情：摘要、封面、继续当前焦点、整理记忆草稿、新建例行任务、概览/会话、热力图、One-Pager、相关产物。它是项目面里真正有内容的部分。</p>
+  <div class="shots">
+    <figure class="shot shot-phone">
+      <img loading="lazy" src="../../.playwright-mcp/r0/project-detail-390.png" alt="项目详情 390 宽现状截图" onerror="this.closest('figure').classList.add('missing')">
+      <figcaption>390 · 手机</figcaption>
+    </figure>
+    <figure class="shot shot-wide">
+      <div class="scroll"><img loading="lazy" src="../../.playwright-mcp/r0/project-detail-1100.png" alt="项目详情 1100 宽现状截图" onerror="this.closest('figure').classList.add('missing')"></div>
+      <figcaption>1100 · Mac（宽图在卡片内横向滚动）</figcaption>
+    </figure>
+  </div>
+  <dl class="evidence">
+    <div><dt>入口</dt><dd>左栏项目行 · <code>/projects</code> 列表</dd></div>
+    <div><dt>测试</dt><dd>1 个文件</dd></div>
+    <div><dt>主要 API</dt><dd>projects/{id} · tasks · routines</dd></div>
+    <div><dt>i18n</dt><dd>63 个键</dd></div>
+  </dl>
+  <p class="impact"><strong>删掉会怎样：</strong>项目失去详情，只剩左栏分组。</p>
+  <fieldset class="decision">
+    <legend>决定</legend>
+    <label><input type="radio" name="d-project-detail" value="keep"> 保留</label><label><input type="radio" name="d-project-detail" value="merge"> 合并</label><label><input type="radio" name="d-project-detail" value="delete"> 删除</label><label><input type="radio" name="d-project-detail" value="story" checked> 补故事</label><label><input type="radio" name="d-project-detail" value="pending"> 待定</label>
+    <input class="note" type="text" placeholder="合并到 / 理由（可选）" aria-label="项目详情 的合并目标或理由">
+  </fieldset>
+  <details>
+    <summary>证据与判断</summary>
+    <p>ProjectDetailPage 953 行。建议保留并补一条 MANAGE/项目故事；不要在 R0 里重做。</p>
+  </details>
+</article>
+
+<article class="card" id="surface-agents" data-id="agents" data-route="/agents" data-title="Agent 运维">
+  <header class="card-head">
+    <div>
+      <p class="route">/agents</p>
+      <h2>Agent 运维</h2>
+    </div>
+    <div class="badges">
+      <span class="badge owner">归属：无（IA 提到「Agent 运维 / 费用」）</span>
+      <span class="badge status" data-status="story">补故事</span>
+    </div>
+  </header>
+  <p class="finding">费用、Token、缓存命中率、任务数 + 每日费用图 + Agent 表（安装/版本/登录/费用）。这是运维面，不在六条用户故事里。</p>
+  <div class="shots">
+    <figure class="shot shot-phone">
+      <img loading="lazy" src="../../.playwright-mcp/r0/agents-390.png" alt="Agent 运维 390 宽现状截图" onerror="this.closest('figure').classList.add('missing')">
+      <figcaption>390 · 手机</figcaption>
+    </figure>
+    <figure class="shot shot-wide">
+      <div class="scroll"><img loading="lazy" src="../../.playwright-mcp/r0/agents-1100.png" alt="Agent 运维 1100 宽现状截图" onerror="this.closest('figure').classList.add('missing')"></div>
+      <figcaption>1100 · Mac（宽图在卡片内横向滚动）</figcaption>
+    </figure>
+  </div>
+  <dl class="evidence">
+    <div><dt>入口</dt><dd>PLACES <code>agents</code> · 左栏「Agents」· 周费用角标</dd></div>
+    <div><dt>测试</dt><dd>0 个直接测试</dd></div>
+    <div><dt>主要 API</dt><dd>agents · agents/management · usage/summary · usage/limits · agent-providers</dd></div>
+    <div><dt>i18n</dt><dd>51 个键</dd></div>
+  </dl>
+  <p class="impact"><strong>删掉会怎样：</strong>费用和 Agent 状态没有地方看。</p>
+  <fieldset class="decision">
+    <legend>决定</legend>
+    <label><input type="radio" name="d-agents" value="keep"> 保留</label><label><input type="radio" name="d-agents" value="merge"> 合并</label><label><input type="radio" name="d-agents" value="delete"> 删除</label><label><input type="radio" name="d-agents" value="story" checked> 补故事</label><label><input type="radio" name="d-agents" value="pending"> 待定</label>
+    <input class="note" type="text" placeholder="合并到 / 理由（可选）" aria-label="Agent 运维 的合并目标或理由">
+  </fieldset>
+  <details>
+    <summary>证据与判断</summary>
+    <p>AgentsPage 921 行；79 个 agent 记录。建议补一条运维故事，明确它是排障/成本面，不是主流程。</p>
+  </details>
+</article>
+
+<article class="card" id="surface-routines" data-id="routines" data-route="/routines" data-title="例行任务">
+  <header class="card-head">
+    <div>
+      <p class="route">/routines</p>
+      <h2>例行任务</h2>
+    </div>
+    <div class="badges">
+      <span class="badge owner">归属：无（IA 2026-11-09 已定机器维度）</span>
+      <span class="badge status" data-status="story">补故事</span>
+    </div>
+  </header>
+  <p class="finding">手机和桌面都先选机器；截图时默认落在离线的 <code><device-id></code>，桌面报 <code>node is not connected</code>，手机显示 <code>Still connecting</code>。列表因此为空。</p>
+  <div class="shots">
+    <figure class="shot shot-phone">
+      <img loading="lazy" src="../../.playwright-mcp/r0/routines-390.png" alt="例行任务 390 宽现状截图" onerror="this.closest('figure').classList.add('missing')">
+      <figcaption>390 · 手机</figcaption>
+    </figure>
+    <figure class="shot shot-wide">
+      <div class="scroll"><img loading="lazy" src="../../.playwright-mcp/r0/routines-1100.png" alt="例行任务 1100 宽现状截图" onerror="this.closest('figure').classList.add('missing')"></div>
+      <figcaption>1100 · Mac（宽图在卡片内横向滚动）</figcaption>
+    </figure>
+  </div>
+  <dl class="evidence">
+    <div><dt>入口</dt><dd>PLACES <code>routines</code> · 手机 dock「例行任务」· 左栏角标</dd></div>
+    <div><dt>测试</dt><dd>4 个文件</dd></div>
+    <div><dt>主要 API</dt><dd>routines（machine-scoped）· machines</dd></div>
+    <div><dt>i18n</dt><dd>66 个键</dd></div>
+  </dl>
+  <p class="impact"><strong>删掉会怎样：</strong>定时任务和收件箱推送没有管理面。</p>
+  <fieldset class="decision">
+    <legend>决定</legend>
+    <label><input type="radio" name="d-routines" value="keep"> 保留</label><label><input type="radio" name="d-routines" value="merge"> 合并</label><label><input type="radio" name="d-routines" value="delete"> 删除</label><label><input type="radio" name="d-routines" value="story" checked> 补故事</label><label><input type="radio" name="d-routines" value="pending"> 待定</label>
+    <input class="note" type="text" placeholder="合并到 / 理由（可选）" aria-label="例行任务 的合并目标或理由">
+  </fieldset>
+  <details>
+    <summary>证据与判断</summary>
+    <p>RoutinesPage 1,366 行。保留，补故事合同；默认机器选择和离线提示是这条故事的第一个缺陷。不要在 R0 里改行为。</p>
+  </details>
+</article>
+
+<article class="card" id="surface-settings" data-id="settings" data-route="/settings" data-title="设置">
+  <header class="card-head">
+    <div>
+      <p class="route">/settings</p>
+      <h2>设置</h2>
+    </div>
+    <div class="badges">
+      <span class="badge owner">归属：SETTINGS</span>
+      <span class="badge status" data-status="keep">保留</span>
+    </div>
+  </header>
+  <p class="finding">手机设置：手机/配对/通知落点/通知通道/外观；桌面是同一页的宽版，带通用/Agents/Providers/路由/远程/通知/高级。</p>
+  <div class="shots">
+    <figure class="shot shot-phone">
+      <img loading="lazy" src="../../.playwright-mcp/r0/settings-390.png" alt="设置 390 宽现状截图" onerror="this.closest('figure').classList.add('missing')">
+      <figcaption>390 · 手机</figcaption>
+    </figure>
+    <figure class="shot shot-wide">
+      <div class="scroll"><img loading="lazy" src="../../.playwright-mcp/r0/settings-1100.png" alt="设置 1100 宽现状截图" onerror="this.closest('figure').classList.add('missing')"></div>
+      <figcaption>1100 · Mac（宽图在卡片内横向滚动）</figcaption>
+    </figure>
+  </div>
+  <dl class="evidence">
+    <div><dt>入口</dt><dd>PLACES <code>settings</code> · 手机会话列表头部 · AppShell</dd></div>
+    <div><dt>测试</dt><dd>2 个文件</dd></div>
+    <div><dt>主要 API</dt><dd>settings · relay/pairing · devices · push/devices · cloudflare/*</dd></div>
+    <div><dt>i18n</dt><dd>102 个键</dd></div>
+  </dl>
+  <p class="impact"><strong>删掉会怎样：</strong>没有地方配对、改通知、改默认值。</p>
+  <fieldset class="decision">
+    <legend>决定</legend>
+    <label><input type="radio" name="d-settings" value="keep" checked> 保留</label><label><input type="radio" name="d-settings" value="merge"> 合并</label><label><input type="radio" name="d-settings" value="delete"> 删除</label><label><input type="radio" name="d-settings" value="story"> 补故事</label><label><input type="radio" name="d-settings" value="pending"> 待定</label>
+    <input class="note" type="text" placeholder="合并到 / 理由（可选）" aria-label="设置 的合并目标或理由">
+  </fieldset>
+  <details>
+    <summary>证据与判断</summary>
+    <p>SettingsPage 1,596 行；SETTINGS 故事的主面。R0 保留。</p>
+  </details>
+</article>
+
+<article class="card" id="surface-agent-session-detail" data-id="agent-session-detail" data-route="/agent-sessions/:id" data-title="导入会话详情">
+  <header class="card-head">
+    <div>
+      <p class="route">/agent-sessions/:id</p>
+      <h2>导入会话详情</h2>
+    </div>
+    <div class="badges">
+      <span class="badge owner">归属：CONTINUE（导入会话）</span>
+      <span class="badge status" data-status="keep">保留</span>
+    </div>
+  </header>
+  <p class="finding">导入的外部 agent 会话详情：来源、首次/更新时间、历史从 Agent 本地记录读取；消息流和 composer。</p>
+  <div class="shots">
+    <figure class="shot shot-phone">
+      <img loading="lazy" src="../../.playwright-mcp/r0/agent-session-detail-390.png" alt="导入会话详情 390 宽现状截图" onerror="this.closest('figure').classList.add('missing')">
+      <figcaption>390 · 手机</figcaption>
+    </figure>
+    <figure class="shot shot-wide">
+      <div class="scroll"><img loading="lazy" src="../../.playwright-mcp/r0/agent-session-detail-1100.png" alt="导入会话详情 1100 宽现状截图" onerror="this.closest('figure').classList.add('missing')"></div>
+      <figcaption>1100 · Mac（宽图在卡片内横向滚动）</figcaption>
+    </figure>
+  </div>
+  <dl class="evidence">
+    <div><dt>入口</dt><dd>对话列表里的导入会话</dd></div>
+    <div><dt>测试</dt><dd>2 个文件</dd></div>
+    <div><dt>主要 API</dt><dd>agent-sessions/{id} · history · attach</dd></div>
+    <div><dt>i18n</dt><dd>22 个键</dd></div>
+  </dl>
+  <p class="impact"><strong>删掉会怎样：</strong>导入的会话只能看列表，不能继续。</p>
+  <fieldset class="decision">
+    <legend>决定</legend>
+    <label><input type="radio" name="d-agent-session-detail" value="keep" checked> 保留</label><label><input type="radio" name="d-agent-session-detail" value="merge"> 合并</label><label><input type="radio" name="d-agent-session-detail" value="delete"> 删除</label><label><input type="radio" name="d-agent-session-detail" value="story"> 补故事</label><label><input type="radio" name="d-agent-session-detail" value="pending"> 待定</label>
+    <input class="note" type="text" placeholder="合并到 / 理由（可选）" aria-label="导入会话详情 的合并目标或理由">
+  </fieldset>
+  <details>
+    <summary>证据与判断</summary>
+    <p>AgentSessionDetailPage 451 行。它和 TaskDetailPage 是两套对话详情壳；R0 保留，后续在 CONTINUE 故事里评估合并。</p>
+  </details>
+</article>
+
+<article class="card" id="surface-design" data-id="design" data-route="/design" data-title="设计 token 画廊">
+  <header class="card-head">
+    <div>
+      <p class="route">/design</p>
+      <h2>设计 token 画廊</h2>
+    </div>
+    <div class="badges">
+      <span class="badge owner">归属：无（开发工具）</span>
+      <span class="badge status" data-status="delete">删除</span>
+    </div>
+  </header>
+  <p class="finding">设计 token 画廊：表面阶梯、墨色阶梯、字体等；不在 PLACES，不在侧栏，也没有入口。</p>
+  <div class="shots">
+    <figure class="shot shot-phone">
+      <img loading="lazy" src="../../.playwright-mcp/r0/design-390.png" alt="设计 token 画廊 390 宽现状截图" onerror="this.closest('figure').classList.add('missing')">
+      <figcaption>390 · 手机</figcaption>
+    </figure>
+    <figure class="shot shot-wide">
+      <div class="scroll"><img loading="lazy" src="../../.playwright-mcp/r0/design-1100.png" alt="设计 token 画廊 1100 宽现状截图" onerror="this.closest('figure').classList.add('missing')"></div>
+      <figcaption>1100 · Mac（宽图在卡片内横向滚动）</figcaption>
+    </figure>
+  </div>
+  <dl class="evidence">
+    <div><dt>入口</dt><dd>无导航入口；只有直接访问 <code>/design</code></dd></div>
+    <div><dt>测试</dt><dd>1 个文件</dd></div>
+    <div><dt>主要 API</dt><dd>无</dd></div>
+    <div><dt>i18n</dt><dd>7 个键</dd></div>
+  </dl>
+  <p class="impact"><strong>删掉会怎样：</strong>生产用户不会注意到；开发时仍可在 dev 构建保留。</p>
+  <fieldset class="decision">
+    <legend>决定</legend>
+    <label><input type="radio" name="d-design" value="keep"> 保留</label><label><input type="radio" name="d-design" value="merge"> 合并</label><label><input type="radio" name="d-design" value="delete" checked> 删除</label><label><input type="radio" name="d-design" value="story"> 补故事</label><label><input type="radio" name="d-design" value="pending"> 待定</label>
+    <input class="note" type="text" placeholder="合并到 / 理由（可选）" aria-label="设计 token 画廊 的合并目标或理由">
+  </fieldset>
+  <details>
+    <summary>证据与判断</summary>
+    <p>DesignSystemPage 288 行。建议路由加 <code>import.meta.env.DEV</code> 守卫或从生产构建移除；它继续作为 token 合同页。</p>
+  </details>
+</article>
+
+  </section>
+
+  <section id="target">
+    <div class="section-head">
+      <h2>目标地图</h2>
+      <p>只画结构，不定视觉。虚线框是待定或建议合并的面。</p>
+    </div>
+    <div class="map">
+      <div>
+        <h3>Mac</h3>
+        <div class="wire">
+          <div class="row">
+            <div class="stack">
+              <div class="box"><strong>左栏 · 唯一的对话列表</strong>设备 → 项目 → 对话</div>
+              <div class="box">底部图标：导入 · 已归档 · 设置</div>
+              <div class="box dashed"><strong>/projects 列表</strong>建议合并进左栏项目分组</div>
+            </div>
+            <div class="stack">
+              <div class="box"><strong>主区</strong>新建 / 草稿</div>
+              <div class="box">对话 <code>/tasks/:id</code></div>
+              <div class="box">收件箱 <code>/inbox</code></div>
+              <div class="box">产物库 <code>/artifacts</code></div>
+              <div class="box">例行任务 <code>/routines</code></div>
+              <div class="box dashed">Agent 运维 <code>/agents</code>（补故事）</div>
+              <div class="box">设置 <code>/settings</code></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <h3>手机</h3>
+        <div class="wire">
+          <div class="stack">
+            <div class="box"><strong>一页对话列表</strong>设备 → 项目 → 对话</div>
+            <div class="box">对话 <code>/tasks/:id</code> · 导入会话 <code>/agent-sessions/:id</code></div>
+            <div class="box">收件箱 / 设置：列表头部</div>
+            <div class="box dashed">项目 <code>/projects</code>（建议合并后保留项目详情）</div>
+            <div class="dock">
+              <div class="box">对话</div>
+              <div class="box">例行任务</div>
+              <div class="box">项目</div>
+            </div>
+            <div class="box k"><strong>K 面板</strong>导入 · 产物库 · Agent 运维 · 设置</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="map-note">
+      <p><strong>已建议合并：</strong><code>/projects</code> 列表 → 左栏项目分组；<code>/projects/:id</code> 保留为项目详情。</p>
+      <p><strong>开发面：</strong><code>/design</code> 只在 dev 构建存在，不进入产品地图。</p>
+      <p><strong>待补故事：</strong><code>/agents</code>、<code>/routines</code>、<code>/projects/:id</code>。补故事之前不重做视觉。</p>
+    </div>
+  </section>
+
+  <section id="extras">
+    <div class="section-head">
+      <h2>代码清理（R0b 固定动作）</h2>
+      <p>这些不是产品面，但和 R0 一起做成本最低；先签面表，再清代码。</p>
+    </div>
+    <div class="extras">
+      <div class="extra">
+        <h3>Ionic 清尾</h3>
+        <p>只剩 4 个文件、3 个 <code>IonActionSheet</code>：</p>
+        <ul>
+          <li><code>main.tsx</code>：setup + core.css</li>
+          <li><code>SheetSelect.tsx</code>：1 个 ActionSheet</li>
+          <li><code>Sidebar.tsx</code>：1 个 ActionSheet</li>
+          <li><code>TaskDetailPage.tsx</code>：1 个 ActionSheet</li>
+        </ul>
+        <p>用现有 <code>Sheet</code> / <code>Menu</code> 替掉；删 <code>@ionic/core</code> / <code>@ionic/react</code>。之后 React 19 和 Astryx 才不会被 Ionic 的 peer 约束拖住。</p>
+      </div>
+      <div class="extra">
+        <h3>死代码候选</h3>
+        <p><code>ui/src/components/chat/AgentModelPicker.tsx</code>（151 行）在非测试源码里没有任何引用。R0b 再确认一次，然后删除。</p>
+        <p>Redirects：<code>/approvals</code> → <code>/inbox</code>，<code>/usage</code> → <code>/agents</code>，<code>*</code> → <code>/new</code>。它们不是产品面。</p>
+      </div>
+      <div class="extra">
+        <h3>测试缺口</h3>
+        <p><code>ArtifactsPage</code>、<code>ArtifactDetailPage</code>、<code>ProjectsPage</code>、<code>AgentsPage</code> 目前没有直接页面测试。不是 R0 的删除理由，但要在各自故事里补。</p>
+      </div>
+      <div class="extra">
+        <h3>Routines 的默认机器</h3>
+        <p>截图时默认落在离线的 <code><device-id></code>，桌面报 <code>node is not connected</code>，手机显示 <code>Still connecting</code>。保留面，但这条故事要先把默认机器选择和离线提示修好。</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="reply">
+    <div class="section-head">
+      <h2>回复模板</h2>
+      <p>勾完以后点「复制我的选择」，把这段贴回来即可；也可以直接改文字。</p>
+    </div>
+    <pre class="reply" id="replyText">R0 面审计回复（2026-11-10）
+- /new 新建对话：保留（保留。）
+- /sessions 对话列表：保留（保留。）
+- /tasks/:id 对话详情：保留（保留；后续在 RESULT 故事里拆。）
+- /inbox 收件箱：保留（保留。）
+- /artifacts 产物库：保留（保留；补测试。）
+- /artifacts/:id 产物详情：保留（保留；补测试。）
+- /projects 项目列表：合并（建议合并到左栏项目分组；保留 /projects/:id。）
+- /projects/:id 项目详情：补故事（保留；补一条项目/MANAGE 故事。）
+- /agents Agent 运维：补故事（保留；补一条运维故事。）
+- /routines 例行任务：补故事（保留；补故事，先修默认机器选择。）
+- /settings 设置：保留（保留。）
+- /agent-sessions/:id 导入会话详情：保留（保留；后续评估与 /tasks/:id 合并。）
+- /design 设计 token 画廊：删除（从生产移除；dev 保留。）
+
+其他备注：</pre>
+  </section>
+
+  <p class="foot">R0 · 2026-11-10 · 截图在 <code>.playwright-mcp/r0/</code>（gitignored，含本机真实数据，请勿外发）。如果截图显示缺失，打开同目录的 <code>2026-11-10-ui-surface-audit.review.local.html</code>（截图已内嵌，gitignored）。决策记录在 <code>docs/plans/2026-11-10-ui-surface-audit.md</code>。</p>
+</div>
+<script>
+const LABELS = {keep:"保留", merge:"合并", delete:"删除", story:"补故事", pending:"待定"};
+const KEY = "kin-r0-choices";
+const cards = [...document.querySelectorAll(".card")];
+
+function cardState(card) {
+  const checked = card.querySelector('input[type="radio"]:checked');
+  return checked ? checked.value : "pending";
+}
+
+function update() {
+  const counts = {keep:0, merge:0, delete:0, story:0, pending:0};
+  for (const card of cards) {
+    const value = cardState(card);
+    counts[value] += 1;
+    const badge = card.querySelector(".badge.status");
+    badge.dataset.status = value;
+    badge.textContent = LABELS[value];
+  }
+  for (const [key, value] of Object.entries(counts)) {
+    const el = document.querySelector(`#count-${key}`);
+    if (el) el.textContent = value;
+  }
+  const lines = cards.map((card) => {
+    const note = card.querySelector(".note")?.value.trim();
+    return `- ${card.dataset.route} ${card.dataset.title}：${LABELS[cardState(card)]}${note ? `（${note}）` : ""}`;
+  });
+  const reply = document.querySelector("#replyText");
+  if (reply) {
+    reply.textContent = `R0 面审计回复（2026-11-10）\n${lines.join("\n")}\n\n其他备注：`;
+  }
+  const saved = {};
+  for (const card of cards) {
+    saved[card.dataset.id] = {
+      value: cardState(card),
+      note: card.querySelector(".note")?.value ?? "",
+    };
+  }
+  try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch {}
+}
+
+function restore() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(KEY) || "null"); } catch {}
+  if (!saved) return;
+  for (const card of cards) {
+    const state = saved[card.dataset.id];
+    if (!state) continue;
+    const radio = card.querySelector(`input[type="radio"][value="${state.value}"]`);
+    if (radio) radio.checked = true;
+    const note = card.querySelector(".note");
+    if (note && typeof state.note === "string") note.value = state.note;
+  }
+}
+
+document.addEventListener("input", update);
+document.addEventListener("change", update);
+
+document.querySelector("#reset")?.addEventListener("click", () => {
+  try { localStorage.removeItem(KEY); } catch {}
+  for (const card of cards) {
+    const radio = card.querySelector('input[type="radio"][value="pending"]');
+    if (radio) radio.checked = true;
+    const note = card.querySelector(".note");
+    if (note) note.value = "";
+  }
+  update();
+});
+
+document.querySelector("#copy")?.addEventListener("click", async () => {
+  const text = document.querySelector("#replyText")?.textContent || "";
+  const button = document.querySelector("#copy");
+  try {
+    await navigator.clipboard.writeText(text);
+    button.textContent = "已复制";
+  } catch {
+    const area = document.createElement("textarea");
+    area.value = text;
+    document.body.appendChild(area);
+    area.select();
+    try { document.execCommand("copy"); button.textContent = "已复制"; }
+    catch { button.textContent = "复制失败，请手动选择"; }
+    area.remove();
+  }
+  setTimeout(() => { button.textContent = "复制我的选择"; }, 1800);
+});
+
+document.querySelector("#theme")?.addEventListener("click", () => {
+  const root = document.documentElement;
+  const next = root.dataset.theme === "light" ? "dark" : "light";
+  root.dataset.theme = next;
+  document.querySelector("#theme").textContent = next === "light" ? "切到暗色" : "切到亮色";
+});
+
+restore();
+update();
+</script>
+</body>
+</html>
