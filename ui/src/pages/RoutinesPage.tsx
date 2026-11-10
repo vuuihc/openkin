@@ -376,10 +376,7 @@ export default function RoutinesPage() {
     [runs],
   );
 
-  const availableAgents = useMemo(
-    () => machineAgents.filter((a) => a.available),
-    [machineAgents],
-  );
+  const availableAgents = useMemo(() => machineAgents.filter((a) => a.available), [machineAgents]);
   // A new routine starts on the agent this machine would use. The choice is
   // only filled in when there is none: an edit's agent — which may be offline
   // but is still the agent that routine runs with — must not be displaced by a
@@ -774,20 +771,23 @@ export default function RoutinesPage() {
       // a value the scheduler would ignore is a value that can drift out of
       // step with what the form shows.
       const recurrence = serializeRoutineRule(routineRule, nextMs);
-      const r = await createRoutine({
-        title: resolvedTitle,
-        cwd: cwd.trim(),
-        prompt: p,
-        ...(recurrence
-          ? { recurrence }
-          : {
-              interval_secs: intervalSecs,
-              ...(nextMs != null ? { next_due_at: nextMs } : {}),
-            }),
-        agent: agentId || undefined,
-        ...(model.trim() ? { model: model.trim() } : {}),
-        permission_mode: permissionMode,
-      }, deviceId);
+      const r = await createRoutine(
+        {
+          title: resolvedTitle,
+          cwd: cwd.trim(),
+          prompt: p,
+          ...(recurrence
+            ? { recurrence }
+            : {
+                interval_secs: intervalSecs,
+                ...(nextMs != null ? { next_due_at: nextMs } : {}),
+              }),
+          agent: agentId || undefined,
+          ...(model.trim() ? { model: model.trim() } : {}),
+          permission_mode: permissionMode,
+        },
+        deviceId,
+      );
       setRoutines((list) => [r, ...list]);
       closeForm();
       resetForm();
@@ -829,6 +829,9 @@ export default function RoutinesPage() {
     setCwd("");
     setAgentId("");
     writeRoutineDevice(id);
+    // The sidebar badge counts the machine this page shows; a switch that did
+    // not tell it would leave the old machine's number there.
+    window.dispatchEvent(new Event("kin:routine-unread-changed"));
     setDeviceId(id);
   };
 

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Machine } from "./devices";
-import { machineForRoutineDevice, resolveRoutineDevice, THIS_MACHINE } from "./routineDevice";
+import {
+  machineForRoutineDevice,
+  resolveRoutineDevice,
+  routineDeviceForBadge,
+  THIS_MACHINE,
+} from "./routineDevice";
 
 function machine(id: string, over: Partial<Machine> = {}): Machine {
   return {
@@ -47,6 +52,32 @@ describe("resolveRoutineDevice", () => {
 
   it("opens on this machine when it is the only one", () => {
     expect(resolveRoutineDevice([SELF], "")).toBe(THIS_MACHINE);
+  });
+});
+
+describe("routineDeviceForBadge", () => {
+  it("waits for a list that has not arrived", () => {
+    // Counting this machine first and the chosen one a moment later would make
+    // the badge flicker through a number that belongs to no machine the reader
+    // is looking at.
+    expect(routineDeviceForBadge([SELF, LAPTOP], "", true, false)).toBeNull();
+  });
+
+  it("counts the machine the page would open on", () => {
+    expect(routineDeviceForBadge([SELF, LAPTOP], "", false, false)).toBe(LAPTOP.id);
+    // A remembered machine that was revoked is not a choice, exactly as on the
+    // page.
+    expect(routineDeviceForBadge([SELF, LAPTOP], STUDIO.id, false, false)).toBe(LAPTOP.id);
+  });
+
+  it("keeps a remembered machine when the list cannot be read", () => {
+    // The page keeps the saved choice on a failed read; a badge that fell back
+    // to this machine would report a confident zero from the Hub's empty store.
+    expect(routineDeviceForBadge([], LAPTOP.id, false, true)).toBe(LAPTOP.id);
+  });
+
+  it("counts this machine when it is the only one", () => {
+    expect(routineDeviceForBadge([SELF], "", false, false)).toBe(THIS_MACHINE);
   });
 });
 

@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 const PAGE = readFileSync(join(UI, "src/pages/RoutinesPage.tsx"), "utf8");
+const APP = readFileSync(join(UI, "src/App.tsx"), "utf8");
 
 describe("the routines page and its machine", () => {
   it("does not resolve a machine from a list that failed to load", () => {
@@ -57,16 +58,37 @@ describe("the routines page and its machine", () => {
   it("widens the retry instead of polling a sleeping machine forever", () => {
     // A page left open on an offline machine must keep trying, but the wait
     // grows to a ceiling and snaps back after a good load.
-    expect(PAGE).toContain(
-      "retryDelay.current = Math.min(retryDelay.current * 2, 120_000);",
-    );
+    expect(PAGE).toContain("retryDelay.current = Math.min(retryDelay.current * 2, 120_000);");
     expect(PAGE).toContain("retryDelay.current = 15_000;");
   });
 
   it("closes the form when the page changes machine", () => {
     // The form's cwd, agent, and model belong to the machine it was opened on.
     expect(PAGE).toContain("setShowCreate(false);");
-    expect(PAGE).toContain("setCwd(\"\");");
-    expect(PAGE).toContain("setAgentId(\"\");");
+    expect(PAGE).toContain('setCwd("");');
+    expect(PAGE).toContain('setAgentId("");');
+  });
+
+  it("re-asks the badge when the page changes machine", () => {
+    // The sidebar badge counts the machine this page shows; a switch that did
+    // not tell it would leave the old machine's number there.
+    expect(PAGE).toMatch(
+      /writeRoutineDevice\(id\);\s*(?:\/\/[^\n]*\n\s*)*window\.dispatchEvent\(new Event\("kin:routine-unread-changed"\)\);/,
+    );
+  });
+});
+
+describe("the sidebar badge and its machine", () => {
+  it("counts the machine the routines page would open on", () => {
+    // `routineDeviceForBadge` holds the rule; this pin proves the badge uses
+    // it instead of asking the daemon's own store.
+    expect(APP).toContain("routineDeviceForBadge(machines, readRoutineDevice(), loading, failed)");
+    expect(APP).toContain("getRoutineUnreadCount(");
+  });
+
+  it("does not read the machine list before the gate is open", () => {
+    // An anonymous machine-list read is a 401 loop; the shell mounts the same
+    // hook once the console is through.
+    expect(APP).toContain('enabled: auth.status === "ok"');
   });
 });
