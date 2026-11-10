@@ -237,6 +237,13 @@ func queryTimeout(method string) time.Duration {
 	switch method {
 	case worker.QueryRepoPrepare:
 		return 5 * time.Minute
+	case worker.QueryTaskDetail, worker.QueryTaskEvents:
+		// A task read is one store query over loopback HTTP: the run's row, or
+		// one page of its transcript. It is not an agent run and not a catalog
+		// walk, so the routine budget is the close one — comfortably above a
+		// local round trip, and short enough that a machine which stopped
+		// answering does not hold the console that opened the run.
+		return 30 * time.Second
 	case worker.QueryRoutines:
 		// A relayed routine request runs through the machine's own console
 		// handler over loopback HTTP, so the wait is one local round trip plus

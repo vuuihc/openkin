@@ -195,6 +195,26 @@ const QueryAgentHistory = "agent.history"
 // boundary, the same way it does for every other question in this table.
 const QueryRoutines = "routines.call"
 
+// QueryTaskDetail asks a machine for one of its own tasks.
+//
+// A routine runs on the machine that owns it, so the run it leaves behind is a
+// task in that machine's store. The Routines page is served by relaying that
+// machine's console, which means the runs it lists are rows this Hub's task
+// table has never seen: GET /api/tasks/{id} here reads a different database and
+// answers "not found" for an id that is plainly on screen. The detail behind
+// such a row has to be read where the run lives.
+//
+// It is one task, by id, and the answer is the machine's own console answer
+// unchanged — the same contract QueryRoutines keeps.
+const QueryTaskDetail = "task.detail"
+
+// QueryTaskEvents asks a machine for the transcript of one of its own tasks.
+//
+// The transcript belongs to the same machine and the same row as the detail.
+// SinceSeq makes the second and later reads incremental, so a console watching
+// a run in flight asks for what changed instead of the whole transcript again.
+const QueryTaskEvents = "task.events"
+
 // MaxRoutineBody bounds one relayed routine request body. It is deliberately
 // below MaxQueryParams because the body travels base64-encoded inside the
 // params envelope; a prompt larger than this is refused by the machine rather
@@ -210,6 +230,13 @@ const MaxRoutineBody = 128 << 10
 // leaving the Hub to report a timeout. 640 KiB encodes to 873,813 bytes, which
 // leaves about 170 KiB for the envelope and the rest of the answer.
 const MaxRoutineResponse = 640 << 10
+
+// MaxTaskResponse bounds one relayed task answer, on the same frame reasoning
+// as MaxRoutineResponse: 640 KiB of body encodes to 873,813 bytes and leaves
+// room for the envelope inside MaxFrameBytes. A transcript page over the bound
+// is refused by the machine with a sentence that names it, rather than becoming
+// a frame NewFrame would reject after the fact.
+const MaxTaskResponse = 640 << 10
 
 // MaxRoutinePath bounds one relayed console route — the path before its query
 // string. Every route this table answers is a fixed segment plus an id, so a
@@ -228,11 +255,61 @@ type RoutinesParams struct {
 	Body []byte `json:"body,omitempty"`
 }
 
-// RoutinesResult is the machine's own console answer, relayed unchanged.
-type RoutinesResult struct {
+// ConsoleResult is one machine's own console answer, relayed unchanged.
+//
+// It is the answer shape of every console relay — a routine request, a task
+// detail read, a transcript page — because the point of each is the same: the
+// machine ran the question through the handler its local console uses, and this
+// Hub has no business rewording the result.
+type ConsoleResult struct {
 	Status      int    `json:"status"`
 	ContentType string `json:"content_type,omitempty"`
 	Body        []byte `json:"body,omitempty"`
+}
+
+// TaskDetailParams names one task on the machine that owns it.
+type TaskDetailParams struct {
+	ID string `json:"id"`
+}
+
+// Validate refuses an id that is not one console path segment.
+func (p TaskDetailParams) Validate() error {
+	return validateTaskID(p.ID)
+}
+
+// TaskEventsParams names one task and the point in its transcript to continue
+// from. SinceSeq zero asks for the whole transcript.
+type TaskEventsParams struct {
+	ID       string `json:"id"`
+	SinceSeq int    `json:"since_seq,omitempty"`
+}
+
+// Validate refuses an id that is not one console path segment, and a negative
+// point in the transcript.
+func (p TaskEventsParams) Validate() error {
+	if err := validateTaskID(p.ID); err != nil {
+		return err
+	}
+	if p.SinceSeq < 0 {
+		return fmt.Errorf("task transcript since_seq %d is negative", p.SinceSeq)
+	}
+	return nil
+}
+
+// validateTaskID holds a task id to the shape a console route uses: one path
+// segment, non-empty, bounded, and carrying nothing that could become another
+// route or another path component when it is put in a URL.
+func validateTaskID(id string) error {
+	if id == "" {
+		return errors.New("a task question needs an id")
+	}
+	if len(id) > MaxQueryID {
+		return fmt.Errorf("task id exceeds %d bytes", MaxQueryID)
+	}
+	if strings.ContainsAny(id, "/\\?#%\r\n\t ") || id == "." || id == ".." {
+		return errors.New("task id is not a plain console path segment")
+	}
+	return nil
 }
 
 // Validate refuses a relayed request outside the routine subtree, with a method

@@ -405,6 +405,12 @@ func (s *Server) Handler() http.Handler {
 		// refused rather than replaced.
 		r.With(holderOnly).Get("/api/machines/{device}/repo/branches", s.handleMachineRepoBranches)
 		r.With(holderOnly).Post("/api/machines/{device}/repo/prepare", s.handleMachineRepoPrepare)
+		// One task that lives on one machine. A routine run is a task in the
+		// store that ran it, not in this Hub's, so the row a console opens from
+		// the relayed runs feed is read where it was written. Holder-only, like
+		// every other question asked of a machine.
+		r.With(holderOnly).Get("/api/machines/{device}/tasks/{id}", s.handleMachineTask)
+		r.With(holderOnly).Get("/api/machines/{device}/tasks/{id}/events", s.handleMachineTaskEvents)
 		r.With(operatorOnly).Post("/api/workers/{id}/revoke", s.handleRevokeWorker)
 		r.Post("/api/workers/register", s.handleRegisterWorker)
 		r.Post("/api/workers/heartbeat", s.handleHeartbeatWorker)

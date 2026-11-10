@@ -1812,6 +1812,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/machines/{device}/tasks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description One task that lives on one machine. A routine belongs to the machine
+         *     that schedules it, so the run it leaves behind is a row in that
+         *     machine's store and this Hub's `GET /api/tasks/{id}` cannot answer for
+         *     it. The answer is that machine's own console answer, passed back as it
+         *     stands. Holder only.
+         *
+         *     A machine whose build predates this question answers `501`; the id is
+         *     refused as `400` before any machine is asked when it is not one path
+         *     segment.
+         *      */
+        get: operations["getMachineTask"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/machines/{device}/tasks/{id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The transcript of one task that lives on one machine, oldest first.
+         *     `since_seq` is exclusive, with the same meaning it has on
+         *     `GET /api/tasks/{taskId}/events`, so a console watching a run in flight
+         *     reads what changed rather than the whole transcript again. Holder only.
+         *      */
+        get: operations["listMachineTaskEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects": {
         parameters: {
             query?: never;
@@ -8488,6 +8535,155 @@ export interface operations {
             };
             /** @description Invalid repository, or the machine refused the question */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine is offline */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine answered in a shape this Hub could not read */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine's build does not understand this question */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This Hub cannot ask machines questions */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine did not answer in time */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getMachineTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A machine id, the literal `self`, or a paired device id. */
+                device: components["parameters"]["DeviceRef"];
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The machine's own task row */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Task"];
+                };
+            };
+            /** @description Invalid task id, or the machine refused the question */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine has no such task */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine is offline */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine answered in a shape this Hub could not read */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine's build does not understand this question */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This Hub cannot ask machines questions */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine did not answer in time */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listMachineTaskEvents: {
+        parameters: {
+            query?: {
+                /** @description Return events with a greater seq. Zero or absent reads from the start. */
+                since_seq?: number;
+            };
+            header?: never;
+            path: {
+                /** @description A machine id, the literal `self`, or a paired device id. */
+                device: components["parameters"]["DeviceRef"];
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ordered durable task events after the cursor */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskEvent"][];
+                };
+            };
+            /** @description Invalid task id or since_seq, or the machine refused the question */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine has no such task */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -81,6 +82,81 @@ func (s *Server) handleMachineRepoBranches(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	s.askMachineInto(w, r, worker.QueryRepoBranches, params, &worker.RepoBranchesResult{})
+}
+
+// handleMachineTask answers one task that lives on one machine.
+//
+// A routine runs where it is scheduled, so the run behind a row in the relayed
+// runs feed is a task in that machine's store. This Hub's /api/tasks/{id} reads
+// its own database and has never seen that id; the row can only be opened where
+// it was written. The answer is the machine's own console answer, passed back as
+// it stands, for the same reason the routine relay passes its answer back: one
+// shape means a console cannot tell which side of the wire produced it.
+func (s *Server) handleMachineTask(w http.ResponseWriter, r *http.Request) {
+	params := worker.TaskDetailParams{ID: chi.URLParam(r, "id")}
+	if err := params.Validate(); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	var answer worker.ConsoleResult
+	if err := s.askDeviceQuietly(r.Context(), chi.URLParam(r, "device"), worker.QueryTaskDetail, params, &answer); err != nil {
+		writeMachineQueryError(w, err)
+		return
+	}
+	writeConsoleAnswer(w, answer)
+}
+
+// handleMachineTaskEvents answers one machine's transcript for one of its tasks.
+//
+// since_seq is the console's own parameter, carried to the machine unchanged:
+// a second read asks for what changed, and the machine's answer is the same
+// event page its local console would have received.
+func (s *Server) handleMachineTaskEvents(w http.ResponseWriter, r *http.Request) {
+	params := worker.TaskEventsParams{ID: chi.URLParam(r, "id")}
+	if raw := r.URL.Query().Get("since_seq"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid since_seq"})
+			return
+		}
+		params.SinceSeq = n
+	}
+	if err := params.Validate(); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	var answer worker.ConsoleResult
+	if err := s.askDeviceQuietly(r.Context(), chi.URLParam(r, "device"), worker.QueryTaskEvents, params, &answer); err != nil {
+		writeMachineQueryError(w, err)
+		return
+	}
+	writeConsoleAnswer(w, answer)
+}
+
+// writeConsoleAnswer passes one machine's console answer back unchanged.
+//
+// The machine's status is part of its answer: a task that is gone is a 404
+// because the machine said so, not because this Hub decided what its words
+// meant. Two statuses are translated rather than passed through, because on
+// this path they are not about the caller: a 401 is the machine's own loopback
+// auth failing (a rotated or unreadable token), and a 429 is its rate limit on
+// this Hub's traffic. Forwarding either would sign the person out of the Hub, or
+// blame them for a limit they never hit.
+func writeConsoleAnswer(w http.ResponseWriter, answer worker.ConsoleResult) {
+	if answer.ContentType != "" {
+		w.Header().Set("Content-Type", answer.ContentType)
+	}
+	status := answer.Status
+	switch {
+	case status == http.StatusUnauthorized, status == http.StatusTooManyRequests:
+		status = http.StatusBadGateway
+	case status < 100 || status > 599:
+		status = http.StatusBadGateway
+	}
+	w.WriteHeader(status)
+	if len(answer.Body) > 0 {
+		_, _ = w.Write(answer.Body)
+	}
 }
 
 // handleMachineRepoPrepare asks one machine to make a repository available on

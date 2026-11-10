@@ -60,6 +60,7 @@ import {
 } from "../lib/permissionMode";
 import { modelsForAgent } from "../lib/agentModels";
 import { routineForm, routinePatch, routineTitle } from "../lib/routineEdit";
+import { routineStatusLabel } from "../lib/routineStatus";
 import { subscribeWS, useAppStore } from "../store/appStore";
 
 function formatWhen(ms?: number | null): string {
@@ -76,29 +77,6 @@ function formatInterval(secs: number): string {
   if (secs < 3600) return `${Math.round(secs / 60)}m`;
   if (secs < 86400) return `${Math.round(secs / 3600)}h`;
   return `${Math.round(secs / 86400)}d`;
-}
-
-function statusLabel(
-  status: string,
-  tr: (key: string, vars?: Record<string, string | number>) => string,
-): string {
-  switch (status) {
-    case "queued":
-      return tr("routines.statusQueued");
-    case "running":
-      return tr("routines.statusRunning");
-    case "succeeded":
-      return tr("routines.statusSucceeded");
-    case "failed":
-      return tr("routines.statusFailed");
-    case "canceled":
-      return tr("routines.statusCanceled");
-    case "waiting_approval":
-    case "waiting_input":
-      return tr("routines.statusWaiting");
-    default:
-      return status;
-  }
 }
 
 /**
@@ -366,6 +344,18 @@ export default function RoutinesPage() {
       });
     });
   }, []);
+
+  // Another machine's run updates do not arrive on this Hub's WebSocket: the
+  // stream carries the tasks this daemon owns, and the run is a row in the
+  // machine's store. So while something in the relayed feed is still running,
+  // re-read the feed on a slow beat — the same "HTTP is the truth" rule the
+  // session feed follows, and it stops as soon as nothing is live.
+  const liveRun = useMemo(() => runs.some((r) => !isTerminal(r.status)), [runs]);
+  useEffect(() => {
+    if (!remote || !liveRun) return;
+    const timer = window.setInterval(() => void load(), 5_000);
+    return () => window.clearInterval(timer);
+  }, [remote, liveRun, load]);
 
   const noteworthy = useMemo(
     () => runs.filter((r) => r.routine_noteworthy || !isTerminal(r.status)),
@@ -1066,7 +1056,7 @@ export default function RoutinesPage() {
                         tr={tr}
                         quiet
                         ownRoutine
-                        linkable={!remote}
+                        device={remote ? deviceId : undefined}
                       />
                     ))}
                     {/* Inside the scroll box: the click happens at the bottom,
@@ -1142,7 +1132,7 @@ export default function RoutinesPage() {
                           run={run}
                           onMarkRead={onMarkRead}
                           tr={tr}
-                          linkable={!remote}
+                          device={remote ? deviceId : undefined}
                         />
                       ))}
                     </ul>
@@ -1167,7 +1157,7 @@ export default function RoutinesPage() {
                               onMarkRead={onMarkRead}
                               tr={tr}
                               quiet
-                              linkable={!remote}
+                              device={remote ? deviceId : undefined}
                             />
                           ))}
                         </ul>
@@ -1294,7 +1284,7 @@ function RunCard({
   tr,
   quiet,
   ownRoutine,
-  linkable = true,
+  device,
 }: {
   run: Task;
   onMarkRead: (id: string) => void;
@@ -1303,13 +1293,17 @@ function RunCard({
   /** The card already sits under its own routine; the id prefix is noise. */
   ownRoutine?: boolean;
   /**
-   * Whether this console can open the run. It can for this machine's tasks; a
-   * run on another machine lives in that machine's store, which the Hub cannot
-   * read, so a link here would lead to a task page that does not exist.
+   * The machine the run lives on, when that is not this console's own daemon.
+   * A remote run is a task in that machine's store, so its link names the
+   * machine: the ordinary /tasks/:id page would ask this Hub for a row only the
+   * machine has, and show "not found" for a run the reader just tapped.
    */
-  linkable?: boolean;
+  device?: string;
 }) {
   const title = run.title || run.id.slice(0, 8);
+  const href = device
+    ? `/machines/${encodeURIComponent(device)}/tasks/${encodeURIComponent(run.id)}`
+    : `/tasks/${encodeURIComponent(run.id)}`;
   return (
     <li
       className={[
@@ -1323,25 +1317,23 @@ function RunCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            {linkable ? (
-              <Link
-                to={`/tasks/${run.id}`}
-                className="truncate text-strong font-medium text-kin-text hover:underline"
-                onClick={() => {
-                  if (run.routine_unread) onMarkRead(run.id);
-                }}
-              >
-                {title}
-              </Link>
-            ) : (
-              <span className="truncate text-strong font-medium text-kin-text">{title}</span>
-            )}
+            <Link
+              to={href}
+              className="truncate text-strong font-medium text-kin-text hover:underline"
+              onClick={() => {
+                if (run.routine_unread) onMarkRead(run.id);
+              }}
+            >
+              {title}
+            </Link>
             {run.routine_noteworthy && (
               <span className="rounded-full bg-kin-orange/15 px-2 py-0.5 text-caption font-medium text-kin-orange-ink">
                 {tr("routines.noteworthy")}
               </span>
             )}
-            <span className="text-caption text-kin-muted">{statusLabel(run.status, tr)}</span>
+            <span className="text-caption text-kin-muted">
+              {routineStatusLabel(run.status, tr)}
+            </span>
           </div>
           {run.routine_tldr && (
             <p className="mt-1 text-strong text-kin-secondary">{run.routine_tldr}</p>

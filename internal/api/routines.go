@@ -78,34 +78,12 @@ func (s *Server) routineDevice(next http.Handler) http.Handler {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		var answer worker.RoutinesResult
+		var answer worker.ConsoleResult
 		if err := s.askDeviceQuietly(r.Context(), device, worker.QueryRoutines, asked, &answer); err != nil {
 			writeMachineQueryError(w, err)
 			return
 		}
-		if answer.ContentType != "" {
-			w.Header().Set("Content-Type", answer.ContentType)
-		}
-		// The machine's status is part of its answer: a routine that is gone is
-		// a 404 because the machine said so, not because this Hub decided what
-		// its words meant.
-		//
-		// Two statuses are translated rather than passed through, because on
-		// this path they are not about the caller: a 401 is the machine's own
-		// loopback auth failing (a rotated or unreadable token), and a 429 is
-		// its rate limit on this Hub's traffic. Forwarding either would sign
-		// the person out of the Hub, or blame them for a limit they never hit.
-		status := answer.Status
-		switch {
-		case status == http.StatusUnauthorized, status == http.StatusTooManyRequests:
-			status = http.StatusBadGateway
-		case status < 100 || status > 599:
-			status = http.StatusBadGateway
-		}
-		w.WriteHeader(status)
-		if len(answer.Body) > 0 {
-			_, _ = w.Write(answer.Body)
-		}
+		writeConsoleAnswer(w, answer)
 	})
 }
 

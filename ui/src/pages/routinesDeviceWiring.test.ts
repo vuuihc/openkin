@@ -55,6 +55,25 @@ describe("the routines page and its machine", () => {
     expect(PAGE).toContain("device={deviceId || undefined}");
   });
 
+  it("opens a remote run where it lives, not in this Hub's task store", () => {
+    // The run's id is a row in the machine's store. /tasks/:id asks the Hub and
+    // would show "not found" for a row the reader just tapped, so a remote card
+    // names the machine and the local page keeps its own link.
+    expect(PAGE).toContain(
+      "`/machines/${encodeURIComponent(device)}/tasks/${encodeURIComponent(run.id)}`",
+    );
+    expect(PAGE).toContain("`/tasks/${encodeURIComponent(run.id)}`");
+    expect(PAGE).toContain("device={remote ? deviceId : undefined}");
+    expect(APP).toContain('path="/machines/:device/tasks/:id"');
+  });
+
+  it("refreshes a live remote run on a slow beat, and only then", () => {
+    // Another machine's task updates do not arrive on this Hub's WebSocket, so
+    // the feed is re-read while something is running and stops when nothing is.
+    expect(PAGE).toContain("if (!remote || !liveRun) return;");
+    expect(PAGE).toContain("window.setInterval(() => void load(), 5_000)");
+  });
+
   it("widens the retry instead of polling a sleeping machine forever", () => {
     // A page left open on an offline machine must keep trying, but the wait
     // grows to a ceiling and snaps back after a good load.
