@@ -41,8 +41,16 @@ type SessionInfo struct {
 }
 
 // HistoryQuery requests a bounded page from a provider-owned history source.
+//
+// Cursor pages toward newer messages; Before pages toward older ones. Tail asks
+// for the newest page without naming a position at all, which is how a reader
+// opens a long transcript at what happened last instead of what happened first.
+// A provider that predates these fields may ignore them, which is why callers
+// must treat an empty PrevCursor as "this provider cannot page backwards".
 type HistoryQuery struct {
 	Cursor string
+	Before string
+	Tail   bool
 	Limit  int
 }
 
@@ -52,6 +60,12 @@ type HistoryQuery struct {
 type HistoryPage struct {
 	Items      []HistoryItem
 	NextCursor string
+	// PrevCursor names the position of the first item in this page: passing it
+	// back as Before yields the messages immediately older than this page. It
+	// is empty when this page already starts at the beginning of the
+	// transcript, so an empty value means "nothing older to load", not "this
+	// provider cannot page".
+	PrevCursor string
 	SourceRev  string
 }
 
@@ -66,6 +80,11 @@ type HistoryItem struct {
 	Text        string
 	OccurredAt  time.Time
 	SourceRev   string
+	// Cursor is this item's own position in the provider source, in the same
+	// vocabulary as HistoryQuery. It travels beside the item rather than in the
+	// page so a machine that must trim a page it read can still name where the
+	// part it kept begins.
+	Cursor string
 	// Truncated reports that Text is the beginning of a longer message: the
 	// provider's own cap was reached, so the rest of what the agent wrote is not
 	// in this item. It is a property of the message rather than of the page — a

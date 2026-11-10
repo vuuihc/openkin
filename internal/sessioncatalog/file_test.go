@@ -247,6 +247,85 @@ func TestFileCatalogClaudeHistoryCursorKeepsSplitContentBlocks(t *testing.T) {
 	}
 }
 
+func TestFileCatalogClaudeHistoryPagesBackwardFromTheEnd(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "tail-session.jsonl")
+	content := `{"type":"user","sessionId":"claude-tail","uuid":"u1","message":{"role":"user","content":"first"}}
+{"type":"assistant","sessionId":"claude-tail","uuid":"a1","message":{"role":"assistant","content":[{"type":"text","text":"one"},{"type":"text","text":"two"},{"type":"text","text":"three"}]}}
+{"type":"user","sessionId":"claude-tail","uuid":"u2","message":{"role":"user","content":"second"}}
+{"type":"assistant","sessionId":"claude-tail","uuid":"a2","message":{"role":"assistant","content":"last"}}
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	catalog := &FileCatalog{AgentID: "claude-code", Format: FormatClaude, Roots: []string{root}}
+	ctx := context.Background()
+
+	tail, err := catalog.ReadHistory(ctx, "claude-tail", agent.HistoryQuery{Tail: true, Limit: 2})
+	if err != nil {
+		t.Fatalf("tail ReadHistory: %v", err)
+	}
+	if len(tail.Items) != 2 || tail.Items[0].Text != "second" || tail.Items[1].Text != "last" {
+		t.Fatalf("tail page=%+v", tail)
+	}
+	if tail.NextCursor != "" {
+		t.Fatalf("tail page next cursor=%q, want empty", tail.NextCursor)
+	}
+	if tail.PrevCursor == "" {
+		t.Fatal("tail page has no previous cursor")
+	}
+
+	older, err := catalog.ReadHistory(ctx, "claude-tail", agent.HistoryQuery{
+		Before: tail.PrevCursor,
+		Limit:  10,
+	})
+	if err != nil {
+		t.Fatalf("older ReadHistory: %v", err)
+	}
+	if len(older.Items) != 4 {
+		t.Fatalf("older page has %d items, want 4: %+v", len(older.Items), older.Items)
+	}
+	want := []string{"first", "one", "two", "three"}
+	for index, text := range want {
+		if older.Items[index].Text != text {
+			t.Fatalf("older item %d=%q, want %q", index, older.Items[index].Text, text)
+		}
+	}
+	if older.PrevCursor != "" {
+		t.Fatalf("older page prev cursor=%q, want empty", older.PrevCursor)
+	}
+}
+
+func TestFileCatalogBackwardPageKeepsWholeRecords(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "chunk-session.jsonl")
+	content := `{"type":"user","sessionId":"claude-chunks","uuid":"u1","message":{"role":"user","content":"question"}}
+{"type":"assistant","sessionId":"claude-chunks","uuid":"a1","message":{"role":"assistant","content":[{"type":"text","text":"one"},{"type":"text","text":"two"},{"type":"text","text":"three"}]}}
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	catalog := &FileCatalog{AgentID: "claude-code", Format: FormatClaude, Roots: []string{root}}
+
+	// One item of budget cannot hold the last record's three chunks, so the page
+	// keeps the record whole rather than opening with half a message.
+	page, err := catalog.ReadHistory(context.Background(), "claude-chunks", agent.HistoryQuery{Tail: true, Limit: 1})
+	if err != nil {
+		t.Fatalf("tail ReadHistory: %v", err)
+	}
+	if len(page.Items) != 3 {
+		t.Fatalf("tail page has %d items, want the whole 3-chunk record: %+v", len(page.Items), page.Items)
+	}
+	for index, text := range []string{"one", "two", "three"} {
+		if page.Items[index].Text != text {
+			t.Fatalf("tail item %d=%q, want %q", index, page.Items[index].Text, text)
+		}
+	}
+	if page.PrevCursor == "" {
+		t.Fatal("tail page has no previous cursor")
+	}
+}
+
 func TestFileCatalogClaudeNormalizesToolResultBlocks(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "tool-session.jsonl")

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ApiError,
@@ -22,6 +22,21 @@ import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
 import { displayAgentSessionTitle } from "../lib/agentSessionTitle";
 import { useAppStore } from "../store/appStore";
 import { agentSessionHistoryToTaskEvents } from "../lib/agentSessionHistory";
+
+// One answer from the machine holding the session carries at most this many
+// messages. The first screen fills from the newest end up to a budget, not to
+// the beginning: a session with hundreds of turns should open on what happened
+// last, and the budget is what keeps "show the latest" from becoming "fetch
+// everything first". 200 matches the routine run history's cap, so the console
+// has one number for how much history opens at once.
+const HISTORY_PAGE = 100;
+const HISTORY_INITIAL_MAX_ITEMS = 200;
+const HISTORY_INITIAL_MAX_TEXT = 1 << 20;
+const historyTextEncoder = new TextEncoder();
+
+function historyTextBytes(items: AgentSessionHistoryItem[]): number {
+  return items.reduce((total, item) => total + historyTextEncoder.encode(item.text).length, 0);
+}
 
 function formatTimestamp(value: number): string {
   if (!value) return "";
@@ -59,13 +74,18 @@ export default function AgentSessionDetailPage() {
   const reconnectGen = useAppStore((s) => s.reconnectGen);
   const [session, setSession] = useState<AgentSession | null>(null);
   const [items, setItems] = useState<AgentSessionHistoryItem[]>([]);
-  const [nextCursor, setNextCursor] = useState("");
+  const [prevCursor, setPrevCursor] = useState("");
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyCut, setHistoryCut] = useState(false);
   const [attachBusy, setAttachBusy] = useState(false);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  // Where the viewport was before an older page was prepended: the height
+  // delta keeps the message the reader was looking at under their eyes.
+  const prependAnchor = useRef<{ height: number; top: number } | null>(null);
+  const scrollToEnd = useRef(false);
   const historyEvents = useMemo(
     () =>
       session
@@ -85,7 +105,7 @@ export default function AgentSessionDetailPage() {
     try {
       setSession(await getAgentSession(id));
       setItems([]);
-      setNextCursor("");
+      setPrevCursor("");
       setHistoryCut(false);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) return;
@@ -96,50 +116,111 @@ export default function AgentSessionDetailPage() {
     }
   }, [id, tr]);
 
-  const loadHistory = useCallback(
-    async (cursor = "") => {
-      if (!session) return;
-      setHistoryLoading(true);
-      setHistoryError(null);
-      try {
-        const page = await getAgentSessionHistory(session.id, {
-          cursor: cursor || undefined,
-          limit: 50,
-        });
-        setItems((previous) => (cursor ? [...previous, ...page.items] : page.items));
-        setNextCursor(page.next_cursor ?? "");
-        // A page that was cut has no cursor, so without this the reading simply
-        // ends and the transcript looks complete — which is the one thing the
-        // flag exists to prevent.
-        setHistoryCut(Boolean(page.truncated) && !page.next_cursor);
-      } catch (e) {
-        if (e instanceof ApiError && e.status === 401) return;
-        setHistoryError(
-          e instanceof ApiError && e.status === 501
-            ? tr("agentSession.historyUnavailable")
-            : e instanceof Error
-              ? e.message
-              : tr("agentSession.historyFailed"),
-        );
-        if (cursor) {
-          setItems([]);
-          setNextCursor("");
-          void loadSession();
-        }
-      } finally {
-        setHistoryLoading(false);
-      }
-    },
-    [loadSession, session, tr],
+  const historyFailure = useCallback(
+    (e: unknown) =>
+      e instanceof ApiError && e.status === 501
+        ? tr("agentSession.historyUnavailable")
+        : e instanceof Error
+          ? e.message
+          : tr("agentSession.historyFailed"),
+    [tr],
   );
+
+  // Open at the end of the transcript: the newest page is what a reader wants
+  // from a session they did not just watch. The second page is fetched only
+  // when the budget allows it, and the budget stops at roughly 200 messages or
+  // 1 MiB of text — whichever comes first — so the first screen never grows
+  // with the session.
+  const loadTail = useCallback(async () => {
+    if (!session) return;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const page = await getAgentSessionHistory(session.id, {
+        tail: true,
+        limit: HISTORY_PAGE,
+      });
+      let loaded = page.items;
+      let prev = page.prev_cursor ?? "";
+      let cut = Boolean(page.truncated) && !prev;
+      if (
+        prev &&
+        loaded.length < HISTORY_INITIAL_MAX_ITEMS &&
+        historyTextBytes(loaded) < HISTORY_INITIAL_MAX_TEXT
+      ) {
+        const older = await getAgentSessionHistory(session.id, {
+          before: prev,
+          limit: HISTORY_PAGE,
+        });
+        loaded = [...older.items, ...loaded];
+        prev = older.prev_cursor ?? "";
+        cut = Boolean(older.truncated) && !prev;
+      }
+      setItems(loaded);
+      setPrevCursor(prev);
+      setHistoryCut(cut);
+      scrollToEnd.current = true;
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) return;
+      setHistoryError(historyFailure(e));
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [historyFailure, session]);
+
+  const loadOlder = useCallback(async () => {
+    if (!session || !prevCursor || historyLoading) return;
+    const el = scrollRef.current;
+    prependAnchor.current = el ? { height: el.scrollHeight, top: el.scrollTop } : null;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const page = await getAgentSessionHistory(session.id, {
+        before: prevCursor,
+        limit: HISTORY_PAGE,
+      });
+      setItems((previous) => [...page.items, ...previous]);
+      setPrevCursor(page.prev_cursor ?? "");
+      if (page.truncated && !page.prev_cursor) setHistoryCut(true);
+    } catch (e) {
+      prependAnchor.current = null;
+      if (e instanceof ApiError && e.status === 401) return;
+      // Keep what the reader already has: failing to fetch an older page is
+      // not a reason to take the transcript away. The top of the list offers
+      // the retry instead.
+      setHistoryError(historyFailure(e));
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [historyFailure, historyLoading, prevCursor, session]);
 
   useEffect(() => {
     void loadSession();
   }, [loadSession, reconnectGen]);
 
   useEffect(() => {
-    if (session) void loadHistory();
-  }, [session, loadHistory]);
+    if (session) void loadTail();
+  }, [session, loadTail]);
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (scrollToEnd.current) {
+      scrollToEnd.current = false;
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
+    const anchor = prependAnchor.current;
+    if (!anchor) return;
+    prependAnchor.current = null;
+    el.scrollTop = anchor.top + (el.scrollHeight - anchor.height);
+  }, [items]);
+
+  const onHistoryScroll = () => {
+    const el = scrollRef.current;
+    if (!el || el.scrollTop > 96) return;
+    void loadOlder();
+  };
 
   const attach = async (text: string) => {
     const prompt = text.trim();
@@ -259,11 +340,50 @@ export default function AgentSessionDetailPage() {
         </div>
       )}
 
-      <div className="flex-1 min-h-0 overflow-y-auto kin-scroll py-5">
-        {historyError && (
+      <div
+        ref={scrollRef}
+        onScroll={onHistoryScroll}
+        className="flex-1 min-h-0 overflow-y-auto kin-scroll py-5"
+      >
+        {items.length > 0 && (
+          /* The top of the transcript is where the direction changes: it says
+             whether there is an older page, whether that page is being read
+             now, or whether this is as far back as the session goes. */
+          <div
+            className="max-w-conversation mx-auto px-4 sm:px-7 pb-2 text-center text-caption text-kin-muted"
+            role="status"
+          >
+            {historyLoading ? (
+              <SkeletonLine className="h-10 w-full" />
+            ) : historyError ? (
+              <span className="inline-flex flex-wrap items-center justify-center gap-2">
+                <span>{historyError}</span>
+                <button
+                  type="button"
+                  onClick={() => void loadOlder()}
+                  className="kin-btn-secondary"
+                >
+                  {tr("agentSession.historyRetry")}
+                </button>
+              </span>
+            ) : prevCursor ? null : historyCut ? (
+              tr("agentSession.historyTruncated")
+            ) : (
+              tr("agentSession.historyStart")
+            )}
+          </div>
+        )}
+        {historyError && items.length === 0 && (
           <div className="max-w-conversation mx-auto px-4 sm:px-7">
             <div className="rounded-lg border border-kin-orange/30 bg-kin-orange/10 px-3 py-2 text-strong text-kin-orange-ink">
-              {historyError}
+              <p>{historyError}</p>
+              <button
+                type="button"
+                onClick={() => void loadTail()}
+                className="kin-btn-secondary mt-2"
+              >
+                {tr("agentSession.historyRetry")}
+              </button>
             </div>
           </div>
         )}
@@ -272,39 +392,17 @@ export default function AgentSessionDetailPage() {
             {tr("agentSession.historyEmpty")}
           </p>
         )}
-        <ChatStream
-          events={historyEvents}
-          loadingSpeaker={session.agent_id}
-          hostSpeaker={session.agent_id}
-        />
-        {historyLoading && (
+        {historyLoading && items.length === 0 && (
           <div className="max-w-conversation mx-auto px-4 sm:px-7 space-y-2 py-2" role="status">
             <SkeletonLine className="h-20 w-full" />
             <SkeletonLine className="h-16 w-5/6" />
           </div>
         )}
-        {!historyLoading && nextCursor && (
-          <div className="flex justify-center pt-2">
-            <button
-              type="button"
-              onClick={() => void loadHistory(nextCursor)}
-              className="kin-btn-secondary"
-            >
-              {tr("agentSession.loadMore")}
-            </button>
-          </div>
-        )}
-        {!historyLoading && !nextCursor && historyCut && (
-          /* The reading stops here and there is nothing to tap for more, so the
-             page says which of the two that is: the end of the session, or the
-             end of what the machine holding it could send. */
-          <p
-            className="max-w-conversation mx-auto px-4 sm:px-7 py-3 text-center text-caption text-kin-muted"
-            role="status"
-          >
-            {tr("agentSession.historyTruncated")}
-          </p>
-        )}
+        <ChatStream
+          events={historyEvents}
+          loadingSpeaker={session.agent_id}
+          hostSpeaker={session.agent_id}
+        />
       </div>
 
       {canContinue && (
@@ -312,10 +410,7 @@ export default function AgentSessionDetailPage() {
            the draft use: the shell's floating approval measures this band so
            it never covers the continue box. This page mounts only on its own
            route, so the marker needs no active-pane condition. */
-        <div
-          data-kin-bottom-chrome=""
-          className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5"
-        >
+        <div data-kin-bottom-chrome="" className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5">
           <div className="max-w-conversation mx-auto space-y-1.5">
             <Composer
               key={session.id}

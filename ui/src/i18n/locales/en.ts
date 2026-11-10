@@ -656,6 +656,10 @@ const en: MessageTree = {
     // means both "the end" and "the machine stopped", and the reader is entitled
     // to know which one this is.
     historyTruncated: "The machine holding this session could not send the rest of it.",
+    // Shown at the top when the reader has scrolled back to the first message:
+    // the reading is complete, not cut.
+    historyStart: "This is the beginning of the session.",
+    historyRetry: "Try again",
     continueTitle: "Continue with {agent}",
     continueDescription:
       "Calls the local {agent} directly and keeps the original session context; no cloud Provider binding is required.",

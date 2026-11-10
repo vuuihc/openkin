@@ -128,6 +128,9 @@ func (c *FileCatalog) ReadHistory(ctx context.Context, externalRef string, q age
 	if limit > 100 {
 		limit = 100
 	}
+	if q.Tail || strings.TrimSpace(q.Before) != "" {
+		return c.readHistoryBackward(ctx, path, info, sourceRev, q, limit)
+	}
 	startLine, startBlock, err := parseHistoryCursor(q.Cursor, sourceRev)
 	if err != nil {
 		return agent.HistoryPage{}, err
@@ -181,6 +184,95 @@ func (c *FileCatalog) ReadHistory(ctx context.Context, externalRef string, q age
 		next = encodeHistoryCursor(sourceRev, lineNo, 0)
 	}
 	return agent.HistoryPage{Items: items, NextCursor: next, SourceRev: sourceRev}, nil
+}
+
+// readHistoryBackward answers the pages a reader asks for when they open a
+// session at its end: the last page first, then the one before it. It scans the
+// source once and keeps only the newest records that fit the limit, so the
+// memory it spends is one page, not one transcript.
+//
+// A JSONL record can hold several content blocks, and the provider's chunks of
+// one message live in those blocks. Keeping and dropping records whole is what
+// makes the first item of a page the beginning of a message rather than the
+// middle of one, which is the one way a prepended page can end up showing half
+// a sentence.
+func (c *FileCatalog) readHistoryBackward(ctx context.Context, path string, info agent.SessionInfo, sourceRev string, q agent.HistoryQuery, limit int) (agent.HistoryPage, error) {
+	if q.Tail && (strings.TrimSpace(q.Before) != "" || strings.TrimSpace(q.Cursor) != "") {
+		return agent.HistoryPage{}, fmt.Errorf("tail cannot be combined with a cursor")
+	}
+	cutoffLine, cutoffBlock := -1, 0
+	if before := strings.TrimSpace(q.Before); before != "" {
+		line, block, err := parseHistoryCursor(before, sourceRev)
+		if err != nil {
+			return agent.HistoryPage{}, err
+		}
+		cutoffLine, cutoffBlock = line, block
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return agent.HistoryPage{}, fmt.Errorf("open session source: %w", err)
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), maxLineBytes)
+
+	type record struct {
+		line  int
+		items []agent.HistoryItem
+	}
+	var records []record
+	total := 0
+	firstItemLine := -1
+	lineNo := 0
+	for sc.Scan() {
+		select {
+		case <-ctx.Done():
+			return agent.HistoryPage{}, ctx.Err()
+		default:
+		}
+		if cutoffLine >= 0 && lineNo > cutoffLine {
+			break
+		}
+		parsed := c.parseHistoryItems([]byte(sc.Bytes()), info, sourceRev, lineNo)
+		if cutoffLine >= 0 && lineNo == cutoffLine {
+			if cutoffBlock <= 0 {
+				break
+			}
+			if cutoffBlock < len(parsed) {
+				parsed = parsed[:cutoffBlock]
+			}
+		}
+		if len(parsed) > 0 && firstItemLine < 0 {
+			firstItemLine = lineNo
+		}
+		if len(parsed) > 0 {
+			records = append(records, record{line: lineNo, items: parsed})
+			total += len(parsed)
+			for total > limit && len(records) > 1 {
+				total -= len(records[0].items)
+				records = records[1:]
+			}
+		}
+		lineNo++
+	}
+	if err := sc.Err(); err != nil {
+		return agent.HistoryPage{}, fmt.Errorf("read session history: %w", err)
+	}
+	items := make([]agent.HistoryItem, 0, total)
+	prev := ""
+	for index, rec := range records {
+		if index == 0 && rec.line != firstItemLine {
+			prev = encodeHistoryCursor(sourceRev, rec.line, 0)
+		}
+		for block, item := range rec.items {
+			// Every item knows its own position: a machine that cannot send the
+			// whole page may keep the newest part of it and still name where
+			// the part it kept begins.
+			item.Cursor = encodeHistoryCursor(sourceRev, rec.line, block)
+			items = append(items, item)
+		}
+	}
+	return agent.HistoryPage{Items: items, PrevCursor: prev, SourceRev: sourceRev}, nil
 }
 
 func (c *FileCatalog) scan(ctx context.Context) ([]fileSession, error) {

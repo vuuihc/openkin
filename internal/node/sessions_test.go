@@ -370,6 +370,52 @@ func TestAHistoryPageCutByThisMachineLosesItsCursor(t *testing.T) {
 	}
 }
 
+// TestABackwardHistoryPageKeepsTheNewestMessages is the other end of the cut.
+//
+// A page read backwards arrives oldest-first, and the reader asked for its end.
+// Trimming the tail of that slice — what a forward page does — would answer a
+// request for "the newest messages" with the oldest ones that fitted, so the
+// backward path keeps the newest suffix and names the position it starts at.
+func TestABackwardHistoryPageKeepsTheNewestMessages(t *testing.T) {
+	now := time.Now()
+	items := make([]agent.HistoryItem, 0, worker.MaxAgentHistoryItems)
+	for i := 0; i < worker.MaxAgentHistoryItems; i++ {
+		items = append(items, agent.HistoryItem{
+			AgentID: "claude-code", ExternalRef: "ref-1",
+			MessageID: fmt.Sprintf("m%d", i), Role: "user",
+			Text: strings.Repeat("x", 32<<10), OccurredAt: now,
+			Cursor: fmt.Sprintf("rev|%d", i),
+		})
+	}
+	r := &Responder{Sessions: &fakeCatalog{page: agent.HistoryPage{Items: items, PrevCursor: "rev|0"}}}
+
+	result, err := r.sessionHistory(context.Background(), worker.AgentHistoryParams{
+		Agent: "claude-code", Ref: "ref-1", Tail: true, Limit: worker.MaxAgentHistoryItems,
+	})
+	if err != nil {
+		t.Fatalf("read history: %v", err)
+	}
+	if len(result.Items) >= len(items) {
+		t.Fatalf("the bound did not bite: %d of %d items", len(result.Items), len(items))
+	}
+	if !result.Truncated {
+		t.Fatal("a backward page that dropped messages does not say it dropped them")
+	}
+	if got := result.Items[len(result.Items)-1].MessageID; got != items[len(items)-1].MessageID {
+		t.Fatalf("the newest message was %q, want %q", got, items[len(items)-1].MessageID)
+	}
+	first := items[0].MessageID
+	for _, item := range result.Items {
+		if item.MessageID == first {
+			t.Fatalf("the oldest message %q fitted but the newest did not", first)
+		}
+	}
+	want := items[len(items)-len(result.Items)].Cursor
+	if result.PrevCursor != want {
+		t.Fatalf("prev cursor=%q, want %q (the first message actually sent)", result.PrevCursor, want)
+	}
+}
+
 // TestAHistoryReadIsAskedForWhatTheCallerAsked documents the limit that travels:
 // a Hub's page size reaches the catalog, rather than the machine answering with
 // a size of its own choosing.
@@ -383,6 +429,24 @@ func TestAHistoryReadIsAskedForWhatTheCallerAsked(t *testing.T) {
 	}
 	if catalog.asked.Limit != 7 || catalog.asked.Cursor != "c1" {
 		t.Fatalf("the catalog was asked %+v, want limit 7 cursor c1", catalog.asked)
+	}
+	// The direction travels too: a tail request is not silently read as the
+	// first page, and a backward cursor is not dropped on the way in.
+	if _, err := r.sessionHistory(context.Background(), worker.AgentHistoryParams{
+		Agent: "claude-code", Ref: "ref-1", Before: "c2", Limit: 7,
+	}); err != nil {
+		t.Fatalf("read history: %v", err)
+	}
+	if catalog.asked.Before != "c2" || catalog.asked.Cursor != "" {
+		t.Fatalf("the catalog was asked %+v, want the backward cursor c2", catalog.asked)
+	}
+	if _, err := r.sessionHistory(context.Background(), worker.AgentHistoryParams{
+		Agent: "claude-code", Ref: "ref-1", Tail: true, Limit: 5,
+	}); err != nil {
+		t.Fatalf("read history: %v", err)
+	}
+	if !catalog.asked.Tail || catalog.asked.Limit != 5 {
+		t.Fatalf("the catalog was asked %+v, want a tail page of 5", catalog.asked)
 	}
 	// And an unset limit is this machine's own page size, not zero: a zero limit
 	// is a request no catalog can honour.

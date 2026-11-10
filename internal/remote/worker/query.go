@@ -1209,7 +1209,14 @@ type AgentHistoryParams struct {
 	// ref resolves is the machine's answer to give.
 	Ref    string `json:"ref"`
 	Cursor string `json:"cursor,omitempty"`
-	Limit  int    `json:"limit,omitempty"`
+	// Before asks for the page immediately older than that cursor. It is the
+	// direction a reader scrolls when they opened the session at its end, and
+	// it is mutually exclusive with Cursor.
+	Before string `json:"before,omitempty"`
+	// Tail asks for the newest page, with no cursor at all: the page a reader
+	// sees when a long transcript opens at what happened last.
+	Tail  bool `json:"tail,omitempty"`
+	Limit int  `json:"limit,omitempty"`
 }
 
 // AgentHistoryItem is one message, as it crosses the wire.
@@ -1241,6 +1248,12 @@ type AgentHistoryResult struct {
 	// NextCursor is the provider's own continuation token, empty at the end of
 	// the transcript.
 	NextCursor string `json:"next_cursor,omitempty"`
+	// PrevCursor is the position of the first item in this page: asking with it
+	// as Before yields the messages immediately older. It is empty when this
+	// page already starts at the beginning of the transcript, which is also
+	// what a provider that cannot page backwards answers — so a reader stops
+	// rather than asking again.
+	PrevCursor string `json:"prev_cursor,omitempty"`
 	// SourceRev is the provider's revision for what was read, so a caller can
 	// tell a transcript that changed from one that did not.
 	SourceRev string `json:"source_rev,omitempty"`
@@ -1261,6 +1274,15 @@ func (p AgentHistoryParams) Validate() error {
 	}
 	if err := optional("cursor", p.Cursor, MaxAgentHistoryCursor); err != nil {
 		return err
+	}
+	if err := optional("before", p.Before, MaxAgentHistoryCursor); err != nil {
+		return err
+	}
+	if p.Tail && (strings.TrimSpace(p.Cursor) != "" || strings.TrimSpace(p.Before) != "") {
+		return errors.New("tail cannot be combined with a cursor")
+	}
+	if strings.TrimSpace(p.Cursor) != "" && strings.TrimSpace(p.Before) != "" {
+		return errors.New("cursor and before are mutually exclusive")
 	}
 	if p.Limit < 0 {
 		return errors.New("limit must not be negative")

@@ -2115,6 +2115,9 @@ export type AgentSessionHistoryItem = {
 export type AgentSessionHistoryPage = {
   items: AgentSessionHistoryItem[];
   next_cursor?: string;
+  /** Where the page immediately older than this one begins. Empty means this
+   *  page starts at the beginning of the transcript. */
+  prev_cursor?: string;
   source_rev?: string;
   /** This page is not the whole rest of the transcript, and there is no cursor
    *  to continue from: the machine that holds the session could not send more
@@ -2259,10 +2262,12 @@ export function importAgentSessions(
 
 export function getAgentSessionHistory(
   id: string,
-  params?: { cursor?: string; limit?: number },
+  params?: { cursor?: string; before?: string; tail?: boolean; limit?: number },
 ): Promise<AgentSessionHistoryPage> {
   const query = new URLSearchParams();
   if (params?.cursor) query.set("cursor", params.cursor);
+  if (params?.before) query.set("before", params.before);
+  if (params?.tail) query.set("tail", "true");
   if (params?.limit) query.set("limit", String(params.limit));
   const suffix = query.toString();
   return apiFetch<AgentSessionHistoryPage>(
