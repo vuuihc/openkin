@@ -480,7 +480,8 @@ const zh = {
     shareLinkLabel: "只读链接",
     shareCopy: "复制链接",
     shareCopied: "已复制",
-    shareOnlyOnce: "链接只显示这一次，服务端只保存摘要。关掉这个窗口前请先复制；如果忘了，重新创建一条即可，旧链接会立刻失效。",
+    shareOnlyOnce:
+      "链接只显示这一次，服务端只保存摘要。关掉这个窗口前请先复制；如果忘了，重新创建一条即可，旧链接会立刻失效。",
     workerTimeline: "Worker 时间线",
     workerStepCount: "{n} 个步骤",
     workerAccessRead: "只读",
@@ -1172,7 +1173,8 @@ const zh = {
     },
     notify: {
       heading: "通知",
-      descA: "批准、提问、任务终态、额度、例行报告和 worker 离线都会走同一条通知管线。通知里的深链使用 ",
+      descA:
+        "批准、提问、任务终态、额度、例行报告和 worker 离线都会走同一条通知管线。通知里的深链使用 ",
       descB: "。",
       uiBaseUrl: "UI base URL",
       uiBaseUrlHint: "在 serve 启动时按最公开的监听地址自动设置；隧道场景可覆盖。",
@@ -1188,8 +1190,7 @@ const zh = {
       macTitle: "这台 Mac",
       macDesc: "Kin 使用 macOS 通知中心。第一次发送测试时，macOS 会询问通知权限。",
       macManaged: "由 macOS 管理",
-      eventsHint:
-        "批准、提问、对话跑完或失败、额度等待、例行报告、worker 离线都会送到这台设备。",
+      eventsHint: "批准、提问、对话跑完或失败、额度等待、例行报告、worker 离线都会送到这台设备。",
       macSettingsHint:
         "macOS 不把通知权限状态交给应用。没看到横幅时，去系统设置 → 通知 → Kin 检查。",
       openSettingsFailed: "没能打开系统设置，请手动打开 系统设置 → 通知。",
@@ -1208,8 +1209,7 @@ const zh = {
       testSent: "测试通知已发送",
       testFailed: "测试没有送达",
       testTimeout: "10 秒内没有收到回执",
-      apnsMissing:
-        "这个节点还不能发到 iPhone。需要节点管理员用 `kin notify apns` 配置 APNs 凭据。",
+      apnsMissing: "这个节点还不能发到 iPhone。需要节点管理员用 `kin notify apns` 配置 APNs 凭据。",
       devicesHeading: "已登记的 iPhone",
       noDevices: "还没有登记任何 iPhone。",
       lastOk: "最后一次成功",
@@ -1220,7 +1220,8 @@ const zh = {
       environmentProduction: "生产",
       remove: "移除",
       removeFailed: "这台 iPhone 已关闭，但节点上的登记还没删掉，请重试。",
-      removePending: "已在这台 iPhone 上关闭。节点暂时连不上，下次打开这个页面时会继续删除节点上的登记。",
+      removePending:
+        "已在这台 iPhone 上关闭。节点暂时连不上，下次打开这个页面时会继续删除节点上的登记。",
       expired: "这台 iPhone 的通知令牌已失效，请重新开启通知以登记新的令牌。",
       sessionEnded: "这台设备的登录已结束，节点已停止向它发送通知。重新登录后再开启通知。",
       notRegistered: "节点上已没有这台 iPhone 的登记。重新开启通知即可重新登记。",
@@ -1466,15 +1467,12 @@ const zh = {
     whereTitle: "认领码从哪里来？",
     whereBody:
       "让安装这个 Hub 的 agent 给你一条认领链接。打开后认领码会自动填好，你只需要设置邮箱和密码。",
-    claimLinkBody:
-      "认领码已经从链接填入。设置这个 Hub 所有者以后登录用的邮箱和密码即可。",
+    claimLinkBody: "认领码已经从链接填入。设置这个 Hub 所有者以后登录用的邮箱和密码即可。",
     codeExpired: "当前没有有效的认领码。让管理这个 Hub 的 agent 重新生成一条认领链接。",
     loginWhereTitle: "这是哪个账号？",
-    loginWhereBody:
-      "这是你在本 Hub 上的账号——安装 Hub 时创建，或接受邀请时创建。没有默认账号。",
+    loginWhereBody: "这是你在本 Hub 上的账号——安装 Hub 时创建，或接受邀请时创建。没有默认账号。",
     forgotTitle: "忘记密码了？",
-    forgotBody:
-      "让管理这个 Hub 的 agent 给你一条一次性登录链接。打开就会直接登录，不需要密码。",
+    forgotBody: "让管理这个 Hub 的 agent 给你一条一次性登录链接。打开就会直接登录，不需要密码。",
     errors: {
       invalid_credentials: "邮箱或密码不正确。",
       claim_code_invalid: "认领码无效或已过期。",
@@ -1483,7 +1481,8 @@ const zh = {
       login_code_invalid: "这次登录已失效，请回到应用重新开始。",
       browser_unavailable: "无法打开系统浏览器。第三方登录需要 https:// 的 Hub 地址。",
       registration_closed: "这台 Hub 已有所有者，请直接登录。",
-      identity_not_linked: "这个登录方式还没有绑定到本 Hub 的账号。请先用密码登录，再到「设置 → 账号」里绑定。",
+      identity_not_linked:
+        "这个登录方式还没有绑定到本 Hub 的账号。请先用密码登录，再到「设置 → 账号」里绑定。",
       weak_password: "密码太弱，请至少使用 8 个字符。",
       identity_taken: "该登录方式已绑定到其他账户。",
       email_taken: "该邮箱已在此注册过，请直接登录。",
