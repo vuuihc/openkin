@@ -386,7 +386,7 @@ export default function Sheet({
   const scrimOpacity = dragY > 0 ? Math.max(0, 1 - dragY / panelHeight) : undefined;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex flex-col justify-end md:hidden">
+    <div data-kin-sheet className="fixed inset-0 z-50 flex flex-col justify-end md:hidden">
       <button
         type="button"
         tabIndex={-1}

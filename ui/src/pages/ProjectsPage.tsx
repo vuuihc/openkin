@@ -13,6 +13,7 @@ import { SlowConnectHint, TaskListSkeleton } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useT } from "../i18n/react";
 import { MobileChevron } from "../components/mobile/MobileHeader";
+import SearchSelect from "../components/ui/SearchSelect";
 import { projectLabel } from "../lib/paths";
 import { useAppStore } from "../store/appStore";
 
@@ -122,19 +123,21 @@ export default function ProjectsPage() {
             <div className="mb-1 text-body text-kin-secondary">{tr("projects.root")}</div>
             <CwdPicker cwd={cwd} onChange={setCwd} />
           </div>
-          <label className="block text-body text-kin-secondary">
+          <div className="block text-body text-kin-secondary">
             {tr("projects.mode")}
-            <select
-              className="mt-1 w-full rounded-lg border border-kin-hairline bg-transparent px-3 py-2 text-strong text-kin-text"
+            <SearchSelect
+              variant="field"
+              label={tr("projects.mode")}
               value={mode}
-              onChange={(e) => setMode(e.target.value as ProjectMode)}
-            >
-              <option value="ship">{tr("projects.modeShip")}</option>
-              <option value="learn">{tr("projects.modeLearn")}</option>
-              <option value="explore">{tr("projects.modeExplore")}</option>
-              <option value="maintain">{tr("projects.modeMaintain")}</option>
-            </select>
-          </label>
+              options={[
+                { id: "ship", label: tr("projects.modeShip") },
+                { id: "learn", label: tr("projects.modeLearn") },
+                { id: "explore", label: tr("projects.modeExplore") },
+                { id: "maintain", label: tr("projects.modeMaintain") },
+              ]}
+              onChange={(next) => setMode(next as ProjectMode)}
+            />
+          </div>
           <div className="flex gap-2">
             <button
               type="button"

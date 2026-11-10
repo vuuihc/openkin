@@ -1,5 +1,6 @@
 import type { AgentProvider, AgentProviderState } from "../../api/client";
 import { useT } from "../../i18n/react";
+import SearchSelect from "../ui/SearchSelect";
 import type { AgentRole } from "../../lib/agentRoles";
 import { RolesSection } from "./RolesSection";
 import { SettingsSection, SettingsTabPanel } from "./SettingsPrimitives";
@@ -190,21 +191,21 @@ export function LocalAgentSettingsSection({
             )}
           </div>
         </div>
-        <label className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1.5">
           <span className="text-body leading-4 font-medium text-kin-secondary">
             {tr("settings.localAgents.autoImport")}
           </span>
-          <select
+          <SearchSelect
+            variant="field"
+            label={tr("settings.localAgents.autoImport")}
             value={autoImportMode}
-            onChange={(event) =>
-              onAutoImportModeChange(event.target.value as "prompt" | "enabled" | "disabled")
-            }
-            className="kin-input min-h-11"
-          >
-            <option value="prompt">{tr("settings.localAgents.modePrompt")}</option>
-            <option value="enabled">{tr("settings.localAgents.modeEnabled")}</option>
-            <option value="disabled">{tr("settings.localAgents.modeDisabled")}</option>
-          </select>
+            options={[
+              { id: "prompt", label: tr("settings.localAgents.modePrompt") },
+              { id: "enabled", label: tr("settings.localAgents.modeEnabled") },
+              { id: "disabled", label: tr("settings.localAgents.modeDisabled") },
+            ]}
+            onChange={(next) => onAutoImportModeChange(next as "prompt" | "enabled" | "disabled")}
+          />
           <span className="text-caption text-kin-muted">{tr("settings.localAgents.policy")}</span>
           <div
             className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2 text-caption text-kin-muted"
@@ -224,7 +225,7 @@ export function LocalAgentSettingsSection({
                 })
               : tr("settings.localAgents.neverSynced")}
           </div>
-        </label>
+        </div>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"

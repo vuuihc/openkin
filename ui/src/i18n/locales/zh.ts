@@ -1021,6 +1021,7 @@ const zh = {
       costCompany: "company",
       costFree: "free",
       costUnknown: "unknown",
+      costLabel: "费用类型",
       saveEntry: "保存 Provider",
       cancel: "取消",
       required: "Base URL 与模型为必填。",

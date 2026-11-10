@@ -14,6 +14,7 @@ import {
   rootRowsVisible,
 } from "../../lib/devices";
 import { shortPath } from "../../lib/paths";
+import SearchSelect from "../ui/SearchSelect";
 
 type Tab = "folders" | "repo";
 
@@ -431,21 +432,18 @@ function RepoTab({ device, onPick }: { device?: string; onPick: (path: string) =
             {(found.branches ?? []).length === 0 ? (
               <span className="text-body text-kin-muted">{tr("browse.noBranches")}</span>
             ) : (
-              <select
+              <SearchSelect
+                variant="field"
+                searchable
+                label={tr("browse.branch")}
                 value={branch}
-                onChange={(e) => setBranch(e.target.value)}
-                className={[
-                  "w-full rounded-md border border-[var(--kin-hairline-strong)]",
-                  "bg-[var(--kin-fill)] px-2 py-1.5 text-body font-mono",
-                  "text-kin-text outline-none focus:border-kin-blue/50",
-                ].join(" ")}
-              >
-                {(found.branches ?? []).map((name) => (
-                  <option key={name} value={name}>
-                    {name === found.default_branch ? tr("browse.defaultBranch", { name }) : name}
-                  </option>
-                ))}
-              </select>
+                options={(found.branches ?? []).map((name) => ({
+                  id: name,
+                  label:
+                    name === found.default_branch ? tr("browse.defaultBranch", { name }) : name,
+                }))}
+                onChange={setBranch}
+              />
             )}
             {found.truncated && (
               <span className="text-caption text-kin-muted">

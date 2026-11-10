@@ -18,6 +18,7 @@ import {
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import { MobileCard, MobileRow, MobileSection } from "../components/mobile/MobileList";
 import Sheet, { SheetSecondaryButton } from "../components/mobile/Sheet";
+import SearchSelect from "../components/ui/SearchSelect";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useAppStore } from "../store/appStore";
 import { useT } from "../i18n/react";
@@ -511,15 +512,17 @@ export default function AgentsPage() {
             >
               {smoking ? tr("agents.smoking") : tr("agents.smokeAll")}
             </button>
-            <select
-              value={days}
-              onChange={(e) => setDays(Number(e.target.value))}
-              className="kin-input w-auto min-h-10"
-            >
-              <option value={7}>{tr("usage.thisWeek")}</option>
-              <option value={30}>{tr("usage.days30")}</option>
-              <option value={90}>{tr("usage.days90")}</option>
-            </select>
+            <SearchSelect
+              label={tr("usage.title")}
+              value={String(days)}
+              options={[
+                { id: "7", label: tr("usage.thisWeek") },
+                { id: "30", label: tr("usage.days30") },
+                { id: "90", label: tr("usage.days90") },
+              ]}
+              onChange={(next) => setDays(Number(next))}
+              className="text-body text-kin-text"
+            />
           </div>
         </div>
 

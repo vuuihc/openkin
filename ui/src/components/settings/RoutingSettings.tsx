@@ -11,6 +11,7 @@ import {
   type RoutingPhasePolicy,
 } from "../../api/client";
 import { useT } from "../../i18n/react";
+import SearchSelect from "../ui/SearchSelect";
 
 // ---------------------------------------------------------------------------
 // Routing Defaults Section
@@ -103,61 +104,63 @@ export function RoutingDefaultsSection() {
 
       {enabled && (
         <>
-          <label className="block space-y-1">
+          <div className="block space-y-1">
             <span className="text-body leading-4 font-medium text-kin-secondary">
               {tr("settings.routing.defaultTeam")}
             </span>
-            <select
+            <SearchSelect
+              variant="field"
+              label={tr("settings.routing.defaultTeam")}
               value={defaultTeam}
-              onChange={(e) => setDefaultTeam(e.target.value)}
-              className="kin-input min-h-11"
-            >
-              <option value="">{tr("settings.routing.defaultTeamPlaceholder")}</option>
-              {(options?.teams ?? []).map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} ({t.id})
-                </option>
-              ))}
-            </select>
-          </label>
+              options={[
+                { id: "", label: tr("settings.routing.defaultTeamPlaceholder") },
+                ...(options?.teams ?? []).map((t) => ({
+                  id: t.id,
+                  label: `${t.name} (${t.id})`,
+                })),
+              ]}
+              onChange={setDefaultTeam}
+            />
+          </div>
 
-          <label className="block space-y-1">
+          <div className="block space-y-1">
             <span className="text-body leading-4 font-medium text-kin-secondary">
               {tr("settings.routing.objective")}
             </span>
-            <select
+            <SearchSelect
+              variant="field"
+              label={tr("settings.routing.objective")}
               value={objective}
-              onChange={(e) => setObjective(e.target.value)}
-              className="kin-input min-h-11"
-            >
-              <option value="balanced">{tr("settings.routing.objectiveBalanced")}</option>
-              <option value="cost-min">{tr("settings.routing.objectiveCostMin")}</option>
-              <option value="intelligent-max">
-                {tr("settings.routing.objectiveIntelligentMax")}
-              </option>
-            </select>
-          </label>
+              options={[
+                { id: "balanced", label: tr("settings.routing.objectiveBalanced") },
+                { id: "cost-min", label: tr("settings.routing.objectiveCostMin") },
+                { id: "intelligent-max", label: tr("settings.routing.objectiveIntelligentMax") },
+              ]}
+              onChange={setObjective}
+            />
+          </div>
 
-          <label className="block space-y-1">
+          <div className="block space-y-1">
             <span className="text-body leading-4 font-medium text-kin-secondary">
               {tr("settings.routing.qualityFloor")}
             </span>
-            <select
+            <SearchSelect
+              variant="field"
+              label={tr("settings.routing.qualityFloor")}
               value={qualityFloor}
-              onChange={(e) => {
-                const value = e.target.value;
+              options={[
+                { id: "", label: tr("settings.routing.qualityFloorAdaptive") },
+                { id: "light", label: tr("settings.routing.qualityFloorLight") },
+                { id: "medium", label: tr("settings.routing.qualityFloorMedium") },
+                { id: "heavy", label: tr("settings.routing.qualityFloorHeavy") },
+              ]}
+              onChange={(next) =>
                 setQualityFloor(
-                  value === "light" || value === "medium" || value === "heavy" ? value : "",
-                );
-              }}
-              className="kin-input min-h-11"
-            >
-              <option value="">{tr("settings.routing.qualityFloorAdaptive")}</option>
-              <option value="light">{tr("settings.routing.qualityFloorLight")}</option>
-              <option value="medium">{tr("settings.routing.qualityFloorMedium")}</option>
-              <option value="heavy">{tr("settings.routing.qualityFloorHeavy")}</option>
-            </select>
-          </label>
+                  next === "light" || next === "medium" || next === "heavy" ? next : "",
+                )
+              }
+            />
+          </div>
 
           <fieldset className="space-y-2">
             <legend className="text-body leading-4 font-medium text-kin-secondary">
@@ -203,20 +206,22 @@ export function RoutingDefaultsSection() {
             />
           </label>
 
-          <label className="block space-y-1">
+          <div className="block space-y-1">
             <span className="text-body leading-4 font-medium text-kin-secondary">
               {tr("settings.routing.terminalPolicy")}
             </span>
-            <select
+            <SearchSelect
+              variant="field"
+              label={tr("settings.routing.terminalPolicy")}
               value={terminalPolicy}
-              onChange={(e) => setTerminalPolicy(e.target.value)}
-              className="kin-input min-h-11"
-            >
-              <option value="wait">{tr("settings.routing.wait")}</option>
-              <option value="ask">{tr("settings.routing.ask")}</option>
-              <option value="switch">{tr("settings.routing.switch")}</option>
-            </select>
-          </label>
+              options={[
+                { id: "wait", label: tr("settings.routing.wait") },
+                { id: "ask", label: tr("settings.routing.ask") },
+                { id: "switch", label: tr("settings.routing.switch") },
+              ]}
+              onChange={setTerminalPolicy}
+            />
+          </div>
 
           <label className="flex items-center gap-2 cursor-pointer">
             <input
@@ -486,22 +491,22 @@ export function RoutingProfilesSection() {
               {tr("settings.routing.profileEnabled")}
             </span>
           </label>
-          <label className="block space-y-1">
+          <div className="block space-y-1">
             <span className="text-body leading-4 font-medium text-kin-secondary">
               {tr("settings.routing.defaultObjective")}
             </span>
-            <select
+            <SearchSelect
+              variant="field"
+              label={tr("settings.routing.defaultObjective")}
               value={editing.default_objective || "balanced"}
-              onChange={(e) => setEditing({ ...editing, default_objective: e.target.value })}
-              className="kin-input min-h-11"
-            >
-              <option value="balanced">{tr("settings.routing.objectiveBalanced")}</option>
-              <option value="cost-min">{tr("settings.routing.objectiveCostMin")}</option>
-              <option value="intelligent-max">
-                {tr("settings.routing.objectiveIntelligentMax")}
-              </option>
-            </select>
-          </label>
+              options={[
+                { id: "balanced", label: tr("settings.routing.objectiveBalanced") },
+                { id: "cost-min", label: tr("settings.routing.objectiveCostMin") },
+                { id: "intelligent-max", label: tr("settings.routing.objectiveIntelligentMax") },
+              ]}
+              onChange={(next) => setEditing({ ...editing, default_objective: next })}
+            />
+          </div>
 
           {/* Phases */}
           <div className="space-y-2">
@@ -552,18 +557,21 @@ export function RoutingProfilesSection() {
                     placeholder="claude-code"
                   />
                 </label>
-                <label className="block space-y-0.5">
+                <div className="block space-y-0.5">
                   <span className="text-micro text-kin-muted">{tr("settings.routing.tier")}</span>
-                  <select
+                  <SearchSelect
+                    variant="field"
+                    className="text-body"
+                    label={tr("settings.routing.tier")}
                     value={pp.tier || "balanced"}
-                    onChange={(e) => updatePhase(phase, "tier", e.target.value)}
-                    className="kin-input min-h-9 text-body leading-4"
-                  >
-                    <option value="smart">smart</option>
-                    <option value="balanced">balanced</option>
-                    <option value="fast">fast</option>
-                  </select>
-                </label>
+                    options={[
+                      { id: "smart", label: "smart" },
+                      { id: "balanced", label: "balanced" },
+                      { id: "fast", label: "fast" },
+                    ]}
+                    onChange={(next) => updatePhase(phase, "tier", next)}
+                  />
+                </div>
                 <label className="block space-y-0.5">
                   <span className="text-micro text-kin-muted">
                     {tr("settings.routing.providerPriority")}

@@ -9,6 +9,7 @@ import {
 } from "../../api/client";
 import { useAnchoredPanel } from "../../hooks/useAnchoredPanel";
 import { useT } from "../../i18n/react";
+import SearchSelect, { type SearchSelectOption } from "../ui/SearchSelect";
 
 type DispatchMode = "auto" | "manual" | "";
 
@@ -139,10 +140,13 @@ export function DispatchSelector({
     void loadOptions();
   }, [loadOptions]);
 
-  // Close popover on outside click.
+  // Close popover on outside click. Its own pickers portal their panels out of
+  // this box, so a click inside one of those layers is not "outside".
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
+      const target = e.target as Element | null;
+      if (target?.closest("[data-search-panel], [data-kin-sheet], ion-action-sheet")) return;
       if (
         popRef.current &&
         !popRef.current.contains(e.target as Node) &&
@@ -160,6 +164,9 @@ export function DispatchSelector({
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      // A picker opened from this panel owns the key while it is up; closing
+      // the panel underneath it would take the picker with it.
+      if (document.querySelector("[data-search-panel], [data-kin-sheet], ion-action-sheet")) return;
       setOpen(false);
       triggerRef.current?.focus();
     };
@@ -232,6 +239,28 @@ export function DispatchSelector({
   const providerModels = selectedProvider?.models ?? [];
 
   const enabledTeams = teams.filter((t) => t.enabled);
+
+  const teamOptions: SearchSelectOption[] = [
+    { id: "", label: tr("settings.routing.defaultTeamPlaceholder") },
+    ...enabledTeams.map((t) => ({ id: t.id, label: `${t.name} (${t.id})` })),
+  ];
+  const objectiveOptions: SearchSelectOption[] = [
+    { id: "balanced", label: tr("settings.routing.objectiveBalanced") },
+    { id: "cost-min", label: tr("settings.routing.objectiveCostMin") },
+    { id: "intelligent-max", label: tr("settings.routing.objectiveIntelligentMax") },
+  ];
+  const agentOptions: SearchSelectOption[] = [
+    { id: "", label: tr("dispatch.agentPlaceholder") },
+    ...agents.map((a) => ({ id: a.id, label: `${a.name} (${a.id})` })),
+  ];
+  const providerOptions: SearchSelectOption[] = [
+    { id: "", label: tr("dispatch.providerPlaceholder") },
+    ...compatibleProviders.map((p) => ({ id: p.id, label: `${p.name} (${p.id})` })),
+  ];
+  const modelOptions: SearchSelectOption[] = [
+    { id: "", label: tr("dispatch.modelPlaceholder") },
+    ...providerModels.map((m: ModelSpec) => ({ id: m.id, label: `${m.id} (${m.tier || "?"})` })),
+  ];
 
   // Compact summary for the trigger button.
   const summary = getDispatchSummary(value, options, tr);
@@ -306,96 +335,76 @@ export function DispatchSelector({
               {/* Auto mode */}
               {mode === "auto" && (
                 <div className="space-y-1.5">
-                  <select
+                  <SearchSelect
+                    variant="field"
+                    searchable
+                    label={tr("settings.routing.defaultTeam")}
                     value={value.team || ""}
-                    onChange={(e) =>
-                      onChange({ mode: "auto", team: e.target.value, objective: value.objective })
+                    options={teamOptions}
+                    onChange={(team) =>
+                      onChange({ mode: "auto", team, objective: value.objective })
                     }
                     disabled={disabled}
-                    className="kin-input min-h-8 text-body leading-4 w-full"
-                  >
-                    <option value="">{tr("settings.routing.defaultTeamPlaceholder")}</option>
-                    {enabledTeams.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name} ({t.id})
-                      </option>
-                    ))}
-                  </select>
-                  <select
+                  />
+                  <SearchSelect
+                    variant="field"
+                    label={tr("settings.routing.objective")}
                     value={value.objective || "balanced"}
-                    onChange={(e) =>
-                      onChange({ mode: "auto", team: value.team, objective: e.target.value })
+                    options={objectiveOptions}
+                    onChange={(objective) =>
+                      onChange({ mode: "auto", team: value.team, objective })
                     }
                     disabled={disabled}
-                    className="kin-input min-h-8 text-body leading-4 w-full"
-                  >
-                    <option value="balanced">{tr("settings.routing.objectiveBalanced")}</option>
-                    <option value="cost-min">{tr("settings.routing.objectiveCostMin")}</option>
-                    <option value="intelligent-max">
-                      {tr("settings.routing.objectiveIntelligentMax")}
-                    </option>
-                  </select>
+                  />
                 </div>
               )}
 
               {/* Manual mode */}
               {mode === "manual" && (
                 <div className="space-y-1.5">
-                  <select
+                  <SearchSelect
+                    variant="field"
+                    searchable
+                    label={tr("dispatch.agentPlaceholder")}
                     value={value.agent || ""}
-                    onChange={(e) => onChange({ mode: "manual", agent: e.target.value })}
+                    options={agentOptions}
+                    onChange={(agent) => onChange({ mode: "manual", agent })}
                     disabled={disabled}
-                    className="kin-input min-h-8 text-body leading-4 w-full"
-                  >
-                    <option value="">{tr("dispatch.agentPlaceholder")}</option>
-                    {agents.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name} ({a.id})
-                      </option>
-                    ))}
-                  </select>
-                  <select
+                  />
+                  <SearchSelect
+                    variant="field"
+                    searchable
+                    label={tr("dispatch.providerPlaceholder")}
                     value={value.provider || ""}
-                    onChange={(e) =>
+                    options={providerOptions}
+                    onChange={(provider) =>
                       onChange({
                         mode: "manual",
                         agent: value.agent,
-                        provider: e.target.value,
+                        provider,
                         model: "",
                       })
                     }
                     disabled={disabled || !value.agent}
-                    className="kin-input min-h-8 text-body leading-4 w-full"
-                  >
-                    <option value="">{tr("dispatch.providerPlaceholder")}</option>
-                    {compatibleProviders.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.id})
-                      </option>
-                    ))}
-                  </select>
+                  />
                   {/* Model: dropdown from provider's model list */}
                   {providerModels.length > 0 ? (
-                    <select
+                    <SearchSelect
+                      variant="field"
+                      searchable
+                      label={tr("dispatch.modelPlaceholder")}
                       value={value.model || ""}
-                      onChange={(e) =>
+                      options={modelOptions}
+                      onChange={(model) =>
                         onChange({
                           mode: "manual",
                           agent: value.agent,
                           provider: value.provider,
-                          model: e.target.value,
+                          model,
                         })
                       }
                       disabled={disabled || !value.provider}
-                      className="kin-input min-h-8 text-body leading-4 w-full"
-                    >
-                      <option value="">{tr("dispatch.modelPlaceholder")}</option>
-                      {providerModels.map((m: ModelSpec) => (
-                        <option key={m.id} value={m.id}>
-                          {m.id} ({m.tier || "?"})
-                        </option>
-                      ))}
-                    </select>
+                    />
                   ) : value.provider ? (
                     <div className="text-body leading-4 text-kin-orange-ink px-1">
                       {tr("dispatch.noModels")}

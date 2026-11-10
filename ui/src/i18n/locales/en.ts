@@ -1067,6 +1067,7 @@ const en: MessageTree = {
       costCompany: "company",
       costFree: "free",
       costUnknown: "unknown",
+      costLabel: "Cost type",
       saveEntry: "Save provider",
       cancel: "Cancel",
       required: "Base URL and model are required.",

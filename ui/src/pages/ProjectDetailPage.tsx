@@ -30,6 +30,7 @@ import RoutineScheduleFields, {
 } from "../components/routine/RoutineScheduleFields";
 import { serializeRoutineRule, type RoutineRule } from "../lib/routineRecurrence";
 import Markdown from "../components/Markdown";
+import SearchSelect from "../components/ui/SearchSelect";
 import Heatmap from "../components/project/Heatmap";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
@@ -435,16 +436,18 @@ export default function ProjectDetailPage() {
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <select
-                className="rounded-lg border border-kin-hairline bg-transparent px-2 py-1.5 text-body text-kin-text"
+              <SearchSelect
+                label={tr("projects.mode")}
                 value={project.mode}
-                onChange={(e) => void onModeChange(e.target.value as ProjectMode)}
-              >
-                <option value="ship">{tr("projects.modeShip")}</option>
-                <option value="learn">{tr("projects.modeLearn")}</option>
-                <option value="explore">{tr("projects.modeExplore")}</option>
-                <option value="maintain">{tr("projects.modeMaintain")}</option>
-              </select>
+                options={[
+                  { id: "ship", label: tr("projects.modeShip") },
+                  { id: "learn", label: tr("projects.modeLearn") },
+                  { id: "explore", label: tr("projects.modeExplore") },
+                  { id: "maintain", label: tr("projects.modeMaintain") },
+                ]}
+                onChange={(next) => void onModeChange(next as ProjectMode)}
+                className="text-body text-kin-text"
+              />
               <button
                 type="button"
                 disabled={continuing}
@@ -535,15 +538,17 @@ export default function ProjectDetailPage() {
                     {tr("projects.pulse")}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <select
-                      className="rounded-lg border border-kin-hairline bg-transparent px-2 py-1 text-body text-kin-text"
-                      value={windowDays}
-                      onChange={(e) => setWindowDays(Number(e.target.value) || 90)}
-                    >
-                      <option value={30}>{tr("projects.window30")}</option>
-                      <option value={90}>{tr("projects.window90")}</option>
-                      <option value={180}>{tr("projects.window180")}</option>
-                    </select>
+                    <SearchSelect
+                      label={tr("projects.pulse")}
+                      value={String(windowDays)}
+                      options={[
+                        { id: "30", label: tr("projects.window30") },
+                        { id: "90", label: tr("projects.window90") },
+                        { id: "180", label: tr("projects.window180") },
+                      ]}
+                      onChange={(next) => setWindowDays(Number(next) || 90)}
+                      className="text-body text-kin-text"
+                    />
                     <button
                       type="button"
                       disabled={refreshing}

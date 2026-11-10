@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useT } from "../../i18n/react";
+import SearchSelect, { type SearchSelectOption } from "../ui/SearchSelect";
 import {
   localTimeZone,
   ROUTINE_HOUR_STEPS,
@@ -183,62 +184,71 @@ export default function RoutineScheduleFields({
       : null;
   const stepRule = rule && (rule.kind === "minutes" || rule.kind === "hours") ? rule : null;
 
+  const repeatOptions: SearchSelectOption[] = [
+    ...ROUTINE_INTERVAL_PRESETS.map((p) => ({
+      id: `interval:${p.secs}`,
+      label: tr(`routines.${p.key}`),
+      group: tr("routines.repeatIntervalGroup"),
+    })),
+    ...(
+      [
+        ["daily", "routines.repeatDaily"],
+        ["weekdays", "routines.repeatWeekdays"],
+        ["weekly", "routines.repeatWeekly"],
+        ["monthly", "routines.repeatMonthly"],
+        ["hours", "routines.repeatEveryHours"],
+        ["minutes", "routines.repeatEveryMinutes"],
+        ["once", "routines.repeatOnce"],
+      ] as const
+    ).map(([id, key]) => ({
+      id,
+      label: tr(key),
+      group: tr("routines.repeatRuleGroup"),
+    })),
+  ];
+  const stepOptions: SearchSelectOption[] = stepRule
+    ? (stepRule.kind === "minutes" ? ROUTINE_MINUTE_STEPS : ROUTINE_HOUR_STEPS).map((step) => ({
+        id: String(step),
+        label: tr(stepRule.kind === "minutes" ? "routines.everyNMinutes" : "routines.everyNHours", {
+          n: step,
+        }),
+      }))
+    : [];
+
   return (
     <div
       className={compact ? "flex flex-wrap items-end gap-x-3 gap-y-2" : "grid gap-3 sm:grid-cols-2"}
     >
-      <label className="block min-w-[8rem]">
+      <div className="block min-w-[8rem]">
         <span className="text-caption font-medium uppercase tracking-label text-kin-muted">
           {tr("routines.repeatLabel")}
         </span>
-        <select
+        <SearchSelect
+          variant="field"
+          className="mt-1 text-body"
+          label={tr("routines.repeatLabel")}
           value={known ? value : `interval:${intervalSecs}`}
+          options={repeatOptions}
+          onChange={choose}
           disabled={disabled}
-          onChange={(e) => choose(e.target.value)}
-          className="mt-1 w-full rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2.5 py-1.5 text-body text-kin-text outline-none focus:border-kin-blue/40 disabled:opacity-50"
-        >
-          <optgroup label={tr("routines.repeatIntervalGroup")}>
-            {ROUTINE_INTERVAL_PRESETS.map((p) => (
-              <option key={p.secs} value={`interval:${p.secs}`}>
-                {tr(`routines.${p.key}`)}
-              </option>
-            ))}
-          </optgroup>
-          <optgroup label={tr("routines.repeatRuleGroup")}>
-            <option value="daily">{tr("routines.repeatDaily")}</option>
-            <option value="weekdays">{tr("routines.repeatWeekdays")}</option>
-            <option value="weekly">{tr("routines.repeatWeekly")}</option>
-            <option value="monthly">{tr("routines.repeatMonthly")}</option>
-            <option value="hours">{tr("routines.repeatEveryHours")}</option>
-            <option value="minutes">{tr("routines.repeatEveryMinutes")}</option>
-            <option value="once">{tr("routines.repeatOnce")}</option>
-          </optgroup>
-        </select>
-      </label>
+        />
+      </div>
 
       {stepRule ? (
-        <label className="block min-w-[8rem]">
+        <div className="block min-w-[8rem]">
           <span className="text-caption font-medium uppercase tracking-label text-kin-muted">
             {tr("routines.everyLabel")}
           </span>
-          <select
+          <SearchSelect
+            variant="field"
+            className="mt-1 text-body"
+            label={tr("routines.everyLabel")}
             value={String(stepRule.every)}
+            options={stepOptions}
+            onChange={(every) => onRuleChange({ ...stepRule, every: Number(every) })}
             disabled={disabled}
-            onChange={(e) => onRuleChange({ ...stepRule, every: Number(e.target.value) })}
-            className="mt-1 w-full rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2.5 py-1.5 text-body text-kin-text outline-none focus:border-kin-blue/40 disabled:opacity-50"
-          >
-            {(stepRule.kind === "minutes" ? ROUTINE_MINUTE_STEPS : ROUTINE_HOUR_STEPS).map(
-              (step) => (
-                <option key={step} value={String(step)}>
-                  {tr(
-                    stepRule.kind === "minutes" ? "routines.everyNMinutes" : "routines.everyNHours",
-                    { n: step },
-                  )}
-                </option>
-              ),
-            )}
-          </select>
-        </label>
+          />
+        </div>
       ) : clockRule ? (
         <>
           <label className="block min-w-[8rem]">
