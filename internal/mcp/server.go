@@ -27,6 +27,7 @@ import (
 	"github.com/oklog/ulid/v2"
 
 	"github.com/vuuihc/openkin/internal/remote"
+	"github.com/vuuihc/openkin/internal/routines"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/task"
 )
@@ -535,6 +536,7 @@ var toolReaches = map[string]toolReach{
 	"list_artifacts":     reachHolder,
 	"read_artifact":      reachHolder,
 	"list_routines":      reachHolder,
+	"create_routine":     reachHolder,
 	"run_routine":        reachHolder,
 	"get_usage":          reachHolder,
 	"get_routing_status": reachHolder,
@@ -581,6 +583,8 @@ func (s *Server) executeTool(ctx context.Context, req request, auth authContext,
 		result, err = s.readArtifact(ctx, args)
 	case "list_routines":
 		result, err = s.listRoutines(ctx, args)
+	case "create_routine":
+		result, err = s.createRoutine(ctx, args)
 	case "get_usage":
 		result, err = s.getUsage(ctx, args)
 	case "get_routing_status":
@@ -608,7 +612,10 @@ func (s *Server) executeTool(ctx context.Context, req request, auth authContext,
 	}
 	if err != nil {
 		code := -32000
-		if errors.Is(err, store.ErrNotFound) {
+		var invalid *routines.ValidationError
+		if errors.As(err, &invalid) {
+			code = -32602
+		} else if errors.Is(err, store.ErrNotFound) {
 			code = -32004
 		} else if errors.Is(err, task.ErrConflict) || errors.Is(err, store.ErrConflict) {
 			code = -32009
@@ -860,6 +867,34 @@ func (s *Server) listRoutines(ctx context.Context, args map[string]any) (any, er
 		"next_cursor": page.NextCursor,
 		"has_more":    page.HasMore,
 	}, err
+}
+
+// createRoutine stores a Routine on this machine through the same validation
+// and defaults the console's REST handler uses, so an agent-created routine and
+// a person-created one cannot drift apart.
+func (s *Server) createRoutine(ctx context.Context, args map[string]any) (any, error) {
+	if s.Store == nil {
+		return nil, errors.New("store unavailable")
+	}
+	raw, err := json.Marshal(mapWithout(args, "idempotency_key"))
+	if err != nil {
+		return nil, err
+	}
+	var params routines.CreateParams
+	if err := json.Unmarshal(raw, &params); err != nil {
+		return nil, fmt.Errorf("invalid create_routine arguments: %w", err)
+	}
+	var validate routines.ValidateCreateFunc
+	if s.ValidateCreate != nil {
+		validate = func(c context.Context, req task.CreateRequest) error {
+			return s.ValidateCreate(c, &req)
+		}
+	}
+	rec, err := routines.Create(ctx, s.Store, validate, params)
+	if err != nil {
+		return nil, err
+	}
+	return publicRoutine(rec), nil
 }
 
 func publicTask(item store.Task) map[string]any {
@@ -1133,6 +1168,7 @@ func toolDefinitions() []map[string]any {
 		{"name": "list_artifacts", "description": "List bounded artifacts.", "inputSchema": read},
 		{"name": "read_artifact", "description": "Read an indexed artifact with a bounded response.", "inputSchema": schema([]string{"artifact_id"}, map[string]any{"artifact_id": stringProp(), "max_bytes": intProp()})},
 		{"name": "list_routines", "description": "List cursor-paginated Routines.", "inputSchema": read},
+		{"name": "create_routine", "description": "Create a saved Routine on this machine.", "inputSchema": schema([]string{"cwd", "prompt", "idempotency_key"}, map[string]any{"title": stringProp(), "project_id": stringProp(), "cwd": stringProp(), "agent": stringProp(), "model": stringProp(), "permission_mode": stringProp(), "prompt": stringProp(), "interval_secs": intProp(), "enabled": map[string]any{"type": "boolean"}, "missed_run_policy": stringProp(), "lane": stringProp(), "recurrence": stringProp(), "next_due_at": intProp(), "idempotency_key": stringProp()})},
 		{"name": "get_usage", "description": "Read bounded local usage summaries.", "inputSchema": read},
 		{"name": "get_routing_status", "description": "Read current routing configuration status.", "inputSchema": read},
 		{"name": "create_task", "description": "Create a Kin task under normal workspace and routing policy.", "inputSchema": schema([]string{"cwd", "prompt", "idempotency_key"}, map[string]any{"cwd": stringProp(), "prompt": stringProp(), "agent": stringProp(), "model": stringProp(), "permission_mode": stringProp(), "workspace_mode": stringProp(), "project_id": stringProp(), "executing_device_id": stringProp(), "dispatch": map[string]any{"type": "object"}, "idempotency_key": stringProp()})},
@@ -1151,7 +1187,7 @@ func requiredScope(tool string) string {
 	switch tool {
 	case "approve_task_action", "answer_task_question", "resolve_idempotency":
 		return ScopeAdmin
-	case "create_task", "send_task_message", "cancel_task", "retry_task", "continue_task", "run_routine":
+	case "create_task", "send_task_message", "cancel_task", "retry_task", "continue_task", "create_routine", "run_routine":
 		return ScopeWrite
 	default:
 		return ScopeRead
@@ -1160,7 +1196,7 @@ func requiredScope(tool string) string {
 
 func requiresIdempotency(tool string) bool {
 	switch tool {
-	case "create_task", "send_task_message", "retry_task", "continue_task", "run_routine":
+	case "create_task", "send_task_message", "retry_task", "continue_task", "create_routine", "run_routine":
 		return true
 	default:
 		return false

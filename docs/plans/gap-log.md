@@ -48,8 +48,6 @@ routines 的跨设备主路径已按 2026-11-08 的决策落地（见 `## 已修
 - **远程 run 的 task 详情 / transcript 打不开**：节点上的 task 只存在节点库里，
   Hub 没有查询通道；远程 run 的实时更新也不会经 Hub 的 WS 推过来，页面上一条
   运行中的 run 会一直停在旧状态，直到重新加载。
-- **MCP 没有创建 routine 的工具**：`internal/mcp/server.go` 仍只有
-  `list_routines` / `run_routine`。
 - **旧 Hub 库的 routines 没有迁移**：升级后它们仍由 Hub 调度，而 Routines 页
   默认落在节点上，只有选「本机」才看得到。要不要禁用 / 迁移需要产品决定
   （待定，报告人）。
@@ -57,8 +55,7 @@ routines 的跨设备主路径已按 2026-11-08 的决策落地（见 `## 已修
 线索：`internal/api/routines.go`（大多数操作已带 `device`）、
 `ui/src/pages/ProjectDetailPage.tsx`、`internal/mcp/server.go`、
 `ui/src/pages/RoutinesPage.tsx`（「本机」选项与旧数据的提示）。
-验收：项目页不再写 Hub 库；远程 run 能打开详情并实时更新；MCP 可创建；
-旧数据有明确处置。
+验收：项目页不再写 Hub 库；远程 run 能打开详情并实时更新；旧数据有明确处置。
 
 ### 2026-11-08 · 中 · 侧栏看不出设备 → 项目 → 对话的层级
 
@@ -88,6 +85,7 @@ IA 已经定了对话列表是“设备 → 项目 → 对话”三级（`docs/p
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
 
+- 2026-11-09 · MCP 没有创建 routine 的工具 — PR #37（抽出 `routines.Create` 复用 REST 的校验与默认值；check.sh 全绿）
 - 2026-11-10 · 历史会话从最早 50 条往后翻，最近的内容要翻很久才看得到 — PR #36（尾部优先 + 到顶自动加载；预算 200 条 / 约 1 MiB；check.sh 全绿）
 - 2026-11-08 · 新开会话选不了模型，选择控件各写各的（原生 select 仍在用） — `90fe9232`（PR #35）
 - 2026-11-10 · 侧栏「例行任务」未读角标只读本机，多设备下一直是 0 — `3f3ebe2e`（PR #34）

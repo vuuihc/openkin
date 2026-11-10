@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/oklog/ulid/v2"
 
 	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/routines"
@@ -110,25 +109,6 @@ func (s *Server) routineDevice(next http.Handler) http.Handler {
 	})
 }
 
-type createRoutineBody struct {
-	Title     string `json:"title"`
-	ProjectID string `json:"project_id"`
-	Cwd       string `json:"cwd"`
-	Agent     string `json:"agent"`
-	// Model is optional; empty means the agent's own default.
-	Model           string `json:"model"`
-	PermissionMode  string `json:"permission_mode"`
-	Prompt          string `json:"prompt"`
-	IntervalSecs    int64  `json:"interval_secs"`
-	Enabled         *bool  `json:"enabled"`
-	MissedRunPolicy string `json:"missed_run_policy"`
-	Lane            string `json:"lane"`
-	// Recurrence is a wall-clock rule as JSON, empty for an interval routine.
-	Recurrence string `json:"recurrence"`
-	// NextDueAt optional; default = now (fires on next tick / run-now).
-	NextDueAt *int64 `json:"next_due_at"`
-}
-
 // previewRoutineBody asks what a rule would mean before it is saved.
 type previewRoutineBody struct {
 	Recurrence string `json:"recurrence"`
@@ -206,113 +186,18 @@ func (s *Server) handleListRoutines(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateRoutine(w http.ResponseWriter, r *http.Request) {
-	var body createRoutineBody
+	var body routines.CreateParams
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 		return
 	}
-	body.Cwd = strings.TrimSpace(body.Cwd)
-	body.Prompt = strings.TrimSpace(body.Prompt)
-	if body.Cwd == "" || body.Prompt == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "cwd and prompt are required"})
-		return
-	}
-	recurrence, err := routines.ParseRecurrence(body.Recurrence)
+	rec, err := routines.Create(r.Context(), s.Store, s.validateTaskCreateRequest, body)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	intervalSecs := body.IntervalSecs
-	if recurrence != nil && intervalSecs <= 0 {
-		// A wall-clock routine's pace is the rule's own period. Asking the
-		// user for an interval they will never see honoured would be noise.
-		intervalSecs = recurrence.NominalIntervalSeconds(time.Now())
-	}
-	if intervalSecs <= 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "interval_secs must be > 0"})
-		return
-	}
-	now := time.Now().UnixMilli()
-	enabled := true
-	if body.Enabled != nil {
-		enabled = *body.Enabled
-	}
-	next := now
-	if body.NextDueAt != nil && *body.NextDueAt > 0 {
-		next = *body.NextDueAt
-	} else if recurrence != nil {
-		// The first run is the rule's next occurrence, not "as soon as the
-		// scheduler looks": creating a weekday-morning routine on a Tuesday
-		// afternoon must not run it on Tuesday afternoon.
-		at, ok := ruleFirstRun(recurrence, time.UnixMilli(now))
-		if !ok {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "recurrence has no future occurrence"})
+		var invalid *routines.ValidationError
+		if errors.As(err, &invalid) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": invalid.Error()})
 			return
 		}
-		next = at
-	}
-	agent := strings.TrimSpace(body.Agent)
-	if agent == "" {
-		agent = "kin"
-	}
-	perm := strings.TrimSpace(body.PermissionMode)
-	if perm == "" {
-		perm = "default"
-	}
-	model := strings.TrimSpace(body.Model)
-	policy := strings.ToLower(strings.TrimSpace(body.MissedRunPolicy))
-	if policy == "" {
-		policy = "coalesce"
-	}
-	if policy != "coalesce" && policy != "skip" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missed_run_policy must be coalesce or skip"})
-		return
-	}
-	if err := s.validateTaskCreateRequest(r.Context(), task.CreateRequest{
-		Agent:          agent,
-		PermissionMode: perm,
-	}); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	lane := strings.TrimSpace(body.Lane)
-	if lane == "" {
-		lane = "routine"
-	}
-	projectID := strings.TrimSpace(body.ProjectID)
-	if projectID == "" {
-		if resolved, err := s.Store.ResolveProjectIDForCwd(r.Context(), body.Cwd); err == nil {
-			projectID = resolved
-		}
-	}
-	title := strings.TrimSpace(body.Title)
-	if title == "" {
-		// Truncate prompt as fallback title.
-		runes := []rune(body.Prompt)
-		if len(runes) > 48 {
-			title = string(runes[:48]) + "…"
-		} else {
-			title = body.Prompt
-		}
-	}
-	rec := store.Routine{
-		ID:              ulid.Make().String(),
-		ProjectID:       projectID,
-		Cwd:             body.Cwd,
-		Agent:           agent,
-		Model:           model,
-		PermissionMode:  perm,
-		Prompt:          body.Prompt,
-		IntervalSecs:    intervalSecs,
-		Enabled:         enabled,
-		NextDueAt:       next,
-		CreatedAt:       now,
-		Title:           title,
-		MissedRunPolicy: policy,
-		Lane:            lane,
-		Recurrence:      body.Recurrence,
-	}
-	if err := s.Store.InsertRoutine(r.Context(), rec); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -323,11 +208,7 @@ func (s *Server) handleCreateRoutine(w http.ResponseWriter, r *http.Request) {
 // ms. Create, patch and the console's preview all read a rule through this, so
 // the form cannot promise a time the daemon would not use.
 func ruleFirstRun(rule *routines.Recurrence, now time.Time) (int64, bool) {
-	at, ok := rule.Next(now)
-	if !ok {
-		return 0, false
-	}
-	return at.UnixMilli(), true
+	return routines.FirstRun(rule, now)
 }
 
 // nextDueAfterRuleChange is when a routine should next run after its rule was
