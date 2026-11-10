@@ -180,10 +180,57 @@ Do not restart this track without a new ADR. "It was on the old roadmap" is not 
 
 ---
 
+## Theme: Hub ↔ node connectivity — RECORDED 2026-11-10, not scheduled
+
+**Status:** recorded for a dedicated round; no design chosen, no code promised.
+
+**Why this exists.** On 2026-11-10 the phone took 18–45 s to open a large
+session. The catalog was re-reading the whole transcript per page, but the
+bigger cost was the link: the Mac node dialled the Hub through its public
+Cloudflare tunnel, and from that Mac the tunnel gave 5–12 s TLS handshakes and
+1.1–5.0 s for a 152-byte worker reply. The same reply over the LAN took 21 ms.
+The node now dials the LAN address, which means it is offline whenever it
+leaves that LAN. The link is one fixed URL, chosen once, with no discovery,
+health awareness, or fallback.
+
+**Scope of the dedicated round.** The node→Hub control channel only. The phone
+already has public ingress (Cloudflare Tunnel, or Tailscale Funnel via the
+existing rungs in [REMOTE_ACCESS.md](./REMOTE_ACCESS.md)); it is a browser/PWA
+and cannot join a tailnet without a client.
+
+**Candidates, roughly cheapest first**
+
+1. `--hub` takes an ordered list; the node tries each on reconnect with
+   backoff and keeps the first that answers. Covers LAN → public today, with
+   no new dependency. Needs a health signal that is not "the socket opened".
+2. The Hub advertises itself on the LAN (mDNS/Bonjour); nodes on the same
+   network find it without a hard-coded address. Still needs rung 1 as the
+   fallback for when nobody answers.
+3. Put the control channel on the tailnet the daemon already embeds
+   (`--tailscale` / Headscale, see [REMOTE_ACCESS.md](./REMOTE_ACCESS.md) §2–3):
+   reachable by name from any network, no public tunnel for worker traffic.
+   Costs a Tailscale account or a Headscale server, and the Hub must accept
+   node connections on its tailnet name.
+4. Keep the public tunnel and fix its route (regional tunnel, Argo, or the
+   existing relay Worker). Treats the symptom and keeps the dependency on a
+   third party.
+
+**Constraints to design against.** The Hub may live on somebody else's NAS;
+the core loop should not require a third-party account; the link is a
+long-lived WebSocket, so selection is sticky and reconnect-driven, never
+per-request; a node that is away must read as offline, not as slow.
+
+**Recommendation when the round starts:** do (1) because it is small and
+testable, and keep (3) on the table as the general answer if nodes and Hubs
+stop sharing a network. (2) only if manual addresses keep hurting. (4) last.
+
+---
+
 ## Changelog
 
 | Date | Change |
 |------|--------|
+| 2026-11-10 | Recorded the Hub ↔ node connectivity debt: one fixed URL, no discovery/failover; the LAN fix landed, the general design is deferred to its own round |
 | 2026-10-23 | Retired the Wiki / governed-memory ("Remember") theme; multi-device via a user-run Hub is now the active direction |
 | 2026-07-17 | Added Artifacts P0/P1 from study-material / multi-device reading pain |
 | 2026-03-22 | Added Projects + One-Pager theme (ADR 0008 + plan); explicit non-goals: kanban / % / overview-session-as-SoT |
