@@ -46,7 +46,6 @@ const en: MessageTree = {
     thisMachine: "This machine",
     machineOnline: "Online",
     machineOffline: "Offline, cannot take new work",
-    externalSession: "External",
     importAgentSessions: "Import Agent sessions",
     importingAgentSessions: "Importing Agent sessions…",
     importAllAgents: "Import all available Agents",
@@ -90,6 +89,12 @@ const en: MessageTree = {
     // conversation it belongs to. Also the badge's accessible name. The count
     // covers both kinds, so the words do not name one of them.
     pendingApprovals: "{count} waiting for you",
+    // One trailing group per machine, folded by default: these were imported
+    // from another agent, so they are neither a project nor a row this machine
+    // ran. The heading says how many rows it holds, so a fold never hides a
+    // different number than it claims.
+    imported: "Imported sessions ({count})",
+    importedLabel: "Imported sessions",
     statusSucceeded: "Done",
     statusFailed: "Failed",
     statusCanceled: "Canceled",
@@ -610,9 +615,6 @@ const en: MessageTree = {
     historyEmpty: "No readable messages were found in this source session.",
     historySource: "History is read directly from the local Agent record",
     backToChat: "Back to chats",
-    connected: "connected to Kin",
-    available: "native resume available",
-    readOnly: "read-only",
     sessionFallback: "{agent} session",
     sourceId: "Source session ID · {value}",
     created: "First indexed {value}",

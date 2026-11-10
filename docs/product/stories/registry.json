@@ -83,6 +83,7 @@
         "ui/src/pages/findWiring.test.ts",
         "ui/src/pages/macKeyboardWiring.test.ts",
         "ui/src/pages/phoneRunConfigFace.test.ts",
+        "ui/src/pages/sessionImportedWiring.test.ts",
         "ui/src/pages/sessionPinnedWiring.test.ts"
       ],
       "blockedReason": null

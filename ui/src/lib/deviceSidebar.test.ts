@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentSession, Task } from "../api/client";
 import type { Machine } from "./devices";
-import { groupByDevice, projectKey, sessionsForProject } from "./deviceSidebar";
+import { groupByDevice, projectKey } from "./deviceSidebar";
 
 const store = new Map<string, string>();
 
@@ -149,17 +149,21 @@ describe("groupByDevice", () => {
     expect(group.label).toBe("old-box");
   });
 
-  it("gives a session-only project its own row, ordered by its own recency", () => {
+  it("keeps imported sessions out of the project tree", () => {
+    // An import has no status, pin or archive of its own; giving it a project
+    // heading would invent one. It is listed once, at the device's end — even
+    // when it shares a cwd with a real project.
     const tasks = [task({ id: "t", cwd: "/work/app", created_at: 1, finished_at: 1 })];
     const sessions = [
       session({ id: "s1", cwd: "/work/app", updated_at: 1 }),
-      // Touched later than any task here, so it belongs above /work/app.
       session({ id: "s2", cwd: "/work/other", updated_at: 900 }),
     ];
     const groups = groupByDevice(tasks, sessions, machines, prefs);
-    expect(groups[0]!.projects.map((p) => p.cwd)).toEqual(["/work/other", "/work/app"]);
-    const app = groups[0]!.projects.find((p) => p.cwd === "/work/app")!;
-    expect(sessionsForProject(groups[0]!.sessions, app).map((s) => s.id)).toEqual(["s1"]);
+    expect(groups[0]!.projects.map((p) => p.cwd)).toEqual(["/work/app"]);
+    expect(groups[0]!.sessions.map((s) => s.id)).toEqual(["s1", "s2"]);
+    // The device still reads as recently used: imports count for the machine's
+    // own recency, which is what orders the machine list.
+    expect(groups[0]!.lastActivityAt).toBe(900);
   });
 
   it("counts tasks and imported sessions for the group badge", () => {
@@ -247,12 +251,70 @@ describe("groupByDevice", () => {
     expect(groupByDevice(tasks, [], machines, archivedPrefs, true)[0]!.count).toBe(1);
   });
 
-  it("carries the stored pin onto a row it invents for a session", () => {
+  it("keeps an archived project's heading when only imports still name it", () => {
+    // Its tasks fell outside the loaded page (or were deleted), so the task
+    // feed has nothing to group. Restore lives on that heading: without it the
+    // project would be archived with no way back from the Mac.
+    const archivedPrefs = { ...prefs, archived: ["/work/gone"] };
+    const groups = groupByDevice(
+      [],
+      [
+        session({
+          id: "s",
+          cwd: "/work/gone",
+          updated_at: 7,
+          project_label: "Gone Project",
+        }),
+      ],
+      machines,
+      archivedPrefs,
+      true,
+    );
+    expect(groups.map((group) => group.id)).toEqual(["mac-1"]);
+    expect(groups[0]!.projects.map((project) => project.cwd)).toEqual(["/work/gone"]);
+    expect(groups[0]!.projects[0]!.label).toBe("Gone Project");
+    expect(groups[0]!.projects[0]!.items).toEqual([]);
+    expect(groups[0]!.projects[0]!.archived).toBe(true);
+    // ...and the live list still does not grow a project from the import.
+    const live = groupByDevice([], [session({ id: "s", cwd: "/work/gone" })], machines, prefs);
+    expect(live[0]!.projects).toEqual([]);
+  });
+
+  it("sorts seeded archived projects with the rest, not in import order", () => {
+    // The seeds are appended after grouping, so an unsorted tail would put an
+    // older project above a newer one whenever the import feed is not itself
+    // in that order.
+    const archivedPrefs = { ...prefs, archived: ["/work/a", "/work/b"] };
+    const groups = groupByDevice(
+      [],
+      [
+        session({ id: "sa", cwd: "/work/a", updated_at: 100 }),
+        session({ id: "sb", cwd: "/work/b", updated_at: 200 }),
+      ],
+      machines,
+      archivedPrefs,
+      true,
+    );
+    expect(groups[0]!.projects.map((project) => project.cwd)).toEqual(["/work/b", "/work/a"]);
+  });
+
+  it("never invents an archived project from an import in an unarchived cwd", () => {
+    const archivedPrefs = { ...prefs, archived: ["/work/other"] };
+    const groups = groupByDevice(
+      [],
+      [session({ id: "s", cwd: "/work/live", updated_at: 7 })],
+      machines,
+      archivedPrefs,
+      true,
+    );
+    expect(groups).toEqual([]);
+  });
+
+  it("never invents a project from an imported session, pinned or not", () => {
     const pinned = { ...prefs, pinned: ["/work/other"] };
     const groups = groupByDevice([], [session({ id: "s", cwd: "/work/other" })], machines, pinned);
-    // The row sorts to the pin tier, so it has to draw as pinned: the button
-    // would otherwise offer to pin a project that already is.
-    expect(groups[0]!.projects[0]!.pinned).toBe(true);
+    expect(groups[0]!.projects).toEqual([]);
+    expect(groups[0]!.sessions.map((s) => s.id)).toEqual(["s"]);
   });
 });
 

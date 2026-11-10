@@ -19,7 +19,10 @@ import { useAgentRoles } from "../hooks/useAgentRoles";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useT } from "../i18n/react";
 import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
-import { displayAgentSessionTitle } from "../lib/agentSessionTitle";
+import {
+  canContinueAgentSession,
+  displayAgentSessionTitle,
+} from "../lib/agentSessionTitle";
 import { useAppStore } from "../store/appStore";
 import { agentSessionHistoryToTaskEvents } from "../lib/agentSessionHistory";
 
@@ -271,10 +274,7 @@ export default function AgentSessionDetailPage() {
     session,
     tr("agentSession.sessionFallback", { agent: agentName }),
   );
-  const canContinue =
-    !session.linked &&
-    Boolean(session.cwd.trim()) &&
-    session.capabilities?.includes("session_attach") === true;
+  const canContinue = canContinueAgentSession(session);
   const missingContinueCwd =
     !session.linked &&
     !session.cwd.trim() &&
@@ -305,27 +305,18 @@ export default function AgentSessionDetailPage() {
             {session.project_label ? ` · ${session.project_label}` : ""}
             {session.cwd ? ` · ${session.cwd}` : ""}
           </p>
-          <p className="mt-1 text-caption text-kin-muted truncate">
-            {tr("agentSession.sourceId", { value: session.external_ref })}
-          </p>
-        </div>
-        <div className="flex flex-wrap justify-end gap-1.5 max-w-[45%]">
-          <span className="px-1.5 py-0.5 rounded border border-kin-hairline text-micro text-kin-muted">
-            {session.status}
-          </span>
-          <span className="px-1.5 py-0.5 rounded border border-kin-hairline text-micro text-kin-muted">
-            {session.linked
-              ? tr("agentSession.connected")
-              : canContinue
-                ? tr("agentSession.available")
-                : tr("agentSession.readOnly")}
-          </span>
         </div>
       </header>
 
+      {/* The provenance strip, not the header: an import answers "where did this
+          come from" only for the reader who asks, so the source ref sits here
+          with the timestamps instead of pushing the title down. The status and
+          availability chips that used to sit in the header are gone — the
+          conversation itself says whether it can continue. */}
       <div className="flex-none px-4 sm:px-6 py-3 border-b border-[var(--kin-hairline)] text-caption text-kin-muted flex flex-wrap gap-x-4 gap-y-1">
         <span>{tr("agentSession.created", { value: formatTimestamp(session.first_seen_at) })}</span>
         <span>{tr("agentSession.updated", { value: formatTimestamp(session.updated_at) })}</span>
+        <span>{tr("agentSession.sourceId", { value: session.external_ref })}</span>
         {session.content_digest ? (
           <span>
             {tr("agentSession.sourceRevision", { value: session.content_digest.slice(0, 12) })}

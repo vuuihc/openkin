@@ -1,6 +1,6 @@
 # R0 · 面审计与减法
 
-状态：**R0a、R0b-2 已签字；R0b-1 已完成；R0b-2a、R0b-2b 已完成** · 2026-11-10
+状态：**R0a、R0b-2 已签字；R0b-1 已完成；R0b-2a、R0b-2b、R0b-2c 已完成** · 2026-11-10
 配套：[`IA.md`](../product/IA.md)、[`TASTE.md`](../product/TASTE.md)、[`stories/PLAN.md`](../product/stories/PLAN.md)、[`2026-11-08-design-system-middle-layer.md`](2026-11-08-design-system-middle-layer.md)、[`2026-11-09-astryx-spike.md`](2026-11-09-astryx-spike.md)
 测量：`python3 scripts/ui_inventory.py`
 评审页：[`2026-11-10-ui-surface-audit.review.html`](2026-11-10-ui-surface-audit.review.html)（390/1100 现状截图 + 每面决策卡；截图含本机真实数据，只在本机打开，不要外发）。如果页面里的截图显示「缺失」，用同目录的 `2026-11-10-ui-surface-audit.review.local.html`（截图已内嵌，gitignored）
@@ -14,7 +14,7 @@
 | R0b-2 签字 | ✅ 已签 2026-11-10 | “同意，开干”；五个决定按建议执行，页面 `2026-11-10-ui-surface-audit-r0b2.review.html` |
 | R0b-2a 收件箱替代 + 删除 | ✅ 已完成（含复审） | 行尾待批准计数（`PendingBadge`，approvals + questions 合并；Sidebar / SessionsPage 共用；文案不点名其中一类）；通知落 `/tasks/<id>?focus=<item>`，被点名卡片获得焦点并带可访问名称，Esc 交回对话；旧 pane、重复点击、旧快照三条竞态由测试钉住；桌面壳同步改到对话与 `/sessions`，`/inbox`、`/approvals` 重定向；`ApprovalsPage`、`inboxFocus`、`inboxKeyboard`、`RunningTaskCard`、`nav.inbox` 与入口已删。65 文件 / 新增 6 文件，+1,001 −1,417 行；全量 vitest 189 文件 1881 条、desktop 150 条、`check.sh` 全绿；17 个 mutant 全红；复审两轮无 blocker/major |
 | R0b-2b 任务页减法 | ✅ 已完成 | 删 `SessionTabs`、`SessionSwitcherSheet`、`PullRequestPanel` 及入口；`TaskSessionHost` 只保留挂载缓存；`panels` / 图标 / i18n 清零；全量 vitest 188 文件 1898 条通过 |
-| R0b-2c 导入会话收起 | ⚪ 未开始 | 每台设备末尾默认收起、同样式 |
+| R0b-2c 导入会话收起 | ✅ 已完成（含复审） | 导入不再并入项目树：左栏每台设备末尾一个默认收起的「导入的会话（N）」，搜索时强制展开但不写偏好；手机列表每台机器末尾同组，搜索同样强制展开；行与原生对话同形（无彩色 rail、状态点、可用性徽标），新导入只改计数；左栏搜索会按行上实际显示的字（标题、项目、agent、ref）收窄导入。归档项目即使任务都不在当前页、只有导入会话命名它，仍保留可恢复的标题并计入归档数。详情页去掉状态 / 可用性 chip，来源 ID 移到时间戳行。8 个源文件 + 5 个测试文件（新增 `sessionImportedWiring.test.ts`），+685 −311 行；全量 vitest 190 文件 1897 条、desktop 150 条、`check.sh` / build / smoke 全绿；26 个 mutant 全红；复审两轮无 blocker/major；390 与 1280 的真实列表和详情已看过 |
 | R0b-2d 列表合并 + 项目 + dock | ⚪ 未开始 | 一套行与控制器；删 `/projects` 索引与 dock「项目」 |
 | R0b-3 设置收口 | ⚪ 未开始 | 等 R0b-2 |
 | 4 条故事 | ⚪ 未开始 | 只写合同，不写代码 |
@@ -199,7 +199,7 @@ R0 的主评审物是 **`2026-11-10-ui-surface-audit.review.html`**，不是下�
 
 ## 11. 下一会话
 
-R0a 已签字（2026-11-10），**R0b-1、R0b-2a、R0b-2b 已完成并落地**：`/design`、`/artifacts` + 详情、`AgentModelPicker`、`/inbox`、`SessionTabs`、`SessionSwitcherSheet`、`PullRequestPanel` 已删；待批准回到对话行尾，通知直接打开对话并聚焦被点名的卡片。下一轮是 **R0b-2c**（导入会话默认收起、同样式），然后 **R0b-2d**（手机与 Mac 列表合并、`/projects` 索引与 dock「项目」收口）。R0b-3 的设置收口单独一轮。四条「补故事」的面只写合同，不写代码。
+R0a 已签字（2026-11-10），**R0b-1、R0b-2a、R0b-2b、R0b-2c 已完成并落地**：`/design`、`/artifacts` + 详情、`AgentModelPicker`、`/inbox`、`SessionTabs`、`SessionSwitcherSheet`、`PullRequestPanel` 已删；待批准回到对话行尾，通知直接打开对话并聚焦被点名的卡片；导入会话收进每台机器末尾的默认收起组，行与原生对话同形。下一轮是 **R0b-2d**（手机与 Mac 列表合并、`/projects` 索引与 dock「项目」收口）。R0b-3 的设置收口单独一轮。四条「补故事」的面只写合同，不写代码。
 
 R0b-2a 复审留下一条已知边角，交给 R0b-2d：收件箱删除后，等待项的唯一信号是「它所在的那一行」的计数；行被收起、被搜索过滤、或在更早的分页里时没有信号。列表合并时决定是否在收起的项目/设备标题上给一个汇总计数（不要为它恢复独立页面）。待批准有浮动卡片兜底，待回答的问题没有。
 

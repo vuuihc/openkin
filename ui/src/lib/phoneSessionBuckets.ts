@@ -23,6 +23,43 @@ export const UNASSIGNED_PROJECT = "__unassigned__";
 /** The synthetic leading bucket pinned task rows live in. */
 export const PINNED_BUCKET = "__pinned__";
 
+/**
+ * The synthetic trailing bucket each machine's imported sessions live in.
+ *
+ * An import is not a project: it has no status, pin or archive state, and
+ * giving it a project heading would invent one. One bucket per machine, drawn
+ * after that machine's projects and folded by default. The NUL keeps the key
+ * out of the cwd namespace.
+ */
+export const IMPORTED_BUCKET_PREFIX = "imported\u0000";
+
+export function isImportedBucket(key: string): boolean {
+  return key.startsWith(IMPORTED_BUCKET_PREFIX);
+}
+
+/**
+ * Whether a bucket is drawn folded.
+ *
+ * Searching force-opens every bucket: a matching row folded away reads as
+ * "nothing found", and a click meant to open it would only change state the
+ * query is ignoring. Projects keep their folds in the stored `collapsed` set,
+ * the way the sidebar stores them; an imported group is folded until the
+ * reader opens it, so its fold is the absence of an entry in `openImported` —
+ * the opposite sense, which is why the two cannot share one set.
+ */
+export function isBucketCollapsed(options: {
+  imported: boolean;
+  stateKey: string;
+  searching: boolean;
+  collapsed: ReadonlySet<string>;
+  openImported: ReadonlySet<string>;
+}): boolean {
+  if (options.searching) return false;
+  return options.imported
+    ? !options.openImported.has(options.stateKey)
+    : options.collapsed.has(options.stateKey);
+}
+
 /** The desktop sidebar files its no-cwd group under this name, not this one. */
 const SIDEBAR_ROOT_PROJECT = "__root__";
 
@@ -65,6 +102,9 @@ export type PhoneDeviceGroup = {
 export type PhoneBucketCopy = {
   untitled: string;
   noProject: string;
+  /** The heading of one machine's imported sessions; the count is drawn
+   *  separately, so a filtered list still says how many there really are. */
+  imported: string;
 };
 
 function normCwd(cwd: string | undefined): string {
@@ -147,14 +187,11 @@ export function phoneProjectBuckets(
   // filtered out of this scope leaves no duplicate behind.
   const claimed = new Set<string>();
 
-  const bucketFor = (cwd: string | undefined, session?: AgentSession): PhoneProjectBucket => {
+  const bucketFor = (cwd: string | undefined): PhoneProjectBucket => {
     const key = projectKeyOf(cwd);
     const found = byKey.get(key);
     if (found) return found;
-    const label =
-      key === UNASSIGNED_PROJECT
-        ? copy.noProject
-        : session?.project_label?.trim() || tailOf(cwd) || copy.noProject;
+    const label = key === UNASSIGNED_PROJECT ? copy.noProject : tailOf(cwd) || copy.noProject;
     const made: PhoneProjectBucket = { key, label, rows: [], lastActivityAt: 0 };
     byKey.set(key, made);
     return made;
@@ -188,8 +225,13 @@ export function phoneProjectBuckets(
     const identity = conversationKey(session.device_id, session.external_ref, selfDeviceId);
     if (identity && claimed.has(identity)) continue;
     const at = session.updated_at ?? 0;
-    const bucket = bucketFor(session.cwd, session);
-    const device = (session.device_id ?? "").trim();
+    const device = (session.device_id ?? "").trim() || selfDeviceId.trim();
+    const key = IMPORTED_BUCKET_PREFIX + device;
+    let bucket = byKey.get(key);
+    if (!bucket) {
+      bucket = { key, label: copy.imported, rows: [], lastActivityAt: 0 };
+      byKey.set(key, bucket);
+    }
     bucket.rows.push({
       key: session.id,
       at,
@@ -229,6 +271,11 @@ export function phoneProjectBuckets(
       // an empty heading is the whole point.
       .filter((bucket) => scope === "archived" || bucket.rows.length > 0)
       .sort((a, b) => {
+        // Imports sit at the end of their machine's list, after every project:
+        // they are the part a person goes looking for, not the daily surface.
+        const aImported = isImportedBucket(a.key);
+        const bImported = isImportedBucket(b.key);
+        if (aImported !== bImported) return aImported ? 1 : -1;
         // The no-project bucket is a catch-all, not a project: it goes last even
         // when its newest row is the newest thing on the screen.
         const aUnassigned = a.key === UNASSIGNED_PROJECT;
@@ -318,9 +365,14 @@ export function groupProjectBucketsByDevice(
     // project with an old local conversation and a new remote one arrives in
     // the global order by the remote time, so the local copy has to be put
     // back where its own newest row says it belongs.
-    deviceBuckets.sort(
-      (a, b) => b.lastActivityAt - a.lastActivityAt || a.label.localeCompare(b.label),
-    );
+    deviceBuckets.sort((a, b) => {
+      // The imported group is the machine's trailing shelf, not a project in
+      // its recency order.
+      const aImported = isImportedBucket(a.key);
+      const bImported = isImportedBucket(b.key);
+      if (aImported !== bImported) return aImported ? 1 : -1;
+      return b.lastActivityAt - a.lastActivityAt || a.label.localeCompare(b.label);
+    });
     const machine = known.get(id);
     let lastActivityAt = 0;
     for (const bucket of deviceBuckets) {

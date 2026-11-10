@@ -42,7 +42,6 @@ const zh = {
     thisMachine: "此设备",
     machineOnline: "在线",
     machineOffline: "离线，无法派发任务",
-    externalSession: "外部",
     importAgentSessions: "导入 Agent 会话",
     importingAgentSessions: "正在导入 Agent 会话…",
     importAllAgents: "导入全部可用 Agent",
@@ -84,6 +83,10 @@ const zh = {
     // 行尾标记：待审批 / 待输入落在它所属的那条对话上。也是徽标的可访问名称。
     // 计数包含两类，所以措辞不点名其中一种。
     pendingApprovals: "{count} 项待你处理",
+    // 每台机器末尾一组，默认收起：这些是从别的 agent 导入的，既不是项目，
+    // 也不是本机跑过的行。标题给出这组实际持有的行数，收起时也不藏数。
+    imported: "导入的会话（{count}）",
+    importedLabel: "导入的会话",
     statusSucceeded: "已完成",
     statusFailed: "失败",
     statusCanceled: "已取消",
@@ -582,9 +585,6 @@ const zh = {
     historyEmpty: "源会话中没有找到可读取的消息。",
     historySource: "历史直接从对应 Agent 的本地记录读取",
     backToChat: "返回会话",
-    connected: "已接入 Kin",
-    available: "可原生续聊",
-    readOnly: "只读",
     sessionFallback: "{agent} 会话",
     sourceId: "源会话 ID · {value}",
     created: "首次索引于 {value}",

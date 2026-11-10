@@ -14,12 +14,12 @@ import type { AgentSession, Task } from "../api/client";
 import type { Machine } from "./devices";
 import {
   getArchivedProjects,
-  getPinnedProjects,
   groupByProject,
-  sortProjectGroups,
   type ProjectGroup,
   type ProjectSidebarPrefs,
+  sortProjectGroups,
 } from "./projectSidebar";
+import { projectLabel } from "./paths";
 
 export type DeviceGroup = {
   /** Machine id. Empty only for a daemon that has not named its own machine. */
@@ -30,7 +30,8 @@ export type DeviceGroup = {
   isSelf: boolean;
   online: boolean;
   projects: ProjectGroup[];
-  /** Imported agent sessions on this machine, matched to a project by cwd. */
+  /** Imported agent sessions on this machine, listed as one device-end group.
+   *  They are not projects: an import has no status, pin or archive of its own. */
   sessions: AgentSession[];
   /** Tasks + imported sessions, for the group's count badge. */
   count: number;
@@ -49,56 +50,6 @@ export const ONLY_THIS_MACHINE: Machine[] = [
  *  the same project, and a session with no cwd at all is still a project row. */
 export function projectKey(cwd: string): string {
   return normCwd(cwd) || "__unassigned__";
-}
-
-export function projectLabelForSession(session: AgentSession): string {
-  return (
-    session.project_label ||
-    (session.cwd ? session.cwd.split("/").filter(Boolean).pop() : "") ||
-    "Unassigned"
-  );
-}
-
-export function sessionsForProject(sessions: AgentSession[], group: ProjectGroup): AgentSession[] {
-  return sessions.filter((session) => projectKey(session.cwd) === projectKey(group.cwd));
-}
-
-/**
- * Add a project row for every imported session whose cwd has no tasks yet.
- *
- * Without this an agent session imported from a project nobody has given Kin
- * work in yet would be invisible: projects otherwise exist only because a task
- * named them. The merged rows are sorted back into place, so an imported
- * session touched a minute ago is not buried under older task rows.
- */
-export function mergeExternalProjectGroups(
-  groups: ProjectGroup[],
-  sessions: AgentSession[],
-  prefs?: ProjectSidebarPrefs | null,
-  onlyArchived = false,
-): ProjectGroup[] {
-  const out = [...groups];
-  const known = new Set(out.map((group) => projectKey(group.cwd)));
-  // Sort ranks pins from the stored list, not from `group.pinned`, so a row
-  // that leaves this false sorts to the top and draws an unlit pin button that
-  // unpins it when clicked.
-  const pinned = new Set((prefs?.pinned ?? getPinnedProjects()).map((cwd) => normCwd(cwd)));
-  for (const session of sessions) {
-    const key = projectKey(session.cwd);
-    if (known.has(key)) continue;
-    known.add(key);
-    out.push({
-      label: projectLabelForSession(session),
-      cwd: session.cwd,
-      items: [],
-      pinned: pinned.has(key),
-      archived: onlyArchived,
-      lastInteractedAt: session.updated_at,
-      createdAt: session.first_seen_at,
-      hasActiveTask: false,
-    });
-  }
-  return sortProjectGroups(out, prefs, onlyArchived);
 }
 
 function normCwd(cwd: string): string {
@@ -180,18 +131,45 @@ export function groupByDevice(
         : !archivedKeys.has(normCwd(session.cwd)),
     );
 
-    const projects = mergeExternalProjectGroups(
-      groupByProject(deviceTasks, prefs, false, onlyArchived),
-      deviceSessions,
-      prefs,
-      onlyArchived,
-    );
-    if (projects.length === 0) continue;
+    // Imported sessions are deliberately not merged into project groups: they
+    // are drawn as one device-end group, so an import never invents a project
+    // and never borrows a project's pin or archive state.
+    let projects = groupByProject(deviceTasks, prefs, false, onlyArchived);
+    if (onlyArchived) {
+      // An archived project whose tasks all fell outside the loaded page still
+      // has to be drawn: its heading is where Restore lives. An imported
+      // session naming the cwd is the only evidence left that it exists — the
+      // same evidence the old merged rows used — and only a cwd already in the
+      // archive list is seeded, so an import never invents an archived project.
+      const seen = new Set(projects.map((project) => normCwd(project.cwd)));
+      for (const session of deviceSessions) {
+        const key = normCwd(session.cwd);
+        if (!key || seen.has(key) || !archivedKeys.has(key)) continue;
+        seen.add(key);
+        projects.push({
+          cwd: session.cwd,
+          // The provider's own project name, when it has one, is the name the
+          // reader learned; the cwd's tail is only the fallback it always was.
+          label: session.project_label?.trim() || projectLabel(session.cwd),
+          items: [],
+          pinned: false,
+          archived: true,
+          lastInteractedAt: session.updated_at ?? 0,
+          createdAt: 0,
+          hasActiveTask: false,
+        });
+      }
+      if (projects.length > 0) projects = sortProjectGroups(projects, prefs, true);
+    }
+    if (projects.length === 0 && deviceSessions.length === 0) continue;
 
     const machine = known.get(id);
     let lastActivityAt = 0;
     for (const project of projects) {
       if (project.lastInteractedAt > lastActivityAt) lastActivityAt = project.lastInteractedAt;
+    }
+    for (const session of deviceSessions) {
+      if ((session.updated_at ?? 0) > lastActivityAt) lastActivityAt = session.updated_at;
     }
     groups.push({
       id,

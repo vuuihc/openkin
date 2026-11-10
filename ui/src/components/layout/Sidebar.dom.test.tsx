@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import type { Task } from "../../api/client";
+import type { AgentSession, Task } from "../../api/client";
 import Sidebar from "./Sidebar";
 import { setLocale } from "../../i18n";
 
@@ -62,11 +62,28 @@ function task(id: string, cwd: string, device?: string): Task {
   } as Task;
 }
 
+function session(id: string, title: string, device?: string): AgentSession {
+  return {
+    id,
+    agent_id: "claude-code",
+    external_ref: id,
+    title,
+    cwd: "/work/alpha",
+    status: "idle",
+    first_seen_at: 0,
+    last_seen_at: 0,
+    updated_at: 1,
+    linked: false,
+    ...(device ? { device_id: device } : {}),
+  };
+}
+
 function sidebar(
   tasks: Task[],
   onImportExternalSessions?: () => void,
   pendingByTask: ReadonlyMap<string, number> = new Map(),
   onDeleteSession?: (task: Task) => void,
+  externalSessions: AgentSession[] = [],
 ) {
   return (
     <MemoryRouter>
@@ -79,6 +96,8 @@ function sidebar(
         onNewChat={() => {}}
         onImportExternalSessions={onImportExternalSessions}
         onDeleteSession={onDeleteSession}
+        externalSessions={externalSessions}
+        onOpenExternalSession={() => {}}
       />
     </MemoryRouter>
   );
@@ -141,6 +160,119 @@ describe("the Mac sidebar list", () => {
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByRole("group", { name: "Import Agent sessions" })).toBeNull();
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it("folds each machine's imported sessions under one trailing count", async () => {
+    const sessions = [
+      session("imp-1", "Old Claude chat"),
+      session("imp-2", "Another imported chat"),
+    ];
+    const { rerender } = render(
+      sidebar([task("native", "/work/alpha")], undefined, new Map(), undefined, sessions),
+    );
+
+    // Folded by default: an import is the part a person goes looking for, not
+    // a row that competes with the conversations this machine ran.
+    const trigger = screen.getByRole("button", { name: "Imported sessions (2)" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("button", { name: "Old Claude chat" })).toBeNull();
+
+    // A new import only updates the count; it does not reopen the fold.
+    rerender(
+      sidebar(
+        [task("native", "/work/alpha")],
+        undefined,
+        new Map(),
+        undefined,
+        [...sessions, session("imp-3", "Brand new import")],
+      ),
+    );
+    expect(screen.getByRole("button", { name: "Imported sessions (3)" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Brand new import" })).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Imported sessions (3)" }));
+    expect(
+      screen.getByRole("button", { name: "Imported sessions (3)" }).getAttribute("aria-expanded"),
+    ).toBe("true");
+    const row = screen.getByRole("button", { name: "Old Claude chat" });
+    expect(screen.getByRole("button", { name: "Another imported chat" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Brand new import" })).toBeTruthy();
+    // The row is the native row: the avatar and the title, nothing else. A
+    // re-added availability chip or status mark would show up here even though
+    // the row's `aria-label` hides it from the accessible name.
+    expect(row.textContent).toBe("COld Claude chat");
+  });
+
+  it("narrows the imported group with the search instead of leaking the library", () => {
+    const sessions = [session("imp-1", "Old Claude chat")];
+    const searching = (query: string) => (
+      <MemoryRouter>
+        <Sidebar
+          tasks={[]}
+          pendingByTask={new Map()}
+          mobileOpen={false}
+          onOpenMobile={() => {}}
+          onCloseMobile={() => {}}
+          onNewChat={() => {}}
+          externalSessions={sessions}
+          searchQuery={query}
+          onSearchQueryChange={() => {}}
+        />
+      </MemoryRouter>
+    );
+
+    const { unmount } = render(searching("claude"));
+    expect(screen.getByRole("button", { name: "Imported sessions (1)" })).toBeTruthy();
+    // The match is on screen, not behind the fold: a search that finds a row
+    // and then hides it reads as "nothing matched".
+    expect(screen.getByRole("button", { name: "Old Claude chat" })).toBeTruthy();
+    unmount();
+
+    // The device still holds an import, but nothing matches: the page has to
+    // say so rather than leave a full group under the device heading.
+    render(searching("zzzz"));
+    expect(screen.queryByRole("button", { name: /Imported sessions/ })).toBeNull();
+    expect(screen.getByText(/No sessions match/)).toBeTruthy();
+  });
+
+  it("matches the words the row visibly shows for an opaque title", () => {
+    // The provider title is a UUID, so the row draws "Claude Code · Billing ·
+    // …"; typing "Billing" has to find it.
+    const opaque = {
+      ...session("imp-1", "6d8f4e35-3b8f-4a6a-8e1a-7ce0fca2d6f4"),
+      project_label: "Billing",
+    };
+    render(
+      <MemoryRouter>
+        <Sidebar
+          tasks={[]}
+          pendingByTask={new Map()}
+          mobileOpen={false}
+          onOpenMobile={() => {}}
+          onCloseMobile={() => {}}
+          onNewChat={() => {}}
+          externalSessions={[opaque]}
+          searchQuery="billing"
+          onSearchQueryChange={() => {}}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("button", { name: /Claude Code · Billing/ })).toBeTruthy();
+  });
+
+  it("remembers a fold the reader opened", async () => {
+    const sessions = [session("imp-1", "Old Claude chat")];
+    const { unmount } = render(
+      sidebar([task("native", "/work/alpha")], undefined, new Map(), undefined, sessions),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Imported sessions (1)" }));
+    expect(localStorage.getItem("kin_sidebar_open:imports:active:mac-1")).toBe("1");
+    unmount();
+
+    render(sidebar([task("native", "/work/alpha")], undefined, new Map(), undefined, sessions));
+    expect(
+      screen.getByRole("button", { name: "Imported sessions (1)" }).getAttribute("aria-expanded"),
+    ).toBe("true");
   });
 
   it("keeps import in the footer icon row, not as a second block above the list", () => {

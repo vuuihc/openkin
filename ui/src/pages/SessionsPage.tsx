@@ -19,6 +19,8 @@ import {
   archivedCwdFor,
   filterProjectBuckets,
   groupProjectBucketsByDevice,
+  isBucketCollapsed,
+  isImportedBucket,
   phoneProjectBuckets,
   PINNED_BUCKET,
   pinnedRowDeviceName,
@@ -174,6 +176,10 @@ export default function SessionsPage() {
   const [sessionsFailed, setSessionsFailed] = useState(false);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+  // Imported sessions are the one group folded on first sight. Kept apart from
+  // `collapsed`: that set starts empty and means "the reader folded this", and
+  // pre-seeding it would make a later "expand all" impossible to express.
+  const [openImported, setOpenImported] = useState<ReadonlySet<string>>(() => new Set());
   // Pins are the phone list's own preference (localStorage), like the sidebar's
   // project pins: a pinned task lifts to the top bucket and leaves its project.
   const [pinnedIds, setPinnedIds] = useState<ReadonlySet<string>>(
@@ -374,6 +380,7 @@ export default function SessionsPage() {
         {
           untitled: tr("sessions.untitled"),
           noProject: tr("sessions.noProject"),
+          imported: tr("sessions.importedLabel"),
         },
         archivedCwds,
         scope,
@@ -497,6 +504,7 @@ export default function SessionsPage() {
           };
 
   function renderBucket(bucket: PhoneProjectBucket, stateKey: string) {
+    const imported = isImportedBucket(bucket.key);
     return (
       <ProjectBucket
         key={stateKey}
@@ -507,10 +515,16 @@ export default function SessionsPage() {
         pendingByTask={pendingByTask}
         // A search result must not hide behind a fold the user set before
         // they typed; the cap folds away for the same reason.
-        collapsed={!searching && collapsed.has(stateKey)}
+        collapsed={isBucketCollapsed({
+          imported,
+          stateKey,
+          searching,
+          collapsed,
+          openImported,
+        })}
         showAll={searching || expanded.has(stateKey)}
         canToggle={!searching}
-        onToggle={() => toggleBucket(stateKey)}
+        onToggle={() => toggleBucket(stateKey, imported)}
         onToggleShowAll={() => toggleShowAll(stateKey)}
         onOpen={openRow}
         selectionMode={selectionMode}
@@ -541,7 +555,16 @@ export default function SessionsPage() {
     );
   }
 
-  function toggleBucket(key: string) {
+  function toggleBucket(key: string, imported: boolean) {
+    if (imported) {
+      setOpenImported((current) => {
+        const next = new Set(current);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      });
+      return;
+    }
     setCollapsed((current) => {
       const next = new Set(current);
       if (next.has(key)) next.delete(key);
@@ -1154,6 +1177,13 @@ function ProjectBucket({
   const tr = useT();
   const rows = showAll ? bucket.rows : bucket.rows.slice(0, ROWS_BEFORE_SHOW_ALL);
   const hidden = bucket.rows.length - rows.length;
+  // An imported group is not a project: it draws the conversation mark and
+  // says how many rows it holds. While searching that is the matching rows —
+  // the group is force-open then, so the number and the visible rows agree.
+  const imported = isImportedBucket(bucket.key);
+  const heading = imported
+    ? tr("sessions.imported", { count: String(bucket.rows.length) })
+    : bucket.label;
 
   return (
     <section className="pb-1">
@@ -1169,10 +1199,12 @@ function ProjectBucket({
           aria-expanded={!collapsed}
           // The visible label carries a `<mark>` while searching; the accessible
           // name must stay the plain project name, not "Kin, highlighted, …".
-          aria-label={bucket.label}
+          aria-label={heading}
           className="kin-row-press flex min-h-11 min-w-0 flex-1 items-center gap-1.5 text-left"
         >
-          {collapsed ? (
+          {imported ? (
+            <IconSessions size={18} className="flex-none text-kin-muted" />
+          ) : collapsed ? (
             <IconFolder size={20} className="flex-none text-kin-muted" strokeWidth={1.75} />
           ) : (
             <IconFolderOpen size={20} className="flex-none text-kin-muted" strokeWidth={1.75} />
@@ -1182,7 +1214,7 @@ function ProjectBucket({
               same column as the rows' timestamps and read as one of them. */}
           <span className="flex min-w-0 max-w-full items-center gap-1">
             <span className="min-w-0 truncate text-strong font-semibold text-kin-muted">
-              <HighlightedText text={bucket.label} query={query} />
+              <HighlightedText text={heading} query={query} />
             </span>
             <IconChevronDown
               size={14}

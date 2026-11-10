@@ -4,6 +4,9 @@ import {
   archivedCwdFor,
   filterProjectBuckets,
   groupProjectBucketsByDevice,
+  IMPORTED_BUCKET_PREFIX,
+  isBucketCollapsed,
+  isImportedBucket,
   PINNED_BUCKET,
   pinnedRowDeviceName,
   withPinnedBucket,
@@ -40,7 +43,7 @@ function session(partial: Partial<AgentSession> & Pick<AgentSession, "id" | "cwd
   };
 }
 
-const COPY = { untitled: "Untitled", noProject: "No project" };
+const COPY = { untitled: "Untitled", noProject: "No project", imported: "Imported sessions" };
 
 function buckets(
   tasks: Task[],
@@ -53,7 +56,7 @@ function buckets(
 }
 
 describe("phoneProjectBuckets", () => {
-  it("groups by project and merges imported sessions into the same heading", () => {
+  it("groups tasks by project and keeps imports in one trailing group", () => {
     const rows = buckets(
       [
         task({ id: "a", cwd: "/work/alpha", created_at: 10 }),
@@ -62,10 +65,33 @@ describe("phoneProjectBuckets", () => {
       ],
       [session({ id: "s1", cwd: "/work/alpha", updated_at: 40 })],
     );
-    expect(rows.map((bucket) => bucket.label)).toEqual(["alpha", "beta"]);
+    // The import shares alpha's cwd but is not a project: it is the machine's
+    // trailing shelf, even though it is the newest row on the page.
+    expect(rows.map((bucket) => bucket.label)).toEqual(["beta", "alpha", "Imported sessions"]);
     const alpha = rows.find((bucket) => bucket.key === "/work/alpha")!;
-    // The trailing slash is the same project, and the imported session joins it.
-    expect(alpha.rows.map((row) => row.key)).toEqual(["s1", "b", "a"]);
+    // The trailing slash is the same project.
+    expect(alpha.rows.map((row) => row.key)).toEqual(["b", "a"]);
+    const imported = rows.find((bucket) => isImportedBucket(bucket.key))!;
+    expect(imported.key).toBe(IMPORTED_BUCKET_PREFIX + "self");
+    expect(imported.rows.map((row) => row.key)).toEqual(["s1"]);
+  });
+
+  it("gives each machine its own imported group", () => {
+    const rows = buckets([], [
+      session({ id: "s-here", cwd: "/work/a", updated_at: 1 }),
+      session({ id: "s-here-2", cwd: "/work/b", updated_at: 2 }),
+      session({ id: "s-there", cwd: "/work/c", updated_at: 3, device_id: "other" }),
+    ]);
+    const byKey = new Map(
+      rows.filter((bucket) => isImportedBucket(bucket.key)).map((bucket) => [bucket.key, bucket]),
+    );
+    expect(byKey.get(IMPORTED_BUCKET_PREFIX + "self")!.rows.map((row) => row.key)).toEqual([
+      "s-here-2",
+      "s-here",
+    ]);
+    expect(byKey.get(IMPORTED_BUCKET_PREFIX + "other")!.rows.map((row) => row.key)).toEqual([
+      "s-there",
+    ]);
   });
 
   it("orders by newest activity and puts the no-project bucket last", () => {
@@ -87,6 +113,15 @@ describe("phoneProjectBuckets", () => {
   // machine imported for it. Matching them here is what keeps one real
   // conversation from taking two rows on the phone.
   describe("one conversation named by both feeds", () => {
+    // An import that is not the same conversation still appears — in its own
+    // trailing group, never under the project heading it shares a cwd with.
+    const importedKeys = (rows: ReturnType<typeof buckets>) =>
+      rows
+        .filter((bucket) => isImportedBucket(bucket.key))
+        .flatMap((bucket) => bucket.rows.map((row) => row.key));
+    const projectKeys = (rows: ReturnType<typeof buckets>, key = "/work/alpha") =>
+      rows.find((bucket) => bucket.key === key)?.rows.map((row) => row.key) ?? [];
+
     const phoneTask = task({
       id: "task-1",
       cwd: "/work/alpha",
@@ -111,7 +146,8 @@ describe("phoneProjectBuckets", () => {
           }),
         ],
       );
-      expect(rows.flatMap((bucket) => bucket.rows.map((row) => row.key))).toEqual(["task-1"]);
+      expect(projectKeys(rows)).toEqual(["task-1"]);
+      expect(importedKeys(rows)).toEqual([]);
     });
 
     it("keeps the imported row when no task names its conversation", () => {
@@ -127,7 +163,8 @@ describe("phoneProjectBuckets", () => {
           }),
         ],
       );
-      expect(rows[0]!.rows.map((row) => row.key)).toEqual(["imported-1", "task-1"]);
+      expect(projectKeys(rows)).toEqual(["task-1"]);
+      expect(importedKeys(rows)).toEqual(["imported-1"]);
     });
 
     it("does not merge the same ref from another machine", () => {
@@ -144,7 +181,8 @@ describe("phoneProjectBuckets", () => {
           }),
         ],
       );
-      expect(rows[0]!.rows.map((row) => row.key)).toEqual(["imported-1", "task-1"]);
+      expect(projectKeys(rows)).toEqual(["task-1"]);
+      expect(importedKeys(rows)).toEqual(["imported-1"]);
     });
 
     it("does not merge a different ref on the same machine", () => {
@@ -160,7 +198,8 @@ describe("phoneProjectBuckets", () => {
           }),
         ],
       );
-      expect(rows[0]!.rows.map((row) => row.key)).toEqual(["imported-1", "task-1"]);
+      expect(projectKeys(rows)).toEqual(["task-1"]);
+      expect(importedKeys(rows)).toEqual(["imported-1"]);
     });
 
     it("never merges on a shared title alone", () => {
@@ -177,7 +216,8 @@ describe("phoneProjectBuckets", () => {
           }),
         ],
       );
-      expect(rows[0]!.rows.map((row) => row.key)).toEqual(["imported-1", "task-1"]);
+      expect(projectKeys(rows)).toEqual(["task-1"]);
+      expect(importedKeys(rows)).toEqual(["imported-1"]);
     });
 
     it("reads an empty device as this machine on both sides", () => {
@@ -207,7 +247,8 @@ describe("phoneProjectBuckets", () => {
         [task({ id: "task-1", cwd: "/work/alpha", created_at: 10, session_ref: "   " })],
         [session({ id: "imported-1", cwd: "/work/alpha", updated_at: 20, external_ref: "" })],
       );
-      expect(rows[0]!.rows.map((row) => row.key)).toEqual(["imported-1", "task-1"]);
+      expect(projectKeys(rows)).toEqual(["task-1"]);
+      expect(importedKeys(rows)).toEqual(["imported-1"]);
     });
   });
 
@@ -291,6 +332,46 @@ describe("phoneProjectBuckets", () => {
   });
 });
 
+describe("isBucketCollapsed", () => {
+  const none = new Set<string>();
+
+  it("folds an imported group until the reader opens it", () => {
+    const base = { imported: true, stateKey: "imported\u0000mac", searching: false, collapsed: none };
+    expect(isBucketCollapsed({ ...base, openImported: none })).toBe(true);
+    expect(isBucketCollapsed({ ...base, openImported: new Set([base.stateKey]) })).toBe(false);
+  });
+
+  it("reads a project's fold from the stored set, not the open set", () => {
+    const base = { imported: false, stateKey: "/work/alpha", searching: false, openImported: none };
+    expect(isBucketCollapsed({ ...base, collapsed: none })).toBe(false);
+    expect(isBucketCollapsed({ ...base, collapsed: new Set([base.stateKey]) })).toBe(true);
+    // The two sets mean opposite things; an imported key in the open set must
+    // not make a project with the same key look folded or open.
+    expect(isBucketCollapsed({ ...base, collapsed: none, openImported: new Set([base.stateKey]) })).toBe(false);
+  });
+
+  it("opens every bucket while searching", () => {
+    expect(
+      isBucketCollapsed({
+        imported: true,
+        stateKey: "imported\u0000mac",
+        searching: true,
+        collapsed: none,
+        openImported: none,
+      }),
+    ).toBe(false);
+    expect(
+      isBucketCollapsed({
+        imported: false,
+        stateKey: "/work/alpha",
+        searching: true,
+        collapsed: new Set(["/work/alpha"]),
+        openImported: none,
+      }),
+    ).toBe(false);
+  });
+});
+
 describe("the archived scope", () => {
   const tasks = [
     task({ id: "a", cwd: "/work/alpha", created_at: 10 }),
@@ -370,7 +451,7 @@ describe("a conversation archived on its own", () => {
       [],
       "active",
     );
-    expect(rows.map((bucket) => bucket.key)).toEqual(["/work/alpha"]);
+    expect(rows.map((bucket) => bucket.key)).toEqual([IMPORTED_BUCKET_PREFIX + "self"]);
     expect(rows[0]!.rows.map((row) => row.key)).toEqual(["s1"]);
   });
 });
@@ -639,6 +720,22 @@ describe("groupProjectBucketsByDevice", () => {
     );
 
     expect(groups[0]!.buckets.map((bucket) => bucket.label)).toEqual(["gamma", "beta"]);
+  });
+
+  it("keeps a machine's imported group after its projects, whatever the recency", () => {
+    const groups = groupProjectBucketsByDevice(
+      buckets(
+        [task({ id: "t", cwd: "/work/alpha", created_at: 100 })],
+        [session({ id: "s", cwd: "/work/alpha", updated_at: 200, device_id: "mac" })],
+      ),
+      machines,
+      "mac",
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.buckets.map((bucket) => bucket.key)).toEqual([
+      "/work/alpha",
+      IMPORTED_BUCKET_PREFIX + "mac",
+    ]);
   });
 
   it("leaves pinned rows to the page's own leading section", () => {

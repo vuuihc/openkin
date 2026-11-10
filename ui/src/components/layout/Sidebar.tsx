@@ -35,7 +35,6 @@ import {
   groupByDevice,
   ONLY_THIS_MACHINE,
   projectKey,
-  sessionsForProject,
   type DeviceGroup,
 } from "../../lib/deviceSidebar";
 import { useMachines } from "../../hooks/useMachines";
@@ -53,11 +52,7 @@ import {
 } from "../../lib/sessionViewed";
 import { taskDisplayTitle } from "../../lib/taskTitle";
 import { agentAvatarMeta, agentDisplayName } from "../../lib/agentMention";
-import {
-  agentSessionAvailability,
-  displayAgentSessionTitle,
-  type AgentSessionAvailability,
-} from "../../lib/agentSessionTitle";
+import { displayAgentSessionTitle } from "../../lib/agentSessionTitle";
 import {
   IconArchive,
   IconFile,
@@ -116,16 +111,18 @@ function normCwd(cwd: string): string {
   return cwd.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
-function readSidebarDisclosure(key: string): boolean {
+function readSidebarDisclosure(key: string, defaultOpen: boolean): boolean {
   try {
-    return localStorage.getItem(`kin_sidebar_open:${key}`) !== "0";
+    const stored = localStorage.getItem(`kin_sidebar_open:${key}`);
+    if (stored === null) return defaultOpen;
+    return stored === "1";
   } catch {
-    return true;
+    return defaultOpen;
   }
 }
 
-function useSidebarDisclosure(key: string): [boolean, () => void] {
-  const [open, setOpen] = useState(() => readSidebarDisclosure(key));
+function useSidebarDisclosure(key: string, defaultOpen = true): [boolean, () => void] {
+  const [open, setOpen] = useState(() => readSidebarDisclosure(key, defaultOpen));
   const toggle = () => {
     setOpen((current) => {
       const next = !current;
@@ -186,13 +183,38 @@ export default function Sidebar({
   const { machines, loading: machinesLoading } = useMachines();
   // prefsTick invalidates after localStorage updates (sort / pin / archive / interact).
   const machineList = machines.length > 0 ? machines : ONLY_THIS_MACHINE;
+  // The task feed is narrowed by the daemon (`?q=`); imports are loaded whole,
+  // so the sidebar narrows them here with the words a row actually shows. A
+  // search that matched only imports must not fall through to "nothing found"
+  // while the full imported group sits on screen.
+  const visibleExternalSessions = useMemo(() => {
+    const needle = searchQuery.trim().toLowerCase();
+    if (!needle) return externalSessions;
+    return externalSessions.filter((session) =>
+      [
+        session.title,
+        // What the row shows when the provider title is opaque — the agent,
+        // the project and the ref — has to be searchable too, or typing a
+        // word the reader can see on screen says nothing matched.
+        displayAgentSessionTitle(
+          session,
+          tr("agentSession.sessionFallback", { agent: agentDisplayName(session.agent_id) }),
+        ),
+        session.project_label,
+        session.cwd,
+        session.agent_id,
+        agentDisplayName(session.agent_id),
+        session.external_ref,
+      ].some((field) => Boolean(field) && field!.toLowerCase().includes(needle)),
+    );
+  }, [externalSessions, searchQuery, tr]);
   const archivedGroups = useMemo(
-    () => groupByDevice(tasks, externalSessions, machineList, null, true, machinesLoading),
-    [tasks, externalSessions, machineList, machinesLoading, prefsTick],
+    () => groupByDevice(tasks, visibleExternalSessions, machineList, null, true, machinesLoading),
+    [tasks, visibleExternalSessions, machineList, machinesLoading, prefsTick],
   );
   const groups = useMemo(
-    () => groupByDevice(tasks, externalSessions, machineList, null, false, machinesLoading),
-    [tasks, externalSessions, machineList, machinesLoading, prefsTick],
+    () => groupByDevice(tasks, visibleExternalSessions, machineList, null, false, machinesLoading),
+    [tasks, visibleExternalSessions, machineList, machinesLoading, prefsTick],
   );
   // One tree, one width: a phone has no sidebar to hold the list, and the
   // drawer is entries only. Rendering both copies and hiding one with CSS left
@@ -418,8 +440,6 @@ export default function Sidebar({
         onDeleteSession={onDeleteSession}
         deleteLabel={tr("task.deleteSession")}
         coarse={coarse}
-        externalSessions={sessionsForProject(device.sessions, g)}
-        onOpenExternalSession={onOpenExternalSession}
         pendingByTask={pendingByTask}
         mode={mode}
       />
@@ -717,6 +737,17 @@ export default function Sidebar({
           mode="active"
         >
           {device.projects.map((g) => projectBlock(g, device, "active"))}
+          {device.sessions.length > 0 && (
+            <ImportedSessions
+              deviceId={device.id}
+              mode="active"
+              searching={Boolean(searchQuery.trim())}
+              sessions={device.sessions}
+              onOpen={onOpenExternalSession}
+              onCloseMobile={onCloseMobile}
+              coarse={coarse}
+            />
+          )}
         </DeviceSection>
       ))}
       {showOrphanDraft && (
@@ -768,6 +799,17 @@ export default function Sidebar({
                   mode="archived"
                 >
                   {device.projects.map((g) => projectBlock(g, device, "archived"))}
+                  {device.sessions.length > 0 && (
+                    <ImportedSessions
+                      deviceId={device.id}
+                      mode="archived"
+                      searching={Boolean(searchQuery.trim())}
+                      sessions={device.sessions}
+                      onOpen={onOpenExternalSession}
+                      onCloseMobile={onCloseMobile}
+                      coarse={coarse}
+                    />
+                  )}
                 </DeviceSection>
               ))}
             </div>
@@ -1173,8 +1215,6 @@ function ProjectBlock({
   onCloseMobile,
   onNewSession,
   onDeleteSession,
-  externalSessions = [],
-  onOpenExternalSession,
   onTogglePin,
   onArchive,
   onMenu,
@@ -1199,8 +1239,6 @@ function ProjectBlock({
   onCloseMobile: () => void;
   onNewSession: () => void;
   onDeleteSession?: (task: Task) => void;
-  externalSessions?: AgentSession[];
-  onOpenExternalSession?: (session: AgentSession) => void;
   onTogglePin: () => void;
   onArchive: () => void;
   /** Opens the phone's project action sheet (cover / pin / archive / new). */
@@ -1378,11 +1416,9 @@ function ProjectBlock({
           <div className="space-y-0.5 max-h-[min(280px,40vh)] overflow-y-auto kin-scroll pr-0.5">
             <ProjectSessionRows
               tasks={g.items}
-              sessions={externalSessions}
               selectedTaskId={selectedTaskId}
               onDeleteSession={onDeleteSession}
               deleteLabel={deleteLabel}
-              onOpenExternalSession={onOpenExternalSession}
               onCloseMobile={onCloseMobile}
               coarse={coarse}
               pendingByTask={pendingByTask}
@@ -1394,30 +1430,94 @@ function ProjectBlock({
   );
 }
 
+/**
+ * One machine's imported sessions, folded to a single line at the end of that
+ * machine's section.
+ *
+ * An import is a conversation, not a project, a status, or a capability: it
+ * gets the same row as a native conversation and no rail, badge, border, or
+ * tint of its own. The fold defaults closed, and a new import only changes the
+ * count — it must not open a section the reader put away.
+ */
+function ImportedSessions({
+  deviceId,
+  mode,
+  searching,
+  sessions,
+  onOpen,
+  onCloseMobile,
+  coarse,
+}: {
+  deviceId: string;
+  mode: "active" | "archived";
+  /** A search result must not hide behind a fold: open while searching, and
+   *  do not write that state into the reader's stored preference. */
+  searching: boolean;
+  sessions: AgentSession[];
+  onOpen?: (session: AgentSession) => void;
+  onCloseMobile: () => void;
+  coarse: boolean;
+}) {
+  const tr = useT();
+  // Mode is part of the key for the same reason it is on devices and
+  // projects: both sections can be on screen, and they fold independently.
+  const [open, toggle] = useSidebarDisclosure(`imports:${mode}:${deviceId || "self"}`, false);
+  const expanded = open || searching;
+  return (
+    <div className="pt-1">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => {
+          if (!searching) toggle();
+        }}
+        className="kin-section-label flex w-full items-center gap-1 pr-0.5 text-left text-kin-muted max-md:min-h-11 max-md:normal-case max-md:tracking-normal max-md:text-strong max-md:font-semibold"
+      >
+        <IconChevron
+          size={11}
+          className={["flex-none transition-transform", expanded ? "rotate-90" : ""].join(" ")}
+        />
+        <span className="min-w-0 flex-1 truncate">
+          {tr("sessions.imported", { count: String(sessions.length) })}
+        </span>
+      </button>
+      {expanded && (
+        <div className="mt-0.5 space-y-0.5">
+          {sessions.map((session) => (
+            <ExternalSessionRow
+              key={session.id}
+              session={session}
+              sessionTitle={displayAgentSessionTitle(
+                session,
+                tr("agentSession.sessionFallback", {
+                  agent: agentDisplayName(session.agent_id),
+                }),
+              )}
+              onOpen={onOpen}
+              onCloseMobile={onCloseMobile}
+              coarse={coarse}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ExternalSessionRow({
   session,
-  label,
   sessionTitle,
   onOpen,
   onCloseMobile,
   coarse,
 }: {
   session: AgentSession;
-  label: string;
   sessionTitle: string;
   onOpen?: (session: AgentSession) => void;
   onCloseMobile: () => void;
   coarse: boolean;
 }) {
-  const tr = useT();
   const avatar = agentAvatarMeta(session.agent_id);
-  const availability = agentSessionAvailability(session);
-  const availabilityLabel =
-    availability === "linked"
-      ? tr("agentSession.connected")
-      : availability === "resumable"
-        ? tr("agentSession.available")
-        : tr("agentSession.readOnly");
   return (
     <button
       type="button"
@@ -1427,21 +1527,16 @@ function ExternalSessionRow({
         onCloseMobile();
       }}
       className={[
-        "w-full flex items-center gap-2 px-1.5 py-1.5 rounded-lg border text-left text-body min-h-9 max-md:min-h-11 max-md:text-strong transition-colors",
-        externalSessionRowClass(availability, coarse),
+        "w-full flex min-h-9 min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-body text-kin-secondary max-md:min-h-11 max-md:text-strong",
+        // A conversation row is the same row on a finger; without the hover
+        // change the first tap lands as a hover.
+        coarse ? "" : "hover:bg-[var(--kin-fill)] hover:text-kin-text",
       ].join(" ")}
-      aria-label={`${label}, ${availabilityLabel}, ${sessionTitle}`}
-      title={`${label}: ${availabilityLabel}: ${sessionTitle}`}
+      aria-label={sessionTitle}
     >
       <span
-        className={["h-7 w-1 flex-none rounded-full", externalSessionRailClass(availability)].join(
-          " ",
-        )}
-        aria-hidden="true"
-      />
-      <span
         className={[
-          "inline-flex h-5 w-5 items-center justify-center rounded-md text-micro font-semibold",
+          "inline-flex h-5 w-5 flex-none items-center justify-center rounded-full text-micro font-semibold",
           avatar.className,
         ].join(" ")}
         role="img"
@@ -1449,76 +1544,24 @@ function ExternalSessionRow({
       >
         {avatar.initials}
       </span>
-      <span
-        className={[
-          "h-1.5 w-1.5 flex-none rounded-full",
-          session.status === "active" ? "bg-kin-blue" : "bg-kin-muted",
-        ].join(" ")}
-        aria-hidden="true"
-      />
       <span className="truncate flex-1 min-w-0">{sessionTitle}</span>
-      <span
-        className={[
-          "shrink-0 rounded-md border px-1.5 py-0.5 text-micro font-medium",
-          externalSessionBadgeClass(availability),
-        ].join(" ")}
-      >
-        {availabilityLabel}
-      </span>
     </button>
   );
 }
 
-function externalSessionRowClass(availability: AgentSessionAvailability, coarse: boolean): string {
-  if (availability === "linked") {
-    return [
-      "border-kin-blue/25 bg-kin-blue/10 text-kin-text",
-      coarse ? "" : "hover:bg-kin-blue/15",
-    ].join(" ");
-  }
-  if (availability === "resumable") {
-    return [
-      "border-kin-green/25 bg-kin-green/10 text-kin-text",
-      coarse ? "" : "hover:bg-kin-green/15",
-    ].join(" ");
-  }
-  return [
-    "border-kin-hairline border-dashed bg-[var(--kin-fill)] text-kin-secondary",
-    // A conversation row is the same row on a finger; without the hover
-    // change the first tap lands as a tap.
-    coarse ? "" : "hover:bg-[var(--kin-fill-strong)] hover:text-kin-text",
-  ].join(" ");
-}
-
-function externalSessionRailClass(availability: AgentSessionAvailability): string {
-  if (availability === "linked") return "bg-kin-blue";
-  if (availability === "resumable") return "bg-kin-green";
-  return "bg-kin-muted";
-}
-
-function externalSessionBadgeClass(availability: AgentSessionAvailability): string {
-  if (availability === "linked") return "border-kin-blue/30 text-kin-blue-ink";
-  if (availability === "resumable") return "border-kin-green/30 text-kin-green-ink";
-  return "border-kin-hairline text-kin-muted";
-}
-
 function ProjectSessionRows({
   tasks,
-  sessions,
   selectedTaskId,
   onDeleteSession,
   deleteLabel,
-  onOpenExternalSession,
   onCloseMobile,
   coarse,
   pendingByTask,
 }: {
   tasks: Task[];
-  sessions: AgentSession[];
   selectedTaskId?: string | null;
   onDeleteSession?: (task: Task) => void;
   deleteLabel?: string;
-  onOpenExternalSession?: (session: AgentSession) => void;
   onCloseMobile: () => void;
   /** The pointer is a finger: no hover reveal, no hover-only delete. */
   coarse: boolean;
@@ -1526,30 +1569,9 @@ function ProjectSessionRows({
   pendingByTask: ReadonlyMap<string, number>;
 }) {
   const tr = useT();
-  const rows = useMemo(() => mergeProjectRows(tasks, sessions), [tasks, sessions]);
   return (
     <div className="space-y-0.5">
-      {rows.map((row) => {
-        if (row.session) {
-          const session = row.session;
-          return (
-            <ExternalSessionRow
-              key={session.id}
-              session={session}
-              label={tr("nav.externalSession")}
-              sessionTitle={displayAgentSessionTitle(
-                session,
-                tr("agentSession.sessionFallback", {
-                  agent: agentDisplayName(session.agent_id),
-                }),
-              )}
-              onOpen={onOpenExternalSession}
-              onCloseMobile={onCloseMobile}
-              coarse={coarse}
-            />
-          );
-        }
-        const task = row.task!;
+      {tasks.map((task) => {
         const active = task.id === selectedTaskId;
         const dot = sessionStatusDotClass(task.status, isSessionViewed(task.id));
         const title = taskDisplayTitle(task);
@@ -1617,39 +1639,6 @@ function ProjectSessionRows({
         );
       })}
     </div>
-  );
-}
-
-type ProjectRow = {
-  key: string;
-  at: number;
-  active: boolean;
-  task?: Task;
-  session?: AgentSession;
-};
-
-/**
- * One list per project: a session Kin ran and a session an agent ran are both
- * just sessions in this project, so they share a timeline. A task still running
- * stays on top of it.
- */
-function mergeProjectRows(tasks: Task[], sessions: AgentSession[]): ProjectRow[] {
-  const rows: ProjectRow[] = [
-    ...tasks.map((task) => ({
-      key: task.id,
-      at: task.finished_at ?? task.started_at ?? task.created_at ?? 0,
-      active: !isTerminal(task.status),
-      task,
-    })),
-    ...sessions.map((session) => ({
-      key: session.id,
-      at: session.updated_at ?? 0,
-      active: false,
-      session,
-    })),
-  ];
-  return rows.sort(
-    (a, b) => Number(b.active) - Number(a.active) || b.at - a.at || a.key.localeCompare(b.key),
   );
 }
 
