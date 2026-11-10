@@ -211,12 +211,23 @@ export function cwdOnMachine(cwd: string, machine: Machine | undefined): string 
   return machine.roots.some((root) => pathWithin(root, path)) ? cwd : machine.roots[0];
 }
 
+/** Separators unified and trailing slashes gone, for lexical comparison. */
+function normalizePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
 /** Lexical containment, which is as much as a console can check from afar. */
-function pathWithin(root: string, path: string): boolean {
-  const base = root.replace(/\\/g, "/").replace(/\/+$/, "");
+export function pathWithin(root: string, path: string): boolean {
+  const base = normalizePath(root);
   if (!base) return false;
-  const target = path.replace(/\\/g, "/").replace(/\/+$/, "");
+  const target = normalizePath(path);
   return target === base || target.startsWith(base + "/");
+}
+
+/** Whether two names point at the same directory, as far as a console can tell. */
+export function samePath(a: string, b: string): boolean {
+  const normalized = normalizePath(a);
+  return normalized !== "" && normalized === normalizePath(b);
 }
 
 /**

@@ -4,6 +4,7 @@ import {
   machineForRoutineDevice,
   resolveRoutineDevice,
   routineDeviceForBadge,
+  routineDeviceForProject,
   THIS_MACHINE,
 } from "./routineDevice";
 
@@ -52,6 +53,66 @@ describe("resolveRoutineDevice", () => {
 
   it("opens on this machine when it is the only one", () => {
     expect(resolveRoutineDevice([SELF], "")).toBe(THIS_MACHINE);
+  });
+});
+
+describe("routineDeviceForProject", () => {
+  const WORK_LAPTOP = machine("device-laptop", { roots: ["/Users/owner/work"] });
+  const ELSEWHERE = machine("device-elsewhere", { roots: ["/srv/other"] });
+  const ALSO_WORK = machine("device-second", { roots: ["/Users/owner/work"] });
+
+  it("picks the machine whose roots contain the project folder", () => {
+    // The project is a Hub-side record keyed by a folder; the machine that
+    // reports that folder is the only one whose store can hold its routines.
+    expect(
+      routineDeviceForProject([SELF, ELSEWHERE, WORK_LAPTOP], "/Users/owner/work/app", ""),
+    ).toBe(WORK_LAPTOP.id);
+  });
+
+  it("does not mistake a shared prefix for the same folder", () => {
+    const sibling = machine("device-sibling", { roots: ["/Users/owner/workshop"] });
+    expect(routineDeviceForProject([SELF, sibling], "/Users/owner/work", "")).toBe("");
+  });
+
+  it("keeps the Routines page choice when several machines report the folder", () => {
+    // Two machines can work in the same path. The page the person just used is
+    // the one they mean, not whichever happened to sort first.
+    expect(
+      routineDeviceForProject([SELF, WORK_LAPTOP, ALSO_WORK], "/Users/owner/work", ALSO_WORK.id),
+    ).toBe(ALSO_WORK.id);
+  });
+
+  it("prefers an online owner, then list order", () => {
+    const offline = machine("device-offline", {
+      roots: ["/Users/owner/work"],
+      online: false,
+    });
+    expect(
+      routineDeviceForProject([SELF, offline, ALSO_WORK], "/Users/owner/work", ""),
+    ).toBe(ALSO_WORK.id);
+    expect(routineDeviceForProject([SELF, offline], "/Users/owner/work", "")).toBe(offline.id);
+  });
+
+  it("falls back to this machine when no other machine names the folder", () => {
+    // A console with no nodes is a desktop attached to its own daemon, and a
+    // project created there by path is a local record.
+    expect(routineDeviceForProject([SELF, ELSEWHERE], "/Users/owner/work", "")).toBe("");
+    expect(routineDeviceForProject([SELF], "/Users/owner/work", "")).toBe("");
+  });
+
+  it("answers this machine for a project with no folder", () => {
+    // Nothing to look up, so nothing from another machine's store either.
+    expect(routineDeviceForProject([SELF, WORK_LAPTOP], "", WORK_LAPTOP.id)).toBe("");
+  });
+
+  it("ignores roots reported by this machine itself", () => {
+    // machineList never gives the self record roots; even if a fixture did,
+    // "this machine" is spelled empty, not by its id.
+    const selfWithRoots = machine("desktop-hub", {
+      isSelf: true,
+      roots: ["/Users/owner/work"],
+    });
+    expect(routineDeviceForProject([selfWithRoots], "/Users/owner/work", "")).toBe("");
   });
 });
 
