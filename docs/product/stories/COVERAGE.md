@@ -5,7 +5,7 @@
 
 | 编号 | 状态 | 优先级 | 旅程 | 面 | 标题 | 测试 |
 |---|---|---|---|---|---|---|
-| `KIN-CONTINUE-001` | approved | P0 | J1、J2 | Mac/手机 | 接着问一段对话 | 25 |
+| `KIN-CONTINUE-001` | approved | P0 | J1、J2 | Mac/手机 | 接着问一段对话 | 26 |
 | `KIN-NOTIFY-001` | approved | P0 | J7 | Mac/手机 | 离开时被叫回来 | 14 |
 | `KIN-MANAGE-001` | draft | P1 | J5 | Mac/手机 | 整理一段对话 | 0 |
 | `KIN-RESULT-001` | draft | P1 | J4 | Mac/手机 | 看它改了什么 | 0 |

@@ -19,8 +19,10 @@ scrim、焦点陷阱、Escape / Back、安全区都由 `Sheet` 负责。
 
 ## 行为
 
-- **行是按钮，不是 radio。** 点击先 `onClose()`，再 `onSelect()`；这样下一层
-  对话框在同一 commit 里挂载时，`Sheet` 的焦点归还已经跑完。
+- **行是按钮，不是 radio。** 点击先 `onClose()`，再 `onSelect()`。行不要同步打开
+  另一个 `Sheet`：关闭中的 sheet 会把历史条目还回去，新 sheet 可能被这次
+  traversal 关掉。需要下一层时，用 ref + 监听 `open` 变 false 的 effect，
+  范例是 `TaskDetailPage` 的会话菜单。
 - **当前值用 `selected` 标记。** 行加 `aria-current="true"` 和勾选图标；选中态
   不是“点完不关”的 radio。
 - **破坏性行动用 `destructive`。** 行取 `--kin-red-ink`，不要自己塞颜色 class。
