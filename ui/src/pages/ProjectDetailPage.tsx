@@ -377,7 +377,7 @@ export default function ProjectDetailPage() {
               // leaves the app. The router's own index is 0 when this document
               // has no in-app entry behind it.
               if ((window.history.state?.idx ?? 0) > 0) navigate(-1);
-              else navigate("/projects");
+              else navigate("/sessions");
             }}
           >
             <IconBack size={14} />
@@ -400,7 +400,7 @@ export default function ProjectDetailPage() {
             className="mb-3 inline-flex items-center gap-1 text-strong text-kin-secondary hover:text-kin-text"
             onClick={() => {
               if ((window.history.state?.idx ?? 0) > 0) navigate(-1);
-              else navigate("/projects");
+              else navigate("/sessions");
             }}
           >
             <IconBack size={14} />

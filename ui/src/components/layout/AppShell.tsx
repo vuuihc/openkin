@@ -1,24 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
-  deleteTask,
   getSettings,
   getUsageSummary,
   listAgents,
-  listAgentSessionsPage,
   type AgentInfo,
-  type AgentSession,
   type AgentSessionImportResult,
   type Approval,
-  type Task,
 } from "../../api/client";
-import { liveResources } from "../../api/liveResources";
 import { useTaskList, useTaskResource } from "../../api/useLiveResources";
 import { isImeKeyEvent } from "../../lib/ime";
 import {
   DRAFT_PATH,
   draftSurfaceActive,
-  setDraftCwd,
   getDraftCwd,
   subscribeDraft,
 } from "../../lib/draftChat";
@@ -58,8 +52,6 @@ import ErrorBoundary from "../ErrorBoundary";
 
 type Props = {
   children: ReactNode;
-  /** Waiting approvals and questions per task, for the sidebar's row tails. */
-  pendingByTask: ReadonlyMap<string, number>;
   /** The waiting approvals themselves, so one can be answered from any screen. */
   pendingApprovals: Approval[];
   routineUnreadCount?: number;
@@ -78,6 +70,8 @@ function publishAgentSessionSync(result: AgentSessionImportResult): void {
   window.dispatchEvent(new CustomEvent("kin:agent-sessions-sync", { detail }));
 }
 
+const SHELL_TITLE_TASKS = { limit: 200 } as const;
+
 function taskIdFromPath(pathname: string): string | null {
   const m = pathname.match(/^\/tasks\/([^/]+)\/?$/);
   return m?.[1] ?? null;
@@ -89,7 +83,6 @@ function taskIdFromPath(pathname: string): string | null {
  */
 export default function AppShell({
   children,
-  pendingByTask,
   pendingApprovals,
   routineUnreadCount = 0,
 }: Props) {
@@ -119,9 +112,7 @@ export default function AppShell({
   const listTitle = !desktop
     ? pathname === "/agents"
       ? tr("nav.agents")
-      : pathname === "/projects"
-        ? tr("nav.projects")
-        : pathname === "/routines"
+      : pathname === "/routines"
           ? tr("nav.routines")
           : ""
     : "";
@@ -205,15 +196,11 @@ export default function AppShell({
     else navigate("/sessions");
   }
 
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
-  const taskListParams = useMemo(
-    () => (debouncedQuery ? { limit: 200, q: debouncedQuery } : { limit: 100 }),
-    [debouncedQuery],
-  );
-  const taskList = useTaskList(taskListParams);
+  // The shell still needs task titles for the floating approval card. The
+  // list itself owns its own feed now, including search, so this read is only
+  // a name lookup — not the sidebar's data.
+  const taskList = useTaskList(SHELL_TITLE_TASKS);
   const tasks = taskList.data;
-  const searchLoading = searchQuery.trim() !== debouncedQuery || taskList.loading;
   const [weekCost, setWeekCost] = useState<number | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -221,7 +208,6 @@ export default function AppShell({
   // nothing writes it anywhere, so a reload is always back to the shell (P3 plan
   // §2.3). What it hides is decided in `index.css` by the `kin-zen-hide` marker.
   const [zen, setZen] = useState(false);
-  const [externalSessions, setExternalSessions] = useState<AgentSession[]>([]);
   const [agentCatalog, setAgentCatalog] = useState<AgentInfo[]>([]);
   const agentCatalogRequest = useRef(0);
   const autoImportInFlight = useRef(false);
@@ -298,18 +284,6 @@ export default function AppShell({
           }
         }
       }
-      const sessions: AgentSession[] = [];
-      let before = "";
-      for (let pageIndex = 0; pageIndex < 20; pageIndex++) {
-        const page = await listAgentSessionsPage({
-          limit: 500,
-          before: before || undefined,
-        });
-        sessions.push(...page.items);
-        if (!page.next_cursor) break;
-        before = page.next_cursor;
-      }
-      setExternalSessions(sessions);
     } catch {
       // Keep the last successful snapshot visible during transient refresh failures.
     } finally {
@@ -326,6 +300,11 @@ export default function AppShell({
       if (importingExternalSessions) return;
       try {
         const result = await importEveryMachine(agents);
+        // The list reads imported sessions on its own now; without this the
+        // fold stays at the count it had when the page opened. The sync event
+        // is not one this shell listens to, unlike `changed`, so the catalog
+        // reload below stays the only one this errand causes.
+        publishAgentSessionSync(result);
         await loadExternalSessions(true);
         const toast = importToast(result, tr);
         pushToast(toast.message, toast.kind);
@@ -396,35 +375,6 @@ export default function AppShell({
     toggleShellPanel("terminal");
   }, [toggleShellPanel]);
 
-  const openNewSessionInProject = useCallback(
-    (cwd: string) => {
-      setDraftCwd(cwd);
-      navigate(`${DRAFT_PATH}?cwd=${encodeURIComponent(cwd)}`);
-    },
-    [navigate],
-  );
-
-  const handleDeleteSession = useCallback(
-    async (task: Task) => {
-      // A task with neither a title nor a prompt is rare enough that the id is
-      // better than a blank line in a confirmation dialog.
-      const title = taskDisplayTitle(task) || task.id;
-      const ok = window.confirm(tr("task.deleteConfirm") + (title ? `\n\n${title}` : ""));
-      if (!ok) return;
-      try {
-        await deleteTask(task.id);
-        liveResources.applyMessage({ kind: "task_deleted", data: { id: task.id } });
-        pushToast(tr("task.deleted"), "info");
-        if (taskIdFromPath(location.pathname) === task.id) {
-          navigate("/");
-        }
-      } catch (e) {
-        pushToast(e instanceof Error ? e.message : tr("task.deleteFailed"), "error");
-      }
-    },
-    [location.pathname, navigate, pushToast, tr],
-  );
-
   const loadUsage = useCallback(async () => {
     try {
       const rows = await getUsageSummary(7);
@@ -445,19 +395,6 @@ export default function AppShell({
   // phone-sized window dragged wide — must close it, or the card is gone for
   // the rest of the session.
   useCloseOnWideScreen(mobileOpen, () => setMobileOpen(false));
-
-  // Debounced session list load. Empty q = recent 100; non-empty = full-library search.
-  useEffect(() => {
-    const q = searchQuery.trim();
-    if (!q) {
-      setDebouncedQuery("");
-      return;
-    }
-    const t = window.setTimeout(() => {
-      setDebouncedQuery(q);
-    }, 250);
-    return () => window.clearTimeout(t);
-  }, [searchQuery]);
 
   // Subscribe to draft cwd changes
   useEffect(() => {
@@ -562,28 +499,17 @@ export default function AppShell({
       }`}
     >
       <Sidebar
-        tasks={tasks}
         selectedTaskId={selectedTaskId}
         draftActive={draftActive}
-        pendingByTask={pendingByTask}
         routineUnreadCount={routineUnreadCount}
         weekCost={weekCost}
         onNewChat={openNewChat}
-        onNewSessionInProject={openNewSessionInProject}
-        onDeleteSession={(task) => void handleDeleteSession(task)}
-        externalSessions={externalSessions}
         agentCatalog={agentCatalog}
         importingExternalSessions={importingExternalSessions}
         onImportExternalSessions={(agents) => void importExternalSessions(agents)}
-        onOpenExternalSession={(session) => {
-          navigate(`/agent-sessions/${encodeURIComponent(session.id)}`);
-        }}
         mobileOpen={mobileOpen}
         onOpenMobile={() => setMobileOpen(true)}
         onCloseMobile={() => setMobileOpen(false)}
-        searchQuery={searchQuery}
-        onSearchQueryChange={setSearchQuery}
-        searchLoading={searchLoading}
       />
 
       <div className="relative flex-1 flex flex-col min-w-0 min-h-0">

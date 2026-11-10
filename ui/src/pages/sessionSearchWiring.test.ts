@@ -20,7 +20,7 @@ import { describe, expect, it } from "vitest";
  * needs a daemon, a machine list and two live subscriptions.
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
-const SOURCE = readFileSync(join(UI, "src/pages/SessionsPage.tsx"), "utf8");
+const SOURCE = readFileSync(join(UI, "src/components/sessions/SessionList.tsx"), "utf8");
 /** The selection rule moved to its own module so it can be tested without a daemon. */
 const FEED = readFileSync(join(UI, "src/lib/sessionFeed.ts"), "utf8");
 

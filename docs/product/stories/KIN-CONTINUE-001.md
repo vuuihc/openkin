@@ -143,11 +143,11 @@ Mac：左边一列和右边主区各有一份同样的对话列表，各有自�
 
 | 层级 | 位置 | Given / When / Then |
 |---|---|---|
-| 单元 | `ui/src/lib/deviceSidebar.test.ts`（已有，改） | Given 只有一台设备有对话 When 渲染列表 Then 设备名仍然显示；多设备时每台一个分组标题 |
+| 单元 | `ui/src/components/layout/Sidebar.dom.test.tsx`（已有，扩充） | Given 只有一台设备有对话 When 渲染列表 Then 设备名仍然显示；多设备时每台一个分组标题 |
 | 单元 | `ui/src/lib/phoneSessionBuckets.test.ts`（已有，扩充） | Given 两台设备各有项目 When 手机列表分桶 Then 输出 设备 → 项目 → 对话 三层；Given 一条置顶的远程对话 When 它离开设备标题进入置顶区 Then 行上说明它所在设备，本机置顶行不显示 |
 | 接线 | `ui/src/pages/sessionPinnedWiring.test.ts`（新建） | Given 置顶区渲染 When 行上带设备名 Then 无障碍名字也带上它，不只画一个图标 |
 | 组件 | `ui/src/components/layout/Sidebar.dom.test.tsx`（新建） | Given Mac 宽度 When 渲染外壳 Then 文档里只有一个列表搜索框，且列表是三级；底部图标的徽标数进入无障碍名字；导入是普通按钮的展开区（Esc 关闭并还焦点），不是 `role="menu"`；Given 这台机器有导入的 agent 会话 When 渲染左栏 Then 它们不进入项目树，而是该机器末尾一组「导入的会话（N）」，默认收起，新导入只改计数，行与原生对话同形 |
-| 单元/接线 | `ui/src/pages/sessionImportedWiring.test.ts`（新建）、`ui/src/lib/deviceSidebar.test.ts`、`ui/src/lib/phoneSessionBuckets.test.ts`（已有，扩充） | Given 导入的 agent 会话与项目共用 cwd When 分组 Then 它们不产生项目行，每台机器末尾一个导入组；手机页的组默认收起、搜索时强制展开，标题带计数与对话图标 |
+| 单元/接线 | `ui/src/pages/sessionImportedWiring.test.ts`、`ui/src/components/layout/Sidebar.dom.test.tsx`、`ui/src/lib/phoneSessionBuckets.test.ts` | Given 导入的 agent 会话与项目共用 cwd When 分组 Then 它们不产生项目行，每台机器末尾一个导入组；手机页的组默认收起、搜索时强制展开，标题带计数与对话图标 |
 | 组件 | `ui/src/pages/SessionsPage.dom.test.tsx`（新建） | Given Mac 宽度 When 打开 `/sessions` Then 渲染新建页而不是列表；Given `/sessions?scope=archived` When Mac 宽度 Then 仍是新建页，归档由左栏展开归档区呈现，主区不出现第二份列表和搜索框；Given 手机宽度 When 打开 K 面板 Then 文档里没有对话条目和搜索框 |
 | 组件 | `ui/src/components/chat/PermissionModePicker.dom.test.tsx`（新建） | Given `matchMedia('(min-width: 768px)')` 为真 When 点权限 chip Then 出现 `role="menu"`（`fixed` 定位、portal 到 body，不被输入框那一行的滚动容器裁切），文档里没有 `data-kin-sheet`；点一项 Then `onChange` 恰好一次、菜单关闭、焦点回 chip；When 按 Esc Then 不调用 `onChange`；Given 手机宽度 Then 出现 `data-kin-sheet` 底部面板 |
 | 组件 | `ui/src/components/chat/ModelPicker.dom.test.tsx`（已有，扩充） | Given 桌面宽度 When 打开模型 Then 面板有分组且键盘可选；Given 手机宽度 Then 走运行设置面板 |

@@ -2,7 +2,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import type { Task } from "../api/client";
 import { setLocale } from "../i18n";
 import SessionsRoute from "./SessionsRoute";
 import Sidebar from "../components/layout/Sidebar";
@@ -44,19 +43,6 @@ function viewport(wide: boolean) {
     dispatchEvent: vi.fn(),
   }));
 }
-
-const task = {
-  id: "hidden-conversation",
-  title: "hidden conversation",
-  cwd: "/work/alpha",
-  agent: "kin",
-  prompt: "",
-  status: "succeeded",
-  tokens_in: 0,
-  tokens_out: 0,
-  event_epoch: 0,
-  created_at: 1,
-} as Task;
 
 beforeEach(() => {
   setLocale("en");
@@ -106,8 +92,6 @@ describe("the phone's K panel", () => {
     render(
       <MemoryRouter>
         <Sidebar
-          tasks={[task]}
-          pendingByTask={new Map()}
           mobileOpen
           onOpenMobile={() => {}}
           onCloseMobile={() => {}}

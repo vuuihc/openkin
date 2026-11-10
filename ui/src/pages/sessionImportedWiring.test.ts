@@ -20,14 +20,14 @@ import { describe, expect, it } from "vitest";
  * two live subscriptions (see `sessionSearchWiring.test.ts`).
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
-const SOURCE = readFileSync(join(UI, "src/pages/SessionsPage.tsx"), "utf8");
+const SOURCE = readFileSync(join(UI, "src/components/sessions/SessionList.tsx"), "utf8");
 
 describe("the phone list's imported group", () => {
   it("folds a machine's imports until the reader opens them", () => {
-    // Imports start closed, so the fold is the absence of an entry in the open
-    // set — the opposite of a project, whose fold is a stored entry.
-    expect(SOURCE).toContain("const [openImported, setOpenImported] = useState");
-    expect(SOURCE).toContain("setOpenImported((current) =>");
+    // Imports start closed: a project defaults open, an import defaults folded,
+    // and both persist one entry per machine + place.
+    expect(SOURCE).toContain("folds[stateKey] ?? !imported");
+    expect(SOURCE).toContain("setSessionFold(stateKey, !foldIsOpen(stateKey, imported))");
     expect(SOURCE).toContain("collapsed={isBucketCollapsed({");
   });
 

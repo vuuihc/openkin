@@ -79,6 +79,12 @@ import { useAppStore } from "../store/appStore";
 export default function NewChatPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
+  // Read once as values: the sidebar list is mounted on this route and rewrites
+  // the URL on every search or filter change. Depending on `params` re-applied
+  // the deep link on each of those writes, snapping the folder (or a cleared
+  // prompt) back to what the link said when the page opened.
+  const deepLinkPrompt = params.get("q");
+  const deepLinkCwd = params.get("cwd");
   const pushToast = useAppStore((s) => s.pushToast);
   const tr = useT();
 
@@ -151,18 +157,17 @@ export default function NewChatPage() {
   }, []);
 
   useEffect(() => {
-    const q = params.get("q");
-    if (q) {
-      setInitialValue(q);
-      setPreviewPrompt(q);
-      setDraftPrompt(q);
-    }
-    const cwdParam = params.get("cwd");
-    if (cwdParam) {
-      setCwd(cwdParam);
-      setDraftCwd(cwdParam);
-    }
-  }, [params]);
+    if (!deepLinkPrompt) return;
+    setInitialValue(deepLinkPrompt);
+    setPreviewPrompt(deepLinkPrompt);
+    setDraftPrompt(deepLinkPrompt);
+  }, [deepLinkPrompt]);
+
+  useEffect(() => {
+    if (!deepLinkCwd) return;
+    setCwd(deepLinkCwd);
+    setDraftCwd(deepLinkCwd);
+  }, [deepLinkCwd]);
 
   const machine = machineId ? findMachine(machines, machineId) : undefined;
   // A machine that was chosen and has since gone away (revoked, or the device

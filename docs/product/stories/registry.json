@@ -36,6 +36,7 @@
         "ui/src/components/layout/AppShell.tsx",
         "ui/src/components/layout/Sidebar.tsx",
         "ui/src/components/mobile/Sheet.tsx",
+        "ui/src/components/sessions/SessionList.tsx",
         "ui/src/components/ui/ActionSheet.tsx",
         "ui/src/components/ui/SearchSelect.tsx",
         "ui/src/components/ui/SheetSelect.tsx",
@@ -43,13 +44,14 @@
         "ui/src/hooks/useMinWidth.ts",
         "ui/src/lib/approvalAttribution.ts",
         "ui/src/lib/backStack.ts",
-        "ui/src/lib/deviceSidebar.ts",
         "ui/src/lib/draftChat.ts",
         "ui/src/lib/lastConversation.ts",
         "ui/src/lib/needsYou.ts",
         "ui/src/lib/overlayOwnsKeyboard.ts",
         "ui/src/lib/phoneSessionBuckets.ts",
         "ui/src/lib/rowReturn.ts",
+        "ui/src/lib/sessionBucketOrder.ts",
+        "ui/src/lib/sessionFolds.ts",
         "ui/src/lib/sessionSearch.ts",
         "ui/src/pages/SessionsPage.tsx",
         "ui/src/pages/SessionsRoute.tsx",
@@ -68,7 +70,6 @@
         "ui/src/components/ui/SearchSelect.dom.test.tsx",
         "ui/src/components/ui/SheetSelect.dom.test.tsx",
         "ui/src/lib/approvalAttribution.test.ts",
-        "ui/src/lib/deviceSidebar.test.ts",
         "ui/src/lib/draftChat.test.ts",
         "ui/src/lib/lastConversation.test.ts",
         "ui/src/lib/needsYou.test.ts",
@@ -148,8 +149,9 @@
       "surface": "Mac 上接着问 / 手机上接着问 的列表部分",
       "ownerPaths": [
         "ui/src/components/layout/Sidebar.tsx",
-        "ui/src/pages/SessionsPage.tsx",
-        "ui/src/hooks/useSessionDeletion.ts"
+        "ui/src/components/sessions/SessionList.tsx",
+        "ui/src/hooks/useSessionDeletion.ts",
+        "ui/src/pages/SessionsPage.tsx"
       ],
       "tests": [],
       "blockedReason": null

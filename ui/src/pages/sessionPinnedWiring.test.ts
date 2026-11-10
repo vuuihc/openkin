@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
  * needs a daemon, a machine list and two live subscriptions.
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
-const SOURCE = readFileSync(join(UI, "src/pages/SessionsPage.tsx"), "utf8");
+const SOURCE = readFileSync(join(UI, "src/components/sessions/SessionList.tsx"), "utf8");
 
 describe("the pinned section's machine label", () => {
   it("asks the shared rule about every row", () => {

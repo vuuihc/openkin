@@ -83,8 +83,17 @@ export type PhoneSessionRow = {
 export type PhoneProjectBucket = {
   key: string;
   label: string;
+  /** The project's cwd; empty for the pinned and imported buckets, which are
+   *  not places on a machine. */
+  cwd: string;
   rows: PhoneSessionRow[];
   lastActivityAt: number;
+  /** Earliest task or session creation in the bucket, for the "date created"
+   *  project order. */
+  createdAt: number;
+  /** A task in this bucket is still running or waiting, so the project sorts
+   *  above idle ones in the "active first" order. */
+  hasActiveTask: boolean;
 };
 
 /** One machine's projects, the phone list's top level. */
@@ -113,6 +122,26 @@ function normCwd(cwd: string | undefined): string {
 
 function projectKeyOf(cwd: string | undefined): string {
   return normCwd(cwd) || UNASSIGNED_PROJECT;
+}
+
+/** The bucket a cwd files under. Exported so a project with no loaded row can
+ *  still be placed under the heading it belongs to. */
+export function bucketKeyFor(cwd: string | undefined): string {
+  return projectKeyOf(cwd);
+}
+
+/** Statuses that are over. A task in any other state keeps its project warm. */
+const TERMINAL_STATUSES = new Set(["succeeded", "failed", "canceled"]);
+
+function isActiveStatus(status: string | undefined): boolean {
+  return Boolean(status) && !TERMINAL_STATUSES.has(status!);
+}
+
+/** Take the earliest non-zero timestamp, so a bucket remembers when its project
+ *  was first seen, not when its newest chat ran. */
+function rememberCreated(bucket: PhoneProjectBucket, at: number | undefined): void {
+  if (!at || at <= 0) return;
+  if (bucket.createdAt === 0 || at < bucket.createdAt) bucket.createdAt = at;
 }
 
 function tailOf(cwd: string | undefined): string {
@@ -192,7 +221,15 @@ export function phoneProjectBuckets(
     const found = byKey.get(key);
     if (found) return found;
     const label = key === UNASSIGNED_PROJECT ? copy.noProject : tailOf(cwd) || copy.noProject;
-    const made: PhoneProjectBucket = { key, label, rows: [], lastActivityAt: 0 };
+    const made: PhoneProjectBucket = {
+      key,
+      label,
+      cwd: key === UNASSIGNED_PROJECT ? "" : (cwd ?? ""),
+      rows: [],
+      lastActivityAt: 0,
+      createdAt: 0,
+      hasActiveTask: false,
+    };
     byKey.set(key, made);
     return made;
   };
@@ -204,6 +241,8 @@ export function phoneProjectBuckets(
     if (task.archived_at ? scope !== "archived" : !keepProject(task.cwd)) continue;
     const at = taskActivityAt(task);
     const bucket = bucketFor(task.cwd);
+    rememberCreated(bucket, task.created_at);
+    if (isActiveStatus(task.status)) bucket.hasActiveTask = true;
     const device = (task.executing_device_id ?? "").trim();
     const identity = conversationKey(task.session_ref_device_id, task.session_ref, selfDeviceId);
     if (identity) claimed.add(identity);
@@ -229,9 +268,18 @@ export function phoneProjectBuckets(
     const key = IMPORTED_BUCKET_PREFIX + device;
     let bucket = byKey.get(key);
     if (!bucket) {
-      bucket = { key, label: copy.imported, rows: [], lastActivityAt: 0 };
+      bucket = {
+        key,
+        label: copy.imported,
+        cwd: "",
+        rows: [],
+        lastActivityAt: 0,
+        createdAt: 0,
+        hasActiveTask: false,
+      };
       byKey.set(key, bucket);
     }
+    rememberCreated(bucket, session.first_seen_at);
     bucket.rows.push({
       key: session.id,
       at,
@@ -255,8 +303,11 @@ export function phoneProjectBuckets(
       byKey.set(key, {
         key,
         label: key === UNASSIGNED_PROJECT ? copy.noProject : tailOf(cwd) || copy.noProject,
+        cwd: key === UNASSIGNED_PROJECT ? "" : cwd,
         rows: [],
         lastActivityAt: 0,
+        createdAt: 0,
+        hasActiveTask: false,
       });
     }
   }
@@ -449,7 +500,10 @@ export function withPinnedBucket(
       }
       return true;
     });
-    if (rows.length === 0) return [];
+    // An already-empty bucket is a project heading seeded from the project
+    // record, not a bucket whose rows all moved to Pinned; dropping it would
+    // hide a project that has no conversation in the loaded page.
+    if (rows.length === 0 && bucket.rows.length > 0) return [];
     return rows.length === bucket.rows.length ? [bucket] : [{ ...bucket, rows }];
   });
   if (pinned.length === 0) return rest;
@@ -457,8 +511,11 @@ export function withPinnedBucket(
     {
       key: PINNED_BUCKET,
       label,
+      cwd: "",
       rows: pinned,
       lastActivityAt: Math.max(0, ...pinned.map((row) => row.at)),
+      createdAt: 0,
+      hasActiveTask: false,
     },
     ...rest,
   ];

@@ -1,6 +1,6 @@
 # R0 · 面审计与减法
 
-状态：**R0a、R0b-2 已签字；R0b-1 已完成；R0b-2a、R0b-2b、R0b-2c 已完成；导入会话历史、冷启动观感与手机大会话打开已落地** · 2026-11-10
+状态：**R0a、R0b-2 已签字；R0b-1、R0b-2a、R0b-2b、R0b-2c、R0b-2d 已完成；导入会话历史、冷启动观感与手机大会话打开已落地** · 2026-11-11
 配套：[`IA.md`](../product/IA.md)、[`TASTE.md`](../product/TASTE.md)、[`stories/PLAN.md`](../product/stories/PLAN.md)、[`2026-11-08-design-system-middle-layer.md`](2026-11-08-design-system-middle-layer.md)、[`2026-11-09-astryx-spike.md`](2026-11-09-astryx-spike.md)
 测量：`python3 scripts/ui_inventory.py`
 评审页：[`2026-11-10-ui-surface-audit.review.html`](2026-11-10-ui-surface-audit.review.html)（390/1100 现状截图 + 每面决策卡；截图含本机真实数据，只在本机打开，不要外发）。如果页面里的截图显示「缺失」，用同目录的 `2026-11-10-ui-surface-audit.review.local.html`（截图已内嵌，gitignored）
@@ -17,7 +17,7 @@
 | R0b-2c 导入会话收起 | ✅ 已完成（含复审） | 导入不再并入项目树：左栏每台设备末尾一个默认收起的「导入的会话（N）」，搜索时强制展开但不写偏好；手机列表每台机器末尾同组，搜索同样强制展开；行与原生对话同形（无彩色 rail、状态点、可用性徽标），新导入只改计数；左栏搜索会按行上实际显示的字（标题、项目、agent、ref）收窄导入。归档项目即使任务都不在当前页、只有导入会话命名它，仍保留可恢复的标题并计入归档数。详情页去掉状态 / 可用性 chip，来源 ID 移到时间戳行。8 个源文件 + 5 个测试文件（新增 `sessionImportedWiring.test.ts`），+685 −311 行；全量 vitest 190 文件 1897 条、desktop 150 条、`check.sh` / build / smoke 全绿；26 个 mutant 全红；复审两轮无 blocker/major；390 与 1280 的真实列表和详情已看过 |
 | 导入会话历史 + 冷启动观感 | ✅ 已完成（含复审） | 历史页不再重扫整个目录：行里记录的 `source_uri` 作为提示走本地与设备两条路径，目录只认自己根内、非符号链接、未超大小上限、且文件自己声明的 ref 一致的那一个，否则回落到发现；本机实测单页：12MB 会话 5s → 0.56s，21.6MB 1.5s，125MB 6.8s（尾页本身要扫整个 JSONL，仍未索引化）。冷启动不再显示「正在重连」：`wsStatus` 从 `connecting` 开始，横幅只在真正断开后出现；慢连接提示改为 i18n。详情页在内容晚到（图片、长代码块）时保持贴底，读者上滑后停止跟随。11 个源文件 + 7 个测试文件，+782 −31 行；`check.sh` / build 全绿；17 个 mutant 全红 |
 | 大会话打开（手机实测） | ✅ 已完成（含复审） | 两个叠加的原因。① Mac 节点连的是公网 Hub（`https://kin.example.com`）：从这台 Mac 到 Cloudflare 的 TLS 握手 5–12s、IPv4 连接直接超时，worker 小回答 1.1–5.0s，300KB 历史页 18–45s；改走同一局域网的 Hub（`http://192.168.1.42:7777`）后小回答 21ms、1MB 页 0.24s。② 尾页原本每次重扫整个 JSONL；现在 `tail`/`before` 用从文件尾读取的窗口（1MiB 起、按需翻倍），游标改为字节偏移 `rev|o<offset>[:<block>]`，行号游标仍走旧的整文件扫描。本机实测 125MB 会话单页 6.8s → 0.10s（Hub 路径 0.19–0.26s），与旧扫描逐条一致（同一页 100 条，旧路径 6.78s）。5 个新测试；22 个 mutant 全红；复审两轮无 blocker/major（两条 nit 记录在案：全空老记录会多一次空页请求；>100MB 且不足一页记录时窗口峰值内存跟文件走）。**已知边界**：节点现在只连局域网地址，Mac 离开同一局域网时会离线；下一轮给 `--hub` 加局域网→公网回退 |
-| R0b-2d 列表合并 + 项目 + dock | ⚪ 未开始 | 一套行与控制器；删 `/projects` 索引与 dock「项目」 |
+| R0b-2d 列表合并 + 项目 + dock | ✅ 已完成（含三轮复审） | 手机整页与 Mac 左栏共用 `SessionList`（数据、搜索、过滤、排序、折叠、行操作一致；宽度只决定壳与溢出手势）；`/projects` 索引页与 dock「项目」已删，项目标题进 `/projects/:id`、箭头折叠；零对话项目仍显示标题与 0；折叠按机器+项目记在 `kin_session_folds`。两轮复审的 blocker/major 已修：B1 列表搜索改名 `?search=`（`?q=` 是新建页预填，`?find=` 是对话页的查找种子且会被消费删除）；M1/M2 归档/过滤/加载失败时不补标题；M4 粗指针折叠箭头与恢复按钮 44px；M5 新建页深链改为按值 `[deepLinkPrompt]` / `[deepLinkCwd]` 应用，列表在 `/new` 上写 URL 不再把目录或已清空的提示词弹回；M6 手动导入发布同步快照，列表同时订阅 `kin:agent-sessions-changed` 与 `kin:agent-sessions-sync`，导入组计数不再停在打开时。`npx tsc`、全量 vitest 195 文件 1879 条、build、`check.sh`、smoke 全绿；19 个 mutant 全红（`.tmp/r0/r0b2d-fixes*.mutants.json` 与 `r0b2d.mutants.json`）；死代码 `deviceSidebar`、`groupByProject`、`IconProjects` 与两批死 i18n key 已删。三轮复审（初轮 + 两次 delta）无 blocker/major；最终确认状态携带、参数命名空间与导入刷新均有测试与 mutant 钉住，留 4 条已接受 nit（删除当前行后回 `/` 清空列表状态、新建按钮清空搜索、设置页手动导入不更新 Last sync、`/tasks?scope=archived` 时侧栏归档图标不点亮） |
 | R0b-3 设置收口 | ⚪ 未开始 | 等 R0b-2 |
 | 4 条故事 | ⚪ 未开始 | 只写合同，不写代码 |
 
@@ -166,6 +166,8 @@ R0 的主评审物是 **`2026-11-10-ui-surface-audit.review.html`**，不是下�
 
 只保留用户在用的设置；删远程 / 通知两块 tab 及其状态、handler、i18n 和测试，更新 `KIN-SETTINGS-001` / `KIN-NOTIFY-001`。`SettingsPage.tsx` 1,596 行，单独一轮。
 
+**删到哪一层（回答 §9 问题 4，2026-11-11）：只删 UI 面。** 远程（Cloudflare Relay / 手机直连 QR）与通知（控制台原生推送）两个 tab、它们的客户端状态、handler、i18n 和测试一起删；daemon 的 relay / APNs API 和已存设置保留。理由：现网手机走 Hub 账号鉴权，relay Worker 是休眠路线；从控制台删掉的是入口，不是协议，删后端会让已部署的 Hub/Node 组合失去回退，且本轮没有替代物。`ui.base_url` 与 `notify.quota_wait_after_secs` 不再由控制台写，交给环境/部署。
+
 ### 故事（只写合同，不写代码）
 
 `/new`、`/projects/:id`、`/agents`、`/routines` 四条先按 `docs/product/stories/AUTHORING.md` 写合同和签字页；签完再排交付。`/new` 的重点是设备 / 项目选择离开输入框下方那一条，不与模型 / 权限同排。
@@ -201,7 +203,7 @@ R0 的主评审物是 **`2026-11-10-ui-surface-audit.review.html`**，不是下�
 
 ## 11. 下一会话
 
-R0a 已签字（2026-11-10），**R0b-1、R0b-2a、R0b-2b、R0b-2c 已完成并落地**：`/design`、`/artifacts` + 详情、`AgentModelPicker`、`/inbox`、`SessionTabs`、`SessionSwitcherSheet`、`PullRequestPanel` 已删；待批准回到对话行尾，通知直接打开对话并聚焦被点名的卡片；导入会话收进每台机器末尾的默认收起组，行与原生对话同形。手机试用后的三个问题已处理：抽屉与列表分离是 R0b-2d 的范围（尚未开始）；冷启动的「正在重连」与骨架改为只在真正断开时显示横幅；大会话打开慢有两层原因：每读一页都重扫全部 provider 文件（已改为用行里记录的源文件路径做提示），以及 Mac 节点把控制通道连到了公网 Hub（实测 TCP/TLS 握手 5–12s、worker 小回答 1–5s、300KB 级历史页 18–45s；改走局域网后小回答 21ms）。尾页另改为从文件尾读取，125MB 会话单页 6.8s → 0.10s。连接机制的通用方案（类似 Tailscale 的隧道/发现/回退）已记账到 [`docs/TODO.md`](../TODO.md) 的「Hub ↔ node connectivity」主题，专题再做；在那之前 Mac 离开同一局域网时节点会离线。下一轮是 **R0b-2d**（手机与 Mac 列表合并、`/projects` 索引与 dock「项目」收口）。R0b-3 的设置收口单独一轮。四条「补故事」的面只写合同，不写代码。
+R0a 已签字（2026-11-10），**R0b-1、R0b-2a、R0b-2b、R0b-2c 已完成并落地**：`/design`、`/artifacts` + 详情、`AgentModelPicker`、`/inbox`、`SessionTabs`、`SessionSwitcherSheet`、`PullRequestPanel` 已删；待批准回到对话行尾，通知直接打开对话并聚焦被点名的卡片；导入会话收进每台机器末尾的默认收起组，行与原生对话同形。手机试用后的三个问题已处理：抽屉与列表分离已由 R0b-2d 收敛为同一个列表组件（实现完成，delta 复审中）；冷启动的「正在重连」与骨架改为只在真正断开时显示横幅；大会话打开慢有两层原因：每读一页都重扫全部 provider 文件（已改为用行里记录的源文件路径做提示），以及 Mac 节点把控制通道连到了公网 Hub（实测 TCP/TLS 握手 5–12s、worker 小回答 1–5s、300KB 级历史页 18–45s；改走局域网后小回答 21ms）。尾页另改为从文件尾读取，125MB 会话单页 6.8s → 0.10s。连接机制的通用方案（类似 Tailscale 的隧道/发现/回退）已记账到 [`docs/TODO.md`](../TODO.md) 的「Hub ↔ node connectivity」主题，专题再做；在那之前 Mac 离开同一局域网时节点会离线。**R0b-2d**（手机与 Mac 列表合并、`/projects` 索引与 dock「项目」收口）已实现、检查全绿，等 delta 复审结论后提交。下一轮是 **R0b-3** 的设置收口。四条「补故事」的面只写合同，不写代码。
 
 R0b-2a 复审留下一条已知边角，交给 R0b-2d：收件箱删除后，等待项的唯一信号是「它所在的那一行」的计数；行被收起、被搜索过滤、或在更早的分页里时没有信号。列表合并时决定是否在收起的项目/设备标题上给一个汇总计数（不要为它恢复独立页面）。待批准有浮动卡片兜底，待回答的问题没有。
 

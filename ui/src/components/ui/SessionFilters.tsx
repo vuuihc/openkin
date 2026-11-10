@@ -1,5 +1,6 @@
 import { useId, useRef, useState } from "react";
 import { useT } from "../../i18n/react";
+import type { ProjectSortMode } from "../../lib/projectSidebar";
 import { IconCheck, IconChevronDown, IconFilter } from "../icons";
 
 /**
@@ -65,16 +66,23 @@ export default function SessionFilters({
   status,
   scope,
   onChange,
+  sortMode,
+  onSortChange,
 }: {
   status: SessionStatusFilter;
   scope: SessionScopeFilter;
   onChange: (next: { status: SessionStatusFilter; scope: SessionScopeFilter }) => void;
+  /** The project order. Present in both shells, because list features do not
+   *  depend on whether the container is a page or a sidebar. */
+  sortMode?: ProjectSortMode;
+  onSortChange?: (mode: ProjectSortMode) => void;
 }) {
   const tr = useT();
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const statusLabelId = useId();
   const scopeLabelId = useId();
+  const sortLabelId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const activeCount = (status ? 1 : 0) + (scope === "archived" ? 1 : 0);
   const summary = [
@@ -192,6 +200,30 @@ export default function SessionFilters({
               onClick={() => onChange({ status, scope: "archived" })}
             />
           </div>
+
+          {sortMode && onSortChange ? (
+            <>
+              <p id={sortLabelId} className="mt-3 text-caption font-semibold text-kin-muted">
+                {tr("nav.sortProjects")}
+              </p>
+              <div
+                role="group"
+                aria-labelledby={sortLabelId}
+                className="mt-1.5 flex flex-wrap gap-1.5"
+              >
+                <Option
+                  label={tr("nav.sortByActive")}
+                  selected={sortMode === "active"}
+                  onClick={() => onSortChange("active")}
+                />
+                <Option
+                  label={tr("nav.sortByCreated")}
+                  selected={sortMode === "created"}
+                  onClick={() => onSortChange("created")}
+                />
+              </div>
+            </>
+          ) : null}
 
           {activeCount > 0 && (
             <button

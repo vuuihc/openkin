@@ -3,7 +3,12 @@ import { useT } from "../../i18n/react";
 import { IconSearch, IconX } from "../icons";
 
 /**
- * The conversation search pill, bound to `?q=`.
+ * The conversation search pill, bound to `?search=`.
+ *
+ * Not `q` or `find`: `/new?q=` is the composer's prompt prefill, and
+ * `/tasks/:id?find=` is the transcript's find seed, which the conversation
+ * page consumes and deletes. Both surfaces can be mounted on those routes at
+ * desktop width.
  *
  * One component because the same query is edited in two places: the phone's bar
  * and — where that bar is hidden — the page's own desktop header. A second copy
@@ -17,12 +22,12 @@ import { IconSearch, IconX } from "../icons";
 export default function SessionsSearch({ className = "" }: { className?: string }) {
   const tr = useT();
   const [params, setParams] = useSearchParams();
-  const query = params.get("q") ?? "";
+  const query = params.get("search") ?? "";
 
   function setQuery(next: string) {
     const following = new URLSearchParams(params);
-    if (next) following.set("q", next);
-    else following.delete("q");
+    if (next) following.set("search", next);
+    else following.delete("search");
     setParams(following, { replace: true });
   }
 

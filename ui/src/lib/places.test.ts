@@ -185,7 +185,7 @@ describe("sidebarNavSections", () => {
     const sections = sidebarNavSections();
     const library = sections.find((s) => s.id === "library");
     const operations = sections.find((s) => s.id === "operations");
-    expect(library?.items.map((i) => i.id)).toEqual(["routines", "projects"]);
+    expect(library?.items.map((i) => i.id)).toEqual(["routines"]);
     expect(operations?.items.map((i) => i.id)).toEqual(["agents", "settings"]);
     // The work set belongs to the phone's bar and the draft, not to this footer —
     // and this is the assertion that says so, rather than a filter nobody wrote

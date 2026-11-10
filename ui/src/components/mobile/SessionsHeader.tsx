@@ -13,7 +13,7 @@ import SessionsSearch from "./SessionsSearch";
  * for "me". The inbox used to sit beside settings; waiting work is now a mark
  * on the conversation row instead of a destination of its own.
  *
- * Search writes `?q=` rather than holding state, so the field and the list
+ * Search writes `?search=` rather than holding state, so the field and the list
  * cannot drift apart, the query survives opening a session and coming back,
  * and a deep link can carry one. It replaces the history entry on every
  * keystroke: a back button that walks through "c", "ch", "cha" is not a back

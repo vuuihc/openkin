@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { useT } from "../../i18n/react";
 import { DRAFT_PATH } from "../../lib/draftChat";
 import { placePath, type PlaceId } from "../../lib/places";
-import { IconPencil, IconProjects, IconRoutines, IconSessions } from "../icons";
+import { IconPencil, IconRoutines, IconSessions } from "../icons";
 
 /**
  * The phone's primary navigation: a floating pill.
@@ -34,11 +34,12 @@ export default function MobileDock() {
   const onSessions = location.pathname.startsWith(placePath("sessions"));
   // The dock is for going places, not for configuration: settings lives in the
   // conversation list's header, where the reference keeps it, which leaves the
-  // three destinations that are the product's actual loop.
+  // two destinations that are the product's actual loop. Projects are not a
+  // third destination — a project is a heading in the list, and its cover opens
+  // from that heading.
   const tabs: { id: PlaceId; label: string; icon: ReactNode }[] = [
     { id: "sessions", label: tr("nav.sessions"), icon: <IconSessions size={22} /> },
     { id: "routines", label: tr("nav.routines"), icon: <IconRoutines size={22} /> },
-    { id: "projects", label: tr("nav.projects"), icon: <IconProjects size={22} /> },
   ];
 
   return (

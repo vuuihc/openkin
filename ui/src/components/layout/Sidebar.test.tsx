@@ -7,6 +7,12 @@ import Sidebar from "./Sidebar";
 import type { AgentInfo } from "../../api/client";
 import { setLocale } from "../../i18n";
 
+// This suite is about the import menu, not the list. The real list would ask
+// for tasks and machines; the sidebar chrome is what is under test here.
+vi.mock("../sessions/SessionList", () => ({
+  default: () => <div data-testid="session-list" />,
+}));
+
 /**
  * The sidebar's import menu is one of the four surfaces that start an import,
  * and it is the one a person reaches first. Two things about it are decided in
@@ -53,8 +59,6 @@ function sidebar(props: SidebarProps) {
   return (
     <MemoryRouter>
       <Sidebar
-        tasks={[]}
-        pendingByTask={new Map()}
         // The panel is drawn twice — once for the desktop rail and once inside
         // the mobile drawer — and both copies carry this menu. Closing the
         // drawer is what leaves one of it in the document; the markup under

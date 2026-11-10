@@ -547,6 +547,9 @@ describe("withPinnedBucket", () => {
       {
         key: "b0",
         label: "B0",
+        cwd: "/b",
+        createdAt: 0,
+        hasActiveTask: false,
         lastActivityAt: 0,
         rows: [
           { key: "t1", at: 3, title: "Pinned one", agentId: "kin", remote: false, task: pinned },
@@ -556,6 +559,9 @@ describe("withPinnedBucket", () => {
       {
         key: "b1",
         label: "B1",
+        cwd: "/b",
+        createdAt: 0,
+        hasActiveTask: false,
         lastActivityAt: 0,
         rows: [
           {
@@ -583,6 +589,9 @@ describe("withPinnedBucket", () => {
       {
         key: "b0",
         label: "B0",
+        cwd: "/b",
+        createdAt: 0,
+        hasActiveTask: false,
         lastActivityAt: 0,
         rows: [
           {
@@ -602,6 +611,22 @@ describe("withPinnedBucket", () => {
     expect(out[0]!.rows.map((r) => r.key)).toEqual(["t1"]);
   });
 
+  it("keeps a project heading whose loaded page holds no rows", () => {
+    // A project seeded from its record has no row in the loaded page. Dropping
+    // it here would make the heading vanish the moment anything was pinned.
+    const empty = {
+      key: "/work/empty",
+      label: "empty",
+      cwd: "/work/empty",
+      rows: [],
+      lastActivityAt: 0,
+      createdAt: 1,
+      hasActiveTask: false,
+    };
+    const out = withPinnedBucket([empty], new Set(), "置顶");
+    expect(out.map((b) => b.key)).toEqual(["/work/empty"]);
+  });
+
   it("does not lift imported agent sessions (they have no task id)", () => {
     const sessionRow = {
       key: "s1",
@@ -612,7 +637,7 @@ describe("withPinnedBucket", () => {
       session: { id: "s1", cwd: "/x" } as AgentSession,
     };
     const out = withPinnedBucket(
-      [{ key: "b0", label: "B0", lastActivityAt: 0, rows: [sessionRow] }],
+      [{ key: "b0", label: "B0", cwd: "/b", createdAt: 0, hasActiveTask: false, lastActivityAt: 0, rows: [sessionRow] }],
       new Set(["s1"]),
       "置顶",
     );

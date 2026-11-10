@@ -21,7 +21,7 @@ import { describe, expect, it } from "vitest";
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 const SHELL = readFileSync(join(UI, "src/components/layout/AppShell.tsx"), "utf8");
 const TASK = readFileSync(join(UI, "src/pages/TaskDetailPage.tsx"), "utf8");
-const SESSIONS = readFileSync(join(UI, "src/pages/SessionsPage.tsx"), "utf8");
+const SESSIONS = readFileSync(join(UI, "src/components/sessions/SessionList.tsx"), "utf8");
 
 describe("the Mac keyboard's wiring", () => {
   it("gives ⌘F to the list before the conversation sees it", () => {
