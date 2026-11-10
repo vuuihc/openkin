@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1100" height="760" fill="#ffffff" rx="10"/>
+<rect width="1100" height="32" fill="#f0f0f0" rx="10"/>
+<rect y="10" width="1100" height="22" fill="#f0f0f0"/>
+<line x1="0" y1="32" x2="1100" y2="32" stroke="#dddddd"/>
+<text x="12" y="21" font-size="12" fill="#555">Mac 1100×760 · 例行任务（KIN-ROUTINE-001）</text>
+<text x="1088" y="21" font-size="11" fill="#6b6b6b" text-anchor="end">一台机器的列表；机器决定一切</text>
+
+<rect x="0" y="32" width="72" height="728" fill="#fbfbfb"/>
+<line x1="72" y1="32" x2="72" y2="760" stroke="#e3e3e3"/>
+<text x="24" y="60" font-size="18" fill="#1a1a1a" font-weight="600">K</text>
+<rect x="12" y="120" width="48" height="36" rx="8" fill="#eef2ff"/>
+<text x="36" y="143" font-size="16" fill="#1f6feb" text-anchor="middle">◷</text>
+<rect x="44" y="114" width="18" height="18" rx="9" fill="#d04a3e"/>
+<text x="53" y="127" font-size="10" fill="#ffffff" text-anchor="middle">2</text>
+
+<text x="100" y="72" font-size="20" fill="#1a1a1a" font-weight="600">例行任务</text>
+<text x="100" y="94" font-size="12" fill="#6b6b6b">属于机器的调度；Hub 只负责转发</text>
+<rect x="806" y="58" width="88" height="30" rx="8" fill="#1f6feb"/>
+<text x="850" y="78" font-size="12" fill="#ffffff" text-anchor="middle">新建</text>
+<rect x="904" y="58" width="124" height="30" rx="8" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="966" y="78" font-size="12" fill="#444" text-anchor="middle">全部标为已读</text>
+
+<text x="100" y="128" font-size="12" fill="#6b6b6b">机器</text>
+<rect x="144" y="110" width="220" height="30" rx="8" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="158" y="130" font-size="12" fill="#1a1a1a">另一台机器 ▾</text>
+<text x="380" y="130" font-size="11.5" fill="#2f9e5f">在线</text>
+<text x="430" y="130" font-size="11.5" fill="#6b6b6b">列表、run-now、编辑、已读都发给这台机器</text>
+
+<rect x="100" y="156" width="470" height="540" rx="10" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="116" y="182" font-size="13" fill="#1a1a1a" font-weight="600">这台机器上的例行任务</text>
+
+<rect x="116" y="196" width="438" height="86" rx="8" fill="#eef2ff" stroke="#1f6feb"/>
+<text x="132" y="220" font-size="13" fill="#1a1a1a" font-weight="600">每天整理笔记</text>
+<circle cx="536" cy="216" r="5" fill="#1f6feb"/>
+<text x="132" y="242" font-size="11.5" fill="#555">下一次：明天 09:00 · 上次成功 · 2 条未读</text>
+<text x="132" y="264" font-size="11.5" fill="#1f6feb">立即运行</text>
+<text x="540" y="262" font-size="11.5" fill="#6b6b6b" text-anchor="end">编辑 · ⋯</text>
+
+<rect x="116" y="292" width="438" height="86" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
+<text x="132" y="316" font-size="13" fill="#1a1a1a" font-weight="600">每周检查改动</text>
+<text x="132" y="338" font-size="11.5" fill="#555">下一次：周一 10:00 · 上次失败 · 已读</text>
+<text x="132" y="360" font-size="11.5" fill="#b42318">失败原因：机器离线</text>
+<text x="540" y="358" font-size="11.5" fill="#6b6b6b" text-anchor="end">编辑 · ⋯</text>
+
+<rect x="116" y="388" width="438" height="86" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
+<text x="132" y="412" font-size="13" fill="#1a1a1a" font-weight="600">每小时看一次日志</text>
+<text x="132" y="434" font-size="11.5" fill="#555">下一次：14:00 · 上次成功 · 已读</text>
+<text x="540" y="454" font-size="11.5" fill="#6b6b6b" text-anchor="end">编辑 · ⋯</text>
+
+<text x="116" y="506" font-size="11.5" fill="#6b6b6b">空：这台机器还没有例行任务</text>
+<rect x="116" y="520" width="120" height="32" rx="8" fill="#ffffff" stroke="#1f6feb"/>
+<text x="176" y="541" font-size="12" fill="#1f6feb" text-anchor="middle">新建第一条</text>
+
+<rect x="590" y="156" width="438" height="540" rx="10" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="606" y="182" font-size="13" fill="#1a1a1a" font-weight="600">每天整理笔记 · 历史</text>
+<text x="1012" y="182" font-size="11.5" fill="#6b6b6b" text-anchor="end">按轮次分页</text>
+
+<rect x="606" y="196" width="406" height="72" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
+<text x="622" y="220" font-size="12" fill="#1a1a1a" font-weight="600">今天 09:00 · 成功</text>
+<text x="622" y="242" font-size="11.5" fill="#555">改了 3 个文件 · 12 分钟 · 未读</text>
+<text x="996" y="242" font-size="11.5" fill="#1f6feb" text-anchor="end">标为已读</text>
+
+<rect x="606" y="280" width="406" height="72" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
+<text x="622" y="304" font-size="12" fill="#1a1a1a" font-weight="600">昨天 09:00 · 成功</text>
+<text x="622" y="326" font-size="11.5" fill="#555">没有改动 · 8 分钟 · 已读</text>
+
+<rect x="606" y="364" width="406" height="72" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
+<text x="622" y="388" font-size="12" fill="#1a1a1a" font-weight="600">前天 09:00 · 失败</text>
+<text x="622" y="410" font-size="11.5" fill="#b42318">额度用完 · 已读 · 重试</text>
+
+<text x="606" y="478" font-size="11.5" fill="#6b6b6b">加载更多时旧的接在后面，不重复；</text>
+<text x="606" y="500" font-size="11.5" fill="#6b6b6b">历史超过上限时只保留最近 N 轮并说明。</text>
+
+<text x="100" y="726" font-size="11.5" fill="#999">机器离线时：标题旁标「离线」，新建与 run-now 禁用并说明；不静默换机器。</text>
+<rect x="0.5" y="0.5" width="1099" height="759" fill="none" rx="10" stroke="#bbbbbb"/>
+</g>
+</svg>

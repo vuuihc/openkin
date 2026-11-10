@@ -3,7 +3,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   NativePushPermissionError,
-  disableNativePush,
   disableNativePushOnSignOut,
   enableNativePush,
   clearDeliveredNotification,
@@ -11,10 +10,7 @@ import {
   flushPendingNativeDelete,
   forgetNativeDevice,
   forgetPendingNativeDelete,
-  nativePushPlugin,
-  nativePushSurface,
   pendingNativeDelete,
-  pushErrorKey,
   rememberedNativeDevice,
   rememberNativeDevice,
   rememberPendingNativeDelete,
@@ -71,36 +67,6 @@ beforeEach(() => {
   forgetNativeDevice();
   forgetPendingNativeDelete();
   vi.clearAllMocks();
-});
-
-describe("nativePushSurface", () => {
-  it("reports the iOS shell, not a browser, when the plugin is present", () => {
-    expect(nativePushSurface(iosScope(fakePlugin()))).toBe("ios");
-    expect(nativePushPlugin(iosScope(fakePlugin()))).not.toBeNull();
-  });
-
-  it("stays a browser when Capacitor is absent, Android, or the plugin is missing", () => {
-    expect(nativePushSurface({})).toBe("browser");
-    expect(
-      nativePushSurface({
-        Capacitor: { isNativePlatform: () => true, getPlatform: () => "android" },
-      }),
-    ).toBe("browser");
-    expect(
-      nativePushSurface({
-        Capacitor: { isNativePlatform: () => false, getPlatform: () => "ios" },
-      }),
-    ).toBe("browser");
-    expect(
-      nativePushSurface({
-        Capacitor: {
-          isNativePlatform: () => true,
-          getPlatform: () => "ios",
-          Plugins: { KinNativePush: { permission: () => undefined } },
-        },
-      }),
-    ).toBe("browser");
-  });
 });
 
 describe("requestNativePushPermission", () => {
@@ -172,68 +138,6 @@ describe("syncNativePush", () => {
     expect(await syncNativePush(plugin, api)).toBeNull();
     expect(plugin.register).not.toHaveBeenCalled();
     expect(api.registerPushDevice).not.toHaveBeenCalled();
-  });
-});
-
-describe("disableNativePush", () => {
-  it("removes the node row before telling the shell to stop", async () => {
-    const order: string[] = [];
-    const unregister = vi.fn(async () => {
-      order.push("shell");
-    });
-    const plugin = fakePlugin({ unregister });
-    const api = fakeApi();
-    api.deletePushDevice.mockImplementation(async () => {
-      order.push("node");
-    });
-
-    const result = await disableNativePush(plugin, api, "row-1");
-
-    expect(result).toEqual({ pending: false });
-    expect(api.deletePushDevice).toHaveBeenCalledWith("row-1");
-    expect(order).toEqual(["node", "shell"]);
-  });
-
-  it("still stops this phone and remembers the row when the node is unreachable", async () => {
-    const plugin = fakePlugin();
-    const api = fakeApi();
-    api.deletePushDevice.mockRejectedValue(new Error("offline"));
-
-    const result = await disableNativePush(plugin, api, "row-1");
-
-    expect(result).toEqual({ pending: true });
-    expect(plugin.unregister).toHaveBeenCalledTimes(1);
-    expect(pendingNativeDelete()).toBe("row-1");
-  });
-
-  it("treats a 404 as already deleted", async () => {
-    const plugin = fakePlugin();
-    const api = fakeApi();
-    api.deletePushDevice.mockRejectedValue(
-      Object.assign(new Error("not found"), { status: 404 }),
-    );
-
-    const result = await disableNativePush(plugin, api, "row-1");
-
-    expect(result).toEqual({ pending: false });
-    expect(plugin.unregister).toHaveBeenCalledTimes(1);
-    expect(pendingNativeDelete()).toBeNull();
-  });
-
-  it("does not remember a row this credential may never delete", async () => {
-    // 401/403 cannot become deletable by retrying; keeping the id would retry
-    // it on every settings load while the shell is already quiet.
-    const plugin = fakePlugin();
-    const api = fakeApi();
-    api.deletePushDevice.mockRejectedValue(
-      Object.assign(new Error("forbidden"), { status: 403 }),
-    );
-
-    const result = await disableNativePush(plugin, api, "row-1");
-
-    expect(result).toEqual({ pending: false });
-    expect(plugin.unregister).toHaveBeenCalledTimes(1);
-    expect(pendingNativeDelete()).toBeNull();
   });
 });
 
@@ -381,25 +285,6 @@ describe("rememberedNativeDevice", () => {
     expect(rememberedNativeDevice()).toBe("row-1");
     forgetNativeDevice();
     expect(rememberedNativeDevice()).toBeNull();
-  });
-});
-
-describe("pushErrorKey", () => {
-  it("maps the reasons a person can act on", () => {
-    expect(pushErrorKey("BadDeviceToken")).toBe("settings.nativePush.apnsErrors.token");
-    expect(pushErrorKey("Unregistered")).toBe("settings.nativePush.apnsErrors.token");
-    expect(pushErrorKey("ExpiredProviderToken")).toBe(
-      "settings.nativePush.apnsErrors.credentials",
-    );
-    expect(pushErrorKey("TooManyRequests")).toBe("settings.nativePush.apnsErrors.rateLimited");
-    expect(pushErrorKey("ServiceUnavailable")).toBe(
-      "settings.nativePush.apnsErrors.unavailable",
-    );
-  });
-
-  it("leaves an unknown reason to speak for itself", () => {
-    expect(pushErrorKey("PayloadTooLarge")).toBeNull();
-    expect(pushErrorKey("")).toBeNull();
   });
 });
 

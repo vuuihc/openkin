@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1600" height="900" fill="#f6f6f8"/>
+<text x="40" y="46" font-size="20" fill="#1a1a1a" font-weight="600">例行任务 · 状态板（KIN-ROUTINE-001）</text>
+<text x="1560" y="46" font-size="12" fill="#6b6b6b" text-anchor="end">机器状态先于任务状态</text>
+
+<rect x="40" y="76" width="480" height="360" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="64" y="110" font-size="15" fill="#1a1a1a" font-weight="600">机器离线</text>
+<text x="64" y="140" font-size="12.5" fill="#6b6b6b">记住的机器不在线</text>
+<rect x="64" y="158" width="432" height="44" rx="8" fill="#fff1f0" stroke="#d04a3e"/>
+<text x="80" y="185" font-size="12.5" fill="#b42318">离线 · 另一台机器（不在线）</text>
+<text x="64" y="228" font-size="12.5" fill="#555">仍显示它，不静默换机；给一台在线的可切换。</text>
+<rect x="64" y="246" width="160" height="34" rx="10" fill="#ffffff" stroke="#1f6feb"/>
+<text x="144" y="268" font-size="12" fill="#1f6feb" text-anchor="middle">换到在线的机器</text>
+<text x="64" y="310" font-size="12.5" fill="#555">新建与 run-now 禁用并说明；历史仍可读缓存。</text>
+
+<rect x="560" y="76" width="480" height="360" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="584" y="110" font-size="15" fill="#1a1a1a" font-weight="600">空 / 加载</text>
+<text x="584" y="140" font-size="12.5" fill="#6b6b6b">这台机器没有任务，或第一次加载</text>
+<text x="584" y="176" font-size="15" fill="#1a1a1a" font-weight="600">这台机器还没有例行任务</text>
+<rect x="584" y="196" width="120" height="34" rx="10" fill="#1f6feb"/>
+<text x="644" y="218" font-size="12" fill="#ffffff" text-anchor="middle">新建第一条</text>
+<text x="584" y="268" font-size="12.5" fill="#555">加载中：骨架只给第一次加载，不闪空状态。</text>
+<text x="584" y="294" font-size="12.5" fill="#555">读失败：原因 + 重试，不显示成空。</text>
+
+<rect x="1080" y="76" width="480" height="360" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="1104" y="110" font-size="15" fill="#1a1a1a" font-weight="600">调度非法</text>
+<text x="1104" y="140" font-size="12.5" fill="#6b6b6b">过去的时间、空规则、不存在的日期</text>
+<rect x="1104" y="158" width="432" height="44" rx="8" fill="#ffffff" stroke="#d04a3e"/>
+<text x="1120" y="185" font-size="12.5" fill="#b42318">下一次不能在过去。换一个时间。</text>
+<text x="1104" y="228" font-size="12.5" fill="#555">保存按钮禁用；不静默改成「现在」。</text>
+<text x="1104" y="254" font-size="12.5" fill="#555">规则合法后立刻显示「下一次：明天 09:00」。</text>
+
+<rect x="40" y="466" width="480" height="360" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="64" y="500" font-size="15" fill="#1a1a1a" font-weight="600">运行中 / 成功 / 失败</text>
+<text x="64" y="530" font-size="12.5" fill="#6b6b6b">三种结果，同一行就地变化</text>
+<rect x="64" y="550" width="432" height="54" rx="8" fill="#ffffff" stroke="#1f6feb"/>
+<text x="80" y="574" font-size="12.5" fill="#1f6feb" font-weight="600">运行中…</text>
+<text x="80" y="594" font-size="11.5" fill="#555">离开页面再回来仍显示「运行中」</text>
+<rect x="64" y="614" width="432" height="54" rx="8" fill="#ffffff" stroke="#2f9e5f"/>
+<text x="80" y="638" font-size="12.5" fill="#2f9e5f" font-weight="600">成功 · 12 分钟 · 改了 3 个文件</text>
+<text x="80" y="658" font-size="11.5" fill="#555">未读 +1；侧栏角标跟着加</text>
+<rect x="64" y="678" width="432" height="54" rx="8" fill="#ffffff" stroke="#d04a3e"/>
+<text x="80" y="702" font-size="12.5" fill="#b42318" font-weight="600">失败 · 额度用完</text>
+<text x="80" y="722" font-size="11.5" fill="#555">给原因与「重试」；不显示成已完成</text>
+
+<rect x="560" y="466" width="480" height="360" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="584" y="500" font-size="15" fill="#1a1a1a" font-weight="600">等待批准</text>
+<text x="584" y="530" font-size="12.5" fill="#6b6b6b">这一轮停下来等一个人</text>
+<rect x="584" y="550" width="432" height="66" rx="8" fill="#ffffff" stroke="#d08a00"/>
+<text x="600" y="574" font-size="12.5" fill="#b26a00" font-weight="600">等待批准 · 5 分钟</text>
+<text x="600" y="596" font-size="11.5" fill="#555">点开去那段对话；批准后这一轮继续</text>
+<text x="584" y="650" font-size="12.5" fill="#555">通知会落到那段对话，不落到这一页。</text>
+
+<rect x="1080" y="466" width="480" height="360" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="1104" y="500" font-size="15" fill="#1a1a1a" font-weight="600">未读 / 已读</text>
+<text x="1104" y="530" font-size="12.5" fill="#6b6b6b">未读跟侧栏角标同一台机器</text>
+<rect x="1104" y="550" width="432" height="54" rx="8" fill="#eef2ff" stroke="#1f6feb"/>
+<text x="1120" y="574" font-size="12.5" fill="#1a1a1a" font-weight="600">每天整理笔记 · 2 条未读</text>
+<text x="1120" y="594" font-size="11.5" fill="#1f6feb">标为已读</text>
+<rect x="1104" y="614" width="432" height="54" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
+<text x="1120" y="638" font-size="12.5" fill="#1a1a1a" font-weight="600">每周检查改动 · 已读</text>
+<text x="1120" y="658" font-size="11.5" fill="#555">标记失败：保留未读并说明</text>
+<text x="1104" y="700" font-size="12.5" fill="#555">全部标为已读只影响这台机器。</text>
+
+<text x="40" y="868" font-size="11.5" fill="#888">所有状态都写明是哪台机器；换机器时列表、未读、表单一起换。</text>
+</g>
+</svg>

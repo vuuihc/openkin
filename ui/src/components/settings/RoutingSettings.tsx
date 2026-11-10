@@ -253,7 +253,7 @@ export function RoutingDefaultsSection() {
         </button>
         {saved && (
           <span className="text-body leading-4 text-kin-green-ink">
-            {tr("settings.notify.savedShort")}
+            {tr("settings.savedShort")}
           </span>
         )}
         {error && <span className="text-body leading-4 text-kin-red-ink">{error}</span>}

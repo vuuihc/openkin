@@ -244,6 +244,7 @@ stop sharing a network. (2) only if manual addresses keep hurting. (4) last.
 
 | Date | Change |
 |------|--------|
+| 2026-11-11 | R0b-3 removed the console Remote / Notifications settings tabs (device list, test push, channel switches). Permission belongs to macOS / iOS settings; the console keeps one iPhone first-authorization row on Settings → General, and a granted phone re-registers on launch. Relay / APNs daemon APIs stay. |
 | 2026-11-10 | Switched the NAS cloudflared to `--protocol http2` after a 7-minute QUIC outage (error 1033) on the phone's ingress; noted that the phone entry shares the node link's fault domain |
 | 2026-11-10 | Recorded the Hub ↔ node connectivity debt: one fixed URL, no discovery/failover; the LAN fix landed, the general design is deferred to its own round |
 | 2026-10-23 | Retired the Wiki / governed-memory ("Remember") theme; multi-device via a user-run Hub is now the active direction |

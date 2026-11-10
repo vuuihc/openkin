@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="kin-review-format" content="figma-flow-v1">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231f6feb'/%3E%3Cpath d='M16 7a5 5 0 0 0-5 5v3l-2 3h14l-2-3v-3a5 5 0 0 0-5-5zm0 18a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 16 25z' fill='white'/%3E%3C/svg%3E">
+<title>KIN-AGENTS-001 · 机器上的 agent · Figma 审阅</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --ink: #1a1a1a;
+    --muted: #666a73;
+    --line: #dedee3;
+    --bg: #f1f1f4;
+    --page: #fbfbfd;
+    --card: #ffffff;
+    --accent: #1f6feb;
+    --accent-soft: #eef3ff;
+    --warn: #b42318;
+    --warn-soft: #fff1f0;
+    --ok: #137a3f;
+    --ok-soft: #eef8f1;
+    --gutter: clamp(16px, 5vw, 24px);
+    --radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #f5f5f7;
+      --muted: #a1a1aa;
+      --line: #35353a;
+      --bg: #0b0b0d;
+      --page: #141416;
+      --card: #1d1d20;
+      --accent: #6ea8fe;
+      --accent-soft: #17243a;
+      --warn: #ff8a80;
+      --warn-soft: #2a1717;
+      --ok: #6dd58c;
+      --ok-soft: #13251b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); }
+  code { padding: 1px 5px; border-radius: 5px; background: var(--bg); font-size: .9em; overflow-wrap: anywhere; }
+  .page { max-width: 860px; min-height: 100vh; margin: 0 auto; padding: 0 var(--gutter) calc(48px + env(safe-area-inset-bottom)); background: var(--page); }
+  header { padding: 30px 0 12px; }
+  .eyebrow { color: var(--muted); font-size: 12.5px; letter-spacing: .02em; }
+  h1 { margin: 6px 0 8px; font-size: 26px; line-height: 1.28; letter-spacing: -.02em; }
+  h1 small { display: block; margin-top: 2px; font-size: 18px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .meta { margin: 2px 0; color: var(--muted); font-size: 13px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+  .pill { display: inline-flex; align-items: center; height: 25px; padding: 0 10px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+  .pill.here { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); }
+  .pill.plain { color: var(--muted); background: var(--card); border: 1px solid var(--line); }
+  .pill.ok { color: var(--ok); background: var(--ok-soft); }
+  .pill.draft { color: var(--muted); background: var(--bg); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+  .summary { margin-top: 12px; border-left: 4px solid var(--accent); }
+  .summary p { margin: 0; font-size: 15.5px; }
+  .howto { margin-top: 12px; background: var(--accent-soft); border-color: transparent; }
+  .howto h2 { margin: 0 0 6px; font-size: 17px; }
+  .howto ol { margin: 6px 0 8px; padding-left: 20px; font-size: 14.5px; }
+  .howto li { margin: 5px 0; }
+  .note { color: var(--muted); font-size: 13.5px; }
+  .howto .note { margin: 4px 0 0; }
+  .toc {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; gap: 8px;
+    margin: 0 calc(-1 * var(--gutter));
+    padding: 8px var(--gutter);
+    overflow-x: auto;
+    background: var(--page);
+    border-bottom: 1px solid var(--line);
+    scrollbar-width: none;
+  }
+  .toc::-webkit-scrollbar { display: none; }
+  .toc a {
+    flex: none; display: inline-flex; align-items: center;
+    min-height: 44px; padding: 0 14px;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink);
+    font-size: 13px; text-decoration: none; white-space: nowrap;
+  }
+  .toc a.primary { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  section { padding-top: 30px; scroll-margin-top: 72px; }
+  h2 { margin: 0 0 10px; font-size: 20px; line-height: 1.35; letter-spacing: -.01em; }
+  h3 { margin: 0 0 6px; font-size: 16px; line-height: 1.4; }
+  h4 { margin: 16px 0 8px; font-size: 15px; line-height: 1.4; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 20px; }
+  li { margin: 6px 0; }
+  .lead { font-size: 15px; }
+  .bullets { font-size: 14.5px; }
+  .mece { margin-top: 10px; padding: 2px 14px; }
+  .mece-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+  .mece-row:last-child { border-bottom: 0; }
+  .mece-row .name { min-width: 0; }
+  .mece-row .who { margin-top: 2px; color: var(--muted); font-size: 12.5px; }
+  .mece-row.here { margin: 2px -8px; padding: 11px 8px; border-bottom: 0; border-radius: 10px; background: var(--accent-soft); }
+  .mece-row.here strong { color: var(--accent); }
+  .two { display: grid; gap: 10px; }
+  .two .card { border-left-width: 4px; }
+  .two .card h3 { font-size: 15px; }
+  .two .card ul { margin: 6px 0 0; padding-left: 18px; font-size: 14px; }
+  .now { border-left-color: var(--warn) !important; background: var(--warn-soft); }
+  .after { border-left-color: var(--ok) !important; background: var(--ok-soft); }
+  .screen-index { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 16px; }
+  .screen-index a {
+    display: inline-flex; align-items: center; min-height: 44px;
+    padding: 0 12px; border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink); font-size: 13px; text-decoration: none;
+  }
+  .screen { margin: 16px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; }
+  .screen-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .screen-head h3 { margin: 2px 0 0; }
+  .frame { margin: 0; }
+  .frame-scroll {
+    overflow-x: auto; overflow-y: hidden;
+    border: 1px solid var(--line); border-radius: 12px;
+    background: #fff;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+  .frame-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .frame img { display: block; height: auto; max-width: none; }
+  .fig-phone .frame-scroll { max-width: 390px; margin: 0 auto; }
+  .fig-phone img { width: 100%; }
+  .fig-wide img { width: 1100px; }
+  .fig-board img { width: 1600px; }
+  .frame figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+  .frame figcaption a { display: inline-flex; align-items: center; min-height: 44px; }
+  .flow { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .flow li {
+    display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 10px;
+    padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--bg); font-size: 14.5px;
+  }
+  .flow b { color: var(--accent); font-weight: 600; }
+  .flow span { min-width: 0; overflow-wrap: anywhere; }
+  .state-list { display: grid; gap: 8px; margin-top: 10px; }
+  .state { padding: 11px 13px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-size: 14px; }
+  .state b { display: block; margin-bottom: 2px; font-size: 14.5px; }
+  .state span { color: var(--muted); }
+  .decision { margin: 12px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 14px; }
+  .decision h3 { font-size: 16px; }
+  .decision p { font-size: 14.5px; }
+  .decision .rec { margin: 6px 0; }
+  .decision .rec strong { color: var(--accent); }
+  .decision .tradeoff { color: var(--muted); font-size: 13.5px; }
+  .decision.settled { border-left-color: var(--ok); }
+  .decision.settled .rec strong { color: var(--ok); }
+  .reply { margin-top: 10px; }
+  .reply pre { margin: 8px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font: 13.5px/1.9 -apple-system, BlinkMacSystemFont, "SF Mono", Menlo, monospace; white-space: pre-wrap; }
+  .sign { border-left: 4px solid var(--ok); }
+  .sign p { margin: 6px 0; }
+  footer { margin-top: 34px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  footer p { margin: 4px 0; }
+  a:focus-visible, .screen-index a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+  @media (min-width: 600px) {
+    body { padding: 26px 0; }
+    .page { min-height: auto; border-radius: 28px; box-shadow: 0 20px 60px rgba(0,0,0,.12); }
+    .toc { border-radius: 0; }
+    .two { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 380px) {
+    .flow li { grid-template-columns: 1fr; gap: 4px; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+
+  <header>
+    <div class="eyebrow">Figma 审阅版 · 约 7 分钟 · 4 个决定</div>
+    <h1>KIN-AGENTS-001 · 机器上的 agent <small>Figma 设计稿</small></h1>
+    <p class="meta">draft · 面：Mac / 手机 · 对照 <code>KIN-AGENTS-001.md</code></p>
+    <p class="meta">2026 年 11 月 11 日 · 4 屏 · 10 个状态</p>
+    <div class="tags">
+      <span class="pill draft">draft · 待签字</span>
+      <span class="pill plain">旅程 J6</span>
+      <span class="pill plain">Mac / 手机</span>
+    </div>
+  </header>
+
+  <section class="card summary" aria-label="一句话">
+    <p><strong>一句话：</strong>当我想知道这台机器上到底有哪些 agent 能用、哪个没登录、这个月花在哪，我想在一个页面上看到全部 agent 的状态和用量，并把缺的装上、把坏的修好，以便新建对话时不再撞上「这个 agent 不可用」。</p>
+  </section>
+
+  <section class="card howto" aria-labelledby="how-title">
+    <h2 id="how-title">怎么审</h2>
+    <ol>
+      <li><strong>先看切法</strong>：这是「环境」，不是「设置默认值」；密钥与端点仍在设置页。</li>
+      <li><strong>再看每一屏</strong>：先看 Figma 帧，再读帧下面六段用户流程。</li>
+      <li><strong>最后回决定</strong>：每条都有推荐和代价；页尾有回复模板。</li>
+    </ol>
+    <p class="note">都同意就回「全部同意」；有修改就回「D2 改成…」。宽帧在卡片内左右滑动，页面本身不横滚。</p>
+  </section>
+
+  <nav class="toc" aria-label="页内导航">
+    <a href="#mece" class="primary">切法</a>
+    <a href="#before-after">现在→之后</a>
+    <a href="#screens" class="primary">界面</a>
+    <a href="#states">状态</a>
+    <a href="#decisions" class="primary">决定</a>
+    <a href="#reply">回复模板</a>
+  </nav>
+
+  <section id="mece">
+    <h2>MECE：这条故事切在哪</h2>
+    <p class="note">设置页回答「默认用哪个」，这一页回答「这台机器上有什么、现在能不能用、用掉多少」；两者都归「设置与环境」。</p>
+    <div class="card mece">
+      <div class="mece-row">
+        <div class="name">接着问一段对话<div class="who">KIN-CONTINUE-001</div></div>
+        <span class="pill ok">已交付</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">新建一段对话<div class="who">KIN-START-001</div></div>
+        <span class="pill draft">draft</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">看它改了什么<div class="who">KIN-RESULT-001</div></div>
+        <span class="pill draft">draft</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">整理对话与项目<div class="who">KIN-MANAGE-001 · KIN-PROJECT-001</div></div>
+        <span class="pill draft">draft</span>
+      </div>
+      <div class="mece-row here">
+        <div class="name"><strong>设置与环境</strong><div class="who">KIN-SETTINGS-001 / 002 · KIN-AGENTS-001（这条）</div></div>
+        <span class="pill here">本页</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">让它按时跑<div class="who">KIN-ROUTINE-001</div></div>
+        <span class="pill draft">draft</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">被叫回来<div class="who">KIN-NOTIFY-001</div></div>
+        <span class="pill ok">已签字</span>
+      </div>
+    </div>
+    <ul class="bullets">
+      <li><strong>为什么单独一条：</strong>它是环境面：装了什么、能不能用、额度与用量；设置页管的是默认值与密钥。两者混在一起会让「改默认」也被迫加载用量。</li>
+      <li><strong>为什么不并进相邻故事：</strong>新建页只消费这里的结论（agent 是否可用），不承担安装、登录与额度；例行任务的 cwd / agent 选择在 ROUTINE-001，不在这里。</li>
+      <li><strong>设备只是差异：</strong>这条覆盖 Mac 和手机；Mac 表格、手机卡片 + 动作面板，差异写在故事「各面差异」。</li>
+      <li><strong>不在这一条：</strong>provider 密钥与端点 → SETTINGS-001；删除或卸载 agent → 暂不做；agent 的来源目录（安装命令）由环境自己管，这一页只复制不解释。</li>
+      <li><strong>大小：</strong>4 屏（Mac 目录 / Mac 行内操作 / 手机 / 状态板）；一次交付；两个面都成立。</li>
+    </ul>
+  </section>
+
+  <section id="before-after">
+    <h2>现在 → 之后</h2>
+    <div class="two">
+      <div class="card now">
+        <h3>现在</h3>
+        <ul>
+          <li>用量和 agent 管理揉在一页，但没有故事、没有页面测试。</li>
+          <li>「重检」「全量 smoke」只给一句 toast，失败时不说清是哪一台。</li>
+          <li>额度「等待中」与登录状态在表里是两套颜色，没有统一的文字状态。</li>
+          <li>手机用卡片，但操作面板与桌面菜单的动作名不完全一致。</li>
+        </ul>
+      </div>
+      <div class="card after">
+        <h3>之后</h3>
+        <ul>
+          <li>一页看清每个 agent 的状态、版本、登录、额度与用量；状态都有文字。</li>
+          <li>动作就地更新那一行；失败指出哪个 agent、哪一步、下一步做什么。</li>
+          <li>手机与 Mac 用同一套动作名；手机进底部动作面板。</li>
+          <li>新建页的「不可用」能直接指向这里的具体一行。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="screens">
+    <h2>界面与用户流程</h2>
+    <p class="note">每一屏先看 Figma 帧，再读下面六段流程。帧是设计源；宽帧在卡片内左右滑动，点「打开原图」可以全尺寸看。</p>
+
+    <div class="screen-index" aria-label="界面索引">
+      <a href="#screen-1">01 · Mac · Agent 目录</a>
+      <a href="#screen-2">02 · Mac · 行内操作</a>
+      <a href="#screen-3">03 · 手机 · 卡片与动作面板</a>
+      <a href="#states">04 · 状态板</a>
+    </div>
+
+    <article class="screen" id="screen-1">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">01 · Mac · 1100×760</div>
+          <h3>Agent 运维 · 用量与目录</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="Mac Agent 运维页的 Figma 帧" tabindex="0" data-start="330">
+          <img src="KIN-AGENTS-001.figma/frames/01-mac-agents.svg" alt="Mac Agent 运维：四张用量卡片、每日花费条、agent 表，行里有状态、版本、登录、花费、token、任务、额度与操作" loading="lazy">
+        </div>
+        <figcaption>
+          <span>1100×760 · Mac 帧 · 主区优先，左右滑动看完整</span>
+          <a href="KIN-AGENTS-001.figma/frames/01-mac-agents.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>从 Mac 左栏底部或 ⌘K 的「Agent 运维」进入；页面先出标题与用量骨架。</span></li>
+        <li><b>动作</b><span>切 7 / 30 / 90 天；扫一眼 agent 表的状态、登录与额度。</span></li>
+        <li><b>立刻看到</b><span>四张卡片与每日花费随区间更新；表里默认 agent 有文字标记，未登录 / 未安装 / 需要更新各自有文字。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>加载骨架；没有用量写「这段时间没有用量」；没有 agent 给安装入口；状态读不到写「状态未知」；离线标时间并禁用动作。</span></li>
+        <li><b>键盘与焦点</b><span>表头可点排序并有 aria-sort；Tab 到行尾「⋯」，Enter 打开菜单，Esc 关闭并还焦点。</span></li>
+        <li><b>离开再回来</b><span>区间与排序保留；下次打开重新读一次状态，不沿用旧值。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-2">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">02 · Mac · 1100×760</div>
+          <h3>行内操作与 smoke 结果</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="Mac Agent 行内操作与 smoke 结果的 Figma 帧" tabindex="0" data-start="330">
+          <img src="KIN-AGENTS-001.figma/frames/03-mac-actions.svg" alt="Mac Agent 运维：Codex 行的菜单打开，含重新检查、smoke、复制登录命令、设为默认；底部是 smoke 结果条，指出 Codex 未登录" loading="lazy">
+        </div>
+        <figcaption>
+          <span>1100×760 · Mac 帧 · 主区优先</span>
+          <a href="KIN-AGENTS-001.figma/frames/03-mac-actions.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>目录里一个未登录 / 需要更新的 agent。</span></li>
+        <li><b>动作</b><span>点行尾「⋯」，选「重新检查」「smoke 测试」「复制登录命令」或「设为默认」。</span></li>
+        <li><b>立刻看到</b><span>那一行就地标「检查中」；完成后状态、时间与默认标记更新；smoke 结果条写清 N 通过 / M 失败 / K 跳过和失败的 agent。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>动作失败说明哪个 agent、哪一步、下一步；剪贴板失败给「复制失败」；离线时菜单项禁用。</span></li>
+        <li><b>键盘与焦点</b><span>菜单里 ↑/↓ 选择，Enter 确认，Esc 关闭并回到行尾按钮；结果条可 Tab 到「关闭」。</span></li>
+        <li><b>离开再回来</b><span>已完成的结果保留；进行中的动作离开再回来显示真实状态，不假装完成。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-3">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">03 · 手机 · 390×844</div>
+          <h3>手机 · 卡片与动作面板</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机 Agent 运维的 Figma 帧" tabindex="0">
+          <img src="KIN-AGENTS-001.figma/frames/02-phone-agents.svg" alt="手机 Agent 运维：区间分段控件、四张用量卡片、每日花费，下面每个 agent 一张卡；底部是未安装 agent 的动作面板" loading="lazy">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-AGENTS-001.figma/frames/02-phone-agents.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>手机 K 面板的「Agent 运维」；页面从头开始。</span></li>
+        <li><b>动作</b><span>切区间；点一张 agent 卡片打开动作面板。</span></li>
+        <li><b>立刻看到</b><span>卡片一行名字 + 状态，第二行版本 / 登录 / 花费 / 任务；动作面板从底部出现，动作名与 Mac 一致。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>与 Mac 同样的空、失败、离线文案；动作进行中卡片标「检查中」；面板选完自动关闭。</span></li>
+        <li><b>键盘与焦点</b><span>每个动作至少 44px；面板打开时焦点进面板，Esc 或下滑关闭并回卡片。</span></li>
+        <li><b>离开再回来</b><span>区间保留；面板不保持；下次打开重新读状态。</span></li>
+      </ol>
+    </article>
+  </section>
+
+  <section id="states">
+    <h2>状态</h2>
+    <p class="note">状态也是 Figma 帧的一部分；先看状态板，再看下面的检查表。宽板在卡片内左右滑动。</p>
+    <figure class="frame fig-board">
+      <div class="frame-scroll" role="region" aria-label="Agent 运维状态板的 Figma 板" tabindex="0">
+        <img src="KIN-AGENTS-001.figma/frames/04-states.svg" width="1600" height="900" alt="Agent 运维状态板：没有 agent、没有用量、未登录、未安装与需要更新、额度等待中、检查中、smoke 失败、断线" loading="lazy" decoding="async">
+      </div>
+      <figcaption>
+        <span>1600×900 · 状态板 · 左右滑动或打开原图</span>
+        <a href="KIN-AGENTS-001.figma/frames/04-states.svg">打开原图</a>
+      </figcaption>
+    </figure>
+    <div class="state-list">
+      <div class="state"><b>空：没有 agent</b><span>「还没有可用的 agent」+ 安装入口；新建页也给同一个入口。</span></div>
+      <div class="state"><b>空：没有用量</b><span>「这段时间没有用量」，数字显示「—」，不显示 0。</span></div>
+      <div class="state"><b>未登录</b><span>「需要登录」+「复制登录命令」；不要求用户猜命令。</span></div>
+      <div class="state"><b>未安装 / 需要更新</b><span>「未安装」+「安装」；「0.4.0 → 0.4.2」+「更新」。</span></div>
+      <div class="state"><b>额度等待中</b><span>「等待中 · 12 分钟」+ 进度；恢复后自动可用，不是故障。</span></div>
+      <div class="state"><b>检查中</b><span>那一行标「检查中」，其余行可继续用。</span></div>
+      <div class="state"><b>失败</b><span>smoke 结果条指出失败的 agent 与下一步；不吞原因。</span></div>
+      <div class="state"><b>断线</b><span>「离线 · 显示上次结果（时间）」；动作禁用。</span></div>
+      <div class="state"><b>状态未知</b><span>读不到就说「状态未知」，不猜成可用。</span></div>
+    </div>
+  </section>
+
+  <section id="decisions">
+    <h2>要你拍板的</h2>
+    <p class="note">每条都写推荐和代价；只回不同意的编号就行。已经拍过板的写「已定」，不再重复问。</p>
+    <div class="decision settled">
+      <h3>D1 用量与 agent 目录在同一页</h3>
+      <p class="rec"><strong>已定：</strong><code>/usage</code> 已重定向到 <code>/agents</code>（2026-11 之前）；用量不再是独立页面，避免第二个「看花了多少」的入口。</p>
+      <p class="tradeoff"><strong>代价：</strong>只想知道花费的人也要看到 agent 目录；但两件事回答的是同一个问题（环境怎么样）。</p>
+    </div>
+    <div class="decision">
+      <h3>D2 「默认 agent」按机器还是按人</h3>
+      <p class="rec"><strong>推荐：</strong>按机器。默认 agent 是这台机器的环境事实（装了什么、登录了什么），换一台机器可以不同。</p>
+      <p class="tradeoff"><strong>代价：</strong>同一个人在 Mac 和另一台机器上看到的默认可能不同；需要在新建页标出「这台机器的默认」。</p>
+    </div>
+    <div class="decision">
+      <h3>D3 重检与 smoke 的范围</h3>
+      <p class="rec"><strong>推荐：</strong>保留「单个 agent」与「全部」两种；全部跑完给结果条，失败点名到 agent。</p>
+      <p class="tradeoff"><strong>代价：</strong>页头多两个按钮；全部 smoke 可能很慢，需要进度与可取消。</p>
+    </div>
+    <div class="decision">
+      <h3>D4 agent 的删除 / 卸载</h3>
+      <p class="rec"><strong>推荐：</strong>这一版不做。删除会动到机器上的安装与凭据，风险与「装/更新」不同级。</p>
+      <p class="tradeoff"><strong>代价：</strong>装错的 agent 只能去终端卸载；等真实使用需要时另开故事。</p>
+    </div>
+  </section>
+
+  <section id="reply">
+    <h2>回复模板</h2>
+    <div class="card reply">
+      <p class="note">长按下面这段复制，改掉不同意的；都同意就回「全部同意」。</p>
+      <pre>D2 同意
+D3 同意
+D4 同意
+（按实际条数增删；D1 已定，不用回）</pre>
+    </div>
+  </section>
+
+  <section id="sign">
+    <h2>签字</h2>
+    <div class="card sign">
+      <p>你回「全部同意」后，我把 <code>KIN-AGENTS-001.md</code> 改成 <code>approved</code>，再排交付。</p>
+      <p class="note">Figma 帧或流程改了会重新发这一页；设计源始终是 <code>KIN-AGENTS-001.figma/</code> 里的 SVG 帧和本页的流程。</p>
+    </div>
+  </section>
+
+  <footer>
+    <p>设计源：<code>KIN-AGENTS-001.figma/frames/</code>（SVG 帧）</p>
+    <p>审阅编排：<code>KIN-AGENTS-001.review.html</code>（本页）</p>
+    <p>合同：<code>KIN-AGENTS-001.md</code></p>
+    <p>Figma 审阅版 · figma-flow-v1</p>
+  </footer>
+
+</main>
+<script>
+  for (const el of document.querySelectorAll('.frame-scroll[data-start]')) {
+    el.scrollLeft = Number(el.dataset.start) || 0;
+  }
+</script>
+</body>
+</html>

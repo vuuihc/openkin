@@ -54,7 +54,7 @@ beforeEach(() => {
   h.clearDelivered.mockReset();
   h.delivered.mockReset();
   h.delivered.mockResolvedValue([]);
-  useAppStore.setState({ auth: { status: "ok" } });
+  useAppStore.setState({ auth: { status: "ok" }, reconnectGen: 0 });
 });
 
 function trackedTree(source: NotificationTapSource | null, onRender: () => void) {
@@ -218,5 +218,172 @@ describe("NotificationTaps", () => {
     mount({ takePendingURL: async () => null });
     document.dispatchEvent(new Event("visibilitychange"));
     expect(h.refreshPending).not.toHaveBeenCalled();
+  });
+
+  /**
+   * R0b-3 deleted the Notifications settings tab, which was also the only
+   * place a phone re-registered after its APNs token rotated or after the
+   * reader signed in again. The launch sync below is the half that needs no
+   * tap; the settings General tab keeps the one enable tap iOS requires.
+   */
+  it("re-registers this phone on launch when the permission is already granted", async () => {
+    const registerPushDevice = vi.fn(async () => ({ id: "device-1" }));
+    const plugin = {
+      permission: vi.fn(async () => ({ status: "granted" as const })),
+      requestPermission: vi.fn(),
+      register: vi.fn(async () => ({
+        installId: "install-1",
+        token: "token-1",
+        environment: "production" as const,
+      })),
+      unregister: vi.fn(),
+      openSettings: vi.fn(),
+    };
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <NotificationTaps
+          source={null}
+          pushPlugin={plugin}
+          pushApi={{ registerPushDevice, deletePushDevice: vi.fn() }}
+        />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() =>
+      expect(registerPushDevice).toHaveBeenCalledWith(
+        expect.objectContaining({ install_id: "install-1", token: "token-1" }),
+      ),
+    );
+  });
+
+  it("never prompts from the launch sync", async () => {
+    const registerPushDevice = vi.fn();
+    const plugin = {
+      permission: vi.fn(async () => ({ status: "prompt" as const })),
+      requestPermission: vi.fn(),
+      register: vi.fn(),
+      unregister: vi.fn(),
+      openSettings: vi.fn(),
+    };
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <NotificationTaps
+          source={null}
+          pushPlugin={plugin}
+          pushApi={{ registerPushDevice, deletePushDevice: vi.fn() }}
+        />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(plugin.permission).toHaveBeenCalled());
+    expect(plugin.requestPermission).not.toHaveBeenCalled();
+    expect(plugin.register).not.toHaveBeenCalled();
+    expect(registerPushDevice).not.toHaveBeenCalled();
+  });
+
+  it("does not let an early prompt read throttle the sync after the reader grants", async () => {
+    const registerPushDevice = vi.fn(async () => ({ id: "device-1" }));
+    const permission = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "prompt" as const })
+      .mockResolvedValue({ status: "granted" as const });
+    const plugin = {
+      permission,
+      requestPermission: vi.fn(),
+      register: vi.fn(async () => ({
+        installId: "install-1",
+        token: "token-1",
+        environment: "production" as const,
+      })),
+      unregister: vi.fn(),
+      openSettings: vi.fn(),
+    };
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <NotificationTaps
+          source={null}
+          pushPlugin={plugin}
+          pushApi={{ registerPushDevice, deletePushDevice: vi.fn() }}
+        />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(permission).toHaveBeenCalledTimes(1));
+    expect(registerPushDevice).not.toHaveBeenCalled();
+
+    // Granted in system settings, then back to the app.
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(registerPushDevice).toHaveBeenCalledTimes(1));
+  });
+
+  it("retries the launch sync when the socket comes back after a failed one", async () => {
+    const registerPushDevice = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue({ id: "device-1" });
+    const plugin = {
+      permission: vi.fn(async () => ({ status: "granted" as const })),
+      requestPermission: vi.fn(),
+      register: vi.fn(async () => ({
+        installId: "install-1",
+        token: "token-1",
+        environment: "production" as const,
+      })),
+      unregister: vi.fn(),
+      openSettings: vi.fn(),
+    };
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <NotificationTaps
+          source={null}
+          pushPlugin={plugin}
+          pushApi={{ registerPushDevice, deletePushDevice: vi.fn() }}
+        />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(registerPushDevice).toHaveBeenCalledTimes(1));
+    // A granted phone has no settings row, so nothing but this retry repairs
+    // the registration after the node was unreachable at launch.
+    useAppStore.setState({ reconnectGen: 1 });
+    await waitFor(() => expect(registerPushDevice).toHaveBeenCalledTimes(2));
+  });
+
+  it("keeps a reconnect that arrives while the launch sync is still in flight", async () => {
+    let rejectRegister: (e: Error) => void = () => {};
+    const registerPushDevice = vi
+      .fn()
+      .mockImplementationOnce(
+        () => new Promise<never>((_, reject) => {
+          rejectRegister = reject;
+        }),
+      )
+      .mockResolvedValue({ id: "device-1" });
+    const plugin = {
+      permission: vi.fn(async () => ({ status: "granted" as const })),
+      requestPermission: vi.fn(),
+      register: vi.fn(async () => ({
+        installId: "install-1",
+        token: "token-1",
+        environment: "production" as const,
+      })),
+      unregister: vi.fn(),
+      openSettings: vi.fn(),
+    };
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <NotificationTaps
+          source={null}
+          pushPlugin={plugin}
+          pushApi={{ registerPushDevice, deletePushDevice: vi.fn() }}
+        />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(registerPushDevice).toHaveBeenCalledTimes(1));
+    useAppStore.setState({ reconnectGen: 1 });
+    rejectRegister(new Error("offline"));
+
+    await waitFor(() => expect(registerPushDevice).toHaveBeenCalledTimes(2));
   });
 });

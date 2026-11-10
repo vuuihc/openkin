@@ -173,8 +173,7 @@
       "ownerPaths": [
         "ui/src/pages/SettingsPage.tsx",
         "ui/src/components/settings/ProviderSettingsSection.tsx",
-        "ui/src/components/settings/LocalAgentSettingsSection.tsx",
-        "ui/src/components/settings/PhoneSection.tsx"
+        "ui/src/components/settings/LocalAgentSettingsSection.tsx"
       ],
       "tests": [],
       "blockedReason": null
@@ -192,7 +191,7 @@
       ],
       "title": "离开时被叫回来",
       "file": "docs/product/stories/KIN-NOTIFY-001.md",
-      "surface": "设置 → 通知 / 系统通知中心",
+      "surface": "系统通知中心（控制台不提供通知设置面）",
       "ownerPaths": [
         "cmd/kin/main.go",
         "internal/apns/apns.go",
@@ -212,7 +211,7 @@
         "ui/src/api/client.ts",
         "ui/src/components/NotificationTaps.tsx",
         "ui/src/components/settings/AccountSection.tsx",
-        "ui/src/components/settings/NativePushSettings.tsx",
+        "ui/src/components/settings/PushPermissionRow.tsx",
         "ui/src/i18n/locales/en.ts",
         "ui/src/i18n/locales/zh.ts",
         "ui/src/lib/nativePush.ts",
@@ -240,7 +239,7 @@
         "internal/task/notify_hook_test.go",
         "internal/task/routine_hook_test.go",
         "ui/src/components/NotificationTaps.dom.test.tsx",
-        "ui/src/components/settings/NativePushSettings.dom.test.tsx",
+        "ui/src/components/settings/PushPermissionRow.dom.test.tsx",
         "ui/src/api/account.test.ts",
         "ui/src/lib/nativePush.test.ts",
         "ui/src/lib/notificationRoute.test.ts",
@@ -269,6 +268,60 @@
         "desktop/src/updater-wiring.test.ts",
         "desktop/src/tray.wiring.test.ts"
       ],
+      "blockedReason": null
+    },
+    {
+      "id": "KIN-PROJECT-001",
+      "state": "draft",
+      "priority": "P1",
+      "journeys": [
+        "J4"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "一个项目的封面：看清这里发生过什么，并从这里继续",
+      "file": "docs/product/stories/KIN-PROJECT-001.md",
+      "surface": "",
+      "ownerPaths": [],
+      "tests": [],
+      "blockedReason": null
+    },
+    {
+      "id": "KIN-AGENTS-001",
+      "state": "draft",
+      "priority": "P1",
+      "journeys": [
+        "J6"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "机器上的 agent：装了什么、能不能用、用掉多少",
+      "file": "docs/product/stories/KIN-AGENTS-001.md",
+      "surface": "",
+      "ownerPaths": [],
+      "tests": [],
+      "blockedReason": null
+    },
+    {
+      "id": "KIN-ROUTINE-001",
+      "state": "draft",
+      "priority": "P1",
+      "journeys": [
+        "J4"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "让它按时跑：把一件事交给机器重复做",
+      "file": "docs/product/stories/KIN-ROUTINE-001.md",
+      "surface": "",
+      "ownerPaths": [],
+      "tests": [],
       "blockedReason": null
     }
   ]

@@ -4,7 +4,7 @@ import { MobileCard, MobileRow } from "../mobile/MobileList";
 import { MobileChevron } from "../mobile/MobileHeader";
 
 export type SettingsTabId =
-  "general" | "agents" | "providers" | "routing" | "remote" | "notifications" | "advanced";
+  "general" | "agents" | "providers" | "routing" | "advanced";
 
 export type SettingsTabItem = {
   id: SettingsTabId;
@@ -38,12 +38,12 @@ export function nextSettingsTabId(
 /**
  * Which ends of a horizontally scrolling strip have something off-screen.
  *
- * The tab strip at a phone width holds about five of its seven tabs, and iOS
- * draws no persistent scrollbar, so "there is a seventh tab" had no way of being
- * visible — the selected tab could sit half-cut at the edge and read as the last
- * one. The strip fades at whichever edge still has tabs behind it, and this is
- * the whole of the decision, kept as a function so it can be tested without a
- * layout engine. The 1px slack is for fractional scroll positions.
+ * The tab strip can overflow at a phone width, and iOS draws no persistent
+ * scrollbar, so "there are more tabs" had no way of being visible — the
+ * selected tab could sit half-cut at the edge and read as the last one. The
+ * strip fades at whichever edge still has tabs behind it, and this is the whole
+ * of the decision, kept as a function so it can be tested without a layout
+ * engine. The 1px slack is for fractional scroll positions.
  */
 export function offscreenEdges(
   scrollLeft: number,
@@ -64,13 +64,10 @@ export function settingsTabFromSearch(search: string): SettingsTabId {
     tab === "agents" ||
     tab === "providers" ||
     tab === "routing" ||
-    tab === "remote" ||
-    tab === "notifications" ||
     tab === "advanced"
   ) {
     return tab;
   }
-  if (params.has("cloudflare") || params.has("relay")) return "remote";
   return "general";
 }
 
@@ -119,11 +116,10 @@ export function SettingsLayout({
     };
   }, []);
 
-  // A tab can become active without anyone clicking it: the phone block jumps
-  // to Remote or Notifications, and `?tab=` opens one directly. At a phone width
-  // that tab may be scrolled out of the strip, which then shows no selected tab
-  // at all. `nearest` moves the strip only when it has to, so a tab that is
-  // already visible stays exactly where it is.
+  // A tab can become active without anyone clicking it: `?tab=` opens one
+  // directly. At a phone width that tab may be scrolled out of the strip, which
+  // then shows no selected tab at all. `nearest` moves the strip only when it
+  // has to, so a tab that is already visible stays exactly where it is.
   // A *change* of tab, not "the effect ran": StrictMode runs a mount effect
   // twice, and a `mounted` flag reads true on the second pass and would put
   // focus on a tab nobody aimed at when settings opens.
@@ -212,11 +208,10 @@ export function SettingsLayout({
             );
           })}
         </div>
-        {/* A phone does not get a seven-tab strip: two of the tabs were off
-            screen behind a fade, and the one a phone needs most (Remote) was
-            the fifth. The first screen keeps General, and the rest is a list
-            under it — the iOS settings shape, where the home screen is a
-            directory and each entry is a page with a back row. */}
+        {/* A phone does not get a tab strip: the first screen keeps General,
+            and the rest is a list under it — the iOS settings shape, where the
+            home screen is a directory and each entry is a page with a back
+            row. */}
         {activeTab !== "general" && (
           <button
             type="button"

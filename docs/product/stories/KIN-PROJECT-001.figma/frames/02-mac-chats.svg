@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1100" height="760" fill="#ffffff" rx="10"/>
+<rect width="1100" height="32" fill="#f0f0f0" rx="10"/>
+<rect y="10" width="1100" height="22" fill="#f0f0f0"/>
+<line x1="0" y1="32" x2="1100" y2="32" stroke="#dddddd"/>
+<text x="12" y="21" font-size="12" fill="#555">Mac 1100×760 · 项目封面 · 对话（KIN-PROJECT-001）</text>
+<text x="1088" y="21" font-size="11" fill="#6b6b6b" text-anchor="end">?tab=chats，返回仍在这一页</text>
+
+<rect x="1" y="32" width="329" height="728" fill="#fbfbfb"/>
+<line x1="330" y1="32" x2="330" y2="760" stroke="#e3e3e3"/>
+<text x="20" y="62" font-size="13" fill="#1a1a1a" font-weight="600">K</text>
+<rect x="16" y="76" width="298" height="30" rx="6" fill="#f0f0f0"/>
+<text x="28" y="96" font-size="12" fill="#888">搜索对话…</text>
+<text x="28" y="132" font-size="12" fill="#666" font-weight="600">本机</text>
+<rect x="16" y="146" width="298" height="24" rx="5" fill="#eef2ff"/>
+<text x="40" y="162" font-size="12.5" fill="#1f6feb" font-weight="600">▾ alpha</text>
+<text x="56" y="186" font-size="12" fill="#666">对话 A</text>
+<text x="56" y="208" font-size="12" fill="#666">对话 B</text>
+<text x="40" y="238" font-size="12" fill="#666">▸ beta</text>
+
+<text x="358" y="66" font-size="11" fill="#999">项目</text>
+<text x="358" y="96" font-size="22" fill="#1a1a1a" font-weight="600">alpha</text>
+<text x="358" y="120" font-size="12" fill="#6b6b6b">/work/alpha</text>
+
+<text x="358" y="176" font-size="12.5" fill="#666">概览</text>
+<rect x="414" y="156" width="64" height="30" rx="6" fill="#ffffff" stroke="#1f6feb"/>
+<text x="446" y="176" font-size="12.5" fill="#1f6feb" text-anchor="middle">对话</text>
+<line x1="358" y1="194" x2="784" y2="194" stroke="#e3e3e3"/>
+<rect x="802" y="154" width="92" height="26" rx="13" fill="#1f6feb"/>
+<text x="848" y="171" font-size="12" fill="#ffffff" text-anchor="middle">新建对话</text>
+
+<rect x="358" y="212" width="674" height="54" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="378" cy="239" r="4" fill="#2f9e5f"/>
+<text x="394" y="235" font-size="13" fill="#1a1a1a" font-weight="600">对话 A 的标题</text>
+<text x="394" y="252" font-size="11.5" fill="#6b6b6b">Kin · 2 小时前 · 正在运行</text>
+<text x="1014" y="239" font-size="11.5" fill="#6b6b6b" text-anchor="end">›</text>
+
+<rect x="358" y="274" width="674" height="54" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="378" cy="301" r="4" fill="#d08a00"/>
+<text x="394" y="297" font-size="13" fill="#1a1a1a" font-weight="600">对话 B 的标题</text>
+<text x="394" y="314" font-size="11.5" fill="#6b6b6b">Claude · 昨天 · 等待批准</text>
+<text x="1014" y="301" font-size="11.5" fill="#6b6b6b" text-anchor="end">›</text>
+
+<rect x="358" y="336" width="674" height="54" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="378" cy="363" r="4" fill="#b0b0b8"/>
+<text x="394" y="359" font-size="13" fill="#1a1a1a" font-weight="600">导入会话的标题</text>
+<text x="394" y="376" font-size="11.5" fill="#6b6b6b">Codex · 3 天前 · 导入 · 另一台机器</text>
+<text x="1014" y="363" font-size="11.5" fill="#6b6b6b" text-anchor="end">›</text>
+
+<rect x="358" y="398" width="674" height="54" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="378" cy="425" r="4" fill="#d04a3e"/>
+<text x="394" y="421" font-size="13" fill="#1a1a1a" font-weight="600">失败的对话</text>
+<text x="394" y="438" font-size="11.5" fill="#6b6b6b">Kin · 上周 · 失败</text>
+<text x="1014" y="425" font-size="11.5" fill="#6b6b6b" text-anchor="end">›</text>
+
+<rect x="358" y="480" width="674" height="120" rx="8" fill="#fbfbfb" stroke="#e3e3e3" stroke-dasharray="4 4"/>
+<text x="374" y="506" font-size="12" fill="#6b6b6b">没有对话时：</text>
+<text x="374" y="530" font-size="14" fill="#1a1a1a" font-weight="600">这里还没有对话</text>
+<text x="374" y="552" font-size="12" fill="#6b6b6b">给「从这里新建」，带这个项目的第一个 root</text>
+<text x="374" y="578" font-size="12" fill="#6b6b6b">加载失败时给原因与「重试」，不显示成空</text>
+
+<text x="358" y="706" font-size="11" fill="#999">行形与手机列表一致；导入会话与原生对话同形，不另加徽标</text>
+<rect x="0.5" y="0.5" width="1099" height="759" fill="none" rx="10" stroke="#bbbbbb"/>
+</g>
+</svg>

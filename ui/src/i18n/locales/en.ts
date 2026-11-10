@@ -937,9 +937,10 @@ const en: MessageTree = {
     moreSections: "More settings",
     title: "Settings",
     saved: "Settings saved",
+    savedShort: "Saved",
     hide: "Hide",
     reveal: "Reveal",
-    subtitle: "Cognition provider (Kin agent), connection, notifications, and pricing.",
+    subtitle: "Cognition provider (Kin agent), agents, routing, and pricing.",
     saving: "Saving…",
     roles: {
       heading: "Roles",
@@ -964,10 +965,6 @@ const en: MessageTree = {
       providersDesc: "Cognition providers, models, and default host agent.",
       routing: "Routing",
       routingDesc: "Auto model routing, team profiles, and rate-limit policy.",
-      remote: "Remote",
-      remoteDesc: "Connection QR, phone pairing, and Cloudflare Relay.",
-      notifications: "Notifications",
-      notificationsDesc: "Approval, completion, and quota-wait notifications.",
       advanced: "Advanced",
       advancedDesc: "Price table, usage caps, and JSON configuration.",
     },
@@ -1084,28 +1081,16 @@ const en: MessageTree = {
       light: "Light",
       dark: "Dark",
     },
-    // How to use this console from a phone. Every line here was already true and
-    // none of it was written where someone holding the phone would look, which
-    // made a working push notification look broken: the link opens a page about
-    // tokens instead of the approval.
-    phone: {
-      heading: "Phone",
-      blurb:
-        "This console is the phone app — add it to your home screen and it opens full screen. Three things decide whether it can work for you from there.",
-      pairLabel: "Pairing",
-      pairHint:
-        "A link in a notification only works in a browser that has been paired with this node. In one that has not, it opens the connection page instead. Every browser is a separate store, so a phone added to the home screen has to be paired once of its own.",
-      openPairing: "Open the connection QR",
-      landLabel: "Where notifications land",
-      landHint:
-        "Approvals and questions open the conversation that is waiting, with that card in focus.",
-      landReady: "The conversation itself — there is no separate page to visit.",
-      noBaseUrl:
-        "No UI base URL yet: notification links carry a bare path, which a phone has nothing to open. Set one under Notifications.",
-      channelLabel: "Notification channel",
-      channelHint:
-        "Native notifications in the Kin app on this Mac and iPhone. This browser console does not receive them.",
-      openNotify: "Open notification settings",
+    push: {
+      heading: "Notifications",
+      prompt: "Turn on notifications so Kin can reach this phone when an approval, a question, or a run needs you.",
+      denied: "Notifications are off for Kin. Turn them on in system settings, then come back here.",
+      unregistered: "Notifications are allowed, but this phone has not finished registering with Kin. Try again.",
+      enable: "Enable notifications",
+      enabling: "Registering…",
+      enabled: "Notifications are on",
+      openSettings: "Open system settings",
+      failed: "Could not register this phone. Try again.",
     },
     account: {
       heading: "Account",
@@ -1125,143 +1110,6 @@ const en: MessageTree = {
       methodRemoved: "Sign-in method removed.",
       signOut: "Sign out",
       signingOut: "Signing out…",
-    },
-    relay: {
-      heading: "Remote Relay",
-      desc: "Access this Mac from your phone through a Cloudflare Worker you control. No Tailscale or shared Wi-Fi required.",
-      cloudflareTitle: "Deploy Cloudflare Worker",
-      cloudflareDesc:
-        "Sign in to Cloudflare and Kin will create or update the Relay Worker, then fill the URL below.",
-      cloudflareConnected:
-        "Connected to {account}. Select an account to deploy or update the Relay Worker.",
-      connectCloudflare: "Sign in to Cloudflare",
-      reconnectCloudflare: "Sign in again",
-      cloudflareAccount: "Cloudflare account",
-      selectAccount: "Select account",
-      loginFirst: "Sign in first",
-      workerName: "Worker name",
-      cloudflareZone: "Cloudflare domain",
-      selectZone: "Select domain",
-      customDomain: "Custom Relay domain",
-      customDomainPlaceholder: "Default kin-relay.example.com",
-      refreshAccounts: "Refresh accounts",
-      deployWorker: "Deploy Relay Worker",
-      updateWorker: "Update Worker",
-      deployingWorker: "Deploying…",
-      deployFirst:
-        "Deploy the Worker first. Custom domain binding appears after the Worker URL is available.",
-      bindDomain: "Bind custom domain",
-      bindingDomain: "Binding…",
-      cloudflareLoginOpened: "Cloudflare authorization opened",
-      cloudflareLoginTimedOut: "Cloudflare authorization was not completed",
-      cloudflareDeployed: "Relay Worker deployed",
-      cloudflareDomainBound: "Custom Relay domain bound",
-      workerDevUnreachable:
-        "workers.dev is unreachable on this network. If exactly one Cloudflare domain is available, Kin will bind a custom domain automatically; otherwise select a domain and bind it.",
-      workerUrl: "Relay Worker URL",
-      workerUrlHint:
-        "Enter the deployed Worker address, for example https://kin-relay.example.workers.dev.",
-      save: "Save and connect",
-      refreshPairing: "Refresh pairing",
-      pairingTitle: "Scan this code with Kin for iOS",
-      saved: "Relay settings saved",
-      pairingRefreshed: "Phone pairing refreshed",
-      state: {
-        disabled: "Disabled",
-        connecting: "Connecting",
-        connected: "Connected",
-        error: "Connection error",
-      },
-    },
-    connection: {
-      heading: "Connection",
-      noUrl: "No URL",
-      networkMode: "Network mode",
-      connectUrl: "Connect URL",
-      copyUrl: "Copy URL",
-      token: "Token",
-      copy: "Copy",
-      tokenHintA: "Rotate with ",
-      tokenHintB: " if leaked. A running daemon picks up the new token automatically.",
-      accountSession:
-        "This browser reaches the Hub with an account, so no device token is shown here. Desktop and mobile clients pair with the daemon they connect to.",
-    },
-    notify: {
-      heading: "Notifications",
-      descA:
-        "Approvals, questions, finished tasks, quota waits, routine reports and offline workers all use one notification pipeline. Deep links use ",
-      descB: ".",
-      uiBaseUrl: "UI base URL",
-      uiBaseUrlHint:
-        "Set automatically from the most-public listener at serve start; override for tunnels.",
-      quotaWaitAfter: "Quota wait notification threshold (seconds)",
-      quotaWaitAfterHint: "Notify once when a quota wait has lasted this long. Minimum 60 seconds.",
-      save: "Save",
-      savedShort: "Saved",
-    },
-    nativePush: {
-      heading: "Notifications on this device",
-      browserOnly:
-        "Notifications are delivered by the Kin apps for Mac and iPhone. This browser console does not register for them.",
-      browserHint: "Open Kin on your Mac or iPhone to turn notifications on there.",
-      macTitle: "This Mac",
-      macDesc:
-        "Kin uses the macOS Notification Center. The first test asks macOS for the notification permission.",
-      macManaged: "Managed by macOS",
-      eventsHint:
-        "Approvals, questions, finished or failed conversations, quota waits, routine reports, and offline workers all arrive here.",
-      macSettingsHint:
-        "macOS does not give the app its notification permission state. If no banner appears, check System Settings → Notifications → Kin.",
-      openSettingsFailed:
-        "Could not open System Settings. Open System Settings → Notifications yourself.",
-      iphoneTitle: "This iPhone",
-      on: "On",
-      off: "Off",
-      blocked: "Blocked by iOS",
-      blockedHint: "Allow notifications for Kin in iOS Settings, then come back here.",
-      openSettings: "Open Settings",
-      enable: "Turn on for this iPhone",
-      enabled: "Notifications are on for this iPhone.",
-      enabling: "Registering…",
-      disable: "Turn off",
-      sendTest: "Send test",
-      testing: "Sending…",
-      testSent: "Test notification sent",
-      testFailed: "The test did not arrive",
-      testTimeout: "No receipt within 10 seconds",
-      apnsMissing:
-        "This node cannot send to iPhone yet. The node administrator must configure APNs credentials with `kin notify apns`.",
-      devicesHeading: "Registered iPhones",
-      noDevices: "No iPhone registered yet.",
-      lastOk: "Last success",
-      lastError: "Last error",
-      never: "Never",
-      platformIos: "iPhone",
-      environmentSandbox: "Sandbox",
-      environmentProduction: "Production",
-      remove: "Remove",
-      removeFailed:
-        "Turned off on this iPhone, but the node still lists it. Try removing it again.",
-      removePending:
-        "Turned off on this iPhone. The node could not be reached, so its registration will be removed the next time this page loads.",
-      expired:
-        "This iPhone's notification token is no longer valid. Turn notifications on again to register a new one.",
-      sessionEnded:
-        "This device's sign-in has ended, so the node stopped sending it notifications. Sign in again, then turn notifications back on.",
-      notRegistered:
-        "The node no longer has a registration for this iPhone. Turn notifications on again to register it.",
-      enableFailed: "Could not turn on notifications.",
-      disabled: "Notifications are off on this device.",
-      unknown: "Unknown",
-      notConfigured: "Node has no APNs credentials",
-      apnsErrors: {
-        token:
-          "Apple rejected this phone's notification token. Turn notifications off and on again.",
-        credentials:
-          "Apple rejected the node's APNs credentials. The node administrator must run `kin notify apns` again.",
-        rateLimited: "Apple is rate-limiting this node. Try again in a moment.",
-        unavailable: "Apple's notification service is temporarily unavailable. Try again later.",
-      },
     },
     price: {
       heading: "Price table",

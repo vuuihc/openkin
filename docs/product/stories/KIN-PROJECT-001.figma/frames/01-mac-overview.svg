@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1100" height="760" fill="#ffffff" rx="10"/>
+<rect width="1100" height="32" fill="#f0f0f0" rx="10"/>
+<rect y="10" width="1100" height="22" fill="#f0f0f0"/>
+<line x1="0" y1="32" x2="1100" y2="32" stroke="#dddddd"/>
+<text x="12" y="21" font-size="12" fill="#555">Mac 1100×760 · 项目封面 · 概览（KIN-PROJECT-001）</text>
+<text x="1088" y="21" font-size="11" fill="#6b6b6b" text-anchor="end">点项目标题进入，折叠靠它前面的箭头</text>
+
+<rect x="1" y="32" width="329" height="728" fill="#fbfbfb"/>
+<line x1="330" y1="32" x2="330" y2="760" stroke="#e3e3e3"/>
+<text x="20" y="62" font-size="13" fill="#1a1a1a" font-weight="600">K</text>
+<rect x="16" y="76" width="298" height="30" rx="6" fill="#f0f0f0"/>
+<text x="28" y="96" font-size="12" fill="#888">搜索对话…</text>
+<text x="28" y="132" font-size="12" fill="#666" font-weight="600">本机</text>
+<text x="40" y="160" font-size="12" fill="#666">▾ alpha</text>
+<rect x="16" y="146" width="298" height="24" rx="5" fill="#eef2ff"/>
+<text x="56" y="162" font-size="12.5" fill="#1f6feb" font-weight="600">alpha</text>
+<text x="72" y="186" font-size="12" fill="#666">对话 A</text>
+<text x="72" y="208" font-size="12" fill="#666">对话 B</text>
+<text x="40" y="238" font-size="12" fill="#666">▸ beta</text>
+<text x="28" y="700" font-size="12" fill="#888">导入 · 归档 · 设置</text>
+
+<text x="358" y="66" font-size="11" fill="#999">项目</text>
+<text x="358" y="96" font-size="22" fill="#1a1a1a" font-weight="600">alpha</text>
+<text x="358" y="120" font-size="12" fill="#6b6b6b">/work/alpha</text>
+<rect x="470" y="102" width="72" height="24" rx="12" fill="#eef2ff" stroke="#1f6feb"/>
+<text x="506" y="118" font-size="11.5" fill="#1f6feb" text-anchor="middle">ship ▾</text>
+<text x="358" y="150" font-size="12" fill="#6b6b6b">模式决定封面提示与新建对话的默认权限</text>
+
+<rect x="358" y="164" width="64" height="30" rx="6" fill="#ffffff" stroke="#1f6feb"/>
+<text x="390" y="184" font-size="12.5" fill="#1f6feb" text-anchor="middle">概览</text>
+<text x="446" y="184" font-size="12.5" fill="#666">对话</text>
+<line x1="358" y1="194" x2="690" y2="194" stroke="#e3e3e3"/>
+
+<rect x="358" y="212" width="440" height="150" rx="8" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="374" y="238" font-size="14" fill="#1a1a1a" font-weight="600">一句话摘要</text>
+<text x="374" y="260" font-size="12" fill="#555">这个项目在做什么、现在做到哪。</text>
+<text x="374" y="280" font-size="12" fill="#555">占位文案：一句话，最多两行。</text>
+<rect x="374" y="296" width="60" height="24" rx="12" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="404" y="312" font-size="11.5" fill="#444" text-anchor="middle">编辑</text>
+<text x="446" y="312" font-size="11" fill="#6b6b6b">保存后显示「已保存」</text>
+
+<rect x="358" y="378" width="440" height="182" rx="8" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="374" y="404" font-size="14" fill="#1a1a1a" font-weight="600">最近活动</text>
+<text x="374" y="428" font-size="12" fill="#555">最后一次对话 · 2 小时前</text>
+<text x="374" y="450" font-size="12" fill="#555">最后一次提交 · 昨天</text>
+<text x="374" y="472" font-size="12" fill="#555">最后一次导入 · 3 天前</text>
+<line x1="374" y1="488" x2="782" y2="488" stroke="#eeeeee"/>
+<text x="374" y="510" font-size="12" fill="#6b6b6b">没有活动时写「这里还没有对话」，不排 0</text>
+<rect x="374" y="524" width="92" height="26" rx="12" fill="#1f6feb"/>
+<text x="420" y="541" font-size="12" fill="#ffffff" text-anchor="middle">新建对话</text>
+<text x="478" y="541" font-size="11" fill="#6b6b6b">带这个项目的第一个 root</text>
+
+<rect x="822" y="212" width="250" height="120" rx="8" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="838" y="236" font-size="13" fill="#1a1a1a" font-weight="600">对话热力图 · 两周</text>
+<g fill="#e8eef9">
+<rect x="838" y="250" width="16" height="14"/><rect x="858" y="250" width="16" height="14"/><rect x="878" y="250" width="16" height="14"/><rect x="898" y="250" width="16" height="14"/><rect x="918" y="250" width="16" height="14"/><rect x="938" y="250" width="16" height="14"/><rect x="958" y="250" width="16" height="14"/>
+<rect x="838" y="270" width="16" height="14"/><rect x="858" y="270" width="16" height="14"/><rect x="878" y="270" width="16" height="14"/><rect x="898" y="270" width="16" height="14"/><rect x="918" y="270" width="16" height="14"/><rect x="938" y="270" width="16" height="14"/><rect x="958" y="270" width="16" height="14"/>
+</g>
+<rect x="878" y="270" width="16" height="14" fill="#9db9ea"/>
+<rect x="938" y="250" width="16" height="14" fill="#9db9ea"/>
+<text x="838" y="306" font-size="11" fill="#6b6b6b">颜色越深，对话越多；可横向滚动</text>
+
+<rect x="822" y="348" width="250" height="120" rx="8" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="838" y="372" font-size="13" fill="#1a1a1a" font-weight="600">提交热力图 · 两周</text>
+<g fill="#e8f2ea">
+<rect x="838" y="386" width="16" height="14"/><rect x="858" y="386" width="16" height="14"/><rect x="878" y="386" width="16" height="14"/><rect x="898" y="386" width="16" height="14"/><rect x="918" y="386" width="16" height="14"/><rect x="938" y="386" width="16" height="14"/><rect x="958" y="386" width="16" height="14"/>
+<rect x="838" y="406" width="16" height="14"/><rect x="858" y="406" width="16" height="14"/><rect x="878" y="406" width="16" height="14"/><rect x="898" y="406" width="16" height="14"/><rect x="918" y="406" width="16" height="14"/><rect x="938" y="406" width="16" height="14"/><rect x="958" y="406" width="16" height="14"/>
+</g>
+<rect x="918" y="386" width="16" height="14" fill="#9cc9a9"/>
+<text x="838" y="442" font-size="11" fill="#6b6b6b">来源：pulse；失败时这一块单独说明</text>
+
+<rect x="822" y="484" width="250" height="128" rx="8" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="838" y="508" font-size="13" fill="#1a1a1a" font-weight="600">这个项目的例行任务</text>
+<text x="838" y="530" font-size="11.5" fill="#6b6b6b">Hub 侧遗留：只显示归属，调度归 /routines</text>
+<text x="838" y="554" font-size="12" fill="#555">每天整理笔记 · 每天 09:00</text>
+<text x="838" y="576" font-size="12" fill="#555">每周检查改动 · 周一 10:00</text>
+<text x="838" y="600" font-size="11.5" fill="#1f6feb">去例行任务 →</text>
+
+<text x="358" y="706" font-size="11" fill="#999">刷新概览时保留上次内容；失败只影响概览区，不影响「对话」tab</text>
+<rect x="0.5" y="0.5" width="1099" height="759" fill="none" rx="10" stroke="#bbbbbb"/>
+</g>
+</svg>

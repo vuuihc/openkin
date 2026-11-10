@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { deletePushDevice, registerPushDevice } from "../api/client";
 import { usePendingResources } from "../api/useLiveResources";
 import { liveResources } from "../api/liveResources";
 import {
@@ -9,7 +10,16 @@ import {
   type NotificationRoute,
   type NotificationTapSource,
 } from "../lib/notificationRoute";
-import { clearDeliveredNotification, deliveredNotificationTargets, nativePushPlugin } from "../lib/nativePush";
+import {
+  clearDeliveredNotification,
+  deliveredNotificationTargets,
+  flushPendingNativeDelete,
+  nativePushPlugin,
+  rememberNativeDevice,
+  syncNativePush,
+  type NativePushApi,
+  type NativePushPlugin,
+} from "../lib/nativePush";
 import { useAppStore } from "../store/appStore";
 
 /**
@@ -22,10 +32,17 @@ import { useAppStore } from "../store/appStore";
  * `notificationRoute.ts` — a link is only ever a known path, never a URL this
  * window opens.
  */
+const clientPushApi: NativePushApi = { registerPushDevice, deletePushDevice };
+
 export function NotificationTaps({
   source = nativePushPlugin(),
+  pushPlugin = nativePushPlugin(),
+  pushApi = clientPushApi,
 }: {
   source?: NotificationTapSource | null;
+  /** The iOS bridge; injected so the launch registration is testable. */
+  pushPlugin?: NativePushPlugin | null;
+  pushApi?: NativePushApi;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -36,6 +53,9 @@ export function NotificationTaps({
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
   const pushToast = useAppStore((s) => s.pushToast);
+  // A restored socket is the signal that whatever made the last node call fail
+  // is gone; the launch sync below listens to it.
+  const reconnectGen = useAppStore((s) => s.reconnectGen);
   // This component also mounts above the sign-in gate, so a tap that arrives
   // before the reader is through it still changes the route. Asking the node
   // for pending items there would 401 on every first launch and flip the gate
@@ -48,6 +68,59 @@ export function NotificationTaps({
   const here = location.pathname + location.search;
   const deliveredRef = useRef(here);
   deliveredRef.current = here;
+
+  // Registering on launch is the repair path for a token that rotated while
+  // the app was closed and for a phone that signed in again: the node row is
+  // keyed by install id, so the upsert is safe to repeat. It never prompts —
+  // a phone that has not granted the permission stays silent until the reader
+  // uses the one enable row on the settings General tab.
+  const lastPushSync = useRef(0);
+  const pushSyncInFlight = useRef(false);
+  const pushSyncAgain = useRef(false);
+  useEffect(() => {
+    if (!authed || !pushPlugin) return;
+    const sync = () => {
+      if (pushSyncInFlight.current) {
+        // A trigger that arrives while the node call is in flight — a socket
+        // that reopens during a hung POST — must not be lost: run once more
+        // when the current attempt settles.
+        pushSyncAgain.current = true;
+        return;
+      }
+      const now = Date.now();
+      if (now - lastPushSync.current < 60_000) return;
+      pushSyncInFlight.current = true;
+      // Finish an earlier sign-out's unconfirmed deletion first: registering
+      // again while the old row is still addressable would ring a phone that
+      // asked to be quiet.
+      void flushPendingNativeDelete(pushApi)
+        .catch(() => false)
+        .then(() => syncNativePush(pushPlugin, pushApi))
+        .then((result) => {
+          if (!result) return;
+          rememberNativeDevice(result.id);
+          // Only a registered phone is worth throttling. A prompt or denied
+          // permission costs one local read, and stamping it here would block
+          // the sync that follows the reader granting in system settings and
+          // coming back within the minute.
+          lastPushSync.current = Date.now();
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          pushSyncInFlight.current = false;
+          if (pushSyncAgain.current) {
+            pushSyncAgain.current = false;
+            sync();
+          }
+        });
+    };
+    sync();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") sync();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [authed, pushApi, pushPlugin, reconnectGen]);
 
   useEffect(() => {
     // A notification that arrives while the app is in front is shown here

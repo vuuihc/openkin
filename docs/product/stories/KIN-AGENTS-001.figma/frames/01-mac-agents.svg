@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1100" height="760" fill="#ffffff" rx="10"/>
+<rect width="1100" height="32" fill="#f0f0f0" rx="10"/>
+<rect y="10" width="1100" height="22" fill="#f0f0f0"/>
+<line x1="0" y1="32" x2="1100" y2="32" stroke="#dddddd"/>
+<text x="12" y="21" font-size="12" fill="#555">Mac 1100×760 · Agent 运维（KIN-AGENTS-001）</text>
+<text x="1088" y="21" font-size="11" fill="#6b6b6b" text-anchor="end">用量在上，agent 在下；一台机器的环境</text>
+
+<rect x="0" y="32" width="72" height="728" fill="#fbfbfb"/>
+<line x1="72" y1="32" x2="72" y2="760" stroke="#e3e3e3"/>
+<text x="24" y="60" font-size="18" fill="#1a1a1a" font-weight="600">K</text>
+<rect x="12" y="360" width="48" height="36" rx="8" fill="#eef2ff"/>
+<text x="36" y="383" font-size="16" fill="#1f6feb" text-anchor="middle">◎</text>
+<text x="12" y="700" font-size="11" fill="#888">设置</text>
+
+<text x="100" y="72" font-size="20" fill="#1a1a1a" font-weight="600">Agents 与用量</text>
+<text x="100" y="94" font-size="12" fill="#6b6b6b">这台机器装了什么、能不能用、用掉多少</text>
+<rect x="852" y="58" width="88" height="30" rx="8" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="896" y="78" font-size="12" fill="#444" text-anchor="middle">重检全部</text>
+<rect x="950" y="58" width="118" height="30" rx="8" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="1009" y="78" font-size="12" fill="#444" text-anchor="middle">全部 smoke</text>
+
+<rect x="100" y="116" width="220" height="76" rx="10" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="116" y="140" font-size="11.5" fill="#6b6b6b">近 7 天花费</text>
+<text x="116" y="168" font-size="20" fill="#1a1a1a" font-weight="600">$12.40</text>
+<rect x="336" y="116" width="220" height="76" rx="10" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="352" y="140" font-size="11.5" fill="#6b6b6b">Token</text>
+<text x="352" y="168" font-size="20" fill="#1a1a1a" font-weight="600">1.2M</text>
+<rect x="572" y="116" width="220" height="76" rx="10" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="588" y="140" font-size="11.5" fill="#6b6b6b">缓存命中率</text>
+<text x="588" y="168" font-size="20" fill="#1a1a1a" font-weight="600">68%</text>
+<rect x="808" y="116" width="220" height="76" rx="10" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="824" y="140" font-size="11.5" fill="#6b6b6b">任务数</text>
+<text x="824" y="168" font-size="20" fill="#1a1a1a" font-weight="600">37</text>
+
+<rect x="100" y="206" width="928" height="20" rx="6" fill="#f0f0f0"/>
+<rect x="100" y="206" width="180" height="20" rx="6" fill="#9db9ea"/>
+<rect x="300" y="206" width="120" height="20" rx="6" fill="#c9d8f2"/>
+<rect x="440" y="206" width="210" height="20" rx="6" fill="#9db9ea"/>
+<rect x="670" y="206" width="80" height="20" rx="6" fill="#c9d8f2"/>
+<rect x="770" y="206" width="160" height="20" rx="6" fill="#9db9ea"/>
+<text x="100" y="246" font-size="11.5" fill="#6b6b6b">每日花费 · 近 7 天；没有数据时写「这段时间没有用量」，不画空轴</text>
+
+<text x="100" y="282" font-size="13" fill="#1a1a1a" font-weight="600">Agent 目录</text>
+<text x="100" y="304" font-size="11.5" fill="#6b6b6b">状态、版本、登录、额度与操作一行看完；可点表头排序</text>
+
+<rect x="100" y="316" width="928" height="34" rx="6" fill="#f6f6f8"/>
+<text x="112" y="338" font-size="11.5" fill="#666" font-weight="600">Agent</text>
+<text x="236" y="338" font-size="11.5" fill="#666">状态</text>
+<text x="352" y="338" font-size="11.5" fill="#666">版本</text>
+<text x="440" y="338" font-size="11.5" fill="#666">登录</text>
+<text x="536" y="338" font-size="11.5" fill="#666">花费</text>
+<text x="628" y="338" font-size="11.5" fill="#666">Token</text>
+<text x="720" y="338" font-size="11.5" fill="#666">任务</text>
+<text x="790" y="338" font-size="11.5" fill="#666">额度</text>
+<text x="900" y="338" font-size="11.5" fill="#666">操作</text>
+
+<rect x="100" y="350" width="928" height="52" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="118" cy="376" r="5" fill="#2f9e5f"/>
+<text x="132" y="380" font-size="12.5" fill="#1a1a1a" font-weight="600">Claude Code</text>
+<text x="236" y="380" font-size="12" fill="#2f9e5f">可用 · 默认</text>
+<text x="352" y="380" font-size="12" fill="#555">2.1.0</text>
+<text x="440" y="380" font-size="12" fill="#555">已登录</text>
+<text x="536" y="380" font-size="12" fill="#555">$7.10</text>
+<text x="628" y="380" font-size="12" fill="#555">640k</text>
+<text x="720" y="380" font-size="12" fill="#555">21</text>
+<text x="790" y="380" font-size="12" fill="#555">正常</text>
+<rect x="890" y="362" width="28" height="28" rx="6" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="904" y="381" font-size="12" fill="#444" text-anchor="middle">⋯</text>
+
+<rect x="100" y="410" width="928" height="52" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="118" cy="436" r="5" fill="#d08a00"/>
+<text x="132" y="440" font-size="12.5" fill="#1a1a1a" font-weight="600">Codex</text>
+<text x="236" y="440" font-size="12" fill="#b26a00">需要登录</text>
+<text x="352" y="440" font-size="12" fill="#555">0.9.4</text>
+<text x="440" y="440" font-size="12" fill="#b26a00">未登录</text>
+<text x="536" y="440" font-size="12" fill="#555">$3.30</text>
+<text x="628" y="440" font-size="12" fill="#555">410k</text>
+<text x="720" y="440" font-size="12" fill="#555">12</text>
+<text x="790" y="440" font-size="12" fill="#555">正常</text>
+<rect x="890" y="422" width="28" height="28" rx="6" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="904" y="441" font-size="12" fill="#444" text-anchor="middle">⋯</text>
+
+<rect x="100" y="470" width="928" height="52" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="118" cy="496" r="5" fill="#8a8a92"/>
+<text x="132" y="500" font-size="12.5" fill="#1a1a1a" font-weight="600">Gemini CLI</text>
+<text x="236" y="500" font-size="12" fill="#555">未安装</text>
+<text x="352" y="500" font-size="12" fill="#888">—</text>
+<text x="440" y="500" font-size="12" fill="#888">—</text>
+<text x="536" y="500" font-size="12" fill="#888">—</text>
+<text x="628" y="500" font-size="12" fill="#888">—</text>
+<text x="720" y="500" font-size="12" fill="#888">—</text>
+<text x="790" y="500" font-size="12" fill="#888">—</text>
+<rect x="866" y="482" width="52" height="28" rx="8" fill="#1f6feb"/>
+<text x="892" y="501" font-size="11.5" fill="#ffffff" text-anchor="middle">安装</text>
+<rect x="926" y="482" width="28" height="28" rx="6" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="940" y="501" font-size="12" fill="#444" text-anchor="middle">⋯</text>
+
+<rect x="100" y="530" width="928" height="52" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="118" cy="556" r="5" fill="#2f9e5f"/>
+<text x="132" y="560" font-size="12.5" fill="#1a1a1a" font-weight="600">Aider</text>
+<text x="236" y="560" font-size="12" fill="#2f9e5f">可用</text>
+<text x="352" y="560" font-size="12" fill="#555">0.5.1</text>
+<text x="440" y="560" font-size="12" fill="#555">已登录</text>
+<text x="536" y="560" font-size="12" fill="#555">$2.00</text>
+<text x="628" y="560" font-size="12" fill="#555">150k</text>
+<text x="720" y="560" font-size="12" fill="#555">4</text>
+<text x="790" y="560" font-size="12" fill="#b26a00">等待中 · 12 分钟</text>
+<rect x="890" y="542" width="28" height="28" rx="6" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="904" y="561" font-size="12" fill="#444" text-anchor="middle">⋯</text>
+
+<rect x="100" y="596" width="928" height="52" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="118" cy="622" r="5" fill="#d04a3e"/>
+<text x="132" y="626" font-size="12.5" fill="#1a1a1a" font-weight="600">OpenCode</text>
+<text x="236" y="626" font-size="12" fill="#b42318">需要更新</text>
+<text x="352" y="626" font-size="12" fill="#555">0.4.0 → 0.4.2</text>
+<text x="440" y="626" font-size="12" fill="#555">已登录</text>
+<text x="536" y="626" font-size="12" fill="#888">—</text>
+<text x="628" y="626" font-size="12" fill="#888">—</text>
+<text x="720" y="626" font-size="12" fill="#888">—</text>
+<text x="790" y="626" font-size="12" fill="#888">—</text>
+<rect x="866" y="608" width="52" height="28" rx="8" fill="#ffffff" stroke="#1f6feb"/>
+<text x="892" y="627" font-size="11.5" fill="#1f6feb" text-anchor="middle">更新</text>
+<rect x="926" y="608" width="28" height="28" rx="6" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="940" y="627" font-size="12" fill="#444" text-anchor="middle">⋯</text>
+
+<text x="100" y="682" font-size="11.5" fill="#6b6b6b">状态读不到时写「状态未知」，不猜成可用；默认 agent 用文字标记，不只靠颜色。</text>
+<text x="100" y="704" font-size="11.5" fill="#6b6b6b">额度等待显示已等时长；底部对齐，页面不因一行的高度而跳。</text>
+<rect x="0.5" y="0.5" width="1099" height="759" fill="none" rx="10" stroke="#bbbbbb"/>
+</g>
+</svg>

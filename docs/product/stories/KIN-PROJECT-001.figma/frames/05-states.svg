@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1600" height="900" fill="#f6f6f8"/>
+<text x="40" y="46" font-size="20" fill="#1a1a1a" font-weight="600">项目封面 · 状态板（KIN-PROJECT-001）</text>
+<text x="1560" y="46" font-size="12" fill="#6b6b6b" text-anchor="end">状态都有文字，不只靠颜色</text>
+
+<rect x="40" y="76" width="480" height="360" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="64" y="110" font-size="15" fill="#1a1a1a" font-weight="600">空前项目</text>
+<text x="64" y="140" font-size="12.5" fill="#6b6b6b">项目存在，没有任何对话</text>
+<text x="64" y="176" font-size="15" fill="#1a1a1a" font-weight="600">这里还没有对话</text>
+<text x="64" y="202" font-size="12.5" fill="#555">不排一排 0；概览只显示空状态。</text>
+<rect x="64" y="222" width="120" height="34" rx="10" fill="#1f6feb"/>
+<text x="124" y="244" font-size="12.5" fill="#ffffff" text-anchor="middle">从这里新建</text>
+<text x="64" y="284" font-size="12" fill="#6b6b6b">没有 root 时：按钮禁用，写「这个项目没有目录」</text>
+
+<rect x="560" y="76" width="480" height="360" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="584" y="110" font-size="15" fill="#1a1a1a" font-weight="600">加载</text>
+<text x="584" y="140" font-size="12.5" fill="#6b6b6b">第一次打开，还没有缓存</text>
+<rect x="584" y="164" width="200" height="14" rx="7" fill="#eeeeee"/>
+<rect x="584" y="188" width="420" height="14" rx="7" fill="#eeeeee"/>
+<rect x="584" y="212" width="360" height="14" rx="7" fill="#eeeeee"/>
+<rect x="584" y="252" width="420" height="80" rx="8" fill="#f5f5f5"/>
+<text x="584" y="292" font-size="12" fill="#888">骨架只给第一次加载</text>
+
+<rect x="1080" y="76" width="480" height="360" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="1104" y="110" font-size="15" fill="#1a1a1a" font-weight="600">概览读不到</text>
+<text x="1104" y="140" font-size="12.5" fill="#6b6b6b">pulse 失败，项目记录在</text>
+<rect x="1104" y="160" width="432" height="44" rx="8" fill="#fff1f0" stroke="#d04a3e"/>
+<text x="1120" y="187" font-size="12.5" fill="#b42318">概览暂时读不到 · 刷新</text>
+<text x="1104" y="234" font-size="12.5" fill="#555">「对话」tab 仍然可用；不整页报错。</text>
+<rect x="1104" y="252" width="140" height="34" rx="10" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="1174" y="274" font-size="12.5" fill="#444" text-anchor="middle">重试</text>
+
+<rect x="40" y="466" width="480" height="360" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="64" y="500" font-size="15" fill="#1a1a1a" font-weight="600">项目不存在</text>
+<text x="64" y="530" font-size="12.5" fill="#6b6b6b">记录被删除或链接过期</text>
+<text x="64" y="566" font-size="15" fill="#1a1a1a" font-weight="600">这个项目不在了</text>
+<text x="64" y="592" font-size="12.5" fill="#555">给「回到列表」；不显示空封面。</text>
+<rect x="64" y="612" width="120" height="34" rx="10" fill="#1f6feb"/>
+<text x="124" y="634" font-size="12.5" fill="#ffffff" text-anchor="middle">回到列表</text>
+
+<rect x="560" y="466" width="480" height="360" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="584" y="500" font-size="15" fill="#1a1a1a" font-weight="600">离线</text>
+<text x="584" y="530" font-size="12.5" fill="#6b6b6b">显示上次缓存</text>
+<rect x="584" y="550" width="432" height="44" rx="8" fill="#f0f0f0"/>
+<text x="600" y="577" font-size="12.5" fill="#555">离线 · 显示上次结果（10:24）</text>
+<text x="584" y="624" font-size="12.5" fill="#555">新建与编辑禁用并说明；已有对话可读。</text>
+<text x="584" y="650" font-size="12.5" fill="#555">恢复后自动重读一次。</text>
+
+<rect x="1080" y="466" width="480" height="360" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="1104" y="500" font-size="15" fill="#1a1a1a" font-weight="600">摘要：编辑中 / 冲突</text>
+<text x="1104" y="530" font-size="12.5" fill="#6b6b6b">一对一错两种反馈</text>
+<rect x="1104" y="550" width="432" height="70" rx="8" fill="#ffffff" stroke="#1f6feb"/>
+<text x="1120" y="576" font-size="12" fill="#555">这个项目在做什么…</text>
+<text x="1120" y="602" font-size="11" fill="#1f6feb">保存中…</text>
+<rect x="1104" y="636" width="432" height="70" rx="8" fill="#fff1f0" stroke="#d04a3e"/>
+<text x="1120" y="662" font-size="12" fill="#b42318">别人刚改过这一句话。</text>
+<text x="1120" y="686" font-size="11.5" fill="#b42318">显示对方版本 + 「用我的覆盖」/「放弃我的」</text>
+
+<text x="40" y="868" font-size="11.5" fill="#888">所有状态文案都走 i18n；空、失败、离线各有一条可执行的下一步。</text>
+</g>
+</svg>

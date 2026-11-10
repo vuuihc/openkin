@@ -1,34 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
-import { QRCodeSVG } from "qrcode.react";
 import {
   ApiError,
-  adoptRelayURL,
   activateProvider,
-  bindCloudflareRelayDomain,
   createProvider,
   deleteProvider,
-  deployCloudflareRelay,
   getSettings,
-  listCloudflareAccounts,
-  listCloudflareZones,
   listAgentProviders,
   listAgents,
   listProviderModels,
   listProviders,
-  refreshRelayPairing,
-  startCloudflareOAuth,
   updateProvider,
   updateSettings,
   type AgentInfo,
   type AgentProvider,
-  type CloudflareAccount,
-  type CloudflareZone,
   type ModelSpec,
   type ProviderEntry,
   type Settings,
 } from "../api/client";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
-import SearchSelect from "../components/ui/SearchSelect";
 import {
   AGENT_ROLES_CHANGED_EVENT,
   parseAgentRoles,
@@ -44,9 +33,7 @@ import {
 } from "../components/settings/LocalAgentSettingsSection";
 import { ProviderSettingsSection } from "../components/settings/ProviderSettingsSection";
 import { AccountSection } from "../components/settings/AccountSection";
-import { NativePushSettings } from "../components/settings/NativePushSettings";
-import { PhoneSection } from "../components/settings/PhoneSection";
-import { relayPrimaryAction } from "../components/settings/RelayGuidance";
+import { PushPermissionRow } from "../components/settings/PushPermissionRow";
 import {
   RoutingDefaultsSection,
   RoutingProfilesSection,
@@ -64,49 +51,9 @@ import { applyTheme, getThemeMode, setThemeMode, type ThemeMode } from "../lib/t
 import { useAppStore } from "../store/appStore";
 import { useT } from "../i18n/react";
 
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-async function probePublicURL(rawURL: string, timeoutMs = 5000): Promise<boolean> {
-  if (!rawURL) return false;
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    await fetch(rawURL, {
-      method: "GET",
-      mode: "no-cors",
-      cache: "no-store",
-      signal: controller.signal,
-    });
-    return true;
-  } catch {
-    return false;
-  } finally {
-    window.clearTimeout(timer);
-  }
-}
-
-function defaultRelayHostname(zoneName: string): string {
-  return zoneName ? `kin-relay.${zoneName}` : "";
-}
-
 export default function SettingsPage() {
   const tr = useT();
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [quotaWaitNotifySecs, setQuotaWaitNotifySecs] = useState("900");
-  const [baseURL, setBaseURL] = useState("");
-  const [relayURL, setRelayURL] = useState("");
-  const [relayBusy, setRelayBusy] = useState(false);
-  const [cloudflareAccounts, setCloudflareAccounts] = useState<CloudflareAccount[]>([]);
-  const [cloudflareZones, setCloudflareZones] = useState<CloudflareZone[]>([]);
-  const [cloudflareAccountID, setCloudflareAccountID] = useState("");
-  const [cloudflareZoneID, setCloudflareZoneID] = useState("");
-  const [cloudflareHostname, setCloudflareHostname] = useState("");
-  const [cloudflareScriptName, setCloudflareScriptName] = useState("kin-relay");
-  const [cloudflareBusy, setCloudflareBusy] = useState(false);
-  const [cloudflareDeploying, setCloudflareDeploying] = useState(false);
-  const [cloudflareBindingDomain, setCloudflareBindingDomain] = useState(false);
   const [priceTable, setPriceTable] = useState("");
   const [agentLimitsText, setAgentLimitsText] = useState("");
   const [roles, setRoles] = useState<AgentRole[]>([]);
@@ -139,15 +86,12 @@ export default function SettingsPage() {
   const [agentProviders, setAgentProviders] = useState<AgentProvider[]>([]);
   const [lastAutoImport, setLastAutoImport] = useState<AutoImportSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
   const [reveal, setReveal] = useState(false);
   const [busy, setBusy] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => getThemeMode());
   const [activeTab, setActiveTab] = useState<SettingsTabId>(() =>
     typeof window === "undefined" ? "general" : settingsTabFromSearch(window.location.search),
   );
-  const [workerDevUnreachable, setWorkerDevUnreachable] = useState(false);
-  const [customDomainTouched, setCustomDomainTouched] = useState(false);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
   const pushToast = useAppStore((s) => s.pushToast);
   const slow = useSlowHint(!settings && !error);
@@ -157,13 +101,6 @@ export default function SettingsPage() {
     try {
       const s = await getSettings();
       setSettings(s);
-      setQuotaWaitNotifySecs(s["notify.quota_wait_after_secs"] || "900");
-      setBaseURL(s["ui.base_url"] ?? "");
-      setRelayURL(s["relay.url"] ?? "");
-      setCloudflareAccountID(s["cloudflare.account_id"] ?? "");
-      setCloudflareZoneID(s["cloudflare.relay_zone_id"] ?? "");
-      setCloudflareHostname(s["cloudflare.relay_custom_domain"] ?? "");
-      setCloudflareScriptName(s["cloudflare.relay_script_name"] || "kin-relay");
       setAgentDefault(s["agent.default"] ?? "");
       setLimitPolicy((s.limit_policy as string) || "wait");
       setLimitFallbackText(s["limit_policy.fallback_agents"] || "[]");
@@ -193,10 +130,6 @@ export default function SettingsPage() {
       listAgentProviders()
         .then(setAgentProviders)
         .catch(() => undefined);
-      if (!s["cloudflare.authenticated"]) {
-        setCloudflareAccounts([]);
-        setCloudflareZones([]);
-      }
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) return;
       setError(e instanceof ApiError ? e.message : String(e));
@@ -211,16 +144,6 @@ export default function SettingsPage() {
     if (reconnectGen === 0) return;
     void load();
   }, [reconnectGen, load]);
-
-  useEffect(() => {
-    if (!settings?.["relay.url"]) return;
-    const timer = window.setInterval(() => {
-      void getSettings()
-        .then((next) => setSettings(next))
-        .catch(() => undefined);
-    }, 3000);
-    return () => window.clearInterval(timer);
-  }, [settings?.["relay.url"]]);
 
   useEffect(() => {
     try {
@@ -242,7 +165,6 @@ export default function SettingsPage() {
 
   const save = async () => {
     setBusy(true);
-    setSaved(false);
     setError(null);
     // Validate price table JSON client-side for faster feedback.
     try {
@@ -262,8 +184,6 @@ export default function SettingsPage() {
     }
     try {
       const body: Parameters<typeof updateSettings>[0] = {
-        "notify.quota_wait_after_secs": quotaWaitNotifySecs.trim() || "900",
-        "ui.base_url": baseURL.trim(),
         price_table: priceTable,
         agent_limits: agentLimitsText,
         agent_roles: serializeAgentRoles(roles),
@@ -278,7 +198,6 @@ export default function SettingsPage() {
       setLimitPolicy((s.limit_policy as string) || "wait");
       setLimitFallbackText(s["limit_policy.fallback_agents"] || "[]");
       setAutoImportMode(s["agent_sessions.auto_import_mode"] || "prompt");
-      setQuotaWaitNotifySecs(s["notify.quota_wait_after_secs"] || "900");
       setActiveProviderId(s["provider.active_id"] ?? activeProviderId);
       try {
         setPriceTable(JSON.stringify(JSON.parse(s.price_table || "{}"), null, 2));
@@ -293,7 +212,6 @@ export default function SettingsPage() {
       // Re-read rather than keep the draft: the serializer drops half-written
       // rows, and the fields should show what was actually saved.
       setRoles(parseAgentRoles(s.agent_roles));
-      setSaved(true);
       pushToast(tr("settings.saved"), "info");
       window.dispatchEvent(new Event("kin:agent-sessions-changed"));
       // The session host reads roles once and stays mounted across routes;
@@ -532,210 +450,6 @@ export default function SettingsPage() {
     }
   };
 
-  const copy = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // ignore
-    }
-  };
-
-  const applyRelaySettings = (s: Settings) => {
-    setSettings(s);
-    setRelayURL(s["relay.url"] ?? "");
-  };
-
-  const adoptRelaySettings = (s: Settings) => {
-    applyRelaySettings(s);
-    adoptRelayURL(s["relay.open_url"] ?? "");
-    const target = s["relay.open_url"]
-      ? s["relay.open_url"]
-      : s["ui.base_url"]
-        ? `${s["ui.base_url"].replace(/\/+$/, "")}/?token=${encodeURIComponent(s.token)}`
-        : "";
-    if (target) window.location.assign(target);
-  };
-
-  const saveRelay = async () => {
-    setRelayBusy(true);
-    setError(null);
-    try {
-      const s = await updateSettings({ "relay.url": relayURL.trim() });
-      pushToast(tr("settings.relay.saved"), "info");
-      adoptRelaySettings(s);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
-    } finally {
-      setRelayBusy(false);
-    }
-  };
-
-  const refreshPairing = async () => {
-    setRelayBusy(true);
-    setError(null);
-    try {
-      const s = await refreshRelayPairing();
-      setSettings(s);
-      pushToast(tr("settings.relay.pairingRefreshed"), "info");
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
-    } finally {
-      setRelayBusy(false);
-    }
-  };
-
-  const connectCloudflare = async () => {
-    setCloudflareBusy(true);
-    setError(null);
-    try {
-      const { auth_url } = await startCloudflareOAuth();
-      window.open(auth_url, "_blank", "noopener,noreferrer");
-      pushToast(tr("settings.relay.cloudflareLoginOpened"), "info");
-      let connected = false;
-      for (let attempt = 0; attempt < 30; attempt += 1) {
-        await wait(2000);
-        const next = await getSettings();
-        setSettings(next);
-        if (next["cloudflare.authenticated"]) {
-          connected = true;
-          setCloudflareAccountID(next["cloudflare.account_id"] ?? "");
-          setCloudflareScriptName(next["cloudflare.relay_script_name"] || "kin-relay");
-          try {
-            const res = await listCloudflareAccounts();
-            setCloudflareAccounts(res.accounts ?? []);
-            const accountID = next["cloudflare.account_id"] || res.accounts?.[0]?.id || "";
-            if (!next["cloudflare.account_id"] && res.accounts?.length === 1) {
-              setCloudflareAccountID(res.accounts[0].id);
-            }
-            if (accountID) {
-              const zoneRes = await listCloudflareZones(accountID);
-              setCloudflareZones(zoneRes.zones ?? []);
-              if (!next["cloudflare.relay_zone_id"] && zoneRes.zones?.length === 1) {
-                setCloudflareZoneID(zoneRes.zones[0].id);
-                setCloudflareHostname(
-                  (current) => current || defaultRelayHostname(zoneRes.zones[0].name),
-                );
-              }
-            }
-          } catch (accountErr) {
-            setError(accountErr instanceof ApiError ? accountErr.message : String(accountErr));
-          }
-          break;
-        }
-      }
-      if (!connected) {
-        pushToast(tr("settings.relay.cloudflareLoginTimedOut"), "error");
-      }
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
-    } finally {
-      setCloudflareBusy(false);
-    }
-  };
-
-  const refreshCloudflareAccounts = async () => {
-    setCloudflareBusy(true);
-    setError(null);
-    try {
-      const res = await listCloudflareAccounts();
-      setCloudflareAccounts(res.accounts ?? []);
-      if (!cloudflareAccountID && res.accounts?.length === 1) {
-        setCloudflareAccountID(res.accounts[0].id);
-      }
-      const next = await getSettings();
-      setSettings(next);
-      if (next["cloudflare.account_id"]) {
-        setCloudflareAccountID(next["cloudflare.account_id"]);
-      }
-      const accountID =
-        next["cloudflare.account_id"] || cloudflareAccountID || res.accounts?.[0]?.id || "";
-      if (accountID) {
-        const zoneRes = await listCloudflareZones(accountID);
-        setCloudflareZones(zoneRes.zones ?? []);
-        if (!cloudflareZoneID && zoneRes.zones?.length === 1) {
-          setCloudflareZoneID(zoneRes.zones[0].id);
-          setCloudflareHostname(
-            (current) => current || defaultRelayHostname(zoneRes.zones[0].name),
-          );
-        }
-      }
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
-    } finally {
-      setCloudflareBusy(false);
-    }
-  };
-
-  const refreshCloudflareZones = async (accountID = cloudflareAccountID) => {
-    if (!accountID) return [];
-    const res = await listCloudflareZones(accountID);
-    const zones = res.zones ?? [];
-    setCloudflareZones(zones);
-    if (!cloudflareZoneID && zones.length === 1) {
-      setCloudflareZoneID(zones[0].id);
-      setCloudflareHostname((current) => current || defaultRelayHostname(zones[0].name));
-    }
-    return zones;
-  };
-
-  const bindRelayCustomDomain = async (
-    zoneID = cloudflareZoneID,
-    hostname = cloudflareHostname,
-  ) => {
-    setCloudflareBindingDomain(true);
-    setError(null);
-    try {
-      const zone = cloudflareZones.find((z) => z.id === zoneID);
-      const nextHostname = hostname.trim() || defaultRelayHostname(zone?.name ?? "");
-      const s = await bindCloudflareRelayDomain({
-        account_id: cloudflareAccountID,
-        zone_id: zoneID,
-        hostname: nextHostname,
-        script_name: cloudflareScriptName,
-      });
-      setCloudflareHostname(s["cloudflare.relay_custom_domain"] || nextHostname);
-      setCloudflareZoneID(s["cloudflare.relay_zone_id"] || zoneID);
-      setWorkerDevUnreachable(false);
-      pushToast(tr("settings.relay.cloudflareDomainBound"), "info");
-      adoptRelaySettings(s);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
-    } finally {
-      setCloudflareBindingDomain(false);
-    }
-  };
-
-  const deployRelayWorker = async () => {
-    setCloudflareDeploying(true);
-    setError(null);
-    try {
-      const s = await deployCloudflareRelay({
-        account_id: cloudflareAccountID,
-        script_name: cloudflareScriptName,
-      });
-      pushToast(tr("settings.relay.cloudflareDeployed"), "info");
-      applyRelaySettings(s);
-      const workerURL = s["cloudflare.relay_worker_url"] || s["relay.url"];
-      if (workerURL && !(await probePublicURL(workerURL))) {
-        setWorkerDevUnreachable(true);
-        pushToast(tr("settings.relay.workerDevUnreachable"), "error");
-        const zones = cloudflareZones.length
-          ? cloudflareZones
-          : await refreshCloudflareZones(cloudflareAccountID);
-        if (zones.length === 1) {
-          await bindRelayCustomDomain(zones[0].id, defaultRelayHostname(zones[0].name));
-        }
-      } else {
-        setWorkerDevUnreachable(false);
-        adoptRelaySettings(s);
-      }
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
-    } finally {
-      setCloudflareDeploying(false);
-    }
-  };
-
   if (error && !settings) {
     return (
       <div className="flex-1 overflow-y-auto kin-scroll px-4 sm:px-6 py-6">
@@ -761,51 +475,6 @@ export default function SettingsPage() {
     );
   }
 
-  const connectURL = settings.connect_url || "";
-  const token = settings.token || "";
-  const mode = settings.network_mode || "—";
-  const relayState =
-    settings["relay.state"] === "connected" ||
-    settings["relay.state"] === "connecting" ||
-    settings["relay.state"] === "disabled" ||
-    settings["relay.state"] === "error"
-      ? settings["relay.state"]
-      : "disabled";
-  const hasCloudflareWorker = !!settings["cloudflare.relay_worker_url"];
-  const hasCloudflareCustomDomain = !!settings["cloudflare.relay_custom_domain_url"];
-  const accountOptions =
-    cloudflareAccountID && !cloudflareAccounts.some((account) => account.id === cloudflareAccountID)
-      ? [
-          {
-            id: cloudflareAccountID,
-            name: settings["cloudflare.account_name"] || cloudflareAccountID,
-          },
-          ...cloudflareAccounts,
-        ]
-      : cloudflareAccounts;
-  const zoneOptions =
-    cloudflareZoneID && !cloudflareZones.some((zone) => zone.id === cloudflareZoneID)
-      ? [
-          {
-            id: cloudflareZoneID,
-            name: settings["cloudflare.relay_zone_name"] || cloudflareZoneID,
-          },
-          ...cloudflareZones,
-        ]
-      : cloudflareZones;
-  const cloudflareNeedsAccountRefresh =
-    !!settings["cloudflare.authenticated"] &&
-    !cloudflareAccountID.trim() &&
-    accountOptions.length === 0;
-  const relayPrimary = relayPrimaryAction({
-    cloudflareAuthenticated: !!settings["cloudflare.authenticated"],
-    needsAccountRefresh: cloudflareNeedsAccountRefresh,
-    hasAccount: !!cloudflareAccountID.trim(),
-    hasWorker: hasCloudflareWorker,
-    hasZone: !!cloudflareZoneID.trim(),
-    hasCustomDomain: hasCloudflareCustomDomain,
-    customDomainRecommended: workerDevUnreachable || customDomainTouched,
-  });
   const settingsTabs: SettingsTabItem[] = [
     {
       id: "general",
@@ -826,16 +495,6 @@ export default function SettingsPage() {
       id: "routing",
       label: tr("settings.tabs.routing"),
       description: tr("settings.tabs.routingDesc"),
-    },
-    {
-      id: "remote",
-      label: tr("settings.tabs.remote"),
-      description: tr("settings.tabs.remoteDesc"),
-    },
-    {
-      id: "notifications",
-      label: tr("settings.tabs.notifications"),
-      description: tr("settings.tabs.notificationsDesc"),
     },
     {
       id: "advanced",
@@ -922,10 +581,6 @@ export default function SettingsPage() {
 
       {/* Appearance (design 3c / 3e) */}
       <SettingsTabPanel id="general" active={activeTab === "general"}>
-        {/* First, and on the first tab, because this is the tab a phone opens
-            and because the question it answers — how do I use this from here —
-            was the one the console could not answer at all. */}
-        <PhoneSection baseUrl={settings["ui.base_url"] ?? ""} onOpenTab={setActiveTab} />
         <SettingsSection title={tr("settings.appearance.heading")}>
           <div className="flex flex-wrap gap-2">
             {(["system", "light", "dark"] as const).map((value) => (
@@ -950,465 +605,10 @@ export default function SettingsPage() {
           </div>
         </SettingsSection>
         <AccountSection />
-      </SettingsTabPanel>
-
-      {/* Remote Relay */}
-      <SettingsTabPanel id="remote" active={activeTab === "remote"}>
-        <section className="rounded-xl bg-kin-elevated/60 p-4 space-y-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="space-y-1">
-              <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
-                {tr("settings.relay.heading")}
-              </h2>
-              <p className="text-body text-kin-secondary leading-prose">
-                {tr("settings.relay.desc")}
-              </p>
-            </div>
-            <span
-              className={[
-                "shrink-0 rounded-full px-2 py-1 text-micro font-semibold uppercase tracking-label",
-                relayState === "connected"
-                  ? "bg-kin-green/15 text-kin-green-ink"
-                  : relayState === "connecting"
-                    ? "bg-kin-orange/15 text-kin-orange-ink"
-                    : relayState === "disabled"
-                      ? "bg-[var(--kin-fill)] text-kin-muted"
-                      : "bg-kin-red/15 text-kin-red-ink",
-              ].join(" ")}
-            >
-              {tr(`settings.relay.state.${relayState}` as "settings.relay.state.disabled")}
-            </span>
-          </div>
-          <div className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] p-3 space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-              <div className="space-y-1">
-                <p className="text-body leading-4 font-medium text-kin-secondary">
-                  {tr("settings.relay.cloudflareTitle")}
-                </p>
-                <p className="text-caption text-kin-muted leading-prose">
-                  {settings["cloudflare.authenticated"]
-                    ? tr("settings.relay.cloudflareConnected", {
-                        account:
-                          settings["cloudflare.account_name"] ||
-                          settings["cloudflare.account_id"] ||
-                          "Cloudflare",
-                      })
-                    : tr("settings.relay.cloudflareDesc")}
-                </p>
-              </div>
-              <button
-                type="button"
-                disabled={cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
-                onClick={() => void connectCloudflare()}
-                className={[
-                  relayPrimary === "connect-cloudflare" ? "kin-btn-primary" : "kin-btn-secondary",
-                  "min-h-10 disabled:opacity-50",
-                ].join(" ")}
-              >
-                {settings["cloudflare.authenticated"]
-                  ? tr("settings.relay.reconnectCloudflare")
-                  : tr("settings.relay.connectCloudflare")}
-              </button>
-            </div>
-            {settings["cloudflare.relay_last_error"] ? (
-              <p className="text-body leading-4 text-kin-red-ink" role="alert">
-                {settings["cloudflare.relay_last_error"]}
-              </p>
-            ) : null}
-            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
-              <div className="block space-y-1">
-                <span className="text-body leading-4 font-medium text-kin-secondary">
-                  {tr("settings.relay.cloudflareAccount")}
-                </span>
-                <SearchSelect
-                  variant="field"
-                  label={tr("settings.relay.cloudflareAccount")}
-                  value={cloudflareAccountID}
-                  options={[
-                    {
-                      id: "",
-                      label: settings["cloudflare.authenticated"]
-                        ? tr("settings.relay.selectAccount")
-                        : tr("settings.relay.loginFirst"),
-                    },
-                    ...accountOptions.map((account) => ({
-                      id: account.id,
-                      label: account.name || account.id,
-                    })),
-                  ]}
-                  onChange={(next) => {
-                    setCloudflareAccountID(next);
-                    setCloudflareZoneID("");
-                    setCloudflareHostname("");
-                    setCustomDomainTouched(false);
-                    void refreshCloudflareZones(next);
-                  }}
-                  disabled={
-                    !settings["cloudflare.authenticated"] ||
-                    cloudflareBusy ||
-                    cloudflareDeploying ||
-                    cloudflareBindingDomain
-                  }
-                />
-              </div>
-              <label className="block space-y-1">
-                <span className="text-body leading-4 font-medium text-kin-secondary">
-                  {tr("settings.relay.workerName")}
-                </span>
-                <input
-                  type="text"
-                  value={cloudflareScriptName}
-                  onChange={(e) => setCloudflareScriptName(e.target.value)}
-                  disabled={cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
-                  className="kin-input min-h-11 font-mono text-body leading-4"
-                  autoComplete="off"
-                />
-              </label>
-            </div>
-            {hasCloudflareWorker ? (
-              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-                <div className="block space-y-1">
-                  <span className="text-body leading-4 font-medium text-kin-secondary">
-                    {tr("settings.relay.cloudflareZone")}
-                  </span>
-                  <SearchSelect
-                    variant="field"
-                    label={tr("settings.relay.cloudflareZone")}
-                    value={cloudflareZoneID}
-                    options={[
-                      {
-                        id: "",
-                        label: settings["cloudflare.authenticated"]
-                          ? tr("settings.relay.selectZone")
-                          : tr("settings.relay.loginFirst"),
-                      },
-                      ...zoneOptions.map((zone) => ({ id: zone.id, label: zone.name })),
-                    ]}
-                    onChange={(next) => {
-                      setCloudflareZoneID(next);
-                      const zone = cloudflareZones.find((z) => z.id === next);
-                      setCloudflareHostname(
-                        (current) => current || defaultRelayHostname(zone?.name ?? ""),
-                      );
-                    }}
-                    disabled={
-                      !settings["cloudflare.authenticated"] ||
-                      cloudflareBusy ||
-                      cloudflareDeploying ||
-                      cloudflareBindingDomain
-                    }
-                  />
-                </div>
-                <label className="block space-y-1">
-                  <span className="text-body leading-4 font-medium text-kin-secondary">
-                    {tr("settings.relay.customDomain")}
-                  </span>
-                  <input
-                    type="text"
-                    value={cloudflareHostname}
-                    onChange={(e) => {
-                      setCloudflareHostname(e.target.value);
-                      setCustomDomainTouched(true);
-                    }}
-                    disabled={cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
-                    placeholder={tr("settings.relay.customDomainPlaceholder")}
-                    className="kin-input min-h-11 font-mono text-body leading-4"
-                    autoComplete="off"
-                  />
-                </label>
-              </div>
-            ) : null}
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={
-                  cloudflareBusy ||
-                  cloudflareDeploying ||
-                  cloudflareBindingDomain ||
-                  !settings["cloudflare.authenticated"]
-                }
-                onClick={() => void refreshCloudflareAccounts()}
-                className={[
-                  relayPrimary === "refresh-accounts" ? "kin-btn-primary" : "kin-btn-secondary",
-                  "min-h-10 disabled:opacity-50",
-                ].join(" ")}
-              >
-                {tr("settings.relay.refreshAccounts")}
-              </button>
-              <button
-                type="button"
-                disabled={
-                  cloudflareBusy ||
-                  cloudflareDeploying ||
-                  cloudflareBindingDomain ||
-                  !settings["cloudflare.authenticated"] ||
-                  !cloudflareAccountID.trim()
-                }
-                onClick={() => void deployRelayWorker()}
-                className={[
-                  relayPrimary === "deploy-worker" ? "kin-btn-primary" : "kin-btn-secondary",
-                  "min-h-10 disabled:opacity-50",
-                ].join(" ")}
-              >
-                {cloudflareDeploying
-                  ? tr("settings.relay.deployingWorker")
-                  : hasCloudflareWorker
-                    ? tr("settings.relay.updateWorker")
-                    : tr("settings.relay.deployWorker")}
-              </button>
-              {hasCloudflareWorker ? (
-                <button
-                  type="button"
-                  disabled={
-                    cloudflareBusy ||
-                    cloudflareDeploying ||
-                    cloudflareBindingDomain ||
-                    !settings["cloudflare.authenticated"] ||
-                    !cloudflareAccountID.trim() ||
-                    !cloudflareZoneID.trim()
-                  }
-                  onClick={() => void bindRelayCustomDomain()}
-                  className={[
-                    relayPrimary === "bind-domain" ? "kin-btn-primary" : "kin-btn-secondary",
-                    "min-h-10 disabled:opacity-50",
-                  ].join(" ")}
-                >
-                  {cloudflareBindingDomain
-                    ? tr("settings.relay.bindingDomain")
-                    : tr("settings.relay.bindDomain")}
-                </button>
-              ) : null}
-            </div>
-            {!hasCloudflareWorker && settings["cloudflare.authenticated"] ? (
-              <p className="text-caption text-kin-muted leading-prose">
-                {tr("settings.relay.deployFirst")}
-              </p>
-            ) : null}
-            {settings["cloudflare.relay_worker_url"] ? (
-              <p className="[overflow-wrap:anywhere] font-mono text-caption text-kin-muted">
-                {settings["cloudflare.relay_worker_url"]}
-              </p>
-            ) : null}
-            {settings["cloudflare.relay_custom_domain_url"] ? (
-              <p className="[overflow-wrap:anywhere] font-mono text-caption text-kin-green-ink">
-                {settings["cloudflare.relay_custom_domain_url"]}
-              </p>
-            ) : null}
-          </div>
-          <label className="block space-y-1">
-            <span className="text-body leading-4 font-medium text-kin-secondary">
-              {tr("settings.relay.workerUrl")}
-            </span>
-            <input
-              type="url"
-              value={relayURL}
-              onChange={(e) => setRelayURL(e.target.value)}
-              placeholder="https://kin-relay.example.workers.dev"
-              className="kin-input min-h-11 font-mono text-body leading-4"
-              autoComplete="url"
-            />
-            <span className="text-caption text-kin-muted">
-              {tr("settings.relay.workerUrlHint")}
-            </span>
-          </label>
-          {settings["relay.last_error"] ? (
-            <p className="text-body leading-4 text-kin-red-ink" role="alert">
-              {settings["relay.last_error"]}
-            </p>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={relayBusy}
-              onClick={() => void saveRelay()}
-              className="kin-btn-secondary min-h-10 disabled:opacity-50"
-            >
-              {relayBusy ? tr("settings.saving") : tr("settings.relay.save")}
-            </button>
-            {settings["relay.url"] ? (
-              <button
-                type="button"
-                disabled={relayBusy}
-                onClick={() => void refreshPairing()}
-                className="kin-btn-secondary min-h-10 disabled:opacity-50"
-              >
-                {tr("settings.relay.refreshPairing")}
-              </button>
-            ) : null}
-          </div>
-          {settings["relay.pairing_url"] ? (
-            <div className="flex flex-col sm:flex-row gap-4 items-start border-t border-[var(--kin-hairline)] pt-4">
-              {/* White, and not a token: this is the QR's quiet zone. A scanner
-                  needs the light margin the code was rendered against, so the
-                  one square on this page that must not follow the theme is the
-                  one a camera reads. */}
-              <div className="rounded-lg bg-white p-3 shrink-0">
-                <QRCodeSVG value={settings["relay.pairing_url"]} size={160} level="M" />
-              </div>
-              <div className="min-w-0 flex-1 space-y-2">
-                <p className="text-body leading-4 font-medium text-kin-secondary">
-                  {tr("settings.relay.pairingTitle")}
-                </p>
-                <p className="[overflow-wrap:anywhere] font-mono text-caption text-kin-muted">
-                  {settings["relay.pairing_url"]}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => void copy(settings["relay.pairing_url"])}
-                  className="min-h-10 text-body leading-4 text-kin-blue-ink hover:underline"
-                >
-                  {tr("settings.connection.copyUrl")}
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </section>
-
-        {/* Connection */}
-        <section className="rounded-xl bg-kin-elevated/60 p-4 space-y-4">
-          <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
-            {tr("settings.connection.heading")}
-          </h2>
-          <div className="flex flex-col sm:flex-row gap-4 items-start">
-            {connectURL ? (
-              // Same quiet zone as the pairing code above.
-              <div className="rounded-lg bg-white p-3 shrink-0">
-                <QRCodeSVG value={connectURL} size={160} level="M" />
-              </div>
-            ) : (
-              <div className="h-40 w-40 rounded-lg border border-dashed border-kin-hairline-strong flex items-center justify-center text-body leading-4 text-kin-muted">
-                {tr("settings.connection.noUrl")}
-              </div>
-            )}
-            <div className="min-w-0 flex-1 space-y-3">
-              <div>
-                <div className="text-body leading-4 text-kin-muted">
-                  {tr("settings.connection.networkMode")}
-                </div>
-                <div className="mt-0.5 font-mono text-strong leading-5 text-kin-blue-ink">
-                  {mode}
-                </div>
-              </div>
-              {connectURL && (
-                <div>
-                  <div className="text-body leading-4 text-kin-muted">
-                    {tr("settings.connection.connectUrl")}
-                  </div>
-                  <div className="mt-0.5 [overflow-wrap:anywhere] font-mono text-body leading-4 text-kin-secondary">
-                    {connectURL}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => void copy(connectURL)}
-                    className="mt-1 min-h-11 text-body leading-4 text-kin-blue-ink hover:underline"
-                  >
-                    {tr("settings.connection.copyUrl")}
-                  </button>
-                </div>
-              )}
-              {token ? (
-                <div>
-                  <div className="text-body leading-4 text-kin-muted">
-                    {tr("settings.connection.token")}
-                  </div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-2">
-                    <code className="[overflow-wrap:anywhere] font-mono text-body leading-4 text-kin-text">
-                      {reveal ? token : "••••••••••••••••"}
-                    </code>
-                    <button
-                      type="button"
-                      onClick={() => setReveal((v) => !v)}
-                      className="min-h-11 text-body leading-4 text-kin-blue-ink hover:underline"
-                    >
-                      {reveal ? tr("settings.hide") : tr("settings.reveal")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void copy(token)}
-                      className="min-h-11 text-body leading-4 text-kin-blue-ink hover:underline"
-                    >
-                      {tr("settings.connection.copy")}
-                    </button>
-                  </div>
-                  <p className="mt-1 text-body leading-4 text-kin-muted">
-                    {tr("settings.connection.tokenHintA")}
-                    <code className="text-kin-secondary">kin token rotate</code>
-                    {tr("settings.connection.tokenHintB")}
-                  </p>
-                </div>
-              ) : (
-                // A Hub answers this endpoint without a token on purpose: the
-                // browser got in with an account, and handing it the daemon's own
-                // credential would outlive the session it came from.
-                <p className="text-body text-kin-muted leading-prose">
-                  {tr("settings.connection.accountSession")}
-                </p>
-              )}
-            </div>
-          </div>
-        </section>
-      </SettingsTabPanel>
-
-      {/* Notifications */}
-      <SettingsTabPanel id="notifications" active={activeTab === "notifications"}>
-        <section className="rounded-xl bg-kin-elevated/60 p-4 space-y-4">
-          <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
-            {tr("settings.notify.heading")}
-          </h2>
-          <p className="text-body leading-4 text-kin-muted">
-            {tr("settings.notify.descA")}
-            <code className="text-kin-secondary">ui.base_url</code>
-            {tr("settings.notify.descB")}
-          </p>
-          <label className="block space-y-1">
-            <span className="text-body leading-4 font-medium text-kin-secondary">
-              {tr("settings.notify.uiBaseUrl")}
-            </span>
-            <input
-              type="url"
-              value={baseURL}
-              onChange={(e) => setBaseURL(e.target.value)}
-              placeholder="http://192.168.x.x:7777"
-              className="kin-input min-h-11"
-            />
-            <span className="text-body leading-4 text-kin-muted">
-              {tr("settings.notify.uiBaseUrlHint")}
-            </span>
-          </label>
-          <label className="block space-y-1">
-            <span className="text-body leading-4 font-medium text-kin-secondary">
-              {tr("settings.notify.quotaWaitAfter")}
-            </span>
-            <input
-              type="number"
-              min={60}
-              step={60}
-              value={quotaWaitNotifySecs}
-              onChange={(e) => setQuotaWaitNotifySecs(e.target.value)}
-              className="kin-input min-h-11"
-            />
-            <span className="text-body leading-4 text-kin-muted">
-              {tr("settings.notify.quotaWaitAfterHint")}
-            </span>
-          </label>
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void save()}
-              className="kin-btn-primary disabled:opacity-50"
-            >
-              {busy ? tr("settings.saving") : tr("settings.notify.save")}
-            </button>
-            {saved && (
-              <span className="text-body leading-4 text-kin-green-ink">
-                {tr("settings.notify.savedShort")}
-              </span>
-            )}
-            {error && <span className="text-body leading-4 text-kin-red-ink">{error}</span>}
-          </div>
-        </section>
-        <NativePushSettings />
+        {/* The iPhone shell's only remaining notification control: iOS adds
+            Kin to Settings → Notifications only after the app asked once, and
+            that ask must be a tap. Renders nothing once granted. */}
+        <PushPermissionRow />
       </SettingsTabPanel>
 
       {/* Price table (M4) — defaults from open LiteLLM price list */}
