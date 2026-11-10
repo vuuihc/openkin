@@ -67,9 +67,7 @@ import {
   IconMachine,
   IconMore,
   IconPanel,
-  IconPullRequest,
   IconRestore,
-  IconSessions,
   IconShare,
   IconTrash,
 } from "../components/icons";
@@ -77,7 +75,6 @@ import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import PanelSurface from "../components/layout/PanelSurface";
 import MobileHeader, { MobileHeaderButton } from "../components/mobile/MobileHeader";
 import ActionSheet, { type ActionSheetRow } from "../components/ui/ActionSheet";
-import PullRequestPanel from "../components/pr/PullRequestPanel";
 import PublishPanel from "../components/pr/PublishPanel";
 import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
 import FileQuickOpen from "../components/workspace/FileQuickOpen";
@@ -101,8 +98,6 @@ import {
   withoutWithdrawn,
 } from "../lib/queuedPrompts";
 import { publishDraftFrom } from "../lib/publishDraft";
-import type { AttentionMark } from "../lib/sessionSwitcher";
-import { switcherTriggerLabel } from "../lib/sessionSwitcher";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useMachines } from "../hooks/useMachines";
 import { useApprovalDecision } from "../hooks/useApprovalDecision";
@@ -134,21 +129,6 @@ type TaskDetailPageProps = {
   /** Whether this instance is the visible session. */
   active?: boolean;
   /**
-   * Opens the phone's session switcher (the tab strip is desktop-only). Passed
-   * by the host that owns the open-tab list; the phone header shows the button
-   * only when it is there.
-   */
-  onOpenSessionSwitcher?: () => void;
-  /**
-   * What the switcher's dot says, when one is owed: a session other than the
-   * one in front is blocked on a person or has a result nobody has read. The
-   * host computes it from the same rows the sheet draws — which include the
-   * recent sessions behind the tabs, not only open tabs, because on a phone
-   * there is usually no tab to mark and a result that landed in another
-   * session is exactly what the dot is for.
-   */
-  switcherMark?: AttentionMark | null;
-  /**
    * Saved prompt shortcuts for the composer's `/` menu. The host reads them
    * once for every session pane it keeps alive; a pane that is rendered on its
    * own (or a test) simply has none. `null` is "not loaded yet", which the
@@ -170,8 +150,6 @@ type TaskDetailPageProps = {
 export default function TaskDetailPage({
   taskId,
   active = true,
-  onOpenSessionSwitcher,
-  switcherMark = null,
   agentRoles = [],
   fallbackTask,
 }: TaskDetailPageProps) {
@@ -1349,10 +1327,6 @@ export default function TaskDetailPage({
     showPanel(id, "publish");
   }
 
-  function togglePrPanel() {
-    togglePanel(id, "pr");
-  }
-
   async function onKeepAllChanges() {
     pushToast(tr("workspace.changed.keepAllDone"), "info");
   }
@@ -1512,8 +1486,6 @@ export default function TaskDetailPage({
   };
   const panel = resolvePanel(panelForView(shownPanel, id), panelCtx);
   const filesOpen = panel === "files";
-  const switcherLabel = switcherTriggerLabel(switcherMark);
-  const prOpen = panel === "pr";
   const publishOpen = panel === "publish";
   const project = projectLabel(task.cwd);
   const degraded = wsStatus !== "connected" && !terminal;
@@ -1610,7 +1582,6 @@ export default function TaskDetailPage({
       onSelect: () => (openFileFinderAfterSheet.current = true),
     },
     { id: "files", label: tr("workspace.title"), onSelect: () => togglePanel(id, "files") },
-    { id: "pr", label: tr("pr.title"), onSelect: () => togglePrPanel() },
     ...(!terminal
       ? [
           {
@@ -1668,34 +1639,13 @@ export default function TaskDetailPage({
             </MobileHeaderButton>
           }
           trailing={
-            <>
-              {/* The phone's tab strip: everything open, plus what finished
-                  while the reader was elsewhere. Lody puts this control
-                  beside ⋯ for the same reason — it is a switch, not an
-                  action on this session. */}
-              {onOpenSessionSwitcher && (
-                <MobileHeaderButton
-                  // The dot is unreadable to a screen reader and the label is
-                  // the only thing announced, so the state rides in the name.
-                  label={tr(
-                    switcherLabel.key,
-                    switcherLabel.stateKey ? { state: tr(switcherLabel.stateKey) } : undefined,
-                  )}
-                  onClick={onOpenSessionSwitcher}
-                  tone="muted"
-                  dot={switcherMark}
-                >
-                  <IconSessions size={19} />
-                </MobileHeaderButton>
-              )}
-              <MobileHeaderButton
-                label={tr("task.sessionActions")}
-                onClick={() => setActionsOpen(true)}
-                tone="muted"
-              >
-                <IconMore size={19} />
-              </MobileHeaderButton>
-            </>
+            <MobileHeaderButton
+              label={tr("task.sessionActions")}
+              onClick={() => setActionsOpen(true)}
+              tone="muted"
+            >
+              <IconMore size={19} />
+            </MobileHeaderButton>
           }
         />
 
@@ -1743,20 +1693,6 @@ export default function TaskDetailPage({
             >
               <IconPanel size={13} />
               <span>{tr("workspace.title")}</span>
-            </button>
-            <button
-              type="button"
-              onClick={togglePrPanel}
-              className={[
-                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-body transition-colors",
-                prOpen
-                  ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
-                  : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary hover:text-kin-text",
-              ].join(" ")}
-              title={tr("pr.title")}
-            >
-              <IconPullRequest size={13} />
-              <span>{tr("pr.title")}</span>
             </button>
             <button
               type="button"
@@ -2204,20 +2140,6 @@ export default function TaskDetailPage({
           // repository chip draws; the branch strip beside it asks the machine
           // on its own and is not this.
           onRowChanged={() => void liveResources.refreshTask(task.id, true)}
-          onClose={() => hidePanel(id)}
-        />
-      )}
-
-      {prOpen && (
-        <PullRequestPanel
-          taskId={task.id}
-          active={active}
-          // The panel reads this daemon's cache — the rows are the Hub's — and
-          // the read behind a row was made by whichever machine holds the
-          // checkout. Passing `machine` is what keeps an empty answer reading as
-          // "not on this machine yet" instead of "nowhere", and what lets the
-          // panel ask the machine that has it.
-          elsewhere={machine}
           onClose={() => hidePanel(id)}
         />
       )}

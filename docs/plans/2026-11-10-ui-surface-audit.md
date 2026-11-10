@@ -1,6 +1,6 @@
 # R0 · 面审计与减法
 
-状态：**R0a 已签字；R0b-1 已完成；R0b-2 待签字页** · 2026-11-10
+状态：**R0a、R0b-2 已签字；R0b-1 已完成；R0b-2b 已完成** · 2026-11-10
 配套：[`IA.md`](../product/IA.md)、[`TASTE.md`](../product/TASTE.md)、[`stories/PLAN.md`](../product/stories/PLAN.md)、[`2026-11-08-design-system-middle-layer.md`](2026-11-08-design-system-middle-layer.md)、[`2026-11-09-astryx-spike.md`](2026-11-09-astryx-spike.md)
 测量：`python3 scripts/ui_inventory.py`
 评审页：[`2026-11-10-ui-surface-audit.review.html`](2026-11-10-ui-surface-audit.review.html)（390/1100 现状截图 + 每面决策卡；截图含本机真实数据，只在本机打开，不要外发）。如果页面里的截图显示「缺失」，用同目录的 `2026-11-10-ui-surface-audit.review.local.html`（截图已内嵌，gitignored）
@@ -11,7 +11,11 @@
 |---|---|---|
 | R0a 只读审计 | ✅ 已签字 2026-11-10 | 13 行决策：2 保留 / 3 合并 / 4 删除 / 4 补故事；评审页 `2026-11-10-ui-surface-audit.review.html`（截图缺失时看 `.review.local.html`） |
 | R0b-1 只做减法 | ✅ 已完成（含复审） | `/design`、`/artifacts` + 详情已删；`ActionSheet` 取代 3 个 `IonActionSheet`，`@ionic/*` 移除；`AgentModelPicker` 已删；`check.sh` / build / smoke 全绿；390 截图存 `.playwright-mcp/r0/page/`（ignored）。嵌套 sheet 的一次 Esc / Back 只关一层，已用真实界面复验。复审无 blocker：`anyWidth` 移出打开/关闭 effect、Back 以历史条目自身 marker 判定归属、补 3 条嵌套测试与 1 条宽度策略测试；9 个 mutant 全红后落地（`148abdc` → `9fcded75` → `766c705d` → `ed164db9`），桌面已重建 |
-| R0b-2 列表合并 + 收件箱替代 | ⚪ 未开始 | 等签字页：`2026-11-10-ui-surface-audit-r0b2.review.html` |
+| R0b-2 签字 | ✅ 已签 2026-11-10 | “同意，开干”；五个决定按建议执行，页面 `2026-11-10-ui-surface-audit-r0b2.review.html` |
+| R0b-2a 收件箱替代 + 删除 | ⚪ 未开始 | 行尾待批准计数、通知落点，再删 `/inbox` |
+| R0b-2b 任务页减法 | ✅ 已完成 | 删 `SessionTabs`、`SessionSwitcherSheet`、`PullRequestPanel` 及入口；`TaskSessionHost` 只保留挂载缓存；`panels` / 图标 / i18n 清零；全量 vitest 188 文件 1898 条通过 |
+| R0b-2c 导入会话收起 | ⚪ 未开始 | 每台设备末尾默认收起、同样式 |
+| R0b-2d 列表合并 + 项目 + dock | ⚪ 未开始 | 一套行与控制器；删 `/projects` 索引与 dock「项目」 |
 | R0b-3 设置收口 | ⚪ 未开始 | 等 R0b-2 |
 | 4 条故事 | ⚪ 未开始 | 只写合同，不写代码 |
 

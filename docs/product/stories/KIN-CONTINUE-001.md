@@ -157,7 +157,7 @@ Mac：左边一列和右边主区各有一份同样的对话列表，各有自�
 | 组件 | `ui/src/components/CommandPalette.dom.test.tsx`（新建） | Given ⌘K When 打开并输入 When 停顿超过防抖 Then 只有操作和去处，没有对话行、没有消息搜索，也不请求任务表和消息接口（项目名沿用已加载的列表） |
 | 单元 | `ui/src/lib/needsYou.test.ts`（已有，扩充） | Given 手机上批过的卡片 When 重开会话或另一台设备读事件流 Then 由 `approval_requested` + `approval_decided` 重建同一张已决卡片，本机刚给出的答案优先、不出现第二张 |
 | 回归 | `ui/src/pages/TaskDetailPage.test.ts`（已有，扩充） | Given 卡片答完 When 待批列表移走这一行 Then 页面保留就地结果，并从事件重建刷新后的答案 |
-| 组件 | `ui/src/pages/TaskDetailPage.dom.test.tsx`（新建） | Given 已打开一条对话 When 切到另一条 Then 外壳（侧栏、输入框）节点不重建，旧对话内容留到新内容到达，整页不出现骨架屏；切换期间快捷键跟着屏幕上那条对话，不落到隐藏的新对话；切换中关掉屏上那条 Then 新对话接手，不出现整块空白 |
+| 组件 | `ui/src/pages/TaskDetailPage.dom.test.tsx`（新建） | Given 已打开一条对话 When 切到另一条 Then 外壳（侧栏、输入框）节点不重建，旧对话内容留到新内容到达，整页不出现骨架屏；切换期间快捷键跟着屏幕上那条对话，不落到隐藏的新对话；切换中删掉屏上那条 Then 新对话接手，不出现整块空白 |
 | 组件 | `ui/src/components/cards/ApprovalCard.dom.test.tsx`（新建） | Given 待批准卡片 When 点批准 Then 卡片就地显示结果、提交中按钮禁用、不跳页、焦点落在结果上；Given 手机、超时或运行停止先答复 Then 就地显示但不抢走本机输入焦点（失败的答复后读者已移开焦点时也一样）；没有 `decided_via` 时不出现半句话；`via=web` 只说在线决定，不说“在这里”；过期说超时，不说拒绝；运行停止时自动拒绝说“运行停止时自动拒绝” |
 | 单元 | `ui/src/lib/approvalAttribution.test.ts`（已有，扩充） | Given `decided_via` 是 `a2a`、`mcp:<client>`、`ios:<device>` When 生成说明 Then 说人话（Agent 连接 / 具体的 MCP 客户端 / 已配对手机），不把设备 id 或内部前缀显示给人；未知渠道仍如实显示原值 |
 | 回归 | `ui/src/pages/findWiring.test.ts`（已有） | Given 面板盖住对话 When 按 ⌘F Then 对话不打开查找栏 |

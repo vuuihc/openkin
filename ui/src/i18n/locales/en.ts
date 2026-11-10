@@ -1582,23 +1582,6 @@ const en: MessageTree = {
     closeFailed: "Failed to close session",
     resize: "Resize",
   },
-  switcher: {
-    title: "Switch session",
-    titleMarked: "Switch session — {state}",
-    open: "Open",
-    recent: "Recent",
-    waiting: "Needs you",
-    running: "Running",
-    failed: "Failed",
-    unread: "New result",
-  },
-  tabs: {
-    label: "Open sessions",
-    close: "Close {name}",
-    withState: "{name}, {state}",
-    reorderHint: "Alt+←/→ moves this tab",
-    untitled: "Session",
-  },
   routines: {
     title: "Routines",
     machineLabel: "Machine",

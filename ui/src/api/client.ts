@@ -16,7 +16,6 @@ import {
   type ReplayRequest,
   type Task,
   type TaskEvent,
-  type TaskPullRequestSnapshot,
   type PublishReport,
   type QueuedPrompt,
   type UserQuestion,
@@ -43,7 +42,6 @@ export type {
   ReplayRequest,
   PullRequestObservation,
   GHStatus,
-  TaskPullRequestSnapshot,
   PublishReport,
 } from "./contract";
 
@@ -1160,31 +1158,6 @@ export function withdrawQueuedPrompt(id: string, promptId: number): Promise<void
     `/api/tasks/${encodeURIComponent(id)}/prompts/${encodeURIComponent(String(promptId))}`,
     { method: "DELETE" },
   );
-}
-
-/**
- * Cached GitHub state for the task's current workspace branch.
- *
- * The daemon reads its cache and nothing else, so this never waits on the
- * network and never spends rate limit; what it returns carries its own age.
- * `refreshTaskPullRequest` is the call that queries.
- *
- * `signal` is how the caller abandons a read it no longer wants — a panel
- * closed mid-flight should stop the answer travelling rather than have it
- * arrive later to be discarded.
- */
-export function getTaskPullRequest(
-  id: string,
-  signal?: AbortSignal,
-): Promise<TaskPullRequestSnapshot> {
-  return apiFetch<TaskPullRequestSnapshot>(`/api/tasks/${encodeURIComponent(id)}/pr`, { signal });
-}
-
-/** Query GitHub now and wait. Spends rate limit, so only on an explicit tap. */
-export function refreshTaskPullRequest(id: string): Promise<TaskPullRequestSnapshot> {
-  return apiFetch<TaskPullRequestSnapshot>(`/api/tasks/${encodeURIComponent(id)}/pr/refresh`, {
-    method: "POST",
-  });
 }
 
 /**

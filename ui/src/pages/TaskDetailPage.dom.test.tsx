@@ -11,14 +11,16 @@ import TaskSessionHost from "./TaskSessionHost";
  * KIN-CONTINUE-001, step 3 and the two-surface rule: switching conversations
  * updates the conversation area only.
  *
- * The window keeps one shell — sidebar, tab strip, composer — and the outgoing
- * conversation stays readable until the next one has content. What must not
- * happen is the whole area collapsing into a skeleton for the length of a
- * fetch, which is what the old host did and what made switching flash white.
+ * The window keeps one shell — sidebar, conversation, composer — and the
+ * outgoing conversation stays readable until the next one has content. What
+ * must not happen is the whole area collapsing into a skeleton for the length
+ * of a fetch, which is what the old host did and what made switching flash
+ * white.
  */
 
 const store = vi.hoisted(() => {
   const listeners = new Set<() => void>();
+  const wsListeners = new Set<(msg: { kind: string; data: { id: string } }) => void>();
   const state = {
     version: 0,
     loaded: {} as Record<string, boolean>,
@@ -26,10 +28,14 @@ const store = vi.hoisted(() => {
   };
   return {
     state,
+    wsListeners,
     set(id: string, loaded: boolean) {
       state.loaded[id] = loaded;
       state.version += 1;
       for (const listener of listeners) listener();
+    },
+    deleteTask(id: string) {
+      for (const listener of wsListeners) listener({ kind: "task_deleted", data: { id } });
     },
     subscribe(listener: () => void) {
       listeners.add(listener);
@@ -54,18 +60,12 @@ vi.mock("../api/client", () => ({
   isTerminal: (status: string) => ["succeeded", "failed", "canceled"].includes(status),
 }));
 vi.mock("../hooks/useAgentRoles", () => ({ useAgentRoles: () => [] }));
-vi.mock("../store/appStore", () => ({ subscribeWS: () => () => {} }));
-vi.mock("../components/layout/SessionTabs", () => ({
-  default: ({ onClose }: { onClose: (id: string) => void }) => (
-    <div>
-      tabs
-      <button type="button" onClick={() => onClose("a")}>
-        close a
-      </button>
-    </div>
-  ),
+vi.mock("../store/appStore", () => ({
+  subscribeWS: (listener: (msg: { kind: string; data: { id: string } }) => void) => {
+    store.wsListeners.add(listener);
+    return () => store.wsListeners.delete(listener);
+  },
 }));
-vi.mock("../components/mobile/SessionSwitcherSheet", () => ({ default: () => null }));
 vi.mock("./TaskDetailPage", () => ({
   default: ({ taskId, active }: { taskId: string; active: boolean }) => (
     <div data-testid={`pane-${taskId}`} data-active={String(active)}>
@@ -148,7 +148,7 @@ describe("switching conversations", () => {
     expect(paneBox("a").parentElement).toBe(shell);
   });
 
-  it("does not go blank when the kept pane is closed mid-switch", async () => {
+  it("does not go blank when the kept pane is deleted mid-switch", async () => {
     store.state.loaded.a = true;
     setup();
     await waitFor(() => expect(screen.getByTestId("pane-a")).toBeTruthy());
@@ -157,10 +157,12 @@ describe("switching conversations", () => {
     await waitFor(() => expect(screen.getByTestId("pane-b")).toBeTruthy());
     expect(paneBox("b").getAttribute("aria-hidden")).toBe("true");
 
-    // Closing the tab of the conversation still on screen while b loads leaves
-    // no loaded pane to hold: b must stop being hidden behind it, or the area
-    // is blank except for the progress line.
-    await userEvent.click(screen.getByRole("button", { name: "close a" }));
+    // The conversation still on screen is deleted while b loads: there is no
+    // loaded pane left to hold, so b must stop being hidden behind it or the
+    // area is blank except for the progress line.
+    act(() => {
+      store.deleteTask("a");
+    });
 
     await waitFor(() => expect(screen.queryByTestId("pane-a")).toBeNull());
     expect(paneBox("b").getAttribute("aria-hidden")).toBe("false");

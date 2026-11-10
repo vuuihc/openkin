@@ -8,7 +8,6 @@ import {
   IconInbox,
   IconPlus,
   IconProjects,
-  IconPullRequest,
   IconRoutines,
   IconSessions,
   IconSettings,
@@ -47,10 +46,9 @@ export const PLACE_ICONS: Record<PlaceId, (p: IconProps) => ReactNode> = {
 };
 
 export const PANEL_ICONS: Record<PanelId, (p: IconProps) => ReactNode> = {
-  // The workspace panel is the file tree and the diff; the PR panel is the pull
-  // request. Both are things the session owns, which is what they are drawn as.
+  // The workspace panel is the file tree and the diff; it is the thing the
+  // session owns, which is what it is drawn as.
   files: IconFile,
-  pr: IconPullRequest,
   // Publishing writes to the Hub, which is the one panel whose subject is
   // somewhere else.
   publish: IconExternal,
