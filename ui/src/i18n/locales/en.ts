@@ -1067,6 +1067,7 @@ const en: MessageTree = {
       costCompany: "company",
       costFree: "free",
       costUnknown: "unknown",
+      costLabel: "Cost type",
       saveEntry: "Save provider",
       cancel: "Cancel",
       required: "Base URL and model are required.",
@@ -1157,8 +1158,7 @@ const en: MessageTree = {
       unknownUser: "Signed in",
       deviceCountNote: "Every device connected to this Hub shares this one account.",
       methods: "Sign-in methods",
-      methodsHint:
-        "Any of these signs you in. Linking a provider lets you skip the password.",
+      methodsHint: "Any of these signs you in. Linking a provider lets you skip the password.",
       methodsHintShell:
         "Any of these signs you in. Linking another provider is done from the console in a desktop browser.",
       methodPassword: "Password",
@@ -1300,7 +1300,8 @@ const en: MessageTree = {
       unknown: "Unknown",
       notConfigured: "Node has no APNs credentials",
       apnsErrors: {
-        token: "Apple rejected this phone's notification token. Turn notifications off and on again.",
+        token:
+          "Apple rejected this phone's notification token. Turn notifications off and on again.",
         credentials:
           "Apple rejected the node's APNs credentials. The node administrator must run `kin notify apns` again.",
         rateLimited: "Apple is rate-limiting this node. Try again in a moment.",
@@ -1560,7 +1561,8 @@ const en: MessageTree = {
       invalid_credentials: "Email or password is incorrect.",
       claim_code_invalid: "That claim code is not valid or has expired.",
       invite_invalid: "That invitation is not valid or has expired.",
-      login_link_invalid: "This sign-in link is not valid or has expired. Ask your agent for a new one.",
+      login_link_invalid:
+        "This sign-in link is not valid or has expired. Ask your agent for a new one.",
       login_code_invalid: "This sign-in attempt is no longer valid. Start again from the app.",
       browser_unavailable:
         "The system browser could not be opened. Sign-in through a provider needs an https:// Hub address.",

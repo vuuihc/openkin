@@ -44,6 +44,13 @@ type Props = {
    *  rendering bug. */
   bordered?: boolean;
   /**
+   * The closed face. `chip` is the compact control the composer joins to its
+   * neighbours; `field` is a full-width form row standing where a native
+   * `<select>` used to be. Both open the same panel on a Mac and the same
+   * sheet on a phone — only the face differs.
+   */
+  variant?: "chip" | "field";
+  /**
    * Trigger classes: the width cap and the ink. Every caller passes a cap —
    * this primitive deliberately ships none, because a `max-w-full` here would
    * be emitted after the caller's arbitrary value and silently win the
@@ -422,6 +429,7 @@ export default function SearchSelect({
   title,
   disabled,
   bordered = true,
+  variant = "chip",
   className,
   placement = "bottom",
   searchable = false,
@@ -524,23 +532,40 @@ export default function SearchSelect({
     setSheetOpen(false);
   };
 
-  const triggerClass = [
-    // A chosen value reads a step larger on a phone (see `SheetSelect`), and
-    // the desktop row this chip joins is set at caption. The coarse-pointer
-    // type floor only covers fields, not buttons, so these are the sizes the
-    // chip actually gets on each surface.
-    "inline-flex min-w-0 flex-none items-center gap-1 rounded-lg bg-transparent px-1.5 py-0.5 text-body font-medium sm:text-caption",
-    bordered ? "border border-[var(--kin-hairline-strong)]" : "",
-    "focus:outline-none focus:ring-1 focus:ring-kin-focus-ring",
-    disabled ? "cursor-default opacity-70" : "cursor-pointer hover:text-kin-text",
-    className ?? "text-kin-secondary",
-  ]
-    .filter(Boolean)
-    .join(" ");
+  const triggerClass =
+    variant === "field"
+      ? [
+          "kin-input flex w-full items-center justify-between gap-2 text-left min-h-11",
+          disabled ? "cursor-default opacity-70" : "cursor-pointer",
+          "focus:outline-none focus:ring-1 focus:ring-kin-focus-ring",
+          className ?? "",
+        ]
+          .filter(Boolean)
+          .join(" ")
+      : [
+          // A chosen value reads a step larger on a phone (see `SheetSelect`), and
+          // the desktop row this chip joins is set at caption. The coarse-pointer
+          // type floor only covers fields, not buttons, so these are the sizes the
+          // chip actually gets on each surface.
+          "inline-flex min-w-0 flex-none items-center gap-1 rounded-lg bg-transparent px-1.5 py-0.5 text-body font-medium sm:text-caption",
+          bordered ? "border border-[var(--kin-hairline-strong)]" : "",
+          "focus:outline-none focus:ring-1 focus:ring-kin-focus-ring",
+          disabled ? "cursor-default opacity-70" : "cursor-pointer hover:text-kin-text",
+          className ?? "text-kin-secondary",
+        ]
+          .filter(Boolean)
+          .join(" ");
 
   return (
     <>
-      <span ref={rootRef} className="relative hidden min-w-0 sm:block">
+      <span
+        ref={rootRef}
+        className={
+          variant === "field"
+            ? "relative hidden w-full min-w-0 sm:block"
+            : "relative hidden min-w-0 sm:block"
+        }
+      >
         <Trigger
           buttonRef={triggerRef}
           label={label}
@@ -586,7 +611,9 @@ export default function SearchSelect({
       {/* The phone's trigger is separate, not a `sm:hidden` twin sharing one
           panel: a panel portaled to `document.body` cannot be hidden by a
           media query on an ancestor. Each surface owns its own open state. */}
-      <span className="min-w-0 sm:hidden">
+      <span
+        className={variant === "field" ? "block w-full min-w-0 sm:hidden" : "min-w-0 sm:hidden"}
+      >
         <Trigger
           label={label}
           current={current}

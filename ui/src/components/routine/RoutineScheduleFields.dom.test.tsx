@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { t } from "../../i18n";
 import {
@@ -39,26 +40,43 @@ function setup(
   return { onRuleChange, onIntervalChange, onNextRunLocalChange };
 }
 
-const repeat = () => screen.getByLabelText(t("routines.repeatLabel")) as HTMLSelectElement;
+/** The console picker puts one trigger per surface in the DOM; the desktop one
+ *  is the `listbox` and the phone one opens the `Sheet`. The repeat control is
+ *  the first picker on the row, the step control (when present) the second. */
+const trigger = (surface: "listbox" | "dialog", index = 0) =>
+  document.querySelectorAll<HTMLButtonElement>(`button[aria-haspopup="${surface}"]`)[index];
+
+const repeat = () => trigger("listbox", 0);
+const step = () => trigger("listbox", 1);
+
+async function pickDesktop(index: number, optionName: string) {
+  await userEvent.click(trigger("listbox", index));
+  await userEvent.click(screen.getByRole("option", { name: optionName }));
+}
+
+const optionNames = (list: HTMLElement) =>
+  within(list)
+    .getAllByRole("option")
+    .map((option) => option.textContent);
 
 describe("RoutineScheduleFields", () => {
   it("offers an interval and a time of day as separate answers", () => {
     setup();
-    expect(repeat().value).toBe("interval:86400");
+    expect(repeat().textContent).toContain(t("routines.interval1d"));
     // An interval routine needs a first run; a rule computes its own.
     expect(screen.getByLabelText(t("routines.firstRunLabel"))).toBeTruthy();
   });
 
-  it("switches from a timer to a rule", () => {
+  it("switches from a timer to a rule", async () => {
     const { onRuleChange, onIntervalChange } = setup();
-    fireEvent.change(repeat(), { target: { value: "weekdays" } });
+    await pickDesktop(0, t("routines.repeatWeekdays"));
     expect(onRuleChange).toHaveBeenCalledWith({ kind: "weekdays", hour: 9, minute: 0 });
     expect(onIntervalChange).not.toHaveBeenCalled();
   });
 
-  it("switches from a rule back to a timer", () => {
+  it("switches from a rule back to a timer", async () => {
     const { onRuleChange, onIntervalChange } = setup({ kind: "daily", hour: 9, minute: 0 });
-    fireEvent.change(repeat(), { target: { value: "interval:3600" } });
+    await pickDesktop(0, t("routines.interval1h"));
     expect(onRuleChange).toHaveBeenCalledWith(null);
     expect(onIntervalChange).toHaveBeenCalledWith(3600);
   });
@@ -112,30 +130,36 @@ describe("RoutineScheduleFields", () => {
     });
   });
 
-  it("switches to a step rule with a step the daemon accepts", () => {
+  it("switches to a step rule with a step the daemon accepts", async () => {
     const { onRuleChange } = setup();
-    fireEvent.change(repeat(), { target: { value: "hours" } });
+    await pickDesktop(0, t("routines.repeatEveryHours"));
     expect(onRuleChange).toHaveBeenCalledWith({ kind: "hours", every: 6 });
-    fireEvent.change(repeat(), { target: { value: "minutes" } });
+    await pickDesktop(0, t("routines.repeatEveryMinutes"));
     expect(onRuleChange).toHaveBeenCalledWith({ kind: "minutes", every: 15 });
   });
 
-  it("asks a step rule for its step, not a time of day", () => {
+  it("asks a step rule for its step, not a time of day", async () => {
     setup({ kind: "minutes", every: 15 });
-    const step = screen.getByLabelText(t("routines.everyLabel")) as HTMLSelectElement;
-    expect(step.value).toBe("15");
+    expect(step().textContent).toContain(t("routines.everyNMinutes", { n: 15 }));
+    await userEvent.click(step());
     // Only the steps the daemon accepts: a step that does not divide the hour
     // would shorten the last gap of every hour.
-    expect([...step.options].map((o) => Number(o.value))).toEqual([...ROUTINE_MINUTE_STEPS]);
+    expect(optionNames(screen.getByRole("listbox", { name: t("routines.everyLabel") }))).toEqual(
+      ROUTINE_MINUTE_STEPS.map((n) => t("routines.everyNMinutes", { n })),
+    );
     expect(screen.queryByLabelText(t("routines.timeLabel"))).toBeNull();
     expect(screen.queryByLabelText(t("routines.firstRunLabel"))).toBeNull();
   });
 
-  it("edits the hours step without changing the kind", () => {
+  it("edits the hours step without changing the kind", async () => {
     const { onRuleChange } = setup({ kind: "hours", every: 6 });
-    const step = screen.getByLabelText(t("routines.everyLabel")) as HTMLSelectElement;
-    expect([...step.options].map((o) => Number(o.value))).toEqual([...ROUTINE_HOUR_STEPS]);
-    fireEvent.change(step, { target: { value: "8" } });
+    await userEvent.click(step());
+    expect(optionNames(screen.getByRole("listbox", { name: t("routines.everyLabel") }))).toEqual(
+      ROUTINE_HOUR_STEPS.map((n) => t("routines.everyNHours", { n })),
+    );
+    await userEvent.click(
+      screen.getByRole("option", { name: t("routines.everyNHours", { n: 8 }) }),
+    );
     expect(onRuleChange).toHaveBeenCalledWith({ kind: "hours", every: 8 });
   });
 
@@ -209,5 +233,20 @@ describe("RoutineScheduleFields", () => {
     setup({ kind: "once" }, undefined, 1_800_000_000_000);
     const prefix = t("routines.nextRunPreview", { when: "" }).trim();
     expect(document.body.textContent).not.toContain(prefix);
+  });
+
+  it("picks a rule from the phone's sheet", async () => {
+    // 390px is a sheet, not a system wheel: the same list of answers the
+    // desktop panel shows, on the surface the phone owns.
+    const { onRuleChange } = setup();
+    await userEvent.click(trigger("dialog", 0));
+    const dialog = screen.getByRole("dialog", { name: t("routines.repeatLabel") });
+    await userEvent.click(within(dialog).getByRole("button", { name: t("routines.repeatWeekly") }));
+    expect(onRuleChange).toHaveBeenCalledWith({
+      kind: "weekly",
+      hour: 9,
+      minute: 0,
+      weekdays: [1],
+    });
   });
 });

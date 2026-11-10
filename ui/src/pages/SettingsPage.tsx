@@ -28,6 +28,7 @@ import {
   type Settings,
 } from "../api/client";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
+import SearchSelect from "../components/ui/SearchSelect";
 import {
   AGENT_ROLES_CHANGED_EVENT,
   parseAgentRoles,
@@ -1015,14 +1016,27 @@ export default function SettingsPage() {
               </p>
             ) : null}
             <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
-              <label className="block space-y-1">
+              <div className="block space-y-1">
                 <span className="text-body leading-4 font-medium text-kin-secondary">
                   {tr("settings.relay.cloudflareAccount")}
                 </span>
-                <select
+                <SearchSelect
+                  variant="field"
+                  label={tr("settings.relay.cloudflareAccount")}
                   value={cloudflareAccountID}
-                  onChange={(e) => {
-                    const next = e.target.value;
+                  options={[
+                    {
+                      id: "",
+                      label: settings["cloudflare.authenticated"]
+                        ? tr("settings.relay.selectAccount")
+                        : tr("settings.relay.loginFirst"),
+                    },
+                    ...accountOptions.map((account) => ({
+                      id: account.id,
+                      label: account.name || account.id,
+                    })),
+                  ]}
+                  onChange={(next) => {
                     setCloudflareAccountID(next);
                     setCloudflareZoneID("");
                     setCloudflareHostname("");
@@ -1035,20 +1049,8 @@ export default function SettingsPage() {
                     cloudflareDeploying ||
                     cloudflareBindingDomain
                   }
-                  className="kin-input min-h-11"
-                >
-                  <option value="">
-                    {settings["cloudflare.authenticated"]
-                      ? tr("settings.relay.selectAccount")
-                      : tr("settings.relay.loginFirst")}
-                  </option>
-                  {accountOptions.map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.name || account.id}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                />
+              </div>
               <label className="block space-y-1">
                 <span className="text-body leading-4 font-medium text-kin-secondary">
                   {tr("settings.relay.workerName")}
@@ -1065,14 +1067,24 @@ export default function SettingsPage() {
             </div>
             {hasCloudflareWorker ? (
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-                <label className="block space-y-1">
+                <div className="block space-y-1">
                   <span className="text-body leading-4 font-medium text-kin-secondary">
                     {tr("settings.relay.cloudflareZone")}
                   </span>
-                  <select
+                  <SearchSelect
+                    variant="field"
+                    label={tr("settings.relay.cloudflareZone")}
                     value={cloudflareZoneID}
-                    onChange={(e) => {
-                      const next = e.target.value;
+                    options={[
+                      {
+                        id: "",
+                        label: settings["cloudflare.authenticated"]
+                          ? tr("settings.relay.selectZone")
+                          : tr("settings.relay.loginFirst"),
+                      },
+                      ...zoneOptions.map((zone) => ({ id: zone.id, label: zone.name })),
+                    ]}
+                    onChange={(next) => {
                       setCloudflareZoneID(next);
                       const zone = cloudflareZones.find((z) => z.id === next);
                       setCloudflareHostname(
@@ -1085,20 +1097,8 @@ export default function SettingsPage() {
                       cloudflareDeploying ||
                       cloudflareBindingDomain
                     }
-                    className="kin-input min-h-11"
-                  >
-                    <option value="">
-                      {settings["cloudflare.authenticated"]
-                        ? tr("settings.relay.selectZone")
-                        : tr("settings.relay.loginFirst")}
-                    </option>
-                    {zoneOptions.map((zone) => (
-                      <option key={zone.id} value={zone.id}>
-                        {zone.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                  />
+                </div>
                 <label className="block space-y-1">
                   <span className="text-body leading-4 font-medium text-kin-secondary">
                     {tr("settings.relay.customDomain")}

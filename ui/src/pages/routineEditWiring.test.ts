@@ -140,7 +140,7 @@ describe("a routine's model", () => {
     // The same rule New Chat applies: the new agent does not know the old
     // catalog's id, and a stored one it cannot run would fail every fire
     // instead of falling back to its default.
-    const handler = block("setAgentId(e.target.value);", "</select>");
+    const handler = block("setAgentId(next);", "}}");
     expect(handler).toContain('setModel("");');
   });
 

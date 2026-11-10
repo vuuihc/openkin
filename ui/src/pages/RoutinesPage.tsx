@@ -943,35 +943,32 @@ export default function RoutinesPage() {
                 onChange={setPermissionMode}
               />
               {availableAgents.length > 0 && (
-                <label className="inline-flex items-center gap-2 text-body text-kin-secondary">
+                <span className="inline-flex items-center gap-2 text-body text-kin-secondary">
                   <span className="text-kin-muted">{tr("routines.agentLabel")}</span>
-                  <select
+                  <SheetSelect
+                    label={tr("routines.agentLabel")}
                     value={agentId}
                     disabled={creating}
-                    onChange={(e) => {
-                      setAgentId(e.target.value);
+                    options={[
+                      /* A routine keeps the agent it was created with, even if
+                         that agent is offline right now. Without this row the
+                         control would show the first available agent while the
+                         state still held the missing id. */
+                      ...(agentId && availableAgents.every((a) => a.id !== agentId)
+                        ? [{ id: agentId, label: agentId }]
+                        : []),
+                      ...availableAgents.map((a) => ({ id: a.id, label: a.name })),
+                    ]}
+                    onChange={(next) => {
+                      setAgentId(next);
                       // A model from the old agent's catalog is not one this
                       // agent has; New Chat clears the same way on a host
                       // change, and a stored id the agent does not know would
                       // fail every run instead of falling back.
                       setModel("");
                     }}
-                    className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-text"
-                  >
-                    {/* A routine keeps the agent it was created with, even if
-                        that agent is offline right now. Without this row the
-                        select would show the first available agent while the
-                        state still held the missing id. */}
-                    {agentId && availableAgents.every((a) => a.id !== agentId) && (
-                      <option value={agentId}>{agentId}</option>
-                    )}
-                    {availableAgents.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                  />
+                </span>
               )}
               {agentId && (
                 <ModelPicker

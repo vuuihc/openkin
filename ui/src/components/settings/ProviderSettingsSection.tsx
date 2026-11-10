@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import type { AgentInfo, ModelSpec, ProviderEntry } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { agentCatalogState, runnableAgents, sortAgentCatalog } from "../../lib/agentCatalog";
+import SearchSelect from "../ui/SearchSelect";
 import { SettingsTabPanel } from "./SettingsPrimitives";
 
 export function providerDisplayName(provider: ProviderEntry): string {
@@ -285,25 +286,19 @@ export function ProviderSettingsSection({
                 <span className="block text-caption text-kin-red-ink">{providerModelError}</span>
               ) : null}
               {providerModelOptions.length > 0 ? (
-                <select
+                <SearchSelect
+                  variant="field"
+                  searchable
+                  className="mt-1 text-body"
+                  label={tr("settings.provider.model")}
                   value=""
-                  onChange={(event) => {
-                    if (event.target.value) onProviderModelChange(event.target.value);
-                  }}
-                  className="kin-input min-h-10 text-body leading-4 mt-1"
-                >
-                  <option value="">
-                    {tr("settings.provider.modelsPick").replace(
-                      "{count}",
-                      String(providerModelOptions.length),
-                    )}
-                  </option>
-                  {providerModelOptions.map((model) => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
-                  ))}
-                </select>
+                  display={tr("settings.provider.modelsPick").replace(
+                    "{count}",
+                    String(providerModelOptions.length),
+                  )}
+                  options={providerModelOptions.map((model) => ({ id: model, label: model }))}
+                  onChange={onProviderModelChange}
+                />
               ) : null}
             </label>
             <label className="flex items-start gap-2 cursor-pointer">
@@ -395,28 +390,32 @@ export function ProviderSettingsSection({
                           placeholder="claude-sonnet-4-20250514"
                         />
                         <div className="flex gap-2">
-                          <select
+                          <SearchSelect
+                            variant="field"
+                            className="text-body"
+                            label={tr("settings.routing.tier")}
                             value={model.tier}
-                            onChange={(event) => updateModel(index, { tier: event.target.value })}
-                            className="kin-input min-h-8 text-body leading-4 flex-1"
-                          >
-                            <option value="smart">{tr("settings.provider.tierSmart")}</option>
-                            <option value="balanced">{tr("settings.provider.tierBalanced")}</option>
-                            <option value="fast">{tr("settings.provider.tierFast")}</option>
-                            <option value="free">{tr("settings.provider.tierFree")}</option>
-                          </select>
-                          <select
+                            options={[
+                              { id: "smart", label: tr("settings.provider.tierSmart") },
+                              { id: "balanced", label: tr("settings.provider.tierBalanced") },
+                              { id: "fast", label: tr("settings.provider.tierFast") },
+                              { id: "free", label: tr("settings.provider.tierFree") },
+                            ]}
+                            onChange={(tier) => updateModel(index, { tier })}
+                          />
+                          <SearchSelect
+                            variant="field"
+                            className="text-body"
+                            label={tr("settings.provider.costLabel")}
                             value={model.cost_label}
-                            onChange={(event) =>
-                              updateModel(index, { cost_label: event.target.value })
-                            }
-                            className="kin-input min-h-8 text-body leading-4 flex-1"
-                          >
-                            <option value="paid">{tr("settings.provider.costPaid")}</option>
-                            <option value="company">{tr("settings.provider.costCompany")}</option>
-                            <option value="free">{tr("settings.provider.costFree")}</option>
-                            <option value="unknown">{tr("settings.provider.costUnknown")}</option>
-                          </select>
+                            options={[
+                              { id: "paid", label: tr("settings.provider.costPaid") },
+                              { id: "company", label: tr("settings.provider.costCompany") },
+                              { id: "free", label: tr("settings.provider.costFree") },
+                              { id: "unknown", label: tr("settings.provider.costUnknown") },
+                            ]}
+                            onChange={(cost_label) => updateModel(index, { cost_label })}
+                          />
                         </div>
                       </div>
                     ))}
@@ -445,31 +444,32 @@ export function ProviderSettingsSection({
           </div>
         ) : null}
 
-        <label className="block space-y-1">
+        <div className="block space-y-1">
           <span className="text-body leading-4 font-medium text-kin-secondary">
             {tr("settings.provider.defaultAgent")}
           </span>
-          <select
+          <SearchSelect
+            variant="field"
+            label={tr("settings.provider.defaultAgent")}
             value={agentDefault}
-            onChange={(event) => onAgentDefaultChange(event.target.value)}
-            className="kin-input min-h-11"
-          >
-            <option value="">{tr("settings.provider.autoOption")}</option>
-            {sortAgentCatalog(runnableAgents(agentList)).map((agent) => {
-              const state = agentCatalogState(agent);
-              let suffix = "";
-              if (agent.default) {
-                suffix = tr("settings.provider.currentDefault").replace(/^\s*—\s*/, "");
-              } else if (state === "generic") {
-                suffix = tr("agentCatalog.generic");
-              }
-              return (
-                <option key={agent.id} value={agent.id}>
-                  {agent.name} ({agent.id}){suffix ? ` — ${suffix}` : ""}
-                </option>
-              );
-            })}
-          </select>
+            options={[
+              { id: "", label: tr("settings.provider.autoOption") },
+              ...sortAgentCatalog(runnableAgents(agentList)).map((agent) => {
+                const state = agentCatalogState(agent);
+                let suffix = "";
+                if (agent.default) {
+                  suffix = tr("settings.provider.currentDefault").replace(/^\s*—\s*/, "");
+                } else if (state === "generic") {
+                  suffix = tr("agentCatalog.generic");
+                }
+                return {
+                  id: agent.id,
+                  label: `${agent.name} (${agent.id})${suffix ? ` — ${suffix}` : ""}`,
+                };
+              }),
+            ]}
+            onChange={onAgentDefaultChange}
+          />
           <span className="text-caption text-kin-muted">
             {tr("settings.provider.defaultAgentHint")}
           </span>
@@ -481,7 +481,7 @@ export function ProviderSettingsSection({
               {tr("agents.manageLink")}
             </Link>
           ) : null}
-        </label>
+        </div>
         <button
           type="button"
           disabled={settingsBusy}
