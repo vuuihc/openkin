@@ -1,6 +1,6 @@
 # 四条故事交付 · 2026-11-11
 
-状态：**进行中 · 第 1、2 条已交付（KIN-PROJECT-001、KIN-AGENTS-001），第 3 条进行中（KIN-ROUTINE-001）**。一次交付一条，每条走完整完成门；本文件是四条故事的唯一进度表。
+状态：**进行中 · 第 1、2、3 条已交付（KIN-PROJECT-001、KIN-AGENTS-001、KIN-ROUTINE-001），第 4 条未开始（KIN-START-001）**。一次交付一条，每条走完整完成门；本文件是四条故事的唯一进度表。
 
 ## 现在的位置
 
@@ -8,7 +8,7 @@
 |---|---|---|---|
 | 1 | `KIN-PROJECT-001` 项目封面 | 已交付（covered） | 6 个测试文件 / 84 例；`check.sh` 14 项绿；13/13 mutant 红；1100 / 390 截图（本地临时文件） |
 | 2 | `KIN-AGENTS-001` Agent 运维 | 已交付（covered） | 6 个变更/新增测试文件 / 93 例（注册表共 7 个测试文件）；`check.sh` 14 项绿；38/38 mutant 红；1100 / 390 截图；`9f14406c`；桌面与 Hub 已重建（线上 `index-8Y0FgbFB.js`） |
-| 3 | `KIN-ROUTINE-001` 例行任务 | 进行中 | 合同 / 审阅页 / 5 帧已签 |
+| 3 | `KIN-ROUTINE-001` 例行任务 | 已交付（covered） | 11 个变更/新增测试文件（新增 4 个）；页面 DOM 19 例、会话规则 8 例、调度器 2/12、store 5 例、API 1 例；`check.sh` 14 项绿；22/22 mutant 红；1100 / 390 截图（本地临时文件）；`c5af44c7` |
 | 4 | `KIN-START-001` 新建对话 | 已签字，未开始 | 合同 / 审阅页 / 5 帧已签（2026-11-11） |
 
 - 四条都已 `approved`；交付一条改成 `covered`，同一个提交带代码、测试、故事与 `registry.json`。
@@ -54,9 +54,13 @@
 - 定时运行的会话默认在同一条里持续；每条任务可选「每次执行在对应项目新建会话」。
 - 机器离线、空、加载、调度非法、运行中 / 成功 / 失败、等待批准、未读 / 已读各有文字与下一步。
 
-现在：`RoutinesPage`、`routineDevice` / `routineEdit` / `routineHistory` 已有列表与表单；本轮补会话方式与运行记录到会话的链接，删掉页内会话残留。
+现在：每条例行任务可选会话方式（默认同一条持续，fresh 可选），从列迁移（v48）、API、调度器贯通到表单；daemon 与表单共用一条延续规则——只看最新一轮，且须同 agent / 目录 / 模型、已结束、本机来源。运行记录移到列表旁的独立面板（手机在行内），只写时间、结果、耗时并链回项目会话，不渲染会话正文。记住的离线机器不静默换机、全部写入禁用；脏表单、切换机器、保存中关闭都要确认或说明；表单提示跟随表单里的目录与模型。
 
-验证：`routineDevice.test.ts`、`routineEdit.test.ts`、`routineHistory.test.ts`（新增 `routineConversation.test.ts`）；1100 / 390 截图；`check.sh`；会话方式默认值与「每次新建」各一个 mutant。
+验证：`RoutinesPage.dom.test.tsx`（19，新）、`routineConversation.test.ts`（8，新）、`scheduler_conversation_test.go`（2 个测试 / 12 子例，新）、`routines_conversation_test.go`（5，新）、`routineEdit.test.ts`（+1）、`routineDevice.test.ts`（+1）、`routines_test.go`（+1）、两处 wiring（改）；`check.sh` 14 项全绿；`.tmp/routine-conversation.mutants.json` 22/22 红；1100 / 390 截图对照。
+
+复审：3 轮同模型复审；首轮 1 blocker（延续规则未检查 agent / 目录 / 模型 / 来源）+ 若干 major，二轮修掉提示比较存储值而非表单值等 major，三轮 0 blocker / 0 major；nit（fresh 提示优先于「正在读取」、迁移注释、`aria-controls`）同轮修掉。
+
+落地：`c5af44c7` 已快进 `main`；`./scripts/desktop-rebuild.sh` 重建并重启桌面（`:7777` 与 `web/dist/index.html` 同为 `index-DYC7SM2h.js`）；Hub 镜像已重新部署到 NAS（公网 entry chunk 与本地一致，容器 healthy，回滚镜像 `openkin:dogfood-prev` 已保留）。
 
 ## 4. KIN-START-001 · 新建对话
 
@@ -83,5 +87,5 @@
 |---|---|---|---|---|
 | PROJECT | 18 文件，+2571 / −842（含文档与 `web/dist/index.html`） | 6 文件 / 84 例；新增 3 个测试文件 | 1（`53667935`） | 1 blocker + 13 major + 17 nit；全部 blocker/major 修复，13/13 mutant 红 |
 | AGENTS | 21 文件，+3696 / −642（含文档与 `web/dist/index.html`） | 6 文件 / 93 例；新增 3 个测试文件 | 1（`9f14406c`） | 4 轮：0/7/10 → 0/7/12 → 0/2/5 → 0/0/6；38/38 mutant 红 |
-| ROUTINE | — | — | — | — |
+| ROUTINE | 27 文件，+2316 / −276（含文档与 `web/dist/index.html`） | 11 文件（新增 4）/ 19 + 8 + 2 + 5 + 3 例 | 1（`c5af44c7`） | 3 轮：1 blocker + 若干 major → major → 0/0；22/22 mutant 红 |
 | START | — | — | — | — |
