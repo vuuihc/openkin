@@ -1,6 +1,6 @@
 # 四条故事交付 · 2026-11-11
 
-状态：**进行中 · 第 1、2、3 条已交付（KIN-PROJECT-001、KIN-AGENTS-001、KIN-ROUTINE-001），第 4 条未开始（KIN-START-001）**。一次交付一条，每条走完整完成门；本文件是四条故事的唯一进度表。
+状态：**四条全部交付（KIN-PROJECT-001、KIN-AGENTS-001、KIN-ROUTINE-001、KIN-START-001）**。一次交付一条，每条走完整完成门；本文件是四条故事的唯一进度表。
 
 ## 现在的位置
 
@@ -9,9 +9,9 @@
 | 1 | `KIN-PROJECT-001` 项目封面 | 已交付（covered） | 6 个测试文件 / 84 例；`check.sh` 14 项绿；13/13 mutant 红；1100 / 390 截图（本地临时文件） |
 | 2 | `KIN-AGENTS-001` Agent 运维 | 已交付（covered） | 6 个变更/新增测试文件 / 93 例（注册表共 7 个测试文件）；`check.sh` 14 项绿；38/38 mutant 红；1100 / 390 截图；`9f14406c`；桌面与 Hub 已重建（线上 `index-8Y0FgbFB.js`） |
 | 3 | `KIN-ROUTINE-001` 例行任务 | 已交付（covered） | 11 个变更/新增测试文件（新增 4 个）；页面 DOM 19 例、会话规则 8 例、调度器 2/12、store 5 例、API 1 例；`check.sh` 14 项绿；22/22 mutant 红；1100 / 390 截图（本地临时文件）；`c5af44c7` |
-| 4 | `KIN-START-001` 新建对话 | 已签字，未开始 | 合同 / 审阅页 / 5 帧已签（2026-11-11） |
+| 4 | `KIN-START-001` 新建对话 | 已交付（covered） | 4 个新增测试文件 / 43 例（19 + 14 + 5 + 5）；全套 206 文件 / 2044 例；`check.sh` 14 项绿；40/40 mutant 红；1100 / 390 浏览器核对；`4902489a`；桌面与 Hub 已重建（线上 `index-D9eA9wbT.js`） |
 
-- 四条都已 `approved`；交付一条改成 `covered`，同一个提交带代码、测试、故事与 `registry.json`。
+- 四条都已 `covered`；每条落地时同一个提交带代码、测试、故事与 `registry.json`。
 - `KIN-SETTINGS-002`（桌面壳一键升级）不在本轮四条内，仍在队列里，等这四条之后单独交付。
 - 每条的完成门：`./scripts/check.sh` → 红验证（mutant）→ 同模型复审 → 修 blocker/major → 提交 → 合入 `main` → `./scripts/desktop-rebuild.sh` → Hub 重新部署（手机可见时）。
 
@@ -70,9 +70,13 @@
 - 手机同一构图占满宽度；运行设置是底部面板，和对话页同一个。
 - 草稿保留到开始或清空；开始后进入对话页；空、加载、模型失败、断线、没有 agent、机器离线、项目不在了、创建失败都有文字与下一步。
 
-现在：`ui/src/pages/NewChatPage.tsx` 是 576px 窄栏 + 输入框下方一行；本轮重排成居中输入卡 + 卡下项目条，新增 `PlacePicker`，复用 `RunConfigSheet`。
+现在：`NewChatPage.tsx` 由 576px 窄栏改成居中输入卡（卡内提示词，卡底权限、agent · 模型与「开始」），卡下单独一条「设备 · 项目」；新增 `PlacePicker`（按机器分组、搜索、可直接输入目录，桌面锚定面板与手机底部面板共用同一份内容），新增 `placeMemory` 按机器记住项目；运行设置复用 `RunConfigSheet`，模型与机器也进草稿；记住的机器或项目不在了回到本机并说明，机器列表读不到按读不到的原因禁用；没有 agent、没有目录、离线、断线时禁用开始并就地给下一步；创建失败或早退把提示词放回输入框与草稿。
 
-验证：新建 `NewChatPage.dom.test.tsx`、`PlacePicker.dom.test.tsx`，扩充 `RunConfigSheet.dom.test.tsx`；1100 / 390 截图；`check.sh`；空内容禁用、离线禁用、项目记忆回退各一个 mutant。
+验证：`NewChatPage.dom.test.tsx`（新，19 例）、`PlacePicker.dom.test.tsx`（新，14 例）、`permissionMode.test.ts`（新，5 例）、`placeMemory.test.ts`（新，5 例），并改 `RunConfigSheet.dom.test.tsx`、`phoneRunConfigFace.test.ts`、`floatingApprovalWiring.test.ts`；`check.sh` 14 项全绿；全套 206 文件 / 2044 例；`.tmp/start.mutants.json` 40/40 红；1100 / 390 浏览器核对（手机搜索框持有焦点、Esc 能关、不显示键盘提示）；剩余风险记在故事「已知限制」（模型与机器只在 localStorage，换浏览器不带走）。
+
+复审：3 轮同模型复审；一审 0 blocker / 7 major，二审 0 blocker / 1 major，三审 0 blocker / 0 major（当轮再修 1 个由修复引入的 nit：机器列表恢复后模型收敛不重跑）。
+
+落地：`4902489a` 已快进 `main`；`./scripts/desktop-rebuild.sh` 重建并重启桌面（`:7777` 与 `web/dist/index.html` 同为 `index-D9eA9wbT.js`）；Hub 镜像已重新部署到 NAS（公网 entry chunk 与本地 SHA-256 一致，容器 healthy，回滚镜像 `openkin:dogfood-prev` 已保留）。
 
 ## 不做
 
@@ -88,4 +92,4 @@
 | PROJECT | 18 文件，+2571 / −842（含文档与 `web/dist/index.html`） | 6 文件 / 84 例；新增 3 个测试文件 | 1（`53667935`） | 1 blocker + 13 major + 17 nit；全部 blocker/major 修复，13/13 mutant 红 |
 | AGENTS | 21 文件，+3696 / −642（含文档与 `web/dist/index.html`） | 6 文件 / 93 例；新增 3 个测试文件 | 1（`9f14406c`） | 4 轮：0/7/10 → 0/7/12 → 0/2/5 → 0/0/6；38/38 mutant 红 |
 | ROUTINE | 27 文件，+2316 / −276（含文档与 `web/dist/index.html`） | 11 文件（新增 4）/ 19 + 8 + 2 + 5 + 3 例 | 1（`c5af44c7`） | 3 轮：1 blocker + 若干 major → major → 0/0；22/22 mutant 红 |
-| START | — | — | — | — |
+| START | 22 文件，+1871 / −368（含文档与 `web/dist/index.html`） | 4 个新增测试文件 / 43 例（19 + 14 + 5 + 5） | 1（`4902489a`） | 3 轮：0/7 → 0/1 → 0/0；40/40 mutant 红 |
