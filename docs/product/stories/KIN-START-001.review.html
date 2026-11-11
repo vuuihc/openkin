@@ -173,6 +173,9 @@
     .toc { border-radius: 0; }
     .two { grid-template-columns: 1fr 1fr; }
   }
+  @media (min-width: 700px) {
+    .fig-wide img { width: 100%; }
+  }
   @media (max-width: 380px) {
     .flow li { grid-template-columns: 1fr; gap: 4px; }
   }
@@ -185,7 +188,7 @@
     <div class="eyebrow">Figma 审阅版 · 已按回复重画 · 待确认</div>
     <h1>KIN-START-001 · 新建一段对话 <small>Figma 设计稿 · Mac 与手机</small></h1>
     <p class="meta">draft · 面：Mac / 手机 · 对照 <code>KIN-START-001.md</code></p>
-    <p class="meta">2026 年 11 月 11 日 · 5 屏 · 9 个状态</p>
+    <p class="meta">2026 年 11 月 11 日 · 重画 v2 · 5 屏 · 9 个状态</p>
     <div class="tags">
       <span class="pill draft">draft · 重画待确认</span>
       <span class="pill plain">旅程 J3</span>
@@ -206,6 +209,7 @@
       <li><strong>最后回决定</strong>：D1–D4 每条都有推荐和代价；只回不同意的编号，页尾有回复模板。</li>
     </ol>
     <p class="note">2026-11-11 的回复：D1 不同意，改成参考 Codex 的居中输入卡；D2 也参考 Codex，项目入口放在卡下一条；D3、D4 同意。这一版 5 张帧和下面的流程已按这个方向重画，确认后才签字。</p>
+    <p class="note">本页是重画 v2，帧文件名已换成带 <code>composer</code> 的新名字。如果仍看到左右两栏，那是旧缓存：重新打开本页或强制刷新即可。</p>
   </section>
 
   <nav class="toc" aria-label="页内导航">
@@ -306,11 +310,11 @@
       </div>
       <figure class="frame fig-wide">
         <div class="frame-scroll" role="region" aria-label="Mac 新建对话的 Figma 帧" tabindex="0" data-start="300">
-          <img src="KIN-START-001.figma/frames/01-mac-new.svg" alt="Mac 新建对话：左栏是唯一的对话列表与「＋ 新建对话」；主区居中一句「想让 Kin 做什么？」，下面一张输入卡，卡底一行是权限、Agent 与模型和「开始」，卡下单独一条「本机 · alpha」" loading="lazy">
+          <img src="KIN-START-001.figma/frames/01-mac-composer.svg" alt="Mac 新建对话：左栏是唯一的对话列表与「＋ 新建对话」；主区居中一句「想让 Kin 做什么？」，下面一张输入卡，卡底一行是权限、Agent 与模型和「开始」，卡下单独一条「本机 · alpha」" loading="lazy">
         </div>
         <figcaption>
-          <span>1100×760 · Mac 帧 · 主区优先，左右滑动看完整</span>
-          <a href="KIN-START-001.figma/frames/01-mac-new.svg">打开原图</a>
+          <span>1100×760 · Mac 帧 · 桌面按卡宽整张显示；手机上左右滑动，「打开原图」看 1:1</span>
+          <a href="KIN-START-001.figma/frames/01-mac-composer.svg">打开原图</a>
         </figcaption>
       </figure>
       <h4>用户流程</h4>
@@ -334,11 +338,11 @@
       </div>
       <figure class="frame fig-wide">
         <div class="frame-scroll" role="region" aria-label="Mac 选择设备与项目弹层的 Figma 帧" tabindex="0" data-start="300">
-          <img src="KIN-START-001.figma/frames/02-mac-place-picker.svg" alt="Mac 选择设备与项目：从输入卡下面的「本机 · alpha」一条向下展开，按机器分组列项目，本机 alpha 选中，另一台机器在线，NAS 标离线；底部可输入目录，提示方向键与 Enter、Esc" loading="lazy">
+          <img src="KIN-START-001.figma/frames/02-mac-composer-picker.svg" alt="Mac 选择设备与项目：从输入卡下面的「本机 · alpha」一条向下展开，按机器分组列项目，本机 alpha 选中，另一台机器在线，NAS 标离线；底部可输入目录，提示方向键与 Enter、Esc" loading="lazy">
         </div>
         <figcaption>
-          <span>1100×760 · Mac 帧 · 弹层从卡下这一条展开</span>
-          <a href="KIN-START-001.figma/frames/02-mac-place-picker.svg">打开原图</a>
+          <span>1100×760 · Mac 帧 · 桌面按卡宽整张显示；弹层从卡下这一条展开</span>
+          <a href="KIN-START-001.figma/frames/02-mac-composer-picker.svg">打开原图</a>
         </figcaption>
       </figure>
       <h4>用户流程</h4>
@@ -362,11 +366,11 @@
       </div>
       <figure class="frame fig-phone">
         <div class="frame-scroll" role="region" aria-label="手机新建对话全屏的 Figma 帧" tabindex="0">
-          <img src="KIN-START-001.figma/frames/03-phone-new.svg" alt="手机新建对话：全屏居中一句「想让 Kin 做什么？」，下面一张输入卡，卡底一行是权限、Agent 与模型和「开始」，卡下一条「本机 · alpha」；不自动弹键盘" loading="lazy">
+          <img src="KIN-START-001.figma/frames/03-phone-composer.svg" alt="手机新建对话：全屏居中一句「想让 Kin 做什么？」，下面一张输入卡，卡底一行是权限、Agent 与模型和「开始」，卡下一条「本机 · alpha」；不自动弹键盘" loading="lazy">
         </div>
         <figcaption>
           <span>390×844 · 手机帧</span>
-          <a href="KIN-START-001.figma/frames/03-phone-new.svg">打开原图</a>
+          <a href="KIN-START-001.figma/frames/03-phone-composer.svg">打开原图</a>
         </figcaption>
       </figure>
       <h4>用户流程</h4>
@@ -390,11 +394,11 @@
       </div>
       <figure class="frame fig-phone">
         <div class="frame-scroll" role="region" aria-label="手机运行设置底部面板的 Figma 帧" tabindex="0">
-          <img src="KIN-START-001.figma/frames/04-phone-runconfig.svg" alt="手机运行设置：底部面板三行 Agent、模型、权限，每行当前值与一句后果，选完自动关闭；背景是未完成的新建页" loading="lazy">
+          <img src="KIN-START-001.figma/frames/04-phone-composer-settings.svg" alt="手机运行设置：底部面板三行 Agent、模型、权限，每行当前值与一句后果，选完自动关闭；背景是未完成的新建页" loading="lazy">
         </div>
         <figcaption>
           <span>390×844 · 手机帧</span>
-          <a href="KIN-START-001.figma/frames/04-phone-runconfig.svg">打开原图</a>
+          <a href="KIN-START-001.figma/frames/04-phone-composer-settings.svg">打开原图</a>
         </figcaption>
       </figure>
       <h4>用户流程</h4>
