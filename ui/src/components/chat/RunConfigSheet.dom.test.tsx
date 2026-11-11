@@ -86,7 +86,7 @@ beforeEach(() => {
   setWideScreen(false);
 });
 
-describe("RunConfigControl", () => {
+describe("RunConfigControl (KIN-START-001)", () => {
   it("names the agent, the model and the mode on the face", () => {
     setup();
     expect(screen.getByRole("button", { name: /^Run settings/ }).textContent).toContain("Sonnet");

@@ -14,8 +14,8 @@
 | `KIN-ROUTINE-001` | approved | P1 | J4 | Mac/手机 | 让它按时跑：把一件事交给机器重复做 | 3 |
 | `KIN-SETTINGS-001` | draft | P1 | J6 | Mac/手机 | 改默认设置 | 0 |
 | `KIN-SETTINGS-002` | approved | P1 | J1、J6 | Mac | 桌面壳一键升级 | 3 |
-| `KIN-START-001` | draft | P1 | J3 | Mac/手机 | 新建一段对话 | 0 |
+| `KIN-START-001` | approved | P1 | J3 | Mac/手机 | 新建一段对话 | 2 |
 
 ## 汇总
 
-approved 6 · draft 4
+approved 7 · draft 3

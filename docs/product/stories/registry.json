@@ -91,7 +91,7 @@
     },
     {
       "id": "KIN-START-001",
-      "state": "draft",
+      "state": "approved",
       "priority": "P1",
       "journeys": [
         "J3"
@@ -108,7 +108,10 @@
         "ui/src/components/chat/RunConfigSheet.tsx",
         "ui/src/lib/permissionMode.ts"
       ],
-      "tests": [],
+      "tests": [
+        "ui/src/components/chat/RunConfigSheet.dom.test.tsx",
+        "ui/src/pages/newChatDeepLinkWiring.test.ts"
+      ],
       "blockedReason": null
     },
     {

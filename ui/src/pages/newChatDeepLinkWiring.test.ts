@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 const SOURCE = readFileSync(join(UI, "src/pages/NewChatPage.tsx"), "utf8");
 
-describe("the new-chat deep link", () => {
+describe("the new-chat deep link (KIN-START-001)", () => {
   it("applies each deep-link value once, not on every URL write", () => {
     expect(SOURCE).toContain('const deepLinkPrompt = params.get("q");');
     expect(SOURCE).toContain('const deepLinkCwd = params.get("cwd");');
