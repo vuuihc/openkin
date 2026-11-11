@@ -50,6 +50,14 @@ describe("resolveRoutineDevice (KIN-ROUTINE-001)", () => {
     expect(resolveRoutineDevice([SELF, STUDIO], "")).toBe(STUDIO.id);
   });
 
+  it("keeps a remembered machine that is offline instead of silently switching", () => {
+    // Offline is a state the page shows, not a reason to move the reader to a
+    // different machine's routines. The nearest online machine is offered
+    // beside it; the choice stays until the reader makes another one.
+    expect(resolveRoutineDevice([SELF, LAPTOP, STUDIO], STUDIO.id)).toBe(STUDIO.id);
+    expect(resolveRoutineDevice([SELF, STUDIO], STUDIO.id)).toBe(STUDIO.id);
+  });
+
   it("opens on this machine when it is the only one", () => {
     expect(resolveRoutineDevice([SELF], "")).toBe(THIS_MACHINE);
   });

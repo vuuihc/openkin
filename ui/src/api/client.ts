@@ -1407,6 +1407,8 @@ export type Routine = {
   lane: string;
   /** Wall-clock rule as JSON; empty or absent for an interval routine. */
   recurrence?: string;
+  /** "continue" (default) or "fresh"; absent/legacy reads as continue. */
+  conversation_mode?: "continue" | "fresh" | string;
   claim_until_at?: number;
   last_outcome?: string;
   last_error?: string;
@@ -1435,6 +1437,7 @@ export type CreateRoutineBody = {
   missed_run_policy?: "coalesce" | "skip";
   lane?: string;
   recurrence?: string;
+  conversation_mode?: "continue" | "fresh";
 };
 
 export type PatchRoutineBody = {
@@ -1453,6 +1456,7 @@ export type PatchRoutineBody = {
   lane?: string;
   /** "" clears the rule and hands the schedule back to interval_secs. */
   recurrence?: string;
+  conversation_mode?: "continue" | "fresh";
 };
 
 /** What a rule means before it is saved, as the daemon reads it. */

@@ -73,6 +73,7 @@ describe("editing a routine", () => {
       "agentId",
       "model",
       "permissionMode",
+      "conversationMode",
       "intervalSecs",
       "routineRule",
       "ruleZone",
@@ -88,6 +89,7 @@ describe("editing a routine", () => {
       "setAgentId",
       "setModel",
       "setPermissionMode",
+      "setConversationMode",
       "setIntervalSecs",
       "setRoutineRule",
       "setRuleZone",
@@ -98,7 +100,9 @@ describe("editing a routine", () => {
     // The draft is taken before the edit fills the form, and put back on close.
     expect(PAGE).toContain("if (!editing) createDraftRef.current = formDraft();");
     expect(PAGE).toContain("if (draft) applyDraft(draft);");
-    expect(PAGE).toContain("if (editing) closeForm();");
+    // An edit that borrows the create form hands it back through closeForm;
+    // a reader who declines the discard prompt keeps the edit open instead.
+    expect(PAGE).toContain("if (editing && !closeForm()) return;");
   });
 
   it("reports a one-off with no instant instead of greying out Save", () => {
@@ -106,7 +110,7 @@ describe("editing a routine", () => {
     // field is often empty when the form opens, so the check runs on submit.
     expect(PAGE).toContain('if (routineRule?.kind === "once" && nextMs == null) {');
     expect(PAGE).toContain('pushToast(tr("routines.needNextRun"), "error");');
-    expect(PAGE).toContain("disabled={creating || !prompt.trim() || !cwd.trim()}");
+    expect(PAGE).toContain("disabled={formLocked || !prompt.trim() || !cwd.trim()}");
     expect(PAGE).not.toContain("parseLocalDateTime(nextRunLocal) == null");
   });
 
@@ -114,10 +118,18 @@ describe("editing a routine", () => {
     // A save completes on a later render. If the reader can open or close
     // another form meanwhile, the completion closes that one instead.
     expect(PAGE).toContain(
-      "disabled={creating}\n              onClick={() => (showCreate ? closeForm() : openCreate())}",
+      "disabled={creating || (machineOffline && !showCreate)}\n              onClick={() => (showCreate ? closeForm() : openCreate())}",
     );
-    // Four row actions: run now, edit, pause/resume, delete.
-    expect(PAGE.split("disabled={!!busy[r.id] || creating}").length - 1).toBe(4);
+    // Four row actions: run now, edit, pause/resume, delete. Every one of them
+    // also stops while the chosen machine is offline.
+    expect(PAGE.split("disabled={!!busy[r.id] || creating || machineOffline}").length - 1).toBe(4);
+    // Cancel and Escape are the other two ways out of the form; while a save
+    // is in flight they must not close it either, or the completion would close
+    // a form the reader opened afterwards.
+    expect(PAGE).toContain("disabled={creating}\n                className=\"rounded-lg px-3 py-1.5 text-strong text-kin-secondary disabled:opacity-50\"");
+    expect(PAGE).toContain("if (!creating) closeForm();");
+    // Switching machines is a close too: it asks before dropping typed words.
+    expect(PAGE).toContain("if (showCreate && !closeForm()) return;");
   });
 });
 
@@ -129,7 +141,7 @@ describe("a routine's model", () => {
     expect(picker).toContain("value={model}");
     expect(picker).toContain("models={modelsForAgent(machineAgents, agentId)}");
     expect(picker).toContain("onChange={setModel}");
-    expect(picker).toContain("disabled={creating}");
+    expect(picker).toContain("disabled={formLocked}");
     // The picker's "Custom" flag survives a value change by design, so a
     // cleared model needs a fresh mount to stop reading "Custom" with a blank
     // box. The key is what makes the form identity part of that mount.
@@ -151,8 +163,9 @@ describe("a routine's model", () => {
     const edit = block("const patch = routinePatch(editing, {", "});");
     expect(edit).toContain("model,");
     // Opening an edit shows the routine's own model, not the last draft's.
-    // The adjacency is what makes this openEdit's line and not applyDraft's.
-    expect(PAGE).toContain("setAgentId(draft.agent);\n    setModel(draft.model);");
+    // The adjacency is what makes these openEdit's fields, filled from the
+    // routine, rather than formDraft's.
+    expect(PAGE).toContain("agentId: draft.agent,\n      model: draft.model,");
   });
 
   it("is carried by New Chat's routine mode instead of being dropped", () => {

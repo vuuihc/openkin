@@ -7659,6 +7659,10 @@ components:
         recurrence:
           type: string
           description: Wall-clock rule as JSON; empty for an interval routine.
+        conversation_mode:
+          type: string
+          enum: [continue, fresh]
+          description: What each run's agent session starts from. `continue` (the default) resumes the newest run's session when it can; `fresh` starts a new session each run. Legacy rows read as `continue`.
         claim_until_at:
           type: integer
         last_outcome:
@@ -7713,6 +7717,10 @@ components:
           type: string
         recurrence:
           type: string
+        conversation_mode:
+          type: string
+          enum: [continue, fresh]
+          description: Omit for `continue`, the default.
     RoutinePatchRequest:
       type: object
       properties:
@@ -7745,6 +7753,10 @@ components:
         recurrence:
           type: string
           description: Empty string clears the rule and returns to interval_secs.
+        conversation_mode:
+          type: string
+          enum: [continue, fresh]
+          description: Unknown values are refused rather than read as either mode.
     RoutinePreviewRequest:
       type: object
       required: [recurrence]

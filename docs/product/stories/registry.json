@@ -343,7 +343,7 @@
     },
     {
       "id": "KIN-ROUTINE-001",
-      "state": "approved",
+      "state": "covered",
       "priority": "P1",
       "journeys": [
         "J4"
@@ -359,12 +359,19 @@
         "ui/src/pages/RoutinesPage.tsx",
         "ui/src/lib/routineDevice.ts",
         "ui/src/lib/routineEdit.ts",
-        "ui/src/lib/routineHistory.ts"
+        "ui/src/lib/routineHistory.ts",
+        "internal/routines/scheduler.go",
+        "internal/store/routines.go",
+        "internal/store/migrate.go",
+        "internal/api/routines.go",
+        "ui/src/lib/routineConversation.ts"
       ],
       "tests": [
         "ui/src/lib/routineDevice.test.ts",
         "ui/src/lib/routineEdit.test.ts",
-        "ui/src/lib/routineHistory.test.ts"
+        "ui/src/lib/routineHistory.test.ts",
+        "ui/src/pages/RoutinesPage.dom.test.tsx",
+        "ui/src/lib/routineConversation.test.ts"
       ],
       "blockedReason": null
     }

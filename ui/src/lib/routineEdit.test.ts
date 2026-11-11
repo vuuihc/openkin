@@ -300,6 +300,29 @@ describe("routinePatch (KIN-ROUTINE-001)", () => {
     const r = routine({ prompt: "summarise the open issues\n" });
     expect(routinePatch(r, form(r, { prompt: "  summarise the open issues  " }))).toBeNull();
   });
+
+  it("sends the conversation mode only when it changed", () => {
+    const r = routine();
+    // The default and the legacy empty column both read as "continue"; opening
+    // the form and saving must not rewrite either.
+    expect(routinePatch(r, form(r, { conversationMode: "continue" }))).toBeNull();
+    expect(
+      routinePatch(routine({ conversation_mode: "" }), form(routine({ conversation_mode: "" }))),
+    ).toBeNull();
+    expect(routinePatch(r, form(r, { conversationMode: "fresh" }))).toEqual({
+      conversation_mode: "fresh",
+    });
+
+    const fresh = routine({ conversation_mode: "fresh" });
+    expect(routinePatch(fresh, form(fresh, { conversationMode: "continue" }))).toEqual({
+      conversation_mode: "continue",
+    });
+    // Changing the mode must not drag the schedule with it.
+    const ruled = routine({ recurrence: serializeRoutineRule(daily(), null) });
+    expect(routinePatch(ruled, form(ruled, { conversationMode: "fresh" }))).toEqual({
+      conversation_mode: "fresh",
+    });
+  });
 });
 
 describe("routineTitle", () => {

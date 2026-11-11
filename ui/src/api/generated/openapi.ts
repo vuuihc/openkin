@@ -4368,6 +4368,11 @@ export interface components {
             lane: string;
             /** @description Wall-clock rule as JSON; empty for an interval routine. */
             recurrence?: string;
+            /**
+             * @description What each run's agent session starts from. `continue` (the default) resumes the newest run's session when it can; `fresh` starts a new session each run. Legacy rows read as `continue`.
+             * @enum {string}
+             */
+            conversation_mode?: "continue" | "fresh";
             claim_until_at?: number;
             last_outcome?: string;
             last_error?: string;
@@ -4394,6 +4399,11 @@ export interface components {
             missed_run_policy?: "coalesce" | "skip";
             lane?: string;
             recurrence?: string;
+            /**
+             * @description Omit for `continue`, the default.
+             * @enum {string}
+             */
+            conversation_mode?: "continue" | "fresh";
         };
         RoutinePatchRequest: {
             title?: string;
@@ -4412,6 +4422,11 @@ export interface components {
             lane?: string;
             /** @description Empty string clears the rule and returns to interval_secs. */
             recurrence?: string;
+            /**
+             * @description Unknown values are refused rather than read as either mode.
+             * @enum {string}
+             */
+            conversation_mode?: "continue" | "fresh";
         };
         RoutinePreviewRequest: {
             recurrence: string;

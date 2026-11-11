@@ -7,7 +7,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 47
+const schemaVersion = 48
 
 // migrationTaskTombstones records deleted tasks in the sync cursor's own terms.
 //
@@ -383,6 +383,7 @@ CREATE TABLE routines (
   missed_run_policy TEXT NOT NULL DEFAULT 'coalesce',
   lane             TEXT NOT NULL DEFAULT 'routine',
   recurrence       TEXT NOT NULL DEFAULT '',
+  conversation_mode TEXT NOT NULL DEFAULT '',
   claim_token      TEXT NOT NULL DEFAULT '',
   claim_until_at   INTEGER NOT NULL DEFAULT 0,
   last_outcome     TEXT NOT NULL DEFAULT '',
@@ -2635,6 +2636,41 @@ CREATE INDEX IF NOT EXISTS idx_push_subscriptions_created ON push_subscriptions(
 		v = 47
 	}
 
+	if v == 47 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 048: %w", err)
+		}
+		// A routine chooses whether its runs continue one agent session or open
+		// a fresh one each time. The column is additive and empty by default:
+		// rows written before it existed have no recorded choice, and empty is
+		// normalized to "continue" — the signed default — so they start
+		// continuing from the first run that records a session ref.
+		var exists int
+		if err := tx.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info('routines') WHERE name = 'conversation_mode'`,
+		).Scan(&exists); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("inspect routines.conversation_mode: %w", err)
+		}
+		if exists == 0 {
+			if _, err := tx.Exec(
+				`ALTER TABLE routines ADD COLUMN conversation_mode TEXT NOT NULL DEFAULT ''`,
+			); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("add routines.conversation_mode: %w", err)
+			}
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 48`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 048: %w", err)
+		}
+		v = 48
+	}
+
 	// Every path out of here has to reach the same shape, so the assertion runs
 	// on the upgraded path too rather than only on the already-current one.
 	return s.ensureCurrentSchema()
@@ -2677,6 +2713,9 @@ func (s *Store) ensureCurrentSchema() error {
 		return err
 	}
 	if err := s.ensureRoutineModelSchema(); err != nil {
+		return err
+	}
+	if err := s.ensureRoutineConversationSchema(); err != nil {
 		return err
 	}
 	if err := s.ensureTaskArchiveSchema(); err != nil {
@@ -2835,6 +2874,37 @@ func (s *Store) ensureRoutineModelSchema() error {
 		`ALTER TABLE routines ADD COLUMN model TEXT NOT NULL DEFAULT ''`,
 	); err != nil {
 		return fmt.Errorf("add routines.model: %w", err)
+	}
+	return nil
+}
+
+// ensureRoutineConversationSchema adds a routine's session choice to a
+// `routines` table written before the column existed.
+//
+// Same reasoning as ensureRoutineModelSchema: a version number says which
+// migrations ran, not what the tables look like. Empty is the legacy value and
+// reads as "continue", which is also the console's default for new routines.
+func (s *Store) ensureRoutineConversationSchema() error {
+	present, err := s.tableExists("routines")
+	if err != nil {
+		return err
+	}
+	if !present {
+		return nil
+	}
+	var exists int
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM pragma_table_info('routines') WHERE name = 'conversation_mode'`,
+	).Scan(&exists); err != nil {
+		return fmt.Errorf("inspect routines.conversation_mode: %w", err)
+	}
+	if exists > 0 {
+		return nil
+	}
+	if _, err := s.db.Exec(
+		`ALTER TABLE routines ADD COLUMN conversation_mode TEXT NOT NULL DEFAULT ''`,
+	); err != nil {
+		return fmt.Errorf("add routines.conversation_mode: %w", err)
 	}
 	return nil
 }

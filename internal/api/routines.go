@@ -125,6 +125,8 @@ type createRoutineBody struct {
 	Lane            string `json:"lane"`
 	// Recurrence is a wall-clock rule as JSON, empty for an interval routine.
 	Recurrence string `json:"recurrence"`
+	// ConversationMode is "continue" (default) or "fresh".
+	ConversationMode string `json:"conversation_mode"`
 	// NextDueAt optional; default = now (fires on next tick / run-now).
 	NextDueAt *int64 `json:"next_due_at"`
 }
@@ -148,6 +150,25 @@ type patchRoutineBody struct {
 	MissedRunPolicy *string `json:"missed_run_policy"`
 	Lane            *string `json:"lane"`
 	Recurrence      *string `json:"recurrence"`
+	// ConversationMode is "continue" or "fresh"; empty is refused rather than
+	// read as "reset to the default", because a partial update must not silently
+	// change a choice the reader did not touch.
+	ConversationMode *string `json:"conversation_mode"`
+}
+
+// conversationModeValue validates the console's two conversation modes. An
+// unknown value is refused instead of defaulting: a client that misspells
+// "fresh" would otherwise believe every run starts over while the routine
+// quietly keeps one session.
+func conversationModeValue(raw string) (string, bool) {
+	mode := strings.ToLower(strings.TrimSpace(raw))
+	switch mode {
+	case "", store.ConversationContinue:
+		return store.ConversationContinue, true
+	case store.ConversationFresh:
+		return store.ConversationFresh, true
+	}
+	return "", false
 }
 
 func (s *Server) handleListRoutines(w http.ResponseWriter, r *http.Request) {
@@ -260,6 +281,11 @@ func (s *Server) handleCreateRoutine(w http.ResponseWriter, r *http.Request) {
 		perm = "default"
 	}
 	model := strings.TrimSpace(body.Model)
+	conversationMode, ok := conversationModeValue(body.ConversationMode)
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "conversation_mode must be continue or fresh"})
+		return
+	}
 	policy := strings.ToLower(strings.TrimSpace(body.MissedRunPolicy))
 	if policy == "" {
 		policy = "coalesce"
@@ -296,21 +322,22 @@ func (s *Server) handleCreateRoutine(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	rec := store.Routine{
-		ID:              ulid.Make().String(),
-		ProjectID:       projectID,
-		Cwd:             body.Cwd,
-		Agent:           agent,
-		Model:           model,
-		PermissionMode:  perm,
-		Prompt:          body.Prompt,
-		IntervalSecs:    intervalSecs,
-		Enabled:         enabled,
-		NextDueAt:       next,
-		CreatedAt:       now,
-		Title:           title,
-		MissedRunPolicy: policy,
-		Lane:            lane,
-		Recurrence:      body.Recurrence,
+		ID:               ulid.Make().String(),
+		ProjectID:        projectID,
+		Cwd:              body.Cwd,
+		Agent:            agent,
+		Model:            model,
+		PermissionMode:   perm,
+		Prompt:           body.Prompt,
+		IntervalSecs:     intervalSecs,
+		Enabled:          enabled,
+		NextDueAt:        next,
+		CreatedAt:        now,
+		Title:            title,
+		MissedRunPolicy:  policy,
+		Lane:             lane,
+		Recurrence:       body.Recurrence,
+		ConversationMode: conversationMode,
 	}
 	if err := s.Store.InsertRoutine(r.Context(), rec); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -419,6 +446,14 @@ func (s *Server) handlePatchRoutine(w http.ResponseWriter, r *http.Request) {
 		// agent chooses, which is how create spells "no model".
 		model := strings.TrimSpace(*body.Model)
 		patch.Model = &model
+	}
+	if body.ConversationMode != nil {
+		mode, ok := conversationModeValue(*body.ConversationMode)
+		if !ok {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "conversation_mode must be continue or fresh"})
+			return
+		}
+		patch.ConversationMode = &mode
 	}
 	current, err := s.Store.GetRoutine(r.Context(), id)
 	if err != nil {
