@@ -75,7 +75,7 @@
 
 | 故事 | 文件 / 净行 | 测试 | 提交 | 复审 |
 |---|---|---|---|---|
-| PROJECT | 18 文件，+2571 / −842（含文档与 `web/dist/index.html`） | 6 文件 / 84 例；新增 3 个测试文件 | 1（待填 SHA） | 1 blocker + 13 major + 17 nit；全部 blocker/major 修复，13/13 mutant 红 |
+| PROJECT | 18 文件，+2571 / −842（含文档与 `web/dist/index.html`） | 6 文件 / 84 例；新增 3 个测试文件 | 1（`53667935`） | 1 blocker + 13 major + 17 nit；全部 blocker/major 修复，13/13 mutant 红 |
 | AGENTS | — | — | — | — |
 | ROUTINE | — | — | — | — |
 | START | — | — | — | — |
