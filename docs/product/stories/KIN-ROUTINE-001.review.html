@@ -182,15 +182,15 @@
 <main class="page">
 
   <header>
-    <div class="eyebrow">Figma 审阅版 · 约 9 分钟 · 4 个决定</div>
-    <h1>KIN-ROUTINE-001 · 让它按时跑 <small>Figma 设计稿 · 第七条意图提案</small></h1>
-    <p class="meta">draft · 面：Mac / 手机 · 对照 <code>KIN-ROUTINE-001.md</code></p>
-    <p class="meta">2026 年 11 月 11 日 · 5 屏 · 10 个状态</p>
+    <div class="eyebrow">Figma 审阅版 · 已签字 · 4 个决定</div>
+    <h1>KIN-ROUTINE-001 · 让它按时跑 <small>Figma 设计稿 · 第七条意图</small></h1>
+    <p class="meta">approved · 面：Mac / 手机 · 对照 <code>KIN-ROUTINE-001.md</code></p>
+    <p class="meta">2026 年 11 月 11 日 · 已签字 · 5 屏 · 11 个状态</p>
     <div class="tags">
-      <span class="pill draft">draft · 待签字</span>
+      <span class="pill ok">approved · 已签字 2026-11-11</span>
       <span class="pill plain">旅程 J4</span>
       <span class="pill plain">Mac / 手机</span>
-      <span class="pill here">第七意图 · 待批</span>
+      <span class="pill ok">第七意图 · 已签</span>
     </div>
   </header>
 
@@ -205,7 +205,7 @@
       <li><strong>再看每一屏</strong>：先看 Figma 帧，再读帧下面六段用户流程（起点、动作、立刻看到、慢/空/失败/断线、键盘与焦点、离开再回来）。</li>
       <li><strong>最后回决定</strong>：每条都有推荐和代价；页尾有回复模板。</li>
     </ol>
-    <p class="note">都同意就回「全部同意」；有修改就回「D2 改成…」。宽帧在卡片内左右滑动，页面本身不横滚。</p>
+    <p class="note">本页已按 2026-11-11 的回复更新并签字：D1–D3 同意；D4 改为不在本页保留会话，默认同一条会话持续，可选每次执行在项目里新建会话。</p>
   </section>
 
   <nav class="toc" aria-label="页内导航">
@@ -254,8 +254,8 @@
       <li><strong>为什么是新的意图：</strong>前六条都假定「我现在要做一件事」；例行任务的意图是「我不在场时，它按时做」。把调度写进 START-001 会让那条故事同时管一次性的新建和周期调度，两种生命周期、两种空状态。</li>
       <li><strong>为什么不并进相邻故事：</strong>项目封面只显示例行任务的归属（PROJECT-001），不新建调度；通知只负责把结果送回来（NOTIFY-001），不定义调度；设置管默认 agent 与目录（SETTINGS-001），不管某一台机器上的某一条任务。</li>
       <li><strong>为什么属于机器：</strong>cwd、agent 凭据、模型与调度都在那台机器上；换一台机器就是另一份列表。Hub 只转发，不持有调度，也不在机器离线时替它跑。</li>
-      <li><strong>设备只是差异：</strong>这条覆盖 Mac 和手机；Mac 列表与历史并排、表单就地展开，手机列表与历史分屏、表单全屏，差异写在故事「各面差异」，不按设备拆故事。</li>
-      <li><strong>不在这一条：</strong>通知通道与文案 → NOTIFY-001；项目封面上的例行任务块 → PROJECT-001；跨机器的任务总览 → 暂不在任何故事；Hub 侧调度 → 不做。</li>
+      <li><strong>设备只是差异：</strong>这条覆盖 Mac 和手机；Mac 列表与运行记录并排、表单就地展开，手机列表与运行记录分屏、表单全屏，差异写在故事「各面差异」，不按设备拆故事。</li>
+      <li><strong>不在这一条：</strong>通知通道与文案 → NOTIFY-001；项目封面上的例行任务块 → PROJECT-001；跨机器的任务总览 → 暂不在任何故事；Hub 侧调度 → 不做；会话本身与在 /routines 里读会话 → 不做（会话在项目里，默认同一条持续）。</li>
       <li><strong>大小：</strong>5 屏（Mac 列表 / Mac 新建 / 手机列表 / 手机新建 / 状态板）；一次交付；两个面都成立。</li>
     </ul>
   </section>
@@ -269,7 +269,8 @@
           <li>首次打开落在记住的机器上，即使它已经离线；桌面报 <code>node is not connected</code>，手机停在「Still connecting」。</li>
           <li>新建表单里的目录、agent、模型、权限与新建对话不是同一套写法，两处文案会漂移。</li>
           <li>「下一次运行」只在服务端算出来，表单里看不到，填错时间要等保存后才知道。</li>
-          <li>历史分页与未读计数没有页面测试；失败原因只在行上出现一次。</li>
+          <li>运行记录分页与未读计数没有页面测试；失败原因只在行上出现一次。</li>
+          <li>跑完的会话落在哪里没有写下来：默认续哪一段、要不要每次新建，都不清楚。</li>
         </ul>
       </div>
       <div class="card after">
@@ -279,6 +280,7 @@
           <li>目录 / agent / 模型 / 权限复用新建对话的选择器与文案。</li>
           <li>调度旁就地显示「下一次：明天 09:00（本机时区）」；非法调度就地报错并挡住保存。</li>
           <li>运行中、成功、失败、等待批准同一行就地变化；未读与侧栏角标同一台机器。</li>
+          <li>默认同一条会话持续，可选每次执行新建会话；本页只保留运行记录，不内嵌会话。</li>
         </ul>
       </div>
     </div>
@@ -300,13 +302,13 @@
       <div class="screen-head">
         <div>
           <div class="eyebrow">01 · Mac · 1100×760</div>
-          <h3>例行任务 · 列表与历史</h3>
+          <h3>例行任务 · 列表与运行记录</h3>
         </div>
         <span class="pill plain">Figma 帧</span>
       </div>
       <figure class="frame fig-wide">
         <div class="frame-scroll" role="region" aria-label="Mac 例行任务列表的 Figma 帧" tabindex="0" data-start="240">
-          <img src="KIN-ROUTINE-001.figma/frames/01-mac-routines.svg" alt="Mac 例行任务：左栏选中的「另一台机器 · 在线」，主区三条例行任务，右侧是「每天整理笔记」的历史，底部说明分页与离线规则" loading="lazy">
+          <img src="KIN-ROUTINE-001.figma/frames/01-mac-routines.svg" alt="Mac 例行任务：左栏选中的「另一台机器 · 在线」，主区三条例行任务，右侧是「每天整理笔记」的运行记录，只记时间与结果，底部说明会话在项目里与离线规则" loading="lazy">
         </div>
         <figcaption>
           <span>1100×760 · Mac 帧 · 主区优先，左右滑动看完整</span>
@@ -316,10 +318,10 @@
       <h4>用户流程</h4>
       <ol class="flow">
         <li><b>起点</b><span>Mac 左栏底部点「例行任务」；页面标题旁是一行机器选择，默认落在第一台在线的非本机机器。</span></li>
-        <li><b>动作</b><span>扫三行看下一次与上次结果；点一行展开右侧历史；点「新建」或行尾的「编辑」。</span></li>
-        <li><b>立刻看到</b><span>每行有标题、下一次时间、上次结果、未读；选中行有明显选中态，右侧历史按轮次分页。</span></li>
+        <li><b>动作</b><span>扫三行看下一次与上次结果；点一行展开右侧运行记录；点「新建」或行尾的「编辑」。</span></li>
+        <li><b>立刻看到</b><span>每行有标题、下一次时间、上次结果、未读；选中行有明显选中态，右侧运行记录按轮次分页，只记时间、结果与耗时；会话在项目里，不在这里展开。</span></li>
         <li><b>慢 / 空 / 失败 / 断线</b><span>机器加载中写「正在找机器…」；记住的机器离线时标「离线」并给一台在线的可切换，新建与 run-now 禁用并说明；读失败给原因与重试，不显示成空。</span></li>
-        <li><b>键盘与焦点</b><span>Tab 到机器选择与「新建」；↑/↓ 换行，Enter 展开历史，行尾菜单 Esc 关闭并还焦点。</span></li>
+        <li><b>键盘与焦点</b><span>Tab 到机器选择与「新建」；↑/↓ 换行，Enter 展开运行记录，行尾菜单 Esc 关闭并还焦点。</span></li>
         <li><b>离开再回来</b><span>仍停在上次的机器与滚动位置，展开的那一条仍展开。</span></li>
       </ol>
     </article>
@@ -344,8 +346,8 @@
       <h4>用户流程</h4>
       <ol class="flow">
         <li><b>起点</b><span>列表点「新建」，或某一条的「编辑」；表单在列表上方就地展开，列表仍在。</span></li>
-        <li><b>动作</b><span>写标题与提示词；选调度（每小时 / 每天 / 每周 / 自定义）、目录、agent、模型、权限；读「下一次」后保存。</span></li>
-        <li><b>立刻看到</b><span>调度旁立刻显示「本机时区 · 下一次：明天 09:00」；目录 / agent / 模型与新建对话同一套选择器与文案。</span></li>
+        <li><b>动作</b><span>写标题与提示词；选调度（每小时 / 每天 / 每周 / 自定义）、目录、agent、模型、权限、会话方式；读「下一次」后保存。</span></li>
+        <li><b>立刻看到</b><span>调度旁立刻显示「本机时区 · 下一次：明天 09:00」；目录 / agent / 模型与新建对话同一套选择器与文案；会话方式默认「同一条会话持续」。</span></li>
         <li><b>慢 / 空 / 失败 / 断线</b><span>目录或模型加载失败给重试且不清空已填；调度非法（过去时间、空规则）就地报错并挡住保存；保存失败留在表单并说明；离线时表单只读。</span></li>
         <li><b>键盘与焦点</b><span>Esc 关闭表单并把焦点还给入口；⌘Enter 保存；表单内 Tab 顺序按视觉顺序。</span></li>
         <li><b>离开再回来</b><span>未保存关闭前提示；重新打开这一条，字段与调度一致。</span></li>
@@ -372,7 +374,7 @@
       <h4>用户流程</h4>
       <ol class="flow">
         <li><b>起点</b><span>手机 K 面板点「例行任务」；返回箭头在左上，至少 44px。</span></li>
-        <li><b>动作</b><span>上下滑列表；点机器名换机器；点一张卡看历史；点「立即运行」或「编辑」。</span></li>
+        <li><b>动作</b><span>上下滑列表；点机器名换机器；点一张卡看运行记录；点「立即运行」或「编辑」。</span></li>
         <li><b>立刻看到</b><span>一屏三张卡：标题、下一次、上次结果、未读；失败卡直接给原因，已读卡只给时间。</span></li>
         <li><b>慢 / 空 / 失败 / 断线</b><span>首次加载出骨架；这台机器没有任务写「这台机器还没有例行任务」并给「新建第一条」；离线时新建与 run-now 禁用并说明；读失败给原因与重试。</span></li>
         <li><b>键盘与焦点</b><span>外接键盘 Tab 到机器选择与卡片；点按区至少 44px；读屏把卡标题读成 heading。</span></li>
@@ -390,7 +392,7 @@
       </div>
       <figure class="frame fig-phone">
         <div class="frame-scroll" role="region" aria-label="手机新建例行任务全屏表单的 Figma 帧" tabindex="0">
-          <img src="KIN-ROUTINE-001.figma/frames/04-phone-create.svg" alt="手机新建例行任务：全屏表单，标题、提示词、调度与下一次时间、目录 agent 模型权限，底部是调度选择面板，保存按钮在右上" loading="lazy">
+          <img src="KIN-ROUTINE-001.figma/frames/04-phone-create.svg" alt="手机新建例行任务：全屏表单，标题、提示词、调度与下一次时间、目录 agent 模型权限、会话方式，底部是调度选择面板，保存按钮在右上" loading="lazy">
         </div>
         <figcaption>
           <span>390×844 · 手机帧</span>
@@ -400,8 +402,8 @@
       <h4>用户流程</h4>
       <ol class="flow">
         <li><b>起点</b><span>手机列表点「新建」；全屏表单从右侧推入，左上关闭，右上保存。</span></li>
-        <li><b>动作</b><span>写标题与提示词；点调度打开底部面板选频率与时间；选目录、agent、模型、权限；保存。</span></li>
-        <li><b>立刻看到</b><span>调度旁就地显示「下一次：明天 09:00（本机时区）」；选择器选完自动关闭，表单不被撑高。</span></li>
+        <li><b>动作</b><span>写标题与提示词；点调度打开底部面板选频率与时间；选目录、agent、模型、权限与会话方式；保存。</span></li>
+        <li><b>立刻看到</b><span>调度旁就地显示「下一次：明天 09:00（本机时区）」；会话方式默认「同一条会话持续」；选择器选完自动关闭，表单不被撑高。</span></li>
         <li><b>慢 / 空 / 失败 / 断线</b><span>调度非法就地报错并挡住保存；目录加载失败给重试且不清空；保存失败留在表单；离线时只读并说明。</span></li>
         <li><b>键盘与焦点</b><span>保存按钮不被键盘遮住；关闭时若有未保存内容先确认；焦点回到「新建」。</span></li>
         <li><b>离开再回来</b><span>未保存关闭前提示；保存后回到列表，这一条出现在顶部并带下一次时间。</span></li>
@@ -414,10 +416,10 @@
     <p class="note">状态也是 Figma 帧的一部分；先看状态板，再看下面的检查表。宽板在卡片内左右滑动。</p>
     <figure class="frame fig-board">
       <div class="frame-scroll" role="region" aria-label="例行任务状态板的 Figma 板" tabindex="0">
-        <img src="KIN-ROUTINE-001.figma/frames/05-states.svg" width="1600" height="900" alt="例行任务状态板：机器离线、空与加载、调度非法、运行中与成功与失败、等待批准、未读与已读" loading="lazy" decoding="async">
+        <img src="KIN-ROUTINE-001.figma/frames/05-states.svg" width="1600" height="1100" alt="例行任务状态板：机器离线、空与加载、调度非法、运行中与成功与失败、等待批准、未读与已读、运行记录与会话方式" loading="lazy" decoding="async">
       </div>
       <figcaption>
-        <span>1600×900 · 状态板 · 左右滑动或打开原图</span>
+        <span>1600×1100 · 状态板 · 左右滑动或打开原图</span>
         <a href="KIN-ROUTINE-001.figma/frames/05-states.svg">打开原图</a>
       </figcaption>
     </figure>
@@ -431,39 +433,39 @@
       <div class="state"><b>失败</b><span>显示原因与「重试」；不显示成已完成；通知没送到不影响这里的结果。</span></div>
       <div class="state"><b>等待批准</b><span>行上标「等待批准」；点开去那段对话，批准后这一轮继续；通知落到对话，不落到这一页。</span></div>
       <div class="state"><b>未读 / 已读</b><span>未读与侧栏角标同一台机器；标记失败保留未读并说明；全部标为已读只影响这台机器。</span></div>
-      <div class="state"><b>历史</b><span>按页加载，旧的接在后面且不重复；超过上限只保留最近 N 轮并说明。</span></div>
+      <div class="state"><b>运行记录 / 会话方式</b><span>运行记录按页加载，旧的接在后面且不重复；它只记时间与结果，不展示会话内容。会话在项目里：默认同一条持续，选了「每次执行新建会话」则每轮开一段新的。</span></div>
     </div>
   </section>
 
   <section id="decisions">
     <h2>要你拍板的</h2>
     <p class="note">每条都写推荐和代价；只回不同意的编号就行。已经拍过板的写「已定」，不再重复问。</p>
-    <div class="decision">
+    <div class="decision settled">
       <h3>D1 这条算不算第七条意图</h3>
-      <p class="rec"><strong>推荐：</strong>算。「让它按时跑」是独立意图：前六条都假定人在场、现在要做一件事；这一条是「我不在场时，它按时做」，有自己的页面、状态与生命周期。</p>
+      <p class="rec"><strong>已定（2026-11-11）：</strong>算。「让它按时跑」是独立意图：前六条都假定人在场、现在要做一件事；这一条是「我不在场时，它按时做」，有自己的页面、状态与生命周期。</p>
       <p class="tradeoff"><strong>代价：</strong>故事从六条变七条，PLAN 的意图表要改；如果更想收进「新建对话」，START-001 会同时管一次性新建与周期调度，两种空状态和两种失败都会挤进一条故事。</p>
     </div>
-    <div class="decision">
+    <div class="decision settled">
       <h3>D2 首次打开落在哪台机器</h3>
-      <p class="rec"><strong>推荐：</strong>落在第一台在线的非本机机器（没有就落在本机）；记住的机器离线时仍显示它并标「离线」，另给一台在线的可切换。</p>
+      <p class="rec"><strong>已定（2026-11-11）：</strong>落在第一台在线的非本机机器（没有就落在本机）；记住的机器离线时仍显示它并标「离线」，另给一台在线的可切换。</p>
       <p class="tradeoff"><strong>代价：</strong>「非本机」是一个偏好而不是规则；如果读者多数时候只在一台机器上用，这个默认会让人多一步换回本机。</p>
     </div>
-    <div class="decision">
+    <div class="decision settled">
       <h3>D3 Mac 的新建 / 编辑是就地展开还是单独一页</h3>
-      <p class="rec"><strong>推荐：</strong>就地展开在列表上方，列表仍在；手机是全屏表单，选择器用底部面板。</p>
+      <p class="rec"><strong>已定（2026-11-11）：</strong>就地展开在列表上方，列表仍在；手机是全屏表单，选择器用底部面板。</p>
       <p class="tradeoff"><strong>代价：</strong>Mac 上表单与列表抢纵向空间，窗口矮时表单内滚动；好处是不跳页、保存后立刻在列表里看到这一条。</p>
     </div>
-    <div class="decision">
-      <h3>D4 历史保留多少轮</h3>
-      <p class="rec"><strong>推荐：</strong>保留最近 50 轮并在历史底部写明「只保留最近 50 轮」，分页加载。</p>
-      <p class="tradeoff"><strong>代价：</strong>50 是一个约定值，不是读者能改的；保留更多会让列表页变慢，保留更少会让「上个月那次失败」查不到。</p>
+    <div class="decision settled">
+      <h3>D4 会话落在哪里</h3>
+      <p class="rec"><strong>已定（2026-11-11）：</strong>不在 <code>/routines</code> 保留会话；本页只留运行记录。定时运行的会话默认在同一条会话里持续；用户可以为每条任务选择「每次执行在对应项目新建会话」。</p>
+      <p class="tradeoff"><strong>代价：</strong>默认一条会话会越来越长，上下文连续但不容易按轮次回看；每次新建则每轮独立，容易在项目里堆出很多会话。两种都由用户按任务选。</p>
     </div>
   </section>
 
   <section id="reply">
     <h2>回复模板</h2>
     <div class="card reply">
-      <p class="note">长按下面这段复制，改掉不同意的；都同意就回「全部同意」。</p>
+      <p class="note">签字时的实际回复（2026-11-11）：D1–D3 同意；D4 改为不在本页保留会话，默认同一条会话持续，可选每次执行在项目里新建会话。下面的模板留作改版后重签用。</p>
       <pre>D1 同意（第七条意图）
 D2 同意
 D3 同意
@@ -475,8 +477,9 @@ D4 同意
   <section id="sign">
     <h2>签字</h2>
     <div class="card sign">
-      <p>你回「全部同意」后，我把 <code>KIN-ROUTINE-001.md</code> 改成 <code>approved</code>，并在 <code>PLAN.md</code> 的意图表里把第七条从「拟增」改成正式一条，再排交付。</p>
-      <p class="note">Figma 帧或流程改了会重新发这一页；设计源始终是 <code>KIN-ROUTINE-001.figma/</code> 里的 SVG 帧和本页的流程。</p>
+      <p><strong>已签字，2026-11-11。</strong><code>KIN-ROUTINE-001.md</code> 已改为 <code>approved</code>；第七条意图「让它按时跑」成为正式一条，<code>PLAN.md</code> 的意图表已更新。</p>
+      <p>签字时改了什么：D4 从「历史保留多少轮」改成「会话落在哪里」——本页不保留会话，默认同一条会话持续，可选每次执行在项目里新建；运行记录保留时间、结果与耗时。</p>
+      <p class="note">Figma 帧或流程再改会重新发这一页；设计源始终是 <code>KIN-ROUTINE-001.figma/frames/</code> 里的 SVG 帧和本页的流程。</p>
     </div>
   </section>
 

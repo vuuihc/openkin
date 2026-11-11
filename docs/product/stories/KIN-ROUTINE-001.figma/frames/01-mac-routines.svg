@@ -55,24 +55,26 @@
 <text x="176" y="541" font-size="12" fill="#1f6feb" text-anchor="middle">新建第一条</text>
 
 <rect x="590" y="156" width="438" height="540" rx="10" fill="#ffffff" stroke="#c4c4c4"/>
-<text x="606" y="182" font-size="13" fill="#1a1a1a" font-weight="600">每天整理笔记 · 历史</text>
-<text x="1012" y="182" font-size="11.5" fill="#6b6b6b" text-anchor="end">按轮次分页</text>
+<text x="606" y="182" font-size="13" fill="#1a1a1a" font-weight="600">每天整理笔记 · 运行记录</text>
+<text x="1012" y="182" font-size="11.5" fill="#6b6b6b" text-anchor="end">只记时间与结果</text>
 
 <rect x="606" y="196" width="406" height="72" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
 <text x="622" y="220" font-size="12" fill="#1a1a1a" font-weight="600">今天 09:00 · 成功</text>
+<text x="996" y="220" font-size="11.5" fill="#1f6feb" text-anchor="end">打开会话 →</text>
 <text x="622" y="242" font-size="11.5" fill="#555">改了 3 个文件 · 12 分钟 · 未读</text>
 <text x="996" y="242" font-size="11.5" fill="#1f6feb" text-anchor="end">标为已读</text>
 
 <rect x="606" y="280" width="406" height="72" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
 <text x="622" y="304" font-size="12" fill="#1a1a1a" font-weight="600">昨天 09:00 · 成功</text>
+<text x="996" y="304" font-size="11.5" fill="#1f6feb" text-anchor="end">打开会话 →</text>
 <text x="622" y="326" font-size="11.5" fill="#555">没有改动 · 8 分钟 · 已读</text>
 
 <rect x="606" y="364" width="406" height="72" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
 <text x="622" y="388" font-size="12" fill="#1a1a1a" font-weight="600">前天 09:00 · 失败</text>
 <text x="622" y="410" font-size="11.5" fill="#b42318">额度用完 · 已读 · 重试</text>
 
-<text x="606" y="478" font-size="11.5" fill="#6b6b6b">加载更多时旧的接在后面，不重复；</text>
-<text x="606" y="500" font-size="11.5" fill="#6b6b6b">历史超过上限时只保留最近 N 轮并说明。</text>
+<text x="606" y="478" font-size="11.5" fill="#6b6b6b">加载更多时旧的接在后面，不重复；只记时间与结果。</text>
+<text x="606" y="500" font-size="11.5" fill="#6b6b6b">会话在项目里：默认同一条持续；选「每次新建」则每轮开新会话。</text>
 
 <text x="100" y="726" font-size="11.5" fill="#999">机器离线时：标题旁标「离线」，新建与 run-now 禁用并说明；不静默换机器。</text>
 <rect x="0.5" y="0.5" width="1099" height="759" fill="none" rx="10" stroke="#bbbbbb"/>

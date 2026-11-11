@@ -33,7 +33,7 @@ function session(partial: Partial<AgentSession> & Pick<AgentSession, "id">): Age
 
 const COPY = { untitled: "Untitled chat" };
 
-describe("projectChatRows", () => {
+describe("projectChatRows (KIN-PROJECT-001)", () => {
   it("merges Kin tasks and imported sessions newest first", () => {
     const rows = projectChatRows(
       [task({ id: "a", created_at: 10 }), task({ id: "b", created_at: 30, finished_at: 40 })],

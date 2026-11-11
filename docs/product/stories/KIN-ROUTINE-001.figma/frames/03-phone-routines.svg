@@ -40,7 +40,7 @@
 <circle cx="32" cy="424" r="5" fill="#b0b0b8"/>
 <text x="46" y="428" font-size="13.5" fill="#1a1a1a" font-weight="600">每小时看一次日志</text>
 <text x="46" y="450" font-size="11.5" fill="#555">下一次：14:00 · 上次成功 · 已读</text>
-<text x="46" y="472" font-size="11.5" fill="#6b6b6b">点开看历史</text>
+<text x="46" y="472" font-size="11.5" fill="#6b6b6b">点开看运行记录</text>
 
 <rect x="12" y="510" width="366" height="150" rx="12" fill="#fbfbfb" stroke="#e3e3e3" stroke-dasharray="4 4"/>
 <text x="28" y="536" font-size="12" fill="#6b6b6b">空 / 加载 / 离线：</text>
@@ -48,7 +48,8 @@
 <text x="28" y="584" font-size="12" fill="#6b6b6b">给「新建第一条」；离线时表单只读并说明。</text>
 <text x="28" y="612" font-size="12" fill="#6b6b6b">加载中出骨架；读失败给原因与重试。</text>
 
-<text x="16" y="700" font-size="11" fill="#888">未读跟侧栏角标同一台机器；机器列表还没到时不猜。</text>
+<text x="16" y="700" font-size="11" fill="#888">未读跟侧栏角标同一台机器；本页只记运行结果。</text>
+<text x="16" y="720" font-size="11" fill="#888">会话在项目里；默认同一条持续，新建时可改成每次新建。</text>
 <rect x="0.5" y="0.5" width="389" height="843" fill="none" rx="24" stroke="#bbbbbb"/>
 </g>
 </svg>

@@ -23,7 +23,7 @@ const SELF = machine("desktop-hub", { isSelf: true, label: "Hub" });
 const LAPTOP = machine("device-laptop", { label: "Laptop" });
 const STUDIO = machine("device-studio", { label: "Studio", online: false });
 
-describe("resolveRoutineDevice", () => {
+describe("resolveRoutineDevice (KIN-ROUTINE-001)", () => {
   it("keeps a remembered machine while it still exists", () => {
     expect(resolveRoutineDevice([SELF, LAPTOP, STUDIO], LAPTOP.id)).toBe(LAPTOP.id);
   });

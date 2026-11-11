@@ -9,7 +9,7 @@ import {
   primaryCostSource,
 } from "./usage";
 
-describe("usage helpers", () => {
+describe("usage helpers (KIN-AGENTS-001)", () => {
   it("formats token counts compactly", () => {
     expect(formatTokenCount(999)).toBe("999");
     expect(formatTokenCount(1_250)).toBe("1.3k");

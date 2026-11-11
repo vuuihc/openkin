@@ -272,7 +272,7 @@
     },
     {
       "id": "KIN-PROJECT-001",
-      "state": "draft",
+      "state": "approved",
       "priority": "P1",
       "journeys": [
         "J4"
@@ -284,13 +284,19 @@
       "title": "一个项目的封面：看清这里发生过什么，并从这里继续",
       "file": "docs/product/stories/KIN-PROJECT-001.md",
       "surface": "",
-      "ownerPaths": [],
-      "tests": [],
+      "ownerPaths": [
+        "ui/src/pages/ProjectDetailPage.tsx",
+        "ui/src/lib/projectChats.ts",
+        "ui/src/components/sessions/SessionList.tsx"
+      ],
+      "tests": [
+        "ui/src/lib/projectChats.test.ts"
+      ],
       "blockedReason": null
     },
     {
       "id": "KIN-AGENTS-001",
-      "state": "draft",
+      "state": "approved",
       "priority": "P1",
       "journeys": [
         "J6"
@@ -302,13 +308,26 @@
       "title": "机器上的 agent：装了什么、能不能用、用掉多少",
       "file": "docs/product/stories/KIN-AGENTS-001.md",
       "surface": "",
-      "ownerPaths": [],
-      "tests": [],
+      "ownerPaths": [
+        "ui/src/pages/AgentsPage.tsx",
+        "ui/src/lib/agentCatalog.ts",
+        "ui/src/lib/agentFamilies.ts",
+        "ui/src/lib/agentLimits.ts",
+        "ui/src/lib/agentSessionImport.ts",
+        "ui/src/lib/usage.ts",
+        "internal/adapter/detect/skills_catalog.go"
+      ],
+      "tests": [
+        "ui/src/lib/agentCatalog.test.ts",
+        "ui/src/lib/agentLimits.test.ts",
+        "ui/src/lib/usage.test.ts",
+        "ui/src/lib/agentSessionImport.test.ts"
+      ],
       "blockedReason": null
     },
     {
       "id": "KIN-ROUTINE-001",
-      "state": "draft",
+      "state": "approved",
       "priority": "P1",
       "journeys": [
         "J4"
@@ -320,8 +339,17 @@
       "title": "让它按时跑：把一件事交给机器重复做",
       "file": "docs/product/stories/KIN-ROUTINE-001.md",
       "surface": "",
-      "ownerPaths": [],
-      "tests": [],
+      "ownerPaths": [
+        "ui/src/pages/RoutinesPage.tsx",
+        "ui/src/lib/routineDevice.ts",
+        "ui/src/lib/routineEdit.ts",
+        "ui/src/lib/routineHistory.ts"
+      ],
+      "tests": [
+        "ui/src/lib/routineDevice.test.ts",
+        "ui/src/lib/routineEdit.test.ts",
+        "ui/src/lib/routineHistory.test.ts"
+      ],
       "blockedReason": null
     }
   ]

@@ -32,7 +32,7 @@ function form(r: Routine, changes: Partial<ReturnType<typeof routineForm>> = {})
   return { ...routineForm(r), ...changes };
 }
 
-describe("routinePatch", () => {
+describe("routinePatch (KIN-ROUTINE-001)", () => {
   it("sends nothing when the reader changed nothing", () => {
     expect(routinePatch(routine(), form(routine()))).toBeNull();
     const ruled = routine({ recurrence: serializeRoutineRule(daily(), null) });

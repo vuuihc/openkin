@@ -9,7 +9,7 @@ import {
 import { formatCost } from "../api/client";
 import { formatTokenCount } from "./usage";
 
-describe("agentLimits helpers", () => {
+describe("agentLimits helpers (KIN-AGENTS-001)", () => {
   describe("agentLimitProgress", () => {
     it("returns null progress when limit is undefined", () => {
       const result = agentLimitProgress(5, undefined);

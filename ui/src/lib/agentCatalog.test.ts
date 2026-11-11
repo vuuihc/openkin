@@ -13,7 +13,7 @@ function agent(partial: Partial<AgentInfo> & Pick<AgentInfo, "id" | "name">): Ag
   };
 }
 
-describe("agentCatalogState", () => {
+describe("agentCatalogState (KIN-AGENTS-001)", () => {
   it("classifies native available agents", () => {
     const a = agent({
       id: "claude-code",

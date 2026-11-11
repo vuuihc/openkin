@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1100" viewBox="0 0 1600 1100">
 <g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
-<rect width="1600" height="900" fill="#f6f6f8"/>
+<rect width="1600" height="1100" fill="#f6f6f8"/>
 <text x="40" y="46" font-size="20" fill="#1a1a1a" font-weight="600">Agent 运维 · 状态板（KIN-AGENTS-001）</text>
 <text x="1560" y="46" font-size="12" fill="#6b6b6b" text-anchor="end">每个状态都有文字与下一步</text>
 
@@ -65,6 +65,27 @@
 <rect x="1104" y="676" width="432" height="44" rx="8" fill="#f0f0f0"/>
 <text x="1120" y="703" font-size="12.5" fill="#555">离线 · 显示上次结果（10:24）；动作禁用</text>
 
-<text x="40" y="868" font-size="11.5" fill="#888">状态与额度都用文字说明；颜色只做辅助，读屏不依赖颜色。</text>
+<rect x="40" y="856" width="480" height="200" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="64" y="890" font-size="15" fill="#1a1a1a" font-weight="600">未接入（发现）</text>
+<text x="64" y="920" font-size="12.5" fill="#6b6b6b">PATH 里发现了，但还没有接入</text>
+<text x="64" y="956" font-size="13" fill="#1a1a1a">目录不变，直到你点「接入」</text>
+<text x="64" y="982" font-size="12.5" fill="#555">接入是用户动作；发现本身不改变任何东西。</text>
+<text x="64" y="1008" font-size="12.5" fill="#555">取消后仍是「未接入」，可以稍后再接。</text>
+
+<rect x="560" y="856" width="480" height="200" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="584" y="890" font-size="15" fill="#1a1a1a" font-weight="600">已满 10 个</text>
+<text x="584" y="920" font-size="12.5" fill="#6b6b6b">目录到顶，不再静默加第 11 个</text>
+<text x="584" y="956" font-size="13" fill="#1a1a1a">先移除或合并一个</text>
+<text x="584" y="982" font-size="12.5" fill="#555">「接入」禁用并写原因；同一产品的 native / ACP / CLI 只算一个。</text>
+<text x="584" y="1008" font-size="12.5" fill="#555">不把目录变成第二个包管理器。</text>
+
+<rect x="1080" y="856" width="480" height="200" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="1104" y="890" font-size="15" fill="#1a1a1a" font-weight="600">接入中 / 接入失败</text>
+<text x="1104" y="920" font-size="12.5" fill="#6b6b6b">确认之后的两种中间结果</text>
+<text x="1104" y="956" font-size="13" fill="#1a1a1a">接入中…</text>
+<text x="1104" y="982" font-size="12.5" fill="#555">那一行标「接入中」，其余行可继续用。</text>
+<text x="1104" y="1008" font-size="12.5" fill="#b42318">失败：保留「未接入」与重试；不假装接上了。</text>
+
+<text x="40" y="1084" font-size="11.5" fill="#888">状态与额度都用文字说明；接入需确认，会话只在手动导入时进来。</text>
 </g>
 </svg>

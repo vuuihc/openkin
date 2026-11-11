@@ -24,7 +24,7 @@
 <text x="158" y="130" font-size="12" fill="#1a1a1a">另一台机器 ▾</text>
 <text x="380" y="130" font-size="11.5" fill="#6b6b6b">目录、agent、模型都来自这台机器</text>
 
-<rect x="100" y="158" width="928" height="542" rx="10" fill="#ffffff" stroke="#c4c4c4"/>
+<rect x="100" y="158" width="928" height="570" rx="10" fill="#ffffff" stroke="#c4c4c4"/>
 <text x="116" y="184" font-size="14" fill="#1a1a1a" font-weight="600">新建例行任务</text>
 
 <text x="116" y="216" font-size="11.5" fill="#6b6b6b">标题</text>
@@ -34,7 +34,7 @@
 <text x="116" y="286" font-size="11.5" fill="#6b6b6b">提示词</text>
 <rect x="116" y="296" width="896" height="96" rx="8" fill="#ffffff" stroke="#bbbbbb"/>
 <text x="130" y="320" font-size="12.5" fill="#555">把这周新增的笔记按主题整理，列出需要我确认的三条。</text>
-<text x="130" y="342" font-size="11.5" fill="#999">每次到点都会用这段提示词开一段新对话；不覆盖上一轮的上下文。</text>
+<text x="130" y="342" font-size="11.5" fill="#999">到点用这段提示词运行；会话方式在下面选，默认接着同一条会话。</text>
 
 <text x="116" y="422" font-size="11.5" fill="#6b6b6b">调度</text>
 <rect x="116" y="432" width="190" height="34" rx="8" fill="#eef2ff" stroke="#1f6feb"/>
@@ -57,7 +57,13 @@
 <rect x="720" y="616" width="290" height="34" rx="8" fill="#ffffff" stroke="#bbbbbb"/>
 <text x="734" y="638" font-size="12.5" fill="#1a1a1a">只读 ▾</text>
 
-<text x="116" y="680" font-size="11.5" fill="#6b6b6b">目录 / 模型加载失败：给重试，不清空已填；离线时表单只读并说明。</text>
+<text x="116" y="674" font-size="11.5" fill="#6b6b6b">会话方式</text>
+<rect x="116" y="684" width="230" height="30" rx="8" fill="#eef2ff" stroke="#1f6feb"/>
+<text x="231" y="704" font-size="12" fill="#1f6feb" text-anchor="middle">● 同一条会话持续（默认）</text>
+<rect x="358" y="684" width="210" height="30" rx="8" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="463" y="704" font-size="12" fill="#444" text-anchor="middle">○ 每次执行新建会话</text>
+<text x="584" y="704" font-size="11.5" fill="#6b6b6b">会话在项目里；本页只留运行记录</text>
+<text x="116" y="748" font-size="11.5" fill="#6b6b6b">目录 / 模型加载失败：给重试，不清空已填；离线时表单只读并说明。</text>
 <rect x="0.5" y="0.5" width="1099" height="759" fill="none" rx="10" stroke="#bbbbbb"/>
 </g>
 </svg>

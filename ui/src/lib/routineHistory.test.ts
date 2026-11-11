@@ -20,7 +20,7 @@ function run(id: string, extra: Partial<Task> = {}): Task {
   return { id, status: "running", ...extra } as Task;
 }
 
-describe("foldRoutineRun", () => {
+describe("foldRoutineRun (KIN-ROUTINE-001)", () => {
   it("replaces a known run in place", () => {
     const list = [run("003"), run("002"), run("001")];
     const next = foldRoutineRun(list, run("002", { status: "succeeded" }))!;

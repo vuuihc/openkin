@@ -17,6 +17,7 @@
 
 <text x="100" y="72" font-size="20" fill="#1a1a1a" font-weight="600">Agents 与用量</text>
 <text x="100" y="94" font-size="12" fill="#6b6b6b">这台机器装了什么、能不能用、用掉多少</text>
+<text x="500" y="94" font-size="12" fill="#1f6feb">已接入 9 / 10 · 发现 1 个未接入「Cursor」 · 查看 →</text>
 <rect x="852" y="58" width="88" height="30" rx="8" fill="#ffffff" stroke="#bbbbbb"/>
 <text x="896" y="78" font-size="12" fill="#444" text-anchor="middle">重检全部</text>
 <rect x="950" y="58" width="118" height="30" rx="8" fill="#ffffff" stroke="#bbbbbb"/>
@@ -126,8 +127,8 @@
 <rect x="926" y="608" width="28" height="28" rx="6" fill="#ffffff" stroke="#bbbbbb"/>
 <text x="940" y="627" font-size="12" fill="#444" text-anchor="middle">⋯</text>
 
-<text x="100" y="682" font-size="11.5" fill="#6b6b6b">状态读不到时写「状态未知」，不猜成可用；默认 agent 用文字标记，不只靠颜色。</text>
-<text x="100" y="704" font-size="11.5" fill="#6b6b6b">额度等待显示已等时长；底部对齐，页面不因一行的高度而跳。</text>
+<text x="100" y="682" font-size="11.5" fill="#6b6b6b">接入新 agent 需你确认；接入只增加可用 agent，不导入它的历史会话。</text>
+<text x="100" y="704" font-size="11.5" fill="#6b6b6b">目录最多 10 个产品；状态读不到写「状态未知」；额度等待显示已等时长。</text>
 <rect x="0.5" y="0.5" width="1099" height="759" fill="none" rx="10" stroke="#bbbbbb"/>
 </g>
 </svg>

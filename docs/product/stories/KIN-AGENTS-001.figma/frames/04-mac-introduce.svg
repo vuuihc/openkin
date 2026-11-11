@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1100" height="760" fill="#ffffff" rx="10"/>
+<rect width="1100" height="32" fill="#f0f0f0" rx="10"/>
+<rect y="10" width="1100" height="22" fill="#f0f0f0"/>
+<line x1="0" y1="32" x2="1100" y2="32" stroke="#dddddd"/>
+<text x="12" y="21" font-size="12" fill="#555">Mac 1100×760 · Agent 运维 · 接入确认（KIN-AGENTS-001）</text>
+<text x="1088" y="21" font-size="11" fill="#6b6b6b" text-anchor="end">没有这一步，目录不会变</text>
+
+<rect x="0" y="32" width="1100" height="728" fill="#f6f6f8"/>
+<rect x="0" y="32" width="72" height="728" fill="#fbfbfb"/>
+<line x1="72" y1="32" x2="72" y2="760" stroke="#e3e3e3"/>
+<text x="24" y="60" font-size="18" fill="#1a1a1a" font-weight="600">K</text>
+
+<text x="100" y="72" font-size="20" fill="#1a1a1a" font-weight="600">Agents 与用量</text>
+<text x="100" y="94" font-size="12" fill="#6b6b6b">这台机器装了什么、能不能用、用掉多少</text>
+<text x="500" y="94" font-size="12" fill="#1f6feb">已接入 9 / 10 · 发现 1 个未接入「Cursor」 · 查看 →</text>
+<rect x="100" y="116" width="220" height="76" rx="10" fill="#ffffff" stroke="#e3e3e3"/>
+<rect x="336" y="116" width="220" height="76" rx="10" fill="#ffffff" stroke="#e3e3e3"/>
+<rect x="572" y="116" width="220" height="76" rx="10" fill="#ffffff" stroke="#e3e3e3"/>
+<rect x="808" y="116" width="220" height="76" rx="10" fill="#ffffff" stroke="#e3e3e3"/>
+<rect x="100" y="206" width="928" height="20" rx="6" fill="#ececec"/>
+<rect x="100" y="256" width="928" height="34" rx="6" fill="#ececec"/>
+<rect x="100" y="300" width="928" height="52" rx="8" fill="#f0f0f0"/>
+<rect x="100" y="360" width="928" height="52" rx="8" fill="#f0f0f0"/>
+<rect x="100" y="420" width="928" height="52" rx="8" fill="#f0f0f0"/>
+<rect x="100" y="480" width="928" height="52" rx="8" fill="#f0f0f0"/>
+
+<rect x="120" y="150" width="860" height="460" rx="16" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="156" y="204" font-size="22" fill="#1a1a1a" font-weight="600">接入 Cursor？</text>
+<text x="156" y="238" font-size="13.5" fill="#555">Kin 在 PATH 里发现了 Cursor，但还没有把它接入。</text>
+<text x="156" y="262" font-size="13.5" fill="#555">接入后它会进入 Agent 目录；不会导入它的历史会话。</text>
+
+<rect x="156" y="294" width="788" height="74" rx="10" fill="#f6f9ff" stroke="#c9d8f2"/>
+<text x="172" y="320" font-size="12.5" fill="#1a1a1a" font-weight="600">会做什么</text>
+<text x="172" y="344" font-size="12.5" fill="#555">新增一个可用 agent；重检、登录、额度与操作与其他 agent 一样。</text>
+
+<rect x="156" y="382" width="788" height="74" rx="10" fill="#fff8f0" stroke="#ead2a8"/>
+<text x="172" y="408" font-size="12.5" fill="#1a1a1a" font-weight="600">不会做什么</text>
+<text x="172" y="432" font-size="12.5" fill="#555">不会自动导入 Cursor 的历史会话；不会改默认 agent，也不会改 provider 设置。</text>
+
+<text x="156" y="494" font-size="12" fill="#6b6b6b">目录现在 9 / 10；接入后 10 / 10。已满时「接入」禁用，先移除或合并一个。</text>
+<text x="156" y="518" font-size="12" fill="#6b6b6b">接入是用户动作；没有这一步，目录不变。会话只在手动导入时进来。</text>
+
+<rect x="694" y="546" width="82" height="36" rx="9" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="735" y="569" font-size="13" fill="#444" text-anchor="middle">取消</text>
+<rect x="788" y="546" width="156" height="36" rx="9" fill="#1f6feb"/>
+<text x="866" y="569" font-size="13" fill="#ffffff" font-weight="600" text-anchor="middle">接入 Cursor</text>
+
+<text x="120" y="700" font-size="11.5" fill="#888">焦点进入确认框并在框内循环；Esc 取消；手机用同一套内容的底部面板。</text>
+<text x="120" y="722" font-size="11.5" fill="#888">取消后仍是「未接入」，不改变目录、默认 agent 或任何会话。</text>
+<rect x="0.5" y="0.5" width="1099" height="759" fill="none" rx="10" stroke="#bbbbbb"/>
+</g>
+</svg>

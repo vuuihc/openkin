@@ -22,7 +22,7 @@
 <rect x="16" y="198" width="358" height="110" rx="8" fill="#ffffff" stroke="#bbbbbb"/>
 <text x="30" y="222" font-size="12.5" fill="#555">把这周新增的笔记按主题整理，</text>
 <text x="30" y="244" font-size="12.5" fill="#555">列出需要我确认的三条。</text>
-<text x="30" y="272" font-size="11" fill="#999">每次到点用这段提示词开一段新对话。</text>
+<text x="30" y="272" font-size="11" fill="#999">到点用这段提示词运行；默认接着同一条会话。</text>
 
 <text x="16" y="336" font-size="11.5" fill="#6b6b6b">调度</text>
 <rect x="16" y="346" width="358" height="44" rx="10" fill="#ffffff" stroke="#bbbbbb"/>
@@ -41,9 +41,11 @@
 <rect x="262" y="536" width="112" height="44" rx="10" fill="#ffffff" stroke="#bbbbbb"/>
 <text x="276" y="563" font-size="12" fill="#1a1a1a">只读 ▾</text>
 
-<rect x="16" y="604" width="358" height="70" rx="10" fill="#fbfbfb" stroke="#e3e3e3"/>
-<text x="30" y="628" font-size="11.5" fill="#6b6b6b">选择器都是底部面板，盖在表单上；</text>
-<text x="30" y="650" font-size="11.5" fill="#6b6b6b">选完自动关闭，表单不被撑高。</text>
+<text x="16" y="600" font-size="11.5" fill="#6b6b6b">会话方式</text>
+<rect x="16" y="608" width="176" height="36" rx="9" fill="#eef2ff" stroke="#1f6feb"/>
+<text x="104" y="631" font-size="11.5" fill="#1f6feb" text-anchor="middle">● 同一条会话持续（默认）</text>
+<rect x="202" y="608" width="172" height="36" rx="9" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="288" y="631" font-size="11.5" fill="#444" text-anchor="middle">○ 每次执行新建会话</text>
 
 <rect x="0" y="650" width="390" height="194" rx="20" fill="#ffffff" stroke="#c4c4c4"/>
 <rect x="171" y="662" width="48" height="5" rx="3" fill="#d0d0d6"/>

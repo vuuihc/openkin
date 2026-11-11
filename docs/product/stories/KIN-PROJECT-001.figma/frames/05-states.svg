@@ -28,7 +28,7 @@
 <text x="1104" y="140" font-size="12.5" fill="#6b6b6b">pulse 失败，项目记录在</text>
 <rect x="1104" y="160" width="432" height="44" rx="8" fill="#fff1f0" stroke="#d04a3e"/>
 <text x="1120" y="187" font-size="12.5" fill="#b42318">概览暂时读不到 · 刷新</text>
-<text x="1104" y="234" font-size="12.5" fill="#555">「对话」tab 仍然可用；不整页报错。</text>
+<text x="1104" y="234" font-size="12.5" fill="#555">最近活动与其余区块仍然可用；不整页报错。</text>
 <rect x="1104" y="252" width="140" height="34" rx="10" fill="#ffffff" stroke="#bbbbbb"/>
 <text x="1174" y="274" font-size="12.5" fill="#444" text-anchor="middle">重试</text>
 

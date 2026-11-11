@@ -130,10 +130,10 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
   hierarchy) and `docs/product/TASTE.md` (the rules the change is checked
   against). Update the IA row the change touches in the same commit.
 - Work from a story, not from a control. `docs/product/stories/PLAN.md` holds
-  the whole plan as five intent-sized stories (continue, start, result, manage,
-  settings), each a capability-sized contract (one thing a person can finish,
-  80–170 lines, delivered whole) that names an `IA.md` surface and its J1–J6
-  journeys, declares every surface it must hold on, and carries an acceptance
+  the whole plan as seven intent-sized stories (continue, start, result, manage,
+  settings, notify, routines), each a capability-sized contract (one thing a
+  person can finish, 80–170 lines, delivered whole) that names an `IA.md`
+  surface and its J1–J7 journeys, declares every surface it must hold on, and carries an acceptance
   table whose test files contain the story id. Start a new one with
   `python3 scripts/stories.py new <AREA> "<title>"` and fill it per
   `docs/product/stories/AUTHORING.md`; it stays `draft` until a person signs it,

@@ -182,12 +182,12 @@
 <main class="page">
 
   <header>
-    <div class="eyebrow">Figma 审阅版 · 约 7 分钟 · 4 个决定</div>
+    <div class="eyebrow">Figma 审阅版 · 已签字 · 5 个决定</div>
     <h1>KIN-AGENTS-001 · 机器上的 agent <small>Figma 设计稿</small></h1>
-    <p class="meta">draft · 面：Mac / 手机 · 对照 <code>KIN-AGENTS-001.md</code></p>
-    <p class="meta">2026 年 11 月 11 日 · 4 屏 · 10 个状态</p>
+    <p class="meta">approved · 面：Mac / 手机 · 对照 <code>KIN-AGENTS-001.md</code></p>
+    <p class="meta">2026 年 11 月 11 日 · 已签字 · 5 屏 · 12 个状态</p>
     <div class="tags">
-      <span class="pill draft">draft · 待签字</span>
+      <span class="pill ok">approved · 已签字 2026-11-11</span>
       <span class="pill plain">旅程 J6</span>
       <span class="pill plain">Mac / 手机</span>
     </div>
@@ -204,7 +204,7 @@
       <li><strong>再看每一屏</strong>：先看 Figma 帧，再读帧下面六段用户流程。</li>
       <li><strong>最后回决定</strong>：每条都有推荐和代价；页尾有回复模板。</li>
     </ol>
-    <p class="note">都同意就回「全部同意」；有修改就回「D2 改成…」。宽帧在卡片内左右滑动，页面本身不横滚。</p>
+    <p class="note">本页已按 2026-11-11 的回复更新并签字：D3 追加「目录 ≤10 个产品、接入需用户确认、不自动导入会话」。宽帧在卡片内左右滑动，页面本身不横滚。</p>
   </section>
 
   <nav class="toc" aria-label="页内导航">
@@ -253,8 +253,8 @@
       <li><strong>为什么单独一条：</strong>它是环境面：装了什么、能不能用、额度与用量；设置页管的是默认值与密钥。两者混在一起会让「改默认」也被迫加载用量。</li>
       <li><strong>为什么不并进相邻故事：</strong>新建页只消费这里的结论（agent 是否可用），不承担安装、登录与额度；例行任务的 cwd / agent 选择在 ROUTINE-001，不在这里。</li>
       <li><strong>设备只是差异：</strong>这条覆盖 Mac 和手机；Mac 表格、手机卡片 + 动作面板，差异写在故事「各面差异」。</li>
-      <li><strong>不在这一条：</strong>provider 密钥与端点 → SETTINGS-001；删除或卸载 agent → 暂不做；agent 的来源目录（安装命令）由环境自己管，这一页只复制不解释。</li>
-      <li><strong>大小：</strong>4 屏（Mac 目录 / Mac 行内操作 / 手机 / 状态板）；一次交付；两个面都成立。</li>
+      <li><strong>不在这一条：</strong>provider 密钥与端点 → SETTINGS-001；删除或卸载 agent → 暂不做；自动接入被发现的 agent → 不做（接入必须由人确认）；自动导入 agent 的历史会话 → 不做（只在手动导入时进来）；agent 的来源目录（安装命令）由环境自己管，这一页只复制不解释。</li>
+      <li><strong>大小：</strong>5 屏（Mac 目录 / Mac 行内操作 / Mac 接入确认 / 手机 / 状态板）；一次交付；两个面都成立。</li>
     </ul>
   </section>
 
@@ -268,6 +268,7 @@
           <li>「重检」「全量 smoke」只给一句 toast，失败时不说清是哪一台。</li>
           <li>额度「等待中」与登录状态在表里是两套颜色，没有统一的文字状态。</li>
           <li>手机用卡片，但操作面板与桌面菜单的动作名不完全一致。</li>
+          <li>目录有 74 个产品条目，一屏读不完；发现新 agent 也不问你，直接进目录。</li>
         </ul>
       </div>
       <div class="card after">
@@ -276,7 +277,8 @@
           <li>一页看清每个 agent 的状态、版本、登录、额度与用量；状态都有文字。</li>
           <li>动作就地更新那一行；失败指出哪个 agent、哪一步、下一步做什么。</li>
           <li>手机与 Mac 用同一套动作名；手机进底部动作面板。</li>
-          <li>新建页的「不可用」能直接指向这里的具体一行。</li>
+          <li>目录收敛到 10 个产品以内；新 agent 先问你「接入吗」，确认后才进目录。</li>
+          <li>接入不导入历史会话；会话只在手动导入时进来。</li>
         </ul>
       </div>
     </div>
@@ -289,8 +291,9 @@
     <div class="screen-index" aria-label="界面索引">
       <a href="#screen-1">01 · Mac · Agent 目录</a>
       <a href="#screen-2">02 · Mac · 行内操作</a>
-      <a href="#screen-3">03 · 手机 · 卡片与动作面板</a>
-      <a href="#states">04 · 状态板</a>
+      <a href="#screen-3">03 · Mac · 接入确认</a>
+      <a href="#screen-4">04 · 手机 · 卡片与动作面板</a>
+      <a href="#states">05 · 状态板</a>
     </div>
 
     <article class="screen" id="screen-1">
@@ -314,7 +317,7 @@
       <ol class="flow">
         <li><b>起点</b><span>从 Mac 左栏底部或 ⌘K 的「Agent 运维」进入；页面先出标题与用量骨架。</span></li>
         <li><b>动作</b><span>切 7 / 30 / 90 天；扫一眼 agent 表的状态、登录与额度。</span></li>
-        <li><b>立刻看到</b><span>四张卡片与每日花费随区间更新；表里默认 agent 有文字标记，未登录 / 未安装 / 需要更新各自有文字。</span></li>
+        <li><b>立刻看到</b><span>四张卡片与每日花费随区间更新；标题旁写「已接入 9 / 10」；表里默认 agent 有文字标记，未登录 / 未安装 / 需要更新各自有文字；发现未接入时给一行入口。</span></li>
         <li><b>慢 / 空 / 失败 / 断线</b><span>加载骨架；没有用量写「这段时间没有用量」；没有 agent 给安装入口；状态读不到写「状态未知」；离线标时间并禁用动作。</span></li>
         <li><b>键盘与焦点</b><span>表头可点排序并有 aria-sort；Tab 到行尾「⋯」，Enter 打开菜单，Esc 关闭并还焦点。</span></li>
         <li><b>离开再回来</b><span>区间与排序保留；下次打开重新读一次状态，不沿用旧值。</span></li>
@@ -352,7 +355,35 @@
     <article class="screen" id="screen-3">
       <div class="screen-head">
         <div>
-          <div class="eyebrow">03 · 手机 · 390×844</div>
+          <div class="eyebrow">03 · Mac · 1100×760</div>
+          <h3>接入一个新 agent</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="Mac Agent 接入确认对话框的 Figma 帧" tabindex="0" data-start="120">
+          <img src="KIN-AGENTS-001.figma/frames/04-mac-introduce.svg" alt="Mac Agent 运维：顶部写已接入 9 / 10、发现 1 个未接入的 Cursor；中间是接入确认对话框，写明会新增一个可用 agent、不会导入历史会话；底部是取消与接入" loading="lazy">
+        </div>
+        <figcaption>
+          <span>1100×760 · Mac 帧 · 对话框在目录上，不离开页面</span>
+          <a href="KIN-AGENTS-001.figma/frames/04-mac-introduce.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>目录下方出现「发现 1 个未接入的 agent」，标题旁写「已接入 9 / 10」。</span></li>
+        <li><b>动作</b><span>点「查看」，读「会做什么 / 不会做什么」，再点「接入 Cursor」或「取消」。</span></li>
+        <li><b>立刻看到</b><span>Mac 是对话框，手机是同一套内容的底部面板；确认后这一行进入目录并标「接入中」，完成后显示可用 / 未登录；取消后目录不变。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>接入失败说明原因并保留「未接入」与重试；已满 10 个时「接入」禁用并写「先移除或合并一个」；离线时禁用。</span></li>
+        <li><b>键盘与焦点</b><span>焦点先落在「取消」并只在框内循环；Esc 取消；手机面板下滑取消。</span></li>
+        <li><b>离开再回来</b><span>未确认的发现仍在；已接入的保留；不会因为离开就自动接入。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-4">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">04 · 手机 · 390×844</div>
           <h3>手机 · 卡片与动作面板</h3>
         </div>
         <span class="pill plain">Figma 帧</span>
@@ -383,11 +414,11 @@
     <p class="note">状态也是 Figma 帧的一部分；先看状态板，再看下面的检查表。宽板在卡片内左右滑动。</p>
     <figure class="frame fig-board">
       <div class="frame-scroll" role="region" aria-label="Agent 运维状态板的 Figma 板" tabindex="0">
-        <img src="KIN-AGENTS-001.figma/frames/04-states.svg" width="1600" height="900" alt="Agent 运维状态板：没有 agent、没有用量、未登录、未安装与需要更新、额度等待中、检查中、smoke 失败、断线" loading="lazy" decoding="async">
+        <img src="KIN-AGENTS-001.figma/frames/05-states.svg" width="1600" height="1100" alt="Agent 运维状态板：没有 agent、没有用量、未登录、未安装与需要更新、额度等待中、检查中与失败、断线、未接入、已满 10 个、接入中与接入失败" loading="lazy" decoding="async">
       </div>
       <figcaption>
-        <span>1600×900 · 状态板 · 左右滑动或打开原图</span>
-        <a href="KIN-AGENTS-001.figma/frames/04-states.svg">打开原图</a>
+        <span>1600×1100 · 状态板 · 左右滑动或打开原图</span>
+        <a href="KIN-AGENTS-001.figma/frames/05-states.svg">打开原图</a>
       </figcaption>
     </figure>
     <div class="state-list">
@@ -400,6 +431,9 @@
       <div class="state"><b>失败</b><span>smoke 结果条指出失败的 agent 与下一步；不吞原因。</span></div>
       <div class="state"><b>断线</b><span>「离线 · 显示上次结果（时间）」；动作禁用。</span></div>
       <div class="state"><b>状态未知</b><span>读不到就说「状态未知」，不猜成可用。</span></div>
+      <div class="state"><b>未接入（发现）</b><span>发现只是提示；没有点「接入」就不进目录，也不改变任何会话。</span></div>
+      <div class="state"><b>已满 10 个</b><span>「接入」禁用并写「先移除或合并一个」；同一产品的 native / ACP / CLI 只算一个。</span></div>
+      <div class="state"><b>接入中 / 接入失败</b><span>那一行标「接入中」；失败保留「未接入」与重试，不假装接上了。</span></div>
     </div>
   </section>
 
@@ -411,27 +445,32 @@
       <p class="rec"><strong>已定：</strong><code>/usage</code> 已重定向到 <code>/agents</code>（2026-11 之前）；用量不再是独立页面，避免第二个「看花了多少」的入口。</p>
       <p class="tradeoff"><strong>代价：</strong>只想知道花费的人也要看到 agent 目录；但两件事回答的是同一个问题（环境怎么样）。</p>
     </div>
-    <div class="decision">
+    <div class="decision settled">
       <h3>D2 「默认 agent」按机器还是按人</h3>
-      <p class="rec"><strong>推荐：</strong>按机器。默认 agent 是这台机器的环境事实（装了什么、登录了什么），换一台机器可以不同。</p>
+      <p class="rec"><strong>已定（2026-11-11）：</strong>按机器。默认 agent 是这台机器的环境事实（装了什么、登录了什么），换一台机器可以不同。</p>
       <p class="tradeoff"><strong>代价：</strong>同一个人在 Mac 和另一台机器上看到的默认可能不同；需要在新建页标出「这台机器的默认」。</p>
     </div>
-    <div class="decision">
+    <div class="decision settled">
       <h3>D3 重检与 smoke 的范围</h3>
-      <p class="rec"><strong>推荐：</strong>保留「单个 agent」与「全部」两种；全部跑完给结果条，失败点名到 agent。</p>
+      <p class="rec"><strong>已定（2026-11-11）：</strong>保留「单个 agent」与「全部」两种；全部跑完给结果条，失败点名到 agent。</p>
       <p class="tradeoff"><strong>代价：</strong>页头多两个按钮；全部 smoke 可能很慢，需要进度与可取消。</p>
     </div>
-    <div class="decision">
+    <div class="decision settled">
       <h3>D4 agent 的删除 / 卸载</h3>
-      <p class="rec"><strong>推荐：</strong>这一版不做。删除会动到机器上的安装与凭据，风险与「装/更新」不同级。</p>
+      <p class="rec"><strong>已定（2026-11-11）：</strong>这一版不做。删除会动到机器上的安装与凭据，风险与「装/更新」不同级。</p>
       <p class="tradeoff"><strong>代价：</strong>装错的 agent 只能去终端卸载；等真实使用需要时另开故事。</p>
+    </div>
+    <div class="decision settled">
+      <h3>D5 接入新 agent 的门槛（签字时追加）</h3>
+      <p class="rec"><strong>已定（2026-11-11）：</strong>目录最多 10 个产品（同一产品的 native / ACP / CLI 只算一个）；发现新 agent 不自动接入，先由你确认；接入只增加可用 agent，不导入它的历史会话；会话只在手动导入时进来。</p>
+      <p class="tradeoff"><strong>代价：</strong>目录之外的 agent 要手动接入；少一次点击，也就少一次「它怎么自己多出来了」。</p>
     </div>
   </section>
 
   <section id="reply">
     <h2>回复模板</h2>
     <div class="card reply">
-      <p class="note">长按下面这段复制，改掉不同意的；都同意就回「全部同意」。</p>
+      <p class="note">签字时的实际回复（2026-11-11）：D1–D4 同意；D3 追加目录 ≤10 个、接入需确认、不自动导入会话。下面的模板留作改版后重签用。</p>
       <pre>D2 同意
 D3 同意
 D4 同意
@@ -442,8 +481,9 @@ D4 同意
   <section id="sign">
     <h2>签字</h2>
     <div class="card sign">
-      <p>你回「全部同意」后，我把 <code>KIN-AGENTS-001.md</code> 改成 <code>approved</code>，再排交付。</p>
-      <p class="note">Figma 帧或流程改了会重新发这一页；设计源始终是 <code>KIN-AGENTS-001.figma/</code> 里的 SVG 帧和本页的流程。</p>
+      <p><strong>已签字，2026-11-11。</strong><code>KIN-AGENTS-001.md</code> 已改为 <code>approved</code>，排在「设置与环境」里交付。</p>
+      <p>签字时改了什么：目录上限 10 个产品；新增一屏「接入确认」，没有确认目录不变；接入不导入历史会话，导入只在手动动作里发生。</p>
+      <p class="note">Figma 帧或流程再改会重新发这一页；设计源始终是 <code>KIN-AGENTS-001.figma/</code> 里的 SVG 帧和本页的流程。</p>
     </div>
   </section>
 

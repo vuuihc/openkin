@@ -184,10 +184,10 @@
   <header>
     <div class="eyebrow">Figma 审阅版 · 约 8 分钟 · 4 个决定</div>
     <h1>KIN-PROJECT-001 · 一个项目的封面 <small>Figma 设计稿</small></h1>
-    <p class="meta">draft · 面：Mac / 手机 · 对照 <code>KIN-PROJECT-001.md</code></p>
-    <p class="meta">2026 年 11 月 11 日 · 5 屏 · 8 个状态</p>
+    <p class="meta">approved · 面：Mac / 手机 · 对照 <code>KIN-PROJECT-001.md</code></p>
+    <p class="meta">2026 年 11 月 11 日 · 已签字 · 2 屏 + 状态板 · 8 个状态</p>
     <div class="tags">
-      <span class="pill draft">draft · 待签字</span>
+      <span class="pill ok">approved · 已签字 2026-11-11</span>
       <span class="pill plain">旅程 J4</span>
       <span class="pill plain">Mac / 手机</span>
     </div>
@@ -204,7 +204,7 @@
       <li><strong>再看每一屏</strong>：先看 Figma 帧，再读帧下面六段用户流程（起点、动作、立刻看到、慢/空/失败/断线、键盘与焦点、离开再回来）。</li>
       <li><strong>最后回决定</strong>：每条都有推荐和代价；页尾有回复模板。</li>
     </ol>
-    <p class="note">都同意就回「全部同意」；有修改就回「D2 改成…」。宽帧在卡片内左右滑动，页面本身不横滚。</p>
+    <p class="note">本页已按 2026-11-11 的回复更新并签字：D2 同意，并去掉封面上的「对话」tab。宽帧在卡片内左右滑动，页面本身不横滚。</p>
   </section>
 
   <nav class="toc" aria-label="页内导航">
@@ -254,7 +254,7 @@
       <li><strong>为什么不并进相邻故事：</strong>改名、置顶、归档项目仍在列表行（MANAGE-001）；diff 在 RESULT-001；例行任务的调度在 ROUTINE-001。封面只读它们，不做它们的入口之外的编辑。</li>
       <li><strong>设备只是差异：</strong>这条覆盖 Mac 和手机；Mac 两列、手机单列，差异写在故事「各面差异」，不按设备拆故事。</li>
       <li><strong>不在这一条：</strong>项目改名 / 置顶 / 归档 → MANAGE-001；di​ff 与分享 → RESULT-001；新建或编辑例行调度 → ROUTINE-001；跨设备同步项目记录 → 暂不在任何故事。</li>
-      <li><strong>大小：</strong>5 屏（Mac 概览 / Mac 对话 / 手机概览 / 手机对话 / 状态板）；一次交付；两个面都成立。</li>
+      <li><strong>大小：</strong>2 屏（Mac 概览 / 手机概览）+ 状态板；一次交付；两个面都成立。封面上没有对话 tab，也没有第二份对话列表（2026-11-11 签字）。</li>
     </ul>
   </section>
 
@@ -264,8 +264,8 @@
       <div class="card now">
         <h3>现在</h3>
         <ul>
-          <li>封面已经存在，但没有故事、没有页面测试；概览与对话两个 tab 的分工没有写下来。</li>
-          <li>pulse 刷新失败时整页只剩骨架，连「对话」tab 也被挡住。</li>
+          <li>封面已经存在，但没有故事、没有页面测试；概览与对话两个 tab 的分工没有写下来（签字时去掉了对话 tab）。</li>
+          <li>pulse 刷新失败时整页只剩骨架，连另一份对话列表也被挡住。</li>
           <li>「新建对话」只带第一个 root，多 root 项目可能落错目录。</li>
           <li>项目页上的例行任务块是 Hub 侧遗留，与机器的 /routines 可能不一致，但没有任何说明。</li>
         </ul>
@@ -273,8 +273,8 @@
       <div class="card after">
         <h3>之后</h3>
         <ul>
-          <li>打开封面先看到「最近发生了什么」；失败只影响概览，不影响对话。</li>
-          <li>切到「对话」，行形与列表一致；继续或从这里新建，返回仍在原 tab。</li>
+          <li>打开封面先看到「最近发生了什么」；失败只影响概览，不影响最近活动的入口。</li>
+          <li>最近活动只给最近一段对话的入口；更早的对话回列表按项目找，封面不再复制一份列表。</li>
           <li>多 root 项目在新建页选目录，不在封面上堆选择器。</li>
           <li>例行任务在封面只显示归属和入口，调度仍归 /routines。</li>
         </ul>
@@ -288,10 +288,8 @@
 
     <div class="screen-index" aria-label="界面索引">
       <a href="#screen-1">01 · Mac · 概览</a>
-      <a href="#screen-2">02 · Mac · 对话</a>
-      <a href="#screen-3">03 · 手机 · 概览</a>
-      <a href="#screen-4">04 · 手机 · 对话</a>
-      <a href="#states">05 · 状态板</a>
+      <a href="#screen-2">02 · 手机 · 概览</a>
+      <a href="#states">03 · 状态板</a>
     </div>
 
     <article class="screen" id="screen-1">
@@ -304,7 +302,7 @@
       </div>
       <figure class="frame fig-wide">
         <div class="frame-scroll" role="region" aria-label="Mac 项目封面概览的 Figma 帧" tabindex="0" data-start="330">
-          <img src="KIN-PROJECT-001.figma/frames/01-mac-overview.svg" alt="Mac 项目封面：左栏是设备与项目，主区是 alpha 项目，概览 tab 下有摘要、最近活动、新建对话，右侧是两张热力图与例行任务块" loading="lazy">
+          <img src="KIN-PROJECT-001.figma/frames/01-mac-overview.svg" alt="Mac 项目封面：左栏是设备与项目，主区是 alpha 项目，页头下直接是概览，有摘要、最近活动里的最近一段对话、新建对话，右侧是两张热力图与例行任务块" loading="lazy">
         </div>
         <figcaption>
           <span>1100×760 · Mac 帧 · 主区优先，左右滑动看完整</span>
@@ -314,53 +312,25 @@
       <h4>用户流程</h4>
       <ol class="flow">
         <li><b>起点</b><span>在 Mac 左栏点项目标题（不是它前面的折叠箭头）；左栏的搜索与折叠保持原样。</span></li>
-        <li><b>动作</b><span>读概览：一句话摘要、最近活动、两张热力图；或点「编辑」改摘要、「新建对话」。</span></li>
-        <li><b>立刻看到</b><span>页头是项目名、第一个 root、模式；概览先出内容，不在 0.2 秒内闪成全屏骨架。</span></li>
-        <li><b>慢 / 空 / 失败 / 断线</b><span>第一次加载出骨架；空项目写「这里还没有对话」；pulse 失败只在概览区给「概览暂时读不到 · 刷新」，对话 tab 仍可用；离线显示上次内容与时间。</span></li>
-        <li><b>键盘与焦点</b><span>Tab 能到项目名、两个 tab、编辑与新建；←/→ 换 tab；Esc 回到左栏原来的项目标题。</span></li>
-        <li><b>离开再回来</b><span>回到同一 tab 与滚动位置；已保存的摘要保留，未保存的草稿离开前提示。</span></li>
+        <li><b>动作</b><span>读概览：一句话摘要、最近活动、两张热力图；或点最近活动里的那一段继续，点「编辑」改摘要，点「新建对话」。</span></li>
+        <li><b>立刻看到</b><span>页头是项目名、第一个 root、模式；页头下直接是概览，没有 tab 条；概览先出内容，不在 0.2 秒内闪成全屏骨架。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>第一次加载出骨架；空项目写「这里还没有对话」；pulse 失败只在概览区给「概览暂时读不到 · 刷新」，其余区块仍可用；离线显示上次内容与时间。</span></li>
+        <li><b>键盘与焦点</b><span>Tab 能到项目名、最近对话那一行、编辑与新建；Enter 打开最近一段；Esc 回到左栏原来的项目标题。</span></li>
+        <li><b>离开再回来</b><span>回到同一段滚动位置；已保存的摘要保留，未保存的草稿离开前提示。</span></li>
       </ol>
     </article>
 
     <article class="screen" id="screen-2">
       <div class="screen-head">
         <div>
-          <div class="eyebrow">02 · Mac · 1100×760</div>
-          <h3>项目封面 · 对话</h3>
-        </div>
-        <span class="pill plain">Figma 帧</span>
-      </div>
-      <figure class="frame fig-wide">
-        <div class="frame-scroll" role="region" aria-label="Mac 项目封面对话 tab 的 Figma 帧" tabindex="0" data-start="330">
-          <img src="KIN-PROJECT-001.figma/frames/02-mac-chats.svg" alt="Mac 项目封面的对话 tab：项目下按最近活动排列的四行对话，右上角一个新建对话按钮，底部是空状态与失败状态的文案" loading="lazy">
-        </div>
-        <figcaption>
-          <span>1100×760 · Mac 帧 · 主区优先</span>
-          <a href="KIN-PROJECT-001.figma/frames/02-mac-chats.svg">打开原图</a>
-        </figcaption>
-      </figure>
-      <h4>用户流程</h4>
-      <ol class="flow">
-        <li><b>起点</b><span>封面概览，点「对话」tab；URL 变成 <code>?tab=chats</code>，可以直接分享或刷新。</span></li>
-        <li><b>动作</b><span>看这个项目的对话；点一行继续，或点「新建对话」。</span></li>
-        <li><b>立刻看到</b><span>行上有标题、agent、相对时间、可操作的状态点（运行中 / 等待批准 / 失败）；导入会话与原生对话同形。</span></li>
-        <li><b>慢 / 空 / 失败 / 断线</b><span>加载出骨架；没有对话写「这里还没有对话」并给新建；失败给原因与重试，不显示成空；离线时新建禁用，已有对话可读缓存。</span></li>
-        <li><b>键盘与焦点</b><span>↑/↓ 换行，Enter 打开，Esc 回概览；行高在手机上至少 44px。</span></li>
-        <li><b>离开再回来</b><span>从对话返回，回到对话 tab 与原来的滚动位置，不跳回概览。</span></li>
-      </ol>
-    </article>
-
-    <article class="screen" id="screen-3">
-      <div class="screen-head">
-        <div>
-          <div class="eyebrow">03 · 手机 · 390×844</div>
+          <div class="eyebrow">02 · 手机 · 390×844</div>
           <h3>手机 · 项目概览</h3>
         </div>
         <span class="pill plain">Figma 帧</span>
       </div>
       <figure class="frame fig-phone">
         <div class="frame-scroll" role="region" aria-label="手机项目概览的 Figma 帧" tabindex="0">
-          <img src="KIN-PROJECT-001.figma/frames/03-phone-overview.svg" alt="手机项目概览：返回与项目名、模式，概览与对话分段控件，摘要、最近活动、热力图卡片、例行任务与底部新建对话" loading="lazy">
+          <img src="KIN-PROJECT-001.figma/frames/03-phone-overview.svg" alt="手机项目概览：返回与项目名、模式，没有分段控件，摘要、最近活动里的最近一段对话、热力图卡片、例行任务与底部新建对话" loading="lazy">
         </div>
         <figcaption>
           <span>390×844 · 手机帧</span>
@@ -370,41 +340,14 @@
       <h4>用户流程</h4>
       <ol class="flow">
         <li><b>起点</b><span>手机对话列表，点项目标题；返回箭头在左上，至少 44px。</span></li>
-        <li><b>动作</b><span>上下滑读概览；点分段控件换到「对话」；点底部「新建对话」。</span></li>
-        <li><b>立刻看到</b><span>页头两行放项目名与 root；分段控件有选中态；热力图在卡片内横向滚动，不撑破页面。</span></li>
+        <li><b>动作</b><span>上下滑读概览；点最近活动里的那一段继续，或点底部「新建对话」。</span></li>
+        <li><b>立刻看到</b><span>页头两行放项目名与 root；没有分段控件，第一张卡片就是概览；热力图在卡片内横向滚动，不撑破页面。</span></li>
         <li><b>慢 / 空 / 失败 / 断线</b><span>加载骨架；空与失败文案同 Mac；离线时新建禁用并说明，摘要与热力图显示上次内容。</span></li>
-        <li><b>键盘与焦点</b><span>外接键盘：Tab 到分段控件与编辑，分段可用 ←/→；读屏把卡片标题读成 heading。</span></li>
-        <li><b>离开再回来</b><span>返回列表后点回同一项目，仍在之前的 tab 与位置。</span></li>
+        <li><b>键盘与焦点</b><span>外接键盘：Tab 到最近对话那一行与编辑；读屏把卡片标题读成 heading。</span></li>
+        <li><b>离开再回来</b><span>返回列表后点回同一项目，仍在之前的位置。</span></li>
       </ol>
     </article>
 
-    <article class="screen" id="screen-4">
-      <div class="screen-head">
-        <div>
-          <div class="eyebrow">04 · 手机 · 390×844</div>
-          <h3>手机 · 项目对话</h3>
-        </div>
-        <span class="pill plain">Figma 帧</span>
-      </div>
-      <figure class="frame fig-phone">
-        <div class="frame-scroll" role="region" aria-label="手机项目对话 tab 的 Figma 帧" tabindex="0">
-          <img src="KIN-PROJECT-001.figma/frames/04-phone-chats.svg" alt="手机项目对话：分段控件选中对话，四行对话卡片，底部新建对话，空与失败状态的说明" loading="lazy">
-        </div>
-        <figcaption>
-          <span>390×844 · 手机帧</span>
-          <a href="KIN-PROJECT-001.figma/frames/04-phone-chats.svg">打开原图</a>
-        </figcaption>
-      </figure>
-      <h4>用户流程</h4>
-      <ol class="flow">
-        <li><b>起点</b><span>手机项目概览，点「对话」；或从列表直接进来后切 tab。</span></li>
-        <li><b>动作</b><span>点一行继续，或点底部「新建对话」。</span></li>
-        <li><b>立刻看到</b><span>行与手机列表同形；状态点只给运行中 / 等待批准 / 失败；底部按钮固定，不被列表遮住。</span></li>
-        <li><b>慢 / 空 / 失败 / 断线</b><span>骨架；空写「这里还没有对话」；失败给原因与重试；离线时新建禁用。</span></li>
-        <li><b>键盘与焦点</b><span>行高 44px 以上；返回后焦点回到进来时的那一行。</span></li>
-        <li><b>离开再回来</b><span>返回仍在对话 tab；切到别的项目再回来，tab 与位置都还在。</span></li>
-      </ol>
-    </article>
   </section>
 
   <section id="states">
@@ -422,7 +365,7 @@
     <div class="state-list">
       <div class="state"><b>空</b><span>「这里还没有对话」，给「从这里新建」；不排一排 0。</span></div>
       <div class="state"><b>加载</b><span>骨架只给第一次加载；有缓存时保留内容并标「更新中」。</span></div>
-      <div class="state"><b>失败</b><span>概览失败只影响概览区，给原因与刷新；对话加载失败给原因与重试。</span></div>
+      <div class="state"><b>失败</b><span>概览失败只影响概览区，给原因与刷新；最近活动失败给原因与重试。</span></div>
       <div class="state"><b>断线</b><span>顶部标「离线 · 显示上次结果（时间）」；新建与编辑禁用，已有内容可读。</span></div>
       <div class="state"><b>锁定 / 禁用</b><span>没有 root、离线、没有可用 agent 时，新建按钮禁用并写原因。</span></div>
       <div class="state"><b>编辑中 / 冲突</b><span>摘要保存显示「保存中 → 已保存」；冲突显示对方版本与两个选择，不静默覆盖。</span></div>
@@ -439,19 +382,19 @@
       <p class="rec"><strong>已定：</strong>对话列表的项目标题进入 <code>/projects/:id</code>；折叠是它前面的箭头；<code>/projects</code> 索引页已删（R0b-2d，2026-11-10）。</p>
       <p class="tradeoff"><strong>代价：</strong>没有「全部项目」一页；项目只能在列表里按设备找。</p>
     </div>
-    <div class="decision">
+    <div class="decision settled">
       <h3>D2 这条归「整理」还是「接着问」</h3>
-      <p class="rec"><strong>推荐：</strong>归「整理对话与项目」：封面是项目的容器页，回答「这里发生过什么」，与 MANAGE-001 一起把「整理」扩到项目和对话两级。</p>
-      <p class="tradeoff"><strong>代价：</strong>「整理」故事变成两条；如果更想把它算作「接着问」的入口，CONTINUE-001 会多出一整套项目加载与空状态。</p>
+      <p class="rec"><strong>已定（2026-11-11）：</strong>归「整理对话与项目」：封面是项目的容器页，回答「这里发生过什么」，与 MANAGE-001 一起把「整理」扩到项目和对话两级。同时去掉封面上的「对话」tab——那个 tab 等于在项目里再复制一份对话列表；最近活动只放最近一段对话的入口。</p>
+      <p class="tradeoff"><strong>代价：</strong>「整理」故事变成两条；封面不再提供项目内的对话浏览，更早的对话要回列表按项目找。</p>
     </div>
-    <div class="decision">
+    <div class="decision settled">
       <h3>D3 项目页上的例行任务块</h3>
-      <p class="rec"><strong>推荐：</strong>保留为只读归属（项目名 + 下一次时间 + 去 /routines 的入口），不在封面新建或编辑调度。</p>
+      <p class="rec"><strong>已定（2026-11-11）：</strong>保留为只读归属（项目名 + 下一次时间 + 去 /routines 的入口），不在封面新建或编辑调度。</p>
       <p class="tradeoff"><strong>代价：</strong>这块是 Hub 侧遗留，可能与机器上的实际 routines 不一致；彻底收掉会少一个发现入口。</p>
     </div>
-    <div class="decision">
+    <div class="decision settled">
       <h3>D4 多 root 项目的「新建对话」</h3>
-      <p class="rec"><strong>推荐：</strong>一个 root 时直接带；多个 root 时跳到新建页的设备 / 项目选择（KIN-START-001 的第 3 步），在那一层选目录。</p>
+      <p class="rec"><strong>已定（2026-11-11）：</strong>一个 root 时直接带；多个 root 时跳到新建页的设备 / 项目选择（KIN-START-001 的第 3 步），在那一层选目录。</p>
       <p class="tradeoff"><strong>代价：</strong>多 root 项目多一步；好处是封面不堆选择器，也不会默认落错目录。</p>
     </div>
   </section>
@@ -459,7 +402,7 @@
   <section id="reply">
     <h2>回复模板</h2>
     <div class="card reply">
-      <p class="note">长按下面这段复制，改掉不同意的；都同意就回「全部同意」。</p>
+      <p class="note">签字时的实际回复（2026-11-11）：D2 同意，并去掉「对话」tab；D3 同意；D4 同意。下面的模板留作改版后重签用。</p>
       <pre>D2 同意
 D3 同意
 D4 同意
@@ -470,8 +413,9 @@ D4 同意
   <section id="sign">
     <h2>签字</h2>
     <div class="card sign">
-      <p>你回「全部同意」后，我把 <code>KIN-PROJECT-001.md</code> 改成 <code>approved</code>，再排交付。</p>
-      <p class="note">Figma 帧或流程改了会重新发这一页；设计源始终是 <code>KIN-PROJECT-001.figma/</code> 里的 SVG 帧和本页的流程。</p>
+      <p><strong>已签字，2026-11-11。</strong><code>KIN-PROJECT-001.md</code> 已改为 <code>approved</code>，排在「整理对话与项目」里交付。</p>
+      <p>签字时改了什么：去掉封面上的「对话」tab 与它对应的两屏；最近活动只保留最近一段对话的入口；其余按 D1、D3、D4 原样。</p>
+      <p class="note">Figma 帧或流程再改会重新发这一页；设计源始终是 <code>KIN-PROJECT-001.figma/</code> 里的 SVG 帧和本页的流程。</p>
     </div>
   </section>
 

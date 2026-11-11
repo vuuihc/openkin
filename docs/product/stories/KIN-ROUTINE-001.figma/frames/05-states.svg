@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1100" viewBox="0 0 1600 1100">
 <g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
-<rect width="1600" height="900" fill="#f6f6f8"/>
+<rect width="1600" height="1100" fill="#f6f6f8"/>
 <text x="40" y="46" font-size="20" fill="#1a1a1a" font-weight="600">例行任务 · 状态板（KIN-ROUTINE-001）</text>
 <text x="1560" y="46" font-size="12" fill="#6b6b6b" text-anchor="end">机器状态先于任务状态</text>
 
@@ -13,7 +13,7 @@
 <text x="64" y="228" font-size="12.5" fill="#555">仍显示它，不静默换机；给一台在线的可切换。</text>
 <rect x="64" y="246" width="160" height="34" rx="10" fill="#ffffff" stroke="#1f6feb"/>
 <text x="144" y="268" font-size="12" fill="#1f6feb" text-anchor="middle">换到在线的机器</text>
-<text x="64" y="310" font-size="12.5" fill="#555">新建与 run-now 禁用并说明；历史仍可读缓存。</text>
+<text x="64" y="310" font-size="12.5" fill="#555">新建与 run-now 禁用并说明；运行记录仍可读缓存。</text>
 
 <rect x="560" y="76" width="480" height="360" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
 <text x="584" y="110" font-size="15" fill="#1a1a1a" font-weight="600">空 / 加载</text>
@@ -64,6 +64,14 @@
 <text x="1120" y="658" font-size="11.5" fill="#555">标记失败：保留未读并说明</text>
 <text x="1104" y="700" font-size="12.5" fill="#555">全部标为已读只影响这台机器。</text>
 
-<text x="40" y="868" font-size="11.5" fill="#888">所有状态都写明是哪台机器；换机器时列表、未读、表单一起换。</text>
+<rect x="40" y="856" width="1520" height="196" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="64" y="890" font-size="15" fill="#1a1a1a" font-weight="600">运行记录 / 会话方式</text>
+<text x="64" y="920" font-size="12.5" fill="#6b6b6b">本页只记运行结果；会话属于项目，不在这一页复制</text>
+<text x="64" y="958" font-size="13" fill="#1a1a1a">默认：同一条会话持续</text>
+<text x="64" y="984" font-size="12.5" fill="#555">所有运行接着同一段会话，上下文不断；也可以选「每次执行在对应项目新建会话」，每轮独立。</text>
+<text x="64" y="1010" font-size="12.5" fill="#555">运行记录按页加载，旧的接在后面，不设固定上限；只记时间、结果与耗时，不展示会话内容。</text>
+<text x="64" y="1036" font-size="12.5" fill="#1f6feb">等待批准时点「打开会话」，去项目里的那段对话继续。</text>
+
+<text x="40" y="1084" font-size="11.5" fill="#888">所有状态都写明是哪台机器；换机器时列表、未读、表单一起换。</text>
 </g>
 </svg>
