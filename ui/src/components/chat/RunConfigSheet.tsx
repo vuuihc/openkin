@@ -84,10 +84,11 @@ export type RunConfigControlProps = {
   agents?: AgentInfo[];
   onAgentChange?: (agentId: string) => void;
   /**
-   * New-chat only: the location controls (machine, workspace, branch,
-   * dispatch, routine) that an existing session no longer owns. Rendered
-   * after the permission row so the sheet stays one place to see how the
-   * next run will go.
+   * New-chat only: the rows the draft's page still owns (role, branch,
+   * dispatch, routine). The machine and the project are the page's own row
+   * under the card and are deliberately not here. Rendered after the
+   * permission row so the sheet stays one place to see how the next run will
+   * go.
    */
   extraRows?: ReactNode;
 };
@@ -171,6 +172,15 @@ export default function RunConfigControl({
           className={`flex h-5 w-5 flex-none items-center justify-center rounded-md text-micro font-semibold ${agentAvatar.className}`}
         >
           {agentAvatar.initials}
+        </span>
+        {/* The agent's name, not only its initial: the card's bottom row is the
+            one place the run's host is named before a session exists, and the
+            frame writes "Claude Code · 默认模型" there. It truncates first. */}
+        <span className="min-w-0 truncate text-strong" title={agentName}>
+          {agentName}
+        </span>
+        <span aria-hidden className="flex-none select-none text-kin-muted/60">
+          ·
         </span>
         {/* Truncates keeping the tail: `provider/model-name` should lose the
             provider, not the model — the same `direction: rtl` trick the

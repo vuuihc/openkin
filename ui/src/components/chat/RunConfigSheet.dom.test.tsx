@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { setLocale } from "../../i18n";
 import RunConfigControl, { type RunConfigControlProps } from "./RunConfigSheet";
@@ -89,14 +89,17 @@ beforeEach(() => {
 describe("RunConfigControl (KIN-START-001)", () => {
   it("names the agent, the model and the mode on the face", () => {
     setup();
+    expect(screen.getByRole("button", { name: /^Run settings/ }).textContent).toContain(
+      "Claude Code",
+    );
     expect(screen.getByRole("button", { name: /^Run settings/ }).textContent).toContain("Sonnet");
     expect(screen.getByRole("button", { name: /^Run settings/ }).textContent).toContain("Ask");
   });
 
   it("opens the sheet with the agent read-only and the two pickers", async () => {
     setup();
-    await openSheet();
-    expect(screen.getByText("Claude Code")).toBeTruthy();
+    const dialog = await openSheet();
+    expect(within(dialog).getByText("Claude Code")).toBeTruthy();
     // The agent is a fact once the session exists, not a control.
     expect(screen.queryByRole("button", { name: "Agent" })).toBeNull();
     expect(screen.getByRole("button", { name: /^Model/ })).toBeTruthy();
@@ -415,13 +418,23 @@ describe("RunConfigControl on a wide screen", () => {
 
   it("opens an anchored panel with the same rows, not the phone sheet", async () => {
     setup();
-    await openSheet();
+    const panel = await openSheet();
     // The scrim is the sheet's own shape; the panel has none.
     expect(document.querySelector(".kin-scrim-enter")).toBeNull();
     expect(document.querySelector("[data-run-config-panel]")).toBeTruthy();
-    expect(screen.getByText("Claude Code")).toBeTruthy();
+    expect(within(panel).getByText("Claude Code")).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Model/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Permissions/ })).toBeTruthy();
+  });
+
+  it("keeps the page's extra rows inside the sheet, not on the face", async () => {
+    // KIN-START-001 moved the machine and the project out of this surface, but
+    // the page still puts role / branch / dispatch / routine here. An extra row
+    // belongs to the sheet's body; the face names only the run's three values.
+    setup({ extraRows: <span>Branch row</span> });
+    expect(screen.queryByText("Branch row")).toBeNull();
+    await openSheet();
+    expect(screen.getByText("Branch row")).toBeTruthy();
   });
 
   it("picks a model and keeps the panel open behind the choice", async () => {

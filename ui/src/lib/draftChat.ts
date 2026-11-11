@@ -6,6 +6,8 @@ const CWD_KEY = "kin_draft_cwd";
 const MACHINE_KEY = "kin_draft_machine";
 const PROMPT_KEY = "kin_draft_prompt";
 const ATTACHMENTS_KEY = "kin_draft_attachments";
+const MODEL_KEY = "kin_draft_model";
+const HOST_KEY = "kin_draft_host";
 
 const DRAFT_EVENT = "kin:draft";
 
@@ -116,6 +118,47 @@ export function setDraftAttachments(attachments: Upload[]): void {
     // ignore
   }
   notifyDraft();
+}
+
+/**
+ * The run face the draft was last left on.
+ *
+ * A draft that comes back with its prompt but not its model would start the
+ * next run somewhere the reader did not choose; both are part of "everything
+ * else stays as last time". No event: nothing outside this page reads them.
+ */
+export function getDraftModel(): string {
+  try {
+    return localStorage.getItem(MODEL_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function setDraftModel(model: string): void {
+  try {
+    if (model) localStorage.setItem(MODEL_KEY, model);
+    else localStorage.removeItem(MODEL_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function getDraftHost(): string {
+  try {
+    return localStorage.getItem(HOST_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function setDraftHost(agentId: string): void {
+  try {
+    if (agentId) localStorage.setItem(HOST_KEY, agentId);
+    else localStorage.removeItem(HOST_KEY);
+  } catch {
+    // ignore
+  }
 }
 
 /** Subscribe to draft cwd/prompt/attachment changes (cross-component). */

@@ -1,6 +1,6 @@
 # KIN-START-001 · 新建一段对话
 
-状态：approved
+状态：covered
 优先级：P1
 旅程：J3
 归属面：`IA.md`「新建一段对话」
@@ -98,7 +98,7 @@ Mac 新建页把内容装在一条 576px（`max-w-xl`，`ui/src/pages/NewChatPag
 
 ## 设计
 
-草图：`KIN-START-001.review.html`（2026-11-11 按 D1 / D2 的回复重画，待确认）。5 屏：Mac 新建（居中输入卡）/ Mac 设备与项目 / 手机新建 / 手机运行设置 / 状态板；帧在 `KIN-START-001.figma/frames/`。
+设计稿：`KIN-START-001.review.html`（2026-11-11 签字）。5 屏：Mac 新建（居中输入卡）/ Mac 设备与项目 / 手机新建 / 手机运行设置 / 状态板；帧在 `KIN-START-001.figma/frames/`。
 
 必须画到的状态：默认、空、加载、失败、断线、没有可用 agent、机器离线。
 
@@ -116,17 +116,31 @@ Mac 新建页把内容装在一条 576px（`max-w-xl`，`ui/src/pages/NewChatPag
 
 | 层级 | 位置 | Given / When / Then |
 |---|---|---|
-| 组件 | `ui/src/pages/NewChatPage.dom.test.tsx`（新建） | Given 1100 宽 When 打开新建页 Then agent / 模型 / 权限同屏可见，主按钮恰好一个；Given 没有可用 agent Then 主按钮禁用并说明原因；Given 机器离线 When 选中该机器 Then 主按钮禁用并说明 |
-| 组件 | `ui/src/components/chat/RunConfigSheet.dom.test.tsx`（已有，扩充） | Given 手机 When 从新建页打开运行设置 Then 返回后写的内容和已选值都还在 |
-| 组件 | `ui/src/components/newchat/PlacePicker.dom.test.tsx`（新建） | Given 两台机器 When 选择第二台的项目 Then 新建页显示「机器 / 项目」、对话创建时带上该机器与 cwd；Given 记住的项目已消失 Then 回到本机并说明 |
-| 回归 | `ui/src/lib/permissionMode.test.ts`（已有） | Given 三种模式 When 读取标签 Then 一一对应 |
+| 组件 | `ui/src/pages/NewChatPage.dom.test.tsx`（新建） | Given 1100 宽 When 打开新建页 Then agent / 模型 / 权限同屏可见，主按钮恰好一个；Given 没有可用 agent Then 主按钮禁用并说明原因；Given 机器离线 When 选中该机器 Then 主按钮禁用并说明；Given 记住的机器 / 项目不在了 Then 回到本机并说明；Given 创建失败 Then 提示词回到输入框；Given 离开再回来 Then 已选模型还在 |
+| 组件 | `ui/src/components/chat/RunConfigSheet.dom.test.tsx`（已有，扩充） | Given 新建页 When 打开运行设置 Then 卡底只写 agent、模型与权限，页面额外的行只在面板里，卡底可见地写出 agent 名 |
+| 组件 | `ui/src/components/newchat/PlacePicker.dom.test.tsx`（新建） | Given 两台机器 When 选择第二台的项目 Then 选择器同时报出机器与目录（新建页把它带进创建请求） |
+| 回归 | `ui/src/lib/permissionMode.test.ts`（新建） | Given 三种模式 When 读取标签 Then 一一对应 |
 | 真浏览器 | 1100 和 390，`/browse` | 一屏内能选完并开始；手机顺序是 写 → 选 → 开始；失败时提示词不丢 |
 | 视觉 | 390 / 1100 截图 | 对照 `06-newchat-1280.png`、`13-newchat-390.png` |
 
 ## 证据
 
 - 之前：`06-newchat-1280.png`、`13-newchat-390.png`
-- 之后：交付时补
+- 之后：
+  - `NewChatPage.dom.test.tsx`（新，19 例）：一张卡 + 卡下项目条，主按钮恰好一个；空提示词禁用、有字启用；开始带上 place / 提示词 / 权限并进入对话；没有 agent 时禁用并给「Manage agents →」入口；没有目录时就地说明；记住的机器离线时提示词保留、说明原因，换回本机后同一提示词可开始，键盘也被同一原因挡住；记住的机器不在了回到本机、清掉那台机器的模型；记住的项目不在了回到本机并说明；机器列表读失败时保留记住的机器、用读失败的原因禁用；断线禁用并说明；另一台机器的发布带上 `executing_device_id` 与那台机器上的 cwd；创建失败时提示词回到输入框并进草稿；离开再回来已选模型还在；离开一台机器（换项目或它不在了）时那台机器的模型一并清掉；机器列表读不到时不改写已选的模型、读回来后再按那台机器的能力收敛；手机上打开 / 关闭运行设置后提示词与已选模型都在。
+  - `PlacePicker.dom.test.tsx`（新，14 例）：行上写「机器 · 项目」；面板按机器分组（本机 / 另一台 / 离线，分组带机器名）、标出当前项；选另一台的项目同时报机器与目录；可输入目录（按钮或 Enter）并落在当前行的机器上；搜索过滤与无匹配；离线机器仍可选（由页面说明为何不能开始）；Esc 关闭并还焦点；机器列表未到时禁用并写「正在找机器…」；读失败给重试；手机上是同一个面板的底部面板，打开后焦点在搜索框，Esc 能关；空搜索框里单独按 Enter 不会选走第一行。
+  - `RunConfigSheet.dom.test.tsx`（+1 例，23 例）：页面传入的额外行只在面板里，不在卡底那一行；卡底现在可见地写出 agent 名。
+  - `permissionMode.test.ts`（新，5 例）：三种模式标签一一对应；provider 拼写归一；只提供该 run 声明的模式；未声明时本机可 yolo、远端不给；草稿记住上次模式。
+  - `placeMemory.test.ts`（新，5 例）：按机器记住项目、互不覆盖、清空即忘、坏值读作没有记忆、原型键不算记忆。
+  - 布局 wiring：`phoneRunConfigFace.test.ts`（机器与项目离开运行设置、卡下一条、摘要只在其后）；`floatingApprovalWiring.test.ts`（草稿不再钉底，也就不再有需测量的底栏）。
+  - `./scripts/check.sh` 全绿；mutant 清单见 `.tmp/start.mutants.json`。
+
+## 已知限制
+
+- 「按设备记住上次的项目」只记在这台控制台的浏览器里（`kin_place_projects`）；换一个浏览器或隐私窗口就从草稿本身恢复。已选的 agent 与模型同样记在草稿里（`kin_draft_host` / `kin_draft_model`），换浏览器后回到默认值。
+- 机器列表读取失败时不判断「机器不在了」：保留记住的机器、按读失败本身的原因禁用开始，避免把一台只是暂时读不到的机器当成被撤销。
+- 输入目录只做形状判断（以 `/`、`~` 或 `.` 开头）；该目录是否存在由那台机器在开始时判断，失败会留在本页并说明。
+- 项目 One-Pager 摘要仍在项目条下方显示；签名帧没有画它，但它原本就在这一页，本轮只调整了位置。
 
 ## 变更记录
 
@@ -136,3 +150,6 @@ Mac 新建页把内容装在一条 576px（`max-w-xl`，`ui/src/pages/NewChatPag
 - 2026-11-11 补上审阅页与 5 张 Figma 帧（Mac 新建 / Mac 设备与项目 / 手机新建 / 手机运行设置 / 状态板），待签字
 - 2026-11-11 按签字回复重画：D1 改参考 Codex 的居中输入卡，去掉左右两栏；D2 的设备 / 项目放到卡下一条；D3、D4 同意
 - 2026-11-11 确认重画并签字；状态改为 `approved`，进入交付队列（排在 PROJECT / AGENTS / ROUTINE 之后）
+- 2026-11-11 复审第三轮：记住的项目不在了回到本机时同样清掉那台机器的 agent / 模型；机器列表读不到时不用本机能力去收敛已选模型 / 权限；空搜索框的 Enter 不再默认选第一行。
+- 2026-11-11 复审修订：创建失败与早退时提示词回到输入框并留在草稿；记住的机器不在了同时清掉那台机器的 agent / 模型，回到本机上次的项目；记住的项目不在了也回到本机并说明；机器列表读失败按读失败禁用而不是当作「不在了」；草稿保留已选 agent / 模型；手机底部面板的搜索框保住焦点、Esc 能关，面板里不再出现键盘提示；分组带机器名。
+- 2026-11-11 交付：新建页重排为一张居中输入卡（权限、agent · 模型、开始同在一行）+ 卡下「设备 · 项目」一条；`PlacePicker` 按机器分组列项目、可搜索、可直接输入目录，离线机器如实标出；机器与目录离开运行设置面板；没 agent / 机器离线 / 机器列表读失败 / 断线 / 没目录时开始禁用并就地说明（没有提示词只禁用，不另写原因，按签名状态板）；创建失败时提示词回到输入框；已选的 agent 与模型随草稿保留；记住的机器不在了回到本机并说明，草稿不被清空；桌面开页焦点在提示词，手机不自动弹键盘；按设备记住上次的项目；项目摘要保留在项目条之后。已知限制见下

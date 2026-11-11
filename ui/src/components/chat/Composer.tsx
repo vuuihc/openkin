@@ -112,6 +112,20 @@ type Props = {
    */
   footerWide?: boolean;
   /**
+   * Blocks the send control without freezing the draft. `disabled` already
+   * stops the composer, but it also disables the textarea — the wrong answer
+   * for "there is no agent to send to yet" or "the machine is offline", where
+   * the person should still be able to write (and keep) the prompt. The page
+   * that owns the reason draws it beside the card.
+   */
+  blockSend?: boolean;
+  /**
+   * Text on the send control in place of the arrow. The draft's own screen
+   * names its one primary action ("Start"); a conversation's composer sends,
+   * and keeps the icon every messaging surface uses.
+   */
+  sendLabel?: string;
+  /**
    * Fired on send. `interrupt` asks the daemon to cut the running round short and
    * answer this message next instead of at the turn boundary — which also denies
    * the round's pending approvals, so it is only ever set by the explicit action.
@@ -201,6 +215,8 @@ export default function Composer({
   fileSearch,
   footer,
   footerWide = false,
+  blockSend = false,
+  sendLabel,
   onSubmit,
 }: Props) {
   const tr = useT();
@@ -501,7 +517,8 @@ export default function Composer({
     // Allow send while running: a running task queues the message and answers it
     // when the round ends. Only hard-disable when parent says so.
     // Sending is allowed with only attachments (no text), but never mid-upload.
-    if ((!text && attachments.length === 0) || disabled || busy || stopping || uploading) return;
+    if ((!text && attachments.length === 0) || disabled || blockSend || busy || stopping || uploading)
+      return;
     const payload = withAttachments(text);
     // Snapshot so a failed send can restore the composer + draft persistence.
     const prevValue = value;
@@ -1063,7 +1080,7 @@ export default function Composer({
               <kbd className="rounded border border-[var(--kin-hairline-strong)] px-1 font-semibold">
                 ⌘↵
               </kbd>
-              {tr("composer.send")}
+              {sendLabel ?? tr("composer.send")}
             </span>
             {running && onStop ? (
               <button
@@ -1081,6 +1098,7 @@ export default function Composer({
                 type="submit"
                 disabled={
                   disabled ||
+                  blockSend ||
                   busy ||
                   stopping ||
                   uploading ||
@@ -1088,13 +1106,21 @@ export default function Composer({
                 }
                 // The phone's primary action is the reference's ink disc with
                 // an up arrow — the strongest thing in the card, and the one
-                // control the thumb goes to without reading. Desktop keeps the
-                // brand-blue square it has always had.
-                className="ml-auto h-11 w-11 rounded-full bg-kin-text text-kin-bg flex items-center justify-center disabled:opacity-40 sm:h-7 sm:w-7 sm:rounded-lg sm:bg-kin-blue sm:text-kin-on-brand"
-                aria-label={busy ? tr("composer.sending") : tr("composer.send")}
+                // control the thumb goes to without reading. A page that names
+                // the action (the draft's "Start") gets a labelled pill instead;
+                // the label is the whole point there, so it survives the width.
+                className={[
+                  "ml-auto bg-kin-text text-kin-bg flex items-center justify-center disabled:opacity-40 sm:bg-kin-blue sm:text-kin-on-brand",
+                  sendLabel
+                    ? "h-11 rounded-full px-4 text-body font-semibold sm:h-8"
+                    : "h-11 w-11 rounded-full sm:h-7 sm:w-7 sm:rounded-lg",
+                ].join(" ")}
+                aria-label={busy ? tr("composer.sending") : (sendLabel ?? tr("composer.send"))}
               >
                 {busy ? (
                   <IconSpinner size={15} strokeWidth={2} />
+                ) : sendLabel ? (
+                  <span>{sendLabel}</span>
                 ) : (
                   <IconSend size={15} strokeWidth={2} />
                 )}
@@ -1113,7 +1139,7 @@ export default function Composer({
                   // uploading is in here for the same reason as on the send button
                   // above: a send that cannot happen yet must not be armable, or the
                   // intent outlives the click that set it.
-                  disabled={disabled || busy || stopping || uploading}
+                  disabled={disabled || blockSend || busy || stopping || uploading}
                   className="h-11 w-11 rounded-full border border-kin-orange/40 bg-kin-orange/15 text-kin-orange-ink flex items-center justify-center disabled:opacity-40 sm:h-7 sm:w-7 sm:rounded-lg"
                   aria-label={tr("composer.interruptSend")}
                   title={tr("composer.interruptSend")}
@@ -1127,7 +1153,7 @@ export default function Composer({
                   }}
                   // uploading is in here for the same reason as on the two buttons
                   // above: a send that cannot happen yet must not be armable.
-                  disabled={disabled || busy || stopping || uploading}
+                  disabled={disabled || blockSend || busy || stopping || uploading}
                   className="h-11 w-11 rounded-full bg-kin-text text-kin-bg flex items-center justify-center disabled:opacity-40 sm:h-7 sm:w-7 sm:rounded-lg sm:bg-kin-blue sm:text-kin-on-brand"
                   aria-label={tr("composer.send")}
                   title={tr("composer.sendQueuedHint")}

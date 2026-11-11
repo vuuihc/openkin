@@ -160,11 +160,12 @@ export default function AppShell({
 
   /**
    * The routes that pin a composer to the bottom and mark it with
-   * `data-kin-bottom-chrome`: a conversation, the draft, and an agent session's
-   * continue box.
+   * `data-kin-bottom-chrome`: a conversation and an agent session's continue
+   * box. The draft is not one of them any more — its card sits in the page,
+   * under the greeting (KIN-START-001), so there is no band to clear.
    */
   const measuredBottomBand =
-    selectedTaskId !== null || draftActive || location.pathname.startsWith("/agent-sessions/");
+    selectedTaskId !== null || location.pathname.startsWith("/agent-sessions/");
 
   /**
    * The dock floats over the page, so the shell reserves its height under the

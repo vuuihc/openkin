@@ -91,7 +91,7 @@
     },
     {
       "id": "KIN-START-001",
-      "state": "approved",
+      "state": "covered",
       "priority": "P1",
       "journeys": [
         "J3"
@@ -106,11 +106,19 @@
       "ownerPaths": [
         "ui/src/pages/NewChatPage.tsx",
         "ui/src/components/chat/RunConfigSheet.tsx",
-        "ui/src/lib/permissionMode.ts"
+        "ui/src/lib/permissionMode.ts",
+        "ui/src/components/newchat/PlacePicker.tsx",
+        "ui/src/components/chat/Composer.tsx",
+        "ui/src/components/layout/AppShell.tsx",
+        "ui/src/lib/placeMemory.ts"
       ],
       "tests": [
         "ui/src/components/chat/RunConfigSheet.dom.test.tsx",
-        "ui/src/pages/newChatDeepLinkWiring.test.ts"
+        "ui/src/pages/newChatDeepLinkWiring.test.ts",
+        "ui/src/pages/NewChatPage.dom.test.tsx",
+        "ui/src/components/newchat/PlacePicker.dom.test.tsx",
+        "ui/src/lib/placeMemory.test.ts",
+        "ui/src/lib/permissionMode.test.ts"
       ],
       "blockedReason": null
     },

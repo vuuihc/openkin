@@ -32,16 +32,21 @@ const tray = source("src/pages/TrayPage.tsx");
 describe("the floating approval's wiring", () => {
   it("asks for a measured offset only where a band exists", () => {
     expect(shell).toMatch(/expectsBottomChrome=\{measuredBottomBand\}/);
-    // The three screens that pin a composer: a conversation, the draft, an
-    // agent session's continue box. Bound to the assignment itself — a fourth
-    // clause (`|| detailRoute`) creeping back in is the regression this round
-    // fixed.
+    // The two screens that pin a composer: a conversation and an agent
+    // session's continue box. The draft's card sits in the page now
+    // (KIN-START-001), so there is no band there to clear. Bound to the
+    // assignment itself — a fourth clause (`|| detailRoute`) creeping back in
+    // is the regression this round fixed.
     const assignment = shell.match(/const measuredBottomBand =[\s\S]*?;\n/)?.[0] ?? "";
+    // Exactly the two known routes, no fourth clause: this comparison is the
+    // one thing a "just add /new back" edit cannot slip past.
+    expect(assignment).toBe(
+      'const measuredBottomBand =\n    selectedTaskId !== null || location.pathname.startsWith("/agent-sessions/");\n',
+    );
     expect(assignment).not.toBe("");
     expect(assignment).toMatch(/selectedTaskId !== null/);
-    expect(assignment).toMatch(/draftActive/);
     expect(assignment).toMatch(/startsWith\("\/agent-sessions\/"\)/);
-    expect(assignment).not.toMatch(/artifacts|detailRoute/);
+    expect(assignment).not.toMatch(/draftActive|artifacts|detailRoute/);
   });
 
   it("gets the card out of the modal drawer's way", () => {
@@ -64,11 +69,14 @@ describe("the floating approval's wiring", () => {
     expect(tray).not.toMatch(/decideApproval/);
   });
 
-  it("marks the band on every composer screen", () => {
+  it("marks the band on every screen that pins one", () => {
     // The marker is an attribute of the band's `<div>`, not text inside a JSX
     // comment or behind a `false &&`.
-    expect(draft).toMatch(/<div data-kin-bottom-chrome=""[\s>]/);
     expect(agentSession).toMatch(/<div data-kin-bottom-chrome=""[\s>]/);
+    // The draft is not one of them: its card is in the flow, and a marker the
+    // shell no longer measures would only make the approval chase a box that
+    // is not a band (KIN-START-001).
+    expect(draft).not.toMatch(/data-kin-bottom-chrome/);
   });
 
   it("marks the transcript's band only for the pane on screen", () => {

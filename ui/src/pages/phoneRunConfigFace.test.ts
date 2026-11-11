@@ -16,8 +16,9 @@ import { describe, expect, it } from "vitest";
  * - The new-chat page deliberately has no strip: one face at every width,
  *   and the settings surface behind it owns the location rows. A second
  *   arrangement (the eight-chip sideways scroller that used to sit below the
- *   composer) is the defect `gap-log` 2026-11-08 recorded; the draft's folder
- *   lives above the composer, with the project it names.
+ *   composer) is the defect `gap-log` 2026-11-08 recorded. The machine and the
+ *   project left the run surface in KIN-START-001: they are one place row under
+ *   the card, not two rows inside the settings layer.
  *
  * Source rather than DOM, like `phoneKeyboardHints.test.ts`: "this element
  * carries these classes / this page does not render that strip" is a property
@@ -70,8 +71,9 @@ describe("the composer's run-config face", () => {
     expect(footerAt).toBeGreaterThan(-1);
     expect(source.indexOf("<RunConfigControl", footerAt)).toBeGreaterThan(footerAt);
     expect(source.indexOf("footerWide", footerAt)).toBeGreaterThan(footerAt);
-    // The face's settings surface must carry the location controls the draft
-    // owns (machine, branch, dispatch, routine)...
+    // The face's settings surface still carries the run-shape rows (role,
+    // branch, dispatch, routine); the machine and the project moved out to the
+    // place row under the card.
     expect(source.indexOf("extraRows=")).toBeGreaterThan(footerAt);
     // ...and no second arrangement below the composer: no desktop strip, no
     // second open-state flag.
@@ -80,17 +82,26 @@ describe("the composer's run-config face", () => {
     expect(source.indexOf("setControlsOpen")).toBe(-1);
   });
 
-  it("puts the draft's folder above the composer, not in the run surface", () => {
+  it("puts the machine and the project in one row under the card", () => {
     const source = read("src/pages/NewChatPage.tsx");
-    // The folder names the conversation; the project card below it answers
-    // with that folder's summary. Both sit above the composer.
-    const cwdAt = source.indexOf('renderControl("cwd")');
+    // One card, then the place row. The project summary (when there is one)
+    // follows the row, never between the card and the place.
     const composerAt = source.indexOf("<Composer");
-    expect(cwdAt).toBeGreaterThan(-1);
-    expect(composerAt).toBeGreaterThan(cwdAt);
-    // The run surface still names machine / branch / dispatch / routine.
-    for (const id of ['"machine"', '"branch"', '"dispatch"', '"routine"']) {
-      expect(source).toContain(id);
+    const placeAt = source.indexOf("<PlacePicker");
+    expect(composerAt).toBeGreaterThan(-1);
+    expect(placeAt).toBeGreaterThan(composerAt);
+    expect(source.indexOf("<ProjectSummaryCard", placeAt)).toBeGreaterThan(placeAt);
+
+    // Neither the folder browser nor the machine select is a row in the run
+    // surface any more; the place row is their only home on this page.
+    expect(source).not.toContain('renderControl("cwd")');
+    expect(source).not.toContain('renderControl("machine")');
+    const extras = source.match(/const sheetExtraRows =[\s\S]*?;/)?.[0] ?? "";
+    expect(extras).not.toBe("");
+    expect(extras).not.toContain('"machine"');
+    expect(extras).not.toContain('"cwd"');
+    for (const id of ['"branch"', '"dispatch"', '"routine"']) {
+      expect(extras).toContain(id);
     }
   });
 });
