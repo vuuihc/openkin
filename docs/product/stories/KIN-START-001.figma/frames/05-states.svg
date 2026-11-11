@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1100" viewBox="0 0 1600 1100">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1600" height="1100" fill="#fbfbfd"/>
+<text x="40" y="60" font-size="20" fill="#1a1a1a" font-weight="600">新建对话 · 状态板（KIN-START-001）</text>
+<text x="1560" y="60" font-size="11.5" fill="#6b6b6b" text-anchor="end">每个状态都有文字与下一步</text>
+
+<rect x="40" y="100" width="490" height="300" rx="12" fill="#ffffff" stroke="#d8d8dd"/>
+<text x="64" y="140" font-size="15" fill="#1a1a1a" font-weight="600">空：还没写</text>
+<text x="64" y="164" font-size="11.5" fill="#6b6b6b">提示词为空，包括只有空白字符</text>
+<rect x="64" y="196" width="442" height="64" rx="9" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="78" y="234" font-size="12" fill="#aaaaaa">想让 Kin 做什么？</text>
+<rect x="64" y="278" width="150" height="32" rx="8" fill="#e9e9ee"/>
+<text x="139" y="298" font-size="11.5" fill="#999" text-anchor="middle">开始 · 禁用</text>
+<text x="64" y="338" font-size="11" fill="#6b6b6b">只有空白字符也算空；主按钮只有一个，禁用时就地说明原因。</text>
+
+<rect x="554" y="100" width="490" height="300" rx="12" fill="#ffffff" stroke="#d8d8dd"/>
+<text x="578" y="140" font-size="15" fill="#1a1a1a" font-weight="600">加载</text>
+<text x="578" y="164" font-size="11.5" fill="#6b6b6b">机器或模型列表第一次加载</text>
+<rect x="578" y="196" width="442" height="40" rx="9" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="592" y="221" font-size="12" fill="#6b6b6b">正在找机器…</text>
+<rect x="578" y="246" width="442" height="40" rx="9" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="592" y="271" font-size="12" fill="#6b6b6b">默认模型 · 加载中</text>
+<text x="578" y="316" font-size="11" fill="#6b6b6b">骨架只给第一次加载；已有缓存时保留内容并标「更新中」。</text>
+<text x="578" y="338" font-size="11" fill="#6b6b6b">加载不清空已选值，也不把主按钮变灰。</text>
+
+<rect x="1068" y="100" width="490" height="300" rx="12" fill="#ffffff" stroke="#d8d8dd"/>
+<text x="1092" y="140" font-size="15" fill="#1a1a1a" font-weight="600">失败：模型列表读不到</text>
+<text x="1092" y="164" font-size="11.5" fill="#6b6b6b">已选还在，给重试</text>
+<rect x="1092" y="196" width="442" height="40" rx="9" fill="#ffffff" stroke="#f0b4ae"/>
+<text x="1106" y="221" font-size="12" fill="#b42318">默认模型 · 加载失败</text>
+<text x="1520" y="221" font-size="11.5" fill="#1f6feb" text-anchor="end">重试</text>
+<text x="1092" y="264" font-size="11.5" fill="#b42318">就地说明原因；不静默回退到第一个模型。</text>
+<text x="1092" y="292" font-size="11" fill="#6b6b6b">已选过的值保留；重试成功后这一行恢复，按钮状态不变。</text>
+
+<rect x="40" y="424" width="490" height="300" rx="12" fill="#ffffff" stroke="#d8d8dd"/>
+<text x="64" y="464" font-size="15" fill="#1a1a1a" font-weight="600">断线</text>
+<text x="64" y="488" font-size="11.5" fill="#6b6b6b">Hub 或节点连接断了</text>
+<rect x="64" y="520" width="442" height="36" rx="8" fill="#fff1f0" stroke="#f0b4ae"/>
+<text x="78" y="543" font-size="11.5" fill="#b42318">连接已断 · 恢复后可以开始</text>
+<rect x="64" y="572" width="150" height="32" rx="8" fill="#e9e9ee"/>
+<text x="139" y="592" font-size="11.5" fill="#999" text-anchor="middle">开始 · 禁用</text>
+<text x="64" y="632" font-size="11" fill="#6b6b6b">提示词与已选都保留；恢复后按钮自己变回可用。</text>
+<text x="64" y="654" font-size="11" fill="#6b6b6b">不把断线显示成「没有可用 agent」，两种原因分开说。</text>
+
+<rect x="554" y="424" width="490" height="300" rx="12" fill="#ffffff" stroke="#d8d8dd"/>
+<text x="578" y="464" font-size="15" fill="#1a1a1a" font-weight="600">没有可用 agent</text>
+<text x="578" y="488" font-size="11.5" fill="#6b6b6b">这台机器一个 agent 都没装</text>
+<rect x="578" y="520" width="442" height="92" rx="9" fill="#f6f6f8"/>
+<text x="592" y="550" font-size="12.5" fill="#1a1a1a" font-weight="600">还没有可用的 agent</text>
+<text x="592" y="572" font-size="11" fill="#6b6b6b">装一个，或在 Agent 运维里接入一个。</text>
+<text x="592" y="596" font-size="11.5" fill="#1f6feb">去 Agent 运维 →</text>
+<rect x="578" y="628" width="150" height="32" rx="8" fill="#e9e9ee"/>
+<text x="653" y="648" font-size="11.5" fill="#999" text-anchor="middle">开始 · 禁用</text>
+<text x="578" y="688" font-size="11" fill="#6b6b6b">不假装能开始，也不在新建页里临时造一个 agent。</text>
+
+<rect x="1068" y="424" width="490" height="300" rx="12" fill="#ffffff" stroke="#d8d8dd"/>
+<text x="1092" y="464" font-size="15" fill="#1a1a1a" font-weight="600">机器离线</text>
+<text x="1092" y="488" font-size="11.5" fill="#6b6b6b">选中的机器不在线</text>
+<rect x="1092" y="520" width="442" height="40" rx="9" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="1106" y="545" font-size="12" fill="#1a1a1a">另一台机器 / gamma ▾</text>
+<rect x="1456" y="531" width="56" height="18" rx="9" fill="#fff1f0"/>
+<text x="1484" y="544" font-size="10.5" fill="#b42318" text-anchor="middle">离线</text>
+<rect x="1092" y="572" width="150" height="32" rx="8" fill="#e9e9ee"/>
+<text x="1167" y="592" font-size="11.5" fill="#999" text-anchor="middle">开始 · 禁用</text>
+<text x="1092" y="632" font-size="11" fill="#6b6b6b">给一台在线的可切换；不静默换机，也不静默改回本机。</text>
+<text x="1092" y="654" font-size="11" fill="#6b6b6b">离线时选择器仍可打开，先看再决定。</text>
+
+<rect x="40" y="748" width="490" height="300" rx="12" fill="#ffffff" stroke="#d8d8dd"/>
+<text x="64" y="788" font-size="15" fill="#1a1a1a" font-weight="600">记忆的项目不在了</text>
+<text x="64" y="812" font-size="11.5" fill="#6b6b6b">上次用的目录被删或没权限</text>
+<rect x="64" y="844" width="442" height="40" rx="9" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="78" y="869" font-size="12" fill="#1a1a1a" font-weight="600">本机 / alpha ▾</text>
+<text x="64" y="912" font-size="11" fill="#b42318">上次的项目不在了 · 已回到本机</text>
+<text x="64" y="936" font-size="11" fill="#6b6b6b">不静默换到另一台机器，也不清空提示词。</text>
+<text x="64" y="958" font-size="11.5" fill="#1f6feb">重新选项目 →</text>
+
+<rect x="554" y="748" width="490" height="300" rx="12" fill="#ffffff" stroke="#d8d8dd"/>
+<text x="578" y="788" font-size="15" fill="#1a1a1a" font-weight="600">创建失败</text>
+<text x="578" y="812" font-size="11.5" fill="#6b6b6b">点「开始」之后，创建请求失败</text>
+<rect x="578" y="844" width="442" height="54" rx="9" fill="#fff1f0" stroke="#f0b4ae"/>
+<text x="592" y="866" font-size="11.5" fill="#b42318">创建失败：节点没有响应</text>
+<text x="592" y="886" font-size="11" fill="#b42318">提示词还在，可以重试。</text>
+<rect x="578" y="912" width="110" height="32" rx="8" fill="#1f6feb"/>
+<text x="633" y="932" font-size="11.5" fill="#ffffff" text-anchor="middle">重试</text>
+<text x="578" y="976" font-size="11" fill="#6b6b6b">留在新建页，不进入一个空对话；提示词不丢。</text>
+
+<rect x="1068" y="748" width="490" height="300" rx="12" fill="#ffffff" stroke="#d8d8dd"/>
+<text x="1092" y="788" font-size="15" fill="#1a1a1a" font-weight="600">草稿 / 开始之后</text>
+<text x="1092" y="812" font-size="11.5" fill="#6b6b6b">离开再回来，或已经进入对话页</text>
+<rect x="1092" y="844" width="442" height="40" rx="9" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="1106" y="869" font-size="12" fill="#1a1a1a">草稿：还没开始 · 内容保留</text>
+<rect x="1092" y="894" width="442" height="40" rx="9" fill="#eef3ff" stroke="#1f6feb"/>
+<text x="1106" y="919" font-size="12" fill="#1f6feb">已开始 → 对话页 · 第一条正在运行</text>
+<text x="1092" y="962" font-size="11" fill="#6b6b6b">新建页不留在历史里；回来直接回到这段对话。</text>
+<text x="1092" y="984" font-size="11" fill="#6b6b6b">标题先显示提示词前几个字，跑完再变成生成的标题。</text>
+
+<text x="40" y="1072" font-size="11.5" fill="#6b6b6b">状态都用文字说明；「开始」只在真有条件时可用，禁用时写出原因与下一步。</text>
+</g>
+</svg>
