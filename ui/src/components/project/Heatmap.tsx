@@ -1,5 +1,6 @@
 import type { PulseDay } from "../../api/client";
 import { HEAT_CELL_RING, HEAT_RAMP } from "../../design/heat";
+import { useT } from "../../i18n/react";
 
 type Props = {
   days: PulseDay[] | undefined;
@@ -29,6 +30,7 @@ function level(count: number, maxCount: number): number {
  * Compact contribution-style heatmap for session or commit activity.
  */
 export default function Heatmap({ days, title, max = 90 }: Props) {
+  const tr = useT();
   const data = (days ?? []).slice(-max);
   const maxCount = data.reduce((m, d) => Math.max(m, d.count), 0);
   const total = data.reduce((s, d) => s + d.count, 0);
@@ -46,7 +48,7 @@ export default function Heatmap({ days, title, max = 90 }: Props) {
           {title}
         </div>
         <div className="text-caption text-kin-muted tabular-nums">
-          {total} · max {maxCount || 0}/day
+          {tr("common.maxPerDay", { total, max: maxCount || 0 })}
         </div>
       </div>
       <div className="overflow-x-auto kin-scroll">
@@ -77,7 +79,7 @@ export default function Heatmap({ days, title, max = 90 }: Props) {
         </div>
       </div>
       <div className="mt-1.5 flex items-center gap-1 text-micro text-kin-muted">
-        <span>Less</span>
+        <span>{tr("common.less")}</span>
         {HEAT_RAMP.map((c, i) => (
           <span
             key={i}
@@ -85,8 +87,10 @@ export default function Heatmap({ days, title, max = 90 }: Props) {
             style={{ width: 10, height: 10, background: c }}
           />
         ))}
-        <span>More</span>
-        <span className="ml-auto tabular-nums opacity-70">{cols}w</span>
+        <span>{tr("common.more")}</span>
+        <span className="ml-auto tabular-nums opacity-70">
+          {tr("common.weeks", { count: cols })}
+        </span>
       </div>
     </div>
   );

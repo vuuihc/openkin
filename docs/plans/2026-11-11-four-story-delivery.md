@@ -1,12 +1,12 @@
 # 四条故事交付 · 2026-11-11
 
-状态：**进行中 · 第 1 条（KIN-PROJECT-001）**。一次交付一条，每条走完整完成门；本文件是四条故事的唯一进度表。
+状态：**进行中 · 第 1 条已交付（KIN-PROJECT-001），第 2 条未开始**。一次交付一条，每条走完整完成门；本文件是四条故事的唯一进度表。
 
 ## 现在的位置
 
 | 顺序 | 故事 | 状态 | 证据 |
 |---|---|---|---|
-| 1 | `KIN-PROJECT-001` 项目封面 | 进行中 | — |
+| 1 | `KIN-PROJECT-001` 项目封面 | 已交付（covered） | 6 个测试文件 / 84 例；`check.sh` 14 项绿；13/13 mutant 红；1100 / 390 截图（本地临时文件） |
 | 2 | `KIN-AGENTS-001` Agent 运维 | 未开始 | 合同 / 审阅页 / 5 帧已签 |
 | 3 | `KIN-ROUTINE-001` 例行任务 | 未开始 | 合同 / 审阅页 / 5 帧已签 |
 | 4 | `KIN-START-001` 新建对话 | 已签字，未开始 | 合同 / 审阅页 / 5 帧已签（2026-11-11） |
@@ -23,9 +23,9 @@
 - 没有「对话」tab；最近活动只放最近一段对话的入口，更早的对话回列表按项目找。
 - 空项目、加载、概览读不到、项目不存在、离线、摘要编辑中 / 冲突各有文字与下一步。
 
-现在：`ui/src/pages/ProjectDetailPage.tsx` 与 `ui/src/components/project/` 已有封面骨架；本轮按合同收口，删掉或改掉与「唯一列表」冲突的部分。
+现在：`ProjectDetailPage.tsx` 单面化完成——去掉「对话」tab 与第二份列表，最近活动只保留一行；摘要编辑 `Current Focus` 并处理 409；pulse 固定两周；例行任务只读并链到 `/routines`；项目记录、One-Pager、pulse、活动、例行任务各自失败、各自保留上次结果；离线时先画缓存。`KIN-PROJECT-001.md` 已置 `covered`。
 
-验证：`ui/src/lib/projectChats.test.ts`、`ui/src/pages/projectChatsWiring.test.ts` 扩充；1100 / 390 截图对照；`check.sh`；两个状态守卫各一个 mutant。
+验证：`ProjectDetailPage.dom.test.tsx`（23，新）、`projectChatsWiring.test.ts`（17）、`projectChats.test.ts`（25）、`onePagerSummary.test.ts`（10，新）、`projectCoverCache.test.ts`（5，新）、`projectScroll.test.ts`（4，新）；`check.sh` 14 项全绿；13/13 mutant 红；1100 / 390 截图对照。复审的 1 blocker / 13 major 全部修复并红验证；剩余风险记在故事「已知限制」（浏览器 Back 未拦截、operatorOnly 写接口）。
 
 ## 2. KIN-AGENTS-001 · Agent 运维
 
@@ -75,7 +75,7 @@
 
 | 故事 | 文件 / 净行 | 测试 | 提交 | 复审 |
 |---|---|---|---|---|
-| PROJECT | — | — | — | — |
+| PROJECT | 18 文件，+2571 / −842（含文档与 `web/dist/index.html`） | 6 文件 / 84 例；新增 3 个测试文件 | 1（待填 SHA） | 1 blocker + 13 major + 17 nit；全部 blocker/major 修复，13/13 mutant 红 |
 | AGENTS | — | — | — | — |
 | ROUTINE | — | — | — | — |
 | START | — | — | — | — |

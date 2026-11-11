@@ -275,7 +275,7 @@
     },
     {
       "id": "KIN-PROJECT-001",
-      "state": "approved",
+      "state": "covered",
       "priority": "P1",
       "journeys": [
         "J4"
@@ -286,14 +286,23 @@
       ],
       "title": "一个项目的封面：看清这里发生过什么，并从这里继续",
       "file": "docs/product/stories/KIN-PROJECT-001.md",
-      "surface": "",
+      "surface": "Mac 项目封面 / 手机项目封面",
       "ownerPaths": [
         "ui/src/pages/ProjectDetailPage.tsx",
         "ui/src/lib/projectChats.ts",
+        "ui/src/lib/onePagerSummary.ts",
+        "ui/src/lib/projectCoverCache.ts",
+        "ui/src/lib/projectScroll.ts",
+        "ui/src/components/project/Heatmap.tsx",
         "ui/src/components/sessions/SessionList.tsx"
       ],
       "tests": [
-        "ui/src/lib/projectChats.test.ts"
+        "ui/src/pages/ProjectDetailPage.dom.test.tsx",
+        "ui/src/pages/projectChatsWiring.test.ts",
+        "ui/src/lib/projectChats.test.ts",
+        "ui/src/lib/onePagerSummary.test.ts",
+        "ui/src/lib/projectCoverCache.test.ts",
+        "ui/src/lib/projectScroll.test.ts"
       ],
       "blockedReason": null
     },

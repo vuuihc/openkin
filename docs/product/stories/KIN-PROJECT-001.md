@@ -1,6 +1,6 @@
 # KIN-PROJECT-001 · 一个项目的封面
 
-状态：approved
+状态：covered
 优先级：P1
 旅程：J4
 归属面：`IA.md`「项目」行（对话列表里的项目标题 → `/projects/:id`）
@@ -127,9 +127,21 @@
 ## 证据
 
 - 之前：`04-project-1280.png`、`20-project-1100.png`
-- 之后：交付时补
+- 之后（Vite 开发服务器连本机节点，`/browse`，2026-11-11）：
+  - 1100：两列（左：摘要 + 最近活动；右：两张两周热力图 + 例行任务）；没有「对话」tab 或第二份列表；最近活动只有一行；例行任务只读并链到 `/routines`；摘要编辑 → 保存中 → 已保存；409 时显示对方版本与「保留我的并覆盖 / 载入对方版本」。
+  - 390：单列，页头两行；卡片依次是摘要、最近活动、热力图、例行任务；「新建对话」在卡片之后占满宽度；热力图只在自己的容器里横向滚动。
+  - 失败与断线：pulse 失败只让热力图卡片显示「概览暂时读不到」+ 刷新，其余卡片照常；最近活动失败时错误条在最后一行之上并保留那一行与时间；One-Pager 缺失只让摘要为空，不把整页判成「项目不存在」；离线显示上次缓存的名字、路径、概览与「上次结果」时间。
+  - 截图为本地临时文件（`.tmp/project-1100.png`、`.tmp/project-390.png`、`.tmp/project-390-edit.png`、`.tmp/project-390-row.png`），未入库。
+- 验证：
+  - `./scripts/check.sh`：14 项全绿（gofmt、vet、gotest、probe、desktop-test、desktop-tsc、ui-test、ui-tsc、api-contract、api-coverage、shell-syntax、shell-test、python-syntax、stories）。
+  - `ProjectDetailPage.dom.test.tsx`（23 例，新）、`projectChatsWiring.test.ts`（17 例）、`projectChats.test.ts`（25 例）、`onePagerSummary.test.ts`（10 例，新）、`projectCoverCache.test.ts`（5 例，新）、`projectScroll.test.ts`（4 例，新）。
+  - 13 个 mutant 全部抓红（并逐字节还原）：旧项目的慢读不能落在新路由、项目读取与 One-Pager 读取解耦、pulse 首次失败不再永远骨架、活动失败保留上一行、滚动位置等区块齐了再恢复、编辑基线不被重连推进、编辑框获得焦点、Esc 离页、⌘Enter 新建、草稿离开前确认、无可用 agent 时禁用新建、缓存首屏、未来提交时间。
+- 已知限制（未在本次范围内）：
+  - 浏览器 Back（popstate）没有拦截：项目用 `BrowserRouter`，6.28 的 `useBlocker` 需要 data router。页面内的返回、最近一行、新建、`/routines` 与卸载都有草稿确认；浏览器 Back 仍会直接离开。
+  - 服务端 `PUT /projects/{id}/one-pager` 与 `PATCH /projects` 是 operatorOnly，读项目是 holderOnly。保持现有权限模型不变；若 holder 能打开这个控制台，编辑与模式控件会 403。
 
 ## 变更记录
 
 - 2026-11-11 创建（R0b 补故事；只写合同，不写代码）
 - 2026-11-11 签字（D2 同意并去掉「对话」tab；D3、D4 同意）；同轮改合同、帧与审阅页
+- 2026-11-11 交付（covered）：封面单面化、最近活动一行、摘要编辑与冲突、两周 pulse、只读例行任务、独立失败态、离线缓存首屏、滚动恢复；复审 blocker/major 全部修复并红验证
