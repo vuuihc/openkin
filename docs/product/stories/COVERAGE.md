@@ -7,7 +7,7 @@
 |---|---|---|---|---|---|---|
 | `KIN-CONTINUE-001` | approved | P0 | J1、J2 | Mac/手机 | 接着问一段对话 | 26 |
 | `KIN-NOTIFY-001` | approved | P0 | J7 | Mac/手机 | 离开时被叫回来 | 14 |
-| `KIN-AGENTS-001` | approved | P1 | J6 | Mac/手机 | 机器上的 agent：装了什么、能不能用、用掉多少 | 4 |
+| `KIN-AGENTS-001` | covered | P1 | J6 | Mac/手机 | 机器上的 agent：装了什么、能不能用、用掉多少 | 7 |
 | `KIN-MANAGE-001` | draft | P1 | J5 | Mac/手机 | 整理一段对话 | 0 |
 | `KIN-PROJECT-001` | covered | P1 | J4 | Mac/手机 | 一个项目的封面：看清这里发生过什么，并从这里继续 | 6 |
 | `KIN-RESULT-001` | draft | P1 | J4 | Mac/手机 | 看它改了什么 | 0 |
@@ -18,4 +18,4 @@
 
 ## 汇总
 
-approved 6 · covered 1 · draft 3
+approved 5 · covered 2 · draft 3

@@ -57,6 +57,12 @@ export type SheetProps = {
    * run.
    */
   anyWidth?: boolean;
+  /**
+   * The desktop shape of a confirmation: at ≥768px, a wide centred dialog
+   * rather than the narrow bottom card `anyWidth` draws. The phone keeps the
+   * sheet. Same dismissal rules, same focus handling.
+   */
+  dialog?: boolean;
 };
 
 const FOCUSABLE =
@@ -115,6 +121,7 @@ export default function Sheet({
   className = "",
   bodyClassName = "",
   anyWidth = false,
+  dialog = false,
 }: SheetProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
@@ -431,7 +438,7 @@ export default function Sheet({
    * at ≥768px, so the breakpoint is not a reason to close it at all.
    */
   useEffect(() => {
-    if (!open || anyWidth) return;
+    if (!open || anyWidth || dialog) return;
     if (typeof window.matchMedia !== "function") return;
     const media = window.matchMedia("(min-width: 768px)");
     const onMediaChange = () => {
@@ -444,7 +451,7 @@ export default function Sheet({
     // until the next resize.
     onMediaChange();
     return () => media.removeEventListener?.("change", onMediaChange);
-  }, [open, anyWidth]);
+  }, [open, anyWidth, dialog]);
 
   if (!open) return null;
 
@@ -456,7 +463,8 @@ export default function Sheet({
       data-kin-sheet
       className={[
         "fixed inset-0 z-50 flex flex-col justify-end",
-        anyWidth ? "" : "md:hidden",
+        dialog ? "md:items-center md:justify-center" : "",
+        anyWidth || dialog ? "" : "md:hidden",
       ].join(" ")}
     >
       <button
@@ -486,9 +494,11 @@ export default function Sheet({
           "kin-sheet-surface relative z-10 flex max-h-[85dvh] flex-col rounded-t-2xl outline-none",
           gestureDriven ? "" : "kin-sheet-enter",
           "pb-[max(1rem,env(safe-area-inset-bottom))]",
-          anyWidth
-            ? "md:mx-auto md:mb-6 md:w-[min(28rem,calc(100vw-2rem))] md:self-center md:rounded-2xl"
-            : "",
+          dialog
+            ? "md:mx-auto md:my-0 md:w-[min(34rem,calc(100vw-2rem))] md:self-center md:rounded-2xl"
+            : anyWidth
+              ? "md:mx-auto md:mb-6 md:w-[min(28rem,calc(100vw-2rem))] md:self-center md:rounded-2xl"
+              : "",
           className,
         ].join(" ")}
         style={{
@@ -497,14 +507,16 @@ export default function Sheet({
         }}
       >
         <div ref={gripRef} className="flex-none" style={{ touchAction: "none" }}>
-          <div className="flex h-6 items-center justify-center">
+          {/* Only the grip belongs to the phone shape. Hiding this whole block
+              at md once removed the dialog's title with it. */}
+          <div className={`flex h-6 items-center justify-center ${dialog ? "md:hidden" : ""}`}>
             <div
               aria-hidden="true"
               className="h-[5px] w-9 rounded-full bg-[var(--kin-hairline-strong)]"
             />
           </div>
           {title ? (
-            <div className="flex-none px-4 pb-2 pt-1 text-center">
+            <div className={`flex-none px-4 pb-2 pt-1 text-center ${dialog ? "md:pt-5" : ""}`}>
               <h2 className="truncate text-subtitle font-semibold">{title}</h2>
               {subtitle ? (
                 <p className="mt-0.5 truncate text-caption text-kin-muted">{subtitle}</p>

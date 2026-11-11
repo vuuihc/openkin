@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { UsageRow } from "../api/client";
 import {
   cacheCoverageLabel,
   cacheRateLabel,
@@ -7,6 +8,7 @@ import {
   costSourceLabelKey,
   formatTokenCount,
   primaryCostSource,
+  summarizeUsage,
 } from "./usage";
 
 describe("usage helpers (KIN-AGENTS-001)", () => {
@@ -100,5 +102,62 @@ describe("contextFill", () => {
     // Negative and NaN counts are not measurements.
     expect(contextFill({ tokens: -5 }, 200_000)).toBeNull();
     expect(contextFill({ tokens: Number.NaN }, 200_000)).toBeNull();
+  });
+});
+
+describe("summarizeUsage (KIN-AGENTS-001)", () => {
+  function row(partial: Partial<UsageRow> = {}): UsageRow {
+    return {
+      date: "2026-11-10",
+      agent: "claude-code",
+      tasks: 2,
+      tokens_in: 100,
+      tokens_out: 50,
+      cost_usd: 0.25,
+      request_count: 3,
+      reasoning_output_tokens: 0,
+      cache_read_tokens: 40,
+      cache_write_tokens: 0,
+      cache_eligible_input_tokens: 100,
+      cache_hit_rate: 0.4,
+      cache_coverage: 1,
+      cache_status: "reported",
+      ...partial,
+    };
+  }
+
+  it("says an interval with no rows is empty, not zero-cost usage", () => {
+    const totals = summarizeUsage([]);
+    expect(totals.empty).toBe(true);
+    expect(totals.cost).toBe(0);
+    expect(totals.byDay).toEqual([]);
+    expect(summarizeUsage(null).empty).toBe(true);
+  });
+
+  it("adds the interval together and groups cost by day", () => {
+    const totals = summarizeUsage([
+      row({ date: "2026-11-10", cost_usd: 0.25, tasks: 2 }),
+      row({ date: "2026-11-09", cost_usd: 0.5, tasks: 1, agent: "codex" }),
+      row({ date: "2026-11-10", cost_usd: 0.25, tasks: 3, agent: "codex" }),
+    ]);
+    expect(totals.empty).toBe(false);
+    expect(totals.tasks).toBe(6);
+    expect(totals.cost).toBeCloseTo(1);
+    expect(totals.tokens).toBe(450);
+    expect(totals.cacheRead).toBe(120);
+    expect(totals.cacheEligible).toBe(300);
+    expect(totals.byDay).toEqual([
+      ["2026-11-09", 0.5],
+      ["2026-11-10", 0.5],
+    ]);
+    expect(totals.cacheStatus).toBe("reported");
+  });
+
+  it("reports mixed cache data rather than one agent's status", () => {
+    const totals = summarizeUsage([
+      row({ cache_status: "reported" }),
+      row({ cache_status: "unsupported", agent: "codex" }),
+    ]);
+    expect(totals.cacheStatus).toBe("mixed");
   });
 });

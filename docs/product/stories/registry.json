@@ -308,7 +308,7 @@
     },
     {
       "id": "KIN-AGENTS-001",
-      "state": "approved",
+      "state": "covered",
       "priority": "P1",
       "journeys": [
         "J6"
@@ -325,13 +325,17 @@
         "ui/src/lib/agentCatalog.ts",
         "ui/src/lib/agentFamilies.ts",
         "ui/src/lib/agentLimits.ts",
+        "ui/src/lib/agentPageState.ts",
         "ui/src/lib/agentSessionImport.ts",
         "ui/src/lib/usage.ts",
         "internal/adapter/detect/skills_catalog.go"
       ],
       "tests": [
+        "ui/src/pages/AgentsPage.dom.test.tsx",
         "ui/src/lib/agentCatalog.test.ts",
         "ui/src/lib/agentLimits.test.ts",
+        "ui/src/lib/agentPageState.test.ts",
+        "ui/src/lib/agentFamilies.test.ts",
         "ui/src/lib/usage.test.ts",
         "ui/src/lib/agentSessionImport.test.ts"
       ],

@@ -4,6 +4,8 @@ import {
   agentLimitStatus,
   formatLimitLabel,
   combinedStatus,
+  quotaWait,
+  waitParts,
   type AgentLimitProgressResult,
 } from "./agentLimits";
 import { formatCost } from "../api/client";
@@ -86,6 +88,46 @@ describe("agentLimits helpers (KIN-AGENTS-001)", () => {
       expect(combinedStatus("over", "warn")).toBe("over");
       // both ok → ok
       expect(combinedStatus("ok", "ok")).toBe("ok");
+    });
+  });
+
+  describe("quotaWait", () => {
+    const dayStart = new Date(2026, 10, 11, 0, 0, 0);
+    const periodStart = dayStart.toISOString();
+    const now = new Date(2026, 10, 11, 10, 12, 0).getTime();
+
+    it("counts how long this console has watched an over-limit agent wait", () => {
+      const wait = quotaWait(
+        { status: "over", period_start: periodStart },
+        now - 12 * 60_000,
+        now,
+      );
+      expect(wait.waiting).toBe(true);
+      expect(wait.elapsedMs).toBe(12 * 60_000);
+      // Recovery is the next turn of the daily period.
+      expect(wait.recoveryAt).toBe(new Date(2026, 10, 12, 0, 0, 0).getTime());
+    });
+
+    it("has no duration before the console has ever seen it waiting", () => {
+      const wait = quotaWait({ status: "over", period_start: periodStart }, null, now);
+      expect(wait.waiting).toBe(true);
+      expect(wait.elapsedMs).toBeNull();
+      expect(wait.recoveryAt).not.toBeNull();
+    });
+
+    it("is not waiting below the limit", () => {
+      expect(quotaWait({ status: "warn", period_start: periodStart }, now, now)).toEqual({
+        waiting: false,
+        elapsedMs: null,
+        recoveryAt: null,
+      });
+      expect(quotaWait(null, now, now).waiting).toBe(false);
+    });
+
+    it("splits a duration into the two units the label needs", () => {
+      expect(waitParts(0)).toEqual({ hours: 0, minutes: 0 });
+      expect(waitParts(12 * 60_000 + 59_000)).toEqual({ hours: 0, minutes: 12 });
+      expect(waitParts((65 * 60 + 5) * 1000)).toEqual({ hours: 1, minutes: 5 });
     });
   });
 });
