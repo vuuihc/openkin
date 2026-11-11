@@ -6,7 +6,7 @@
 <rect y="10" width="1100" height="22" fill="#f0f0f0"/>
 <line x1="0" y1="32" x2="1100" y2="32" stroke="#dddddd"/>
 <text x="12" y="21" font-size="12" fill="#555">Mac 1100×760 · 新建对话（KIN-START-001）</text>
-<text x="1088" y="21" font-size="11" fill="#6b6b6b" text-anchor="end">写 → 在哪儿跑 → 怎么跑 → 开始</text>
+<text x="1088" y="21" font-size="11" fill="#6b6b6b" text-anchor="end">居中输入卡：写 → 开始；项目在卡下</text>
 
 <rect x="0" y="32" width="300" height="728" fill="#fbfbfb"/>
 <line x1="300" y1="32" x2="300" y2="760" stroke="#e3e3e3"/>
@@ -23,45 +23,28 @@
 <text x="24" y="299" font-size="11.5" fill="#444">beta</text>
 <text x="20" y="736" font-size="11" fill="#6b6b6b">导入 · 归档 · 设置</text>
 
-<text x="324" y="74" font-size="20" fill="#1a1a1a" font-weight="600">新建对话</text>
-<text x="324" y="96" font-size="12" fill="#6b6b6b">写给 Kin 的第一句；在哪儿跑、怎么跑，都在这一屏定</text>
-<text x="1076" y="74" font-size="11" fill="#6b6b6b" text-anchor="end">草稿自动保留，直到开始或清空</text>
+<text x="324" y="72" font-size="12" fill="#6b6b6b">新建对话 · 草稿自动保留</text>
+<text x="700" y="186" font-size="26" fill="#1a1a1a" font-weight="600" text-anchor="middle">想让 Kin 做什么？</text>
+<text x="700" y="214" font-size="12" fill="#6b6b6b" text-anchor="middle">写一句，选好，开始；其余沿用上次的选择。</text>
 
-<rect x="324" y="116" width="752" height="42" rx="10" fill="#ffffff" stroke="#c4c4c4"/>
-<text x="336" y="142" font-size="11.5" fill="#6b6b6b">② 设备 · 项目</text>
-<text x="438" y="143" font-size="13" fill="#1a1a1a" font-weight="600">本机 / alpha</text>
-<text x="1060" y="141" font-size="12" fill="#1f6feb" text-anchor="end">更换 ▾</text>
-<text x="324" y="178" font-size="11" fill="#999">在哪儿跑：机器 + 项目（工作目录）；点开先选机器，再选它上面的项目。</text>
+<rect x="380" y="238" width="640" height="180" rx="16" fill="#ffffff" stroke="#1f6feb"/>
+<text x="404" y="274" font-size="13.5" fill="#555">把这周的发布说明整理成一页，</text>
+<text x="404" y="298" font-size="13.5" fill="#555">标出需要我确认的三项。</text>
+<text x="404" y="326" font-size="11" fill="#999">⌘Enter 开始；只有空白字符也算空，开始按钮不可点。</text>
+<line x1="404" y1="352" x2="996" y2="352" stroke="#eeeeee"/>
+<rect x="396" y="368" width="92" height="32" rx="16" fill="#f6f6f8" stroke="#dddddd"/>
+<text x="442" y="389" font-size="11.5" fill="#1a1a1a" text-anchor="middle">只读 ▾</text>
+<text x="900" y="389" font-size="12" fill="#1a1a1a" text-anchor="end">Claude Code · 默认模型 ▾</text>
+<rect x="932" y="364" width="66" height="34" rx="17" fill="#1f6feb"/>
+<text x="965" y="386" font-size="12" fill="#ffffff" text-anchor="middle">开始</text>
 
-<rect x="324" y="196" width="470" height="280" rx="10" fill="#ffffff" stroke="#c4c4c4"/>
-<text x="340" y="222" font-size="11.5" fill="#1f6feb" font-weight="600">① 写提示词</text>
-<text x="340" y="254" font-size="13.5" fill="#555">把这周的发布说明整理成一页，</text>
-<text x="340" y="278" font-size="13.5" fill="#555">标出需要我确认的三项。</text>
-<line x1="340" y1="438" x2="778" y2="438" stroke="#eeeeee"/>
-<text x="340" y="458" font-size="11" fill="#999">⌘Enter 开始；只有空白字符也算空，主按钮不可点。</text>
+<rect x="380" y="436" width="640" height="42" rx="12" fill="#f6f6f8"/>
+<path d="M400 451h11l4 4h9v12h-24z" fill="none" stroke="#6b6b6b" stroke-linejoin="round"/>
+<text x="424" y="462" font-size="12.5" fill="#1a1a1a" font-weight="600">本机 · alpha</text>
+<text x="1000" y="461" font-size="12" fill="#1f6feb" text-anchor="end">更换 ▾</text>
 
-<rect x="818" y="196" width="258" height="340" rx="10" fill="#ffffff" stroke="#c4c4c4"/>
-<text x="834" y="222" font-size="11.5" fill="#1f6feb" font-weight="600">③ 运行设置</text>
-<text x="834" y="252" font-size="11.5" fill="#6b6b6b">Agent</text>
-<rect x="834" y="260" width="226" height="34" rx="8" fill="#ffffff" stroke="#bbbbbb"/>
-<text x="848" y="282" font-size="12.5" fill="#1a1a1a">Claude Code ▾</text>
-<text x="834" y="310" font-size="11" fill="#999">这台机器可用 · 已登录</text>
-<line x1="834" y1="322" x2="1060" y2="322" stroke="#eeeeee"/>
-<text x="834" y="346" font-size="11.5" fill="#6b6b6b">模型</text>
-<rect x="834" y="354" width="226" height="34" rx="8" fill="#ffffff" stroke="#bbbbbb"/>
-<text x="848" y="376" font-size="12.5" fill="#1a1a1a">默认模型 ▾</text>
-<text x="834" y="404" font-size="11" fill="#999">属于 Claude Code；换 agent 就换一列</text>
-<line x1="834" y1="416" x2="1060" y2="416" stroke="#eeeeee"/>
-<text x="834" y="440" font-size="11.5" fill="#6b6b6b">权限</text>
-<rect x="834" y="448" width="226" height="34" rx="8" fill="#ffffff" stroke="#bbbbbb"/>
-<text x="848" y="470" font-size="12.5" fill="#1a1a1a">只读 ▾</text>
-<text x="834" y="498" font-size="11" fill="#999">能看能搜，不改文件</text>
-<text x="834" y="520" font-size="11" fill="#999">换设备后按那台机器收敛</text>
-
-<rect x="818" y="556" width="258" height="40" rx="10" fill="#1f6feb"/>
-<text x="947" y="581" font-size="13" fill="#ffffff" text-anchor="middle">开始</text>
-<text x="818" y="616" font-size="11" fill="#6b6b6b">⌘Enter 也能开始</text>
-<text x="324" y="700" font-size="11.5" fill="#6b6b6b">没有可用 agent、机器离线或断线时，「开始」禁用并就地说明原因；提示词不丢。</text>
+<text x="700" y="510" font-size="11" fill="#6b6b6b" text-anchor="middle">项目在卡下单独一条：先选机器，再选它上面的项目；换机器后 agent 列表跟着换。</text>
+<text x="700" y="532" font-size="11" fill="#999" text-anchor="middle">没有可用 agent、机器离线或断线时，「开始」禁用并就地说明原因；提示词不丢。</text>
 <rect x="0.5" y="0.5" width="1099" height="759" fill="none" rx="10" stroke="#bbbbbb"/>
 </g>
 </svg>

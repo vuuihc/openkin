@@ -10,31 +10,31 @@
 <rect x="12" y="36" width="44" height="44" rx="12" fill="#ffffff"/>
 <text x="34" y="64" font-size="16" fill="#1a1a1a" text-anchor="middle">✕</text>
 <text x="68" y="56" font-size="17" fill="#1a1a1a" font-weight="600">新建对话</text>
-<text x="68" y="76" font-size="11.5" fill="#6b6b6b">写 → 在哪儿跑 → 怎么跑 → 开始</text>
+<text x="68" y="76" font-size="11.5" fill="#6b6b6b">草稿自动保留</text>
 
-<text x="16" y="108" font-size="11.5" fill="#1f6feb" font-weight="600">① 写提示词</text>
-<rect x="16" y="116" width="358" height="250" rx="10" fill="#ffffff" stroke="#c4c4c4"/>
-<text x="30" y="148" font-size="12.5" fill="#555">把这周的发布说明整理成一页，</text>
-<text x="30" y="172" font-size="12.5" fill="#555">标出需要我确认的三项。</text>
-<line x1="30" y1="326" x2="360" y2="326" stroke="#eeeeee"/>
-<text x="30" y="346" font-size="10.5" fill="#999">外接键盘 ⌘Enter 也能开始；不自动弹键盘</text>
+<text x="195" y="210" font-size="20" fill="#1a1a1a" font-weight="600" text-anchor="middle">想让 Kin 做什么？</text>
+<text x="195" y="234" font-size="11.5" fill="#6b6b6b" text-anchor="middle">写一句，选好，开始；其余沿用上次。</text>
 
-<text x="16" y="396" font-size="11.5" fill="#6b6b6b">② 在哪儿跑</text>
-<rect x="16" y="404" width="358" height="52" rx="10" fill="#ffffff" stroke="#bbbbbb"/>
-<text x="30" y="428" font-size="12.5" fill="#1a1a1a" font-weight="600">本机 / alpha ▾</text>
-<text x="30" y="446" font-size="10.5" fill="#6b6b6b">机器 + 项目；点开先选机器，再选它上面的项目</text>
+<rect x="16" y="252" width="358" height="190" rx="16" fill="#ffffff" stroke="#1f6feb"/>
+<text x="30" y="288" font-size="12.5" fill="#555">把这周的发布说明整理成一页，</text>
+<text x="30" y="312" font-size="12.5" fill="#555">标出需要我确认的三项。</text>
+<text x="30" y="340" font-size="10.5" fill="#999">外接键盘 ⌘Enter 也能开始；不自动弹键盘</text>
+<line x1="30" y1="362" x2="360" y2="362" stroke="#eeeeee"/>
+<rect x="30" y="374" width="84" height="28" rx="14" fill="#f6f6f8" stroke="#dddddd"/>
+<text x="72" y="392" font-size="11" fill="#1a1a1a" text-anchor="middle">只读 ▾</text>
+<text x="292" y="392" font-size="11" fill="#1a1a1a" text-anchor="end">Claude Code · 默认模型 ▾</text>
+<rect x="302" y="370" width="58" height="32" rx="16" fill="#1f6feb"/>
+<text x="331" y="391" font-size="11" fill="#ffffff" text-anchor="middle">开始</text>
 
-<text x="16" y="484" font-size="11.5" fill="#6b6b6b">③ 怎么跑</text>
-<rect x="16" y="492" width="358" height="52" rx="10" fill="#ffffff" stroke="#bbbbbb"/>
-<text x="30" y="516" font-size="12.5" fill="#1a1a1a">Claude Code · 默认模型 · 只读 ▾</text>
-<text x="30" y="534" font-size="10.5" fill="#6b6b6b">点开改 agent / 模型 / 权限（底部面板）</text>
+<rect x="16" y="462" width="358" height="44" rx="12" fill="#f6f6f8"/>
+<path d="M30 477h11l4 4h9v14h-24z" fill="none" stroke="#6b6b6b" stroke-linejoin="round"/>
+<text x="54" y="489" font-size="12.5" fill="#1a1a1a" font-weight="600">本机 · alpha</text>
+<text x="360" y="488" font-size="11.5" fill="#1f6feb" text-anchor="end">更换 ▾</text>
 
-<text x="16" y="574" font-size="11" fill="#6b6b6b">草稿保留；开始后进入对话页，新建页不留在历史里。</text>
-<text x="16" y="596" font-size="11" fill="#999">空内容、离线、没有可用 agent 时，「开始」禁用并说明。</text>
-
-<rect x="16" y="722" width="358" height="46" rx="12" fill="#1f6feb"/>
-<text x="195" y="750" font-size="14" fill="#ffffff" text-anchor="middle">开始</text>
-<text x="195" y="800" font-size="10.5" fill="#6b6b6b" text-anchor="middle">选择器都从底部弹出，不把页面撑高</text>
+<text x="16" y="538" font-size="11" fill="#6b6b6b">项目在卡下单独一条：先选机器，再选它上面的项目。</text>
+<text x="16" y="560" font-size="11" fill="#6b6b6b">换机器后 agent 列表跟着换；草稿保留。</text>
+<text x="16" y="582" font-size="11" fill="#6b6b6b">开始后进入对话页，新建页不留在历史里。</text>
+<text x="16" y="604" font-size="11" fill="#999">空内容、离线、没有可用 agent 时，「开始」禁用并说明。</text>
 <rect x="0.5" y="0.5" width="389" height="843" fill="none" rx="24" stroke="#bbbbbb"/>
 </g>
 </svg>

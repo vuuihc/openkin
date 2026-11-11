@@ -182,12 +182,12 @@
 <main class="page">
 
   <header>
-    <div class="eyebrow">Figma 审阅版 · 待签字 · 4 个决定</div>
+    <div class="eyebrow">Figma 审阅版 · 已按回复重画 · 待确认</div>
     <h1>KIN-START-001 · 新建一段对话 <small>Figma 设计稿 · Mac 与手机</small></h1>
     <p class="meta">draft · 面：Mac / 手机 · 对照 <code>KIN-START-001.md</code></p>
     <p class="meta">2026 年 11 月 11 日 · 5 屏 · 9 个状态</p>
     <div class="tags">
-      <span class="pill draft">draft · 待签字</span>
+      <span class="pill draft">draft · 重画待确认</span>
       <span class="pill plain">旅程 J3</span>
       <span class="pill plain">Mac / 手机</span>
       <span class="pill plain">P1</span>
@@ -205,7 +205,7 @@
       <li><strong>再看每一屏</strong>：先看 Figma 帧，再读帧下面六段用户流程（起点、动作、立刻看到、慢/空/失败/断线、键盘与焦点、离开再回来）。</li>
       <li><strong>最后回决定</strong>：D1–D4 每条都有推荐和代价；只回不同意的编号，页尾有回复模板。</li>
     </ol>
-    <p class="note">这是第一次发给你的签字页；合同里 2026-11-11 已把「设备 · 项目」从输入框下方挪成标题下独立一条，帧按这一版画。</p>
+    <p class="note">2026-11-11 的回复：D1 不同意，改成参考 Codex 的居中输入卡；D2 也参考 Codex，项目入口放在卡下一条；D3、D4 同意。这一版 5 张帧和下面的流程已按这个方向重画，确认后才签字。</p>
   </section>
 
   <nav class="toc" aria-label="页内导航">
@@ -253,7 +253,7 @@
     <ul class="bullets">
       <li><strong>为什么是独立意图：</strong>新建的起点是空的：没有标题、没有历史、没有可复用的上下文。接着问从已有对话开始，项目封面从已有项目开始，三者的空状态和第一屏都不一样。</li>
       <li><strong>为什么不并进相邻故事：</strong>CONTINUE 不定义空输入与草稿；PROJECT 只回答「这个项目最近发生了什么」；SETTINGS 管默认值，不管这一次选什么；ROUTINE 是到点自己跑，不是现在开始。</li>
-      <li><strong>设备只是差异：</strong>Mac 用窗口宽度左写右选，手机全屏按 写 → 在哪儿跑 → 怎么跑；运行设置复用同一个底部面板。不按设备拆故事。</li>
+      <li><strong>设备只是差异：</strong>Mac 和手机都是居中的一张输入卡：卡内写提示词、放权限与模型，卡下一条选设备与项目。Mac 的卡更宽、周围留白更多；手机的卡占满宽度，运行设置仍是底部面板。不按设备拆故事。</li>
       <li><strong>job map 覆盖：</strong>定义 / 打开（第 1 步）→ 准备（第 2 步）→ 定位（第 3 步）→ 修改（第 4 步）→ 执行（第 5 步）→ 收尾（第 6 步），六步都有帧和流程。</li>
       <li><strong>不在这一条：</strong>模板库、推荐提示词（不做）；接着问（CONTINUE）；项目封面的最近活动（PROJECT）；例行任务（ROUTINE）；默认值（SETTINGS）。</li>
       <li><strong>大小：</strong>5 屏（Mac 新建 / Mac 设备与项目 / 手机新建 / 手机运行设置 / 状态板）；一次交付，两个面都成立。</li>
@@ -274,9 +274,9 @@
       <div class="card after">
         <h3>之后</h3>
         <ul>
-          <li>Mac 左写右选：提示词一边，agent / 模型 / 权限同屏一列；主按钮只有一个「开始」。</li>
-          <li>「设备 · 项目」是标题下独立一条：先选机器，再选那台机器上的项目；换机器后 agent 列表跟着换。</li>
-          <li>手机全屏按 写 → 在哪儿跑 → 怎么跑 → 开始；运行设置是底部面板，和对话页同一个。</li>
+          <li>Mac 和手机都用一张居中的输入卡：卡内写提示词，底部一行放权限、agent / 模型与「开始」。</li>
+          <li>「设备 · 项目」是卡下单独一条：先选机器，再选那台机器上的项目；换机器后 agent 列表跟着换。</li>
+          <li>手机与 Mac 同一构图，只是卡更窄、留白更少；运行设置仍是底部面板，和对话页同一个。</li>
           <li>草稿保留到开始或清空；创建失败时留在新建页，提示词不丢。</li>
           <li>没有可用 agent、机器离线、断线时，「开始」禁用并就地说明原因。</li>
         </ul>
@@ -300,13 +300,13 @@
       <div class="screen-head">
         <div>
           <div class="eyebrow">01 · Mac · 1100×760</div>
-          <h3>Mac · 新建对话</h3>
+          <h3>Mac · 新建对话（居中输入卡）</h3>
         </div>
         <span class="pill plain">Figma 帧</span>
       </div>
       <figure class="frame fig-wide">
         <div class="frame-scroll" role="region" aria-label="Mac 新建对话的 Figma 帧" tabindex="0" data-start="300">
-          <img src="KIN-START-001.figma/frames/01-mac-new.svg" alt="Mac 新建对话：左栏是唯一的对话列表与「＋ 新建对话」；主区标题下一条「设备 · 项目」，左边写提示词，右边一列 Agent、模型、权限，底部一个「开始」" loading="lazy">
+          <img src="KIN-START-001.figma/frames/01-mac-new.svg" alt="Mac 新建对话：左栏是唯一的对话列表与「＋ 新建对话」；主区居中一句「想让 Kin 做什么？」，下面一张输入卡，卡底一行是权限、Agent 与模型和「开始」，卡下单独一条「本机 · alpha」" loading="lazy">
         </div>
         <figcaption>
           <span>1100×760 · Mac 帧 · 主区优先，左右滑动看完整</span>
@@ -315,12 +315,12 @@
       </figure>
       <h4>用户流程</h4>
       <ol class="flow">
-        <li><b>起点</b><span>Mac 任意页面点左栏顶部「＋ 新建对话」；新建页打开，焦点在提示词输入框，直接可以打字。</span></li>
-        <li><b>动作</b><span>写第一句；点「设备 · 项目」换机器或项目；在右侧三行选 agent、模型、权限；点「开始」或按 ⌘Enter。</span></li>
-        <li><b>立刻看到</b><span>一屏同时看到提示词、在哪儿跑、怎么跑；「设备 · 项目」显示「机器 / 项目」；每一行给一句后果；主按钮只有一个「开始」。</span></li>
-        <li><b>慢 / 空 / 失败 / 断线</b><span>机器列表加载时写「正在找机器…」；模型行显示当前值 +「加载中」；加载失败给重试且不清空已选；空内容、机器离线、没有可用 agent、断线时「开始」禁用并就地说明。</span></li>
-        <li><b>键盘与焦点</b><span>直接可打字；⌘Enter 开始；Tab 顺序是 写 → 设备 · 项目 → 三行 → 开始；每行 Esc 关闭并还焦点。</span></li>
-        <li><b>离开再回来</b><span>草稿保留；设备与项目按设备记住上次的项目；三行保留已选值。</span></li>
+        <li><b>起点</b><span>Mac 任意页面点左栏顶部「＋ 新建对话」；居中输入卡出现，焦点在提示词，直接可以打字。</span></li>
+        <li><b>动作</b><span>写第一句；在卡底一行改权限、agent / 模型；点卡下「本机 · alpha」换机器或项目；点「开始」或按 ⌘Enter。</span></li>
+        <li><b>立刻看到</b><span>一屏同时看到提示词、怎么跑、在哪儿跑；卡底一行是权限与「Agent · 模型」，右侧只有一个「开始」；卡下一条显示「机器 · 项目」。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>机器列表加载时项目条写「正在找机器…」；模型显示当前值 +「加载中」；加载失败给重试且不清空已选；空内容、机器离线、没有可用 agent、断线时「开始」禁用并就地说明。</span></li>
+        <li><b>键盘与焦点</b><span>直接可打字；⌘Enter 开始；Tab 顺序是 提示词 → 权限 → agent / 模型 → 开始 → 项目条；Esc 关闭弹层并还焦点。</span></li>
+        <li><b>离开再回来</b><span>草稿保留；设备与项目按设备记住上次的项目；权限与模型保留已选值。</span></li>
       </ol>
     </article>
 
@@ -334,16 +334,16 @@
       </div>
       <figure class="frame fig-wide">
         <div class="frame-scroll" role="region" aria-label="Mac 选择设备与项目弹层的 Figma 帧" tabindex="0" data-start="300">
-          <img src="KIN-START-001.figma/frames/02-mac-place-picker.svg" alt="Mac 选择设备与项目：从标题下那一条弹出，按机器分组列项目，本机 alpha 选中，另一台机器在线，NAS 标离线；底部可输入目录，提示方向键与 Enter、Esc" loading="lazy">
+          <img src="KIN-START-001.figma/frames/02-mac-place-picker.svg" alt="Mac 选择设备与项目：从输入卡下面的「本机 · alpha」一条向下展开，按机器分组列项目，本机 alpha 选中，另一台机器在线，NAS 标离线；底部可输入目录，提示方向键与 Enter、Esc" loading="lazy">
         </div>
         <figcaption>
-          <span>1100×760 · Mac 帧 · 弹层从这一条展开</span>
+          <span>1100×760 · Mac 帧 · 弹层从卡下这一条展开</span>
           <a href="KIN-START-001.figma/frames/02-mac-place-picker.svg">打开原图</a>
         </figcaption>
       </figure>
       <h4>用户流程</h4>
       <ol class="flow">
-        <li><b>起点</b><span>点标题下的「设备 · 项目」这一条；弹层展开，焦点在搜索框。</span></li>
+        <li><b>起点</b><span>点输入卡下的「本机 · alpha」这一条；弹层展开，焦点在搜索框。</span></li>
         <li><b>动作</b><span>搜索或 ↑/↓ 选机器，再选那台机器上的项目；也可以输入一个目录；Enter 确认，Esc 关闭。</span></li>
         <li><b>立刻看到</b><span>弹层按机器分组列项目，选中项打勾；这一条变成「机器 / 项目」；下面的 agent 列表跟着设备换。</span></li>
         <li><b>慢 / 空 / 失败 / 断线</b><span>机器列表加载写「正在找机器…」；离线机器标「离线」；机器上没有项目时给「输入目录…」；记住的项目不在了就回到本机并说明，不静默换到别的机器。</span></li>
@@ -362,7 +362,7 @@
       </div>
       <figure class="frame fig-phone">
         <div class="frame-scroll" role="region" aria-label="手机新建对话全屏的 Figma 帧" tabindex="0">
-          <img src="KIN-START-001.figma/frames/03-phone-new.svg" alt="手机新建对话：全屏，从上到下是提示词、设备与项目、运行设置三块，底部一个「开始」；不自动弹键盘" loading="lazy">
+          <img src="KIN-START-001.figma/frames/03-phone-new.svg" alt="手机新建对话：全屏居中一句「想让 Kin 做什么？」，下面一张输入卡，卡底一行是权限、Agent 与模型和「开始」，卡下一条「本机 · alpha」；不自动弹键盘" loading="lazy">
         </div>
         <figcaption>
           <span>390×844 · 手机帧</span>
@@ -371,11 +371,11 @@
       </figure>
       <h4>用户流程</h4>
       <ol class="flow">
-        <li><b>起点</b><span>手机列表页点主按钮「新建」；新建页全屏推入，不自动弹键盘。</span></li>
-        <li><b>动作</b><span>写提示词；点「本机 / alpha」选设备与项目；点「Claude Code · 默认模型 · 只读」打开底部运行设置；点「开始」。</span></li>
-        <li><b>立刻看到</b><span>三步从上到下，每块给一句后果；主按钮在底部，只有一个；选择器都从底部弹出，不撑高页面。</span></li>
-        <li><b>慢 / 空 / 失败 / 断线</b><span>空内容时主按钮禁用；机器离线、没有可用 agent、断线时禁用并说明；创建失败留在本页，提示词不丢。</span></li>
-        <li><b>键盘与焦点</b><span>外接键盘 ⌘Enter 开始；键盘不遮挡输入框；关闭面板后焦点回到那一行。</span></li>
+        <li><b>起点</b><span>手机列表页点主按钮「新建」；全屏居中输入卡出现，不自动弹键盘。</span></li>
+        <li><b>动作</b><span>写提示词；点卡底的权限或「Claude Code · 默认模型」打开底部运行设置；点卡下「本机 · alpha」选设备与项目；点「开始」。</span></li>
+        <li><b>立刻看到</b><span>一张卡装下提示词与怎么跑，卡下一条是在哪儿跑；「开始」在卡内右下，只有一个；选择器都从底部弹出，不撑高页面。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>空内容时「开始」禁用；机器离线、没有可用 agent、断线时禁用并说明；创建失败留在本页，提示词不丢。</span></li>
+        <li><b>键盘与焦点</b><span>外接键盘 ⌘Enter 开始；键盘不遮挡输入框；关闭面板后焦点回到卡底那一行。</span></li>
         <li><b>离开再回来</b><span>草稿与已选值都还在；开始后进入对话页，新建页不留在历史里。</span></li>
       </ol>
     </article>
@@ -399,11 +399,11 @@
       </figure>
       <h4>用户流程</h4>
       <ol class="flow">
-        <li><b>起点</b><span>点第三块「怎么跑」；底部面板滑上来，页面本身不跳。</span></li>
+        <li><b>起点</b><span>点卡底的权限或「Agent · 模型」；底部面板滑上来，页面本身不跳。</span></li>
         <li><b>动作</b><span>在面板里改 agent、模型、权限；选完自动关闭。</span></li>
         <li><b>立刻看到</b><span>三行同屏，每行是当前值加一句后果；换 agent 后模型列表跟着换。</span></li>
         <li><b>慢 / 空 / 失败 / 断线</b><span>模型加载中显示当前值 +「加载中」；加载失败给重试且不清空；模型不可用时说明原因，不静默回退。</span></li>
-        <li><b>键盘与焦点</b><span>外接键盘 ↑/↓ 选择、Enter 确认；Esc 关闭并把焦点还给「怎么跑」这一行。</span></li>
+        <li><b>键盘与焦点</b><span>外接键盘 ↑/↓ 选择、Enter 确认；Esc 关闭并把焦点还给卡底那一行。</span></li>
         <li><b>离开再回来</b><span>三行保留已选值；草稿还在。</span></li>
       </ol>
     </article>
@@ -436,25 +436,25 @@
 
   <section id="decisions">
     <h2>要你拍板的</h2>
-    <p class="note">每条都写推荐和代价；只回不同意的编号就行。已经拍过板的写「已定」，不再重复问。</p>
-    <div class="decision">
+    <p class="note">四条都已按 2026-11-11 的回复定下；这次只需确认重画后的帧与流程，页尾有回复模板。</p>
+    <div class="decision settled">
       <h3>D1 Mac 新建页用宽布局还是保持窄栏</h3>
-      <p class="rec"><strong>推荐：</strong>用上窗口宽度——左边写提示词，右边一列 agent / 模型 / 权限；窗口窄于 1000 时右列折到下方。这也是 <code>IA.md</code>「要改的 9 处」里已经写下的方向。</p>
-      <p class="tradeoff"><strong>代价：</strong>视线要在左右两栏之间横移；窄窗口需要一条折叠规则，不能两栏硬挤。</p>
+      <p class="rec"><strong>已定（2026-11-11，按 Codex 方向）：</strong>不用左右两栏。改成居中的一张输入卡：卡内写提示词，卡底一行放权限、agent / 模型与「开始」；更大的窗口只让卡周围留白更多，不把控件拉成两列。</p>
+      <p class="tradeoff"><strong>代价：</strong>卡内一行只放最常用的三项，其余设置仍进运行设置面板；好处是和手机同一构图，写与发的动作留在视线中央。</p>
     </div>
-    <div class="decision">
+    <div class="decision settled">
       <h3>D2 设备 · 项目放在哪</h3>
-      <p class="rec"><strong>推荐：</strong>标题下独立一条，点开先选机器、再选那台机器上的项目。它不放进运行设置面板，也不和模型 / 权限同一行。</p>
-      <p class="tradeoff"><strong>代价：</strong>多一行高度和一次弹层；换来「在哪儿跑」和「怎么跑」分开，换机器时不会误改模型。</p>
+      <p class="rec"><strong>已定（2026-11-11，按 Codex 方向）：</strong>输入卡下面单独一条，点开先选机器、再选那台机器上的项目；不放进输入卡，也不和模型 / 权限同一行。</p>
+      <p class="tradeoff"><strong>代价：</strong>多一条的高度和一次弹层；换来输入卡保持干净，「在哪儿跑」和「怎么跑」分开，换机器时不会误改模型。</p>
     </div>
-    <div class="decision">
+    <div class="decision settled">
       <h3>D3 开始之后停在哪</h3>
-      <p class="rec"><strong>推荐：</strong>立刻进入对话页，第一条已发出并显示「正在运行」；新建页不留在历史里。</p>
+      <p class="rec"><strong>已定（2026-11-11，同意）：</strong>立刻进入对话页，第一条已发出并显示「正在运行」；新建页不留在历史里。</p>
       <p class="tradeoff"><strong>代价：</strong>首轮失败要在对话页解释与重试；换来输入框马上可用，不用在新建页等结果。</p>
     </div>
-    <div class="decision">
+    <div class="decision settled">
       <h3>D4 草稿留多久</h3>
-      <p class="rec"><strong>推荐：</strong>离开保留，直到开始或手动清空；换设备后草稿仍在，但选择按新机器的能力收敛，并说明哪一项变了。</p>
+      <p class="rec"><strong>已定（2026-11-11，同意）：</strong>离开保留，直到开始或手动清空；换设备后草稿仍在，但选择按新机器的能力收敛，并说明哪一项变了。</p>
       <p class="tradeoff"><strong>代价：</strong>草稿可能过夜，需要一个明确的终点（开始 / 清空）；好处是误触返回不丢内容。</p>
     </div>
   </section>
@@ -462,18 +462,16 @@
   <section id="reply">
     <h2>回复模板</h2>
     <div class="card reply">
-      <p class="note">只回不同意的编号；全部同意就回「D1–D4 同意」。</p>
-      <pre>D1 同意
-D2 同意
-D3 同意
-D4 同意</pre>
+      <p class="note">签字时的实际回复（2026-11-11）：D1 不同意，参考 Codex；D2 参考 Codex；D3、D4 同意。本页已按这个回复重画，确认这一版后回复：</p>
+      <pre>确认重画，签字</pre>
+      <p class="note">若还有要改的，回「D1 再改：…」或「D2 再改：…」即可。</p>
     </div>
   </section>
 
   <section id="sign">
     <h2>签字</h2>
     <div class="card sign">
-      <p><strong>还未签字。</strong>收到回复后把 <code>KIN-START-001.md</code> 改为 <code>approved</code>，同步 <code>registry.json</code> / <code>COVERAGE.md</code> 与本页签字记录，再按这一版进入交付队列。</p>
+      <p><strong>还未签字。</strong>D1 / D2 已按 2026-11-11 的回复重画成 Codex 式居中输入卡与卡下项目条，D3 / D4 已同意；请确认这一版。确认后把 <code>KIN-START-001.md</code> 改为 <code>approved</code>，同步 <code>registry.json</code> / <code>COVERAGE.md</code> 与本页签字记录，再按这一版进入交付队列。</p>
       <p class="note">Figma 帧或流程再改会重新发这一页；设计源始终是 <code>KIN-START-001.figma/frames/</code> 里的 SVG 帧和本页的流程。</p>
     </div>
   </section>
