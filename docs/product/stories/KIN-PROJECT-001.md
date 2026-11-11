@@ -131,7 +131,7 @@
   - 1100：两列（左：摘要 + 最近活动；右：两张两周热力图 + 例行任务）；没有「对话」tab 或第二份列表；最近活动只有一行；例行任务只读并链到 `/routines`；摘要编辑 → 保存中 → 已保存；409 时显示对方版本与「保留我的并覆盖 / 载入对方版本」。
   - 390：单列，页头两行；卡片依次是摘要、最近活动、热力图、例行任务；「新建对话」在卡片之后占满宽度；热力图只在自己的容器里横向滚动。
   - 失败与断线：pulse 失败只让热力图卡片显示「概览暂时读不到」+ 刷新，其余卡片照常；最近活动失败时错误条在最后一行之上并保留那一行与时间；One-Pager 缺失只让摘要为空，不把整页判成「项目不存在」；离线显示上次缓存的名字、路径、概览与「上次结果」时间。
-  - 截图为本地临时文件（`.tmp/project-1100.png`、`.tmp/project-390.png`、`.tmp/project-390-edit.png`、`.tmp/project-390-row.png`），未入库。
+  - 截图为本地临时文件（`.tmp/project-1100.png`、`.tmp/project-390.png`、`.tmp/project-390-edit.png`、`.tmp/project-390-row.png`），未入库；取自实现完成时。复审后的最后一轮只改文案、标题语义与错误条位置，可见布局不变，失败态由 DOM 测试钉住。
 - 验证：
   - `./scripts/check.sh`：14 项全绿（gofmt、vet、gotest、probe、desktop-test、desktop-tsc、ui-test、ui-tsc、api-contract、api-coverage、shell-syntax、shell-test、python-syntax、stories）。
   - `ProjectDetailPage.dom.test.tsx`（23 例，新）、`projectChatsWiring.test.ts`（17 例）、`projectChats.test.ts`（25 例）、`onePagerSummary.test.ts`（10 例，新）、`projectCoverCache.test.ts`（5 例，新）、`projectScroll.test.ts`（4 例，新）。

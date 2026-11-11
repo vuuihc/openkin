@@ -27,6 +27,8 @@
 
 验证：`ProjectDetailPage.dom.test.tsx`（23，新）、`projectChatsWiring.test.ts`（17）、`projectChats.test.ts`（25）、`onePagerSummary.test.ts`（10，新）、`projectCoverCache.test.ts`（5，新）、`projectScroll.test.ts`（4，新）；`check.sh` 14 项全绿；13/13 mutant 红；1100 / 390 截图对照。复审的 1 blocker / 13 major 全部修复并红验证；剩余风险记在故事「已知限制」（浏览器 Back 未拦截、operatorOnly 写接口）。
 
+落地：`53667935` 已快进 `main`；`./scripts/desktop-rebuild.sh` 重建并重启桌面；Hub 镜像已重新部署到 NAS（线上 entry chunk `index-CWu6gfcA.js` 与本地一致，容器 healthy）。
+
 ## 2. KIN-AGENTS-001 · Agent 运维
 
 范围（合同 `docs/product/stories/KIN-AGENTS-001.md`）：
