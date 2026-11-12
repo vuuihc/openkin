@@ -82,25 +82,6 @@ person can see; the fix and its verification belong in the PR.
 重启后 gap sweep 记录与调度仍存在；连续两次真实运行无重复任务、无 token 超限错误；
 `./scripts/check.sh` 与 `./scripts/smoke.sh` 绿。
 
-### 2026-11-12 · 中 · 对话内容加载时整片空白，缺少等待反馈
-
-打开已有对话、内容尚在加载时，对话内容区域是一片空白，看不出正在载入，也无法
-区分「正在加载」与「没有消息」。
-
-期望（可直接写成测试）：仅在已有对话的内容加载期间，于消息区域显示居中的
-iOS 经典转圈 loading（activity indicator）；加载成功后移除并显示消息，加载失败
-时移除并显示现有错误状态；已有输入框、页头等布局保持稳定，不新增遮挡或布局跳动。
-沿用现有 Kin loading 样式与 `prefers-reduced-motion` 约束，不引入大型 spinner
-依赖。
-
-不要：用整页骨架屏代替内容区等待反馈；加载完成后继续保留转圈。
-
-待定：若报告人指的是首次进入应用时的对话恢复，而非打开已有对话，需要指出具体
-入口。线索：`ui/src/pages/TaskSessionHost.tsx`、
-`ui/src/pages/TaskDetailPage.tsx`、`ui/src/components/Skeleton.tsx` 及现有 loading
-组件。验收：内容加载中转圈可见，成功 / 失败后消失；390px 下输入框和页头位置不变；
-`./scripts/check.sh` 绿。
-
 ### 2026-11-12 · 中 · 应用启动骨架屏动效不好看，应改为品牌 icon 展示
 
 当前应用启动阶段展示骨架屏动效，视觉上不好看；启动等待不应模拟尚未加载出来的
@@ -219,6 +200,7 @@ IA 已经定了对话列表是“设备 → 项目 → 对话”三级（`docs/p
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
 
+- 2026-11-12 · 对话内容加载时整片空白，缺少等待反馈 — PR #43（detail 返回前在内容区居中显示 `IconSpinner`，`role="status"` + `common.loading`，reduced-motion 停转；成功 / 失败后卸载并保留原错误状态；cold-load 单测 5 passed，check.sh 除已知 PanelSurface 抖动外全绿）
 - 2026-11-12 · 手机新建对话时 Agent 与模型名称被截断，无法确认当前选择 — PR #42（运行设置 face 改为两行：Agent 名称 + 模型 · 权限；face、选择面板当前值和选项都不再截断，长名称换行完整显示；320/390/1100px 截图与长名称无横向溢出验证，check.sh 全绿）
 - 2026-11-12 · 大对话首屏仍预取 200 条 / 1 MiB，打开慢 — PR #41（首屏按最近 3 轮预算，256 KiB / 6 页兜底，「加载更早」先用暂存消息；50 轮 / 2 轮 / 工具密集测试通过；check.sh 全绿）
 - 2026-11-09 · 远程 run 的 task 详情 / transcript 打不开 — PR #39（Hub 转发 task 详情与 events，只读详情页增量轮询；check.sh 全绿）
