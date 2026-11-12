@@ -24,6 +24,7 @@ const store = vi.hoisted(() => {
     loaded: false,
     task: null as unknown,
     events: [] as unknown[],
+    error: null as unknown,
   };
   return {
     state,
@@ -38,6 +39,12 @@ const store = vi.hoisted(() => {
       state.version += 1;
       for (const listener of listeners) listener();
     },
+    fail(error: unknown) {
+      state.error = error;
+      state.loaded = true;
+      state.version += 1;
+      for (const listener of listeners) listener();
+    },
   };
 });
 
@@ -46,7 +53,7 @@ vi.mock("../api/useLiveResources", () => ({
     useSyncExternalStore(store.subscribe, store.version, store.version);
     return {
       loaded: store.state.loaded,
-      error: null,
+      error: store.state.error,
       data: {
         task: store.state.loaded ? store.state.task : null,
         events: store.state.loaded ? store.state.events : [],
@@ -132,6 +139,7 @@ beforeEach(() => {
   store.state.loaded = false;
   store.state.task = null;
   store.state.events = [];
+  store.state.error = null;
 });
 
 describe("a cold entry into a conversation", () => {
@@ -140,6 +148,24 @@ describe("a cold entry into a conversation", () => {
     expect(screen.getByTestId("mobile-header").textContent).toContain("Cached title");
     expect(screen.getByTestId("composer").getAttribute("data-disabled")).toBe("true");
     expect(screen.getByTestId("chat-stream").getAttribute("data-loading")).toBe("true");
+  });
+
+  it("centres a loading indicator in the content area until the detail answers", () => {
+    open(cached);
+    expect(screen.getByRole("status", { name: /Loading/ })).toBeTruthy();
+    act(() => {
+      store.resolve({ ...cached, title: "Fresh title", status: "succeeded" });
+    });
+    expect(screen.queryByRole("status", { name: /Loading/ })).toBeNull();
+  });
+
+  it("drops the indicator and keeps the error state when the detail fails", () => {
+    open(cached);
+    act(() => {
+      store.fail(new Error("detail failed"));
+    });
+    expect(screen.queryByRole("status", { name: /Loading/ })).toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain("detail failed");
   });
 
   it("keeps the same shell and swaps only the transcript when the detail answers", () => {
