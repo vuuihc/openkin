@@ -7,6 +7,8 @@ import {
 } from "../components/chat/transcriptProjection";
 import {
   agentSessionHistoryToTaskEvents,
+  agentSessionTurnStart,
+  countAgentSessionUserTurns,
   mergeAgentSessionMessageChunks,
 } from "./agentSessionHistory";
 
@@ -166,5 +168,53 @@ describe("truncated history", () => {
     );
 
     expect(events.some((event) => event.type === "notice")).toBe(false);
+  });
+});
+
+describe("user turn budget", () => {
+  it("counts a turn from its user message, not from its tool traffic", () => {
+    const items = [
+      item("u1", "user", "Question one"),
+      item("t1", "tool", "call", "tool_call"),
+      item("t2", "tool", "result", "tool_result"),
+      item("a1", "assistant", "Answer one"),
+      item("u2", "user", "Question two"),
+      item("a2", "assistant", "Answer two"),
+    ];
+
+    expect(countAgentSessionUserTurns(items)).toBe(2);
+  });
+
+  it("counts chunks of one user message as one turn", () => {
+    const items = [
+      item("u1", "user", "One"),
+      item("u2:0", "user", "Two, part one"),
+      item("u2:1", "user", "Two, part two"),
+      item("a2", "assistant", "Answer"),
+    ];
+
+    expect(countAgentSessionUserTurns(items)).toBe(2);
+    // The newest turn is the chunked message, and it begins at its first
+    // chunk rather than at the second one.
+    expect(agentSessionTurnStart(items, 1)).toBe(1);
+  });
+
+  it("opens where the third-newest user turn begins", () => {
+    const items = [];
+    for (let turn = 1; turn <= 6; turn += 1) {
+      items.push(item(`u${turn}`, "user", `Question ${turn}`));
+      items.push(item(`t${turn}`, "tool", "call", "tool_call"));
+      items.push(item(`a${turn}`, "assistant", `Answer ${turn}`));
+    }
+
+    const start = agentSessionTurnStart(items, 3);
+    expect(items[start].text).toBe("Question 4");
+    expect(items.slice(start).filter((entry) => entry.role === "user")).toHaveLength(3);
+  });
+
+  it("returns the beginning when the transcript holds fewer turns", () => {
+    const items = [item("u1", "user", "One"), item("a1", "assistant", "Answer")];
+
+    expect(agentSessionTurnStart(items, 3)).toBe(0);
   });
 });

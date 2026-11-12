@@ -21,17 +21,29 @@ import { useT } from "../i18n/react";
 import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
 import { displayAgentSessionTitle } from "../lib/agentSessionTitle";
 import { useAppStore } from "../store/appStore";
-import { agentSessionHistoryToTaskEvents } from "../lib/agentSessionHistory";
+import {
+  agentSessionHistoryToTaskEvents,
+  agentSessionTurnStart,
+  countAgentSessionUserTurns,
+} from "../lib/agentSessionHistory";
 
-// One answer from the machine holding the session carries at most this many
-// messages. The first screen fills from the newest end up to a budget, not to
-// the beginning: a session with hundreds of turns should open on what happened
-// last, and the budget is what keeps "show the latest" from becoming "fetch
-// everything first". 200 matches the routine run history's cap, so the console
-// has one number for how much history opens at once.
-const HISTORY_PAGE = 100;
-const HISTORY_INITIAL_MAX_ITEMS = 200;
-const HISTORY_INITIAL_MAX_TEXT = 1 << 20;
+// The first screen is budgeted in turns, not messages: one turn can be a
+// sentence or fifty tool calls, so "the last three turns" is what a reader
+// opening a long session expects, and it stays the same size however long the
+// session grows. The page is small enough to arrive quickly; the loop that
+// backfills it stops at the third-newest user message, the byte ceiling below,
+// or the page ceiling, whichever comes first.
+const HISTORY_PAGE = 30;
+const HISTORY_INITIAL_TURNS = 3;
+// A ceiling rather than a target: a turn dense with tool output can be larger
+// than the whole first screen, and then the oldest of what was read stays
+// behind "load earlier" instead of arriving before the reader can see
+// anything.
+const HISTORY_INITIAL_MAX_TEXT = 256 << 10;
+// The most pages one opening may ask for. Reaching it means the session is so
+// tool-dense that three turns do not fit the byte ceiling; what was read is
+// shown and the rest stays behind "load earlier".
+const HISTORY_INITIAL_MAX_PAGES = 6;
 const historyTextEncoder = new TextEncoder();
 
 function historyTextBytes(items: AgentSessionHistoryItem[]): number {
@@ -85,6 +97,13 @@ export default function AgentSessionDetailPage() {
   // Where the viewport was before an older page was prepended: the height
   // delta keeps the message the reader was looking at under their eyes.
   const prependAnchor = useRef<{ height: number; top: number } | null>(null);
+  // Messages the opening read past the newest turns. They are older than what
+  // the reader sees and already in memory, so "load earlier" reveals them
+  // before asking the machine for another page. Keeping them is also what lets
+  // the next fetch start from a page boundary: the boundary that ends the
+  // opening read is not a turn boundary, so dropping what lies past it would
+  // make the next page repeat messages already on screen.
+  const withheld = useRef<AgentSessionHistoryItem[]>([]);
   const scrollToEnd = useRef(false);
   const historyEvents = useMemo(
     () =>
@@ -107,6 +126,7 @@ export default function AgentSessionDetailPage() {
       setItems([]);
       setPrevCursor("");
       setHistoryCut(false);
+      withheld.current = [];
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) return;
       setSession(null);
@@ -127,36 +147,47 @@ export default function AgentSessionDetailPage() {
   );
 
   // Open at the end of the transcript: the newest page is what a reader wants
-  // from a session they did not just watch. The second page is fetched only
-  // when the budget allows it, and the budget stops at roughly 200 messages or
-  // 1 MiB of text — whichever comes first — so the first screen never grows
-  // with the session.
+  // from a session they did not just watch. Older pages are fetched only until
+  // the third-newest user turn is in hand, and the byte and page ceilings stop
+  // a turn dense with tool output from making the opening read any longer —
+  // so the first screen never grows with the session.
   const loadTail = useCallback(async () => {
     if (!session) return;
     setHistoryLoading(true);
     setHistoryError(null);
+    withheld.current = [];
     try {
-      const page = await getAgentSessionHistory(session.id, {
+      const newest = await getAgentSessionHistory(session.id, {
         tail: true,
         limit: HISTORY_PAGE,
       });
-      let loaded = page.items;
-      let prev = page.prev_cursor ?? "";
-      let cut = Boolean(page.truncated) && !prev;
-      if (
+      let loaded = newest.items;
+      let prev = newest.prev_cursor ?? "";
+      let cut = Boolean(newest.truncated) && !prev;
+      let pages = 1;
+      while (
+        pages < HISTORY_INITIAL_MAX_PAGES &&
         prev &&
-        loaded.length < HISTORY_INITIAL_MAX_ITEMS &&
+        countAgentSessionUserTurns(loaded) < HISTORY_INITIAL_TURNS &&
         historyTextBytes(loaded) < HISTORY_INITIAL_MAX_TEXT
       ) {
         const older = await getAgentSessionHistory(session.id, {
           before: prev,
           limit: HISTORY_PAGE,
         });
+        if (older.items.length === 0) break;
+        // The ceiling is on what the opening read holds. A page that would
+        // cross it stays unread here and is loaded by "load earlier", which is
+        // where a turn too long for the first screen belongs.
+        if (historyTextBytes([...older.items, ...loaded]) > HISTORY_INITIAL_MAX_TEXT) break;
         loaded = [...older.items, ...loaded];
         prev = older.prev_cursor ?? "";
         cut = Boolean(older.truncated) && !prev;
+        pages += 1;
       }
-      setItems(loaded);
+      const start = agentSessionTurnStart(loaded, HISTORY_INITIAL_TURNS);
+      withheld.current = loaded.slice(0, start);
+      setItems(loaded.slice(start));
       setPrevCursor(prev);
       setHistoryCut(cut);
       scrollToEnd.current = true;
@@ -169,7 +200,18 @@ export default function AgentSessionDetailPage() {
   }, [historyFailure, session]);
 
   const loadOlder = useCallback(async () => {
-    if (!session || !prevCursor || historyLoading) return;
+    if (!session || historyLoading) return;
+    // The opening read may already hold the messages just above the first
+    // screen. Reveal them before asking the machine for another page.
+    if (withheld.current.length > 0) {
+      const el = scrollRef.current;
+      prependAnchor.current = el ? { height: el.scrollHeight, top: el.scrollTop } : null;
+      const restored = withheld.current;
+      withheld.current = [];
+      setItems((previous) => [...restored, ...previous]);
+      return;
+    }
+    if (!prevCursor) return;
     const el = scrollRef.current;
     prependAnchor.current = el ? { height: el.scrollHeight, top: el.scrollTop } : null;
     setHistoryLoading(true);
