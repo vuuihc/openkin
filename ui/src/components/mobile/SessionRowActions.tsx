@@ -32,7 +32,7 @@ export function sessionRowActionsWidth(mode: SessionRowActionMode): number {
  * place they are discarded from; a row that could hide but not remove a
  * session would be the one list action missing. Archive puts this one
  * conversation away — not its project, which is a different question asked in
- * the drawer.
+ * the list.
  *
  * In the archive view the same gesture uncovers what that view is for: put the
  * conversation back, or delete it from here rather than restoring it first

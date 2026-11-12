@@ -182,7 +182,7 @@ export const DRAFT_PATH = "/new";
  * `/new` always is. `/sessions` is the conversation list on a phone, but on a
  * Mac the sidebar already holds the only list, so the main area shows the
  * draft there — unless the address asks for the archived view, which is a
- * place of its own. The draft's state (cwd, prompt, dock, header) is keyed to
+ * place of its own. The draft's state (cwd, prompt, header) is keyed to
  * this, so a palette row landing on `/sessions` cannot leave the shell
  * thinking no draft is open while a draft is on screen.
  */

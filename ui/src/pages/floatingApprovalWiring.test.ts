@@ -8,9 +8,10 @@ import { describe, expect, it } from "vitest";
  *
  * The DOM tests drive `FloatingApproval` with stub bands and hand-made props,
  * which cannot see whether a *page* marks its band, whether the shell asks for
- * a measurement on the right routes, or whether the drawer still lets the card
- * paint over itself. Each of those is one deleted attribute or condition away
- * from failing quietly — the last review found three of them that way.
+ * a measurement on the right routes, or whether the phone still has a drawer
+ * for the card to paint over. Each of those is one deleted attribute or
+ * condition away from failing quietly — the last review found three of them
+ * that way.
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 
@@ -49,13 +50,14 @@ describe("the floating approval's wiring", () => {
     expect(assignment).not.toMatch(/draftActive|artifacts|detailRoute/);
   });
 
-  it("gets the card out of the modal drawer's way", () => {
-    // The drawer and the card are both `z-40`; the card comes later in the DOM
-    // and covers the drawer's scrim, so it is not rendered while it is open.
-    expect(shell).toMatch(/\{!mobileOpen && \(/);
-    // ...and the drawer state is closed when the viewport crosses `md`, or a
-    // rotation with the drawer open would suppress the card forever.
-    expect(shell).toMatch(/useCloseOnWideScreen\(mobileOpen/);
+  it("has no drawer left to paint over the card", () => {
+    // KIN-CONTINUE-002 deleted the phone drawer and the dock. The card no
+    // longer has a modal sibling to hide behind, so the old `!mobileOpen`
+    // wrapper must not creep back, and neither must the drawer's state.
+    expect(shell).not.toMatch(/mobileOpen|MobileDock|useDrawerSwipe|kin-dock-pad/);
+    // The list page's footer and its new-chat button are the only bottom
+    // furniture on the phone; everywhere else the card keeps the lower offset.
+    expect(shell).toMatch(/raised=\{pathname === "\/sessions"\}/);
   });
 
   it("answers through the one shared decision path", () => {

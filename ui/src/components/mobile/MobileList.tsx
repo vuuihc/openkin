@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { MobileChevron } from "./MobileHeader";
 
 /**
@@ -6,23 +6,122 @@ import { MobileChevron } from "./MobileHeader";
  *
  * `overflow-y-auto` on the page rather than on the document: the shell is a
  * fixed-height column, and a page that scrolled the document would take the
- * header and the dock with it.
+ * header and the footer with it.
  *
- * The dock's reservation is the shell's (`AppShell` pads `<main>` when the dock
- * is on screen), not this container's. Reserving it here as well left every
- * page that did not use this component — settings, the project pages — with
- * its last card under the pill, and the pages that did use it with 100px of
- * dead space once the shell started padding.
+ * Nothing is reserved for a floating pill here. The phone list page's footer
+ * is a flex sibling of this container (KIN-CONTINUE-002), so the scroll body
+ * ends where the footer begins and the last row is never under it.
  */
 export function MobileScreen({
   children,
   className = "",
+  scrollKey,
+  scrollWhen,
 }: {
   children: ReactNode;
   className?: string;
+  /**
+   * Remember where the reader was in this scroll body across visits.
+   *
+   * A route change unmounts the screen, and the browser drops `scrollTop` with
+   * it; the session list therefore used to reopen at the top after every
+   * destination and conversation (KIN-CONTINUE-002, "离开再回来"). The mark
+   * rides sessionStorage, so it survives a route change but not a new tab, and
+   * a restored position never overwrites a fresher one: while the list is
+   * still short the restore is clamped to 0, and writing that back would erase
+   * the place the reader actually left.
+   */
+  scrollKey?: string;
+  /**
+   * A value that changes when the rows inside do (the list passes their count).
+   *
+   * The restore has to retry after the data lands, and the scroll container's
+   * own box never changes when rows arrive — its parents are fixed height — so
+   * a ResizeObserver on it would never fire. The caller already knows when the
+   * rows changed; this is that signal.
+   */
+  scrollWhen?: unknown;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const savedRef = useRef(0);
+  const settledRef = useRef(true);
+  const recordedRef = useRef(false);
+
+  // Listeners and recording: installed once per key, whether or not there is a
+  // position to restore — a fresh tab is exactly the case that needs a writer.
+  useLayoutEffect(() => {
+    if (!scrollKey) return;
+    const node = ref.current;
+    if (!node) return;
+    let saved = 0;
+    try {
+      saved = Number(sessionStorage.getItem(scrollKey) ?? "0") || 0;
+    } catch {
+      // No storage: the list opens at the top, as it always did.
+    }
+    savedRef.current = saved;
+    settledRef.current = saved <= 0;
+    recordedRef.current = false;
+
+    // A reader who starts scrolling while the data is still arriving has
+    // chosen a new position; stop restoring rather than fight them. The touch
+    // alone does not start recording: a tap that never scrolls must not
+    // replace the remembered place with the top.
+    const yieldToReader = () => {
+      settledRef.current = true;
+    };
+    let lastWrite = 0;
+    const write = (force: boolean) => {
+      const now = performance.now();
+      if (!force && now - lastWrite < 300) return;
+      lastWrite = now;
+      try {
+        sessionStorage.setItem(scrollKey, String(node.scrollTop));
+      } catch {
+        // No storage: nothing to remember.
+      }
+    };
+    const save = () => {
+      if (!settledRef.current) return;
+      recordedRef.current = true;
+      write(false);
+    };
+    node.addEventListener("pointerdown", yieldToReader, { passive: true });
+    node.addEventListener("wheel", yieldToReader, { passive: true });
+    node.addEventListener("scroll", save, { passive: true });
+    return () => {
+      // The unmount is the last chance to record; do not spend it on a
+      // position the restore never reached.
+      if (recordedRef.current) write(true);
+      node.removeEventListener("pointerdown", yieldToReader);
+      node.removeEventListener("wheel", yieldToReader);
+      node.removeEventListener("scroll", save);
+    };
+  }, [scrollKey]);
+
+  // Restore, and retry whenever the content version moves. `settled` is only
+  // spent when the saved offset is actually reachable: setting `scrollTop`
+  // short of the content clamps it, and settling there would freeze a half
+  // restored position.
+  useLayoutEffect(() => {
+    if (!scrollKey || settledRef.current) return;
+    const node = ref.current;
+    if (!node) return;
+    node.scrollTop = savedRef.current;
+    const reachable = savedRef.current <= Math.max(0, node.scrollHeight - node.clientHeight);
+    if (reachable) {
+      settledRef.current = true;
+      // The saved value is on screen again; recording it back is a no-op.
+      recordedRef.current = true;
+    }
+  }, [scrollKey, scrollWhen]);
+
   return (
-    <div className={["flex-1 min-h-0 overflow-y-auto kin-scroll", className].join(" ")}>
+    <div
+      ref={ref}
+      data-phone-scroll={scrollKey ? "" : undefined}
+      className={["flex-1 min-h-0 overflow-y-auto kin-scroll", className].join(" ")}
+    >
       {children}
     </div>
   );

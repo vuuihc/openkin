@@ -1,50 +1,30 @@
 import { useT } from "../../i18n/react";
-import { IconSettings } from "../icons";
-import MobileHeader, { IdentityDisc, MobileHeaderButton } from "./MobileHeader";
 import SessionsSearch from "./SessionsSearch";
 
 /**
- * The phone's conversation-list bar.
+ * The phone list page's header: the page title and the one search field.
  *
- * The reference phone client puts identity, search and settings on this one
- * row, and gives the list itself no title: the rows are the page. That is also
- * why this bar has no hamburger glyph — the identity disc opens the drawer,
- * which is the same destination the hamburger had, in the place a person looks
- * for "me". The inbox used to sit beside settings; waiting work is now a mark
- * on the conversation row instead of a destination of its own.
- *
- * Search writes `?search=` rather than holding state, so the field and the list
- * cannot drift apart, the query survives opening a session and coming back,
- * and a deep link can carry one. It replaces the history entry on every
- * keystroke: a back button that walks through "c", "ch", "cha" is not a back
- * button. The field itself is `SessionsSearch`, shared with the page's desktop
+ * It replaces the identity disc, the drawer trigger and the settings button
+ * (KIN-CONTINUE-002). The list page is the only navigation surface now, so
+ * there is no menu to open; settings is one of the four footer destinations.
+ * Search still writes `?search=`, so the field and the list cannot drift apart,
+ * the query survives opening a session and coming back, and a deep link can
+ * carry one. The field is `SessionsSearch`, shared with the page's desktop
  * header.
  */
-export default function SessionsHeader({
-  onOpenMenu,
-  onOpenSettings,
-}: {
-  onOpenMenu: () => void;
-  onOpenSettings: () => void;
-}) {
+export default function SessionsHeader() {
   const tr = useT();
 
   return (
-    <MobileHeader
-      heading={false}
-      leading={
-        <MobileHeaderButton label={tr("app.openMenu")} onClick={onOpenMenu}>
-          <IdentityDisc />
-        </MobileHeaderButton>
-      }
-      title={<SessionsSearch />}
-      trailing={
-        <MobileHeaderButton label={tr("nav.settings")} onClick={onOpenSettings} tone="muted">
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--kin-fill)]">
-            <IconSettings size={18} />
-          </span>
-        </MobileHeaderButton>
-      }
-    />
+    <header className="md:hidden flex-none kin-glass relative z-30 pt-safe kin-zen-hide border-b border-[var(--kin-hairline)]">
+      <div className="px-4 pb-1 pt-3">
+        <h1 className="text-title font-semibold tracking-tight text-kin-text">
+          {tr("nav.sessions")}
+        </h1>
+      </div>
+      <div className="px-4 pb-2">
+        <SessionsSearch />
+      </div>
+    </header>
   );
 }

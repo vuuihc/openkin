@@ -84,7 +84,7 @@ export const LEADING = {
   ui: "1.375",
   /** Running text: a paragraph follows its font size, not the ruler. */
   prose: "1.625",
-  /** One line that must not grow: dock labels, badges. */
+  /** One line that must not grow: footer labels, badges. */
   flush: "1",
 } as const;
 

@@ -200,7 +200,7 @@ export function phoneProjectBuckets(
    *  "stop showing me this", and a list that keeps showing it is not a list. */
   archivedCwds: readonly string[] = [],
   /** "archived" is the other side of the same rule: a scope that shows only
-   *  what was put away, so it can be restored without opening the drawer. */
+   *  what was put away, so it can be restored without leaving the list. */
   scope: PhoneBucketScope = "active",
 ): PhoneProjectBucket[] {
   const archived = new Set(archivedCwds.map(archivedKeyOf));

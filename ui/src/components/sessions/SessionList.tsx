@@ -110,7 +110,6 @@ import SessionRowActions, {
   sessionRowActionsWidth,
   type SessionRowActionMode,
 } from "../mobile/SessionRowActions";
-import SessionsSearch from "../mobile/SessionsSearch";
 import SwipeReveal from "../mobile/SwipeReveal";
 import PendingBadge from "../ui/PendingBadge";
 import SessionFilters, {
@@ -476,6 +475,16 @@ export default function SessionList({
   const archiveFailed = scope === "archived" && Boolean(archivedList.error);
   const archiveProjectsFailed = scope === "archived" && !archiveFailed && Boolean(taskList.error);
   const loadFailed = (Boolean(taskList.error) || archiveFailed) && listed.length === 0;
+  // One retry for whatever this page is showing: the live list, and the archive
+  // list when that scope is open. The button exists because the story promises
+  // one (`KIN-CONTINUE-002`, step 6) and because waiting for an event to
+  // repaint the list is not a next step a reader can take.
+  const retryList = () => {
+    void liveResources.refreshTaskList(sessionListParams(searchTerm, status));
+    if (scope === "archived") {
+      void liveResources.refreshTaskList(sessionListParams(searchTerm, status, true));
+    }
+  };
   const selectionAllPinned =
     selectedIds.size > 0 && Array.from(selectedIds).every((id) => pinnedIds.has(id));
   const pinLabel = selectionAllPinned ? tr("sessions.unpin") : tr("sessions.pin");
@@ -938,6 +947,15 @@ export default function SessionList({
           icon={<IconAlert size={30} />}
           title={tr("sessions.loadError")}
           hint={tr("sessions.loadErrorHint")}
+          action={
+            <button
+              type="button"
+              onClick={retryList}
+              className="rounded-lg bg-kin-text px-4 py-2 text-strong font-medium text-kin-bg"
+            >
+              {tr("common.retry")}
+            </button>
+          }
         />
       )}
 
@@ -1118,18 +1136,21 @@ export default function SessionList({
   }
 
   return (
-    <MobileScreen className="mx-auto w-full max-w-2xl">
-      <div className="md:px-4 md:pt-6">
-        <h1 className="sr-only md:not-sr-only md:text-hero md:font-bold md:tracking-tight md:text-kin-text">
-          {tr("nav.sessions")}
-        </h1>
-      </div>
-      <div className="hidden md:block md:px-4 md:pb-1 md:pt-3">
-        <SessionsSearch />
-      </div>
+    <MobileScreen
+      scrollKey="kin.listScroll"
+      // Count rows, not headings. The archive scope seeds a heading for every
+      // archived project before any of its rows exist, so the heading count is
+      // already final at mount and the restore would never retry. While the
+      // body is still the loading line the rows are not on screen, so the
+      // signal stays at -1 and moves again when the real content paints.
+      scrollWhen={loading ? -1 : listed.reduce((n, bucket) => n + bucket.rows.length, 0)}
+      className="mx-auto w-full max-w-2xl"
+    >
       {filters}
       {body}
-      <div className="h-60" aria-hidden />
+      {/* Room under the last row for the floating new-chat button, so the
+          end of the list can scroll clear of it. */}
+      <div className="h-20" aria-hidden />
       {projectSheet}
     </MobileScreen>
   );

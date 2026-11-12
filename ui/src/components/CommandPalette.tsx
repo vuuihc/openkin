@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { isAuthenticated, listProjects, type Project } from "../api/client";
 import { t } from "../i18n";
+import { useMinWidth } from "../hooks/useMinWidth";
+import { canLeaveScreen } from "../lib/leaveGuard";
 import { useT } from "../i18n/react";
 import { paletteEntries, type PaletteEntry } from "../lib/palette";
 import type { PanelContext, PanelId } from "../lib/panels";
@@ -14,7 +16,8 @@ import { useAppStore } from "../store/appStore";
 type Props = {
   open: boolean;
   onClose: () => void;
-  onNewChat: () => void;
+  /** `approved` marks that this caller already asked the page's leave guard. */
+  onNewChat: (approved?: boolean) => void;
   /** Opens (or closes) a panel, in whichever view the shell owns. */
   onTogglePanel: (id: PanelId) => void;
   /** What the panel table is asked about: the shell's own place, not a session. */
@@ -70,7 +73,33 @@ export default function CommandPalette({
   panelCtx,
 }: Props) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const wide = useMinWidth(768);
   const tr = useT();
+
+  /**
+   * Go somewhere, keeping the phone's history one level deep.
+   *
+   * Every phone screen's parent is the list (D2/R5), but the palette can open
+   * a place or a conversation from any screen. Pushing there would make Back
+   * return to the screen the reader just hopped from — the exact counterexample
+   * R5 names — so on a phone, moving from anything but the list replaces the
+   * current entry instead. The Mac keeps ordinary browser history.
+   */
+  const go = useCallback(
+    (to: string, approved = false) => {
+      // Replacing the screen is still leaving it: a page holding unsaved text
+      // gets the same question the back button asks. `approved` is only set by
+      // a caller that already asked, so a confirm does not open twice.
+      if (approved !== true && !canLeaveScreen()) return;
+      if (!wide && !location.pathname.startsWith("/sessions")) {
+        navigate(to, { replace: true });
+      } else {
+        navigate(to);
+      }
+    },
+    [location.pathname, navigate, wide],
+  );
   const pushToast = useAppStore((s) => s.pushToast);
   const [query, setQuery] = useState("");
   const [projects, setProjects] = useState<Project[]>([]);
@@ -110,11 +139,19 @@ export default function CommandPalette({
     const entryRuns = (entry: PaletteEntry): (() => void) => {
       if (entry.kind === "place") {
         return () => {
+          // Ask before anything moves: `onNewChat` navigates on its own, so a
+          // refusal after it would be a dead control (KIN-CONTINUE-002 review).
+          // The answer travels with the call, so the navigation does not ask a
+          // second time and reopen the same confirm.
+          if (!canLeaveScreen()) return;
           onClose();
           // The draft goes through the shell's own entry point: it focuses the
           // existing draft instead of navigating to a second one.
-          if (entry.id === "new") onNewChat();
-          navigate(entry.path);
+          if (entry.id === "new") {
+            onNewChat(true);
+            return;
+          }
+          go(entry.path, true);
         };
       }
       return () => {
@@ -165,7 +202,7 @@ export default function CommandPalette({
       })
         .then((task) => {
           onClose();
-          navigate(`/tasks/${task.id}`);
+          go(`/tasks/${task.id}`);
         })
         .catch((e) => {
           pushToast(e instanceof Error ? e.message : tr("projects.recipeLaunchFailed"), "error");
@@ -190,8 +227,8 @@ export default function CommandPalette({
 
     return [...actions, ...recipeActions];
   }, [
+    go,
     launchingRecipe,
-    navigate,
     onClose,
     onNewChat,
     onTogglePanel,

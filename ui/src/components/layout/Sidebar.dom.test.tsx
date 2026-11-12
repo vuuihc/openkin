@@ -16,6 +16,10 @@ import { setLocale } from "../../i18n";
  * machine → project → conversation tree from the common model, the project
  * heading as the way into its cover, and a footer whose archive icon opens the
  * archive filter of the same list.
+ *
+ * KIN-CONTINUE-002: the phone's drawer and dock are gone. The Mac column is
+ * still the only list at this width, and it must not grow a phone drawer or a
+ * second navigation surface.
  */
 
 const fixtures = vi.hoisted(() => ({
@@ -136,15 +140,12 @@ function LocationProbe() {
   );
 }
 
-function sidebar(initialEntries: string[] = ["/"]) {
+function sidebar(initialEntries: string[] = ["/"], onNewChat: () => void = () => {}) {
   return (
     <MemoryRouter initialEntries={initialEntries}>
       <LocationProbe />
       <Sidebar
-        mobileOpen={false}
-        onOpenMobile={() => {}}
-        onCloseMobile={() => {}}
-        onNewChat={() => {}}
+        onNewChat={onNewChat}
         onImportExternalSessions={() => {}}
       />
     </MemoryRouter>
@@ -332,6 +333,18 @@ describe("the Mac sidebar list", () => {
     expect(await screen.findByRole("button", { name: /Old Claude chat/ })).toBeTruthy();
   });
 
+  it("keeps the phone's drawer and dock off the Mac column", () => {
+    // KIN-CONTINUE-002: one navigation surface per width. The Mac column has
+    // its list and footer; a menu trigger or the phone's footer would be a
+    // second surface in the same window.
+    fixtures.tasks = [task("only", "/work/alpha")];
+    render(sidebar());
+
+    expect(screen.queryByRole("button", { name: "Open menu" })).toBeNull();
+    expect(document.querySelector("[data-phone-footer]")).toBeNull();
+    expect(document.querySelector("[data-kin-edge-back]")).toBeNull();
+  });
+
   it("keeps import in the footer icon row and the archive in the same row", () => {
     fixtures.tasks = [task("only", "/work/alpha")];
     render(sidebar());
@@ -380,5 +393,17 @@ describe("the sidebar's pointer shapes", () => {
     expect(screen.getByRole("button", { name: "Pin project" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Remove from sidebar" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Project actions" })).toBeNull();
+  });
+
+  it("starts a new chat without handing the shell a click event", async () => {
+    // The shell's entry point reads a literal `true` as "the page was already
+    // asked"; a click event passed straight through would skip the guard.
+    const user = userEvent.setup();
+    const onNewChat = vi.fn();
+    render(sidebar(["/"], onNewChat));
+
+    await user.click(screen.getByRole("button", { name: /New chat/ }));
+
+    expect(onNewChat.mock.calls).toEqual([[]]);
   });
 });

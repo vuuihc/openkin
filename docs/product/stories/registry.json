@@ -385,7 +385,7 @@
     },
     {
       "id": "KIN-CONTINUE-002",
-      "state": "draft",
+      "state": "approved",
       "priority": "P0",
       "journeys": [
         "J1",
@@ -400,12 +400,23 @@
       "surface": "手机对话列表",
       "ownerPaths": [
         "ui/src/components/layout/AppShell.tsx",
+        "ui/src/components/layout/PhoneFooter.tsx",
         "ui/src/components/layout/Sidebar.tsx",
-        "ui/src/components/mobile/MobileDock.tsx",
         "ui/src/components/mobile/SessionsHeader.tsx",
-        "ui/src/pages/SessionsPage.tsx"
+        "ui/src/pages/SessionsPage.tsx",
+        "ui/src/hooks/useEdgeSwipeBack.ts",
+        "ui/src/lib/phoneBack.ts",
+        "ui/src/lib/phoneDeepLinkParent.ts",
+        "ui/src/lib/placeReturn.ts"
       ],
-      "tests": [],
+      "tests": [
+        "ui/src/components/layout/PhoneNavigation.dom.test.tsx",
+        "ui/src/pages/SessionsPage.dom.test.tsx",
+        "ui/src/components/layout/Sidebar.dom.test.tsx",
+        "ui/src/hooks/useEdgeSwipeBack.test.tsx",
+        "ui/src/lib/phoneBack.test.ts",
+        "ui/src/lib/phoneDeepLinkParent.test.ts"
+      ],
       "blockedReason": null
     }
   ]

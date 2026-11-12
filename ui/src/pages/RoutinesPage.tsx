@@ -41,6 +41,7 @@ import {
 } from "../lib/routineHistory";
 import { SlowConnectHint } from "../components/Skeleton";
 import SheetSelect from "../components/ui/SheetSelect";
+import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { useMachines } from "../hooks/useMachines";
 import { useRoutinePreview } from "../hooks/useRoutinePreview";
 import { useSlowHint } from "../hooks/useSlowHint";
@@ -779,6 +780,11 @@ export default function RoutinesPage() {
     if (draft) applyDraft(draft);
     return true;
   };
+
+  // Leaving the screen (header back, edge swipe, palette) closes the form the
+  // same way its own buttons do, so typed text is never dropped without the
+  // page's confirm.
+  useLeaveGuard(() => closeForm());
 
   const openCreate = () => {
     // Opening the create form from inside an edit first closes the edit, which

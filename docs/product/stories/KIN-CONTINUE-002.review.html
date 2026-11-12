@@ -182,12 +182,12 @@
 <main class="page">
 
   <header>
-    <div class="eyebrow">Figma 审阅版 · 约 6 分钟 · 3 个待确认，2 个已定</div>
+    <div class="eyebrow">Figma 审阅版 · 已签字 · 5 个决定全部已定</div>
     <h1>KIN-CONTINUE-002 · 手机只留一个导航面 <small>Figma 设计稿 · 手机为主，Mac 回归</small></h1>
-    <p class="meta">draft · 面：手机 / Mac · 对照 <code>KIN-CONTINUE-002.md</code></p>
+    <p class="meta">approved · 面：手机 / Mac · 对照 <code>KIN-CONTINUE-002.md</code></p>
     <p class="meta">2026 年 11 月 12 日 · 5 屏 · 8 个状态</p>
     <div class="tags">
-      <span class="pill here">待签字</span>
+      <span class="pill here">已签字 · 2026-11-12</span>
       <span class="pill plain">旅程 J1、J2</span>
       <span class="pill plain">手机 / Mac</span>
       <span class="pill plain">P0</span>
@@ -203,9 +203,9 @@
     <ol>
       <li><strong>先看切法</strong>：这是 B 形状——手机只有一个导航面；不是 A（列表页 + 只放入口的 K 抽屉）。</li>
       <li><strong>再看每一屏</strong>：先看 Figma 帧，再读帧下面六段用户流程（起点、动作、立刻看到、慢/空/失败/断线、键盘与焦点、离开再回来）。</li>
-      <li><strong>最后回决定</strong>：D1–D3 是这次要拍的；D0、D4 已定，不再问。页尾有回复模板。</li>
+      <li><strong>最后回决定</strong>：D0–D4 已全部落定；页尾是实际签字与 D1 的改动。</li>
     </ol>
-    <p class="note">2026-11-12 你已回「我需要的是 B」。这一页把 B 画成可签的形状；签字后才动代码，并按仓库规则同步改 <code>IA.md</code> D3 与 <code>NAVIGATION.md</code> D1/R1 的手机部分。</p>
+    <p class="note">2026-11-12 你已签字：D0–D4 通过；D1 改为「归档保留，导入放到 Agent 运维」。代码按这一页落地，并按仓库规则同步改 <code>IA.md</code> D3 与 <code>NAVIGATION.md</code> D1/R1 的手机部分。</p>
   </section>
 
   <nav class="toc" aria-label="页内导航">
@@ -275,8 +275,8 @@
       <div class="card after">
         <h3>之后（B）</h3>
         <ul>
-          <li>手机只有一页：顶部搜索、中间列表、底部五个入口、右下新建；没有抽屉、没有 dock。</li>
-          <li>归档是同一份列表的范围条；导入是选 agent 的动作菜单；例行任务、Agent 运维、设置整页推出。</li>
+          <li>手机只有一页：顶部搜索、中间列表、底部四个入口、右下新建；没有抽屉、没有 dock。</li>
+          <li>归档是同一份列表的范围条；导入收进 Agent 运维页；例行任务、Agent 运维、设置整页推出。</li>
           <li>对话、新建、目的地都从列表页推出；返回一步回列表，焦点回到刚才那一行或那个入口。</li>
           <li>深链冷启动合成列表父级；左缘右滑、系统返回、页头返回是同一个动作。</li>
         </ul>
@@ -306,7 +306,7 @@
       </div>
       <figure class="frame fig-phone">
         <div class="frame-scroll" role="region" aria-label="手机列表页的 Figma 帧" tabindex="0">
-          <img src="KIN-CONTINUE-002.figma/frames/01-phone-home.svg" alt="手机列表页：顶部「对话」和搜索框，中间是设备、项目、对话三层，底部一行五个入口（归档、导入、例行、Agent、设置），右下是新建按钮；没有 K 抽屉，也没有 dock" loading="lazy">
+          <img src="KIN-CONTINUE-002.figma/frames/01-phone-home.svg" alt="手机列表页：顶部「对话」和搜索框，中间是设备、项目、对话三层，底部一行四个入口（归档、例行、Agent、设置），右下是新建按钮；没有 K 抽屉，也没有 dock" loading="lazy">
         </div>
         <figcaption>
           <span>390×844 · 手机帧 · 一页装下列表与所有入口</span>
@@ -315,7 +315,7 @@
       </figure>
       <h4>用户流程</h4>
       <ol class="flow">
-        <li><b>起点</b><span>手机上打开 Kin；直接落在列表页：顶部搜索，中间 设备 → 项目 → 对话，底部五个入口，右下新建。没有 K，也没有 dock。</span></li>
+        <li><b>起点</b><span>手机上打开 Kin；直接落在列表页：顶部搜索，中间 设备 → 项目 → 对话，底部四个入口，右下新建。没有 K，也没有 dock。</span></li>
         <li><b>动作</b><span>点搜索框过滤；滚动列表；点项目标题折叠；点一行打开对话；或点底部任一入口。</span></li>
         <li><b>立刻看到</b><span>设备名一直显示；项目是分组标题，对话是行；底部入口一行始终在，新建按钮在右下。</span></li>
         <li><b>慢 / 空 / 失败 / 断线</b><span>加载先出骨架；空说「还没有对话」并指向新建；读失败给「重试」；断线时顶部一条「连接断开，正在重试」，列表与入口都保留。</span></li>
@@ -356,13 +356,13 @@
       <div class="screen-head">
         <div>
           <div class="eyebrow">03 · 手机 · 状态板 800×900</div>
-          <h3>底部入口的形态：归档与导入不换页，其余整页推出</h3>
+          <h3>底部入口的形态：归档留在本页，导入在 Agent 运维，其余整页推出</h3>
         </div>
         <span class="pill plain">Figma 板</span>
       </div>
       <figure class="frame fig-board">
         <div class="frame-scroll" role="region" aria-label="底部入口的形态板" tabindex="0">
-          <img src="KIN-CONTINUE-002.figma/frames/03-phone-destinations.svg" width="800" height="900" alt="底部入口的形态板：归档在同一页加范围条；导入在列表上弹出选 agent 的菜单；例行任务与设置整页推出，页头有返回；Agent 运维与它们同骨架" loading="lazy">
+          <img src="KIN-CONTINUE-002.figma/frames/03-phone-destinations.svg" width="800" height="900" alt="底部入口的形态板：归档在同一页加范围条；Agent 运维整页推出，页头有导入；例行任务与设置整页推出，页头有返回" loading="lazy">
         </div>
         <figcaption>
           <span>800×900 · 状态板 · 手机卡片内左右滑动，「打开原图」看 1:1</span>
@@ -371,9 +371,9 @@
       </figure>
       <h4>用户流程</h4>
       <ol class="flow">
-        <li><b>起点</b><span>列表页底部一行五个入口：归档、导入、例行任务、Agent 运维、设置。</span></li>
-        <li><b>动作</b><span>点归档；点导入并选一个 agent；点例行任务、Agent 运维或设置；办完事后返回。</span></li>
-        <li><b>立刻看到</b><span>归档在原页加一条「已归档 · 清除」的范围条；导入在原页弹一个选 agent 的小菜单；其余三个整页推出，页头有返回。</span></li>
+        <li><b>起点</b><span>列表页底部一行四个入口：归档、例行任务、Agent 运维、设置。</span></li>
+        <li><b>动作</b><span>点归档；点例行任务、Agent 运维或设置；要导入会话时进 Agent 运维，用页头的导入；办完事后返回。</span></li>
+        <li><b>立刻看到</b><span>归档在原页加一条「已归档 · 清除」的范围条；例行任务、Agent 运维、设置整页推出，页头有返回；列表页没有导入入口，导入只在 Agent 运维页里。</span></li>
         <li><b>慢 / 空 / 失败 / 断线</b><span>目的地自己的加载、空、失败、断线照旧；目的地读失败时返回仍可用，列表不被替换；断线时底部入口仍可点开本机设置。</span></li>
         <li><b>键盘与焦点</b><span>Tab 能到每个入口，Enter 打开；返回后焦点回到入口；设置里的 Esc 只关设置。</span></li>
         <li><b>离开再回来</b><span>目的地里改过的内容保留；回到列表时搜索与滚动位置不变；归档范围离开再回来仍是归档，直到点「清除」。</span></li>
@@ -386,7 +386,7 @@
     <p class="note">状态也是 Figma 帧的一部分；先看状态板，再看下面的检查表。宽板在卡片内左右滑动。</p>
     <figure class="frame fig-board">
       <div class="frame-scroll" role="region" aria-label="列表页状态板的 Figma 板" tabindex="0">
-        <img src="KIN-CONTINUE-002.figma/frames/04-phone-states.svg" width="800" height="900" alt="列表页状态板：加载中、空、读失败、断线四种状态，四种都保留页头搜索与底部五个入口" loading="lazy">
+        <img src="KIN-CONTINUE-002.figma/frames/04-phone-states.svg" width="800" height="900" alt="列表页状态板：加载中、空、读失败、断线四种状态，四种都保留页头搜索与底部四个入口" loading="lazy">
       </div>
       <figcaption>
         <span>800×900 · 状态板 · 左右滑动或打开原图</span>
@@ -430,7 +430,7 @@
 
   <section id="decisions">
     <h2>要你拍板的</h2>
-    <p class="note">D0、D4 已定；D1–D3 是这次要确认的。每条都有推荐和代价，页尾有回复模板。</p>
+    <p class="note">D0–D4 已全部落定。D1 按 2026-11-12 的签字改为四个入口、导入移入 Agent 运维。</p>
 
     <div class="decision settled">
       <h3>D0 手机的形状：A 还是 B</h3>
@@ -438,21 +438,21 @@
       <p class="tradeoff"><strong>代价：</strong>IA D3 与 NAVIGATION D1 签的是 A，这条要改签这两处；换来的是从对话回列表从五步变成一步。</p>
     </div>
 
-    <div class="decision">
-      <h3>D1 底部放哪五个入口</h3>
-      <p class="rec"><strong>推荐：</strong>归档、导入、例行任务、Agent 运维、设置，和 Mac 底部一行同一组、同一顺序；每个至少 44px 高，图标 + 小字标签。</p>
-      <p class="tradeoff"><strong>代价：</strong>390 宽下五个入口比较紧，标签只能用 9.5–10px；好处是不用「更多」菜单——那会变成第二个面。</p>
+    <div class="decision settled">
+      <h3>D1 底部放哪四个入口</h3>
+      <p class="rec"><strong>已定（2026-11-12）：</strong>归档、例行任务、Agent 运维、设置。归档保留在列表页；导入移入 Agent 运维页。每个至少 44px 高，图标 + 小字标签。</p>
+      <p class="tradeoff"><strong>代价：</strong>导入比其他入口深一层；换来的是四个入口在 390 宽下不挤，而且导入回到它所属的 Agent 运维面，列表页不再有一个只有一次动作的入口。</p>
     </div>
 
-    <div class="decision">
+    <div class="decision settled">
       <h3>D2 归档和导入算不算“换页”</h3>
-      <p class="rec"><strong>推荐：</strong>归档是同一份列表的范围条（<code>?scope=archived</code>），不换页；导入是选 agent 的动作菜单，选完留在列表页。只有例行任务、Agent 运维、设置整页推出。</p>
-      <p class="tradeoff"><strong>代价：</strong>归档没有独立的“页面标题”，靠范围条说明；好处是列表始终只有一份，搜索也始终只有一个。</p>
+      <p class="rec"><strong>已定（2026-11-12）：</strong>归档是同一份列表的范围条（<code>?scope=archived</code>），不换页；导入在 Agent 运维页里，和 agent 管理同面。只有例行任务、Agent 运维、设置整页推出。</p>
+      <p class="tradeoff"><strong>代价：</strong>归档没有独立的“页面标题”，靠范围条说明；导入不再是列表页的一键动作。好处是列表始终只有一份，搜索也始终只有一个。</p>
     </div>
 
-    <div class="decision">
+    <div class="decision settled">
       <h3>D3 删掉 dock 和左上角身份圆盘，保留右下新建</h3>
-      <p class="rec"><strong>推荐：</strong>dock 与身份圆盘一起删；新建保留右下浮动按钮。列表页的搜索占满页头，不再给圆盘留位置。</p>
+      <p class="rec"><strong>已定（2026-11-12 同意）：</strong>dock 与身份圆盘一起删；新建保留右下浮动按钮。列表页的搜索占满页头，不再给圆盘留位置。</p>
       <p class="tradeoff"><strong>代价：</strong>没有常驻的「例行任务」tab，去例行任务要经底部入口；换来的是手机只剩一个导航面，新建仍是最大、最顺手的动作。</p>
     </div>
 
@@ -468,18 +468,18 @@
     <div class="card reply">
       <p class="note">只回不同意的编号；都同意就回「按推荐，签字」。</p>
       <pre>D0 B（已定）
-D1 同意 / D1 改成…
-D2 同意 / D2 改成…
-D3 同意 / D3 改成…
-D4 已定
-签字：…</pre>
+D1 归档保留，导入放到 Agent 运维（已签）
+D2 同意（已签）
+D3 同意（已签）
+D4 同意（已签）
+签字：2026-11-12</pre>
     </div>
   </section>
 
   <section id="sign">
     <h2>签字</h2>
     <div class="card sign">
-      <p><strong>待签字。</strong>2026-11-12 你已回「我需要的是 B」；这一页是 B 的可签形状。回复 D1–D3 后，<code>KIN-CONTINUE-002.md</code> 改为 <code>approved</code>，<code>IA.md</code> D3 与 <code>NAVIGATION.md</code> D1/R1 同步改签，然后才动代码。</p>
+      <p><strong>已签字，2026-11-12。</strong>D0–D4 通过；D1 改为归档保留、导入移入 Agent 运维。<code>KIN-CONTINUE-002.md</code> 为 <code>approved</code>，<code>IA.md</code> D3 与 <code>NAVIGATION.md</code> D1/R1 同步改签，代码按这一页落地。</p>
       <p class="note">Figma 帧或流程再改会重新发这一页；设计源始终是 <code>KIN-CONTINUE-002.figma/frames/</code> 里的 SVG 帧和本页的流程。</p>
     </div>
   </section>

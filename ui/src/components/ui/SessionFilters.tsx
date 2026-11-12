@@ -13,7 +13,7 @@ import { IconCheck, IconChevronDown, IconFilter } from "../icons";
  *
  * Scope is the other half of archiving: the list hides archived projects, and
  * this is the one place that shows them again so one can be restored without
- * opening the drawer.
+ * leaving the list.
  *
  * It opens in place rather than as a sheet. The sheet is `md:hidden`, so a
  * sheet here would need a second desktop-only surface and two chances to

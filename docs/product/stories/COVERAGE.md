@@ -6,7 +6,7 @@
 | 编号 | 状态 | 优先级 | 旅程 | 面 | 标题 | 测试 |
 |---|---|---|---|---|---|---|
 | `KIN-CONTINUE-001` | approved | P0 | J1、J2 | Mac/手机 | 接着问一段对话 | 26 |
-| `KIN-CONTINUE-002` | draft | P0 | J1、J2 | Mac/手机 | 手机只留一个导航面：列表页就是侧栏 | 0 |
+| `KIN-CONTINUE-002` | approved | P0 | J1、J2 | Mac/手机 | 手机只留一个导航面：列表页就是侧栏 | 6 |
 | `KIN-NOTIFY-001` | approved | P0 | J7 | Mac/手机 | 离开时被叫回来 | 14 |
 | `KIN-AGENTS-001` | covered | P1 | J6 | Mac/手机 | 机器上的 agent：装了什么、能不能用、用掉多少 | 7 |
 | `KIN-MANAGE-001` | draft | P1 | J5 | Mac/手机 | 整理一段对话 | 0 |
@@ -19,4 +19,4 @@
 
 ## 汇总
 
-approved 3 · covered 4 · draft 4
+approved 4 · covered 4 · draft 3

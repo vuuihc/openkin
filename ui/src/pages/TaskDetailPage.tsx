@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { goBackToList } from "../lib/phoneBack";
 import {
   ApiError,
   archiveTask,
@@ -1671,13 +1672,12 @@ export default function TaskDetailPage({
    * is any — a notification tap returns to wherever the reader was — and the
    * session list is the right fallback for a cold deep link.
    *
-   * `idx > 0`, not `location.key !== "default"`: a `<Navigate replace>` mints a
-   * fresh key, so the key claims "we navigated here" even when the history is
-   * empty at index 0. See the longer note in AppShell's `closeDraft`.
+   * The fallback logic lives in `lib/phoneBack.ts`, shared with the shell's
+   * header button, the edge swipe and the other detail screens: one rule, so
+   * two back affordances on the same screen cannot disagree.
    */
   function goBack() {
-    if ((window.history.state?.idx ?? 0) > 0) navigate(-1);
-    else navigate("/sessions");
+    goBackToList(navigate);
   }
 
   /**

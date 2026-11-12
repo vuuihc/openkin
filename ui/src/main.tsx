@@ -17,6 +17,7 @@ import { hubAnswers, hubBootPlan } from "./lib/hubBoot";
 import { currentHubUrl, hubConfigPlugin } from "./lib/hubConfig";
 import { initTheme } from "./lib/theme";
 import { cleanupLegacyWebPush } from "./lib/legacyWebPush";
+import { synthesizePhoneParent } from "./lib/phoneDeepLinkParent";
 import "./index.css";
 
 initTheme();
@@ -142,6 +143,9 @@ void (async () => {
   if (linkFailed && (getToken() || state.authenticated)) {
     clearAuthErrorFromURL();
   }
+  // Before the router mounts, give a cold deep link a parent entry so the
+  // system Back returns to the list instead of leaving Kin.
+  synthesizePhoneParent();
   createRoot(root).render(
     <StrictMode>
       <BrowserRouter>

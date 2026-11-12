@@ -52,6 +52,7 @@ import {
   setDraftModel,
   setDraftPrompt,
 } from "../lib/draftChat";
+import { forgetPlaceReturn } from "../lib/placeReturn";
 import { THIS_MACHINE, writeRoutineDevice } from "../lib/routineDevice";
 import { useMachines } from "../hooks/useMachines";
 import { useMinWidth } from "../hooks/useMinWidth";
@@ -517,6 +518,9 @@ export default function NewChatPage() {
       // instead of waiting for a detail request for a task it just created.
       liveResources.applyTaskSnapshot(task, liveResources.currentRevision());
       clearDraftPrompt();
+      // The draft is gone; returning to the list later should not put focus
+      // back on the button that opened it.
+      forgetPlaceReturn();
       navigate(`/tasks/${task.id}`, { replace: true });
     } catch (err) {
       // The composer owns the feedback for a rejected send; it also restores

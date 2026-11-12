@@ -2,7 +2,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="900" viewBox="0 0 800 900">
 <g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
 <rect width="800" height="900" fill="#fbfbfd"/>
-<text x="20" y="18" font-size="11" fill="#6b6b6b">列表页的四种状态 · 搜索与底部五个入口始终保留 · 状态板</text>
+<text x="20" y="18" font-size="11" fill="#6b6b6b">列表页的四种状态 · 搜索与底部四个入口始终保留 · 状态板</text>
 
 <g>
 <rect x="20" y="30" width="380" height="400" rx="20" fill="#ffffff" stroke="#dddddd"/>
@@ -17,7 +17,7 @@
 <text x="36" y="362" font-size="10.5" fill="#6b6b6b">列表先出骨架；底部入口立刻可点，</text>
 <text x="36" y="378" font-size="10.5" fill="#6b6b6b">不用等列表读回来。</text>
 <rect x="36" y="394" width="348" height="24" rx="8" fill="#f6f6f8"/>
-<text x="50" y="410" font-size="9.5" fill="#6b6b6b">归档  导入  例行  Agent  设置</text>
+<text x="50" y="410" font-size="9.5" fill="#6b6b6b">归档   例行   Agent   设置</text>
 </g>
 
 <g>
@@ -33,7 +33,7 @@
 <text x="416" y="362" font-size="10.5" fill="#6b6b6b">空态不是空白页：页头搜索与底部入口都在。</text>
 <text x="416" y="378" font-size="10.5" fill="#6b6b6b">设备名不因为空而隐藏。</text>
 <rect x="416" y="394" width="348" height="24" rx="8" fill="#f6f6f8"/>
-<text x="430" y="410" font-size="9.5" fill="#6b6b6b">归档  导入  例行  Agent  设置</text>
+<text x="430" y="410" font-size="9.5" fill="#6b6b6b">归档   例行   Agent   设置</text>
 </g>
 
 <g>
@@ -49,7 +49,7 @@
 <text x="36" y="762" font-size="10.5" fill="#6b6b6b">已加载的内容不清空；</text>
 <text x="36" y="778" font-size="10.5" fill="#6b6b6b">底部入口仍然可去设置。</text>
 <rect x="36" y="794" width="348" height="24" rx="8" fill="#f6f6f8"/>
-<text x="50" y="810" font-size="9.5" fill="#6b6b6b">归档  导入  例行  Agent  设置</text>
+<text x="50" y="810" font-size="9.5" fill="#6b6b6b">归档   例行   Agent   设置</text>
 </g>
 
 <g>
@@ -67,10 +67,10 @@
 <text x="416" y="742" font-size="10.5" fill="#6b6b6b">横幅只在真正断开后出现；</text>
 <text x="416" y="758" font-size="10.5" fill="#6b6b6b">已加载的列表留在原地，重连后自动刷新。</text>
 <rect x="416" y="774" width="348" height="24" rx="8" fill="#f6f6f8"/>
-<text x="430" y="790" font-size="9.5" fill="#6b6b6b">归档  导入  例行  Agent  设置</text>
+<text x="430" y="790" font-size="9.5" fill="#6b6b6b">归档   例行   Agent   设置</text>
 </g>
 
-<text x="20" y="884" font-size="11" fill="#6b6b6b">四种状态都保留搜索与底部入口；断线横幅不抢焦点，加载中不显示「没有对话」。</text>
+<text x="20" y="884" font-size="11" fill="#6b6b6b">四种状态都保留搜索与底部四个入口；断线横幅不抢焦点，加载中不显示「没有对话」。</text>
 <rect x="0.5" y="0.5" width="799" height="899" fill="none" stroke="#dddddd"/>
 </g>
 </svg>

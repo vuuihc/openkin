@@ -1,0 +1,83 @@
+import { Link, NavLink, useLocation } from "react-router-dom";
+import { useT } from "../../i18n/react";
+import { PLACES } from "../../lib/places";
+import { rememberPlaceReturn } from "../../lib/placeReturn";
+import { IconArchive } from "../icons";
+import { PLACE_ICONS } from "../placeIcons";
+
+/**
+ * The phone list page's footer: four destinations, always on screen.
+ *
+ * It replaces the K drawer and the floating dock (KIN-CONTINUE-002). The
+ * archive is a same-page scope — it is a link to `/sessions?scope=archived`,
+ * not a pushed screen — while routines, Agent Ops and settings are real pages
+ * that push over the list and come back in one step. Import is not here: it
+ * lives in Agent Ops, with the agents it imports from.
+ *
+ * It is a flex sibling of the list, not a fixed overlay: the list scrolls
+ * above it, the footer never covers the last row, and the states (loading,
+ * empty, read failure, offline) keep it because it is outside the list's
+ * scroll body.
+ */
+const DESTINATIONS = PLACES.filter(
+  (place) => place.id !== "new" && place.id !== "sessions",
+);
+
+export default function PhoneFooter() {
+  const tr = useT();
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  const archivedScope =
+    location.pathname === "/sessions" && params.get("scope") === "archived";
+  // Archiving is a scope of this list, not a new address: keep the search and
+  // status the reader already narrowed to when switching the scope.
+  params.set("scope", "archived");
+  const archiveTo = `/sessions?${params.toString()}`;
+
+  return (
+    <nav
+      aria-label={tr("nav.primary")}
+      data-phone-footer
+      className="md:hidden flex-none border-t border-kin-hairline bg-kin-sidebar px-2 pb-1 pt-1 kin-zen-hide"
+    >
+      <div className="grid grid-cols-4">
+        <Link
+          to={archiveTo}
+          data-phone-return="archived"
+          aria-current={archivedScope ? "page" : undefined}
+          className={[
+            "flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-lg px-1 text-micro font-medium transition-colors",
+            archivedScope
+              ? "bg-kin-blue/10 text-kin-blue-ink"
+              : "text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text",
+          ].join(" ")}
+        >
+          <IconArchive size={20} />
+          <span className="max-w-full truncate">{tr("nav.archivedProjects")}</span>
+        </Link>
+        {DESTINATIONS.map((place) => {
+          const Icon = PLACE_ICONS[place.id];
+          return (
+            <NavLink
+              key={place.id}
+              to={place.path}
+              data-phone-return={place.id}
+              onClick={() => rememberPlaceReturn(place.id)}
+              className={({ isActive }) =>
+                [
+                  "flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-lg px-1 text-micro font-medium transition-colors",
+                  isActive
+                    ? "bg-kin-blue/10 text-kin-blue-ink"
+                    : "text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text",
+                ].join(" ")
+              }
+            >
+              <Icon size={20} />
+              <span className="max-w-full truncate">{tr(place.labelKey)}</span>
+            </NavLink>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}

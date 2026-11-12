@@ -59,13 +59,8 @@ function sidebar(props: SidebarProps) {
   return (
     <MemoryRouter>
       <Sidebar
-        // The panel is drawn twice — once for the desktop rail and once inside
-        // the mobile drawer — and both copies carry this menu. Closing the
-        // drawer is what leaves one of it in the document; the markup under
-        // test is the same element either way.
-        mobileOpen={false}
-        onOpenMobile={() => {}}
-        onCloseMobile={() => {}}
+        // One panel, one menu: the phone has no drawer since KIN-CONTINUE-002,
+        // so the desktop footer's icon is the only import surface here.
         onNewChat={() => {}}
         agentCatalog={props.catalog ?? [provider("codex", "Codex")]}
         importingExternalSessions={props.importing ?? false}

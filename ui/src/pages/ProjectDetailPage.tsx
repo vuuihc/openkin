@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { goBackToList } from "../lib/phoneBack";
+import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import {
   ApiError,
   getOnePager,
@@ -505,6 +507,8 @@ export default function ProjectDetailPage() {
       : true;
   }, [dirty, tr]);
 
+  useLeaveGuard(canLeave);
+
   const goBack = useCallback(() => {
     if (!canLeave()) return;
     const opener = openerRef.current;
@@ -525,11 +529,7 @@ export default function ProjectDetailPage() {
         run();
       }
     };
-    // `history.length` counts entries from other sites too, so on a cold launch
-    // it says "there is somewhere to go back to" and leaves the app. The
-    // router's own index is 0 when this document has no in-app entry behind it.
-    if ((window.history.state?.idx ?? 0) > 0) navigate(-1);
-    else navigate("/sessions");
+    goBackToList(navigate);
     restoreFocus();
   }, [canLeave, navigate]);
 

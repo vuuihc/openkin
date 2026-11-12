@@ -5,16 +5,13 @@ const en: MessageTree = {
   app: {
     name: "Kin",
     reconnecting: "Reconnecting…",
-    openMenu: "Open menu",
     commandPalette: "Command palette",
-    closeMenu: "Close menu",
     close: "Close",
     back: "Back",
   },
   nav: {
     newChat: "New chat",
     tasks: "Tasks",
-    agents: "Agents",
     agentOperations: "Agent Ops",
     routines: "Routines",
     settings: "Settings",

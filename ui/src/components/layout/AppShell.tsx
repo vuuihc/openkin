@@ -23,10 +23,9 @@ import { useT } from "../../i18n/react";
 import CommandPalette from "../CommandPalette";
 import { useAppStore } from "../../store/appStore";
 import Sidebar from "./Sidebar";
-import MobileHeader, { IdentityDisc, MobileHeaderButton } from "../mobile/MobileHeader";
-import MobileDock from "../mobile/MobileDock";
+import MobileHeader, { MobileHeaderButton } from "../mobile/MobileHeader";
 import SessionsHeader from "../mobile/SessionsHeader";
-import { IconSearch, IconX } from "../icons";
+import { IconBack, IconSearch, IconX } from "../icons";
 import TerminalPanel from "../terminal/TerminalPanel";
 import { isKinDesktop } from "../../lib/desktop";
 import { overlayOwnsKeyboard } from "../../lib/overlayOwnsKeyboard";
@@ -43,10 +42,11 @@ import {
 import { useMachines } from "../../hooks/useMachines";
 import { remoteMachine } from "../../lib/devices";
 import { taskDisplayTitle } from "../../lib/taskTitle";
-import { placePath } from "../../lib/places";
 import { floatingApprovals } from "../../lib/floatingApprovals";
 import { useApprovalDecision } from "../../hooks/useApprovalDecision";
-import { useCloseOnWideScreen } from "../../hooks/useCloseOnWideScreen";
+import { useEdgeSwipeBack } from "../../hooks/useEdgeSwipeBack";
+import { canLeaveScreen } from "../../lib/leaveGuard";
+import { goBackToList } from "../../lib/phoneBack";
 import FloatingApproval from "../cards/FloatingApproval";
 import ErrorBoundary from "../ErrorBoundary";
 
@@ -78,7 +78,9 @@ function taskIdFromPath(pathname: string): string | null {
 }
 
 /**
- * Desktop: sidebar + main. Mobile: hamburger drawer + full-width main.
+ * Desktop: sidebar + main. Phone: the list page is the only navigation
+ * surface; conversations, the draft and the destinations push over it and come
+ * back in one step. There is no drawer and no dock (KIN-CONTINUE-002).
  * New chat → navigate to DRAFT_PATH (no modal).
  */
 export default function AppShell({
@@ -111,7 +113,7 @@ export default function AppShell({
    */
   const listTitle = !desktop
     ? pathname === "/agents"
-      ? tr("nav.agents")
+      ? tr("nav.agentOperations")
       : pathname === "/routines"
           ? tr("nav.routines")
           : ""
@@ -133,8 +135,7 @@ export default function AppShell({
    * only — which keeps exactly one visible `<h1>` at every width.
    *
    * `/sessions` is not one of them any more: it renders `SessionsHeader`, which
-   * has no title (the rows are the page), and the page keeps its own `<h1>`
-   * for assistive tech at every width.
+   * draws the page's `<h1>` and the one search field at every phone width.
    *
    * The draft is not one of them: its page opens with the greeting as its own
    * `<h1>`, so the bar names the screen in a span.
@@ -145,15 +146,21 @@ export default function AppShell({
   /**
    * Screens that ship their own header (back button + the real title).
    *
-   * The prototype gives every phone screen exactly one nav bar. These three put
-   * theirs inside the page — a session's title is not knowable from the route —
-   * so the shell header would be a second bar saying nothing ("Kin") and eating
-   * 48px above the one bar that matters. Back is the way out of a detail
-   * screen, which is what iOS does too. `/projects/:id` is a scrolling page
-   * whose back link sits in its own content flow, so it keeps the bar.
+   * The prototype gives every phone screen exactly one nav bar. These screens
+   * put theirs inside the page — a session's title is not knowable from the
+   * route — so the shell header would be a second bar saying nothing ("Kin")
+   * and eating 48px above the one bar that matters. Back is the way out of a
+   * detail screen, which is what iOS does too.
+   *
+   * `/projects/:id` is one of them for a second reason: its own back link is
+   * the only one that runs the unsaved-summary guard (`ProjectDetailPage`'s
+   * `canLeave`). A shell back above it would leave the page silently and throw
+   * the edited summary away.
    */
   const detailRoute =
-    selectedTaskId !== null || location.pathname.startsWith("/agent-sessions/");
+    selectedTaskId !== null ||
+    location.pathname.startsWith("/agent-sessions/") ||
+    location.pathname.startsWith("/projects/");
 
   /** Detail routes whose page renders `MobileHeader` (and its own top inset). */
   const pageOwnsTopInset = selectedTaskId !== null;
@@ -168,34 +175,31 @@ export default function AppShell({
     selectedTaskId !== null || location.pathname.startsWith("/agent-sessions/");
 
   /**
-   * The dock floats over the page, so the shell reserves its height under the
-   * content instead of every scroll container guessing at it. Doing it here is
-   * what makes it true for pages that were written before the dock existed —
-   * settings kept its last card under the pill, and its last control was not
-   * reachable because the page believed it had reached the bottom.
-   */
-  const dockVisible = !detailRoute && location.pathname !== DRAFT_PATH;
-
-  /**
    * Leaving the new-chat screen.
    *
-   * `/` redirects here (App.tsx), so this screen is where a cold launch lands —
-   * and it deliberately has no tab bar, which used to leave the header
-   * hamburger as the only way out. The prototype gives it a close button; this
-   * is that button. History wins when there is any, so opening the draft from
-   * a session and closing it returns to that session.
-   *
-   * The test is `idx > 0`, not `location.key !== "default"`. A `<Navigate
-   * replace>` — which is how this screen is reached from `/` — mints a fresh
-   * random key, so the key looks like "we navigated here" on a cold launch
-   * where the history really has nothing behind it, and `navigate(-1)` is then
-   * a no-op: measured on a fresh load of `/`, `history.state` is
-   * `{key: "cxd8pjf4", idx: 0}` and clicking × did nothing at all.
+   * It always lands on the list. The draft is a pushed screen over the list,
+   * not one of the destinations whose parent is "wherever you came from"; a
+   * close that returned to a conversation would leave the list out of the
+   * path entirely. `replace` drops the draft's history entry, so closing it
+   * never leaves a second layer behind (KIN-CONTINUE-002, step 5).
    */
   function closeDraft() {
-    if ((window.history.state?.idx ?? 0) > 0) navigate(-1);
-    else navigate("/sessions");
+    navigate("/sessions", { replace: true });
   }
+
+  // One back action for every pushed phone screen: the header button and the
+  // left-edge swipe land here, and both ask the page first (`lib/leaveGuard`)
+  // so a screen with unsaved text can confirm or refuse. The browser's own
+  // Back is handled a layer lower — a cold deep link gets a synthesized parent
+  // before the router mounts (`lib/phoneDeepLinkParent.ts`).
+  const leaveScreen = () => {
+    if (!canLeaveScreen()) return;
+    goBackToList(navigate);
+  };
+  const edgeBack = useEdgeSwipeBack(!wide && !onSessionsTab, () => {
+    if (draftActive) closeDraft();
+    else leaveScreen();
+  });
 
   // The shell still needs task titles for the floating approval card. The
   // list itself owns its own feed now, including search, so this read is only
@@ -203,7 +207,6 @@ export default function AppShell({
   const taskList = useTaskList(SHELL_TITLE_TASKS);
   const tasks = taskList.data;
   const [weekCost, setWeekCost] = useState<number | null>(null);
-  const [mobileOpen, setMobileOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   // Zen: chrome out of the way, session untouched. State, not a preference —
   // nothing writes it anywhere, so a reload is always back to the shell (P3 plan
@@ -336,7 +339,13 @@ export default function AppShell({
     };
   }, [loadExternalSessions, wsStatus]);
 
-  const openNewChat = useCallback(() => {
+  const openNewChat = useCallback((approved = false) => {
+    // Every caller (the palette's "New chat" row, ⌘N, the list's empty state)
+    // asks the current page before leaving it, the same as Back does. The
+    // palette asks itself and passes `approved`, so one departure is one
+    // question, not two. Only a literal `true` counts: a click event that
+    // arrives in this slot must not read as "already asked".
+    if (approved !== true && !canLeaveScreen()) return;
     // Single draft entry: always jump to /new (create-or-focus).
     navigate(DRAFT_PATH);
   }, [navigate]);
@@ -389,13 +398,6 @@ export default function AppShell({
   useEffect(() => {
     void loadUsage();
   }, [loadUsage]);
-
-  // The drawer is `md:hidden` but its state is not: an open drawer suppresses
-  // the floating approval, and every control that could close it is inside the
-  // hidden subtree. Crossing the breakpoint with it open — a rotation, or a
-  // phone-sized window dragged wide — must close it, or the card is gone for
-  // the rest of the session.
-  useCloseOnWideScreen(mobileOpen, () => setMobileOpen(false));
 
   // Subscribe to draft cwd changes
   useEffect(() => {
@@ -489,29 +491,45 @@ export default function AppShell({
 
   return (
     /*
-      `touch-lg` belongs on this root, not on <main>: the drawer (a fixed
-      sibling of <main>) and the command palette below it are the two surfaces
-      the phone uses to reach everything the three tabs do not cover, and both
-      sit outside <main>. See index.css.
+      `touch-lg` belongs on this root, not on <main>: the edge-back strip (a
+      fixed sibling of <main>) and the command palette below it sit outside
+      <main>, and both are phone surfaces. See index.css.
     */
     <div
       className={`touch-lg h-[100dvh] flex bg-[var(--kin-page)] text-kin-text overflow-hidden safe-pad md:pt-safe ${
         zen ? "kin-zen" : ""
       }`}
     >
-      <Sidebar
-        selectedTaskId={selectedTaskId}
-        draftActive={draftActive}
-        routineUnreadCount={routineUnreadCount}
-        weekCost={weekCost}
-        onNewChat={openNewChat}
-        agentCatalog={agentCatalog}
-        importingExternalSessions={importingExternalSessions}
-        onImportExternalSessions={(agents) => void importExternalSessions(agents)}
-        mobileOpen={mobileOpen}
-        onOpenMobile={() => setMobileOpen(true)}
-        onCloseMobile={() => setMobileOpen(false)}
-      />
+      {wide && (
+        <Sidebar
+          selectedTaskId={selectedTaskId}
+          draftActive={draftActive}
+          routineUnreadCount={routineUnreadCount}
+          weekCost={weekCost}
+          onNewChat={openNewChat}
+          agentCatalog={agentCatalog}
+          importingExternalSessions={importingExternalSessions}
+          onImportExternalSessions={(agents) => void importExternalSessions(agents)}
+        />
+      )}
+
+      {/*
+        The phone's edge. It is a strip rather than a listener on the shell
+        root because a horizontal drag needs `touch-action: pan-y` from the
+        very first touch: touch-action is decided when the finger lands, so a
+        root-level listener could not stop the browser from interpreting the
+        pull as a pan. `pan-y` leaves vertical scrolling alone. It is absent on
+        the list page, which is the root and has nowhere to go back to.
+      */}
+      {!wide && !onSessionsTab && (
+        <div
+          aria-hidden="true"
+          data-kin-edge-back
+          className="fixed inset-y-0 left-0 z-30 w-5 md:hidden"
+          style={{ touchAction: "pan-y" }}
+          {...edgeBack}
+        />
+      )}
 
       <div className="relative flex-1 flex flex-col min-w-0 min-h-0">
         {/*
@@ -533,57 +551,44 @@ export default function AppShell({
           <div className="md:hidden flex-none pt-safe kin-zen-hide" />
         ) : detailRoute ? null : onSessionsTab ? (
           /*
-            The list's own bar: identity, in-place search and settings. No page
-            title — the rows are the page — and no hamburger, because the
-            identity disc is the drawer trigger here. The command palette icon
-            is gone from this route too: search is the field in the middle now,
-            and a second search affordance beside it would be a question about
-            which one filters the list.
+            The list page owns its header: title and the one search field.
+            There is no menu here to open and no settings button — settings is
+            one of the four footer destinations (KIN-CONTINUE-002).
           */
-          <SessionsHeader
-            onOpenMenu={() => setMobileOpen(true)}
-            onOpenSettings={() => navigate(placePath("settings"))}
-          />
+          <SessionsHeader />
         ) : (
           <MobileHeader
             heading={barIsHeading}
             title={mobileTitle}
             leading={
-              /*
-                The drawer is the phone's only navigation, so its trigger is on
-                every screen including the draft. The draft used to swap this
-                button for a close ×, which left the landing screen — the one
-                the FAB opens and the one most sessions start from — with no way
-                into settings, the archive, or any other session. The × moved to
-                the trailing cluster, where the compose screens already put
-                cancel.
-              */
-              <MobileHeaderButton label={tr("app.openMenu")} onClick={() => setMobileOpen(true)}>
-                {/* The same identity disc the sessions bar leads with: the
-                    drawer is one destination, and one shape for it on every
-                    screen. A hamburger here and a disc there made the two
-                    pages look like they opened different things. */}
-                <IdentityDisc />
-              </MobileHeaderButton>
+              draftActive ? (
+                /* The draft is a focused flow; its way out is a close, not a
+                   trip through another navigation surface. */
+                <MobileHeaderButton label={tr("app.close")} onClick={closeDraft}>
+                  <IconX size={20} strokeWidth={2.1} />
+                </MobileHeaderButton>
+              ) : (
+                /* Every other pushed screen has the list as its parent. The
+                   header button and the left-edge swipe call the same helper,
+                   and both ask the page before it goes, so they cannot
+                   disagree and neither bypasses an unsaved-edit guard. */
+                <MobileHeaderButton label={tr("app.back")} onClick={leaveScreen}>
+                  <IconBack size={20} />
+                </MobileHeaderButton>
+              )
             }
             trailing={
-              <>
-                {/* No "+" here: the dock's FAB is the same action, 100px
-                    below, and two identical buttons in one viewport make the
-                    screen look unsure which one it means. */}
-                <MobileHeaderButton
-                  label={tr("app.commandPalette")}
-                  onClick={() => setPaletteOpen(true)}
-                  tone="muted"
-                >
-                  <IconSearch size={18} />
-                </MobileHeaderButton>
-                {draftActive && (
-                  <MobileHeaderButton label={tr("app.close")} onClick={closeDraft} tone="muted">
-                    <IconX size={20} strokeWidth={2.1} />
-                  </MobileHeaderButton>
-                )}
-              </>
+              /* The command palette is the only extra control here. The
+                 new-chat button lives on the list page's own bottom-right
+                 corner; a second "+" in this bar would be the same action
+                 twice in one viewport. */
+              <MobileHeaderButton
+                label={tr("app.commandPalette")}
+                onClick={() => setPaletteOpen(true)}
+                tone="muted"
+              >
+                <IconSearch size={18} />
+              </MobileHeaderButton>
             }
           />
         )}
@@ -614,53 +619,33 @@ export default function AppShell({
           </div>
         )}
 
-        <main
-          className={[
-            "kin-main flex-1 min-h-0 overflow-hidden flex flex-col",
-            dockVisible ? "kin-dock-pad" : "",
-          ].join(" ")}
-        >
+        <main className="kin-main flex-1 min-h-0 overflow-hidden flex flex-col">
           {children}
         </main>
 
-        {/* The phone's three primary jobs. Hidden on the draft screen, which
-            is a focused flow with its own way out, and on detail routes — a
-            pushed chat owns the whole screen, and its back button is the way
-            out (the iOS convention). */}
-        {dockVisible && <MobileDock />}
-
         {/* An approval blocks the agent that asked for it wherever the reader
-            happens to be. The dock's presence decides the offset, because on
-            the phone the card has to clear the pill and its "new chat" button,
-            and on a pushed conversation the composer sits where the dock would
-            be. See `FloatingApproval` for which one it shows.
-
-            Not while the navigation drawer is open: that drawer is a modal
-            (it dims the page and swallows taps), and the card shares its
-            `z-40`, so at equal depth the later node — this one — painted over
-            the scrim and its buttons stayed live. A modal with a clickable
-            approval floating on top of it is not modal.
+            happens to be. On the list page the footer and its new-chat button
+            decide the offset; a pushed conversation measures its composer
+            instead. See `FloatingApproval` for which one it shows.
 
             Inside a boundary of its own: the card renders an agent-supplied
             payload, and a throw in it must cost one card rather than the
             shell around every screen. */}
-        {!mobileOpen && (
-          <ErrorBoundary
-            fallback={null}
-            resetKey={floating.map((approval) => approval.id).join(",")}
-          >
-            <FloatingApproval
-              approvals={floating}
-              titleFor={(taskId) => taskDisplayTitle(tasks.find((task) => task.id === taskId))}
-              busy={approvalDecision.busy}
-              onDecide={(id, decision) => void approvalDecision.decide(id, decision)}
-              onOpenTask={(taskId) => navigate(`/tasks/${encodeURIComponent(taskId)}`)}
-              raised={dockVisible}
-              screenKey={pathname}
-              expectsBottomChrome={measuredBottomBand}
-            />
-          </ErrorBoundary>
-        )}
+        <ErrorBoundary
+          fallback={null}
+          resetKey={floating.map((approval) => approval.id).join(",")}
+        >
+          <FloatingApproval
+            approvals={floating}
+            titleFor={(taskId) => taskDisplayTitle(tasks.find((task) => task.id === taskId))}
+            busy={approvalDecision.busy}
+            onDecide={(id, decision) => void approvalDecision.decide(id, decision)}
+            onOpenTask={(taskId) => navigate(`/tasks/${encodeURIComponent(taskId)}`)}
+            raised={pathname === "/sessions"}
+            screenKey={pathname}
+            expectsBottomChrome={measuredBottomBand}
+          />
+        </ErrorBoundary>
 
         {/* Terminal panel — the shell's own panel, desktop only */}
         {terminalAvailable && (

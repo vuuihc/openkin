@@ -54,7 +54,7 @@ describe("paletteEntries", () => {
     expect(idsOf(paletteEntries(ctx({ taskId: null, remote: false })), "panel")).toEqual([
       "terminal",
     ]);
-    // The phone keeps every place: the drawer is the only way to them there.
+    // The phone keeps every place: the footer carries four of them and the palette the rest.
     expect(idsOf(paletteEntries(ctx({ desktop: false })), "place")).toEqual([...PLACE_IDS]);
   });
 

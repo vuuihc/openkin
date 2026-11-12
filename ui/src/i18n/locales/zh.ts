@@ -3,16 +3,13 @@ const zh = {
   app: {
     name: "Kin",
     reconnecting: "正在重连…",
-    openMenu: "打开菜单",
     commandPalette: "命令面板",
-    closeMenu: "关闭菜单",
     close: "关闭",
     back: "返回",
   },
   nav: {
     newChat: "新建对话",
     tasks: "任务",
-    agents: "Agents",
     agentOperations: "Agent 运维",
     routines: "例行任务",
     settings: "设置",
