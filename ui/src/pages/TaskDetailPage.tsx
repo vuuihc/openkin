@@ -69,6 +69,7 @@ import {
   IconAlert,
   IconArchive,
   IconBack,
+  IconKin,
   IconMachine,
   IconMore,
   IconPanel,
@@ -79,7 +80,7 @@ import {
   IconSpinner,
   IconTrash,
 } from "../components/icons";
-import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
+import { SlowConnectHint } from "../components/Skeleton";
 import PanelSurface from "../components/layout/PanelSurface";
 import MobileHeader, { MobileHeaderButton } from "../components/mobile/MobileHeader";
 import PullRequestPanel from "../components/pr/PullRequestPanel";
@@ -1393,23 +1394,24 @@ export default function TaskDetailPage({
   }
 
   if (loading && !task) {
+    // A cold start lands here: the address is the last conversation and its
+    // row has not arrived yet. This used to draw a skeleton of the header and
+    // two bubbles — a layout for a page that did not exist yet, animating
+    // while it waited. The brand mark is what is actually true during that
+    // wait: the console is restoring the session. It is one element, it fades
+    // in once, and the real page replaces it as soon as the detail answers.
+    // `max-md:pt-safe`: on a phone this route does not reserve the top inset
+    // yet, and centring the mark under the sensor housing is not centred.
     return (
-      <div className="flex-1 flex flex-col min-h-0 bg-kin-bg">
-        {/* `min-h-11` + `pt-safe`, never `h-11` + `pt-safe`: with border-box
-            sizing a fixed 44px box has nothing left once the 59px notch inset
-            is added, and the skeleton collapses into the sensor housing. On a
-            phone the shell does not reserve the top inset on this route — the
-            loaded screen's `MobileHeader` does — so the placeholder has to.
-            From `md` up the shell root spends it (`md:pt-safe`), hence the
-            `max-md:`; otherwise the inset lands twice. */}
-        <div className="min-h-11 flex-none border-b border-[var(--kin-hairline)] px-5 flex items-center max-md:pt-safe">
-          <SkeletonLine className="h-4 w-40" />
+      <div className="flex-1 flex min-h-0 flex-col items-center justify-center gap-4 bg-kin-bg px-6 max-md:pt-safe">
+        <div
+          role="status"
+          aria-label={tr("common.loading")}
+          className="kin-brand-enter flex h-16 w-16 items-center justify-center rounded-2xl bg-kin-blue"
+        >
+          <IconKin size={30} className="text-kin-on-brand" />
         </div>
-        <div className="flex-1 p-6 space-y-3 max-w-conversation mx-auto w-full">
-          <SkeletonLine className="h-16 w-3/4 ml-auto rounded-2xl" />
-          <SkeletonLine className="h-12 w-2/3 rounded-xl" />
-          <SlowConnectHint show={slow} />
-        </div>
+        <SlowConnectHint show={slow} />
       </div>
     );
   }
