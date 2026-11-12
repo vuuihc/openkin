@@ -28,6 +28,63 @@ export function mergeAgentSessionMessageChunks(
   return merged;
 }
 
+function isUserTurnMessage(item: AgentSessionHistoryItem): boolean {
+  return item.role === "user" && (item.kind ?? "message") === "message";
+}
+
+/**
+ * How many user turns a page of history holds.
+ *
+ * A turn starts at a user message: everything after it until the next user
+ * message belongs to the same turn, so tool calls and their results do not
+ * count. One message can arrive as several adjacent chunks, and those are the
+ * same turn's opening message rather than several turns.
+ */
+export function countAgentSessionUserTurns(items: AgentSessionHistoryItem[]): number {
+  let turns = 0;
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index];
+    if (!isUserTurnMessage(item)) continue;
+    const previous = items[index - 1];
+    if (
+      previous &&
+      isUserTurnMessage(previous) &&
+      sameProviderMessage(previous.message_id, item.message_id)
+    ) {
+      continue;
+    }
+    turns += 1;
+  }
+  return turns;
+}
+
+/**
+ * Where the newest `turns` user turns begin, as an index into `items`: the
+ * first chunk of the `turns`-th newest user message. Returns 0 when the
+ * transcript holds fewer turns, so a small session shows all of it rather than
+ * being cut through the middle at a threshold.
+ */
+export function agentSessionTurnStart(items: AgentSessionHistoryItem[], turns: number): number {
+  if (turns <= 0) return items.length;
+  let seen = 0;
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (!isUserTurnMessage(item)) continue;
+    const previous = items[index - 1];
+    if (
+      previous &&
+      isUserTurnMessage(previous) &&
+      sameProviderMessage(previous.message_id, item.message_id)
+    ) {
+      // A later chunk of one message: the turn starts at the first of them.
+      continue;
+    }
+    seen += 1;
+    if (seen === turns) return index;
+  }
+  return 0;
+}
+
 /**
  * Project provider-owned history into the same event shape used by Kin task
  * transcripts so imported sessions share the normal chat renderer.
