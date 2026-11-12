@@ -1,6 +1,6 @@
 # 手机只留一个导航面 · 2026-11-12
 
-状态：**实现、自检与复审完成；未提交、未合入、未重建**。故事 `KIN-CONTINUE-002`（B 形态）已签字，本文件是这一轮的进度表。
+状态：**已交付**：复审、提交、快进合入、桌面重建与 Hub 部署均完成。故事 `KIN-CONTINUE-002`（B 形态）已签字，本文件是这一轮的进度表。
 
 ## 现在的位置
 
@@ -10,8 +10,8 @@
 | 仓库门禁 | ✅ 绿 | `./scripts/check.sh` 14 项全绿（含 `stories`） |
 | 红验证 | ✅ 30/30 红 | `/tmp/kin-mutants-phone.json`：第五个入口、归档丢范围、入口不记返回、冷深链回退、边缘滑不提交、取消仍提交、侧栏回到手机、关闭草稿走回退、项目页丢自己的返回、失败态丢重试、列表丢滚动位置、面板叠目的地、手机冷启动回对话、深链无父级、详情页自写回退、滚动不记录、外壳/面板绕过页面守卫、缺 matchMedia、丢 hash、未安装父级合成、滚动信号数标题、面板离开再次追问（两处）、外壳重复追问、加载行期间仍重试、侧栏把点击事件当参数 |
 | 高模型复审 | ✅ 无 blocker / major | 首轮 2 blocker / 6 major / 9 nit；二轮 1 blocker（守卫被绕过）+ 1 major（滚动只读不写）；三轮 2 major（面板「新建」行先跳后问、滚动重试观察错节点）；四轮确认面板已闭，指出滚动恢复的信号仍是标题数；五轮 delta 复审确认该 major 关闭、只问一次的链路正确，另指出三处 nit（加载行会吞掉恢复重试、侧栏点击参数无人钉住、计数过期），均已修复或加固 |
-| 提交 / 合入 | ⏳ 待复审 | Conventional Commit，正文带 `KIN-CONTINUE-002`；快进 `main` |
-| 桌面与 Hub | ⏳ 待合入 | `./scripts/desktop-rebuild.sh`；Hub 重新部署并核对入口 chunk |
+| 提交 / 合入 | ✅ 完成 | `3d546705 feat(mobile): make the chat list the phone's only navigation surface`，正文带 `KIN-CONTINUE-002`；`main` 已快进到同一提交 |
+| 桌面与 Hub | ✅ 完成 | 桌面包已重建，`:7777` 与 `web/dist/index.html` 同为 `index-GDgZ9gjn.js`；Hub 镜像已部署，公网入口 chunk 同值，容器 healthy，回滚镜像 `openkin:dogfood-prev` 保留 |
 
 ## 这一轮做了什么
 
@@ -74,9 +74,13 @@
 - 键盘滚动（PageDown / 空格）不被当作「读者自己接管」：待恢复的位置在后续内容变化时仍可能把读者拉回存档点；触摸与滚轮会正确让位。
 - 恢复是否「落定」在 jsdom 里不可观察：测试只能断言 `scrollTop` 被再次写入，真实浏览器里以可达高度为准的 settle 分支没有自动化覆盖。
 
+## 落地
+
+- 提交 `3d546705`，`main` 快进到同一提交；工作树干净。
+- 桌面重建后 `:7777` 入口 chunk `index-GDgZ9gjn.js`，与 `web/dist/index.html` 一致。
+- 真浏览器（390 / 1100，本地留存 `kin-phone-390.png`、`kin-phone-390-archived.png`、`kin-mac-1100.png`）：390 一页列表、一个搜索、四个底部入口、无抽屉无 dock，行 → `/tasks/…` → 页内返回落列表，归档是同页 `?scope=archived` 且搜索仍在，冷开 `/settings` 后系统返回落 `/sessions`；1100 左栏与对话面不变；无页面错误。
+- Hub 镜像 `f8ec820e`（回滚 `edff1afa`）部署到 NAS，容器 healthy，公网 `/` 的入口 chunk 与本地一致。
+
 ## 下一步
 
-1. 重跑全套 UI 测试、`npx tsc --noEmit`、`./scripts/check.sh` 与 28 个 mutant。
-2. 提交（代码、测试、故事、registry、COVERAGE、IA / NAVIGATION、帧、`web/dist/index.html` 同一个提交），快进 `main`。
-3. `./scripts/desktop-rebuild.sh`；Hub 重新部署并核对线上入口 chunk。
-4. 补「之后」截图到故事证据。
+无。剩余待办只有「已知限制」里列出的范围外事项。
