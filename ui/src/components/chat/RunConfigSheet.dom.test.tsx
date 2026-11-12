@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { setLocale } from "../../i18n";
+import type { AgentInfo } from "../../api/client";
 import RunConfigControl, { type RunConfigControlProps } from "./RunConfigSheet";
 
 const MODELS = [
@@ -80,6 +81,12 @@ function setWideScreen(wide: boolean) {
   }));
 }
 
+/** A value the reader must be able to finish: wrapped, never ellipsized. */
+function assertWraps(element: HTMLElement) {
+  expect(element.className).toContain("break-words");
+  expect(element.className).not.toContain("truncate");
+}
+
 beforeEach(() => {
   setLocale("en");
   setViewport(390, 844);
@@ -89,18 +96,75 @@ beforeEach(() => {
 describe("RunConfigControl", () => {
   it("names the agent, the model and the mode on the face", () => {
     setup();
-    expect(screen.getByRole("button", { name: /^Run settings/ }).textContent).toContain("Sonnet");
-    expect(screen.getByRole("button", { name: /^Run settings/ }).textContent).toContain("Ask");
+    const face = screen.getByRole("button", { name: /^Run settings/ });
+    expect(face.textContent).toContain("Claude Code");
+    expect(face.textContent).toContain("Sonnet");
+    expect(face.textContent).toContain("Ask");
+  });
+
+  it("reads a long agent and model in full instead of trimming them to an ellipsis", () => {
+    // The phone face used to be one line: a long agent or model name lost its
+    // tail to `truncate`, and a phone has no hover for the `title` that held
+    // the rest. Both values now wrap on their own lines.
+    const agentName = "An agent name that has no business fitting on one line";
+    const modelLabel = "A-model-label-long-enough-that-it-cannot-fit-on-one-line";
+    setup({
+      agentName,
+      model: "custom-model",
+      models: [{ id: "custom-model", label: modelLabel }],
+    });
+    const face = screen.getByRole("button", { name: /^Run settings/ });
+    const agent = within(face).getByText(agentName);
+    const model = within(face).getByText(modelLabel);
+    expect(agent.className).not.toContain("truncate");
+    expect(model.className).not.toContain("truncate");
+    expect(agent.className).toContain("break-words");
+    expect(model.className).toContain("break-words");
+    // The two values are stacked, not squeezed side by side.
+    expect(agent.parentElement).not.toBe(model.parentElement);
+    expect(face.textContent).toContain("Ask");
+  });
+
+  it("shows the full current values and options inside the sheet", async () => {
+    const agentName = "Host agent with a name that wraps";
+    const otherName = "Another agent whose name is even longer than the first";
+    const modelLabel = "A model label long enough to need a second line";
+    const agent = (id: string, name: string): AgentInfo => ({
+      id,
+      name,
+      installed: true,
+      available: true,
+      default: false,
+      model_list_source: "none",
+      model_list_status: "default_only",
+    });
+    setup({
+      agentName,
+      model: "custom-model",
+      models: [{ id: "custom-model", label: modelLabel }],
+      agents: [agent("a1", agentName), agent("a2", otherName)],
+      onAgentChange: vi.fn(),
+    });
+    const dialog = await openSheet();
+    const agentValue = within(dialog).getByText(agentName);
+    const modelValue = within(dialog).getByText(modelLabel);
+    assertWraps(agentValue);
+    assertWraps(modelValue);
+
+    await userEvent.click(within(dialog).getByRole("button", { name: /^Agent/ }));
+    const option = await screen.findByRole("option", { name: new RegExp(otherName) });
+    assertWraps(within(option).getByText(otherName));
   });
 
   it("opens the sheet with the agent read-only and the two pickers", async () => {
     setup();
-    await openSheet();
-    expect(screen.getByText("Claude Code")).toBeTruthy();
+    const dialog = await openSheet();
+    // Scoped to the sheet: the face behind it now names the same agent.
+    expect(within(dialog).getByText("Claude Code")).toBeTruthy();
     // The agent is a fact once the session exists, not a control.
-    expect(screen.queryByRole("button", { name: "Agent" })).toBeNull();
-    expect(screen.getByRole("button", { name: /^Model/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Permissions/ })).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: "Agent" })).toBeNull();
+    expect(within(dialog).getByRole("button", { name: /^Model/ })).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: /^Permissions/ })).toBeTruthy();
   });
 
   it("marks the current model and picks a new one from the inline list", async () => {
@@ -409,11 +473,12 @@ describe("RunConfigControl on a wide screen", () => {
 
   it("opens an anchored panel with the same rows, not the phone sheet", async () => {
     setup();
-    await openSheet();
+    const panel = await openSheet();
     // The scrim is the sheet's own shape; the panel has none.
     expect(document.querySelector(".kin-scrim-enter")).toBeNull();
     expect(document.querySelector("[data-run-config-panel]")).toBeTruthy();
-    expect(screen.getByText("Claude Code")).toBeTruthy();
+    // Scoped to the panel: the face behind it now names the same agent.
+    expect(within(panel).getByText("Claude Code")).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Model/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Permissions/ })).toBeTruthy();
   });

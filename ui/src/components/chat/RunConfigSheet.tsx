@@ -163,7 +163,7 @@ export default function RunConfigControl({
         aria-haspopup="dialog"
         aria-expanded={open}
         className={[
-          "flex min-h-11 min-w-0 max-w-full items-center gap-1.5 overflow-hidden rounded-lg px-1.5 text-left transition-colors active:bg-[var(--kin-fill)] disabled:opacity-50",
+          "flex min-h-11 min-w-0 max-w-full items-center gap-1.5 rounded-lg px-1.5 py-1 text-left transition-colors active:bg-[var(--kin-fill)] disabled:opacity-50",
           className,
         ].join(" ")}
       >
@@ -172,22 +172,31 @@ export default function RunConfigControl({
         >
           {agentAvatar.initials}
         </span>
-        {/* Truncates keeping the tail: `provider/model-name` should lose the
-            provider, not the model — the same `direction: rtl` trick the
-            reference uses. */}
-        <span className="min-w-0 truncate text-strong [direction:rtl]" title={modelLabel}>
-          <span dir="ltr">{modelLabel}</span>
-        </span>
-        <span aria-hidden className="flex-none select-none text-kin-muted/60">
-          ·
-        </span>
-        <span
-          className={[
-            "flex-none whitespace-nowrap text-caption font-medium",
-            mode === "yolo" ? "text-kin-orange-ink" : "text-kin-muted",
-          ].join(" ")}
-        >
-          {permissionLabel}
+        {/* Two lines, not one: the face has to name the agent, the model and
+            the mode, and on a 320px phone one line left the first two as
+            ellipses. The agent owns the first line and the model hangs under
+            it — the model belongs to that agent — with the mode beside the
+            model. Neither value truncates; a long name wraps, because a phone
+            has no hover to reveal a `title` and the choice has to be readable
+            before it is changed. */}
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="min-w-0 break-words text-caption font-semibold text-kin-secondary">
+            {agentName}
+          </span>
+          <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0">
+            <span className="min-w-0 break-words text-strong text-kin-text">{modelLabel}</span>
+            <span aria-hidden className="flex-none select-none text-kin-muted/60">
+              ·
+            </span>
+            <span
+              className={[
+                "whitespace-nowrap text-caption font-medium",
+                mode === "yolo" ? "text-kin-orange-ink" : "text-kin-muted",
+              ].join(" ")}
+            >
+              {permissionLabel}
+            </span>
+          </span>
         </span>
       </button>
       {wide ? <RunConfigPanel triggerRef={triggerRef} {...body} /> : <RunConfigSheet {...body} />}
@@ -499,7 +508,7 @@ function RunConfigBody({
               >
                 {agentAvatar.initials}
               </span>
-              <span className="min-w-0 truncate">{agentName}</span>
+              <span className="min-w-0 flex-1 break-words">{agentName}</span>
             </PickerTrigger>
           }
         >
@@ -532,7 +541,7 @@ function RunConfigBody({
                       >
                         {meta.initials}
                       </span>
-                      <span className="min-w-0 flex-1 truncate">{agent.name}</span>
+                      <span className="min-w-0 flex-1 break-words">{agent.name}</span>
                       {selected ? (
                         <IconCheck size={16} className="flex-none text-kin-blue-ink" />
                       ) : null}
@@ -560,7 +569,7 @@ function RunConfigBody({
               >
                 {agentAvatar.initials}
               </span>
-              <span className="truncate">{agentName}</span>
+              <span className="min-w-0 break-words">{agentName}</span>
             </div>
           }
         />
@@ -631,9 +640,9 @@ function RunConfigBody({
                       ].join(" ")}
                     >
                       <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="truncate">{option.label}</span>
+                        <span className="break-words">{option.label}</span>
                         {option.detail ? (
-                          <span className="truncate text-caption text-kin-muted">
+                          <span className="break-words text-caption text-kin-muted">
                             {option.detail}
                           </span>
                         ) : null}
@@ -712,7 +721,7 @@ function RunConfigBody({
                       ].join(" ")}
                     >
                       <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="truncate">{tr(PERMISSION_MODE_LABEL_KEY[option])}</span>
+                        <span className="break-words">{tr(PERMISSION_MODE_LABEL_KEY[option])}</span>
                         <span className="text-caption text-kin-muted">
                           {tr(PERMISSION_HINT_KEY[option])}
                         </span>
@@ -869,7 +878,7 @@ function PickerTrigger({
       aria-expanded={expanded}
       aria-controls={expanded ? controls : undefined}
       className={[
-        "flex min-h-10 w-full items-center rounded-lg px-3 text-left text-strong font-medium transition-colors",
+        "flex min-h-10 w-full items-center rounded-lg px-3 py-1.5 text-left text-strong font-medium transition-colors",
         expanded
           ? "bg-[var(--kin-fill-strong)] text-kin-text ring-2 ring-kin-blue/30"
           : "bg-[var(--kin-fill)] text-kin-text hover:bg-[var(--kin-fill-strong)]",
@@ -877,7 +886,12 @@ function PickerTrigger({
         disabled ? "opacity-60" : "",
       ].join(" ")}
     >
-      <span className="min-w-0 flex-1 truncate">{children}</span>
+      {/* Wraps rather than ellipsizes: this row is the one place the sheet
+          states the current value, and a name that only fits behind a `title`
+          is a name a phone cannot read. */}
+      <span className="flex min-w-0 flex-1 items-center gap-2 whitespace-normal break-words">
+        {children}
+      </span>
     </button>
   );
 }
