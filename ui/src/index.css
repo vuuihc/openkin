@@ -421,8 +421,24 @@ body {
 .kin-scrim-enter {
   animation: kin-scrim-in 160ms ease-out;
 }
+/* The mark shown while a cold start restores the session fades in once. It is
+   deliberately not a loop: a wait is not progress, and a pulse under the brand
+   reads as "still working" even when the app is only waiting on one answer.
+   `prefers-reduced-motion` drops the fade below with the other entrances. */
+@keyframes kin-brand-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.kin-brand-enter {
+  animation: kin-brand-in 180ms ease-out;
+}
 @media (prefers-reduced-motion: reduce) {
   .kin-main > *,
+  .kin-brand-enter,
   .kin-sheet-enter,
   .kin-drawer-enter,
   .kin-scrim-enter {
