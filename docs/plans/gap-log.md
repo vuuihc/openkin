@@ -34,6 +34,64 @@ person can see; the fix and its verification belong in the PR.
 
 ## Open
 
+### 2026-11-12 · 高 · 手机端「划」没有过渡：返回硬切，行左划的动作条松手才出现
+
+手机上滑动是「松手才动」的。左缘右滑返回时，手指已经划过 64px，屏幕上的页面
+一动不动；松手后当前页瞬间消失，列表直接出现（新页只有 140ms 淡入，
+`ui/src/index.css:344`），读起来是一次硬切。`useEdgeSwipeBack` 只判定阈值，
+不暴露拖动距离（`ui/src/hooks/useEdgeSwipeBack.ts:19` 写明「没有跟手的
+transform」），`AppShell` 那条 20px 的透明感应条也没有任何可见反馈
+（`ui/src/components/layout/AppShell.tsx:524`）。
+
+期望（可直接写成测试）：
+
+- **拖动中**：当前页随手指水平右移（可加阻尼，上限约屏宽 1/3），列表在下层
+  露出来；拖动位移 > 0 即可断言。
+- **松手**：过阈值（64px 或右甩）继续滑完再落列表；不过阈值回弹到 0，位置和
+  路由都不变；pointercancel 仍视为放弃并回弹，不提交。
+- **`prefers-reduced-motion`**：不跟手，松手直接提交；沿用
+  `ui/src/lib/swipeGesture.ts` 的 `prefersReducedMotion`。
+- 页头返回按钮和系统返回不必跟手，但手势提交与按钮提交必须落同一页、走同一个
+  返回实现（`lib/phoneBack.ts` 的 `goBackToList`），不能各写一份。
+
+不要：只把新页的淡入从 140ms 拉长或换成位移动画来冒充跟手——手势的反馈必须
+发生在手指移动期间。也不要把 `transform` 永久挂在 `.kin-main` 上：它会让容器内
+的 fixed 后代改以它为包含块（`ui/src/index.css:337-352` 已写明这个约束，sheet、
+浮层、命令面板都在里面）。手势期间用的位移层在结束后要清掉，或只包住没有 fixed
+后代的页面内容。
+
+举一反三（同一类：手势有判定、没有连续反馈）：
+
+- **行左划露出操作**：`SwipeReveal` 只在 `open` 为真时才挂载动作条
+  （`ui/src/components/mobile/SwipeReveal.tsx:160`）。拖动过程中行向左滑，后面
+  是空的，松手动作条才「啪」地出现；收起时动作条又先瞬间消失、行再 180ms 滑回。
+  期望：动作条从拖动开始就在，随行一起连续露出；未提交前不可聚焦、不可点
+  （组件注释里已有「隐藏但可聚焦比没有更糟」的约束）。
+- **点开对话 / 目的地**：故事写的是「整页推出」
+  （`docs/product/stories/KIN-CONTINUE-002.md`），实际所有路由切换都只有
+  140ms 淡入、没有退出动画。若要做方向性过渡，必须先解决上面 fixed 后代的
+  问题；不做也要在交付里写明「推出」只是信息架构说法，不是动画承诺。
+  （待定，报告人：点开是否也要滑入，还是只有手势要跟手。）
+
+可以照抄的同类实现：`ui/src/components/mobile/Sheet.tsx:290-317`——跟手、阻尼、
+过阈值后先走完 180ms 再卸载、不过阈值回弹、reduced-motion 直接关；阈值与甩动
+速度共用 `lib/swipeGesture.ts`。
+
+线索：`ui/src/hooks/useEdgeSwipeBack.ts`、
+`ui/src/components/layout/AppShell.tsx:199,524`、
+`ui/src/components/mobile/SwipeReveal.tsx`、`ui/src/index.css:337-356`、
+`ui/src/components/mobile/Sheet.dom.test.tsx`（手势测试的写法）。
+
+验收：
+
+- `useEdgeSwipeBack.test.tsx`：拖动中位移 > 0；回弹归零；过阈值提交；取消回弹；
+  reduced-motion 无位移但提交。
+- `SwipeReveal.dom.test.tsx`：拖动未松手时动作条已在 DOM 且不可聚焦；收起过程中
+  仍在，动画结束后才卸载（或等价的可观察状态）。
+- 390px 浏览器连续截图或录屏：手指移动时页面跟着走，松手滑完落列表；行左划时
+  操作随行露出。
+- `./scripts/check.sh` 绿。
+
 ### 2026-11-09 · 中 · routines 改为设备归属后的遗留项
 
 routines 的跨设备主路径已按 2026-11-08 的决策落地（见 `## 已修`，`901821bf`）：
