@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1100" height="760" fill="#ffffff"/>
+<rect x="0" y="0" width="1100" height="30" fill="#f6f6f8"/>
+<circle cx="18" cy="15" r="4" fill="#dddddd"/><circle cx="32" cy="15" r="4" fill="#dddddd"/><circle cx="46" cy="15" r="4" fill="#dddddd"/>
+<text x="560" y="19" font-size="10.5" fill="#6b6b6b" text-anchor="middle">Mac 1100×760 · 不变：左栏就是那一个面</text>
+
+<rect x="0" y="30" width="300" height="730" fill="#f6f6f8"/>
+<text x="16" y="62" font-size="15" font-weight="600" fill="#1a1a1a">Kin</text>
+<rect x="16" y="76" width="268" height="34" rx="10" fill="#1f6feb"/>
+<text x="150" y="98" font-size="11.5" fill="#ffffff" text-anchor="middle">＋ 新建对话</text>
+<rect x="16" y="122" width="268" height="34" rx="10" fill="#ffffff" stroke="#dddddd"/>
+<text x="30" y="144" font-size="11" fill="#6b6b6b">搜索对话…</text>
+
+<text x="16" y="182" font-size="10.5" fill="#6b6b6b">本机 · 在线</text>
+<text x="16" y="206" font-size="11.5" font-weight="600" fill="#1a1a1a">▾ alpha</text>
+<rect x="16" y="216" width="268" height="40" rx="9" fill="#ffffff"/>
+<text x="28" y="241" font-size="11" fill="#1a1a1a">整理发布说明</text>
+<rect x="16" y="262" width="268" height="40" rx="9" fill="#ffffff"/>
+<text x="28" y="287" font-size="11" fill="#1a1a1a">把截图归档</text>
+<rect x="16" y="308" width="268" height="40" rx="9" fill="#ffffff"/>
+<text x="28" y="333" font-size="11" fill="#1a1a1a">检查昨天的构建</text>
+
+<line x1="16" y1="364" x2="284" y2="364" stroke="#e2e2e6"/>
+<text x="16" y="390" font-size="10.5" fill="#6b6b6b">Studio · 离线</text>
+<text x="16" y="414" font-size="11.5" font-weight="600" fill="#1a1a1a">▾ gamma</text>
+<rect x="16" y="424" width="268" height="40" rx="9" fill="#ffffff"/>
+<text x="28" y="449" font-size="11" fill="#9a9a9a">部署预演</text>
+
+<line x1="0" y1="690" x2="300" y2="690" stroke="#e2e2e6"/>
+<g text-anchor="middle" font-size="10" fill="#555">
+  <text x="38" y="716">▣</text><text x="92" y="716">↧</text><text x="146" y="716">◷</text><text x="200" y="716">▦</text><text x="254" y="716">⚙</text>
+</g>
+<text x="150" y="740" font-size="9.5" fill="#6b6b6b" text-anchor="middle">底部一行图标：归档 · 导入 · 例行 · Agent · 设置</text>
+
+<rect x="300" y="30" width="800" height="730" fill="#ffffff"/>
+<text x="330" y="70" font-size="15" font-weight="600" fill="#1a1a1a">整理发布说明</text>
+<text x="330" y="88" font-size="10.5" fill="#6b6b6b">已完成 · 12:04</text>
+<rect x="700" y="52" width="80" height="28" rx="14" fill="#eef8f1"/>
+<text x="740" y="70" font-size="10.5" fill="#137a3f" text-anchor="middle">已完成</text>
+
+<rect x="330" y="120" width="460" height="56" rx="12" fill="#f6f6f8"/>
+<text x="344" y="144" font-size="11.5" fill="#1a1a1a">把这周的发布说明整理成一页，</text>
+<text x="344" y="162" font-size="11.5" fill="#1a1a1a">标出需要我确认的三项。</text>
+<rect x="330" y="192" width="420" height="56" rx="12" fill="#ffffff" stroke="#dddddd"/>
+<text x="344" y="216" font-size="11" fill="#555">读取 3 个文件 · src/release/notes.md</text>
+<text x="344" y="234" font-size="10" fill="#6b6b6b">已读取 · 1.2 秒</text>
+<rect x="330" y="264" width="460" height="64" rx="12" fill="#f6f6f8"/>
+<text x="344" y="288" font-size="11.5" fill="#1a1a1a">整理好了，三项需要你确认：</text>
+<text x="344" y="306" font-size="11.5" fill="#1a1a1a">· 发布窗口 · 文案 · 回滚方式</text>
+
+<rect x="330" y="618" width="740" height="82" rx="14" fill="#ffffff" stroke="#1f6feb"/>
+<text x="346" y="646" font-size="11" fill="#6b6b6b">继续问…</text>
+<rect x="1010" y="646" width="42" height="26" rx="13" fill="#1f6feb"/>
+<text x="1031" y="664" font-size="12" fill="#ffffff" text-anchor="middle">↑</text>
+<text x="346" y="682" font-size="10.5" fill="#555">Claude Code · Sonnet · 只读</text>
+<text x="1054" y="682" font-size="10.5" fill="#1f6feb" text-anchor="end">运行设置 ▾</text>
+
+<text x="330" y="730" font-size="10.5" fill="#6b6b6b">Mac 没有任何手机式抽屉或 dock；列表只在左栏，搜索只在左栏。</text>
+<rect x="0.5" y="0.5" width="1099" height="759" fill="none" stroke="#bbbbbb"/>
+</g>
+</svg>

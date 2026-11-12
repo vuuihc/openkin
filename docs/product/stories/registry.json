@@ -382,6 +382,31 @@
         "ui/src/lib/routineConversation.test.ts"
       ],
       "blockedReason": null
+    },
+    {
+      "id": "KIN-CONTINUE-002",
+      "state": "draft",
+      "priority": "P0",
+      "journeys": [
+        "J1",
+        "J2"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "手机只留一个导航面：列表页就是侧栏",
+      "file": "docs/product/stories/KIN-CONTINUE-002.md",
+      "surface": "手机对话列表",
+      "ownerPaths": [
+        "ui/src/components/layout/AppShell.tsx",
+        "ui/src/components/layout/Sidebar.tsx",
+        "ui/src/components/mobile/MobileDock.tsx",
+        "ui/src/components/mobile/SessionsHeader.tsx",
+        "ui/src/pages/SessionsPage.tsx"
+      ],
+      "tests": [],
+      "blockedReason": null
     }
   ]
 }
