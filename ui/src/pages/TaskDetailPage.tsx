@@ -76,6 +76,7 @@ import {
   IconRestore,
   IconSessions,
   IconShare,
+  IconSpinner,
   IconTrash,
 } from "../components/icons";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
@@ -1889,89 +1890,108 @@ export default function TaskDetailPage({
           />
         </div>
 
-        <div
-          ref={scrollRef}
-          onScroll={onChatScroll}
-          className={
-            scrollReady
-              ? "flex-1 overflow-y-auto kin-scroll py-5 min-h-0"
-              : "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 invisible"
-          }
-        >
-          <WorkerTimeline
-            rows={workerRows}
-            onOpenPath={onOpenWorkspacePath}
-            // A settled task has nothing left to stop; a stale running row is
-            // the poll's problem, not a button the reader can use.
-            onStop={isTerminal(task.status) ? undefined : onStopWorker}
-            stoppingKey={workerStoppingKey}
-          />
-          <ChatStream
-            events={events}
-            onOpenPath={onOpenWorkspacePath}
-            fallbackUserPrompt={displayUserPrompt(task.prompt || "")}
-            messageScope={task.id}
-            loading={!detail.loaded || !terminal || sending || awaitingReply}
-            loadingSpeaker={task.agent || "kin"}
-            hostSpeaker={task.agent || "kin"}
-            hostModel={task.model}
-            queuedSeqs={queuedSeqs}
-            onUnqueue={onWithdrawQueued}
-            onEditQueued={onEditQueued}
-            pendingSlots={pendingSlots}
-            showMessageActions={terminal}
-            actionsBusy={actionBusy}
-            onRetry={(seq) => void onRetry(seq)}
-            onFork={(seq) => void onFork(seq)}
-            onSaveArtifact={(text) => void onSaveArtifact(text)}
-            findOpen={findOpen}
-            onFindOpenChange={setFindOpen}
-            findShortcut={active && panel === null && !fileFinderOpen}
-            findSeed={findSeed}
-            trailing={
-              <>
-                {unanchored.map((entry) => (
-                  <div key={`${entry.kind}-${entry.id}`} className="mt-1">
-                    {renderPendingCard(entry)}
-                  </div>
-                ))}
-                {latestLimitHit && task && (
-                  <div className="mt-2" key={`limit-${latestLimitHit.seq}`}>
-                    <LimitCard
-                      hit={latestLimitHit.payload}
-                      wait={limitWait}
-                      hostAgentId={task.agent || ""}
-                      active={active}
-                      agents={agents}
-                      busy={limitBusy}
-                      onWait={() => void onLimitAction("wait")}
-                      onContinue={() => void onLimitAction("continue")}
-                      onSwitch={(agentId) => void onLimitAction("switch", agentId)}
-                      onDismiss={() => void onLimitAction("dismiss")}
-                    />
-                  </div>
-                )}
-                {needsYou.length > 0 && (
-                  /*
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <div
+            ref={scrollRef}
+            onScroll={onChatScroll}
+            className={
+              scrollReady
+                ? "flex-1 overflow-y-auto kin-scroll py-5 min-h-0"
+                : "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 invisible"
+            }
+          >
+            <WorkerTimeline
+              rows={workerRows}
+              onOpenPath={onOpenWorkspacePath}
+              // A settled task has nothing left to stop; a stale running row is
+              // the poll's problem, not a button the reader can use.
+              onStop={isTerminal(task.status) ? undefined : onStopWorker}
+              stoppingKey={workerStoppingKey}
+            />
+            <ChatStream
+              events={events}
+              onOpenPath={onOpenWorkspacePath}
+              fallbackUserPrompt={displayUserPrompt(task.prompt || "")}
+              messageScope={task.id}
+              loading={!detail.loaded || !terminal || sending || awaitingReply}
+              loadingSpeaker={task.agent || "kin"}
+              hostSpeaker={task.agent || "kin"}
+              hostModel={task.model}
+              queuedSeqs={queuedSeqs}
+              onUnqueue={onWithdrawQueued}
+              onEditQueued={onEditQueued}
+              pendingSlots={pendingSlots}
+              showMessageActions={terminal}
+              actionsBusy={actionBusy}
+              onRetry={(seq) => void onRetry(seq)}
+              onFork={(seq) => void onFork(seq)}
+              onSaveArtifact={(text) => void onSaveArtifact(text)}
+              findOpen={findOpen}
+              onFindOpenChange={setFindOpen}
+              findShortcut={active && panel === null && !fileFinderOpen}
+              findSeed={findSeed}
+              trailing={
+                <>
+                  {unanchored.map((entry) => (
+                    <div key={`${entry.kind}-${entry.id}`} className="mt-1">
+                      {renderPendingCard(entry)}
+                    </div>
+                  ))}
+                  {latestLimitHit && task && (
+                    <div className="mt-2" key={`limit-${latestLimitHit.seq}`}>
+                      <LimitCard
+                        hit={latestLimitHit.payload}
+                        wait={limitWait}
+                        hostAgentId={task.agent || ""}
+                        active={active}
+                        agents={agents}
+                        busy={limitBusy}
+                        onWait={() => void onLimitAction("wait")}
+                        onContinue={() => void onLimitAction("continue")}
+                        onSwitch={(agentId) => void onLimitAction("switch", agentId)}
+                        onDismiss={() => void onLimitAction("dismiss")}
+                      />
+                    </div>
+                  )}
+                  {needsYou.length > 0 && (
+                    /*
                     A phone does not have these keys, and the line reads as an
                     instruction to press something that is not there. `sm` is
                     the same gate the composer's ⌘↵ hint uses (Composer.tsx)
                     rather than a pointer media query, so one codebase has one
                     answer to "the keyboard hint does not apply here".
                   */
-                  <p className="hidden sm:block text-center text-caption text-kin-muted mt-2">
-                    <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">A</kbd>{" "}
-                    {tr("chat.approve")} ·{" "}
-                    <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">D</kbd>{" "}
-                    {tr("chat.deny")}
-                    {" · "}
-                    {tr("question.hintKeys")}
-                  </p>
-                )}
-                <div ref={bottomRef} />
-              </>
-            }
-          />
+                    <p className="hidden sm:block text-center text-caption text-kin-muted mt-2">
+                      <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">
+                        A
+                      </kbd>{" "}
+                      {tr("chat.approve")} ·{" "}
+                      <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">
+                        D
+                      </kbd>{" "}
+                      {tr("chat.deny")}
+                      {" · "}
+                      {tr("question.hintKeys")}
+                    </p>
+                  )}
+                  <div ref={bottomRef} />
+                </>
+              }
+            />
+          </div>
+          {/* The transcript stays invisible until its scroll is restored, so
+              without a placeholder the content area reads as empty rather than
+              loading. One centred indicator fills that gap; it unmounts with
+              the detail, so success and failure both reveal what they should. */}
+          {loading && (
+            <div
+              className="absolute inset-0 flex items-center justify-center"
+              role="status"
+              aria-label={tr("common.loading")}
+            >
+              <IconSpinner size={24} className="text-kin-muted motion-reduce:animate-none" />
+            </div>
+          )}
         </div>
 
         {/* `data-kin-bottom-chrome` is a contract with the shell's floating
