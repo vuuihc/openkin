@@ -59,10 +59,21 @@ const EMPTY_QUEUED: Set<number> = new Set();
 /** One empty result, shared: a closed find bar has nothing to point at. */
 const NO_FIND_HITS: readonly string[] = [];
 
+/** One local copy of a send the daemon has not echoed yet. */
+export type PendingUserMessage = { key: string; text: string };
+
 type Props = {
   events: TaskEvent[];
   /** Fallback first user bubble when create hasn't seeded events yet. */
   fallbackUserPrompt?: string;
+  /**
+   * User messages the composer has already handed over but the transcript does
+   * not contain yet. They are drawn as ordinary user bubbles at the end of the
+   * stream, so the waiting row below them has something to wait under instead
+   * of the send disappearing until the daemon answers. The sender removes one
+   * when its server copy lands; this component never edits the list itself.
+   */
+  pendingUserMessages?: readonly PendingUserMessage[];
   /** Approvals / cards rendered after messages. */
   trailing?: ReactNode;
   /**
@@ -146,6 +157,7 @@ type Props = {
 export default function ChatStream({
   events,
   fallbackUserPrompt,
+  pendingUserMessages,
   trailing,
   loading = false,
   loadingSpeaker = "",
@@ -173,10 +185,24 @@ export default function ChatStream({
   const [sharing, setSharing] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
   // Rebuild when locale changes (tool summaries use t()).
-  const items = useMemo(
-    () => mergeProcessRuns(buildChatItems(events, hostSpeaker, hostModel, !loading)),
-    [events, locale, hostSpeaker, hostModel, loading],
-  );
+  const items = useMemo(() => {
+    const built = mergeProcessRuns(buildChatItems(events, hostSpeaker, hostModel, !loading));
+    if (!pendingUserMessages || pendingUserMessages.length === 0) return built;
+    // Appended after the projection rather than passed into it: these messages
+    // have no event, so they start no round and carry no seq. What they do have
+    // is a place — after everything the transcript knows — which is exactly
+    // where the waiting row looks for the turn it belongs to.
+    return [
+      ...built,
+      ...pendingUserMessages.map((message): ChatItem => ({
+        kind: "message",
+        key: message.key,
+        speaker: "user",
+        text: message.text,
+        partial: false,
+      })),
+    ];
+  }, [events, locale, hostSpeaker, hostModel, loading, pendingUserMessages]);
   const turns = useMemo(
     () => groupIntoTurns(items, hostSpeaker, normalizeModel(hostModel)),
     [items, hostSpeaker, hostModel],

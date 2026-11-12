@@ -57,6 +57,7 @@ import ApprovalCard from "../components/cards/ApprovalCard";
 import LimitCard from "../components/cards/LimitCard";
 import UserQuestionCard from "../components/cards/UserQuestionCard";
 import ChatStream from "../components/chat/ChatStream";
+import { pendingSend, settlePendingSendList, type PendingSend } from "../lib/pendingSend";
 import { findSpeakerModel, pendingRefSeqs } from "../components/chat/transcriptProjection";
 import Composer, { type SubmitFailure } from "../components/chat/Composer";
 import RunConfigControl from "../components/chat/RunConfigSheet";
@@ -253,6 +254,12 @@ export default function TaskDetailPage({
   const [usageLoading, setUsageLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [awaitingReply, setAwaitingReply] = useState(false);
+  /**
+   * Sends the transcript has not echoed yet. The composer clears the input the
+   * moment the person submits, so without these the message they just wrote is
+   * gone from the screen until the daemon's own event arrives.
+   */
+  const [pendingSends, setPendingSends] = useState<PendingSend[]>([]);
   const [composerModel, setComposerModel] = useState("");
   const [composerPermission, setComposerPermission] = useState<PermissionMode>("default");
   // Bumped when the composer's text is changed from outside it (a queued
@@ -595,6 +602,19 @@ export default function TaskDetailPage({
       }
     }
   }, [events]);
+
+  // A pending send ends when the message the daemon wrote for it appears. The
+  // event is written at accept time, before the follow-up request answers, so
+  // this normally lands with the response; the forced refresh after a send
+  // covers the case where the event stream is down and the send still worked.
+  useEffect(() => {
+    setPendingSends((current) => settlePendingSendList(current, events));
+  }, [events]);
+
+  const pendingUserMessages = useMemo(
+    () => pendingSends.map((send) => ({ key: send.id, text: send.text })),
+    [pendingSends],
+  );
 
   const isNearBottom = useCallback((el: HTMLElement, threshold = 96) => {
     return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
@@ -1109,6 +1129,10 @@ export default function TaskDetailPage({
 
   async function onComposer(text: string, opts?: { interrupt?: boolean }) {
     if (!task) return;
+    // The bubble goes in before the request does: this is the same tick that
+    // cleared the composer, so the message never leaves the screen.
+    const sent = pendingSend(text, events);
+    setPendingSends((current) => [...current, sent]);
     setSending(true);
     setAwaitingReply(true);
     // The draft as the composer left it when it submitted — normally empty,
@@ -1129,6 +1153,10 @@ export default function TaskDetailPage({
       if (opts?.interrupt) send.interrupt = true;
       const t = await followUpPrompt(task.id, text, Object.keys(send).length ? send : undefined);
       liveResources.applyTaskSnapshot(t, requestRevision);
+      // The message event this send created is already in the log; a forced
+      // read makes it visible now when the stream is not the thing delivering
+      // it. Without this the pending bubble would wait for the next poll.
+      void liveResources.refreshTask(task.id, true);
       // The draft can change while the POST is in flight: editing a queued
       // message refills the composer. Clearing then would delete text the
       // person is about to send, so only the draft this send started from is
@@ -1145,6 +1173,9 @@ export default function TaskDetailPage({
         pushToast(tr(opts?.interrupt ? "task.interruptedGuide" : "task.queuedGuide"), "info");
       }
     } catch (err) {
+      // Nothing was accepted, so the local copy is not a message: the composer
+      // puts the text back and the error is the only thing left to say.
+      setPendingSends((current) => current.filter((item) => item.id !== sent.id));
       const failure = err instanceof Error ? err : new Error(tr("task.sendFailed"));
       // Re-throw so Composer restores the cleared input + draft, and shows the
       // toast — unless the draft is no longer the one this send started from.
@@ -1914,6 +1945,7 @@ export default function TaskDetailPage({
               events={events}
               onOpenPath={onOpenWorkspacePath}
               fallbackUserPrompt={displayUserPrompt(task.prompt || "")}
+              pendingUserMessages={pendingUserMessages}
               messageScope={task.id}
               loading={!detail.loaded || !terminal || sending || awaitingReply}
               loadingSpeaker={task.agent || "kin"}

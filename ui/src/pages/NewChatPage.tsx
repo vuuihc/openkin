@@ -9,8 +9,10 @@ import {
   recentCwds,
   type OnePagerSummary,
   type Project,
+  type TaskEvent,
 } from "../api/client";
 import BranchPicker from "../components/chat/BranchPicker";
+import ChatStream from "../components/chat/ChatStream";
 import CwdPicker from "../components/chat/CwdPicker";
 import Composer from "../components/chat/Composer";
 import RunConfigControl, { RunConfigSheetRow } from "../components/chat/RunConfigSheet";
@@ -28,6 +30,7 @@ import RoutineScheduleFields, {
   parseLocalDateTime,
 } from "../components/routine/RoutineScheduleFields";
 import { serializeRoutineRule, type RoutineRule } from "../lib/routineRecurrence";
+import { displayUserPrompt } from "../lib/attachments";
 import ProjectSummaryCard from "../components/project/ProjectSummaryCard";
 import { liveResources } from "../api/liveResources";
 import { useT } from "../i18n/react";
@@ -70,6 +73,9 @@ import { appliedRole, selectRole } from "../lib/agentRoles";
 import { useAgentRoles } from "../hooks/useAgentRoles";
 import SheetSelect from "../components/ui/SheetSelect";
 import { useAppStore } from "../store/appStore";
+
+/** One empty transcript, shared: the pending send has no events yet. */
+const NO_EVENTS: TaskEvent[] = [];
 
 /**
  * New session: user talks to the configured main agent.
@@ -114,6 +120,14 @@ export default function NewChatPage() {
   const [dispatch, setDispatch] = useState<DispatchSelection>(defaultDispatchSelection);
   const [dispatchPreviewBlocked, setDispatchPreviewBlocked] = useState(false);
   const [sending, setSending] = useState(false);
+  /**
+   * The message this page has already sent but has no task id for yet. While
+   * it is set the body is a conversation surface — the person's own words and
+   * the host's waiting row — instead of the draft's hero, so a tap on the
+   * send control does not look like nothing happened. Cleared when the create
+   * answers (the route takes over) or fails (the draft comes back).
+   */
+  const [pendingSend, setPendingSend] = useState<string | null>(null);
   const [project, setProject] = useState<Project | null>(null);
   const [projectSummary, setProjectSummary] = useState<OnePagerSummary | null>(null);
   const [projectLookupState, setProjectLookupState] = useState<
@@ -430,6 +444,10 @@ export default function NewChatPage() {
 
     setSending(true);
     setDraftPrompt(raw);
+    // The draft page hands the message to the conversation surface before the
+    // create request answers. The task id does not exist yet, so what the reader
+    // sees is a local bubble and the host's waiting row, not a fake route.
+    setPendingSend(displayUserPrompt(raw));
     try {
       const task = await createTask({
         agent,
@@ -461,6 +479,10 @@ export default function NewChatPage() {
       clearDraftPrompt();
       navigate(`/tasks/${task.id}`, { replace: true });
     } catch (err) {
+      // The conversation never started, so the local bubble must go back to
+      // being a draft. The composer is still mounted and puts its own text and
+      // attachments back; the stored draft was never cleared.
+      setPendingSend(null);
       const msg =
         err instanceof ApiError
           ? err.message
@@ -658,96 +680,117 @@ export default function NewChatPage() {
         ) : null}
       </div>
 
-      <div
-        className={[
-          "flex-1 overflow-y-auto kin-scroll flex flex-col items-center px-6 py-10",
-          "max-md:justify-start max-md:px-5 max-md:pb-6 max-md:pt-8",
-          showProjectColumn ? "justify-start" : "justify-center",
-        ].join(" ")}
-      >
-        <div
-          className={`w-8 h-8 max-md:h-11 max-md:w-11 max-md:text-subtitle rounded-lg max-md:rounded-full flex items-center justify-center mb-4 max-md:mb-3 text-body font-semibold ${mainAgentAvatar.className}`}
-          aria-label={mainAgentAvatar.label}
-        >
-          {mainAgentAvatar.initials}
+      {pendingSend ? (
+        // The send is in flight and there is no conversation route yet. Draw
+        // the same stream the route will draw — the person's message, then the
+        // host's waiting row — so the feedback is the send, not a spinner in
+        // the button. The composer stays mounted below and is the thing that
+        // restores the draft if the create request fails.
+        <div className="flex-1 overflow-y-auto kin-scroll px-4 py-6 sm:px-7">
+          <div className="mx-auto w-full max-w-conversation">
+            <ChatStream
+              events={NO_EVENTS}
+              fallbackUserPrompt={pendingSend}
+              loading
+              loadingSpeaker={mainAgentId}
+              hostSpeaker={mainAgentId}
+              hostModel={selectedModel || null}
+              messageScope="new-chat"
+            />
+          </div>
         </div>
-        <h1 className="text-hero max-md:text-display font-semibold tracking-tight text-center max-w-md">
-          {tr("newChat.heroTitle", { name: mainAgentName })}
-        </h1>
-        {/* The phone's empty state is one line, not an essay: the face under
+      ) : (
+        <div
+          className={[
+            "flex-1 overflow-y-auto kin-scroll flex flex-col items-center px-6 py-10",
+            "max-md:justify-start max-md:px-5 max-md:pb-6 max-md:pt-8",
+            showProjectColumn ? "justify-start" : "justify-center",
+          ].join(" ")}
+        >
+          <div
+            className={`w-8 h-8 max-md:h-11 max-md:w-11 max-md:text-subtitle rounded-lg max-md:rounded-full flex items-center justify-center mb-4 max-md:mb-3 text-body font-semibold ${mainAgentAvatar.className}`}
+            aria-label={mainAgentAvatar.label}
+          >
+            {mainAgentAvatar.initials}
+          </div>
+          <h1 className="text-hero max-md:text-display font-semibold tracking-tight text-center max-w-md">
+            {tr("newChat.heroTitle", { name: mainAgentName })}
+          </h1>
+          {/* The phone's empty state is one line, not an essay: the face under
             the composer says who runs and how, and the reference's new-chat
             screen keeps the input visually central. The longer guidance is
             desktop reference material, where the column has room for it. */}
-        <p className="hidden md:block mt-2 text-strong text-kin-secondary text-center max-w-md">
-          {tr("newChat.heroSubtitleHost", { name: mainAgentName })}
-        </p>
-
-        {available.length > 1 && (
-          <p className="hidden md:block mt-2 text-caption text-kin-muted">
-            {tr("newChat.hostPickerHint")}
+          <p className="hidden md:block mt-2 text-strong text-kin-secondary text-center max-w-md">
+            {tr("newChat.heroSubtitleHost", { name: mainAgentName })}
           </p>
-        )}
 
-        {agents.some((a) => !a.available) && !remote && (
-          <div className="hidden md:flex mt-1 sm:mt-3">
-            <button
-              type="button"
-              className="min-h-11 px-3 text-body text-kin-blue-ink hover:underline sm:min-h-0 sm:px-0"
-              onClick={() => navigate("/agents")}
-            >
-              {tr("agents.manageLink")}
-            </button>
-          </div>
-        )}
-        {machinesFailed ? (
-          <p className="mt-2 text-caption text-kin-muted">{tr("machine.listUnavailable")}</p>
-        ) : null}
+          {available.length > 1 && (
+            <p className="hidden md:block mt-2 text-caption text-kin-muted">
+              {tr("newChat.hostPickerHint")}
+            </p>
+          )}
 
-        <div className="mt-8 w-full max-w-xl space-y-3">
-          {/* The folder belongs to the draft, not to the row of run knobs:
+          {agents.some((a) => !a.available) && !remote && (
+            <div className="hidden md:flex mt-1 sm:mt-3">
+              <button
+                type="button"
+                className="min-h-11 px-3 text-body text-kin-blue-ink hover:underline sm:min-h-0 sm:px-0"
+                onClick={() => navigate("/agents")}
+              >
+                {tr("agents.manageLink")}
+              </button>
+            </div>
+          )}
+          {machinesFailed ? (
+            <p className="mt-2 text-caption text-kin-muted">{tr("machine.listUnavailable")}</p>
+          ) : null}
+
+          <div className="mt-8 w-full max-w-xl space-y-3">
+            {/* The folder belongs to the draft, not to the row of run knobs:
               it names what the conversation is about, and the project card
               below answers with that folder's summary. Its own line above the
               card keeps it out of the composer's bottom row, which now holds
               one run face at every width. */}
-          <div className="flex justify-center">{renderControl("cwd")}</div>
-          {remote ? (
-            <div className="rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-4 py-5 text-center text-strong text-kin-secondary">
-              {machine && machine.roots.length > 0
-                ? tr("machine.rootsHint", { name: machineLabel, path: machine.roots[0] })
-                : tr("machine.noRoots", { name: machineLabel })}
-            </div>
-          ) : !cwd.trim() ? (
-            <div className="rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-4 py-5 text-center text-strong text-kin-secondary">
-              {tr("newChat.noCwdHint")}
-            </div>
-          ) : projectLookupState === "loading" ? (
-            <div className="rounded-xl border border-[var(--kin-hairline)] bg-kin-panel/60 px-4 py-5 text-center text-strong text-kin-muted">
-              {tr("newChat.projectSummaryLoading")}
-            </div>
-          ) : projectLookupState === "error" ? (
-            <div className="w-full rounded-2xl border border-kin-red/30 bg-kin-panel px-4 py-3 text-left">
-              <p className="text-body text-kin-red-ink">
-                {projectLookupError || tr("newChat.projectSummaryError")}
-              </p>
-              <button
-                type="button"
-                className="mt-2 text-body text-kin-blue-ink hover:underline"
-                onClick={() => setProjectLookupKey((k) => k + 1)}
-              >
-                {tr("common.retry")}
-              </button>
-            </div>
-          ) : project ? (
-            <ProjectSummaryCard project={project} summary={projectSummary} />
-          ) : (
-            <div className="max-md:hidden rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-4 py-5 text-center text-strong text-kin-secondary">
-              {tr("newChat.onePagerNoProject", {
-                project: projectLabel(cwd),
-              })}
-            </div>
-          )}
+            <div className="flex justify-center">{renderControl("cwd")}</div>
+            {remote ? (
+              <div className="rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-4 py-5 text-center text-strong text-kin-secondary">
+                {machine && machine.roots.length > 0
+                  ? tr("machine.rootsHint", { name: machineLabel, path: machine.roots[0] })
+                  : tr("machine.noRoots", { name: machineLabel })}
+              </div>
+            ) : !cwd.trim() ? (
+              <div className="rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-4 py-5 text-center text-strong text-kin-secondary">
+                {tr("newChat.noCwdHint")}
+              </div>
+            ) : projectLookupState === "loading" ? (
+              <div className="rounded-xl border border-[var(--kin-hairline)] bg-kin-panel/60 px-4 py-5 text-center text-strong text-kin-muted">
+                {tr("newChat.projectSummaryLoading")}
+              </div>
+            ) : projectLookupState === "error" ? (
+              <div className="w-full rounded-2xl border border-kin-red/30 bg-kin-panel px-4 py-3 text-left">
+                <p className="text-body text-kin-red-ink">
+                  {projectLookupError || tr("newChat.projectSummaryError")}
+                </p>
+                <button
+                  type="button"
+                  className="mt-2 text-body text-kin-blue-ink hover:underline"
+                  onClick={() => setProjectLookupKey((k) => k + 1)}
+                >
+                  {tr("common.retry")}
+                </button>
+              </div>
+            ) : project ? (
+              <ProjectSummaryCard project={project} summary={projectSummary} />
+            ) : (
+              <div className="max-md:hidden rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-4 py-5 text-center text-strong text-kin-secondary">
+                {tr("newChat.onePagerNoProject", {
+                  project: projectLabel(cwd),
+                })}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Same contract as the conversation screen: the shell's floating card
           measures this band so it never covers the draft composer. The draft
