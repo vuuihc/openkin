@@ -1,5 +1,8 @@
 .PHONY: build test clean ui go-build setup-dev desktop-dev desktop-dist desktop-icons desktop-rebuild dev release
 
+VERSION ?= 0.0.0-dev
+RELEASE_LDFLAGS := -s -w -X main.version=$(VERSION)
+
 # Single binary with embedded UI (spec §10 M0).
 build: ui go-build
 
@@ -13,10 +16,10 @@ go-build:
 # Cross-compile release binaries.
 release: ui
 	@mkdir -p dist
-	GOOS=darwin GOARCH=arm64 go build -o dist/kin-darwin-arm64 ./cmd/kin
-	GOOS=darwin GOARCH=amd64 go build -o dist/kin-darwin-amd64 ./cmd/kin
-	GOOS=linux GOARCH=amd64 go build -o dist/kin-linux-amd64 ./cmd/kin
-	GOOS=linux GOARCH=arm64 go build -o dist/kin-linux-arm64 ./cmd/kin
+	GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "$(RELEASE_LDFLAGS)" -o dist/kin-darwin-arm64 ./cmd/kin
+	GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "$(RELEASE_LDFLAGS)" -o dist/kin-darwin-amd64 ./cmd/kin
+	GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$(RELEASE_LDFLAGS)" -o dist/kin-linux-amd64 ./cmd/kin
+	GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$(RELEASE_LDFLAGS)" -o dist/kin-linux-arm64 ./cmd/kin
 	cd dist && shasum -a 256 kin-* > SHA256SUMS
 	@echo "---"
 	@echo "Release binaries in dist/:"

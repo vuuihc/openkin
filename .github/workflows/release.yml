@@ -38,7 +38,7 @@ jobs:
 
       - name: Build release binaries
         run: |
-          make release
+          VERSION="${GITHUB_REF_NAME#v}" make release
 
       - name: Archive artifacts
         run: |
@@ -87,8 +87,8 @@ jobs:
 
       - name: Build kin binary (darwin/arm64, embedded UI)
         run: |
-          # Strip the v so the embedded CLI reports 0.4.0 like the app does
-          # (review N10): one release, one version string.
+          # Strip the v so the embedded CLI reports the same semantic version
+          # as the app and the other release binaries.
           go build -trimpath \
             -ldflags "-s -w -X main.version=${GITHUB_REF_NAME#v}" \
             -o kin ./cmd/kin
