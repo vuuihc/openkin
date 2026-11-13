@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 /**
  * Swipe-to-reveal row actions for the phone's lists.
@@ -21,6 +21,8 @@ import { useRef, useState, type ReactNode } from "react";
 const REVEAL_WIDTH = 152;
 const LONG_PRESS_MS = 500;
 const MOVE_TOLERANCE_PX = 8;
+/** ms: the row's own slide back to rest; actions stay mounted until it ends. */
+const SETTLE_MS = 180;
 
 export default function SwipeReveal({
   open,
@@ -66,6 +68,59 @@ export default function SwipeReveal({
   // taken once a drag actually starts, which is the only time moves outside
   // the row need to keep arriving here.
   const captured = useRef(false);
+  // The strip is mounted from the first pixel of a drag, not on release: a
+  // row sliding over an empty slot and then popping its actions in is a snap,
+  // not a reveal. It is also kept for the 180ms the row takes to slide back,
+  // so the chips travel away with the row instead of vanishing under it.
+  const [settling, setSettling] = useState(false);
+  const settleTimer = useRef<number | null>(null);
+  const previousOpen = useRef(open);
+  const actionsLayer = useRef<HTMLDivElement | null>(null);
+  // Reachable only when the parent has committed the row open and no finger is
+  // still moving it. Everything else is a strip the row still covers.
+  const actionsInteractive = open && drag === null;
+
+  const holdActionsWhileSettling = useCallback(() => {
+    if (settleTimer.current !== null) window.clearTimeout(settleTimer.current);
+    setSettling(true);
+    settleTimer.current = window.setTimeout(() => {
+      settleTimer.current = null;
+      setSettling(false);
+    }, SETTLE_MS);
+  }, []);
+
+  // A row closed by its parent — another row opened, a live update removed it —
+  // slides back too, and its actions stay until that slide finishes.
+  useEffect(() => {
+    const wasOpen = previousOpen.current;
+    previousOpen.current = open;
+    if (open) {
+      if (settleTimer.current !== null) {
+        window.clearTimeout(settleTimer.current);
+        settleTimer.current = null;
+      }
+      setSettling(false);
+      return;
+    }
+    if (wasOpen) holdActionsWhileSettling();
+  }, [open, holdActionsWhileSettling]);
+
+  useEffect(
+    () => () => {
+      if (settleTimer.current !== null) window.clearTimeout(settleTimer.current);
+    },
+    [],
+  );
+
+  // `inert` is not in React 18's HTML typings, and `aria-hidden` alone leaves
+  // the descendants in the tab order. The attribute is what the browser
+  // enforces, so it is set on the node instead of passed as a prop.
+  useEffect(() => {
+    const layer = actionsLayer.current;
+    if (!layer) return;
+    if (actionsInteractive) layer.removeAttribute("inert");
+    else layer.setAttribute("inert", "");
+  }, [actionsInteractive, open, drag, settling]);
 
   const cancelLongPress = () => {
     if (longPressTimer.current !== null) {
@@ -96,7 +151,10 @@ export default function SwipeReveal({
 
   function onPointerMove(event: React.PointerEvent) {
     const origin = pressOrigin.current;
-    if (origin && Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > MOVE_TOLERANCE_PX) {
+    if (
+      origin &&
+      Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > MOVE_TOLERANCE_PX
+    ) {
       cancelLongPress();
     }
     if (startX.current === null) return;
@@ -135,6 +193,11 @@ export default function SwipeReveal({
     if (event.type === "pointerup") suppressClick.current = true;
     const next = translate + dx < -width / 2;
     if (next !== open) onOpenChange(next);
+    // A drag that ends with the row anywhere but fully open travels back to
+    // rest; its strip stays for that same 180ms. A row that was open closes
+    // through the prop change above, and the effect owns that timer, so this
+    // only covers a drag that never opened (or never reached half-way).
+    if (!next && !open) holdActionsWhileSettling();
   }
 
   return (
@@ -154,11 +217,17 @@ export default function SwipeReveal({
         event.stopPropagation();
       }}
     >
-      {/* Mounted only while open: a hidden-but-focusable action is worse than
-          none (tab would reach an invisible button), and the row's own slide
-          is the whole transition. */}
-      {open ? (
-        <div className="absolute inset-y-0 right-0 flex items-stretch" style={{ width }}>
+      {/* Mounted from the first pixel of a drag through the end of the slide
+          back. Until the parent commits the row open it is inert and takes no
+          pointer: a hidden-but-focusable action is worse than none, and a
+          second finger must not press a chip the row still covers. */}
+      {open || drag !== null || settling ? (
+        <div
+          ref={actionsLayer}
+          className="absolute inset-y-0 right-0 flex items-stretch"
+          style={{ width, pointerEvents: actionsInteractive ? undefined : "none" }}
+          aria-hidden={actionsInteractive ? undefined : true}
+        >
           {actions}
         </div>
       ) : null}

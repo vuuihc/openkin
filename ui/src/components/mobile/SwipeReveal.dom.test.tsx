@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import SwipeReveal from "./SwipeReveal";
@@ -90,12 +91,7 @@ describe("SwipeReveal gestures", () => {
     const onClick = vi.fn();
     const onOpenChange = vi.fn();
     const { container } = render(
-      <SwipeReveal
-        open={open}
-        onOpenChange={onOpenChange}
-        onLongPress={onLongPress}
-        actions={null}
-      >
+      <SwipeReveal open={open} onOpenChange={onOpenChange} onLongPress={onLongPress} actions={null}>
         <button type="button" onClick={onClick}>
           Open
         </button>
@@ -161,6 +157,131 @@ describe("SwipeReveal gestures", () => {
       pointer(button, "pointerup", 200);
       fireEvent.click(button);
       expect(onClick).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+/**
+ * The reveal has to start with the finger.
+ *
+ * `open` is the parent's answer, so a strip mounted only when `open` is true
+ * appears after release: the row slides over an empty slot and the chips pop
+ * in. These tests hold the row mid-drag and read the DOM, then follow the
+ * strip through the 180ms slide back.
+ */
+describe("SwipeReveal reveal continuity", () => {
+  function pointer(node: Element, type: string, clientX: number, clientY = 20) {
+    fireEvent(
+      node,
+      new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX,
+        clientY,
+        button: 0,
+      }),
+    );
+  }
+
+  /** Width 100 puts half-way at 50px, so the drag numbers read directly. */
+  function Harness({ initialOpen = false }: { initialOpen?: boolean }) {
+    const [open, setOpen] = useState(initialOpen);
+    return (
+      <SwipeReveal
+        open={open}
+        onOpenChange={setOpen}
+        width={100}
+        actions={<button type="button">Pin</button>}
+      >
+        <button type="button">Row</button>
+      </SwipeReveal>
+    );
+  }
+
+  // While the row covers the strip it is `aria-hidden` on purpose, so the
+  // action chip is only reachable with `hidden: true`; when committed open,
+  // the query without it must succeed. Both are part of the contract.
+  function strip() {
+    return screen.getByRole("button", { name: "Pin", hidden: true }).parentElement as HTMLElement;
+  }
+
+  it("mounts the actions as soon as the row moves, before release", () => {
+    const { container } = render(<Harness />);
+    expect(screen.queryByRole("button", { name: "Pin", hidden: true })).toBeNull();
+
+    const row = screen.getByRole("button", { name: "Row" });
+    pointer(row, "pointerdown", 200);
+    pointer(row, "pointermove", 150);
+
+    const actions = strip();
+    expect(actions.getAttribute("aria-hidden")).toBe("true");
+    expect(actions.hasAttribute("inert")).toBe(true);
+    expect(actions.style.pointerEvents).toBe("none");
+    // Not in the accessibility tree before the open is committed.
+    expect(screen.queryByRole("button", { name: "Pin" })).toBeNull();
+    // The cover followed the finger, so these chips are already uncovered.
+    const cover = container.firstElementChild?.lastElementChild as HTMLElement;
+    expect(cover.style.transform).toBe("translateX(-50px)");
+  });
+
+  it("makes the actions reachable only once the open is committed", () => {
+    render(<Harness />);
+    const row = screen.getByRole("button", { name: "Row" });
+    pointer(row, "pointerdown", 200);
+    pointer(row, "pointermove", 140);
+    expect(strip().hasAttribute("inert")).toBe(true);
+
+    pointer(row, "pointerup", 140);
+
+    expect(strip().hasAttribute("inert")).toBe(false);
+    expect(strip().getAttribute("aria-hidden")).toBeNull();
+    expect(strip().style.pointerEvents).toBe("");
+    expect(screen.getByRole("button", { name: "Pin" })).not.toBeNull();
+  });
+
+  it("keeps the strip through the slide back and drops it after 180ms", () => {
+    vi.useFakeTimers();
+    try {
+      render(<Harness initialOpen />);
+      expect(strip().hasAttribute("inert")).toBe(false);
+
+      // Half-way is 50px; +60 from an open row is a committed close.
+      const row = screen.getByRole("button", { name: "Row" });
+      pointer(row, "pointerdown", 200);
+      pointer(row, "pointermove", 260);
+      pointer(row, "pointerup", 260);
+
+      // Closed in the parent, still on screen while the cover slides over it.
+      expect(strip().hasAttribute("inert")).toBe(true);
+      act(() => vi.advanceTimersByTime(179));
+      expect(screen.queryByRole("button", { name: "Pin", hidden: true })).not.toBeNull();
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.queryByRole("button", { name: "Pin", hidden: true })).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the strip when the parent closes the row", () => {
+    vi.useFakeTimers();
+    try {
+      const actions = <button type="button">Pin</button>;
+      const view = render(
+        <SwipeReveal open onOpenChange={() => {}} width={100} actions={actions}>
+          <button type="button">Row</button>
+        </SwipeReveal>,
+      );
+      view.rerender(
+        <SwipeReveal open={false} onOpenChange={() => {}} width={100} actions={actions}>
+          <button type="button">Row</button>
+        </SwipeReveal>,
+      );
+
+      expect(screen.queryByRole("button", { name: "Pin", hidden: true })).not.toBeNull();
+      act(() => vi.advanceTimersByTime(180));
+      expect(screen.queryByRole("button", { name: "Pin", hidden: true })).toBeNull();
     } finally {
       vi.useRealTimers();
     }
