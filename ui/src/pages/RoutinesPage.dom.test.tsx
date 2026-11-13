@@ -11,6 +11,7 @@ import {
   listRoutineRuns,
   listRoutines,
   markAllRoutineRunsRead,
+  markRoutineRunRead,
   patchRoutine,
   type Routine,
   type Task,
@@ -485,5 +486,99 @@ describe("RoutinesPage offline machine list", () => {
     await screen.findByTestId("machine-picker");
     await waitFor(() => expect(machineValue()).toBe("dev-a"));
     await waitFor(() => expect(locationOf(router)).toBe("/routines?device=dev-a"));
+  });
+});
+
+describe("switching machine while the routine form has edits", () => {
+  it("keeps the create draft and machine when the discard is refused", async () => {
+    const { router } = renderApp("/routines?device=dev-a");
+    await waitFor(() => expect(machineValue()).toBe("dev-a"));
+    fireEvent.click(screen.getAllByRole("button", { name: "routines.createEntry" })[0]);
+    fireEvent.change(screen.getByLabelText("routines.promptLabel"), {
+      target: { value: "unfinished draft" },
+    });
+
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    fireEvent.click(screen.getByTestId("machine-option-dev-b"));
+
+    expect(confirm).toHaveBeenCalledWith("routines.discardConfirm");
+    expect(machineValue()).toBe("dev-a");
+    expect(locationOf(router)).toBe("/routines?device=dev-a");
+    expect(
+      (screen.getByLabelText("routines.promptLabel") as HTMLTextAreaElement).value,
+    ).toBe("unfinished draft");
+
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByTestId("machine-option-dev-b"));
+    await waitFor(() => expect(machineValue()).toBe("dev-b"));
+    expect(screen.queryByLabelText("routines.promptLabel")).toBeNull();
+  });
+
+  it("asks before an edit's changes are dropped by a machine switch", async () => {
+    vi.mocked(listRoutines).mockResolvedValue({
+      routines: [routine("routine-1", "Morning review")],
+      next_cursor: "",
+      has_more: false,
+    });
+    const { router } = renderApp("/routines?device=dev-a");
+    await screen.findByText("Morning review");
+    fireEvent.click(screen.getByRole("button", { name: /routines.editRoutine/ }));
+    fireEvent.change(screen.getByLabelText("routines.titleLabel"), {
+      target: { value: "Changed title" },
+    });
+
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    fireEvent.click(screen.getByTestId("machine-option-dev-b"));
+
+    expect(confirm).toHaveBeenCalledWith("routines.discardConfirm");
+    expect(machineValue()).toBe("dev-a");
+    expect(locationOf(router)).toBe("/routines?device=dev-a");
+    expect(screen.getByDisplayValue("Changed title")).toBeTruthy();
+
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByTestId("machine-option-dev-b"));
+    await waitFor(() => expect(machineValue()).toBe("dev-b"));
+    expect(screen.queryByDisplayValue("Changed title")).toBeNull();
+  });
+});
+
+describe("marking a remote routine run read from its link", () => {
+  it("keeps the browser's modifier-click default and still marks the run read", async () => {
+    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, device) => [
+      run(`${device}-run`, "routine-1", `${device} report`),
+    ]);
+    vi.mocked(markRoutineRunRead).mockReturnValue(new Promise(() => {}));
+    renderApp("/routines?device=dev-a");
+    const link = await screen.findByRole("link", { name: "dev-a report" });
+
+    const modifiers = ["metaKey", "ctrlKey", "shiftKey", "altKey"] as const;
+    for (const [index, modifier] of modifiers.entries()) {
+      const event = new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        [modifier]: true,
+      });
+      expect(link.dispatchEvent(event)).toBe(true);
+      await waitFor(() => expect(markRoutineRunRead).toHaveBeenCalledTimes(index + 1));
+      expect(markRoutineRunRead).toHaveBeenLastCalledWith("dev-a-run", "dev-a");
+    }
+    // None of the modified clicks moved the console itself.
+    expect(screen.getByRole("link", { name: "dev-a report" })).toBeTruthy();
+  });
+
+  it("marks an ordinary click once and swallows a failed write", async () => {
+    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, device) => [
+      run(`${device}-run`, "routine-1", `${device} report`),
+    ]);
+    vi.mocked(markRoutineRunRead).mockRejectedValue(new Error("offline"));
+    vi.mocked(markRoutineRunRead).mockClear();
+    renderApp("/routines?device=dev-a");
+    const link = await screen.findByRole("link", { name: "dev-a report" });
+
+    fireEvent.click(link);
+
+    await waitFor(() => expect(markRoutineRunRead).toHaveBeenCalledTimes(1));
+    expect(markRoutineRunRead).toHaveBeenCalledWith("dev-a-run", "dev-a");
   });
 });

@@ -47,7 +47,7 @@ import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useT } from "../i18n/react";
 import { catalogFor, isRemoteDevice } from "../lib/devices";
-import { onGuardedLinkClick } from "../lib/phoneNavigation";
+import { isPhoneLayout, onGuardedLinkClick } from "../lib/phoneNavigation";
 import {
   machineForRoutineDevice,
   readRoutineDevice,
@@ -954,21 +954,23 @@ export default function RoutinesPage() {
    */
   const chooseMachine = (id: string) => {
     if (id === (deviceId || THIS_MACHINE)) return;
+    // The form's directory, agent, model and cadence belong to the machine it
+    // was opened on. Switching machines resets them, so a dirty form must go
+    // through the same discard question its Cancel button asks; a refused
+    // switch keeps the machine and every field exactly as they were.
+    if (showCreate && !closeForm()) return;
     deviceTouched.current = true;
-    if (editing) {
-      createDraftRef.current = null;
-      setEditing(null);
-    }
-    setShowCreate(false);
     resetForm();
     setCwd("");
     setAgentId("");
     writeRoutineDevice(id);
-    // The picker owns history: each manual switch is a push, so back returns
-    // along the machines the reader actually visited rather than the URL staying
-    // on the first notification's machine in the warm-tap case.
+    // The picker owns history on a Mac: each manual switch is a push, so back
+    // returns along the machines the reader actually visited rather than the
+    // URL staying on the first notification's machine. On a phone the machine
+    // is a view of the one list row, not a new screen: replacing keeps
+    // [list, routines B], so one Back reaches the list instead of routines A.
     writingURL.current = true;
-    setSearchParams({ device: id }, { replace: false });
+    setSearchParams({ device: id }, { replace: isPhoneLayout() });
     // The sidebar badge counts the machine this page shows; a switch that did
     // not tell it would leave the old machine's number there.
     window.dispatchEvent(new Event("kin:routine-unread-changed"));
@@ -1473,6 +1475,20 @@ function RunCard({
               to={href}
               className="truncate text-strong font-medium text-kin-text hover:underline"
               onClick={(event) => {
+                const modifier =
+                  event.button !== 0 ||
+                  event.metaKey ||
+                  event.ctrlKey ||
+                  event.shiftKey ||
+                  event.altKey;
+                if (modifier) {
+                  // The browser opens this run in a new tab; the console must
+                  // not take that away, but the row the person read is still
+                  // read. A remote run's detail page cannot compensate later,
+                  // so this click is the only chance.
+                  if (!event.defaultPrevented && run.routine_unread) onMarkRead(run.id);
+                  return;
+                }
                 // A run is a conversation-like destination: opened from the
                 // routines page on a phone, its parent is the list, and a dirty
                 // routine form is asked before the screen is left.
