@@ -1,5 +1,10 @@
 name: release
 
+# Both jobs attach assets to a GitHub Release with the repository token. The
+# repository default is read-only, so ask for exactly the one scope they need.
+permissions:
+  contents: write
+
 on:
   push:
     tags:
