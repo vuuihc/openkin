@@ -205,3 +205,37 @@ describe("the sidebar's pointer shapes", () => {
     );
   });
 });
+
+/**
+ * IA fixes the list at machine → project → conversation; the rendering has to
+ * make that depth visible, not just keep the three in document order.
+ *
+ * jsdom does not lay out pixels, so the test reads the containers the indent
+ * lives on: each level's children are one step further in than the level
+ * itself, and the project row is a row — body size, medium weight — rather
+ * than the caption/uppercase/muted section heading it used to be.
+ */
+describe("the sidebar tree's depth", () => {
+  it("indents each level one step past its parent", () => {
+    render(sidebar([task("work", "/work/alpha")]));
+
+    const projects = document.querySelector('[data-sidebar-indent="project"]');
+    const sessions = document.querySelector('[data-sidebar-indent="session"]');
+    expect(projects?.className).toContain("pl-4");
+    expect(sessions?.className).toContain("pl-4");
+    // The conversation indent lives inside the project indent, so the two
+    // steps add up instead of both starting at the list gutter.
+    expect(projects?.contains(sessions!)).toBe(true);
+    expect(sessions?.contains(screen.getByRole("link", { name: "work" }))).toBe(true);
+  });
+
+  it("renders a project as a tree row, not a section heading", () => {
+    render(sidebar([task("only", "/work/alpha")]));
+
+    const toggle = screen.getByRole("button", { name: "Collapse project" });
+    const row = toggle.parentElement;
+    expect(row?.className).not.toContain("kin-section-label");
+    expect(row?.className).toContain("text-body");
+    expect(row?.className).toContain("font-medium");
+  });
+});

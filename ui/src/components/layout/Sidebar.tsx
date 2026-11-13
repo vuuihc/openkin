@@ -1121,7 +1121,7 @@ function DeviceSection({
         type="button"
         onClick={toggle}
         aria-expanded={open}
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 text-left text-body font-medium text-kin-secondary hover:text-kin-text transition-colors max-md:min-h-11 max-md:text-strong max-md:font-semibold max-md:text-kin-muted"
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 text-left text-body font-semibold text-kin-secondary hover:text-kin-text transition-colors max-md:min-h-11 max-md:text-strong max-md:text-kin-muted"
       >
         <IconChevron
           size={11}
@@ -1137,7 +1137,17 @@ function DeviceSection({
         <span className="truncate flex-1 min-w-0">{label}</span>
         <span className="tabular-nums text-caption opacity-70">{count}</span>
       </button>
-      {open && <div className="space-y-3 pl-1">{children}</div>}
+      {/*
+        One indent step per level: the machine sits at the list's own gutter,
+        its projects one step in, and a project's conversations one step in
+        again. `data-sidebar-indent` names the level so the hierarchy test can
+        read the step without measuring a layout jsdom does not have.
+      */}
+      {open && (
+        <div data-sidebar-indent="project" className="space-y-3 pl-4">
+          {children}
+        </div>
+      )}
     </div>
   );
 }
@@ -1253,7 +1263,14 @@ function ProjectBlock({
   };
   return (
     <div className={mode === "archived" ? "opacity-80" : undefined}>
-      <div className="kin-section-label group/proj flex items-center gap-1 pr-0.5 max-md:min-h-11 max-md:normal-case max-md:tracking-normal max-md:text-strong max-md:font-semibold">
+      {/*
+        A project is a row in the tree, not a section heading. It used to wear
+        `kin-section-label` — caption size, uppercase, muted — which made it
+        read as smaller and fainter than the conversations it contains. Size
+        and weight now descend with depth (machine semibold, project medium,
+        conversation regular) and the indent does the rest.
+      */}
+      <div className="group/proj flex items-center gap-1 pl-2 pr-0.5 pt-3.5 pb-1 text-body font-medium text-kin-secondary max-md:min-h-11 max-md:text-strong">
         {/*
           The chevron and the name are one control, not two. They used to be a
           11px chevron button followed by a dead label, so on a phone the only
@@ -1269,7 +1286,7 @@ function ProjectBlock({
           aria-expanded={open}
           onClick={toggle}
           className={[
-            "flex min-w-0 flex-1 items-center gap-1 text-left text-kin-muted transition-colors max-md:min-h-11",
+            "flex min-w-0 flex-1 items-center gap-1 text-left text-kin-secondary transition-colors max-md:min-h-11",
             // A color change on hover is still a hover: iOS would spend the
             // first tap applying it instead of folding the project.
             coarse ? "" : "hover:text-kin-text",
@@ -1390,7 +1407,7 @@ function ProjectBlock({
       </div>
 
       {open && (
-        <>
+        <div data-sidebar-indent="session" className="pl-4">
           {nestDraft && (
             <DraftRow active={draftRowActive} label={draftLabel} onClick={onDraftClick} />
           )}
@@ -1407,7 +1424,7 @@ function ProjectBlock({
               coarse={coarse}
             />
           </div>
-        </>
+        </div>
       )}
     </div>
   );
