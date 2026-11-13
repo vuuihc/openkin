@@ -35,11 +35,21 @@ describe("the routines page and its machine", () => {
     expect(PAGE).toContain("const remote = isRemoteDevice(deviceId) && !machine?.isSelf;");
   });
 
+  it("opens on the device a notification named before the remembered one", () => {
+    // A disabled-routine alert lands on /routines?device=<id>. The page must
+    // prefer that once, and only fall back to the remembered machine with no
+    // such parameter.
+    expect(PAGE).toContain('searchParams.get("device")?.trim() || readRoutineDevice()');
+    expect(PAGE).toContain("const [searchParams, setSearchParams] = useSearchParams();");
+  });
+
   it("keeps the Hub's task updates out of a remote machine's feed", () => {
     expect(PAGE).toContain("if (remoteRef.current) return;");
     // A run-now answered after the page moved belongs to the machine that was
     // showing, not the one that is.
-    expect(PAGE).toContain("if (deviceRef.current !== at) return;");
+    expect(PAGE).toMatch(
+      /const t = await runRoutineNow\(r\.id, view\.deviceId\);[\s\S]*?if \(!isCurrentView\(view\)\) return;/,
+    );
   });
 
   it("sends the machine with every routine request", () => {
@@ -49,9 +59,9 @@ describe("the routines page and its machine", () => {
     expect(PAGE).toContain("listRoutineRuns(80, deviceId)");
     expect(PAGE).toContain("patchRoutine(r.id, { enabled: !r.enabled }, deviceId)");
     expect(PAGE).toContain("deleteRoutine(r.id, deviceId)");
-    expect(PAGE).toContain("runRoutineNow(r.id, at)");
-    expect(PAGE).toContain("markRoutineRunRead(taskId, deviceId)");
-    expect(PAGE).toContain("markAllRoutineRunsRead(deviceId)");
+    expect(PAGE).toContain("runRoutineNow(r.id, view.deviceId)");
+    expect(PAGE).toContain("markRoutineRunRead(taskId, view.deviceId)");
+    expect(PAGE).toContain("markAllRoutineRunsRead(view.deviceId)");
     expect(PAGE).toContain("device={deviceId || undefined}");
   });
 
@@ -90,10 +100,11 @@ describe("the routines page and its machine", () => {
 
   it("re-asks the badge when the page changes machine", () => {
     // The sidebar badge counts the machine this page shows; a switch that did
-    // not tell it would leave the old machine's number there.
-    expect(PAGE).toMatch(
-      /writeRoutineDevice\(id\);\s*(?:\/\/[^\n]*\n\s*)*window\.dispatchEvent\(new Event\("kin:routine-unread-changed"\)\);/,
-    );
+    // not tell it would leave the old machine's number there. The URL write now
+    // sits between the persisted choice and the badge dispatch; both must still
+    // happen.
+    expect(PAGE).toContain("writeRoutineDevice(id);");
+    expect(PAGE).toContain('window.dispatchEvent(new Event("kin:routine-unread-changed"));');
   });
 });
 

@@ -73,6 +73,7 @@ func (s *Server) handleNodeConnect(w http.ResponseWriter, r *http.Request) {
 		Version:          worker.ProtocolVersion,
 		HeartbeatSeconds: nodeHeartbeatSeconds,
 		HubTime:          time.Now().UnixMilli(),
+		RoutineNotify:    true,
 	})
 	if err != nil {
 		refuseNode(ctx, conn, err)
@@ -262,6 +263,14 @@ func (s *Server) serveNode(ctx context.Context, sender node.Sender, ws *websocke
 				continue
 			}
 			_ = s.Store.TouchDevice(ctx, deviceID, time.Now().UnixMilli())
+		case "routine.notify":
+			// A routine result reported by a Node is handled here, beside the
+			// connection it arrived on: the handler needs the authenticated
+			// device and the Hub's notifier, both of which are only in this
+			// server. A bad frame is dropped without failing the channel; the
+			// Node side refuses to build one, so one that fails here is a skew
+			// this Hub cannot act on.
+			_ = s.handleRoutineNotify(ctx, sender, frame)
 		default:
 			// Saying so is better than dropping a frame silently: a Node that
 			// sends something the Hub does not understand is answered — with a

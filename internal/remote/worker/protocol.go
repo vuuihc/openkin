@@ -116,6 +116,13 @@ type HelloAck struct {
 	Version          int   `json:"version"`
 	HeartbeatSeconds int   `json:"heartbeat_seconds"`
 	HubTime          int64 `json:"hub_time"`
+	// RoutineNotify advertises that this Hub understands the `routine.notify`
+	// frame: a Node may report routine results upward so the Hub can fan them
+	// out to the phones it registered. It is optional on purpose — an old Node
+	// ignores the field, and a Node must not send the frame to a Hub that did
+	// not say it understands it, because an old Hub refuses an unknown kind
+	// and closes the whole connection.
+	RoutineNotify bool `json:"routine_notify,omitempty"`
 }
 
 type Lease struct {
@@ -154,6 +161,90 @@ var allowedFrameKinds = map[string]bool{
 	"turn.finish": true, "turn.cancel": true, "turn.resume": true,
 	"approval.request": true, "approval.status": true, "approval.decision": true,
 	"query": true, "query.result": true,
+	"routine.notify": true, "routine.notify.ack": true,
+}
+
+// Routine events a Node can report upward, and which a Hub can understand.
+const (
+	RoutineEventReport   = "report"
+	RoutineEventDisabled = "disabled"
+)
+
+// Bounds for a routine.notify frame. They exist on both ends: the Node refuses
+// to build a frame the Hub would reject, and the Hub validates what it reads
+// before the title or body is ever used in a notification.
+const (
+	MaxRoutineNotifyEventID = 128
+	MaxRoutineNotifyID      = 200
+	MaxRoutineNotifyTitle   = 300
+	MaxRoutineNotifyBody    = 2000
+)
+
+// RoutineNotify is a Node asking its Hub to ring the phones the Hub registered
+// about a routine result. It carries only the content of the alert — never an
+// owner, a device id, a URL, a broadcast flag, an APNs token, or a recipient.
+// The Hub derives source device and recipient from the authenticated connection
+// and its own registry.
+type RoutineNotify struct {
+	// Event is report (a noteworthy run finished) or disabled (the circuit
+	// breaker switched a routine off).
+	Event string `json:"event"`
+	// EventID is the Node's own identity for this alert. It is what the Hub
+	// dedupes on (with the device) and what the acknowledgement answers.
+	EventID string `json:"event_id"`
+	// RoutineID names the routine. Required for a disabled alert.
+	RoutineID string `json:"routine_id,omitempty"`
+	// TaskID names the run that produced a report. Required for a report.
+	TaskID string `json:"task_id,omitempty"`
+	Title  string `json:"title,omitempty"`
+	Body   string `json:"body,omitempty"`
+}
+
+// RoutineNotifyAck is the Hub's answer to one accepted routine.notify: "I have
+// it, and will ring the phones best-effort". It is not a guarantee of delivery.
+type RoutineNotifyAck struct {
+	EventID string `json:"event_id"`
+}
+
+func (n RoutineNotify) Validate() error {
+	switch n.Event {
+	case RoutineEventReport:
+		if strings.TrimSpace(n.TaskID) == "" {
+			return errors.New("routine report requires a task id")
+		}
+	case RoutineEventDisabled:
+		if strings.TrimSpace(n.RoutineID) == "" {
+			return errors.New("routine disabled requires a routine id")
+		}
+	default:
+		return fmt.Errorf("routine event must be %q or %q", RoutineEventReport, RoutineEventDisabled)
+	}
+	if strings.TrimSpace(n.EventID) == "" || len(n.EventID) > MaxRoutineNotifyEventID {
+		return fmt.Errorf("event_id is required and at most %d bytes", MaxRoutineNotifyEventID)
+	}
+	if len(n.RoutineID) > MaxRoutineNotifyID {
+		return fmt.Errorf("routine_id exceeds %d bytes", MaxRoutineNotifyID)
+	}
+	if len(n.TaskID) > MaxRoutineNotifyID {
+		return fmt.Errorf("task_id exceeds %d bytes", MaxRoutineNotifyID)
+	}
+	if strings.ContainsAny(n.TaskID, "/\\?#%\r\n\t ") || n.TaskID == "." || n.TaskID == ".." {
+		return errors.New("task_id is not a plain console path segment")
+	}
+	if len(n.Title) > MaxRoutineNotifyTitle {
+		return fmt.Errorf("title exceeds %d bytes", MaxRoutineNotifyTitle)
+	}
+	if len(n.Body) > MaxRoutineNotifyBody {
+		return fmt.Errorf("body exceeds %d bytes", MaxRoutineNotifyBody)
+	}
+	return nil
+}
+
+func (a RoutineNotifyAck) Validate() error {
+	if strings.TrimSpace(a.EventID) == "" || len(a.EventID) > MaxRoutineNotifyEventID {
+		return fmt.Errorf("event_id is required and at most %d bytes", MaxRoutineNotifyEventID)
+	}
+	return nil
 }
 
 func (h Hello) Validate() error {

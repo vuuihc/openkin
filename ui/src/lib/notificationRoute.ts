@@ -28,6 +28,10 @@ export type NotificationRoute = {
 const FALLBACK_PATH = "/inbox";
 
 const TASK_PATH = /^\/tasks\/[A-Za-z0-9_-]+$/;
+// A routine run on a paired Node is opened through the machine that owns it, so
+// a routine report links to /machines/<device>/tasks/<id>. The device segment
+// is the Hub's own device id (URL-escaped), which is one path segment.
+const MACHINE_TASK_PATH = /^\/machines\/[^/]+\/tasks\/[A-Za-z0-9_-]+$/;
 
 function knownPath(path: string): boolean {
   return (
@@ -35,7 +39,8 @@ function knownPath(path: string): boolean {
     path === "/inbox" ||
     path === "/routines" ||
     path === "/settings" ||
-    TASK_PATH.test(path)
+    TASK_PATH.test(path) ||
+    MACHINE_TASK_PATH.test(path)
   );
 }
 
@@ -72,7 +77,17 @@ export function parseNotificationRoute(
     return { path: FALLBACK_PATH, focus: null, fallback: true };
   }
   const focus = url.pathname === "/inbox" ? url.searchParams.get("focus") : null;
-  return { path: url.pathname + (focus ? `?focus=${encodeURIComponent(focus)}` : ""), focus, fallback: false };
+  let query = "";
+  if (focus) {
+    query = `?focus=${encodeURIComponent(focus)}`;
+  } else if (url.pathname === "/routines") {
+    // A disabled-routine alert names which machine owns the routine, so the
+    // Routines page opens on it. Any other query is dropped, exactly as an
+    // unrecognized query on any other route is.
+    const device = url.searchParams.get("device");
+    if (device) query = `?device=${encodeURIComponent(device)}`;
+  }
+  return { path: url.pathname + query, focus, fallback: false };
 }
 
 let pending: string | null = null;
@@ -83,9 +98,7 @@ export function queueNotificationRoute(href: string): void {
 }
 
 /** Take the held link, if any. The second call returns null. */
-export function consumeNotificationRoute(
-  origin?: string,
-): NotificationRoute | null {
+export function consumeNotificationRoute(origin?: string): NotificationRoute | null {
   if (pending === null) return null;
   const href = pending;
   pending = null;
@@ -188,7 +201,8 @@ const MAX_NOTIFICATION_BODY = 600;
 export function parseForegroundNotification(detail: unknown): ForegroundNotification | null {
   if (!detail || typeof detail !== "object") return null;
   const raw = detail as Record<string, unknown>;
-  const title = typeof raw.title === "string" ? raw.title.slice(0, MAX_NOTIFICATION_TITLE).trim() : "";
+  const title =
+    typeof raw.title === "string" ? raw.title.slice(0, MAX_NOTIFICATION_TITLE).trim() : "";
   const body = typeof raw.body === "string" ? raw.body.slice(0, MAX_NOTIFICATION_BODY) : "";
   if (!title && !body) return null;
   return {

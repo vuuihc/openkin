@@ -27,6 +27,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // Settings keys for the node's APNs credentials. They are written by the
@@ -240,7 +241,7 @@ func (c *Client) Send(ctx context.Context, token string, env Environment, n Noti
 	if err != nil {
 		return Result{Reason: err.Error()}
 	}
-	body, err := json.Marshal(payload(n))
+	body, err := c.encodePayload(n)
 	if err != nil {
 		return Result{Reason: err.Error()}
 	}
@@ -342,8 +343,12 @@ func collapseID(id string) string {
 }
 
 func payload(n Notification) map[string]any {
+	return payloadWith(n, n.Title, n.Body)
+}
+
+func payloadWith(n Notification, title, body string) map[string]any {
 	aps := map[string]any{
-		"alert": map[string]string{"title": n.Title, "body": n.Body},
+		"alert": map[string]string{"title": title, "body": body},
 		"sound": "default",
 	}
 	if n.ThreadID != "" {
@@ -357,6 +362,87 @@ func payload(n Notification) map[string]any {
 			"url":  n.URL,
 		},
 	}
+}
+
+// maxAPNSPayloadBytes is Apple's hard ceiling on the serialized HTTP body. The
+// routing fields (kind, id, url, thread-id) must survive, so only the alert
+// title and body are allowed to shrink.
+const maxAPNSPayloadBytes = 4096
+
+// encodePayload renders the notification body that actually crosses the wire,
+// clipping the alert title and then the body on UTF-8 boundaries until the
+// serialized JSON is inside Apple's cap. It refuses a notification whose
+// routing metadata alone is already too large, because there is no text left
+// to clip without hiding where the tap should land.
+func (c *Client) encodePayload(n Notification) ([]byte, error) {
+	serialize := func(title, body string) ([]byte, error) {
+		return json.Marshal(payloadWith(n, title, body))
+	}
+
+	// Empty-text baseline: if even this does not fit, the metadata is the
+	// problem and no amount of clipping can make the alert deliverable.
+	empty, err := serialize("", "")
+	if err != nil {
+		return nil, err
+	}
+	if len(empty) > maxAPNSPayloadBytes {
+		return nil, fmt.Errorf("apns: payload metadata is %d bytes, over the %d-byte limit", len(empty), maxAPNSPayloadBytes)
+	}
+
+	title := fitText(n.Title, maxAPNSPayloadBytes, func(t string) (int, error) {
+		b, err := serialize(t, "")
+		return len(b), err
+	})
+	body := fitText(n.Body, maxAPNSPayloadBytes, func(b string) (int, error) {
+		data, err := serialize(title, b)
+		return len(data), err
+	})
+
+	out, err := serialize(title, body)
+	if err != nil {
+		return nil, err
+	}
+	if len(out) > maxAPNSPayloadBytes {
+		// Defensive; fitText's invariant makes this unreachable.
+		return nil, fmt.Errorf("apns: payload is %d bytes, over the %d-byte limit", len(out), maxAPNSPayloadBytes)
+	}
+	return out, nil
+}
+
+// fitText returns the longest UTF-8 prefix of s whose serialized size, as
+// reported by measure, stays within limit. measure must be monotonic in the
+// prefix length.
+func fitText(s string, limit int, measure func(prefix string) (int, error)) string {
+	if s == "" {
+		return ""
+	}
+	if n, err := measure(s); err == nil && n <= limit {
+		return s
+	}
+	lo, hi := 0, len(s)+1
+	for lo+1 < hi {
+		mid := (lo + hi) / 2
+		prefix := truncateUTF8(s, mid)
+		n, err := measure(prefix)
+		if err != nil || n > limit {
+			hi = mid
+		} else {
+			lo = mid
+		}
+	}
+	return truncateUTF8(s, lo)
+}
+
+// truncateUTF8 clips s to at most max bytes without splitting a rune.
+func truncateUTF8(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	s = s[:max]
+	for len(s) > 0 && !utf8.ValidString(s) {
+		s = s[:len(s)-1]
+	}
+	return s
 }
 
 // transportReason keeps what an operator can act on from a request failure

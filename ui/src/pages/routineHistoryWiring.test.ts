@@ -61,7 +61,10 @@ describe("the routine editor's run history", () => {
     // rows, has-more, cursor — has to sit behind it.
     const start = PAGE.indexOf("const loadOlderHistory");
     const awaited = PAGE.indexOf("await listTasks", start);
-    const guarded = PAGE.indexOf("if (historySeq.current[id] !== seq) return;", start);
+    const guarded = PAGE.indexOf(
+      "if (historySeq.current[id] !== seq || !isCurrentView(view)) return;",
+      start,
+    );
     const applied = PAGE.indexOf("appendOlderRuns(prev[id] ?? []", start);
     const hasMore = PAGE.indexOf(
       "setHistoryHasMore((prev) => ({ ...prev, [id]: page.length >= ROUTINE_HISTORY_PAGE }));",
@@ -92,7 +95,9 @@ describe("the routine editor's run history", () => {
     // the rows between the two pages and could hide the button with a short
     // page. Every fetch path has the newest-wins guard.
     expect(PAGE).toContain("const seq = historySeq.current[id] ?? 0;");
-    expect(PAGE.split("if (historySeq.current[id] !== seq) return;").length - 1).toBe(3);
+    expect(
+      PAGE.split("if (historySeq.current[id] !== seq || !isCurrentView(view)) return;").length - 1,
+    ).toBe(3);
   });
 
   it("keeps the history branches in loading / error / empty order", () => {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   ApiError,
   createRoutine,
@@ -154,10 +154,20 @@ export default function RoutinesPage() {
   // routines. The remembered choice is resolved once the machine list arrives;
   // see resolveRoutineDevice for why "this machine" is not the default on a
   // phone (there, this machine is the Hub, which holds no routines).
-  const [deviceId, setDeviceId] = useState<string>(() => readRoutineDevice());
+  // A disabled-routine notification may already name which machine it belongs
+  // to (`/routines?device=<id>`). Prefer that once, then fall back to the
+  // remembered choice; the resolve effect below still confirms the machine
+  // exists before the page keeps it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [deviceId, setDeviceId] = useState<string>(
+    () => searchParams.get("device")?.trim() || readRoutineDevice(),
+  );
   // Set once the reader picks a machine themselves, so a list refresh cannot
   // overrule them.
   const deviceTouched = useRef(false);
+  // A chooseMachine URL write is already reflected in deviceId and must not be
+  // re-read by the URL-sync effect below as a fresh navigation.
+  const writingURL = useRef(false);
   const {
     machines,
     agents: localAgents,
@@ -176,6 +186,21 @@ export default function RoutinesPage() {
   remoteRef.current = remote;
   const deviceRef = useRef(deviceId);
   deviceRef.current = deviceId;
+  // Comparing only the id is not enough: A -> B -> A can put the page back on
+  // the same machine while a request from the first A view is still running.
+  // Every view transition gets a new generation so that response stays stale.
+  const viewGeneration = useRef(0);
+  const renderedDevice = useRef(deviceId);
+  if (renderedDevice.current !== deviceId) {
+    renderedDevice.current = deviceId;
+    viewGeneration.current += 1;
+  }
+  const currentView = () => ({
+    deviceId,
+    generation: viewGeneration.current,
+  });
+  const isCurrentView = (view: { deviceId: string; generation: number }) =>
+    view.deviceId === deviceRef.current && view.generation === viewGeneration.current;
   // What that machine says it can run. For this machine that is the local
   // registry; for another it is what the machine reported, because that is the
   // list the Hub validates a routine's agent against.
@@ -235,6 +260,7 @@ export default function RoutinesPage() {
 
   const loadMoreRoutines = async () => {
     if (!routineCursor || !routineHasMore || loadingMoreRoutines) return;
+    const view = currentView();
     setLoadingMoreRoutines(true);
     const seq = loadSeq.current;
     try {
@@ -248,14 +274,15 @@ export default function RoutinesPage() {
       );
       // A page from the machine the page has since left is not this machine's
       // second page.
-      if (seq !== loadSeq.current) return;
+      if (seq !== loadSeq.current || !isCurrentView(view)) return;
       setRoutines((current) => [...current, ...(page.routines ?? [])]);
       setRoutineCursor(page.next_cursor ?? "");
       setRoutineHasMore(page.has_more);
     } catch (e) {
+      if (!isCurrentView(view)) return;
       pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
     } finally {
-      setLoadingMoreRoutines(false);
+      if (isCurrentView(view)) setLoadingMoreRoutines(false);
     }
   };
 
@@ -278,6 +305,47 @@ export default function RoutinesPage() {
     setDeviceId(resolved);
     writeRoutineDevice(resolved);
   }, [machinesLoading, machinesFailed, machines, deviceId]);
+
+  // The URL is the page's second input for which machine it shows: a warm tap,
+  // a back/forward press, or a replayed notification changes `?device=` while
+  // this component stays mounted, and the useState initializer above only runs
+  // once. Apply the URL when it names a machine this Hub still knows; when it
+  // does not, converge both state and URL to the fallback so a back press does
+  // not land on a dead machine.
+  useEffect(() => {
+    if (writingURL.current) {
+      writingURL.current = false;
+      return;
+    }
+    const fromURL = searchParams.get("device")?.trim();
+    if (!fromURL) {
+      // Give this history entry an explicit machine before a later switch can
+      // overwrite the remembered preference. Back and forward can then
+      // restore the machine that was actually visible in each entry.
+      if (machinesLoading || machinesFailed) return;
+      const resolved = resolveRoutineDevice(machines, deviceId);
+      if (resolved !== deviceId) setDeviceId(resolved);
+      writeRoutineDevice(resolved);
+      writingURL.current = true;
+      setSearchParams({ device: resolved }, { replace: true });
+      return;
+    }
+    if (fromURL === deviceId) return;
+    if (machinesLoading || machinesFailed) {
+      setDeviceId(fromURL);
+      return;
+    }
+    const resolved = resolveRoutineDevice(machines, fromURL);
+    if (resolved === fromURL) {
+      setDeviceId(fromURL);
+      writeRoutineDevice(fromURL);
+      return;
+    }
+    setDeviceId(resolved);
+    writeRoutineDevice(resolved);
+    writingURL.current = true;
+    setSearchParams({ device: resolved }, { replace: true });
+  }, [searchParams, deviceId, machinesLoading, machinesFailed, machines]);
 
   // A failure re-arms this; a success clears the timestamp, resets the wait,
   // and cancels it. The wait doubles when a retry fires, so it is the previous
@@ -303,9 +371,18 @@ export default function RoutinesPage() {
     setRoutineCursor("");
     setRoutineHasMore(false);
     setHistory({});
+    setHistoryLoading({});
+    setHistoryError({});
+    setHistoryHasMore({});
+    setHistoryCursor({});
+    setHistoryLoadingOlder({});
+    historySeq.current = {};
     setError(null);
     setFailedAt(0);
     setLoading(true);
+    setLoadingMoreRoutines(false);
+    setCreating(false);
+    setBusy({});
     // The form's directory, agent, and model are the machine it was opened on.
     // Carrying them across would make a routine that fails on its first run.
     setShowCreate(false);
@@ -314,6 +391,13 @@ export default function RoutinesPage() {
     setCwd("");
     setAgentId("");
     setModel("");
+    setTitle("");
+    setPrompt("");
+    setRoutineRule(null);
+    setRuleZone(null);
+    setNextRunLocal(defaultNextRunLocal());
+    setPermissionMode(getDraftPermissionMode());
+    setIntervalSecs(86400);
   }, [deviceId]);
 
   useEffect(() => {
@@ -397,41 +481,47 @@ export default function RoutinesPage() {
   const rulePreviewAt = useRoutinePreview(rulePayload);
 
   const onToggle = async (r: Routine) => {
+    const view = currentView();
     setBusy((b) => ({ ...b, [r.id]: true }));
     try {
       const updated = await patchRoutine(r.id, { enabled: !r.enabled }, deviceId);
+      if (!isCurrentView(view)) return;
       setRoutines((list) => list.map((x) => (x.id === r.id ? updated : x)));
     } catch (e) {
+      if (!isCurrentView(view)) return;
       pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
     } finally {
-      setBusy((b) => ({ ...b, [r.id]: false }));
+      if (isCurrentView(view)) setBusy((b) => ({ ...b, [r.id]: false }));
     }
   };
 
   const onDelete = async (r: Routine) => {
     if (!window.confirm(tr("routines.deleteConfirm", { title: r.title || r.id }))) return;
+    const view = currentView();
     setBusy((b) => ({ ...b, [r.id]: true }));
     try {
       await deleteRoutine(r.id, deviceId);
+      if (!isCurrentView(view)) return;
       setRoutines((list) => list.filter((x) => x.id !== r.id));
       // Deleting the routine the form is editing would leave Save pointed at a
       // row that no longer exists.
       if (editing?.id === r.id) closeForm();
     } catch (e) {
+      if (!isCurrentView(view)) return;
       pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
     } finally {
-      setBusy((b) => ({ ...b, [r.id]: false }));
+      if (isCurrentView(view)) setBusy((b) => ({ ...b, [r.id]: false }));
     }
   };
 
   const onRunNow = async (r: Routine) => {
+    const view = currentView();
     setBusy((b) => ({ ...b, [r.id]: true }));
-    const at = deviceId;
     try {
-      const t = await runRoutineNow(r.id, at);
-      // The page moved to another machine while the run was starting. This
-      // task belongs to the machine that was showing, not the one that is.
-      if (deviceRef.current !== at) return;
+      const t = await runRoutineNow(r.id, view.deviceId);
+      // The page moved away while the run was starting, even if it has since
+      // returned to the same machine. This task belongs to the old view.
+      if (!isCurrentView(view)) return;
       setRuns((prev) => [t, ...prev].slice(0, 80));
       // The editor may be open on this routine; Run now should show up there
       // without waiting for the websocket echo (which the fold then dedupes).
@@ -441,15 +531,18 @@ export default function RoutinesPage() {
       });
       pushToast(tr("routines.runStarted"), "info");
     } catch (e) {
+      if (!isCurrentView(view)) return;
       pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
     } finally {
-      setBusy((b) => ({ ...b, [r.id]: false }));
+      if (isCurrentView(view)) setBusy((b) => ({ ...b, [r.id]: false }));
     }
   };
 
   const onMarkRead = async (taskId: string) => {
+    const view = currentView();
     try {
-      const t = await markRoutineRunRead(taskId, deviceId);
+      const t = await markRoutineRunRead(taskId, view.deviceId);
+      if (!isCurrentView(view)) return;
       knownRead.current.add(taskId);
       // Explicit false: API used to omit false bools via omitempty.
       setRuns((prev) =>
@@ -499,6 +592,7 @@ export default function RoutinesPage() {
     }
     // Reopening the same routine starts a second fetch; the older one must not
     // overwrite the newer list when it lands late.
+    const view = currentView();
     const seq = (historySeq.current[id] ?? 0) + 1;
     historySeq.current[id] = seq;
     const epoch = readAllEpoch.current;
@@ -511,7 +605,7 @@ export default function RoutinesPage() {
     });
     try {
       const tasks = await listTasks({ routineId: id, limit: ROUTINE_HISTORY_PAGE });
-      if (historySeq.current[id] !== seq) return;
+      if (historySeq.current[id] !== seq || !isCurrentView(view)) return;
       const allRead = readAllEpoch.current !== epoch;
       const read = knownRead.current;
       setHistoryHasMore((prev) => ({ ...prev, [id]: tasks.length >= ROUTINE_HISTORY_PAGE }));
@@ -521,7 +615,7 @@ export default function RoutinesPage() {
         [id]: reconcileRoutineReads(tasks, allRead, read),
       }));
     } catch (e) {
-      if (historySeq.current[id] !== seq) return;
+      if (historySeq.current[id] !== seq || !isCurrentView(view)) return;
       // A convenience: the editor works without it, but a failed fetch must
       // not read as "this routine has never run".
       setHistoryError((prev) => ({
@@ -529,7 +623,7 @@ export default function RoutinesPage() {
         [id]: e instanceof Error ? e.message : tr("routines.actionFailed"),
       }));
     } finally {
-      if (historySeq.current[id] === seq) {
+      if (historySeq.current[id] === seq && isCurrentView(view)) {
         setHistoryLoading((prev) => ({ ...prev, [id]: false }));
       }
     }
@@ -558,6 +652,7 @@ export default function RoutinesPage() {
     // A re-open starts a newer initial fetch, which replaces the list this
     // cursor came from; appending to that new list would skip the rows between
     // the two pages. Same newest-wins policy as loadHistory.
+    const view = currentView();
     const seq = historySeq.current[id] ?? 0;
     const epoch = readAllEpoch.current;
     const read = knownRead.current;
@@ -568,7 +663,7 @@ export default function RoutinesPage() {
         limit: ROUTINE_HISTORY_PAGE,
         before: cursor,
       });
-      if (historySeq.current[id] !== seq) return;
+      if (historySeq.current[id] !== seq || !isCurrentView(view)) return;
       // The page can predate a mark-all (which publishes no task update) or a
       // per-task mark; reconcile before appending or older rows come back
       // unread over a badge that says everything is read.
@@ -582,15 +677,20 @@ export default function RoutinesPage() {
       setHistoryHasMore((prev) => ({ ...prev, [id]: page.length >= ROUTINE_HISTORY_PAGE }));
       setHistoryCursor((prev) => ({ ...prev, [id]: pageCursor(page) }));
     } catch (e) {
+      if (!isCurrentView(view)) return;
       pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
     } finally {
-      setHistoryLoadingOlder((prev) => ({ ...prev, [id]: false }));
+      if (isCurrentView(view)) {
+        setHistoryLoadingOlder((prev) => ({ ...prev, [id]: false }));
+      }
     }
   };
 
   const onMarkAllRead = async () => {
+    const view = currentView();
     try {
-      await markAllRoutineRunsRead(deviceId);
+      await markAllRoutineRunsRead(view.deviceId);
+      if (!isCurrentView(view)) return;
       // Mark-all names no ids, so it beats every fetch that was already out.
       readAllEpoch.current += 1;
       setRuns((prev) => prev.map((x) => ({ ...x, routine_unread: false })));
@@ -611,6 +711,7 @@ export default function RoutinesPage() {
       // Nudge App badge (mark-all has no per-task WS storm).
       window.dispatchEvent(new Event("kin:routine-unread-changed"));
     } catch (e) {
+      if (!isCurrentView(view)) return;
       pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
     }
   };
@@ -721,6 +822,7 @@ export default function RoutinesPage() {
       return;
     }
     if (editing) {
+      const view = currentView();
       const patch = routinePatch(editing, {
         title,
         prompt: p,
@@ -742,17 +844,20 @@ export default function RoutinesPage() {
       }
       setCreating(true);
       try {
-        const updated = await patchRoutine(editing.id, patch, deviceId);
+        const updated = await patchRoutine(editing.id, patch, view.deviceId);
+        if (!isCurrentView(view)) return;
         setRoutines((list) => list.map((x) => (x.id === updated.id ? updated : x)));
         closeForm();
         pushToast(tr("routines.saved"), "info");
       } catch (e) {
+        if (!isCurrentView(view)) return;
         pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
       } finally {
-        setCreating(false);
+        if (isCurrentView(view)) setCreating(false);
       }
       return;
     }
+    const view = currentView();
     setCreating(true);
     try {
       const resolvedTitle = routineTitle(title, p);
@@ -776,16 +881,18 @@ export default function RoutinesPage() {
           ...(model.trim() ? { model: model.trim() } : {}),
           permission_mode: permissionMode,
         },
-        deviceId,
+        view.deviceId,
       );
+      if (!isCurrentView(view)) return;
       setRoutines((list) => [r, ...list]);
       closeForm();
       resetForm();
       pushToast(tr("routines.created"), "info");
     } catch (e) {
+      if (!isCurrentView(view)) return;
       pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
     } finally {
-      setCreating(false);
+      if (isCurrentView(view)) setCreating(false);
     }
   };
 
@@ -819,6 +926,11 @@ export default function RoutinesPage() {
     setCwd("");
     setAgentId("");
     writeRoutineDevice(id);
+    // The picker owns history: each manual switch is a push, so back returns
+    // along the machines the reader actually visited rather than the URL staying
+    // on the first notification's machine in the warm-tap case.
+    writingURL.current = true;
+    setSearchParams({ device: id }, { replace: false });
     // The sidebar badge counts the machine this page shows; a switch that did
     // not tell it would leave the old machine's number there.
     window.dispatchEvent(new Event("kin:routine-unread-changed"));

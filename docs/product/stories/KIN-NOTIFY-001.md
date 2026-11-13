@@ -128,7 +128,7 @@ iPhone：`mobile/` 是 Capacitor 壳，加载 Hub 自己的控制台；没有推
 实现边界（审批用，不是界面）：
 
 - iOS 构建需要 Push Notifications capability 和 `aps-environment`；Debug 走 sandbox，Release 走 production；真机做端到端，模拟器只验界面和状态。
-- 登记和发送必须在同一个 daemon：谁运行任务引擎、发通知，APNs 凭据和 `push_devices` 就登记在谁那里；Hub 只把控制台请求转过去，不能让 token 只留在另一台机器上。
+- 登记和发送必须在同一个 daemon：谁运行任务引擎、发通知，APNs 凭据和 `push_devices` 就登记在谁那里；Hub 只把控制台请求转过去，不能让 token 只留在另一台机器上。例行任务的手机通知是唯一的例外：Node 只通过已鉴权控制通道上报报告内容，Hub 用自己登记的凭据扇出 APNs（见 ADR 0030）；APNs token/私钥仍不离开 Hub。
 - 登记归属于建立它的凭据：浏览器登录（含手机上的 Hub 会话）建立的登记绑到那条登录，登出或被撤销时在同一事务里一并删除；会话过期后扇出会拒绝它，测试推送会把过期行删掉（当前没有定时清理，登出/重置/撤销之外的过期行会留在列表里直到有人测试或重新登记）；手机退出登录前先注销自己记住的那一行。测试通知是唯一的全节点广播。
 - APNs 私钥由节点管理员配置；设置页只显示"已配置/未配置"和最后一次错误，不回传私钥。
 
@@ -159,6 +159,11 @@ iPhone：`mobile/` 是 Capacitor 壳，加载 Hub 自己的控制台；没有推
 | 组件 | `ui/src/components/settings/NativePushSettings.dom.test.tsx`（新建） | Given 原生 iPhone When 渲染 Then 只有"这台 iPhone"，没有浏览器推送 / Bark / ntfy；Given blocked Then 有"打开系统设置"；Given 测试失败 Then 显示原因；Given 旧配置还在 When 渲染 Then 不显示旧通道；Given 节点登记的 `ios` / `sandbox` / `production` When 渲染 Then 显示译名而不是机器值；Given 测试推送返回 410 Then 忘掉本机登记、刷新列表并显示登录已结束，不显示英文原文；Given 返回 404 Then 同样忘掉登记、刷新列表并显示节点上已没有这台手机的登记；中英两份文案都在 |
 | 单元 | `ui/src/lib/notificationRoute.test.ts`（新建） | Given `/inbox?focus=a1` Then 落到收件箱并点名叫 a1；Given 同源绝对 URL Then 取路径；Given 外站或 `javascript:` Then 落到收件箱；Given 冷启动待处理 Then 只消费一次 |
 | 组件 | `ui/src/components/NotificationTaps.dom.test.tsx`（新建） | Given 冷启动链接和同一次点按的事件同时到达 When 路由 Then 只导航一次；Given 已在该条目 When 再点同一条 Then 不跳；Given 离开该条目后 When 再点同一条 Then 重新落回；Given 条目在另一台设备被处理 When 它从 pending 消失 Then 移除已送达横幅；Given 回到前台 When 可见 Then 刷新一次 pending |
+| 单元 | `internal/node/routinenotify_test.go`（新建） | Given 首次 handshake 前的能力未知 When 上报报告 Then 有界排队，不对旧 Hub 发送未知帧；Given Hub 断开时写阻塞 When 入队 / SetSender / ACK Then 都不被网络写卡住；Given 超长多字节标题正文 Then 按 UTF-8 边界截到 wire 上限后才进帧 |
+| 单元 | `internal/apns/apns_test.go`（扩充） | Given 转义密集和多字节的标题正文 When 序列化 Then 实际 HTTP body ≤ 4096 字节且 kind/id/url/thread-id 保留；Given 只有元数据就超过 4 KiB When 发送 Then 在请求前拒绝并记原因 |
+| 单元 | `internal/api/routine_notify_test.go`（新建/扩充） | Given 一个被更新的连接 When 上报 Then 拒绝且不 ACK、不扇出；Given 凭据已撤销 Then 不 ACK、不扇出；Given 扇出槽耗尽 When 上报 Then 失败关闭、不 ACK，重放仍算新事件 |
+| 单元 | `internal/api/routine_notify_test.go`（集成） | Given 一个真实例行任务终态（noteworthy / 静默 / 熔断禁用） When 走 Engine→NotifyRoutine→RoutineForward→Node→鉴权 Hub→APNs mock Then noteworthy 和熔断各扇出一次且落点正确，静默不扇出；不向真实 Apple 发送 |
+| 组件 | `ui/src/pages/RoutinesPage.dom.test.tsx`（新建） | Given 冷/热点按、手动切换、同一条再次点按、前进后退、离线/缺失机器 When 改 `?device=` 或选机器 Then 页面机器与 URL 一致，缺失机器落到现存机器并修正 URL |
 | 组件 | `desktop/src/notifications.test.ts`（扩充） | Given 正在看的对话终态 When 收到通知 Then 不弹；Given 批准/提问 When 收到 Then 弹；Given 重复事件 Then 只弹一次；Given 点击 Then 打开那一条；Given 旧 Bark / ntfy 配置 When 启动 Then 不再读取 |
 | 接线 | `desktop/src/native-notifications.wiring.test.ts`（新建） | Given 节点推来 `notify` 消息 When 桌面壳收到 Then Notifier 拿到 kind/id/url；Given APNs 不可用 Then 桌面通道仍然工作 |
 | iOS | 模拟器/真机，`mobile/scripts/build-ios.sh device` | Given 允许通知并登记 When 把应用切到后台 Then 在 Mac 上触发批准能看到横幅；点开落到那张卡片；杀进程冷启动也能落到那一条；拒绝权限时设置页给系统设置入口；关闭后不再收到；没有 Bark / ntfy / Web Push 回退 |
@@ -193,3 +198,4 @@ iPhone：`mobile/` 是 Capacitor 壳，加载 Hub 自己的控制台；没有推
 - 2026-11-03 同日第二轮复查（0 blocker / 3 major / 8 nit）后修复三条 major：密码重置在结束该账号全部登录的同一事务里删除这些登录登记的手机；`POST /api/push/devices/test` 发送前复核会话，已结束则删行并返回 410；手机退出登录先同步清掉本地 token，再用捕获的 token 完成注销与登出，网络永不返回也不会把 token 留在设备上；成员登记缺少会话 id 时拒绝，不写入无法结束的行。顺带修的 nit：迁移 047 对没有 `push_devices` 表的 v46 文件跳过 ALTER，并清理旧版本留下的无会话成员行；每次开库先补列再跑注册表 DDL（否则索引先于列报错）；登出失败返回 500 并记日志；会话过期后没有定时清理，扇出先行拒绝、测试推送删行，这一点写进本故事与 `IMPL_NOTES`。保留的 nit：待删列表只记一个 id（连续两次失败时后一个覆盖前一个，节点端登出删除仍是兜底）；没有一条集成测试直接断言 `SessionLive` 的接线（`notify` 与 `store` 各自有测试）；同一安装 id 重新登记会接管旧行，未加 409；发送前没有 4 KB 载荷预检；桌面接线测试断言发布返回值而非 IPC 送达。
 - 2026-11-03 第三轮复查（0 blocker / 1 major / 7 nit）后修复 major：没有 task owner 的 routine / eval / CLI 事件此前只匹配 owner 为空的行，而操作员用自己的登录登记的手机带着账号，结果 routine 报告永远不响；扇出现在先把空 owner 解析成 operator 账号再圈定收件人，standalone 节点（无账号）仍只到无主行。顺带修的 nit：测试推送的 410 在 OpenAPI 与设置页都有交代（设置页忘掉本机登记并刷新，不再显示英文原文）；测试推送的 404 同样忘掉登记并显示"节点上已没有登记"，不再显示 `device not found`；410 文案与 OpenAPI 不再断言删行一定成功；`ownerAccount` 读取失败会记日志，并有测试钉住失败时只到无主行；退出登录时 404/401/403 不再当作可重试，不会每次打开设置都重试一条永远删不掉的行。保留的 nit：被动状态只看元数据，私钥丢失或从导出恢复后会显示已配置而实际发不出去；过期会话行没有定时清理，只会被扇出拒绝或被测试推送删掉；APNs 客户端每条事件重建，provider token 缓存没有跨事件复用；`pushOwner` 吞掉 registry 读取错误（DB 故障时设备登记会退化成无主行）；`RevokeAllDeviceCredentials` 不删绑定登记（当前无生产调用）。
 - 2026-11-03 合并 `main`（Hub 一次性登录链接）：登出仍先清本地 token、再注销手机、最后登出；测试改为断言注入的 `apiFetch`，不再依赖全局 `fetch`。OpenAPI 合掉了两处重复的 `/api/notify/test` 与重复 schema，并删除退役的 Web Push 路径与四个旧 schema；`AccountSection` 采用 main 的新布局，但移除重复的 `clearToken()`，因为 `signOut()` 已先捕获并清除 token。
+- 2026-11-13 ADR 0030（Node 上例行任务的手机通知）：例行任务仍在 Node 上，Node 通过已鉴权的控制通道把「noteworthy 例行报告 / 电路熔断禁用」告警内容上报 Hub；Hub 用自己登记的设备和 `notify.Sender` 扇出 APNs，绝不复制 APNs token/私钥到 Node。报告落点改为 `/machines/:device/tasks/:id`，禁用告警落到 `/routines?device=<id>`；`hello_ack` 增加可选 `routine_notify` 能力位，旧 Hub 先升、Node 后升。第二轮独立复查后收紧可靠性合同：报告在能力未知时也先有界排队、绝不向旧 Hub 发未知帧；Node 转发改为单一异步发送者，网络写不再占用任务引擎/读循环/心跳；Hub 只接受当前连接的 generation、失败关闭并给 APNs 扇出设并发上限；4 KiB 上限改为按实际序列化 payload 在 APNs 边界截断；`/routines?device=` 的机器选择与 URL 双向同步。本故事原有的"登记与发送在同一 daemon"约束对 Hub 自己的任务仍成立（例行任务的扇出是唯一例外）。

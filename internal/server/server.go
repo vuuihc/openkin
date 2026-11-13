@@ -369,6 +369,25 @@ func ServeWith(version string, flags ServeFlags) error {
 		}
 		return client, nil
 	}
+	// A Node's routine reports ring the phones registered with its Hub, so the
+	// Node forwards the alert over the control channel and the Hub fans it out.
+	// The forwarder is process-local and best-effort (see
+	// node.RoutineNotifyForwarder). It exists only when this daemon is actually a
+	// Node: a standalone daemon (no --hub) keeps ringing its own phones and never
+	// constructs or logs an unsupported forwarding attempt.
+	var routineNotifyForwarder *node.RoutineNotifyForwarder
+	if strings.TrimSpace(flags.HubURL) != "" {
+		routineNotifyForwarder = node.NewRoutineNotifyForwarder(warnToStderr)
+		defer routineNotifyForwarder.Close()
+	}
+
+	var routineForward func(ctx context.Context, event notify.RoutineEvent)
+	if routineNotifyForwarder != nil {
+		routineForward = func(ctx context.Context, event notify.RoutineEvent) {
+			_ = routineNotifyForwarder.Send(ctx, event)
+		}
+	}
+
 	notifier := &notify.Sender{
 		Store:   st,
 		Devices: st,
@@ -380,10 +399,11 @@ func ServeWith(version string, flags ServeFlags) error {
 			}
 			return client, nil
 		},
-		Events:       busNotifier{bus: taskBus, ownerOf: st.TaskOwner},
-		SessionLive:  st.AuthSessionLive,
-		OwnerOf:      st.TaskOwner,
-		OwnerAccount: st.OwnerAccountID,
+		Events:         busNotifier{bus: taskBus, ownerOf: st.TaskOwner},
+		SessionLive:    st.AuthSessionLive,
+		OwnerOf:        st.TaskOwner,
+		OwnerAccount:   st.OwnerAccountID,
+		RoutineForward: routineForward,
 	}
 	workerRegistry := workers.NewRegistry(workers.DefaultLeaseTTL, func(record workers.Record) {
 		notifier.NotifyWorkerOffline(context.Background(), record.WorkerID, "", record.Label)
@@ -1130,7 +1150,7 @@ func ServeWith(version string, flags ServeFlags) error {
 			}
 		}
 		go func() {
-			err := runNode(nodeCtx, version, flags, st, reg, executor, approvalRelay, srvAPI.LocalMachine, nodeRefresh)
+			err := runNode(nodeCtx, version, flags, st, reg, executor, approvalRelay, srvAPI.LocalMachine, nodeRefresh, routineNotifyForwarder)
 			// A canceled context is this daemon shutting down, not a failure.
 			if err != nil && nodeCtx.Err() == nil {
 				fmt.Fprintf(os.Stderr, "kin: node: %v\n", err)
