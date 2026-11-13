@@ -67,7 +67,7 @@ jobs:
   # for local builds), which is also what the shell's updater compares against.
   desktop-mac:
     needs: build
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
