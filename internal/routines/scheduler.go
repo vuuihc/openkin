@@ -503,7 +503,7 @@ func (s *Scheduler) createRoutineTask(ctx context.Context, routine store.Routine
 
 func (s *Scheduler) routineCreateRequest(r store.Routine, taskID string) task.CreateRequest {
 	prompt := r.Prompt
-	if !strings.Contains(prompt, "noteworthy:") {
+	if !strings.Contains(prompt, task.ReportSignalMarker) {
 		prompt += task.ReportSignalTrailer
 	}
 	title := r.Title
