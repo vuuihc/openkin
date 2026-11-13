@@ -1858,10 +1858,13 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(agentLimits) == "" {
 		agentLimits = "{}"
 	}
-	autoImportMode, err := store.NormalizeAutoImportMode(get(store.KeyAutoImportMode))
-	if err != nil {
-		autoImportMode = store.AutoImportPrompt
-	}
+	// The key is legacy policy metadata, never an active instruction. Consoles
+	// built before KIN-AGENTS-001 poll it every 30 seconds and start a fan-out
+	// while it reads "enabled"; echoing the stored value would keep old clients
+	// importing behind the person's back. The write path still accepts and
+	// stores the old values so an older console can save its form, but every
+	// read reports the one policy that cannot trigger an import.
+	autoImportMode := store.AutoImportDisabled
 	// Active cognition provider from multi-provider registry (legacy keys mirrored).
 	provKind := firstNonEmpty(get("provider.kind"), "openai-compatible")
 	provBase := get("provider.base_url")

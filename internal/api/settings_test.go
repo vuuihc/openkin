@@ -206,8 +206,31 @@ func TestLegacyAutoImportSettingStaysAcceptedAndKeepsIndex(t *testing.T) {
 		if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 			t.Fatal(err)
 		}
-		if got["agent_sessions.auto_import_mode"] != mode {
-			t.Fatalf("auto_import_mode = %v after writing %s", got["agent_sessions.auto_import_mode"], mode)
+		// The write is accepted and stored, but no read may report a value an
+		// older console treats as "keep importing".
+		if got["agent_sessions.auto_import_mode"] != store.AutoImportDisabled {
+			t.Fatalf("auto_import_mode = %v after writing %s; reads must not echo an active policy", got["agent_sessions.auto_import_mode"], mode)
+		}
+		stored, err := s.Store.GetSetting(ctx, store.KeyAutoImportMode)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stored != mode {
+			t.Fatalf("stored auto_import_mode = %q after writing %s", stored, mode)
+		}
+		rr = httptest.NewRecorder()
+		req = httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("GET auto_import_mode=%s: %d %s", mode, rr.Code, rr.Body.String())
+		}
+		got = nil
+		if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got["agent_sessions.auto_import_mode"] != store.AutoImportDisabled {
+			t.Fatalf("GET auto_import_mode = %v after stored %s; want disabled", got["agent_sessions.auto_import_mode"], mode)
 		}
 	}
 
