@@ -1,0 +1,234 @@
+// @vitest-environment jsdom
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
+import AppShell from "./AppShell";
+import SessionsPage from "../../pages/SessionsPage";
+import ProjectDetailPage from "../../pages/ProjectDetailPage";
+import RoutinesPage from "../../pages/RoutinesPage";
+import { setLocale } from "../../i18n";
+import { resetLeaveGuard } from "../../lib/leaveGuard";
+import type { Task } from "../../api/client";
+
+/**
+ * The list is the parent of a conversation on a phone, whichever surface the
+ * conversation was opened from. A project's Chats tab, a routine's run row and
+ * the command palette all sit on destinations of their own; opening a
+ * conversation (or the draft) from one must replace that destination with the
+ * list instead of leaving it underneath, or Back lands on the project or the
+ * routines page instead of the list.
+ */
+
+vi.mock("../../api/useLiveResources", () => ({
+  useTaskList: () => ({
+    data: [],
+    loaded: true,
+    error: null,
+    pageFull: false,
+    loading: false,
+  }),
+  useTaskResource: () => ({ data: { task: undefined }, loaded: true, error: null }),
+  usePendingResources: () => ({
+    data: { approvals: [], questions: [] },
+    loaded: true,
+    error: null,
+  }),
+}));
+
+vi.mock("../../api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/client")>();
+  return {
+    ...actual,
+    isAuthenticated: vi.fn(() => true),
+    listAgentSessionsPage: vi.fn(async () => ({ items: [], next_cursor: undefined })),
+    listAgentSessions: vi.fn(async () => []),
+    listProjects: vi.fn(async () => [
+      {
+        id: "p1",
+        name: "alpha",
+        mode: "ship",
+        status: "active",
+        roots: ["/work/alpha"],
+        created_at: 1,
+        updated_at: 2,
+        last_active_at: 3,
+      },
+    ]),
+    getProject: vi.fn(async (id: string) => ({
+      id,
+      name: "alpha",
+      mode: "ship",
+      status: "active",
+      roots: ["/work/alpha"],
+      created_at: 1,
+      updated_at: 2,
+      last_active_at: 3,
+    })),
+    listProjectTasks: vi.fn(async () => [
+      {
+        id: "project-chat",
+        title: "Project chat",
+        cwd: "/work/alpha",
+        agent: "kin",
+        prompt: "",
+        status: "succeeded",
+        tokens_in: 0,
+        tokens_out: 0,
+        event_epoch: 0,
+        created_at: 1,
+      },
+    ]),
+    getOnePager: vi.fn(async () => ({ project_id: "p1", markdown: "", updated_at: 1 })),
+    listProjectArtifacts: vi.fn(async () => []),
+    getProjectPulse: vi.fn(async () => null),
+    listRoutines: vi.fn(async () => ({ routines: [], has_more: false })),
+    listRoutineRuns: vi.fn(async () => [
+      {
+        id: "run-1",
+        title: "Nightly run",
+        cwd: "/work/alpha",
+        agent: "kin",
+        prompt: "",
+        status: "succeeded",
+        tokens_in: 0,
+        tokens_out: 0,
+        event_epoch: 0,
+        created_at: 1,
+        finished_at: 2,
+        routine_id: "routine-1",
+        routine_noteworthy: true,
+        routine_unread: false,
+      } as Task,
+    ]),
+    listTasks: vi.fn(async () => []),
+    ensureProject: vi.fn(async () => ({ id: "p1", name: "alpha" })),
+    getSettings: vi.fn(async () => null),
+    listAgents: vi.fn(async () => []),
+    serverVersion: vi.fn().mockResolvedValue({ desktop_id: "desktop-hub", desktop_name: "hub" }),
+    listMachines: vi.fn().mockResolvedValue([]),
+  };
+});
+
+vi.mock("../../hooks/useMachines", () => ({
+  useMachines: () => ({
+    machines: [
+      { id: "mac-1", label: "MacBook", isSelf: true, online: true, roots: [], agents: [] },
+    ],
+    agents: [],
+    loading: false,
+    failed: false,
+  }),
+}));
+
+vi.mock("../../hooks/useMinWidth", () => ({
+  useMinWidth: () => false,
+}));
+
+vi.mock("../../hooks/useAgentSessionImport", () => ({
+  useAgentSessionImport: () => ({
+    importing: false,
+    importEveryMachine: vi.fn(async () => ({ imported: 0, providers: {} })),
+  }),
+  importsInFlight: () => false,
+}));
+
+vi.mock("../../hooks/useApprovalDecision", () => ({
+  useApprovalDecision: () => ({ busy: {}, decide: vi.fn() }),
+}));
+
+vi.mock("../../lib/desktop", () => ({
+  isKinDesktop: () => false,
+}));
+
+vi.mock("../terminal/TerminalPanel", () => ({
+  default: () => null,
+}));
+
+function viewport() {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
+
+/** Start at a cold destination on a real history stack. */
+function browser(initial: string) {
+  window.history.replaceState({ idx: 0 }, "", initial);
+  return render(
+    <BrowserRouter>
+      <AppShell pendingApprovals={[]}>
+        <Routes>
+          <Route path="/sessions" element={<SessionsPage />} />
+          <Route path="/projects/:id" element={<ProjectDetailPage />} />
+          <Route path="/routines" element={<RoutinesPage />} />
+          <Route path="/new" element={<div>draft page</div>} />
+          <Route path="/tasks/:id" element={<div>conversation page</div>} />
+        </Routes>
+      </AppShell>
+    </BrowserRouter>,
+  );
+}
+
+async function browserBack(): Promise<void> {
+  act(() => window.history.back());
+}
+
+beforeEach(() => {
+  resetLeaveGuard();
+  setLocale("en");
+  localStorage.clear();
+  sessionStorage.clear();
+  window.history.replaceState({ idx: 0 }, "", "/");
+  viewport();
+});
+
+describe("the list under a conversation", () => {
+  it("replaces a project's Chats tab, so Back reaches the list rather than the project", async () => {
+    const user = userEvent.setup();
+    browser("/projects/p1");
+    await screen.findByRole("heading", { name: "alpha" });
+
+    await user.click(screen.getByRole("tab", { name: "Chats" }));
+    await user.click(await screen.findByRole("button", { name: /Project chat/ }));
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/project-chat"));
+
+    // The browser's own Back is the honest test of what sits underneath: the
+    // list, not the project the conversation was opened from.
+    await browserBack();
+    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    expect(screen.getByRole("heading", { name: "Chats" })).toBeTruthy();
+  });
+
+  it("replaces the routines page when a run opens", async () => {
+    const user = userEvent.setup();
+    browser("/routines");
+
+    await user.click(await screen.findByRole("link", { name: "Nightly run" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/run-1"));
+
+    await browserBack();
+    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    expect(screen.getByRole("heading", { name: "Chats" })).toBeTruthy();
+  });
+
+  it("puts the list under a draft started from the palette on a destination", async () => {
+    const user = userEvent.setup();
+    browser("/routines");
+    expect((await screen.findAllByRole("heading", { name: "Routines" })).length).toBeGreaterThan(0);
+
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    await user.click(await screen.findByRole("button", { name: /New chat/ }));
+    await waitFor(() => expect(window.location.pathname).toBe("/new"));
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    expect(screen.getByRole("heading", { name: "Chats" })).toBeTruthy();
+  });
+});

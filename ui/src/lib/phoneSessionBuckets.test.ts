@@ -372,6 +372,55 @@ describe("isBucketCollapsed", () => {
   });
 });
 
+describe("archive state belongs to the machine that owns the path", () => {
+  const shared = [
+    task({ id: "local", cwd: "/work/shared", created_at: 10 }),
+    task({ id: "remote", cwd: "/work/shared", created_at: 20, executing_device_id: "nas" }),
+  ];
+
+  it("archives only this machine's copy of a path two machines share", () => {
+    // The stored archive list has no device column: it is this machine's
+    // preference. The NAS's /work/shared is a different project on a different
+    // filesystem, so archiving here must leave it on screen.
+    const active = buckets(shared, [], "self", ["/work/shared"], "active");
+    const sharedActive = active.find((bucket) => bucket.key === "/work/shared")!;
+    expect(sharedActive.rows.map((row) => row.key)).toEqual(["remote"]);
+
+    const archived = buckets(shared, [], "self", ["/work/shared"], "archived");
+    const sharedArchived = archived.find((bucket) => bucket.key === "/work/shared")!;
+    expect(sharedArchived.rows.map((row) => row.key)).toEqual(["local"]);
+  });
+
+  it("keeps a remote imported session out of the local archive", () => {
+    const sessions = [
+      session({ id: "local-s", cwd: "/work/shared", updated_at: 1 }),
+      session({ id: "remote-s", cwd: "/work/shared", updated_at: 2, device_id: "nas" }),
+    ];
+    const active = buckets([], sessions, "self", ["/work/shared"], "active");
+    const imported = active.find((bucket) => isImportedBucket(bucket.key))!;
+    expect(imported.rows.map((row) => row.key)).toEqual(["remote-s"]);
+
+    const archived = buckets([], sessions, "self", ["/work/shared"], "archived");
+    const importedArchived = archived.find((bucket) => isImportedBucket(bucket.key))!;
+    expect(importedArchived.rows.map((row) => row.key)).toEqual(["local-s"]);
+  });
+
+  it("still splits the surviving rows by machine after a local archive", () => {
+    const active = groupProjectBucketsByDevice(
+      buckets(shared, [], "self", ["/work/shared"], "active"),
+      [
+        { id: "self", label: "Here", isSelf: true, online: true },
+        { id: "nas", label: "NAS", isSelf: false, online: true },
+      ] as Machine[],
+      "self",
+    );
+    const nas = active.find((group) => group.id === "nas")!;
+    expect(nas.buckets.map((bucket) => bucket.key)).toEqual(["/work/shared"]);
+    // This machine's heading is gone: its only conversation was archived.
+    expect(active.find((group) => group.id === "self")).toBeUndefined();
+  });
+});
+
 describe("the archived scope", () => {
   const tasks = [
     task({ id: "a", cwd: "/work/alpha", created_at: 10 }),

@@ -3,7 +3,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { isAuthenticated, listProjects, type Project } from "../api/client";
 import { t } from "../i18n";
 import { useMinWidth } from "../hooks/useMinWidth";
-import { canLeaveScreen } from "../lib/leaveGuard";
+import { canLeaveScreen, runGuardedNavigation } from "../lib/leaveGuard";
+import { phonePush } from "../lib/phoneNavigation";
 import { useT } from "../i18n/react";
 import { paletteEntries, type PaletteEntry } from "../lib/palette";
 import type { PanelContext, PanelId } from "../lib/panels";
@@ -84,21 +85,20 @@ export default function CommandPalette({
    * a place or a conversation from any screen. Pushing there would make Back
    * return to the screen the reader just hopped from — the exact counterexample
    * R5 names — so on a phone, moving from anything but the list replaces the
-   * current entry instead. The Mac keeps ordinary browser history.
+   * current entry with the list first and pushes on top of it. The Mac keeps
+   * ordinary browser history.
    */
   const go = useCallback(
     (to: string, approved = false) => {
       // Replacing the screen is still leaving it: a page holding unsaved text
       // gets the same question the back button asks. `approved` is only set by
       // a caller that already asked, so a confirm does not open twice.
-      if (approved !== true && !canLeaveScreen()) return;
-      if (!wide && !location.pathname.startsWith("/sessions")) {
-        navigate(to, { replace: true });
-      } else {
-        navigate(to);
-      }
+      runGuardedNavigation(
+        () => phonePush(navigate, location, to, { phone: !wide }),
+        approved === true,
+      );
     },
-    [location.pathname, navigate, wide],
+    [location, navigate, wide],
   );
   const pushToast = useAppStore((s) => s.pushToast);
   const [query, setQuery] = useState("");

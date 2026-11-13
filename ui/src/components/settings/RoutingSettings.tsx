@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   getRoutingDefaults,
@@ -17,7 +17,35 @@ import SearchSelect from "../ui/SearchSelect";
 // Routing Defaults Section
 // ---------------------------------------------------------------------------
 
-export function RoutingDefaultsSection() {
+type RoutingDefaults = {
+  enabled: boolean;
+  defaultTeam: string;
+  objective: string;
+  maxAttempts: number;
+  terminalPolicy: string;
+  manualFallback: boolean;
+  qualityFloor: "" | "light" | "medium" | "heavy";
+  forcePhases: string[];
+};
+
+function defaultsKey(v: RoutingDefaults): string {
+  return JSON.stringify([
+    v.enabled,
+    v.defaultTeam,
+    v.objective,
+    v.maxAttempts,
+    v.terminalPolicy,
+    v.manualFallback,
+    v.qualityFloor,
+    v.forcePhases,
+  ]);
+}
+
+export function RoutingDefaultsSection({
+  onDirtyChange,
+}: {
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   const tr = useT();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +61,29 @@ export function RoutingDefaultsSection() {
   const [qualityFloor, setQualityFloor] = useState<"" | "light" | "medium" | "heavy">("");
   const [forcePhases, setForcePhases] = useState<string[]>([]);
 
+  // The loaded values, not `options`: switching a team or typing an attempt
+  // count must not look like a saved change. The draft key is read through a
+  // ref so an async reload that lands mid-edit compares against the latest
+  // fields rather than a stale render.
+  const [baseline, setBaseline] = useState<string | null>(null);
+  const draftKey = defaultsKey({
+    enabled,
+    defaultTeam,
+    objective,
+    maxAttempts,
+    terminalPolicy,
+    manualFallback,
+    qualityFloor,
+    forcePhases,
+  });
+  const draftRef = useRef(draftKey);
+  draftRef.current = draftKey;
+  const dirty = baseline !== null && draftKey !== baseline;
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+
   const load = useCallback(async () => {
     try {
       const [d, o] = await Promise.all([getRoutingDefaults(), getRoutingOptions()]);
@@ -46,6 +97,19 @@ export function RoutingDefaultsSection() {
       const floor = d.quality_floor;
       setQualityFloor(floor === "light" || floor === "medium" || floor === "heavy" ? floor : "");
       setForcePhases(d.force_phases ?? []);
+      setBaseline(
+        defaultsKey({
+          enabled: d.enabled,
+          defaultTeam: d.default_team,
+          objective: d.objective || "balanced",
+          maxAttempts: d.max_attempts_per_step,
+          terminalPolicy: d.terminal_limit_policy || "ask",
+          manualFallback: d.manual_fallback,
+          qualityFloor:
+            floor === "light" || floor === "medium" || floor === "heavy" ? floor : "",
+          forcePhases: d.force_phases ?? [],
+        }),
+      );
     } catch {
       // ignore
     }
@@ -70,6 +134,7 @@ export function RoutingDefaultsSection() {
         quality_floor: qualityFloor,
         force_phases: forcePhases,
       });
+      setBaseline(draftRef.current);
       setSaved(true);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
@@ -266,13 +331,34 @@ export function RoutingDefaultsSection() {
 // Routing Profiles Section
 // ---------------------------------------------------------------------------
 
-export function RoutingProfilesSection() {
+export function RoutingProfilesSection({
+  onDirtyChange,
+}: {
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   const tr = useT();
   const [profiles, setProfiles] = useState<RoutingTeamProfile[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<RoutingTeamProfile | null>(null);
   const [isNew, setIsNew] = useState(false);
+
+  // The profile as it was when the editor opened. `editing` also changes when
+  // the name auto-fills the id, so comparing against the initially opened
+  // copy, not a fresh parse of the current draft, is what separates an edit
+  // from a reload.
+  const [baseline, setBaseline] = useState<string | null>(null);
+  const dirty = editing !== null && baseline !== null && JSON.stringify(editing) !== baseline;
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+
+  // Closing the editor (save or cancel) drops the baseline with it; the next
+  // open seeds a fresh one in addProfile/editProfile.
+  useEffect(() => {
+    if (editing === null) setBaseline(null);
+  }, [editing]);
 
   const load = useCallback(async () => {
     try {
@@ -288,18 +374,22 @@ export function RoutingProfilesSection() {
   }, [load]);
 
   const addProfile = () => {
-    setEditing({
+    const next: RoutingTeamProfile = {
       id: "",
       name: "",
       alias: "",
       enabled: true,
       phases: {},
-    });
+    };
+    setBaseline(JSON.stringify(next));
+    setEditing(next);
     setIsNew(true);
   };
 
   const editProfile = (p: RoutingTeamProfile) => {
-    setEditing({ ...p, phases: { ...p.phases } });
+    const next = { ...p, phases: { ...p.phases } };
+    setBaseline(JSON.stringify(next));
+    setEditing(next);
     setIsNew(false);
   };
 

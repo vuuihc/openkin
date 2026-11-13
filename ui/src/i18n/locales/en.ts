@@ -2,6 +2,9 @@ import type { MessageTree } from "./zh";
 
 /** English strings (for pre-release / future locale switch). */
 const en: MessageTree = {
+  needsYou: {
+    decisionFailed: "Decision failed",
+  },
   app: {
     name: "Kin",
     reconnecting: "Reconnecting…",
@@ -76,6 +79,9 @@ const en: MessageTree = {
     untitled: "Untitled chat",
     agentSessionsFailed:
       "Local agent sessions could not be read right now. Kin's own sessions are still listed above.",
+    agentSessionsLoadError: "Could not load imported sessions",
+    agentSessionsLoadErrorHint:
+      "Kin's own chats are unaffected. Retry to read the imported index again.",
     searchPlaceholder: "Search chats",
     searchEmpty: "No chats match “{query}”",
     showAll: "Show all ({count})",
@@ -995,6 +1001,7 @@ const en: MessageTree = {
     moreSections: "More settings",
     title: "Settings",
     saved: "Settings saved",
+    discardConfirm: "Discard unsaved settings changes?",
     hide: "Hide",
     reveal: "Reveal",
     subtitle: "Cognition provider (Kin agent), connection, notifications, and pricing.",

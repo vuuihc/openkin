@@ -44,8 +44,18 @@ import { floatingApprovals } from "../../lib/floatingApprovals";
 import { placePath } from "../../lib/places";
 import { useApprovalDecision } from "../../hooks/useApprovalDecision";
 import { useEdgeSwipeBack } from "../../hooks/useEdgeSwipeBack";
-import { canLeaveScreen } from "../../lib/leaveGuard";
+import { runGuardedNavigation } from "../../lib/leaveGuard";
 import { goBackToList } from "../../lib/phoneBack";
+import {
+  draftEntryState,
+  draftReturnUrl,
+  isPhoneLayout,
+  lastListUrl,
+  phonePush,
+  rememberListUrl,
+  returnListUrl,
+  routerHasParent,
+} from "../../lib/phoneNavigation";
 import FloatingApproval from "../cards/FloatingApproval";
 import ErrorBoundary from "../ErrorBoundary";
 
@@ -182,21 +192,28 @@ export default function AppShell({
    * It always lands on the list. The draft is a pushed screen over the list,
    * not one of the destinations whose parent is "wherever you came from"; a
    * close that returned to a conversation would leave the list out of the
-   * path entirely. `replace` drops the draft's history entry, so closing it
-   * never leaves a second layer behind (KIN-CONTINUE-002, step 5).
+   * path entirely (KIN-CONTINUE-002, step 5).
+   *
+   * The list it returns to is the one that opened the draft, params and all
+   * (`?search=`, `?status=`, `?scope=`). Popping the entry is the cleanest
+   * form when there is a real one behind: it restores the list's exact URL
+   * without pushing a second copy of it. A cold `/new` has nothing behind it,
+   * so replacing with the recorded list URL is the safe landing.
    */
   function closeDraft() {
-    navigate("/sessions", { replace: true });
+    const target = draftReturnUrl(location.state);
+    if (routerHasParent(location)) navigate(-1);
+    else navigate(target, { replace: true });
   }
 
   // One back action for every pushed phone screen: the header button and the
   // left-edge swipe land here, and both ask the page first (`lib/leaveGuard`)
   // so a screen with unsaved text can confirm or refuse. The browser's own
-  // Back is handled a layer lower — a cold deep link gets a synthesized parent
-  // before the router mounts (`lib/phoneDeepLinkParent.ts`).
+  // Back is handled by the same module's armed history entry; the Mac sidebar
+  // and the floating approval go through the same gate, so no destination
+  // bypasses the question.
   const leaveScreen = () => {
-    if (!canLeaveScreen()) return;
-    goBackToList(navigate);
+    runGuardedNavigation(() => goBackToList(navigate));
   };
   const edgeBack = useEdgeSwipeBack(!wide && !onSessionsTab, () => {
     if (draftActive) closeDraft();
@@ -254,16 +271,34 @@ export default function AppShell({
     [importingExternalSessions, importEveryMachine, refreshAgentCatalog, pushToast, tr],
   );
 
-  const openNewChat = useCallback((approved = false) => {
-    // Every caller (the palette's "New chat" row, ⌘N, the list's empty state)
-    // asks the current page before leaving it, the same as Back does. The
-    // palette asks itself and passes `approved`, so one departure is one
-    // question, not two. Only a literal `true` counts: a click event that
-    // arrives in this slot must not read as "already asked".
-    if (approved !== true && !canLeaveScreen()) return;
-    // Single draft entry: always jump to /new (create-or-focus).
-    navigate(DRAFT_PATH);
-  }, [navigate]);
+  const openNewChat = useCallback(
+    (approved = false) => {
+      // Every caller (the palette's "New chat" row, ⌘N, the list's empty state)
+      // asks the current page before leaving it, the same as Back does. The
+      // palette asks itself and passes `approved`, so one departure is one
+      // question. Only a literal `true` counts: a click event that arrives in
+      // this slot must not read as "already asked".
+      runGuardedNavigation(() => {
+        // A phone's draft has the list for a parent even when it was opened
+        // from a project or a destination; otherwise closing it would put the
+        // reader back on the screen they just left instead of the list.
+        if (isPhoneLayout() && location.pathname !== "/sessions") {
+          navigate(lastListUrl(), { replace: true });
+        }
+        navigate(DRAFT_PATH, {
+          state: draftEntryState(returnListUrl(location)),
+        });
+      }, approved === true);
+    },
+    [location, navigate],
+  );
+
+  // The list is the phone's home; remember the exact view (search, filters)
+  // whenever it is on screen so a later push can return to it.
+  useEffect(() => {
+    if (location.pathname !== "/sessions") return;
+    rememberListUrl(`${location.pathname}${location.search}`);
+  }, [location.pathname, location.search]);
 
   // The terminal is the shell's panel, and the shell's panel is the one keyed to
   // no session: there is one instance, and its directory follows the route. It
@@ -556,7 +591,11 @@ export default function AppShell({
             titleFor={(taskId) => taskDisplayTitle(tasks.find((task) => task.id === taskId))}
             busy={approvalDecision.busy}
             onDecide={(id, decision) => void approvalDecision.decide(id, decision)}
-            onOpenTask={(taskId) => navigate(`/tasks/${encodeURIComponent(taskId)}`)}
+            onOpenTask={(taskId) =>
+              runGuardedNavigation(() =>
+                phonePush(navigate, location, `/tasks/${encodeURIComponent(taskId)}`),
+              )
+            }
             raised={pathname === "/sessions"}
             screenKey={pathname}
             expectsBottomChrome={measuredBottomBand}

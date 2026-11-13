@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ApiError,
   formatBytes,
@@ -10,6 +10,7 @@ import {
 } from "../api/client";
 import { SlowConnectHint, TaskListSkeleton } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
+import { onGuardedLinkClick } from "../lib/phoneNavigation";
 import { useT } from "../i18n/react";
 import { useAppStore } from "../store/appStore";
 
@@ -40,6 +41,7 @@ function formatWhen(ms: number): string {
  */
 export default function ArtifactsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const tr = useT();
   const pushToast = useAppStore((s) => s.pushToast);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
@@ -176,7 +178,15 @@ export default function ArtifactsPage() {
                           <span>·</span>
                           <Link
                             to={`/tasks/${a.source_task_id}`}
-                            onClick={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onGuardedLinkClick(
+                                e,
+                                navigate,
+                                location,
+                                `/tasks/${a.source_task_id}`,
+                              );
+                            }}
                             className="text-kin-blue-ink hover:underline truncate max-w-[220px]"
                           >
                             {a.source_task_title || tr("artifacts.sourceTask")}

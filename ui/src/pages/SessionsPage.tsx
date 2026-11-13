@@ -1,10 +1,11 @@
 import { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import PhoneFooter from "../components/layout/PhoneFooter";
 import { IconPencil } from "../components/icons";
 import SessionList from "../components/sessions/SessionList";
 import { useT } from "../i18n/react";
 import { DRAFT_PATH } from "../lib/draftChat";
+import { draftEntryState, listUrlFor } from "../lib/phoneNavigation";
 import { focusPlaceReturn, rememberPlaceReturn, takePlaceReturn } from "../lib/placeReturn";
 
 /**
@@ -20,6 +21,7 @@ import { focusPlaceReturn, rememberPlaceReturn, takePlaceReturn } from "../lib/p
 export default function SessionsPage() {
   const tr = useT();
   const navigate = useNavigate();
+  const location = useLocation();
   // Read-and-clear belongs in the effect, not a state initializer: StrictMode
   // runs initializers twice in development, and the first run would spend the
   // mark before the focused element exists.
@@ -41,7 +43,10 @@ export default function SessionsPage() {
         data-phone-return="new"
         onClick={() => {
           rememberPlaceReturn("new");
-          navigate(DRAFT_PATH);
+          // Closing the draft restores this exact list, params included.
+          navigate(DRAFT_PATH, {
+            state: draftEntryState(listUrlFor(location.search)),
+          });
         }}
         aria-label={tr("nav.newChat")}
         title={tr("nav.newChat")}

@@ -56,6 +56,7 @@ import {
   type SettingsTabItem,
 } from "../components/settings/SettingsPrimitives";
 import { useSlowHint } from "../hooks/useSlowHint";
+import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { applyTheme, getThemeMode, setThemeMode, type ThemeMode } from "../lib/theme";
 import { useAppStore } from "../store/appStore";
 import { useT } from "../i18n/react";
@@ -85,6 +86,85 @@ async function probePublicURL(rawURL: string, timeoutMs = 5000): Promise<boolean
 
 function defaultRelayHostname(zoneName: string): string {
   return zoneName ? `kin-relay.${zoneName}` : "";
+}
+
+function prettyJSON(raw: string | undefined, fallback: string): string {
+  try {
+    return JSON.stringify(JSON.parse(raw || fallback), null, 2);
+  } catch {
+    return raw ?? fallback;
+  }
+}
+
+type SettingsDraft = {
+  quota: string;
+  baseURL: string;
+  relayURL: string;
+  priceTable: string;
+  agentLimits: string;
+  roles: AgentRole[];
+  agentDefault: string;
+  limitPolicy: string;
+  limitFallback: string;
+};
+
+// Every field save() writes, plus the relay URL that has its own Save. The
+// baseline is built from the server payload rather than from the controlled
+// inputs: a reconnect reload may normalize the JSON text, and a dirty flag that
+// survives that normalization would nag on an untouched page.
+function settingsDraftKey(v: SettingsDraft): string {
+  return JSON.stringify([
+    v.quota,
+    v.baseURL,
+    v.relayURL,
+    v.priceTable,
+    v.agentLimits,
+    serializeAgentRoles(v.roles),
+    v.agentDefault,
+    v.limitPolicy,
+    v.limitFallback,
+  ]);
+}
+
+function settingsDraftFromServer(s: Settings): string {
+  return settingsDraftKey({
+    quota: s["notify.quota_wait_after_secs"] || "900",
+    baseURL: s["ui.base_url"] ?? "",
+    relayURL: s["relay.url"] ?? "",
+    priceTable: prettyJSON(s.price_table, "{}"),
+    agentLimits: prettyJSON(s.agent_limits, "{}"),
+    roles: parseAgentRoles(s.agent_roles),
+    agentDefault: s["agent.default"] ?? "",
+    limitPolicy: (s.limit_policy as string) || "wait",
+    limitFallback: s["limit_policy.fallback_agents"] || "[]",
+  });
+}
+
+type ProviderDraft = {
+  name: string;
+  base: string;
+  key: string;
+  model: string;
+  stream: boolean;
+  keyDirty: boolean;
+  supportsAgents: string;
+  models: ModelSpec[];
+};
+
+function providerDraftKey(v: ProviderDraft): string {
+  return JSON.stringify([
+    v.name,
+    v.base,
+    v.key,
+    v.model.trim(),
+    v.stream,
+    v.keyDirty,
+    v.supportsAgents
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+    v.models,
+  ]);
 }
 
 export default function SettingsPage() {
@@ -146,6 +226,59 @@ export default function SettingsPage() {
   const pushToast = useAppStore((s) => s.pushToast);
   const slow = useSlowHint(!settings && !error);
 
+  // Leave guard baselines. The page owns several independent forms that only
+  // persist on an explicit Save; a phone edge swipe or system Back would
+  // otherwise unmount it and silently drop them. Each baseline is the last
+  // saved (or freshly opened) value, so typing then undoing is clean again.
+  const [settingsBaseline, setSettingsBaseline] = useState<string | null>(null);
+  const [providerBaseline, setProviderBaseline] = useState<string | null>(null);
+  const [routingDirty, setRoutingDirty] = useState({ defaults: false, profiles: false });
+
+  const settingsDraft = settingsDraftKey({
+    quota: quotaWaitNotifySecs,
+    baseURL,
+    relayURL,
+    priceTable,
+    agentLimits: agentLimitsText,
+    roles,
+    agentDefault,
+    limitPolicy,
+    limitFallback: limitFallbackText,
+  });
+  const settingsDirty =
+    settings !== null && settingsBaseline !== null && settingsDraft !== settingsBaseline;
+
+  const providerDraft =
+    editingId === null
+      ? null
+      : providerDraftKey({
+          name: provName,
+          base: provBase,
+          key: provKey,
+          model: provModel,
+          stream: provStream,
+          keyDirty: provKeyDirty,
+          supportsAgents: provSupportsAgents,
+          models: provModels,
+        });
+  const providerDirty =
+    providerDraft !== null && providerBaseline !== null && providerDraft !== providerBaseline;
+
+  const formDirty = settingsDirty || providerDirty || routingDirty.defaults || routingDirty.profiles;
+  const canLeaveSettings = useCallback(
+    () => !formDirty || window.confirm(tr("settings.discardConfirm")),
+    [formDirty, tr],
+  );
+  useLeaveGuard(canLeaveSettings, formDirty);
+
+  const onRoutingDefaultsDirty = useCallback((dirty: boolean) => {
+    setRoutingDirty((prev) => (prev.defaults === dirty ? prev : { ...prev, defaults: dirty }));
+  }, []);
+  const onRoutingProfilesDirty = useCallback((dirty: boolean) => {
+    setRoutingDirty((prev) => (prev.profiles === dirty ? prev : { ...prev, profiles: dirty }));
+  }, []);
+
+
   const load = useCallback(async () => {
     setError(null);
     try {
@@ -180,6 +313,7 @@ export default function SettingsPage() {
         setAgentLimitsText(s.agent_limits ?? "{}");
       }
       setRoles(parseAgentRoles(s.agent_roles));
+      setSettingsBaseline(settingsDraftFromServer(s));
       listAgents()
         .then(setAgentList)
         .catch(() => undefined);
@@ -266,6 +400,7 @@ export default function SettingsPage() {
       // Re-read rather than keep the draft: the serializer drops half-written
       // rows, and the fields should show what was actually saved.
       setRoles(parseAgentRoles(s.agent_roles));
+      setSettingsBaseline(settingsDraftFromServer(s));
       setSaved(true);
       pushToast(tr("settings.saved"), "info");
       window.dispatchEvent(new Event("kin:agent-sessions-changed"));
@@ -352,6 +487,18 @@ export default function SettingsPage() {
     setProvSupportsAgents("");
     setProvModels([]);
     setShowRouting(false);
+    setProviderBaseline(
+      providerDraftKey({
+        name: "",
+        base: "",
+        key: "",
+        model: "",
+        stream: false,
+        keyDirty: false,
+        supportsAgents: "",
+        models: [],
+      }),
+    );
   };
 
   const openEditProvider = (p: ProviderEntry) => {
@@ -368,10 +515,23 @@ export default function SettingsPage() {
     setProvSupportsAgents((p.supports_agents || []).join(", "));
     setProvModels(p.models || []);
     setShowRouting((p.supports_agents?.length || 0) > 0 || (p.models?.length || 0) > 0);
+    setProviderBaseline(
+      providerDraftKey({
+        name: p.name || "",
+        base: p.base_url || "",
+        key: p.api_key || "",
+        model: p.model || "",
+        stream: !!p.stream,
+        keyDirty: false,
+        supportsAgents: (p.supports_agents || []).join(", "),
+        models: p.models || [],
+      }),
+    );
   };
 
   const closeProviderForm = () => {
     setEditingId(null);
+    setProviderBaseline(null);
     setProvKeyDirty(false);
     setReveal(false);
     setProvModelOptions([]);
@@ -508,6 +668,9 @@ export default function SettingsPage() {
   const applyRelaySettings = (s: Settings) => {
     setSettings(s);
     setRelayURL(s["relay.url"] ?? "");
+    // The saved snapshot, not this page's draft: a field this request did not
+    // carry is still unsaved, and must stay dirty.
+    setSettingsBaseline(settingsDraftFromServer(s));
   };
 
   const adoptRelaySettings = (s: Settings) => {
@@ -1548,10 +1711,10 @@ export default function SettingsPage() {
         </section>
 
         {/* Auto Model Routing — defaults */}
-        <RoutingDefaultsSection />
+        <RoutingDefaultsSection onDirtyChange={onRoutingDefaultsDirty} />
 
         {/* Auto Model Routing — team profiles */}
-        <RoutingProfilesSection />
+        <RoutingProfilesSection onDirtyChange={onRoutingProfilesDirty} />
       </SettingsTabPanel>
     </SettingsLayout>
   );

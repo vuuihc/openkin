@@ -54,6 +54,13 @@ export type SheetProps = {
    * breakpoint dismissal while it opts out.
    */
   anyWidth?: boolean;
+  /**
+   * Called once the sheet is gone *and* its history entry is behind us. A
+   * caller that wants to navigate after a row must wait for this: navigating
+   * while the entry is still current strands it behind the new route, and the
+   * next Back lands on the same screen twice.
+   */
+  onCloseComplete?: () => void;
 };
 
 const FOCUSABLE =
@@ -86,6 +93,7 @@ export default function Sheet({
   className = "",
   bodyClassName = "",
   anyWidth = false,
+  onCloseComplete,
 }: SheetProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
@@ -97,6 +105,10 @@ export default function Sheet({
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
+  const onCloseCompleteRef = useRef(onCloseComplete);
+  useEffect(() => {
+    onCloseCompleteRef.current = onCloseComplete;
+  }, [onCloseComplete]);
 
   /*
    * Pull-down dismissal.
@@ -384,9 +396,18 @@ export default function Sheet({
       window.removeEventListener("popstate", onPopState);
       // A sheet closed by its own controls gives the entry back, so Back keeps
       // meaning "leave this page" instead of walking through a sheet the
-      // reader already put away. Closed-by-Back already consumed it.
+      // reader already put away. Closed-by-Back already consumed it. The walk
+      // is asynchronous, so a caller that navigates (an action-sheet row) is
+      // told only when the entry is gone.
       const current = window.history.state as { kinSheet?: string } | null;
-      if (!closedByBack && current?.kinSheet === marker) window.history.back();
+      if (!closedByBack && current?.kinSheet === marker) {
+        window.addEventListener("popstate", () => onCloseCompleteRef.current?.(), {
+          once: true,
+        });
+        window.history.back();
+      } else {
+        onCloseCompleteRef.current?.();
+      }
       media?.removeEventListener?.("change", onMediaChange);
       restoreRef.current?.focus?.({ preventScroll: true });
     };

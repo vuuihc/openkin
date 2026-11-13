@@ -2,6 +2,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Approval } from "../api/client";
+import { setLocale } from "../i18n";
 import { useAppStore } from "../store/appStore";
 
 /**
@@ -37,6 +38,7 @@ function approval(decision: Approval["decision"]): Approval {
 
 describe("useApprovalDecision", () => {
   beforeEach(() => {
+    setLocale("en");
     client.decideApproval.mockReset();
     resources.applyMessage.mockReset();
     resources.refreshPending.mockReset();
@@ -106,6 +108,20 @@ describe("useApprovalDecision", () => {
       await first;
     });
     expect(result.current.busy).toEqual({});
+  });
+
+  it("shows a translated fallback, not the key, when the rejection is not an Error", async () => {
+    const pushToast = vi.fn();
+    useAppStore.setState({ pushToast });
+    client.decideApproval.mockRejectedValue("offline");
+
+    const { result } = renderHook(() => useApprovalDecision());
+    await act(async () => {
+      await result.current.decide("a1", "denied");
+    });
+
+    expect(pushToast).toHaveBeenCalledWith("Decision failed", "error");
+    expect(pushToast).not.toHaveBeenCalledWith("needsYou.decisionFailed", "error");
   });
 
   it("says what went wrong and re-reads the list when the call fails", async () => {

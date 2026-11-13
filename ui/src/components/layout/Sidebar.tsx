@@ -5,9 +5,10 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
-import { Link, NavLink, useLocation } from "react-router-dom";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { formatCost, type AgentInfo } from "../../api/client";
 import { useT } from "../../i18n/react";
+import { onGuardedLinkClick } from "../../lib/phoneNavigation";
 import { PLACES } from "../../lib/places";
 import { PLACE_ICONS } from "../placeIcons";
 import { IconArchive, IconDownload, IconInbox, IconPlus } from "../icons";
@@ -55,6 +56,7 @@ export default function Sidebar({
 }: Props) {
   const tr = useT();
   const location = useLocation();
+  const navigate = useNavigate();
   const [importMenuOpen, setImportMenuOpen] = useState(false);
   const importMenuRef = useRef<HTMLDivElement>(null);
   const sessionProviders = agentCatalog.filter((agent) =>
@@ -220,6 +222,9 @@ export default function Sidebar({
         />
         <Link
           to="/sessions?scope=archived"
+          onClick={(event) =>
+            onGuardedLinkClick(event, navigate, location, "/sessions?scope=archived")
+          }
           aria-label={tr("nav.archivedProjects")}
           aria-current={archivedScope ? "page" : undefined}
           title={tr("nav.archivedProjects")}
@@ -286,9 +291,12 @@ function FooterIcon({
   title?: string;
 }) {
   const tr = useT();
+  const navigate = useNavigate();
+  const location = useLocation();
   return (
     <NavLink
       to={to}
+      onClick={(event) => onGuardedLinkClick(event, navigate, location, to)}
       // The badge is a number next to an icon; a name that leaves it out tells
       // a screen reader there is nothing waiting when the dot says otherwise.
       aria-label={badge ? tr("nav.withCount", { label, count: badge }) : label}

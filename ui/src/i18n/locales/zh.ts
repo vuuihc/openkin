@@ -1,5 +1,8 @@
 /** Chinese (primary) UI strings. */
 const zh = {
+  needsYou: {
+    decisionFailed: "操作失败",
+  },
   app: {
     name: "Kin",
     reconnecting: "正在重连…",
@@ -71,6 +74,8 @@ const zh = {
     emptyHint: "点右下角的铅笔开一个，或在桌面控制台里发起。",
     untitled: "未命名对话",
     agentSessionsFailed: "本机 agent 会话暂时读不出来，Kin 自己的会话仍在上面。",
+    agentSessionsLoadError: "导入的会话读不出来",
+    agentSessionsLoadErrorHint: "Kin 自己的对话不受影响，重试即可重新读取导入索引。",
     searchPlaceholder: "搜索对话",
     searchEmpty: "没有匹配「{query}」的对话",
     showAll: "展开全部 ({count})",
@@ -950,6 +955,7 @@ const zh = {
     moreSections: "更多设置",
     title: "设置",
     saved: "设置已保存",
+    discardConfirm: "放弃未保存的设置更改？",
     hide: "隐藏",
     reveal: "显示",
     subtitle: "认知 Provider（Kin agent）、连接、通知与价格。",

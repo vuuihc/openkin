@@ -201,15 +201,25 @@ export function phoneProjectBuckets(
   copy: PhoneBucketCopy,
   /** Cwds the sidebar has archived. Their rows are dropped here for the same
    *  reason the sidebar drops them: archiving a project is how a person says
-   *  "stop showing me this", and a list that keeps showing it is not a list. */
+   *  "stop showing me this", and a list that keeps showing it is not a list.
+   *
+   *  It is a *local* preference: the stored list has no device column, and the
+   *  Hub's project records describe this machine's filesystem. Applying it to a
+   *  remote machine's copy of the same path would archive a project on a
+   *  machine the person never touched, so each row is filtered only when it
+   *  runs here. */
   archivedCwds: readonly string[] = [],
   /** "archived" is the other side of the same rule: a scope that shows only
-   *  what was put away, so it can be restored without leaving the list. */
+   *  what was put away, so it can be restored without leaving the list. It is
+   *  this machine's archive, for the same reason. */
   scope: PhoneBucketScope = "active",
 ): PhoneProjectBucket[] {
   const archived = new Set(archivedCwds.map(archivedKeyOf));
-  const keepProject = (cwd: string | undefined): boolean => {
-    const isArchived = archived.has(projectKeyOf(cwd));
+  const selfId = selfDeviceId.trim();
+  const deviceOf = (id: string | undefined | null): string => (id ?? "").trim() || selfId;
+  const localDevice = (device: string): boolean => !selfId || !device || device === selfId;
+  const keepProject = (cwd: string | undefined, device: string): boolean => {
+    const isArchived = localDevice(device) && archived.has(projectKeyOf(cwd));
     return scope === "archived" ? isArchived : !isArchived;
   };
   const byKey = new Map<string, PhoneProjectBucket>();
@@ -242,12 +252,16 @@ export function phoneProjectBuckets(
     // A conversation is archived on its own, so it answers to its own flag
     // first: in the list it is gone even though its project is still filed,
     // and in the archive view it is present even though its project is not.
-    if (task.archived_at ? scope !== "archived" : !keepProject(task.cwd)) continue;
+    // The project's archive is a local preference, so a remote task answers to
+    // its own flag but never to this machine's project archive.
+    const device = (task.executing_device_id ?? "").trim();
+    if (task.archived_at ? scope !== "archived" : !keepProject(task.cwd, deviceOf(device))) {
+      continue;
+    }
     const at = taskActivityAt(task);
     const bucket = bucketFor(task.cwd);
     rememberCreated(bucket, task.created_at);
     if (isActiveStatus(task.status)) bucket.hasActiveTask = true;
-    const device = (task.executing_device_id ?? "").trim();
     const identity = conversationKey(task.session_ref_device_id, task.session_ref, selfDeviceId);
     if (identity) claimed.add(identity);
     bucket.rows.push({
@@ -264,11 +278,12 @@ export function phoneProjectBuckets(
   }
 
   for (const session of sessions) {
-    if (!keepProject(session.cwd)) continue;
+    const rawDevice = (session.device_id ?? "").trim();
+    const device = deviceOf(rawDevice);
+    if (!keepProject(session.cwd, device)) continue;
     const identity = conversationKey(session.device_id, session.external_ref, selfDeviceId);
     if (identity && claimed.has(identity)) continue;
     const at = session.updated_at ?? 0;
-    const device = (session.device_id ?? "").trim() || selfDeviceId.trim();
     const key = IMPORTED_BUCKET_PREFIX + device;
     let bucket = byKey.get(key);
     if (!bucket) {

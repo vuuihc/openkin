@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ApiError,
   formatBytes,
@@ -13,6 +13,7 @@ import { IconBack } from "../components/icons";
 import Markdown from "../components/Markdown";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
+import { onGuardedLinkClick } from "../lib/phoneNavigation";
 import { useT } from "../i18n/react";
 import { useAppStore } from "../store/appStore";
 
@@ -23,6 +24,7 @@ import { useAppStore } from "../store/appStore";
 export default function ArtifactDetailPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const tr = useT();
   const pushToast = useAppStore((s) => s.pushToast);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
@@ -128,6 +130,14 @@ export default function ArtifactDetailPage() {
                 {" · "}
                 <Link
                   to={`/tasks/${artifact.source_task_id}`}
+                  onClick={(e) =>
+                    onGuardedLinkClick(
+                      e,
+                      navigate,
+                      location,
+                      `/tasks/${artifact.source_task_id}`,
+                    )
+                  }
                   className="text-kin-blue-ink hover:underline"
                 >
                   {artifact.source_task_title || tr("artifacts.backToTask")}

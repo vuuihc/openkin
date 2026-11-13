@@ -29,6 +29,12 @@ import { useLocale, useT } from "../../i18n/react";
 import { agentAvatarMeta, agentDisplayName } from "../../lib/agentMention";
 import { settleArchiveBatch } from "../../lib/archiveBatch";
 import type { Machine } from "../../lib/devices";
+import { runGuardedNavigation } from "../../lib/leaveGuard";
+import {
+  draftEntryState,
+  listUrlFor,
+  phonePush,
+} from "../../lib/phoneNavigation";
 import {
   DRAFT_PATH,
   getDraftCwd,
@@ -211,6 +217,8 @@ export default function SessionList({
   const [archiveMore, setArchiveMore] = useState<boolean | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [sessionsFailed, setSessionsFailed] = useState(false);
+  const [sessionReload, setSessionReload] = useState(0);
+  const requestGeneration = useRef(0);
   const [foldTick, setFoldTick] = useState(0);
   const folds = useMemo(() => readSessionFolds(), [foldTick]);
   const [viewTick, setViewTick] = useState(0);
@@ -260,6 +268,11 @@ export default function SessionList({
     setSessionCursor(undefined);
     const read = () => {
       const mine = ++seq;
+      // A first-page refresh invalidates every older page and cursor in
+      // flight. Without this an old `loadOlder` answer landing after an
+      // import/unlink would re-add rows the new index removed and move the
+      // cursor backwards to a page the fresh list already passed.
+      requestGeneration.current += 1;
       const term = sessionListParams(searchTerm);
       listAgentSessionsPage({ limit: term.limit, q: term.q })
         .then((page) => {
@@ -276,8 +289,9 @@ export default function SessionList({
     read();
     // Imports and unlinks happen off this list: the sidebar footer, settings,
     // and an imported session's own page. `changed` is the event those
-    // surfaces publish; `sync` is the automatic import tick. Either one
-    // replaces the imported half, which is otherwise only read on mount.
+    // surfaces publish; `sync` is the manual import tick. Either one replaces
+    // the imported half, which is otherwise only read on mount. A reconnect
+    // is a read too: a failed index read must recover without a reload.
     window.addEventListener("kin:agent-sessions-sync", read);
     window.addEventListener("kin:agent-sessions-changed", read);
     return () => {
@@ -285,7 +299,7 @@ export default function SessionList({
       window.removeEventListener("kin:agent-sessions-sync", read);
       window.removeEventListener("kin:agent-sessions-changed", read);
     };
-  }, [searchTerm]);
+  }, [searchTerm, reconnectGen, sessionReload]);
 
   // Project records are how a project with no loaded conversation still gets a
   // heading. Failing to read them only loses those empty headings, never a row.
@@ -303,7 +317,6 @@ export default function SessionList({
     };
   }, [reconnectGen]);
 
-  const requestGeneration = useRef(0);
   useEffect(() => {
     requestGeneration.current += 1;
     setOlderTasks([]);
@@ -449,8 +462,12 @@ export default function SessionList({
       ...group,
       buckets: sortSessionBuckets(group.buckets, {
         sortMode,
-        pinned: pinnedProjects,
-        lastInteracted: getProjectLastInteracted(),
+        // Pins and local recency are this machine's filesystem facts. A remote
+        // copy of the same path must not inherit them: pinning `/work/shared`
+        // here would lift the NAS's copy of it too, and touching the local one
+        // would reorder the remote one.
+        pinned: group.isSelf ? pinnedProjects : [],
+        lastInteracted: group.isSelf ? getProjectLastInteracted() : {},
         archived: scope === "archived",
       }),
     }));
@@ -487,6 +504,11 @@ export default function SessionList({
   const archiveFailed = scope === "archived" && Boolean(archivedList.error);
   const archiveProjectsFailed = scope === "archived" && !archiveFailed && Boolean(taskList.error);
   const loadFailed = (Boolean(taskList.error) || archiveFailed) && listed.length === 0;
+  // Imported sessions are a second index. Its failure is actionable on its own:
+  // when it is the only feed with rows, the page must say what failed rather
+  // than draw "no chats yet" over it.
+  const importsFailed = !status && sessionsFailed;
+  const importsFailedHard = importsFailed && !loading && listed.length === 0 && !loadFailed;
   // One retry for whatever this page is showing: the live list, and the archive
   // list when that scope is open. The button exists because the story promises
   // one (`KIN-CONTINUE-002`, step 6) and because waiting for an event to
@@ -496,6 +518,10 @@ export default function SessionList({
     if (scope === "archived") {
       void liveResources.refreshTaskList(sessionListParams(searchTerm, status, true));
     }
+    // The imported half is a second index with its own read; a Retry that only
+    // refreshes tasks would leave the error it is answering in place.
+    setSessionsFailed(false);
+    setSessionReload((n) => n + 1);
   };
   const selectionAllPinned =
     selectedIds.size > 0 && Array.from(selectedIds).every((id) => pinnedIds.has(id));
@@ -620,13 +646,20 @@ export default function SessionList({
   }
 
   function openRow(row: PhoneSessionRow) {
-    rememberRowReturn(row.task?.id ?? row.session!.id);
-    if (!row.task) {
-      navigate(`/agent-sessions/${encodeURIComponent(row.session!.id)}${listStateQuery(params)}`);
-      return;
-    }
-    if (isTerminal(row.task.status)) markSessionViewed(row.task.id);
-    navigate(`/tasks/${encodeURIComponent(row.task.id)}${listStateQuery(params)}`);
+    // The sidebar is on screen beside a dirty project or settings page, so a
+    // row click is a departure from that page and asks it first. On the phone
+    // the row's parent is the list; `phonePush` keeps that true.
+    runGuardedNavigation(() => {
+      rememberRowReturn(row.task?.id ?? row.session!.id);
+      if (!row.task) {
+        const to = `/agent-sessions/${encodeURIComponent(row.session!.id)}${listStateQuery(params)}`;
+        phonePush(navigate, location, to);
+        return;
+      }
+      if (isTerminal(row.task.status)) markSessionViewed(row.task.id);
+      const to = `/tasks/${encodeURIComponent(row.task.id)}${listStateQuery(params)}`;
+      phonePush(navigate, location, to);
+    });
   }
 
   function enterSelection(row: PhoneSessionRow) {
@@ -845,12 +878,16 @@ export default function SessionList({
       (project.roots ?? []).some((root) => bucketKeyFor(root) === bucket.key),
     );
     if (known) {
-      navigate(`/projects/${known.id}${listStateQuery(params)}`);
+      runGuardedNavigation(() =>
+        phonePush(navigate, location, `/projects/${known.id}${listStateQuery(params)}`),
+      );
       return;
     }
     try {
       const project = await ensureProject({ path: bucket.cwd, name: bucket.label });
-      navigate(`/projects/${project.id}${listStateQuery(params)}`);
+      runGuardedNavigation(() =>
+        phonePush(navigate, location, `/projects/${project.id}${listStateQuery(params)}`),
+      );
     } catch {
       // A cover is optional; the list stays where it is.
     }
@@ -867,19 +904,24 @@ export default function SessionList({
 
   function newSessionIn(bucket: PhoneProjectBucket) {
     if (!bucket.cwd) return;
-    const local = bucketIsLocal(bucket);
-    // A project record, its pin and its archive entry are this machine's
-    // facts. Touching or unarchiving one because a remote copy of the same
-    // path was clicked would edit the local project behind the reader's back.
-    if (local) {
-      touchProject(bucket.cwd);
-      if (scope === "archived") unarchiveProject(bucket.cwd);
-    }
-    // The cwd and its machine travel together: a remote path with no machine
-    // recorded would quietly become a local path in the draft.
-    setDraftMachine(local ? "" : (bucket.deviceId ?? "").trim());
-    setDraftCwd(bucket.cwd);
-    navigate(`${DRAFT_PATH}${listStateQuery(params, { cwd: bucket.cwd })}`);
+    runGuardedNavigation(() => {
+      const local = bucketIsLocal(bucket);
+      // A project record, its pin and its archive entry are this machine's
+      // facts. Touching or unarchiving one because a remote copy of the same
+      // path was clicked would edit the local project behind the reader's back.
+      if (local) {
+        touchProject(bucket.cwd);
+        if (scope === "archived") unarchiveProject(bucket.cwd);
+      }
+      // The cwd and its machine travel together: a remote path with no machine
+      // recorded would quietly become a local path in the draft.
+      setDraftMachine(local ? "" : (bucket.deviceId ?? "").trim());
+      setDraftCwd(bucket.cwd);
+      const to = `${DRAFT_PATH}${listStateQuery(params, { cwd: bucket.cwd })}`;
+      phonePush(navigate, location, to, {
+        state: draftEntryState(listUrlFor(location.search)),
+      });
+    });
   }
 
   /** ↑/↓ walk the rows from the search field; Enter opens because a row is a
@@ -983,9 +1025,30 @@ export default function SessionList({
         />
       )}
 
-      {!loading && !loadFailed && !(pendingQuery && listed.length === 0) && listed.length === 0 && (
-        <MobileEmpty icon={emptyView.icon} title={emptyView.title} hint={emptyView.hint} />
+      {!loading && !loadFailed && importsFailedHard && (
+        <MobileEmpty
+          icon={<IconAlert size={30} />}
+          title={tr("sessions.agentSessionsLoadError")}
+          hint={tr("sessions.agentSessionsLoadErrorHint")}
+          action={
+            <button
+              type="button"
+              onClick={retryList}
+              className="rounded-lg bg-kin-text px-4 py-2 text-strong font-medium text-kin-bg"
+            >
+              {tr("common.retry")}
+            </button>
+          }
+        />
       )}
+
+      {!loading &&
+        !loadFailed &&
+        !importsFailedHard &&
+        !(pendingQuery && listed.length === 0) &&
+        listed.length === 0 && (
+          <MobileEmpty icon={emptyView.icon} title={emptyView.title} hint={emptyView.hint} />
+        )}
 
       {selectionMode && (
         <div className="sticky top-0 z-[3] flex min-h-12 items-center gap-2 border-b border-[var(--kin-hairline)] bg-[var(--kin-page)] px-3 kin-glass">
@@ -1055,7 +1118,13 @@ export default function SessionList({
           active={draftActive}
           label={tr("nav.draftChat")}
           detail={draftPrompt.trim() || draftCwd}
-          onClick={() => navigate(DRAFT_PATH)}
+          onClick={() =>
+            runGuardedNavigation(() => {
+              phonePush(navigate, location, DRAFT_PATH, {
+                state: draftEntryState(listUrlFor(location.search)),
+              });
+            })
+          }
         />
       )}
 
@@ -1089,10 +1158,17 @@ export default function SessionList({
         </p>
       )}
 
-      {!loading && !status && sessionsFailed && buckets.length > 0 && (
-        <p className="px-4 py-6 text-center text-body text-kin-muted">
-          {tr("sessions.agentSessionsFailed")}
-        </p>
+      {!loading && importsFailed && listed.length > 0 && (
+        <div className="flex flex-col items-center gap-2 px-4 py-6 text-center">
+          <p className="text-body text-kin-muted">{tr("sessions.agentSessionsFailed")}</p>
+          <button
+            type="button"
+            onClick={retryList}
+            className="min-h-11 rounded-lg bg-[var(--kin-fill)] px-4 text-body font-medium text-kin-text"
+          >
+            {tr("common.retry")}
+          </button>
+        </div>
       )}
     </div>
   );
@@ -1111,7 +1187,7 @@ export default function SessionList({
                 label: tr("nav.newSessionIn", { project: projectMenu.bucket.label }),
                 onSelect: () => newSessionIn(projectMenu.bucket),
               },
-              ...(projectMenu.archived
+              ...(projectMenu.archived || !bucketIsLocal(projectMenu.bucket)
                 ? []
                 : [
                     {

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { useT } from "../../i18n/react";
 import Sheet, { SheetSecondaryButton } from "../mobile/Sheet";
 import { IconCheck } from "../icons";
@@ -44,10 +44,20 @@ export default function ActionSheet({
   anyWidth?: boolean;
 }) {
   const tr = useT();
+  // A row's action may navigate. The sheet's history entry is released in its
+  // unmount cleanup, so running the action synchronously after `onClose()`
+  // would push the next screen on top of a marker that is still current — and
+  // Back would then show the same screen twice before leaving it.
+  const pending = useRef<(() => void) | null>(null);
   return (
     <Sheet
       open={open}
       onClose={onClose}
+      onCloseComplete={() => {
+        const action = pending.current;
+        pending.current = null;
+        action?.();
+      }}
       title={title}
       subtitle={subtitle}
       anyWidth={anyWidth}
@@ -64,13 +74,12 @@ export default function ActionSheet({
               disabled={row.disabled}
               aria-current={row.selected ? "true" : undefined}
               onClick={() => {
-                // Close before running the row: the sheet's cleanup returns
-                // focus to its opener and gives its history entry back. A row
-                // that needs another layer must defer it to an effect after
-                // `open` flips (TaskDetailPage's session menu is the pattern);
-                // opening a Sheet from here would race that traversal.
+                // The row runs from `onCloseComplete`, once the sheet's history
+                // entry, focus trap and surface are gone. That is also what
+                // makes a row that opens another layer safe: the next sheet
+                // pushes onto a clean stack instead of racing this teardown.
+                pending.current = row.onSelect;
                 onClose();
-                row.onSelect();
               }}
               className={[
                 "flex min-h-11 w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-body transition-colors",

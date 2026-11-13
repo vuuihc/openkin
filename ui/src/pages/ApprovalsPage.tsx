@@ -13,14 +13,17 @@ import { clearDeliveredNotification } from "../lib/nativePush";
 import { inboxKeyOutcome, inboxViewState } from "../lib/inboxKeyboard";
 import { useAppStore } from "../store/appStore";
 import { isTerminal } from "../api/client";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useT } from "../i18n/react";
+import { onGuardedLinkClick } from "../lib/phoneNavigation";
 
 /**
  * Inbox — design 3g. Pending approvals first; running tasks below.
  */
 export default function ApprovalsPage() {
   const tr = useT();
+  const navigate = useNavigate();
+  const location = useLocation();
   const pending = usePendingResources();
   const taskList = useTaskList({ limit: 50 });
   const items = pending.data.approvals;
@@ -320,7 +323,11 @@ export default function ApprovalsPage() {
             <ul className="space-y-2.5">
               {running.map((t) => (
                 <li key={t.id}>
-                  <Link to={`/tasks/${t.id}`} className="block">
+                  <Link
+                    to={`/tasks/${t.id}`}
+                    onClick={(e) => onGuardedLinkClick(e, navigate, location, `/tasks/${t.id}`)}
+                    className="block"
+                  >
                     <RunningTaskCard task={t} />
                   </Link>
                 </li>

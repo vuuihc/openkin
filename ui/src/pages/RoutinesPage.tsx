@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ApiError,
   createRoutine,
@@ -47,6 +47,7 @@ import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useT } from "../i18n/react";
 import { catalogFor, isRemoteDevice } from "../lib/devices";
+import { onGuardedLinkClick } from "../lib/phoneNavigation";
 import {
   machineForRoutineDevice,
   readRoutineDevice,
@@ -796,8 +797,12 @@ export default function RoutinesPage() {
 
   // The shell's Back, edge swipe and ⌘N consult this before leaving the page;
   // the form's own Cancel and toggle button call the same function, so every
-  // way out asks the same question.
-  useLeaveGuard(() => closeForm());
+  // way out asks the same question. The boolean is the pure half: while the
+  // form differs from what it opened with, a same-URL history entry is armed so
+  // a system Back asks too.
+  const formIsDirty =
+    showCreate && openDraftRef.current !== null && draftKey(formDraft()) !== openDraftRef.current;
+  useLeaveGuard(() => closeForm(), formIsDirty);
 
   const openCreate = () => {
     // Opening the create form from inside an edit first closes the edit, which
@@ -1445,6 +1450,8 @@ function RunCard({
    */
   device?: string;
 }) {
+  const navigate = useNavigate();
+  const location = useLocation();
   const title = run.title || run.id.slice(0, 8);
   const href = device
     ? `/machines/${encodeURIComponent(device)}/tasks/${encodeURIComponent(run.id)}`
@@ -1465,8 +1472,13 @@ function RunCard({
             <Link
               to={href}
               className="truncate text-strong font-medium text-kin-text hover:underline"
-              onClick={() => {
-                if (run.routine_unread) onMarkRead(run.id);
+              onClick={(event) => {
+                // A run is a conversation-like destination: opened from the
+                // routines page on a phone, its parent is the list, and a dirty
+                // routine form is asked before the screen is left.
+                if (onGuardedLinkClick(event, navigate, location, href) && run.routine_unread) {
+                  onMarkRead(run.id);
+                }
               }}
             >
               {title}

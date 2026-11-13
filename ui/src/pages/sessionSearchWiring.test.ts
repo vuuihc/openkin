@@ -48,10 +48,11 @@ describe("the phone list's search wiring", () => {
     expect(SOURCE).toContain('normalizeScopeFilter(params.get("scope"))');
   });
 
-  it("re-reads imported sessions when the query settles", () => {
-    // The effect owns that fetch. A missing dependency leaves the task list
-    // searching while the imported sessions keep answering the old query.
-    expect(SOURCE).toContain("[searchTerm]");
+  it("re-reads imported sessions when the query settles, a retry asks, or the link returns", () => {
+    // The effect owns that fetch. A missing query dependency leaves the task
+    // list searching while imported sessions answer the old query; a missing
+    // reconnect/retry dependency leaves a failed index failed until reload.
+    expect(SOURCE).toContain("[searchTerm, reconnectGen, sessionReload]");
   });
 
   it("keeps the previous answer on screen while the next one loads", () => {

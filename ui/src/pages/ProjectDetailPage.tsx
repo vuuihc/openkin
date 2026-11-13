@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { goBackToList } from "../lib/phoneBack";
 import {
   ApiError,
@@ -37,6 +37,8 @@ import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { useMachines } from "../hooks/useMachines";
+import { runGuardedNavigation } from "../lib/leaveGuard";
+import { phonePush } from "../lib/phoneNavigation";
 import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
 import { samePath } from "../lib/devices";
 import {
@@ -80,6 +82,7 @@ function formatWhen(ms: number): string {
 export default function ProjectDetailPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const tr = useT();
   const pushToast = useAppStore((s) => s.pushToast);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
@@ -136,7 +139,10 @@ export default function ProjectDetailPage() {
       ? window.confirm(tr("projects.summaryDiscard"))
       : true;
   }, [dirty, tr]);
-  useLeaveGuard(canLeave);
+  // The shell's Back/edge/⌘N and every route this page starts ask the same
+  // guard. The boolean is the pure half: it arms the same-URL history entry
+  // that lets a system Back ask before React Router unmounts the editor.
+  useLeaveGuard(canLeave, dirty);
   useEffect(() => {
     if (!dirty) return;
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -147,14 +153,20 @@ export default function ProjectDetailPage() {
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [dirty]);
   const leaveToList = () => {
-    if (!canLeave()) return;
-    goBackToList(navigate);
+    runGuardedNavigation(() => goBackToList(navigate));
   };
 
   const openChat = (row: ProjectChatRow) => {
-    if (!canLeave()) return;
-    if (row.task) navigate(`/tasks/${encodeURIComponent(row.task.id)}`);
-    else if (row.session) navigate(`/agent-sessions/${encodeURIComponent(row.session.id)}`);
+    const to = row.task
+      ? `/tasks/${encodeURIComponent(row.task.id)}`
+      : row.session
+        ? `/agent-sessions/${encodeURIComponent(row.session.id)}`
+        : "";
+    if (!to) return;
+    // On a phone the conversation under a project still comes back to the
+    // list, not to the project (KIN-CONTINUE-002). The page's own dirty guard
+    // is asked first.
+    runGuardedNavigation(() => phonePush(navigate, location, to));
   };
 
   const [chatRows, setChatRows] = useState<ProjectChatRow[]>([]);
@@ -390,7 +402,10 @@ export default function ProjectDetailPage() {
         project_id: id,
         ctx: recipeCtx(),
       });
-      navigate(`/tasks/${t.id}`);
+      runGuardedNavigation(
+        () => phonePush(navigate, location, `/tasks/${t.id}`),
+        true,
+      );
     } catch (e) {
       pushToast(e instanceof Error ? e.message : tr("projects.recipeLaunchFailed"), "error");
     } finally {

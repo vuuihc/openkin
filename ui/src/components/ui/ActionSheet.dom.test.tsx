@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { setLocale } from "../../i18n";
 import ActionSheet from "./ActionSheet";
@@ -17,10 +18,33 @@ import ActionSheet from "./ActionSheet";
 
 beforeEach(() => {
   setLocale("en");
+  window.history.replaceState({ idx: 0 }, "", "/sessions");
 });
 
+function Host({
+  rows,
+  onClose,
+}: {
+  rows: Parameters<typeof ActionSheet>[0]["rows"];
+  onClose: () => void;
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <ActionSheet
+      open={open}
+      onClose={() => {
+        onClose();
+        setOpen(false);
+      }}
+      title="Actions"
+      subtitle="Runs on this Mac"
+      rows={rows}
+    />
+  );
+}
+
 function setup(rows: Parameters<typeof ActionSheet>[0]["rows"], onClose = vi.fn()) {
-  render(<ActionSheet open onClose={onClose} title="Actions" subtitle="Runs on this Mac" rows={rows} />);
+  render(<Host rows={rows} onClose={onClose} />);
   return { onClose };
 }
 
@@ -42,9 +66,37 @@ describe("the shared action sheet", () => {
     ], vi.fn(() => calls.push("close")));
 
     await userEvent.click(screen.getByRole("button", { name: "Share" }));
-    // The next layer opens from an effect keyed on the sheet being gone; a row
-    // that ran first would open it under a live focus trap.
-    expect(calls).toEqual(["close", "row"]);
+    // The row runs only once the sheet's history entry is behind us; a row that
+    // navigated first would strand that entry under the next screen.
+    await waitFor(() => expect(calls).toEqual(["close", "row"]));
+  });
+
+  it("gives its history entry back before a row navigates", async () => {
+    const calls: string[] = [];
+    setup(
+      [
+        {
+          id: "open",
+          label: "Open",
+          onSelect: () => {
+            calls.push("row");
+            window.history.pushState({ idx: 1 }, "", "/tasks/run-1");
+          },
+        },
+      ],
+      vi.fn(() => calls.push("close")),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Open" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/run-1"));
+    expect((window.history.state as { kinSheet?: string }).kinSheet).toBeUndefined();
+
+    // The list is directly below the conversation, not the sheet's same-URL
+    // marker: one Back reaches it, a second leaves it.
+    window.history.back();
+    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    expect((window.history.state as { kinSheet?: string }).kinSheet).toBeUndefined();
+    expect((window.history.state as { idx?: number }).idx).toBe(0);
   });
 
   it("marks the current value and colours a destructive row", () => {
