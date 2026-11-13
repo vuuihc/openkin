@@ -86,12 +86,22 @@ type Server struct {
 	APNsFor func(ctx context.Context) (APNsSender, error)
 	// Notify is the daemon's notification sender, used by the explicit test
 	// action. Nil disables /api/notify/test.
-	Notify               *notify.Sender
-	Terminals            *terminal.Manager
-	Version              string
-	DesktopID            string
-	DesktopName          string
-	agentSessionAttachMu sync.Mutex
+	Notify *notify.Sender
+	// routineNotifyDedupe bounds the Hub's memory of acknowledged routine
+	// alerts; it is process-local and FIFO-bounded (see routine_notify.go).
+	routineNotifyDedupe *routineNotifyDedupe
+	routineNotifyOnce   sync.Once
+	// routineNotifyDispatch bounds how many routine-notify fan-outs may be in
+	// flight at once, so a flood of connected Nodes cannot spawn unbounded APNs
+	// goroutines. It is a token channel, never used for network I/O; see
+	// handleRoutineNotify for the fail-closed saturation rule.
+	routineNotifyDispatch     chan struct{}
+	routineNotifyDispatchOnce sync.Once
+	Terminals                 *terminal.Manager
+	Version                   string
+	DesktopID                 string
+	DesktopName               string
+	agentSessionAttachMu      sync.Mutex
 	// Accounts is the Hub account system. Nil on a standalone daemon, which
 	// keeps the token-only behavior it has always had.
 	Accounts *auth.Service

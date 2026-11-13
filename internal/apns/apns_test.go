@@ -282,3 +282,85 @@ func TestCollapseIDFitsTheHeaderLimit(t *testing.T) {
 		}
 	}
 }
+
+// KIN-NOTIFY-001: Apple refuses a payload over 4 KiB. The limit is enforced on
+// the actual serialized body, so JSON escaping (<>& and control characters) and
+// multibyte text cannot sneak past a byte-based string cutoff. The routing
+// fields survive; only title and body shrink.
+func TestSendClipsPayloadTo4KiBOnTheWire(t *testing.T) {
+	var bodies [][]byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, raw)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	c := testClient(t, srv.URL)
+	longTitle := "报<&>\n" + strings.Repeat("告", 3000)
+	longBody := strings.Repeat("><&", 3000) + "☃"
+	res := c.Send(context.Background(), "tok", Sandbox, Notification{
+		Title: longTitle, Body: longBody,
+		URL: "/machines/dev-1/tasks/task-9", Kind: "routine", ID: "task-9", ThreadID: "task-9",
+	})
+	if !res.OK || res.Reason != "" {
+		t.Fatalf("result = %+v", res)
+	}
+	if len(bodies) != 1 {
+		t.Fatalf("requests = %d, want 1", len(bodies))
+	}
+	if len(bodies[0]) > 4096 {
+		t.Fatalf("serialized body = %d bytes, over 4096", len(bodies[0]))
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(bodies[0], &decoded); err != nil {
+		t.Fatalf("body is not valid JSON: %v", err)
+	}
+	kin, _ := decoded["kin"].(map[string]any)
+	if kin["kind"] != "routine" || kin["id"] != "task-9" || kin["url"] != "/machines/dev-1/tasks/task-9" {
+		t.Fatalf("routing fields were not preserved: %v", kin)
+	}
+	aps, _ := decoded["aps"].(map[string]any)
+	if aps["thread-id"] != "task-9" {
+		t.Fatalf("thread-id was not preserved: %v", aps)
+	}
+	alert, _ := aps["alert"].(map[string]any)
+	title, _ := alert["title"].(string)
+	body, _ := alert["body"].(string)
+	if !strings.HasPrefix(longTitle, title) {
+		t.Fatalf("title was not a UTF-8 prefix of the source")
+	}
+	if !strings.HasPrefix(longBody, body) {
+		t.Fatalf("body was not a UTF-8 prefix of the source")
+	}
+	if title == longTitle && body == longBody {
+		t.Fatalf("expected the oversized alert text to be clipped")
+	}
+}
+
+// TestSendRejectsImpossibleMetadata: when the routing fields alone exceed the
+// cap there is no alert text left to clip, so the send fails before any HTTP
+// request is made.
+func TestSendRejectsImpossibleMetadata(t *testing.T) {
+	var requests int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	c := testClient(t, srv.URL)
+	res := c.Send(context.Background(), "tok", Sandbox, Notification{
+		Title: "x", Body: "y",
+		URL:      "/routines?d=" + strings.Repeat("x", 4000),
+		Kind:     "routine",
+		ID:       strings.Repeat("r", 4000),
+		ThreadID: strings.Repeat("t", 4000),
+	})
+	if res.OK {
+		t.Fatalf("oversized metadata send succeeded: %+v", res)
+	}
+	if requests != 0 {
+		t.Fatalf("an impossible metadata payload reached Apple (%d requests)", requests)
+	}
+}

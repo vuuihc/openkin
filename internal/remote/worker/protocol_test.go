@@ -2,6 +2,7 @@ package worker
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/vuuihc/openkin/internal/store"
@@ -93,6 +94,11 @@ var frameSamples = map[string]any{
 	"query.result": QueryResult{
 		ID: "q-1", Result: json.RawMessage(`{"path":"/code/kin","entries":["web"]}`),
 	},
+	"routine.notify": RoutineNotify{
+		Event: RoutineEventReport, EventID: "task-1", TaskID: "task-1",
+		Title: "Routine report", Body: "A routine has something for you",
+	},
+	"routine.notify.ack": RoutineNotifyAck{EventID: "task-1"},
 }
 
 // TestEveryFrameKindRoundTrips holds the registry of kinds and the samples
@@ -151,6 +157,76 @@ func TestHelloAckRejectsImpossibleHeartbeat(t *testing.T) {
 	ack := HelloAck{Version: ProtocolVersion, HeartbeatSeconds: 0}
 	if err := ack.Validate(); err == nil {
 		t.Fatal("zero heartbeat interval was accepted")
+	}
+}
+
+func TestRoutineNotifyValidation(t *testing.T) {
+	long := func(n int) string { return strings.Repeat("x", n) }
+	for _, tc := range []struct {
+		name    string
+		msg     RoutineNotify
+		wantErr bool
+	}{
+		{
+			name: "report",
+			msg:  RoutineNotify{Event: RoutineEventReport, EventID: "task-1", TaskID: "task-1", Title: "Routine report", Body: "body"},
+		},
+		{
+			name: "disabled",
+			msg:  RoutineNotify{Event: RoutineEventDisabled, EventID: "rt-1", RoutineID: "rt-1", Title: "Routine disabled"},
+		},
+		{name: "unknown event", msg: RoutineNotify{Event: "banner", EventID: "e", TaskID: "t"}, wantErr: true},
+		{name: "report without task", msg: RoutineNotify{Event: RoutineEventReport, EventID: "e"}, wantErr: true},
+		{name: "disabled without routine", msg: RoutineNotify{Event: RoutineEventDisabled, EventID: "e"}, wantErr: true},
+		{name: "no event id", msg: RoutineNotify{Event: RoutineEventReport, TaskID: "t"}, wantErr: true},
+		{name: "event id too long", msg: RoutineNotify{Event: RoutineEventReport, EventID: long(MaxRoutineNotifyEventID + 1), TaskID: "t"}, wantErr: true},
+		{name: "title too long", msg: RoutineNotify{Event: RoutineEventReport, EventID: "e", TaskID: "t", Title: long(MaxRoutineNotifyTitle + 1)}, wantErr: true},
+		{name: "body too long", msg: RoutineNotify{Event: RoutineEventReport, EventID: "e", TaskID: "t", Body: long(MaxRoutineNotifyBody + 1)}, wantErr: true},
+		{name: "task id with slash", msg: RoutineNotify{Event: RoutineEventReport, EventID: "e", TaskID: "a/b"}, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.msg.Validate()
+			if tc.wantErr && err == nil {
+				t.Fatal("invalid routine.notify was accepted")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("valid routine.notify was refused: %v", err)
+			}
+		})
+	}
+}
+
+// TestRoutineNotifyCannotCarryAuthority pins the wire shape: a Node reports
+// only the content of a routine alert. Owner, device, a URL, a broadcast flag,
+// an APNs token, and a recipient have no field to ride in, so a Node cannot
+// choose another account or name a link.
+func TestRoutineNotifyCannotCarryAuthority(t *testing.T) {
+	raw, err := json.Marshal(RoutineNotify{
+		Event: RoutineEventReport, EventID: "task-1", TaskID: "task-1",
+		RoutineID: "rt-1", Title: "Routine report", Body: "body",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{
+		"owner", "owner_user_id", "user_id", "device", "device_id",
+		"url", "link", "broadcast", "token", "apns_token", "recipient",
+	} {
+		if _, ok := fields[forbidden]; ok {
+			t.Fatalf("RoutineNotify carries a %q field the Hub must derive itself", forbidden)
+		}
+	}
+	want := map[string]bool{
+		"event": true, "event_id": true, "task_id": true, "routine_id": true, "title": true, "body": true,
+	}
+	for key := range fields {
+		if !want[key] {
+			t.Fatalf("RoutineNotify carries an unexpected field %q", key)
+		}
 	}
 }
 

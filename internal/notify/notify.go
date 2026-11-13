@@ -66,6 +66,21 @@ type Payload struct {
 	Status string
 }
 
+// RoutineEvent is a routine report or disabled alert as the Node knows it,
+// before a destination link is built. A Node forwards it to its Hub so the Hub
+// can fan the alert out to the phones it registered; the Hub builds the link
+// from the authenticated device, never from anything the Node asserted.
+type RoutineEvent struct {
+	// Event is "report" or "disabled".
+	Event string
+	// RoutineID names the routine (disabled alerts).
+	RoutineID string
+	// TaskID names the run that produced a report.
+	TaskID string
+	Title  string
+	Body   string
+}
+
 // Event is the structured payload the desktop shell receives. It is also the
 // payload APNs carries, minus the platform envelope.
 type Event struct {
@@ -142,6 +157,12 @@ type Sender struct {
 	// OwnerAccount reports the node's operator account. Routine and worker
 	// events have no task to look up; the operator is who they are for.
 	OwnerAccount func(ctx context.Context) (string, error)
+	// RoutineForward, when set, hands routine events to a bridge that carries
+	// them to the Hub over the control channel. It is how a Node's routine
+	// report rings phones that are registered with the Hub rather than with the
+	// Node. Nil keeps the standalone behavior: local desktop banner and the
+	// Node's own APNs registrations, if any.
+	RoutineForward func(ctx context.Context, event RoutineEvent)
 	// Now is overridable in tests.
 	Now func() time.Time
 }
@@ -331,6 +352,9 @@ func (s *Sender) NotifyRoutine(ctx context.Context, taskID, title, tldr string, 
 		ThreadID: threadFor(taskID, taskID), CollapseID: "routine:" + taskID,
 		Status: "report", OwnerUserID: s.taskOwner(taskID),
 	})
+	if s.RoutineForward != nil {
+		s.RoutineForward(ctx, RoutineEvent{Event: "report", TaskID: taskID, Title: title, Body: body})
+	}
 }
 
 // NotifyRoutineFailure pushes a one-shot circuit-breaker alert.
@@ -352,6 +376,9 @@ func (s *Sender) NotifyRoutineFailure(ctx context.Context, routineID, title, mes
 		// stream from dropping it.
 		OwnerUserID: s.ownerAccount(ctx),
 	})
+	if s.RoutineForward != nil {
+		s.RoutineForward(ctx, RoutineEvent{Event: "disabled", RoutineID: routineID, Title: title, Body: body})
+	}
 }
 
 // Send publishes the event and delivers it in the background.
@@ -583,3 +610,7 @@ func shortID(id string) string {
 	}
 	return id
 }
+
+// APNs caps a payload at 4 KiB, enforced on the fully serialized body at the
+// apns.Client boundary rather than by pre-truncating strings here. The desktop
+// channel keeps the full text; APNs clips only what it must to fit.

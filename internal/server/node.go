@@ -454,7 +454,7 @@ func nodeReconnectGrace() time.Duration {
 //
 // It returns when ctx ends. Losing the Hub is not fatal: the daemon keeps
 // serving this machine's own console while it retries.
-func runNode(ctx context.Context, version string, flags ServeFlags, st *store.Store, reg *agent.Registry, executor *node.Executor, approvals *node.ApprovalRelay, responder *node.Responder, refresh <-chan struct{}) error {
+func runNode(ctx context.Context, version string, flags ServeFlags, st *store.Store, reg *agent.Registry, executor *node.Executor, approvals *node.ApprovalRelay, responder *node.Responder, refresh <-chan struct{}, routineNotify *node.RoutineNotifyForwarder) error {
 	stateDir, err := remote.StateDir()
 	if err != nil {
 		return err
@@ -532,6 +532,11 @@ func runNode(ctx context.Context, version string, flags ServeFlags, st *store.St
 				return approvals.Handle(frameCtx, frame)
 			case "query":
 				return responder.Handle(frameCtx, frame)
+			case "routine.notify.ack":
+				// The Hub accepted a routine report; drop the copy this machine
+				// was holding so the next reconnect does not replay it.
+				routineNotify.HandleAck(frame)
+				return nil
 			default:
 				// A turn outlives the connection that dispatched it: the daemon's
 				// lifetime, not the socket's, is what stops the agent. A dropped
@@ -549,6 +554,14 @@ func runNode(ctx context.Context, version string, flags ServeFlags, st *store.St
 			executor.SetSender(send)
 			approvals.SetSender(send)
 			responder.SetSender(send)
+			routineNotify.SetSender(send)
+		},
+		// The Hub's answer to hello is the one chance to learn whether it
+		// understands routine.notify. A legacy Hub answers without the field,
+		// and the forwarder then drops rather than sending a frame that would
+		// close the whole connection.
+		OnHelloAck: func(ack worker.HelloAck) {
+			routineNotify.SetSupported(ack.RoutineNotify)
 		},
 		Warn: warn,
 	})

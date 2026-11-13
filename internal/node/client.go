@@ -50,6 +50,10 @@ type ClientConfig struct {
 	// completes, and nil when the connection ends. Turns running on this machine
 	// use it to talk back; without it they can only be started and never heard.
 	OnReady func(send WriteFunc)
+	// OnHelloAck receives the Hub's handshake answer before OnReady. It is how
+	// optional capabilities (such as routine.notify) reach the parts of this
+	// machine that must not use them until the Hub has said it understands them.
+	OnHelloAck func(ack worker.HelloAck)
 	// Warn receives connection lifecycle problems. Nil means stay quiet.
 	Warn func(format string, args ...any)
 	// DialTimeout bounds one connection attempt. Defaults to 15s.
@@ -79,6 +83,10 @@ func RunOnce(ctx context.Context, cfg ClientConfig) error {
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "")
 	cfg.warn("node connected to %s (heartbeat %ds)", cfg.HubURL, ack.HeartbeatSeconds)
+
+	if cfg.OnHelloAck != nil {
+		cfg.OnHelloAck(ack)
+	}
 
 	// Cancelling the read context stops the heartbeat when this returns.
 	readCtx, cancel := context.WithCancel(ctx)
