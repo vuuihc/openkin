@@ -98,7 +98,7 @@ describe("editing a routine", () => {
     // The draft is taken before the edit fills the form, and put back on close.
     expect(PAGE).toContain("if (!editing) createDraftRef.current = formDraft();");
     expect(PAGE).toContain("if (draft) applyDraft(draft);");
-    expect(PAGE).toContain("if (editing) closeForm();");
+    expect(PAGE).toContain("if (editing && !closeForm()) return;");
   });
 
   it("reports a one-off with no instant instead of greying out Save", () => {

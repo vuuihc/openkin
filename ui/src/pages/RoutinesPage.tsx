@@ -43,6 +43,7 @@ import { SlowConnectHint } from "../components/Skeleton";
 import SheetSelect from "../components/ui/SheetSelect";
 import { useMachines } from "../hooks/useMachines";
 import { useRoutinePreview } from "../hooks/useRoutinePreview";
+import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useT } from "../i18n/react";
 import { catalogFor, isRemoteDevice } from "../lib/devices";
@@ -216,6 +217,9 @@ export default function RoutinesPage() {
   const toggleRef = useRef<HTMLButtonElement | null>(null);
   // The create draft an edit temporarily took over (see `closeForm`).
   const createDraftRef = useRef<FormDraft | null>(null);
+  // The form as it looked when it was opened. A difference means the reader
+  // has typed something that closing the form would throw away.
+  const openDraftRef = useRef<string | null>(null);
 
   // A device switch and a reconnect can both start a load; only the newest
   // answer may land, or one machine's routines would be shown under another
@@ -388,6 +392,7 @@ export default function RoutinesPage() {
     setShowCreate(false);
     setEditing(null);
     createDraftRef.current = null;
+    openDraftRef.current = null;
     setCwd("");
     setAgentId("");
     setModel("");
@@ -505,7 +510,7 @@ export default function RoutinesPage() {
       setRoutines((list) => list.filter((x) => x.id !== r.id));
       // Deleting the routine the form is editing would leave Save pointed at a
       // row that no longer exists.
-      if (editing?.id === r.id) closeForm();
+      if (editing?.id === r.id) closeForm(true);
     } catch (e) {
       if (!isCurrentView(view)) return;
       pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
@@ -751,13 +756,34 @@ export default function RoutinesPage() {
     setNextRunLocal(draft.nextRunLocal);
   };
 
-  const closeForm = () => {
+  const draftKey = (draft: FormDraft): string => JSON.stringify(draft);
+
+  // Opening the form (new or edit) records what it started as. The effect is
+  // keyed on the two events that start a form and deliberately not on the
+  // fields: re-running it per keystroke would move the baseline and make every
+  // form look clean.
+  useEffect(() => {
+    if (!showCreate) {
+      openDraftRef.current = null;
+      return;
+    }
+    openDraftRef.current = draftKey(formDraft());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCreate, editing?.id]);
+
+  const closeForm = (force = false): boolean => {
+    const dirty =
+      openDraftRef.current !== null && draftKey(formDraft()) !== openDraftRef.current;
+    if (!force && dirty && typeof window.confirm === "function") {
+      if (!window.confirm(tr("routines.discardConfirm"))) return false;
+    }
+    openDraftRef.current = null;
     setShowCreate(false);
     // The control that opened the form is still on the page; focus goes back to
     // it rather than to <body>. (For an edit that is the disclosure, not the
     // row: the row may be scrolled away by the time the save returns.)
     requestAnimationFrame(() => toggleRef.current?.focus());
-    if (!editing) return;
+    if (!editing) return true;
     // An edit borrowed the create form. Closing it puts back whatever the
     // reader had typed there — otherwise the next new routine would inherit
     // another routine's agent, directory, cadence and permissions.
@@ -765,12 +791,19 @@ export default function RoutinesPage() {
     createDraftRef.current = null;
     setEditing(null);
     if (draft) applyDraft(draft);
+    return true;
   };
+
+  // The shell's Back, edge swipe and ⌘N consult this before leaving the page;
+  // the form's own Cancel and toggle button call the same function, so every
+  // way out asks the same question.
+  useLeaveGuard(() => closeForm());
 
   const openCreate = () => {
     // Opening the create form from inside an edit first closes the edit, which
-    // restores the draft.
-    if (editing) closeForm();
+    // restores the draft. A refused close leaves the edit (and its typed text)
+    // in place.
+    if (editing && !closeForm()) return;
     setShowCreate(true);
     requestAnimationFrame(() => titleRef.current?.focus());
   };
@@ -847,7 +880,7 @@ export default function RoutinesPage() {
         const updated = await patchRoutine(editing.id, patch, view.deviceId);
         if (!isCurrentView(view)) return;
         setRoutines((list) => list.map((x) => (x.id === updated.id ? updated : x)));
-        closeForm();
+        closeForm(true);
         pushToast(tr("routines.saved"), "info");
       } catch (e) {
         if (!isCurrentView(view)) return;
@@ -885,7 +918,7 @@ export default function RoutinesPage() {
       );
       if (!isCurrentView(view)) return;
       setRoutines((list) => [r, ...list]);
-      closeForm();
+      closeForm(true);
       resetForm();
       pushToast(tr("routines.created"), "info");
     } catch (e) {
@@ -1121,7 +1154,7 @@ export default function RoutinesPage() {
               <button
                 type="button"
                 className="rounded-lg px-3 py-1.5 text-strong text-kin-secondary"
-                onClick={closeForm}
+                onClick={() => closeForm()}
               >
                 {tr("routines.cancel")}
               </button>

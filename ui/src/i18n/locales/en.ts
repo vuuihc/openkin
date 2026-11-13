@@ -38,6 +38,7 @@ const en: MessageTree = {
     /** A footer icon's badge, folded into its accessible name. */
     withCount: "{label} ({count})",
     archivedEmpty: "No archived projects",
+    openCoverLocalOnly: "One-Pager cover (this machine only)",
     openCover: "One-Pager cover",
     projectActions: "Project actions",
     searchSessions: "Search sessions…",
@@ -568,6 +569,7 @@ const en: MessageTree = {
     notFound: "Project not found",
     saved: "One-Pager saved",
     saveFailed: "Failed to save One-Pager",
+    summaryDiscard: "Discard unsaved One-Pager changes?",
     createFailed: "Failed to create project",
     conflict: "One-Pager changed elsewhere — reload and try again",
     optionalHint:
@@ -1606,16 +1608,6 @@ const en: MessageTree = {
     closeFailed: "Failed to close session",
     resize: "Resize",
   },
-  switcher: {
-    title: "Switch session",
-    titleMarked: "Switch session — {state}",
-    open: "Open",
-    recent: "Recent",
-    waiting: "Needs you",
-    running: "Running",
-    failed: "Failed",
-    unread: "New result",
-  },
   tabs: {
     label: "Open sessions",
     close: "Close {name}",
@@ -1673,6 +1665,7 @@ const en: MessageTree = {
     resume: "Resume",
     delete: "Delete",
     deleteConfirm: "Delete routine “{title}”? History is kept.",
+    discardConfirm: "Discard unsaved routine changes?",
     runStarted: "Routine run queued",
     create: "New routine",
     createTitle: "Create routine",

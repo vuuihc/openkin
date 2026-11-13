@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { listAgentSessionsPage } from "../../api/client";
@@ -140,11 +140,16 @@ function LocationProbe() {
   );
 }
 
-function sidebar(initialEntries: string[] = ["/"], onNewChat: () => void = () => {}) {
+function sidebar(
+  initialEntries: string[] = ["/"],
+  onNewChat: () => void = () => {},
+  pendingCount = 0,
+) {
   return (
     <MemoryRouter initialEntries={initialEntries}>
       <LocationProbe />
       <Sidebar
+        pendingCount={pendingCount}
         onNewChat={onNewChat}
         onImportExternalSessions={() => {}}
       />
@@ -297,6 +302,43 @@ describe("the Mac sidebar list", () => {
     await waitFor(() => expect(calls.mock.calls.length).toBeGreaterThan(before));
   });
 
+  it("ignores an imported-session read that lands after a newer one", async () => {
+    // A manual import publishes `changed` while the first read is still out.
+    // The pre-import answer must not overwrite the list the import refreshed.
+    const pending: Array<(page: { items: AgentSession[]; next_cursor?: string }) => void> = [];
+    vi.mocked(listAgentSessionsPage).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          pending.push(resolve);
+        }),
+    );
+    try {
+      render(sidebar());
+      await waitFor(() => expect(pending).toHaveLength(1));
+
+      window.dispatchEvent(new Event("kin:agent-sessions-changed"));
+      await waitFor(() => expect(pending).toHaveLength(2));
+
+      await act(async () => {
+        pending[1]?.({
+          items: [session("new-1", "New one"), session("new-2", "New two")],
+          next_cursor: undefined,
+        });
+      });
+      expect(await screen.findAllByRole("button", { name: /Imported sessions \(2\)/ })).toHaveLength(2);
+
+      await act(async () => {
+        pending[0]?.({ items: [session("old", "Old")], next_cursor: undefined });
+      });
+      expect(screen.getAllByRole("button", { name: /Imported sessions \(2\)/ })).toHaveLength(2);
+    } finally {
+      vi.mocked(listAgentSessionsPage).mockReset().mockImplementation(async () => ({
+        items: fixtures.sessions,
+        next_cursor: undefined,
+      }));
+    }
+  });
+
   it("keeps the list's search and filters when a conversation opens", async () => {
     // The sidebar is mounted for the whole session, but it reads its state
     // from the current route. Navigating with a bare pathname cleared the
@@ -315,6 +357,75 @@ describe("the Mac sidebar list", () => {
     expect(location).toContain("scope=active");
     expect(location).not.toContain("find=");
     expect(location).not.toContain("q=");
+  });
+
+  it("keeps the inbox reachable and shows how much is waiting there", () => {
+    // The Mac sidebar must not lose the one destination that finds an agent
+    // blocked on a person. The count is the badge, and the accessible name
+    // includes it so the number is not sight-only.
+    render(sidebar(["/"], () => {}, 3));
+    const inbox = screen.getByRole("link", { name: "Inbox (3)" });
+    expect(inbox.getAttribute("href")).toBe("/inbox");
+    expect(inbox.textContent).toContain("3");
+  });
+
+  it("keeps two machines' copies of the same path apart", async () => {
+    // Two machines can work in /work/shared. The Hub's project record, its pin
+    // and its archive are this machine's filesystem facts, so the remote copy
+    // must not be treated as the local project — while "new session" in it must
+    // still aim the draft at the remote machine.
+    fixtures.tasks = [
+      task("local-work", "/work/shared"),
+      task("remote-work", "/work/shared", "nas-1"),
+    ];
+    render(sidebar());
+
+    expect(screen.getAllByRole("button", { name: "shared" })).toHaveLength(2);
+    const self = screen.getByRole("heading", { name: /This machine/ }).closest(
+      "section",
+    ) as HTMLElement;
+    const remote = screen.getByRole("heading", { name: /Studio/ }).closest(
+      "section",
+    ) as HTMLElement;
+
+    expect(within(self).getByRole("button", { name: "One-Pager cover" })).toBeTruthy();
+    expect(within(self).getByRole("button", { name: "Pin project" })).toBeTruthy();
+    expect(within(remote).queryByRole("button", { name: "One-Pager cover" })).toBeNull();
+    expect(
+      (
+        within(remote).getByRole("button", {
+          name: "One-Pager cover (this machine only)",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(within(remote).queryByRole("button", { name: "Pin project" })).toBeNull();
+
+    // The remote heading folds its project instead of opening the local cover.
+    await userEvent.click(within(remote).getByRole("button", { name: "shared" }));
+    expect(screen.getByTestId("location").textContent).toBe("/");
+
+    await userEvent.click(
+      within(remote).getByRole("button", { name: "New session in shared" }),
+    );
+    await waitFor(() => expect(localStorage.getItem("kin_draft_cwd")).toBe("/work/shared"));
+    expect(localStorage.getItem("kin_draft_machine")).toBe("nas-1");
+
+    // The local copy is the same path with no machine: an empty value clears
+    // whatever remote choice came before it.
+    const remoteSection = screen.getByRole("heading", { name: /Studio/ }).closest(
+      "section",
+    ) as HTMLElement;
+    await userEvent.click(
+      within(remoteSection).getByRole("button", { name: /New session in shared/ }),
+    );
+    const localSection = screen.getByRole("heading", { name: /This machine/ }).closest(
+      "section",
+    ) as HTMLElement;
+    await userEvent.click(
+      within(localSection).getByRole("button", { name: "New session in shared" }),
+    );
+    await waitFor(() => expect(localStorage.getItem("kin_draft_machine")).toBeNull());
+    expect(localStorage.getItem("kin_draft_cwd")).toBe("/work/shared");
   });
 
   it("keeps the list's search when a project cover opens", async () => {

@@ -45,11 +45,15 @@ import {
   clearDraftPrompt,
   getDraftAttachments,
   getDraftCwd,
+  getDraftHost,
   getDraftMachine,
+  getDraftModel,
   getDraftPrompt,
   setDraftAttachments,
   setDraftCwd,
+  setDraftHost,
   setDraftMachine,
+  setDraftModel,
   setDraftPrompt,
 } from "../lib/draftChat";
 import { forgetPlaceReturn } from "../lib/placeReturn";
@@ -108,8 +112,11 @@ export default function NewChatPage() {
   const [routineRule, setRoutineRule] = useState<RoutineRule | null>(null);
   const [routineNextLocal, setRoutineNextLocal] = useState(() => defaultNextRunLocal());
 
-  const [selectedModel, setSelectedModel] = useState("");
-  const [selectedHost, setSelectedHost] = useState("");
+  // The run face the draft was left on. Its cwd and machine already survive
+  // closing the page; a model or agent that came back to its default would
+  // start the next run somewhere the reader did not choose.
+  const [selectedModel, setSelectedModel] = useState(() => getDraftModel());
+  const [selectedHost, setSelectedHost] = useState(() => getDraftHost());
   const [machineId, setMachineId] = useState<string>(() => getDraftMachine());
   const {
     machines,
@@ -289,6 +296,13 @@ export default function NewChatPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only the run's capability matters
   }, [allowedPermissionKey, permissionMode]);
+
+  useEffect(() => {
+    setDraftModel(selectedModel);
+  }, [selectedModel]);
+  useEffect(() => {
+    setDraftHost(selectedHost);
+  }, [selectedHost]);
 
   // Drop model selection when host agent changes to one without that model.
   useEffect(() => {

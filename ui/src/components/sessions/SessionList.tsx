@@ -34,6 +34,7 @@ import {
   getDraftCwd,
   getDraftPrompt,
   setDraftCwd,
+  setDraftMachine,
   subscribeDraft,
 } from "../../lib/draftChat";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -250,21 +251,26 @@ export default function SessionList({
 
   useEffect(() => {
     let cancelled = false;
+    // An import event can start a second read while the first is still out.
+    // Only the newest answer may land: a slow pre-import snapshot arriving
+    // after the post-import one would put the old imported rows back.
+    let seq = 0;
     setSessionsFailed(false);
     setOlderSessions([]);
     setSessionCursor(undefined);
     const read = () => {
+      const mine = ++seq;
       const term = sessionListParams(searchTerm);
       listAgentSessionsPage({ limit: term.limit, q: term.q })
         .then((page) => {
-          if (cancelled) return;
+          if (cancelled || mine !== seq) return;
           setSessions(page.items);
           setSessionCursor(page.next_cursor);
           setOlderSessions([]);
           setSessionsFailed(false);
         })
         .catch(() => {
-          if (!cancelled) setSessionsFailed(true);
+          if (!cancelled && mine === seq) setSessionsFailed(true);
         });
     };
     read();
@@ -314,6 +320,12 @@ export default function SessionList({
   }, [scope]);
 
   const selfDeviceId = (machines.find((machine) => machine.isSelf)?.id ?? "").trim();
+  /** A bucket is local when its rows' device is this machine (or unnamed). The
+   *  Hub's project records are this machine's filesystem only, so opening a
+   *  cover, pinning, archiving and touching a project are local actions. A
+   *  remote copy of the same path must never be pointed at them. */
+  const bucketIsLocal = (bucket: PhoneProjectBucket): boolean =>
+    !bucket.deviceId || !selfDeviceId || bucket.deviceId === selfDeviceId;
   const lastLoadedTasks = useRef<readonly Task[]>([]);
   useEffect(() => {
     if (taskList.loaded) lastLoadedTasks.current = taskList.data;
@@ -598,6 +610,7 @@ export default function SessionList({
               }
             : undefined
         }
+        local={bucketIsLocal(bucket)}
         onOpenProject={() => void openProject(bucket)}
         onNewSession={() => newSessionIn(bucket)}
         onArchiveProject={() => archiveProjectConfirmed(bucket)}
@@ -827,6 +840,7 @@ export default function SessionList({
 
   async function openProject(bucket: PhoneProjectBucket) {
     if (!bucket.cwd) return;
+    if (!bucketIsLocal(bucket)) return;
     const known = projects.find((project) =>
       (project.roots ?? []).some((root) => bucketKeyFor(root) === bucket.key),
     );
@@ -846,14 +860,24 @@ export default function SessionList({
    *  control is 24px and its only reversal is the archived scope. */
   function archiveProjectConfirmed(bucket: PhoneProjectBucket) {
     if (!bucket.cwd) return;
+    if (!bucketIsLocal(bucket)) return;
     if (!window.confirm(tr("nav.archiveConfirm", { project: bucket.label }))) return;
     archiveProject(bucket.cwd);
   }
 
   function newSessionIn(bucket: PhoneProjectBucket) {
     if (!bucket.cwd) return;
-    touchProject(bucket.cwd);
-    if (scope === "archived") unarchiveProject(bucket.cwd);
+    const local = bucketIsLocal(bucket);
+    // A project record, its pin and its archive entry are this machine's
+    // facts. Touching or unarchiving one because a remote copy of the same
+    // path was clicked would edit the local project behind the reader's back.
+    if (local) {
+      touchProject(bucket.cwd);
+      if (scope === "archived") unarchiveProject(bucket.cwd);
+    }
+    // The cwd and its machine travel together: a remote path with no machine
+    // recorded would quietly become a local path in the draft.
+    setDraftMachine(local ? "" : (bucket.deviceId ?? "").trim());
     setDraftCwd(bucket.cwd);
     navigate(`${DRAFT_PATH}${listStateQuery(params, { cwd: bucket.cwd })}`);
   }
@@ -1352,6 +1376,7 @@ function ProjectBucket({
   scope,
   query,
   archived,
+  local,
   onRestoreProject,
   onOpenProject,
   onNewSession,
@@ -1388,6 +1413,9 @@ function ProjectBucket({
   onRestore: (row: PhoneSessionRow) => void;
   scope: SessionScopeFilter;
   archived: boolean;
+  /** This bucket's rows run on this machine, so the local project record —
+   *  cover, pin, archive — describes it. */
+  local: boolean;
   onRestoreProject?: () => void;
   onOpenProject: () => void;
   onNewSession: () => void;
@@ -1398,7 +1426,10 @@ function ProjectBucket({
   const rows = showAll ? bucket.rows : bucket.rows.slice(0, ROWS_BEFORE_SHOW_ALL);
   const hidden = bucket.rows.length - rows.length;
   const imported = isImportedBucket(bucket.key);
-  const openable = Boolean(bucket.cwd) && !imported;
+  const realProject = Boolean(bucket.cwd) && !imported;
+  // A remote copy of a path has no Hub-side cover on this machine, so its
+  // heading folds the project rather than opening the local one.
+  const openable = realProject && local;
   const heading = imported
     ? tr("sessions.imported", { count: String(bucket.rows.length) })
     : bucket.label;
@@ -1472,7 +1503,7 @@ function ProjectBucket({
             {tr("sessions.restore")}
           </button>
         ) : null}
-        {openable && !onRestoreProject && !coarse ? (
+        {realProject && !onRestoreProject && !coarse ? (
           <div className="flex flex-none items-center">
             <ProjectIconButton
               label={tr("nav.newSessionIn", { project: bucket.label })}
@@ -1480,10 +1511,14 @@ function ProjectBucket({
             >
               <IconPlus size={12} />
             </ProjectIconButton>
-            <ProjectIconButton label={tr("nav.openCover")} onClick={onOpenProject}>
+            <ProjectIconButton
+              label={local ? tr("nav.openCover") : tr("nav.openCoverLocalOnly")}
+              onClick={onOpenProject}
+              disabled={!local}
+            >
               <IconFile size={12} />
             </ProjectIconButton>
-            {!archived ? (
+            {local && !archived ? (
               <>
                 <ProjectIconButton
                   label={pinnedProject ? tr("nav.unpinProject") : tr("nav.pinProject")}
@@ -1504,7 +1539,7 @@ function ProjectBucket({
             ) : null}
           </div>
         ) : null}
-        {openable && coarse ? (
+        {realProject && coarse ? (
           <button
             type="button"
             title={tr("nav.projectActions")}
@@ -1578,11 +1613,13 @@ function ProjectIconButton({
   label,
   onClick,
   active = false,
+  disabled = false,
   children,
 }: {
   label: string;
   onClick: () => void;
   active?: boolean;
+  disabled?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -1590,12 +1627,15 @@ function ProjectIconButton({
       type="button"
       title={label}
       aria-label={label}
+      disabled={disabled}
       onClick={onClick}
       className={[
         "touch-hide inline-flex h-6 w-6 items-center justify-center rounded-md transition-opacity",
-        active
-          ? "text-kin-blue-ink opacity-100"
-          : "text-kin-muted opacity-0 hover:bg-[var(--kin-fill-strong)] hover:text-kin-text focus:opacity-100 group-hover/proj:opacity-100",
+        disabled
+          ? "cursor-not-allowed text-kin-muted opacity-50"
+          : active
+            ? "text-kin-blue-ink opacity-100"
+            : "text-kin-muted opacity-0 hover:bg-[var(--kin-fill-strong)] hover:text-kin-text focus:opacity-100 group-hover/proj:opacity-100",
       ].join(" ")}
     >
       {children}

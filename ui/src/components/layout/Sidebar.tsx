@@ -10,7 +10,7 @@ import { formatCost, type AgentInfo } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { PLACES } from "../../lib/places";
 import { PLACE_ICONS } from "../placeIcons";
-import { IconArchive, IconDownload, IconPlus } from "../icons";
+import { IconArchive, IconDownload, IconInbox, IconPlus } from "../icons";
 import SessionList from "../sessions/SessionList";
 
 /**
@@ -31,6 +31,9 @@ type Props = {
   selectedTaskId?: string | null;
   /** Highlight the draft / New chat entry. */
   draftActive?: boolean;
+  /** Waiting approvals, shown on the Inbox destination so they are findable
+   *  without opening the page. */
+  pendingCount?: number;
   routineUnreadCount?: number;
   weekCost?: number | null;
   onNewChat: () => void;
@@ -42,6 +45,7 @@ type Props = {
 export default function Sidebar({
   selectedTaskId,
   draftActive,
+  pendingCount = 0,
   routineUnreadCount = 0,
   weekCost,
   onNewChat,
@@ -208,6 +212,12 @@ export default function Sidebar({
   const footerIcons = (
     <div data-sidebar-footer className="border-t border-kin-hairline px-1.5 py-2">
       <div className="flex items-center justify-between gap-0.5">
+        <FooterIcon
+          to="/inbox"
+          label={tr("nav.inbox")}
+          icon={<IconInbox size={16} />}
+          badge={pendingCount > 0 ? (pendingCount > 99 ? "99+" : String(pendingCount)) : undefined}
+        />
         <Link
           to="/sessions?scope=archived"
           aria-label={tr("nav.archivedProjects")}

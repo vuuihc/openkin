@@ -130,4 +130,3 @@ export function MobileHeaderButton({
 export function MobileChevron() {
   return <IconChevron size={14} className="shrink-0 text-kin-muted" />;
 }
-

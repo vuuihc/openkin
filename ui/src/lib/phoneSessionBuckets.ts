@@ -94,6 +94,10 @@ export type PhoneProjectBucket = {
   /** A task in this bucket is still running or waiting, so the project sorts
    *  above idle ones in the "active first" order. */
   hasActiveTask: boolean;
+  /** The machine this copy belongs to, set by `groupProjectBucketsByDevice`.
+   *  Empty means this machine: a seeded local project record and the pinned
+   *  bucket are not machine facts. */
+  deviceId?: string;
 };
 
 /** One machine's projects, the phone list's top level. */
@@ -388,7 +392,7 @@ export function groupProjectBucketsByDevice(
   for (const bucket of buckets) {
     if (bucket.key === PINNED_BUCKET) continue;
     if (bucket.rows.length === 0) {
-      pushBucket(byDevice, selfId, bucket);
+      pushBucket(byDevice, selfId, { ...bucket, deviceId: selfId });
       continue;
     }
     const rowsByDevice = new Map<string, PhoneSessionRow[]>();
@@ -405,6 +409,7 @@ export function groupProjectBucketsByDevice(
       pushBucket(byDevice, id, {
         ...bucket,
         rows,
+        deviceId: id,
         lastActivityAt: Math.max(0, ...rows.map((row) => row.at)),
       });
     }

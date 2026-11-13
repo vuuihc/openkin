@@ -35,6 +35,7 @@ import SearchSelect from "../components/ui/SearchSelect";
 import Heatmap from "../components/project/Heatmap";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
+import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { useMachines } from "../hooks/useMachines";
 import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
 import { samePath } from "../lib/devices";
@@ -123,7 +124,35 @@ export default function ProjectDetailPage() {
     setParams(p, { replace: true });
   };
 
+  // A one-pager that was typed into but not saved is the only draft this page
+  // owns. It has to be asked about before every route change the page itself
+  // starts: its own Back, a chat row, and a recipe launch. The shell asks the
+  // same question for its Back/edge-swipe/⌘N through `useLeaveGuard`; a browser
+  // system Back is outside the page and cannot be intercepted here.
+  const dirty = editing && draft.trim() !== markdown.trim();
+  const canLeave = useCallback(() => {
+    if (!dirty) return true;
+    return typeof window.confirm === "function"
+      ? window.confirm(tr("projects.summaryDiscard"))
+      : true;
+  }, [dirty, tr]);
+  useLeaveGuard(canLeave);
+  useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
+  const leaveToList = () => {
+    if (!canLeave()) return;
+    goBackToList(navigate);
+  };
+
   const openChat = (row: ProjectChatRow) => {
+    if (!canLeave()) return;
     if (row.task) navigate(`/tasks/${encodeURIComponent(row.task.id)}`);
     else if (row.session) navigate(`/agent-sessions/${encodeURIComponent(row.session.id)}`);
   };
@@ -347,6 +376,7 @@ export default function ProjectDetailPage() {
     recipeId: "focus.continue" | "cover.update" | "project.memory.tidy",
   ) => {
     if (!project || !id) return;
+    if (!canLeave()) return;
     const cwd = (project.roots?.[0] || "").trim();
     if (!cwd) {
       pushToast(tr("projects.continueNeedRoot"), "error");
@@ -446,7 +476,7 @@ export default function ProjectDetailPage() {
           <button
             type="button"
             className="mb-4 inline-flex items-center gap-1 text-strong text-kin-secondary hover:text-kin-text"
-            onClick={() => goBackToList(navigate)}
+            onClick={leaveToList}
           >
             <IconBack size={14} />
             {tr("projects.back")}
@@ -466,7 +496,7 @@ export default function ProjectDetailPage() {
           <button
             type="button"
             className="mb-3 inline-flex items-center gap-1 text-strong text-kin-secondary hover:text-kin-text"
-            onClick={() => goBackToList(navigate)}
+            onClick={leaveToList}
           >
             <IconBack size={14} />
             {tr("projects.back")}
@@ -684,6 +714,9 @@ export default function ProjectDetailPage() {
                           <li key={a.id}>
                             <Link
                               to={`/artifacts/${a.id}`}
+                              onClick={(event) => {
+                                if (!canLeave()) event.preventDefault();
+                              }}
                               className="block rounded-lg px-2 py-1.5 hover:bg-[var(--kin-fill-strong)]"
                             >
                               <div className="truncate text-body text-kin-text">{a.title}</div>
@@ -713,6 +746,7 @@ export default function ProjectDetailPage() {
                 root={projectRoots(project)[0] ?? ""}
                 onRetry={() => void loadChats()}
                 onOpen={openChat}
+                onBeforeLeave={canLeave}
               />
             </div>
           )}
@@ -866,6 +900,7 @@ function ProjectChatsPanel({
   root,
   onRetry,
   onOpen,
+  onBeforeLeave,
 }: {
   rows: ProjectChatRow[];
   loading: boolean;
@@ -875,6 +910,7 @@ function ProjectChatsPanel({
   root: string;
   onRetry: () => void;
   onOpen: (row: ProjectChatRow) => void;
+  onBeforeLeave: () => boolean;
 }) {
   const tr = useT();
   const now = Date.now();
@@ -888,6 +924,9 @@ function ProjectChatsPanel({
         {root && (
           <Link
             to={`/new?cwd=${encodeURIComponent(root)}`}
+            onClick={(event) => {
+              if (!onBeforeLeave()) event.preventDefault();
+            }}
             className="rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand"
           >
             {tr("projects.newChat")}

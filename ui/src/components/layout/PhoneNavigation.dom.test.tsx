@@ -5,10 +5,11 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import AppShell from "./AppShell";
 import SessionsPage from "../../pages/SessionsPage";
+import ProjectDetailPage from "../../pages/ProjectDetailPage";
 import { setLocale } from "../../i18n";
 import { useLeaveGuard } from "../../hooks/useLeaveGuard";
 import { resetLeaveGuard } from "../../lib/leaveGuard";
-import type { AgentSession, Project, Task } from "../../api/client";
+import type { AgentSession, Approval, Project, Task } from "../../api/client";
 
 /**
  * KIN-CONTINUE-002: the phone has one navigation surface.
@@ -62,6 +63,25 @@ vi.mock("../../api/client", async (importOriginal) => {
       items: fixtures.sessions,
       next_cursor: undefined,
     })),
+    getProject: vi.fn(async (id: string) => ({
+      id,
+      name: "alpha",
+      mode: "ship",
+      status: "active",
+      roots: ["/work/alpha"],
+      created_at: 1,
+      updated_at: 2,
+      last_active_at: 3,
+    })),
+    getOnePager: vi.fn(async (id: string) => ({
+      project_id: id,
+      markdown: "Original summary",
+      updated_at: 1,
+    })),
+    listProjectArtifacts: vi.fn(async () => []),
+    getProjectPulse: vi.fn(async () => null),
+    listRoutines: vi.fn(async () => ({ routines: [] })),
+    isAuthenticated: vi.fn(() => true),
     listProjects: vi.fn(async () => fixtures.projects),
     ensureProject: vi.fn(async () => ({ id: "project-1", name: "alpha" })),
     getSettings: vi.fn(async () => null),
@@ -148,19 +168,31 @@ function routes() {
       <Route path="/routines" element={<div>routines page</div>} />
       <Route path="/agents" element={<div>agents page</div>} />
       <Route path="/settings" element={<div>settings page</div>} />
+      <Route path="/inbox" element={<div>inbox page</div>} />
       <Route path="/tasks/:id" element={<div>conversation page</div>} />
-      <Route path="/projects/:id" element={<div>project page</div>} />
+      <Route path="/projects/:id" element={<ProjectDetailPage />} />
       <Route path="/guarded" element={<GuardedPage canLeave={guard.current} />} />
     </Routes>
   );
 }
 
-function shell(initialEntries: string[]) {
+function shell(initialEntries: string[], pendingApprovals: Approval[] = []) {
   return render(
     <MemoryRouter initialEntries={initialEntries}>
-      <AppShell pendingApprovals={[]}>{routes()}</AppShell>
+      <AppShell pendingApprovals={pendingApprovals}>{routes()}</AppShell>
     </MemoryRouter>,
   );
+}
+
+function approval(id: string, taskId: string): Approval {
+  return {
+    id,
+    task_id: taskId,
+    kind: "tool",
+    payload: {},
+    decision: "pending",
+    created_at: 1,
+  };
 }
 
 function pointer(node: Element, type: string, clientX: number) {
@@ -311,13 +343,62 @@ describe("destinations and back", () => {
     );
   });
 
-  it("leaves the project page its own, guarded back control", () => {
+  it("leaves the project page its own, guarded back control", async () => {
     // The project page's back link is the only one that asks before discarding
     // an edited summary. A shell back above it would leave silently, so the
     // shell draws no bar on that route (KIN-CONTINUE-002, blocker fix).
-    shell(["/projects/p1"]);
-    expect(screen.getByText("project page")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
+    shell(["/sessions", "/projects/p1"]);
+    expect(await screen.findByRole("heading", { name: "alpha" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Back" })).toHaveLength(1);
+  });
+
+  it("asks before the project page's own back discards an edited One-Pager", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    try {
+      shell(["/sessions", "/projects/p1"]);
+      await screen.findByRole("heading", { name: "alpha" });
+
+      await user.click(screen.getByRole("button", { name: "Edit One-Pager" }));
+      const editor = screen.getByRole("textbox");
+      await user.clear(editor);
+      await user.type(editor, "Changed but unsaved");
+
+      await user.click(screen.getByRole("button", { name: "Back" }));
+      expect(confirm).toHaveBeenCalledWith("Discard unsaved One-Pager changes?");
+      expect(screen.getByRole("heading", { name: "alpha" })).toBeTruthy();
+      expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(
+        "Changed but unsaved",
+      );
+
+      confirm.mockReturnValue(true);
+      await user.click(screen.getByRole("button", { name: "Back" }));
+      await waitFor(() => expect(screen.getByRole("heading", { name: "Chats" })).toBeTruthy());
+    } finally {
+      confirm.mockRestore();
+    }
+  });
+
+  it("asks the real project page before its edge swipe and ⌘N leave it", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    try {
+      shell(["/sessions", "/projects/p1"]);
+      await screen.findByRole("heading", { name: "alpha" });
+      await user.click(screen.getByRole("button", { name: "Edit One-Pager" }));
+      await user.type(screen.getByRole("textbox"), "!");
+
+      edgeBack();
+      expect(confirm).toHaveBeenCalled();
+      expect(screen.getByRole("heading", { name: "alpha" })).toBeTruthy();
+
+      fireEvent.keyDown(window, { key: "n", metaKey: true });
+      expect(confirm.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(screen.getByRole("heading", { name: "alpha" })).toBeTruthy();
+      expect(screen.queryByText("draft page")).toBeNull();
+    } finally {
+      confirm.mockRestore();
+    }
   });
 
   it("asks the page before the header's back leaves it", async () => {
@@ -371,6 +452,20 @@ describe("destinations and back", () => {
 
     expect(canLeave).toHaveBeenCalled();
     expect(screen.getByText("guarded page")).toBeTruthy();
+  });
+
+  it("does not draw the floating approval over the inbox", () => {
+    shell(["/inbox"], [approval("a1", "task-1")]);
+    expect(screen.getByText("inbox page")).toBeTruthy();
+    // The inbox is the full queue; a floating copy would be the same
+    // approvals twice, with the page's own list underneath.
+    expect(screen.queryByLabelText("Waiting")).toBeNull();
+  });
+
+  it("still floats a waiting approval on every other screen", () => {
+    shell(["/settings"], [approval("a1", "task-1")]);
+    expect(screen.getByText("settings page")).toBeTruthy();
+    expect(screen.getByLabelText("Waiting")).toBeTruthy();
   });
 
   it("synthesizes the list as the parent of a cold conversation", async () => {

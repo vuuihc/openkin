@@ -83,9 +83,22 @@ vi.mock("../hooks/useMachines", () => ({
   useMachines: () => ({ machines: [], loading: false, failed: false }),
 }));
 vi.mock("../components/mobile/MobileHeader", () => ({
-  default: ({ title }: { title?: string }) => <div data-testid="mobile-header">{title}</div>,
-  MobileHeaderButton: ({ children }: { children?: ReactNode }) => (
-    <button type="button">{children}</button>
+  default: ({ title, trailing }: { title?: string; trailing?: ReactNode }) => (
+    <div data-testid="mobile-header">
+      {title}
+      {trailing}
+    </div>
+  ),
+  MobileHeaderButton: ({
+    label,
+    children,
+  }: {
+    label?: string;
+    children?: ReactNode;
+  }) => (
+    <button type="button" aria-label={label}>
+      {children}
+    </button>
   ),
 }));
 vi.mock("../components/chat/Composer", () => ({
@@ -146,6 +159,11 @@ describe("a cold entry into a conversation", () => {
   it("draws the header and composer from the cached row while the detail loads", () => {
     open(cached);
     expect(screen.getByTestId("mobile-header").textContent).toContain("Cached title");
+    // The conversation header has no second conversation list on it. The
+    // phone's one list is `/sessions` (KIN-CONTINUE-002); session actions is
+    // the only trailing menu.
+    expect(screen.getByRole("button", { name: "Session actions" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Switch session/ })).toBeNull();
     expect(screen.getByTestId("composer").getAttribute("data-disabled")).toBe("true");
     expect(screen.getByTestId("chat-stream").getAttribute("data-loading")).toBe("true");
   });

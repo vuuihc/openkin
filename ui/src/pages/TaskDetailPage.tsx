@@ -77,7 +77,6 @@ import {
   IconPanel,
   IconPullRequest,
   IconRestore,
-  IconSessions,
   IconShare,
   IconSpinner,
   IconTrash,
@@ -109,8 +108,6 @@ import {
   withoutWithdrawn,
 } from "../lib/queuedPrompts";
 import { publishDraftFrom } from "../lib/publishDraft";
-import type { AttentionMark } from "../lib/sessionSwitcher";
-import { switcherTriggerLabel } from "../lib/sessionSwitcher";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useMachines } from "../hooks/useMachines";
 import { useApprovalDecision } from "../hooks/useApprovalDecision";
@@ -142,21 +139,6 @@ type TaskDetailPageProps = {
   /** Whether this instance is the visible session. */
   active?: boolean;
   /**
-   * Opens the phone's session switcher (the tab strip is desktop-only). Passed
-   * by the host that owns the open-tab list; the phone header shows the button
-   * only when it is there.
-   */
-  onOpenSessionSwitcher?: () => void;
-  /**
-   * What the switcher's dot says, when one is owed: a session other than the
-   * one in front is blocked on a person or has a result nobody has read. The
-   * host computes it from the same rows the sheet draws — which include the
-   * recent sessions behind the tabs, not only open tabs, because on a phone
-   * there is usually no tab to mark and a result that landed in another
-   * session is exactly what the dot is for.
-   */
-  switcherMark?: AttentionMark | null;
-  /**
    * Saved prompt shortcuts for the composer's `/` menu. The host reads them
    * once for every session pane it keeps alive; a pane that is rendered on its
    * own (or a test) simply has none. `null` is "not loaded yet", which the
@@ -178,8 +160,6 @@ type TaskDetailPageProps = {
 export default function TaskDetailPage({
   taskId,
   active = true,
-  onOpenSessionSwitcher,
-  switcherMark = null,
   agentRoles = [],
   fallbackTask,
 }: TaskDetailPageProps) {
@@ -1560,7 +1540,6 @@ export default function TaskDetailPage({
   };
   const panel = resolvePanel(panelForView(shownPanel, id), panelCtx);
   const filesOpen = panel === "files";
-  const switcherLabel = switcherTriggerLabel(switcherMark);
   const prOpen = panel === "pr";
   const publishOpen = panel === "publish";
   const project = projectLabel(task.cwd);
@@ -1706,25 +1685,6 @@ export default function TaskDetailPage({
           }
           trailing={
             <>
-              {/* The phone's tab strip: everything open, plus what finished
-                  while the reader was elsewhere. Lody puts this control
-                  beside ⋯ for the same reason — it is a switch, not an
-                  action on this session. */}
-              {onOpenSessionSwitcher && (
-                <MobileHeaderButton
-                  // The dot is unreadable to a screen reader and the label is
-                  // the only thing announced, so the state rides in the name.
-                  label={tr(
-                    switcherLabel.key,
-                    switcherLabel.stateKey ? { state: tr(switcherLabel.stateKey) } : undefined,
-                  )}
-                  onClick={onOpenSessionSwitcher}
-                  tone="muted"
-                  dot={switcherMark}
-                >
-                  <IconSessions size={19} />
-                </MobileHeaderButton>
-              )}
               <MobileHeaderButton
                 label={tr("task.sessionActions")}
                 onClick={() => setActionsOpen(true)}

@@ -1,17 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { isTerminal } from "../api/client";
 import { usePendingResources, useTaskList, useTaskResource } from "../api/useLiveResources";
 import { useAgentRoles } from "../hooks/useAgentRoles";
 import { useT } from "../i18n/react";
 import { rememberLastConversation } from "../lib/lastConversation";
 import { dropSessionCache, taskIdFromPathname, touchSessionCache } from "../lib/sessionCache";
-import {
-  getViewedSessionIds,
-  markSessionViewed,
-  subscribeSessionViewed,
-} from "../lib/sessionViewed";
-import { attentionMark, buildSwitcherRows, tabMark, waitingTaskIds } from "../lib/sessionSwitcher";
+import { getViewedSessionIds, subscribeSessionViewed } from "../lib/sessionViewed";
+import { tabMark, waitingTaskIds } from "../lib/sessionSwitcher";
 import {
   closeSessionTab,
   moveSessionTab,
@@ -24,7 +19,6 @@ import { taskDisplayTitle } from "../lib/taskTitle";
 import { subscribeWS } from "../store/appStore";
 import ErrorBoundary from "../components/ErrorBoundary";
 import SessionTabs, { type SessionTab } from "../components/layout/SessionTabs";
-import SessionSwitcherSheet from "../components/mobile/SessionSwitcherSheet";
 import TaskDetailPage from "./TaskDetailPage";
 
 /**
@@ -62,8 +56,6 @@ export default function TaskSessionHost() {
   }, [activeId]);
   const [mountedIds, setMountedIds] = useState<string[]>([]);
   const [tabOrder, setTabOrder] = useState<string[]>(() => readSessionTabs());
-  /** The phone's session switcher (the tab strip is desktop-only). */
-  const [switcherOpen, setSwitcherOpen] = useState(false);
   // The same live list the sidebar and /sessions read, keyed identically, so this
   // is a second reader of one subscription rather than a second poll. It is where
   // tab names come from: storage holds ids only.
@@ -90,13 +82,6 @@ export default function TaskSessionHost() {
   );
   const viewedIds = useMemo(() => new Set(viewedKey ? viewedKey.split(",") : []), [viewedKey]);
 
-  // The active session can be older than the loaded page (the tab order
-  // persists across reloads, the list is the newest hundred), so its row comes
-  // from the detail subscription the pane already holds — this is one more
-  // reader of that lease, not another request.
-  const activeDetail = useTaskResource(activeId ?? "", Boolean(activeId));
-  const activeTask = activeDetail.data.task ?? (activeId ? tasksById.get(activeId) : undefined);
-
   /**
    * The pane the reader actually sees.
    *
@@ -112,6 +97,11 @@ export default function TaskSessionHost() {
    * not the intermediate one that never appeared.
    */
   const [shownId, setShownId] = useState<string | null>(null);
+  // The active session can be older than the loaded page (the tab order
+  // persists across reloads, the list is the newest hundred), so its readiness
+  // comes from the detail subscription the pane already holds — one more reader
+  // of that lease, not another request.
+  const activeDetail = useTaskResource(activeId ?? "", Boolean(activeId));
   const activeReady = Boolean(activeId) && activeDetail.loaded;
   useEffect(() => {
     if (!activeId) {
@@ -133,18 +123,6 @@ export default function TaskSessionHost() {
   // there is no earlier conversation left to keep.
   const shownMounted = shownId !== null && ids.includes(shownId);
   const visibleId = switching && shownMounted ? shownId : activeId;
-
-  // Asking "what is new?" is the moment the session in front of the reader
-  // stops being new. Marked here rather than on every status change: the
-  // desktop sidebar deliberately keeps its green dot when a watched session
-  // finishes (see Sidebar's `handledSelectionRef`), and this control exists
-  // only on the phone.
-  const openSwitcher = useCallback(() => {
-    if (activeId && activeTask && isTerminal(activeTask.status)) {
-      markSessionViewed(activeId);
-    }
-    setSwitcherOpen(true);
-  }, [activeId, activeTask]);
 
   // Opening a session route opens (or revisits) its tab and mounts it.
   useEffect(() => {
@@ -213,32 +191,6 @@ export default function TaskSessionHost() {
       id === activeId ? null : tabMark(tasksById.get(id), viewedIds.has(id), pendingIds.has(id)),
   }));
 
-  // The active row is drawn from the same list as the rest; if it fell off the
-  // page it is prepended so the session in front of the reader keeps its name
-  // and state instead of turning into an untitled idle row.
-  const switcherTasks = useMemo(() => {
-    if (!activeTask || taskList.data.some((task) => task.id === activeTask.id))
-      return taskList.data;
-    return [activeTask, ...taskList.data];
-  }, [activeTask, taskList.data]);
-
-  const switcherRows = useMemo(
-    () =>
-      buildSwitcherRows({
-        tabIds: tabOrder,
-        tasks: switcherTasks,
-        activeId,
-        viewedIds,
-        pendingIds,
-        untitled: tr("tabs.untitled"),
-      }),
-    [tabOrder, switcherTasks, activeId, viewedIds, pendingIds, tr],
-  );
-
-  // The same rows the sheet will draw, read for the one thing the phone's
-  // control can say without being opened.
-  const switcherMark = useMemo(() => attentionMark(switcherRows), [switcherRows]);
-
   const show = Boolean(activeId);
 
   return (
@@ -298,23 +250,12 @@ export default function TaskSessionHost() {
                   // transcript when it arrives.
                   fallbackTask={tasksById.get(taskId)}
                   agentRoles={agentRoles}
-                  onOpenSessionSwitcher={openSwitcher}
-                  switcherMark={switcherMark}
                 />
               </ErrorBoundary>
             </div>
           );
         })}
       </div>
-      <SessionSwitcherSheet
-        open={switcherOpen}
-        onClose={() => setSwitcherOpen(false)}
-        rows={switcherRows}
-        onSelect={(id) => {
-          selectTab(id);
-          setSwitcherOpen(false);
-        }}
-      />
     </div>
   );
 }

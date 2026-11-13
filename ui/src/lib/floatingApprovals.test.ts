@@ -36,6 +36,11 @@ describe("floatingApprovals", () => {
     expect(floating).toHaveLength(3);
   });
 
+  it("floats nothing over the inbox, which already lists the queue", () => {
+    expect(floatingApprovals(waiting, { visibleTaskId: null, onInbox: true })).toEqual([]);
+    expect(floatingApprovals(waiting, { visibleTaskId: "task-9", onInbox: true })).toEqual([]);
+  });
+
   it("does not mutate the list it was given", () => {
     const input = [...waiting];
     floatingApprovals(input, { visibleTaskId: "task-1" });

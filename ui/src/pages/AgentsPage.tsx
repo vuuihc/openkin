@@ -20,6 +20,7 @@ import { MobileCard, MobileRow, MobileSection } from "../components/mobile/Mobil
 import Sheet, { SheetSecondaryButton } from "../components/mobile/Sheet";
 import SearchSelect from "../components/ui/SearchSelect";
 import { useSlowHint } from "../hooks/useSlowHint";
+import { useAgentSessionImport } from "../hooks/useAgentSessionImport";
 import { useAppStore } from "../store/appStore";
 import { useT } from "../i18n/react";
 import { agentCatalogState, openInstallURL, sortAgentCatalog } from "../lib/agentCatalog";
@@ -30,6 +31,7 @@ import {
   type LimitStatus,
 } from "../lib/agentLimits";
 import { cacheRateLabel, cacheState, formatTokenCount, type CacheStatus } from "../lib/usage";
+import { importToast } from "../lib/agentSessionImport";
 
 /**
  * Agents management console with folded-in usage overview.
@@ -57,6 +59,10 @@ export default function AgentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [rechecking, setRechecking] = useState(false);
   const [smoking, setSmoking] = useState(false);
+  // KIN-AGENTS-001 / KIN-CONTINUE-002: the manual way in belongs on the
+  // surface that lists Agent Ops, not only in Settings.
+  const { importing: importingSessions, importEveryMachine } = useAgentSessionImport();
+  const [importError, setImportError] = useState<string | null>(null);
   /** Which agent's action sheet is open on a phone; the desktop table never sets it. */
   const [actionsFor, setActionsFor] = useState<string | null>(null);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
@@ -195,6 +201,24 @@ export default function AgentsPage() {
       await load(true);
     } finally {
       setRechecking(false);
+    }
+  }
+
+  async function onImportSessions() {
+    setImportError(null);
+    try {
+      const result = await importEveryMachine();
+      // The list and the catalog both listen for this: an import from this
+      // page must refresh the sessions the console already shows instead of
+      // waiting for a remount.
+      window.dispatchEvent(new CustomEvent("kin:agent-sessions-changed"));
+      const toast = importToast(result, tr);
+      pushToast(toast.message, toast.kind);
+      await load(false);
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : String(e);
+      setImportError(message);
+      pushToast(tr("settings.localAgents.importFailed"), "error");
     }
   }
 
@@ -498,7 +522,17 @@ export default function AgentsPage() {
             <button
               type="button"
               className="kin-btn-secondary min-h-10 px-3 text-strong"
-              disabled={rechecking || smoking}
+              disabled={importingSessions || rechecking || smoking}
+              onClick={() => void onImportSessions()}
+            >
+              {importingSessions
+                ? tr("settings.localAgents.importing")
+                : tr("settings.localAgents.import")}
+            </button>
+            <button
+              type="button"
+              className="kin-btn-secondary min-h-10 px-3 text-strong"
+              disabled={rechecking || smoking || importingSessions}
               onClick={() => void onRecheck()}
             >
               {rechecking ? tr("common.loading") : tr("agents.recheckAll")}
@@ -525,6 +559,14 @@ export default function AgentsPage() {
             />
           </div>
         </div>
+        {importError && (
+          <div
+            role="alert"
+            className="mt-4 rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-strong text-kin-red-ink"
+          >
+            {tr("settings.localAgents.importFailed")}: {importError}
+          </div>
+        )}
 
         {(rows === null || agents === null) && !error && (
           <div className="mt-6 space-y-3">

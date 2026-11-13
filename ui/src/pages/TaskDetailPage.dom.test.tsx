@@ -65,11 +65,19 @@ vi.mock("../components/layout/SessionTabs", () => ({
     </div>
   ),
 }));
-vi.mock("../components/mobile/SessionSwitcherSheet", () => ({ default: () => null }));
 vi.mock("./TaskDetailPage", () => ({
-  default: ({ taskId, active }: { taskId: string; active: boolean }) => (
+  default: ({
+    taskId,
+    active,
+    onOpenSessionSwitcher,
+  }: {
+    taskId: string;
+    active: boolean;
+    onOpenSessionSwitcher?: unknown;
+  }) => (
     <div data-testid={`pane-${taskId}`} data-active={String(active)}>
       conversation {taskId}
+      {onOpenSessionSwitcher ? <button type="button">Switch session</button> : null}
     </div>
   ),
 }));
@@ -114,6 +122,10 @@ describe("switching conversations", () => {
     setup();
 
     await waitFor(() => expect(screen.getByTestId("pane-a")).toBeTruthy());
+    // The host keeps the Mac tab strip but gives the phone no second
+    // conversation list: the page is not handed a switcher control.
+    expect(screen.getByText("tabs")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Switch session" })).toBeNull();
     const shell = paneBox("a").parentElement;
     expect(paneBox("a").getAttribute("aria-hidden")).toBe("false");
     expect(screen.queryByRole("progressbar")).toBeNull();

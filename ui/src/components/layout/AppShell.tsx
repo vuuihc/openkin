@@ -41,6 +41,7 @@ import { useMachines } from "../../hooks/useMachines";
 import { remoteMachine } from "../../lib/devices";
 import { taskDisplayTitle } from "../../lib/taskTitle";
 import { floatingApprovals } from "../../lib/floatingApprovals";
+import { placePath } from "../../lib/places";
 import { useApprovalDecision } from "../../hooks/useApprovalDecision";
 import { useEdgeSwipeBack } from "../../hooks/useEdgeSwipeBack";
 import { canLeaveScreen } from "../../lib/leaveGuard";
@@ -103,6 +104,9 @@ export default function AppShell({
   // that already draws it inline. See `lib/floatingApprovals.ts`.
   const floating = floatingApprovals(pendingApprovals, {
     visibleTaskId: selectedTaskId,
+    // The inbox lists every waiting approval; a card on top of it would be
+    // the same queue twice.
+    onInbox: pathname === placePath("inbox"),
   });
   /**
    * The pages that are a single list or form, where the shell bar can carry the
@@ -415,6 +419,7 @@ export default function AppShell({
         <Sidebar
           selectedTaskId={selectedTaskId}
           draftActive={draftActive}
+          pendingCount={pendingApprovals.length}
           routineUnreadCount={routineUnreadCount}
           weekCost={weekCost}
           onNewChat={openNewChat}
