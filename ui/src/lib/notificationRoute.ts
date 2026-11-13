@@ -98,9 +98,7 @@ export function queueNotificationRoute(href: string): void {
 }
 
 /** Take the held link, if any. The second call returns null. */
-export function consumeNotificationRoute(
-  origin?: string,
-): NotificationRoute | null {
+export function consumeNotificationRoute(origin?: string): NotificationRoute | null {
   if (pending === null) return null;
   const href = pending;
   pending = null;
@@ -203,7 +201,8 @@ const MAX_NOTIFICATION_BODY = 600;
 export function parseForegroundNotification(detail: unknown): ForegroundNotification | null {
   if (!detail || typeof detail !== "object") return null;
   const raw = detail as Record<string, unknown>;
-  const title = typeof raw.title === "string" ? raw.title.slice(0, MAX_NOTIFICATION_TITLE).trim() : "";
+  const title =
+    typeof raw.title === "string" ? raw.title.slice(0, MAX_NOTIFICATION_TITLE).trim() : "";
   const body = typeof raw.body === "string" ? raw.body.slice(0, MAX_NOTIFICATION_BODY) : "";
   if (!title && !body) return null;
   return {

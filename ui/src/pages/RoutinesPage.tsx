@@ -159,7 +159,9 @@ export default function RoutinesPage() {
   // remembered choice; the resolve effect below still confirms the machine
   // exists before the page keeps it.
   const [searchParams, setSearchParams] = useSearchParams();
-  const [deviceId, setDeviceId] = useState<string>(() => searchParams.get("device")?.trim() || readRoutineDevice());
+  const [deviceId, setDeviceId] = useState<string>(
+    () => searchParams.get("device")?.trim() || readRoutineDevice(),
+  );
   // Set once the reader picks a machine themselves, so a list refresh cannot
   // overrule them.
   const deviceTouched = useRef(false);

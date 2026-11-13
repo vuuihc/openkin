@@ -19,7 +19,13 @@ import { routineForm, routinePatch } from "../lib/routineEdit";
 import RoutinesPage from "./RoutinesPage";
 
 const mocks = vi.hoisted(() => ({
-  machines: [] as Array<{ isSelf: boolean; id: string; label: string; online: boolean; roots: unknown[] }>,
+  machines: [] as Array<{
+    isSelf: boolean;
+    id: string;
+    label: string;
+    online: boolean;
+    roots: unknown[];
+  }>,
   loading: false,
   failed: false,
 }));
@@ -119,11 +125,7 @@ vi.mock("../components/chat/PermissionModePicker", () => ({
     onChange: (mode: "default" | "accept_edits" | "yolo") => void;
   }) => (
     <div data-testid="permission-mode" data-value={props.value}>
-      <button
-        type="button"
-        disabled={props.disabled}
-        onClick={() => props.onChange("yolo")}
-      >
+      <button type="button" disabled={props.disabled} onClick={() => props.onChange("yolo")}>
         choose-yolo
       </button>
     </div>
@@ -136,11 +138,7 @@ vi.mock("../components/routine/RoutineScheduleFields", () => ({
     onIntervalChange: (value: number) => void;
   }) => (
     <div data-testid="routine-interval" data-value={String(props.intervalSecs)}>
-      <button
-        type="button"
-        disabled={props.disabled}
-        onClick={() => props.onIntervalChange(3600)}
-      >
+      <button type="button" disabled={props.disabled} onClick={() => props.onIntervalChange(3600)}>
         choose-hourly
       </button>
     </div>
@@ -172,10 +170,9 @@ vi.mock("../components/ui/SheetSelect", () => ({
 }));
 
 function renderApp(initial: string) {
-  const router = createMemoryRouter(
-    [{ path: "/routines", element: <RoutinesPage /> }],
-    { initialEntries: [initial] },
-  );
+  const router = createMemoryRouter([{ path: "/routines", element: <RoutinesPage /> }], {
+    initialEntries: [initial],
+  });
   const view = render(<RouterProvider router={router} />);
   return { router, ...view };
 }
@@ -333,7 +330,9 @@ describe("RoutinesPage machine selection from the URL", () => {
     });
     await waitFor(() => expect(machineValue()).toBe("dev-a"));
     await waitFor(() => expect(listRoutineRuns).toHaveBeenLastCalledWith(80, "dev-a"));
-    await act(async () => { await router.navigate(1); });
+    await act(async () => {
+      await router.navigate(1);
+    });
     await waitFor(() => expect(machineValue()).toBe("dev-b"));
     await waitFor(() => expect(listRoutineRuns).toHaveBeenLastCalledWith(80, "dev-b"));
   });
@@ -355,9 +354,7 @@ describe("RoutinesPage device-scoped requests", () => {
   it("does not let an old A create land after A → B → A", async () => {
     const first = deferred<Routine>();
     const second = deferred<Routine>();
-    vi.mocked(createRoutine)
-      .mockReturnValueOnce(first.promise)
-      .mockReturnValueOnce(second.promise);
+    vi.mocked(createRoutine).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
     const { router } = renderApp("/routines?device=dev-a");
     await waitFor(() => expect(machineValue()).toBe("dev-a"));
 
@@ -440,9 +437,7 @@ describe("RoutinesPage device-scoped requests", () => {
     await screen.findByText("dev-a report");
 
     fireEvent.click(screen.getByRole("button", { name: "routines.markAllRead" }));
-    await waitFor(() =>
-      expect(markAllRoutineRunsRead).toHaveBeenCalledWith("dev-a"),
-    );
+    await waitFor(() => expect(markAllRoutineRunsRead).toHaveBeenCalledWith("dev-a"));
 
     await navigate(router, "/routines?device=dev-b");
     await screen.findByText("dev-b report");

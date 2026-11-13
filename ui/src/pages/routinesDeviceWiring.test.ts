@@ -39,7 +39,7 @@ describe("the routines page and its machine", () => {
     // A disabled-routine alert lands on /routines?device=<id>. The page must
     // prefer that once, and only fall back to the remembered machine with no
     // such parameter.
-    expect(PAGE).toContain("searchParams.get(\"device\")?.trim() || readRoutineDevice()");
+    expect(PAGE).toContain('searchParams.get("device")?.trim() || readRoutineDevice()');
     expect(PAGE).toContain("const [searchParams, setSearchParams] = useSearchParams();");
   });
 
@@ -104,9 +104,7 @@ describe("the routines page and its machine", () => {
     // sits between the persisted choice and the badge dispatch; both must still
     // happen.
     expect(PAGE).toContain("writeRoutineDevice(id);");
-    expect(PAGE).toContain(
-      'window.dispatchEvent(new Event("kin:routine-unread-changed"));',
-    );
+    expect(PAGE).toContain('window.dispatchEvent(new Event("kin:routine-unread-changed"));');
   });
 });
 

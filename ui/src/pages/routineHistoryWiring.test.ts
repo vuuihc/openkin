@@ -96,8 +96,7 @@ describe("the routine editor's run history", () => {
     // page. Every fetch path has the newest-wins guard.
     expect(PAGE).toContain("const seq = historySeq.current[id] ?? 0;");
     expect(
-      PAGE.split("if (historySeq.current[id] !== seq || !isCurrentView(view)) return;")
-        .length - 1,
+      PAGE.split("if (historySeq.current[id] !== seq || !isCurrentView(view)) return;").length - 1,
     ).toBe(3);
   });
 
