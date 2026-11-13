@@ -118,6 +118,10 @@ transform」），`AppShell` 那条 20px 的透明感应条也没有任何可见
   操作随行露出。
 - `./scripts/check.sh` 绿。
 
+进展（2026-11-14）：行左划的动作条部分已修，见「已修」PR #50。边缘右滑返回的
+跟手部分未动：`useEdgeSwipeBack` / `phoneBack` 只存在于本地未提交的工作树，
+`origin/main` 尚无该手势，等本地 WIP 推送后再修。
+
 ### 2026-11-09 · 中 · routines 改为设备归属后的遗留项
 
 routines 的跨设备主路径已按 2026-11-08 的决策落地（见 `## 已修`，`901821bf`）：
@@ -138,6 +142,7 @@ routines 的跨设备主路径已按 2026-11-08 的决策落地（见 `## 已修
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
 
+- 2026-11-12 · 手机端「划」没有过渡（行左划的动作条部分）— PR #50（拖动第一次位移即挂载动作条，未提交前 inert + aria-hidden + pointer-events:none，收起保留到 180ms 滑回结束；SwipeReveal DOM 测试 10 passed、还原组件后 4 failed，check.sh 除并发构建下的 5s 超时抖动外全绿）
 - 2026-11-08 · 侧栏看不出设备 → 项目 → 对话的层级 — PR #47（每层一个 16px 缩进步长并嵌套相加，字重随深度递减：设备 semibold / 项目 body medium / 会话 regular，项目行不再用 `kin-section-label`；2026-11-10 的产品提问超过 48 小时无回答，按 §4 执行可回退的推荐默认值：16px 等步长、无分组背景、无竖线；Sidebar DOM 测试 16 passed、lint 0 error、check.sh 除既有负载抖动外全绿）
 
 - 2026-11-12 · 新建与继续对话发送后页面迟迟不变，缺少即时消息与回复等待态 — PR #45（发送时先入本地用户气泡与等待行：`pendingSend` 以「同文本 + 发送后 seq」在服务端消息落地后交还，失败撤回并由 Composer 恢复原文；新建对话在 create 在途时直接显示消息与宿主等待行；pendingSend/ChatStream/两页 DOM 测试共 16 passed，check.sh 全绿）
