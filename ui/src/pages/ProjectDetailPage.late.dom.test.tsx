@@ -179,6 +179,42 @@ describe("a recipe answer after the cover was left", () => {
     expect(confirm).not.toHaveBeenCalled();
     view.unmount();
   });
+
+  it("asks the current One-Pager draft before a recipe answer leaves the cover", async () => {
+    const user = userEvent.setup();
+    const recipe = deferred<{ id: string }>();
+    launch.launchRecipe.mockImplementationOnce(() => recipe.promise);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    const view = browserAt(["/sessions", "/projects/p1"]);
+    await screen.findByRole("heading", { name: "alpha" });
+    // The cover is clean when the recipe starts.
+    await user.click(screen.getByRole("button", { name: "Continue focus" }));
+    expect(launch.launchRecipe).toHaveBeenCalledTimes(1);
+
+    // The reader edits the One-Pager while the recipe is still running.
+    await user.click(screen.getByRole("button", { name: "Edit One-Pager" }));
+    const editor = screen.getByRole("textbox");
+    await user.clear(editor);
+    await user.type(editor, "words written while the recipe ran");
+
+    await act(async () => {
+      recipe.resolve({ id: "task-99" });
+      await recipe.promise;
+    });
+
+    // The clean-cover approval at the click is stale. Landing asks the guard
+    // that is current now; refusing keeps the project and every word.
+    await waitFor(() =>
+      expect(confirm).toHaveBeenCalledWith("Discard unsaved One-Pager changes?"),
+    );
+    expect(window.location.pathname).toBe("/projects/p1");
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(
+      "words written while the recipe ran",
+    );
+    expect(confirm).toHaveBeenCalledTimes(1);
+    view.unmount();
+  });
 });
 
 describe("the cover's own Open cover link", () => {

@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { goBackToList } from "../lib/phoneBack";
-import { isPhoneLayout, onGuardedLinkClick, phonePush } from "../lib/phoneNavigation";
+import {
+  currentPhoneLocation,
+  isPhoneLayout,
+  onGuardedLinkClick,
+  phonePush,
+} from "../lib/phoneNavigation";
+import { runGuardedNavigation } from "../lib/leaveGuard";
 import {
   ApiError,
   attachAgentSession,
@@ -81,6 +87,8 @@ export default function AgentSessionDetailPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const locationRef = useRef(location);
+  locationRef.current = location;
   const tr = useT();
   // The continue box is a composer, so `/` opens the same prompt menu there.
   // This page mounts on its own route, so one read of the list is the whole
@@ -270,17 +278,37 @@ export default function AgentSessionDetailPage() {
   const attach = async (text: string) => {
     const prompt = text.trim();
     if (!session || !prompt || attachBusy) return;
+    const origin = {
+      pathname: locationRef.current.pathname,
+      key: locationRef.current.key,
+      visit: currentPhoneLocation()?.visit,
+    };
     setAttachBusy(true);
     try {
       const result = await attachAgentSession(session.id, { prompt });
       window.dispatchEvent(new Event("kin:agent-sessions-changed"));
+      // The answer belongs to the imported session that asked. If the reader
+      // has since opened another screen (notably a dirty Settings), neither
+      // that screen nor its draft may be pulled away by this old answer.
+      const tracked = currentPhoneLocation();
+      const now = tracked ?? locationRef.current;
+      if (now.pathname !== origin.pathname || now.key !== origin.key) return;
+      if (
+        origin.visit !== undefined &&
+        tracked?.visit !== undefined &&
+        tracked.visit !== origin.visit
+      ) {
+        return;
+      }
       // On a phone the list is the parent either way: continuing replaces the
       // session entry so Back is one step ([list, conversation]). On the Mac
       // this is an ordinary nested push, so Back returns to the imported
       // session that was being read.
-      phonePush(navigate, location, `/tasks/${encodeURIComponent(result.task.id)}`, {
-        replace: isPhoneLayout(),
-      });
+      runGuardedNavigation(() =>
+        phonePush(navigate, locationRef.current, `/tasks/${encodeURIComponent(result.task.id)}`, {
+          replace: isPhoneLayout(),
+        }),
+      );
     } catch (e) {
       const message = e instanceof Error ? e.message : tr("agentSession.continueFailed");
       setHistoryError(message);

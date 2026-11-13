@@ -406,7 +406,6 @@ export default function ProjectDetailPage() {
     recipeId: "focus.continue" | "cover.update" | "project.memory.tidy",
   ) => {
     if (!project || !id) return;
-    if (!canLeave()) return;
     const origin = {
       pathname: locationRef.current.pathname,
       key: locationRef.current.key,
@@ -436,10 +435,13 @@ export default function ProjectDetailPage() {
       ) {
         return;
       }
-      runGuardedNavigation(
-        () => phonePush(navigate, location, `/tasks/${t.id}`),
-        true,
-      );
+      // The approval belongs to this answer, not to the click that started the
+      // request. Ask the screen's guard that is current *now*: a One-Pager
+      // edited while the recipe ran is a new draft the start-time check never
+      // saw, and cancelling this question must leave the text in place. The
+      // start of the launch deliberately asks nothing, so this is one question
+      // rather than an old yes reused after a slow answer.
+      runGuardedNavigation(() => phonePush(navigate, locationRef.current, `/tasks/${t.id}`));
     } catch (e) {
       pushToast(e instanceof Error ? e.message : tr("projects.recipeLaunchFailed"), "error");
     } finally {

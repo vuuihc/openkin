@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes, useNavigate } from "react-router-dom";
 import AppShell from "./AppShell";
 import SessionsPage from "../../pages/SessionsPage";
 import NewChatPage from "../../pages/NewChatPage";
@@ -10,6 +11,7 @@ import AgentsPage from "../../pages/AgentsPage";
 import AgentSessionDetailPage from "../../pages/AgentSessionDetailPage";
 import { setLocale } from "../../i18n";
 import { resetLeaveGuard } from "../../lib/leaveGuard";
+import { useLeaveGuard } from "../../hooks/useLeaveGuard";
 import type { AgentSession, Task } from "../../api/client";
 
 /**
@@ -223,12 +225,14 @@ function browser(initial: string) {
   window.history.replaceState({ idx: 0 }, "", initial);
   return render(
     <BrowserRouter>
+      <Jump />
       <AppShell pendingApprovals={[]}>
         <Routes>
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/new" element={<NewChatPage />} />
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/agent-sessions/:id" element={<AgentSessionDetailPage />} />
+          <Route path="/settings" element={<DirtySettings />} />
           <Route path="/tasks/:id" element={<div>conversation page</div>} />
         </Routes>
       </AppShell>
@@ -244,16 +248,42 @@ function browserAt(entries: string[]) {
   });
   return render(
     <BrowserRouter>
+      <Jump />
       <AppShell pendingApprovals={[]}>
         <Routes>
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/new" element={<NewChatPage />} />
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/agent-sessions/:id" element={<AgentSessionDetailPage />} />
+          <Route path="/settings" element={<DirtySettings />} />
           <Route path="/tasks/:id" element={<div>conversation page</div>} />
         </Routes>
       </AppShell>
     </BrowserRouter>,
+  );
+}
+
+let jump: ((to: string) => void) | null = null;
+
+function Jump() {
+  const navigate = useNavigate();
+  jump = (to: string) => navigate(to);
+  return null;
+}
+
+function DirtySettings() {
+  const [text, setText] = useState("");
+  useLeaveGuard(
+    () =>
+      typeof window.confirm === "function" ? window.confirm("Discard settings draft?") : true,
+    text.trim() !== "",
+  );
+  return (
+    <input
+      aria-label="settings draft"
+      value={text}
+      onChange={(event) => setText(event.target.value)}
+    />
   );
 }
 
@@ -279,6 +309,7 @@ beforeEach(() => {
   fixtures.tasks = [];
   localStorage.setItem("kin_draft_cwd", "/work");
   window.history.replaceState({ idx: 0 }, "", "/");
+  jump = null;
   viewport();
 });
 
@@ -444,4 +475,91 @@ describe("continuing an imported session", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/agent-sessions/s1"));
     expect(window.history.state.idx).toBe(1);
   });
+
+  it("does not pull the reader out of a dirty Settings when the attach answers", async () => {
+    const attach = deferred<{ task: { id: string } }>();
+    api.attach.mockImplementationOnce(() => attach.promise);
+    fixtures.sessions = [
+      {
+        id: "s1",
+        agent_id: "claude-code",
+        external_ref: "ref-1",
+        title: "Yesterday session",
+        cwd: "/work",
+        status: "idle",
+        first_seen_at: 1,
+        last_seen_at: 2,
+        updated_at: 2,
+        linked: false,
+        capabilities: ["session_attach"],
+      } as AgentSession,
+    ];
+    const user = userEvent.setup();
+    browserAt(["/sessions", "/agent-sessions/s1"]);
+    await screen.findByRole("heading", { name: "Yesterday session" });
+    await user.click(await screen.findByTestId("composer-send"));
+    expect(api.attach).toHaveBeenCalledWith("s1", { prompt: "keep going" });
+
+    // The reader starts editing another screen while the attach is out.
+    act(() => jump!("/settings"));
+    const draft = await screen.findByLabelText("settings draft");
+    fireEvent.change(draft, { target: { value: "settings words" } });
+
+    await act(async () => {
+      attach.resolve({ task: { id: "task-1" } });
+      await attach.promise;
+    });
+
+    await waitFor(() => expect(window.location.pathname).toBe("/settings"));
+    expect((screen.getByLabelText("settings draft") as HTMLInputElement).value).toBe(
+      "settings words",
+    );
+    expect(window.history.state.idx).toBe(2);
+  });
+
+  it("keeps the Mac's ordinary push when the window widens while the attach runs", async () => {
+    const attach = deferred<{ task: { id: string } }>();
+    api.attach.mockImplementationOnce(() => attach.promise);
+    fixtures.sessions = [
+      {
+        id: "s1",
+        agent_id: "claude-code",
+        external_ref: "ref-1",
+        title: "Yesterday session",
+        cwd: "/work",
+        status: "idle",
+        first_seen_at: 1,
+        last_seen_at: 2,
+        updated_at: 2,
+        linked: false,
+        capabilities: ["session_attach"],
+      } as AgentSession,
+    ];
+    const user = userEvent.setup();
+    browserAt(["/sessions", "/agent-sessions/s1"]);
+    await screen.findByRole("heading", { name: "Yesterday session" });
+    await user.click(await screen.findByTestId("composer-send"));
+
+    // Started as a phone, answered as a Mac. The landing surface decides the
+    // history shape: a Mac keeps the imported session underneath.
+    fixtures.wide = true;
+    viewport(true);
+    await act(async () => {
+      attach.resolve({ task: { id: "task-1" } });
+      await attach.promise;
+    });
+
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/task-1"));
+    expect(window.history.state.idx).toBe(2);
+    await browserBack();
+    await waitFor(() => expect(window.location.pathname).toBe("/agent-sessions/s1"));
+  });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}

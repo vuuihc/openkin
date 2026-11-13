@@ -215,6 +215,47 @@ describe("evidence across reload and Forward", () => {
     mounted.unmount();
   });
 
+  it("keeps one direct list parent through a cold archived list, Back twice and Forward twice", async () => {
+    // A cold archived list is a deep link, so `synthesizePhoneParent` puts the
+    // plain list underneath it: [list, archived list, task]. Returning to the
+    // archived entry after visiting the plain one must reuse its token rather
+    // than re-minting it, or the task's marker no longer matches the ledger.
+    window.history.replaceState({ idx: 0 }, "", "/sessions?scope=archived");
+    expect(synthesizePhoneParent()).toBe(true);
+    const mounted = await remountCurrent();
+    expect(window.location.search).toBe("?scope=archived");
+    expect(window.history.state.idx).toBe(1);
+
+    pushPhone("/tasks/t1");
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/t1"));
+    expect(window.history.state.idx).toBe(2);
+    const taskToken = marker().token;
+
+    act(() => window.history.back());
+    await waitFor(() => expect(window.history.state.idx).toBe(1));
+    act(() => window.history.back());
+    await waitFor(() => expect(window.history.state.idx).toBe(0));
+    expect(window.location.search).toBe("");
+
+    act(() => window.history.forward());
+    await waitFor(() => expect(window.history.state.idx).toBe(1));
+    act(() => window.history.forward());
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/t1"));
+    expect(window.history.state.idx).toBe(2);
+
+    // The task still sees the archived list directly underneath it. Opening
+    // another conversation replaces the task instead of growing a third level.
+    expect(marker().token).toBe(taskToken);
+    pushPhone("/tasks/t2");
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/t2"));
+    expect(window.history.state.idx).toBe(2);
+
+    await backTo("/sessions");
+    expect(window.location.search).toBe("?scope=archived");
+    expect(window.history.state.idx).toBe(1);
+    mounted.unmount();
+  });
+
   it("recognizes a parent synthesized before the router mounted", async () => {
     window.history.replaceState({ idx: 0 }, "", "/projects/p1");
     expect(synthesizePhoneParent()).toBe(true);

@@ -50,7 +50,16 @@ const MAX_LIST_RECORDS = 64;
 type ListParentMarker = { token: string; parentIdx: number | null };
 type ListParentRecord = { idx: number | null; url: string };
 type ListParentLedger = Record<string, ListParentRecord>;
-export type TrackedRoute = Pick<Location, "pathname" | "search"> & { key?: string };
+export type TrackedRoute = Pick<Location, "pathname" | "search"> & {
+  key?: string;
+  /**
+   * How many routes this document has shown, including re-entries to the same
+   * history entry. A late answer compares this with the value it captured, so
+   * leaving and pressing Back to the original entry counts as a new visit
+   * rather than the screen the answer belongs to.
+   */
+  visit?: number;
+};
 
 /** The token for the list entry currently on screen, if this document showed
  *  it. Kept in memory for cheap pushes and mirrored into sessionStorage so a
@@ -60,6 +69,9 @@ let currentListToken: string | null = null;
  *  unmount before that answer lands, so its own `useLocation()` ref stops
  *  updating; this is the evidence of what is actually in front now. */
 let currentRoute: TrackedRoute | null = null;
+/** Bumped for every route the shell shows, so a leave-and-Back to the same
+ *  history entry (same `key`) is still a new visit to the screen. */
+let routeVisit = 0;
 
 function randomToken(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -117,10 +129,6 @@ function writeLedger(ledger: ListParentLedger): void {
   }
 }
 
-function listParentRecord(token: string): ListParentRecord | null {
-  return readLedger()[token] ?? null;
-}
-
 function listParentAt(idx: number): (ListParentRecord & { token: string }) | null {
   if (!Number.isInteger(idx) || idx < 0) return null;
   for (const [token, record] of Object.entries(readLedger())) {
@@ -147,14 +155,26 @@ function setCurrentListToken(token: string): void {
  * kept, because a replacement there means the previous list entry is gone.
  */
 export function registerListEntry(url: string, idx: number | null): string {
-  let token = currentListToken ?? readStoredToken() ?? randomToken("kin-list");
-  const previous = listParentRecord(token);
-  if (previous && previous.idx !== null && idx !== null && previous.idx !== idx) {
-    token = randomToken("kin-list");
-  }
   const ledger = readLedger();
+  // A history entry keeps its list identity for as long as the ledger says it
+  // is still a list. `notePhoneLocation` deletes a record only when another
+  // screen replaces that entry, so re-registering the same depth (Back,
+  // Forward, a query replace) must reuse its token instead of minting a new
+  // one: the children above it still name that token.
+  let token: string | null =
+    idx === null
+      ? null
+      : (Object.entries(ledger).find(([, record]) => record.idx === idx)?.[0] ?? null);
+  if (!token) {
+    const remembered = currentListToken ?? readStoredToken();
+    const previous = remembered ? ledger[remembered] : undefined;
+    token =
+      remembered && (!previous || previous.idx === idx || idx === null)
+        ? remembered
+        : randomToken("kin-list");
+  }
   for (const [other, record] of Object.entries(ledger)) {
-    if (idx !== null && record.idx === idx) delete ledger[other];
+    if (idx !== null && other !== token && record.idx === idx) delete ledger[other];
   }
   ledger[token] = { idx, url };
   const tokens = Object.keys(ledger);
@@ -285,10 +305,12 @@ export function rememberListUrl(url: string): void {
  * for a child of a list that is no longer underneath it.
  */
 export function notePhoneLocation(location: TrackedRoute): void {
+  routeVisit += 1;
   currentRoute = {
     pathname: location.pathname,
     search: location.search,
     key: location.key,
+    visit: routeVisit,
   };
   if (location.pathname === LIST_PATH) {
     rememberListUrl(`${location.pathname}${location.search}`);
@@ -355,7 +377,16 @@ export function phonePush(
   options?: { replace?: boolean; phone?: boolean; state?: unknown },
 ): void {
   const targetPath = to.split(/[?#]/, 1)[0] || to;
-  if (targetPath === location.pathname) {
+  const phone = options?.phone ?? isPhoneLayout();
+  // On a phone a same-screen link is a view change and must not stack the
+  // machine/view behind it. On a Mac the same pathname can name a different
+  // view (a routine notification switching `?device=A` to `?device=B`), and
+  // replacing there would erase the A entry Back is supposed to reach. Only an
+  // exact same URL — or an explicit replace — stays in this entry on a Mac.
+  const sameView =
+    targetPath === location.pathname &&
+    to.split("#", 1)[0] === `${location.pathname}${location.search}`;
+  if (targetPath === location.pathname && (phone || sameView || options?.replace)) {
     // A same-screen link ("Open cover" on the cover itself) is a view change,
     // not a push. Replacing prevents a duplicate entry — and on a phone it
     // also prevents the synthetic-list walk that would put a second project
@@ -363,7 +394,6 @@ export function phonePush(
     navigate(to, { replace: true, state: options?.state });
     return;
   }
-  const phone = options?.phone ?? isPhoneLayout();
   if (!phone) {
     const navigateOptions =
       options?.replace === undefined && options?.state === undefined
