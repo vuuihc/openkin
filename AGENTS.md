@@ -245,6 +245,14 @@ fresh Electron shell:
 - The script already: builds Vite UI into `web/dist`, builds `./kin` with the
   new embed, stops anything on `:7777`, stops this repo's Kin/Electron, then
   launches desktop (`npm run dev`).
+- **Daily release gate.** `./scripts/daily-deploy.sh` is the scheduled version
+  of this: it requires the `origin/main` tip's CI to be green, merges it into
+  the primary checkout's `main`, runs the local equivalent of that CI plus the
+  smoke boot, and only then schedules `desktop-rebuild.sh` through launchd.
+  The launchd handoff is required because the rebuild restarts the `:7777` node
+  that would otherwise be running the task that asked for the rebuild. It
+  never pushes, and it refuses a dirty tracked tree. `--dry-run` reports the
+  plan without changing anything.
 - **Cadence.** A console change rebuilds in the round that lands it. Daemon-only
   changes may be batched: land them on `main` and rebuild once every two or
   three rounds, because every rebuild restarts the live `:7777` node. Say in
