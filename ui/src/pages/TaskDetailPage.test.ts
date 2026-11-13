@@ -80,7 +80,7 @@ describe("TaskDetailPage session rail breakpoints", () => {
     // that always fails.
     expect(source).toContain("cancelWorkerStep(task.id, row.executionId, row.stepIndex)");
     expect(source).toContain("void listWorkerSteps(task.id)");
-    expect(source).toContain("if (taskIdRef.current === task.id) setWorkerSteps(steps);");
+    expect(source).toContain("if (idRef.current === task.id) setWorkerSteps(steps);");
     // A 409 is the step having settled, not a failure worth a toast.
     expect(source).toContain("err instanceof ApiError && err.status === 409");
     // One stop in flight at a time, and no stop offered on a settled task.

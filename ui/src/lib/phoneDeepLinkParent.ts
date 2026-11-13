@@ -18,6 +18,8 @@
  * - only when the app has no in-app entry behind it (`idx === 0`),
  * - not for `/` (the start route resolves it) and not for the plain list.
  */
+import { listParentState, registerListEntry } from "./phoneNavigation";
+
 const PHONE_QUERY = "(min-width: 768px)";
 
 function wasIndex(state: unknown): number {
@@ -34,6 +36,12 @@ export function synthesizePhoneParent(win: Window = window): boolean {
   if (here === "/" || here === "/sessions") return false;
 
   const state = (win.history.state ?? {}) as Record<string, unknown>;
+  const usr = typeof state.usr === "object" && state.usr !== null ? state.usr : undefined;
+  // Record the synthesized list in this tab's ledger and mark the deep link as
+  // its child. Without both, the first push made before the list ever rendered
+  // cannot tell that the parent is already there, and synthesizes a second
+  // list ([list, list, target]).
+  const token = registerListEntry("/sessions", 0);
   win.history.replaceState({ ...state, idx: 0 }, "", "/sessions");
   win.history.pushState(
     {
@@ -42,6 +50,9 @@ export function synthesizePhoneParent(win: Window = window): boolean {
       // React Router needs a location key; it never saw the original entry, so
       // there is no key to preserve.
       key: `kin-deep-${Math.random().toString(36).slice(2)}`,
+      // React Router reads location state from `usr`, not from the history
+      // state's top level.
+      usr: listParentState(token, usr, 0),
     },
     "",
     here,

@@ -172,6 +172,7 @@ const zh = {
     summaryFocus: "当前焦点",
     summaryNext: "下一步",
     noCwdHint: "选择工作目录后可查看项目方向",
+    replaceDraftWithPrompt: "你还有未发送的草稿。要用刚刚打开本页的请求替换它吗？",
     cwdLabel: "工作目录（cwd）",
     cwdOnMachine: "{name} 上的工作目录",
     permissionLabel: "权限模式",

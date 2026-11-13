@@ -19,6 +19,7 @@ import {
   prefersReducedMotion,
   SWIPE_TOLERANCE_PX,
 } from "../../lib/swipeGesture";
+import { registerSheetExit } from "../../lib/sheetExit";
 
 /**
  * The phone's one modal surface.
@@ -311,6 +312,10 @@ export default function Sheet({
 
   useEffect(() => {
     if (!open) return;
+    // A departure from outside the sheet (a notification tap) closes it first
+    // and waits for this handle, so the destination is never pushed while the
+    // sheet's own history entry is still current.
+    const exit = registerSheetExit(() => onCloseRef.current());
     restoreRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     // A frame, not synchronously: the panel is mounted in this commit, and
@@ -417,12 +422,18 @@ export default function Sheet({
       // told only when the entry is gone.
       const current = window.history.state as { kinSheet?: string } | null;
       if (!closedByBack && current?.kinSheet === marker) {
-        window.addEventListener("popstate", () => onCloseCompleteRef.current?.(), {
-          once: true,
-        });
+        window.addEventListener(
+          "popstate",
+          () => {
+            onCloseCompleteRef.current?.();
+            exit.finish();
+          },
+          { once: true },
+        );
         window.history.back();
       } else {
         onCloseCompleteRef.current?.();
+        exit.finish();
       }
       media?.removeEventListener?.("change", onMediaChange);
       restoreRef.current?.focus?.({ preventScroll: true });

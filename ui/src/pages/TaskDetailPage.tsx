@@ -6,11 +6,17 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { goBackToList } from "../lib/phoneBack";
-import { isPhoneLayout, onGuardedLinkClick, phonePush } from "../lib/phoneNavigation";
+import {
+  currentPhoneLocation,
+  isPhoneLayout,
+  onGuardedLinkClick,
+  phonePush,
+} from "../lib/phoneNavigation";
 import { IonActionSheet } from "@ionic/react";
 import type { ActionSheetButton } from "@ionic/core";
 import {
@@ -125,6 +131,7 @@ import {
 } from "../lib/permissionMode";
 import { clearFollowUpDraft, getFollowUpDraft, setFollowUpDraft } from "../lib/followUpDraft";
 import { clearSessionScroll, getSessionScroll, setSessionScroll } from "../lib/sessionScroll";
+import { taskIdFromPathname } from "../lib/sessionCache";
 import { modelPickerLabel, modelsForAgent } from "../lib/agentModels";
 import { isPanelAvailable, panelForView, resolvePanel, type PanelContext } from "../lib/panels";
 import { useAppStore } from "../store/appStore";
@@ -158,6 +165,12 @@ type TaskDetailPageProps = {
   fallbackTask?: Task;
 };
 
+/** A modifier click opens the link the browser's way; the phone's in-app
+ *  return must not swallow a new tab or window. */
+function keepsBrowserLink(event: ReactMouseEvent): boolean {
+  return event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+}
+
 export default function TaskDetailPage({
   taskId,
   active = true,
@@ -169,6 +182,12 @@ export default function TaskDetailPage({
   const navigate = useNavigate();
   const location = useLocation();
   const tr = useT();
+  const locationRef = useRef(location);
+  locationRef.current = location;
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const idRef = useRef(id);
+  idRef.current = id;
   // The session-actions sheet is a phone surface; below `md` it is the way to
   // stop, share or find. Keeping it mounted at desktop width leaves an
   // `ion-action-sheet` in the Mac's document even while closed.
@@ -267,7 +286,22 @@ export default function TaskDetailPage({
   /** The worker row whose stop request is in flight, keyed like the timeline. */
   const [workerStoppingKey, setWorkerStoppingKey] = useState<string | null>(null);
   /** The task the page is showing now; a late cancel answer must check it. */
-  const taskIdRef = useRef(id);
+  /**
+   * Whether this pane is still the conversation in front.
+   *
+   * A cached pane keeps its `taskId` prop forever, so `taskId === id` is not
+   * evidence that the reader is still looking at it: another session can be
+   * active while this answer lands. Every late navigation asks this instead,
+   * with the path captured when the action started so a trip away and back
+   * does not turn a stale answer into a fresh one.
+   */
+  const taskInFront = (taskID: string): boolean =>
+    activeRef.current &&
+    idRef.current === taskID &&
+    taskIdFromPathname(currentPhoneLocation()?.pathname ?? locationRef.current.pathname) === taskID;
+  const stillShowing = (taskID: string, originPath: string): boolean =>
+    taskInFront(taskID) &&
+    (currentPhoneLocation()?.pathname ?? locationRef.current.pathname) === originPath;
   const [deleting, setDeleting] = useState(false);
   const [archiving, setArchiving] = useState(false);
   /** Phone-only overflow sheet; the same actions stay as chips from `md` up. */
@@ -428,7 +462,6 @@ export default function TaskDetailPage({
   }, [id]);
 
   useEffect(() => {
-    taskIdRef.current = id;
     lastObservedEventSeq.current = 0;
     setUsage(null);
     setLimitWait(null);
@@ -1213,7 +1246,9 @@ export default function TaskDetailPage({
       // panel: this answer belongs to the task it was asked for.
       void listWorkerSteps(task.id)
         .then((steps) => {
-          if (taskIdRef.current === task.id) setWorkerSteps(steps);
+          // A cached pane is allowed to update while it is behind another one;
+          // only its task identity must still match the request.
+          if (idRef.current === task.id) setWorkerSteps(steps);
         })
         .catch(() => {});
     }
@@ -1239,7 +1274,7 @@ export default function TaskDetailPage({
       pushToast(tr(wasArchived ? "task.unarchived" : "task.archived"), "info");
       // Leaving is only right if this is still the conversation on screen: a
       // slow answer must not pull the person off the one they opened next.
-      if (!wasArchived && taskIdRef.current === task.id) leaveConversation();
+      if (!wasArchived && taskInFront(task.id)) leaveConversation();
     } catch (err) {
       pushToast(
         err instanceof Error
@@ -1264,7 +1299,10 @@ export default function TaskDetailPage({
       clearSessionScroll(task.id);
       clearFollowUpDraft(task.id);
       pushToast(tr("task.deleted"), "info");
-      leaveConversation();
+      // A slow delete answer belongs to the conversation that asked. If the
+      // reader has opened another screen since, removing the stale row is
+      // enough; navigating would discard whatever they are doing there.
+      if (taskInFront(task.id)) leaveConversation();
     } catch (err) {
       pushToast(err instanceof Error ? err.message : tr("task.deleteFailed"), "error");
     } finally {
@@ -1307,11 +1345,13 @@ export default function TaskDetailPage({
 
   async function onFork(fromSeq: number) {
     if (!task || actionBusy) return;
+    const originPath = locationRef.current.pathname;
     setActionBusy(true);
     try {
       // Snapshot branch at this user message (no auto-run). User continues in the new session.
       const t = await forkTask(task.id, { from_seq: fromSeq });
       pushToast(tr("task.forkDone"), "info");
+      if (!stillShowing(task.id, originPath)) return;
       // A fork starts a second conversation from this one. On a phone it must
       // not become a second layer over the first: the list is the parent the
       // new conversation inherits (KIN-CONTINUE-002). On the Mac the fork is
@@ -1328,6 +1368,7 @@ export default function TaskDetailPage({
     if (!task || actionBusy) return;
     const content = text.trim();
     if (!content) return;
+    const originPath = locationRef.current.pathname;
     setActionBusy(true);
     try {
       const art = await createArtifact({
@@ -1338,6 +1379,7 @@ export default function TaskDetailPage({
         status: "saved",
       });
       pushToast(tr("task.saveArtifactDone"), "info");
+      if (!stillShowing(task.id, originPath)) return;
       // The saved delivery is a push of its own; on a phone it replaces the
       // conversation with the list underneath rather than stacking on it.
       phonePush(navigate, location, `/artifacts/${art.id}`);
@@ -1452,6 +1494,7 @@ export default function TaskDetailPage({
             // A missing conversation has no screen to keep; a phone returns to
             // the list, a Mac to `/` (KIN-CONTINUE-002).
             if (!isPhoneLayout()) return;
+            if (keepsBrowserLink(event)) return;
             event.preventDefault();
             goBackToList(navigate);
           }}
@@ -1476,6 +1519,7 @@ export default function TaskDetailPage({
           className="text-strong leading-5 text-kin-blue-ink"
           onClick={(event) => {
             if (!isPhoneLayout()) return;
+            if (keepsBrowserLink(event)) return;
             event.preventDefault();
             goBackToList(navigate);
           }}

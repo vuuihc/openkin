@@ -47,6 +47,7 @@ import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { useMachines } from "../hooks/useMachines";
 import { runGuardedNavigation } from "../lib/leaveGuard";
 import {
+  currentPhoneLocation,
   phonePush,
   onGuardedLinkClick,
   draftEntryState,
@@ -97,6 +98,10 @@ export default function ProjectDetailPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const tr = useT();
+  const locationRef = useRef(location);
+  locationRef.current = location;
+  const idRef = useRef(id);
+  idRef.current = id;
   const pushToast = useAppStore((s) => s.pushToast);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
 
@@ -402,6 +407,11 @@ export default function ProjectDetailPage() {
   ) => {
     if (!project || !id) return;
     if (!canLeave()) return;
+    const origin = {
+      pathname: locationRef.current.pathname,
+      key: locationRef.current.key,
+      projectID: id,
+    };
     const cwd = (project.roots?.[0] || "").trim();
     if (!cwd) {
       pushToast(tr("projects.continueNeedRoot"), "error");
@@ -415,6 +425,17 @@ export default function ProjectDetailPage() {
         project_id: id,
         ctx: recipeCtx(),
       });
+      // The launch was approved for the cover that started it. A slow answer
+      // must not navigate away from a different screen the reader opened in
+      // the meantime (notably a dirty Settings), nor from another project.
+      const now = currentPhoneLocation() ?? locationRef.current;
+      if (
+        now.pathname !== origin.pathname ||
+        now.key !== origin.key ||
+        idRef.current !== origin.projectID
+      ) {
+        return;
+      }
       runGuardedNavigation(
         () => phonePush(navigate, location, `/tasks/${t.id}`),
         true,

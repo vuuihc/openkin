@@ -187,6 +187,8 @@ const en: MessageTree = {
     summaryFocus: "Current Focus",
     summaryNext: "Next",
     noCwdHint: "Choose a working directory to see project direction",
+    replaceDraftWithPrompt:
+      "You have an unsent draft. Replace it with the request that just opened this page?",
     cwdLabel: "Working directory (cwd)",
     cwdOnMachine: "Working directory on {name}",
     permissionLabel: "Permission mode",

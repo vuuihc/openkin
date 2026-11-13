@@ -47,11 +47,10 @@ import { useEdgeSwipeBack } from "../../hooks/useEdgeSwipeBack";
 import { runGuardedNavigation } from "../../lib/leaveGuard";
 import { goBackToList } from "../../lib/phoneBack";
 import {
-  bindPhoneHistoryEntry,
+  notePhoneLocation,
   draftEntryState,
   draftReturnUrl,
   phonePush,
-  rememberListUrl,
   returnListUrl,
   routerHasParent,
 } from "../../lib/phoneNavigation";
@@ -293,14 +292,11 @@ export default function AppShell({
   );
 
   // The list is the phone's home; remember the exact view (search, filters)
-  // whenever it is on screen so a later push can return to it. Every route
-  // change also binds a push's list-parent marker to the entry that received
-  // it, which is what keeps a copied or pre-reload marker from claiming the
-  // list as its parent.
+  // whenever it is on screen so a later push can return to it. The same
+  // subscription removes a list record from a depth the route has since
+  // replaced with another screen, so a stale depth cannot claim a parent.
   useEffect(() => {
-    bindPhoneHistoryEntry(location);
-    if (location.pathname !== "/sessions") return;
-    rememberListUrl(`${location.pathname}${location.search}`);
+    notePhoneLocation(location);
   }, [location]);
 
   // The terminal is the shell's panel, and the shell's panel is the one keyed to

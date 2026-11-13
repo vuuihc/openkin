@@ -236,6 +236,27 @@ function browser(initial: string) {
   );
 }
 
+/** A warm stack: the list plus the imported session pushed above it. */
+function browserAt(entries: string[]) {
+  window.history.replaceState({ idx: 0 }, "", entries[0]);
+  entries.slice(1).forEach((url, index) => {
+    window.history.pushState({ idx: index + 1 }, "", url);
+  });
+  return render(
+    <BrowserRouter>
+      <AppShell pendingApprovals={[]}>
+        <Routes>
+          <Route path="/sessions" element={<SessionsPage />} />
+          <Route path="/new" element={<NewChatPage />} />
+          <Route path="/agents" element={<AgentsPage />} />
+          <Route path="/agent-sessions/:id" element={<AgentSessionDetailPage />} />
+          <Route path="/tasks/:id" element={<div>conversation page</div>} />
+        </Routes>
+      </AppShell>
+    </BrowserRouter>,
+  );
+}
+
 async function browserBack(): Promise<void> {
   act(() => window.history.back());
 }
@@ -277,13 +298,21 @@ describe("Agent Ops is a destination, so the draft it opens replaces it", () => 
 
     // [list, draft], not [list, agents, draft].
     await waitFor(() => expect(window.location.pathname).toBe("/new"));
-    expect(window.location.search).toContain("q=");
+    // The prefill is consumed: it is in the draft now, not left in the URL to
+    // overwrite later edits on reload.
+    await waitFor(() => expect(window.location.search).not.toContain("q="));
+    expect(screen.getByTestId("composer-value").textContent).toContain("Please install Claude Code");
     expect(window.history.state.idx).toBe(1);
 
     // Closing the draft is the same one step.
     await user.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
     expect(window.history.state.idx).toBe(0);
+
+    // Reopening the draft brings the same words back from the saved draft.
+    await user.click(document.querySelector("[data-phone-return='new']") as HTMLElement);
+    await waitFor(() => expect(window.location.pathname).toBe("/new"));
+    expect(screen.getByTestId("composer-value").textContent).toContain("Please install Claude Code");
   });
 
   it("keeps the draft's words when Agent Ops opens from it, and Back reaches the list", async () => {
@@ -380,5 +409,39 @@ describe("continuing an imported session", () => {
     await browserBack();
     await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
     expect(window.history.state.idx).toBe(0);
+  });
+
+  it("pushes the conversation on the Mac, so Back returns to the imported session", async () => {
+    fixtures.wide = true;
+    viewport(true);
+    fixtures.sessions = [
+      {
+        id: "s1",
+        agent_id: "claude-code",
+        external_ref: "ref-1",
+        title: "Yesterday session",
+        cwd: "/work",
+        status: "idle",
+        first_seen_at: 1,
+        last_seen_at: 2,
+        updated_at: 2,
+        linked: false,
+        capabilities: ["session_attach"],
+      } as AgentSession,
+    ];
+    const user = userEvent.setup();
+    browserAt(["/sessions", "/agent-sessions/s1"]);
+    await screen.findByRole("heading", { name: "Yesterday session" });
+    expect(window.history.state.idx).toBe(1);
+
+    await user.click(await screen.findByTestId("composer-send"));
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/task-1"));
+
+    // The Mac keeps ordinary nested history: the imported session is still
+    // one Back away, not replaced by the conversation.
+    expect(window.history.state.idx).toBe(2);
+    await browserBack();
+    await waitFor(() => expect(window.location.pathname).toBe("/agent-sessions/s1"));
+    expect(window.history.state.idx).toBe(1);
   });
 });

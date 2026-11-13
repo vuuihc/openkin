@@ -23,17 +23,21 @@ import { runGuardedNavigation } from "./leaveGuard";
  * back, not a bare `/sessions`.
  *
  * "The list is directly underneath" is evidence, not a guess. A location-state
- * marker names an entry this document minted, and the entry's own `key` binds
- * the marker to the exact history entry it was pushed for; a copied marker, a
- * marker left over from a previous document (an OAuth round trip, a reload),
- * or a bare history index that happens to line up is not accepted. The index
- * remains a fallback only for an entry whose marker was erased by a
- * same-entry replace, and only when it belongs to this document.
+ * marker names a list entry this tab recorded, and the tab-scoped ledger keeps
+ * that entry's history index. The marker therefore survives a reload and a
+ * Forward that land on the same stack, while a marker copied to another depth,
+ * or a bare index with no list entry behind it, is refused. The ledger is not
+ * a security boundary — a page can always rewrite its own history — it is what
+ * keeps a stale or unrelated index from claiming the list as its parent.
+ *
+ * A same-entry replace can erase the child's marker (a project tab switch).
+ * The ledger entry at `idx - 1` is then the evidence: this tab really did put
+ * a list at that depth, and the entry on top of it is therefore its child.
  */
 const LIST_PATH = "/sessions";
 const LIST_URL_KEY = "kin.listUrl";
-const LIST_IDX_KEY = "kin.listIdx";
-const LIST_NONCE_KEY = "kin.listNonce";
+const LIST_TOKEN_KEY = "kin.listToken";
+const LIST_PARENTS_KEY = "kin.listParents";
 const PHONE_QUERY = "(min-width: 768px)";
 const LIST_STATE_KEYS = ["search", "status", "scope"] as const;
 
@@ -41,67 +45,30 @@ const LIST_STATE_KEYS = ["search", "status", "scope"] as const;
  *  the list. It is what lets a later push tell "the list is already my parent"
  *  from "some other screen is". */
 const LIST_PARENT_KEY = "kinListParent";
+const MAX_LIST_RECORDS = 64;
 
-type ListParentMarker = { token: string; nonce: string };
-type ParentEvidence = { token: string; listUrl: string; listIdx: number | null };
+type ListParentMarker = { token: string; parentIdx: number | null };
+type ListParentRecord = { idx: number | null; url: string };
+type ListParentLedger = Record<string, ListParentRecord>;
+export type TrackedRoute = Pick<Location, "pathname" | "search"> & { key?: string };
+
+/** The token for the list entry currently on screen, if this document showed
+ *  it. Kept in memory for cheap pushes and mirrored into sessionStorage so a
+ *  reload reuses the same token instead of orphaning every child marker. */
+let currentListToken: string | null = null;
+/** The route the shell last showed. A page that is waiting on an answer can
+ *  unmount before that answer lands, so its own `useLocation()` ref stops
+ *  updating; this is the evidence of what is actually in front now. */
+let currentRoute: TrackedRoute | null = null;
 
 function randomToken(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/**
- * This document's identity.
- *
- * `sessionStorage` outlives a full-page navigation, so the list index and URL
- * it holds may describe a different document (an OAuth callback, a redirect
- * back, a reload). A marker minted before that navigation carries the old
- * nonce and is not trusted; neither is stored index evidence. It is not a
- * security boundary — a page can always rewrite its own history — it is what
- * keeps stale evidence from claiming a parent that is no longer there.
- */
-let documentNonce = randomToken("kin-doc");
-
-/** The marker awaiting its entry in the router's own location. It is consumed
- *  exactly once, so copying the state onto another entry cannot re-bind. */
-let pendingPush: ParentEvidence | null = null;
-/** Entry key -> the list evidence that entry was pushed against. */
-const entryEvidence = new Map<string, ParentEvidence>();
-
-function markerOf(state: unknown): ListParentMarker | null {
-  if (typeof state !== "object" || state === null) return null;
-  const raw = (state as Record<string, unknown>)[LIST_PARENT_KEY];
-  if (typeof raw !== "object" || raw === null) return null;
-  const token = (raw as Record<string, unknown>).token;
-  const nonce = (raw as Record<string, unknown>).nonce;
-  return typeof token === "string" && typeof nonce === "string" ? { token, nonce } : null;
-}
-
-function markerState(state: unknown): Record<string, unknown> {
-  const base =
-    typeof state === "object" && state !== null ? (state as Record<string, unknown>) : {};
-  const token = randomToken("kin-list-parent");
-  pendingPush = {
-    token,
-    listUrl: lastListUrl(),
-    listIdx: storedListIndex(),
-  };
-  return { ...base, [LIST_PARENT_KEY]: { token, nonce: documentNonce } };
-}
-
 function historyIndex(): number | null {
+  if (typeof window === "undefined") return null;
   const idx = (window.history.state as { idx?: unknown } | null)?.idx;
   return typeof idx === "number" ? idx : null;
-}
-
-function storedListIndex(): number | null {
-  try {
-    const raw = window.sessionStorage.getItem(LIST_IDX_KEY);
-    if (raw === null) return null;
-    const value = Number(raw);
-    return Number.isInteger(value) ? value : null;
-  } catch {
-    return null;
-  }
 }
 
 /** The history index of the route's own entry, or null when this is not the
@@ -113,65 +80,145 @@ function routeIndex(location: Pick<Location, "pathname">): number | null {
   return historyIndex();
 }
 
-/** The list entry this document last showed, or null when the stored evidence
- *  belongs to another document. */
-function storedListEvidence(): { url: string; idx: number | null } | null {
+function readStoredToken(): string | null {
   try {
-    const url = window.sessionStorage.getItem(LIST_URL_KEY);
-    if (!url || !url.startsWith(LIST_PATH)) return null;
-    if (window.sessionStorage.getItem(LIST_NONCE_KEY) !== documentNonce) return null;
-    return { url, idx: storedListIndex() };
+    return window.sessionStorage.getItem(LIST_TOKEN_KEY);
   } catch {
     return null;
   }
 }
 
-/**
- * Whether the entry directly below this one is the list.
- *
- * A marker bound to this exact entry key is the explicit answer. A page is
- * allowed to rewrite its own URL — React Router's `setSearchParams(...,
- * { replace: true })`, a project changing tab — and the replace erases the
- * marker while keeping the entry's stack position. The list's index surviving
- * in this document is then the evidence; the same index from a previous
- * document is not.
- */
-function listIsDirectParent(
-  location: { pathname: string; state?: unknown; key?: string },
-): boolean {
-  const stored = storedListEvidence();
-  if (!stored) return false;
-  const idx = routeIndex(location);
-  const marker = markerOf(location.state);
-  if (marker) {
-    if (marker.nonce !== documentNonce) return false;
-    const evidence = entryEvidence.get(location.key ?? "");
-    if (!evidence || evidence.token !== marker.token) return false;
-    if (evidence.listUrl !== stored.url) return false;
-    if (evidence.listIdx !== null && idx !== null) return evidence.listIdx === idx - 1;
-    return true;
+function readLedger(): ListParentLedger {
+  try {
+    const raw = window.sessionStorage.getItem(LIST_PARENTS_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
+    const ledger: ListParentLedger = {};
+    for (const [token, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value !== "object" || value === null) continue;
+      const record = value as Record<string, unknown>;
+      const idx =
+        typeof record.idx === "number" && Number.isInteger(record.idx) ? record.idx : null;
+      if (typeof record.url !== "string" || !record.url.startsWith(LIST_PATH)) continue;
+      ledger[token] = { idx, url: record.url };
+    }
+    return ledger;
+  } catch {
+    return {};
   }
-  return (
-    location.pathname !== LIST_PATH &&
-    idx !== null &&
-    stored.idx !== null &&
-    idx === stored.idx + 1
-  );
 }
 
-/** Bind the marker a push just placed in location state to the entry that
- *  actually received it. Called from the shell's location subscription; the
- *  token is spent here, so a state object copied onto a later entry has no
- *  entry evidence and is refused above. */
-export function bindPhoneHistoryEntry(
-  location: Pick<Location, "pathname" | "search" | "state"> & { key?: string },
-): void {
-  const pending = pendingPush;
-  if (!pending) return;
+function writeLedger(ledger: ListParentLedger): void {
+  try {
+    window.sessionStorage.setItem(LIST_PARENTS_KEY, JSON.stringify(ledger));
+  } catch {
+    // No storage: pushes still work, but a reload cannot prove a parent.
+  }
+}
+
+function listParentRecord(token: string): ListParentRecord | null {
+  return readLedger()[token] ?? null;
+}
+
+function listParentAt(idx: number): (ListParentRecord & { token: string }) | null {
+  if (!Number.isInteger(idx) || idx < 0) return null;
+  for (const [token, record] of Object.entries(readLedger())) {
+    if (record.idx === idx) return { token, ...record };
+  }
+  return null;
+}
+
+function setCurrentListToken(token: string): void {
+  currentListToken = token;
+  try {
+    window.sessionStorage.setItem(LIST_TOKEN_KEY, token);
+  } catch {
+    // No storage: the in-memory token still serves this document.
+  }
+}
+
+/**
+ * Record that `url` is the list at history depth `idx`, and return its token.
+ *
+ * The same depth reuses its token, so a Back to the list followed by a query
+ * change (a same-entry replace) keeps every child marker above it valid. A
+ * different depth mints a new token; only the newest record for a depth is
+ * kept, because a replacement there means the previous list entry is gone.
+ */
+export function registerListEntry(url: string, idx: number | null): string {
+  let token = currentListToken ?? readStoredToken() ?? randomToken("kin-list");
+  const previous = listParentRecord(token);
+  if (previous && previous.idx !== null && idx !== null && previous.idx !== idx) {
+    token = randomToken("kin-list");
+  }
+  const ledger = readLedger();
+  for (const [other, record] of Object.entries(ledger)) {
+    if (idx !== null && record.idx === idx) delete ledger[other];
+  }
+  ledger[token] = { idx, url };
+  const tokens = Object.keys(ledger);
+  for (const stale of tokens.slice(0, Math.max(0, tokens.length - MAX_LIST_RECORDS))) {
+    delete ledger[stale];
+  }
+  writeLedger(ledger);
+  setCurrentListToken(token);
+  return token;
+}
+
+function markerOf(state: unknown): ListParentMarker | null {
+  if (typeof state !== "object" || state === null) return null;
+  const raw = (state as Record<string, unknown>)[LIST_PARENT_KEY];
+  if (typeof raw !== "object" || raw === null) return null;
+  const token = (raw as Record<string, unknown>).token;
+  if (typeof token !== "string") return null;
+  const parentIdx = (raw as Record<string, unknown>).parentIdx;
+  return {
+    token,
+    parentIdx: typeof parentIdx === "number" && Number.isInteger(parentIdx) ? parentIdx : null,
+  };
+}
+
+/** Location state for a child whose direct parent is the recorded list. */
+export function listParentState(
+  token: string,
+  state?: unknown,
+  parentIdx?: number | null,
+): Record<string, unknown> {
+  const base =
+    typeof state === "object" && state !== null ? (state as Record<string, unknown>) : {};
+  return {
+    ...base,
+    [LIST_PARENT_KEY]: {
+      token,
+      parentIdx: typeof parentIdx === "number" && Number.isInteger(parentIdx) ? parentIdx : null,
+    },
+  };
+}
+
+/** Whether the entry directly below this one is the list. */
+function listIsDirectParent(location: {
+  pathname: string;
+  state?: unknown;
+  key?: string;
+}): boolean {
+  const idx = routeIndex(location);
+  if (idx === null || idx <= 0) return false;
+  const parent = listParentAt(idx - 1);
   const marker = markerOf(location.state);
-  if (!marker || marker.nonce !== documentNonce || marker.token !== pending.token) return;
-  pendingPush = null;
-  entryEvidence.set(location.key ?? "", pending);
+  if (marker) {
+    // A marker minted for another depth is not evidence for this entry.
+    if (marker.parentIdx !== null && marker.parentIdx !== idx - 1) return false;
+    if (parent) return marker.token === parent.token;
+    // The tab ledger is gone (a browser restart restores history but not
+    // sessionStorage). The marker still names the depth it was minted for, and
+    // that depth is directly below this entry. If the ledger has any records
+    // but none here, the entry below was replaced and the marker is stale.
+    return Object.keys(readLedger()).length === 0;
+  }
+  // A same-entry replace erased the marker; the tab's own record at this depth
+  // is the evidence that the list is still the direct parent.
+  return parent !== null;
 }
 
 export function isPhoneLayout(win: Window = window): boolean {
@@ -223,13 +270,46 @@ export function rememberListUrl(url: string): void {
   if (!url.startsWith(LIST_PATH)) return;
   try {
     window.sessionStorage.setItem(LIST_URL_KEY, url);
-    window.sessionStorage.setItem(LIST_NONCE_KEY, documentNonce);
-    const idx = historyIndex();
-    if (idx === null) window.sessionStorage.removeItem(LIST_IDX_KEY);
-    else window.sessionStorage.setItem(LIST_IDX_KEY, String(idx));
   } catch {
     // No storage: the fallback is the plain list.
   }
+  registerListEntry(url, historyIndex());
+}
+
+/**
+ * Note every route the shell shows.
+ *
+ * A list route records itself. Any other route at the same history depth as a
+ * recorded list means that entry was replaced: the list at that depth is gone,
+ * and leaving its record behind would let a later push mistake the new screen
+ * for a child of a list that is no longer underneath it.
+ */
+export function notePhoneLocation(location: TrackedRoute): void {
+  currentRoute = {
+    pathname: location.pathname,
+    search: location.search,
+    key: location.key,
+  };
+  if (location.pathname === LIST_PATH) {
+    rememberListUrl(`${location.pathname}${location.search}`);
+    return;
+  }
+  const idx = routeIndex(location);
+  if (idx === null) return;
+  const ledger = readLedger();
+  let changed = false;
+  for (const [token, record] of Object.entries(ledger)) {
+    if (record.idx === idx) {
+      delete ledger[token];
+      changed = true;
+    }
+  }
+  if (changed) writeLedger(ledger);
+}
+
+/** The route the shell last rendered, or null before its first note. */
+export function currentPhoneLocation(): TrackedRoute | null {
+  return currentRoute;
 }
 
 /** The last list URL this tab showed, or the plain list. */
@@ -274,6 +354,15 @@ export function phonePush(
   to: string,
   options?: { replace?: boolean; phone?: boolean; state?: unknown },
 ): void {
+  const targetPath = to.split(/[?#]/, 1)[0] || to;
+  if (targetPath === location.pathname) {
+    // A same-screen link ("Open cover" on the cover itself) is a view change,
+    // not a push. Replacing prevents a duplicate entry — and on a phone it
+    // also prevents the synthetic-list walk that would put a second project
+    // above the list.
+    navigate(to, { replace: true, state: options?.state });
+    return;
+  }
   const phone = options?.phone ?? isPhoneLayout();
   if (!phone) {
     const navigateOptions =
@@ -291,10 +380,19 @@ export function phonePush(
       navigate(to, { replace: true, state: options?.state });
       return;
     }
+    if (options?.replace) {
+      // Replacing the list itself means the list is no longer underneath.
+      navigate(to, { replace: true, state: options?.state });
+      return;
+    }
     // The list is the parent, so it stays underneath as the push goes on top.
-    navigate(to, { replace: options?.replace, state: markerState(options?.state) });
+    const listIdx = routeIndex(location) ?? historyIndex();
+    const token = registerListEntry(`${location.pathname}${location.search}`, listIdx);
+    navigate(to, { state: listParentState(token, options?.state, listIdx) });
     return;
   }
+  const idx = routeIndex(location);
+  const parent = idx === null ? null : listParentAt(idx - 1);
   if (listIsDirectParent(location)) {
     if (isListTarget(to)) {
       // The list is already directly underneath. Popping is the one-step
@@ -307,13 +405,22 @@ export function phonePush(
     // destination would put this screen under it — Back would pass two list
     // copies, or the project the person just left. Replacing keeps the depth
     // at one: the list is the parent, exactly once.
-    navigate(to, { replace: true, state: markerState(options?.state) });
-    return;
+    // A marker-only answer means the tab ledger is gone but the marker still
+    // names the list it was minted for; its token carries forward.
+    const token = parent?.token ?? markerOf(location.state)?.token;
+    if (token) {
+      navigate(to, {
+        replace: true,
+        state: listParentState(token, options?.state, idx === null ? null : idx - 1),
+      });
+      return;
+    }
   }
   const listUrl = lastListUrl();
+  const listIdx = historyIndex();
+  const token = registerListEntry(listUrl, listIdx);
   navigate(listUrl, { replace: true });
-  rememberListUrl(listUrl);
-  navigate(to, { state: markerState(options?.state) });
+  navigate(to, { state: listParentState(token, options?.state, listIdx) });
 }
 
 /**
@@ -342,15 +449,19 @@ export function onGuardedLinkClick(
   );
 }
 
-/** Test hook: a new document, as a reload or an external redirect creates. */
-export function resetPhoneNavigation(): void {
-  documentNonce = randomToken("kin-doc");
-  pendingPush = null;
-  entryEvidence.clear();
+/**
+ * Test hook: drop this document's in-memory token and, unless a reload is
+ * being simulated, the tab ledger too. A reload keeps sessionStorage, so
+ * `keepStorage` is what lets a test prove the marker and ledger still agree.
+ */
+export function resetPhoneNavigation(options?: { keepStorage?: boolean }): void {
+  currentListToken = null;
+  currentRoute = null;
+  if (options?.keepStorage) return;
   try {
     window.sessionStorage.removeItem(LIST_URL_KEY);
-    window.sessionStorage.removeItem(LIST_IDX_KEY);
-    window.sessionStorage.removeItem(LIST_NONCE_KEY);
+    window.sessionStorage.removeItem(LIST_TOKEN_KEY);
+    window.sessionStorage.removeItem(LIST_PARENTS_KEY);
   } catch {
     // No storage to clear.
   }

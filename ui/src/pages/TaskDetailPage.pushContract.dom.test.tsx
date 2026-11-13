@@ -1,14 +1,16 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import AppShell from "../components/layout/AppShell";
 import SessionsPage from "./SessionsPage";
 import TaskDetailPage from "./TaskDetailPage";
 import { setLocale } from "../i18n";
 import { resetLeaveGuard } from "../lib/leaveGuard";
+import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import type { Task } from "../api/client";
 
 /**
@@ -26,6 +28,7 @@ import type { Task } from "../api/client";
 
 const fixtures = vi.hoisted(() => ({
   task: null as Task | null,
+  task2: null as Task | null,
   missing: false,
 }));
 
@@ -37,11 +40,13 @@ vi.mock("../api/useLiveResources", () => ({
     pageFull: false,
     loading: false,
   }),
-  useTaskResource: () => ({
+  useTaskResource: (id: string) => ({
     loaded: true,
     error: fixtures.missing ? "gone" : null,
     data: {
-      task: fixtures.missing ? undefined : (fixtures.task ?? undefined),
+      task: fixtures.missing
+        ? undefined
+        : ((id === "task-2" ? fixtures.task2 : fixtures.task) ?? undefined),
       events: [],
       deleted: false,
     },
@@ -146,17 +151,63 @@ function task(): Task {
   } as Task;
 }
 
+function task2(): Task {
+  return { ...task(), id: "task-2", title: "Another conversation" };
+}
+
 function app() {
   return (
     <BrowserRouter>
       <AppShell pendingApprovals={[]}>
+        <Jump />
         <Routes>
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/tasks/:id" element={<TaskDetailPage />} />
+          <Route path="/cached/:id" element={<CachedPanes />} />
+          <Route path="/settings" element={<DirtySettings />} />
           <Route path="/artifacts/:id" element={<div>artifact page</div>} />
         </Routes>
       </AppShell>
     </BrowserRouter>
+  );
+}
+
+let jump: ((to: string) => void) | null = null;
+
+function Jump() {
+  const navigate = useNavigate();
+  jump = (to: string) => navigate(to);
+  return null;
+}
+
+/** Two panes kept alive at once, the way TaskSessionHost caches sessions. */
+function CachedPanes() {
+  const { id = "" } = useParams();
+  return (
+    <div>
+      <div data-testid="pane-task-1" hidden={id !== "task-1"}>
+        <TaskDetailPage taskId="task-1" active={id === "task-1"} />
+      </div>
+      <div data-testid="pane-task-2" hidden={id !== "task-2"}>
+        <TaskDetailPage taskId="task-2" active={id === "task-2"} />
+      </div>
+    </div>
+  );
+}
+
+/** A dirty form behind the real leave guard. */
+function DirtySettings() {
+  const [text, setText] = useState("");
+  useLeaveGuard(
+    () => (typeof window.confirm === "function" ? window.confirm("Discard settings draft?") : true),
+    text.trim() !== "",
+  );
+  return (
+    <input
+      aria-label="settings draft"
+      value={text}
+      onChange={(event) => setText(event.target.value)}
+    />
   );
 }
 
@@ -185,6 +236,14 @@ async function openConversation(user: ReturnType<typeof userEvent.setup>) {
   expect(window.history.state.idx).toBe(1);
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
 beforeEach(() => {
   resetLeaveGuard();
   vi.stubGlobal("ResizeObserver", ResizeObserverStub);
@@ -192,6 +251,7 @@ beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
   fixtures.task = task();
+  fixtures.task2 = task2();
   fixtures.missing = false;
   api.createArtifact.mockClear();
   api.forkTask.mockClear();
@@ -240,5 +300,127 @@ describe("a conversation's own pushes on a phone", () => {
 
     await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
     expect(window.history.state.idx).toBe(0);
+  });
+
+  it("leaves a missing conversation's Home link to the browser on a modified click", async () => {
+    fixtures.missing = true;
+    browserAt(["/sessions", "/tasks/task-1"]);
+    const [home] = await screen.findAllByRole("link", { name: /Home/ });
+
+    for (const modifier of ["metaKey", "ctrlKey", "shiftKey", "altKey"] as const) {
+      const event = new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        [modifier]: true,
+      });
+      expect(home.dispatchEvent(event)).toBe(true);
+      expect(window.location.pathname).toBe("/tasks/task-1");
+    }
+  });
+});
+
+describe("late answers belong to the view that asked", () => {
+  it("does not push a fork answer over a clean screen opened later", async () => {
+    const user = userEvent.setup();
+    const fork = deferred<{ id: string }>();
+    api.forkTask.mockImplementationOnce(() => fork.promise);
+
+    const view = browserAt(["/sessions", "/cached/task-1"]);
+    const pane = await screen.findByTestId("pane-task-1");
+    await user.click(await within(pane).findByRole("button", { name: "fork conversation" }));
+
+    act(() => jump!("/settings"));
+    expect(await screen.findByLabelText("settings draft")).toBeTruthy();
+
+    await act(async () => {
+      fork.resolve({ id: "task-9" });
+      await fork.promise;
+    });
+
+    // Nothing on the clean Settings asks a question; only the view identity
+    // captured when the fork started can keep the stale answer here.
+    await waitFor(() => expect(window.location.pathname).toBe("/settings"));
+    expect(screen.queryByText("artifact page")).toBeNull();
+    view.unmount();
+  });
+
+  it("does not push a fork answer over a dirty Settings opened later", async () => {
+    const user = userEvent.setup();
+    const fork = deferred<{ id: string }>();
+    api.forkTask.mockImplementationOnce(() => fork.promise);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const view = browserAt(["/sessions", "/cached/task-1"]);
+    const pane = await screen.findByTestId("pane-task-1");
+    await user.click(await within(pane).findByRole("button", { name: "fork conversation" }));
+    expect(api.forkTask).toHaveBeenCalledTimes(1);
+
+    act(() => jump!("/settings"));
+    const draft = await screen.findByLabelText("settings draft");
+    fireEvent.change(draft, { target: { value: "unsaved settings words" } });
+
+    await act(async () => {
+      fork.resolve({ id: "task-9" });
+      await fork.promise;
+    });
+
+    await waitFor(() => expect(window.location.pathname).toBe("/settings"));
+    expect((screen.getByLabelText("settings draft") as HTMLInputElement).value).toBe(
+      "unsaved settings words",
+    );
+    expect(confirm).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("does not push a saved artifact over a dirty Settings opened later", async () => {
+    const user = userEvent.setup();
+    const saved = deferred<{ id: string; title: string }>();
+    api.createArtifact.mockImplementationOnce(() => saved.promise);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const view = browserAt(["/sessions", "/cached/task-1"]);
+    const pane = await screen.findByTestId("pane-task-1");
+    await user.click(await within(pane).findByRole("button", { name: "save artifact" }));
+    expect(api.createArtifact).toHaveBeenCalledTimes(1);
+
+    act(() => jump!("/settings"));
+    fireEvent.change(screen.getByLabelText("settings draft"), {
+      target: { value: "still here" },
+    });
+
+    await act(async () => {
+      saved.resolve({ id: "art-9", title: "Saved" });
+      await saved.promise;
+    });
+
+    await waitFor(() => expect(window.location.pathname).toBe("/settings"));
+    expect((screen.getByLabelText("settings draft") as HTMLInputElement).value).toBe("still here");
+    expect(confirm).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("does not navigate when another cached conversation is active", async () => {
+    const user = userEvent.setup();
+    const fork = deferred<{ id: string }>();
+    api.forkTask.mockImplementationOnce(() => fork.promise);
+
+    const view = browserAt(["/sessions", "/cached/task-1"]);
+    const first = await screen.findByTestId("pane-task-1");
+    await user.click(await within(first).findByRole("button", { name: "fork conversation" }));
+
+    act(() => jump!("/cached/task-2"));
+    const second = await screen.findByTestId("pane-task-2");
+    expect(second.getAttribute("hidden")).toBeNull();
+    expect(within(second).getByRole("button", { name: "fork conversation" })).toBeTruthy();
+
+    await act(async () => {
+      fork.resolve({ id: "task-9" });
+      await fork.promise;
+    });
+
+    await waitFor(() => expect(window.location.pathname).toBe("/cached/task-2"));
+    expect(screen.queryByText("artifact page")).toBeNull();
+    view.unmount();
   });
 });

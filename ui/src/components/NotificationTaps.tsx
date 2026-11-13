@@ -11,6 +11,8 @@ import {
 } from "../lib/notificationRoute";
 import { clearDeliveredNotification, deliveredNotificationTargets, nativePushPlugin } from "../lib/nativePush";
 import { phonePush } from "../lib/phoneNavigation";
+import { runGuardedNavigation } from "../lib/leaveGuard";
+import { closeTopSheet } from "../lib/sheetExit";
 import { useAppStore } from "../store/appStore";
 
 /**
@@ -53,6 +55,10 @@ export function NotificationTaps({
   const here = location.pathname + location.search;
   const deliveredRef = useRef(here);
   deliveredRef.current = here;
+  /** A tap whose navigation is waiting on a sheet to finish closing. */
+  const pendingTarget = useRef<string | null>(null);
+  if (here === pendingTarget.current) pendingTarget.current = null;
+  const delivering = useRef(false);
 
   useEffect(() => {
     // A notification that arrives while the app is in front is shown here
@@ -72,13 +78,35 @@ export function NotificationTaps({
       // on the target, so the next launch does not replay it.
       void source?.takePendingURL?.().catch(() => {});
       if (route.path === deliveredRef.current) return;
-      deliveredRef.current = route.path;
-      // A tap is a push of the destination it names. On a phone the list is
-      // the parent of every push (KIN-CONTINUE-002, step 4), so a tap read
-      // from another screen must not leave that screen underneath: the guard
-      // would return there instead of to the list. The Mac keeps ordinary
-      // history, which `phonePush` leaves alone at that width.
-      phonePush(navigateRef.current, locationRef.current, route.path);
+      if (route.path === pendingTarget.current || delivering.current) return;
+      delivering.current = true;
+      const target = route.path;
+      // A sheet owns a history entry above the current screen. Close it through
+      // the same cleanup path its own actions use, then ask the page's leave
+      // guard and push the destination. Doing it the other way round left the
+      // sheet's entry (and a dirty page's unsaved text) underneath or lost.
+      void closeTopSheet()
+        .then(() => {
+          // The timeout fallback must not navigate over a sheet that is still
+          // current: that is the duplicate-entry defect this path exists to
+          // prevent.
+          if ((window.history.state as { kinSheet?: string } | null)?.kinSheet) {
+            pendingTarget.current = null;
+            return;
+          }
+          // A tap is a push of the destination it names. On a phone the list
+          // is the parent of every push (KIN-CONTINUE-002, step 4), so a tap
+          // read from another screen must not leave that screen underneath:
+          // the guard would return there instead of to the list. The Mac keeps
+          // ordinary history, which `phonePush` leaves alone at that width.
+          const started = runGuardedNavigation(() =>
+            phonePush(navigateRef.current, locationRef.current, target),
+          );
+          if (started) pendingTarget.current = target;
+        })
+        .finally(() => {
+          delivering.current = false;
+        });
     };
 
     const uninstall = installNotificationRouting(deliver);

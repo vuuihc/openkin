@@ -194,7 +194,7 @@ describe("the phone list's archive wiring", () => {
     // The departure itself belongs to `leaveConversation`, which returns a
     // phone to the list (KIN-CONTINUE-002) and a Mac to `/`.
     expect(TASK_DETAIL).toContain(
-      "if (!wasArchived && taskIdRef.current === task.id) leaveConversation();",
+      "if (!wasArchived && taskInFront(task.id)) leaveConversation();",
     );
     expect(TASK_DETAIL).toContain("if (isPhoneLayout()) goBackToList(navigate);");
     expect(TASK_DETAIL).toContain('else navigate("/");');

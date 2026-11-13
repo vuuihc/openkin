@@ -1,7 +1,7 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import type { OnePagerSummary, Project } from "../../api/client";
 import { useT } from "../../i18n/react";
-import { phonePush } from "../../lib/phoneNavigation";
+import { onGuardedLinkClick } from "../../lib/phoneNavigation";
 
 type Props = {
   project: Project;
@@ -25,6 +25,7 @@ export default function ProjectSummaryCard({
   const location = useLocation();
   const name = summary?.name || project.name;
   const mode = summary?.mode || project.mode;
+  const coverPath = `/projects/${encodeURIComponent(project.id)}`;
   const empty =
     summary?.empty !== false && !summary?.north_star && !summary?.focus && !summary?.next?.length;
 
@@ -46,27 +47,15 @@ export default function ProjectSummaryCard({
           </div>
         </div>
         <Link
-          to={`/projects/${encodeURIComponent(project.id)}`}
+          to={coverPath}
           // The card is drawn on the draft and on the project's own overview.
-          // On a phone the project page is a push whose parent is the list, so
-          // opening it from the draft replaces the draft rather than stacking
-          // the project on top (KIN-CONTINUE-002). No leave guard is asked:
-          // from the project's own page this link names the page already on
-          // screen, and nothing is being discarded.
-          onClick={(event) => {
-            if (event.defaultPrevented) return;
-            if (
-              event.button !== 0 ||
-              event.metaKey ||
-              event.ctrlKey ||
-              event.shiftKey ||
-              event.altKey
-            ) {
-              return;
-            }
-            event.preventDefault();
-            phonePush(navigate, location, `/projects/${encodeURIComponent(project.id)}`);
-          }}
+          // Every departure asks the page's leave guard. From the draft, the
+          // phone push gives the project the list as its parent; from the
+          // project's own overview the target is the same screen, and
+          // `phonePush` replaces that entry instead of stacking a second
+          // project above a synthesized list. Modifier clicks keep the
+          // browser's new-tab behaviour.
+          onClick={(event) => onGuardedLinkClick(event, navigate, location, coverPath)}
           className="flex-none rounded-lg border border-[var(--kin-hairline)] px-2.5 py-1 text-body text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text"
         >
           {tr("newChat.openOnePager")}

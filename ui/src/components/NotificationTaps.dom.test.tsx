@@ -1,10 +1,16 @@
 // @vitest-environment jsdom
+import { useEffect, useState } from "react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { fireEvent, render, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes, useLocation, Link } from "react-router-dom";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { BrowserRouter, MemoryRouter, Route, Routes, useLocation, Link } from "react-router-dom";
 import NotificationTaps from "./NotificationTaps";
 import { NOTIFICATION_EVENT, type NotificationTapSource } from "../lib/notificationRoute";
 import { useAppStore } from "../store/appStore";
+import { useLeaveGuard } from "../hooks/useLeaveGuard";
+import { resetLeaveGuard } from "../lib/leaveGuard";
+import { notePhoneLocation, resetPhoneNavigation } from "../lib/phoneNavigation";
+import { resetSheetExits } from "../lib/sheetExit";
+import Sheet from "./mobile/Sheet";
 
 /**
  * KIN-NOTIFY-001: a tap has to reach the route whether the console was already
@@ -55,6 +61,9 @@ beforeEach(() => {
   h.delivered.mockReset();
   h.delivered.mockResolvedValue([]);
   useAppStore.setState({ auth: { status: "ok" } });
+  resetLeaveGuard();
+  resetPhoneNavigation();
+  resetSheetExits();
 });
 
 function trackedTree(source: NotificationTapSource | null, onRender: () => void) {
@@ -218,5 +227,136 @@ describe("NotificationTaps", () => {
     mount({ takePendingURL: async () => null });
     document.dispatchEvent(new Event("visibilitychange"));
     expect(h.refreshPending).not.toHaveBeenCalled();
+  });
+});
+
+describe("a tap on a phone with real browser history", () => {
+  function phoneViewport() {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(min-width: 768px)" ? false : false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+  }
+
+  function RouteProbe() {
+    const location = useLocation();
+    useEffect(() => {
+      notePhoneLocation(location);
+    }, [location]);
+    return null;
+  }
+
+  function DirtySettings() {
+    const [text, setText] = useState("");
+    useLeaveGuard(
+      () =>
+        typeof window.confirm === "function" ? window.confirm("Discard settings draft?") : true,
+      text.trim() !== "",
+    );
+    return (
+      <input
+        aria-label="settings draft"
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+      />
+    );
+  }
+
+  function SheetPage() {
+    const [open, setOpen] = useState(true);
+    return (
+      <Sheet open={open} onClose={() => setOpen(false)} title="Agents">
+        <p>agent rows</p>
+      </Sheet>
+    );
+  }
+
+  function browserApp(source: NotificationTapSource | null) {
+    return (
+      <BrowserRouter>
+        <RouteProbe />
+        <NotificationTaps source={source} />
+        <Routes>
+          <Route
+            path="/sessions"
+            element={
+              <div>
+                list page
+                <Link to="/settings">settings</Link>
+                <Link to="/agents">agents</Link>
+              </div>
+            }
+          />
+          <Route path="/settings" element={<DirtySettings />} />
+          <Route path="/agents" element={<SheetPage />} />
+          <Route path="/tasks/:id" element={<div>conversation page</div>} />
+        </Routes>
+      </BrowserRouter>
+    );
+  }
+
+  function openAt(entries: string[], source: NotificationTapSource | null) {
+    window.history.replaceState({ idx: 0 }, "", entries[0]);
+    entries.slice(1).forEach((url, index) => {
+      window.history.pushState({ idx: index + 1 }, "", url);
+    });
+    return render(browserApp(source));
+  }
+
+  it("asks a dirty Settings before a tap can discard its draft", async () => {
+    phoneViewport();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    try {
+      openAt(["/sessions"], { takePendingURL: async () => null });
+      fireEvent.click(await screen.findByText("settings"));
+      const draft = await screen.findByLabelText("settings draft");
+      fireEvent.change(draft, { target: { value: "unsaved settings words" } });
+      await waitFor(() =>
+        expect(
+          (window.history.state as { kinLeaveGuard?: string } | null)?.kinLeaveGuard,
+        ).toBeTruthy(),
+      );
+
+      tap("/tasks/task-1");
+      await waitFor(() => expect(confirm).toHaveBeenCalledWith("Discard settings draft?"));
+      expect(window.location.pathname).toBe("/settings");
+      expect((screen.getByLabelText("settings draft") as HTMLInputElement).value).toBe(
+        "unsaved settings words",
+      );
+
+      confirm.mockReturnValue(true);
+      tap("/tasks/task-1");
+      await waitFor(() => expect(window.location.pathname).toBe("/tasks/task-1"));
+      // The settings entry is replaced: Back reaches the list, not an earlier
+      // copy of the screen the tap left.
+      expect(window.history.state.idx).toBe(1);
+      await act(async () => window.history.back());
+      await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    } finally {
+      confirm.mockRestore();
+    }
+  });
+
+  it("closes an open sheet before pushing and leaves no Agents entry behind", async () => {
+    phoneViewport();
+    openAt(["/sessions"], { takePendingURL: async () => null });
+    fireEvent.click(await screen.findByText("agents"));
+    expect(await screen.findByRole("dialog", { name: "Agents" })).toBeTruthy();
+
+    tap("/tasks/task-1");
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/task-1"));
+    expect(screen.queryByRole("dialog", { name: "Agents" })).toBeNull();
+
+    // [list, target]: the sheet's own entry and the Agents screen beneath it
+    // are both gone, so one Back is the list.
+    expect(window.history.state.idx).toBe(1);
+    await act(async () => window.history.back());
+    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
   });
 });

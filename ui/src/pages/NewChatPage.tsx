@@ -92,7 +92,7 @@ const NO_EVENTS: TaskEvent[] = [];
 export default function NewChatPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const pushToast = useAppStore((s) => s.pushToast);
   const tr = useT();
 
@@ -147,6 +147,16 @@ export default function NewChatPage() {
   const [projectLookupError, setProjectLookupError] = useState<string | null>(null);
   const [projectLookupKey, setProjectLookupKey] = useState(0);
   const [dirs, setDirs] = useState<string[]>([]);
+  /**
+   * The `?q=` prefill is an invitation, not a standing instruction.
+   *
+   * It arrives from Agent Ops as `/new?q=…`, and a reload or a later return to
+   * the same URL used to apply it again over whatever the person had since
+   * typed. Consume it once: apply it to an empty draft (or after the person
+   * agrees to replace theirs), then remove it from the URL so a reload cannot
+   * overwrite later edits.
+   */
+  const queryHandled = useRef(false);
 
   useEffect(() => {
     refreshMachines();
@@ -177,17 +187,33 @@ export default function NewChatPage() {
 
   useEffect(() => {
     const q = params.get("q");
-    if (q) {
-      setInitialValue(q);
-      setPreviewPrompt(q);
-      setDraftPrompt(q);
+    if (!q) {
+      queryHandled.current = false;
+    } else if (!queryHandled.current) {
+      queryHandled.current = true;
+      const existing = getDraftPrompt();
+      // Never discard words the person already wrote. An empty draft takes the
+      // prefill directly; a non-empty one only changes after an explicit yes.
+      const replace =
+        existing.trim() === "" ||
+        existing === q ||
+        (typeof window.confirm === "function" &&
+          window.confirm(tr("newChat.replaceDraftWithPrompt")));
+      if (replace) {
+        setInitialValue(q);
+        setPreviewPrompt(q);
+        setDraftPrompt(q);
+      }
+      const next = new URLSearchParams(params);
+      next.delete("q");
+      setParams(next, { replace: true });
     }
     const cwdParam = params.get("cwd");
     if (cwdParam) {
       setCwd(cwdParam);
       setDraftCwd(cwdParam);
     }
-  }, [params]);
+  }, [params, setParams, tr]);
 
   const machine = machineId ? findMachine(machines, machineId) : undefined;
   // A machine that was chosen and has since gone away (revoked, or the device

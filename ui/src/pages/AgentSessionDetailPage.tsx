@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { goBackToList } from "../lib/phoneBack";
-import { onGuardedLinkClick, phonePush } from "../lib/phoneNavigation";
+import { isPhoneLayout, onGuardedLinkClick, phonePush } from "../lib/phoneNavigation";
 import {
   ApiError,
   attachAgentSession,
@@ -274,12 +274,12 @@ export default function AgentSessionDetailPage() {
     try {
       const result = await attachAgentSession(session.id, { prompt });
       window.dispatchEvent(new Event("kin:agent-sessions-changed"));
-      // Continuing a session turns this screen into the conversation that now
-      // exists, so it replaces the session entry rather than stacking the
-      // conversation on top of it. On a phone the list is the parent either
-      // way ([list, conversation]), so Back is one step (KIN-CONTINUE-002).
+      // On a phone the list is the parent either way: continuing replaces the
+      // session entry so Back is one step ([list, conversation]). On the Mac
+      // this is an ordinary nested push, so Back returns to the imported
+      // session that was being read.
       phonePush(navigate, location, `/tasks/${encodeURIComponent(result.task.id)}`, {
-        replace: true,
+        replace: isPhoneLayout(),
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : tr("agentSession.continueFailed");
