@@ -131,6 +131,7 @@ import {
 } from "../lib/permissionMode";
 import { clearFollowUpDraft, getFollowUpDraft, setFollowUpDraft } from "../lib/followUpDraft";
 import { clearSessionScroll, getSessionScroll, setSessionScroll } from "../lib/sessionScroll";
+import { registerSheetExit, type SheetExit } from "../lib/sheetExit";
 import { taskIdFromPathname } from "../lib/sessionCache";
 import { modelPickerLabel, modelsForAgent } from "../lib/agentModels";
 import { isPanelAvailable, panelForView, resolvePanel, type PanelContext } from "../lib/panels";
@@ -299,13 +300,51 @@ export default function TaskDetailPage({
     activeRef.current &&
     idRef.current === taskID &&
     taskIdFromPathname(currentPhoneLocation()?.pathname ?? locationRef.current.pathname) === taskID;
-  const stillShowing = (taskID: string, originPath: string): boolean =>
-    taskInFront(taskID) &&
-    (currentPhoneLocation()?.pathname ?? locationRef.current.pathname) === originPath;
+  /**
+   * The visit an answer belongs to: the task, its pathname, the history entry
+   * key and the visit counter. Leaving and reopening the same `/tasks/:id`
+   * mints a new key; leaving and pressing Back returns to the same key but a
+   * new visit. Neither is the screen that asked, so a late answer stays put.
+   */
+  const viewOrigin = (taskID: string) => {
+    const now = currentPhoneLocation();
+    return {
+      taskID,
+      pathname: now?.pathname ?? locationRef.current.pathname,
+      key: now?.key ?? locationRef.current.key,
+      visit: now?.visit,
+    };
+  };
+  const stillShowing = (origin: ReturnType<typeof viewOrigin>): boolean => {
+    if (!taskInFront(origin.taskID)) return false;
+    const now = currentPhoneLocation();
+    const pathname = now?.pathname ?? locationRef.current.pathname;
+    if (pathname !== origin.pathname) return false;
+    // The visit counter is the sharpest evidence: it changes on every route
+    // the shell showed, including a Back into the same history entry. The key
+    // is the fallback for a page rendered without the shell's location notes.
+    if (origin.visit !== undefined && now?.visit !== undefined) {
+      return now.visit === origin.visit;
+    }
+    return (now?.key ?? locationRef.current.key) === origin.key;
+  };
   const [deleting, setDeleting] = useState(false);
   const [archiving, setArchiving] = useState(false);
   /** Phone-only overflow sheet; the same actions stay as chips from `md` up. */
   const [actionsOpen, setActionsOpen] = useState(false);
+  /**
+   * The Ionic sheet is a real modal surface but not our `Sheet`, so it has to
+   * announce itself to the same exit handshake. A notification tap closes the
+   * open sheet before pushing its destination; without this handle the tap
+   * navigated underneath an `IonActionSheet` that stayed open.
+   */
+  const actionSheetExit = useRef<SheetExit | null>(null);
+  const openSessionActions = () => {
+    if (!actionSheetExit.current) {
+      actionSheetExit.current = registerSheetExit(() => setActionsOpen(false));
+    }
+    setActionsOpen(true);
+  };
   /** The public-link dialog, reachable from the sheet and from the chip row. */
   const [shareOpen, setShareOpen] = useState(false);
   /** Open the share dialog once the phone's action sheet has gone; see
@@ -402,10 +441,18 @@ export default function TaskDetailPage({
   useEffect(() => {
     if (!wide) return;
     setActionsOpen(false);
+    actionSheetExit.current?.finish();
+    actionSheetExit.current = null;
     openFindAfterSheet.current = false;
     openShareAfterSheet.current = false;
     openFileFinderAfterSheet.current = false;
   }, [wide]);
+  useEffect(() => {
+    return () => {
+      actionSheetExit.current?.finish();
+      actionSheetExit.current = null;
+    };
+  }, []);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null | undefined>(
     undefined,
   );
@@ -1345,13 +1392,13 @@ export default function TaskDetailPage({
 
   async function onFork(fromSeq: number) {
     if (!task || actionBusy) return;
-    const originPath = locationRef.current.pathname;
+    const origin = viewOrigin(task.id);
     setActionBusy(true);
     try {
       // Snapshot branch at this user message (no auto-run). User continues in the new session.
       const t = await forkTask(task.id, { from_seq: fromSeq });
       pushToast(tr("task.forkDone"), "info");
-      if (!stillShowing(task.id, originPath)) return;
+      if (!stillShowing(origin)) return;
       // A fork starts a second conversation from this one. On a phone it must
       // not become a second layer over the first: the list is the parent the
       // new conversation inherits (KIN-CONTINUE-002). On the Mac the fork is
@@ -1368,7 +1415,7 @@ export default function TaskDetailPage({
     if (!task || actionBusy) return;
     const content = text.trim();
     if (!content) return;
-    const originPath = locationRef.current.pathname;
+    const origin = viewOrigin(task.id);
     setActionBusy(true);
     try {
       const art = await createArtifact({
@@ -1379,7 +1426,7 @@ export default function TaskDetailPage({
         status: "saved",
       });
       pushToast(tr("task.saveArtifactDone"), "info");
-      if (!stillShowing(task.id, originPath)) return;
+      if (!stillShowing(origin)) return;
       // The saved delivery is a push of its own; on a phone it replaces the
       // conversation with the list underneath rather than stacking on it.
       phonePush(navigate, location, `/artifacts/${art.id}`);
@@ -1780,7 +1827,7 @@ export default function TaskDetailPage({
             <>
               <MobileHeaderButton
                 label={tr("task.sessionActions")}
-                onClick={() => setActionsOpen(true)}
+                onClick={openSessionActions}
                 tone="muted"
               >
                 <IconMore size={19} />
@@ -1923,6 +1970,8 @@ export default function TaskDetailPage({
             isOpen={actionsOpen}
             onDidDismiss={() => {
               setActionsOpen(false);
+              actionSheetExit.current?.finish();
+              actionSheetExit.current = null;
               // The bar can only take focus once the sheet is gone; see
               // `openFindAfterSheet`.
               if (openFindAfterSheet.current) {

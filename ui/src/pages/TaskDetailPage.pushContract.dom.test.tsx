@@ -6,11 +6,13 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { BrowserRouter, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import AppShell from "../components/layout/AppShell";
+import NotificationTaps from "../components/NotificationTaps";
 import SessionsPage from "./SessionsPage";
 import TaskDetailPage from "./TaskDetailPage";
 import { setLocale } from "../i18n";
 import { resetLeaveGuard } from "../lib/leaveGuard";
 import { useLeaveGuard } from "../hooks/useLeaveGuard";
+import { NOTIFICATION_EVENT } from "../lib/notificationRoute";
 import type { Task } from "../api/client";
 
 /**
@@ -92,9 +94,33 @@ vi.mock("../lib/desktop", () => ({ isKinDesktop: () => false }));
 vi.mock("../components/layout/SessionTabs", () => ({ default: () => null }));
 vi.mock("../components/terminal/TerminalPanel", () => ({ default: () => null }));
 vi.mock("../components/mobile/MobileHeader", () => ({
-  default: ({ title }: { title?: string }) => <div>{title}</div>,
-  MobileHeaderButton: ({ children }: { children?: ReactNode }) => (
-    <button type="button">{children}</button>
+  default: ({
+    title,
+    leading,
+    trailing,
+  }: {
+    title?: string;
+    leading?: ReactNode;
+    trailing?: ReactNode;
+  }) => (
+    <div>
+      {leading}
+      {title}
+      {trailing}
+    </div>
+  ),
+  MobileHeaderButton: ({
+    children,
+    label,
+    onClick,
+  }: {
+    children?: ReactNode;
+    label?: string;
+    onClick?: () => void;
+  }) => (
+    <button type="button" aria-label={label} onClick={onClick}>
+      {children}
+    </button>
   ),
 }));
 vi.mock("../components/chat/Composer", () => ({ default: () => null }));
@@ -158,6 +184,7 @@ function task2(): Task {
 function app() {
   return (
     <BrowserRouter>
+      <NotificationTaps source={null} />
       <AppShell pendingApprovals={[]}>
         <Jump />
         <Routes>
@@ -165,6 +192,7 @@ function app() {
           <Route path="/tasks/:id" element={<TaskDetailPage />} />
           <Route path="/cached/:id" element={<CachedPanes />} />
           <Route path="/settings" element={<DirtySettings />} />
+          <Route path="/inbox" element={<div>inbox page</div>} />
           <Route path="/artifacts/:id" element={<div>artifact page</div>} />
         </Routes>
       </AppShell>
@@ -421,6 +449,146 @@ describe("late answers belong to the view that asked", () => {
 
     await waitFor(() => expect(window.location.pathname).toBe("/cached/task-2"));
     expect(screen.queryByText("artifact page")).toBeNull();
+    view.unmount();
+  });
+
+  it("does not push a fork answer after leaving and reopening the same task", async () => {
+    const user = userEvent.setup();
+    const fork = deferred<{ id: string }>();
+    api.forkTask.mockImplementationOnce(() => fork.promise);
+
+    const view = browserAt(["/sessions", "/tasks/task-1"]);
+    await user.click(await screen.findByRole("button", { name: "fork conversation" }));
+    expect(api.forkTask).toHaveBeenCalledTimes(1);
+
+    act(() => jump!("/settings"));
+    await screen.findByLabelText("settings draft");
+    act(() => jump!("/tasks/task-1"));
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/task-1"));
+    const reopenedEntry = window.history.state.idx;
+
+    await act(async () => {
+      fork.resolve({ id: "task-9" });
+      await fork.promise;
+    });
+
+    // Reopening `/tasks/task-1` makes a new history entry, even though the id
+    // and pathname are the same. The answer belongs to the old visit.
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/task-1"));
+    expect(window.history.state.idx).toBe(reopenedEntry);
+    expect(screen.queryByText("artifact page")).toBeNull();
+    view.unmount();
+  });
+
+  it("does not push a fork answer after Back returns to the original task entry", async () => {
+    const user = userEvent.setup();
+    const fork = deferred<{ id: string }>();
+    api.forkTask.mockImplementationOnce(() => fork.promise);
+
+    const view = browserAt(["/sessions", "/tasks/task-1"]);
+    await user.click(await screen.findByRole("button", { name: "fork conversation" }));
+
+    act(() => jump!("/settings"));
+    await screen.findByLabelText("settings draft");
+    act(() => window.history.back());
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/task-1"));
+    expect(window.history.state.idx).toBe(1);
+
+    await act(async () => {
+      fork.resolve({ id: "task-9" });
+      await fork.promise;
+    });
+
+    // Back restores the same history entry and the same `location.key`, but it
+    // is a new visit: the answer must not replace this conversation.
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/task-1"));
+    expect(window.history.state.idx).toBe(1);
+    view.unmount();
+  });
+
+  it("does not push an artifact answer into a reopened cached pane", async () => {
+    const user = userEvent.setup();
+    const saved = deferred<{ id: string; title: string }>();
+    api.createArtifact.mockImplementationOnce(() => saved.promise);
+
+    const view = browserAt(["/sessions", "/cached/task-1"]);
+    const pane = await screen.findByTestId("pane-task-1");
+    await user.click(await within(pane).findByRole("button", { name: "save artifact" }));
+
+    act(() => jump!("/settings"));
+    await screen.findByLabelText("settings draft");
+    act(() => jump!("/cached/task-1"));
+    await waitFor(() => expect(window.location.pathname).toBe("/cached/task-1"));
+    const reopenedEntry = window.history.state.idx;
+
+    await act(async () => {
+      saved.resolve({ id: "art-9", title: "Saved" });
+      await saved.promise;
+    });
+
+    await waitFor(() => expect(window.location.pathname).toBe("/cached/task-1"));
+    expect(window.history.state.idx).toBe(reopenedEntry);
+    expect(screen.queryByText("artifact page")).toBeNull();
+    view.unmount();
+  });
+});
+
+describe("a notification closes the conversation's Ionic action sheet", () => {
+  function actionSheet(): { isOpen?: boolean } | null {
+    const sheets = Array.from(document.querySelectorAll("ion-action-sheet"));
+    return (sheets.find(
+      (sheet) =>
+        sheet.getAttribute("header") === "Session actions" &&
+        (sheet as unknown as { isOpen?: boolean }).isOpen === true,
+    ) ?? null) as unknown as { isOpen?: boolean } | null;
+  }
+
+  it("closes a directly hosted conversation's sheet before routing to Inbox", async () => {
+    const user = userEvent.setup();
+    const view = browser("/sessions");
+    await user.click(await screen.findByRole("button", { name: /A conversation/ }));
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/task-1"));
+    await user.click(await screen.findByRole("button", { name: "Session actions" }));
+    let sheet: { isOpen?: boolean } | null = null;
+    await waitFor(() => {
+      sheet = actionSheet();
+      expect(sheet).not.toBeNull();
+    });
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(NOTIFICATION_EVENT, { detail: { url: "/inbox" } }),
+      );
+    });
+
+    await waitFor(() => expect(window.location.pathname).toBe("/inbox"));
+    expect(sheet!.isOpen).toBe(false);
+    // The Ionic sheet never pushed a history entry of its own.
+    expect(window.history.state.idx).toBe(1);
+    view.unmount();
+  });
+
+  it("closes a cached pane's sheet before routing to Inbox", async () => {
+    const user = userEvent.setup();
+    const view = browser("/sessions");
+    act(() => jump!("/cached/task-1"));
+    const pane = await screen.findByTestId("pane-task-1");
+    await user.click(await within(pane).findByRole("button", { name: "Session actions" }));
+    let sheet: { isOpen?: boolean } | null = null;
+    await waitFor(() => {
+      sheet = actionSheet();
+      expect(sheet).not.toBeNull();
+    });
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(NOTIFICATION_EVENT, { detail: { url: "/inbox" } }),
+      );
+    });
+
+    await waitFor(() => expect(window.location.pathname).toBe("/inbox"));
+    expect(sheet!.isOpen).toBe(false);
+    expect(window.history.state.idx).toBe(1);
     view.unmount();
   });
 });
