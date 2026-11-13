@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { goBackToList } from "../lib/phoneBack";
 import {
@@ -38,7 +46,12 @@ import { useSlowHint } from "../hooks/useSlowHint";
 import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { useMachines } from "../hooks/useMachines";
 import { runGuardedNavigation } from "../lib/leaveGuard";
-import { phonePush } from "../lib/phoneNavigation";
+import {
+  phonePush,
+  onGuardedLinkClick,
+  draftEntryState,
+  returnListUrl,
+} from "../lib/phoneNavigation";
 import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
 import { samePath } from "../lib/devices";
 import {
@@ -761,7 +774,23 @@ export default function ProjectDetailPage() {
                 root={projectRoots(project)[0] ?? ""}
                 onRetry={() => void loadChats()}
                 onOpen={openChat}
-                onBeforeLeave={canLeave}
+                onNewChat={(event: ReactMouseEvent) => {
+                  const root = projectRoots(project)[0] ?? "";
+                  if (!root) return;
+                  // A plain router Link would put the draft on top of the
+                  // project, and closing it would return here instead of the
+                  // list (KIN-CONTINUE-002). The phone contract replaces this
+                  // screen with the list first and records the list as the
+                  // draft's origin, so both the header's Close and the
+                  // browser's Back land on `/sessions`.
+                  onGuardedLinkClick(
+                    event,
+                    navigate,
+                    location,
+                    `/new?cwd=${encodeURIComponent(root)}`,
+                    { state: draftEntryState(returnListUrl(location)) },
+                  );
+                }}
               />
             </div>
           )}
@@ -915,7 +944,7 @@ function ProjectChatsPanel({
   root,
   onRetry,
   onOpen,
-  onBeforeLeave,
+  onNewChat,
 }: {
   rows: ProjectChatRow[];
   loading: boolean;
@@ -925,7 +954,10 @@ function ProjectChatsPanel({
   root: string;
   onRetry: () => void;
   onOpen: (row: ProjectChatRow) => void;
-  onBeforeLeave: () => boolean;
+  /** A click on the new-chat link. The page owns it because only the page has
+   *  the router and the leave guard; the link keeps its href so a modifier
+   *  click still opens a tab. */
+  onNewChat: (event: ReactMouseEvent) => void;
 }) {
   const tr = useT();
   const now = Date.now();
@@ -939,9 +971,7 @@ function ProjectChatsPanel({
         {root && (
           <Link
             to={`/new?cwd=${encodeURIComponent(root)}`}
-            onClick={(event) => {
-              if (!onBeforeLeave()) event.preventDefault();
-            }}
+            onClick={onNewChat}
             className="rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand"
           >
             {tr("projects.newChat")}

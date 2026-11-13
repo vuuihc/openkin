@@ -65,9 +65,13 @@ describe("the phone list's search wiring", () => {
   it("pages from the oldest loaded row, not from the top", () => {
     // `before` is exclusive. Without it the second request is page one again:
     // the dedupe hides the repeats, so the button visibly does nothing and the
-    // list looks like it ended.
+    // list looks like it ended. The cursor is read from the ref, not from the
+    // render that drew the button, and re-checked when the page lands: a
+    // refresh may have replaced the list while the request was out.
     expect(SOURCE).toContain("before: oldest");
-    expect(SOURCE).toContain("before: sessionCursor");
+    expect(SOURCE).toContain("const cursor = sessionCursorRef.current;");
+    expect(SOURCE).toContain("before: cursor");
+    expect(SOURCE).toContain("if (sessionCursorRef.current !== cursor) return;");
   });
 
   it("does not page imported sessions under a status filter", () => {

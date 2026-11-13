@@ -20,9 +20,13 @@ import type { Task } from "../../api/client";
  * routines page instead of the list.
  */
 
+const fixtures = vi.hoisted(() => ({
+  tasks: [] as Task[],
+}));
+
 vi.mock("../../api/useLiveResources", () => ({
   useTaskList: () => ({
-    data: [],
+    data: fixtures.tasks,
     loaded: true,
     error: null,
     pageFull: false,
@@ -145,9 +149,9 @@ vi.mock("../terminal/TerminalPanel", () => ({
   default: () => null,
 }));
 
-function viewport() {
+function viewport(wide = false) {
   vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: false,
+    matches: query === "(min-width: 768px)" ? wide : false,
     media: query,
     onchange: null,
     addEventListener: vi.fn(),
@@ -156,6 +160,21 @@ function viewport() {
     removeListener: vi.fn(),
     dispatchEvent: vi.fn(),
   }));
+}
+
+function listTask(): Task {
+  return {
+    id: "listed-chat",
+    title: "listed-chat",
+    cwd: "/work/alpha",
+    agent: "kin",
+    prompt: "",
+    status: "succeeded",
+    tokens_in: 0,
+    tokens_out: 0,
+    event_epoch: 0,
+    created_at: 1,
+  } as Task;
 }
 
 /** Start at a cold destination on a real history stack. */
@@ -185,6 +204,7 @@ beforeEach(() => {
   setLocale("en");
   localStorage.clear();
   sessionStorage.clear();
+  fixtures.tasks = [];
   window.history.replaceState({ idx: 0 }, "", "/");
   viewport();
 });
@@ -230,5 +250,66 @@ describe("the list under a conversation", () => {
     await user.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
     expect(screen.getByRole("heading", { name: "Chats" })).toBeTruthy();
+  });
+});
+
+describe("a warm list under the project it opened", () => {
+  async function openProjectFromList(user: ReturnType<typeof userEvent.setup>) {
+    fixtures.tasks = [listTask()];
+    browser("/sessions");
+    await user.click(await screen.findByRole("button", { name: "alpha" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/projects/p1"));
+    await screen.findByRole("heading", { name: "alpha" });
+  }
+
+  it("keeps exactly one list below a conversation opened from the project", async () => {
+    const user = userEvent.setup();
+    await openProjectFromList(user);
+
+    await user.click(screen.getByRole("tab", { name: "Chats" }));
+    await user.click(await screen.findByRole("button", { name: /Project chat/ }));
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/project-chat"));
+
+    // The project entry was replaced, not stacked under a second list: the
+    // stack is [list, conversation], so one Back reaches the list.
+    expect(window.history.state.idx).toBe(1);
+    await browserBack();
+    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    expect(window.history.state.idx).toBe(0);
+    expect(screen.getByRole("heading", { name: "Chats" })).toBeTruthy();
+  });
+
+  it("returns the draft to the list once, not to the project", async () => {
+    const user = userEvent.setup();
+    await openProjectFromList(user);
+
+    await user.click(screen.getByRole("tab", { name: "Chats" }));
+    await user.click(await screen.findByRole("link", { name: "New chat" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/new"));
+    expect(window.history.state.idx).toBe(1);
+
+    // Closing the draft pops the one entry the project used to hold. The list
+    // is both the in-app target and the browser's Back target.
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    expect(window.history.state.idx).toBe(0);
+  });
+
+  it("keeps the project in a Mac's ordinary history", async () => {
+    viewport(true);
+    const user = userEvent.setup();
+    fixtures.tasks = [listTask()];
+    browser("/sessions");
+
+    await user.click(await screen.findByRole("button", { name: "alpha" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/projects/p1"));
+    await user.click(screen.getByRole("tab", { name: "Chats" }));
+    await user.click(await screen.findByRole("button", { name: /Project chat/ }));
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/project-chat"));
+
+    // On the Mac the project is not replaced: Back returns to it.
+    expect(window.history.state.idx).toBe(2);
+    await browserBack();
+    await waitFor(() => expect(window.location.pathname).toBe("/projects/p1"));
   });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ApiError,
   getRoutingDefaults,
@@ -41,6 +41,20 @@ function defaultsKey(v: RoutingDefaults): string {
   ]);
 }
 
+/** The controls before a load answers. This is also the baseline a failed first
+ *  load falls back to: with no server value to compare against, an edited row
+ *  is still a draft, and calling it clean would let a departure drop it. */
+const EMPTY_DEFAULTS: RoutingDefaults = {
+  enabled: false,
+  defaultTeam: "",
+  objective: "balanced",
+  maxAttempts: 3,
+  terminalPolicy: "ask",
+  manualFallback: false,
+  qualityFloor: "",
+  forcePhases: [],
+};
+
 export function RoutingDefaultsSection({
   onDirtyChange,
 }: {
@@ -52,20 +66,25 @@ export function RoutingDefaultsSection({
   const [saved, setSaved] = useState(false);
 
   const [options, setOptions] = useState<RoutingOptions | null>(null);
-  const [enabled, setEnabled] = useState(false);
-  const [defaultTeam, setDefaultTeam] = useState("");
-  const [objective, setObjective] = useState("balanced");
-  const [maxAttempts, setMaxAttempts] = useState(3);
-  const [terminalPolicy, setTerminalPolicy] = useState("ask");
-  const [manualFallback, setManualFallback] = useState(false);
-  const [qualityFloor, setQualityFloor] = useState<"" | "light" | "medium" | "heavy">("");
-  const [forcePhases, setForcePhases] = useState<string[]>([]);
+  const [enabled, setEnabled] = useState(EMPTY_DEFAULTS.enabled);
+  const [defaultTeam, setDefaultTeam] = useState(EMPTY_DEFAULTS.defaultTeam);
+  const [objective, setObjective] = useState(EMPTY_DEFAULTS.objective);
+  const [maxAttempts, setMaxAttempts] = useState(EMPTY_DEFAULTS.maxAttempts);
+  const [terminalPolicy, setTerminalPolicy] = useState(EMPTY_DEFAULTS.terminalPolicy);
+  const [manualFallback, setManualFallback] = useState(EMPTY_DEFAULTS.manualFallback);
+  const [qualityFloor, setQualityFloor] = useState<"" | "light" | "medium" | "heavy">(
+    EMPTY_DEFAULTS.qualityFloor,
+  );
+  const [forcePhases, setForcePhases] = useState<string[]>(EMPTY_DEFAULTS.forcePhases);
 
   // The loaded values, not `options`: switching a team or typing an attempt
-  // count must not look like a saved change. The draft key is read through a
-  // ref so an async reload that lands mid-edit compares against the latest
-  // fields rather than a stale render.
-  const [baseline, setBaseline] = useState<string | null>(null);
+  // count must not look like a saved change. The draft key is what the render
+  // holds; a save blesses only the values the request carried, so an edit made
+  // while that request was out stays dirty. A failed load leaves the empty
+  // baseline in place, so the first edit is still a change.
+  const [baseline, setBaseline] = useState<string | null>(() =>
+    defaultsKey(EMPTY_DEFAULTS),
+  );
   const draftKey = defaultsKey({
     enabled,
     defaultTeam,
@@ -76,8 +95,6 @@ export function RoutingDefaultsSection({
     qualityFloor,
     forcePhases,
   });
-  const draftRef = useRef(draftKey);
-  draftRef.current = draftKey;
   const dirty = baseline !== null && draftKey !== baseline;
 
   useEffect(() => {
@@ -123,18 +140,31 @@ export function RoutingDefaultsSection({
     setBusy(true);
     setError(null);
     setSaved(false);
+    // What this request actually carries. The response must bless these values,
+    // not whatever the draft became while the request was in flight — an edit
+    // made in that window is still unsaved.
+    const sent: RoutingDefaults = {
+      enabled,
+      defaultTeam,
+      objective,
+      maxAttempts,
+      terminalPolicy,
+      manualFallback,
+      qualityFloor,
+      forcePhases,
+    };
     try {
       await updateRoutingDefaults({
-        enabled,
-        default_team: defaultTeam,
-        objective,
-        max_attempts_per_step: maxAttempts,
-        terminal_limit_policy: terminalPolicy,
-        manual_fallback: manualFallback,
-        quality_floor: qualityFloor,
-        force_phases: forcePhases,
+        enabled: sent.enabled,
+        default_team: sent.defaultTeam,
+        objective: sent.objective,
+        max_attempts_per_step: sent.maxAttempts,
+        terminal_limit_policy: sent.terminalPolicy,
+        manual_fallback: sent.manualFallback,
+        quality_floor: sent.qualityFloor,
+        force_phases: sent.forcePhases,
       });
-      setBaseline(draftRef.current);
+      setBaseline(defaultsKey(sent));
       setSaved(true);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));

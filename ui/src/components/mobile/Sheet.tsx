@@ -67,6 +67,22 @@ const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
+ * The state a sheet's history entry copies from the page beneath it.
+ *
+ * Everything except the page's leave sentinel. A sheet is a surface of the
+ * current screen, not a departure from it: an entry carrying `kinLeaveGuard`
+ * would read to `lib/leaveGuard` as the sentinel itself, so a shortcut pressed
+ * over the sheet would pop the sheet instead of unwinding to the page, and the
+ * sentinel would be stranded under the next screen. The sentinel still sits
+ * below this entry and is found again when the sheet closes.
+ */
+function sheetHistoryBase(): Record<string, unknown> {
+  const base = { ...((window.history.state ?? {}) as Record<string, unknown>) };
+  delete base.kinLeaveGuard;
+  return base;
+}
+
+/**
  * A layer that floats above the sheet but is portaled out of it (so the
  * sheet's scrollport cannot clip it) announces itself here: the sheet then
  * keeps Tab inside both, stops claiming `aria-modal` over a subtree it does
@@ -364,7 +380,7 @@ export default function Sheet({
     // layer on top registers with `backStack`, so the first Back closes the
     // layer and the sheet keeps its entry for the next one.
     const marker = `kin-sheet-${Date.now()}-${Math.random()}`;
-    const base = (window.history.state ?? {}) as Record<string, unknown>;
+    const base = sheetHistoryBase();
     window.history.pushState({ ...base, kinSheet: marker }, "");
     let closedByBack = false;
     const onPopState = () => {

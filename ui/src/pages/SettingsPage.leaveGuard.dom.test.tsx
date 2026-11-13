@@ -7,6 +7,7 @@ import AppShell from "../components/layout/AppShell";
 import SettingsPage from "./SettingsPage";
 import { setLocale } from "../i18n";
 import { resetLeaveGuard } from "../lib/leaveGuard";
+import { leaveDocument } from "../lib/fullPageNavigation";
 import { useAppStore } from "../store/appStore";
 import { updateSettings, type Settings } from "../api/client";
 
@@ -112,6 +113,10 @@ vi.mock("../lib/desktop", () => ({
   isKinDesktop: () => false,
 }));
 
+vi.mock("../lib/fullPageNavigation", () => ({
+  leaveDocument: vi.fn(),
+}));
+
 vi.mock("../components/terminal/TerminalPanel", () => ({
   default: () => null,
 }));
@@ -175,6 +180,7 @@ function expectOnSettings() {
 
 beforeEach(() => {
   resetLeaveGuard();
+  vi.restoreAllMocks();
   setLocale("en");
   localStorage.clear();
   sessionStorage.clear();
@@ -290,6 +296,138 @@ describe("settings forms ask before a phone departure", () => {
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     confirm.mockClear();
     edgeBack();
+    await waitFor(() => expect(screen.getByText("chats page")).toBeTruthy());
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("asks for a half-written role row the serializer would drop", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.mocked(window.confirm);
+    shell();
+    await openTab(user, "Agents");
+
+    await user.click(screen.getByRole("button", { name: "Add role" }));
+    await user.type(screen.getByLabelText("Role 1 name"), "Reviewer");
+
+    // The prompt is still empty, so Save would drop this row. It is on screen
+    // as a draft, and leaving would discard it — the guard has to say so.
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    expect(confirm).toHaveBeenCalledWith("Discard unsaved settings changes?");
+    expectOnSettings();
+
+    confirm.mockReturnValueOnce(true);
+    // The layout keeps a desktop and a phone copy of each section; either save
+    // button drives the same form state.
+    await user.click(screen.getAllByRole("button", { name: "Save session settings" })[0]!);
+    await waitFor(() => {
+      expect(vi.mocked(updateSettings)).toHaveBeenCalledWith(
+        expect.objectContaining({ agent_roles: "[]" }),
+      );
+    });
+    // What was saved is the whole row list (the half-written row is gone), so
+    // the page is clean and Back leaves without another question.
+    confirm.mockClear();
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(screen.getByText("chats page")).toBeTruthy());
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("keeps a field being edited when a reconnect reload lands", async () => {
+    const user = userEvent.setup();
+    shell();
+    await openTab(user, "Notifications");
+    const baseURL = screen.getByRole("textbox", { name: /UI base URL/ });
+    await user.clear(baseURL);
+    await user.type(baseURL, "http://phone.test:7777");
+
+    // The reconnect read carries a new value for the field the reader is not
+    // editing, and a different one for the field they are.
+    fixtures.settings = {
+      ...fixtures.settings,
+      "ui.base_url": "http://server.test:7777",
+      "notify.quota_wait_after_secs": "1200",
+    };
+    useAppStore.setState({ reconnectGen: 1 });
+
+    const quota = screen.getByRole("spinbutton", {
+      name: /Quota wait notification threshold/,
+    });
+    await waitFor(() => expect((quota as HTMLInputElement).value).toBe("1200"));
+    // The typed field is still the reader's; a reload is not an edit.
+    expect((baseURL as HTMLInputElement).value).toBe("http://phone.test:7777");
+
+    // And the kept draft is still what the guard is protecting.
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    expect(vi.mocked(window.confirm)).toHaveBeenCalledWith("Discard unsaved settings changes?");
+    expectOnSettings();
+  });
+
+  it("decides about other drafts before the relay save leaves the page", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.mocked(window.confirm);
+    const assign = vi.mocked(leaveDocument);
+    assign.mockClear();
+    shell();
+    await openTab(user, "Notifications");
+    await user.clear(screen.getByRole("textbox", { name: /UI base URL/ }));
+    await user.type(
+      screen.getByRole("textbox", { name: /UI base URL/ }),
+      "http://phone.test:7777",
+    );
+
+    await openTab(user, "Remote");
+    await user.type(
+      screen.getByRole("textbox", { name: /Relay Worker URL/ }),
+      "https://relay.example.test",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Save and connect" }));
+    await waitFor(() =>
+      expect(vi.mocked(updateSettings)).toHaveBeenCalledWith({
+        "relay.url": "https://relay.example.test",
+      }),
+    );
+    // The relay save does not carry the notification URL. Jumping to the relay
+    // now would throw that draft away without asking.
+    expect(confirm).toHaveBeenCalledWith("Discard unsaved settings changes?");
+    expect(assign).not.toHaveBeenCalled();
+    expectOnSettings();
+
+    confirm.mockReturnValue(true);
+    await user.click(screen.getByRole("button", { name: "Save and connect" }));
+    await waitFor(() => expect(assign).toHaveBeenCalled());
+    expect(String(assign.mock.calls[0]![0])).toContain("/?token=");
+  });
+
+  it("offers the browser's own warning while a draft is unsaved", async () => {
+    const user = userEvent.setup();
+    shell();
+    await openTab(user, "Notifications");
+    await user.type(screen.getByRole("textbox", { name: /UI base URL/ }), "/x");
+
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("shows the reset price table as saved, not as an unsaved draft", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.mocked(window.confirm);
+    const builtin = JSON.stringify({ "model-a": { in: 1, out: 2 } });
+    vi.mocked(updateSettings).mockResolvedValueOnce({
+      ...fixtures.settings,
+      price_table: builtin,
+    } as unknown as Settings);
+    shell();
+    await openTab(user, "Advanced");
+
+    await user.click(screen.getByRole("button", { name: "Reset to LiteLLM defaults" }));
+    const price = screen.getAllByRole("textbox")[0] as HTMLTextAreaElement;
+    await waitFor(() => expect(price.value).toContain("model-a"));
+
+    // The text now matches the server's answer, so Back must not present it as
+    // an unsaved change.
+    await user.click(screen.getByRole("button", { name: "Back" }));
     await waitFor(() => expect(screen.getByText("chats page")).toBeTruthy());
     expect(confirm).not.toHaveBeenCalled();
   });

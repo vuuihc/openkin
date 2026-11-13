@@ -213,6 +213,11 @@ export default function SessionList({
   const [olderArchivedTasks, setOlderArchivedTasks] = useState<Task[]>([]);
   const [olderSessions, setOlderSessions] = useState<AgentSession[]>([]);
   const [sessionCursor, setSessionCursor] = useState<string | undefined>(undefined);
+  // The cursor the next older page must be read from. A first-page refresh
+  // clears it before the answer arrives, and a page that resolves afterwards
+  // checks it again: the state the button was rendered from may name a list
+  // that no longer exists.
+  const sessionCursorRef = useRef<string | undefined>(undefined);
   const [taskMore, setTaskMore] = useState<boolean | null>(null);
   const [archiveMore, setArchiveMore] = useState<boolean | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -264,20 +269,23 @@ export default function SessionList({
     // after the post-import one would put the old imported rows back.
     let seq = 0;
     setSessionsFailed(false);
-    setOlderSessions([]);
-    setSessionCursor(undefined);
     const read = () => {
       const mine = ++seq;
       // A first-page refresh invalidates every older page and cursor in
-      // flight. Without this an old `loadOlder` answer landing after an
-      // import/unlink would re-add rows the new index removed and move the
-      // cursor backwards to a page the fresh list already passed.
+      // flight, starting now rather than when the answer lands. Page one is
+      // the whole list; rows from the previous cursor describe a list that is
+      // being replaced, and a Load older click in this window must not page
+      // from it.
       requestGeneration.current += 1;
+      sessionCursorRef.current = undefined;
+      setSessionCursor(undefined);
+      setOlderSessions([]);
       const term = sessionListParams(searchTerm);
       listAgentSessionsPage({ limit: term.limit, q: term.q })
         .then((page) => {
           if (cancelled || mine !== seq) return;
           setSessions(page.items);
+          sessionCursorRef.current = page.next_cursor;
           setSessionCursor(page.next_cursor);
           setOlderSessions([]);
           setSessionsFailed(false);
@@ -336,9 +344,12 @@ export default function SessionList({
   /** A bucket is local when its rows' device is this machine (or unnamed). The
    *  Hub's project records are this machine's filesystem only, so opening a
    *  cover, pinning, archiving and touching a project are local actions. A
-   *  remote copy of the same path must never be pointed at them. */
+   *  remote copy of the same path must never be pointed at them. An explicit
+   *  device that cannot be proven to be this one is remote: with no self id
+   *  (a failed machine list) the safe mistake is to withhold the local action,
+   *  never to apply it to someone else's filesystem. */
   const bucketIsLocal = (bucket: PhoneProjectBucket): boolean =>
-    !bucket.deviceId || !selfDeviceId || bucket.deviceId === selfDeviceId;
+    !bucket.deviceId || (selfDeviceId !== "" && bucket.deviceId === selfDeviceId);
   const lastLoadedTasks = useRef<readonly Task[]>([]);
   useEffect(() => {
     if (taskList.loaded) lastLoadedTasks.current = taskList.data;
@@ -629,7 +640,9 @@ export default function SessionList({
         query={query}
         archived={scope === "archived"}
         onRestoreProject={
-          scope === "archived" && archivedCwdFor(bucket.key, archivedCwds)
+          scope === "archived" &&
+          bucketIsLocal(bucket) &&
+          archivedCwdFor(bucket.key, archivedCwds)
             ? () => {
                 const cwd = archivedCwdFor(bucket.key, archivedCwds);
                 if (cwd) unarchiveProject(cwd);
@@ -853,16 +866,22 @@ export default function SessionList({
           setArchiveMore(false);
         }
       }
-      if (hasMoreSessions && sessionCursor) {
+      if (sessionCursorRef.current && !status) {
+        const cursor = sessionCursorRef.current;
         const term = sessionListParams(searchTerm);
         const page = await listAgentSessionsPage({
           limit: term.limit,
           q: term.q,
-          before: sessionCursor,
+          before: cursor,
         });
         if (requestGeneration.current !== generation) return;
-        setOlderSessions((current) => [...current, ...page.items]);
+        // The cursor this page was read from must still be the list's cursor.
+        // A refresh that started while the request was out has already
+        // replaced it, and this answer belongs to a list that is gone.
+        if (sessionCursorRef.current !== cursor) return;
+        sessionCursorRef.current = page.next_cursor;
         setSessionCursor(page.next_cursor);
+        setOlderSessions((current) => [...current, ...page.items]);
       }
     } catch {
       // Keep what is on screen and leave the button in place.
@@ -1187,6 +1206,10 @@ export default function SessionList({
                 label: tr("nav.newSessionIn", { project: projectMenu.bucket.label }),
                 onSelect: () => newSessionIn(projectMenu.bucket),
               },
+              // Pin, cover and archive are this machine's project facts. A
+              // remote copy is offered only the action that works there (a new
+              // session, which keeps its machine) rather than rows that would
+              // silently do nothing.
               ...(projectMenu.archived || !bucketIsLocal(projectMenu.bucket)
                 ? []
                 : [
@@ -1202,23 +1225,28 @@ export default function SessionList({
                       },
                     },
                   ]),
-              {
-                id: "cover",
-                label: tr("nav.openCover"),
-                onSelect: () => void openProject(projectMenu.bucket),
-              },
-              {
-                id: "archive",
-                label: projectMenu.archived
-                  ? tr("nav.unarchiveProject")
-                  : tr("nav.archiveProject"),
-                destructive: true,
-                onSelect: () => {
-                  if (!projectMenu.bucket.cwd) return;
-                  if (projectMenu.archived) unarchiveProject(projectMenu.bucket.cwd);
-                  else archiveProjectConfirmed(projectMenu.bucket);
-                },
-              },
+              ...(!bucketIsLocal(projectMenu.bucket)
+                ? []
+                : [
+                    {
+                      id: "cover",
+                      label: tr("nav.openCover"),
+                      onSelect: () => void openProject(projectMenu.bucket),
+                    },
+                    {
+                      id: "archive",
+                      label: projectMenu.archived
+                        ? tr("nav.unarchiveProject")
+                        : tr("nav.archiveProject"),
+                      destructive: true,
+                      onSelect: () => {
+                        if (!projectMenu.bucket.cwd) return;
+                        if (!bucketIsLocal(projectMenu.bucket)) return;
+                        if (projectMenu.archived) unarchiveProject(projectMenu.bucket.cwd);
+                        else archiveProjectConfirmed(projectMenu.bucket);
+                      },
+                    },
+                  ]),
             ]
           : []
       }

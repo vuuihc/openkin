@@ -217,10 +217,32 @@ export function phoneProjectBuckets(
   const archived = new Set(archivedCwds.map(archivedKeyOf));
   const selfId = selfDeviceId.trim();
   const deviceOf = (id: string | undefined | null): string => (id ?? "").trim() || selfId;
-  const localDevice = (device: string): boolean => !selfId || !device || device === selfId;
+  // A row with no device is this machine's. An explicit device is only this
+  // machine's when the machine list proves it is: with no self id (the device
+  // list or the version read failed) every named machine is remote, and the
+  // safe mistake is to disable a local write, never to point one at the wrong
+  // filesystem.
+  const localDevice = (device: string): boolean => !device || (selfId !== "" && device === selfId);
   const keepProject = (cwd: string | undefined, device: string): boolean => {
     const isArchived = localDevice(device) && archived.has(projectKeyOf(cwd));
     return scope === "archived" ? isArchived : !isArchived;
+  };
+  /**
+   * The bucket a row files under.
+   *
+   * In the archived scope a copy that runs on another machine needs its own
+   * identity. A conversation can be archived on its own on the machine that ran
+   * it, and that row then shows up here even though this machine's project is
+   * not archived. Sharing the cwd key would let the remote row stand in for the
+   * local project: its heading would borrow the local archive entry, and its
+   * Restore button would unarchive a project on a machine the person is not
+   * looking at. Outside the archived scope the copies are split by machine
+   * before display, so the shared key is only a grouping detail there.
+   */
+  const bucketKey = (cwd: string | undefined, device: string): string => {
+    const key = projectKeyOf(cwd);
+    if (scope !== "archived" || localDevice(device)) return key;
+    return `${key}\u0000device:${device}`;
   };
   const byKey = new Map<string, PhoneProjectBucket>();
   // The conversations already spoken for by a task row in this feed. An
@@ -230,8 +252,8 @@ export function phoneProjectBuckets(
   // filtered out of this scope leaves no duplicate behind.
   const claimed = new Set<string>();
 
-  const bucketFor = (cwd: string | undefined): PhoneProjectBucket => {
-    const key = projectKeyOf(cwd);
+  const bucketFor = (cwd: string | undefined, device: string): PhoneProjectBucket => {
+    const key = bucketKey(cwd, device);
     const found = byKey.get(key);
     if (found) return found;
     const label = key === UNASSIGNED_PROJECT ? copy.noProject : tailOf(cwd) || copy.noProject;
@@ -259,7 +281,7 @@ export function phoneProjectBuckets(
       continue;
     }
     const at = taskActivityAt(task);
-    const bucket = bucketFor(task.cwd);
+    const bucket = bucketFor(task.cwd, deviceOf(device));
     rememberCreated(bucket, task.created_at);
     if (isActiveStatus(task.status)) bucket.hasActiveTask = true;
     const identity = conversationKey(task.session_ref_device_id, task.session_ref, selfDeviceId);

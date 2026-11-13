@@ -130,6 +130,56 @@ beforeEach(() => {
 });
 
 describe("the imported index and the older-page cursor", () => {
+  it("does not page from a cursor a first-page refresh has already replaced", async () => {
+    const user = userEvent.setup();
+    const first = deferred<{ items: AgentSession[]; next_cursor?: string }>();
+    const refreshed = deferred<{ items: AgentSession[]; next_cursor?: string }>();
+    const older = deferred<{ items: AgentSession[]; next_cursor?: string }>();
+    let firstPageReads = 0;
+    vi.mocked(listAgentSessionsPage).mockImplementation(async (params) => {
+      if (params?.before === "cursor-1") return older.promise;
+      if (params?.before === "cursor-2") {
+        return { items: [session("older-2")], next_cursor: undefined };
+      }
+      firstPageReads += 1;
+      return firstPageReads === 1 ? first.promise : refreshed.promise;
+    });
+
+    page();
+    await act(async () => {
+      first.resolve({ items: [session("before-refresh")], next_cursor: "cursor-1" });
+    });
+    await showImportedRows(user);
+    expect(await screen.findByRole("button", { name: /before-refresh/ })).toBeTruthy();
+
+    // The refresh starts and the old Load older control is still on screen
+    // until React commits the cleared cursor. The click in that window must
+    // not page from the cursor the refresh has just invalidated — the answer
+    // would append rows from the previous list and move the cursor back.
+    const loadOlder = screen.getByRole("button", { name: /Load older/ });
+    act(() => {
+      window.dispatchEvent(new Event("kin:agent-sessions-sync"));
+      loadOlder.click();
+    });
+    expect(
+      vi.mocked(listAgentSessionsPage).mock.calls.filter(([params]) => params?.before === "cursor-1"),
+    ).toHaveLength(0);
+
+    await act(async () => {
+      refreshed.resolve({ items: [session("after-refresh")], next_cursor: "cursor-2" });
+    });
+    await showImportedRows(user);
+    expect(await screen.findByRole("button", { name: /after-refresh/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /before-refresh/ })).toBeNull();
+
+    // The next older page starts from the refreshed cursor, not the old one.
+    await user.click(screen.getByRole("button", { name: /Load older/ }));
+    expect(await screen.findByRole("button", { name: /older-2/ })).toBeTruthy();
+    expect(vi.mocked(listAgentSessionsPage)).toHaveBeenLastCalledWith(
+      expect.objectContaining({ before: "cursor-2" }),
+    );
+  });
+
   it("drops an older page that arrives after a first-page refresh", async () => {
     const user = userEvent.setup();
     const first = deferred<{ items: AgentSession[]; next_cursor?: string }>();

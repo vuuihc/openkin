@@ -49,8 +49,6 @@ import { goBackToList } from "../../lib/phoneBack";
 import {
   draftEntryState,
   draftReturnUrl,
-  isPhoneLayout,
-  lastListUrl,
   phonePush,
   rememberListUrl,
   returnListUrl,
@@ -279,15 +277,15 @@ export default function AppShell({
       // question. Only a literal `true` counts: a click event that arrives in
       // this slot must not read as "already asked".
       runGuardedNavigation(() => {
+        const state = draftEntryState(returnListUrl(location));
         // A phone's draft has the list for a parent even when it was opened
         // from a project or a destination; otherwise closing it would put the
-        // reader back on the screen they just left instead of the list.
-        if (isPhoneLayout() && location.pathname !== "/sessions") {
-          navigate(lastListUrl(), { replace: true });
-        }
-        navigate(DRAFT_PATH, {
-          state: draftEntryState(returnListUrl(location)),
-        });
+        // reader back on the screen they just left instead of the list. The
+        // phone contract also knows when the list is already underneath, so a
+        // warm trip does not stack a second copy of it. The Mac keeps ordinary
+        // history: its sidebar is always on screen, and `phonePush` leaves a
+        // wide layout alone.
+        phonePush(navigate, location, DRAFT_PATH, { state });
       }, approved === true);
     },
     [location, navigate],

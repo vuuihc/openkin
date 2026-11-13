@@ -37,7 +37,12 @@ let armed = false;
 let sentinel: string | null = null;
 let listening = false;
 let pendingAction: (() => void) | null = null;
+/** The sentinel an in-flight departure is unwinding from. */
+let pendingToken: string | null = null;
 let allowing = false;
+/** The URL the page was on when it agreed to leave, so a pop that lands on the
+ *  same URL is recognised as "still here" rather than "left". */
+let allowFrom: string | null = null;
 let reconcileTimer: number | null = null;
 
 function historyState(): Record<string, unknown> | null {
@@ -103,15 +108,38 @@ function scheduleReconcile(): void {
 
 function onPopState(event: PopStateEvent): void {
   if (pendingAction) {
+    const state = (event.state ?? null) as Record<string, unknown> | null;
+    // A departure may have to walk back through entries the page does not own:
+    // a sheet pushed its own entry over the sentinel, and a raw push copies the
+    // state it found. Keep popping while the entry we landed on is one of those,
+    // then run the navigation once, from the page's real entry — anything left
+    // behind would make Back revisit a screen the reader already left.
+    if (
+      (pendingToken !== null && state?.kinLeaveGuard === pendingToken) ||
+      (state !== null && typeof state.kinSheet === "string")
+    ) {
+      window.history.back();
+      return;
+    }
     const action = pendingAction;
     pendingAction = null;
+    pendingToken = null;
     armed = false;
     sentinel = null;
+    const before = window.location.href;
     action();
+    // A same-URL navigation keeps the page mounted and still dirty. Without a
+    // fresh entry the next system Back would leave the form without asking.
+    if (window.location.href === before) scheduleReconcile();
     return;
   }
   if (allowing) {
     allowing = false;
+    const stayed = allowFrom !== null && window.location.href === allowFrom;
+    allowFrom = null;
+    // The agreed pop landed on another copy of this screen, so the page (and
+    // its draft) is still mounted: arm again, or the next Back is unguarded.
+    if (stayed) scheduleReconcile();
     return;
   }
   if (!armed) return;
@@ -127,6 +155,7 @@ function onPopState(event: PopStateEvent): void {
   if (!current) return;
   if (current.canLeave()) {
     allowing = true;
+    allowFrom = window.location.href;
     window.history.back();
   } else {
     armHistory();
@@ -158,11 +187,16 @@ export function canLeaveScreen(): boolean {
  * closes so one departure is one question); it still releases the armed entry,
  * because a confirmed departure must not leave a duplicate history entry
  * behind.
+ *
+ * When the sentinel is current this pops it first; when another surface (a
+ * sheet) left its entry above the sentinel, the same walk removes that too, so
+ * a confirmed departure cannot strand either behind the destination.
  */
 export function runGuardedNavigation(action: () => void, approved = false): boolean {
   if (!approved && !canLeaveScreen()) return false;
-  if (sentinelIsTop()) {
+  if (sentinelIsTop() || armed) {
     pendingAction = action;
+    pendingToken = sentinel;
     armed = false;
     sentinel = null;
     window.history.back();
@@ -191,5 +225,7 @@ export function resetLeaveGuard(): void {
   armed = false;
   sentinel = null;
   pendingAction = null;
+  pendingToken = null;
   allowing = false;
+  allowFrom = null;
 }

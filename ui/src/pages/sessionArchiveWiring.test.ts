@@ -62,8 +62,12 @@ describe("the phone list's archive wiring", () => {
   it("offers a project Restore only on a heading that stands for one", () => {
     // The archive view now holds conversation rows whose project was never
     // archived. Their heading has no stored entry, and a Restore button there
-    // would be a tap that does nothing.
-    expect(SOURCE).toContain('scope === "archived" && archivedCwdFor(bucket.key, archivedCwds)');
+    // would be a tap that does nothing. A remote copy of a shared path is the
+    // same trap: its bucket is not this machine's project, so it can never
+    // borrow the local archive entry.
+    expect(SOURCE).toContain('scope === "archived" &&');
+    expect(SOURCE).toContain("bucketIsLocal(bucket) &&");
+    expect(SOURCE).toContain("archivedCwdFor(bucket.key, archivedCwds)");
   });
 
   it("gives an archived conversation its restore strip, not the list's", () => {

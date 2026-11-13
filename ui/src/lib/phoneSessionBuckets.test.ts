@@ -419,6 +419,45 @@ describe("archive state belongs to the machine that owns the path", () => {
     // This machine's heading is gone: its only conversation was archived.
     expect(active.find((group) => group.id === "self")).toBeUndefined();
   });
+
+  it("keeps a remote archived conversation out of the local project's heading", () => {
+    // The NAS archived one of its own conversations. The archive list is this
+    // machine's, so the path it shares with a local project is not one fact:
+    // the remote row must get its own bucket, and that bucket must never
+    // answer for the local archive entry (which is what Restore removes).
+    const remotePutAway = task({
+      id: "remote-put-away",
+      cwd: "/work/shared",
+      created_at: 30,
+      archived_at: 99,
+      executing_device_id: "nas",
+    });
+    const rows = buckets([remotePutAway], [], "self", ["/work/shared"], "archived");
+    const local = rows.find((bucket) => bucket.key === "/work/shared")!;
+    const remote = rows.find((bucket) => bucket.key !== "/work/shared")!;
+    expect(local.rows).toEqual([]);
+    expect(archivedCwdFor(local.key, ["/work/shared"])).toBe("/work/shared");
+    expect(remote.rows.map((row) => row.key)).toEqual(["remote-put-away"]);
+    expect(archivedCwdFor(remote.key, ["/work/shared"])).toBeUndefined();
+  });
+
+  it("reads a named machine as remote when this machine cannot be identified", () => {
+    // listMachines or serverVersion failed, so there is no self id. An explicit
+    // device is then not proven local: the safe reading is remote, because the
+    // archive entry is a local write and applying it to another filesystem is
+    // the mistake that cannot be undone from this screen.
+    const named = task({
+      id: "named",
+      cwd: "/work/shared",
+      created_at: 10,
+      executing_device_id: "nas",
+    });
+    const unnamed = task({ id: "unnamed", cwd: "/work/shared", created_at: 20 });
+    const active = buckets([named, unnamed], [], "", ["/work/shared"], "active");
+    expect(active.flatMap((bucket) => bucket.rows.map((row) => row.key))).toEqual(["named"]);
+    const archived = buckets([named, unnamed], [], "", ["/work/shared"], "archived");
+    expect(archived.flatMap((bucket) => bucket.rows.map((row) => row.key))).toEqual(["unnamed"]);
+  });
 });
 
 describe("the archived scope", () => {

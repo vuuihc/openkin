@@ -42,8 +42,12 @@ export function AccountSection() {
       params.delete(key);
     }
     const qs = params.toString();
+    // Replace only the query, never the entry's state: React Router keeps its
+    // `idx`/`key`/`usr` there, and the leave guard keeps its armed entry there.
+    // Writing `{}` would turn a real stack into "nothing behind this page" and
+    // silently disable the question before a system Back.
     window.history.replaceState(
-      {},
+      window.history.state ?? {},
       "",
       window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash,
     );

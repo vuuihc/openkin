@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import {
   ApiError,
@@ -58,6 +58,7 @@ import {
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { applyTheme, getThemeMode, setThemeMode, type ThemeMode } from "../lib/theme";
+import { leaveDocument } from "../lib/fullPageNavigation";
 import { useAppStore } from "../store/appStore";
 import { useT } from "../i18n/react";
 
@@ -108,6 +109,14 @@ type SettingsDraft = {
   limitFallback: string;
 };
 
+// What the role editor is showing, not what its serializer keeps. A row with
+// only a name is on screen as a draft and would be discarded on the way out,
+// even though Save itself drops it; comparing the raw fields is what lets the
+// leave guard tell the reader so.
+function agentRolesDraftKey(roles: readonly AgentRole[]): string {
+  return JSON.stringify(roles.map((role) => [role.id, role.name, role.prompt]));
+}
+
 // Every field save() writes, plus the relay URL that has its own Save. The
 // baseline is built from the server payload rather than from the controlled
 // inputs: a reconnect reload may normalize the JSON text, and a dirty flag that
@@ -119,15 +128,15 @@ function settingsDraftKey(v: SettingsDraft): string {
     v.relayURL,
     v.priceTable,
     v.agentLimits,
-    serializeAgentRoles(v.roles),
+    agentRolesDraftKey(v.roles),
     v.agentDefault,
     v.limitPolicy,
     v.limitFallback,
   ]);
 }
 
-function settingsDraftFromServer(s: Settings): string {
-  return settingsDraftKey({
+function settingsDraftFromServer(s: Settings): SettingsDraft {
+  return {
     quota: s["notify.quota_wait_after_secs"] || "900",
     baseURL: s["ui.base_url"] ?? "",
     relayURL: s["relay.url"] ?? "",
@@ -137,7 +146,7 @@ function settingsDraftFromServer(s: Settings): string {
     agentDefault: s["agent.default"] ?? "",
     limitPolicy: (s.limit_policy as string) || "wait",
     limitFallback: s["limit_policy.fallback_agents"] || "[]",
-  });
+  };
 }
 
 type ProviderDraft = {
@@ -234,7 +243,7 @@ export default function SettingsPage() {
   const [providerBaseline, setProviderBaseline] = useState<string | null>(null);
   const [routingDirty, setRoutingDirty] = useState({ defaults: false, profiles: false });
 
-  const settingsDraft = settingsDraftKey({
+  const settingsDraftValues: SettingsDraft = {
     quota: quotaWaitNotifySecs,
     baseURL,
     relayURL,
@@ -244,9 +253,55 @@ export default function SettingsPage() {
     agentDefault,
     limitPolicy,
     limitFallback: limitFallbackText,
+  };
+  const settingsDraft = settingsDraftKey(settingsDraftValues);
+  // The latest rendered values, for async callbacks (a save or reload that
+  // resolves after the reader kept typing) that must compare drafts without
+  // re-creating themselves on every keystroke.
+  const draftValuesRef = useRef(settingsDraftValues);
+  useEffect(() => {
+    draftValuesRef.current = settingsDraftValues;
   });
+  // The last payload the server handed us, so a reconnect reload can tell a
+  // field the reader changed from one the server changed under them.
+  const serverDraftRef = useRef<SettingsDraft | null>(null);
   const settingsDirty =
     settings !== null && settingsBaseline !== null && settingsDraft !== settingsBaseline;
+
+  // Adopt a server snapshot as the new baseline. With `preserveDirty`, a field
+  // the reader has edited since the last snapshot keeps their text — a
+  // reconnect is not an edit — while untouched fields take the server's.
+  const applyServerSettings = useCallback((s: Settings, preserveDirty: boolean) => {
+    const next = settingsDraftFromServer(s);
+    const prev = serverDraftRef.current;
+    const current = draftValuesRef.current;
+    const keep = <K extends keyof SettingsDraft>(key: K): SettingsDraft[K] => {
+      const edited =
+        preserveDirty &&
+        prev !== null &&
+        JSON.stringify(current[key]) !== JSON.stringify(prev[key]);
+      return edited ? current[key] : next[key];
+    };
+    setQuotaWaitNotifySecs(keep("quota"));
+    setBaseURL(keep("baseURL"));
+    setRelayURL(keep("relayURL"));
+    setPriceTable(keep("priceTable"));
+    setAgentLimitsText(keep("agentLimits"));
+    setRoles(keep("roles"));
+    setAgentDefault(keep("agentDefault"));
+    setLimitPolicy(keep("limitPolicy"));
+    setLimitFallbackText(keep("limitFallback"));
+    serverDraftRef.current = next;
+    setSettingsBaseline(settingsDraftKey(next));
+  }, []);
+
+  // A response that wrote one field without touching the others: only the
+  // baseline moves, never a draft this request did not carry.
+  const syncServerBaseline = useCallback((s: Settings) => {
+    const next = settingsDraftFromServer(s);
+    serverDraftRef.current = next;
+    setSettingsBaseline(settingsDraftKey(next));
+  }, []);
 
   const providerDraft =
     editingId === null
@@ -271,6 +326,19 @@ export default function SettingsPage() {
   );
   useLeaveGuard(canLeaveSettings, formDirty);
 
+  // The in-app guard covers Back, the edge swipe and shortcuts. A reload, a
+  // closed tab or a typed address is the browser's own departure, and this is
+  // the only warning it will show for it.
+  useEffect(() => {
+    if (!formDirty) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [formDirty]);
+
   const onRoutingDefaultsDirty = useCallback((dirty: boolean) => {
     setRoutingDirty((prev) => (prev.defaults === dirty ? prev : { ...prev, defaults: dirty }));
   }, []);
@@ -279,56 +347,42 @@ export default function SettingsPage() {
   }, []);
 
 
-  const load = useCallback(async () => {
-    setError(null);
-    try {
-      const s = await getSettings();
-      setSettings(s);
-      setQuotaWaitNotifySecs(s["notify.quota_wait_after_secs"] || "900");
-      setBaseURL(s["ui.base_url"] ?? "");
-      setRelayURL(s["relay.url"] ?? "");
-      setCloudflareAccountID(s["cloudflare.account_id"] ?? "");
-      setCloudflareZoneID(s["cloudflare.relay_zone_id"] ?? "");
-      setCloudflareHostname(s["cloudflare.relay_custom_domain"] ?? "");
-      setCloudflareScriptName(s["cloudflare.relay_script_name"] || "kin-relay");
-      setAgentDefault(s["agent.default"] ?? "");
-      setLimitPolicy((s.limit_policy as string) || "wait");
-      setLimitFallbackText(s["limit_policy.fallback_agents"] || "[]");
-      setActiveProviderId(s["provider.active_id"] ?? "");
+  const load = useCallback(
+    async (preserveDirty = false) => {
+      setError(null);
       try {
-        const reg = await listProviders();
-        setProviders(reg.providers ?? []);
-        setActiveProviderId(reg.active_id ?? s["provider.active_id"] ?? "");
-      } catch {
-        setProviders([]);
+        const s = await getSettings();
+        setSettings(s);
+        setCloudflareAccountID(s["cloudflare.account_id"] ?? "");
+        setCloudflareZoneID(s["cloudflare.relay_zone_id"] ?? "");
+        setCloudflareHostname(s["cloudflare.relay_custom_domain"] ?? "");
+        setCloudflareScriptName(s["cloudflare.relay_script_name"] || "kin-relay");
+        setActiveProviderId(s["provider.active_id"] ?? "");
+        applyServerSettings(s, preserveDirty);
+        try {
+          const reg = await listProviders();
+          setProviders(reg.providers ?? []);
+          setActiveProviderId(reg.active_id ?? s["provider.active_id"] ?? "");
+        } catch {
+          setProviders([]);
+        }
+        listAgents()
+          .then(setAgentList)
+          .catch(() => undefined);
+        listAgentProviders()
+          .then(setAgentProviders)
+          .catch(() => undefined);
+        if (!s["cloudflare.authenticated"]) {
+          setCloudflareAccounts([]);
+          setCloudflareZones([]);
+        }
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) return;
+        setError(e instanceof ApiError ? e.message : String(e));
       }
-      try {
-        setPriceTable(JSON.stringify(JSON.parse(s.price_table || "{}"), null, 2));
-      } catch {
-        setPriceTable(s.price_table ?? "");
-      }
-      try {
-        setAgentLimitsText(JSON.stringify(JSON.parse(s.agent_limits || "{}"), null, 2));
-      } catch {
-        setAgentLimitsText(s.agent_limits ?? "{}");
-      }
-      setRoles(parseAgentRoles(s.agent_roles));
-      setSettingsBaseline(settingsDraftFromServer(s));
-      listAgents()
-        .then(setAgentList)
-        .catch(() => undefined);
-      listAgentProviders()
-        .then(setAgentProviders)
-        .catch(() => undefined);
-      if (!s["cloudflare.authenticated"]) {
-        setCloudflareAccounts([]);
-        setCloudflareZones([]);
-      }
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) return;
-      setError(e instanceof ApiError ? e.message : String(e));
-    }
-  }, []);
+    },
+    [applyServerSettings],
+  );
 
   useEffect(() => {
     void load();
@@ -336,7 +390,9 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (reconnectGen === 0) return;
-    void load();
+    // A reconnect re-reads the server under a page that may still hold edits;
+    // the reload fills what the reader left alone and leaves their text alone.
+    void load(true);
   }, [reconnectGen, load]);
 
   useEffect(() => {
@@ -382,25 +438,11 @@ export default function SettingsPage() {
       };
       const s = await updateSettings(body);
       setSettings(s);
-      setAgentDefault(s["agent.default"] ?? "");
-      setLimitPolicy((s.limit_policy as string) || "wait");
-      setLimitFallbackText(s["limit_policy.fallback_agents"] || "[]");
-      setQuotaWaitNotifySecs(s["notify.quota_wait_after_secs"] || "900");
       setActiveProviderId(s["provider.active_id"] ?? activeProviderId);
-      try {
-        setPriceTable(JSON.stringify(JSON.parse(s.price_table || "{}"), null, 2));
-      } catch {
-        setPriceTable(s.price_table ?? "");
-      }
-      try {
-        setAgentLimitsText(JSON.stringify(JSON.parse(s.agent_limits || "{}"), null, 2));
-      } catch {
-        setAgentLimitsText(s.agent_limits ?? "{}");
-      }
-      // Re-read rather than keep the draft: the serializer drops half-written
-      // rows, and the fields should show what was actually saved.
-      setRoles(parseAgentRoles(s.agent_roles));
-      setSettingsBaseline(settingsDraftFromServer(s));
+      // The serializer drops half-written rows, so show what was saved rather
+      // than keep the draft; the snapshot is the new baseline for every field
+      // this request did carry.
+      applyServerSettings(s, false);
       setSaved(true);
       pushToast(tr("settings.saved"), "info");
       window.dispatchEvent(new Event("kin:agent-sessions-changed"));
@@ -670,18 +712,40 @@ export default function SettingsPage() {
     setRelayURL(s["relay.url"] ?? "");
     // The saved snapshot, not this page's draft: a field this request did not
     // carry is still unsaved, and must stay dirty.
-    setSettingsBaseline(settingsDraftFromServer(s));
+    syncServerBaseline(s);
+  };
+
+  // Leaving for the relay's origin replaces the whole document and there is no
+  // Back from it. The relay URL this request carried is saved; every other
+  // form on the page is a draft the reload would silently drop.
+  const hasUnsavedDrafts = (s: Settings): boolean => {
+    const saved = settingsDraftKey(settingsDraftFromServer(s));
+    return (
+      settingsDraftKey(draftValuesRef.current) !== saved ||
+      providerDirty ||
+      routingDirty.defaults ||
+      routingDirty.profiles
+    );
   };
 
   const adoptRelaySettings = (s: Settings) => {
-    applyRelaySettings(s);
-    adoptRelayURL(s["relay.open_url"] ?? "");
     const target = s["relay.open_url"]
       ? s["relay.open_url"]
       : s["ui.base_url"]
         ? `${s["ui.base_url"].replace(/\/+$/, "")}/?token=${encodeURIComponent(s.token)}`
         : "";
-    if (target) window.location.assign(target);
+    if (!target) {
+      applyRelaySettings(s);
+      adoptRelayURL("");
+      return;
+    }
+    if (hasUnsavedDrafts(s) && !window.confirm(tr("settings.discardConfirm"))) {
+      applyRelaySettings(s);
+      return;
+    }
+    applyRelaySettings(s);
+    adoptRelayURL(s["relay.open_url"] ?? "");
+    leaveDocument(target);
   };
 
   const saveRelay = async () => {
@@ -1608,6 +1672,10 @@ export default function SettingsPage() {
                     } catch {
                       setPriceTable(s.price_table ?? "");
                     }
+                    // The text on screen is now exactly the server's table;
+                    // without moving the baseline the guard would call the
+                    // server's own answer an unsaved change.
+                    syncServerBaseline(s);
                     pushToast(tr("settings.saved"), "info");
                   } catch (e) {
                     setError(e instanceof ApiError ? e.message : String(e));

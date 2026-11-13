@@ -24,8 +24,74 @@ import { runGuardedNavigation } from "./leaveGuard";
  */
 const LIST_PATH = "/sessions";
 const LIST_URL_KEY = "kin.listUrl";
+const LIST_IDX_KEY = "kin.listIdx";
 const PHONE_QUERY = "(min-width: 768px)";
 const LIST_STATE_KEYS = ["search", "status", "scope"] as const;
+
+/** Location state stamped on a destination `phonePush` placed directly above
+ *  the list. It is what lets a later push tell "the list is already my parent"
+ *  from "some other screen is". */
+const LIST_PARENT_KEY = "kinListParent";
+
+function listIsParent(state: unknown): boolean {
+  return (
+    typeof state === "object" &&
+    state !== null &&
+    (state as Record<string, unknown>)[LIST_PARENT_KEY] === true
+  );
+}
+
+function withListParent(state: unknown): Record<string, unknown> {
+  const base =
+    typeof state === "object" && state !== null
+      ? (state as Record<string, unknown>)
+      : {};
+  return { ...base, [LIST_PARENT_KEY]: true };
+}
+
+function historyIndex(): number | null {
+  const idx = (window.history.state as { idx?: unknown } | null)?.idx;
+  return typeof idx === "number" ? idx : null;
+}
+
+function storedListIndex(): number | null {
+  try {
+    const raw = window.sessionStorage.getItem(LIST_IDX_KEY);
+    if (raw === null) return null;
+    const value = Number(raw);
+    return Number.isInteger(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Remember that the entry at the current index is the list. */
+function rememberListIndex(): void {
+  try {
+    const idx = historyIndex();
+    if (idx === null) window.sessionStorage.removeItem(LIST_IDX_KEY);
+    else window.sessionStorage.setItem(LIST_IDX_KEY, String(idx));
+  } catch {
+    // No storage: the state marker below is still the primary signal.
+  }
+}
+
+/**
+ * Whether the entry directly below this one is the list.
+ *
+ * The state marker is the explicit answer, but a page is allowed to rewrite
+ * its own URL: React Router's `setSearchParams(..., { replace: true })` — a
+ * project changing tab, for one — replaces the entry without state and drops
+ * the marker. The list's own history index survives that, so a screen one
+ * index above the last list entry is still the list's child, and the push
+ * replaces it instead of stacking a second list under the destination.
+ */
+function listIsDirectParent(state: unknown): boolean {
+  if (listIsParent(state)) return true;
+  const idx = historyIndex();
+  const listIdx = storedListIndex();
+  return idx !== null && listIdx !== null && idx === listIdx + 1;
+}
 
 export function isPhoneLayout(win: Window = window): boolean {
   if (typeof win.matchMedia !== "function") return false;
@@ -74,6 +140,7 @@ export function rememberListUrl(url: string): void {
   } catch {
     // No storage: the fallback is the plain list.
   }
+  rememberListIndex();
 }
 
 /** The last list URL this tab showed, or the plain list. */
@@ -114,19 +181,36 @@ export function draftReturnUrl(state: unknown, fallback = LIST_PATH): string {
  */
 export function phonePush(
   navigate: NavigateFunction,
-  location: Pick<Location, "pathname" | "search">,
+  location: Pick<Location, "pathname" | "search"> & { state?: unknown },
   to: string,
   options?: { replace?: boolean; phone?: boolean; state?: unknown },
 ): void {
   const phone = options?.phone ?? isPhoneLayout();
-  if (phone && !isListPath(location.pathname)) {
-    navigate(lastListUrl(), { replace: true });
+  if (!phone) {
+    const navigateOptions =
+      options?.replace === undefined && options?.state === undefined
+        ? undefined
+        : { replace: options?.replace, state: options?.state };
+    navigate(to, navigateOptions);
+    return;
   }
-  const navigateOptions =
-    options?.replace === undefined && options?.state === undefined
-      ? undefined
-      : { replace: options?.replace, state: options?.state };
-  navigate(to, navigateOptions);
+
+  const state = withListParent(options?.state);
+  if (isListPath(location.pathname)) {
+    navigate(to, { replace: options?.replace, state });
+    return;
+  }
+  if (listIsDirectParent(location.state)) {
+    // The entry directly below this screen is already the list, so pushing the
+    // destination would put this screen under it — Back would pass two list
+    // copies, or the project the person just left. Replacing keeps the depth
+    // at one: the list is the parent, exactly once.
+    navigate(to, { replace: true, state });
+    return;
+  }
+  navigate(lastListUrl(), { replace: true });
+  rememberListUrl(lastListUrl());
+  navigate(to, { state });
 }
 
 /**
@@ -140,9 +224,9 @@ export function phonePush(
 export function onGuardedLinkClick(
   event: ReactMouseEvent,
   navigate: NavigateFunction,
-  location: Pick<Location, "pathname" | "search">,
+  location: Pick<Location, "pathname" | "search"> & { state?: unknown },
   to: string,
-  options?: { approved?: boolean },
+  options?: { approved?: boolean; state?: unknown },
 ): boolean {
   if (event.defaultPrevented) return false;
   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
@@ -150,7 +234,7 @@ export function onGuardedLinkClick(
   }
   event.preventDefault();
   return runGuardedNavigation(
-    () => phonePush(navigate, location, to),
+    () => phonePush(navigate, location, to, { state: options?.state }),
     options?.approved === true,
   );
 }
