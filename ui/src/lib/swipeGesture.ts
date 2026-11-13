@@ -1,11 +1,11 @@
 /**
  * The small vocabulary shared by the phone's swipe gestures.
  *
- * Two gestures exist: the navigation drawer (edge-drag to open, drag to
- * close) and the bottom sheet's pull-down. Both need the same "did this
- * become a drag?" tolerance, the same fling threshold, and the same answer to
- * "does this finger belong to a scrollable region?" Keeping them in one place
- * is what makes the two feel like one hand rather than two implementations.
+ * Two gestures exist: the phone's left-edge back swipe (KIN-CONTINUE-002) and
+ * the bottom sheet's pull-down. Both need the same "did this become a drag?"
+ * tolerance, the same fling threshold, and the same answer to "does this
+ * finger belong to a scrollable region?" Keeping them in one place is what
+ * makes the two feel like one hand rather than two implementations.
  */
 
 /** px: below this a pointer is still a tap, not a drag. */
@@ -13,10 +13,6 @@ export const SWIPE_TOLERANCE_PX = 8;
 
 /** px/ms: a release this fast commits before the displacement threshold. */
 export const SWIPE_FLING_VELOCITY = 0.4;
-
-export function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
 
 /**
  * `prefers-reduced-motion` removes the follow-the-finger part of a gesture,
@@ -31,7 +27,7 @@ export function prefersReducedMotion(): boolean {
 /**
  * Whether a gesture that started on `target` belongs to a horizontally
  * scrollable strip (a code block, a chip row). Those keep their own pan, and
- * a drawer or sheet must not steal the rightward drag that scrolls them back.
+ * a back gesture or sheet must not steal the rightward drag that scrolls them back.
  */
 export function insideHorizontalScroller(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;

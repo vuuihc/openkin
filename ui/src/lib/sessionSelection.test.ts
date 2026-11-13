@@ -35,7 +35,15 @@ function imported(id: string): PhoneSessionRow {
 }
 
 function bucket(rows: PhoneSessionRow[]): PhoneProjectBucket {
-  return { key: "/work/alpha", label: "alpha", rows, lastActivityAt: 1 };
+  return {
+    key: "/work/alpha",
+    label: "alpha",
+    cwd: "/work/alpha",
+    createdAt: 0,
+    hasActiveTask: false,
+    rows,
+    lastActivityAt: 1,
+  };
 }
 
 describe("rowSelectable", () => {

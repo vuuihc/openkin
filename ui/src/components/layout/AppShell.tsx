@@ -1,38 +1,29 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
-  deleteTask,
-  getSettings,
   getUsageSummary,
-  listAgents,
-  listAgentSessionsPage,
-  type AgentInfo,
-  type AgentSession,
   type AgentSessionImportResult,
   type Approval,
-  type Task,
 } from "../../api/client";
-import { liveResources } from "../../api/liveResources";
 import { useTaskList, useTaskResource } from "../../api/useLiveResources";
 import { isImeKeyEvent } from "../../lib/ime";
 import {
   DRAFT_PATH,
   draftSurfaceActive,
-  setDraftCwd,
   getDraftCwd,
   subscribeDraft,
 } from "../../lib/draftChat";
 import { useMinWidth } from "../../hooks/useMinWidth";
 import { importToast } from "../../lib/agentSessionImport";
-import { useAgentSessionImport, importsInFlight } from "../../hooks/useAgentSessionImport";
+import { useAgentSessionImport } from "../../hooks/useAgentSessionImport";
+import { useAgentCatalog } from "../../hooks/useAgentCatalog";
 import { useT } from "../../i18n/react";
 import CommandPalette from "../CommandPalette";
 import { useAppStore } from "../../store/appStore";
 import Sidebar from "./Sidebar";
-import MobileHeader, { IdentityDisc, MobileHeaderButton } from "../mobile/MobileHeader";
-import MobileDock from "../mobile/MobileDock";
+import MobileHeader, { MobileHeaderButton } from "../mobile/MobileHeader";
 import SessionsHeader from "../mobile/SessionsHeader";
-import { IconSearch, IconX } from "../icons";
+import { IconBack, IconSearch, IconX } from "../icons";
 import TerminalPanel from "../terminal/TerminalPanel";
 import { isKinDesktop } from "../../lib/desktop";
 import { overlayOwnsKeyboard } from "../../lib/overlayOwnsKeyboard";
@@ -49,16 +40,16 @@ import {
 import { useMachines } from "../../hooks/useMachines";
 import { remoteMachine } from "../../lib/devices";
 import { taskDisplayTitle } from "../../lib/taskTitle";
-import { placePath } from "../../lib/places";
 import { floatingApprovals } from "../../lib/floatingApprovals";
 import { useApprovalDecision } from "../../hooks/useApprovalDecision";
-import { useCloseOnWideScreen } from "../../hooks/useCloseOnWideScreen";
+import { useEdgeSwipeBack } from "../../hooks/useEdgeSwipeBack";
+import { canLeaveScreen } from "../../lib/leaveGuard";
+import { goBackToList } from "../../lib/phoneBack";
 import FloatingApproval from "../cards/FloatingApproval";
 import ErrorBoundary from "../ErrorBoundary";
 
 type Props = {
   children: ReactNode;
-  pendingCount: number;
   /** The waiting approvals themselves, so one can be answered from any screen. */
   pendingApprovals: Approval[];
   routineUnreadCount?: number;
@@ -77,18 +68,21 @@ function publishAgentSessionSync(result: AgentSessionImportResult): void {
   window.dispatchEvent(new CustomEvent("kin:agent-sessions-sync", { detail }));
 }
 
+const SHELL_TITLE_TASKS = { limit: 200 } as const;
+
 function taskIdFromPath(pathname: string): string | null {
   const m = pathname.match(/^\/tasks\/([^/]+)\/?$/);
   return m?.[1] ?? null;
 }
 
 /**
- * Desktop: sidebar + main. Mobile: hamburger drawer + full-width main.
+ * Desktop: sidebar + main. Phone: the list page is the only navigation
+ * surface; conversations, the draft and the destinations push over it and come
+ * back in one step. There is no drawer and no dock (KIN-CONTINUE-002).
  * New chat → navigate to DRAFT_PATH (no modal).
  */
 export default function AppShell({
   children,
-  pendingCount,
   pendingApprovals,
   routineUnreadCount = 0,
 }: Props) {
@@ -105,11 +99,9 @@ export default function AppShell({
   // On the phone there is no sidebar to say where you are, so the header has to.
   const pathname = location.pathname.replace(/\/+$/, "") || "/";
   const approvalDecision = useApprovalDecision();
-  // One approval can be answered from every screen, but not from the two that
-  // already show it: the inbox lists them all, and a task's own transcript
-  // renders its approval inline. See `lib/floatingApprovals.ts`.
+  // One approval can be answered from every screen except the conversation
+  // that already draws it inline. See `lib/floatingApprovals.ts`.
   const floating = floatingApprovals(pendingApprovals, {
-    onInbox: pathname === placePath("inbox"),
     visibleTaskId: selectedTaskId,
   });
   /**
@@ -119,24 +111,18 @@ export default function AppShell({
    */
   const listTitle = !desktop
     ? pathname === "/agents"
-      ? tr("nav.agents")
-      : pathname === "/artifacts"
-        ? tr("nav.artifacts")
-        : pathname === "/projects"
-          ? tr("nav.projects")
-          : pathname === "/routines"
-            ? tr("nav.routines")
-            : ""
+      ? tr("nav.agentOperations")
+      : pathname === "/routines"
+          ? tr("nav.routines")
+          : ""
     : "";
   const mobileTitle = draftActive
     ? tr("nav.newChat")
     : location.pathname.startsWith("/sessions")
       ? tr("nav.sessions")
-      : location.pathname.startsWith("/inbox")
-        ? tr("nav.inbox")
-        : location.pathname.startsWith("/settings")
-          ? tr("nav.settings")
-          : listTitle || tr("app.name");
+      : location.pathname.startsWith("/settings")
+        ? tr("nav.settings")
+        : listTitle || tr("app.name");
   const onSessionsTab = location.pathname.startsWith("/sessions");
 
   /**
@@ -147,99 +133,84 @@ export default function AppShell({
    * only — which keeps exactly one visible `<h1>` at every width.
    *
    * `/sessions` is not one of them any more: it renders `SessionsHeader`, which
-   * has no title (the rows are the page), and the page keeps its own `<h1>`
-   * for assistive tech at every width.
+   * draws the page's `<h1>` and the one search field at every phone width.
    *
    * The draft is not one of them: its page opens with the greeting as its own
    * `<h1>`, so the bar names the screen in a span.
    */
   const barIsHeading =
-    location.pathname.startsWith("/inbox") ||
-    location.pathname.startsWith("/settings") ||
-    listTitle !== "";
+    location.pathname.startsWith("/settings") || listTitle !== "";
 
   /**
    * Screens that ship their own header (back button + the real title).
    *
-   * The prototype gives every phone screen exactly one nav bar. These three put
-   * theirs inside the page — a session's or an artifact's title is not knowable
-   * from the route — so the shell header would be a second bar saying nothing
-   * ("Kin") and eating 48px above the one bar that matters. Back is the way out
-   * of a detail screen, which is what iOS does too. `/artifacts` (the library)
-   * is a list, not a detail screen, and keeps the shell bar; `/projects/:id` is
-   * a scrolling page whose back link sits in its own content flow, so it keeps
-   * the bar too.
+   * The prototype gives every phone screen exactly one nav bar. These screens
+   * put theirs inside the page — a session's title is not knowable from the
+   * route — so the shell header would be a second bar saying nothing ("Kin")
+   * and eating 48px above the one bar that matters. Back is the way out of a
+   * detail screen, which is what iOS does too.
+   *
+   * `/projects/:id` is one of them for a second reason: its own back link is
+   * the only one that runs the unsaved-summary guard (`ProjectDetailPage`'s
+   * `canLeave`). A shell back above it would leave the page silently and throw
+   * the edited summary away.
    */
   const detailRoute =
     selectedTaskId !== null ||
     location.pathname.startsWith("/agent-sessions/") ||
-    location.pathname.startsWith("/artifacts/");
+    location.pathname.startsWith("/projects/");
 
   /** Detail routes whose page renders `MobileHeader` (and its own top inset). */
   const pageOwnsTopInset = selectedTaskId !== null;
 
   /**
    * The routes that pin a composer to the bottom and mark it with
-   * `data-kin-bottom-chrome`: a conversation, the draft, and an agent session's
-   * continue box. The artifact viewer is a detail route too but pins nothing,
-   * so the card keeps its own offset there rather than waiting for a band that
-   * will never be drawn.
+   * `data-kin-bottom-chrome`: a conversation and an agent session's continue
+   * box. The draft is not one of them any more — its card sits in the page,
+   * under the greeting (KIN-START-001), so there is no band to clear.
    */
   const measuredBottomBand =
-    selectedTaskId !== null || draftActive || location.pathname.startsWith("/agent-sessions/");
-
-  /**
-   * The dock floats over the page, so the shell reserves its height under the
-   * content instead of every scroll container guessing at it. Doing it here is
-   * what makes it true for pages that were written before the dock existed —
-   * settings kept its last card under the pill, and its last control was not
-   * reachable because the page believed it had reached the bottom.
-   */
-  const dockVisible = !detailRoute && location.pathname !== DRAFT_PATH;
+    selectedTaskId !== null || location.pathname.startsWith("/agent-sessions/");
 
   /**
    * Leaving the new-chat screen.
    *
-   * `/` redirects here (App.tsx), so this screen is where a cold launch lands —
-   * and it deliberately has no tab bar, which used to leave the header
-   * hamburger as the only way out. The prototype gives it a close button; this
-   * is that button. History wins when there is any, so opening the draft from
-   * a session and closing it returns to that session.
-   *
-   * The test is `idx > 0`, not `location.key !== "default"`. A `<Navigate
-   * replace>` — which is how this screen is reached from `/` — mints a fresh
-   * random key, so the key looks like "we navigated here" on a cold launch
-   * where the history really has nothing behind it, and `navigate(-1)` is then
-   * a no-op: measured on a fresh load of `/`, `history.state` is
-   * `{key: "cxd8pjf4", idx: 0}` and clicking × did nothing at all.
+   * It always lands on the list. The draft is a pushed screen over the list,
+   * not one of the destinations whose parent is "wherever you came from"; a
+   * close that returned to a conversation would leave the list out of the
+   * path entirely. `replace` drops the draft's history entry, so closing it
+   * never leaves a second layer behind (KIN-CONTINUE-002, step 5).
    */
   function closeDraft() {
-    if ((window.history.state?.idx ?? 0) > 0) navigate(-1);
-    else navigate("/sessions");
+    navigate("/sessions", { replace: true });
   }
 
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
-  const taskListParams = useMemo(
-    () => (debouncedQuery ? { limit: 200, q: debouncedQuery } : { limit: 100 }),
-    [debouncedQuery],
-  );
-  const taskList = useTaskList(taskListParams);
+  // One back action for every pushed phone screen: the header button and the
+  // left-edge swipe land here, and both ask the page first (`lib/leaveGuard`)
+  // so a screen with unsaved text can confirm or refuse. The browser's own
+  // Back is handled a layer lower — a cold deep link gets a synthesized parent
+  // before the router mounts (`lib/phoneDeepLinkParent.ts`).
+  const leaveScreen = () => {
+    if (!canLeaveScreen()) return;
+    goBackToList(navigate);
+  };
+  const edgeBack = useEdgeSwipeBack(!wide && !onSessionsTab, () => {
+    if (draftActive) closeDraft();
+    else leaveScreen();
+  });
+
+  // The shell still needs task titles for the floating approval card. The
+  // list itself owns its own feed now, including search, so this read is only
+  // a name lookup — not the sidebar's data.
+  const taskList = useTaskList(SHELL_TITLE_TASKS);
   const tasks = taskList.data;
-  const searchLoading = searchQuery.trim() !== debouncedQuery || taskList.loading;
   const [weekCost, setWeekCost] = useState<number | null>(null);
-  const [mobileOpen, setMobileOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   // Zen: chrome out of the way, session untouched. State, not a preference —
   // nothing writes it anywhere, so a reload is always back to the shell (P3 plan
   // §2.3). What it hides is decided in `index.css` by the `kin-zen-hide` marker.
   const [zen, setZen] = useState(false);
-  const [externalSessions, setExternalSessions] = useState<AgentSession[]>([]);
-  const [agentCatalog, setAgentCatalog] = useState<AgentInfo[]>([]);
-  const agentCatalogRequest = useRef(0);
-  const autoImportInFlight = useRef(false);
-  const externalRefreshInFlight = useRef(false);
-  const externalRefreshQueued = useRef(false);
+  const { catalog: agentCatalog, refresh: refreshAgentCatalog } = useAgentCatalog();
   const [draftCwdLocal, setDraftCwdLocal] = useState<string>("");
   const pushToast = useAppStore((s) => s.pushToast);
   const wsStatus = useAppStore((s) => s.wsStatus);
@@ -254,92 +225,17 @@ export default function AppShell({
   // that are each other's duplicates.
   const { importing: importingExternalSessions, importEveryMachine } = useAgentSessionImport();
 
-  /**
-   * Import the sessions of this machine and every other one, and say what came
-   * back.
-   *
-   * The refresh loop below is deliberately dependency-free — it holds a 30s
-   * interval and re-subscribing it on every machine-list update would restart
-   * the clock — so the sync reads the current import through a ref instead of
-   * capturing the first one, which would be the one built before any machine
-   * was known.
-   */
-  const importEveryMachineRef = useRef(importEveryMachine);
-  useEffect(() => {
-    importEveryMachineRef.current = importEveryMachine;
-  }, [importEveryMachine]);
-
-  const loadExternalSessions = useCallback(async (skipAutoImport = false) => {
-    if (externalRefreshInFlight.current) {
-      externalRefreshQueued.current = true;
-      return;
-    }
-    externalRefreshInFlight.current = true;
-    try {
-      const catalogRequest = ++agentCatalogRequest.current;
-      await listAgents()
-        .then((catalog) => {
-          if (catalogRequest === agentCatalogRequest.current) setAgentCatalog(catalog);
-        })
-        .catch(() => {
-          if (catalogRequest === agentCatalogRequest.current) setAgentCatalog([]);
-        });
-      if (!skipAutoImport && !autoImportInFlight.current) {
-        const settings = await getSettings().catch(() => null);
-        // A manual import in flight is the person's own errand, and it already
-        // imports from every machine: the tick has nothing to add and would only
-        // make the count wrong. The flag above cannot see it — that one is only
-        // ever set here — so this asks the hook's counter, and it asks now
-        // rather than before the settings read: that read is an await, and an
-        // import that starts while the tick waits for settings is still one that
-        // started first.
-        if (settings?.["agent_sessions.auto_import_mode"] === "enabled" && !importsInFlight()) {
-          autoImportInFlight.current = true;
-          try {
-            const result = await importEveryMachineRef.current();
-            publishAgentSessionSync(result);
-          } catch (error) {
-            publishAgentSessionSync({
-              imported: 0,
-              providers: {},
-              errors: {
-                sync: error instanceof Error ? error.message : "sync failed",
-              },
-            });
-          } finally {
-            autoImportInFlight.current = false;
-          }
-        }
-      }
-      const sessions: AgentSession[] = [];
-      let before = "";
-      for (let pageIndex = 0; pageIndex < 20; pageIndex++) {
-        const page = await listAgentSessionsPage({
-          limit: 500,
-          before: before || undefined,
-        });
-        sessions.push(...page.items);
-        if (!page.next_cursor) break;
-        before = page.next_cursor;
-      }
-      setExternalSessions(sessions);
-    } catch {
-      // Keep the last successful snapshot visible during transient refresh failures.
-    } finally {
-      externalRefreshInFlight.current = false;
-      if (externalRefreshQueued.current) {
-        externalRefreshQueued.current = false;
-        void loadExternalSessions(true);
-      }
-    }
-  }, []);
-
   const importExternalSessions = useCallback(
     async (agents?: string[]) => {
       if (importingExternalSessions) return;
       try {
         const result = await importEveryMachine(agents);
-        await loadExternalSessions(true);
+        // The list reads imported sessions on its own now; without this the
+        // fold stays at the count it had when the page opened. The sync event
+        // is not one this shell listens to, unlike `changed`, so the catalog
+        // reload below stays the only one this errand causes.
+        publishAgentSessionSync(result);
+        await refreshAgentCatalog();
         const toast = importToast(result, tr);
         pushToast(toast.message, toast.kind);
       } catch (e) {
@@ -351,25 +247,16 @@ export default function AppShell({
         pushToast(tr("settings.localAgents.importFailed"), "error");
       }
     },
-    [importingExternalSessions, importEveryMachine, loadExternalSessions, pushToast, tr],
+    [importingExternalSessions, importEveryMachine, refreshAgentCatalog, pushToast, tr],
   );
 
-  useEffect(() => {
-    if (wsStatus === "disconnected") return;
-    void loadExternalSessions();
-    const refresh = (event: Event) => {
-      const detail = (event as CustomEvent<{ skipAutoImport?: boolean }>).detail;
-      void loadExternalSessions(detail?.skipAutoImport === true);
-    };
-    const timer = window.setInterval(() => void loadExternalSessions(), 30_000);
-    window.addEventListener("kin:agent-sessions-changed", refresh);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener("kin:agent-sessions-changed", refresh);
-    };
-  }, [loadExternalSessions, wsStatus]);
-
-  const openNewChat = useCallback(() => {
+  const openNewChat = useCallback((approved = false) => {
+    // Every caller (the palette's "New chat" row, ⌘N, the list's empty state)
+    // asks the current page before leaving it, the same as Back does. The
+    // palette asks itself and passes `approved`, so one departure is one
+    // question, not two. Only a literal `true` counts: a click event that
+    // arrives in this slot must not read as "already asked".
+    if (approved !== true && !canLeaveScreen()) return;
     // Single draft entry: always jump to /new (create-or-focus).
     navigate(DRAFT_PATH);
   }, [navigate]);
@@ -409,35 +296,6 @@ export default function AppShell({
     toggleShellPanel("terminal");
   }, [toggleShellPanel]);
 
-  const openNewSessionInProject = useCallback(
-    (cwd: string) => {
-      setDraftCwd(cwd);
-      navigate(`${DRAFT_PATH}?cwd=${encodeURIComponent(cwd)}`);
-    },
-    [navigate],
-  );
-
-  const handleDeleteSession = useCallback(
-    async (task: Task) => {
-      // A task with neither a title nor a prompt is rare enough that the id is
-      // better than a blank line in a confirmation dialog.
-      const title = taskDisplayTitle(task) || task.id;
-      const ok = window.confirm(tr("task.deleteConfirm") + (title ? `\n\n${title}` : ""));
-      if (!ok) return;
-      try {
-        await deleteTask(task.id);
-        liveResources.applyMessage({ kind: "task_deleted", data: { id: task.id } });
-        pushToast(tr("task.deleted"), "info");
-        if (taskIdFromPath(location.pathname) === task.id) {
-          navigate("/");
-        }
-      } catch (e) {
-        pushToast(e instanceof Error ? e.message : tr("task.deleteFailed"), "error");
-      }
-    },
-    [location.pathname, navigate, pushToast, tr],
-  );
-
   const loadUsage = useCallback(async () => {
     try {
       const rows = await getUsageSummary(7);
@@ -451,26 +309,6 @@ export default function AppShell({
   useEffect(() => {
     void loadUsage();
   }, [loadUsage]);
-
-  // The drawer is `md:hidden` but its state is not: an open drawer suppresses
-  // the floating approval, and every control that could close it is inside the
-  // hidden subtree. Crossing the breakpoint with it open — a rotation, or a
-  // phone-sized window dragged wide — must close it, or the card is gone for
-  // the rest of the session.
-  useCloseOnWideScreen(mobileOpen, () => setMobileOpen(false));
-
-  // Debounced session list load. Empty q = recent 100; non-empty = full-library search.
-  useEffect(() => {
-    const q = searchQuery.trim();
-    if (!q) {
-      setDebouncedQuery("");
-      return;
-    }
-    const t = window.setTimeout(() => {
-      setDebouncedQuery(q);
-    }, 250);
-    return () => window.clearTimeout(t);
-  }, [searchQuery]);
 
   // Subscribe to draft cwd changes
   useEffect(() => {
@@ -564,40 +402,45 @@ export default function AppShell({
 
   return (
     /*
-      `touch-lg` belongs on this root, not on <main>: the drawer (a fixed
-      sibling of <main>) and the command palette below it are the two surfaces
-      the phone uses to reach everything the three tabs do not cover, and both
-      sit outside <main>. See index.css.
+      `touch-lg` belongs on this root, not on <main>: the edge-back strip (a
+      fixed sibling of <main>) and the command palette below it sit outside
+      <main>, and both are phone surfaces. See index.css.
     */
     <div
       className={`touch-lg h-[100dvh] flex bg-[var(--kin-page)] text-kin-text overflow-hidden safe-pad md:pt-safe ${
         zen ? "kin-zen" : ""
       }`}
     >
-      <Sidebar
-        tasks={tasks}
-        selectedTaskId={selectedTaskId}
-        draftActive={draftActive}
-        pendingCount={pendingCount}
-        routineUnreadCount={routineUnreadCount}
-        weekCost={weekCost}
-        onNewChat={openNewChat}
-        onNewSessionInProject={openNewSessionInProject}
-        onDeleteSession={(task) => void handleDeleteSession(task)}
-        externalSessions={externalSessions}
-        agentCatalog={agentCatalog}
-        importingExternalSessions={importingExternalSessions}
-        onImportExternalSessions={(agents) => void importExternalSessions(agents)}
-        onOpenExternalSession={(session) => {
-          navigate(`/agent-sessions/${encodeURIComponent(session.id)}`);
-        }}
-        mobileOpen={mobileOpen}
-        onOpenMobile={() => setMobileOpen(true)}
-        onCloseMobile={() => setMobileOpen(false)}
-        searchQuery={searchQuery}
-        onSearchQueryChange={setSearchQuery}
-        searchLoading={searchLoading}
-      />
+      {wide && (
+        <Sidebar
+          selectedTaskId={selectedTaskId}
+          draftActive={draftActive}
+          routineUnreadCount={routineUnreadCount}
+          weekCost={weekCost}
+          onNewChat={openNewChat}
+          agentCatalog={agentCatalog}
+          importingExternalSessions={importingExternalSessions}
+          onImportExternalSessions={(agents) => void importExternalSessions(agents)}
+        />
+      )}
+
+      {/*
+        The phone's edge. It is a strip rather than a listener on the shell
+        root because a horizontal drag needs `touch-action: pan-y` from the
+        very first touch: touch-action is decided when the finger lands, so a
+        root-level listener could not stop the browser from interpreting the
+        pull as a pan. `pan-y` leaves vertical scrolling alone. It is absent on
+        the list page, which is the root and has nowhere to go back to.
+      */}
+      {!wide && !onSessionsTab && (
+        <div
+          aria-hidden="true"
+          data-kin-edge-back
+          className="fixed inset-y-0 left-0 z-30 w-5 md:hidden"
+          style={{ touchAction: "pan-y" }}
+          {...edgeBack}
+        />
+      )}
 
       <div className="relative flex-1 flex flex-col min-w-0 min-h-0">
         {/*
@@ -619,59 +462,44 @@ export default function AppShell({
           <div className="md:hidden flex-none pt-safe kin-zen-hide" />
         ) : detailRoute ? null : onSessionsTab ? (
           /*
-            The list's own bar: identity, in-place search, inbox and settings.
-            No page title — the rows are the page — and no hamburger, because
-            the identity disc is the drawer trigger here. The command palette
-            icon is gone from this route too: search is the field in the middle
-            now, and a second search affordance beside it would be a question
-            about which one filters the list.
+            The list page owns its header: title and the one search field.
+            There is no menu here to open and no settings button — settings is
+            one of the four footer destinations (KIN-CONTINUE-002).
           */
-          <SessionsHeader
-            pendingCount={pendingCount}
-            onOpenMenu={() => setMobileOpen(true)}
-            onOpenInbox={() => navigate(placePath("inbox"))}
-            onOpenSettings={() => navigate(placePath("settings"))}
-          />
+          <SessionsHeader />
         ) : (
           <MobileHeader
             heading={barIsHeading}
             title={mobileTitle}
             leading={
-              /*
-                The drawer is the phone's only navigation, so its trigger is on
-                every screen including the draft. The draft used to swap this
-                button for a close ×, which left the landing screen — the one
-                the FAB opens and the one most sessions start from — with no way
-                into settings, the inbox, or any other session. The × moved to
-                the trailing cluster, where the compose screens already put
-                cancel.
-              */
-              <MobileHeaderButton label={tr("app.openMenu")} onClick={() => setMobileOpen(true)}>
-                {/* The same identity disc the sessions bar leads with: the
-                    drawer is one destination, and one shape for it on every
-                    screen. A hamburger here and a disc there made the two
-                    pages look like they opened different things. */}
-                <IdentityDisc />
-              </MobileHeaderButton>
+              draftActive ? (
+                /* The draft is a focused flow; its way out is a close, not a
+                   trip through another navigation surface. */
+                <MobileHeaderButton label={tr("app.close")} onClick={closeDraft}>
+                  <IconX size={20} strokeWidth={2.1} />
+                </MobileHeaderButton>
+              ) : (
+                /* Every other pushed screen has the list as its parent. The
+                   header button and the left-edge swipe call the same helper,
+                   and both ask the page before it goes, so they cannot
+                   disagree and neither bypasses an unsaved-edit guard. */
+                <MobileHeaderButton label={tr("app.back")} onClick={leaveScreen}>
+                  <IconBack size={20} />
+                </MobileHeaderButton>
+              )
             }
             trailing={
-              <>
-                {/* No "+" here: the dock's FAB is the same action, 100px
-                    below, and two identical buttons in one viewport make the
-                    screen look unsure which one it means. */}
-                <MobileHeaderButton
-                  label={tr("app.commandPalette")}
-                  onClick={() => setPaletteOpen(true)}
-                  tone="muted"
-                >
-                  <IconSearch size={18} />
-                </MobileHeaderButton>
-                {draftActive && (
-                  <MobileHeaderButton label={tr("app.close")} onClick={closeDraft} tone="muted">
-                    <IconX size={20} strokeWidth={2.1} />
-                  </MobileHeaderButton>
-                )}
-              </>
+              /* The command palette is the only extra control here. The
+                 new-chat button lives on the list page's own bottom-right
+                 corner; a second "+" in this bar would be the same action
+                 twice in one viewport. */
+              <MobileHeaderButton
+                label={tr("app.commandPalette")}
+                onClick={() => setPaletteOpen(true)}
+                tone="muted"
+              >
+                <IconSearch size={18} />
+              </MobileHeaderButton>
             }
           />
         )}
@@ -682,16 +510,15 @@ export default function AppShell({
           a gap under the banner instead of on the notch, and the bar itself
           still rendered under the sensor housing.
         */}
-        {wsStatus !== "connected" && (
+        {wsStatus === "disconnected" && (
           <div
             className={[
               "flex-none bg-kin-orange/10 border-b border-kin-orange/25 text-kin-orange-ink text-body text-center px-3 pb-1.5",
               // On the session screen the page draws its own `MobileHeader`
               // *below* this banner, so nothing above the banner owns the
-              // notch. Without this the reconnect strip — shown on every cold
-              // load, because `wsStatus` starts as "disconnected" — rendered
-              // under the sensor housing and then the header spent the inset
-              // a second time beneath it.
+              // notch. Without this the reconnect strip rendered under the
+              // sensor housing and then the header spent the inset a second
+              // time beneath it.
               // `max-md:` because from `md` up the shell root spends the
               // inset once for both columns (`md:pt-safe` above); this strip
               // is below that edge, so it must not spend it again.
@@ -703,53 +530,33 @@ export default function AppShell({
           </div>
         )}
 
-        <main
-          className={[
-            "kin-main flex-1 min-h-0 overflow-hidden flex flex-col",
-            dockVisible ? "kin-dock-pad" : "",
-          ].join(" ")}
-        >
+        <main className="kin-main flex-1 min-h-0 overflow-hidden flex flex-col">
           {children}
         </main>
 
-        {/* The phone's three primary jobs. Hidden on the draft screen, which
-            is a focused flow with its own way out, and on detail routes — a
-            pushed chat owns the whole screen, and its back button is the way
-            out (the iOS convention). */}
-        {dockVisible && <MobileDock />}
-
         {/* An approval blocks the agent that asked for it wherever the reader
-            happens to be. The dock's presence decides the offset, because on
-            the phone the card has to clear the pill and its "new chat" button,
-            and on a pushed conversation the composer sits where the dock would
-            be. See `FloatingApproval` for which one it shows.
-
-            Not while the navigation drawer is open: that drawer is a modal
-            (it dims the page and swallows taps), and the card shares its
-            `z-40`, so at equal depth the later node — this one — painted over
-            the scrim and its buttons stayed live. A modal with a clickable
-            approval floating on top of it is not modal.
+            happens to be. On the list page the footer and its new-chat button
+            decide the offset; a pushed conversation measures its composer
+            instead. See `FloatingApproval` for which one it shows.
 
             Inside a boundary of its own: the card renders an agent-supplied
             payload, and a throw in it must cost one card rather than the
             shell around every screen. */}
-        {!mobileOpen && (
-          <ErrorBoundary
-            fallback={null}
-            resetKey={floating.map((approval) => approval.id).join(",")}
-          >
-            <FloatingApproval
-              approvals={floating}
-              titleFor={(taskId) => taskDisplayTitle(tasks.find((task) => task.id === taskId))}
-              busy={approvalDecision.busy}
-              onDecide={(id, decision) => void approvalDecision.decide(id, decision)}
-              onOpenTask={(taskId) => navigate(`/tasks/${encodeURIComponent(taskId)}`)}
-              raised={dockVisible}
-              screenKey={pathname}
-              expectsBottomChrome={measuredBottomBand}
-            />
-          </ErrorBoundary>
-        )}
+        <ErrorBoundary
+          fallback={null}
+          resetKey={floating.map((approval) => approval.id).join(",")}
+        >
+          <FloatingApproval
+            approvals={floating}
+            titleFor={(taskId) => taskDisplayTitle(tasks.find((task) => task.id === taskId))}
+            busy={approvalDecision.busy}
+            onDecide={(id, decision) => void approvalDecision.decide(id, decision)}
+            onOpenTask={(taskId) => navigate(`/tasks/${encodeURIComponent(taskId)}`)}
+            raised={pathname === "/sessions"}
+            screenKey={pathname}
+            expectsBottomChrome={measuredBottomBand}
+          />
+        </ErrorBoundary>
 
         {/* Terminal panel — the shell's own panel, desktop only */}
         {terminalAvailable && (

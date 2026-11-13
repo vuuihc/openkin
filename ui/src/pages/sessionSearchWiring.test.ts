@@ -20,7 +20,7 @@ import { describe, expect, it } from "vitest";
  * needs a daemon, a machine list and two live subscriptions.
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
-const SOURCE = readFileSync(join(UI, "src/pages/SessionsPage.tsx"), "utf8");
+const SOURCE = readFileSync(join(UI, "src/components/sessions/SessionList.tsx"), "utf8");
 /** The selection rule moved to its own module so it can be tested without a daemon. */
 const FEED = readFileSync(join(UI, "src/lib/sessionFeed.ts"), "utf8");
 
@@ -28,10 +28,10 @@ const count = (needle: string) => SOURCE.split(needle).length - 1;
 
 describe("the phone list's search wiring", () => {
   it("builds the task requests from the shared parameter rule", () => {
-    // The live list, the "is there more" bound, and the older page all ask the
-    // same question; a request that forgot the status would append unfiltered
-    // rows under a filtered list.
-    expect(count("sessionListParams(searchTerm, status)")).toBe(3);
+    // The live list, the "is there more" bound, the older page and the retry
+    // all ask the same question; a request that forgot the status would append
+    // unfiltered rows under a filtered list.
+    expect(count("sessionListParams(searchTerm, status)")).toBe(4);
   });
 
   it("builds the imported-session requests without a status", () => {

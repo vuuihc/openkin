@@ -20,16 +20,22 @@ import { describe, expect, it } from "vitest";
  * needs a daemon, a machine list and two live subscriptions.
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
-const SOURCE = readFileSync(join(UI, "src/pages/SessionsPage.tsx"), "utf8");
+const SOURCE = readFileSync(join(UI, "src/components/sessions/SessionList.tsx"), "utf8");
 const TASK_DETAIL = readFileSync(join(UI, "src/pages/TaskDetailPage.tsx"), "utf8");
 
 describe("the phone list's archive wiring", () => {
   it("archives the conversation, not its project", () => {
     // The bug this round exists for: one row's 归档 used to hide every chat
-    // filed under the same cwd. The row call has to be the per-task one. The
-    // project's own restore stays — it is the drawer's action, not this one.
+    // filed under the same cwd. The row call has to be the per-task one; the
+    // project's own archive is a separate action on its heading, and it now
+    // exists in both shells because the list is one component.
     expect(SOURCE).toContain("const archived = await archiveTask(id);");
-    expect(SOURCE).not.toMatch(/\barchiveProject\(/);
+    const rowArchive = SOURCE.slice(
+      SOURCE.indexOf("async function archiveRow"),
+      SOURCE.indexOf("async function restoreRow"),
+    );
+    expect(rowArchive).toContain("archiveTask(id)");
+    expect(rowArchive).not.toContain("archiveProject(");
     expect(SOURCE).toContain("unarchiveProject(cwd);");
   });
 

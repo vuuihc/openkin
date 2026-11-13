@@ -113,12 +113,11 @@ function subscribeToImports(listener: () => void): () => void {
 /**
  * Whether an import is running anywhere in this console.
  *
- * Exported because a caller outside React has to ask the same question and
- * cannot wait for a render to answer it: the auto-sync's 30 second tick runs on
- * a timer, and an import that started a moment ago has not rendered yet — so a
- * check against the rendered value would let the tick start a second fan-out
- * over the first, and the two would count each other's rows. Both this and the
- * hook's `importing` read the one counter, so they cannot disagree.
+ * Exported because one surface can start an errand while another is already
+ * running, and the second must see the first before either re-renders. Both
+ * this and the hook's `importing` read the one counter, so they cannot
+ * disagree. Nothing calls it on a timer: KIN-AGENTS-001 removed the automatic
+ * import, so every start is a person pressing a control.
  */
 export function importsInFlight(): boolean {
   return imports > 0;

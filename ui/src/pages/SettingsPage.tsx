@@ -37,11 +37,7 @@ import {
 } from "../lib/agentRoles";
 import { importToast } from "../lib/agentSessionImport";
 import { useAgentSessionImport } from "../hooks/useAgentSessionImport";
-import {
-  isAutoImportSnapshot,
-  LocalAgentSettingsSection,
-  type AutoImportSnapshot,
-} from "../components/settings/LocalAgentSettingsSection";
+import { LocalAgentSettingsSection } from "../components/settings/LocalAgentSettingsSection";
 import { ProviderSettingsSection } from "../components/settings/ProviderSettingsSection";
 import { AccountSection } from "../components/settings/AccountSection";
 import { NativePushSettings } from "../components/settings/NativePushSettings";
@@ -112,7 +108,6 @@ export default function SettingsPage() {
   const [roles, setRoles] = useState<AgentRole[]>([]);
   const [limitPolicy, setLimitPolicy] = useState("wait");
   const [limitFallbackText, setLimitFallbackText] = useState("[]");
-  const [autoImportMode, setAutoImportMode] = useState<"prompt" | "enabled" | "disabled">("prompt");
   // One flag for every control that starts an import, from the hook rather than
   // from this page: the sidebar offers the same errand, and a page-local flag
   // left that button live while this one was already importing.
@@ -137,7 +132,6 @@ export default function SettingsPage() {
   const [agentDefault, setAgentDefault] = useState("");
   const [agentList, setAgentList] = useState<AgentInfo[]>([]);
   const [agentProviders, setAgentProviders] = useState<AgentProvider[]>([]);
-  const [lastAutoImport, setLastAutoImport] = useState<AutoImportSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [reveal, setReveal] = useState(false);
@@ -167,7 +161,6 @@ export default function SettingsPage() {
       setAgentDefault(s["agent.default"] ?? "");
       setLimitPolicy((s.limit_policy as string) || "wait");
       setLimitFallbackText(s["limit_policy.fallback_agents"] || "[]");
-      setAutoImportMode(s["agent_sessions.auto_import_mode"] || "prompt");
       setActiveProviderId(s["provider.active_id"] ?? "");
       try {
         const reg = await listProviders();
@@ -222,24 +215,6 @@ export default function SettingsPage() {
     return () => window.clearInterval(timer);
   }, [settings?.["relay.url"]]);
 
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem("kin_agent_sessions_last_sync");
-      if (raw) {
-        const parsed: unknown = JSON.parse(raw);
-        if (isAutoImportSnapshot(parsed)) setLastAutoImport(parsed);
-      }
-    } catch {
-      // Ignore unavailable or stale browser storage.
-    }
-    const onSync = (event: Event) => {
-      const detail: unknown = (event as CustomEvent<unknown>).detail;
-      if (isAutoImportSnapshot(detail)) setLastAutoImport(detail);
-    };
-    window.addEventListener("kin:agent-sessions-sync", onSync);
-    return () => window.removeEventListener("kin:agent-sessions-sync", onSync);
-  }, []);
-
   const save = async () => {
     setBusy(true);
     setSaved(false);
@@ -270,14 +245,12 @@ export default function SettingsPage() {
         "agent.default": agentDefault.trim(),
         limit_policy: limitPolicy,
         "limit_policy.fallback_agents": limitFallbackText.trim() || "[]",
-        "agent_sessions.auto_import_mode": autoImportMode,
       };
       const s = await updateSettings(body);
       setSettings(s);
       setAgentDefault(s["agent.default"] ?? "");
       setLimitPolicy((s.limit_policy as string) || "wait");
       setLimitFallbackText(s["limit_policy.fallback_agents"] || "[]");
-      setAutoImportMode(s["agent_sessions.auto_import_mode"] || "prompt");
       setQuotaWaitNotifySecs(s["notify.quota_wait_after_secs"] || "900");
       setActiveProviderId(s["provider.active_id"] ?? activeProviderId);
       try {
@@ -320,11 +293,7 @@ export default function SettingsPage() {
       // under the same label, and a person on a phone who tapped this one
       // instead would otherwise get a session list that silently means "here".
       const result = await importEveryMachine();
-      window.dispatchEvent(
-        new CustomEvent("kin:agent-sessions-changed", {
-          detail: { skipAutoImport: true },
-        }),
-      );
+      window.dispatchEvent(new CustomEvent("kin:agent-sessions-changed"));
       const toast = importToast(result, tr);
       pushToast(toast.message, toast.kind);
     } catch (e) {
@@ -343,11 +312,7 @@ export default function SettingsPage() {
     setError(null);
     try {
       const result = await importEveryMachine([agentId]);
-      window.dispatchEvent(
-        new CustomEvent("kin:agent-sessions-changed", {
-          detail: { skipAutoImport: true },
-        }),
-      );
+      window.dispatchEvent(new CustomEvent("kin:agent-sessions-changed"));
       const toast = importToast(result, tr);
       pushToast(toast.message, toast.kind);
     } catch (e) {
@@ -908,13 +873,10 @@ export default function SettingsPage() {
         agentProviders={agentProviders}
         refreshingAgentCatalog={refreshingAgentCatalog}
         importingSessions={importingEveryMachine}
-        autoImportMode={autoImportMode}
-        lastAutoImport={lastAutoImport}
         settingsBusy={busy}
         onRefreshAgentCatalog={() => void refreshAgentCatalog()}
         onImportSessions={() => void importSessions()}
         onImportProviderSessions={(agentId) => void importProviderSessions(agentId)}
-        onAutoImportModeChange={setAutoImportMode}
         onSaveSettings={() => void save()}
         roles={roles}
         onRolesChange={setRoles}

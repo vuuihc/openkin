@@ -15,7 +15,12 @@ const (
 	AutoImportPrompt   = "prompt"
 	AutoImportEnabled  = "enabled"
 	AutoImportDisabled = "disabled"
-	KeyAutoImportMode  = "agent_sessions.auto_import_mode"
+	// KeyAutoImportMode is a legacy policy key. The console no longer reads it
+	// to start an import — KIN-AGENTS-001 says a provider's history enters Kin
+	// only when a person imports it — but the daemon keeps accepting and
+	// returning it so an older console can save its settings without an error.
+	// It is policy metadata only: writing it never touches indexed sessions.
+	KeyAutoImportMode = "agent_sessions.auto_import_mode"
 
 	maxAgentSessionTitleRunes = 160
 )

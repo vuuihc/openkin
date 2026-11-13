@@ -1,36 +1,8 @@
 import type { AgentProvider, AgentProviderState } from "../../api/client";
 import { useT } from "../../i18n/react";
-import SearchSelect from "../ui/SearchSelect";
 import type { AgentRole } from "../../lib/agentRoles";
 import { RolesSection } from "./RolesSection";
 import { SettingsSection, SettingsTabPanel } from "./SettingsPrimitives";
-
-export type AutoImportSnapshot = {
-  imported: number;
-  providers: Record<string, unknown>;
-  errors?: Record<string, unknown>;
-  synced_at: number;
-};
-
-export function isAutoImportSnapshot(value: unknown): value is AutoImportSnapshot {
-  if (!value || typeof value !== "object") return false;
-  const snapshot = value as Partial<AutoImportSnapshot>;
-  return (
-    typeof snapshot.synced_at === "number" &&
-    Number.isFinite(snapshot.synced_at) &&
-    typeof snapshot.imported === "number" &&
-    Number.isFinite(snapshot.imported) &&
-    !!snapshot.providers &&
-    typeof snapshot.providers === "object"
-  );
-}
-
-export function formatSyncTime(value: number): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
 
 export function localAgentStatusKey(state: AgentProviderState): string {
   if (state === "available") return "settings.localAgents.available";
@@ -52,13 +24,10 @@ export function LocalAgentSettingsSection({
   agentProviders,
   refreshingAgentCatalog,
   importingSessions,
-  autoImportMode,
-  lastAutoImport,
   settingsBusy,
   onRefreshAgentCatalog,
   onImportSessions,
   onImportProviderSessions,
-  onAutoImportModeChange,
   onSaveSettings,
   roles,
   onRolesChange,
@@ -67,13 +36,10 @@ export function LocalAgentSettingsSection({
   agentProviders: AgentProvider[];
   refreshingAgentCatalog: boolean;
   importingSessions: boolean;
-  autoImportMode: "prompt" | "enabled" | "disabled";
-  lastAutoImport: AutoImportSnapshot | null;
   settingsBusy: boolean;
   onRefreshAgentCatalog: () => void;
   onImportSessions: () => void;
   onImportProviderSessions: (agentId: string) => void;
-  onAutoImportModeChange: (mode: "prompt" | "enabled" | "disabled") => void;
   onSaveSettings: () => void;
   roles: AgentRole[];
   onRolesChange: (roles: AgentRole[]) => void;
@@ -191,41 +157,12 @@ export function LocalAgentSettingsSection({
             )}
           </div>
         </div>
-        <div className="flex flex-col gap-1.5">
-          <span className="text-body leading-4 font-medium text-kin-secondary">
-            {tr("settings.localAgents.autoImport")}
-          </span>
-          <SearchSelect
-            variant="field"
-            label={tr("settings.localAgents.autoImport")}
-            value={autoImportMode}
-            options={[
-              { id: "prompt", label: tr("settings.localAgents.modePrompt") },
-              { id: "enabled", label: tr("settings.localAgents.modeEnabled") },
-              { id: "disabled", label: tr("settings.localAgents.modeDisabled") },
-            ]}
-            onChange={(next) => onAutoImportModeChange(next as "prompt" | "enabled" | "disabled")}
-          />
-          <span className="text-caption text-kin-muted">{tr("settings.localAgents.policy")}</span>
-          <div
-            className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2 text-caption text-kin-muted"
-            role="status"
-          >
-            <span className="font-medium text-kin-secondary">
-              {autoImportMode === "enabled"
-                ? tr("settings.localAgents.autoSyncEnabled")
-                : tr("settings.localAgents.autoSyncDisabled")}
-            </span>
-            {" · "}
-            {lastAutoImport
-              ? tr("settings.localAgents.lastSync", {
-                  value: formatSyncTime(lastAutoImport.synced_at),
-                  imported: lastAutoImport.imported,
-                  errors: Object.keys(lastAutoImport.errors ?? {}).length,
-                })
-              : tr("settings.localAgents.neverSynced")}
-          </div>
-        </div>
+        {/* There is no automatic-import control: KIN-AGENTS-001 says a
+            session enters Kin only when a person presses one of the import
+            buttons above. The daemon still accepts the old
+            `agent_sessions.auto_import_mode` setting so an older console can
+            save its settings without an error, but no surface reads it to
+            start an import. */}
         <div className="flex flex-wrap gap-2">
           <button
             type="button"

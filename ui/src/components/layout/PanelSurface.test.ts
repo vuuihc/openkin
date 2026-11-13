@@ -32,14 +32,12 @@ const SKIP_DIRS = new Set(["node_modules", "dist"]);
  * Files allowed to spell out a full-bleed overlay, and why.
  *
  * An allow-list rather than a pattern, because the list *is* the decision: adding
- * a surface is fine, doing it without saying so here is not. The two mobile
- * drawers are a different thing from a surface over the session — they cover the
- * whole viewport, not the app frame — but they are written with the same classes,
- * so they are named rather than pattern-matched away.
+ * a surface is fine, doing it without saying so here is not. The phone's
+ * navigation drawer used to be the second entry; KIN-CONTINUE-002 deleted it,
+ * so the session panel is the only full-bleed surface left.
  */
 const ALLOWED = new Map([
   ["src/components/layout/PanelSurface.tsx", "the one session surface"],
-  ["src/components/layout/Sidebar.tsx", "mobile navigation drawer, over the whole viewport"],
 ]);
 
 function sourceFiles(): string[] {

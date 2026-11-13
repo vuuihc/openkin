@@ -18,16 +18,15 @@ import { hubAnswers, hubBootPlan } from "./lib/hubBoot";
 import { currentHubUrl, hubConfigPlugin } from "./lib/hubConfig";
 import { initTheme } from "./lib/theme";
 import { cleanupLegacyWebPush } from "./lib/legacyWebPush";
+import { synthesizePhoneParent } from "./lib/phoneDeepLinkParent";
 import "@ionic/react/css/core.css";
 import "./index.css";
 
 /**
- * Ionic is the console's mobile design language: the action sheet and the
- * controls built on it get the platform's touch targets, safe area and
- * dismissal behaviour without a hand-tuned copy per page. The console's own
- * tokens stay authoritative for colour and type — see the `ion-action-sheet`
- * block in `index.css`. `ios` mode everywhere keeps one look across the phone,
- * the browser and the desktop shell.
+ * Ionic is still the console's mobile design language on the surfaces that
+ * use it (the conversation's action sheet, the switcher). The phone's own
+ * navigation is the console's now (KIN-CONTINUE-002), but the library stays
+ * initialized until those remaining sheets move to `components/ui/Sheet`.
  */
 setupIonicReact({ mode: "ios" });
 
@@ -154,6 +153,9 @@ void (async () => {
   if (linkFailed && (getToken() || state.authenticated)) {
     clearAuthErrorFromURL();
   }
+  // Before the router mounts, give a cold deep link a parent entry so the
+  // system Back returns to the list instead of leaving Kin.
+  synthesizePhoneParent();
   createRoot(root).render(
     <StrictMode>
       <BrowserRouter>

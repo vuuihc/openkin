@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="900" viewBox="0 0 800 900">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="800" height="900" fill="#fbfbfd"/>
+<text x="20" y="18" font-size="11" fill="#6b6b6b">列表页的四种状态 · 搜索与底部四个入口始终保留 · 状态板</text>
+
+<g>
+<rect x="20" y="30" width="380" height="400" rx="20" fill="#ffffff" stroke="#dddddd"/>
+<text x="36" y="56" font-size="10.5" fill="#1f6feb">01 · 加载中</text>
+<text x="36" y="90" font-size="18" font-weight="600" fill="#1a1a1a">对话</text>
+<rect x="36" y="104" width="348" height="40" rx="11" fill="#f6f6f8"/>
+<text x="50" y="128" font-size="11.5" fill="#6b6b6b">搜索对话…</text>
+<rect x="36" y="160" width="120" height="10" rx="5" fill="#eeeeee"/>
+<rect x="36" y="184" width="348" height="44" rx="11" fill="#f6f6f8"/>
+<rect x="36" y="238" width="348" height="44" rx="11" fill="#f6f6f8"/>
+<rect x="36" y="292" width="348" height="44" rx="11" fill="#f6f6f8"/>
+<text x="36" y="362" font-size="10.5" fill="#6b6b6b">列表先出骨架；底部入口立刻可点，</text>
+<text x="36" y="378" font-size="10.5" fill="#6b6b6b">不用等列表读回来。</text>
+<rect x="36" y="394" width="348" height="24" rx="8" fill="#f6f6f8"/>
+<text x="50" y="410" font-size="9.5" fill="#6b6b6b">归档   例行   Agent   设置</text>
+</g>
+
+<g>
+<rect x="400" y="30" width="380" height="400" rx="20" fill="#ffffff" stroke="#dddddd"/>
+<text x="416" y="56" font-size="10.5" fill="#1f6feb">02 · 空</text>
+<text x="416" y="90" font-size="18" font-weight="600" fill="#1a1a1a">对话</text>
+<rect x="416" y="104" width="348" height="40" rx="11" fill="#f6f6f8"/>
+<text x="430" y="128" font-size="11.5" fill="#6b6b6b">搜索对话…</text>
+<text x="590" y="230" font-size="13" font-weight="600" fill="#1a1a1a" text-anchor="middle">还没有对话</text>
+<text x="590" y="252" font-size="10.5" fill="#6b6b6b" text-anchor="middle">写下第一句，开始一段。</text>
+<rect x="520" y="272" width="140" height="34" rx="17" fill="#1f6feb"/>
+<text x="590" y="294" font-size="11" fill="#ffffff" text-anchor="middle">新建对话</text>
+<text x="416" y="362" font-size="10.5" fill="#6b6b6b">空态不是空白页：页头搜索与底部入口都在。</text>
+<text x="416" y="378" font-size="10.5" fill="#6b6b6b">设备名不因为空而隐藏。</text>
+<rect x="416" y="394" width="348" height="24" rx="8" fill="#f6f6f8"/>
+<text x="430" y="410" font-size="9.5" fill="#6b6b6b">归档   例行   Agent   设置</text>
+</g>
+
+<g>
+<rect x="20" y="450" width="380" height="400" rx="20" fill="#ffffff" stroke="#dddddd"/>
+<text x="36" y="476" font-size="10.5" fill="#1f6feb">03 · 读失败</text>
+<text x="36" y="510" font-size="18" font-weight="600" fill="#1a1a1a">对话</text>
+<rect x="36" y="524" width="348" height="40" rx="11" fill="#f6f6f8"/>
+<text x="50" y="548" font-size="11.5" fill="#6b6b6b">搜索对话…</text>
+<text x="200" y="640" font-size="13" font-weight="600" fill="#1a1a1a" text-anchor="middle">对话列表没有读出来</text>
+<text x="200" y="662" font-size="10.5" fill="#6b6b6b" text-anchor="middle">网络或机器暂时没有回答。</text>
+<rect x="140" y="682" width="120" height="34" rx="17" fill="#ffffff" stroke="#1f6feb"/>
+<text x="200" y="704" font-size="11" fill="#1f6feb" text-anchor="middle">重试</text>
+<text x="36" y="762" font-size="10.5" fill="#6b6b6b">已加载的内容不清空；</text>
+<text x="36" y="778" font-size="10.5" fill="#6b6b6b">底部入口仍然可去设置。</text>
+<rect x="36" y="794" width="348" height="24" rx="8" fill="#f6f6f8"/>
+<text x="50" y="810" font-size="9.5" fill="#6b6b6b">归档   例行   Agent   设置</text>
+</g>
+
+<g>
+<rect x="400" y="450" width="380" height="400" rx="20" fill="#ffffff" stroke="#dddddd"/>
+<text x="416" y="476" font-size="10.5" fill="#1f6feb">04 · 断线</text>
+<rect x="416" y="490" width="348" height="30" rx="8" fill="#fff1f0"/>
+<text x="430" y="510" font-size="10.5" fill="#b42318">连接断开，正在重试…</text>
+<text x="416" y="548" font-size="18" font-weight="600" fill="#1a1a1a">对话</text>
+<rect x="416" y="562" width="348" height="40" rx="11" fill="#f6f6f8"/>
+<text x="430" y="586" font-size="11.5" fill="#6b6b6b">搜索对话…</text>
+<rect x="416" y="616" width="348" height="44" rx="11" fill="#f6f6f8"/>
+<text x="430" y="643" font-size="11" fill="#1a1a1a">整理发布说明</text>
+<rect x="416" y="668" width="348" height="44" rx="11" fill="#f6f6f8"/>
+<text x="430" y="695" font-size="11" fill="#1a1a1a">把截图归档</text>
+<text x="416" y="742" font-size="10.5" fill="#6b6b6b">横幅只在真正断开后出现；</text>
+<text x="416" y="758" font-size="10.5" fill="#6b6b6b">已加载的列表留在原地，重连后自动刷新。</text>
+<rect x="416" y="774" width="348" height="24" rx="8" fill="#f6f6f8"/>
+<text x="430" y="790" font-size="9.5" fill="#6b6b6b">归档   例行   Agent   设置</text>
+</g>
+
+<text x="20" y="884" font-size="11" fill="#6b6b6b">四种状态都保留搜索与底部四个入口；断线横幅不抢焦点，加载中不显示「没有对话」。</text>
+<rect x="0.5" y="0.5" width="799" height="899" fill="none" stroke="#dddddd"/>
+</g>
+</svg>

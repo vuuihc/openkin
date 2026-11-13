@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { goBackToList } from "../lib/phoneBack";
 import {
   ApiError,
   getOnePager,
@@ -445,14 +446,7 @@ export default function ProjectDetailPage() {
           <button
             type="button"
             className="mb-4 inline-flex items-center gap-1 text-strong text-kin-secondary hover:text-kin-text"
-            onClick={() => {
-              // `history.length` counts entries from other sites too, so on a
-              // cold launch it says "there is somewhere to go back to" and
-              // leaves the app. The router's own index is 0 when this document
-              // has no in-app entry behind it.
-              if ((window.history.state?.idx ?? 0) > 0) navigate(-1);
-              else navigate("/projects");
-            }}
+            onClick={() => goBackToList(navigate)}
           >
             <IconBack size={14} />
             {tr("projects.back")}
@@ -472,10 +466,7 @@ export default function ProjectDetailPage() {
           <button
             type="button"
             className="mb-3 inline-flex items-center gap-1 text-strong text-kin-secondary hover:text-kin-text"
-            onClick={() => {
-              if ((window.history.state?.idx ?? 0) > 0) navigate(-1);
-              else navigate("/projects");
-            }}
+            onClick={() => goBackToList(navigate)}
           >
             <IconBack size={14} />
             {tr("projects.back")}

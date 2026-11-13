@@ -8,11 +8,14 @@ import type { Machine } from "../lib/devices";
 
 /**
  * The rule this hook exists for is a rule about *time*: the busy flag has to be
- * true before the first await, because one of its callers is a 30 second timer
- * that cannot wait for a render to ask. That is not something the pure merge
- * functions can be asked about — they never see the flag — and it is exactly
- * what a plausible-looking refactor (read the flag from state, set it after the
- * machine list arrives) would break while every logic test stayed green.
+ * true before the first await, because several surfaces offer the same errand
+ * and a second control must see the first before either re-renders. That is
+ * not something the pure merge functions can be asked about — they never see
+ * the flag — and it is exactly what a plausible-looking refactor (read the flag
+ * from state, set it after the machine list arrives) would break while every
+ * logic test stayed green. Every start is now a person's explicit action
+ * (KIN-AGENTS-001 removed the automatic tick), so the in-flight window is a
+ * double-tap, not a timer.
  */
 
 vi.mock("../api/client", async (importOriginal) => {

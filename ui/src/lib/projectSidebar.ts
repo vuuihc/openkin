@@ -1,23 +1,6 @@
-/** Sidebar project grouping: sort modes + pin / archive state (localStorage). */
-
-import { projectLabel } from "./paths";
-import type { Task } from "../api/client";
+/** Project preferences shared by both list shells: sort mode, pins, archive, local recency. */
 
 export type ProjectSortMode = "active" | "created";
-
-export type ProjectGroup = {
-  label: string;
-  cwd: string;
-  items: Task[];
-  pinned: boolean;
-  archived: boolean;
-  /** ms — max task activity (+ local last interact); used as secondary sort in active mode */
-  lastInteractedAt: number;
-  /** ms — earliest task created_at for created sort */
-  createdAt: number;
-  /** Whether this project has any non-terminal task (running / pending). */
-  hasActiveTask: boolean;
-};
 
 const SORT_KEY = "kin_project_sort_mode";
 const PINNED_KEY = "kin_pinned_projects";
@@ -121,6 +104,13 @@ export function toggleProjectPinned(cwd: string): boolean {
 /** Archived (hidden from main sidebar) project cwds. */
 export function getArchivedProjects(): string[] {
   return readStringList(ARCHIVED_KEY);
+}
+
+/** Last local open/touch time per normalized cwd. The conversation list reads
+ *  it so opening an old project brings its heading forward without changing
+ *  the task's own timestamps. */
+export function getProjectLastInteracted(): Record<string, number> {
+  return readLastInteractedMap();
 }
 
 export function isProjectArchived(cwd: string): boolean {
@@ -241,145 +231,4 @@ export function touchSession(taskId: string, at = Date.now()): void {
   if ((map[taskId] ?? 0) >= at) return;
   map[taskId] = at;
   writeSessionLastInteractedMap(map);
-}
-
-/** Max activity timestamp for a single task (ms). Includes local open/follow-up. */
-export function taskActivityAt(t: Task, sessionMap: Record<string, number>): number {
-  const localTouch = sessionMap[t.id] ?? 0;
-  return Math.max(localTouch, t.finished_at ?? 0, t.started_at ?? 0, t.created_at ?? 0);
-}
-
-function isActiveTask(t: Task): boolean {
-  return t.status !== "succeeded" && t.status !== "failed" && t.status !== "canceled";
-}
-
-export type ProjectSidebarPrefs = {
-  sortMode?: ProjectSortMode;
-  pinned: string[];
-  archived: string[];
-  lastInteracted: Record<string, number>;
-  /** Override session last-interact map (for tests). */
-  sessionLastInteracted?: Record<string, number>;
-};
-
-/**
- * Group tasks by project cwd, apply sort mode + pins (+ optional archive filter).
- *
- * @param includeArchived When true, archived projects are kept in the result.
- *                        Default false so the main sidebar list omits them
- *                        (archived section calls with onlyArchived=true instead).
- * @param onlyArchived    When true, return only archived projects.
- * Pure when prefs are passed in (tests); otherwise reads localStorage.
- */
-export function groupByProject(
-  tasks: Task[],
-  prefs?: ProjectSidebarPrefs | null,
-  includeArchived = false,
-  onlyArchived = false,
-): ProjectGroup[] {
-  const pinnedCwds = prefs?.pinned ?? getPinnedProjects();
-  const archivedCwds = prefs?.archived ?? getArchivedProjects();
-  const lastMap = prefs?.lastInteracted ?? readLastInteractedMap();
-  const sessionMap = prefs?.sessionLastInteracted ?? readSessionLastInteractedMap();
-
-  const archivedSet = new Set(archivedCwds.map(normCwd));
-  const pinRank = new Map<string, number>();
-  pinnedCwds.forEach((c, i) => pinRank.set(normCwd(c), i));
-
-  // Group tasks by project (cwd).
-  const map = new Map<string, Task[]>();
-  for (const t of tasks) {
-    const key = t.cwd || "__root__";
-    let list = map.get(key);
-    if (!list) {
-      list = [];
-      map.set(key, list);
-    }
-    list.push(t);
-  }
-
-  const groups: ProjectGroup[] = [];
-  for (const [cwd, items] of map.entries()) {
-    const archived = archivedSet.has(normCwd(cwd));
-    if (onlyArchived && !archived) continue;
-    if (!onlyArchived && !includeArchived && archived) continue;
-
-    // Keep full sorted list; Sidebar ProjectBlock collapses to a preview + scroll.
-    // Sessions sorted by agent last-response time (finished_at), not user click time.
-    const sortedItems = items.slice().sort(
-      (a, b) =>
-        // Active tasks first
-        (isActiveTask(b) ? 1 : 0) - (isActiveTask(a) ? 1 : 0) ||
-        (b.finished_at ?? 0) - (a.finished_at ?? 0) ||
-        (b.started_at ?? 0) - (a.started_at ?? 0) ||
-        b.created_at - a.created_at,
-    );
-    let lastTask = 0;
-    let created = Number.POSITIVE_INFINITY;
-    let hasActive = false;
-    for (const t of items) {
-      const act = taskActivityAt(t, sessionMap);
-      if (act > lastTask) lastTask = act;
-      if (t.created_at > 0 && t.created_at < created) created = t.created_at;
-      if (isActiveTask(t)) hasActive = true;
-    }
-    if (!Number.isFinite(created)) created = 0;
-    const local = lastMap[normCwd(cwd)] ?? 0;
-    groups.push({
-      cwd,
-      label: projectLabel(cwd),
-      items: sortedItems,
-      pinned: pinRank.has(normCwd(cwd)),
-      archived,
-      lastInteractedAt: Math.max(lastTask, local),
-      createdAt: created,
-      hasActiveTask: hasActive,
-    });
-  }
-
-  return sortProjectGroups(groups, prefs, onlyArchived);
-}
-
-/**
- * Order project rows the way the sidebar shows them: pins, then the sort mode's
- * tier, then recency, then name.
- *
- * Exported because grouping is not always the last step: the sidebar merges in
- * projects that exist only because an imported agent session named them, and a
- * row appended after the sort would sit at the bottom no matter how recently it
- * was touched.
- */
-export function sortProjectGroups(
-  groups: ProjectGroup[],
-  prefs?: ProjectSidebarPrefs | null,
-  onlyArchived = false,
-): ProjectGroup[] {
-  const sortMode = prefs?.sortMode ?? getProjectSortMode();
-  const pinnedCwds = prefs?.pinned ?? getPinnedProjects();
-  const pinRank = new Map<string, number>();
-  pinnedCwds.forEach((c, i) => pinRank.set(normCwd(c), i));
-
-  return [...groups].sort((a, b) => {
-    if (!onlyArchived) {
-      const aPin = pinRank.has(normCwd(a.cwd));
-      const bPin = pinRank.has(normCwd(b.cwd));
-      if (aPin !== bPin) return aPin ? -1 : 1;
-      if (aPin && bPin) {
-        return (pinRank.get(normCwd(a.cwd)) ?? 0) - (pinRank.get(normCwd(b.cwd)) ?? 0);
-      }
-    }
-    // "active" mode: projects with active (running/pending) tasks first
-    if (sortMode === "active") {
-      if (a.hasActiveTask !== b.hasActiveTask) {
-        return a.hasActiveTask ? -1 : 1;
-      }
-      // Within the same tier, sort by recency
-      const d = b.lastInteractedAt - a.lastInteractedAt;
-      if (d !== 0) return d;
-    } else {
-      const d = b.createdAt - a.createdAt;
-      if (d !== 0) return d;
-    }
-    return a.label.localeCompare(b.label);
-  });
 }

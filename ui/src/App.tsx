@@ -46,7 +46,6 @@ export default function App() {
   const setAuthOk = useAppStore((s) => s.setAuthOk);
   const [routineUnreadCount, setRoutineUnreadCount] = useState(0);
   const pending = usePendingResources(auth.status === "ok");
-  const pendingCount = pending.data.approvals.length;
   const location = useLocation();
   const isTray = location.pathname === "/tray";
   // Routines belong to machines, so the badge counts the machine the Routines
@@ -181,7 +180,6 @@ export default function App() {
   return (
     <>
       <AppShell
-        pendingCount={pendingCount}
         pendingApprovals={pending.data.approvals}
         routineUnreadCount={routineUnreadCount}
       >

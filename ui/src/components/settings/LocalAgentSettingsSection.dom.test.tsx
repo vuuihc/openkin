@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { LocalAgentSettingsSection, type AutoImportSnapshot } from "./LocalAgentSettingsSection";
+import { LocalAgentSettingsSection } from "./LocalAgentSettingsSection";
 import type { AgentProvider } from "../../api/client";
 import { setLocale } from "../../i18n";
 
@@ -54,13 +54,10 @@ function section(props: SectionProps) {
       agentProviders={props.providers ?? [codex]}
       refreshingAgentCatalog={false}
       importingSessions={props.importing ?? false}
-      autoImportMode="prompt"
-      lastAutoImport={null as AutoImportSnapshot | null}
       settingsBusy={false}
       onRefreshAgentCatalog={() => {}}
       onImportSessions={props.onImportSessions ?? vi.fn()}
       onImportProviderSessions={props.onImportProviderSessions ?? vi.fn()}
-      onAutoImportModeChange={() => {}}
       onSaveSettings={() => {}}
       roles={[]}
       onRolesChange={() => {}}
@@ -79,8 +76,8 @@ describe("the settings section's import controls", () => {
     await user.click(mainImport());
     expect(onImportSessions).toHaveBeenCalledTimes(1);
 
-    // An import started anywhere in the console — the sidebar's menu, the
-    // automatic sync — reaches this button too, because they share one flag.
+    // An import started anywhere in the console — the sidebar's menu or
+    // Agent Ops — reaches this button too, because they share one flag.
     // The label is the whole of its progress reporting: there is no spinner.
     rerender(section({ onImportSessions, importing: true }));
     const running = screen.getByRole("button", { name: /importing/i });
@@ -118,6 +115,17 @@ describe("the settings section's import controls", () => {
 
     expect(onImportProviderSessions).toHaveBeenCalledTimes(1);
     expect(onImportProviderSessions).toHaveBeenCalledWith("claude-code");
+  });
+
+  it("offers no automatic-import control, only the explicit import buttons", () => {
+    render(section({}));
+
+    // KIN-AGENTS-001: an agent's history is never imported automatically, so
+    // there is no policy switch to mislead anyone into thinking it might be.
+    expect(screen.queryByText(/auto-import/i)).toBeNull();
+    expect(screen.queryByText(/automatic sync/i)).toBeNull();
+    expect(screen.getByRole("button", { name: "Import sessions now" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Import" })).not.toBeNull();
   });
 
   it("offers no import for a provider that cannot list sessions", () => {

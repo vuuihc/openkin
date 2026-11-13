@@ -88,6 +88,12 @@ const en: MessageTree = {
     statusRunning: "Running",
     statusWaitingApproval: "Awaiting approval",
     statusWaitingInput: "Awaiting you",
+    // The row-end mark: what a pending approval or question says on the
+    // conversation it belongs to. Also the badge's accessible name.
+    pendingApprovals: "{count} waiting for you",
+    // One trailing group per machine: sessions imported from another agent.
+    imported: "Imported sessions ({count})",
+    importedLabel: "Imported sessions",
     statusSucceeded: "Done",
     statusFailed: "Failed",
     statusCanceled: "Canceled",
@@ -1009,7 +1015,7 @@ const en: MessageTree = {
       general: "General",
       generalDesc: "Appearance and baseline app preferences.",
       agents: "Agents",
-      agentsDesc: "Local agent detection, session import, and sync policy.",
+      agentsDesc: "Local agent detection and on-demand session import.",
       providers: "Providers",
       providersDesc: "Cognition providers, models, and default host agent.",
       routing: "Routing",
@@ -1082,15 +1088,6 @@ const en: MessageTree = {
     localAgents: {
       heading: "Agent sessions",
       desc: "Index Agent sessions on this machine and on the machines paired with it, and read their source history from Kin without copying transcripts into Kin.",
-      autoImport: "Auto-import",
-      modePrompt: "Ask before indexing",
-      modeEnabled: "Enabled",
-      modeDisabled: "Disabled",
-      policy: "Only bounded metadata is indexed. Provider history is read on demand.",
-      autoSyncEnabled: "Automatic sync is on",
-      autoSyncDisabled: "Automatic sync is off",
-      lastSync: "Last sync {value} · indexed {imported} · errors {errors}",
-      neverSynced: "No automatic sync has completed yet",
       import: "Import sessions now",
       importProvider: "Import",
       importing: "Importing…",

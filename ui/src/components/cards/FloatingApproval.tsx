@@ -14,7 +14,8 @@ type Props = {
   busy: Record<string, Decision | undefined>;
   onDecide: (id: string, decision: Decision) => void;
   onOpenTask: (taskId: string) => void;
-  /** The phone's dock is on screen, so the card has to clear it. */
+  /** The list page's footer and new-chat button are on screen, so the card
+   *  has to clear them. */
   raised: boolean;
   /** The route, so a measurement taken on one screen is redone on the next. */
   screenKey: string;
@@ -36,8 +37,7 @@ type Props = {
  * are counted in the strip above it — a reader can answer this one, or open the
  * task and deal with the queue where the transcript explains it.
  *
- * The card itself is `ApprovalCard`, the same one the inbox and the transcript
- * use. It is the decision surface, with the diff and the buttons; this
+ * The card itself is `ApprovalCard`, the same one the transcript uses. It is the decision surface, with the diff and the buttons; this
  * component only decides where it sits and which one it shows.
  */
 export default function FloatingApproval({
@@ -105,7 +105,7 @@ export default function FloatingApproval({
   // installing an observer over the whole document.
   //
   // Layout, not passive: the measurement sets state that positions the card,
-  // and a mount (a route change, or coming back from the drawer) would
+  // and a mount (a route change, or coming back to the list) would
   // otherwise paint one frame at the fallback offset, over the composer.
   useLayoutEffect(() => {
     if (!expectsBottomChrome || !hasAny) {
@@ -125,7 +125,7 @@ export default function FloatingApproval({
         setBottom(null);
         return;
       }
-      // Above the band, with the same 8px breath the dock gets.
+      // Above the band, with the same 8px breath the footer gets.
       setBottom(Math.max(0, Math.round(window.innerHeight - rect.top + 8)));
     };
 
@@ -196,9 +196,9 @@ export default function FloatingApproval({
         // honest — nothing behind it moves to make room.
         "pointer-events-none fixed inset-x-3 z-40 flex flex-col gap-1.5",
         "md:inset-x-auto md:right-6 md:w-[24rem]",
-        // Where the page has no bottom furniture to measure, the dock decides:
-        // above it and its "new chat" button when it is on screen, and above
-        // where it would be when the reader is in a pushed conversation.
+        // Where the page has no bottom furniture to measure, the list page's
+        // footer and "new chat" button decide: above them when the reader is
+        // on the list, and above where they would be in a pushed screen.
         bottom === null &&
           (raised
             ? "bottom-[calc(9.25rem+env(safe-area-inset-bottom))]"

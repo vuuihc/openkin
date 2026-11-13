@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentProvider } from "../../api/client";
-import {
-  canImportAgentSessions,
-  isAutoImportSnapshot,
-  localAgentStatusKey,
-} from "./LocalAgentSettingsSection";
+import { canImportAgentSessions, localAgentStatusKey } from "./LocalAgentSettingsSection";
 
 describe("localAgentStatusKey", () => {
   it("maps every known provider state to a translation key", () => {
@@ -40,20 +36,5 @@ describe("canImportAgentSessions", () => {
       }),
     ).toBe(false);
     expect(canImportAgentSessions({ ...agent, capabilities: [] })).toBe(false);
-  });
-});
-
-describe("isAutoImportSnapshot", () => {
-  it("accepts bounded sync metadata and rejects malformed values", () => {
-    expect(
-      isAutoImportSnapshot({
-        synced_at: 1710000000000,
-        imported: 3,
-        providers: {},
-      }),
-    ).toBe(true);
-
-    expect(isAutoImportSnapshot({ synced_at: "now", imported: 3, providers: {} })).toBe(false);
-    expect(isAutoImportSnapshot(null)).toBe(false);
   });
 });

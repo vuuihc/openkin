@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1100" viewBox="0 0 1600 1100">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1600" height="1100" fill="#f6f6f8"/>
+<text x="40" y="46" font-size="20" fill="#1a1a1a" font-weight="600">Agent 运维 · 状态板（KIN-AGENTS-001）</text>
+<text x="1560" y="46" font-size="12" fill="#6b6b6b" text-anchor="end">每个状态都有文字与下一步</text>
+
+<rect x="40" y="76" width="480" height="360" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="64" y="110" font-size="15" fill="#1a1a1a" font-weight="600">空：没有 agent</text>
+<text x="64" y="140" font-size="12.5" fill="#6b6b6b">这台机器一个也没装</text>
+<text x="64" y="176" font-size="15" fill="#1a1a1a" font-weight="600">还没有可用的 agent</text>
+<text x="64" y="202" font-size="12.5" fill="#555">给安装入口与「复制安装命令」。</text>
+<text x="64" y="228" font-size="12.5" fill="#555">新建页同样给这个入口。</text>
+<rect x="64" y="248" width="120" height="34" rx="10" fill="#1f6feb"/>
+<text x="124" y="270" font-size="12.5" fill="#ffffff" text-anchor="middle">安装</text>
+
+<rect x="560" y="76" width="480" height="360" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="584" y="110" font-size="15" fill="#1a1a1a" font-weight="600">空：这段时间没有用量</text>
+<text x="584" y="140" font-size="12.5" fill="#6b6b6b">有 agent，但区间内没跑过</text>
+<text x="584" y="176" font-size="15" fill="#1a1a1a" font-weight="600">这段时间没有用量</text>
+<text x="584" y="202" font-size="12.5" fill="#555">花费 / token 显示「—」，不显示 $0.00。</text>
+<text x="584" y="228" font-size="12.5" fill="#555">每日花费图留一句说明，不画空轴。</text>
+
+<rect x="1080" y="76" width="480" height="360" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="1104" y="110" font-size="15" fill="#1a1a1a" font-weight="600">未登录</text>
+<text x="1104" y="140" font-size="12.5" fill="#6b6b6b">装好了，凭据过期</text>
+<rect x="1104" y="160" width="432" height="76" rx="10" fill="#ffffff" stroke="#d08a00"/>
+<circle cx="1122" cy="184" r="5" fill="#d08a00"/>
+<text x="1136" y="188" font-size="13" fill="#1a1a1a" font-weight="600">Codex</text>
+<text x="1520" y="188" font-size="11.5" fill="#b26a00" text-anchor="end">需要登录</text>
+<text x="1136" y="212" font-size="11.5" fill="#555">0.9.4 · 未登录</text>
+<text x="1136" y="228" font-size="11.5" fill="#1f6feb">复制登录命令</text>
+
+<rect x="40" y="466" width="480" height="360" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="64" y="500" font-size="15" fill="#1a1a1a" font-weight="600">未安装 / 需要更新</text>
+<text x="64" y="530" font-size="12.5" fill="#6b6b6b">目录里有，这台机器还没有</text>
+<rect x="64" y="550" width="432" height="72" rx="10" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="80" y="574" font-size="13" fill="#1a1a1a" font-weight="600">Gemini CLI</text>
+<text x="480" y="574" font-size="11.5" fill="#555" text-anchor="end">未安装</text>
+<text x="80" y="598" font-size="11.5" fill="#555">装好后才能选它开新对话</text>
+<rect x="64" y="636" width="432" height="72" rx="10" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="80" y="660" font-size="13" fill="#1a1a1a" font-weight="600">OpenCode</text>
+<text x="480" y="660" font-size="11.5" fill="#b42318" text-anchor="end">需要更新 0.4.0 → 0.4.2</text>
+<text x="80" y="684" font-size="11.5" fill="#1f6feb">更新</text>
+
+<rect x="560" y="466" width="480" height="360" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="584" y="500" font-size="15" fill="#1a1a1a" font-weight="600">额度等待中</text>
+<text x="584" y="530" font-size="12.5" fill="#6b6b6b">请求被额度挡住，不是故障</text>
+<rect x="584" y="550" width="432" height="86" rx="10" fill="#ffffff" stroke="#c4c4c4"/>
+<circle cx="602" cy="574" r="5" fill="#b26a00"/>
+<text x="616" y="578" font-size="13" fill="#1a1a1a" font-weight="600">Aider</text>
+<text x="1000" y="578" font-size="11.5" fill="#b26a00" text-anchor="end">等待中 · 12 分钟</text>
+<text x="616" y="602" font-size="11.5" fill="#555">恢复后自动可用；可继续用别的 agent</text>
+<rect x="616" y="612" width="240" height="8" rx="4" fill="#f0f0f0"/>
+<rect x="616" y="612" width="120" height="8" rx="4" fill="#d08a00"/>
+
+<rect x="1080" y="466" width="480" height="360" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="1104" y="500" font-size="15" fill="#1a1a1a" font-weight="600">检查中 / 失败 / 断线</text>
+<text x="1104" y="530" font-size="12.5" fill="#6b6b6b">动作的三种中间与坏结果</text>
+<rect x="1104" y="550" width="432" height="44" rx="8" fill="#f6f6f8"/>
+<text x="1120" y="577" font-size="12.5" fill="#555">检查中… 这一行标「检查中」，其余行可继续用</text>
+<rect x="1104" y="606" width="432" height="58" rx="8" fill="#fff1f0" stroke="#d04a3e"/>
+<text x="1120" y="630" font-size="12.5" fill="#b42318">smoke 失败：Codex — 未登录</text>
+<text x="1120" y="652" font-size="11.5" fill="#b42318">指出失败的 agent 与下一步，不吞原因</text>
+<rect x="1104" y="676" width="432" height="44" rx="8" fill="#f0f0f0"/>
+<text x="1120" y="703" font-size="12.5" fill="#555">离线 · 显示上次结果（10:24）；动作禁用</text>
+
+<rect x="40" y="856" width="480" height="200" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="64" y="890" font-size="15" fill="#1a1a1a" font-weight="600">未接入（发现）</text>
+<text x="64" y="920" font-size="12.5" fill="#6b6b6b">PATH 里发现了，但还没有接入</text>
+<text x="64" y="956" font-size="13" fill="#1a1a1a">目录不变，直到你点「接入」</text>
+<text x="64" y="982" font-size="12.5" fill="#555">接入是用户动作；发现本身不改变任何东西。</text>
+<text x="64" y="1008" font-size="12.5" fill="#555">取消后仍是「未接入」，可以稍后再接。</text>
+
+<rect x="560" y="856" width="480" height="200" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="584" y="890" font-size="15" fill="#1a1a1a" font-weight="600">已满 10 个</text>
+<text x="584" y="920" font-size="12.5" fill="#6b6b6b">目录到顶，不再静默加第 11 个</text>
+<text x="584" y="956" font-size="13" fill="#1a1a1a">先移除或合并一个</text>
+<text x="584" y="982" font-size="12.5" fill="#555">「接入」禁用并写原因；同一产品的 native / ACP / CLI 只算一个。</text>
+<text x="584" y="1008" font-size="12.5" fill="#555">不把目录变成第二个包管理器。</text>
+
+<rect x="1080" y="856" width="480" height="200" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="1104" y="890" font-size="15" fill="#1a1a1a" font-weight="600">接入中 / 接入失败</text>
+<text x="1104" y="920" font-size="12.5" fill="#6b6b6b">确认之后的两种中间结果</text>
+<text x="1104" y="956" font-size="13" fill="#1a1a1a">接入中…</text>
+<text x="1104" y="982" font-size="12.5" fill="#555">那一行标「接入中」，其余行可继续用。</text>
+<text x="1104" y="1008" font-size="12.5" fill="#b42318">失败：保留「未接入」与重试；不假装接上了。</text>
+
+<text x="40" y="1084" font-size="11.5" fill="#888">状态与额度都用文字说明；接入需确认，会话只在手动导入时进来。</text>
+</g>
+</svg>

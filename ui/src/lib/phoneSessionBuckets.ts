@@ -23,6 +23,43 @@ export const UNASSIGNED_PROJECT = "__unassigned__";
 /** The synthetic leading bucket pinned task rows live in. */
 export const PINNED_BUCKET = "__pinned__";
 
+/**
+ * The synthetic trailing bucket each machine's imported sessions live in.
+ *
+ * An import is not a project: it has no status, pin or archive state, and
+ * giving it a project heading would invent one. One bucket per machine, drawn
+ * after that machine's projects and folded by default. The NUL keeps the key
+ * out of the cwd namespace.
+ */
+export const IMPORTED_BUCKET_PREFIX = "imported\u0000";
+
+export function isImportedBucket(key: string): boolean {
+  return key.startsWith(IMPORTED_BUCKET_PREFIX);
+}
+
+/**
+ * Whether a bucket is drawn folded.
+ *
+ * Searching force-opens every bucket: a matching row folded away reads as
+ * "nothing found", and a click meant to open it would only change state the
+ * query is ignoring. Projects keep their folds in the stored `collapsed` set,
+ * the way the sidebar stores them; an imported group is folded until the
+ * reader opens it, so its fold is the absence of an entry in `openImported` —
+ * the opposite sense, which is why the two cannot share one set.
+ */
+export function isBucketCollapsed(options: {
+  imported: boolean;
+  stateKey: string;
+  searching: boolean;
+  collapsed: ReadonlySet<string>;
+  openImported: ReadonlySet<string>;
+}): boolean {
+  if (options.searching) return false;
+  return options.imported
+    ? !options.openImported.has(options.stateKey)
+    : options.collapsed.has(options.stateKey);
+}
+
 /** The desktop sidebar files its no-cwd group under this name, not this one. */
 const SIDEBAR_ROOT_PROJECT = "__root__";
 
@@ -46,8 +83,17 @@ export type PhoneSessionRow = {
 export type PhoneProjectBucket = {
   key: string;
   label: string;
+  /** The project's cwd; empty for the pinned and imported buckets, which are
+   *  not places on a machine. */
+  cwd: string;
   rows: PhoneSessionRow[];
   lastActivityAt: number;
+  /** Earliest task or session creation in the bucket, for the "date created"
+   *  project order. */
+  createdAt: number;
+  /** A task in this bucket is still running or waiting, so the project sorts
+   *  above idle ones in the "active first" order. */
+  hasActiveTask: boolean;
 };
 
 /** One machine's projects, the phone list's top level. */
@@ -65,6 +111,9 @@ export type PhoneDeviceGroup = {
 export type PhoneBucketCopy = {
   untitled: string;
   noProject: string;
+  /** The heading of one machine's imported sessions; the count is drawn
+   *  separately, so a filtered list still says how many there really are. */
+  imported: string;
 };
 
 function normCwd(cwd: string | undefined): string {
@@ -73,6 +122,26 @@ function normCwd(cwd: string | undefined): string {
 
 function projectKeyOf(cwd: string | undefined): string {
   return normCwd(cwd) || UNASSIGNED_PROJECT;
+}
+
+/** The bucket a cwd files under. Exported so a project with no loaded row can
+ *  still be placed under the heading it belongs to. */
+export function bucketKeyFor(cwd: string | undefined): string {
+  return projectKeyOf(cwd);
+}
+
+/** Statuses that are over. A task in any other state keeps its project warm. */
+const TERMINAL_STATUSES = new Set(["succeeded", "failed", "canceled"]);
+
+function isActiveStatus(status: string | undefined): boolean {
+  return Boolean(status) && !TERMINAL_STATUSES.has(status!);
+}
+
+/** Take the earliest non-zero timestamp, so a bucket remembers when its project
+ *  was first seen, not when its newest chat ran. */
+function rememberCreated(bucket: PhoneProjectBucket, at: number | undefined): void {
+  if (!at || at <= 0) return;
+  if (bucket.createdAt === 0 || at < bucket.createdAt) bucket.createdAt = at;
 }
 
 function tailOf(cwd: string | undefined): string {
@@ -131,7 +200,7 @@ export function phoneProjectBuckets(
    *  "stop showing me this", and a list that keeps showing it is not a list. */
   archivedCwds: readonly string[] = [],
   /** "archived" is the other side of the same rule: a scope that shows only
-   *  what was put away, so it can be restored without opening the drawer. */
+   *  what was put away, so it can be restored without leaving the list. */
   scope: PhoneBucketScope = "active",
 ): PhoneProjectBucket[] {
   const archived = new Set(archivedCwds.map(archivedKeyOf));
@@ -147,15 +216,20 @@ export function phoneProjectBuckets(
   // filtered out of this scope leaves no duplicate behind.
   const claimed = new Set<string>();
 
-  const bucketFor = (cwd: string | undefined, session?: AgentSession): PhoneProjectBucket => {
+  const bucketFor = (cwd: string | undefined): PhoneProjectBucket => {
     const key = projectKeyOf(cwd);
     const found = byKey.get(key);
     if (found) return found;
-    const label =
-      key === UNASSIGNED_PROJECT
-        ? copy.noProject
-        : session?.project_label?.trim() || tailOf(cwd) || copy.noProject;
-    const made: PhoneProjectBucket = { key, label, rows: [], lastActivityAt: 0 };
+    const label = key === UNASSIGNED_PROJECT ? copy.noProject : tailOf(cwd) || copy.noProject;
+    const made: PhoneProjectBucket = {
+      key,
+      label,
+      cwd: key === UNASSIGNED_PROJECT ? "" : (cwd ?? ""),
+      rows: [],
+      lastActivityAt: 0,
+      createdAt: 0,
+      hasActiveTask: false,
+    };
     byKey.set(key, made);
     return made;
   };
@@ -167,6 +241,8 @@ export function phoneProjectBuckets(
     if (task.archived_at ? scope !== "archived" : !keepProject(task.cwd)) continue;
     const at = taskActivityAt(task);
     const bucket = bucketFor(task.cwd);
+    rememberCreated(bucket, task.created_at);
+    if (isActiveStatus(task.status)) bucket.hasActiveTask = true;
     const device = (task.executing_device_id ?? "").trim();
     const identity = conversationKey(task.session_ref_device_id, task.session_ref, selfDeviceId);
     if (identity) claimed.add(identity);
@@ -188,8 +264,22 @@ export function phoneProjectBuckets(
     const identity = conversationKey(session.device_id, session.external_ref, selfDeviceId);
     if (identity && claimed.has(identity)) continue;
     const at = session.updated_at ?? 0;
-    const bucket = bucketFor(session.cwd, session);
-    const device = (session.device_id ?? "").trim();
+    const device = (session.device_id ?? "").trim() || selfDeviceId.trim();
+    const key = IMPORTED_BUCKET_PREFIX + device;
+    let bucket = byKey.get(key);
+    if (!bucket) {
+      bucket = {
+        key,
+        label: copy.imported,
+        cwd: "",
+        rows: [],
+        lastActivityAt: 0,
+        createdAt: 0,
+        hasActiveTask: false,
+      };
+      byKey.set(key, bucket);
+    }
+    rememberCreated(bucket, session.first_seen_at);
     bucket.rows.push({
       key: session.id,
       at,
@@ -213,8 +303,11 @@ export function phoneProjectBuckets(
       byKey.set(key, {
         key,
         label: key === UNASSIGNED_PROJECT ? copy.noProject : tailOf(cwd) || copy.noProject,
+        cwd: key === UNASSIGNED_PROJECT ? "" : cwd,
         rows: [],
         lastActivityAt: 0,
+        createdAt: 0,
+        hasActiveTask: false,
       });
     }
   }
@@ -229,6 +322,11 @@ export function phoneProjectBuckets(
       // an empty heading is the whole point.
       .filter((bucket) => scope === "archived" || bucket.rows.length > 0)
       .sort((a, b) => {
+        // Imports sit at the end of their machine's list, after every project:
+        // they are the part a person goes looking for, not the daily surface.
+        const aImported = isImportedBucket(a.key);
+        const bImported = isImportedBucket(b.key);
+        if (aImported !== bImported) return aImported ? 1 : -1;
         // The no-project bucket is a catch-all, not a project: it goes last even
         // when its newest row is the newest thing on the screen.
         const aUnassigned = a.key === UNASSIGNED_PROJECT;
@@ -318,9 +416,14 @@ export function groupProjectBucketsByDevice(
     // project with an old local conversation and a new remote one arrives in
     // the global order by the remote time, so the local copy has to be put
     // back where its own newest row says it belongs.
-    deviceBuckets.sort(
-      (a, b) => b.lastActivityAt - a.lastActivityAt || a.label.localeCompare(b.label),
-    );
+    deviceBuckets.sort((a, b) => {
+      // The imported group is the machine's trailing shelf, not a project in
+      // its recency order.
+      const aImported = isImportedBucket(a.key);
+      const bImported = isImportedBucket(b.key);
+      if (aImported !== bImported) return aImported ? 1 : -1;
+      return b.lastActivityAt - a.lastActivityAt || a.label.localeCompare(b.label);
+    });
     const machine = known.get(id);
     let lastActivityAt = 0;
     for (const bucket of deviceBuckets) {
@@ -397,7 +500,10 @@ export function withPinnedBucket(
       }
       return true;
     });
-    if (rows.length === 0) return [];
+    // An already-empty bucket is a project heading seeded from the project
+    // record, not a bucket whose rows all moved to Pinned; dropping it would
+    // hide a project that has no conversation in the loaded page.
+    if (rows.length === 0 && bucket.rows.length > 0) return [];
     return rows.length === bucket.rows.length ? [bucket] : [{ ...bucket, rows }];
   });
   if (pinned.length === 0) return rest;
@@ -405,8 +511,11 @@ export function withPinnedBucket(
     {
       key: PINNED_BUCKET,
       label,
+      cwd: "",
       rows: pinned,
       lastActivityAt: Math.max(0, ...pinned.map((row) => row.at)),
+      createdAt: 0,
+      hasActiveTask: false,
     },
     ...rest,
   ];

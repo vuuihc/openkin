@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1100" height="760" fill="#ffffff" rx="10"/>
+<rect width="1100" height="32" fill="#f0f0f0" rx="10"/>
+<rect y="10" width="1100" height="22" fill="#f0f0f0"/>
+<line x1="0" y1="32" x2="1100" y2="32" stroke="#dddddd"/>
+<text x="12" y="21" font-size="12" fill="#555">Mac 1100×760 · Agent 运维 · 行内操作（KIN-AGENTS-001）</text>
+<text x="1088" y="21" font-size="11" fill="#6b6b6b" text-anchor="end">动作在行尾菜单里，结果就地更新</text>
+
+<rect x="0" y="32" width="72" height="728" fill="#fbfbfb"/>
+<line x1="72" y1="32" x2="72" y2="760" stroke="#e3e3e3"/>
+<text x="24" y="60" font-size="18" fill="#1a1a1a" font-weight="600">K</text>
+<text x="100" y="72" font-size="20" fill="#1a1a1a" font-weight="600">Agents 与用量</text>
+<text x="100" y="94" font-size="12" fill="#6b6b6b">这台机器装了什么、能不能用、用掉多少</text>
+<rect x="852" y="58" width="88" height="30" rx="8" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="896" y="78" font-size="12" fill="#444" text-anchor="middle">重检全部</text>
+<rect x="950" y="58" width="118" height="30" rx="8" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="1009" y="78" font-size="12" fill="#444" text-anchor="middle">全部 smoke</text>
+
+<rect x="100" y="116" width="928" height="34" rx="6" fill="#f6f6f8"/>
+<text x="112" y="138" font-size="11.5" fill="#666" font-weight="600">Agent</text>
+<text x="236" y="138" font-size="11.5" fill="#666">状态</text>
+<text x="352" y="138" font-size="11.5" fill="#666">版本</text>
+<text x="440" y="138" font-size="11.5" fill="#666">登录</text>
+<text x="536" y="138" font-size="11.5" fill="#666">花费</text>
+<text x="628" y="138" font-size="11.5" fill="#666">Token</text>
+<text x="720" y="138" font-size="11.5" fill="#666">任务</text>
+<text x="790" y="138" font-size="11.5" fill="#666">额度</text>
+<text x="900" y="138" font-size="11.5" fill="#666">操作</text>
+
+<rect x="100" y="150" width="928" height="52" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="118" cy="176" r="5" fill="#2f9e5f"/>
+<text x="132" y="180" font-size="12.5" fill="#1a1a1a" font-weight="600">Claude Code</text>
+<text x="236" y="180" font-size="12" fill="#2f9e5f">可用 · 默认</text>
+<text x="352" y="180" font-size="12" fill="#555">2.1.0</text>
+<text x="440" y="180" font-size="12" fill="#555">已登录</text>
+<text x="536" y="180" font-size="12" fill="#555">$7.10</text>
+<text x="628" y="180" font-size="12" fill="#555">640k</text>
+<text x="720" y="180" font-size="12" fill="#555">21</text>
+<text x="790" y="180" font-size="12" fill="#555">正常</text>
+<rect x="890" y="162" width="28" height="28" rx="6" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="904" y="181" font-size="12" fill="#444" text-anchor="middle">⋯</text>
+
+<rect x="100" y="210" width="928" height="52" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="118" cy="236" r="5" fill="#d08a00"/>
+<text x="132" y="240" font-size="12.5" fill="#1a1a1a" font-weight="600">Codex</text>
+<text x="236" y="240" font-size="12" fill="#b26a00">需要登录</text>
+<text x="352" y="240" font-size="12" fill="#555">0.9.4</text>
+<text x="440" y="240" font-size="12" fill="#b26a00">未登录</text>
+<text x="536" y="240" font-size="12" fill="#555">$3.30</text>
+<text x="628" y="240" font-size="12" fill="#555">410k</text>
+<text x="720" y="240" font-size="12" fill="#555">12</text>
+<text x="790" y="240" font-size="12" fill="#555">正常</text>
+<rect x="890" y="222" width="28" height="28" rx="6" fill="#eef2ff" stroke="#1f6feb"/>
+<text x="904" y="241" font-size="12" fill="#1f6feb" text-anchor="middle">⋯</text>
+
+<rect x="742" y="266" width="286" height="196" rx="10" fill="#ffffff" stroke="#b9b9c0"/>
+<rect x="756" y="278" width="258" height="30" rx="6" fill="#f6f6f8"/>
+<text x="768" y="298" font-size="12" fill="#1a1a1a">重新检查</text>
+<rect x="756" y="312" width="258" height="30" rx="6" fill="#f6f6f8"/>
+<text x="768" y="332" font-size="12" fill="#1a1a1a">smoke 测试</text>
+<rect x="756" y="346" width="258" height="30" rx="6" fill="#f6f6f8"/>
+<text x="768" y="366" font-size="12" fill="#1a1a1a">复制登录命令</text>
+<text x="768" y="388" font-size="10.5" fill="#888">登录过期时用它；不要求用户猜命令</text>
+<rect x="756" y="400" width="258" height="30" rx="6" fill="#eef2ff"/>
+<text x="768" y="420" font-size="12" fill="#1f6feb">设为默认 agent</text>
+<text x="768" y="442" font-size="10.5" fill="#888">新建对话会用它；只影响这台机器</text>
+
+<rect x="100" y="278" width="620" height="52" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="118" cy="304" r="5" fill="#8a8a92"/>
+<text x="132" y="308" font-size="12.5" fill="#1a1a1a" font-weight="600">Gemini CLI</text>
+<text x="236" y="308" font-size="12" fill="#555">检查中…</text>
+<text x="352" y="308" font-size="12" fill="#888">—</text>
+<text x="440" y="308" font-size="12" fill="#888">—</text>
+<text x="536" y="308" font-size="12" fill="#888">—</text>
+<text x="628" y="308" font-size="12" fill="#888">—</text>
+<text x="720" y="308" font-size="12" fill="#888">—</text>
+<text x="790" y="308" font-size="12" fill="#888">—</text>
+
+<rect x="100" y="366" width="620" height="52" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="118" cy="392" r="5" fill="#2f9e5f"/>
+<text x="132" y="396" font-size="12.5" fill="#1a1a1a" font-weight="600">Aider</text>
+<text x="236" y="396" font-size="12" fill="#2f9e5f">可用</text>
+<text x="352" y="396" font-size="12" fill="#555">0.5.1</text>
+<text x="440" y="396" font-size="12" fill="#555">已登录</text>
+<text x="536" y="396" font-size="12" fill="#555">$2.00</text>
+<text x="628" y="396" font-size="12" fill="#555">150k</text>
+<text x="720" y="396" font-size="12" fill="#555">4</text>
+<text x="790" y="396" font-size="12" fill="#b26a00">等待中</text>
+
+<rect x="100" y="454" width="620" height="52" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
+<circle cx="118" cy="480" r="5" fill="#d04a3e"/>
+<text x="132" y="484" font-size="12.5" fill="#1a1a1a" font-weight="600">OpenCode</text>
+<text x="236" y="484" font-size="12" fill="#b42318">需要更新</text>
+<text x="352" y="484" font-size="12" fill="#555">0.4.0 → 0.4.2</text>
+<text x="440" y="484" font-size="12" fill="#555">已登录</text>
+<text x="536" y="484" font-size="12" fill="#888">—</text>
+<text x="628" y="484" font-size="12" fill="#888">—</text>
+<text x="720" y="484" font-size="12" fill="#888">—</text>
+<text x="790" y="484" font-size="12" fill="#888">—</text>
+
+<rect x="100" y="560" width="928" height="76" rx="10" fill="#fff1f0" stroke="#d04a3e"/>
+<text x="116" y="586" font-size="13" fill="#b42318" font-weight="600">smoke 结果：3 通过 · 1 失败 · 1 跳过</text>
+<text x="116" y="610" font-size="12" fill="#b42318">失败：Codex — 未登录；去这一行「复制登录命令」。</text>
+<text x="1004" y="586" font-size="12" fill="#b42318" text-anchor="end">关闭</text>
+
+<text x="100" y="676" font-size="11.5" fill="#6b6b6b">动作进行中把那一行标成「检查中」；失败不吞掉原因，也不把整页变成错误页。</text>
+<text x="100" y="698" font-size="11.5" fill="#6b6b6b">菜单打开时 Esc 关闭并把焦点还给行尾按钮；手机是底部动作面板。</text>
+<rect x="0.5" y="0.5" width="1099" height="759" fill="none" rx="10" stroke="#bbbbbb"/>
+</g>
+</svg>

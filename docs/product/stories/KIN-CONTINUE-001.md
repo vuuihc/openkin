@@ -37,7 +37,7 @@ Mac：左边一列和右边主区各有一份同样的对话列表，各有自�
 |---|---|
 | 起点 | Mac 窗口已开；或手机浏览器/桌面壳打开 |
 | 动作 | 打开应用，不点任何东西 |
-| 立刻看到 | 上次停留的对话直接打开（Mac 主区、手机对话页），列表在旁边或上一级 |
+| 立刻看到 | Mac：上次停留的对话直接打开（主区），列表在左边。手机：列表页——`KIN-CONTINUE-002`（2026-11-12 签字）起手机的唯一导航面，冷启动不再直接进对话 |
 | 慢 / 空 / 失败 / 断线 | 列表先出骨架；一条对话都没有时说"还没有对话"并给"新建"；断线时顶部一条"连接断开，正在重试"，不清空已加载的列表 |
 | 键盘与焦点 | Mac 焦点在输入框，可以直接打字；手机不自动弹键盘 |
 | 离开再回来 | 回到上次那段对话，滚动位置不变 |
@@ -113,7 +113,7 @@ Mac：左边一列和右边主区各有一份同样的对话列表，各有自�
 | 面 | 这一面怎么呈现 | 为什么不同 |
 |---|---|---|
 | Mac | 左边一列是唯一的对话列表（设备 → 项目 → 对话），设备名一直显示；左栏是一整块，导入、归档、设置等是底部一行图标；搜索只在左栏；⌘K 面板里没有对话表格；agent / 模型 / 权限都是贴 chip 的浮层 | 窗口宽，列表和对话可以并排；Mac 上不该出现手机式底部面板 |
-| 手机 | 列表页是唯一的对话列表（设备 → 项目 → 对话），设备名一直显示，点进对话后列表退到上一级；K 面板只有入口（新建、导入、收件箱、归档、产物库、例行任务、Agent 运维、设置）；运行设置是底部面板，选项是盖在面板上的第二层，面板高度不变 | 一屏只能放一件事；底部面板是触屏的正确形态，但选择器不许把它撑高 |
+| 手机 | 列表页是唯一的对话列表（设备 → 项目 → 对话），设备名一直显示，点进对话后列表退到上一级；没有抽屉和 dock，底部是四个目的地入口（归档、例行任务、Agent 运维、设置），新建在右下，导入在 Agent 运维页（`KIN-CONTINUE-002`，2026-11-12）；运行设置是底部面板，选项是盖在面板上的第二层，面板高度不变 | 一屏只能放一件事；底部面板是触屏的正确形态，但选择器不许把它撑高 |
 | 两面 | 切换对话时外壳不动，只有对话区局部更新；骨架屏只在第一次加载时出现 | 整页重绘会闪白，位置也丢了 |
 
 ## 设计
@@ -143,11 +143,11 @@ Mac：左边一列和右边主区各有一份同样的对话列表，各有自�
 
 | 层级 | 位置 | Given / When / Then |
 |---|---|---|
-| 单元 | `ui/src/lib/deviceSidebar.test.ts`（已有，改） | Given 只有一台设备有对话 When 渲染列表 Then 设备名仍然显示；多设备时每台一个分组标题 |
+| 组件 | `ui/src/components/layout/Sidebar.dom.test.tsx` | Given 只有一台设备有对话 When 渲染列表 Then 设备名仍然显示；多设备时每台一个分组标题 |
 | 单元 | `ui/src/lib/phoneSessionBuckets.test.ts`（已有，扩充） | Given 两台设备各有项目 When 手机列表分桶 Then 输出 设备 → 项目 → 对话 三层；Given 一条置顶的远程对话 When 它离开设备标题进入置顶区 Then 行上说明它所在设备，本机置顶行不显示 |
 | 接线 | `ui/src/pages/sessionPinnedWiring.test.ts`（新建） | Given 置顶区渲染 When 行上带设备名 Then 无障碍名字也带上它，不只画一个图标 |
 | 组件 | `ui/src/components/layout/Sidebar.dom.test.tsx`（新建） | Given Mac 宽度 When 渲染外壳 Then 文档里只有一个列表搜索框，且列表是三级；底部图标的徽标数进入无障碍名字；导入是普通按钮的展开区（Esc 关闭并还焦点），不是 `role="menu"` |
-| 组件 | `ui/src/pages/SessionsPage.dom.test.tsx`（新建） | Given Mac 宽度 When 打开 `/sessions` Then 渲染新建页而不是列表；Given `/sessions?scope=archived` When Mac 宽度 Then 仍是新建页，归档由左栏展开归档区呈现，主区不出现第二份列表和搜索框；Given 手机宽度 When 打开 K 面板 Then 文档里没有对话条目和搜索框 |
+| 组件 | `ui/src/pages/SessionsPage.dom.test.tsx`（新建） | Given Mac 宽度 When 打开 `/sessions` Then 渲染新建页而不是列表；Given `/sessions?scope=archived` When Mac 宽度 Then 仍是新建页，归档由左栏展开归档区呈现，主区不出现第二份列表和搜索框；Given 手机宽度 When 打开 `/sessions` Then 列表页是唯一导航面，文档里没有抽屉、dock 或第二份列表（`KIN-CONTINUE-002`） |
 | 组件 | `ui/src/components/chat/PermissionModePicker.dom.test.tsx`（新建） | Given `matchMedia('(min-width: 768px)')` 为真 When 点权限 chip Then 出现 `role="menu"`（`fixed` 定位、portal 到 body，不被输入框那一行的滚动容器裁切），文档里没有 `ion-action-sheet`；点一项 Then `onChange` 恰好一次、菜单关闭、焦点回 chip；When 按 Esc Then 不调用 `onChange`；Given 手机宽度 Then 仍是底部面板 |
 | 组件 | `ui/src/components/chat/ModelPicker.dom.test.tsx`（已有，扩充） | Given 桌面宽度 When 打开模型 Then 面板有分组且键盘可选；Given 手机宽度 Then 走运行设置面板 |
 | 组件 | `ui/src/components/chat/RunConfigSheet.dom.test.tsx`（已有，扩充） | Given 手机 When 点模型 / agent / 权限任一行 Then 选项出现在盖住面板的第二层（`fixed` 定位、portal 出面板的滚动容器，顶部不被裁掉），焦点进入第二层，面板高度不变、下面的行位置不变；Tab 不出面板加第二层；系统返回先关第二层、再关面板，面板自己关闭时把历史条目还回去；选完第二层关闭、面板还在，值显示在底栏；文档里没有 `<select>` |
@@ -166,7 +166,7 @@ Mac：左边一列和右边主区各有一份同样的对话列表，各有自�
 | 单元/组件 | `ui/src/lib/lastConversation.test.ts`、`ui/src/pages/StartRoute.dom.test.tsx`（新建） | Given 上次停在一条对话 When 冷启动 `/` Then 直接打开那条；Given 那条已被删除 Then 回到草稿页并忘掉它 |
 | 单元/接线 | `ui/src/lib/sessionSearch.test.ts`、`ui/src/pages/macKeyboardWiring.test.ts`（新建） | Given Mac 窗口 When 按 ⌘F Then 焦点落进左栏唯一的搜索框并全选旧词，覆盖层打开时不让给列表；Given 对话页 When 按 Esc Then 回到搜索框；Given 从列表点开一条再返回 Then 焦点回到那一行 |
 | 真浏览器 | 1100 宽，`/browse` | 点权限出贴按钮的菜单（jsdom 不重定向点击，见 `LESSONS.md`）；列表只有一份；⌘K 里没有任务表；发一条消息能看到它进入运行 |
-| 真浏览器 | 390 宽，`/browse` | 列表三层；K 面板只有入口；运行设置是底部面板；能发出一条消息 |
+| 真浏览器 | 390 宽，`/browse` | 列表三层；底部四个目的地入口；运行设置是底部面板；能发出一条消息 |
 | 视觉 | 390 / 1100 截图 | 1100：一份列表、权限是菜单；390：对照 `01-sessions-390.png`、`02-drawer-390.png` |
 
 ## 证据
@@ -190,3 +190,4 @@ Mac：左边一列和右边主区各有一份同样的对话列表，各有自�
 - 2026-10-30 五轮复审修复：返回行的焦点标记落点即消费，之后打字/实时更新不再把焦点抢回列表；⌘F 按“焦点所在的那条对话”判断归属，不再被先挂载的隐藏 pane 骗过；导入的 agent 会话也记住返回行；手机小选择器的测试证明它真的打开了面板；清掉语言文件里与故事无关的换行噪音
 - 2026-10-30 四轮复审修复：Mac 的归档地址仍走草稿页，由左栏展开归档区（主区不再出现第二份列表）；冷启动恢复上次对话；⌘F / 上下键 / Esc 与返回行焦点接上；运行设置第二层接住 Tab 和系统返回，面板自己关闭时归还历史条目；权限菜单随面板失活关闭；`decided_via` 的 `a2a` / `mcp:` / `ios:` 改成渠道文案；置顶行保留设备名；SearchSelect 分组包住选项；小选择器在 Mac 上是贴按钮菜单（`SheetSelect`）；导入改成普通按钮展开区；底部图标徽标数进入无障碍名字
 - 2026-10-30 三轮复审修复：覆盖层判定只看真正渲染的层（Ionic 关闭的 `role="dialog"` 宿主、隐藏的常驻面板不算）；已决卡片只为本机给出的答案接焦点，答复失败后读者把注意力移开就不再抢；引擎自动拒绝记为 `interrupt`，前端说“运行停止时自动拒绝”，不再冒充在线决定；补 `TestInterruptSteerDeniesPendingApproval`
+- 2026-11-12 `KIN-CONTINUE-002` 签字后，手机冷启动改为落列表页（手机列表成为唯一导航面）；本条 step 1 与手机面描述的 K 面板由新故事取代，Mac 行为不变，`StartRoute.dom.test.tsx` 两种宽度都钉住

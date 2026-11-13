@@ -48,6 +48,12 @@ export type SheetProps = {
   /** Extra classes on the panel (a wider max-height, a test hook). */
   className?: string;
   bodyClassName?: string;
+  /**
+   * Keep a coarse-pointer tablet's sheet visible above the phone breakpoint:
+   * a capped, centred panel instead of a stretched bottom card, and no
+   * breakpoint dismissal while it opts out.
+   */
+  anyWidth?: boolean;
 };
 
 const FOCUSABLE =
@@ -79,6 +85,7 @@ export default function Sheet({
   footer,
   className = "",
   bodyClassName = "",
+  anyWidth = false,
 }: SheetProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
@@ -121,6 +128,11 @@ export default function Sheet({
   // and then replay when a spring-back re-adds the class, so a sheet opened
   // by a pull never carries it.
   const [gestureDriven, setGestureDriven] = useState(false);
+  // The dismissal effect is keyed on `open` alone: re-running it because a
+  // media query changed would give the history entry back and push a new one.
+  // `anyWidth` is fixed for a given sheet, so it is read through a ref.
+  const anyWidthRef = useRef(anyWidth);
+  anyWidthRef.current = anyWidth;
 
   const applyDragY = (next: number) => {
     dragRef.current = next;
@@ -362,7 +374,7 @@ export default function Sheet({
     const onMediaChange = () => {
       if (media?.matches) onCloseRef.current();
     };
-    if (typeof window.matchMedia === "function") {
+    if (!anyWidthRef.current && typeof window.matchMedia === "function") {
       media = window.matchMedia("(min-width: 768px)");
       media.addEventListener?.("change", onMediaChange);
     }
@@ -386,7 +398,13 @@ export default function Sheet({
   const scrimOpacity = dragY > 0 ? Math.max(0, 1 - dragY / panelHeight) : undefined;
 
   return createPortal(
-    <div data-kin-sheet className="fixed inset-0 z-50 flex flex-col justify-end md:hidden">
+    <div
+      data-kin-sheet
+      className={[
+        "fixed inset-0 z-50 flex flex-col justify-end",
+        anyWidth ? "" : "md:hidden",
+      ].join(" ")}
+    >
       <button
         type="button"
         tabIndex={-1}
@@ -414,6 +432,7 @@ export default function Sheet({
           "kin-sheet-surface relative z-10 flex max-h-[85dvh] flex-col rounded-t-2xl outline-none",
           gestureDriven ? "" : "kin-sheet-enter",
           "pb-[max(1rem,env(safe-area-inset-bottom))]",
+          anyWidth ? "md:mx-auto md:mb-6 md:w-[min(28rem,calc(100vw-2rem))] md:self-center md:rounded-2xl" : "",
           className,
         ].join(" ")}
         style={{

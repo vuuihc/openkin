@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { setLocale, t } from "../i18n";
+import { resetLeaveGuard, setLeaveGuard } from "../lib/leaveGuard";
 import CommandPalette from "./CommandPalette";
 
 /**
@@ -31,6 +32,48 @@ vi.mock("../api/client", async () => {
   };
 });
 
+/** A path readout plus a Back button, so a hop's history depth is observable. */
+function Probe({ onNewChat = vi.fn() }: { onNewChat?: () => void } = {}) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return (
+    <>
+      <span data-testid="path">{location.pathname}</span>
+      <button type="button" onClick={() => navigate(-1)}>
+        back
+      </button>
+      <CommandPalette
+        open
+        onClose={vi.fn()}
+        onNewChat={onNewChat}
+        onTogglePanel={vi.fn()}
+        panelCtx={{ taskId: null, remote: false, desktop: false }}
+      />
+    </>
+  );
+}
+
+function renderProbe() {
+  return render(
+    <MemoryRouter initialEntries={["/sessions", "/routines"]}>
+      <Probe />
+    </MemoryRouter>,
+  );
+}
+
+function viewport(wide: boolean) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query === "(min-width: 768px)" ? wide : false,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
+
 function renderPalette() {
   return render(
     <MemoryRouter initialEntries={["/sessions"]}>
@@ -48,6 +91,8 @@ function renderPalette() {
 const searchBox = () => screen.getByPlaceholderText(t("palette.search"));
 
 beforeEach(() => {
+  resetLeaveGuard();
+  vi.unstubAllGlobals();
   setLocale("en");
   listTasks.mockReset().mockResolvedValue([]);
   listProjects.mockReset().mockResolvedValue([]);
@@ -66,6 +111,86 @@ describe("the command palette", () => {
     expect(screen.getAllByText("Chats")).toHaveLength(1);
     expect(screen.queryByText("Messages")).toBeNull();
     expect(screen.queryAllByRole("button")).not.toHaveLength(0);
+  });
+
+  it("replaces a destination with the next one on a phone, so Back returns to the list", () => {
+    // KIN-CONTINUE-002, R5: hopping Routines -> Settings from the palette must
+    // not nest two destinations. Back goes to the list, not to Routines.
+    viewport(false);
+    renderProbe();
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByTestId("path").textContent).toBe("/settings");
+
+    fireEvent.click(screen.getByRole("button", { name: "back" }));
+    expect(screen.getByTestId("path").textContent).toBe("/sessions");
+  });
+
+  it("keeps ordinary browser history on a Mac", () => {
+    viewport(true);
+    renderProbe();
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByTestId("path").textContent).toBe("/settings");
+
+    fireEvent.click(screen.getByRole("button", { name: "back" }));
+    expect(screen.getByTestId("path").textContent).toBe("/routines");
+  });
+
+  it("does not leave a page that refuses to be left", () => {
+    viewport(false);
+    setLeaveGuard(() => false);
+    renderProbe();
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByTestId("path").textContent).toBe("/routines");
+  });
+
+  it("asks the page before the New chat row navigates", () => {
+    // `onNewChat` navigates on its own, so the guard has to run before the row
+    // does anything, not inside the place navigation afterwards.
+    viewport(false);
+    setLeaveGuard(() => false);
+    const onNewChat = vi.fn();
+    render(
+      <MemoryRouter initialEntries={["/routines"]}>
+        <Probe onNewChat={onNewChat} />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /New chat/ }));
+    expect(onNewChat).not.toHaveBeenCalled();
+    expect(screen.getByTestId("path").textContent).toBe("/routines");
+  });
+
+  it("asks the page once, not twice, when the reader agrees", () => {
+    // The row asks before it closes the palette; the navigation it then calls
+    // asks its own guard too. A page guarding with `window.confirm` would show
+    // the same dialog a second time (KIN-CONTINUE-002 review, nit).
+    viewport(false);
+    const canLeave = vi.fn(() => true);
+    setLeaveGuard(canLeave);
+    renderProbe();
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(canLeave).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("path").textContent).toBe("/settings");
+  });
+
+  it("asks the page once before the New chat row navigates", () => {
+    viewport(false);
+    const canLeave = vi.fn(() => true);
+    setLeaveGuard(canLeave);
+    const onNewChat = vi.fn();
+    render(
+      <MemoryRouter initialEntries={["/routines"]}>
+        <Probe onNewChat={onNewChat} />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /New chat/ }));
+    expect(canLeave).toHaveBeenCalledTimes(1);
+    expect(onNewChat).toHaveBeenCalledWith(true);
   });
 
   it("never asks the daemon for conversations or transcript text", async () => {

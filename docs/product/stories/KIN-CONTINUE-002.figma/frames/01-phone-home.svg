@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="390" height="844" fill="#ffffff" rx="24"/>
+<rect width="390" height="24" fill="#f6f6f8" rx="24"/>
+<rect y="14" width="390" height="10" fill="#f6f6f8"/>
+<text x="16" y="17" font-size="11" fill="#555">9:41</text>
+<text x="374" y="17" font-size="11" fill="#555" text-anchor="end">手机 390×844 · 列表页（唯一导航面）</text>
+
+<text x="16" y="58" font-size="19" font-weight="600" fill="#1a1a1a">对话</text>
+
+<rect x="16" y="74" width="358" height="44" rx="12" fill="#f6f6f8"/>
+<circle cx="37" cy="96" r="7" fill="none" stroke="#6b6b6b" stroke-width="1.6"/>
+<line x1="42" y1="101" x2="47" y2="106" stroke="#6b6b6b" stroke-width="1.6" stroke-linecap="round"/>
+<text x="57" y="100" font-size="12.5" fill="#6b6b6b">搜索对话…</text>
+
+<rect x="16" y="130" width="58" height="28" rx="14" fill="#eef3ff" stroke="#1f6feb"/>
+<text x="45" y="148" font-size="11" fill="#1f6feb" text-anchor="middle">全部</text>
+<rect x="82" y="130" width="86" height="28" rx="14" fill="#ffffff" stroke="#dddddd"/>
+<text x="125" y="148" font-size="11" fill="#555" text-anchor="middle">待批准 · 2</text>
+
+<text x="16" y="186" font-size="10.5" fill="#6b6b6b">本机 · 在线</text>
+<text x="16" y="212" font-size="12.5" font-weight="600" fill="#1a1a1a">▾ alpha</text>
+<text x="374" y="212" font-size="10.5" fill="#6b6b6b" text-anchor="end">3 段对话</text>
+
+<rect x="16" y="226" width="358" height="52" rx="12" fill="#f6f6f8"/>
+<text x="30" y="247" font-size="12.5" font-weight="600" fill="#1a1a1a">整理发布说明</text>
+<text x="30" y="265" font-size="10.5" fill="#6b6b6b">刚刚 · 正在运行</text>
+<circle cx="355" cy="252" r="5" fill="#1f6feb"/>
+
+<rect x="16" y="286" width="358" height="52" rx="12" fill="#ffffff"/>
+<text x="30" y="307" font-size="12.5" font-weight="600" fill="#1a1a1a">把截图归档</text>
+<text x="30" y="325" font-size="10.5" fill="#6b6b6b">昨天 · 等你批准</text>
+<rect x="334" y="296" width="24" height="18" rx="9" fill="#fff1f0"/>
+<text x="346" y="309" font-size="10" fill="#b42318" text-anchor="middle">1</text>
+
+<rect x="16" y="346" width="358" height="52" rx="12" fill="#ffffff"/>
+<text x="30" y="367" font-size="12.5" font-weight="600" fill="#1a1a1a">检查昨天的构建</text>
+<text x="30" y="385" font-size="10.5" fill="#6b6b6b">周一 · 已完成</text>
+
+<line x1="16" y1="416" x2="374" y2="416" stroke="#eeeeee"/>
+<text x="16" y="442" font-size="10.5" fill="#6b6b6b">Studio · 离线</text>
+<text x="16" y="468" font-size="12.5" font-weight="600" fill="#1a1a1a">▾ gamma</text>
+<text x="374" y="468" font-size="10.5" fill="#6b6b6b" text-anchor="end">1 段对话</text>
+
+<rect x="16" y="482" width="358" height="52" rx="12" fill="#ffffff"/>
+<text x="30" y="503" font-size="12.5" font-weight="600" fill="#9a9a9a">部署预演</text>
+<text x="30" y="521" font-size="10.5" fill="#9a9a9a">上周五 · Studio 离线</text>
+
+<text x="16" y="566" font-size="11" fill="#6b6b6b">设备名一直显示；项目是一行的标题，点标题进项目封面。</text>
+<text x="16" y="586" font-size="11" fill="#6b6b6b">没有 K 抽屉，也没有 dock：这一页就是唯一的导航面。</text>
+<text x="16" y="606" font-size="11" fill="#999">底部入口：归档（同一页的范围）、例行任务、</text>
+<text x="16" y="624" font-size="11" fill="#999">Agent 运维、设置；导入在 Agent 运维页里。</text>
+
+<rect x="310" y="660" width="56" height="56" rx="28" fill="#1f6feb"/>
+<text x="338" y="696" font-size="24" fill="#ffffff" text-anchor="middle">✎</text>
+<text x="286" y="704" font-size="10.5" fill="#6b6b6b" text-anchor="end">新建对话</text>
+
+<line x1="16" y1="748" x2="374" y2="748" stroke="#eeeeee"/>
+<g stroke="#555" stroke-width="1.4" fill="none">
+  <rect x="54" y="760" width="20" height="16" rx="3"/>
+  <line x1="54" y1="765" x2="74" y2="765"/>
+  <circle cx="151" cy="768" r="8"/>
+  <path d="M151 763 v5 l3 2"/>
+  <rect x="228" y="760" width="6" height="6" rx="1"/>
+  <rect x="238" y="760" width="6" height="6" rx="1"/>
+  <rect x="228" y="770" width="6" height="6" rx="1"/>
+  <rect x="238" y="770" width="6" height="6" rx="1"/>
+  <circle cx="325" cy="768" r="7"/>
+  <path d="M325 757 v4 M325 775 v4 M314 768 h4 M332 768 h4"/>
+</g>
+<g text-anchor="middle" font-size="9.5" fill="#555">
+  <text x="64" y="804">归档</text>
+  <text x="151" y="804">例行</text>
+  <text x="238" y="804">Agent</text>
+  <text x="325" y="804">设置</text>
+</g>
+
+<rect x="136" y="830" width="118" height="5" rx="2.5" fill="#1a1a1a"/>
+<rect x="0.5" y="0.5" width="389" height="843" fill="none" rx="24" stroke="#bbbbbb"/>
+</g>
+</svg>

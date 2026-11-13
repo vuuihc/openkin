@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -169,6 +170,53 @@ func TestSettingsGetPut(t *testing.T) {
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/settings", nil))
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("no auth: %d", rr.Code)
+	}
+}
+
+// KIN-AGENTS-001: the old auto-import policy value stays writable for older
+// consoles, but it is policy metadata, not an instruction to scan. An indexed
+// session is the person's data; no settings write may remove it.
+func TestLegacyAutoImportSettingStaysAcceptedAndKeepsIndex(t *testing.T) {
+	s, token := newTestServer(t)
+	h := s.Handler()
+	ctx := context.Background()
+
+	indexed, err := s.Store.UpsertAgentSession(ctx, store.AgentSession{
+		AgentID:     "codex",
+		ExternalRef: "codex-keep-1",
+		Title:       "kept",
+		Cwd:         "/tmp/project",
+		Status:      "idle",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, mode := range []string{store.AutoImportEnabled, store.AutoImportPrompt, store.AutoImportDisabled} {
+		body := fmt.Sprintf(`{"agent_sessions.auto_import_mode":%q}`, mode)
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPut, "/api/settings", bytes.NewReader([]byte(body)))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("PUT auto_import_mode=%s: %d %s", mode, rr.Code, rr.Body.String())
+		}
+		var got map[string]any
+		if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got["agent_sessions.auto_import_mode"] != mode {
+			t.Fatalf("auto_import_mode = %v after writing %s", got["agent_sessions.auto_import_mode"], mode)
+		}
+	}
+
+	rows, err := s.Store.ListAgentSessions(ctx, store.AgentSessionListOpts{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ID != indexed.ID || rows[0].ExternalRef != "codex-keep-1" {
+		t.Fatalf("indexed sessions after legacy policy writes = %+v", rows)
 	}
 }
 

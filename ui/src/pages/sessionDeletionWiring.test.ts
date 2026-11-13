@@ -18,14 +18,25 @@ import { describe, expect, it } from "vitest";
  * page needs a daemon, a machine list and two live subscriptions.
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
-const SOURCE = readFileSync(join(UI, "src/pages/SessionsPage.tsx"), "utf8");
+const SOURCE = readFileSync(join(UI, "src/components/sessions/SessionList.tsx"), "utf8");
 
 describe("the phone list's delete wiring", () => {
   it("delegates the confirmation and the requests to the shared hook", () => {
     // A second confirm, or a direct `deleteTask`, would be a second behaviour
     // to keep in step with the row path and every other delete in the console.
+    // Scoped to the two delete paths: the project heading's archive is a
+    // different action and keeps its own confirmation.
     expect(SOURCE).toContain("useSessionDeletion()");
-    expect(SOURCE).not.toContain("window.confirm");
+    const deletePaths = SOURCE.slice(
+      SOURCE.indexOf("async function deleteRow"),
+      SOURCE.indexOf("function forgetPins"),
+    ) + SOURCE.slice(
+      SOURCE.indexOf("async function deleteSelected"),
+      SOURCE.indexOf("async function loadOlder"),
+    );
+    expect(deletePaths).toContain("deleteOne(");
+    expect(deletePaths).toContain("deleteMany(");
+    expect(deletePaths).not.toContain("window.confirm");
     expect(SOURCE).not.toContain("deleteTask(");
   });
 

@@ -43,7 +43,6 @@
         "ui/src/hooks/useMinWidth.ts",
         "ui/src/lib/approvalAttribution.ts",
         "ui/src/lib/backStack.ts",
-        "ui/src/lib/deviceSidebar.ts",
         "ui/src/lib/draftChat.ts",
         "ui/src/lib/lastConversation.ts",
         "ui/src/lib/needsYou.ts",
@@ -55,7 +54,11 @@
         "ui/src/pages/SessionsRoute.tsx",
         "ui/src/pages/StartRoute.tsx",
         "ui/src/pages/TaskDetailPage.tsx",
-        "ui/src/pages/TaskSessionHost.tsx"
+        "ui/src/pages/TaskSessionHost.tsx",
+        "ui/src/components/sessions/SessionList.tsx",
+        "ui/src/components/ui/ActionSheet.tsx",
+        "ui/src/lib/sessionBucketOrder.ts",
+        "ui/src/lib/sessionFolds.ts"
       ],
       "tests": [
         "ui/src/components/CommandPalette.dom.test.tsx",
@@ -67,7 +70,6 @@
         "ui/src/components/ui/SearchSelect.dom.test.tsx",
         "ui/src/components/ui/SheetSelect.dom.test.tsx",
         "ui/src/lib/approvalAttribution.test.ts",
-        "ui/src/lib/deviceSidebar.test.ts",
         "ui/src/lib/draftChat.test.ts",
         "ui/src/lib/lastConversation.test.ts",
         "ui/src/lib/needsYou.test.ts",
@@ -82,7 +84,44 @@
         "ui/src/pages/findWiring.test.ts",
         "ui/src/pages/macKeyboardWiring.test.ts",
         "ui/src/pages/phoneRunConfigFace.test.ts",
-        "ui/src/pages/sessionPinnedWiring.test.ts"
+        "ui/src/pages/sessionPinnedWiring.test.ts",
+        "ui/src/components/ui/ActionSheet.dom.test.tsx"
+      ],
+      "blockedReason": null
+    },
+    {
+      "id": "KIN-CONTINUE-002",
+      "state": "approved",
+      "priority": "P0",
+      "journeys": [
+        "J1",
+        "J2"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "手机只留一个导航面：列表页就是侧栏",
+      "file": "docs/product/stories/KIN-CONTINUE-002.md",
+      "surface": "手机对话列表",
+      "ownerPaths": [
+        "ui/src/components/layout/AppShell.tsx",
+        "ui/src/components/layout/PhoneFooter.tsx",
+        "ui/src/components/layout/Sidebar.tsx",
+        "ui/src/components/mobile/SessionsHeader.tsx",
+        "ui/src/pages/SessionsPage.tsx",
+        "ui/src/hooks/useEdgeSwipeBack.ts",
+        "ui/src/lib/phoneBack.ts",
+        "ui/src/lib/phoneDeepLinkParent.ts",
+        "ui/src/lib/placeReturn.ts"
+      ],
+      "tests": [
+        "ui/src/components/layout/PhoneNavigation.dom.test.tsx",
+        "ui/src/pages/SessionsPage.dom.test.tsx",
+        "ui/src/components/layout/Sidebar.dom.test.tsx",
+        "ui/src/hooks/useEdgeSwipeBack.test.tsx",
+        "ui/src/lib/phoneBack.test.ts",
+        "ui/src/lib/phoneDeepLinkParent.test.ts"
       ],
       "blockedReason": null
     },
@@ -268,6 +307,44 @@
         "desktop/src/tray.wiring.test.ts"
       ],
       "blockedReason": null
+    },
+    {
+      "id": "KIN-AGENTS-001",
+      "state": "blocked",
+      "priority": "P1",
+      "journeys": [
+        "J6"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "机器上的 agent：装了什么、能不能用、用掉多少",
+      "file": "docs/product/stories/KIN-AGENTS-001.md",
+      "surface": "",
+      "ownerPaths": [
+        "ui/src/pages/AgentsPage.tsx",
+        "ui/src/components/layout/AppShell.tsx",
+        "ui/src/components/settings/LocalAgentSettingsSection.tsx",
+        "ui/src/hooks/useAgentCatalog.ts",
+        "ui/src/hooks/useAgentSessionImport.ts",
+        "ui/src/pages/SettingsPage.tsx",
+        "ui/src/lib/agentCatalog.ts",
+        "ui/src/lib/agentFamilies.ts",
+        "ui/src/lib/agentLimits.ts",
+        "ui/src/lib/agentSessionImport.ts",
+        "ui/src/lib/usage.ts",
+        "internal/adapter/detect/skills_catalog.go",
+        "internal/api/api.go",
+        "internal/store/agent_sessions.go"
+      ],
+      "tests": [
+        "ui/src/hooks/useAgentCatalog.test.tsx",
+        "ui/src/hooks/useAgentSessionImport.test.tsx",
+        "ui/src/components/settings/LocalAgentSettingsSection.dom.test.tsx",
+        "internal/api/settings_test.go"
+      ],
+      "blockedReason": "当前 main 基线缺少签字版 Agents 页面的实现与验收测试（AgentsPage.dom.test.tsx、agentPageState.ts）；本次只恢复并落地「不自动导入任何 agent 历史会话」条款，其余验收待页面恢复后重跑。"
     }
   ]
 }

@@ -8,9 +8,10 @@ import { describe, expect, it } from "vitest";
  *
  * The DOM tests drive `FloatingApproval` with stub bands and hand-made props,
  * which cannot see whether a *page* marks its band, whether the shell asks for
- * a measurement on the right routes, or whether the drawer still lets the card
- * paint over itself. Each of those is one deleted attribute or condition away
- * from failing quietly — the last review found three of them that way.
+ * a measurement on the right routes, or whether the phone still has a drawer
+ * for the card to paint over. Each of those is one deleted attribute or
+ * condition away from failing quietly — the last review found three of them
+ * that way.
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 
@@ -32,25 +33,31 @@ const tray = source("src/pages/TrayPage.tsx");
 describe("the floating approval's wiring", () => {
   it("asks for a measured offset only where a band exists", () => {
     expect(shell).toMatch(/expectsBottomChrome=\{measuredBottomBand\}/);
-    // The three screens that pin a composer: a conversation, the draft, an
-    // agent session's continue box. Bound to the assignment itself — a fourth
-    // clause (`|| detailRoute`) or the artifact route creeping back in is the
-    // regression this round fixed.
+    // The two screens that pin a composer: a conversation and an agent
+    // session's continue box. The draft's card sits in the page now
+    // (KIN-START-001), so there is no band there to clear. Bound to the
+    // assignment itself — a fourth clause (`|| detailRoute`) creeping back in
+    // is the regression this round fixed.
     const assignment = shell.match(/const measuredBottomBand =[\s\S]*?;\n/)?.[0] ?? "";
+    // Exactly the two known routes, no fourth clause: this comparison is the
+    // one thing a "just add /new back" edit cannot slip past.
+    expect(assignment).toBe(
+      'const measuredBottomBand =\n    selectedTaskId !== null || location.pathname.startsWith("/agent-sessions/");\n',
+    );
     expect(assignment).not.toBe("");
     expect(assignment).toMatch(/selectedTaskId !== null/);
-    expect(assignment).toMatch(/draftActive/);
     expect(assignment).toMatch(/startsWith\("\/agent-sessions\/"\)/);
-    expect(assignment).not.toMatch(/artifacts|detailRoute/);
+    expect(assignment).not.toMatch(/draftActive|artifacts|detailRoute/);
   });
 
-  it("gets the card out of the modal drawer's way", () => {
-    // The drawer and the card are both `z-40`; the card comes later in the DOM
-    // and covers the drawer's scrim, so it is not rendered while it is open.
-    expect(shell).toMatch(/\{!mobileOpen && \(/);
-    // ...and the drawer state is closed when the viewport crosses `md`, or a
-    // rotation with the drawer open would suppress the card forever.
-    expect(shell).toMatch(/useCloseOnWideScreen\(mobileOpen/);
+  it("has no drawer left to paint over the card", () => {
+    // KIN-CONTINUE-002 deleted the phone drawer and the dock. The card no
+    // longer has a modal sibling to hide behind, so the old `!mobileOpen`
+    // wrapper must not creep back, and neither must the drawer's state.
+    expect(shell).not.toMatch(/mobileOpen|MobileDock|useDrawerSwipe|kin-dock-pad/);
+    // The list page's footer and its new-chat button are the only bottom
+    // furniture on the phone; everywhere else the card keeps the lower offset.
+    expect(shell).toMatch(/raised=\{pathname === "\/sessions"\}/);
   });
 
   it("answers through the one shared decision path", () => {
@@ -64,11 +71,13 @@ describe("the floating approval's wiring", () => {
     expect(tray).not.toMatch(/decideApproval/);
   });
 
-  it("marks the band on every composer screen", () => {
+  it("marks the band on every screen that pins one", () => {
     // The marker is an attribute of the band's `<div>`, not text inside a JSX
     // comment or behind a `false &&`.
-    expect(draft).toMatch(/<div data-kin-bottom-chrome=""[\s>]/);
     expect(agentSession).toMatch(/<div data-kin-bottom-chrome=""[\s>]/);
+    // The draft pins its composer band too, so the floating approval can sit
+    // above it instead of over the field the reader is typing in.
+    expect(draft).toMatch(/data-kin-bottom-chrome/);
   });
 
   it("marks the transcript's band only for the pane on screen", () => {

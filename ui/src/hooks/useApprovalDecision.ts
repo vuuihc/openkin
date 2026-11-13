@@ -10,8 +10,8 @@ export type PendingDecision = "approved" | "denied";
 /**
  * Answering an approval, once, for every surface that can do it.
  *
- * The inbox and the floating card used to need the same four steps — mark the
- * row busy, call the daemon, push the answer into the shared resource so the
+ * The transcript and the floating card used to need the same four steps — mark
+ * the row busy, call the daemon, push the answer into the shared resource so the
  * row leaves every list at once, and say what went wrong if it did not — and a
  * second copy is how the two would come to disagree about what a failed
  * decision looks like.
@@ -23,14 +23,14 @@ export type PendingDecision = "approved" | "denied";
  * nothing to apply and the list may have moved on without us, so that path does
  * refetch.
  */
-export function useApprovalDecision(fallbackKey = "inbox.decisionFailed") {
+export function useApprovalDecision(fallbackKey = "needsYou.decisionFailed") {
   const tr = useT();
   const pushToast = useAppStore((s) => s.pushToast);
   const [busy, setBusy] = useState<Record<string, PendingDecision>>({});
   // A second answer for the same approval must not reach the daemon: the
-  // inbox's keyboard model does not consult `busy`, so a held key would post
-  // twice and the second — a 409, because the first decided it — would toast
-  // a failure for something that worked.
+  // transcript's keyboard model does not consult `busy`, so a held key would
+  // post twice and the second — a 409, because the first decided it — would
+  // toast a failure for something that worked.
   const inFlight = useRef<Set<string>>(new Set());
 
   const decide = useCallback(

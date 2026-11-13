@@ -37,9 +37,11 @@ const CHROME = new Map([
   ["src/components/layout/Sidebar.tsx", "the desktop navigation column"],
   ["src/components/layout/AppShell.tsx", "the phone's detail-route top inset"],
   ["src/components/mobile/MobileHeader.tsx", "the phone's top bar"],
-  ["src/components/mobile/MobileDock.tsx", "the phone's floating dock"],
-  ["src/components/layout/SessionTabs.tsx", "the session tab strip"],
+  ["src/components/mobile/SessionsHeader.tsx", "the phone list page's title and search bar"],
   ["src/components/layout/PanelSurface.tsx", "the session panel"],
+  ["src/components/layout/SessionTabs.tsx", "the open-conversation tab strip"],
+  ["src/components/layout/PhoneFooter.tsx", "the phone list page's footer destinations"],
+  ["src/pages/SessionsPage.tsx", "the phone list page's new-chat button"],
 ]);
 
 function sourceFiles(): string[] {
