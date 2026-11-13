@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   getRoutingDefaults,
@@ -11,6 +11,7 @@ import {
   type RoutingPhasePolicy,
 } from "../../api/client";
 import { useT } from "../../i18n/react";
+import { useAppStore } from "../../store/appStore";
 import SearchSelect from "../ui/SearchSelect";
 
 // ---------------------------------------------------------------------------
@@ -39,6 +40,10 @@ function defaultsKey(v: RoutingDefaults): string {
     v.qualityFloor,
     v.forcePhases,
   ]);
+}
+
+function normaliseFloor(value: string | undefined): "" | "light" | "medium" | "heavy" {
+  return value === "light" || value === "medium" || value === "heavy" ? value : "";
 }
 
 /** The controls before a load answers. This is also the baseline a failed first
@@ -85,7 +90,7 @@ export function RoutingDefaultsSection({
   const [baseline, setBaseline] = useState<string | null>(() =>
     defaultsKey(EMPTY_DEFAULTS),
   );
-  const draftKey = defaultsKey({
+  const draft: RoutingDefaults = {
     enabled,
     defaultTeam,
     objective,
@@ -94,39 +99,59 @@ export function RoutingDefaultsSection({
     manualFallback,
     qualityFloor,
     forcePhases,
-  });
+  };
+  const draftKey = defaultsKey(draft);
   const dirty = baseline !== null && draftKey !== baseline;
+
+  // What a read may compare against, field by field: the draft as of the last
+  // render, and the last server snapshot. A field equal to the snapshot is
+  // untouched, so a read may fill it; anything else is the reader's edit and
+  // keeps its value even if the answer arrives after it was typed.
+  const draftRef = useRef<RoutingDefaults>(draft);
+  useEffect(() => {
+    draftRef.current = draft;
+  });
+  const baselineValues = useRef<RoutingDefaults>({ ...EMPTY_DEFAULTS, forcePhases: [] });
 
   useEffect(() => {
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
 
+  // Only the newest read may land: a reconnect while the first page is still
+  // out would otherwise let the older answer arrive last and win.
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
+    const mine = ++loadSeq.current;
     try {
       const [d, o] = await Promise.all([getRoutingDefaults(), getRoutingOptions()]);
+      if (loadSeq.current !== mine) return;
+      const server: RoutingDefaults = {
+        enabled: d.enabled,
+        defaultTeam: d.default_team,
+        objective: d.objective || "balanced",
+        maxAttempts: d.max_attempts_per_step,
+        terminalPolicy: d.terminal_limit_policy || "ask",
+        manualFallback: d.manual_fallback,
+        qualityFloor: normaliseFloor(d.quality_floor),
+        forcePhases: d.force_phases ?? [],
+      };
       setOptions(o);
-      setEnabled(d.enabled);
-      setDefaultTeam(d.default_team);
-      setObjective(d.objective || "balanced");
-      setMaxAttempts(d.max_attempts_per_step);
-      setTerminalPolicy(d.terminal_limit_policy || "ask");
-      setManualFallback(d.manual_fallback);
-      const floor = d.quality_floor;
-      setQualityFloor(floor === "light" || floor === "medium" || floor === "heavy" ? floor : "");
-      setForcePhases(d.force_phases ?? []);
-      setBaseline(
-        defaultsKey({
-          enabled: d.enabled,
-          defaultTeam: d.default_team,
-          objective: d.objective || "balanced",
-          maxAttempts: d.max_attempts_per_step,
-          terminalPolicy: d.terminal_limit_policy || "ask",
-          manualFallback: d.manual_fallback,
-          qualityFloor:
-            floor === "light" || floor === "medium" || floor === "heavy" ? floor : "",
-          forcePhases: d.force_phases ?? [],
-        }),
-      );
+      const now = draftRef.current;
+      const before = baselineValues.current;
+      const fill = <K extends keyof RoutingDefaults>(key: K): RoutingDefaults[K] =>
+        JSON.stringify(now[key]) === JSON.stringify(before[key]) ? server[key] : now[key];
+      setEnabled(fill("enabled"));
+      setDefaultTeam(fill("defaultTeam"));
+      setObjective(fill("objective"));
+      setMaxAttempts(fill("maxAttempts"));
+      setTerminalPolicy(fill("terminalPolicy"));
+      setManualFallback(fill("manualFallback"));
+      setQualityFloor(fill("qualityFloor"));
+      setForcePhases(fill("forcePhases"));
+      // The baseline is the server's own snapshot, never the merged draft:
+      // a kept edit must still read as unsaved.
+      baselineValues.current = server;
+      setBaseline(defaultsKey(server));
     } catch {
       // ignore
     }
@@ -135,6 +160,16 @@ export function RoutingDefaultsSection({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // A reconnect re-reads the server under a form that may hold edits; the
+  // merge above is what keeps those edits from being overwritten.
+  const reconnectGen = useAppStore((s) => s.reconnectGen);
+  const seenReconnect = useRef(reconnectGen);
+  useEffect(() => {
+    if (reconnectGen === seenReconnect.current) return;
+    seenReconnect.current = reconnectGen;
+    void load();
+  }, [reconnectGen, load]);
 
   const save = async () => {
     setBusy(true);
@@ -164,6 +199,7 @@ export function RoutingDefaultsSection({
         quality_floor: sent.qualityFloor,
         force_phases: sent.forcePhases,
       });
+      baselineValues.current = sent;
       setBaseline(defaultsKey(sent));
       setSaved(true);
     } catch (e) {

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import SessionList from "./SessionList";
@@ -222,6 +222,126 @@ describe("the imported index and the older-page cursor", () => {
     });
     expect(screen.queryByRole("button", { name: /stale-page/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Load older/ })).toBeNull();
+  });
+});
+
+describe("a first-page refresh and the rows already on screen", () => {
+  it("replaces the rows only when the refreshed page succeeds", async () => {
+    const user = userEvent.setup();
+    const first = deferred<{ items: AgentSession[]; next_cursor?: string }>();
+    const refreshed = deferred<{ items: AgentSession[]; next_cursor?: string }>();
+    let firstPageReads = 0;
+    vi.mocked(listAgentSessionsPage).mockImplementation(async (params) => {
+      if (params?.before) return { items: [session("older")], next_cursor: undefined };
+      firstPageReads += 1;
+      return firstPageReads === 1 ? first.promise : refreshed.promise;
+    });
+
+    page();
+    await act(async () => {
+      first.resolve({ items: [session("before")], next_cursor: "cursor-1" });
+    });
+    await showImportedRows(user);
+    expect(await screen.findByRole("button", { name: /before/ })).toBeTruthy();
+
+    act(() => window.dispatchEvent(new Event("kin:agent-sessions-sync")));
+
+    // The answer is still out: what the reader is looking at must not blink
+    // away, and its cursor is not offered to a page read.
+    expect(screen.getByRole("button", { name: /before/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Load older/ })).toBeTruthy();
+    screen.getByRole("button", { name: /Load older/ }).click();
+    expect(
+      vi.mocked(listAgentSessionsPage).mock.calls.filter(([params]) => params?.before === "cursor-1"),
+    ).toHaveLength(0);
+
+    await act(async () => {
+      refreshed.resolve({ items: [session("after")], next_cursor: "cursor-2" });
+    });
+    await showImportedRows(user);
+    expect(await screen.findByRole("button", { name: /after/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /before/ })).toBeNull();
+  });
+
+  it("keeps the old rows, cursor and paging when the refresh fails", async () => {
+    const user = userEvent.setup();
+    const first = deferred<{ items: AgentSession[]; next_cursor?: string }>();
+    const refreshed = deferred<{ items: AgentSession[]; next_cursor?: string }>();
+    let firstPageReads = 0;
+    vi.mocked(listAgentSessionsPage).mockImplementation(async (params) => {
+      if (params?.before === "cursor-1") {
+        return { items: [session("older-1")], next_cursor: undefined };
+      }
+      firstPageReads += 1;
+      return firstPageReads === 1 ? first.promise : refreshed.promise;
+    });
+
+    page();
+    await act(async () => {
+      first.resolve({ items: [session("before")], next_cursor: "cursor-1" });
+    });
+    await showImportedRows(user);
+    expect(await screen.findByRole("button", { name: /before/ })).toBeTruthy();
+
+    act(() => window.dispatchEvent(new Event("kin:agent-sessions-sync")));
+    await act(async () => {
+      refreshed.reject(new Error("offline"));
+    });
+    // The failure is still surfaced — the soft notice keeps the rows visible
+    // instead of replacing them with the hard empty state.
+    await waitFor(() =>
+      expect(screen.getByText("Local agent sessions could not be read right now. Kin's own sessions are still listed above.")).toBeTruthy(),
+    );
+    expect(screen.queryByText("Could not load imported sessions")).toBeNull();
+
+    // The failed read did not replace anything: the row, its cursor and the
+    // control that pages from it are all still here.
+    expect(screen.getByRole("button", { name: /before/ })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /Load older/ }));
+    expect(await screen.findByRole("button", { name: /older-1/ })).toBeTruthy();
+    expect(vi.mocked(listAgentSessionsPage)).toHaveBeenLastCalledWith(
+      expect.objectContaining({ before: "cursor-1" }),
+    );
+  });
+
+  it("does not leave paging disabled when an older page never answers", async () => {
+    const user = userEvent.setup();
+    const first = deferred<{ items: AgentSession[]; next_cursor?: string }>();
+    const refreshed = deferred<{ items: AgentSession[]; next_cursor?: string }>();
+    const hung = deferred<{ items: AgentSession[]; next_cursor?: string }>();
+    let firstPageReads = 0;
+    vi.mocked(listAgentSessionsPage).mockImplementation(async (params) => {
+      if (params?.before === "cursor-1") return hung.promise;
+      if (params?.before === "cursor-2") {
+        return { items: [session("older-2")], next_cursor: undefined };
+      }
+      firstPageReads += 1;
+      return firstPageReads === 1 ? first.promise : refreshed.promise;
+    });
+
+    page();
+    await act(async () => {
+      first.resolve({ items: [session("before")], next_cursor: "cursor-1" });
+    });
+    await showImportedRows(user);
+    expect(await screen.findByRole("button", { name: /before/ })).toBeTruthy();
+
+    // The older page is out and never answers; a refresh then replaces the
+    // list. Its loading state belongs to the retired list and must be cleared,
+    // or the control stays disabled for the rest of the session.
+    await user.click(screen.getByRole("button", { name: /Load older/ }));
+    act(() => window.dispatchEvent(new Event("kin:agent-sessions-sync")));
+    await act(async () => {
+      refreshed.resolve({ items: [session("after")], next_cursor: "cursor-2" });
+    });
+    await showImportedRows(user);
+    expect(await screen.findByRole("button", { name: /after/ })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: /Load older/ }));
+    expect(await screen.findByRole("button", { name: /older-2/ })).toBeTruthy();
+    expect(vi.mocked(listAgentSessionsPage)).toHaveBeenLastCalledWith(
+      expect.objectContaining({ before: "cursor-2" }),
+    );
   });
 });
 

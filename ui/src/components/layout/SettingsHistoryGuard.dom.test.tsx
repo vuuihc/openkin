@@ -176,9 +176,17 @@ async function browser(...entries: Array<{ url: string; state?: Record<string, u
 function SameRouteControl() {
   const navigate = useNavigate();
   return (
-    <button type="button" onClick={() => runGuardedNavigation(() => navigate("/settings"))}>
-      go to settings
-    </button>
+    <>
+      <button type="button" onClick={() => runGuardedNavigation(() => navigate("/settings"))}>
+        go to settings
+      </button>
+      <button
+        type="button"
+        onClick={() => runGuardedNavigation(() => navigate("/settings", { replace: true }))}
+      >
+        replace with settings
+      </button>
+    </>
   );
 }
 
@@ -187,7 +195,9 @@ async function settingsOnly(...entries: Array<{ url: string; state?: Record<stri
   stack(...entries);
   return render(
     <BrowserRouter>
-      <SettingsPage />
+      <Routes>
+        <Route path="/settings" element={<SettingsPage />} />
+      </Routes>
       <SameRouteControl />
     </BrowserRouter>,
   );
@@ -292,6 +302,69 @@ describe("navigating to the screen you are already on", () => {
     act(() => window.history.back());
     await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
     expect(confirm.mock.calls.length).toBe(asked + 2);
+  });
+
+  it("re-arms after a same-pathname push with a different query", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.mocked(window.confirm);
+    await settingsOnly({ url: "/sessions" }, { url: "/settings?tab=remote" });
+    await screen.findByRole("tablist");
+
+    // The relay URL is on the Remote tab, which the query selected at mount.
+    const relay = screen.getByRole("textbox", { name: /Relay Worker URL/ });
+    await user.type(relay, "https://relay.example.test");
+    confirm.mockReturnValue(true);
+
+    await user.click(screen.getByRole("button", { name: "go to settings" }));
+    expect(window.location.pathname).toBe("/settings");
+    expect(window.location.search).toBe("");
+
+    // Same route, so the page never unmounted and its draft is still there.
+    expect(
+      (screen.getByRole("textbox", { name: /Relay Worker URL/ }) as HTMLInputElement).value,
+    ).toBe("https://relay.example.test");
+
+    // The entry that protected the draft was buried by the push; Back must
+    // still find a question to ask.
+    await waitFor(() => expect(isLeaveGuardArmed()).toBe(true));
+    confirm.mockReturnValue(false);
+    const asked = confirm.mock.calls.length;
+    act(() => window.history.back());
+    await waitFor(() => expect(confirm.mock.calls.length).toBe(asked + 1));
+    expect(window.location.pathname).toBe("/settings");
+    expect(
+      (screen.getByRole("textbox", { name: /Relay Worker URL/ }) as HTMLInputElement).value,
+    ).toBe("https://relay.example.test");
+  });
+
+  it("re-arms after a same-pathname replace with a different query", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.mocked(window.confirm);
+    await settingsOnly({ url: "/sessions" }, { url: "/settings?tab=remote" });
+    await screen.findByRole("tablist");
+
+    const relay = screen.getByRole("textbox", { name: /Relay Worker URL/ });
+    await user.type(relay, "https://relay.example.test");
+    confirm.mockReturnValue(true);
+
+    await user.click(screen.getByRole("button", { name: "replace with settings" }));
+    expect(window.location.pathname).toBe("/settings");
+    expect(window.location.search).toBe("");
+    expect(
+      (screen.getByRole("textbox", { name: /Relay Worker URL/ }) as HTMLInputElement).value,
+    ).toBe("https://relay.example.test");
+
+    // The rewrite dropped the sentinel's marker; a system Back must still ask
+    // rather than leave the edited form.
+    await waitFor(() => expect(isLeaveGuardArmed()).toBe(true));
+    confirm.mockReturnValue(false);
+    const asked = confirm.mock.calls.length;
+    act(() => window.history.back());
+    await waitFor(() => expect(confirm.mock.calls.length).toBe(asked + 1));
+    expect(window.location.pathname).toBe("/settings");
+    expect(
+      (screen.getByRole("textbox", { name: /Relay Worker URL/ }) as HTMLInputElement).value,
+    ).toBe("https://relay.example.test");
   });
 });
 

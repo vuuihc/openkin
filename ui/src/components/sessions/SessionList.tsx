@@ -224,6 +224,15 @@ export default function SessionList({
   const [sessionsFailed, setSessionsFailed] = useState(false);
   const [sessionReload, setSessionReload] = useState(0);
   const requestGeneration = useRef(0);
+  // A first-page read is replacing the list. While it is out its cursor is not
+  // offered to "Load older", and its own answer decides whether the rows are
+  // replaced; only the newest read may say the wait is over.
+  const firstPageInFlight = useRef<number | null>(null);
+  const firstPageSeq = useRef(0);
+  const [refreshing, setRefreshing] = useState(false);
+  // Identifies the newest older-page read. A refresh bumps it, so an older
+  // request that never answers cannot leave the control disabled.
+  const olderToken = useRef(0);
   const [foldTick, setFoldTick] = useState(0);
   const folds = useMemo(() => readSessionFolds(), [foldTick]);
   const [viewTick, setViewTick] = useState(0);
@@ -271,15 +280,18 @@ export default function SessionList({
     setSessionsFailed(false);
     const read = () => {
       const mine = ++seq;
+      const firstPage = ++firstPageSeq.current;
+      firstPageInFlight.current = firstPage;
+      setRefreshing(true);
       // A first-page refresh invalidates every older page and cursor in
-      // flight, starting now rather than when the answer lands. Page one is
-      // the whole list; rows from the previous cursor describe a list that is
-      // being replaced, and a Load older click in this window must not page
-      // from it.
+      // flight, starting now rather than when the answer lands: a page read
+      // from the old cursor describes a list that is being replaced. The
+      // rows and cursor already on screen are not cleared here — only a
+      // successful first page may replace them, so a failed refresh leaves
+      // the old list (and paging from it) intact.
       requestGeneration.current += 1;
-      sessionCursorRef.current = undefined;
-      setSessionCursor(undefined);
-      setOlderSessions([]);
+      olderToken.current += 1;
+      setLoadingOlder(false);
       const term = sessionListParams(searchTerm);
       listAgentSessionsPage({ limit: term.limit, q: term.q })
         .then((page) => {
@@ -289,9 +301,18 @@ export default function SessionList({
           setSessionCursor(page.next_cursor);
           setOlderSessions([]);
           setSessionsFailed(false);
+          if (firstPageSeq.current === firstPage) {
+            firstPageInFlight.current = null;
+            setRefreshing(false);
+          }
         })
         .catch(() => {
-          if (!cancelled && mine === seq) setSessionsFailed(true);
+          if (cancelled || mine !== seq) return;
+          setSessionsFailed(true);
+          if (firstPageSeq.current === firstPage) {
+            firstPageInFlight.current = null;
+            setRefreshing(false);
+          }
         });
     };
     read();
@@ -835,7 +856,11 @@ export default function SessionList({
 
   async function loadOlder() {
     if (loadingOlder) return;
+    // While a new first page is replacing the list, its cursor is the one in
+    // flight, not the one this button was rendered from.
+    if (firstPageInFlight.current !== null) return;
     const generation = requestGeneration.current;
+    const token = ++olderToken.current;
     setLoadingOlder(true);
     try {
       if (hasMoreTasks) {
@@ -886,7 +911,9 @@ export default function SessionList({
     } catch {
       // Keep what is on screen and leave the button in place.
     } finally {
-      setLoadingOlder(false);
+      // A refresh retires this read (and bumps the token); clearing the flag
+      // then belongs to the newer read, not to an answer that may never come.
+      if (olderToken.current === token) setLoadingOlder(false);
     }
   }
 
@@ -1164,7 +1191,7 @@ export default function SessionList({
         <button
           type="button"
           onClick={loadOlder}
-          disabled={loadingOlder}
+          disabled={loadingOlder || refreshing}
           className="kin-row-press flex min-h-11 w-full items-center justify-center px-4 py-2 text-body font-medium text-kin-muted disabled:opacity-60"
         >
           {loadingOlder ? tr("sessions.loadingOlder") : tr("sessions.loadOlder")}

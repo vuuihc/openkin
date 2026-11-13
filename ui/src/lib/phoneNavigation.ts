@@ -21,10 +21,19 @@ import { runGuardedNavigation } from "./leaveGuard";
  * The list URL is remembered whenever the list is on screen, including its
  * `?search=`, `?status=` and `?scope=` params. That is what a Back should put
  * back, not a bare `/sessions`.
+ *
+ * "The list is directly underneath" is evidence, not a guess. A location-state
+ * marker names an entry this document minted, and the entry's own `key` binds
+ * the marker to the exact history entry it was pushed for; a copied marker, a
+ * marker left over from a previous document (an OAuth round trip, a reload),
+ * or a bare history index that happens to line up is not accepted. The index
+ * remains a fallback only for an entry whose marker was erased by a
+ * same-entry replace, and only when it belongs to this document.
  */
 const LIST_PATH = "/sessions";
 const LIST_URL_KEY = "kin.listUrl";
 const LIST_IDX_KEY = "kin.listIdx";
+const LIST_NONCE_KEY = "kin.listNonce";
 const PHONE_QUERY = "(min-width: 768px)";
 const LIST_STATE_KEYS = ["search", "status", "scope"] as const;
 
@@ -33,20 +42,50 @@ const LIST_STATE_KEYS = ["search", "status", "scope"] as const;
  *  from "some other screen is". */
 const LIST_PARENT_KEY = "kinListParent";
 
-function listIsParent(state: unknown): boolean {
-  return (
-    typeof state === "object" &&
-    state !== null &&
-    (state as Record<string, unknown>)[LIST_PARENT_KEY] === true
-  );
+type ListParentMarker = { token: string; nonce: string };
+type ParentEvidence = { token: string; listUrl: string; listIdx: number | null };
+
+function randomToken(prefix: string): string {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function withListParent(state: unknown): Record<string, unknown> {
+/**
+ * This document's identity.
+ *
+ * `sessionStorage` outlives a full-page navigation, so the list index and URL
+ * it holds may describe a different document (an OAuth callback, a redirect
+ * back, a reload). A marker minted before that navigation carries the old
+ * nonce and is not trusted; neither is stored index evidence. It is not a
+ * security boundary — a page can always rewrite its own history — it is what
+ * keeps stale evidence from claiming a parent that is no longer there.
+ */
+let documentNonce = randomToken("kin-doc");
+
+/** The marker awaiting its entry in the router's own location. It is consumed
+ *  exactly once, so copying the state onto another entry cannot re-bind. */
+let pendingPush: ParentEvidence | null = null;
+/** Entry key -> the list evidence that entry was pushed against. */
+const entryEvidence = new Map<string, ParentEvidence>();
+
+function markerOf(state: unknown): ListParentMarker | null {
+  if (typeof state !== "object" || state === null) return null;
+  const raw = (state as Record<string, unknown>)[LIST_PARENT_KEY];
+  if (typeof raw !== "object" || raw === null) return null;
+  const token = (raw as Record<string, unknown>).token;
+  const nonce = (raw as Record<string, unknown>).nonce;
+  return typeof token === "string" && typeof nonce === "string" ? { token, nonce } : null;
+}
+
+function markerState(state: unknown): Record<string, unknown> {
   const base =
-    typeof state === "object" && state !== null
-      ? (state as Record<string, unknown>)
-      : {};
-  return { ...base, [LIST_PARENT_KEY]: true };
+    typeof state === "object" && state !== null ? (state as Record<string, unknown>) : {};
+  const token = randomToken("kin-list-parent");
+  pendingPush = {
+    token,
+    listUrl: lastListUrl(),
+    listIdx: storedListIndex(),
+  };
+  return { ...base, [LIST_PARENT_KEY]: { token, nonce: documentNonce } };
 }
 
 function historyIndex(): number | null {
@@ -65,32 +104,74 @@ function storedListIndex(): number | null {
   }
 }
 
-/** Remember that the entry at the current index is the list. */
-function rememberListIndex(): void {
+/** The history index of the route's own entry, or null when this is not the
+ *  document the router is driving (a MemoryRouter, where window.history is
+ *  somebody else's stack and its index says nothing about the route). */
+function routeIndex(location: Pick<Location, "pathname">): number | null {
+  if (typeof window === "undefined") return null;
+  if (window.location.pathname !== location.pathname) return null;
+  return historyIndex();
+}
+
+/** The list entry this document last showed, or null when the stored evidence
+ *  belongs to another document. */
+function storedListEvidence(): { url: string; idx: number | null } | null {
   try {
-    const idx = historyIndex();
-    if (idx === null) window.sessionStorage.removeItem(LIST_IDX_KEY);
-    else window.sessionStorage.setItem(LIST_IDX_KEY, String(idx));
+    const url = window.sessionStorage.getItem(LIST_URL_KEY);
+    if (!url || !url.startsWith(LIST_PATH)) return null;
+    if (window.sessionStorage.getItem(LIST_NONCE_KEY) !== documentNonce) return null;
+    return { url, idx: storedListIndex() };
   } catch {
-    // No storage: the state marker below is still the primary signal.
+    return null;
   }
 }
 
 /**
  * Whether the entry directly below this one is the list.
  *
- * The state marker is the explicit answer, but a page is allowed to rewrite
- * its own URL: React Router's `setSearchParams(..., { replace: true })` — a
- * project changing tab, for one — replaces the entry without state and drops
- * the marker. The list's own history index survives that, so a screen one
- * index above the last list entry is still the list's child, and the push
- * replaces it instead of stacking a second list under the destination.
+ * A marker bound to this exact entry key is the explicit answer. A page is
+ * allowed to rewrite its own URL — React Router's `setSearchParams(...,
+ * { replace: true })`, a project changing tab — and the replace erases the
+ * marker while keeping the entry's stack position. The list's index surviving
+ * in this document is then the evidence; the same index from a previous
+ * document is not.
  */
-function listIsDirectParent(state: unknown): boolean {
-  if (listIsParent(state)) return true;
-  const idx = historyIndex();
-  const listIdx = storedListIndex();
-  return idx !== null && listIdx !== null && idx === listIdx + 1;
+function listIsDirectParent(
+  location: { pathname: string; state?: unknown; key?: string },
+): boolean {
+  const stored = storedListEvidence();
+  if (!stored) return false;
+  const idx = routeIndex(location);
+  const marker = markerOf(location.state);
+  if (marker) {
+    if (marker.nonce !== documentNonce) return false;
+    const evidence = entryEvidence.get(location.key ?? "");
+    if (!evidence || evidence.token !== marker.token) return false;
+    if (evidence.listUrl !== stored.url) return false;
+    if (evidence.listIdx !== null && idx !== null) return evidence.listIdx === idx - 1;
+    return true;
+  }
+  return (
+    location.pathname !== LIST_PATH &&
+    idx !== null &&
+    stored.idx !== null &&
+    idx === stored.idx + 1
+  );
+}
+
+/** Bind the marker a push just placed in location state to the entry that
+ *  actually received it. Called from the shell's location subscription; the
+ *  token is spent here, so a state object copied onto a later entry has no
+ *  entry evidence and is refused above. */
+export function bindPhoneHistoryEntry(
+  location: Pick<Location, "pathname" | "search" | "state"> & { key?: string },
+): void {
+  const pending = pendingPush;
+  if (!pending) return;
+  const marker = markerOf(location.state);
+  if (!marker || marker.nonce !== documentNonce || marker.token !== pending.token) return;
+  pendingPush = null;
+  entryEvidence.set(location.key ?? "", pending);
 }
 
 export function isPhoneLayout(win: Window = window): boolean {
@@ -119,6 +200,11 @@ function isListPath(pathname: string): boolean {
   return pathname === LIST_PATH;
 }
 
+/** A destination URL that is the list itself, with or without its params. */
+function isListTarget(to: string): boolean {
+  return to === LIST_PATH || to.startsWith(`${LIST_PATH}?`) || to.startsWith(`${LIST_PATH}#`);
+}
+
 /** Keep the list's own params, in a stable order, so two spellings of the
  *  same view do not produce two history entries. */
 export function listUrlFor(search: string, fallback = LIST_PATH): string {
@@ -137,10 +223,13 @@ export function rememberListUrl(url: string): void {
   if (!url.startsWith(LIST_PATH)) return;
   try {
     window.sessionStorage.setItem(LIST_URL_KEY, url);
+    window.sessionStorage.setItem(LIST_NONCE_KEY, documentNonce);
+    const idx = historyIndex();
+    if (idx === null) window.sessionStorage.removeItem(LIST_IDX_KEY);
+    else window.sessionStorage.setItem(LIST_IDX_KEY, String(idx));
   } catch {
     // No storage: the fallback is the plain list.
   }
-  rememberListIndex();
 }
 
 /** The last list URL this tab showed, or the plain list. */
@@ -181,7 +270,7 @@ export function draftReturnUrl(state: unknown, fallback = LIST_PATH): string {
  */
 export function phonePush(
   navigate: NavigateFunction,
-  location: Pick<Location, "pathname" | "search"> & { state?: unknown },
+  location: Pick<Location, "pathname" | "search"> & { state?: unknown; key?: string },
   to: string,
   options?: { replace?: boolean; phone?: boolean; state?: unknown },
 ): void {
@@ -195,22 +284,36 @@ export function phonePush(
     return;
   }
 
-  const state = withListParent(options?.state);
   if (isListPath(location.pathname)) {
-    navigate(to, { replace: options?.replace, state });
+    if (isListTarget(to)) {
+      // Already the list: another view of it is the same screen in the same
+      // entry, not a second copy to walk back through.
+      navigate(to, { replace: true, state: options?.state });
+      return;
+    }
+    // The list is the parent, so it stays underneath as the push goes on top.
+    navigate(to, { replace: options?.replace, state: markerState(options?.state) });
     return;
   }
-  if (listIsDirectParent(location.state)) {
+  if (listIsDirectParent(location)) {
+    if (isListTarget(to)) {
+      // The list is already directly underneath. Popping is the one-step
+      // return; replacing this entry with a second list copy would leave
+      // [list, list] and make Back show the same screen twice.
+      navigate(-1);
+      return;
+    }
     // The entry directly below this screen is already the list, so pushing the
     // destination would put this screen under it — Back would pass two list
     // copies, or the project the person just left. Replacing keeps the depth
     // at one: the list is the parent, exactly once.
-    navigate(to, { replace: true, state });
+    navigate(to, { replace: true, state: markerState(options?.state) });
     return;
   }
-  navigate(lastListUrl(), { replace: true });
-  rememberListUrl(lastListUrl());
-  navigate(to, { state });
+  const listUrl = lastListUrl();
+  navigate(listUrl, { replace: true });
+  rememberListUrl(listUrl);
+  navigate(to, { state: markerState(options?.state) });
 }
 
 /**
@@ -237,4 +340,18 @@ export function onGuardedLinkClick(
     () => phonePush(navigate, location, to, { state: options?.state }),
     options?.approved === true,
   );
+}
+
+/** Test hook: a new document, as a reload or an external redirect creates. */
+export function resetPhoneNavigation(): void {
+  documentNonce = randomToken("kin-doc");
+  pendingPush = null;
+  entryEvidence.clear();
+  try {
+    window.sessionStorage.removeItem(LIST_URL_KEY);
+    window.sessionStorage.removeItem(LIST_IDX_KEY);
+    window.sessionStorage.removeItem(LIST_NONCE_KEY);
+  } catch {
+    // No storage to clear.
+  }
 }

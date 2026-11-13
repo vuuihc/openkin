@@ -149,6 +149,33 @@ function settingsDraftFromServer(s: Settings): SettingsDraft {
   };
 }
 
+/**
+ * The Cloudflare deploy/bind form. These are editable inputs with their own
+ * server values, so they are drafts like every other form on the page: an
+ * outright reconnect or a relay jump must not silently replace them.
+ */
+type CloudflareDraft = {
+  accountID: string;
+  zoneID: string;
+  hostname: string;
+  scriptName: string;
+};
+
+const CLOUDFLARE_DEFAULT_SCRIPT = "kin-relay";
+
+function cloudflareDraftFromServer(s: Settings): CloudflareDraft {
+  return {
+    accountID: s["cloudflare.account_id"] ?? "",
+    zoneID: s["cloudflare.relay_zone_id"] ?? "",
+    hostname: s["cloudflare.relay_custom_domain"] ?? "",
+    scriptName: s["cloudflare.relay_script_name"] || CLOUDFLARE_DEFAULT_SCRIPT,
+  };
+}
+
+function cloudflareDraftKey(v: CloudflareDraft): string {
+  return JSON.stringify([v.accountID, v.zoneID, v.hostname, v.scriptName]);
+}
+
 type ProviderDraft = {
   name: string;
   base: string;
@@ -242,6 +269,7 @@ export default function SettingsPage() {
   const [settingsBaseline, setSettingsBaseline] = useState<string | null>(null);
   const [providerBaseline, setProviderBaseline] = useState<string | null>(null);
   const [routingDirty, setRoutingDirty] = useState({ defaults: false, profiles: false });
+  const [cloudflareBaseline, setCloudflareBaseline] = useState<string | null>(null);
 
   const settingsDraftValues: SettingsDraft = {
     quota: quotaWaitNotifySecs,
@@ -267,6 +295,23 @@ export default function SettingsPage() {
   const serverDraftRef = useRef<SettingsDraft | null>(null);
   const settingsDirty =
     settings !== null && settingsBaseline !== null && settingsDraft !== settingsBaseline;
+
+  // The Cloudflare form's own draft and last server snapshot, for the same
+  // reason: a reconnect fills what the reader left alone and keeps the rest.
+  const cloudflareDraftValues: CloudflareDraft = {
+    accountID: cloudflareAccountID,
+    zoneID: cloudflareZoneID,
+    hostname: cloudflareHostname,
+    scriptName: cloudflareScriptName,
+  };
+  const cloudflareDraft = cloudflareDraftKey(cloudflareDraftValues);
+  const cloudflareDirty =
+    cloudflareBaseline !== null && cloudflareDraft !== cloudflareBaseline;
+  const cloudflareDraftRef = useRef(cloudflareDraftValues);
+  const cloudflareServerRef = useRef<CloudflareDraft | null>(null);
+  useEffect(() => {
+    cloudflareDraftRef.current = cloudflareDraftValues;
+  });
 
   // Adopt a server snapshot as the new baseline. With `preserveDirty`, a field
   // the reader has edited since the last snapshot keeps their text — a
@@ -295,13 +340,72 @@ export default function SettingsPage() {
     setSettingsBaseline(settingsDraftKey(next));
   }, []);
 
+  // Adopt the Cloudflare side of a server snapshot. Same rule as the settings
+  // form: a rerender fills the untouched inputs and leaves the reader's text.
+  const applyServerCloudflare = useCallback((s: Settings, preserveDirty: boolean) => {
+    const next = cloudflareDraftFromServer(s);
+    const prev = cloudflareServerRef.current;
+    const current = cloudflareDraftRef.current;
+    const keep = <K extends keyof CloudflareDraft>(key: K): CloudflareDraft[K] =>
+      preserveDirty && prev !== null && current[key] !== prev[key] ? current[key] : next[key];
+    setCloudflareAccountID(keep("accountID"));
+    setCloudflareZoneID(keep("zoneID"));
+    setCloudflareHostname(keep("hostname"));
+    setCloudflareScriptName(keep("scriptName"));
+    cloudflareServerRef.current = next;
+    setCloudflareBaseline(cloudflareDraftKey(next));
+  }, []);
+
+  /** Move the Cloudflare baseline to a server snapshot without touching the
+   *  inputs: a response that saved a subset must not rewrite the rest. */
+  const rebaseCloudflareBaseline = useCallback((s: Settings) => {
+    const next = cloudflareDraftFromServer(s);
+    cloudflareServerRef.current = next;
+    setCloudflareBaseline(cloudflareDraftKey(next));
+  }, []);
+
   // A response that wrote one field without touching the others: only the
   // baseline moves, never a draft this request did not carry.
-  const syncServerBaseline = useCallback((s: Settings) => {
-    const next = settingsDraftFromServer(s);
-    serverDraftRef.current = next;
-    setSettingsBaseline(settingsDraftKey(next));
-  }, []);
+  const syncServerBaseline = useCallback(
+    (s: Settings) => {
+      const next = settingsDraftFromServer(s);
+      serverDraftRef.current = next;
+      setSettingsBaseline(settingsDraftKey(next));
+      rebaseCloudflareBaseline(s);
+    },
+    [rebaseCloudflareBaseline],
+  );
+
+  /**
+   * Adopt a normal save's answer.
+   *
+   * The server answers with the whole settings map, but this request carried
+   * only the fields set below; the relay URL has its own Save and is never
+   * written here, however late the answer lands. A carried field takes the
+   * server's value only if the reader has not typed into it since the request
+   * left. The baseline still becomes the server snapshot, so a kept edit
+   * stays dirty.
+   */
+  const applySavedSettings = useCallback(
+    (s: Settings, submitted: SettingsDraft) => {
+      const next = settingsDraftFromServer(s);
+      const current = draftValuesRef.current;
+      const take = (key: keyof SettingsDraft) =>
+        JSON.stringify(current[key]) === JSON.stringify(submitted[key]);
+      if (take("quota")) setQuotaWaitNotifySecs(next.quota);
+      if (take("baseURL")) setBaseURL(next.baseURL);
+      if (take("priceTable")) setPriceTable(next.priceTable);
+      if (take("agentLimits")) setAgentLimitsText(next.agentLimits);
+      if (take("roles")) setRoles(next.roles);
+      if (take("agentDefault")) setAgentDefault(next.agentDefault);
+      if (take("limitPolicy")) setLimitPolicy(next.limitPolicy);
+      if (take("limitFallback")) setLimitFallbackText(next.limitFallback);
+      serverDraftRef.current = next;
+      setSettingsBaseline(settingsDraftKey(next));
+      rebaseCloudflareBaseline(s);
+    },
+    [rebaseCloudflareBaseline],
+  );
 
   const providerDraft =
     editingId === null
@@ -319,7 +423,28 @@ export default function SettingsPage() {
   const providerDirty =
     providerDraft !== null && providerBaseline !== null && providerDraft !== providerBaseline;
 
-  const formDirty = settingsDirty || providerDirty || routingDirty.defaults || routingDirty.profiles;
+  // The async answers below (a relay save, a deploy) may land after the reader
+  // has opened another form. Their closures were created at click time, so the
+  // dirty answers have to be read from the latest commit, not captured.
+  const liveDirtyRef = useRef({
+    provider: false,
+    routingDefaults: false,
+    routingProfiles: false,
+  });
+  useEffect(() => {
+    liveDirtyRef.current = {
+      provider: providerDirty,
+      routingDefaults: routingDirty.defaults,
+      routingProfiles: routingDirty.profiles,
+    };
+  });
+
+  const formDirty =
+    settingsDirty ||
+    providerDirty ||
+    routingDirty.defaults ||
+    routingDirty.profiles ||
+    cloudflareDirty;
   const canLeaveSettings = useCallback(
     () => !formDirty || window.confirm(tr("settings.discardConfirm")),
     [formDirty, tr],
@@ -353,12 +478,9 @@ export default function SettingsPage() {
       try {
         const s = await getSettings();
         setSettings(s);
-        setCloudflareAccountID(s["cloudflare.account_id"] ?? "");
-        setCloudflareZoneID(s["cloudflare.relay_zone_id"] ?? "");
-        setCloudflareHostname(s["cloudflare.relay_custom_domain"] ?? "");
-        setCloudflareScriptName(s["cloudflare.relay_script_name"] || "kin-relay");
         setActiveProviderId(s["provider.active_id"] ?? "");
         applyServerSettings(s, preserveDirty);
+        applyServerCloudflare(s, preserveDirty);
         try {
           const reg = await listProviders();
           setProviders(reg.providers ?? []);
@@ -381,7 +503,7 @@ export default function SettingsPage() {
         setError(e instanceof ApiError ? e.message : String(e));
       }
     },
-    [applyServerSettings],
+    [applyServerSettings, applyServerCloudflare],
   );
 
   useEffect(() => {
@@ -426,6 +548,7 @@ export default function SettingsPage() {
       return;
     }
     try {
+      const submitted = draftValuesRef.current;
       const body: Parameters<typeof updateSettings>[0] = {
         "notify.quota_wait_after_secs": quotaWaitNotifySecs.trim() || "900",
         "ui.base_url": baseURL.trim(),
@@ -440,9 +563,9 @@ export default function SettingsPage() {
       setSettings(s);
       setActiveProviderId(s["provider.active_id"] ?? activeProviderId);
       // The serializer drops half-written rows, so show what was saved rather
-      // than keep the draft; the snapshot is the new baseline for every field
-      // this request did carry.
-      applyServerSettings(s, false);
+      // than keep the draft; a field this request did not carry, or one the
+      // reader changed while it was out, keeps their text and stays dirty.
+      applySavedSettings(s, submitted);
       setSaved(true);
       pushToast(tr("settings.saved"), "info");
       window.dispatchEvent(new Event("kin:agent-sessions-changed"));
@@ -707,24 +830,29 @@ export default function SettingsPage() {
     }
   };
 
-  const applyRelaySettings = (s: Settings) => {
+  // The answer's saved snapshot becomes the baseline; the drafts on screen are
+  // only rewritten when the caller says this request owned that form.
+  const applyRelaySettings = (s: Settings, keepRelayDraft = false) => {
     setSettings(s);
-    setRelayURL(s["relay.url"] ?? "");
-    // The saved snapshot, not this page's draft: a field this request did not
-    // carry is still unsaved, and must stay dirty.
+    if (!keepRelayDraft) setRelayURL(s["relay.url"] ?? "");
     syncServerBaseline(s);
   };
 
   // Leaving for the relay's origin replaces the whole document and there is no
   // Back from it. The relay URL this request carried is saved; every other
-  // form on the page is a draft the reload would silently drop.
+  // form on the page is a draft the reload would silently drop — including
+  // text typed into the relay box itself while the request was out, and a
+  // provider or routing draft opened after the click.
   const hasUnsavedDrafts = (s: Settings): boolean => {
     const saved = settingsDraftKey(settingsDraftFromServer(s));
+    const live = liveDirtyRef.current;
     return (
       settingsDraftKey(draftValuesRef.current) !== saved ||
-      providerDirty ||
-      routingDirty.defaults ||
-      routingDirty.profiles
+      live.provider ||
+      live.routingDefaults ||
+      live.routingProfiles ||
+      cloudflareDraftKey(cloudflareDraftRef.current) !==
+        cloudflareDraftKey(cloudflareDraftFromServer(s))
     );
   };
 
@@ -734,13 +862,20 @@ export default function SettingsPage() {
       : s["ui.base_url"]
         ? `${s["ui.base_url"].replace(/\/+$/, "")}/?token=${encodeURIComponent(s.token)}`
         : "";
+    // The response saved what the request carried. A live value that differs
+    // from it is text typed while the request was out; adopting the answer
+    // must not write the old value back over it.
+    const liveRelay = draftValuesRef.current.relayURL;
+    const savedRelay = s["relay.url"] ?? "";
+    const relayKept = liveRelay.trim() !== savedRelay;
     if (!target) {
-      applyRelaySettings(s);
+      applyRelaySettings(s, relayKept);
       adoptRelayURL("");
       return;
     }
     if (hasUnsavedDrafts(s) && !window.confirm(tr("settings.discardConfirm"))) {
-      applyRelaySettings(s);
+      // Refusing the jump keeps every draft exactly as it is on screen.
+      applyRelaySettings(s, true);
       return;
     }
     applyRelaySettings(s);
