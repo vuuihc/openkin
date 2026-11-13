@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { goBackToList } from "../lib/phoneBack";
+import { onGuardedLinkClick, phonePush } from "../lib/phoneNavigation";
 import {
   ApiError,
   attachAgentSession,
@@ -79,6 +80,7 @@ function AgentAvatar({ agentID, small = false }: { agentID: string; small?: bool
 export default function AgentSessionDetailPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const tr = useT();
   // The continue box is a composer, so `/` opens the same prompt menu there.
   // This page mounts on its own route, so one read of the list is the whole
@@ -272,7 +274,13 @@ export default function AgentSessionDetailPage() {
     try {
       const result = await attachAgentSession(session.id, { prompt });
       window.dispatchEvent(new Event("kin:agent-sessions-changed"));
-      navigate(`/tasks/${encodeURIComponent(result.task.id)}`);
+      // Continuing a session turns this screen into the conversation that now
+      // exists, so it replaces the session entry rather than stacking the
+      // conversation on top of it. On a phone the list is the parent either
+      // way ([list, conversation]), so Back is one step (KIN-CONTINUE-002).
+      phonePush(navigate, location, `/tasks/${encodeURIComponent(result.task.id)}`, {
+        replace: true,
+      });
     } catch (e) {
       const message = e instanceof Error ? e.message : tr("agentSession.continueFailed");
       setHistoryError(message);
@@ -302,7 +310,11 @@ export default function AgentSessionDetailPage() {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 px-4">
         <p className="text-strong text-kin-red-ink">{error || tr("agentSession.notFound")}</p>
-        <Link to="/new" className="text-strong text-kin-blue-ink hover:underline">
+        <Link
+          to="/new"
+          className="text-strong text-kin-blue-ink hover:underline"
+          onClick={(event) => onGuardedLinkClick(event, navigate, location, "/new")}
+        >
           {tr("agentSession.backToChat")}
         </Link>
       </div>

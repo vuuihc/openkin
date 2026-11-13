@@ -13,7 +13,7 @@ import { IconBack } from "../components/icons";
 import Markdown from "../components/Markdown";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
-import { onGuardedLinkClick } from "../lib/phoneNavigation";
+import { onGuardedLinkClick, phonePush } from "../lib/phoneNavigation";
 import { useT } from "../i18n/react";
 import { useAppStore } from "../store/appStore";
 
@@ -74,7 +74,11 @@ export default function ArtifactDetailPage() {
       const updated = await setArtifactStatus(artifact.id, "archived");
       setArtifact(updated);
       pushToast(tr("artifacts.archived"), "info");
-      navigate("/artifacts");
+      // The delivery is put away, so this screen goes back to the library. On
+      // a phone that replaces the artifact entry: the library keeps the list
+      // as its parent, so the stack stays [list, library] rather than the
+      // artifact remaining underneath (KIN-CONTINUE-002).
+      phonePush(navigate, location, "/artifacts");
     } catch (e) {
       pushToast(e instanceof Error ? e.message : tr("artifacts.archiveFailed"), "error");
     } finally {
@@ -103,7 +107,11 @@ export default function ArtifactDetailPage() {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 px-4">
         <p className="text-strong text-kin-red-ink">{error || tr("artifacts.notFound")}</p>
-        <Link to="/artifacts" className="text-strong text-kin-blue-ink hover:underline">
+        <Link
+          to="/artifacts"
+          className="text-strong text-kin-blue-ink hover:underline"
+          onClick={(event) => onGuardedLinkClick(event, navigate, location, "/artifacts")}
+        >
           {tr("artifacts.backToLibrary")}
         </Link>
       </div>
@@ -115,7 +123,7 @@ export default function ArtifactDetailPage() {
       <header className="flex-none border-b border-[var(--kin-hairline)] px-3 sm:px-5 py-2.5 flex items-center gap-2">
         <button
           type="button"
-          onClick={() => navigate("/artifacts")}
+          onClick={() => phonePush(navigate, location, "/artifacts")}
           className="p-1.5 rounded-md text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill)]"
           aria-label={tr("artifacts.backToLibrary")}
         >

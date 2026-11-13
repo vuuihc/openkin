@@ -188,11 +188,15 @@ describe("the phone list's archive wiring", () => {
     expect(SOURCE).toContain("if (selectionEpoch.current !== epoch) return;");
   });
 
-  it("leaves the session sheet only while that row is still the one on screen", () => {
+  it("leaves the session page only while that row is still the one on screen", () => {
     // Archiving a conversation closes its page; a slow answer must not pull
     // the person off the conversation they opened while it was in flight.
+    // The departure itself belongs to `leaveConversation`, which returns a
+    // phone to the list (KIN-CONTINUE-002) and a Mac to `/`.
     expect(TASK_DETAIL).toContain(
-      'if (!wasArchived && taskIdRef.current === task.id) navigate("/");',
+      "if (!wasArchived && taskIdRef.current === task.id) leaveConversation();",
     );
+    expect(TASK_DETAIL).toContain("if (isPhoneLayout()) goBackToList(navigate);");
+    expect(TASK_DETAIL).toContain('else navigate("/");');
   });
 });

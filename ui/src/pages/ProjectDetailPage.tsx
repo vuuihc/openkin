@@ -742,9 +742,14 @@ export default function ProjectDetailPage() {
                           <li key={a.id}>
                             <Link
                               to={`/artifacts/${a.id}`}
-                              onClick={(event) => {
-                                if (!canLeave()) event.preventDefault();
-                              }}
+                              onClick={(event) =>
+                                // Opening a delivery is a push like any other:
+                                // on a phone the artifact replaces the project,
+                                // so Back is the list rather than the project
+                                // the reader just left (KIN-CONTINUE-002). The
+                                // page's dirty summary is asked first.
+                                onGuardedLinkClick(event, navigate, location, `/artifacts/${a.id}`)
+                              }
                               className="block rounded-lg px-2 py-1.5 hover:bg-[var(--kin-fill-strong)]"
                             >
                               <div className="truncate text-body text-kin-text">{a.title}</div>

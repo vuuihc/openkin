@@ -5,7 +5,7 @@ import { IconPencil } from "../components/icons";
 import SessionList from "../components/sessions/SessionList";
 import { useT } from "../i18n/react";
 import { DRAFT_PATH } from "../lib/draftChat";
-import { draftEntryState, listUrlFor } from "../lib/phoneNavigation";
+import { draftEntryState, listUrlFor, phonePush } from "../lib/phoneNavigation";
 import { focusPlaceReturn, rememberPlaceReturn, takePlaceReturn } from "../lib/placeReturn";
 
 /**
@@ -43,8 +43,11 @@ export default function SessionsPage() {
         data-phone-return="new"
         onClick={() => {
           rememberPlaceReturn("new");
-          // Closing the draft restores this exact list, params included.
-          navigate(DRAFT_PATH, {
+          // Closing the draft restores this exact list, params included. The
+          // phone contract stamps the entry the same way every other push
+          // does, so a later push can tell the list is its parent rather than
+          // guessing from an index.
+          phonePush(navigate, location, DRAFT_PATH, {
             state: draftEntryState(listUrlFor(location.search)),
           });
         }}

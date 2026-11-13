@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ApiError,
   createRoutine,
@@ -57,6 +57,8 @@ import {
   setDraftPrompt,
 } from "../lib/draftChat";
 import { forgetPlaceReturn } from "../lib/placeReturn";
+import { runGuardedNavigation } from "../lib/leaveGuard";
+import { phonePush } from "../lib/phoneNavigation";
 import { THIS_MACHINE, writeRoutineDevice } from "../lib/routineDevice";
 import { useMachines } from "../hooks/useMachines";
 import {
@@ -89,6 +91,7 @@ const NO_EVENTS: TaskEvent[] = [];
  */
 export default function NewChatPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [params] = useSearchParams();
   const pushToast = useAppStore((s) => s.pushToast);
   const tr = useT();
@@ -753,7 +756,13 @@ export default function NewChatPage() {
               <button
                 type="button"
                 className="min-h-11 px-3 text-body text-kin-blue-ink hover:underline sm:min-h-0 sm:px-0"
-                onClick={() => navigate("/agents")}
+                // Agent Ops is a destination of its own, and the draft is a
+                // phone push over the list (KIN-CONTINUE-002). Pushing Agent
+                // Ops on top of the draft would leave [list, draft, agents];
+                // replacing the draft keeps the stack one deep and Back a
+                // single step to the list. The draft itself is not lost: its
+                // prompt and run face live in storage, not in this entry.
+                onClick={() => runGuardedNavigation(() => phonePush(navigate, location, "/agents"))}
               >
                 {tr("agents.manageLink")}
               </button>

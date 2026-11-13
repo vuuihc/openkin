@@ -1,7 +1,8 @@
-import { Link, NavLink, useLocation } from "react-router-dom";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useT } from "../../i18n/react";
 import { placeById } from "../../lib/places";
 import { rememberPlaceReturn } from "../../lib/placeReturn";
+import { onGuardedLinkClick } from "../../lib/phoneNavigation";
 import { IconArchive } from "../icons";
 import { PLACE_ICONS } from "../placeIcons";
 
@@ -31,6 +32,7 @@ const DESTINATIONS = DESTINATION_IDS.map((id) => placeById(id));
 export default function PhoneFooter() {
   const tr = useT();
   const location = useLocation();
+  const navigate = useNavigate();
   const params = new URLSearchParams(location.search);
   const archivedScope =
     location.pathname === "/sessions" && params.get("scope") === "archived";
@@ -50,6 +52,10 @@ export default function PhoneFooter() {
           to={archiveTo}
           data-phone-return="archived"
           aria-current={archivedScope ? "page" : undefined}
+          // Archive is another view of this same screen, not a second copy to
+          // walk back through: the phone contract rewrites the list entry
+          // instead of pushing one (KIN-CONTINUE-002, "归档不换页").
+          onClick={(event) => onGuardedLinkClick(event, navigate, location, archiveTo)}
           className={[
             "flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-lg px-1 text-micro font-medium transition-colors",
             archivedScope

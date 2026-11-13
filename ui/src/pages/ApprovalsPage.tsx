@@ -221,7 +221,11 @@ export default function ApprovalsPage() {
             data-testid="inbox-focus-missing"
           >
             {tr("inbox.focusMissing")}{" "}
-            <Link to="/inbox" className="font-medium text-kin-blue-ink hover:underline">
+            <Link
+              to="/inbox"
+              onClick={(event) => onGuardedLinkClick(event, navigate, location, "/inbox")}
+              className="font-medium text-kin-blue-ink hover:underline"
+            >
               {tr("inbox.focusShowAll")}
             </Link>
           </div>

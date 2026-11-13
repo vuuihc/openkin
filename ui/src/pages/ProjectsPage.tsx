@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ApiError,
   ensureProject,
@@ -15,6 +15,7 @@ import { useT } from "../i18n/react";
 import { MobileChevron } from "../components/mobile/MobileHeader";
 import SearchSelect from "../components/ui/SearchSelect";
 import { projectLabel } from "../lib/paths";
+import { onGuardedLinkClick, phonePush } from "../lib/phoneNavigation";
 import { useAppStore } from "../store/appStore";
 
 function formatWhen(ms: number): string {
@@ -50,6 +51,7 @@ function modeLabel(mode: string, tr: (k: string) => string): string {
  */
 export default function ProjectsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const tr = useT();
   const pushToast = useAppStore((s) => s.pushToast);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
@@ -89,7 +91,9 @@ export default function ProjectsPage() {
         mode,
       });
       setCreating(false);
-      navigate(`/projects/${p.id}`);
+      // The new project's page replaces this library on a phone, so its parent
+      // stays the list (KIN-CONTINUE-002); on the Mac it is an ordinary push.
+      phonePush(navigate, location, `/projects/${p.id}`);
     } catch (e) {
       pushToast(e instanceof Error ? e.message : tr("projects.createFailed"), "error");
     } finally {
@@ -180,6 +184,7 @@ export default function ProjectsPage() {
             <li key={p.id}>
               <Link
                 to={`/projects/${p.id}`}
+                onClick={(event) => onGuardedLinkClick(event, navigate, location, `/projects/${p.id}`)}
                 className="block rounded-xl border border-transparent bg-kin-panel px-4 py-3 hover:border-kin-blue/40 transition-colors max-md:kin-card max-md:rounded-2xl max-md:bg-kin-panel max-md:py-3.5"
               >
                 <div className="flex items-start justify-between gap-3">

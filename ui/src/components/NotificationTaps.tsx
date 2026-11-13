@@ -10,6 +10,7 @@ import {
   type NotificationTapSource,
 } from "../lib/notificationRoute";
 import { clearDeliveredNotification, deliveredNotificationTargets, nativePushPlugin } from "../lib/nativePush";
+import { phonePush } from "../lib/phoneNavigation";
 import { useAppStore } from "../store/appStore";
 
 /**
@@ -35,6 +36,10 @@ export function NotificationTaps({
   // tied to the source alone.
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
+  // The listener is installed once, so the delivery closure reads the route
+  // from a ref rather than from this render's props.
+  const locationRef = useRef(location);
+  locationRef.current = location;
   const pushToast = useAppStore((s) => s.pushToast);
   // This component also mounts above the sign-in gate, so a tap that arrives
   // before the reader is through it still changes the route. Asking the node
@@ -68,7 +73,12 @@ export function NotificationTaps({
       void source?.takePendingURL?.().catch(() => {});
       if (route.path === deliveredRef.current) return;
       deliveredRef.current = route.path;
-      navigateRef.current(route.path);
+      // A tap is a push of the destination it names. On a phone the list is
+      // the parent of every push (KIN-CONTINUE-002, step 4), so a tap read
+      // from another screen must not leave that screen underneath: the guard
+      // would return there instead of to the list. The Mac keeps ordinary
+      // history, which `phonePush` leaves alone at that width.
+      phonePush(navigateRef.current, locationRef.current, route.path);
     };
 
     const uninstall = installNotificationRouting(deliver);

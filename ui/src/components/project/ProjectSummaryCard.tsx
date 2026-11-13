@@ -1,6 +1,7 @@
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import type { OnePagerSummary, Project } from "../../api/client";
 import { useT } from "../../i18n/react";
+import { phonePush } from "../../lib/phoneNavigation";
 
 type Props = {
   project: Project;
@@ -20,6 +21,8 @@ export default function ProjectSummaryCard({
   className = "",
 }: Props) {
   const tr = useT();
+  const navigate = useNavigate();
+  const location = useLocation();
   const name = summary?.name || project.name;
   const mode = summary?.mode || project.mode;
   const empty =
@@ -44,6 +47,26 @@ export default function ProjectSummaryCard({
         </div>
         <Link
           to={`/projects/${encodeURIComponent(project.id)}`}
+          // The card is drawn on the draft and on the project's own overview.
+          // On a phone the project page is a push whose parent is the list, so
+          // opening it from the draft replaces the draft rather than stacking
+          // the project on top (KIN-CONTINUE-002). No leave guard is asked:
+          // from the project's own page this link names the page already on
+          // screen, and nothing is being discarded.
+          onClick={(event) => {
+            if (event.defaultPrevented) return;
+            if (
+              event.button !== 0 ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.shiftKey ||
+              event.altKey
+            ) {
+              return;
+            }
+            event.preventDefault();
+            phonePush(navigate, location, `/projects/${encodeURIComponent(project.id)}`);
+          }}
           className="flex-none rounded-lg border border-[var(--kin-hairline)] px-2.5 py-1 text-body text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text"
         >
           {tr("newChat.openOnePager")}

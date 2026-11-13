@@ -1,10 +1,11 @@
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ApiError, isTerminal } from "../api/client";
 import ChatStream from "../components/chat/ChatStream";
 import { useMachines } from "../hooks/useMachines";
 import { useRemoteTaskRun } from "../hooks/useRemoteTaskRun";
 import { useT } from "../i18n/react";
 import { displayUserPrompt } from "../lib/attachments";
+import { onGuardedLinkClick } from "../lib/phoneNavigation";
 import { routineStatusLabel } from "../lib/routineStatus";
 
 function formatWhen(ms?: number | null): string {
@@ -31,6 +32,8 @@ function formatWhen(ms?: number | null): string {
  */
 export default function MachineTaskPage() {
   const { device = "", id = "" } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
   const tr = useT();
   const { machines } = useMachines();
   const machine = machines.find((m) => m.id === device);
@@ -52,6 +55,7 @@ export default function MachineTaskPage() {
         <div className="mx-auto max-w-conversation">
           <Link
             to="/routines"
+            onClick={(event) => onGuardedLinkClick(event, navigate, location, "/routines")}
             className="inline-flex min-h-9 items-center gap-1 rounded text-body text-kin-secondary hover:text-kin-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kin-focus-ring"
           >
             <span aria-hidden>←</span>

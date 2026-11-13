@@ -8,8 +8,9 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { goBackToList } from "../lib/phoneBack";
+import { isPhoneLayout, onGuardedLinkClick, phonePush } from "../lib/phoneNavigation";
 import { IonActionSheet } from "@ionic/react";
 import type { ActionSheetButton } from "@ionic/core";
 import {
@@ -166,6 +167,7 @@ export default function TaskDetailPage({
   const { id: paramId = "" } = useParams();
   const id = taskId || paramId;
   const navigate = useNavigate();
+  const location = useLocation();
   const tr = useT();
   // The session-actions sheet is a phone surface; below `md` it is the way to
   // stop, share or find. Keeping it mounted at desktop width leaves an
@@ -571,7 +573,13 @@ export default function TaskDetailPage({
   }, [task?.id, task?.routine_id, task?.routine_unread]);
 
   useEffect(() => {
-    if (detail.data.deleted && active) navigate("/");
+    if (!(detail.data.deleted && active)) return;
+    // A conversation removed underneath the reader leaves the same way the
+    // phone's Back does: the list is its only parent (KIN-CONTINUE-002). The
+    // Mac keeps `/`, which decides between its last conversation and the
+    // draft.
+    if (isPhoneLayout()) goBackToList(navigate);
+    else navigate("/");
   }, [active, detail.data.deleted, navigate]);
 
   useEffect(() => {
@@ -1231,7 +1239,7 @@ export default function TaskDetailPage({
       pushToast(tr(wasArchived ? "task.unarchived" : "task.archived"), "info");
       // Leaving is only right if this is still the conversation on screen: a
       // slow answer must not pull the person off the one they opened next.
-      if (!wasArchived && taskIdRef.current === task.id) navigate("/");
+      if (!wasArchived && taskIdRef.current === task.id) leaveConversation();
     } catch (err) {
       pushToast(
         err instanceof Error
@@ -1256,7 +1264,7 @@ export default function TaskDetailPage({
       clearSessionScroll(task.id);
       clearFollowUpDraft(task.id);
       pushToast(tr("task.deleted"), "info");
-      navigate("/");
+      leaveConversation();
     } catch (err) {
       pushToast(err instanceof Error ? err.message : tr("task.deleteFailed"), "error");
     } finally {
@@ -1304,7 +1312,11 @@ export default function TaskDetailPage({
       // Snapshot branch at this user message (no auto-run). User continues in the new session.
       const t = await forkTask(task.id, { from_seq: fromSeq });
       pushToast(tr("task.forkDone"), "info");
-      navigate(`/tasks/${t.id}`);
+      // A fork starts a second conversation from this one. On a phone it must
+      // not become a second layer over the first: the list is the parent the
+      // new conversation inherits (KIN-CONTINUE-002). On the Mac the fork is
+      // an ordinary push, so Back still shows the conversation it came from.
+      phonePush(navigate, location, `/tasks/${t.id}`);
     } catch (err) {
       pushToast(err instanceof Error ? err.message : tr("task.forkFailed"), "error");
     } finally {
@@ -1326,7 +1338,9 @@ export default function TaskDetailPage({
         status: "saved",
       });
       pushToast(tr("task.saveArtifactDone"), "info");
-      navigate(`/artifacts/${art.id}`);
+      // The saved delivery is a push of its own; on a phone it replaces the
+      // conversation with the list underneath rather than stacking on it.
+      phonePush(navigate, location, `/artifacts/${art.id}`);
     } catch (err) {
       pushToast(err instanceof Error ? err.message : tr("task.saveArtifactFailed"), "error");
     } finally {
@@ -1431,7 +1445,17 @@ export default function TaskDetailPage({
   if (error && !task) {
     return (
       <div className="flex-1 px-6 pb-6 space-y-3 max-md:pt-safe">
-        <Link to="/" className="text-strong leading-5 text-kin-blue-ink">
+        <Link
+          to="/"
+          className="text-strong leading-5 text-kin-blue-ink"
+          onClick={(event) => {
+            // A missing conversation has no screen to keep; a phone returns to
+            // the list, a Mac to `/` (KIN-CONTINUE-002).
+            if (!isPhoneLayout()) return;
+            event.preventDefault();
+            goBackToList(navigate);
+          }}
+        >
           {tr("task.home")}
         </Link>
         <div
@@ -1447,7 +1471,15 @@ export default function TaskDetailPage({
   if (!task) {
     return (
       <div className="flex-1 px-6 pb-6 space-y-3 max-md:pt-safe">
-        <Link to="/" className="text-strong leading-5 text-kin-blue-ink">
+        <Link
+          to="/"
+          className="text-strong leading-5 text-kin-blue-ink"
+          onClick={(event) => {
+            if (!isPhoneLayout()) return;
+            event.preventDefault();
+            goBackToList(navigate);
+          }}
+        >
           {tr("task.home")}
         </Link>
         <div
@@ -1543,6 +1575,10 @@ export default function TaskDetailPage({
   const prOpen = panel === "pr";
   const publishOpen = panel === "publish";
   const project = projectLabel(task.cwd);
+  // Bound once so the chip's click closure keeps the narrowed type: `task`
+  // is a mutable binding, and TypeScript drops its `project_id` narrowing
+  // inside a callback.
+  const projectId = task.project_id;
   const degraded = wsStatus !== "connected" && !terminal;
   // The session's agent belongs to the machine that runs it, not to this one.
   // Reading the local registry here was how a remote session's model list
@@ -1614,6 +1650,19 @@ export default function TaskDetailPage({
    */
   function goBack() {
     goBackToList(navigate);
+  }
+
+  /**
+   * Leaving the conversation because it is no longer there to read — it was
+   * just archived, deleted, or is gone. On a phone the list is its only parent
+   * (KIN-CONTINUE-002), so Back is the honest exit: pushing `/` would put a
+   * second list under this one and make the reader walk through a dead
+   * conversation to get back. The Mac keeps `/`, which decides between the
+   * last conversation and the draft.
+   */
+  function leaveConversation() {
+    if (isPhoneLayout()) goBackToList(navigate);
+    else navigate("/");
   }
 
   /**
@@ -1786,9 +1835,17 @@ export default function TaskDetailPage({
             >
               <IconTrash size={13} />
             </button>
-            {task.project_id ? (
+            {projectId ? (
               <Link
-                to={`/projects/${encodeURIComponent(task.project_id)}`}
+                to={`/projects/${encodeURIComponent(projectId)}`}
+                onClick={(event) =>
+                  onGuardedLinkClick(
+                    event,
+                    navigate,
+                    location,
+                    `/projects/${encodeURIComponent(projectId)}`,
+                  )
+                }
                 title={project}
                 className="max-w-[10rem] md:max-w-none truncate text-kin-secondary hover:text-kin-text hover:underline"
               >

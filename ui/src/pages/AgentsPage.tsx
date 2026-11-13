@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   ApiError,
   formatCost,
@@ -32,6 +32,8 @@ import {
 } from "../lib/agentLimits";
 import { cacheRateLabel, cacheState, formatTokenCount, type CacheStatus } from "../lib/usage";
 import { importToast } from "../lib/agentSessionImport";
+import { runGuardedNavigation } from "../lib/leaveGuard";
+import { draftEntryState, phonePush, returnListUrl } from "../lib/phoneNavigation";
 
 /**
  * Agents management console with folded-in usage overview.
@@ -51,6 +53,7 @@ type AgentAction = {
 export default function AgentsPage() {
   const tr = useT();
   const navigate = useNavigate();
+  const location = useLocation();
   const [days, setDays] = useState(7);
   const [rows, setRows] = useState<UsageRow[] | null>(null);
   const [limitStatuses, setLimitStatuses] = useState<AgentLimitStatus[]>([]);
@@ -65,6 +68,17 @@ export default function AgentsPage() {
   const [importError, setImportError] = useState<string | null>(null);
   /** Which agent's action sheet is open on a phone; the desktop table never sets it. */
   const [actionsFor, setActionsFor] = useState<string | null>(null);
+  /**
+   * A sheet row's action, run once the sheet's own history entry is gone.
+   *
+   * One of these rows navigates (ask the default Agent to install). Running it
+   * synchronously would push the destination onto the sheet's still-current
+   * marker entry, and the pop that removes the marker would then land back on
+   * this page — Back would show Agent Ops again instead of the list
+   * (KIN-CONTINUE-002). `Sheet` reports that moment through
+   * `onCloseComplete`.
+   */
+  const sheetAction = useRef<(() => void) | null>(null);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
   const pushToast = useAppStore((s) => s.pushToast);
   const slow = useSlowHint((rows === null || agents === null) && !error);
@@ -267,7 +281,16 @@ export default function AgentsPage() {
       agent: agent.name || agent.id,
       command,
     });
-    navigate(`/new?q=${encodeURIComponent(prompt)}`);
+    // Agent Ops is a destination the list opened (KIN-CONTINUE-002). The draft
+    // this starts is a phone push from the list, not a second layer over Agent
+    // Ops: replacing this screen keeps [list, draft], so closing the draft is
+    // one step back to the list rather than to Agent Ops. The origin is
+    // recorded for the same reason every other draft entry records it.
+    runGuardedNavigation(() =>
+      phonePush(navigate, location, `/new?q=${encodeURIComponent(prompt)}`, {
+        state: draftEntryState(returnListUrl(location)),
+      }),
+    );
   }
 
   /**
@@ -923,6 +946,11 @@ export default function AgentsPage() {
         <Sheet
           open={actionAgent !== null}
           onClose={() => setActionsFor(null)}
+          onCloseComplete={() => {
+            const run = sheetAction.current;
+            sheetAction.current = null;
+            run?.();
+          }}
           title={actionAgent?.name}
           subtitle={actionAgent ? statusLabel(actionAgent) : undefined}
           footer={
@@ -936,8 +964,9 @@ export default function AgentsPage() {
               key={action.key}
               type="button"
               onClick={() => {
+                // Deferred to `onCloseComplete`: see `sheetAction`.
+                sheetAction.current = action.run;
                 setActionsFor(null);
-                action.run();
               }}
               className="kin-row-press flex min-h-12 w-full items-center rounded-xl px-3 text-left text-subtitle text-kin-text"
             >

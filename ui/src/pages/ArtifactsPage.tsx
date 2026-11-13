@@ -10,7 +10,8 @@ import {
 } from "../api/client";
 import { SlowConnectHint, TaskListSkeleton } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
-import { onGuardedLinkClick } from "../lib/phoneNavigation";
+import { runGuardedNavigation } from "../lib/leaveGuard";
+import { onGuardedLinkClick, phonePush } from "../lib/phoneNavigation";
 import { useT } from "../i18n/react";
 import { useAppStore } from "../store/appStore";
 
@@ -96,6 +97,16 @@ export default function ArtifactsPage() {
     }
   };
 
+  /**
+   * Opening a delivery is a push. On a phone the artifact replaces the library
+   * (which itself replaced whatever opened it), so the list is its only parent
+   * and Back is one step (KIN-CONTINUE-002). A keyboard Enter is the same
+   * navigation as a click, so both go through this one function.
+   */
+  function openArtifact(id: string) {
+    runGuardedNavigation(() => phonePush(navigate, location, `/artifacts/${id}`));
+  }
+
   return (
     <div className="flex-1 overflow-y-auto kin-scroll">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
@@ -146,11 +157,11 @@ export default function ArtifactsPage() {
                 <div
                   role="button"
                   tabIndex={0}
-                  onClick={() => navigate(`/artifacts/${a.id}`)}
+                  onClick={() => openArtifact(a.id)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      navigate(`/artifacts/${a.id}`);
+                      openArtifact(a.id);
                     }
                   }}
                   className="w-full text-left rounded-xl bg-kin-panel hover:bg-[var(--kin-fill)] px-3.5 py-3 flex items-start gap-3 cursor-pointer"

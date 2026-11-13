@@ -1,7 +1,8 @@
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import type { AgentInfo, ModelSpec, ProviderEntry } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { agentCatalogState, runnableAgents, sortAgentCatalog } from "../../lib/agentCatalog";
+import { onGuardedLinkClick } from "../../lib/phoneNavigation";
 import SearchSelect from "../ui/SearchSelect";
 import { SettingsTabPanel } from "./SettingsPrimitives";
 
@@ -95,6 +96,8 @@ export function ProviderSettingsSection({
   onSaveSettings: () => void;
 }) {
   const tr = useT();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const updateModel = (index: number, update: Partial<ModelSpec>) => {
     const next = [...providerModels];
@@ -476,6 +479,11 @@ export function ProviderSettingsSection({
           {agentList.some((agent) => !agent.available) ? (
             <Link
               to="/agents"
+              // Agent Ops is a phone destination of its own, so it replaces
+              // settings rather than stacking on top of it: Back is one step
+              // to the list (KIN-CONTINUE-002). Settings answers for unsaved
+              // edits first, through the page's leave guard.
+              onClick={(event) => onGuardedLinkClick(event, navigate, location, "/agents")}
               className="inline-flex min-h-11 items-center text-caption text-kin-blue-ink hover:underline sm:min-h-0 sm:mt-1"
             >
               {tr("agents.manageLink")}
