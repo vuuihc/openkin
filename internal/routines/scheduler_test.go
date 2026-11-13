@@ -315,3 +315,27 @@ func TestRoutineCreateRequestCarriesTheModel(t *testing.T) {
 		t.Fatalf("model = %q, want none for the agent default", *req.Model)
 	}
 }
+
+// A prompt that merely mentions "noteworthy:" in prose still needs the report
+// trailer. The gap sweep's prompt does exactly that, and the old substring
+// check treated the mention as "trailer already present": agents never emitted
+// TL;DR/noteworthy, so sweep runs finished silently and no push was sent.
+func TestRoutineCreateRequestAppendsReportTrailerUnlessItIsAlreadyThere(t *testing.T) {
+	s := &Scheduler{}
+
+	prose := "Report the signal: noteworthy: true when the user must act."
+	req := s.routineCreateRequest(store.Routine{
+		ID: "r1", Cwd: "/work/app", Agent: "claude-code", Prompt: prose,
+	}, "task-1")
+	if got, want := req.Prompt, prose+task.ReportSignalTrailer; got != want {
+		t.Fatalf("prompt = %q, want %q", got, want)
+	}
+
+	already := prose + task.ReportSignalTrailer
+	req = s.routineCreateRequest(store.Routine{
+		ID: "r2", Cwd: "/work/app", Agent: "claude-code", Prompt: already,
+	}, "task-2")
+	if got, want := req.Prompt, already; got != want {
+		t.Fatalf("prompt = %q, want it unchanged", got)
+	}
+}

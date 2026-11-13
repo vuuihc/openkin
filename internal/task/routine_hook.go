@@ -11,13 +11,18 @@ import (
 	"github.com/vuuihc/openkin/internal/store"
 )
 
+// ReportSignalMarker identifies a prompt that already carries the report
+// trailer. Detection keys on the trailer's two-line header, not on its topic:
+// routine prompts often discuss the signal in prose (the gap sweep does), and
+// matching that prose silently suppressed the trailer, so agents never emitted
+// TL;DR/noteworthy and no push was sent. Requiring the TLDR line too keeps a
+// bare quotation of the first sentence from being mistaken for the trailer.
+const ReportSignalMarker = `When finished, end your final reply with exactly two lines:
+TLDR: <one-line summary of what you found>`
+
 // ReportSignalTrailer is appended to routine prompts so agents self-report
 // whether the run is noteworthy. Keep in sync with ADR 0011 prompt convention.
-const ReportSignalTrailer = `
-
----
-When finished, end your final reply with exactly two lines:
-TLDR: <one-line summary of what you found>
+const ReportSignalTrailer = "\n\n---\n" + ReportSignalMarker + `
 noteworthy: true|false
 Use noteworthy: true only if the user should be interrupted (real change, risk, or action needed). Use false for quiet "nothing new" runs.
 `
