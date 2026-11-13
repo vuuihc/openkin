@@ -321,29 +321,21 @@ func TestRoutineCreateRequestCarriesTheModel(t *testing.T) {
 // check treated the mention as "trailer already present": agents never emitted
 // TL;DR/noteworthy, so sweep runs finished silently and no push was sent.
 func TestRoutineCreateRequestAppendsReportTrailerUnlessItIsAlreadyThere(t *testing.T) {
-	st, err := store.Open(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	s := &Scheduler{Store: st}
+	s := &Scheduler{}
 
 	prose := "Report the signal: noteworthy: true when the user must act."
 	req := s.routineCreateRequest(store.Routine{
 		ID: "r1", Cwd: "/work/app", Agent: "claude-code", Prompt: prose,
 	}, "task-1")
-	if !strings.Contains(req.Prompt, task.ReportSignalMarker) {
-		t.Fatalf("prompt missing report trailer: %q", req.Prompt)
-	}
-	if !strings.Contains(req.Prompt, prose) {
-		t.Fatalf("prompt lost the routine instructions: %q", req.Prompt)
+	if got, want := req.Prompt, prose+task.ReportSignalTrailer; got != want {
+		t.Fatalf("prompt = %q, want %q", got, want)
 	}
 
 	already := prose + task.ReportSignalTrailer
 	req = s.routineCreateRequest(store.Routine{
 		ID: "r2", Cwd: "/work/app", Agent: "claude-code", Prompt: already,
 	}, "task-2")
-	if got, want := strings.Count(req.Prompt, task.ReportSignalMarker), 1; got != want {
-		t.Fatalf("trailer count = %d, want %d (must not double-append)", got, want)
+	if got, want := req.Prompt, already; got != want {
+		t.Fatalf("prompt = %q, want it unchanged", got)
 	}
 }
