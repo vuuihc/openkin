@@ -97,7 +97,18 @@ export default function NewChatPage() {
   const tr = useT();
 
   const [cwd, setCwd] = useState(() => getDraftCwd());
-  const [initialValue, setInitialValue] = useState(() => getDraftPrompt());
+  // The composer's text as this page knows it. Storage is best-effort (a
+  // private window can refuse a write), and an edited composer is ahead of
+  // both storage and the last `?q=` applied. Decisions about whether a new
+  // prefill would discard words must read this, and the composer's value is
+  // handed back from it so an overwrite that happens to repeat the previous
+  // prefill still reaches the textarea.
+  const [draftValue, setDraftValue] = useState(() => getDraftPrompt());
+  // The query effect must read the live draft without re-running on every
+  // keystroke: the same effect also applies `?cwd=`, and a draft dependency
+  // would let each letter overwrite a directory the reader had changed.
+  const draftValueRef = useRef(draftValue);
+  draftValueRef.current = draftValue;
   const [previewPrompt, setPreviewPrompt] = useState(() => getDraftPrompt());
   const [initialAttachments] = useState(() => getDraftAttachments());
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(() =>
@@ -191,7 +202,7 @@ export default function NewChatPage() {
       queryHandled.current = false;
     } else if (!queryHandled.current) {
       queryHandled.current = true;
-      const existing = getDraftPrompt();
+      const existing = draftValueRef.current;
       // Never discard words the person already wrote. An empty draft takes the
       // prefill directly; a non-empty one only changes after an explicit yes.
       const replace =
@@ -200,7 +211,7 @@ export default function NewChatPage() {
         (typeof window.confirm === "function" &&
           window.confirm(tr("newChat.replaceDraftWithPrompt")));
       if (replace) {
-        setInitialValue(q);
+        setDraftValue(q);
         setPreviewPrompt(q);
         setDraftPrompt(q);
       }
@@ -608,7 +619,7 @@ export default function NewChatPage() {
               const next = selectRole(previewPrompt, roleList, id);
               setPreviewPrompt(next);
               setDraftPrompt(next);
-              setInitialValue(next);
+              setDraftValue(next);
             }}
           />
         );
@@ -866,7 +877,7 @@ export default function NewChatPage() {
             hostAgentId={mainAgentId}
             busy={sending}
             disabled={sending}
-            initialValue={initialValue}
+            initialValue={draftValue}
             initialAttachments={initialAttachments}
             placeholder={
               asRoutine
@@ -875,6 +886,7 @@ export default function NewChatPage() {
             }
             onAttachmentsChange={setDraftAttachments}
             onValueChange={(value) => {
+              setDraftValue(value);
               setDraftPrompt(value);
               setPreviewPrompt(value);
             }}

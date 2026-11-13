@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { BrowserRouter, Route, Routes, useNavigate } from "react-router-dom";
 import NewChatPage from "./NewChatPage";
 import { setLocale } from "../i18n";
 
@@ -92,6 +92,7 @@ const installPrompt =
 function app() {
   return (
     <BrowserRouter>
+      <Jump />
       <Routes>
         <Route path="/new" element={<NewChatPage />} />
         <Route path="/agents" element={<div>agents page</div>} />
@@ -99,6 +100,14 @@ function app() {
       </Routes>
     </BrowserRouter>
   );
+}
+
+let jump: ((to: string) => void) | null = null;
+
+function Jump() {
+  const navigate = useNavigate();
+  jump = (to: string) => navigate(to);
+  return null;
 }
 
 function open(url: string) {
@@ -115,6 +124,7 @@ beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
   window.history.replaceState({ idx: 0 }, "", "/");
+  jump = null;
   vi.restoreAllMocks();
 });
 
@@ -188,5 +198,46 @@ describe("the draft's one-time prefill", () => {
     expect(promptBox().value).toBe(installPrompt);
     expect(window.location.search).toBe("");
     reopened.unmount();
+  });
+
+  it("sends the agreed prefill back into a mounted composer that was edited", async () => {
+    const view = open(`/new?q=${encodeURIComponent(installPrompt)}`);
+    await waitFor(() => expect(promptBox().value).toBe(installPrompt));
+    await waitFor(() => expect(window.location.search).toBe(""));
+
+    fireEvent.change(promptBox(), { target: { value: "words I typed later" } });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    // A second invitation for the same words while `/new` is still mounted.
+    // Its query is new even though the text is the same as the first prefill,
+    // so the page must overwrite the live edit that agreement chose to discard.
+    await act(async () => {
+      jump!(`/new?q=${encodeURIComponent(installPrompt)}`);
+    });
+    await waitFor(() => expect(window.location.search).toBe(""));
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(promptBox().value).toBe(installPrompt);
+    expect(localStorage.getItem("kin_draft_prompt")).toBe(installPrompt);
+    view.unmount();
+  });
+
+  it("asks before a same-page prefill when storage lost the live draft", async () => {
+    const view = open("/new");
+    fireEvent.change(promptBox(), { target: { value: "words only in memory" } });
+    // A failed write (quota, private mode) leaves storage behind the composer.
+    localStorage.removeItem("kin_draft_prompt");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    await act(async () => {
+      jump!(`/new?q=${encodeURIComponent(installPrompt)}`);
+    });
+    await waitFor(() => expect(window.location.search).toBe(""));
+
+    expect(confirm).toHaveBeenCalledWith(
+      "You have an unsent draft. Replace it with the request that just opened this page?",
+    );
+    expect(promptBox().value).toBe("words only in memory");
+    view.unmount();
   });
 });
