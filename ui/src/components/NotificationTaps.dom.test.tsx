@@ -244,12 +244,30 @@ describe("a tap on a phone with real browser history", () => {
     }));
   }
 
+  function wideViewport() {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(min-width: 768px)" ? true : false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+  }
+
   function RouteProbe() {
     const location = useLocation();
     useEffect(() => {
       notePhoneLocation(location);
     }, [location]);
     return null;
+  }
+
+  function RoutinesView() {
+    const location = useLocation();
+    return <div data-testid="routines-location">{location.pathname + location.search}</div>;
   }
 
   function DirtySettings() {
@@ -277,6 +295,21 @@ describe("a tap on a phone with real browser history", () => {
     );
   }
 
+  function SlowSheetPage() {
+    const [open, setOpen] = useState(true);
+    const [closing, setClosing] = useState(false);
+    return (
+      <Sheet open={open} onClose={() => setClosing(true)} title="Agents">
+        <p>agent rows</p>
+        {closing ? (
+          <button type="button" onClick={() => setOpen(false)}>
+            finish close
+          </button>
+        ) : null}
+      </Sheet>
+    );
+  }
+
   function browserApp(source: NotificationTapSource | null) {
     return (
       <BrowserRouter>
@@ -290,11 +323,14 @@ describe("a tap on a phone with real browser history", () => {
                 list page
                 <Link to="/settings">settings</Link>
                 <Link to="/agents">agents</Link>
+                <Link to="/slow-agents">slow agents</Link>
               </div>
             }
           />
           <Route path="/settings" element={<DirtySettings />} />
           <Route path="/agents" element={<SheetPage />} />
+          <Route path="/slow-agents" element={<SlowSheetPage />} />
+          <Route path="/routines" element={<RoutinesView />} />
           <Route path="/tasks/:id" element={<div>conversation page</div>} />
         </Routes>
       </BrowserRouter>
@@ -358,5 +394,93 @@ describe("a tap on a phone with real browser history", () => {
     expect(window.history.state.idx).toBe(1);
     await act(async () => window.history.back());
     await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+  });
+
+  it("delivers the newer of two different taps while a sheet closes slowly", async () => {
+    phoneViewport();
+    openAt(["/sessions"], { takePendingURL: async () => null });
+    fireEvent.click(await screen.findByText("slow agents"));
+    expect(await screen.findByRole("dialog", { name: "Agents" })).toBeTruthy();
+
+    tap("/tasks/task-1");
+    expect(await screen.findByRole("button", { name: "finish close" })).toBeTruthy();
+    tap("/tasks/task-2");
+
+    fireEvent.click(screen.getByRole("button", { name: "finish close" }));
+
+    // The second tap is the one the reader asked for last; it must not be
+    // swallowed because the first was already waiting on the sheet.
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/task-2"));
+    expect(window.history.state.idx).toBe(1);
+  });
+
+  it("still ignores a second tap of the same target while it is being delivered", async () => {
+    phoneViewport();
+    openAt(["/sessions"], { takePendingURL: async () => null });
+    fireEvent.click(await screen.findByText("slow agents"));
+    expect(await screen.findByRole("dialog", { name: "Agents" })).toBeTruthy();
+
+    tap("/tasks/task-1");
+    expect(await screen.findByRole("button", { name: "finish close" })).toBeTruthy();
+    tap("/tasks/task-1");
+
+    fireEvent.click(screen.getByRole("button", { name: "finish close" }));
+
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/task-1"));
+    expect(window.history.state.idx).toBe(1);
+  });
+
+  it("merges a held native tap and a newer in-app tap into the latest target", async () => {
+    phoneViewport();
+    let resolveNative!: (value: { url: string }) => void;
+    const takePendingURL = vi.fn(
+      () =>
+        new Promise<{ url: string }>((resolve) => {
+          resolveNative = resolve;
+        }),
+    );
+    openAt(["/sessions"], { takePendingURL });
+    fireEvent.click(await screen.findByText("slow agents"));
+    expect(await screen.findByRole("dialog", { name: "Agents" })).toBeTruthy();
+
+    // The cold-start link arrives first and starts the slow close.
+    resolveNative({ url: "/tasks/task-1" });
+    expect(await screen.findByRole("button", { name: "finish close" })).toBeTruthy();
+    // A live event for another task is newer and must win.
+    tap("/tasks/task-2");
+
+    fireEvent.click(screen.getByRole("button", { name: "finish close" }));
+
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/task-2"));
+    expect(window.history.state.idx).toBe(1);
+  });
+
+  it("pushes a Mac routines query change so Back returns to the first machine", async () => {
+    wideViewport();
+    openAt(["/routines?device=node-a"], { takePendingURL: async () => null });
+    await waitFor(() =>
+      expect(screen.getByTestId("routines-location").textContent).toBe(
+        "/routines?device=node-a",
+      ),
+    );
+    expect(window.history.state.idx).toBe(0);
+
+    tap("/routines?device=node-b");
+
+    await waitFor(() =>
+      expect(screen.getByTestId("routines-location").textContent).toBe(
+        "/routines?device=node-b",
+      ),
+    );
+    // The Mac keeps ordinary nested history: B is a push above A, so one Back
+    // shows the machine the reader came from. A replace here erased A.
+    expect(window.history.state.idx).toBe(1);
+    await act(async () => window.history.back());
+    await waitFor(() =>
+      expect(screen.getByTestId("routines-location").textContent).toBe(
+        "/routines?device=node-a",
+      ),
+    );
+    expect(window.history.state.idx).toBe(0);
   });
 });

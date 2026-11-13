@@ -55,10 +55,19 @@ export function NotificationTaps({
   const here = location.pathname + location.search;
   const deliveredRef = useRef(here);
   deliveredRef.current = here;
-  /** A tap whose navigation is waiting on a sheet to finish closing. */
-  const pendingTarget = useRef<string | null>(null);
-  if (here === pendingTarget.current) pendingTarget.current = null;
-  const delivering = useRef(false);
+  /**
+   * The newest tap still to deliver, and the one a slow sheet close is holding.
+   *
+   * Two notifications can arrive while one sheet takes its time to leave. A
+   * boolean "delivering" flag dropped the second, so the reader landed on the
+   * first item although the second was the newer request. The queue keeps only
+   * the latest target: when it differs from the one being closed, the older
+   * one is superseded rather than delivered first, and an identical tap is
+   * still a replay while its own delivery is in flight.
+   */
+  const queuedTarget = useRef<string | null>(null);
+  const activeTarget = useRef<string | null>(null);
+  const draining = useRef(false);
 
   useEffect(() => {
     // A notification that arrives while the app is in front is shown here
@@ -72,41 +81,72 @@ export function NotificationTaps({
   }, [pushToast]);
 
   useEffect(() => {
+    const startDrain = () => {
+      if (draining.current) return;
+      draining.current = true;
+      void (async () => {
+        try {
+          while (queuedTarget.current !== null) {
+            const target = queuedTarget.current;
+            queuedTarget.current = null;
+            if (target === deliveredRef.current) continue;
+            activeTarget.current = target;
+            // A sheet owns a history entry above the current screen. Close it
+            // through the same cleanup path its own actions use, then ask the
+            // page's leave guard and push the destination.
+            let retries = 0;
+            for (;;) {
+              await closeTopSheet();
+              // A newer tap arrived while the sheet closed: it is the one the
+              // reader asked for last, so the older target must not land first.
+              if (queuedTarget.current !== null) break;
+              const sheet = (window.history.state as { kinSheet?: string } | null)?.kinSheet;
+              if (!sheet) break;
+              if (retries >= 2) {
+                // The timeout fallback must not navigate over a sheet that is
+                // still current: that is the duplicate-entry defect this path
+                // exists to prevent.
+                activeTarget.current = null;
+                return;
+              }
+              retries += 1;
+              await new Promise<void>((resolve) => {
+                window.setTimeout(resolve, 200);
+              });
+            }
+            if (queuedTarget.current !== null) {
+              activeTarget.current = null;
+              continue;
+            }
+            // A tap is a push of the destination it names. On a phone the list
+            // is the parent of every push (KIN-CONTINUE-002, step 4), so a tap
+            // read from another screen must not leave that screen underneath:
+            // the guard would return there instead of to the list. The Mac keeps
+            // ordinary history, which `phonePush` leaves alone at that width.
+            runGuardedNavigation(() =>
+              phonePush(navigateRef.current, locationRef.current, target),
+            );
+            activeTarget.current = null;
+          }
+        } finally {
+          draining.current = false;
+          activeTarget.current = null;
+          // An enqueue that raced the loop's exit still gets a drain.
+          if (queuedTarget.current !== null) startDrain();
+        }
+      })();
+    };
+
     const deliver = (route: NotificationRoute) => {
       // A warm tap is delivered as an event *and* kept by the shell until the
       // console acknowledges it. Acknowledge even when the reader is already
       // on the target, so the next launch does not replay it.
       void source?.takePendingURL?.().catch(() => {});
       if (route.path === deliveredRef.current) return;
-      if (route.path === pendingTarget.current || delivering.current) return;
-      delivering.current = true;
       const target = route.path;
-      // A sheet owns a history entry above the current screen. Close it through
-      // the same cleanup path its own actions use, then ask the page's leave
-      // guard and push the destination. Doing it the other way round left the
-      // sheet's entry (and a dirty page's unsaved text) underneath or lost.
-      void closeTopSheet()
-        .then(() => {
-          // The timeout fallback must not navigate over a sheet that is still
-          // current: that is the duplicate-entry defect this path exists to
-          // prevent.
-          if ((window.history.state as { kinSheet?: string } | null)?.kinSheet) {
-            pendingTarget.current = null;
-            return;
-          }
-          // A tap is a push of the destination it names. On a phone the list
-          // is the parent of every push (KIN-CONTINUE-002, step 4), so a tap
-          // read from another screen must not leave that screen underneath:
-          // the guard would return there instead of to the list. The Mac keeps
-          // ordinary history, which `phonePush` leaves alone at that width.
-          const started = runGuardedNavigation(() =>
-            phonePush(navigateRef.current, locationRef.current, target),
-          );
-          if (started) pendingTarget.current = target;
-        })
-        .finally(() => {
-          delivering.current = false;
-        });
+      if (target === activeTarget.current || target === queuedTarget.current) return;
+      queuedTarget.current = target;
+      startDrain();
     };
 
     const uninstall = installNotificationRouting(deliver);
