@@ -1,0 +1,4 @@
+# live loop state: local paths, logs, flags. Never committed.
+state/
+reports/
+runtime/runs/
