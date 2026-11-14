@@ -9,6 +9,7 @@ counts come from `ui_inventory.measure`, not a second copy of the regexes.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -293,6 +294,59 @@ class CheckerTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("raw_button", result.stdout)
         self.assertIn("files: 2 > baseline 1", result.stdout)
+
+    def run_inventory_job(self, test_status: int, checker_status: int) -> subprocess.CompletedProcess[str]:
+        """Run check.sh's real job_ui_inventory body with stubbed python3 exits.
+
+        The body is extracted from check.sh rather than copied, so the job that
+        actually runs at the gate is the one under test. A `python3` stub on
+        PATH lets each of the job's two commands pass or fail independently.
+        """
+        script = (SCRIPTS / "check.sh").read_text(encoding="utf-8")
+        body = re.search(r"(?ms)^job_ui_inventory\(\) \{(.*?)^\}", script)
+        self.assertIsNotNone(body, "check.sh has no job_ui_inventory")
+        assert body is not None
+
+        with tempfile.TemporaryDirectory(prefix="kin-ui-inventory-job-") as raw:
+            work = Path(raw)
+            bin_dir = work / "bin"
+            bin_dir.mkdir()
+            stub = bin_dir / "python3"
+            stub.write_text(
+                "#!/usr/bin/env bash\n"
+                'for arg in "$@"; do\n'
+                '  case "$arg" in\n'
+                f"    *check-ui-inventory.test.py) exit {test_status} ;;\n"
+                f"    *check-ui-inventory.py) exit {checker_status} ;;\n"
+                "  esac\n"
+                "done\n"
+                "exit 0\n",
+                encoding="utf-8",
+            )
+            stub.chmod(0o755)
+            job = work / "job.sh"
+            job.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -uo pipefail\n"
+                "job_ui_inventory() {" + body.group(1) + "}\n"
+                "job_ui_inventory\n",
+                encoding="utf-8",
+            )
+            env = {
+                **os.environ,
+                "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
+            }
+            return subprocess.run(
+                ["bash", str(job)], capture_output=True, text=True, env=env, cwd=work
+            )
+
+    def test_check_script_job_fails_when_guard_tests_fail(self) -> None:
+        # The job runs the guard tests, then the checker, and its status must
+        # reflect both. A passing checker used to mask a failing guard test
+        # locally, so the first case is the regression this harness protects.
+        self.assertEqual(self.run_inventory_job(0, 0).returncode, 0)
+        self.assertNotEqual(self.run_inventory_job(1, 0).returncode, 0)
+        self.assertNotEqual(self.run_inventory_job(0, 1).returncode, 0)
 
     def test_check_script_runs_inventory_guard_unconditionally(self) -> None:
         script = (SCRIPTS / "check.sh").read_text(encoding="utf-8")
