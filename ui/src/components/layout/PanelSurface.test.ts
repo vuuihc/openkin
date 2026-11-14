@@ -61,7 +61,7 @@ function sourceFiles(): string[] {
 }
 
 /** Every string in a file, as the parser sees them — comments are not strings. */
-function stringsIn(source: string, fileName: string): string[] {
+function stringsIn(file: ts.SourceFile): string[] {
   const out: string[] = [];
   const visit = (node: ts.Node) => {
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
@@ -69,7 +69,7 @@ function stringsIn(source: string, fileName: string): string[] {
     }
     ts.forEachChild(node, visit);
   };
-  visit(ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX));
+  visit(file);
   return out;
 }
 
@@ -89,14 +89,7 @@ function stringsIn(source: string, fileName: string): string[] {
  *   *separately*, because two arms of a conditional are never both present and
  *   joining them would invent classes that no element ever carries.
  */
-function classListsIn(source: string, fileName: string): string[] {
-  const file = ts.createSourceFile(
-    fileName,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TSX,
-  );
+function classListsIn(file: ts.SourceFile): string[] {
   const literal = (node: ts.Node): string | null => {
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
     if (ts.isNumericLiteral(node)) return node.text;
@@ -141,9 +134,16 @@ function isSurface(classes: string): boolean {
  * one catches the split spellings it cannot see.
  */
 function spellsASurface(source: string, fileName: string): boolean {
-  return (
-    stringsIn(source, fileName).some(isSurface) || classListsIn(source, fileName).some(isSurface)
+  // Both visitors see the same syntax tree. Parsing the entire UI twice made a
+  // synchronous source guard needlessly sensitive to gate CPU contention.
+  const file = ts.createSourceFile(
+    fileName,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
   );
+  return stringsIn(file).some(isSurface) || classListsIn(file).some(isSurface);
 }
 
 describe("PanelSurface", () => {

@@ -956,7 +956,7 @@ export default function AgentsPage() {
     : null;
 
   return (
-    <div className="flex-1 overflow-y-auto kin-scroll">
+    <div className="flex-1 overflow-y-auto overflow-x-hidden kin-scroll">
       <div className="max-w-page-wide mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-0">

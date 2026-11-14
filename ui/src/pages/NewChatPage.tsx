@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   ApiError,
   createRoutine,
@@ -29,7 +29,6 @@ import RoutineScheduleFields, {
 } from "../components/routine/RoutineScheduleFields";
 import { serializeRoutineRule, type RoutineRule } from "../lib/routineRecurrence";
 import { displayUserPrompt } from "../lib/attachments";
-import { phonePush } from "../lib/phoneNavigation";
 import ProjectSummaryCard from "../components/project/ProjectSummaryCard";
 import PlacePicker, { type Place } from "../components/newchat/PlacePicker";
 import { liveResources } from "../api/liveResources";
@@ -85,7 +84,6 @@ const NO_EVENTS: TaskEvent[] = [];
  */
 export default function NewChatPage() {
   const navigate = useNavigate();
-  const location = useLocation();
   const [params, setParams] = useSearchParams();
   const pushToast = useAppStore((s) => s.pushToast);
   const wsStatus = useAppStore((s) => s.wsStatus);
@@ -675,14 +673,14 @@ export default function NewChatPage() {
       : machineUnread
         ? tr("machine.listUnavailable")
         : remote && machine && !machine.online
-        ? tr("machine.offlineHint", { name: machineLabel })
-        : available.length === 0
-          ? remote
-            ? tr("machine.noAgents", { name: machineLabel })
-            : tr("newChat.noAgents")
-          : disconnected
-            ? tr("newChat.disconnected")
-            : "";
+          ? tr("machine.offlineHint", { name: machineLabel })
+          : available.length === 0
+            ? remote
+              ? tr("machine.noAgents", { name: machineLabel })
+              : tr("newChat.noAgents")
+            : disconnected
+              ? tr("newChat.disconnected")
+              : "";
 
   return (
     <div className="flex-1 flex flex-col min-h-0 kin-surface-chat">
@@ -768,7 +766,7 @@ export default function NewChatPage() {
                       <button
                         type="button"
                         className="min-h-11 px-3 text-body text-kin-blue-ink hover:underline sm:min-h-0 sm:px-0"
-                        onClick={() => phonePush(navigate, location, "/agents")}
+                        onClick={() => navigate("/agents", { replace: !wide })}
                       >
                         {tr("agents.manageLink")}
                       </button>
@@ -786,10 +784,7 @@ export default function NewChatPage() {
               </>
             )}
 
-            <div
-              data-kin-bottom-chrome=""
-              className={hints.length > 0 ? "mt-2" : "mt-8"}
-            >
+            <div data-kin-bottom-chrome="" className={hints.length > 0 ? "mt-2" : "mt-8"}>
               <Composer
                 agents={agents}
                 roles={agentRoles}
