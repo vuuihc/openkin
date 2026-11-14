@@ -219,6 +219,15 @@ job_stories() {
   python3 scripts/stories.py
 }
 
+# The three added-file bans and their own tests. Always runs: on a clean branch
+# `ui-test` sees nothing, and a disabled rule must still turn this job red. The
+# shell script runs the RuleTester file (which no other job covers) and then the
+# real scoped lint, propagating each failure.
+job_ui_lint_guard() {
+  python3 -B -m unittest scripts/ui_lint_guard_test.py || return 1
+  ./scripts/ui-lint-guard.sh
+}
+
 start gofmt job_gofmt
 start vet job_vet
 start gotest job_gotest
@@ -233,6 +242,7 @@ start shell-syntax job_shell_syntax
 start shell-test job_shell_test
 start python-syntax job_python_syntax
 start stories job_stories
+start ui-lint-guard job_ui_lint_guard
 
 FAILED=()
 for i in "${!PIDS[@]}"; do
