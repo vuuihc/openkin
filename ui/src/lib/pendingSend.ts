@@ -114,3 +114,43 @@ export function settlePendingSendList(
   const next = settlePendingSends(pending, events);
   return next === pending ? pending : [...next];
 }
+
+/**
+ * The bubble the draft route is already showing when its create answer names
+ * the conversation to open.
+ *
+ * The create answer is the only moment both halves exist: a `PendingSend` the
+ * draft drew, and the task id the conversation route will mount with. Handing
+ * it over in memory keeps the same bubble on screen across the navigation, so
+ * the first thing the reader sees in the new conversation is the message they
+ * just wrote, not a skeleton that replaces it.
+ *
+ * Memory only, one record at a time, and keyed by the task it belongs to: a
+ * prompt is not persisted, a reload starts empty, and a pane for another
+ * conversation can never draw it.
+ */
+type PendingSendHandoff = { taskId: string; send: PendingSend };
+
+let handoff: PendingSendHandoff | null = null;
+
+/** Leave `send` for the conversation `taskId`, replacing any older record. */
+export function handOffPendingSend(taskId: string, send: PendingSend): void {
+  handoff = { taskId, send };
+}
+
+/**
+ * The send waiting for `taskId`, without consuming it.
+ *
+ * Peeking (rather than taking) keeps the read pure: StrictMode renders a
+ * component twice before its effects run, and a take would leave the second
+ * render with nothing while the first one's state is the copy React keeps.
+ */
+export function peekPendingSend(taskId: string): PendingSend | null {
+  return handoff?.taskId === taskId ? handoff.send : null;
+}
+
+/** Drop the record once the conversation has adopted it. Another task's
+ *  record is not this pane's to remove. */
+export function forgetPendingSend(taskId: string): void {
+  if (handoff?.taskId === taskId) handoff = null;
+}

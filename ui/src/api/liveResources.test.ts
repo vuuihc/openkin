@@ -276,9 +276,7 @@ describe("LiveResourceStore", () => {
     // frame has to remove the row from one list and add it to the other.
     const row = task();
     const client = api({
-      listTasks: vi.fn(async (params?: { archived?: boolean }) =>
-        params?.archived ? [] : [row],
-      ),
+      listTasks: vi.fn(async (params?: { archived?: boolean }) => (params?.archived ? [] : [row])),
     });
     const store = new LiveResourceStore(client);
     const live = { limit: 50 };
@@ -509,6 +507,56 @@ describe("LiveResourceStore", () => {
 
     expect(store.getTaskList(taskListKey(params)).data[0]?.status).toBe("succeeded");
     release();
+  });
+
+  it("seeds a drawable task detail from a create snapshot without marking it loaded", () => {
+    // The create answer is what the new-conversation route has when it mounts:
+    // no list row may have arrived yet, and the detail GET has not started.
+    // Without a detail entry the whole page is a skeleton, so the snapshot
+    // seeds one — but `loaded` must stay false, or the host would treat the
+    // seeded row as an answered GET and skip the transcript fetch.
+    const store = new LiveResourceStore(api());
+    store.applyTaskSnapshot(task({ status: "queued" }), store.currentRevision());
+
+    const detail = store.getTaskDetail("task-1");
+    expect(detail.data.task?.status).toBe("queued");
+    expect(detail.data.events).toEqual([]);
+    expect(detail.loaded).toBe(false);
+    expect(detail.loading).toBe(false);
+    expect(detail.error).toBeNull();
+  });
+
+  it("does not let a create snapshot erase an answered transcript", async () => {
+    const store = new LiveResourceStore(api({ listEvents: vi.fn(async () => [event(1)]) }));
+    const release = store.acquireTask("task-1");
+    await store.refreshTask("task-1");
+    store.applyMessage({ kind: "event", data: event(2) });
+    // A snapshot requested after the events landed is newer than every row it
+    // carries, so it may refresh the task — never the events, and never the
+    // fact that the GET answered.
+    store.applyTaskSnapshot(
+      task({ status: "running", title: "fresh title" }),
+      store.currentRevision(),
+    );
+
+    const detail = store.getTaskDetail("task-1");
+    expect(detail.data.task?.title).toBe("fresh title");
+    expect(detail.data.events.map((item) => item.seq)).toEqual([1, 2]);
+    expect(detail.loaded).toBe(true);
+    release();
+  });
+
+  it("does not seed from a snapshot older than a newer live row", () => {
+    const store = new LiveResourceStore(api());
+    const requestRevision = store.currentRevision();
+    store.applyTaskSnapshot(task({ status: "queued" }), requestRevision);
+    store.applyMessage({ kind: "task_update", data: task({ status: "succeeded" }) });
+    store.applyTaskSnapshot(task({ status: "queued", title: "stale" }), requestRevision);
+
+    const detail = store.getTaskDetail("task-1");
+    expect(detail.data.task?.status).toBe("succeeded");
+    expect(detail.data.task?.title).toBe("Task");
+    expect(detail.loaded).toBe(false);
   });
 
   it("answers a task snapshot with the newest row, a deletion, or nothing known", () => {

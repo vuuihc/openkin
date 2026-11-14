@@ -11,11 +11,7 @@ import {
 } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { goBackToList } from "../lib/phoneBack";
-import {
-  currentPhoneLocation,
-  isPhoneLayout,
-  phonePush,
-} from "../lib/phoneNavigation";
+import { currentPhoneLocation, isPhoneLayout, phonePush } from "../lib/phoneNavigation";
 import {
   ApiError,
   archiveTask,
@@ -62,7 +58,13 @@ import UserQuestionCard from "../components/cards/UserQuestionCard";
 import ChatStream from "../components/chat/ChatStream";
 import { findSpeakerModel, pendingRefSeqs } from "../components/chat/transcriptProjection";
 import Composer, { type SubmitFailure } from "../components/chat/Composer";
-import { pendingSend, settlePendingSendList, type PendingSend } from "../lib/pendingSend";
+import {
+  forgetPendingSend,
+  peekPendingSend,
+  pendingSend,
+  settlePendingSendList,
+  type PendingSend,
+} from "../lib/pendingSend";
 import RunConfigControl from "../components/chat/RunConfigSheet";
 import BranchPicker from "../components/chat/BranchPicker";
 import RepoChip from "../components/chat/RepoChip";
@@ -246,8 +248,16 @@ export default function TaskDetailPage({
    * Sends the transcript has not echoed yet. The composer clears the input the
    * moment the person submits, so without these the message they just wrote is
    * gone from the screen until the daemon's own event arrives.
+   *
+   * A brand-new conversation starts with one already: the draft route drew the
+   * bubble, and the create answer handed it over so this route's first frame —
+   * still before its detail GET — draws the same message instead of a
+   * skeleton. Reading is pure; the effect below consumes the record.
    */
-  const [pendingSends, setPendingSends] = useState<PendingSend[]>([]);
+  const [pendingSends, setPendingSends] = useState<PendingSend[]>(() => {
+    const handed = peekPendingSend(id);
+    return handed ? [handed] : [];
+  });
   const [composerModel, setComposerModel] = useState("");
   const [composerPermission, setComposerPermission] = useState<PermissionMode>("default");
   // Bumped when the composer's text is changed from outside it (a queued
@@ -613,6 +623,13 @@ export default function TaskDetailPage({
     setPendingSends((current) => settlePendingSendList(current, events));
   }, [events]);
 
+  useEffect(() => {
+    // Once this conversation has adopted its handoff, forget the record: a
+    // later visit to the same id — Back, a tab, a reload — must draw the
+    // transcript, never replay a bubble from the first send.
+    forgetPendingSend(id);
+  }, [id]);
+
   const pendingUserMessages = useMemo(
     () => pendingSends.map((send) => ({ key: send.id, text: send.text })),
     [pendingSends],
@@ -637,12 +654,18 @@ export default function TaskDetailPage({
   // Instant scrollTop (no smooth). Scroller stays invisible until positioned (scrollReady).
   // Keep-alive hides with display:none which clears DOM scrollTop — we re-apply from
   // savedScrollTopRef / localStorage on activate (see effect below).
+  //
+  // A handed-off first send is the one case that must not wait for the GET:
+  // the bubble is already on screen and belongs under this scroller. Every
+  // other entry keeps waiting for the transcript — laying out the empty seed
+  // first would clamp a saved position to 0 and overwrite the bookmark.
   useLayoutEffect(() => {
     if (didInitialScrollRef.current) return;
-    if (loading || !task) return;
+    if (!task) return;
     const el = scrollRef.current;
     if (!el) return;
 
+    if (loading && pendingSends.length === 0) return;
     const saved = savedScrollTopRef.current ?? (id ? getSessionScroll(id) : null);
 
     const finalize = (node: HTMLElement) => {
@@ -722,7 +745,7 @@ export default function TaskDetailPage({
       if (raf) cancelAnimationFrame(raf);
       window.clearTimeout(timer);
     };
-  }, [loading, task, events.length, id, isNearBottom, markScrollReady]);
+  }, [loading, task, events.length, id, isNearBottom, markScrollReady, pendingSends.length]);
 
   // After display:none hide, re-apply scroll in useLayoutEffect (before paint).
   // Instant scrollTop only — no smooth animation, no top→bottom slide.

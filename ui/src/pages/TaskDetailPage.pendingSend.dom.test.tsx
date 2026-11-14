@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { setLocale } from "../i18n";
+import { forgetPendingSend, handOffPendingSend } from "../lib/pendingSend";
 import TaskDetailPage from "./TaskDetailPage";
 
 /**
@@ -18,6 +19,10 @@ const store = vi.hoisted(() => {
   const state = {
     version: 0,
     events: [] as unknown[],
+    /** The detail's `loaded`: the tests that hand a send over start before it. */
+    loaded: true,
+    task: null as unknown,
+    error: null as unknown,
   };
   return {
     state,
@@ -31,6 +36,13 @@ const store = vi.hoisted(() => {
       state.version += 1;
       for (const listener of listeners) listener();
     },
+    setDetail(next: { loaded?: boolean; task?: unknown; error?: unknown }) {
+      if (next.loaded !== undefined) state.loaded = next.loaded;
+      if ("task" in next) state.task = next.task;
+      if ("error" in next) state.error = next.error;
+      state.version += 1;
+      for (const listener of listeners) listener();
+    },
   };
 });
 
@@ -38,10 +50,10 @@ vi.mock("../api/useLiveResources", () => ({
   useTaskResource: (id: string) => {
     useSyncExternalStore(store.subscribe, store.version, store.version);
     return {
-      loaded: true,
-      error: null,
+      loaded: store.state.loaded,
+      error: store.state.error,
       data: {
-        task: {
+        task: store.state.task ?? {
           id,
           title: "Conversation",
           status: "succeeded",
@@ -128,13 +140,26 @@ vi.mock("../components/chat/Composer", () => ({
 vi.mock("../components/chat/ChatStream", () => ({
   default: ({
     loading,
+    events,
     pendingUserMessages,
   }: {
     loading?: boolean;
+    events?: readonly {
+      seq: number;
+      type: string;
+      payload?: { speaker?: string; content?: readonly { text?: string }[] };
+    }[];
     pendingUserMessages?: readonly { key: string; text: string }[];
   }) => (
     <div data-testid="chat">
       <span data-testid="loading">{String(Boolean(loading))}</span>
+      {(events ?? [])
+        .filter((event) => event.type === "message" && event.payload?.speaker === "user")
+        .map((event) => (
+          <span key={event.seq} data-testid="server-user">
+            {(event.payload?.content ?? []).map((part) => part.text ?? "").join("")}
+          </span>
+        ))}
       {(pendingUserMessages ?? []).map((message) => (
         <span key={message.key} data-testid="pending-user">
           {message.text}
@@ -164,7 +189,98 @@ beforeEach(() => {
   localStorage.clear();
   store.state.version = 0;
   store.state.events = [];
+  store.state.loaded = true;
+  store.state.task = null;
+  store.state.error = null;
+  forgetPendingSend("task-1");
+  forgetPendingSend("task-2");
   api.followUpPrompt.mockClear();
+});
+
+describe("a send handed over from the new-conversation route", () => {
+  it("keeps the bubble across a missing detail and settles it once, on the server copy", () => {
+    handOffPendingSend("task-1", { id: "handoff-1", text: "hello", startSeq: 0 });
+    store.setDetail({ loaded: false });
+    open();
+
+    // The GET has not answered; the bubble is the only copy of the message
+    // and it is already on screen, exactly once.
+    expect(screen.getAllByTestId("pending-user")).toHaveLength(1);
+    expect(screen.getByTestId("pending-user").textContent).toBe("hello");
+
+    // Somebody else's event is not this send's copy.
+    act(() => {
+      store.setEvents([
+        {
+          task_id: "task-1",
+          event_epoch: 0,
+          seq: 1,
+          ts: 1,
+          type: "message",
+          payload: { role: "assistant", speaker: "kin", content: [{ type: "text", text: "hi" }] },
+        },
+      ]);
+    });
+    expect(screen.getByTestId("pending-user").textContent).toBe("hello");
+
+    // The daemon's own message lands: the local copy goes and there is one
+    // user bubble, not two.
+    act(() => {
+      store.setEvents([
+        {
+          task_id: "task-1",
+          event_epoch: 0,
+          seq: 1,
+          ts: 1,
+          type: "message",
+          payload: { speaker: "kin", content: [{ type: "text", text: "hi" }] },
+        },
+        {
+          task_id: "task-1",
+          event_epoch: 0,
+          seq: 2,
+          ts: 2,
+          type: "message",
+          payload: { role: "user", speaker: "user", content: [{ type: "text", text: "hello" }] },
+        },
+      ]);
+    });
+    expect(screen.queryByTestId("pending-user")).toBeNull();
+    expect(screen.getAllByTestId("server-user")).toHaveLength(1);
+    expect(screen.getByTestId("server-user").textContent).toBe("hello");
+  });
+
+  it("never draws a handoff meant for another conversation", () => {
+    handOffPendingSend("task-2", { id: "handoff-2", text: "elsewhere", startSeq: 0 });
+    store.setDetail({ loaded: false });
+    open();
+    expect(screen.queryByTestId("pending-user")).toBeNull();
+  });
+
+  it("does not replay the handoff on a later visit to the same conversation", () => {
+    handOffPendingSend("task-1", { id: "handoff-1", text: "hello", startSeq: 0 });
+    store.setDetail({ loaded: false });
+    const first = open();
+    expect(screen.getAllByTestId("pending-user")).toHaveLength(1);
+
+    // Back, a tab, a reload: the record was adopted by the first visit and
+    // must not draw the old message again.
+    first.unmount();
+    open();
+    expect(screen.queryByTestId("pending-user")).toBeNull();
+  });
+
+  it("keeps the handed-off message when the detail request fails", () => {
+    handOffPendingSend("task-1", { id: "handoff-1", text: "hello", startSeq: 0 });
+    store.setDetail({ loaded: true, error: new Error("detail failed") });
+    open();
+
+    expect(screen.getByTestId("pending-user").textContent).toBe("hello");
+    expect(screen.getByRole("alert").textContent).toContain("detail failed");
+    // The composer is still there; the failure is about the transcript, not
+    // the conversation.
+    expect(screen.getByTestId("send")).toBeTruthy();
+  });
 });
 
 describe("sending a follow-up", () => {
