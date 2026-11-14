@@ -276,9 +276,7 @@ describe("LiveResourceStore", () => {
     // frame has to remove the row from one list and add it to the other.
     const row = task();
     const client = api({
-      listTasks: vi.fn(async (params?: { archived?: boolean }) =>
-        params?.archived ? [] : [row],
-      ),
+      listTasks: vi.fn(async (params?: { archived?: boolean }) => (params?.archived ? [] : [row])),
     });
     const store = new LiveResourceStore(client);
     const live = { limit: 50 };
@@ -529,9 +527,7 @@ describe("LiveResourceStore", () => {
   });
 
   it("does not let a create snapshot erase an answered transcript", async () => {
-    const store = new LiveResourceStore(
-      api({ listEvents: vi.fn(async () => [event(1)]) }),
-    );
+    const store = new LiveResourceStore(api({ listEvents: vi.fn(async () => [event(1)]) }));
     const release = store.acquireTask("task-1");
     await store.refreshTask("task-1");
     store.applyMessage({ kind: "event", data: event(2) });

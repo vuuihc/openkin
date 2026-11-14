@@ -691,14 +691,14 @@ export default function NewChatPage() {
       : machineUnread
         ? tr("machine.listUnavailable")
         : remote && machine && !machine.online
-        ? tr("machine.offlineHint", { name: machineLabel })
-        : available.length === 0
-          ? remote
-            ? tr("machine.noAgents", { name: machineLabel })
-            : tr("newChat.noAgents")
-          : disconnected
-            ? tr("newChat.disconnected")
-            : "";
+          ? tr("machine.offlineHint", { name: machineLabel })
+          : available.length === 0
+            ? remote
+              ? tr("machine.noAgents", { name: machineLabel })
+              : tr("newChat.noAgents")
+            : disconnected
+              ? tr("newChat.disconnected")
+              : "";
 
   return (
     <div className="flex-1 flex flex-col min-h-0 kin-surface-chat">
@@ -802,10 +802,7 @@ export default function NewChatPage() {
               </>
             )}
 
-            <div
-              data-kin-bottom-chrome=""
-              className={hints.length > 0 ? "mt-2" : "mt-8"}
-            >
+            <div data-kin-bottom-chrome="" className={hints.length > 0 ? "mt-2" : "mt-8"}>
               <Composer
                 agents={agents}
                 roles={agentRoles}

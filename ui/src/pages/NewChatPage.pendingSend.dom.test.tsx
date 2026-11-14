@@ -82,9 +82,7 @@ vi.mock("../hooks/useMachines", () => ({
 }));
 vi.mock("../hooks/useAgentRoles", () => ({ useAgentRoles: () => [] }));
 vi.mock("../components/mobile/MobileHeader", () => ({
-  default: ({ title }: { title?: string }) => (
-    <div data-testid="mobile-header">{title}</div>
-  ),
+  default: ({ title }: { title?: string }) => <div data-testid="mobile-header">{title}</div>,
   MobileHeaderButton: ({ children, label }: { children?: ReactNode; label?: string }) => (
     <button type="button" aria-label={label}>
       {children}

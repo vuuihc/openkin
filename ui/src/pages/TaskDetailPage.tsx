@@ -11,11 +11,7 @@ import {
 } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { goBackToList } from "../lib/phoneBack";
-import {
-  currentPhoneLocation,
-  isPhoneLayout,
-  phonePush,
-} from "../lib/phoneNavigation";
+import { currentPhoneLocation, isPhoneLayout, phonePush } from "../lib/phoneNavigation";
 import {
   ApiError,
   archiveTask,
