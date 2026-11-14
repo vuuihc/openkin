@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/remote"
+	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/routines"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/task"
@@ -681,5 +683,81 @@ func TestRoutineKeepsItsModel(t *testing.T) {
 	}
 	if cleared.Model != "" {
 		t.Fatalf("model = %q, want empty", cleared.Model)
+	}
+}
+
+// A routine's runs feed is a list of runs, not their briefs. A routine prompt
+// holds a whole unattended brief, often tens of kilobytes; eighty of them made
+// the answer several times larger than the bound a machine enforces when it
+// answers a Hub relaying a console request (worker.MaxRoutineResponse), so the
+// whole routines page came back as the machine's size sentence — no routines,
+// no runs. The feed keeps the row fields and leaves the prompt to the run's own
+// detail.
+func TestRoutineRunsFeedFitsTheRelayBound(t *testing.T) {
+	s, st := newRoutinesTestServer(t)
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+	if err := st.InsertRoutine(ctx, store.Routine{
+		ID: "r-sweep", Cwd: "/tmp", Agent: "kin", Prompt: "p", IntervalSecs: 3600,
+		Enabled: true, NextDueAt: now, CreatedAt: now, Title: "Sweep",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	brief := strings.Repeat("read the log and fix what it records\n", 400) // ~17 KiB
+	const runs = 80
+	for i := 0; i < runs; i++ {
+		if err := st.InsertTask(ctx, store.Task{
+			ID: fmt.Sprintf("t-run-%03d", i), Title: "Sweep", Agent: "kin", Cwd: "/tmp",
+			Prompt: brief, Status: "succeeded", CreatedAt: now + int64(i),
+			RoutineID: "r-sweep", RoutineTLDR: "fixed one thing",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/routines?runs=1&runs_limit=80", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("feed status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if rr.Body.Len() > worker.MaxRoutineResponse {
+		t.Fatalf("runs feed is %d bytes, over the %d-byte bound a machine enforces",
+			rr.Body.Len(), worker.MaxRoutineResponse)
+	}
+	var page struct {
+		Runs []store.Task `json:"runs"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Runs) != runs {
+		t.Fatalf("runs=%d, want %d", len(page.Runs), runs)
+	}
+	for _, run := range page.Runs {
+		if run.Prompt != "" {
+			t.Fatalf("run %s carries its %d-byte prompt in the feed", run.ID, len(run.Prompt))
+		}
+		if run.Title != "Sweep" || run.Status != "succeeded" || run.RoutineID != "r-sweep" || run.RoutineTLDR != "fixed one thing" {
+			t.Fatalf("run %s lost a row field: %+v", run.ID, run)
+		}
+	}
+
+	// The prompt is kept out of the list, not discarded: the run's own detail
+	// still reads it, which is where the transcript view asks.
+	req = httptest.NewRequest(http.MethodGet, "/api/tasks/t-run-000", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rr = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("detail status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var detail store.Task
+	if err := json.Unmarshal(rr.Body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail.Prompt != brief {
+		t.Fatalf("detail prompt=%d bytes, want the %d-byte brief", len(detail.Prompt), len(brief))
 	}
 }

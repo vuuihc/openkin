@@ -34,32 +34,6 @@ person can see; the fix and its verification belong in the PR.
 
 ## Open
 
-### 2026-11-12 · 高 · 例行任务查不到 gap sweep，伴随 token 长度超过约 65530 的错误
-
-例行任务页面查不到按小时读取本文件的 gap sweep 任务，同时显示「token 长度超过
-65530」一类的错误。它可能使例行任务列表 / 详情或后续调度不可用，需要排查并修复，
-而不是只重试或删掉报错任务。
-
-期望：gap sweep 在例行任务中有可辨认、可打开、可手动运行的记录，历史运行与错误
-能正常查看；token 超限错误消失，gap sweep 能读取 `docs/plans/gap-log.md` 并完成
-一次真实调度。修复必须覆盖超限数据的真实读取和持久化路径：先保存原始报错、请求
-大小与涉及的任务 / 运行记录，再区分是 SQLite 字段宽度、请求 / 代理限制、上游模型
-上下文限制，还是列表查询错误地把超长 prompt / transcript 拼进去；不能凭「65530」
-这个数字猜原因。若只是查询失败，任务本身和调度状态必须恢复；若任务确实不存在，
-补充可追溯的创建 / 恢复流程，不能静默新建重复任务。
-
-不要：为了绕过报错直接删除任务或历史、降低 / 截断 prompt 后继续累积超限内容、
-只改报错文案，或只让页面隐藏错误而不恢复真实查询与调度。
-
-待定：需要报告人保留并附上一条完整错误原文和发生时间，以定位是列表请求失败、
-打开任务时报错，还是执行时报错。线索：`internal/api/routines.go`、
-`internal/store/routines.go`、`internal/store/routine_dispatch.go`、
-`internal/routines/scheduler.go`、`internal/node/routines.go`，
-`ui/src/pages/RoutinesPage.tsx`，以及实际节点上的 gap sweep 任务定义与最近运行日志。
-验收：用超过当前边界的 prompt / run 数据复现失败测试；修复后同一数据能读回并展示；
-重启后 gap sweep 记录与调度仍存在；连续两次真实运行无重复任务、无 token 超限错误；
-`./scripts/check.sh` 与 `./scripts/smoke.sh` 绿。
-
 ### 2026-11-12 · 高 · 手机端「划」没有过渡：返回硬切，行左划的动作条松手才出现
 
 手机上滑动是「松手才动」的。左缘右滑返回时，手指已经划过 64px，屏幕上的页面
@@ -126,6 +100,7 @@ transform」），`AppShell` 那条 20px 的透明感应条也没有任何可见
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
 
+- 2026-11-12 · 例行任务查不到 gap sweep，伴随 token 长度超过约 65530 的错误 — PR #52（`?runs=1&runs_limit=80` 的运行流不再拼进每次运行十几 KB 的 prompt：本机实测 1,200,074 → 约 94 KB，落在机器中继 `worker.MaxRoutineResponse` 655,360 字节内，页面不再整页失败；红测还原修复后 1,245,269 字节超限、恢复后通过，`go test ./internal/api/`、`./scripts/check.sh` 14 项、`./scripts/smoke.sh` 全绿；报告人原始报错原文仍未取得，若同一报错再现请附原文）
 - 2026-11-09 · routines 改为设备归属后的遗留项（旧 Hub 库的 routines 没迁移、只有选「本机」才看得到）— PR #51（显示其他机器时提示「本机还有 N 个例行任务」并可一键切到本机；禁用 / 迁移 2026-11-10 已问报告人、超 48 小时无回答，按 §4 执行可回退默认值：不改数据只让现状可见，禁用 / 迁移仍待方向；3 条新 DOM 测试，check.sh 除已知 PanelSurface 抖动外全绿）
 
 - 2026-11-12 · 手机端「划」没有过渡（行左划的动作条部分）— PR #50（拖动第一次位移即挂载动作条，未提交前 inert + aria-hidden + pointer-events:none，收起保留到 180ms 滑回结束；SwipeReveal DOM 测试 10 passed、还原组件后 4 failed，check.sh 除并发构建下的 5s 超时抖动外全绿）
