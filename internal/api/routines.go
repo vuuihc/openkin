@@ -148,6 +148,18 @@ func (s *Server) handleListRoutines(w http.ResponseWriter, r *http.Request) {
 		if runs == nil {
 			runs = []store.Task{}
 		}
+		// The feed is a list of runs, not their briefs. A routine prompt is
+		// written to hold a whole unattended brief — often tens of kilobytes —
+		// and a page of runs that carried every prompt grew past
+		// worker.MaxRoutineResponse, the bound a machine enforces when it
+		// answers a Hub relaying a console request (see MaxRoutineResponse's
+		// own note in internal/remote/worker/query.go). The refusal took the
+		// whole routines page with it: no routines, no runs, only the machine's
+		// size sentence. The row fields a console renders stay; the prompt is
+		// still read from the run's own detail (GET /api/tasks/{id}).
+		for i := range runs {
+			runs[i].Prompt = ""
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"routines": page.Routines, "runs": runs,
 			"next_cursor": page.NextCursor, "has_more": page.HasMore,
