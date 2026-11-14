@@ -283,6 +283,10 @@ tester.run("no-create-portal", kin.rules["no-create-portal"], {
     {
       code: 'import ReactDOM from "react-dom"; function C(ReactDOM) { return ReactDOM.createPortal(el, root); }',
     },
+    // The same shadowing, with the default export imported by name.
+    {
+      code: 'import { default as ReactDOM } from "react-dom"; function C(ReactDOM) { return ReactDOM.createPortal(el, root); }',
+    },
     {
       code: 'import { createPortal as portal } from "react-dom"; function C(portal) { return portal(el, root); }',
     },
@@ -299,6 +303,11 @@ tester.run("no-create-portal", kin.rules["no-create-portal"], {
     },
     {
       code: 'import * as ReactDOM from "react-dom"; ReactDOM.createPortal(el, root);',
+      errors: [{ messageId: "portal" }],
+    },
+    // `{ default as ReactDOM }` is the default import written the long way.
+    {
+      code: 'import { default as ReactDOM } from "react-dom"; ReactDOM.createPortal(el, root);',
       errors: [{ messageId: "portal" }],
     },
     {
@@ -328,6 +337,9 @@ tester.run("no-arbitrary-z-index", kin.rules["no-arbitrary-z-index"], {
     // Tailwind's negative spelling, plain and behind a variant.
     { code: 'const a = "-z-[10]";', errors: [{ messageId: "arbitrary" }] },
     { code: 'const a = "hover:-z-[10]";', errors: [{ messageId: "arbitrary" }] },
+    // A signed value is the same invented step, whichever sign it carries.
+    { code: 'const a = "z-[+9999]";', errors: [{ messageId: "arbitrary" }] },
+    { code: 'const a = "md:z-[+10]";', errors: [{ messageId: "arbitrary" }] },
     {
       code: "const C = () => <div className={`-z-[3] ${x}`} />;",
       errors: [{ messageId: "arbitrary" }],
@@ -364,5 +376,28 @@ describe("eslint.guard.config.js", () => {
       { filePath: `${ui}src/components/Fixture.tsx` },
     );
     expect(result.messages.map((m) => m.ruleId)).toEqual(["kin/no-raw-button"]);
+  });
+
+  it("applies facade, test, and generated source exemptions globally", async () => {
+    const ui = fileURLToPath(new URL("../", import.meta.url));
+    const eslint = new ESLint({
+      cwd: ui,
+      overrideConfigFile: fileURLToPath(new URL("../eslint.guard.config.js", import.meta.url)),
+    });
+    const source = 'export const C = () => <button type="button">go</button>;';
+    const paths = [
+      "src/components/ui/Fixture.tsx",
+      "src/Fixture.test.tsx",
+      "src/api/generated/Fixture.tsx",
+    ];
+    for (const filePath of paths) {
+      const [result] = await eslint.lintText(source, { filePath: `${ui}${filePath}` });
+      // Ignored by config: no kin finding. ESLint may add its own ruleId-null
+      // "file ignored" warning, which is the config working, not a finding.
+      expect({
+        filePath,
+        findings: result.messages.filter((m) => m.ruleId !== null).map((m) => m.ruleId),
+      }).toEqual({ filePath, findings: [] });
+    }
   });
 });
