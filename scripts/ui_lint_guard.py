@@ -16,8 +16,9 @@ feature push leaves it unset, so the comparison stays cumulative against
 deliberately not the workflow's `BASE_SHA`, which scopes formatting to the
 previous push.
 
-An explicit base that does not resolve, or no automatic base at all, exits 2
-instead of passing: a guard that cannot decide must not report green.
+An explicit base that does not resolve, a base with no shared history, or no
+automatic base at all, exits 2 instead of passing: a guard that cannot decide
+must not report green.
 """
 
 from __future__ import annotations
@@ -78,9 +79,13 @@ def resolve_base(root: Path, explicit: str | None = None) -> tuple[str, str]:
             continue
         commit = _text(root, "rev-parse", "--verify", f"{ref}^{{commit}}")
         merged = _git(root, "merge-base", "HEAD", commit)
-        if merged.returncode == 0:
-            commit = merged.stdout.decode().strip()
-        return commit, f"{label} merge-base"
+        if merged.returncode != 0:
+            detail = merged.stderr.decode("utf-8", "replace").strip()
+            raise GuardError(
+                f"{label} has no merge-base with HEAD"
+                + (f": {detail}" if detail else " (unrelated histories)")
+            )
+        return merged.stdout.decode().strip(), f"{label} merge-base"
     raise GuardError(
         "no base commit: origin/main and main are both missing — "
         "run `git fetch origin main` or set UI_LINT_BASE"
