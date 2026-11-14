@@ -342,6 +342,16 @@ function reactDomImport(variable) {
   return def?.type === "ImportBinding" && def.parent.source.value === REACT_DOM ? def : null;
 }
 
+/**
+ * A binding to the module object itself: a default import, a namespace, or the
+ * default export written as a named import (`{ default as ReactDOM }`).
+ */
+function reactDomModule(def) {
+  if (def.node.type !== "ImportSpecifier") return true;
+  const imported = def.node.imported;
+  return (imported.name ?? imported.value) === "default";
+}
+
 const noCreatePortal = {
   meta: {
     type: "problem",
@@ -382,11 +392,7 @@ const noCreatePortal = {
             : null;
         if (property !== "createPortal") return;
         const def = reactDomImport(findVariable(scope, callee.object.name));
-        if (
-          def &&
-          (def.node.type === "ImportDefaultSpecifier" ||
-            def.node.type === "ImportNamespaceSpecifier")
-        ) {
+        if (def && reactDomModule(def)) {
           context.report({ node: callee, messageId: "portal" });
         }
       },
@@ -395,9 +401,10 @@ const noCreatePortal = {
 };
 
 // `z-[50]`, `md:z-[9999]`, and Tailwind's negative `-z-[10]` (variant or not).
-// The lookbehind keeps `my-z-[10]` from reading as a z utility; a non-numeric
-// value is a token reference, not this rule's subject.
-const ARBITRARY_Z_INDEX = /(?<![\w-])-?z-\[-?\d+\](?![\w-])/g;
+// A signed value (`z-[+9999]`) is the same invented step. The lookbehind keeps
+// `my-z-[10]` from reading as a z utility; a non-numeric value is a token
+// reference, not this rule's subject.
+const ARBITRARY_Z_INDEX = /(?<![\w-])-?z-\[[+-]?\d+\](?![\w-])/g;
 
 const noArbitraryZIndex = {
   meta: {

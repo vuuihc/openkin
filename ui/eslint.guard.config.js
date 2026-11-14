@@ -18,6 +18,8 @@ import kin from "./eslint-rules/index.js";
  * portal are supposed to live. The runner leaves all three out as well.
  */
 export default tseslint.config(
+  // Global ignores: an object with only `ignores` is excluded from every later
+  // config, so these files are not linted at all.
   {
     ignores: [
       "dist/**",
@@ -26,6 +28,8 @@ export default tseslint.config(
       "src/components/ui/**",
       "src/**/*.test.{ts,tsx}",
     ],
+  },
+  {
     // Disable directives written for ordinary lint must stay usable here; an
     // unused one is not a finding in a scoped run.
     linterOptions: { reportUnusedDisableDirectives: "off" },
