@@ -215,11 +215,13 @@ const QueryTaskDetail = "task.detail"
 // a run in flight asks for what changed instead of the whole transcript again.
 const QueryTaskEvents = "task.events"
 
-// MaxRoutineBody bounds one relayed routine request body. It is deliberately
-// below MaxQueryParams because the body travels base64-encoded inside the
-// params envelope; a prompt larger than this is refused by the machine rather
-// than silently truncated.
-const MaxRoutineBody = 128 << 10
+// MaxRoutineBody bounds the entire relayed JSON request. In particular, a
+// previously readable 128 KiB plain-text prompt must survive its JSON field
+// names on a remote edit. 160 KiB leaves 32 KiB for its ordinary encoding and
+// other fields. Its base64 params fit MaxQueryParams even with a maximum-length
+// route. Deliberately escaping every prompt character can exceed the request or
+// frame bound: the durable prompt is not silently shortened to evade either.
+const MaxRoutineBody = 160 << 10
 
 // MaxRoutineResponse bounds one relayed routine response.
 //
