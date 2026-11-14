@@ -28,7 +28,11 @@ import RoutineScheduleFields, {
   parseLocalDateTime,
 } from "../components/routine/RoutineScheduleFields";
 import { serializeRoutineRule, type RoutineRule } from "../lib/routineRecurrence";
-import { displayUserPrompt } from "../lib/attachments";
+import {
+  handOffPendingSend,
+  pendingSend as newPendingSend,
+  type PendingSend,
+} from "../lib/pendingSend";
 import { phonePush } from "../lib/phoneNavigation";
 import ProjectSummaryCard from "../components/project/ProjectSummaryCard";
 import PlacePicker, { type Place } from "../components/newchat/PlacePicker";
@@ -134,8 +138,12 @@ export default function NewChatPage() {
    * The message this page has sent but has no task id for yet. While it is set,
    * draw the same transcript the conversation route will draw so the send is
    * visible immediately. A refused create restores the draft beneath it.
+   *
+   * It is a `PendingSend`, not a string, because the conversation route takes
+   * it over unchanged: the bubble the draft drew is the bubble the new
+   * conversation settles when the daemon's own copy arrives.
    */
-  const [pendingSend, setPendingSend] = useState<string | null>(null);
+  const [pendingSend, setPendingSend] = useState<PendingSend | null>(null);
   const [project, setProject] = useState<Project | null>(null);
   const [projectSummary, setProjectSummary] = useState<OnePagerSummary | null>(null);
   const [projectLookupState, setProjectLookupState] = useState<
@@ -518,7 +526,11 @@ export default function NewChatPage() {
     }
 
     setSending(true);
-    setPendingSend(displayUserPrompt(raw));
+    // The task does not exist yet, so its transcript cannot either: the
+    // high-water mark is zero and the bubble settles on the first matching
+    // user event the daemon writes.
+    const sent = newPendingSend(raw, NO_EVENTS);
+    setPendingSend(sent);
     try {
       const task = await createTask({
         agent,
@@ -547,6 +559,10 @@ export default function NewChatPage() {
       // conversation route then draws its header and composer immediately
       // instead of waiting for a detail request for a task it just created.
       liveResources.applyTaskSnapshot(task, liveResources.currentRevision());
+      // The same bubble travels with the route: the conversation mounts before
+      // its detail answers, and it must draw the message the draft was already
+      // showing rather than blink it away for one navigation plus one GET.
+      handOffPendingSend(task.id, sent);
       clearDraftPrompt();
       // The draft is gone; returning to the list later should not put focus
       // back on the button that opened it.
@@ -737,7 +753,7 @@ export default function NewChatPage() {
               <div className="pb-5">
                 <ChatStream
                   events={NO_EVENTS}
-                  fallbackUserPrompt={pendingSend}
+                  fallbackUserPrompt={pendingSend.text}
                   loading
                   loadingSpeaker={mainAgentId}
                   hostSpeaker={mainAgentId}

@@ -350,7 +350,7 @@ export class LiveResourceStore {
 
   applyTaskSnapshot(task: Task, requestRevision: number): void {
     if ((this.taskRevisions.get(task.id) ?? 0) > requestRevision) return;
-    this.applyTaskUpdate(task, ++this.revision);
+    this.applyTaskUpdate(task, ++this.revision, true);
   }
 
   /**
@@ -678,7 +678,7 @@ export class LiveResourceStore {
     return this.taskRegistrations.get(taskId)?.lease === lease;
   }
 
-  private applyTaskUpdate(task: Task, revision: number): void {
+  private applyTaskUpdate(task: Task, revision: number, seedDetail = false): void {
     const previousEpoch = this.currentTaskEpoch(task.id);
     if (!this.acceptTaskEpoch(task)) return;
     const reset = this.speculativeEventResets.get(task.id);
@@ -701,18 +701,35 @@ export class LiveResourceStore {
       };
     }
     const detail = this.state.taskDetails[task.id];
+    let taskDetails: Readonly<Record<string, TaskDetailResource>> = this.state.taskDetails;
+    if (detail) {
+      taskDetails = {
+        ...this.state.taskDetails,
+        [task.id]: {
+          ...detail,
+          data: { ...detail.data, task, deleted: false },
+        },
+      };
+    } else if (seedDetail) {
+      // A create answer is enough to draw the conversation: header, composer,
+      // and a transcript that says it is still arriving. `loaded` stays false
+      // because no GET has answered — host readiness and the transcript both
+      // wait on the real read, not on this seed. Existing events are never
+      // touched: this branch only runs when there is no detail at all.
+      taskDetails = {
+        ...this.state.taskDetails,
+        [task.id]: {
+          data: { task, events: EMPTY_EVENTS, deleted: false },
+          loading: false,
+          error: null,
+          loaded: false,
+        },
+      };
+    }
     this.state = {
       ...this.state,
       taskLists: lists,
-      taskDetails: detail
-        ? {
-            ...this.state.taskDetails,
-            [task.id]: {
-              ...detail,
-              data: { ...detail.data, task, deleted: false },
-            },
-          }
-        : this.state.taskDetails,
+      taskDetails,
     };
     this.emit();
     if ((task.event_epoch ?? 0) > previousEpoch && this.taskRegistrations.has(task.id)) {
