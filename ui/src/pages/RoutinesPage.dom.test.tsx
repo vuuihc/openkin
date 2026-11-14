@@ -487,3 +487,46 @@ describe("RoutinesPage offline machine list", () => {
     await waitFor(() => expect(locationOf(router)).toBe("/routines?device=dev-a"));
   });
 });
+
+describe("RoutinesPage routines left on this machine", () => {
+  it("points at this machine's own routines while another machine is shown", async () => {
+    vi.mocked(listRoutines).mockImplementation(async (_params, device) =>
+      device === "self"
+        ? {
+            routines: [routine("own-1", "Own one"), routine("own-2", "Own two")],
+            next_cursor: "",
+            has_more: false,
+          }
+        : { routines: [], next_cursor: "", has_more: false },
+    );
+    const { router } = renderApp("/routines?device=dev-b");
+    await waitFor(() => expect(machineValue()).toBe("dev-b"));
+    expect(await screen.findByText("routines.ownMachineHasRoutines")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "routines.ownMachineView" }));
+
+    await waitFor(() => expect(machineValue()).toBe("self"));
+    await waitFor(() => expect(locationOf(router)).toBe("/routines?device=self"));
+    await screen.findByText("Own one");
+    expect(screen.queryByText("routines.ownMachineHasRoutines")).toBeNull();
+  });
+
+  it("stays quiet when this machine holds no routines", async () => {
+    renderApp("/routines?device=dev-b");
+    await waitFor(() => expect(machineValue()).toBe("dev-b"));
+    await waitFor(() => expect(listRoutines).toHaveBeenCalledWith({ limit: 100 }, "self"));
+    expect(screen.queryByText("routines.ownMachineHasRoutines")).toBeNull();
+  });
+
+  it("does not ask for this machine's rows while already showing them", async () => {
+    vi.mocked(listRoutines).mockClear();
+    renderApp("/routines?device=self");
+    await waitFor(() => expect(machineValue()).toBe("self"));
+    await waitFor(() => expect(listRoutines).toHaveBeenCalled());
+    const ownCalls = vi
+      .mocked(listRoutines)
+      .mock.calls.filter(([params, device]) => device === "self" && !("q" in (params ?? {})));
+    expect(ownCalls).toHaveLength(0);
+    expect(screen.queryByText("routines.ownMachineHasRoutines")).toBeNull();
+  });
+});
