@@ -3,23 +3,12 @@ import tseslint from "typescript-eslint";
 import kin from "./eslint-rules/index.js";
 
 /**
- * The added-file bans, kept out of `eslint.config.js` on purpose.
- *
- * `npm run lint` runs on the whole tree and must stay green on today's legacy
- * spellings. `scripts/ui_lint_guard.py` applies this config to the `ui/src`
- * files a change adds relative to its base, so new code cannot copy the shapes
- * the migration is removing. Reproduce a scoped run with:
- *
- *     cd ui
- *     npx eslint --config eslint.guard.config.js src/components/YourNewFile.tsx
- *
- * Tests spell controls and portals on purpose, generated API types are a build
- * artifact, and `src/components/ui/` is the facade where a raw control and a
- * portal are supposed to live. The runner leaves all three out as well.
+ * The added-file bans, off in `eslint.config.js` so `npm run lint` stays green
+ * on legacy spellings. `scripts/ui_lint_guard.py` applies this config to added
+ * `ui/src` files; tests, generated types and the facade are exempt.
  */
 export default tseslint.config(
-  // Global ignores: an object with only `ignores` is excluded from every later
-  // config, so these files are not linted at all.
+  // Global ignores: an object with only `ignores` applies to every later config.
   {
     ignores: [
       "dist/**",
@@ -30,8 +19,7 @@ export default tseslint.config(
     ],
   },
   {
-    // Disable directives written for ordinary lint must stay usable here; an
-    // unused one is not a finding in a scoped run.
+    // Directives written for ordinary lint stay usable; unused ones are fine here.
     linterOptions: { reportUnusedDisableDirectives: "off" },
   },
   {

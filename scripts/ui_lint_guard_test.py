@@ -36,10 +36,8 @@ def ci_base(**fixtures: str) -> str:
         text=True,
         env={
             **os.environ,
-            "PR_BASE_SHA": "",
-            "EVENT_BEFORE": "",
-            "REF_NAME": "",
-            "DEFAULT_BRANCH": "",
+            "PR_BASE_SHA": "", "EVENT_BEFORE": "",
+            "REF_NAME": "", "DEFAULT_BRANCH": "",
             **fixtures,
         },
     )
@@ -118,16 +116,14 @@ class GuardTest(unittest.TestCase):
         names = guard.selected_files(self.root, base)
         for name in ("ui/src/Staged.tsx", "ui/src/Untracked.tsx", "ui/src/New Name.tsx"):
             self.assertIn(name, names)
-        # A rename is scoped by its new path, so a move cannot carry a legacy
-        # spelling to a new name and keep it exempt.
+        # A rename is scoped by its new path, so an old spelling cannot stay exempt.
         self.assertNotIn("ui/src/Old.tsx", names)
         self.assertNotIn("ui/src/Gone.tsx", names)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             self.assertEqual(guard.run_lint(self.root, base), 0)
-        # The reproduction line quotes a path with a space.
+        # The reproduce line quotes the spaced path; a raw control there fails.
         self.assertIn("'src/New Name.tsx'", out.getvalue())
-        # Quoting is not cosmetic: a raw control in a spaced path is rejected.
         self.write("ui/src/Bad Name.tsx", RAW)
         self.assertNotEqual(guard.run_lint(self.root, base), 0)
 
@@ -193,8 +189,7 @@ class GuardTest(unittest.TestCase):
         self.git("checkout", "-q", "--orphan", "stranger")
         self.write("ui/src/New.tsx", RAW)
         self.commit("unrelated root")
-        # Both the explicit base and the origin/main fallback have no common
-        # history with HEAD; neither may be labelled a merge-base.
+        # Neither the explicit base nor origin/main shares history with HEAD.
         for explicit in (None, base):
             with mock.patch.dict(os.environ, {"UI_LINT_BASE": ""}):
                 with self.assertRaisesRegex(guard.GuardError, "no merge-base"):

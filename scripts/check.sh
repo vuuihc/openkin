@@ -228,10 +228,8 @@ job_ui_inventory() {
   python3 -B scripts/check-ui-inventory.py
 }
 
-# The three added-file bans and their own tests. Always runs: on a clean branch
-# `ui-test` sees nothing, and a disabled rule must still turn this job red. The
-# shell script runs the RuleTester file (which no other job covers) and then the
-# real scoped lint, propagating each failure.
+# The added-file bans and their own tests. Always runs: a disabled rule must
+# still turn this job red, even when `ui-test` sees nothing.
 job_ui_lint_guard() {
   python3 -B -m unittest scripts/ui_lint_guard_test.py || return 1
   ./scripts/ui-lint-guard.sh

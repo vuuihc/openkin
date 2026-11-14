@@ -3,22 +3,11 @@
 
     python3 scripts/ui_lint_guard.py [--base REF] [--list]
 
-`git diff --diff-filter=AR` against the merge-base of HEAD and the base selects
-added and renamed `ui/src/**/*.{ts,tsx}` paths; staged, unstaged and untracked
-local sources are included too. Tests, generated API types and the shared
-facade (`ui/src/components/ui/`) are exempt in both selection and
-`ui/eslint.guard.config.js`.
-
-Base order: `--base`, `$UI_LINT_BASE`, then `origin/main` and `main`. CI passes
-the PR base or the default branch's previous tip through `UI_LINT_BASE`; a
-feature push leaves it unset, so the comparison stays cumulative against
-`origin/main` and a file added by an earlier push is still in scope. This is
-deliberately not the workflow's `BASE_SHA`, which scopes formatting to the
-previous push.
-
-An explicit base that does not resolve, a base with no shared history, or no
-automatic base at all, exits 2 instead of passing: a guard that cannot decide
-must not report green.
+Selects added/renamed `ui/src/**/*.{ts,tsx}` paths (plus uncommitted sources)
+against the base merge-base; tests, generated API types and the facade are
+exempt. Base order: `--base`, `$UI_LINT_BASE`, `origin/main`, `main`; CI leaves
+it unset on feature pushes so the guard stays cumulative, and a base that
+cannot resolve exits 2 rather than reporting green.
 """
 
 from __future__ import annotations
