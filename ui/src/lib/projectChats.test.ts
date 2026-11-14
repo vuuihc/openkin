@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AgentSession, Task } from "../api/client";
-import { loadProjectChats, normalizeProjectTab, projectChatRows, projectRoots } from "./projectChats";
+import {
+  latestImportAt,
+  loadProjectChats,
+  projectChatRows,
+  projectNewChatTarget,
+  projectRoots,
+} from "./projectChats";
 
 function task(partial: Partial<Task> & Pick<Task, "id" | "created_at">): Task {
   return {
@@ -33,7 +39,7 @@ function session(partial: Partial<AgentSession> & Pick<AgentSession, "id">): Age
 
 const COPY = { untitled: "Untitled chat" };
 
-describe("projectChatRows", () => {
+describe("projectChatRows (KIN-PROJECT-001)", () => {
   it("merges Kin tasks and imported sessions newest first", () => {
     const rows = projectChatRows(
       [task({ id: "a", created_at: 10 }), task({ id: "b", created_at: 30, finished_at: 40 })],
@@ -146,6 +152,47 @@ describe("projectChatRows", () => {
   });
 });
 
+describe("projectNewChatTarget (KIN-PROJECT-001 D4)", () => {
+  it("carries the only root as the draft's cwd", () => {
+    expect(projectNewChatTarget({ roots: [" /work/alpha "] })).toEqual({
+      kind: "cwd",
+      href: "/new?cwd=%2Fwork%2Falpha",
+    });
+  });
+
+  it("sends a multi-root project to the picker instead of guessing", () => {
+    // Picking roots[0] is how a chat lands outside the project it was started
+    // from; the draft's own device/project step owns that choice.
+    expect(projectNewChatTarget({ roots: ["/work/alpha", "/work/beta"] })).toEqual({
+      kind: "picker",
+      href: "/new",
+    });
+  });
+
+  it("answers no-root rather than a link with an empty cwd", () => {
+    expect(projectNewChatTarget({ roots: [] })).toEqual({ kind: "no-root" });
+    expect(projectNewChatTarget({})).toEqual({ kind: "no-root" });
+    expect(projectNewChatTarget(null)).toEqual({ kind: "no-root" });
+  });
+});
+
+describe("latestImportAt (KIN-PROJECT-001)", () => {
+  it("takes the newest first-seen stamp and ignores missing ones", () => {
+    expect(
+      latestImportAt([
+        session({ id: "old", first_seen_at: 10 }),
+        session({ id: "new", first_seen_at: 30 }),
+        session({ id: "unknown", first_seen_at: 0 }),
+      ]),
+    ).toBe(30);
+  });
+
+  it("answers null when nothing was ever imported", () => {
+    expect(latestImportAt([])).toBeNull();
+    expect(latestImportAt([session({ id: "s", first_seen_at: 0 })])).toBeNull();
+  });
+});
+
 describe("projectRoots", () => {
   it("trims roots and drops blanks, in order", () => {
     expect(projectRoots({ roots: [" /work/a ", "", "  ", "/work/b"] })).toEqual([
@@ -181,6 +228,26 @@ describe("loadProjectChats", () => {
     expect(outcome?.rows.map((row) => row.key)).toEqual(["s-/work/a", "s-/work/b", "t1"]);
     expect(outcome?.partial).toBe(false);
     expect(outcome?.error).toBeNull();
+  });
+
+  it("reports the newest import even when the newest row is a task", async () => {
+    // "Last import" answers a different question from "last conversation": an
+    // imported session can be older than the newest Kin task and still be the
+    // most recent import.
+    const outcome = await loadProjectChats({
+      projectId: "p1",
+      roots: ["/work/a"],
+      feed: {
+        tasks: async () => [task({ id: "t1", created_at: 50 })],
+        sessions: async () => [
+          session({ id: "s1", updated_at: 10, first_seen_at: 40 }),
+        ],
+      },
+      copy,
+      selfDeviceId: "self",
+    });
+    expect(outcome?.rows.map((row) => row.key)).toEqual(["t1", "s1"]);
+    expect(outcome?.lastImportAt).toBe(40);
   });
 
   it("reports the task read failing as an error, with no list", async () => {
@@ -307,14 +374,5 @@ describe("loadProjectChats", () => {
     expect(outcome).not.toBeNull();
     // One check after tasks, one after the roots -- not a third, redundant one.
     expect(isCurrent).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe("normalizeProjectTab", () => {
-  it("takes only the chats value, and treats anything else as the overview", () => {
-    expect(normalizeProjectTab("chats")).toBe("chats");
-    expect(normalizeProjectTab("overview")).toBe("overview");
-    expect(normalizeProjectTab("files")).toBe("overview");
-    expect(normalizeProjectTab(null)).toBe("overview");
   });
 });

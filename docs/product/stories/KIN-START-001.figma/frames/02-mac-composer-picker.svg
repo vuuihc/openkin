@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1100" height="760" fill="#ffffff" rx="10"/>
+<rect width="1100" height="32" fill="#f0f0f0" rx="10"/>
+<rect y="10" width="1100" height="22" fill="#f0f0f0"/>
+<line x1="0" y1="32" x2="1100" y2="32" stroke="#dddddd"/>
+<text x="12" y="21" font-size="12" fill="#555">Mac 1100×760 · 新建对话 · 选择设备与项目（KIN-START-001）</text>
+<text x="1088" y="21" font-size="11" fill="#6b6b6b" text-anchor="end">项目条在卡下；弹层从这里展开</text>
+
+<rect x="0" y="32" width="300" height="728" fill="#fbfbfb"/>
+<line x1="300" y1="32" x2="300" y2="760" stroke="#e3e3e3"/>
+<text x="24" y="62" font-size="18" fill="#1a1a1a" font-weight="600">K</text>
+<rect x="20" y="84" width="260" height="34" rx="8" fill="#1f6feb"/>
+<text x="150" y="106" font-size="12" fill="#ffffff" text-anchor="middle">＋ 新建对话</text>
+<rect x="20" y="130" width="260" height="30" rx="8" fill="#ffffff" stroke="#dddddd"/>
+<text x="32" y="150" font-size="11.5" fill="#999">搜索对话…</text>
+<text x="20" y="190" font-size="11" fill="#6b6b6b">本机</text>
+<rect x="12" y="198" width="276" height="28" rx="7" fill="#eef3ff"/>
+<text x="24" y="217" font-size="12" fill="#1f6feb" font-weight="600">alpha</text>
+<text x="44" y="243" font-size="11.5" fill="#444">对话 A</text>
+<text x="44" y="269" font-size="11.5" fill="#444">对话 B</text>
+<text x="24" y="299" font-size="11.5" fill="#444">beta</text>
+<text x="20" y="736" font-size="11" fill="#6b6b6b">导入 · 归档 · 设置</text>
+
+<text x="324" y="72" font-size="12" fill="#6b6b6b">新建对话 · 草稿自动保留</text>
+<text x="700" y="186" font-size="26" fill="#1a1a1a" font-weight="600" text-anchor="middle">想让 Kin 做什么？</text>
+<text x="700" y="214" font-size="12" fill="#6b6b6b" text-anchor="middle">写一句，选好，开始；其余沿用上次的选择。</text>
+
+<rect x="380" y="238" width="640" height="180" rx="16" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="404" y="274" font-size="13.5" fill="#555">把这周的发布说明整理成一页，</text>
+<text x="404" y="298" font-size="13.5" fill="#555">标出需要我确认的三项。</text>
+<line x1="404" y1="352" x2="996" y2="352" stroke="#eeeeee"/>
+<rect x="396" y="368" width="92" height="32" rx="16" fill="#f6f6f8" stroke="#dddddd"/>
+<text x="442" y="389" font-size="11.5" fill="#1a1a1a" text-anchor="middle">只读 ▾</text>
+<text x="900" y="389" font-size="12" fill="#1a1a1a" text-anchor="end">Claude Code · 默认模型 ▾</text>
+<rect x="932" y="364" width="66" height="34" rx="17" fill="#1f6feb"/>
+<text x="965" y="386" font-size="12" fill="#ffffff" text-anchor="middle">开始</text>
+
+<rect x="380" y="436" width="640" height="42" rx="12" fill="#f6f6f8" stroke="#1f6feb"/>
+<path d="M400 451h11l4 4h9v12h-24z" fill="none" stroke="#6b6b6b" stroke-linejoin="round"/>
+<text x="424" y="462" font-size="12.5" fill="#1a1a1a" font-weight="600">本机 · alpha</text>
+<text x="1000" y="461" font-size="12" fill="#1f6feb" text-anchor="end">更换 ▾</text>
+
+<rect x="300" y="90" width="800" height="670" fill="#ffffff" fill-opacity="0.62"/>
+
+<rect x="386" y="496" width="480" height="268" rx="14" fill="#000000" fill-opacity="0.07"/>
+<rect x="380" y="490" width="480" height="268" rx="14" fill="#ffffff" stroke="#1f6feb"/>
+<rect x="396" y="504" width="448" height="30" rx="8" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="408" y="524" font-size="11.5" fill="#999">搜索机器或项目…</text>
+
+<text x="396" y="558" font-size="11" fill="#6b6b6b">本机 · 在线</text>
+<rect x="388" y="564" width="464" height="26" rx="7" fill="#eef3ff"/>
+<text x="400" y="582" font-size="11.5" fill="#1f6feb" font-weight="600">alpha</text>
+<text x="446" y="582" font-size="10.5" fill="#6b6b6b">/work/alpha</text>
+<text x="840" y="581" font-size="11.5" fill="#1f6feb" text-anchor="end">✓</text>
+<rect x="388" y="594" width="464" height="26" rx="7" fill="#ffffff"/>
+<text x="400" y="612" font-size="11.5" fill="#1a1a1a">beta</text>
+<text x="446" y="612" font-size="10.5" fill="#6b6b6b">/work/beta</text>
+
+<text x="396" y="644" font-size="11" fill="#6b6b6b">另一台机器 · 在线</text>
+<rect x="388" y="650" width="464" height="26" rx="7" fill="#ffffff"/>
+<text x="400" y="668" font-size="11.5" fill="#1a1a1a">gamma</text>
+<text x="446" y="668" font-size="10.5" fill="#6b6b6b">/srv/gamma</text>
+
+<text x="396" y="700" font-size="11" fill="#6b6b6b">NAS · 离线</text>
+<rect x="388" y="706" width="464" height="26" rx="7" fill="#f6f6f8"/>
+<text x="400" y="724" font-size="11.5" fill="#999">nas</text>
+<text x="446" y="724" font-size="10.5" fill="#999">上次见 2 天前</text>
+<rect x="752" y="710" width="52" height="18" rx="9" fill="#fff1f0"/>
+<text x="778" y="723" font-size="10" fill="#b42318" text-anchor="middle">离线</text>
+
+<text x="396" y="750" font-size="10.5" fill="#6b6b6b">输入一个目录…　·　↑/↓ 选择 · Enter 确认 · Esc 关闭</text>
+<rect x="0.5" y="0.5" width="1099" height="759" fill="none" rx="10" stroke="#bbbbbb"/>
+</g>
+</svg>

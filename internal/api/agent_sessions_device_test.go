@@ -36,6 +36,9 @@ import (
 type nodeCatalog struct {
 	sessions map[string][]agent.SessionInfo
 	page     agent.HistoryPage
+	// historyQuery is the last question this machine answered, so a test can
+	// assert what crossed the wire rather than only what came back.
+	historyQuery agent.HistoryQuery
 }
 
 func (c *nodeCatalog) IDs() []string {
@@ -54,7 +57,8 @@ func (c *nodeCatalog) ListSessions(_ context.Context, agentID string, _ agent.Se
 	return sessions, nil
 }
 
-func (c *nodeCatalog) ReadSessionHistory(_ context.Context, agentID, ref string, _ agent.HistoryQuery) (agent.HistoryPage, error) {
+func (c *nodeCatalog) ReadSessionHistory(_ context.Context, agentID, ref string, q agent.HistoryQuery) (agent.HistoryPage, error) {
+	c.historyQuery = q
 	return c.page, nil
 }
 
@@ -107,6 +111,7 @@ func TestAPairedMachinesSessionsArriveInThisHubsList(t *testing.T) {
 			"claude-code": {{
 				AgentID: "claude-code", ExternalRef: "node-session-1",
 				Title: "on the node", Cwd: "/Users/someone/project", Status: "idle",
+				SourceURI:    "file:///Users/someone/.claude/projects/p/node-session-1.jsonl",
 				Capabilities: []agent.Capability{agent.CapabilitySessionList, agent.CapabilitySessionAttach},
 				CreatedAt:    now, UpdatedAt: now,
 			}},
@@ -180,6 +185,12 @@ func TestAPairedMachinesSessionsArriveInThisHubsList(t *testing.T) {
 	}
 	if page.SourceRev != "rev-1" {
 		t.Fatalf("the machine's revision was lost: %s", history.Body.String())
+	}
+	// The row's source crosses the wire as a hint, so the machine can open the
+	// one file instead of walking its whole catalog to find it again.
+	if catalog.historyQuery.SourceURI !=
+		"file:///Users/someone/.claude/projects/p/node-session-1.jsonl" {
+		t.Fatalf("source hint=%q, want the row's recorded source", catalog.historyQuery.SourceURI)
 	}
 }
 
@@ -855,7 +866,9 @@ func TestTheHistoryTailAndBackwardCursorCrossTheRoute(t *testing.T) {
 	catalog := &hubCatalog{
 		sessions: []agent.SessionInfo{{
 			AgentID: "claude-code", ExternalRef: "hub-session-1", Title: "on this machine",
-			Cwd: "/tmp/project", Status: "idle", CreatedAt: now, UpdatedAt: now,
+			Cwd: "/tmp/project", Status: "idle",
+			SourceURI: "file:///Users/someone/.claude/projects/p/hub-session-1.jsonl",
+			CreatedAt: now, UpdatedAt: now,
 		}},
 		page: agent.HistoryPage{
 			Items: []agent.HistoryItem{{
@@ -881,6 +894,12 @@ func TestTheHistoryTailAndBackwardCursorCrossTheRoute(t *testing.T) {
 	}
 	if !catalog.historyQuery.Tail {
 		t.Fatal("the route did not ask the provider for the tail")
+	}
+	// The row's recorded source reaches the provider, so the catalog opens one
+	// file rather than rediscovering every session on the machine.
+	if catalog.historyQuery.SourceURI !=
+		"file:///Users/someone/.claude/projects/p/hub-session-1.jsonl" {
+		t.Fatalf("source hint=%q, want the row's recorded source", catalog.historyQuery.SourceURI)
 	}
 	if catalog.historyQuery.Limit != 100 {
 		t.Fatalf("provider limit=%d, want 100", catalog.historyQuery.Limit)
@@ -1156,5 +1175,61 @@ func TestAProviderNameNoWireWouldCarryIsAnsweredWithoutAsking(t *testing.T) {
 	// back reads as a fault of the machine rather than of the name.
 	if asks := catalog.asks(); len(asks) != 0 {
 		t.Fatalf("the machine was asked about %q anyway", asks)
+	}
+}
+
+// A source path a person can actually have survives the machine's listing.
+//
+// The history hint is only worth carrying if the path arrives whole: the
+// answering machine can open a named file without walking its catalog, but a
+// path cut at a wire bound names no file at all. A home directory on a deep
+// checkout is longer than the old 512-byte cap.
+func TestASourcePathSurvivesTheMachineListing(t *testing.T) {
+	now := time.Now()
+	// 600 bytes: longer than the cap this field used to have, and shorter than
+	// any path a filesystem allows.
+	path := "file:///Users/someone/.claude/projects/" + strings.Repeat("p", 560) + "/session.jsonl"
+	catalog := &nodeCatalog{
+		sessions: map[string][]agent.SessionInfo{
+			"claude-code": {{
+				AgentID:     "claude-code",
+				ExternalRef: "node-session-1",
+				Title:       "on the node",
+				Cwd:         "/tmp/project",
+				Status:      "idle",
+				SourceURI:   path,
+				CreatedAt:   now,
+				UpdatedAt:   now,
+			}},
+		},
+		page: agent.HistoryPage{
+			Items: []agent.HistoryItem{{
+				AgentID: "claude-code", ExternalRef: "node-session-1",
+				MessageID: "m1", Role: "user", Text: "what the node recorded",
+			}},
+		},
+	}
+	s, master, conns, responder := sessionsServer(t, catalog)
+	hub := httptest.NewServer(s.Handler())
+	defer hub.Close()
+	deviceToken, deviceID := pairDevice(t, s.Handler(), master)
+	runResponder(t, hub.URL, deviceToken, responder)
+	awaitConnected(t, conns, deviceID)
+
+	if rec := postJSON(t, s.Handler(), "/api/agent-sessions/import", master,
+		map[string]any{"device_id": deviceID}); rec.Code != http.StatusOK {
+		t.Fatalf("import status %d: %s", rec.Code, rec.Body.String())
+	}
+	rows := listAgentSessions(t, s.Handler(), master)
+	if len(rows) != 1 {
+		t.Fatalf("the list has %d sessions, want 1", len(rows))
+	}
+	rec := getJSON(t, s.Handler(), master, "/api/agent-sessions/"+rows[0].ID+"/history")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("history status %d: %s", rec.Code, rec.Body.String())
+	}
+	if catalog.historyQuery.SourceURI != path {
+		t.Fatalf("the source hint arrived as %d bytes, want the %d the machine listed",
+			len(catalog.historyQuery.SourceURI), len(path))
 	}
 }

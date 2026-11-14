@@ -362,7 +362,7 @@ func (r *Responder) answer(ctx context.Context, id, method string, params json.R
 			return refused(id, fmt.Errorf("the routine answer is %d bytes, over the %d-byte limit",
 				len(answer.Body), worker.MaxRoutineResponse))
 		}
-		return answered(id, worker.ConsoleResult{
+		return answered(id, worker.RoutinesResult{
 			Status: answer.Status, ContentType: answer.ContentType, Body: answer.Body,
 		})
 	case worker.QueryTaskDetail:
@@ -398,7 +398,7 @@ func (r *Responder) answer(ctx context.Context, id, method string, params json.R
 		if r.Tasks == nil {
 			return refused(id, errors.New("this machine does not answer questions about its tasks"))
 		}
-		answer, err := r.Tasks.TaskEvents(ctx, asked.ID, asked.SinceSeq)
+		answer, err := r.Tasks.TaskEvents(ctx, asked.ID, asked.SinceSeq, asked.Limit)
 		if err != nil {
 			return refused(id, err)
 		}

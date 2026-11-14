@@ -53,9 +53,8 @@ list_routines           get_usage                get_routing_status
 Write tools:
 
 ```text
-create_routine          create_task             send_task_message
-cancel_task             retry_task              continue_task
-run_routine
+create_task             send_task_message         cancel_task
+retry_task              continue_task             run_routine
 ```
 
 Admin tools:

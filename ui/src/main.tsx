@@ -1,7 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
-import { setupIonicReact } from "@ionic/react";
 import App from "./App";
 import { bootstrapTokenFromURL, getToken } from "./api/client";
 import {
@@ -19,16 +18,7 @@ import { currentHubUrl, hubConfigPlugin } from "./lib/hubConfig";
 import { initTheme } from "./lib/theme";
 import { cleanupLegacyWebPush } from "./lib/legacyWebPush";
 import { synthesizePhoneParent } from "./lib/phoneDeepLinkParent";
-import "@ionic/react/css/core.css";
 import "./index.css";
-
-/**
- * Ionic is still the console's mobile design language on the surfaces that
- * use it (the conversation's action sheet, the switcher). The phone's own
- * navigation is the console's now (KIN-CONTINUE-002), but the library stays
- * initialized until those remaining sheets move to `components/ui/Sheet`.
- */
-setupIonicReact({ mode: "ios" });
 
 initTheme();
 // Web Push is gone; retire the worker an older console may have installed.

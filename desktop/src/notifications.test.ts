@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  approvalPath,
   NotifyDeduper,
   notifyKey,
   notifyHasDecisionActions,
@@ -21,7 +22,7 @@ describe("parsing the node's notify event", () => {
   const event = {
     kind: "approval",
     id: "appr-1",
-    url: "https://kin.example.com/inbox?focus=appr-1",
+    url: "https://kin.example.com/tasks/01ABC?focus=appr-1",
     title: "Fix the tests",
     body: "Task 01ABC needs approval",
     task_id: "01ABC",
@@ -64,7 +65,7 @@ describe("deciding whether a banner is worth it", () => {
   const approval = {
     kind: "approval" as const,
     id: "appr-1",
-    url: "/inbox?focus=appr-1",
+    url: "/tasks/01ABC?focus=appr-1",
     title: "Approval needed",
     body: "",
     task_id: "01ABC",
@@ -102,7 +103,7 @@ describe("deduping the same event", () => {
     const event = {
       kind: "approval" as const,
       id: "appr-1",
-      url: "/inbox?focus=appr-1",
+      url: "/tasks/01ABC?focus=appr-1",
       title: "Approval needed",
       body: "",
     };
@@ -173,7 +174,7 @@ describe("opening the event's link", () => {
   const origin = "https://kin.example.com";
 
   it("keeps a known console path and its focus", () => {
-    assert.equal(safeNotifyPath("/inbox?focus=appr-1", origin), "/inbox?focus=appr-1");
+    assert.equal(safeNotifyPath("/tasks/01ABC?focus=appr-1", origin), "/tasks/01ABC?focus=appr-1");
     assert.equal(safeNotifyPath("/tasks/01ABC", origin), "/tasks/01ABC");
   });
 
@@ -186,20 +187,23 @@ describe("opening the event's link", () => {
       "/tasks/01ABC?from=push",
     );
     assert.equal(
-      safeNotifyPath("https://kin.example.com/inbox?focus=a1", "http://127.0.0.1:7777"),
-      "/inbox?focus=a1",
+      safeNotifyPath("https://kin.example.com/tasks/01ABC?focus=a1", "http://127.0.0.1:7777"),
+      "/tasks/01ABC?focus=a1",
     );
   });
 
-  it("falls back to the inbox for anything else", () => {
+  it("falls back to the conversation list for anything else", () => {
+    // The list is the landing because every row there carries the waiting
+    // count; the inbox it used to name is gone.
     for (const url of [
       "https://evil.example/admin?focus=a1",
       "javascript:alert(1)",
       "file:///etc/passwd",
       "/admin",
+      "/inbox?focus=a1",
       "",
     ]) {
-      assert.equal(safeNotifyPath(url, origin), "/inbox", url);
+      assert.equal(safeNotifyPath(url, origin), "/sessions", url);
     }
   });
 
@@ -207,6 +211,13 @@ describe("opening the event's link", () => {
     assert.equal(safeNotifyPath("https://kin.example.com/tasks/01ABC"), "/tasks/01ABC");
     assert.equal(safeNotifyPath("https://evil.example/tasks/01ABC"), "/tasks/01ABC");
     assert.equal(safeNotifyPath("/tasks/01ABC"), "/tasks/01ABC");
+  });
+
+  it("opens a tray approval in its conversation, or the list without one", () => {
+    // The tray row knows which task the approval belongs to; landing on the
+    // card is the same destination a push names.
+    assert.equal(approvalPath("appr-1", "01ABC"), "/tasks/01ABC?focus=appr-1");
+    assert.equal(approvalPath("appr-1"), "/sessions");
   });
 });
 
@@ -286,7 +297,7 @@ describe("showing a notification", () => {
   const approval = {
     kind: "approval" as const,
     id: "appr-1",
-    url: "https://kin.example.com/inbox?focus=appr-1",
+    url: "https://kin.example.com/tasks/01ABC?focus=appr-1",
     title: "Fix the login bug",
     body: "Task 01ABC needs approval",
     task_id: "01ABC",
@@ -306,7 +317,7 @@ describe("showing a notification", () => {
     created[0]?.emitClick();
     // The node wrote the Hub origin; this shell is on localhost. Only the path
     // is opened, so the tap still names the approval.
-    assert.deepEqual(opened, ["/inbox?focus=appr-1"]);
+    assert.deepEqual(opened, ["/tasks/01ABC?focus=appr-1"]);
   });
 
   it("stays quiet only for the task already on screen", () => {

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { deletePushDevice, registerPushDevice } from "../api/client";
 import { usePendingResources } from "../api/useLiveResources";
 import { liveResources } from "../api/liveResources";
 import {
@@ -9,7 +10,16 @@ import {
   type NotificationRoute,
   type NotificationTapSource,
 } from "../lib/notificationRoute";
-import { clearDeliveredNotification, deliveredNotificationTargets, nativePushPlugin } from "../lib/nativePush";
+import {
+  clearDeliveredNotification,
+  deliveredNotificationTargets,
+  flushPendingNativeDelete,
+  nativePushPlugin,
+  rememberNativeDevice,
+  syncNativePush,
+  type NativePushApi,
+  type NativePushPlugin,
+} from "../lib/nativePush";
 import { phonePush } from "../lib/phoneNavigation";
 import { runGuardedNavigation } from "../lib/leaveGuard";
 import { closeTopSheet } from "../lib/sheetExit";
@@ -25,10 +35,17 @@ import { useAppStore } from "../store/appStore";
  * `notificationRoute.ts` — a link is only ever a known path, never a URL this
  * window opens.
  */
+const clientPushApi: NativePushApi = { registerPushDevice, deletePushDevice };
+
 export function NotificationTaps({
   source = nativePushPlugin(),
+  pushPlugin = nativePushPlugin(),
+  pushApi = clientPushApi,
 }: {
   source?: NotificationTapSource | null;
+  /** The iOS bridge; injected so the launch registration is testable. */
+  pushPlugin?: NativePushPlugin | null;
+  pushApi?: NativePushApi;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -43,6 +60,7 @@ export function NotificationTaps({
   const locationRef = useRef(location);
   locationRef.current = location;
   const pushToast = useAppStore((s) => s.pushToast);
+  const reconnectGen = useAppStore((s) => s.reconnectGen);
   // This component also mounts above the sign-in gate, so a tap that arrives
   // before the reader is through it still changes the route. Asking the node
   // for pending items there would 401 on every first launch and flip the gate
@@ -68,6 +86,47 @@ export function NotificationTaps({
   const queuedTarget = useRef<string | null>(null);
   const activeTarget = useRef<string | null>(null);
   const draining = useRef(false);
+  // A launch, foreground return, sign-in and reconnect all ask the native
+  // shell to refresh its token. Calls that overlap share one follow-up instead
+  // of racing registrations for the same install.
+  const pushSyncInFlight = useRef(false);
+  const pushSyncAgain = useRef(false);
+
+  useEffect(() => {
+    if (!authed || !pushPlugin) return;
+    const sync = () => {
+      if (pushSyncInFlight.current) {
+        pushSyncAgain.current = true;
+        return;
+      }
+      pushSyncInFlight.current = true;
+      // An unconfirmed sign-out deletion must finish before this install can
+      // be addressable again. If deletion still cannot reach the node, leave
+      // registration for the next visibility/reconnect trigger.
+      void flushPendingNativeDelete(pushApi)
+        .then((stillPending) => {
+          if (stillPending) return null;
+          return syncNativePush(pushPlugin, pushApi);
+        })
+        .then((result) => {
+          if (result) rememberNativeDevice(result.id);
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          pushSyncInFlight.current = false;
+          if (pushSyncAgain.current) {
+            pushSyncAgain.current = false;
+            sync();
+          }
+        });
+    };
+    sync();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") sync();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [authed, pushApi, pushPlugin, reconnectGen]);
 
   useEffect(() => {
     // A notification that arrives while the app is in front is shown here

@@ -28,7 +28,7 @@ describe("routing a notify message into the shell", () => {
         data: {
           kind: "approval",
           id: "appr-1",
-          url: "https://kin.example.com/inbox?focus=appr-1",
+          url: "https://kin.example.com/tasks/01ABC?focus=appr-1",
           title: "Fix the tests",
           body: "Task 01ABC needs approval",
           task_id: "01ABC",
@@ -42,7 +42,7 @@ describe("routing a notify message into the shell", () => {
       {
         kind: "approval",
         id: "appr-1",
-        url: "https://kin.example.com/inbox?focus=appr-1",
+        url: "https://kin.example.com/tasks/01ABC?focus=appr-1",
         title: "Fix the tests",
         body: "Task 01ABC needs approval",
         task_id: "01ABC",

@@ -80,3 +80,6 @@ nohup.out
 
 # Wrangler's local state, written by deploying relay/ (holds the account id)
 relay/.wrangler/
+
+# Local-only review pages with embedded screenshots (contain real machine data)
+docs/plans/*.review.local.html

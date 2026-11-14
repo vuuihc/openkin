@@ -61,7 +61,6 @@ vi.mock("../api/useLiveResources", () => ({
 }));
 
 const api = vi.hoisted(() => ({
-  createArtifact: vi.fn(async () => ({ id: "art-9", title: "Saved" })),
   forkTask: vi.fn(async () => ({ id: "task-9" })),
 }));
 
@@ -77,7 +76,6 @@ vi.mock("../api/client", async (importOriginal) => {
     listQueuedPrompts: pending,
     listWorkerSteps: pending,
     followUpPrompt: pending,
-    createArtifact: api.createArtifact,
     forkTask: api.forkTask,
   };
 });
@@ -126,16 +124,14 @@ vi.mock("../components/mobile/MobileHeader", () => ({
 vi.mock("../components/chat/Composer", () => ({ default: () => null }));
 vi.mock("../components/chat/ChatStream", () => ({
   default: ({
-    onSaveArtifact,
+    findOpen,
     onFork,
   }: {
-    onSaveArtifact?: (text: string) => void;
+    findOpen?: boolean;
     onFork?: (fromSeq: number) => void;
   }) => (
     <div>
-      <button type="button" onClick={() => onSaveArtifact?.("the reply")}>
-        save artifact
-      </button>
+      {findOpen ? <div role="search" aria-label="Find in conversation" /> : null}
       <button type="button" onClick={() => onFork?.(1)}>
         fork conversation
       </button>
@@ -193,7 +189,6 @@ function app() {
           <Route path="/cached/:id" element={<CachedPanes />} />
           <Route path="/settings" element={<DirtySettings />} />
           <Route path="/inbox" element={<div>inbox page</div>} />
-          <Route path="/artifacts/:id" element={<div>artifact page</div>} />
         </Routes>
       </AppShell>
     </BrowserRouter>
@@ -281,28 +276,12 @@ beforeEach(() => {
   fixtures.task = task();
   fixtures.task2 = task2();
   fixtures.missing = false;
-  api.createArtifact.mockClear();
   api.forkTask.mockClear();
   window.history.replaceState({ idx: 0 }, "", "/");
   viewport();
 });
 
 describe("a conversation's own pushes on a phone", () => {
-  it("replaces the conversation when an artifact is saved from it", async () => {
-    const user = userEvent.setup();
-    await openConversation(user);
-
-    await user.click(screen.getByRole("button", { name: "save artifact" }));
-    await waitFor(() => expect(window.location.pathname).toBe("/artifacts/art-9"));
-    expect(api.createArtifact).toHaveBeenCalledTimes(1);
-
-    // [list, artifact]: the conversation is not left under the delivery.
-    expect(window.history.state.idx).toBe(1);
-    await browserBack();
-    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
-    expect(window.history.state.idx).toBe(0);
-  });
-
   it("replaces the conversation when it is forked", async () => {
     const user = userEvent.setup();
     await openConversation(user);
@@ -369,7 +348,6 @@ describe("late answers belong to the view that asked", () => {
     // Nothing on the clean Settings asks a question; only the view identity
     // captured when the fork started can keep the stale answer here.
     await waitFor(() => expect(window.location.pathname).toBe("/settings"));
-    expect(screen.queryByText("artifact page")).toBeNull();
     view.unmount();
   });
 
@@ -401,33 +379,6 @@ describe("late answers belong to the view that asked", () => {
     view.unmount();
   });
 
-  it("does not push a saved artifact over a dirty Settings opened later", async () => {
-    const user = userEvent.setup();
-    const saved = deferred<{ id: string; title: string }>();
-    api.createArtifact.mockImplementationOnce(() => saved.promise);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-
-    const view = browserAt(["/sessions", "/cached/task-1"]);
-    const pane = await screen.findByTestId("pane-task-1");
-    await user.click(await within(pane).findByRole("button", { name: "save artifact" }));
-    expect(api.createArtifact).toHaveBeenCalledTimes(1);
-
-    act(() => jump!("/settings"));
-    fireEvent.change(screen.getByLabelText("settings draft"), {
-      target: { value: "still here" },
-    });
-
-    await act(async () => {
-      saved.resolve({ id: "art-9", title: "Saved" });
-      await saved.promise;
-    });
-
-    await waitFor(() => expect(window.location.pathname).toBe("/settings"));
-    expect((screen.getByLabelText("settings draft") as HTMLInputElement).value).toBe("still here");
-    expect(confirm).not.toHaveBeenCalled();
-    view.unmount();
-  });
-
   it("does not navigate when another cached conversation is active", async () => {
     const user = userEvent.setup();
     const fork = deferred<{ id: string }>();
@@ -448,7 +399,6 @@ describe("late answers belong to the view that asked", () => {
     });
 
     await waitFor(() => expect(window.location.pathname).toBe("/cached/task-2"));
-    expect(screen.queryByText("artifact page")).toBeNull();
     view.unmount();
   });
 
@@ -476,7 +426,6 @@ describe("late answers belong to the view that asked", () => {
     // and pathname are the same. The answer belongs to the old visit.
     await waitFor(() => expect(window.location.pathname).toBe("/tasks/task-1"));
     expect(window.history.state.idx).toBe(reopenedEntry);
-    expect(screen.queryByText("artifact page")).toBeNull();
     view.unmount();
   });
 
@@ -506,42 +455,9 @@ describe("late answers belong to the view that asked", () => {
     view.unmount();
   });
 
-  it("does not push an artifact answer into a reopened cached pane", async () => {
-    const user = userEvent.setup();
-    const saved = deferred<{ id: string; title: string }>();
-    api.createArtifact.mockImplementationOnce(() => saved.promise);
-
-    const view = browserAt(["/sessions", "/cached/task-1"]);
-    const pane = await screen.findByTestId("pane-task-1");
-    await user.click(await within(pane).findByRole("button", { name: "save artifact" }));
-
-    act(() => jump!("/settings"));
-    await screen.findByLabelText("settings draft");
-    act(() => jump!("/cached/task-1"));
-    await waitFor(() => expect(window.location.pathname).toBe("/cached/task-1"));
-    const reopenedEntry = window.history.state.idx;
-
-    await act(async () => {
-      saved.resolve({ id: "art-9", title: "Saved" });
-      await saved.promise;
-    });
-
-    await waitFor(() => expect(window.location.pathname).toBe("/cached/task-1"));
-    expect(window.history.state.idx).toBe(reopenedEntry);
-    expect(screen.queryByText("artifact page")).toBeNull();
-    view.unmount();
-  });
 });
 
-describe("a notification closes the conversation's Ionic action sheet", () => {
-  function actionSheet(): { isOpen?: boolean } | null {
-    const sheets = Array.from(document.querySelectorAll("ion-action-sheet"));
-    return (sheets.find(
-      (sheet) =>
-        sheet.getAttribute("header") === "Session actions" &&
-        (sheet as unknown as { isOpen?: boolean }).isOpen === true,
-    ) ?? null) as unknown as { isOpen?: boolean } | null;
-  }
+describe("a notification closes the conversation's action sheet", () => {
 
   it("closes a directly hosted conversation's sheet before routing to Inbox", async () => {
     const user = userEvent.setup();
@@ -549,11 +465,7 @@ describe("a notification closes the conversation's Ionic action sheet", () => {
     await user.click(await screen.findByRole("button", { name: /A conversation/ }));
     await waitFor(() => expect(window.location.pathname).toBe("/tasks/task-1"));
     await user.click(await screen.findByRole("button", { name: "Session actions" }));
-    let sheet: { isOpen?: boolean } | null = null;
-    await waitFor(() => {
-      sheet = actionSheet();
-      expect(sheet).not.toBeNull();
-    });
+    expect(await screen.findByRole("dialog", { name: "Session actions" })).toBeTruthy();
 
     act(() => {
       window.dispatchEvent(
@@ -562,8 +474,9 @@ describe("a notification closes the conversation's Ionic action sheet", () => {
     });
 
     await waitFor(() => expect(window.location.pathname).toBe("/inbox"));
-    expect(sheet!.isOpen).toBe(false);
-    // The Ionic sheet never pushed a history entry of its own.
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Session actions" })).toBeNull(),
+    );
     expect(window.history.state.idx).toBe(1);
     view.unmount();
   });
@@ -574,11 +487,7 @@ describe("a notification closes the conversation's Ionic action sheet", () => {
     act(() => jump!("/cached/task-1"));
     const pane = await screen.findByTestId("pane-task-1");
     await user.click(await within(pane).findByRole("button", { name: "Session actions" }));
-    let sheet: { isOpen?: boolean } | null = null;
-    await waitFor(() => {
-      sheet = actionSheet();
-      expect(sheet).not.toBeNull();
-    });
+    expect(await screen.findByRole("dialog", { name: "Session actions" })).toBeTruthy();
 
     act(() => {
       window.dispatchEvent(
@@ -587,7 +496,39 @@ describe("a notification closes the conversation's Ionic action sheet", () => {
     });
 
     await waitFor(() => expect(window.location.pathname).toBe("/inbox"));
-    expect(sheet!.isOpen).toBe(false);
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Session actions" })).toBeNull(),
+    );
+    expect(window.history.state.idx).toBe(1);
+    view.unmount();
+  });
+});
+
+describe("the conversation action sheet opens its nested surfaces", () => {
+  it("opens Find after the action sheet has released its history entry", async () => {
+    const user = userEvent.setup();
+    const view = browser("/sessions");
+    await user.click(await screen.findByRole("button", { name: /A conversation/ }));
+    await user.click(await screen.findByRole("button", { name: "Session actions" }));
+    const actions = await screen.findByRole("dialog", { name: "Session actions" });
+
+    await user.click(within(actions).getByRole("button", { name: "Find" }));
+    expect(await screen.findByRole("search", { name: "Find in conversation" })).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Session actions" })).toBeNull();
+    expect(window.history.state.idx).toBe(1);
+    view.unmount();
+  });
+
+  it("opens Share after the action sheet has released its history entry", async () => {
+    const user = userEvent.setup();
+    const view = browser("/sessions");
+    await user.click(await screen.findByRole("button", { name: /A conversation/ }));
+    await user.click(await screen.findByRole("button", { name: "Session actions" }));
+    const actions = await screen.findByRole("dialog", { name: "Session actions" });
+
+    await user.click(within(actions).getByRole("button", { name: "Share" }));
+    expect(await screen.findByRole("dialog", { name: "Share this conversation" })).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Session actions" })).toBeNull();
     expect(window.history.state.idx).toBe(1);
     view.unmount();
   });

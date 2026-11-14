@@ -3,14 +3,13 @@
  * that are decisions rather than measurements.
  *
  * This module exists because the same three facts have to be known in two
- * places — `pages/DesignSystemPage.tsx` renders every token, and
- * `design/tokens.test.ts` refuses to let one exist unrendered or unmeasured.
- * The page's list *was* the test's expectation before S4; the pairings are new,
+ * places — the inventory names every token, and `design/tokens.test.ts`
+ * refuses to let one exist unmeasured or unpaired. The pairings are decisions,
  * and a pairing is exactly the kind of thing that goes stale when it is copied.
  *
  * Nothing here holds a value. `design/theme.css` is the only file in the console
- * with a colour in it; these are names, and the page renders them by asking the
- * browser what they resolved to.
+ * with a colour in it; these are names, and the guards below keep the
+ * inventory complete without a rendered catalogue.
  */
 
 /**
@@ -50,11 +49,11 @@ export type TokenGroup = {
 /**
  * The surfaces, from the window backdrop inward.
  *
- * One list, because two things read it: the gallery draws the ink ladders on
- * these rather than on a chip, and the test measures every ink and the focus
- * ring against them. The backdrop is in it because `AppShell` paints it on the
- * root and `<main>` inside paints nothing — so a page that does not paint its
- * own surface draws its text straight on the backdrop. That is most of them,
+ * One list, because the test measures every ink and the focus ring against
+ * these rather than against a chip. The backdrop is in it because `AppShell`
+ * paints it on the root and `<main>` inside paints nothing — so a page that
+ * does not paint its own surface draws its text straight on the backdrop.
+ * That is most of them,
  * which is how `--kin-muted` came to be 3.84:1 there in the light scheme.
  */
 const SURFACES = [
@@ -156,13 +155,8 @@ export const TOKEN_GROUPS: readonly TokenGroup[] = [
 /**
  * The elevation steps as the class each token is worn through.
  *
- * The gallery cannot draw an elevation token directly, and this is not a
- * stylistic choice: the token is a *colour*, and `box-shadow` needs geometry as
- * well, so a declaration carrying only that colour is invalid and renders as
- * `none`. The first version of the sample did exactly that and drew nothing in
- * either scheme — a token that was declared, presented, measured, and drawn by
- * nothing, which no case in `tokens.test.ts` could have noticed.
- *
+ * An elevation token is a *colour*, and `box-shadow` needs geometry as well,
+ * so a declaration carrying only that colour is invalid and renders as `none`.
  * So the pairing lives here, beside the group, and the names are written out
  * rather than assembled at runtime: Tailwind reads this file as text, so a name
  * built from a variable would produce no CSS at all — the same failure one

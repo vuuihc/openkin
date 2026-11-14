@@ -36,9 +36,13 @@ describe("settingsTabFromSearch", () => {
     expect(settingsTabFromSearch("?tab=unknown")).toBe("general");
   });
 
-  it("opens Remote for Cloudflare and Relay callback params", () => {
-    expect(settingsTabFromSearch("?cloudflare=connected")).toBe("remote");
-    expect(settingsTabFromSearch("?relay=connected")).toBe("remote");
+  it("sends the retired tabs and their callback params to General", () => {
+    // Remote and Notifications were removed in R0b-3. Old links and OAuth
+    // callbacks must land on a tab that exists, not on a blank panel.
+    expect(settingsTabFromSearch("?tab=remote")).toBe("general");
+    expect(settingsTabFromSearch("?tab=notifications")).toBe("general");
+    expect(settingsTabFromSearch("?cloudflare=connected")).toBe("general");
+    expect(settingsTabFromSearch("?relay=connected")).toBe("general");
   });
 });
 
@@ -48,7 +52,7 @@ describe("offscreenEdges", () => {
   });
 
   it("fades only the far edge at the start of an overflowing strip", () => {
-    // The state the settings page opens in: seven tabs, the selected one can be
+    // The state the settings page opens in: five tabs, the selected one can be
     // half-cut at the right, and nothing says there is more.
     expect(offscreenEdges(0, 358, 451)).toEqual({ start: false, end: true });
   });

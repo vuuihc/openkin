@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/oklog/ulid/v2"
 
 	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/routines"
@@ -78,13 +79,56 @@ func (s *Server) routineDevice(next http.Handler) http.Handler {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		var answer worker.ConsoleResult
+		var answer worker.RoutinesResult
 		if err := s.askDeviceQuietly(r.Context(), device, worker.QueryRoutines, asked, &answer); err != nil {
 			writeMachineQueryError(w, err)
 			return
 		}
-		writeConsoleAnswer(w, answer)
+		if answer.ContentType != "" {
+			w.Header().Set("Content-Type", answer.ContentType)
+		}
+		// The machine's status is part of its answer: a routine that is gone is
+		// a 404 because the machine said so, not because this Hub decided what
+		// its words meant.
+		//
+		// Two statuses are translated rather than passed through, because on
+		// this path they are not about the caller: a 401 is the machine's own
+		// loopback auth failing (a rotated or unreadable token), and a 429 is
+		// its rate limit on this Hub's traffic. Forwarding either would sign
+		// the person out of the Hub, or blame them for a limit they never hit.
+		status := answer.Status
+		switch {
+		case status == http.StatusUnauthorized, status == http.StatusTooManyRequests:
+			status = http.StatusBadGateway
+		case status < 100 || status > 599:
+			status = http.StatusBadGateway
+		}
+		w.WriteHeader(status)
+		if len(answer.Body) > 0 {
+			_, _ = w.Write(answer.Body)
+		}
 	})
+}
+
+type createRoutineBody struct {
+	Title     string `json:"title"`
+	ProjectID string `json:"project_id"`
+	Cwd       string `json:"cwd"`
+	Agent     string `json:"agent"`
+	// Model is optional; empty means the agent's own default.
+	Model           string `json:"model"`
+	PermissionMode  string `json:"permission_mode"`
+	Prompt          string `json:"prompt"`
+	IntervalSecs    int64  `json:"interval_secs"`
+	Enabled         *bool  `json:"enabled"`
+	MissedRunPolicy string `json:"missed_run_policy"`
+	Lane            string `json:"lane"`
+	// Recurrence is a wall-clock rule as JSON, empty for an interval routine.
+	Recurrence string `json:"recurrence"`
+	// ConversationMode is "continue" (default) or "fresh".
+	ConversationMode string `json:"conversation_mode"`
+	// NextDueAt optional; default = now (fires on next tick / run-now).
+	NextDueAt *int64 `json:"next_due_at"`
 }
 
 // previewRoutineBody asks what a rule would mean before it is saved.
@@ -106,6 +150,25 @@ type patchRoutineBody struct {
 	MissedRunPolicy *string `json:"missed_run_policy"`
 	Lane            *string `json:"lane"`
 	Recurrence      *string `json:"recurrence"`
+	// ConversationMode is "continue" or "fresh"; empty is refused rather than
+	// read as "reset to the default", because a partial update must not silently
+	// change a choice the reader did not touch.
+	ConversationMode *string `json:"conversation_mode"`
+}
+
+// conversationModeValue validates the console's two conversation modes. An
+// unknown value is refused instead of defaulting: a client that misspells
+// "fresh" would otherwise believe every run starts over while the routine
+// quietly keeps one session.
+func conversationModeValue(raw string) (string, bool) {
+	mode := strings.ToLower(strings.TrimSpace(raw))
+	switch mode {
+	case "", store.ConversationContinue:
+		return store.ConversationContinue, true
+	case store.ConversationFresh:
+		return store.ConversationFresh, true
+	}
+	return "", false
 }
 
 func (s *Server) handleListRoutines(w http.ResponseWriter, r *http.Request) {
@@ -164,18 +227,119 @@ func (s *Server) handleListRoutines(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateRoutine(w http.ResponseWriter, r *http.Request) {
-	var body routines.CreateParams
+	var body createRoutineBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 		return
 	}
-	rec, err := routines.Create(r.Context(), s.Store, s.validateTaskCreateRequest, body)
+	body.Cwd = strings.TrimSpace(body.Cwd)
+	body.Prompt = strings.TrimSpace(body.Prompt)
+	if body.Cwd == "" || body.Prompt == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "cwd and prompt are required"})
+		return
+	}
+	recurrence, err := routines.ParseRecurrence(body.Recurrence)
 	if err != nil {
-		var invalid *routines.ValidationError
-		if errors.As(err, &invalid) {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": invalid.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	intervalSecs := body.IntervalSecs
+	if recurrence != nil && intervalSecs <= 0 {
+		// A wall-clock routine's pace is the rule's own period. Asking the
+		// user for an interval they will never see honoured would be noise.
+		intervalSecs = recurrence.NominalIntervalSeconds(time.Now())
+	}
+	if intervalSecs <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "interval_secs must be > 0"})
+		return
+	}
+	now := time.Now().UnixMilli()
+	enabled := true
+	if body.Enabled != nil {
+		enabled = *body.Enabled
+	}
+	next := now
+	if body.NextDueAt != nil && *body.NextDueAt > 0 {
+		next = *body.NextDueAt
+	} else if recurrence != nil {
+		// The first run is the rule's next occurrence, not "as soon as the
+		// scheduler looks": creating a weekday-morning routine on a Tuesday
+		// afternoon must not run it on Tuesday afternoon.
+		at, ok := ruleFirstRun(recurrence, time.UnixMilli(now))
+		if !ok {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "recurrence has no future occurrence"})
 			return
 		}
+		next = at
+	}
+	agent := strings.TrimSpace(body.Agent)
+	if agent == "" {
+		agent = "kin"
+	}
+	perm := strings.TrimSpace(body.PermissionMode)
+	if perm == "" {
+		perm = "default"
+	}
+	model := strings.TrimSpace(body.Model)
+	conversationMode, ok := conversationModeValue(body.ConversationMode)
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "conversation_mode must be continue or fresh"})
+		return
+	}
+	policy := strings.ToLower(strings.TrimSpace(body.MissedRunPolicy))
+	if policy == "" {
+		policy = "coalesce"
+	}
+	if policy != "coalesce" && policy != "skip" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missed_run_policy must be coalesce or skip"})
+		return
+	}
+	if err := s.validateTaskCreateRequest(r.Context(), task.CreateRequest{
+		Agent:          agent,
+		PermissionMode: perm,
+	}); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	lane := strings.TrimSpace(body.Lane)
+	if lane == "" {
+		lane = "routine"
+	}
+	projectID := strings.TrimSpace(body.ProjectID)
+	if projectID == "" {
+		if resolved, err := s.Store.ResolveProjectIDForCwd(r.Context(), body.Cwd); err == nil {
+			projectID = resolved
+		}
+	}
+	title := strings.TrimSpace(body.Title)
+	if title == "" {
+		// Truncate prompt as fallback title.
+		runes := []rune(body.Prompt)
+		if len(runes) > 48 {
+			title = string(runes[:48]) + "…"
+		} else {
+			title = body.Prompt
+		}
+	}
+	rec := store.Routine{
+		ID:               ulid.Make().String(),
+		ProjectID:        projectID,
+		Cwd:              body.Cwd,
+		Agent:            agent,
+		Model:            model,
+		PermissionMode:   perm,
+		Prompt:           body.Prompt,
+		IntervalSecs:     intervalSecs,
+		Enabled:          enabled,
+		NextDueAt:        next,
+		CreatedAt:        now,
+		Title:            title,
+		MissedRunPolicy:  policy,
+		Lane:             lane,
+		Recurrence:       body.Recurrence,
+		ConversationMode: conversationMode,
+	}
+	if err := s.Store.InsertRoutine(r.Context(), rec); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -186,7 +350,11 @@ func (s *Server) handleCreateRoutine(w http.ResponseWriter, r *http.Request) {
 // ms. Create, patch and the console's preview all read a rule through this, so
 // the form cannot promise a time the daemon would not use.
 func ruleFirstRun(rule *routines.Recurrence, now time.Time) (int64, bool) {
-	return routines.FirstRun(rule, now)
+	at, ok := rule.Next(now)
+	if !ok {
+		return 0, false
+	}
+	return at.UnixMilli(), true
 }
 
 // nextDueAfterRuleChange is when a routine should next run after its rule was
@@ -278,6 +446,14 @@ func (s *Server) handlePatchRoutine(w http.ResponseWriter, r *http.Request) {
 		// agent chooses, which is how create spells "no model".
 		model := strings.TrimSpace(*body.Model)
 		patch.Model = &model
+	}
+	if body.ConversationMode != nil {
+		mode, ok := conversationModeValue(*body.ConversationMode)
+		if !ok {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "conversation_mode must be continue or fresh"})
+			return
+		}
+		patch.ConversationMode = &mode
 	}
 	current, err := s.Store.GetRoutine(r.Context(), id)
 	if err != nil {

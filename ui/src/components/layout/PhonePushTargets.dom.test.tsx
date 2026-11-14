@@ -88,6 +88,9 @@ vi.mock("../../api/client", async (importOriginal) => {
         available: false,
         default: false,
         models: [],
+        model_list_source: "none",
+        model_list_status: "available",
+        permission_modes: ["default"],
       },
     ]),
     listAgentManagement: vi.fn(async () => [
@@ -323,7 +326,11 @@ describe("Agent Ops is a destination, so the draft it opens replaces it", () => 
     await waitFor(() => expect(window.location.pathname).toBe("/agents"));
     expect(window.history.state.idx).toBe(1);
 
-    await user.click(await screen.findByRole("button", { name: /^Actions — Claude Code$/ }));
+    const actionsButton = (await screen.findAllByRole("button", {
+      name: /^Actions — Claude Code$/,
+    })).find((button) => button.getAttribute("aria-haspopup") === "dialog");
+    expect(actionsButton).toBeTruthy();
+    await user.click(actionsButton!);
     const sheet = await screen.findByRole("dialog", { name: "Claude Code" });
     await user.click(within(sheet).getByRole("button", { name: "Ask default Agent to install" }));
 

@@ -1235,8 +1235,11 @@ paths:
         last read must discard its tail and refetch from `since_seq=0` rather
         than assume a gap.
 
-        The response is unbounded: it returns every event after the cursor.
-        The endpoint answers `404` when the task does not exist.
+        `limit` optionally bounds the number of events in one answer so a
+        remote console can page a long transcript through a bounded frame. An
+        absent or zero limit preserves the local endpoint's historical
+        unbounded response. The endpoint answers `404` when the task does not
+        exist.
       parameters:
         - $ref: "#/components/parameters/TaskId"
         - in: query
@@ -1246,6 +1249,12 @@ paths:
             type: integer
             minimum: 0
             default: 0
+        - in: query
+          name: limit
+          description: Maximum events to return after the cursor. Zero or absent is unbounded.
+          schema:
+            type: integer
+            minimum: 0
       responses:
         "200":
           description: Ordered durable task events after the cursor
@@ -2786,6 +2795,13 @@ paths:
             type: integer
             minimum: 0
             default: 0
+        - in: query
+          name: limit
+          description: Maximum events in this remote page. Zero or absent is unbounded.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 200
       responses:
         "200":
           description: Ordered durable task events after the cursor
@@ -2796,7 +2812,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/TaskEvent"
         "400":
-          description: Invalid task id or since_seq, or the machine refused the question
+          description: Invalid task id, since_seq or limit, or the machine refused the question
         "404":
           description: The machine has no such task
         "409":
@@ -7745,6 +7761,10 @@ components:
         recurrence:
           type: string
           description: Wall-clock rule as JSON; empty for an interval routine.
+        conversation_mode:
+          type: string
+          enum: [continue, fresh]
+          description: What each run's agent session starts from. `continue` (the default) resumes the newest run's session when it can; `fresh` starts a new session each run. Legacy rows read as `continue`.
         claim_until_at:
           type: integer
         last_outcome:
@@ -7799,6 +7819,10 @@ components:
           type: string
         recurrence:
           type: string
+        conversation_mode:
+          type: string
+          enum: [continue, fresh]
+          description: Omit for `continue`, the default.
     RoutinePatchRequest:
       type: object
       properties:
@@ -7831,6 +7855,10 @@ components:
         recurrence:
           type: string
           description: Empty string clears the rule and returns to interval_secs.
+        conversation_mode:
+          type: string
+          enum: [continue, fresh]
+          description: Unknown values are refused rather than read as either mode.
     RoutinePreviewRequest:
       type: object
       required: [recurrence]

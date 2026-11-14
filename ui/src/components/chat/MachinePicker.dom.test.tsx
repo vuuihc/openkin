@@ -102,7 +102,7 @@ describe("the machine picker", () => {
     await userEvent.click(chip);
 
     expect(chip.getAttribute("aria-expanded")).toBe("true");
-    expect(document.querySelector("ion-action-sheet")).not.toBeNull();
+    expect(screen.getByRole("dialog", { name: "Machine" })).toBeTruthy();
     expect(document.querySelector("select")).toBeNull();
   });
 });

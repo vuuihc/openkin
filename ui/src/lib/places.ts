@@ -31,10 +31,7 @@
 export const PLACE_IDS = [
   "new",
   "sessions",
-  "inbox",
-  "artifacts",
   "routines",
-  "projects",
   "agents",
   "settings",
 ] as const;
@@ -63,14 +60,7 @@ export type Place = {
 export const PLACES: Place[] = [
   { id: "new", path: "/new", labelKey: "nav.newChat", section: "work", hint: "⌘N" },
   { id: "sessions", path: "/sessions", labelKey: "nav.sessions", section: "work" },
-  { id: "inbox", path: "/inbox", labelKey: "nav.inbox", section: "work" },
-  { id: "artifacts", path: "/artifacts", labelKey: "nav.artifacts", section: "library" },
   { id: "routines", path: "/routines", labelKey: "nav.routines", section: "library" },
-  // `/projects` is where the sidebar's project rows lead when a project is
-  // archived away under them (`ProjectDetailPage` navigates there), so the page
-  // was reachable and unnamed: a route in the router and in no list. The guard
-  // in `places.test.ts` is what found it.
-  { id: "projects", path: "/projects", labelKey: "nav.projects", section: "library" },
   { id: "agents", path: "/agents", labelKey: "nav.agentOperations", section: "operations" },
   { id: "settings", path: "/settings", labelKey: "nav.settings", section: "operations" },
 ];

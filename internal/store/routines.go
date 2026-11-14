@@ -34,32 +34,37 @@ type Routine struct {
 	Lane            string `json:"lane"`
 	// Recurrence is the wall-clock rule as JSON, empty when the routine runs
 	// on IntervalSecs. Opaque here: the scheduler owns what the rule means.
-	Recurrence   string `json:"recurrence,omitempty"`
-	ClaimUntilAt int64  `json:"claim_until_at,omitempty"`
-	LastOutcome  string `json:"last_outcome,omitempty"`
-	LastError    string `json:"last_error,omitempty"`
+	Recurrence string `json:"recurrence,omitempty"`
+	// ConversationMode says what a run's agent session starts from. Empty is
+	// the legacy value and means "continue": a run resumes the newest run's
+	// session when it can. ConversationFresh starts a new session each run.
+	ConversationMode string `json:"conversation_mode,omitempty"`
+	ClaimUntilAt     int64  `json:"claim_until_at,omitempty"`
+	LastOutcome      string `json:"last_outcome,omitempty"`
+	LastError        string `json:"last_error,omitempty"`
 }
 
 // RoutinePatch is a partial update for routines.
 type RoutinePatch struct {
-	Title           *string
-	ProjectID       *string // empty string clears
-	Cwd             *string
-	Agent           *string
-	Model           *string // empty string clears back to the agent default
-	PermissionMode  *string
-	Prompt          *string
-	IntervalSecs    *int64
-	Enabled         *bool
-	LastRunAt       *int64
-	ClearLastRunAt  bool
-	NextDueAt       *int64
-	ConsecFailures  *int
-	MissedRunPolicy *string
-	Lane            *string
-	Recurrence      *string
-	LastOutcome     *string
-	LastError       *string
+	Title            *string
+	ProjectID        *string // empty string clears
+	Cwd              *string
+	Agent            *string
+	Model            *string // empty string clears back to the agent default
+	PermissionMode   *string
+	Prompt           *string
+	IntervalSecs     *int64
+	Enabled          *bool
+	LastRunAt        *int64
+	ClearLastRunAt   bool
+	NextDueAt        *int64
+	ConsecFailures   *int
+	MissedRunPolicy  *string
+	Lane             *string
+	Recurrence       *string
+	ConversationMode *string
+	LastOutcome      *string
+	LastError        *string
 }
 
 // ListRoutinesOpts filters for ListRoutines.
@@ -77,7 +82,7 @@ type RoutinePage struct {
 	HasMore    bool      `json:"has_more"`
 }
 
-const routineColumns = `id, project_id, cwd, agent, model, permission_mode, prompt, interval_secs, enabled, last_run_at, next_due_at, consec_failures, created_at, title, missed_run_policy, lane, recurrence, claim_until_at, last_outcome, last_error`
+const routineColumns = `id, project_id, cwd, agent, model, permission_mode, prompt, interval_secs, enabled, last_run_at, next_due_at, consec_failures, created_at, title, missed_run_policy, lane, recurrence, conversation_mode, claim_until_at, last_outcome, last_error`
 
 func scanRoutine(scanner interface {
 	Scan(dest ...any) error
@@ -85,13 +90,13 @@ func scanRoutine(scanner interface {
 	var r Routine
 	var projectID sql.NullString
 	var lastRun sql.NullInt64
-	var missedRunPolicy, lane, recurrence, lastOutcome, lastError sql.NullString
+	var missedRunPolicy, lane, recurrence, conversationMode, lastOutcome, lastError sql.NullString
 	var enabled int
 	if err := scanner.Scan(
 		&r.ID, &projectID, &r.Cwd, &r.Agent, &r.Model, &r.PermissionMode, &r.Prompt,
 		&r.IntervalSecs, &enabled, &lastRun, &r.NextDueAt, &r.ConsecFailures,
-		&r.CreatedAt, &r.Title, &missedRunPolicy, &lane, &recurrence, &r.ClaimUntilAt,
-		&lastOutcome, &lastError,
+		&r.CreatedAt, &r.Title, &missedRunPolicy, &lane, &recurrence, &conversationMode,
+		&r.ClaimUntilAt, &lastOutcome, &lastError,
 	); err != nil {
 		return Routine{}, err
 	}
@@ -115,9 +120,36 @@ func scanRoutine(scanner interface {
 		r.Lane = "routine"
 	}
 	r.Recurrence = recurrence.String
+	r.ConversationMode = NormalizeConversationMode(conversationMode.String)
 	r.LastOutcome = lastOutcome.String
 	r.LastError = lastError.String
 	return r, nil
+}
+
+// The two values a routine's conversation_mode can hold. Empty is not a third
+// mode: it is what rows written before the column existed carry, and every one
+// of them ran without a carried session. Reading it as "continue" keeps that
+// history and matches the console's default for new routines; the stored value
+// is normalized on read so callers never branch on the legacy spelling.
+const (
+	ConversationContinue = "continue"
+	ConversationFresh    = "fresh"
+)
+
+// NormalizeConversationMode maps a stored or submitted value to one of the two
+// modes. Unknown values read as "continue", the safe direction: a routine never
+// silently loses the context its runs had been keeping.
+func NormalizeConversationMode(mode string) string {
+	if strings.EqualFold(strings.TrimSpace(mode), ConversationFresh) {
+		return ConversationFresh
+	}
+	return ConversationContinue
+}
+
+// RoutineStartsFreshConversation reports whether a run of this routine must
+// begin a new agent session instead of resuming the previous run's.
+func RoutineStartsFreshConversation(mode string) bool {
+	return NormalizeConversationMode(mode) == ConversationFresh
 }
 
 // InsertRoutine creates a routine row.
@@ -146,6 +178,7 @@ func (s *Store) InsertRoutine(ctx context.Context, r Routine) error {
 	if r.Lane == "" {
 		r.Lane = "routine"
 	}
+	r.ConversationMode = NormalizeConversationMode(r.ConversationMode)
 	if r.CreatedAt == 0 {
 		r.CreatedAt = time.Now().UnixMilli()
 	}
@@ -168,11 +201,13 @@ func (s *Store) InsertRoutine(ctx context.Context, r Routine) error {
 		INSERT INTO routines (
 			id, project_id, cwd, agent, model, permission_mode, prompt, interval_secs,
 			enabled, last_run_at, next_due_at, consec_failures, created_at, title,
-			missed_run_policy, lane, recurrence, claim_until_at, last_outcome, last_error
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			missed_run_policy, lane, recurrence, conversation_mode, claim_until_at,
+			last_outcome, last_error
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.ID, projectID, r.Cwd, r.Agent, r.Model, r.PermissionMode, r.Prompt, r.IntervalSecs,
 		enabled, lastRun, r.NextDueAt, r.ConsecFailures, r.CreatedAt, r.Title,
-		r.MissedRunPolicy, r.Lane, r.Recurrence, r.ClaimUntilAt, r.LastOutcome, r.LastError,
+		r.MissedRunPolicy, r.Lane, r.Recurrence, r.ConversationMode, r.ClaimUntilAt,
+		r.LastOutcome, r.LastError,
 	)
 	if err != nil {
 		return fmt.Errorf("insert routine: %w", err)
@@ -516,6 +551,10 @@ func (s *Store) UpdateRoutine(ctx context.Context, id string, p RoutinePatch) er
 	if p.Recurrence != nil {
 		sets = append(sets, "recurrence = ?")
 		args = append(args, *p.Recurrence)
+	}
+	if p.ConversationMode != nil {
+		sets = append(sets, "conversation_mode = ?")
+		args = append(args, NormalizeConversationMode(*p.ConversationMode))
 	}
 	if p.LastOutcome != nil {
 		sets = append(sets, "last_outcome = ?")

@@ -15,6 +15,7 @@ type fakeTaskReader struct {
 	taskErr   error
 	eventsID  string
 	sinceSeq  int
+	limit     int
 	events    RoutineAnswer
 	eventsErr error
 }
@@ -24,9 +25,14 @@ func (f *fakeTaskReader) Task(_ context.Context, id string) (RoutineAnswer, erro
 	return f.task, f.taskErr
 }
 
-func (f *fakeTaskReader) TaskEvents(_ context.Context, id string, sinceSeq int) (RoutineAnswer, error) {
+func (f *fakeTaskReader) TaskEvents(
+	_ context.Context,
+	id string,
+	sinceSeq, limit int,
+) (RoutineAnswer, error) {
 	f.eventsID = id
 	f.sinceSeq = sinceSeq
+	f.limit = limit
 	return f.events, f.eventsErr
 }
 
@@ -56,7 +62,9 @@ func TestTaskQuestionsAreReadOnThisMachine(t *testing.T) {
 		t.Fatalf("the machine was asked about %q, want t-1", reader.taskID)
 	}
 
-	result = put(t, r, conn, worker.QueryTaskEvents, worker.TaskEventsParams{ID: "t-1", SinceSeq: 2})
+	result = put(t, r, conn, worker.QueryTaskEvents, worker.TaskEventsParams{
+		ID: "t-1", SinceSeq: 2, Limit: 80,
+	})
 	if result.Error != "" {
 		t.Fatalf("the machine refused a transcript question: %s", result.Error)
 	}
@@ -67,8 +75,9 @@ func TestTaskQuestionsAreReadOnThisMachine(t *testing.T) {
 	if string(transcript.Body) != `[{"seq":3}]` {
 		t.Fatalf("transcript = %q, want the console's events", transcript.Body)
 	}
-	if reader.eventsID != "t-1" || reader.sinceSeq != 2 {
-		t.Fatalf("the machine was asked %q since %d, want t-1 since 2", reader.eventsID, reader.sinceSeq)
+	if reader.eventsID != "t-1" || reader.sinceSeq != 2 || reader.limit != 80 {
+		t.Fatalf("the machine was asked %q since %d limit %d, want t-1 since 2 limit 80",
+			reader.eventsID, reader.sinceSeq, reader.limit)
 	}
 }
 
@@ -133,6 +142,6 @@ func (f taskReaderFunc) Task(ctx context.Context, id string) (RoutineAnswer, err
 	return f(ctx, id)
 }
 
-func (f taskReaderFunc) TaskEvents(ctx context.Context, id string, _ int) (RoutineAnswer, error) {
+func (f taskReaderFunc) TaskEvents(ctx context.Context, id string, _, _ int) (RoutineAnswer, error) {
 	return f(ctx, id)
 }

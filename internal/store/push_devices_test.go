@@ -310,8 +310,10 @@ func TestUpgradeToSessionBindingKeepsExistingRows(t *testing.T) {
 		t.Fatalf("reopen after v46 schema: %v", err)
 	}
 	defer s.Close()
-	if v := schemaVersionOf(t, s); v != 47 {
-		t.Fatalf("user_version = %d, want 47", v)
+	// Reaching the current version proves the v47 step ran; later migrations
+	// must not make this test fail.
+	if v := schemaVersionOf(t, s); v != schemaVersion {
+		t.Fatalf("user_version = %d, want %d", v, schemaVersion)
 	}
 	got, err := s.GetPushDevice(ctx, "old")
 	if err != nil {
@@ -469,8 +471,10 @@ func TestUpgradeFromV46WithoutTheRegistryCreatesIt(t *testing.T) {
 		t.Fatalf("reopen without the registry: %v", err)
 	}
 	defer s.Close()
-	if v := schemaVersionOf(t, s); v != 47 {
-		t.Fatalf("user_version = %d, want 47", v)
+	// Reaching the current version proves the v47 step ran; later migrations
+	// must not make this test fail.
+	if v := schemaVersionOf(t, s); v != schemaVersion {
+		t.Fatalf("user_version = %d, want %d", v, schemaVersion)
 	}
 	if _, err := s.SavePushDevice(ctx, PushDevice{
 		ID: "d1", InstallID: "install-1", Platform: "ios", Token: "token-1",
@@ -510,8 +514,10 @@ func TestEveryOpenReconcilesAMissingSessionColumn(t *testing.T) {
 		t.Fatalf("reopen with the column missing: %v", err)
 	}
 	defer s.Close()
-	if v := schemaVersionOf(t, s); v != 47 {
-		t.Fatalf("user_version = %d, want 47", v)
+	// Reaching the current version proves the v47 step ran; later migrations
+	// must not make this test fail.
+	if v := schemaVersionOf(t, s); v != schemaVersion {
+		t.Fatalf("user_version = %d, want %d", v, schemaVersion)
 	}
 	got, err := s.GetPushDevice(ctx, "d1")
 	if err != nil {

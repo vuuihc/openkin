@@ -1250,6 +1250,15 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
 		}
 		since = n
 	}
+	limit := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid limit"})
+			return
+		}
+		limit = n
+	}
 	evs, err := s.Engine.Events(r.Context(), id, since)
 	if errors.Is(err, store.ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
@@ -1261,6 +1270,9 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	if evs == nil {
 		evs = []store.Event{}
+	}
+	if limit > 0 && len(evs) > limit {
+		evs = evs[:limit]
 	}
 	writeJSON(w, http.StatusOK, evs)
 }

@@ -168,13 +168,13 @@ describe("a cold entry into a conversation", () => {
     expect(screen.getByTestId("chat-stream").getAttribute("data-loading")).toBe("true");
   });
 
-  it("centres a loading indicator in the content area until the detail answers", () => {
+  it("removes the transcript loading state when the detail answers", () => {
     open(cached);
-    expect(screen.getByRole("status", { name: /Loading/ })).toBeTruthy();
+    expect(screen.getByTestId("chat-stream").getAttribute("data-loading")).toBe("true");
     act(() => {
       store.resolve({ ...cached, title: "Fresh title", status: "succeeded" });
     });
-    expect(screen.queryByRole("status", { name: /Loading/ })).toBeNull();
+    expect(screen.getByTestId("chat-stream").getAttribute("data-loading")).toBe("false");
   });
 
   it("drops the indicator and keeps the error state when the detail fails", () => {
@@ -196,15 +196,12 @@ describe("a cold entry into a conversation", () => {
     expect(screen.getByTestId("chat-stream").getAttribute("data-loading")).toBe("false");
   });
 
-  it("shows the brand mark, not a page skeleton, when there is no row to draw", () => {
+  it("shows a page skeleton while a cold entry has no row to draw", () => {
     open();
-    // The old placeholder was a header bar and two message bubbles pulsing at
-    // a layout that did not exist yet.
-    expect(document.querySelector(".animate-pulse")).toBeNull();
+    expect(document.querySelectorAll(".animate-pulse").length).toBeGreaterThan(0);
     expect(screen.queryByTestId("mobile-header")).toBeNull();
     expect(screen.queryByTestId("composer")).toBeNull();
-    const splash = screen.getByRole("status", { name: /Loading/ });
-    expect(splash.querySelector("svg")).toBeTruthy();
+    expect(screen.getByRole("status", { name: /Loading/ })).toBeTruthy();
   });
 
   it("leaves the brand mark for the real page once the detail answers", () => {

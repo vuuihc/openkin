@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getTaskPullRequest } from "./client";
+import { waitSessions } from "./client";
 
 /**
  * A read the caller walks away from has to stop travelling.
  *
- * The pull-request panel follows a query the daemon is running on a timer and
- * abandons a read as soon as a newer one starts, or when the panel closes. The
- * panel's own ceiling bounds the await either way; only the signal reaching
- * fetch ends the request — and the transport can be a relay to a machine
- * somewhere else, where a read nobody is waiting for still costs a round trip.
+ * The session feed holds a long-poll open and abandons it when a newer one
+ * replaces it, or when the screen that asked goes away. The poll's own timeout
+ * bounds the await either way; only the signal reaching fetch ends the request
+ * — and the transport can be a relay to a machine somewhere else, where a read
+ * nobody is waiting for still costs a round trip.
  */
 function stubPendingFetch(): AbortSignal[] {
   const signals: AbortSignal[] = [];
@@ -36,7 +36,7 @@ describe("a read the caller can cancel", () => {
     const signals = stubPendingFetch();
     const controller = new AbortController();
 
-    const pending = getTaskPullRequest("01TASK", controller.signal);
+    const pending = waitSessions({ signal: controller.signal });
     // The signal has to be the caller's own, not a copy: aborting a copy would
     // leave the request running while the caller believes it stopped.
     expect(signals).toHaveLength(1);

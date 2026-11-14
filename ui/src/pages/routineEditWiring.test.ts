@@ -106,7 +106,7 @@ describe("editing a routine", () => {
     // field is often empty when the form opens, so the check runs on submit.
     expect(PAGE).toContain('if (routineRule?.kind === "once" && nextMs == null) {');
     expect(PAGE).toContain('pushToast(tr("routines.needNextRun"), "error");');
-    expect(PAGE).toContain("disabled={creating || !prompt.trim() || !cwd.trim()}");
+    expect(PAGE).toContain("disabled={formLocked || !prompt.trim() || !cwd.trim()}");
     expect(PAGE).not.toContain("parseLocalDateTime(nextRunLocal) == null");
   });
 
@@ -114,10 +114,10 @@ describe("editing a routine", () => {
     // A save completes on a later render. If the reader can open or close
     // another form meanwhile, the completion closes that one instead.
     expect(PAGE).toContain(
-      "disabled={creating}\n              onClick={() => (showCreate ? closeForm() : openCreate())}",
+      "disabled={creating || (machineOffline && !showCreate)}\n              onClick={() => (showCreate ? closeForm() : openCreate())}",
     );
     // Four row actions: run now, edit, pause/resume, delete.
-    expect(PAGE.split("disabled={!!busy[r.id] || creating}").length - 1).toBe(4);
+    expect(PAGE.split("disabled={!!busy[r.id] || creating || machineOffline}").length - 1).toBe(4);
   });
 });
 
@@ -129,7 +129,7 @@ describe("a routine's model", () => {
     expect(picker).toContain("value={model}");
     expect(picker).toContain("models={modelsForAgent(machineAgents, agentId)}");
     expect(picker).toContain("onChange={setModel}");
-    expect(picker).toContain("disabled={creating}");
+    expect(picker).toContain("disabled={formLocked}");
     // The picker's "Custom" flag survives a value change by design, so a
     // cleared model needs a fresh mount to stop reading "Custom" with a blank
     // box. The key is what makes the form identity part of that mount.
@@ -150,9 +150,12 @@ describe("a routine's model", () => {
     // back on the agent default.
     const edit = block("const patch = routinePatch(editing, {", "});");
     expect(edit).toContain("model,");
-    // Opening an edit shows the routine's own model, not the last draft's.
-    // The adjacency is what makes this openEdit's line and not applyDraft's.
-    expect(PAGE).toContain("setAgentId(draft.agent);\n    setModel(draft.model);");
+    // Opening an edit applies the routine's own form snapshot, including its
+    // model, instead of silently reverting to the last draft or agent default.
+    const open = block("const openEdit =", "openDraftRef.current = draftKey(next);");
+    expect(open).toContain("agentId: draft.agent,");
+    expect(open).toContain("model: draft.model,");
+    expect(open).toContain("applyDraft(next);");
   });
 
   it("is carried by New Chat's routine mode instead of being dropped", () => {

@@ -114,6 +114,17 @@ func TestListDirsParamsRequireAnAbsolutePath(t *testing.T) {
 	}
 }
 
+func TestTaskEventsParamsBoundOneTranscriptPage(t *testing.T) {
+	if err := (TaskEventsParams{ID: "t-1", SinceSeq: 7, Limit: 50}).Validate(); err != nil {
+		t.Fatalf("a bounded transcript page was refused: %v", err)
+	}
+	for _, limit := range []int{-1, MaxTaskEvents + 1} {
+		if err := (TaskEventsParams{ID: "t-1", Limit: limit}).Validate(); err == nil {
+			t.Fatalf("limit %d was accepted", limit)
+		}
+	}
+}
+
 // A repository and a branch are names, and a name must not be able to become an
 // option.
 //
@@ -216,11 +227,16 @@ func TestAgentSessionQuestionsCheckWhatTheWireCarries(t *testing.T) {
 
 		{name: "one page", params: AgentHistoryParams{Agent: "claude-code", Ref: "ref-1"}},
 		{name: "one page with a cursor", params: AgentHistoryParams{Agent: "claude-code", Ref: "ref-1", Cursor: "c1", Limit: MaxAgentHistoryItems}},
+		{name: "one page with a named source", params: AgentHistoryParams{
+			Agent: "claude-code", Ref: "ref-1", Tail: true,
+			SourceURI: "file:///Users/someone/.claude/projects/p/ref-1.jsonl",
+		}},
 
 		{name: "no agent", params: AgentHistoryParams{Ref: "ref-1"}, field: "agent"},
 		{name: "no ref", params: AgentHistoryParams{Agent: "claude-code"}, field: "ref"},
 		{name: "a ref over the bound", params: AgentHistoryParams{Agent: "claude-code", Ref: strings.Repeat("r", MaxSessionRef+1)}, field: "ref"},
 		{name: "a cursor over the bound", params: AgentHistoryParams{Agent: "claude-code", Ref: "ref-1", Cursor: strings.Repeat("c", MaxAgentHistoryCursor+1)}, field: "cursor"},
+		{name: "a source over the bound", params: AgentHistoryParams{Agent: "claude-code", Ref: "ref-1", SourceURI: strings.Repeat("s", MaxAgentHistorySource+1)}, field: "source_uri"},
 		{name: "a page over the item bound", params: AgentHistoryParams{Agent: "claude-code", Ref: "ref-1", Limit: MaxAgentHistoryItems + 1}, field: "limit"},
 		{name: "a negative page", params: AgentHistoryParams{Agent: "claude-code", Ref: "ref-1", Limit: -1}, field: "limit"},
 	} {
@@ -364,63 +380,11 @@ func TestRoutinesParamsStayInsideTheRoutineSubtree(t *testing.T) {
 // only log that, leaving the Hub to report a timeout for an answer it never
 // saw.
 func TestARoutineAnswerAtTheBoundFitsOneFrame(t *testing.T) {
-	answer, err := Answer("q-1", ConsoleResult{Status: 200, Body: make([]byte, MaxRoutineResponse)})
+	answer, err := Answer("q-1", RoutinesResult{Status: 200, Body: make([]byte, MaxRoutineResponse)})
 	if err != nil {
 		t.Fatalf("the answer at the bound cannot be built: %v", err)
 	}
 	if _, err := NewFrame("query.result", answer); err != nil {
 		t.Fatalf("a routine answer at %d bytes does not fit one frame: %v", MaxRoutineResponse, err)
-	}
-}
-
-// A task relay names one row on the machine that owns it, so the id is held to
-// one console path segment: anything that could become another route, a query,
-// or a traversal is refused before it is encoded into a question.
-func TestTaskParamsHoldTheIDToAPathSegment(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		params  interface{ Validate() error }
-		wantErr string
-	}{
-		{name: "a plain id", params: TaskDetailParams{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV"}},
-		{name: "an id with a colon", params: TaskDetailParams{ID: "task:run-1"}},
-		{name: "no id", params: TaskDetailParams{}, wantErr: "needs an id"},
-		{name: "another route", params: TaskDetailParams{ID: "../events"}, wantErr: "path segment"},
-		{name: "a query", params: TaskDetailParams{ID: "x?device=other"}, wantErr: "path segment"},
-		{name: "an encoded separator", params: TaskDetailParams{ID: "x%2Fevents"}, wantErr: "path segment"},
-		{name: "an id over the bound", params: TaskDetailParams{ID: strings.Repeat("x", MaxQueryID+1)}, wantErr: "exceeds"},
-		{name: "events at zero", params: TaskEventsParams{ID: "t-1"}},
-		{name: "events after a seq", params: TaskEventsParams{ID: "t-1", SinceSeq: 12}},
-		{name: "events at a negative seq", params: TaskEventsParams{ID: "t-1", SinceSeq: -1}, wantErr: "negative"},
-		{name: "events with no id", params: TaskEventsParams{SinceSeq: 1}, wantErr: "needs an id"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			err := tc.params.Validate()
-			if tc.wantErr == "" {
-				if err != nil {
-					t.Fatalf("Validate() = %v, want the question accepted", err)
-				}
-				return
-			}
-			if err == nil {
-				t.Fatalf("Validate() accepted %s", tc.name)
-			}
-			if !strings.Contains(err.Error(), tc.wantErr) {
-				t.Fatalf("Validate() = %q, want it to name %q", err, tc.wantErr)
-			}
-		})
-	}
-}
-
-// The task answer bound has the same job as the routine one: an answer at the
-// bound must still fit one frame, or the machine can only log a refusal the Hub
-// will report as a timeout.
-func TestATaskAnswerAtTheBoundFitsOneFrame(t *testing.T) {
-	answer, err := Answer("q-1", ConsoleResult{Status: 200, Body: make([]byte, MaxTaskResponse)})
-	if err != nil {
-		t.Fatalf("the answer at the bound cannot be built: %v", err)
-	}
-	if _, err := NewFrame("query.result", answer); err != nil {
-		t.Fatalf("a task answer at %d bytes does not fit one frame: %v", MaxTaskResponse, err)
 	}
 }

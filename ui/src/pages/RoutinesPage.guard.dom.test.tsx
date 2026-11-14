@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { BrowserRouter } from "react-router-dom";
 import RoutinesPage from "./RoutinesPage";
 import { canLeaveScreen, resetLeaveGuard } from "../lib/leaveGuard";
 import { setLocale } from "../i18n";
@@ -72,6 +72,7 @@ beforeEach(() => {
   resetLeaveGuard();
   setLocale("en");
   localStorage.clear();
+  window.history.replaceState({ idx: 0 }, "", "/");
   vi.mocked(listRoutines).mockReset().mockResolvedValue({
     routines: [routine],
     has_more: false,
@@ -80,9 +81,9 @@ beforeEach(() => {
 
 function page() {
   return render(
-    <MemoryRouter>
+    <BrowserRouter>
       <RoutinesPage />
-    </MemoryRouter>,
+    </BrowserRouter>,
   );
 }
 
@@ -98,7 +99,7 @@ describe("the routines form's leave guard", () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     try {
       await user.click(within(document.getElementById("routine-form")!).getByRole("button", { name: "Cancel" }));
-      expect(confirm).toHaveBeenCalledWith("Discard unsaved routine changes?");
+      expect(confirm).toHaveBeenCalledWith("Discard the unsaved routine?");
       expect((screen.getByPlaceholderText(/Review new PRs since yesterday/) as HTMLTextAreaElement).value).toBe(
         "Check the queue",
       );
@@ -131,7 +132,7 @@ describe("the routines form's leave guard", () => {
       expect(canLeaveScreen()).toBe(false);
 
       await user.click(within(document.getElementById("routine-form")!).getByRole("button", { name: "Cancel" }));
-      expect(confirm).toHaveBeenCalledWith("Discard unsaved routine changes?");
+      expect(confirm).toHaveBeenCalledWith("Discard the unsaved routine?");
       expect(screen.getByDisplayValue("Changed title")).toBeTruthy();
 
       confirm.mockReturnValue(true);
@@ -139,6 +140,58 @@ describe("the routines form's leave guard", () => {
       await waitFor(() => expect(screen.queryByDisplayValue("Changed title")).toBeNull());
     } finally {
       confirm.mockRestore();
+    }
+  });
+
+  it("arms the browser Back entry while the routine form is dirty", async () => {
+    const user = userEvent.setup();
+    page();
+    await user.click(await screen.findByRole("button", { name: "New routine" }));
+    const prompt = screen.getByPlaceholderText(/Review new PRs since yesterday/) as HTMLTextAreaElement;
+    await user.type(prompt, "Keep me");
+    expect(document.activeElement).toBe(prompt);
+    expect(prompt.value).toBe("Keep me");
+    await waitFor(() => expect(window.history.state?.kinLeaveGuard).toEqual(expect.any(String)));
+
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    try {
+      act(() => window.history.back());
+      await waitFor(() => expect(confirm).toHaveBeenCalledWith("Discard the unsaved routine?"));
+      expect(window.location.pathname).toBe("/");
+      expect((screen.getByPlaceholderText(/Review new PRs since yesterday/) as HTMLTextAreaElement).value).toBe(
+        "Keep me",
+      );
+    } finally {
+      confirm.mockRestore();
+    }
+  });
+
+  it("does not let deferred autofocus steal a prompt the reader has already chosen", async () => {
+    const frames: FrameRequestCallback[] = [];
+    const request = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback) => {
+        frames.push(callback);
+        return frames.length;
+      });
+    try {
+      const user = userEvent.setup();
+      page();
+      await user.click(await screen.findByRole("button", { name: "New routine" }));
+
+      const prompt = screen.getByPlaceholderText(
+        /Review new PRs since yesterday/,
+      ) as HTMLTextAreaElement;
+      await user.click(prompt);
+      await user.type(prompt, "Keep me");
+
+      act(() => {
+        for (const frame of frames.splice(0)) frame(0);
+      });
+      expect(document.activeElement).toBe(prompt);
+      expect(prompt.value).toBe("Keep me");
+    } finally {
+      request.mockRestore();
     }
   });
 });

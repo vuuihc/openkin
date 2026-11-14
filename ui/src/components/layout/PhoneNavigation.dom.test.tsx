@@ -359,13 +359,13 @@ describe("destinations and back", () => {
       shell(["/sessions", "/projects/p1"]);
       await screen.findByRole("heading", { name: "alpha" });
 
-      await user.click(screen.getByRole("button", { name: "Edit One-Pager" }));
+      await user.click(screen.getByRole("button", { name: "Edit" }));
       const editor = screen.getByRole("textbox");
       await user.clear(editor);
       await user.type(editor, "Changed but unsaved");
 
       await user.click(screen.getByRole("button", { name: "Back" }));
-      expect(confirm).toHaveBeenCalledWith("Discard unsaved One-Pager changes?");
+      expect(confirm).toHaveBeenCalledWith("Your summary is unsaved. Leave anyway?");
       expect(screen.getByRole("heading", { name: "alpha" })).toBeTruthy();
       expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(
         "Changed but unsaved",
@@ -385,7 +385,7 @@ describe("destinations and back", () => {
     try {
       shell(["/sessions", "/projects/p1"]);
       await screen.findByRole("heading", { name: "alpha" });
-      await user.click(screen.getByRole("button", { name: "Edit One-Pager" }));
+      await user.click(screen.getByRole("button", { name: "Edit" }));
       await user.type(screen.getByRole("textbox"), "!");
 
       edgeBack();

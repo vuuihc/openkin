@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BrowserRouter, Route, Routes, useNavigate } from "react-router-dom";
 import AppShell from "./AppShell";
+import Sheet from "../mobile/Sheet";
 import SettingsPage from "../../pages/SettingsPage";
 import { setLocale } from "../../i18n";
 import {
@@ -163,6 +165,7 @@ async function browser(...entries: Array<{ url: string; state?: Record<string, u
   return render(
     <BrowserRouter>
       <AppShell pendingApprovals={[]}>
+        <SheetProbe />
         <Routes>
           <Route path="/sessions" element={<div>chats page</div>} />
           <Route path="/settings" element={<SettingsPage />} />
@@ -190,6 +193,20 @@ function SameRouteControl() {
   );
 }
 
+function SheetProbe() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>
+        Open test sheet
+      </button>
+      <Sheet open={open} onClose={() => setOpen(false)} title="Test sheet">
+        Test sheet body
+      </Sheet>
+    </>
+  );
+}
+
 async function settingsOnly(...entries: Array<{ url: string; state?: Record<string, unknown> }>) {
   await rewindHistory();
   stack(...entries);
@@ -203,10 +220,10 @@ async function settingsOnly(...entries: Array<{ url: string; state?: Record<stri
   );
 }
 
-async function editNotificationUrl(user: ReturnType<typeof userEvent.setup>) {
+async function editRouting(user: ReturnType<typeof userEvent.setup>) {
   await screen.findByRole("tablist");
-  await user.click(screen.getByRole("tab", { name: "Notifications" }));
-  await user.type(screen.getByRole("textbox", { name: /UI base URL/ }), "/x");
+  await user.click(screen.getByRole("tab", { name: "Routing" }));
+  await user.click(screen.getByRole("checkbox", { name: /Enable auto routing/ }));
 }
 
 beforeEach(() => {
@@ -261,7 +278,7 @@ describe("the OAuth callback's cleanup", () => {
     expect(window.history.state.idx).toBe(1);
     expect(window.history.state.usr).toEqual({ scenario: "oauth" });
 
-    await editNotificationUrl(user);
+    await editRouting(user);
     await waitFor(() => expect(isLeaveGuardArmed()).toBe(true));
 
     act(() => window.history.back());
@@ -277,7 +294,7 @@ describe("navigating to the screen you are already on", () => {
     const user = userEvent.setup();
     const confirm = vi.mocked(window.confirm);
     await settingsOnly({ url: "/sessions" }, { url: "/settings" });
-    await editNotificationUrl(user);
+    await editRouting(user);
 
     await user.click(screen.getByRole("button", { name: "go to settings" }));
     expect(confirm).toHaveBeenCalledTimes(1);
@@ -287,8 +304,8 @@ describe("navigating to the screen you are already on", () => {
     await user.click(screen.getByRole("button", { name: "go to settings" }));
     expect(window.location.pathname).toBe("/settings");
     expect(
-      (screen.getByRole("textbox", { name: /UI base URL/ }) as HTMLInputElement).value,
-    ).toBe("http://127.0.0.1:7777/x");
+      (screen.getByRole("checkbox", { name: /Enable auto routing/ }) as HTMLInputElement).checked,
+    ).toBe(false);
 
     // The same-address navigation released the entry; the next Back must ask
     // again, and so must the one after that, until there is a different screen
@@ -310,9 +327,7 @@ describe("navigating to the screen you are already on", () => {
     await settingsOnly({ url: "/sessions" }, { url: "/settings?tab=remote" });
     await screen.findByRole("tablist");
 
-    // The relay URL is on the Remote tab, which the query selected at mount.
-    const relay = screen.getByRole("textbox", { name: /Relay Worker URL/ });
-    await user.type(relay, "https://relay.example.test");
+    await editRouting(user);
     confirm.mockReturnValue(true);
 
     await user.click(screen.getByRole("button", { name: "go to settings" }));
@@ -321,8 +336,8 @@ describe("navigating to the screen you are already on", () => {
 
     // Same route, so the page never unmounted and its draft is still there.
     expect(
-      (screen.getByRole("textbox", { name: /Relay Worker URL/ }) as HTMLInputElement).value,
-    ).toBe("https://relay.example.test");
+      (screen.getByRole("checkbox", { name: /Enable auto routing/ }) as HTMLInputElement).checked,
+    ).toBe(false);
 
     // The entry that protected the draft was buried by the push; Back must
     // still find a question to ask.
@@ -333,8 +348,8 @@ describe("navigating to the screen you are already on", () => {
     await waitFor(() => expect(confirm.mock.calls.length).toBe(asked + 1));
     expect(window.location.pathname).toBe("/settings");
     expect(
-      (screen.getByRole("textbox", { name: /Relay Worker URL/ }) as HTMLInputElement).value,
-    ).toBe("https://relay.example.test");
+      (screen.getByRole("checkbox", { name: /Enable auto routing/ }) as HTMLInputElement).checked,
+    ).toBe(false);
   });
 
   it("re-arms after a same-pathname replace with a different query", async () => {
@@ -343,16 +358,15 @@ describe("navigating to the screen you are already on", () => {
     await settingsOnly({ url: "/sessions" }, { url: "/settings?tab=remote" });
     await screen.findByRole("tablist");
 
-    const relay = screen.getByRole("textbox", { name: /Relay Worker URL/ });
-    await user.type(relay, "https://relay.example.test");
+    await editRouting(user);
     confirm.mockReturnValue(true);
 
     await user.click(screen.getByRole("button", { name: "replace with settings" }));
     expect(window.location.pathname).toBe("/settings");
     expect(window.location.search).toBe("");
     expect(
-      (screen.getByRole("textbox", { name: /Relay Worker URL/ }) as HTMLInputElement).value,
-    ).toBe("https://relay.example.test");
+      (screen.getByRole("checkbox", { name: /Enable auto routing/ }) as HTMLInputElement).checked,
+    ).toBe(false);
 
     // The rewrite dropped the sentinel's marker; a system Back must still ask
     // rather than leave the edited form.
@@ -363,8 +377,8 @@ describe("navigating to the screen you are already on", () => {
     await waitFor(() => expect(confirm.mock.calls.length).toBe(asked + 1));
     expect(window.location.pathname).toBe("/settings");
     expect(
-      (screen.getByRole("textbox", { name: /Relay Worker URL/ }) as HTMLInputElement).value,
-    ).toBe("https://relay.example.test");
+      (screen.getByRole("checkbox", { name: /Enable auto routing/ }) as HTMLInputElement).checked,
+    ).toBe(false);
   });
 });
 
@@ -374,18 +388,10 @@ describe("a sheet over a dirty page", () => {
     const confirm = vi.mocked(window.confirm);
     await browser({ url: "/sessions" }, { url: "/settings" });
     await screen.findByRole("tablist");
-    await user.click(screen.getByRole("tab", { name: "Routing" }));
-
-    await user.click(screen.getByRole("tab", { name: "Notifications" }));
-    await user.type(screen.getByRole("textbox", { name: /UI base URL/ }), "/x");
-    await user.click(screen.getByRole("tab", { name: "Routing" }));
+    await editRouting(user);
     await waitFor(() => expect(isLeaveGuardArmed()).toBe(true));
 
-    const trigger = screen
-      .getAllByRole("button", { name: /Default team/ })
-      .find((button) => button.getAttribute("aria-haspopup") === "dialog");
-    expect(trigger).toBeTruthy();
-    await user.click(trigger!);
+    await user.click(screen.getByRole("button", { name: "Open test sheet" }));
 
     await waitFor(() => expect(document.querySelector("[data-kin-sheet]")).toBeTruthy());
     expect(window.history.state.kinSheet).toBeTruthy();

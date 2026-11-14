@@ -96,47 +96,11 @@ export function nativePushPlugin(scope: unknown = globalThis): NativePushPlugin 
   return candidate as NativePushPlugin;
 }
 
-/**
- * What surface this console is running on. The settings section shows one
- * device block, so "browser" must be distinguishable from "this shell simply
- * has no push plugin".
- */
-export function nativePushSurface(scope: unknown = globalThis): "ios" | "browser" {
-  return nativePushPlugin(scope) ? "ios" : "browser";
-}
-
 /** Thrown when iOS will not grant the notification permission. */
 export class NativePushPermissionError extends Error {
   constructor(readonly permission: NativePushPermission) {
     super(`notification permission is ${permission}`);
     this.name = "NativePushPermissionError";
-  }
-}
-
-/**
- * The translation key for an APNs reason the reader can act on.
- *
- * Apple's reasons are short machine tokens; showing "BadDeviceToken" to a
- * person explains nothing. Unknown reasons keep their raw text, because that
- * is the honest thing to show when only the provider knows what happened.
- */
-export function pushErrorKey(reason: string): string | null {
-  switch (reason.trim()) {
-    case "BadDeviceToken":
-    case "DeviceTokenNotForTopic":
-    case "Unregistered":
-      return "settings.nativePush.apnsErrors.token";
-    case "ExpiredProviderToken":
-    case "InvalidProviderToken":
-    case "MissingProviderToken":
-      return "settings.nativePush.apnsErrors.credentials";
-    case "TooManyRequests":
-      return "settings.nativePush.apnsErrors.rateLimited";
-    case "ServiceUnavailable":
-    case "InternalServerError":
-      return "settings.nativePush.apnsErrors.unavailable";
-    default:
-      return null;
   }
 }
 
@@ -204,50 +168,6 @@ export async function syncNativePush(
 }
 
 /**
- * Remove the node row first, then stop the shell from receiving. Doing it the
- * other way round hides a row that still rings the phone with no way to find it.
- *
- * A 404 means the row is already gone, and 401/403 mean this credential can
- * never delete it; all three are terminal, since retrying cannot change the
- * answer. Any other failure leaves the node row addressable: the id is
- * remembered so the next settings load can finish the deletion, and the shell
- * still stops receiving in the meantime. Returns whether that retry is
- * outstanding.
- */
-export async function disableNativePush(
-  plugin: NativePushPlugin,
-  api: NativePushApi,
-  deviceID: string,
-): Promise<{ pending: boolean }> {
-  let pending = false;
-  try {
-    await api.deletePushDevice(deviceID);
-    forgetPendingNativeDelete();
-  } catch (e) {
-    if (isFinalRemovalError(e)) {
-      forgetPendingNativeDelete();
-    } else {
-      rememberPendingNativeDelete(deviceID);
-      pending = true;
-    }
-  }
-  // Unregister even when the node call failed: the phone must stop receiving
-  // either way, and the pending marker is what keeps the row from being lost.
-  try {
-    await plugin.unregister();
-  } catch {
-    // A shell that cannot unregister has no token to receive with anymore in
-    // practice; the node row is the part that needs the retry.
-  }
-  return { pending };
-}
-
-/** True when the node says the row does not exist. */
-export function isNotFoundError(e: unknown): boolean {
-  return !!e && typeof e === "object" && (e as { status?: unknown }).status === 404;
-}
-
-/**
  * True when retrying the deletion can never succeed: the row is gone, the
  * credential is gone, or the row belongs to someone else. Keeping one of these
  * on the pending list would retry it on every settings load forever.
@@ -261,7 +181,7 @@ function isFinalRemovalError(e: unknown): boolean {
  * Take a handled item's banner out of Notification Center. The native side
  * matches the node's `kin` payload, so a different item's banner stays. This is
  * best-effort by design: a delivered notification is system state, and the
- * inbox — not the banner — is the source of truth.
+ * pending list — not the banner — is the source of truth.
  */
 export function clearDeliveredNotification(kind: "approval" | "question", id: string): void {
   if (!id) return;
@@ -415,6 +335,7 @@ export async function disableNativePushOnSignOut(api: NativePushRemovalApi): Pro
   try {
     await plugin.unregister();
   } catch {
-    // See disableNativePush: the node row is the part that needs the retry.
+    // The node row is the part that needs the retry: a shell that cannot
+    // unregister has no token to receive with in practice.
   }
 }

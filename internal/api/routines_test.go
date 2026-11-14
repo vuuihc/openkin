@@ -683,3 +683,57 @@ func TestRoutineKeepsItsModel(t *testing.T) {
 		t.Fatalf("model = %q, want empty", cleared.Model)
 	}
 }
+
+// The conversation mode rides the same create and patch bodies as the rest of
+// a routine's configuration. Create defaults to "continue" (the signed
+// default), an explicit "fresh" survives a read-back, and a misspelling is
+// refused rather than silently treated as either mode.
+func TestRoutineConversationModeRoundTrips(t *testing.T) {
+	s, _ := newRoutinesTestServer(t)
+
+	rr := postRoutine(t, s, `{"cwd":"/tmp/p","prompt":"default mode","interval_secs":3600}`)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var created store.Routine
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.ConversationMode != store.ConversationContinue {
+		t.Fatalf("default mode = %q, want %q", created.ConversationMode, store.ConversationContinue)
+	}
+
+	rr = postRoutine(t, s, `{"cwd":"/tmp/p","prompt":"fresh mode","interval_secs":3600,"conversation_mode":"fresh"}`)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("fresh create status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var fresh store.Routine
+	if err := json.Unmarshal(rr.Body.Bytes(), &fresh); err != nil {
+		t.Fatal(err)
+	}
+	if fresh.ConversationMode != store.ConversationFresh {
+		t.Fatalf("fresh create mode = %q, want %q", fresh.ConversationMode, store.ConversationFresh)
+	}
+
+	rr = postRoutine(t, s, `{"cwd":"/tmp/p","prompt":"typo","interval_secs":3600,"conversation_mode":"fres"}`)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("typo create status=%d body=%s, want 400", rr.Code, rr.Body.String())
+	}
+
+	rr = patchRoutine(t, s, fresh.ID, `{"conversation_mode":"continue"}`)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("patch status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var patched store.Routine
+	if err := json.Unmarshal(rr.Body.Bytes(), &patched); err != nil {
+		t.Fatal(err)
+	}
+	if patched.ConversationMode != store.ConversationContinue {
+		t.Fatalf("patched mode = %q, want %q", patched.ConversationMode, store.ConversationContinue)
+	}
+
+	rr = patchRoutine(t, s, fresh.ID, `{"conversation_mode":"sometimes"}`)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("typo patch status=%d body=%s, want 400", rr.Code, rr.Body.String())
+	}
+}

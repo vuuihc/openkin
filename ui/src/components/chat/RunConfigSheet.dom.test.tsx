@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+// KIN-START-001: the run card names host, model and permission while its extra
+// rows stay inside the one settings surface.
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, within } from "@testing-library/react";
@@ -257,14 +259,17 @@ describe("RunConfigControl", () => {
     await userEvent.click(screen.getByRole("button", { name: /^Model/ }));
     expect(screen.getByRole("listbox", { name: "Model" })).toBeTruthy();
 
-    // The system Back gesture, as the browser delivers it.
+    // The system Back gesture, as the browser delivers it: the current entry
+    // has already become the one below the sheet when `popstate` arrives.
     act(() => {
+      window.history.replaceState({}, "");
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
     expect(screen.queryByRole("listbox", { name: "Model" })).toBeNull();
     expect(screen.getByRole("dialog", { name: "Run settings" })).toBeTruthy();
 
     act(() => {
+      window.history.replaceState({}, "");
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
     expect(screen.queryByRole("dialog", { name: "Run settings" })).toBeNull();

@@ -329,9 +329,9 @@ function setupTray(): void {
       popover?.hide();
       mainWindow.show("/");
     },
-    openApproval: (id) => {
+    openApproval: (id, taskId) => {
       popover?.hide();
-      mainWindow.openApproval(id);
+      mainWindow.openApproval(id, taskId);
     },
     togglePopover: (bounds) => {
       popover?.toggle(bounds);

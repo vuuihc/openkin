@@ -16,6 +16,10 @@
 import type { PatchRoutineBody, Routine } from "../api/client";
 import { normalizePermissionMode } from "./permissionMode";
 import {
+  conversationModeOf,
+  type ConversationMode,
+} from "./routineConversation";
+import {
   localTimeZone,
   parseRoutineRule,
   ruleTimeZone,
@@ -32,6 +36,8 @@ export type RoutineForm = {
   /** The agent model the routine's runs start with; "" = the agent default. */
   model: string;
   permissionMode: string;
+  /** Where each run's agent session starts; the signed default is "continue". */
+  conversationMode: ConversationMode;
   intervalSecs: number;
   rule: RoutineRule | null;
   /** The first/next run the form holds, in ms; read for intervals and one-offs. */
@@ -53,6 +59,7 @@ export function routineForm(routine: Routine): RoutineForm {
     agent: routine.agent ?? "",
     model: routine.model ?? "",
     permissionMode: routine.permission_mode,
+    conversationMode: conversationModeOf(routine),
     intervalSecs: routine.interval_secs,
     rule: parseRoutineRule(routine.recurrence),
     nextRunMs: routine.next_due_at || null,
@@ -190,6 +197,12 @@ export function routinePatch(
     normalizePermissionMode(routine.permission_mode)
   ) {
     patch.permission_mode = form.permissionMode;
+  }
+  // The stored value can be the legacy empty string while the form reads it
+  // as "continue"; comparing the resolved modes keeps an untouched choice out
+  // of the PATCH instead of rewriting it on every save.
+  if (form.conversationMode !== conversationModeOf(routine)) {
+    patch.conversation_mode = form.conversationMode;
   }
   Object.assign(patch, schedulePatch(routine, parseRoutineRule(routine.recurrence), form, now));
   return Object.keys(patch).length > 0 ? patch : null;

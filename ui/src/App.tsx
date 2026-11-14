@@ -8,11 +8,6 @@ import ConnectScreen from "./components/ConnectScreen";
 import NotificationTaps from "./components/NotificationTaps";
 import AppShell from "./components/layout/AppShell";
 import ToastHost from "./components/ToastHost";
-import ApprovalsPage from "./pages/ApprovalsPage";
-import ArtifactDetailPage from "./pages/ArtifactDetailPage";
-import ArtifactsPage from "./pages/ArtifactsPage";
-import DesignSystemPage from "./pages/DesignSystemPage";
-import ProjectsPage from "./pages/ProjectsPage";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
 import NewChatPage from "./pages/NewChatPage";
 import SessionsRoute from "./pages/SessionsRoute";
@@ -193,26 +188,21 @@ export default function App() {
             <Route path="/" element={<StartRoute />} />
             <Route path="/new" element={<NewChatPage />} />
             <Route path="/sessions" element={<SessionsRoute />} />
-            <Route path="/inbox" element={<ApprovalsPage />} />
-            <Route path="/approvals" element={<Navigate to="/inbox" replace />} />
+            {/* Banners and bookmarks delivered before R0b-2a still name the
+                inbox. The list is its replacement, and every row there says
+                what is waiting. */}
+            <Route path="/inbox" element={<Navigate to="/sessions" replace />} />
+            <Route path="/approvals" element={<Navigate to="/sessions" replace />} />
             {/* Task detail UI is rendered by TaskSessionHost above. */}
             <Route path="/tasks/:id" element={null} />
-            <Route path="/artifacts" element={<ArtifactsPage />} />
-            <Route path="/artifacts/:id" element={<ArtifactDetailPage />} />
-            <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/projects/:id" element={<ProjectDetailPage />} />
             <Route path="/agents" element={<AgentsPage />} />
             <Route path="/routines" element={<RoutinesPage />} />
-            {/* A routine run lives on the machine that ran it. The id is not a
-                conversation in this Hub's store, so it gets a route that says
-                which machine to ask instead of the ordinary session page. */}
+            {/* A remote run lives in that machine's task store. */}
             <Route path="/machines/:device/tasks/:id" element={<MachineTaskPage />} />
             <Route path="/usage" element={<Navigate to="/agents" replace />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/agent-sessions/:id" element={<AgentSessionDetailPage />} />
-            {/* The token gallery. Not in the nav: it is a place to check the
-                design layer, not a place to work. */}
-            <Route path="/design" element={<DesignSystemPage />} />
             <Route path="*" element={<Navigate to="/new" replace />} />
           </Routes>
         </ErrorBoundary>

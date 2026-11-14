@@ -299,16 +299,23 @@ func TestTickRecoversManualDispatchWithoutCreatingDuplicate(t *testing.T) {
 // A routine's runs start on the model it remembers. An empty model is the
 // agent's own default, so no model field is sent at all rather than "".
 func TestRoutineCreateRequestCarriesTheModel(t *testing.T) {
-	s := &Scheduler{}
+	// The request now also asks the store for the session a run continues, so
+	// the scheduler needs a real (empty) one even for a shape-only check.
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	s := &Scheduler{Store: st}
 	model := "claude-sonnet-5-5"
-	req := s.routineCreateRequest(store.Routine{
+	req := s.routineCreateRequest(context.Background(), store.Routine{
 		ID: "r1", Cwd: "/work/app", Agent: "claude-code", Model: model, Prompt: "go",
 	}, "task-1")
 	if req.Model == nil || *req.Model != model {
 		t.Fatalf("model = %v, want %q", req.Model, model)
 	}
 
-	req = s.routineCreateRequest(store.Routine{
+	req = s.routineCreateRequest(context.Background(), store.Routine{
 		ID: "r2", Cwd: "/work/app", Agent: "claude-code", Prompt: "go",
 	}, "task-2")
 	if req.Model != nil {
@@ -324,16 +331,18 @@ func TestRoutineCreateRequestAppendsReportTrailerUnlessItIsAlreadyThere(t *testi
 	s := &Scheduler{}
 
 	prose := "Report the signal: noteworthy: true when the user must act."
-	req := s.routineCreateRequest(store.Routine{
+	req := s.routineCreateRequest(context.Background(), store.Routine{
 		ID: "r1", Cwd: "/work/app", Agent: "claude-code", Prompt: prose,
+		ConversationMode: store.ConversationFresh,
 	}, "task-1")
 	if got, want := req.Prompt, prose+task.ReportSignalTrailer; got != want {
 		t.Fatalf("prompt = %q, want %q", got, want)
 	}
 
 	already := prose + task.ReportSignalTrailer
-	req = s.routineCreateRequest(store.Routine{
+	req = s.routineCreateRequest(context.Background(), store.Routine{
 		ID: "r2", Cwd: "/work/app", Agent: "claude-code", Prompt: already,
+		ConversationMode: store.ConversationFresh,
 	}, "task-2")
 	if got, want := req.Prompt, already; got != want {
 		t.Fatalf("prompt = %q, want it unchanged", got)

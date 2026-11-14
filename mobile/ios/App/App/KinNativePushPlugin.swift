@@ -47,14 +47,15 @@ public class KinNativePushPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    /// Resolve with a registration the node can store. Registers with APNs on
-    /// every call that has no token yet, which is also how a rotated token is
-    /// picked up after the console re-syncs on launch.
+    /// Resolve with a registration the node can store.
+    ///
+    /// Asks APNs on every call, not only when the cache is empty: a token can
+    /// rotate while this process stays alive, and the console re-syncs on
+    /// launch and on reconnect. The cached token is dropped first so the wait
+    /// below resolves with what this registration delivers, never with the
+    /// stale one we already had.
     @objc func register(_ call: CAPPluginCall) {
-        if let token = KinPushState.shared.currentToken {
-            call.resolve(Self.registration(token: token))
-            return
-        }
+        KinPushState.shared.refreshToken()
         DispatchQueue.main.async {
             UIApplication.shared.registerForRemoteNotifications()
         }

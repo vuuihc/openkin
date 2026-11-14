@@ -17,9 +17,9 @@ type Props = {
   onDeny: () => void;
   onOpenPath?: (path: string) => void;
   /**
-   * Whether `a`/`d` answer *this* card. The transcript and the inbox bind
-   * them; a card floating over some other screen does not — the letters there
-   * would promise a key that decides a different approval, or nothing at all.
+   * Whether `a`/`d` answer *this* card. The transcript binds them; a card
+   * floating over some other screen does not — the letters there would promise
+   * a key that decides a different approval, or nothing at all.
    */
   showKeys?: boolean;
 };
@@ -149,7 +149,7 @@ export default function ApprovalCard({
           </span>
           {focused && (
             <span className="text-micro font-semibold uppercase tracking-label text-kin-blue-ink bg-kin-blue/15 rounded px-1.5 py-0.5">
-              {tr("inbox.focused")}
+              {tr("needsYou.focused")}
             </span>
           )}
           <span className="ml-auto text-caption text-kin-muted truncate max-w-[45%]" title={attr}>

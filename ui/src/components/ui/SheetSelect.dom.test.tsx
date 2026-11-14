@@ -8,10 +8,10 @@ import SheetSelect from "./SheetSelect";
 /**
  * KIN-CONTINUE-001, step 5: the small choice control has one shape per width.
  *
- * On a phone the chip opens Ionic's action sheet — the platform's own
- * interaction. On a Mac the same chip used to open that sheet in the middle of
- * a desktop window, over the composer it was describing; these tests pin the
- * desktop surface to an anchored menu and keep the sheet on the phone.
+ * On a phone the chip opens the console's action sheet. On a Mac the same chip
+ * used to open that sheet in the middle of a desktop window, over the composer
+ * it was describing; these tests pin the desktop surface to an anchored menu
+ * and keep the sheet on the phone.
  */
 
 const OPTIONS = [
@@ -56,7 +56,7 @@ describe("the sheet select on a Mac", () => {
     // strip clipped an absolutely positioned panel to its own height.
     expect(menu.className).toContain("fixed");
     expect(menu.parentElement).toBe(document.body);
-    expect(document.querySelector("ion-action-sheet")).toBeNull();
+    expect(document.querySelector("[data-kin-sheet]")).toBeNull();
     // The current value is checked, and opening lands on it so the next arrow
     // is relative to what is set.
     const current = screen.getByRole("menuitemradio", { name: "No role" });
@@ -91,10 +91,10 @@ describe("the sheet select on a phone", () => {
     const { chip } = setup(false);
     await userEvent.click(chip);
 
-    // The Ionic host exists whether or not it is open, so the host alone
-    // proves nothing: the chip has to have asked it to open.
     expect(chip.getAttribute("aria-expanded")).toBe("true");
-    expect(document.querySelector("ion-action-sheet")).not.toBeNull();
+    const sheet = screen.getByRole("dialog", { name: "Role" });
+    expect(sheet).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reviewer" })).toBeTruthy();
     expect(screen.queryByRole("menu")).toBeNull();
   });
 });

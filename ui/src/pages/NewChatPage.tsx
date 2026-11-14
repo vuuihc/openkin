@@ -13,10 +13,8 @@ import {
 } from "../api/client";
 import BranchPicker from "../components/chat/BranchPicker";
 import ChatStream from "../components/chat/ChatStream";
-import CwdPicker from "../components/chat/CwdPicker";
 import Composer from "../components/chat/Composer";
 import RunConfigControl, { RunConfigSheetRow } from "../components/chat/RunConfigSheet";
-import MachinePicker from "../components/chat/MachinePicker";
 import {
   DispatchSelector,
   defaultDispatchSelection,
@@ -31,7 +29,9 @@ import RoutineScheduleFields, {
 } from "../components/routine/RoutineScheduleFields";
 import { serializeRoutineRule, type RoutineRule } from "../lib/routineRecurrence";
 import { displayUserPrompt } from "../lib/attachments";
+import { phonePush } from "../lib/phoneNavigation";
 import ProjectSummaryCard from "../components/project/ProjectSummaryCard";
+import PlacePicker, { type Place } from "../components/newchat/PlacePicker";
 import { liveResources } from "../api/liveResources";
 import { useT } from "../i18n/react";
 import { modelsForAgent } from "../lib/agentModels";
@@ -57,18 +57,12 @@ import {
   setDraftPrompt,
 } from "../lib/draftChat";
 import { forgetPlaceReturn } from "../lib/placeReturn";
-import { runGuardedNavigation } from "../lib/leaveGuard";
-import { phonePush } from "../lib/phoneNavigation";
 import { THIS_MACHINE, writeRoutineDevice } from "../lib/routineDevice";
 import { useMachines } from "../hooks/useMachines";
-import {
-  catalogFor,
-  cwdAfterMachineChange,
-  cwdOnMachine,
-  cwdSuggestions,
-  findMachine,
-} from "../lib/devices";
+import { useMinWidth } from "../hooks/useMinWidth";
+import { catalogFor, cwdOnMachine, findMachine } from "../lib/devices";
 import { projectLabel } from "../lib/paths";
+import { rememberedProject, rememberProject } from "../lib/placeMemory";
 import {
   getDraftPermissionMode,
   permissionModesForAgent,
@@ -94,21 +88,17 @@ export default function NewChatPage() {
   const location = useLocation();
   const [params, setParams] = useSearchParams();
   const pushToast = useAppStore((s) => s.pushToast);
+  const wsStatus = useAppStore((s) => s.wsStatus);
+  // The draft opens with the caret in the prompt on a Mac, and with no keyboard
+  // on a phone: typing is the first act on one, and a keyboard sliding over the
+  // screen before a word is written is the wrong first act on the other.
+  const wide = useMinWidth(768);
   const tr = useT();
 
-  const [cwd, setCwd] = useState(() => getDraftCwd());
-  // The composer's text as this page knows it. Storage is best-effort (a
-  // private window can refuse a write), and an edited composer is ahead of
-  // both storage and the last `?q=` applied. Decisions about whether a new
-  // prefill would discard words must read this, and the composer's value is
-  // handed back from it so an overwrite that happens to repeat the previous
-  // prefill still reaches the textarea.
+  const [cwd, setCwd] = useState(() => getDraftCwd() || rememberedProject(getDraftMachine()));
   const [draftValue, setDraftValue] = useState(() => getDraftPrompt());
-  // The query effect must read the live draft without re-running on every
-  // keystroke: the same effect also applies `?cwd=`, and a draft dependency
-  // would let each letter overwrite a directory the reader had changed.
-  const draftValueRef = useRef(draftValue);
-  draftValueRef.current = draftValue;
+  const liveDraftRef = useRef(draftValue);
+  liveDraftRef.current = draftValue;
   const [previewPrompt, setPreviewPrompt] = useState(() => getDraftPrompt());
   const [initialAttachments] = useState(() => getDraftAttachments());
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(() =>
@@ -126,12 +116,10 @@ export default function NewChatPage() {
   const [routineRule, setRoutineRule] = useState<RoutineRule | null>(null);
   const [routineNextLocal, setRoutineNextLocal] = useState(() => defaultNextRunLocal());
 
-  // The run face the draft was left on. Its cwd and machine already survive
-  // closing the page; a model or agent that came back to its default would
-  // start the next run somewhere the reader did not choose.
   const [selectedModel, setSelectedModel] = useState(() => getDraftModel());
   const [selectedHost, setSelectedHost] = useState(() => getDraftHost());
   const [machineId, setMachineId] = useState<string>(() => getDraftMachine());
+  const [placeNotice, setPlaceNotice] = useState<string | null>(null);
   const {
     machines,
     agents: localAgents,
@@ -143,11 +131,9 @@ export default function NewChatPage() {
   const [dispatchPreviewBlocked, setDispatchPreviewBlocked] = useState(false);
   const [sending, setSending] = useState(false);
   /**
-   * The message this page has already sent but has no task id for yet. While
-   * it is set the body is a conversation surface — the person's own words and
-   * the host's waiting row — instead of the draft's hero, so a tap on the
-   * send control does not look like nothing happened. Cleared when the create
-   * answers (the route takes over) or fails (the draft comes back).
+   * The message this page has sent but has no task id for yet. While it is set,
+   * draw the same transcript the conversation route will draw so the send is
+   * visible immediately. A refused create restores the draft beneath it.
    */
   const [pendingSend, setPendingSend] = useState<string | null>(null);
   const [project, setProject] = useState<Project | null>(null);
@@ -158,29 +144,12 @@ export default function NewChatPage() {
   const [projectLookupError, setProjectLookupError] = useState<string | null>(null);
   const [projectLookupKey, setProjectLookupKey] = useState(0);
   const [dirs, setDirs] = useState<string[]>([]);
-  /**
-   * The `?q=` prefill is an invitation, not a standing instruction.
-   *
-   * It arrives from Agent Ops as `/new?q=…`, and a reload or a later return to
-   * the same URL used to apply it again over whatever the person had since
-   * typed. Consume it once: apply it to an empty draft (or after the person
-   * agrees to replace theirs), then remove it from the URL so a reload cannot
-   * overwrite later edits.
-   */
   const queryHandled = useRef(false);
 
   useEffect(() => {
     refreshMachines();
     recentCwds()
-      .then((recent) => {
-        setDirs(recent);
-        setCwd((c) => {
-          if (c) return c;
-          const next = recent[0] || "";
-          if (next) setDraftCwd(next);
-          return next;
-        });
-      })
+      .then((recent) => setDirs(recent))
       .catch(() => undefined);
     getRoutingOptions()
       .then((opts) => {
@@ -202,9 +171,9 @@ export default function NewChatPage() {
       queryHandled.current = false;
     } else if (!queryHandled.current) {
       queryHandled.current = true;
-      const existing = draftValueRef.current;
-      // Never discard words the person already wrote. An empty draft takes the
-      // prefill directly; a non-empty one only changes after an explicit yes.
+      const existing = liveDraftRef.current;
+      // A prefill from Agent Ops is an invitation. Keep words the reader
+      // already wrote unless they explicitly agree to replace them.
       const replace =
         existing.trim() === "" ||
         existing === q ||
@@ -215,6 +184,7 @@ export default function NewChatPage() {
         setPreviewPrompt(q);
         setDraftPrompt(q);
       }
+      // Remove the one-time instruction so reloads and later edits are stable.
       const next = new URLSearchParams(params);
       next.delete("q");
       setParams(next, { replace: true });
@@ -227,12 +197,37 @@ export default function NewChatPage() {
   }, [params, setParams, tr]);
 
   const machine = machineId ? findMachine(machines, machineId) : undefined;
-  // A machine that was chosen and has since gone away (revoked, or the device
-  // list failed) must not fall back to running here: the cwd in the box is a
-  // path on that machine, and the same path may well exist on this one.
-  const machineGone = Boolean(machineId) && !machinesLoading && !machine;
+  // A machine that was chosen and has since gone away (revoked) must not fall
+  // back to running here: the cwd in the box is a path on that machine, and
+  // the same path may well exist on this one. A list that failed to load is
+  // not evidence of either — it is a third state, and Start says so.
+  const machineUnread = Boolean(machineId) && !machinesLoading && machinesFailed && !machine;
+  const machineGone = Boolean(machineId) && !machinesLoading && !machinesFailed && !machine;
   const isSelf = !machine || machine.isSelf;
   const remote = !isSelf;
+
+  // The machine a draft was aimed at can go away (revoked, or the device list
+  // was re-read and no longer lists it). Its path is a path over there, so
+  // continuing on this machine with it would send a turn nobody asked for —
+  // but keeping the missing id would leave the page talking to a machine that
+  // cannot answer. Go back to this machine, keep the prompt, and say so. A
+  // list that failed to load is not evidence the machine is gone.
+  useEffect(() => {
+    if (!machineId || machinesLoading || machinesFailed) return;
+    if (findMachine(machines, machineId)) return;
+    setMachineId("");
+    setDraftMachine("");
+    // Home is the project this machine was last used in, else the newest
+    // recent directory. Both are this machine's own paths.
+    const home = rememberedProject("") || dirs[0] || "";
+    setCwd(home);
+    setDraftCwd(home);
+    // The agent and model were the vanished machine's own; keeping them would
+    // send a model that only exists over there to whatever runs here.
+    setSelectedHost("");
+    setSelectedModel("");
+    setPlaceNotice(tr("newChat.placeGone"));
+  }, [machineId, machines, machinesLoading, machinesFailed, dirs, tr]);
 
   // Resolve project summary for the selected cwd (read-only; never auto-create).
   // Only here: a project is a Hub-side record keyed by a path on the Hub's own
@@ -241,7 +236,7 @@ export default function NewChatPage() {
   // counts as elsewhere: its cwd is still a path over there.
   useEffect(() => {
     const path = cwd.trim();
-    if (remote || machineGone) {
+    if (remote || machineGone || machineUnread) {
       setProject(null);
       setProjectSummary(null);
       setProjectLookupState("idle");
@@ -297,15 +292,11 @@ export default function NewChatPage() {
     return () => {
       cancelled = true;
     };
-  }, [cwd, remote, machineGone, projectLookupKey, tr]);
+  }, [cwd, remote, machineGone, machineUnread, projectLookupKey, tr]);
 
   const agents = useMemo(
     () => catalogFor(remote ? machine : undefined, localAgents),
     [remote, machine, localAgents],
-  );
-  const cwdDirs = useMemo(
-    () => cwdSuggestions(remote ? machine : undefined, dirs),
-    [remote, machine, dirs],
   );
   const machineLabel = machine && !machine.isSelf ? machine.label : "";
 
@@ -331,12 +322,17 @@ export default function NewChatPage() {
   // last mode over from another machine is how the first session fails before
   // it starts. Clamp to what this machine advertises.
   useEffect(() => {
+    // A machine whose list failed is not evidence of what it offers: keep the
+    // chosen mode until the list is back and the real ladder can judge it.
+    if (machineUnread) return;
     if (!allowedPermissionModes.includes(permissionMode)) {
       setPermissionMode("default");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only the run's capability matters
-  }, [allowedPermissionKey, permissionMode]);
+  }, [allowedPermissionKey, permissionMode, machineUnread]);
 
+  // The draft keeps the run face too: coming back to the page must not start
+  // the next run on the default model after the last one was chosen.
   useEffect(() => {
     setDraftModel(selectedModel);
   }, [selectedModel]);
@@ -346,16 +342,29 @@ export default function NewChatPage() {
 
   // Drop model selection when host agent changes to one without that model.
   useEffect(() => {
+    if (machineUnread) return;
     const opts = modelsForAgent(available, mainAgentId);
     if (selectedModel && opts.length > 0 && !opts.some((m) => m.id === selectedModel)) {
       setSelectedModel("");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-check when host agent id changes
-  }, [mainAgentId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-check when the host agent or the machine's known-ness changes
+  }, [mainAgentId, machineUnread]);
+
+  // A draft with no directory yet starts in the most recent one on this
+  // machine. Only here: a path from another machine would be sent as a local
+  // path, and that machine's own projects come from its roots instead.
+  useEffect(() => {
+    if (cwd || remote) return;
+    const next = dirs[0] || "";
+    if (!next) return;
+    setCwd(next);
+    setDraftCwd(next);
+  }, [cwd, dirs, remote]);
 
   // A directory that belongs to another machine — or to this one before a
-  // reload — is not a directory the chosen node will run in. Move it to that
-  // machine's first root instead of starting a turn the node is going to refuse.
+  // reload — is not a directory the chosen node will run in. Move it to the
+  // project that machine was last used in, and only then to its first root:
+  // the remembered project is the one the reader chose for it, not a guess.
   //
   // Once per machine, never per edit: while a path is being typed it passes
   // through states the machine would refuse, and reconciling those would fight
@@ -370,52 +379,73 @@ export default function NewChatPage() {
     if (reconciledMachine.current === machine.id) return;
     reconciledMachine.current = machine.id;
     const next = cwdOnMachine(cwd, machine);
-    if (next !== cwd) {
-      setCwd(next);
-      setDraftCwd(next);
+    if (next === cwd) return;
+    const remembered = rememberedProject(machine.id);
+    if (remembered && cwdOnMachine(remembered, machine) !== remembered) {
+      // The project this machine was last used in is gone from what it now
+      // reports. Its draft path is a place that no longer exists; going back
+      // to this machine and saying so beats silently running in its first
+      // root, which is a different project nobody chose.
+      setMachineId("");
+      setDraftMachine("");
+      const home = rememberedProject("") || dirs[0] || "";
+      setCwd(home);
+      setDraftCwd(home);
+      // Same as the vanished-machine effect: the agent and model belonged to
+      // the machine being left, and the reader is now on this one.
+      setSelectedHost("");
+      setSelectedModel("");
+      setPlaceNotice(tr("newChat.placeGoneProject"));
+      reconciledMachine.current = "";
+      return;
     }
-  }, [cwd, machine, remote]);
+    const replacement =
+      remembered && cwdOnMachine(remembered, machine) === remembered ? remembered : next;
+    setCwd(replacement);
+    setDraftCwd(replacement);
+    rememberProject(machine.id, replacement);
+  }, [cwd, machine, remote, dirs, tr]);
 
-  function chooseMachine(id: string | null) {
-    const chosen = id ?? "";
-    // Re-picking the machine already selected must not touch the directory:
-    // cwdAfterMachineChange would move a valid cwd to the first suggestion of
-    // the same machine, i.e. into a different repository.
-    if (chosen === machineId) return;
-    const next = findMachine(machines, chosen);
-    setMachineId(chosen);
-    setDraftMachine(chosen);
-    const after = cwdSuggestions(next, dirs);
-    const moved = cwdAfterMachineChange(cwd, cwdDirs, after);
-    if (moved !== cwd) {
-      setCwd(moved);
-      setDraftCwd(moved);
-    }
+  /** One machine and one project, chosen together. */
+  function choosePlace(place: Place) {
+    const machineChanged = place.machineId !== machineId;
+    setMachineId(place.machineId);
+    setDraftMachine(place.machineId);
+    setCwd(place.cwd);
+    setDraftCwd(place.cwd);
+    rememberProject(place.machineId, place.cwd);
+    setPlaceNotice(null);
     // Agent ids and models are the machine's own; keep nothing that was picked
     // for the machine being left.
-    setSelectedHost("");
-    setSelectedModel("");
+    if (machineChanged) {
+      setSelectedHost("");
+      setSelectedModel("");
+    }
   }
 
   async function onSubmit(text: string) {
     const raw = text.trim();
     if (!raw) return;
+    // The composer has already cleared itself by the time this runs. Store the
+    // prompt before the first guard so every refusal below — a disabled Start
+    // reached by the keyboard, a failed create — leaves it in the draft, and
+    // so a rejection can hand the text back to the composer.
+    setDraftPrompt(raw);
     if (!cwd.trim()) {
-      pushToast(tr("newChat.chooseCwd"), "error");
-      return;
+      throw new Error(tr("newChat.chooseCwd"));
     }
     if (machineGone) {
-      pushToast(tr("machine.goneHint", { name: machineId }), "error");
-      return;
+      throw new Error(tr("machine.goneHint", { name: machineId }));
+    }
+    if (machineUnread) {
+      throw new Error(tr("machine.listUnavailable"));
     }
     if (remote && !machine.online) {
-      pushToast(tr("machine.offlineHint", { name: machineLabel }), "error");
-      return;
+      throw new Error(tr("machine.offlineHint", { name: machineLabel }));
     }
 
     if (asRoutine) {
       setSending(true);
-      setDraftPrompt(raw);
       try {
         const nextMs = parseLocalDateTime(routineNextLocal);
         const titleRunes = Array.from(raw);
@@ -454,24 +484,17 @@ export default function NewChatPage() {
         navigate(`/routines`, { replace: true, state: { createdId: routine.id } });
         pushToast(tr("routines.created"), "info");
       } catch (err) {
-        const msg =
-          err instanceof ApiError
-            ? err.message
-            : err instanceof Error
-              ? err.message
-              : tr("routines.actionFailed");
-        pushToast(msg, "error");
+        // Hand it back: the composer restores the prompt and says what failed.
+        throw err instanceof Error ? err : new Error(tr("routines.actionFailed"));
       } finally {
         setSending(false);
       }
       return;
     }
     if (available.length === 0) {
-      pushToast(
+      throw new Error(
         remote ? tr("machine.noAgents", { name: machineLabel }) : tr("newChat.noAgents"),
-        "error",
       );
-      return;
     }
 
     const plan = parseAgentDirective(raw, availableIds);
@@ -482,8 +505,7 @@ export default function NewChatPage() {
     // No main at all — last resort single @ worker as the whole session.
     if (!agent && plan.agent) agent = plan.agent;
     if (!agent) {
-      pushToast(tr("newChat.noAgentInstall"), "error");
-      return;
+      throw new Error(tr("newChat.noAgentInstall"));
     }
 
     // Keep full raw prompt so backend can parse multi-@ plans.
@@ -492,16 +514,10 @@ export default function NewChatPage() {
     // Validate dispatch selection before submitting.
     const dispatchReady = !remote && isDispatchReady(dispatch, dispatchPreviewBlocked);
     if (dispatchBlocksSend(dispatch, { remote, previewBlocked: dispatchPreviewBlocked })) {
-      pushToast(tr("newChat.dispatchIncomplete"), "error");
-      setSending(false);
-      return;
+      throw new Error(tr("newChat.dispatchIncomplete"));
     }
 
     setSending(true);
-    setDraftPrompt(raw);
-    // The draft page hands the message to the conversation surface before the
-    // create request answers. The task id does not exist yet, so what the reader
-    // sees is a local bubble and the host's waiting row, not a fake route.
     setPendingSend(displayUserPrompt(raw));
     try {
       const task = await createTask({
@@ -537,35 +553,24 @@ export default function NewChatPage() {
       forgetPlaceReturn();
       navigate(`/tasks/${task.id}`, { replace: true });
     } catch (err) {
-      // The conversation never started, so the local bubble must go back to
-      // being a draft. The composer is still mounted and puts its own text and
-      // attachments back; the stored draft was never cleared.
+      // The composer owns the feedback for a rejected send; it also restores
+      // the prompt this page cleared when the send started.
       setPendingSend(null);
-      const msg =
-        err instanceof ApiError
-          ? err.message
-          : err instanceof Error
-            ? err.message
-            : tr("newChat.createFailed");
-      pushToast(msg, "error");
+      throw err instanceof Error ? err : new Error(tr("newChat.createFailed"));
     } finally {
       setSending(false);
     }
   }
 
-  const showProjectColumn =
-    project != null || projectLookupState === "loading" || projectLookupState === "error";
-  /** Where the run happens, behind the composer's one face: machine, branch,
+  /** Where the run happens, behind the composer's one face: role, branch,
    *  dispatch and routine. The folder is not here — it names the conversation
-   *  and sits above, with the project it belongs to, so "what this is about"
-   *  and "where it runs" are two questions on two levels instead of nine
-   *  equal rows. While routine mode is on the branch and dispatch rows step
+   *  and sits under the card with the machine it belongs to, so "what this is
+   *  about" and "where it runs" are two questions on two levels instead of
+   *  nine equal rows. While routine mode is on the branch and dispatch rows step
    *  aside (a routine has no branch to switch, and the Hub's team dispatch
    *  does not cross machines). */
   const sheetExtraRows = (
-    asRoutine
-      ? (["machine", "routine"] as const)
-      : (["role", "machine", "branch", "dispatch", "routine"] as const)
+    asRoutine ? (["routine"] as const) : (["role", "branch", "dispatch", "routine"] as const)
   ) as readonly NewChatControlId[];
   const visibleSheetExtraRows = sheetExtraRows.filter((id) => id !== "role" || roleList.length > 0);
 
@@ -584,18 +589,6 @@ export default function NewChatPage() {
 
   function renderControl(control: NewChatControlId) {
     switch (control) {
-      case "machine":
-        return (
-          <MachinePicker
-            key={control}
-            machines={machines}
-            value={machine && !machine.isSelf ? machine.id : null}
-            missing={machineGone ? machineId : null}
-            loading={machinesLoading}
-            disabled={sending}
-            onChange={chooseMachine}
-          />
-        );
       case "role":
         return (
           <SheetSelect
@@ -655,29 +648,6 @@ export default function NewChatPage() {
             onPreviewBlocked={setDispatchPreviewBlocked}
           />
         );
-      case "cwd":
-        return (
-          <CwdPicker
-            key={control}
-            className="max-w-full sm:max-w-[22rem]"
-            cwd={cwd}
-            locked={false}
-            compact
-            suggestions={cwdDirs}
-            // The id that was chosen, not the machine record behind it, for the
-            // same reason the branch control below passes it: a machine that has
-            // gone away (revoked, or the list read failed) leaves `machine`
-            // undefined, and the folder panel would then be answering a question
-            // about that machine's path with this machine's directories. The
-            // daemon's own desktop id is read as "here" by the machine
-            // endpoints, so naming this machine is not a special case.
-            device={machineId || undefined}
-            onChange={(v) => {
-              setCwd(v);
-              setDraftCwd(v);
-            }}
-          />
-        );
       case "branch":
         return (
           <BranchPicker
@@ -695,6 +665,24 @@ export default function NewChatPage() {
         );
     }
   }
+
+  const disconnected = wsStatus === "disconnected";
+  /** Why the start control is off, in the page's own words. Empty means ready. */
+  const sendBlockReason = !cwd.trim()
+    ? tr("newChat.chooseCwd")
+    : machineGone
+      ? tr("machine.goneHint", { name: machineId })
+      : machineUnread
+        ? tr("machine.listUnavailable")
+        : remote && machine && !machine.online
+        ? tr("machine.offlineHint", { name: machineLabel })
+        : available.length === 0
+          ? remote
+            ? tr("machine.noAgents", { name: machineLabel })
+            : tr("newChat.noAgents")
+          : disconnected
+            ? tr("newChat.disconnected")
+            : "";
 
   return (
     <div className="flex-1 flex flex-col min-h-0 kin-surface-chat">
@@ -738,216 +726,210 @@ export default function NewChatPage() {
         ) : null}
       </div>
 
-      {pendingSend ? (
-        // The send is in flight and there is no conversation route yet. Draw
-        // the same stream the route will draw — the person's message, then the
-        // host's waiting row — so the feedback is the send, not a spinner in
-        // the button. The composer stays mounted below and is the thing that
-        // restores the draft if the create request fails.
-        <div className="flex-1 overflow-y-auto kin-scroll px-4 py-6 sm:px-7">
-          <div className="mx-auto w-full max-w-conversation">
-            <ChatStream
-              events={NO_EVENTS}
-              fallbackUserPrompt={pendingSend}
-              loading
-              loadingSpeaker={mainAgentId}
-              hostSpeaker={mainAgentId}
-              hostModel={selectedModel || null}
-              messageScope="new-chat"
-            />
-          </div>
-        </div>
-      ) : (
-        <div
-          className={[
-            "flex-1 overflow-y-auto kin-scroll flex flex-col items-center px-6 py-10",
-            "max-md:justify-start max-md:px-5 max-md:pb-6 max-md:pt-8",
-            showProjectColumn ? "justify-start" : "justify-center",
-          ].join(" ")}
-        >
-          <div
-            className={`w-8 h-8 max-md:h-11 max-md:w-11 max-md:text-subtitle rounded-lg max-md:rounded-full flex items-center justify-center mb-4 max-md:mb-3 text-body font-semibold ${mainAgentAvatar.className}`}
-            aria-label={mainAgentAvatar.label}
-          >
-            {mainAgentAvatar.initials}
-          </div>
-          <h1 className="text-hero max-md:text-display font-semibold tracking-tight text-center max-w-md">
-            {tr("newChat.heroTitle", { name: mainAgentName })}
-          </h1>
-          {/* The phone's empty state is one line, not an essay: the face under
-            the composer says who runs and how, and the reference's new-chat
-            screen keeps the input visually central. The longer guidance is
-            desktop reference material, where the column has room for it. */}
-          <p className="hidden md:block mt-2 text-strong text-kin-secondary text-center max-w-md">
-            {tr("newChat.heroSubtitleHost", { name: mainAgentName })}
-          </p>
-
-          {available.length > 1 && (
-            <p className="hidden md:block mt-2 text-caption text-kin-muted">
-              {tr("newChat.hostPickerHint")}
-            </p>
-          )}
-
-          {agents.some((a) => !a.available) && !remote && (
-            <div className="hidden md:flex mt-1 sm:mt-3">
-              <button
-                type="button"
-                className="min-h-11 px-3 text-body text-kin-blue-ink hover:underline sm:min-h-0 sm:px-0"
-                // Agent Ops is a destination of its own, and the draft is a
-                // phone push over the list (KIN-CONTINUE-002). Pushing Agent
-                // Ops on top of the draft would leave [list, draft, agents];
-                // replacing the draft keeps the stack one deep and Back a
-                // single step to the list. The draft itself is not lost: its
-                // prompt and run face live in storage, not in this entry.
-                onClick={() => runGuardedNavigation(() => phonePush(navigate, location, "/agents"))}
-              >
-                {tr("agents.manageLink")}
-              </button>
-            </div>
-          )}
-          {machinesFailed ? (
-            <p className="mt-2 text-caption text-kin-muted">{tr("machine.listUnavailable")}</p>
-          ) : null}
-
-          <div className="mt-8 w-full max-w-xl space-y-3">
-            {/* The folder belongs to the draft, not to the row of run knobs:
-              it names what the conversation is about, and the project card
-              below answers with that folder's summary. Its own line above the
-              card keeps it out of the composer's bottom row, which now holds
-              one run face at every width. */}
-            <div className="flex justify-center">{renderControl("cwd")}</div>
-            {remote ? (
-              <div className="rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-4 py-5 text-center text-strong text-kin-secondary">
-                {machine && machine.roots.length > 0
-                  ? tr("machine.rootsHint", { name: machineLabel, path: machine.roots[0] })
-                  : tr("machine.noRoots", { name: machineLabel })}
+      {/* One centered column: the greeting, the card that writes the run, and
+          the place row under it. The card is the only thing on the screen with
+          a border, so the eye lands on the prompt — the folder and the machine
+          are one row beneath it, not four controls beside it. */}
+      <div className="flex-1 overflow-y-auto kin-scroll">
+        <div className="flex min-h-full items-center justify-center px-6 py-10 max-md:items-start max-md:px-5 max-md:pb-8 max-md:pt-8">
+          <div className="w-full max-w-page-narrow">
+            {pendingSend ? (
+              <div className="pb-5">
+                <ChatStream
+                  events={NO_EVENTS}
+                  fallbackUserPrompt={pendingSend}
+                  loading
+                  loadingSpeaker={mainAgentId}
+                  hostSpeaker={mainAgentId}
+                  hostModel={selectedModel || null}
+                  messageScope="new-chat"
+                />
               </div>
-            ) : !cwd.trim() ? (
-              <div className="rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-4 py-5 text-center text-strong text-kin-secondary">
-                {tr("newChat.noCwdHint")}
-              </div>
-            ) : projectLookupState === "loading" ? (
-              <div className="rounded-xl border border-[var(--kin-hairline)] bg-kin-panel/60 px-4 py-5 text-center text-strong text-kin-muted">
-                {tr("newChat.projectSummaryLoading")}
-              </div>
-            ) : projectLookupState === "error" ? (
-              <div className="w-full rounded-2xl border border-kin-red/30 bg-kin-panel px-4 py-3 text-left">
-                <p className="text-body text-kin-red-ink">
-                  {projectLookupError || tr("newChat.projectSummaryError")}
-                </p>
-                <button
-                  type="button"
-                  className="mt-2 text-body text-kin-blue-ink hover:underline"
-                  onClick={() => setProjectLookupKey((k) => k + 1)}
-                >
-                  {tr("common.retry")}
-                </button>
-              </div>
-            ) : project ? (
-              <ProjectSummaryCard project={project} summary={projectSummary} />
             ) : (
-              <div className="max-md:hidden rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-4 py-5 text-center text-strong text-kin-secondary">
-                {tr("newChat.onePagerNoProject", {
-                  project: projectLabel(cwd),
-                })}
-              </div>
+              <>
+                <div className="text-center">
+                  <h1 className="text-hero max-md:text-display font-semibold tracking-tight text-kin-text">
+                    {tr("newChat.heroTitle")}
+                  </h1>
+                  {/* The phone's empty state is one line, not an essay: the card
+                      below says who runs and how, and the frame keeps the input
+                      visually central. The longer guidance is desktop reference
+                      material, where the column has room for it. */}
+                  <p className="mt-2 text-strong text-kin-secondary">
+                    {tr("newChat.heroSubtitleHost")}
+                  </p>
+                  {available.length > 1 && (
+                    <p className="hidden md:block mt-2 text-caption text-kin-muted">
+                      {tr("newChat.hostPickerHint")}
+                    </p>
+                  )}
+                  {(agents.some((a) => !a.available) || available.length === 0) && !remote && (
+                    <div className="mt-2 flex justify-center">
+                      <button
+                        type="button"
+                        className="min-h-11 px-3 text-body text-kin-blue-ink hover:underline sm:min-h-0 sm:px-0"
+                        onClick={() => phonePush(navigate, location, "/agents")}
+                      >
+                        {tr("agents.manageLink")}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {hints.length > 0 && (
+                  // Desktop only: a line of @-mention hints is reference material,
+                  // and on the phone it was the widest thing on the screen.
+                  <div className="mt-6 hidden px-0.5 text-caption text-kin-muted sm:block">
+                    {tr("newChat.tip", { hints: hints.join(" · ") })}
+                  </div>
+                )}
+              </>
+            )}
+
+            <div
+              data-kin-bottom-chrome=""
+              className={hints.length > 0 ? "mt-2" : "mt-8"}
+            >
+              <Composer
+                agents={agents}
+                roles={agentRoles}
+                hostAgentId={mainAgentId}
+                busy={sending}
+                disabled={sending}
+                focusSignal={wide ? 1 : 0}
+                blockSend={Boolean(sendBlockReason)}
+                sendLabel={tr("newChat.start")}
+                initialValue={draftValue}
+                initialAttachments={initialAttachments}
+                placeholder={
+                  asRoutine
+                    ? tr("routines.promptPlaceholder")
+                    : tr("newChat.placeholder", { name: mainAgentName })
+                }
+                onAttachmentsChange={setDraftAttachments}
+                onValueChange={(value) => {
+                  setDraftValue(value);
+                  setDraftPrompt(value);
+                  setPreviewPrompt(value);
+                }}
+                onSubmit={onSubmit}
+                footer={
+                  // The page's only run control, at every width. The bottom row
+                  // used to split into a phone face and a desktop strip of eight
+                  // chips; on an iPad that strip was a sideways scroller and the
+                  // same settings read as a different product from the phone's
+                  // sheet. One face, one settings surface, and the strip is gone.
+                  <RunConfigControl
+                    agentName={mainAgentName}
+                    agentId={mainAgentId}
+                    agentAvatar={mainAgentAvatar}
+                    model={selectedModel}
+                    models={modelsForAgent(available, mainAgentId)}
+                    onModelChange={setSelectedModel}
+                    permission={permissionMode}
+                    permissionModes={allowedPermissionModes}
+                    onPermissionChange={(m) => {
+                      setPermissionMode(m);
+                      setDraftPermissionMode(m);
+                    }}
+                    disabled={sending}
+                    agents={available}
+                    onAgentChange={(id) => {
+                      setSelectedHost(id);
+                      setSelectedModel("");
+                    }}
+                    extraRows={
+                      <>
+                        {visibleSheetExtraRows.map((control) => (
+                          <RunConfigSheetRow
+                            key={control}
+                            label={tr(CONTROL_LABEL_KEY[control])}
+                            control={renderControl(control)}
+                          />
+                        ))}
+                      </>
+                    }
+                  />
+                }
+                footerWide
+              />
+            </div>
+
+            {!pendingSend && (
+              <>
+                {sendBlockReason ? (
+                  <p role="status" className="mt-2 px-1 text-caption text-kin-secondary">
+                    {sendBlockReason}
+                  </p>
+                ) : null}
+
+                <div className="mt-3">
+                  <PlacePicker
+                    machines={machines}
+                    value={{ machineId, cwd }}
+                    dirs={dirs}
+                    loading={machinesLoading}
+                    failed={machinesFailed}
+                    disabled={sending}
+                    onRefresh={refreshMachines}
+                    onChange={choosePlace}
+                  />
+                </div>
+                {placeNotice ? (
+                  <p className="mt-1.5 px-1 text-caption text-kin-orange-ink">{placeNotice}</p>
+                ) : null}
+
+                {asRoutine && (
+                  <div className="mt-3 rounded-xl border border-kin-blue/25 bg-kin-blue/5 px-3 py-2.5">
+                    <div className="mb-2 text-caption font-medium text-kin-blue-ink">
+                      {tr("routines.routineModeOn")}
+                    </div>
+                    <RoutineScheduleFields
+                      compact
+                      disabled={sending}
+                      intervalSecs={routineInterval}
+                      onIntervalChange={setRoutineInterval}
+                      nextRunLocal={routineNextLocal}
+                      onNextRunLocalChange={setRoutineNextLocal}
+                      rule={routineRule}
+                      onRuleChange={setRoutineRule}
+                    />
+                  </div>
+                )}
+
+                {!remote && cwd.trim() ? (
+                  <div className="mt-6">
+                    {projectLookupState === "loading" ? (
+                      <div className="rounded-xl border border-[var(--kin-hairline)] bg-kin-panel/60 px-4 py-5 text-center text-strong text-kin-muted">
+                        {tr("newChat.projectSummaryLoading")}
+                      </div>
+                    ) : projectLookupState === "error" ? (
+                      <div className="w-full rounded-2xl border border-kin-red/30 bg-kin-panel px-4 py-3 text-left">
+                        <p className="text-body text-kin-red-ink">
+                          {projectLookupError || tr("newChat.projectSummaryError")}
+                        </p>
+                        <button
+                          type="button"
+                          className="mt-2 text-body text-kin-blue-ink hover:underline"
+                          onClick={() => setProjectLookupKey((k) => k + 1)}
+                        >
+                          {tr("common.retry")}
+                        </button>
+                      </div>
+                    ) : project ? (
+                      <ProjectSummaryCard project={project} summary={projectSummary} />
+                    ) : (
+                      <div className="hidden rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-4 py-5 text-center text-strong text-kin-secondary md:block">
+                        {tr("newChat.onePagerNoProject", {
+                          project: projectLabel(cwd),
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </>
             )}
           </div>
-        </div>
-      )}
-
-      {/* Same contract as the conversation screen: the shell's floating card
-          measures this band so it never covers the draft composer. The draft
-          is the one screen a cold launch lands on, so an overlay that guessed
-          here would cover the input on the first screen anyone sees. */}
-      <div data-kin-bottom-chrome="" className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5">
-        <div className="max-w-conversation mx-auto space-y-1.5">
-          {hints.length > 0 && (
-            // Desktop only: a line of @-mention hints is reference material, and
-            // on the phone it was the widest thing on the screen.
-            <div className="hidden text-caption text-kin-muted px-0.5 sm:block">
-              {tr("newChat.tip", {
-                hints: hints.join(" · "),
-              })}
-            </div>
-          )}
-          <Composer
-            agents={agents}
-            roles={agentRoles}
-            hostAgentId={mainAgentId}
-            busy={sending}
-            disabled={sending}
-            initialValue={draftValue}
-            initialAttachments={initialAttachments}
-            placeholder={
-              asRoutine
-                ? tr("routines.promptPlaceholder")
-                : tr("newChat.placeholder", { name: mainAgentName })
-            }
-            onAttachmentsChange={setDraftAttachments}
-            onValueChange={(value) => {
-              setDraftValue(value);
-              setDraftPrompt(value);
-              setPreviewPrompt(value);
-            }}
-            onSubmit={onSubmit}
-            footer={
-              // The page's only run control, at every width. The bottom row
-              // used to split into a phone face and a desktop strip of eight
-              // chips; on an iPad that strip was a sideways scroller and the
-              // same settings read as a different product from the phone's
-              // sheet. One face, one settings surface, and the strip is gone.
-              <RunConfigControl
-                agentName={mainAgentName}
-                agentId={mainAgentId}
-                agentAvatar={mainAgentAvatar}
-                model={selectedModel}
-                models={modelsForAgent(available, mainAgentId)}
-                onModelChange={setSelectedModel}
-                permission={permissionMode}
-                permissionModes={allowedPermissionModes}
-                onPermissionChange={(m) => {
-                  setPermissionMode(m);
-                  setDraftPermissionMode(m);
-                }}
-                disabled={sending}
-                agents={available}
-                onAgentChange={(id) => {
-                  setSelectedHost(id);
-                  setSelectedModel("");
-                }}
-                extraRows={
-                  <>
-                    {visibleSheetExtraRows.map((control) => (
-                      <RunConfigSheetRow
-                        key={control}
-                        label={tr(CONTROL_LABEL_KEY[control])}
-                        control={renderControl(control)}
-                      />
-                    ))}
-                  </>
-                }
-              />
-            }
-            footerWide
-          />
-          {asRoutine && (
-            <div className="rounded-xl border border-kin-blue/25 bg-kin-blue/5 px-3 py-2.5">
-              <div className="mb-2 text-caption font-medium text-kin-blue-ink">
-                {tr("routines.routineModeOn")}
-              </div>
-              <RoutineScheduleFields
-                compact
-                disabled={sending}
-                intervalSecs={routineInterval}
-                onIntervalChange={setRoutineInterval}
-                nextRunLocal={routineNextLocal}
-                onNextRunLocalChange={setRoutineNextLocal}
-                rule={routineRule}
-                onRuleChange={setRoutineRule}
-              />
-            </div>
-          )}
         </div>
       </div>
     </div>

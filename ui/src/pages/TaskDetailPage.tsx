@@ -9,26 +9,20 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { goBackToList } from "../lib/phoneBack";
 import {
   currentPhoneLocation,
   isPhoneLayout,
-  onGuardedLinkClick,
   phonePush,
 } from "../lib/phoneNavigation";
-import { IonActionSheet } from "@ionic/react";
-import type { ActionSheetButton } from "@ionic/core";
 import {
   ApiError,
   archiveTask,
   cancelTask,
   cancelWorkerStep,
   deleteTask,
-  createArtifact,
   answerUserQuestion,
-  deriveArtifactTitle,
-  detectArtifactKind,
   followUpPrompt,
   forkTask,
   markRoutineRunRead,
@@ -61,13 +55,14 @@ import { useFindSeed } from "./useFindSeed";
 import { useMinWidth } from "../hooks/useMinWidth";
 import { usePendingResources, useTaskResource } from "../api/useLiveResources";
 import { isImeKeyEvent } from "../lib/ime";
+import { taskIdFromPathname } from "../lib/sessionCache";
 import ApprovalCard from "../components/cards/ApprovalCard";
 import LimitCard from "../components/cards/LimitCard";
 import UserQuestionCard from "../components/cards/UserQuestionCard";
 import ChatStream from "../components/chat/ChatStream";
-import { pendingSend, settlePendingSendList, type PendingSend } from "../lib/pendingSend";
 import { findSpeakerModel, pendingRefSeqs } from "../components/chat/transcriptProjection";
 import Composer, { type SubmitFailure } from "../components/chat/Composer";
+import { pendingSend, settlePendingSendList, type PendingSend } from "../lib/pendingSend";
 import RunConfigControl from "../components/chat/RunConfigSheet";
 import BranchPicker from "../components/chat/BranchPicker";
 import RepoChip from "../components/chat/RepoChip";
@@ -78,20 +73,17 @@ import {
   IconAlert,
   IconArchive,
   IconBack,
-  IconKin,
   IconMachine,
   IconMore,
   IconPanel,
-  IconPullRequest,
   IconRestore,
   IconShare,
-  IconSpinner,
   IconTrash,
 } from "../components/icons";
-import { SlowConnectHint } from "../components/Skeleton";
+import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import PanelSurface from "../components/layout/PanelSurface";
 import MobileHeader, { MobileHeaderButton } from "../components/mobile/MobileHeader";
-import PullRequestPanel from "../components/pr/PullRequestPanel";
+import ActionSheet, { type ActionSheetRow } from "../components/ui/ActionSheet";
 import PublishPanel from "../components/pr/PublishPanel";
 import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
 import FileQuickOpen from "../components/workspace/FileQuickOpen";
@@ -131,8 +123,6 @@ import {
 } from "../lib/permissionMode";
 import { clearFollowUpDraft, getFollowUpDraft, setFollowUpDraft } from "../lib/followUpDraft";
 import { clearSessionScroll, getSessionScroll, setSessionScroll } from "../lib/sessionScroll";
-import { registerSheetExit, type SheetExit } from "../lib/sheetExit";
-import { taskIdFromPathname } from "../lib/sessionCache";
 import { modelPickerLabel, modelsForAgent } from "../lib/agentModels";
 import { isPanelAvailable, panelForView, resolvePanel, type PanelContext } from "../lib/panels";
 import { useAppStore } from "../store/appStore";
@@ -190,8 +180,8 @@ export default function TaskDetailPage({
   const idRef = useRef(id);
   idRef.current = id;
   // The session-actions sheet is a phone surface; below `md` it is the way to
-  // stop, share or find. Keeping it mounted at desktop width leaves an
-  // `ion-action-sheet` in the Mac's document even while closed.
+  // stop, share or find. It is mounted only there, so a Mac never carries the
+  // sheet's Escape/Back handlers behind its chip row.
   const wide = useMinWidth(768);
   const { machines } = useMachines();
   const detail = useTaskResource(id);
@@ -202,11 +192,6 @@ export default function TaskDetailPage({
   const gone =
     detail.data.deleted || (detail.error instanceof ApiError && detail.error.status === 404);
   const task = detail.data.task ?? (gone ? null : fallbackTask) ?? null;
-  // The title the save button reads, kept current across a memo bailout: the
-  // message rows deliberately ignore changed closures, so their save handler
-  // can still be the one built before the session was renamed.
-  const taskTitleRef = useRef(task?.title);
-  taskTitleRef.current = task?.title;
   const events = detail.data.events;
   const approvals = useMemo(
     () => pending.data.approvals.filter((item) => item.task_id === id),
@@ -287,24 +272,18 @@ export default function TaskDetailPage({
   /** The worker row whose stop request is in flight, keyed like the timeline. */
   const [workerStoppingKey, setWorkerStoppingKey] = useState<string | null>(null);
   /** The task the page is showing now; a late cancel answer must check it. */
+  const taskIdRef = useRef(id);
   /**
-   * Whether this pane is still the conversation in front.
-   *
-   * A cached pane keeps its `taskId` prop forever, so `taskId === id` is not
-   * evidence that the reader is still looking at it: another session can be
-   * active while this answer lands. Every late navigation asks this instead,
-   * with the path captured when the action started so a trip away and back
-   * does not turn a stale answer into a fresh one.
+   * Whether this pane is still the conversation in front. A cached pane keeps
+   * its `taskId` prop forever, so the task id alone is not enough.
    */
   const taskInFront = (taskID: string): boolean =>
     activeRef.current &&
     idRef.current === taskID &&
     taskIdFromPathname(currentPhoneLocation()?.pathname ?? locationRef.current.pathname) === taskID;
   /**
-   * The visit an answer belongs to: the task, its pathname, the history entry
-   * key and the visit counter. Leaving and reopening the same `/tasks/:id`
-   * mints a new key; leaving and pressing Back returns to the same key but a
-   * new visit. Neither is the screen that asked, so a late answer stays put.
+   * The visit an answer belongs to. Leaving and reopening the same task, or
+   * returning with Back, is a different visit even when the task id matches.
    */
   const viewOrigin = (taskID: string) => {
     const now = currentPhoneLocation();
@@ -320,9 +299,6 @@ export default function TaskDetailPage({
     const now = currentPhoneLocation();
     const pathname = now?.pathname ?? locationRef.current.pathname;
     if (pathname !== origin.pathname) return false;
-    // The visit counter is the sharpest evidence: it changes on every route
-    // the shell showed, including a Back into the same history entry. The key
-    // is the fallback for a page rendered without the shell's location notes.
     if (origin.visit !== undefined && now?.visit !== undefined) {
       return now.visit === origin.visit;
     }
@@ -332,24 +308,8 @@ export default function TaskDetailPage({
   const [archiving, setArchiving] = useState(false);
   /** Phone-only overflow sheet; the same actions stay as chips from `md` up. */
   const [actionsOpen, setActionsOpen] = useState(false);
-  /**
-   * The Ionic sheet is a real modal surface but not our `Sheet`, so it has to
-   * announce itself to the same exit handshake. A notification tap closes the
-   * open sheet before pushing its destination; without this handle the tap
-   * navigated underneath an `IonActionSheet` that stayed open.
-   */
-  const actionSheetExit = useRef<SheetExit | null>(null);
-  const openSessionActions = () => {
-    if (!actionSheetExit.current) {
-      actionSheetExit.current = registerSheetExit(() => setActionsOpen(false));
-    }
-    setActionsOpen(true);
-  };
   /** The public-link dialog, reachable from the sheet and from the chip row. */
   const [shareOpen, setShareOpen] = useState(false);
-  /** Open the share dialog once the phone's action sheet has gone; see
-   *  `openFindAfterSheet` for why it cannot open underneath it. */
-  const openShareAfterSheet = useRef(false);
   /**
    * Find-in-conversation, owned here rather than in ChatStream so the phone's
    * sheet can open it — the phone has no Cmd+F. The hidden panes behind the tab
@@ -370,16 +330,9 @@ export default function TaskDetailPage({
    * top of a long transcript, which is the failure this feature exists to fix.
    */
   const findSeed = useFindSeed(active && !loading);
-  /**
-   * Set by the sheet's 查找 row. The bar opens on dismissal, not on the tap:
-   * Ionic keeps keyboard focus inside the action sheet until it is removed from
-   * the DOM, so focusing the field while the sheet is still up shows a bar with
-   * no keyboard, and the removal then drops focus to `<body>`.
-   */
-  const openFindAfterSheet = useRef(false);
   const [actionBusy, setActionBusy] = useState(false);
-  // The same decision path the inbox and the floating card use, so a failure
-  // reads the same wherever the reader answered from.
+  // The same decision path the floating card uses, so a failure reads the same
+  // wherever the reader answered from.
   const { busy, decide } = useApprovalDecision("task.decisionFailed");
   /**
    * Answers this pane has just recorded, keyed by approval id.
@@ -432,8 +385,6 @@ export default function TaskDetailPage({
    * sheet does.
    */
   const [fileFinderOpen, setFileFinderOpen] = useState(false);
-  /** Open the finder once the phone's action sheet has gone; see `openFindAfterSheet`. */
-  const openFileFinderAfterSheet = useRef(false);
   // A window can cross the breakpoint with the sheet open. The sheet is only
   // mounted below `md`, so widening unmounts it without its dismiss path; the
   // note saying "open find once the sheet is gone" would stay armed for a
@@ -441,18 +392,7 @@ export default function TaskDetailPage({
   useEffect(() => {
     if (!wide) return;
     setActionsOpen(false);
-    actionSheetExit.current?.finish();
-    actionSheetExit.current = null;
-    openFindAfterSheet.current = false;
-    openShareAfterSheet.current = false;
-    openFileFinderAfterSheet.current = false;
   }, [wide]);
-  useEffect(() => {
-    return () => {
-      actionSheetExit.current?.finish();
-      actionSheetExit.current = null;
-    };
-  }, []);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null | undefined>(
     undefined,
   );
@@ -509,6 +449,7 @@ export default function TaskDetailPage({
   }, [id]);
 
   useEffect(() => {
+    taskIdRef.current = id;
     lastObservedEventSeq.current = 0;
     setUsage(null);
     setLimitWait(null);
@@ -654,10 +595,6 @@ export default function TaskDetailPage({
 
   useEffect(() => {
     if (!(detail.data.deleted && active)) return;
-    // A conversation removed underneath the reader leaves the same way the
-    // phone's Back does: the list is its only parent (KIN-CONTINUE-002). The
-    // Mac keeps `/`, which decides between its last conversation and the
-    // draft.
     if (isPhoneLayout()) goBackToList(navigate);
     else navigate("/");
   }, [active, detail.data.deleted, navigate]);
@@ -672,10 +609,6 @@ export default function TaskDetailPage({
     }
   }, [events]);
 
-  // A pending send ends when the message the daemon wrote for it appears. The
-  // event is written at accept time, before the follow-up request answers, so
-  // this normally lands with the response; the forced refresh after a send
-  // covers the case where the event stream is down and the send still worked.
   useEffect(() => {
     setPendingSends((current) => settlePendingSendList(current, events));
   }, [events]);
@@ -925,6 +858,101 @@ export default function TaskDetailPage({
     }));
     return orderPending([...pending, ...decided].sort((a, b) => a.created_at - b.created_at));
   }, [needsYou, decidedCards, events]);
+
+  // A notification names the card it is about (`/tasks/<id>?focus=<item>`),
+  // because "open the conversation" alone makes a reader hunt for the answer
+  // they were told was waiting. Consume it once the pending list can answer:
+  // move the keyboard cursor to that card, bring it into view, and focus it.
+  // The parameter is then dropped, so a refresh or Back does not pull the
+  // reader to a card they already saw — and a later tap on the same banner is
+  // a fresh navigation rather than a replay of this one.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { pathname } = useLocation();
+  // The route names the conversation the tap was for. A pane kept alive out of
+  // sight still renders while the next one loads (`TaskSessionHost`), and it
+  // must not answer a link about a different conversation: consuming it there
+  // would drop the parameter before the routed pane ever saw it.
+  const routedId = taskIdFromPathname(pathname);
+  const focusParam = searchParams.get("focus");
+  const [revealId, setRevealId] = useState<string | null>(null);
+  // The focus key whose post-navigation pending read has landed. State rather
+  // than a ref: the answer is what lets the effect below conclude.
+  const [pendingRead, setPendingRead] = useState<string | null>(null);
+  const consumedFocus = useRef<string | null>(null);
+  const requestedFocusRefresh = useRef<string | null>(null);
+  const dropFocusParam = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("focus");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
+  // The link stops naming an item once it is consumed. Clearing on the way out
+  // is what makes a second tap on the same banner a new navigation instead of
+  // a replay this pane silently swallows.
+  useEffect(() => {
+    if (focusParam) return;
+    consumedFocus.current = null;
+    requestedFocusRefresh.current = null;
+    setPendingRead(null);
+  }, [focusParam]);
+  useEffect(() => {
+    if (!active || !focusParam || routedId !== id) return;
+    const key = `${id}:${focusParam}`;
+    if (consumedFocus.current === key) return;
+    const index = needsYou.findIndex((entry) => entry.id === focusParam);
+    if (index >= 0) {
+      consumedFocus.current = key;
+      setFocusIdx(index);
+      setRevealId(focusParam);
+      dropFocusParam();
+      return;
+    }
+    if (!detail.loaded || !pending.loaded) return;
+    // The item is not in the snapshot — but "loaded" is not "fresh": a tap that
+    // wakes the app can be judged against the list from before the push
+    // arrived. Ask once for a read that starts after this link, and let that
+    // answer decide whether the item is gone.
+    if (requestedFocusRefresh.current !== key) {
+      requestedFocusRefresh.current = key;
+      void liveResources.refreshPending(true).finally(() => setPendingRead(key));
+      return;
+    }
+    if (pendingRead !== key) return;
+    // A read that followed the link still does not list it: answered on another
+    // device, expired, or outside the window. The conversation is the right
+    // landing, but the link names nothing now, so it stops claiming otherwise.
+    consumedFocus.current = key;
+    dropFocusParam();
+  }, [
+    active,
+    routedId,
+    focusParam,
+    id,
+    needsYou,
+    detail.loaded,
+    pending.loaded,
+    pendingRead,
+    dropFocusParam,
+  ]);
+
+  // The card exists only after the render that follows `setFocusIdx`; looking
+  // for its node in the same effect would find the previous list.
+  useEffect(() => {
+    if (!revealId) return;
+    setRevealId(null);
+    const nodes = scrollRef.current?.querySelectorAll("[data-pending-id]") ?? [];
+    for (const node of nodes) {
+      if (node.getAttribute("data-pending-id") !== revealId) continue;
+      node.scrollIntoView?.({ block: "nearest" });
+      stickToBottomRef.current = false;
+      if (node instanceof HTMLElement) node.focus({ preventScroll: true });
+      break;
+    }
+  }, [revealId]);
 
   useEffect(() => {
     if (!active) return;
@@ -1198,8 +1226,6 @@ export default function TaskDetailPage({
 
   async function onComposer(text: string, opts?: { interrupt?: boolean }) {
     if (!task) return;
-    // The bubble goes in before the request does: this is the same tick that
-    // cleared the composer, so the message never leaves the screen.
     const sent = pendingSend(text, events);
     setPendingSends((current) => [...current, sent]);
     setSending(true);
@@ -1222,10 +1248,6 @@ export default function TaskDetailPage({
       if (opts?.interrupt) send.interrupt = true;
       const t = await followUpPrompt(task.id, text, Object.keys(send).length ? send : undefined);
       liveResources.applyTaskSnapshot(t, requestRevision);
-      // The message event this send created is already in the log; a forced
-      // read makes it visible now when the stream is not the thing delivering
-      // it. Without this the pending bubble would wait for the next poll.
-      void liveResources.refreshTask(task.id, true);
       // The draft can change while the POST is in flight: editing a queued
       // message refills the composer. Clearing then would delete text the
       // person is about to send, so only the draft this send started from is
@@ -1242,8 +1264,6 @@ export default function TaskDetailPage({
         pushToast(tr(opts?.interrupt ? "task.interruptedGuide" : "task.queuedGuide"), "info");
       }
     } catch (err) {
-      // Nothing was accepted, so the local copy is not a message: the composer
-      // puts the text back and the error is the only thing left to say.
       setPendingSends((current) => current.filter((item) => item.id !== sent.id));
       const failure = err instanceof Error ? err : new Error(tr("task.sendFailed"));
       // Re-throw so Composer restores the cleared input + draft, and shows the
@@ -1293,9 +1313,7 @@ export default function TaskDetailPage({
       // panel: this answer belongs to the task it was asked for.
       void listWorkerSteps(task.id)
         .then((steps) => {
-          // A cached pane is allowed to update while it is behind another one;
-          // only its task identity must still match the request.
-          if (idRef.current === task.id) setWorkerSteps(steps);
+          if (taskIdRef.current === task.id) setWorkerSteps(steps);
         })
         .catch(() => {});
     }
@@ -1346,9 +1364,6 @@ export default function TaskDetailPage({
       clearSessionScroll(task.id);
       clearFollowUpDraft(task.id);
       pushToast(tr("task.deleted"), "info");
-      // A slow delete answer belongs to the conversation that asked. If the
-      // reader has opened another screen since, removing the stale row is
-      // enough; navigating would discard whatever they are doing there.
       if (taskInFront(task.id)) leaveConversation();
     } catch (err) {
       pushToast(err instanceof Error ? err.message : tr("task.deleteFailed"), "error");
@@ -1399,39 +1414,9 @@ export default function TaskDetailPage({
       const t = await forkTask(task.id, { from_seq: fromSeq });
       pushToast(tr("task.forkDone"), "info");
       if (!stillShowing(origin)) return;
-      // A fork starts a second conversation from this one. On a phone it must
-      // not become a second layer over the first: the list is the parent the
-      // new conversation inherits (KIN-CONTINUE-002). On the Mac the fork is
-      // an ordinary push, so Back still shows the conversation it came from.
       phonePush(navigate, location, `/tasks/${t.id}`);
     } catch (err) {
       pushToast(err instanceof Error ? err.message : tr("task.forkFailed"), "error");
-    } finally {
-      setActionBusy(false);
-    }
-  }
-
-  async function onSaveArtifact(text: string) {
-    if (!task || actionBusy) return;
-    const content = text.trim();
-    if (!content) return;
-    const origin = viewOrigin(task.id);
-    setActionBusy(true);
-    try {
-      const art = await createArtifact({
-        title: deriveArtifactTitle(content, taskTitleRef.current || tr("api.untitled")),
-        kind: detectArtifactKind(content),
-        content,
-        source_task_id: task.id,
-        status: "saved",
-      });
-      pushToast(tr("task.saveArtifactDone"), "info");
-      if (!stillShowing(origin)) return;
-      // The saved delivery is a push of its own; on a phone it replaces the
-      // conversation with the list underneath rather than stacking on it.
-      phonePush(navigate, location, `/artifacts/${art.id}`);
-    } catch (err) {
-      pushToast(err instanceof Error ? err.message : tr("task.saveArtifactFailed"), "error");
     } finally {
       setActionBusy(false);
     }
@@ -1479,10 +1464,6 @@ export default function TaskDetailPage({
     showPanel(id, "publish");
   }
 
-  function togglePrPanel() {
-    togglePanel(id, "pr");
-  }
-
   async function onKeepAllChanges() {
     pushToast(tr("workspace.changed.keepAllDone"), "info");
   }
@@ -1509,24 +1490,27 @@ export default function TaskDetailPage({
   }
 
   if (loading && !task) {
-    // A cold start lands here: the address is the last conversation and its
-    // row has not arrived yet. This used to draw a skeleton of the header and
-    // two bubbles — a layout for a page that did not exist yet, animating
-    // while it waited. The brand mark is what is actually true during that
-    // wait: the console is restoring the session. It is one element, it fades
-    // in once, and the real page replaces it as soon as the detail answers.
-    // `max-md:pt-safe`: on a phone this route does not reserve the top inset
-    // yet, and centring the mark under the sensor housing is not centred.
     return (
-      <div className="flex-1 flex min-h-0 flex-col items-center justify-center gap-4 bg-kin-bg px-6 max-md:pt-safe">
-        <div
-          role="status"
-          aria-label={tr("common.loading")}
-          className="kin-brand-enter flex h-16 w-16 items-center justify-center rounded-2xl bg-kin-blue"
-        >
-          <IconKin size={30} className="text-kin-on-brand" />
+      <div
+        className="flex-1 flex flex-col min-h-0 bg-kin-bg"
+        role="status"
+        aria-label={tr("common.loading")}
+      >
+        {/* `min-h-11` + `pt-safe`, never `h-11` + `pt-safe`: with border-box
+            sizing a fixed 44px box has nothing left once the 59px notch inset
+            is added, and the skeleton collapses into the sensor housing. On a
+            phone the shell does not reserve the top inset on this route — the
+            loaded screen's `MobileHeader` does — so the placeholder has to.
+            From `md` up the shell root spends it (`md:pt-safe`), hence the
+            `max-md:`; otherwise the inset lands twice. */}
+        <div className="min-h-11 flex-none border-b border-[var(--kin-hairline)] px-5 flex items-center max-md:pt-safe">
+          <SkeletonLine className="h-4 w-40" />
         </div>
-        <SlowConnectHint show={slow} />
+        <div className="flex-1 p-6 space-y-3 max-w-conversation mx-auto w-full">
+          <SkeletonLine className="h-16 w-3/4 ml-auto rounded-2xl" />
+          <SkeletonLine className="h-12 w-2/3 rounded-xl" />
+          <SlowConnectHint show={slow} />
+        </div>
       </div>
     );
   }
@@ -1536,15 +1520,12 @@ export default function TaskDetailPage({
       <div className="flex-1 px-6 pb-6 space-y-3 max-md:pt-safe">
         <Link
           to="/"
-          className="text-strong leading-5 text-kin-blue-ink"
           onClick={(event) => {
-            // A missing conversation has no screen to keep; a phone returns to
-            // the list, a Mac to `/` (KIN-CONTINUE-002).
-            if (!isPhoneLayout()) return;
-            if (keepsBrowserLink(event)) return;
+            if (!isPhoneLayout() || keepsBrowserLink(event)) return;
             event.preventDefault();
             goBackToList(navigate);
           }}
+          className="text-strong leading-5 text-kin-blue-ink"
         >
           {tr("task.home")}
         </Link>
@@ -1563,13 +1544,12 @@ export default function TaskDetailPage({
       <div className="flex-1 px-6 pb-6 space-y-3 max-md:pt-safe">
         <Link
           to="/"
-          className="text-strong leading-5 text-kin-blue-ink"
           onClick={(event) => {
-            if (!isPhoneLayout()) return;
-            if (keepsBrowserLink(event)) return;
+            if (!isPhoneLayout() || keepsBrowserLink(event)) return;
             event.preventDefault();
             goBackToList(navigate);
           }}
+          className="text-strong leading-5 text-kin-blue-ink"
         >
           {tr("task.home")}
         </Link>
@@ -1600,7 +1580,29 @@ export default function TaskDetailPage({
       entry.kind === "approval" && (entry.decided || entry.item.decision !== "pending");
     const focused = !settled && needsYou[focusIdx]?.id === entry.id;
     return (
-      <div data-pending-id={entry.id}>
+      <div
+        data-pending-id={entry.id}
+        // A focused node with no name announces nothing, and this wrapper is
+        // what a notification focuses. The card's own title is the name; a
+        // settled card is browseable, not a landing target, so it stays
+        // unnamed.
+        role="group"
+        aria-label={
+          settled
+            ? undefined
+            : tr(entry.kind === "approval" ? "approval.cardTitle" : "question.cardTitle")
+        }
+        // Focusable only by programmatic focus: a notification puts the reader
+        // in the panel, and Esc hands the keyboard back to the conversation.
+        // It is not a tab stop — the approve and deny buttons are.
+        tabIndex={-1}
+        className="outline-none"
+        onKeyDown={(event) => {
+          if (event.key !== "Escape") return;
+          event.preventDefault();
+          scrollRef.current?.focus();
+        }}
+      >
         {entry.kind === "approval" ? (
           <ApprovalCard
             approval={entry.item}
@@ -1645,7 +1647,7 @@ export default function TaskDetailPage({
     }
     for (const node of el.querySelectorAll("[data-pending-id]")) {
       if (node.getAttribute("data-pending-id") !== first.id) continue;
-      node.scrollIntoView({ block: "nearest" });
+      node.scrollIntoView?.({ block: "nearest" });
       stickToBottomRef.current = false;
       return;
     }
@@ -1663,13 +1665,8 @@ export default function TaskDetailPage({
   };
   const panel = resolvePanel(panelForView(shownPanel, id), panelCtx);
   const filesOpen = panel === "files";
-  const prOpen = panel === "pr";
   const publishOpen = panel === "publish";
   const project = projectLabel(task.cwd);
-  // Bound once so the chip's click closure keeps the narrowed type: `task`
-  // is a mutable binding, and TypeScript drops its `project_id` narrowing
-  // inside a callback.
-  const projectId = task.project_id;
   const degraded = wsStatus !== "connected" && !terminal;
   // The session's agent belongs to the machine that runs it, not to this one.
   // Reading the local registry here was how a remote session's model list
@@ -1732,7 +1729,7 @@ export default function TaskDetailPage({
    * It used to be a `Link to="/"`, which meant opening a session from the
    * phone's session list and pressing back dropped you on the new-chat screen
    * with your place in the list gone. History is the honest answer when there
-   * is any — an approval opened from the inbox returns to the inbox — and the
+   * is any — a notification tap returns to wherever the reader was — and the
    * session list is the right fallback for a cold deep link.
    *
    * The fallback logic lives in `lib/phoneBack.ts`, shared with the shell's
@@ -1743,14 +1740,6 @@ export default function TaskDetailPage({
     goBackToList(navigate);
   }
 
-  /**
-   * Leaving the conversation because it is no longer there to read — it was
-   * just archived, deleted, or is gone. On a phone the list is its only parent
-   * (KIN-CONTINUE-002), so Back is the honest exit: pushing `/` would put a
-   * second list under this one and make the reader walk through a dead
-   * conversation to get back. The Mac keeps `/`, which decides between the
-   * last conversation and the draft.
-   */
   function leaveConversation() {
     if (isPhoneLayout()) goBackToList(navigate);
     else navigate("/");
@@ -1763,34 +1752,43 @@ export default function TaskDetailPage({
    * answer by clipping its tail. From `md` up there is room, so the chips stay
    * and the sheet is not rendered as a second way to reach them.
    */
-  const sessionActions: ActionSheetButton[] = [
-    { text: tr("chat.find.menu"), handler: () => (openFindAfterSheet.current = true) },
-    { text: tr("task.share"), handler: () => (openShareAfterSheet.current = true) },
-    { text: tr("workspace.find.action"), handler: () => (openFileFinderAfterSheet.current = true) },
-    { text: tr("workspace.title"), handler: () => togglePanel(id, "files") },
-    { text: tr("pr.title"), handler: () => togglePrPanel() },
+  const sessionActions: ActionSheetRow[] = [
+    {
+      id: "find",
+      label: tr("chat.find.menu"),
+      onSelect: () => setFindOpen(true),
+    },
+    { id: "share", label: tr("task.share"), onSelect: () => setShareOpen(true) },
+    {
+      id: "find-file",
+      label: tr("workspace.find.action"),
+      onSelect: () => setFileFinderOpen(true),
+    },
+    { id: "files", label: tr("workspace.title"), onSelect: () => togglePanel(id, "files") },
     ...(!terminal
       ? [
           {
-            text: stopping ? tr("task.stopping") : tr("composer.stop"),
-            role: "destructive" as const,
+            id: "stop",
+            label: stopping ? tr("task.stopping") : tr("composer.stop"),
+            destructive: true,
             disabled: stopping,
-            handler: () => void onStop(),
+            onSelect: () => void onStop(),
           },
         ]
       : []),
     {
-      text: task?.archived_at ? tr("task.unarchiveSession") : tr("task.archiveSession"),
+      id: "archive",
+      label: task?.archived_at ? tr("task.unarchiveSession") : tr("task.archiveSession"),
       disabled: archiving,
-      handler: () => void onToggleArchive(),
+      onSelect: () => void onToggleArchive(),
     },
     {
-      text: tr("task.deleteSession"),
-      role: "destructive" as const,
+      id: "delete",
+      label: tr("task.deleteSession"),
+      destructive: true,
       disabled: deleting,
-      handler: () => void onDelete(),
+      onSelect: () => void onDelete(),
     },
-    { text: tr("common.cancel"), role: "cancel" as const },
   ];
 
   return (
@@ -1824,15 +1822,13 @@ export default function TaskDetailPage({
             </MobileHeaderButton>
           }
           trailing={
-            <>
-              <MobileHeaderButton
-                label={tr("task.sessionActions")}
-                onClick={openSessionActions}
-                tone="muted"
-              >
-                <IconMore size={19} />
-              </MobileHeaderButton>
-            </>
+            <MobileHeaderButton
+              label={tr("task.sessionActions")}
+              onClick={() => setActionsOpen(true)}
+              tone="muted"
+            >
+              <IconMore size={19} />
+            </MobileHeaderButton>
           }
         />
 
@@ -1883,20 +1879,6 @@ export default function TaskDetailPage({
             </button>
             <button
               type="button"
-              onClick={togglePrPanel}
-              className={[
-                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-body transition-colors",
-                prOpen
-                  ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
-                  : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary hover:text-kin-text",
-              ].join(" ")}
-              title={tr("pr.title")}
-            >
-              <IconPullRequest size={13} />
-              <span>{tr("pr.title")}</span>
-            </button>
-            <button
-              type="button"
               onClick={() => setShareOpen(true)}
               className="inline-flex items-center gap-1.5 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-secondary transition-colors hover:text-kin-text"
               title={tr("task.shareTitle")}
@@ -1926,17 +1908,9 @@ export default function TaskDetailPage({
             >
               <IconTrash size={13} />
             </button>
-            {projectId ? (
+            {task.project_id ? (
               <Link
-                to={`/projects/${encodeURIComponent(projectId)}`}
-                onClick={(event) =>
-                  onGuardedLinkClick(
-                    event,
-                    navigate,
-                    location,
-                    `/projects/${encodeURIComponent(projectId)}`,
-                  )
-                }
+                to={`/projects/${encodeURIComponent(task.project_id)}`}
                 title={project}
                 className="max-w-[10rem] md:max-w-none truncate text-kin-secondary hover:text-kin-text hover:underline"
               >
@@ -1966,40 +1940,21 @@ export default function TaskDetailPage({
         </div>
 
         {!wide && (
-          <IonActionSheet
-            isOpen={actionsOpen}
-            onDidDismiss={() => {
-              setActionsOpen(false);
-              actionSheetExit.current?.finish();
-              actionSheetExit.current = null;
-              // The bar can only take focus once the sheet is gone; see
-              // `openFindAfterSheet`.
-              if (openFindAfterSheet.current) {
-                openFindAfterSheet.current = false;
-                setFindOpen(true);
-              }
-              if (openShareAfterSheet.current) {
-                openShareAfterSheet.current = false;
-                setShareOpen(true);
-              }
-              if (openFileFinderAfterSheet.current) {
-                openFileFinderAfterSheet.current = false;
-                setFileFinderOpen(true);
-              }
-            }}
-            header={tr("task.sessionActions")}
+          <ActionSheet
+            open={actionsOpen}
+            onClose={() => setActionsOpen(false)}
+            title={tr("task.sessionActions")}
             // Which machine is about to be acted on. The footer strip that named
             // it is below `md` too, and "stop this session" on an unnamed remote
             // machine is the decision this sheet exists for.
-            subHeader={
+            subtitle={
               machine
                 ? machine.known
                   ? tr("machine.runsOn", { name: machine.text })
                   : tr("machine.runsOnUnknown", { name: machine.text })
                 : undefined
             }
-            cssClass="kin-sheet"
-            buttons={sessionActions}
+            rows={sessionActions}
           />
         )}
         <ShareDialog open={shareOpen} onClose={() => setShareOpen(false)} taskId={task.id} />
@@ -2033,109 +1988,94 @@ export default function TaskDetailPage({
           />
         </div>
 
-        <div className="relative flex min-h-0 flex-1 flex-col">
-          <div
-            ref={scrollRef}
-            onScroll={onChatScroll}
-            className={
-              scrollReady
-                ? "flex-1 overflow-y-auto kin-scroll py-5 min-h-0"
-                : "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 invisible"
-            }
-          >
-            <WorkerTimeline
-              rows={workerRows}
-              onOpenPath={onOpenWorkspacePath}
-              // A settled task has nothing left to stop; a stale running row is
-              // the poll's problem, not a button the reader can use.
-              onStop={isTerminal(task.status) ? undefined : onStopWorker}
-              stoppingKey={workerStoppingKey}
-            />
-            <ChatStream
-              events={events}
-              onOpenPath={onOpenWorkspacePath}
-              fallbackUserPrompt={displayUserPrompt(task.prompt || "")}
-              pendingUserMessages={pendingUserMessages}
-              messageScope={task.id}
-              loading={!detail.loaded || !terminal || sending || awaitingReply}
-              loadingSpeaker={task.agent || "kin"}
-              hostSpeaker={task.agent || "kin"}
-              hostModel={task.model}
-              queuedSeqs={queuedSeqs}
-              onUnqueue={onWithdrawQueued}
-              onEditQueued={onEditQueued}
-              pendingSlots={pendingSlots}
-              showMessageActions={terminal}
-              actionsBusy={actionBusy}
-              onRetry={(seq) => void onRetry(seq)}
-              onFork={(seq) => void onFork(seq)}
-              onSaveArtifact={(text) => void onSaveArtifact(text)}
-              findOpen={findOpen}
-              onFindOpenChange={setFindOpen}
-              findShortcut={active && panel === null && !fileFinderOpen}
-              findSeed={findSeed}
-              trailing={
-                <>
-                  {unanchored.map((entry) => (
-                    <div key={`${entry.kind}-${entry.id}`} className="mt-1">
-                      {renderPendingCard(entry)}
-                    </div>
-                  ))}
-                  {latestLimitHit && task && (
-                    <div className="mt-2" key={`limit-${latestLimitHit.seq}`}>
-                      <LimitCard
-                        hit={latestLimitHit.payload}
-                        wait={limitWait}
-                        hostAgentId={task.agent || ""}
-                        active={active}
-                        agents={agents}
-                        busy={limitBusy}
-                        onWait={() => void onLimitAction("wait")}
-                        onContinue={() => void onLimitAction("continue")}
-                        onSwitch={(agentId) => void onLimitAction("switch", agentId)}
-                        onDismiss={() => void onLimitAction("dismiss")}
-                      />
-                    </div>
-                  )}
-                  {needsYou.length > 0 && (
-                    /*
+        <div
+          ref={scrollRef}
+          onScroll={onChatScroll}
+          // The focus sink the approval panel hands the keyboard back to on
+          // Esc; `-1` keeps a large scroll area out of the tab order.
+          role="region"
+          aria-label={tr("task.transcript")}
+          tabIndex={-1}
+          className={
+            scrollReady
+              ? "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 outline-none"
+              : "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 invisible outline-none"
+          }
+        >
+          <WorkerTimeline
+            rows={workerRows}
+            onOpenPath={onOpenWorkspacePath}
+            // A settled task has nothing left to stop; a stale running row is
+            // the poll's problem, not a button the reader can use.
+            onStop={isTerminal(task.status) ? undefined : onStopWorker}
+            stoppingKey={workerStoppingKey}
+          />
+          <ChatStream
+            events={events}
+            onOpenPath={onOpenWorkspacePath}
+            fallbackUserPrompt={displayUserPrompt(task.prompt || "")}
+            messageScope={task.id}
+            loading={!detail.loaded || !terminal || sending || awaitingReply}
+            loadingSpeaker={task.agent || "kin"}
+            hostSpeaker={task.agent || "kin"}
+            hostModel={task.model}
+            queuedSeqs={queuedSeqs}
+            onUnqueue={onWithdrawQueued}
+            onEditQueued={onEditQueued}
+            pendingSlots={pendingSlots}
+            showMessageActions={terminal}
+            actionsBusy={actionBusy}
+            onRetry={(seq) => void onRetry(seq)}
+            onFork={(seq) => void onFork(seq)}
+            findOpen={findOpen}
+            onFindOpenChange={setFindOpen}
+            findShortcut={active && panel === null && !fileFinderOpen}
+            findSeed={findSeed}
+            pendingUserMessages={pendingUserMessages}
+            trailing={
+              <>
+                {unanchored.map((entry) => (
+                  <div key={`${entry.kind}-${entry.id}`} className="mt-1">
+                    {renderPendingCard(entry)}
+                  </div>
+                ))}
+                {latestLimitHit && task && (
+                  <div className="mt-2" key={`limit-${latestLimitHit.seq}`}>
+                    <LimitCard
+                      hit={latestLimitHit.payload}
+                      wait={limitWait}
+                      hostAgentId={task.agent || ""}
+                      active={active}
+                      agents={agents}
+                      busy={limitBusy}
+                      onWait={() => void onLimitAction("wait")}
+                      onContinue={() => void onLimitAction("continue")}
+                      onSwitch={(agentId) => void onLimitAction("switch", agentId)}
+                      onDismiss={() => void onLimitAction("dismiss")}
+                    />
+                  </div>
+                )}
+                {needsYou.length > 0 && (
+                  /*
                     A phone does not have these keys, and the line reads as an
                     instruction to press something that is not there. `sm` is
                     the same gate the composer's ⌘↵ hint uses (Composer.tsx)
                     rather than a pointer media query, so one codebase has one
                     answer to "the keyboard hint does not apply here".
                   */
-                    <p className="hidden sm:block text-center text-caption text-kin-muted mt-2">
-                      <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">
-                        A
-                      </kbd>{" "}
-                      {tr("chat.approve")} ·{" "}
-                      <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">
-                        D
-                      </kbd>{" "}
-                      {tr("chat.deny")}
-                      {" · "}
-                      {tr("question.hintKeys")}
-                    </p>
-                  )}
-                  <div ref={bottomRef} />
-                </>
-              }
-            />
-          </div>
-          {/* The transcript stays invisible until its scroll is restored, so
-              without a placeholder the content area reads as empty rather than
-              loading. One centred indicator fills that gap; it unmounts with
-              the detail, so success and failure both reveal what they should. */}
-          {loading && (
-            <div
-              className="absolute inset-0 flex items-center justify-center"
-              role="status"
-              aria-label={tr("common.loading")}
-            >
-              <IconSpinner size={24} className="text-kin-muted motion-reduce:animate-none" />
-            </div>
-          )}
+                  <p className="hidden sm:block text-center text-caption text-kin-muted mt-2">
+                    <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">A</kbd>{" "}
+                    {tr("chat.approve")} ·{" "}
+                    <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">D</kbd>{" "}
+                    {tr("chat.deny")}
+                    {" · "}
+                    {tr("question.hintKeys")}
+                  </p>
+                )}
+                <div ref={bottomRef} />
+              </>
+            }
+          />
         </div>
 
         {/* `data-kin-bottom-chrome` is a contract with the shell's floating
@@ -2389,20 +2329,6 @@ export default function TaskDetailPage({
           // repository chip draws; the branch strip beside it asks the machine
           // on its own and is not this.
           onRowChanged={() => void liveResources.refreshTask(task.id, true)}
-          onClose={() => hidePanel(id)}
-        />
-      )}
-
-      {prOpen && (
-        <PullRequestPanel
-          taskId={task.id}
-          active={active}
-          // The panel reads this daemon's cache — the rows are the Hub's — and
-          // the read behind a row was made by whichever machine holds the
-          // checkout. Passing `machine` is what keeps an empty answer reading as
-          // "not on this machine yet" instead of "nowhere", and what lets the
-          // panel ask the machine that has it.
-          elsewhere={machine}
           onClose={() => hidePanel(id)}
         />
       )}

@@ -51,10 +51,10 @@ func TestNotifyOnApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	events := rec.waitFor(t, 1)
-	// The link has to name the approval this call created, not the inbox in
-	// general: that is the whole difference between a push you can act on from
-	// the lock screen and one that makes you go looking.
-	want := "http://host:7777/inbox?focus=" + appr.ID
+	// The link has to open the conversation that stopped and name the approval
+	// this call created: that is the whole difference between a push you can act
+	// on from the lock screen and one that makes you go looking.
+	want := "http://host:7777/tasks/" + task.ID + "?focus=" + appr.ID
 	if events[0].URL != want {
 		t.Fatalf("url=%q, want focus on %s", events[0].URL, appr.ID)
 	}

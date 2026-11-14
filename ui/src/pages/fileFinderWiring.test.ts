@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 const PAGE = readFileSync(join(UI, "src/pages/TaskDetailPage.tsx"), "utf8");
+const ACTION_SHEET = readFileSync(join(UI, "src/components/ui/ActionSheet.tsx"), "utf8");
 const FINDER = readFileSync(join(UI, "src/components/workspace/FileQuickOpen.tsx"), "utf8");
 const PANEL = readFileSync(join(UI, "src/components/workspace/WorkspacePanel.tsx"), "utf8");
 
@@ -41,13 +42,13 @@ describe("the file finder's ways in", () => {
     expect(FINDER).toContain('data-file-quick-open=""');
   });
 
-  it("opens from the phone's sheet only after the sheet is gone", () => {
-    // Ionic keeps keyboard focus in the action sheet until it is removed, so
-    // focusing the finder's field from the row's handler shows a field that
-    // never raises a keyboard. Same rule as find-in-conversation.
+  it("opens from the phone's action sheet after the sheet is gone", () => {
+    // The row asks the page to open the finder. ActionSheet defers that action
+    // until its own history entry, focus trap and surface have been released.
     expect(PAGE).toContain('tr("workspace.find.action")');
-    expect(PAGE).toContain("openFileFinderAfterSheet.current = true");
-    expect(PAGE).toContain("openFileFinderAfterSheet.current = false");
+    expect(PAGE).toContain("onSelect: () => setFileFinderOpen(true)");
+    expect(ACTION_SHEET).toContain("pending.current = row.onSelect");
+    expect(ACTION_SHEET).toContain("onCloseComplete");
   });
 
   it("spends the open-file pulse when the panel closes", () => {

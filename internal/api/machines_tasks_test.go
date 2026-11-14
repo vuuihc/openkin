@@ -13,19 +13,25 @@ import (
 // apiTaskReader is one machine's own task store, answering the two questions a
 // console asks when it opens a run from the relayed feed.
 type apiTaskReader struct {
-	task      node.RoutineAnswer
-	events    node.RoutineAnswer
-	eventsSeq int
-	eventsID  string
+	task        node.RoutineAnswer
+	events      node.RoutineAnswer
+	eventsSeq   int
+	eventsLimit int
+	eventsID    string
 }
 
 func (r *apiTaskReader) Task(context.Context, string) (node.RoutineAnswer, error) {
 	return r.task, nil
 }
 
-func (r *apiTaskReader) TaskEvents(_ context.Context, id string, sinceSeq int) (node.RoutineAnswer, error) {
+func (r *apiTaskReader) TaskEvents(
+	_ context.Context,
+	id string,
+	sinceSeq, limit int,
+) (node.RoutineAnswer, error) {
 	r.eventsID = id
 	r.eventsSeq = sinceSeq
+	r.eventsLimit = limit
 	return r.events, nil
 }
 
@@ -85,15 +91,16 @@ func TestMachineTaskEventsCarrySinceSeqToTheMachine(t *testing.T) {
 		Tasks: reader,
 	})
 
-	rec := askMachineTask(t, s, master, "/api/machines/"+deviceID+"/tasks/t-1/events?since_seq=7")
+	rec := askMachineTask(t, s, master, "/api/machines/"+deviceID+"/tasks/t-1/events?since_seq=7&limit=2")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
 	if got := rec.Body.String(); got != `[{"seq":8,"type":"message"}]` {
 		t.Fatalf("body = %q, want the machine's events", got)
 	}
-	if reader.eventsID != "t-1" || reader.eventsSeq != 7 {
-		t.Fatalf("the machine was asked %q since %d, want t-1 since 7", reader.eventsID, reader.eventsSeq)
+	if reader.eventsID != "t-1" || reader.eventsSeq != 7 || reader.eventsLimit != 2 {
+		t.Fatalf("the machine was asked %q since %d limit %d, want t-1 since 7 limit 2",
+			reader.eventsID, reader.eventsSeq, reader.eventsLimit)
 	}
 }
 
@@ -136,5 +143,13 @@ func TestMachineTaskEventsRefuseABadSinceSeq(t *testing.T) {
 	rec := askMachineTask(t, s, master, "/api/machines/self/tasks/t-1/events?since_seq=-1")
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 for a negative since_seq", rec.Code)
+	}
+}
+
+func TestMachineTaskEventsRefusesABadLimit(t *testing.T) {
+	s, master, _ := machinesServer(t)
+	rec := askMachineTask(t, s, master, "/api/machines/self/tasks/t-1/events?limit=-1")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 for a negative limit", rec.Code)
 	}
 }

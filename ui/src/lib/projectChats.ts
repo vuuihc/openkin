@@ -33,16 +33,27 @@ export function projectRoots(project: Pick<Project, "roots"> | null): string[] {
   return (project?.roots ?? []).map((root) => root.trim()).filter(Boolean);
 }
 
-/** The two faces of the project screen, and what a stale URL means. */
-export const PROJECT_TABS = ["overview", "chats"] as const;
-export type ProjectTab = (typeof PROJECT_TABS)[number];
-
 /**
- * An unknown tab is the overview, not an empty screen: a hand-edited URL or a
- * link from an older build should land on the project it names.
+ * Where the cover's "new chat" goes.
+ *
+ * One root: straight to the draft with that cwd, so the chat lands in the
+ * project it was started from. More than one: the draft's own device/project
+ * picker, because guessing the first root is how a chat lands outside the
+ * project (KIN-PROJECT-001 D4). No root: nowhere to go, and the button must
+ * not look usable.
  */
-export function normalizeProjectTab(value: string | null): ProjectTab {
-  return value === "chats" ? "chats" : "overview";
+export type ProjectNewChatTarget =
+  | { kind: "cwd"; href: string }
+  | { kind: "picker"; href: string }
+  | { kind: "no-root" };
+
+export function projectNewChatTarget(
+  project: Pick<Project, "roots"> | null,
+): ProjectNewChatTarget {
+  const roots = projectRoots(project);
+  if (roots.length === 0) return { kind: "no-root" };
+  if (roots.length > 1) return { kind: "picker", href: "/new" };
+  return { kind: "cwd", href: `/new?cwd=${encodeURIComponent(roots[0])}` };
 }
 
 export function projectChatRows(
@@ -96,10 +107,26 @@ export interface ProjectChatsOutcome {
   /** Which project these rows answer for; the screen drops them when it moves. */
   projectId: string;
   rows: ProjectChatRow[];
+  /**
+   * When the newest imported session was first indexed, if there is one. The
+   * cover's "last import" line answers a different question from the newest
+   * conversation: a session can be re-read without being the most recent chat.
+   */
+  lastImportAt: number | null;
   /** At least one root failed, so the list is real but may be missing sessions. */
   partial: boolean;
   /** The task read failed; there is no list to show. */
   error: string | null;
+}
+
+/** The newest `first_seen_at` across the imported sessions, or null. */
+export function latestImportAt(sessions: readonly AgentSession[]): number | null {
+  let latest: number | null = null;
+  for (const session of sessions) {
+    const at = session.first_seen_at ?? 0;
+    if (at > 0 && (latest === null || at > latest)) latest = at;
+  }
+  return latest;
 }
 
 /**
@@ -134,6 +161,7 @@ export async function loadProjectChats(args: {
     return {
       projectId: args.projectId,
       rows: [],
+      lastImportAt: null,
       partial: false,
       error: e instanceof Error && e.message ? e.message : args.copy.loadFailed,
     };
@@ -148,6 +176,7 @@ export async function loadProjectChats(args: {
     return {
       projectId: args.projectId,
       rows: projectChatRows(tasks, sessions, args.copy, args.selfDeviceId, args.limit),
+      lastImportAt: latestImportAt(sessions),
       partial: settled.some((result) => result.status === "rejected"),
       error: null,
     };
@@ -157,6 +186,7 @@ export async function loadProjectChats(args: {
     return {
       projectId: args.projectId,
       rows: [],
+      lastImportAt: null,
       partial: false,
       error: args.copy.loadFailed,
     };

@@ -62,13 +62,11 @@ describe("PANELS", () => {
 });
 
 describe("isPanelAvailable", () => {
-  it("offers the workspace and pull request panels for any session", () => {
+  it("offers the workspace panel for any session", () => {
     expect(isPanelAvailable("files", ctx())).toBe(true);
-    expect(isPanelAvailable("pr", ctx())).toBe(true);
     // Including one whose checkout the Hub holds — the tree is what that panel
     // shows, and it is still the session in front of you.
     expect(isPanelAvailable("files", ctx({ remote: true }))).toBe(true);
-    expect(isPanelAvailable("pr", ctx({ remote: true }))).toBe(true);
   });
 
   it("offers publishing only for a session running elsewhere", () => {
@@ -86,7 +84,6 @@ describe("isPanelAvailable", () => {
 
   it("offers nothing about a panel with no session", () => {
     expect(isPanelAvailable("files", ctx({ taskId: null, remote: true }))).toBe(false);
-    expect(isPanelAvailable("pr", ctx({ taskId: null, remote: true }))).toBe(false);
     // The one exception: publishing is a property of where the session runs, and
     // the sheet is opened from a page that has one.
     expect(isPanelAvailable("publish", ctx({ taskId: null, remote: true }))).toBe(true);
@@ -95,10 +92,9 @@ describe("isPanelAvailable", () => {
 
 describe("availablePanels", () => {
   it("lists what is offered, in table order", () => {
-    expect(availablePanels(ctx()).map((p) => p.id)).toEqual(["files", "pr", "terminal"]);
+    expect(availablePanels(ctx()).map((p) => p.id)).toEqual(["files", "terminal"]);
     expect(availablePanels(ctx({ remote: true })).map((p) => p.id)).toEqual([
       "files",
-      "pr",
       "publish",
       "terminal",
     ]);
@@ -110,7 +106,6 @@ describe("availablePanels", () => {
     // The phone loses exactly one row, and it is the terminal's.
     expect(availablePanels(ctx({ remote: true, desktop: false })).map((p) => p.id)).toEqual([
       "files",
-      "pr",
       "publish",
     ]);
   });
@@ -120,22 +115,22 @@ describe("nextOpenPanel", () => {
   const session = "task-1";
 
   it("opens the panel that was asked for", () => {
-    expect(nextOpenPanel(null, session, "pr")).toEqual({ view: session, id: "pr" });
+    expect(nextOpenPanel(null, session, "publish")).toEqual({ view: session, id: "publish" });
     expect(nextOpenPanel(null, session, "files")).toEqual({ view: session, id: "files" });
   });
 
   it("closes it when it is already open", () => {
-    const open: OpenPanel = { view: session, id: "pr" };
-    expect(nextOpenPanel(open, session, "pr")).toBeNull();
+    const open: OpenPanel = { view: session, id: "publish" };
+    expect(nextOpenPanel(open, session, "publish")).toBeNull();
   });
 
   // The panels are the same surface at the same z-index, so asking for one while
   // another is open replaces it rather than stacking — including across the two
   // places a panel can belong to, the session and the shell.
   it("replaces the other panel rather than stacking", () => {
-    expect(nextOpenPanel({ view: session, id: "files" }, session, "pr")).toEqual({
+    expect(nextOpenPanel({ view: session, id: "files" }, session, "publish")).toEqual({
       view: session,
-      id: "pr",
+      id: "publish",
     });
     expect(nextOpenPanel({ view: SHELL_VIEW, id: "terminal" }, session, "files")).toEqual({
       view: session,
@@ -155,7 +150,7 @@ describe("nextOpenPanel", () => {
     for (const [view, id] of [
       [session, "files"],
       [SHELL_VIEW, "terminal"],
-      ["task-2", "pr"],
+      ["task-2", "publish"],
       [session, "publish"],
     ] as const) {
       open = nextOpenPanel(open, view, id);
@@ -202,8 +197,7 @@ describe("resolvePanel", () => {
 
   it("keeps an open panel that is still offered", () => {
     expect(resolvePanel("files", ctx())).toBe("files");
-    expect(resolvePanel("pr", ctx())).toBe("pr");
-    expect(resolvePanel("publish", ctx({ remote: true }))).toBe("publish");
+        expect(resolvePanel("publish", ctx({ remote: true }))).toBe("publish");
     expect(resolvePanel("terminal", ctx())).toBe("terminal");
   });
 

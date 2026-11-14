@@ -33,6 +33,7 @@ export type RemoteTaskRun = {
 
 const POLL_MS = 3000;
 const RETRY_MS = 5000;
+const EVENT_PAGE = 50;
 
 const EMPTY: RemoteTaskRun = {
   task: null,
@@ -76,13 +77,22 @@ export function useRemoteTaskRun(device: string, id: string): RemoteTaskRun {
       if (running || !live) return;
       running = true;
       try {
-        const [task, page] = await Promise.all([
-          getMachineTask(device, id),
-          listMachineTaskEvents(device, id, cursor),
-        ]);
+        // Read the status before the transcript. Once a run is terminal, drain
+        // every remaining page at this cursor so a final reply cannot be
+        // omitted merely because the events snapshot won the race.
+        const task = await getMachineTask(device, id);
+        let page: TaskEvent[] = [];
+        do {
+          const before = cursor;
+          page = await listMachineTaskEvents(device, id, cursor, EVENT_PAGE);
+          if (!live) return;
+          events = mergeEventsBySeq(events, page);
+          cursor = highestContiguousSeq(events);
+          if (!isTerminal(task.status) || page.length < EVENT_PAGE || cursor === before) {
+            break;
+          }
+        } while (live);
         if (!live) return;
-        events = mergeEventsBySeq(events, page);
-        cursor = highestContiguousSeq(events);
         setState({ task, events, loaded: true, error: null });
         if (!isTerminal(task.status)) schedule(POLL_MS);
       } catch (e) {

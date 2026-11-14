@@ -180,7 +180,7 @@ describe("FloatingApproval", () => {
   });
 
   it("does not advertise keys it does not handle", () => {
-    // `a`/`d` decide the transcript's or the inbox's ringed approval. On a card
+    // `a`/`d` decide the transcript's ringed approval. On a card
     // floating over another screen the letters would promise a key that
     // answers something else.
     setup();
@@ -291,7 +291,7 @@ describe("FloatingApproval", () => {
       });
       expect(container.querySelector("aside")?.style.bottom).not.toBe("");
 
-      rerender(<FloatingApproval {...props} screenKey="/inbox" expectsBottomChrome={false} />);
+      rerender(<FloatingApproval {...props} screenKey="/sessions" expectsBottomChrome={false} />);
       expect(container.querySelector("aside")?.style.bottom).toBe("");
     } finally {
       chrome.remove();
@@ -299,12 +299,12 @@ describe("FloatingApproval", () => {
   });
 
   it("does not go looking for a band on a route that has none", async () => {
-    // The inbox has a dock but no composer. A band that some other mounted
+    // The list has a dock but no composer. A band that some other mounted
     // screen leaves in the document must not be measured from here.
     const chrome = band(600);
     document.body.appendChild(chrome);
     try {
-      const { container } = setup({ screenKey: "/inbox", expectsBottomChrome: false });
+      const { container } = setup({ screenKey: "/sessions", expectsBottomChrome: false });
       await waitFor(() => expect(container.querySelector("aside")).not.toBeNull());
       expect(container.querySelector("aside")?.style.bottom).toBe("");
     } finally {
@@ -313,7 +313,7 @@ describe("FloatingApproval", () => {
   });
 
   it("clears the dock when the page marks nothing", () => {
-    const { container } = setup({ screenKey: "/inbox", expectsBottomChrome: false, raised: true });
+    const { container } = setup({ screenKey: "/sessions", expectsBottomChrome: false, raised: true });
     const aside = container.querySelector("aside");
     expect(aside?.style.bottom).toBe("");
     expect(aside?.className).toContain("bottom-[calc(9.25rem");
@@ -322,7 +322,7 @@ describe("FloatingApproval", () => {
 
   it("clears only the dock's own height when the dock is not on screen", () => {
     const { container } = setup({
-      screenKey: "/inbox",
+      screenKey: "/sessions",
       expectsBottomChrome: false,
       raised: false,
     });

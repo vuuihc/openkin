@@ -102,10 +102,15 @@ describe("the routine editor's run history", () => {
 
   it("keeps the history branches in loading / error / empty order", () => {
     // A failed fetch must not read as "this routine has never run", and a
-    // loading state must not flash the empty line underneath it.
-    const loading = PAGE.indexOf("historyLoading[editing.id] ?");
-    const failure = PAGE.indexOf("historyError[editing.id] ?");
-    const empty = PAGE.indexOf("(history[editing.id]?.length ?? 0) === 0 ?");
+    // loading state must not flash the empty line underneath it. The order
+    // lives in the panel that both the phone row and the desktop aside mount.
+    const panel = PAGE.slice(
+      PAGE.indexOf("function RunHistoryPanel"),
+      PAGE.indexOf("function RunCard"),
+    );
+    const loading = panel.indexOf("{loading ? (");
+    const failure = panel.indexOf(") : error ? (");
+    const empty = panel.indexOf(") : runs.length === 0 ? (");
     expect(loading).toBeGreaterThan(-1);
     expect(failure).toBeGreaterThan(loading);
     expect(empty).toBeGreaterThan(failure);
@@ -116,8 +121,11 @@ describe("the routine editor's run history", () => {
   });
 
   it("offers the older page only when the last one was full and the cap is not reached", () => {
-    expect(PAGE).toContain("{historyHasMore[editing.id] &&");
-    expect(PAGE).toContain("(history[editing.id]?.length ?? 0) < ROUTINE_HISTORY_MAX && (");
+    // The panel gets the flag and the rows it was given; a remote machine's
+    // feed has no cursor this console can page, so it offers nothing.
+    expect(PAGE).toContain("{hasMore && !remote && runs.length < ROUTINE_HISTORY_MAX && (");
+    expect(PAGE).toContain("hasMore={!!historyHasMore[r.id]}");
+    expect(PAGE).toContain("hasMore={!!historyHasMore[selected.id]}");
     // And the fetch refuses too: a long-lived editor whose list fills between
     // the render and the click must not ask for rows the merge would drop.
     expect(PAGE).toContain("(history[id]?.length ?? 0) >= ROUTINE_HISTORY_MAX");

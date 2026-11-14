@@ -41,7 +41,6 @@ import { useMachines } from "../../hooks/useMachines";
 import { remoteMachine } from "../../lib/devices";
 import { taskDisplayTitle } from "../../lib/taskTitle";
 import { floatingApprovals } from "../../lib/floatingApprovals";
-import { placePath } from "../../lib/places";
 import { useApprovalDecision } from "../../hooks/useApprovalDecision";
 import { useEdgeSwipeBack } from "../../hooks/useEdgeSwipeBack";
 import { runGuardedNavigation } from "../../lib/leaveGuard";
@@ -114,7 +113,7 @@ export default function AppShell({
     visibleTaskId: selectedTaskId,
     // The inbox lists every waiting approval; a card on top of it would be
     // the same queue twice.
-    onInbox: pathname === placePath("inbox"),
+    onInbox: pathname === "/inbox",
   });
   /**
    * The pages that are a single list or form, where the shell bar can carry the

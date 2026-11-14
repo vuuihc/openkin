@@ -1,7 +1,7 @@
 # SheetSelect
 
-**不可搜索的单选。** 短列表用它。手机打开 Ionic 的系统级 action sheet，
-768px 以上打开贴着触发点的菜单——同一个 chip，两种形状。
+**不可搜索的单选。** 短列表用它。手机打开控制台自己的底部 action sheet
+（[ActionSheet](action-sheet.md)），768px 以上打开贴着触发点的菜单——同一个 chip，两种形状。
 
 ## 用它 / 别用它
 
@@ -44,13 +44,13 @@
 | 展开状态 | 4.1.2 | `aria-expanded` 跟随开合 | 打开 / 关闭 |
 | 菜单语义 | 4.1.2 | `role="menu"` + `menuitemradio` + `aria-checked` | 打开（宽） |
 | 当前项 | 4.1.2 | 打开时焦点落在 `aria-checked="true"` 的那一项 | 打开 |
-| 触控目标 | 2.5.8 Target Size | 手机走系统 action sheet 的尺寸 | 手机 |
+| 触控目标 | 2.5.8 Target Size | 手机走 Sheet 的 44px 行高 | 手机 |
 
 ## 平台差异
 
 | | 手机 | Mac |
 |---|---|---|
-| 表面 | Ionic `IonActionSheet`，带安全区 | 锚定菜单 |
+| 表面 | 控制台 `Sheet`，带安全区 | 锚定菜单 |
 | 位置 | 从底部升起，盖住当前面板 | 贴着 chip |
 | 主题 | 由控制台 token 着色 | 控制台自己的菜单样式 |
 

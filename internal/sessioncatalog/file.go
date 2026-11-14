@@ -4,11 +4,14 @@ package sessioncatalog
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -109,9 +112,15 @@ func (c *FileCatalog) Inspect(ctx context.Context, externalRef string) (agent.Se
 }
 
 // ReadHistory reads normalized message items directly from the source file.
+//
 // Cursor is a JSONL line number, optionally followed by a content-block offset.
+// Before accepts that shape too, and also the byte-offset shape the backward
+// reader names its next page with ("o<offset>[:<block>]"): a reader that opens
+// the session at its end walks byte positions, never lines. A daemon older than
+// byte cursors refuses one with "invalid history cursor" rather than reading
+// the wrong page.
 func (c *FileCatalog) ReadHistory(ctx context.Context, externalRef string, q agent.HistoryQuery) (agent.HistoryPage, error) {
-	info, err := c.Inspect(ctx, externalRef)
+	info, err := c.sessionForRead(ctx, externalRef, q.SourceURI)
 	if err != nil {
 		return agent.HistoryPage{}, err
 	}
@@ -129,7 +138,7 @@ func (c *FileCatalog) ReadHistory(ctx context.Context, externalRef string, q age
 		limit = 100
 	}
 	if q.Tail || strings.TrimSpace(q.Before) != "" {
-		return c.readHistoryBackward(ctx, path, info, sourceRev, q, limit)
+		return c.readHistoryBackward(ctx, path, info, sourceRev, st.Size(), q, limit)
 	}
 	startLine, startBlock, err := parseHistoryCursor(q.Cursor, sourceRev)
 	if err != nil {
@@ -187,16 +196,45 @@ func (c *FileCatalog) ReadHistory(ctx context.Context, externalRef string, q age
 }
 
 // readHistoryBackward answers the pages a reader asks for when they open a
-// session at its end: the last page first, then the one before it. It scans the
-// source once and keeps only the newest records that fit the limit, so the
-// memory it spends is one page, not one transcript.
+// session at its end: the last page first, then the one before it.
+//
+// Opening at the end is the common case, and it is answered from the end of the
+// file: a window of the newest records is read, not the whole transcript, and
+// the window is named by a byte offset so the page before it starts where the
+// last one ended. A session that grew to a hundred megabytes should cost its
+// reader what the last page weighs, not what the file weighs. A cursor that
+// names a line — one written before byte cursors existed, or by the forward
+// reader — still gets the scan below, which is the only reader that can count
+// lines from the start.
+func (c *FileCatalog) readHistoryBackward(ctx context.Context, path string, info agent.SessionInfo, sourceRev string, size int64, q agent.HistoryQuery, limit int) (agent.HistoryPage, error) {
+	if q.Tail && (strings.TrimSpace(q.Before) != "" || strings.TrimSpace(q.Cursor) != "") {
+		return agent.HistoryPage{}, fmt.Errorf("tail cannot be combined with a cursor")
+	}
+	if q.Tail {
+		return c.readHistoryWindow(ctx, path, info, sourceRev, size, 0, limit)
+	}
+	if before := strings.TrimSpace(q.Before); before != "" {
+		offset, block, ok, err := parseHistoryOffsetCursor(before, sourceRev)
+		if err != nil {
+			return agent.HistoryPage{}, err
+		}
+		if ok {
+			return c.readHistoryWindow(ctx, path, info, sourceRev, offset, block, limit)
+		}
+	}
+	return c.readHistoryBackwardScan(ctx, path, info, sourceRev, q, limit)
+}
+
+// readHistoryBackwardScan is the line-cursor reader: it scans the source once
+// and keeps only the newest records that fit the limit, so the memory it spends
+// is one page, not one transcript.
 //
 // A JSONL record can hold several content blocks, and the provider's chunks of
 // one message live in those blocks. Keeping and dropping records whole is what
 // makes the first item of a page the beginning of a message rather than the
 // middle of one, which is the one way a prepended page can end up showing half
 // a sentence.
-func (c *FileCatalog) readHistoryBackward(ctx context.Context, path string, info agent.SessionInfo, sourceRev string, q agent.HistoryQuery, limit int) (agent.HistoryPage, error) {
+func (c *FileCatalog) readHistoryBackwardScan(ctx context.Context, path string, info agent.SessionInfo, sourceRev string, q agent.HistoryQuery, limit int) (agent.HistoryPage, error) {
 	if q.Tail && (strings.TrimSpace(q.Before) != "" || strings.TrimSpace(q.Cursor) != "") {
 		return agent.HistoryPage{}, fmt.Errorf("tail cannot be combined with a cursor")
 	}
@@ -273,6 +311,331 @@ func (c *FileCatalog) readHistoryBackward(ctx context.Context, path string, info
 		}
 	}
 	return agent.HistoryPage{Items: items, PrevCursor: prev, SourceRev: sourceRev}, nil
+}
+
+// readHistoryWindow answers one page from the end of the source.
+//
+// end is where the page stops (the file's size for a tail page, or the byte
+// offset a cursor names), and block is how much of the record that starts at
+// end belongs above this page: a machine that had to cut an answer names the
+// first message it kept, and the record that message starts in is split across
+// the two pages. Records are kept whole otherwise, for the reason the scan
+// above gives.
+//
+// The window starts at a mebibyte and doubles until the page is decided: it
+// holds either the record that does not fit (the page's older boundary) or
+// every record the file has. Only the window is parsed, and only one window is
+// held, so the cost of a page follows the page and not the transcript.
+func (c *FileCatalog) readHistoryWindow(ctx context.Context, path string, info agent.SessionInfo, sourceRev string, end int64, block, limit int) (agent.HistoryPage, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return agent.HistoryPage{}, fmt.Errorf("open session source: %w", err)
+	}
+	defer f.Close()
+	if st, err := f.Stat(); err != nil {
+		return agent.HistoryPage{}, fmt.Errorf("stat session source: %w", err)
+	} else if st.Size() < end {
+		// The cursor outlived the file it names. The revision in the cursor is
+		// checked before this is called, so arriving here means the file shrank
+		// between the two stats; refusing is cheaper than reading the wrong page.
+		return agent.HistoryPage{}, fmt.Errorf("stale history cursor")
+	}
+
+	type windowRecord struct {
+		offset int64
+		items  []agent.HistoryItem
+	}
+	// kept is newest first; it is reversed into reading order before returning.
+	var kept []windowRecord
+	total := 0
+
+	if block > 0 {
+		// The older half of a record the answer before this one had to cut.
+		raw, err := readRecordAt(f, end)
+		if err != nil {
+			return agent.HistoryPage{}, err
+		}
+		parsed := c.parseHistoryItems(raw, info, sourceRev, int(end))
+		// A block past the record's end is a cursor written against a source
+		// that has since been rewritten; the scan answers the same shape by
+		// keeping the whole record, and this reader keeps the two pages on the
+		// same side of a record rather than inventing a third answer.
+		if block < len(parsed) {
+			parsed = parsed[:block]
+		}
+		if len(parsed) > 0 {
+			kept = append(kept, windowRecord{offset: end, items: parsed})
+			total += len(parsed)
+		}
+	}
+
+	lower := end // the window reads records strictly before this offset
+	window := int64(1 << 20)
+	if window > lower {
+		window = lower
+	}
+	// The seed stays across growth; the records read from the window do not,
+	// because a wider window re-reads them.
+	base, baseTotal := len(kept), total
+	for {
+		kept, total = kept[:base], baseTotal
+		start := lower - window
+		if start < 0 {
+			start = 0
+		}
+		buf := make([]byte, lower-start)
+		n, err := f.ReadAt(buf, start)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return agent.HistoryPage{}, fmt.Errorf("read session source: %w", err)
+		}
+		buf = buf[:n]
+		first := 0
+		if start > 0 {
+			nl := bytes.IndexByte(buf, '\n')
+			if nl < 0 {
+				// The whole window sits inside one record; reading more of the
+				// same record cannot name a page boundary.
+				window *= 2
+				continue
+			}
+			first = nl + 1
+		}
+		type line struct {
+			from, to int
+			offset   int64
+		}
+		lines := make([]line, 0, 256)
+		for i := first; i < len(buf); {
+			nl := bytes.IndexByte(buf[i:], '\n')
+			if nl < 0 {
+				lines = append(lines, line{from: i, to: len(buf), offset: start + int64(i)})
+				break
+			}
+			lines = append(lines, line{from: i, to: i + nl, offset: start + int64(i)})
+			i += nl + 1
+		}
+		decided := false
+		for n := len(lines) - 1; n >= 0; n-- {
+			select {
+			case <-ctx.Done():
+				return agent.HistoryPage{}, ctx.Err()
+			default:
+			}
+			sp := lines[n]
+			parsed := c.parseHistoryItems(buf[sp.from:sp.to], info, sourceRev, int(sp.offset))
+			if len(parsed) == 0 {
+				continue
+			}
+			if len(kept) > 0 && total+len(parsed) > limit {
+				// This record does not fit, so it is the boundary: everything
+				// older belongs to the page before this one.
+				decided = true
+				break
+			}
+			kept = append(kept, windowRecord{offset: sp.offset, items: parsed})
+			total += len(parsed)
+			if total >= limit {
+				// One item fits every record, so nothing older can fit either.
+				decided = true
+				break
+			}
+		}
+		if decided || start == 0 {
+			break
+		}
+		window *= 2
+		if window > lower {
+			window = lower
+		}
+	}
+
+	prev := ""
+	if len(kept) > 0 {
+		oldest := kept[len(kept)-1]
+		if oldest.offset > 0 {
+			prev = encodeHistoryOffsetCursor(sourceRev, oldest.offset, 0)
+		}
+	}
+	items := make([]agent.HistoryItem, 0, total)
+	for n := len(kept) - 1; n >= 0; n-- {
+		rec := kept[n]
+		for blockIndex, item := range rec.items {
+			item.Cursor = encodeHistoryOffsetCursor(sourceRev, rec.offset, blockIndex)
+			items = append(items, item)
+		}
+	}
+	return agent.HistoryPage{Items: items, PrevCursor: prev, SourceRev: sourceRev}, nil
+}
+
+// readRecordAt reads the one JSONL record that starts at offset.
+func readRecordAt(f *os.File, offset int64) ([]byte, error) {
+	var out []byte
+	chunk := make([]byte, 64*1024)
+	for len(out) < maxLineBytes {
+		n, err := f.ReadAt(chunk, offset+int64(len(out)))
+		if n > 0 {
+			if nl := bytes.IndexByte(chunk[:n], '\n'); nl >= 0 {
+				return append(out, chunk[:nl]...), nil
+			}
+			out = append(out, chunk[:n]...)
+		}
+		if errors.Is(err, io.EOF) {
+			return out, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read session source: %w", err)
+		}
+	}
+	return nil, fmt.Errorf("session record longer than %d bytes", maxLineBytes)
+}
+
+// sessionForRead names the one file a history page is read from.
+//
+// Discovery is the fallback rather than the first step. A page is normally
+// read through a row that already recorded where the session lives, and
+// walking every provider file to find that one again is both slower and no
+// more correct — on a machine with a few hundred transcripts it is the
+// difference between a page that opens and one that sits on a skeleton.
+//
+// The hint is still treated as input from outside, because it is: it may have
+// come over a wire, or from a row written before the session moved. The file
+// must be one this catalog would have walked to, and it must still say it is
+// this session, or the hint is dropped and discovery answers instead.
+func (c *FileCatalog) sessionForRead(ctx context.Context, externalRef, hint string) (agent.SessionInfo, error) {
+	path, st, ok := c.containedSource(hint)
+	if ok {
+		ref, err := c.sourceExternalRef(ctx, path)
+		if err == nil && ref != "" && strings.TrimSpace(ref) == strings.TrimSpace(externalRef) {
+			return agent.SessionInfo{
+				AgentID:      c.AgentID,
+				ExternalRef:  ref,
+				SourceURI:    "file://" + path,
+				SourceCursor: sourceRevision(st),
+				Status:       "idle",
+				CreatedAt:    st.ModTime(),
+				UpdatedAt:    st.ModTime(),
+			}, nil
+		}
+	}
+	return c.Inspect(ctx, externalRef)
+}
+
+// containedSource answers the file a hint names, when it is a regular file
+// under one of this catalog's roots. The check belongs here rather than in the
+// caller that produced the hint: the caller does not know this catalog's roots,
+// and a path is the one field that can turn a read into a read of something
+// else entirely.
+func (c *FileCatalog) containedSource(hint string) (string, os.FileInfo, bool) {
+	hint = strings.TrimSpace(hint)
+	hint = strings.TrimSpace(strings.TrimPrefix(hint, "file://"))
+	if hint == "" || !filepath.IsAbs(hint) || filepath.Ext(hint) != ".jsonl" {
+		return "", nil, false
+	}
+	path := filepath.Clean(hint)
+	root, rel, ok := containingRoot(c.Roots, path)
+	if !ok || pathThroughSkippedDir(rel) {
+		return "", nil, false
+	}
+	// The walk does not follow symlink directories either, so a path through
+	// one is not a file discovery could have returned. Resolving the whole
+	// path is what closes that: the real file must still be under the real
+	// root, not merely look like it under a link's spelling.
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", nil, false
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", nil, false
+	}
+	resolvedRel, ok := relativeTo(resolvedRoot, resolved)
+	if !ok || pathThroughSkippedDir(resolvedRel) {
+		return "", nil, false
+	}
+	// A link as the final component is not something the walk returns either:
+	// it skips the entry, whether or not the target is inside a root.
+	st, err := os.Lstat(path)
+	if err != nil || !st.Mode().IsRegular() {
+		return "", nil, false
+	}
+	// The same size bound discovery applies. A hint is allowed to save a walk,
+	// not to lift the limit that keeps one oversized file from becoming the
+	// catalog's whole cost.
+	maxBytes := c.MaxFileBytes
+	if maxBytes <= 0 {
+		maxBytes = defaultMaxFileBytes
+	}
+	if st.Size() > maxBytes {
+		return "", nil, false
+	}
+	return path, st, true
+}
+
+// containingRoot names the configured root a path is lexically under, with the
+// path's position below it.
+func containingRoot(roots []string, path string) (string, string, bool) {
+	for _, root := range roots {
+		root = filepath.Clean(strings.TrimSpace(root))
+		if root == "" || root == "." {
+			continue
+		}
+		if rel, ok := relativeTo(root, path); ok {
+			return root, rel, true
+		}
+	}
+	return "", "", false
+}
+
+// relativeTo answers path's position under root, and whether it is under it at
+// all. The root itself is not a file, so it is not a position.
+func relativeTo(root, path string) (string, bool) {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || filepath.IsAbs(rel) ||
+		rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return rel, true
+}
+
+// pathThroughSkippedDir reports whether a relative path names one of the
+// directories the walk refuses to enter. A file below one — a subagent's own
+// transcript, say — records the parent session's id, so the ref check alone
+// would accept it and show the reader a sidechain as the conversation.
+func pathThroughSkippedDir(rel string) bool {
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		if part == "subagents" || part == "tool-results" {
+			return true
+		}
+	}
+	return false
+}
+
+// sourceExternalRef reads the file's ref the way summarize does: the last one
+// its records name. First and last can differ in a provider's forked file, and
+// answering with the first would let a hint name a file discovery associates
+// with another session. The scan is the metadata scan's own bound, so this
+// costs one file's first records rather than the whole catalog's.
+func (c *FileCatalog) sourceExternalRef(ctx context.Context, path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), maxLineBytes)
+	var info agent.SessionInfo
+	for i := 0; i < 4096 && sc.Scan(); i++ {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		default:
+		}
+		c.applySummaryRecord(&info, sc.Bytes())
+	}
+	if err := sc.Err(); err != nil {
+		return "", err
+	}
+	return info.ExternalRef, nil
 }
 
 func (c *FileCatalog) scan(ctx context.Context) ([]fileSession, error) {
@@ -968,6 +1331,49 @@ func encodeHistoryCursor(sourceRev string, line, block int) string {
 		return sourceRev + "|" + position
 	}
 	return sourceRev + "|" + fmt.Sprintf("%s:%d", position, block)
+}
+
+// encodeHistoryOffsetCursor names a byte position in the source, optionally
+// with a content block. The "o" is what keeps it apart from a line number: a
+// line cursor is read by the scan that counts lines from the start, and a byte
+// offset is read by a seek, so the two shapes must never be confused.
+func encodeHistoryOffsetCursor(sourceRev string, offset int64, block int) string {
+	position := "o" + strconv.FormatInt(offset, 10)
+	if block <= 0 {
+		return sourceRev + "|" + position
+	}
+	return sourceRev + "|" + position + ":" + strconv.Itoa(block)
+}
+
+// parseHistoryOffsetCursor reads a cursor that names a byte position. ok is
+// false for any other cursor shape, which is how the caller tells a page it can
+// seek to from one it has to scan for.
+func parseHistoryOffsetCursor(cursor, sourceRev string) (offset int64, block int, ok bool, err error) {
+	cursor = strings.TrimSpace(cursor)
+	if cursor == "" {
+		return 0, 0, false, nil
+	}
+	if parts := strings.SplitN(cursor, "|", 2); len(parts) == 2 {
+		if parts[0] != sourceRev {
+			return 0, 0, false, fmt.Errorf("stale history cursor")
+		}
+		cursor = parts[1]
+	}
+	if !strings.HasPrefix(cursor, "o") {
+		return 0, 0, false, nil
+	}
+	position, rawBlock, hasBlock := strings.Cut(strings.TrimPrefix(cursor, "o"), ":")
+	offset, err = strconv.ParseInt(position, 10, 64)
+	if err != nil || offset < 0 {
+		return 0, 0, false, fmt.Errorf("invalid history cursor")
+	}
+	if hasBlock {
+		block, err = strconv.Atoi(rawBlock)
+		if err != nil || block < 0 {
+			return 0, 0, false, fmt.Errorf("invalid history cursor")
+		}
+	}
+	return offset, block, true, nil
 }
 
 func recordText(record map[string]any, role string) string {

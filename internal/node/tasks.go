@@ -26,7 +26,7 @@ type TaskReader interface {
 	Task(ctx context.Context, id string) (RoutineAnswer, error)
 	// TaskEvents returns the task's transcript after sinceSeq, as this console
 	// answers GET /api/tasks/{id}/events.
-	TaskEvents(ctx context.Context, id string, sinceSeq int) (RoutineAnswer, error)
+	TaskEvents(ctx context.Context, id string, sinceSeq, limit int) (RoutineAnswer, error)
 }
 
 // LocalTaskReader returns a reader that asks this daemon's own loopback console.
@@ -59,14 +59,25 @@ func (l *localTaskReader) Task(ctx context.Context, id string) (RoutineAnswer, e
 	return l.get(ctx, "/api/tasks/"+url.PathEscape(id))
 }
 
-func (l *localTaskReader) TaskEvents(ctx context.Context, id string, sinceSeq int) (RoutineAnswer, error) {
-	asked := worker.TaskEventsParams{ID: id, SinceSeq: sinceSeq}
+func (l *localTaskReader) TaskEvents(
+	ctx context.Context,
+	id string,
+	sinceSeq, limit int,
+) (RoutineAnswer, error) {
+	asked := worker.TaskEventsParams{ID: id, SinceSeq: sinceSeq, Limit: limit}
 	if err := asked.Validate(); err != nil {
 		return RoutineAnswer{}, err
 	}
 	path := "/api/tasks/" + url.PathEscape(id) + "/events"
+	query := url.Values{}
 	if sinceSeq > 0 {
-		path += "?since_seq=" + strconv.Itoa(sinceSeq)
+		query.Set("since_seq", strconv.Itoa(sinceSeq))
+	}
+	if limit > 0 {
+		query.Set("limit", strconv.Itoa(limit))
+	}
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
 	}
 	return l.get(ctx, path)
 }

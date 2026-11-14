@@ -56,6 +56,12 @@ export type SheetProps = {
    */
   anyWidth?: boolean;
   /**
+   * A centred desktop dialog at wide widths while keeping the bottom sheet on
+   * a phone. It dismisses through the same history entry as every other
+   * sheet, so layout and navigation retain one lifecycle.
+   */
+  dialog?: boolean;
+  /**
    * Called once the sheet is gone *and* its history entry is behind us. A
    * caller that wants to navigate after a row must wait for this: navigating
    * while the entry is still current strands it behind the new route, and the
@@ -66,6 +72,28 @@ export type SheetProps = {
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/*
+ * Nested sheets share the window-level Escape and Back listeners. Track the
+ * open order so only the sheet in front answers either gesture.
+ */
+let sheetStack: symbol[] = [];
+const sheetSubscribers = new Set<() => void>();
+
+function publishSheets(): void {
+  for (const notify of sheetSubscribers) notify();
+}
+
+export function subscribeSheets(notify: () => void): () => void {
+  sheetSubscribers.add(notify);
+  return () => {
+    sheetSubscribers.delete(notify);
+  };
+}
+
+function topSheetId(): symbol | null {
+  return sheetStack[sheetStack.length - 1] ?? null;
+}
 
 /**
  * The state a sheet's history entry copies from the page beneath it.
@@ -110,11 +138,18 @@ export default function Sheet({
   className = "",
   bodyClassName = "",
   anyWidth = false,
+  dialog = false,
   onCloseComplete,
 }: SheetProps) {
+  const id = useRef(Symbol("sheet"));
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
   const layers = useSyncExternalStore(subscribeLayers, layerCount, () => 0);
+  const sheetOnTop = useSyncExternalStore(
+    subscribeSheets,
+    () => topSheetId() === id.current,
+    () => false,
+  );
   // The parent re-renders on every keystroke in some sheets (the composer's
   // controls), and an effect that depended on `onClose` would tear down and
   // re-run on each of those — restoring focus to the opener mid-typing.
@@ -159,10 +194,6 @@ export default function Sheet({
   const [gestureDriven, setGestureDriven] = useState(false);
   // The dismissal effect is keyed on `open` alone: re-running it because a
   // media query changed would give the history entry back and push a new one.
-  // `anyWidth` is fixed for a given sheet, so it is read through a ref.
-  const anyWidthRef = useRef(anyWidth);
-  anyWidthRef.current = anyWidth;
-
   const applyDragY = (next: number) => {
     dragRef.current = next;
     setDragY(next);
@@ -312,6 +343,8 @@ export default function Sheet({
 
   useEffect(() => {
     if (!open) return;
+    sheetStack = [...sheetStack, id.current];
+    publishSheets();
     // A departure from outside the sheet (a notification tap) closes it first
     // and waits for this handle, so the destination is never pushed while the
     // sheet's own history entry is still current.
@@ -323,6 +356,7 @@ export default function Sheet({
     const focusTimer = window.setTimeout(() => panelRef.current?.focus(), 0);
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (topSheetId() !== id.current) return;
         // One Escape, one layer.
         //
         // This listener is on `window` in the capture phase, so it runs before
@@ -389,6 +423,12 @@ export default function Sheet({
     window.history.pushState({ ...base, kinSheet: marker }, "");
     let closedByBack = false;
     const onPopState = () => {
+      // Closing a sheet opens by itself traverses back to the entry below it.
+      // The sheet below sees this same event while its own marker is current;
+      // that event spent the entry above it and must leave it open.
+      const current = window.history.state as { kinSheet?: string } | null;
+      if (current?.kinSheet === marker) return;
+      if (topSheetId() !== id.current) return;
       if (dismissTopLayer()) {
         // The layer is gone but the sheet stayed; put the entry back so the
         // next Back still has something to close.
@@ -399,19 +439,9 @@ export default function Sheet({
       onCloseRef.current();
     };
     window.addEventListener("popstate", onPopState);
-    // The panel is `md:hidden`. Past that width it is invisible but still
-    // mounted, and its Escape/Tab trap keeps eating keys meant for the page
-    // behind it; closing on the breakpoint is what makes "hidden" mean gone
-    // (a tablet rotation, or a phone window dragged wide).
-    let media: MediaQueryList | null = null;
-    const onMediaChange = () => {
-      if (media?.matches) onCloseRef.current();
-    };
-    if (!anyWidthRef.current && typeof window.matchMedia === "function") {
-      media = window.matchMedia("(min-width: 768px)");
-      media.addEventListener?.("change", onMediaChange);
-    }
     return () => {
+      sheetStack = sheetStack.filter((entry) => entry !== id.current);
+      publishSheets();
       window.clearTimeout(focusTimer);
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("popstate", onPopState);
@@ -435,10 +465,26 @@ export default function Sheet({
         onCloseCompleteRef.current?.();
         exit.finish();
       }
-      media?.removeEventListener?.("change", onMediaChange);
       restoreRef.current?.focus?.({ preventScroll: true });
     };
   }, [open]);
+
+  /*
+   * A sheet that is not explicitly persistent is hidden at `md`. If a tablet
+   * disconnects its coarse pointer while the sheet is open, the breakpoint can
+   * already be true at the rerender, so checking only future media changes
+   * would leave an invisible modal eating keys.
+   */
+  useEffect(() => {
+    if (!open || anyWidth || dialog || typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(min-width: 768px)");
+    const onMediaChange = () => {
+      if (media.matches) onCloseRef.current();
+    };
+    media.addEventListener?.("change", onMediaChange);
+    onMediaChange();
+    return () => media.removeEventListener?.("change", onMediaChange);
+  }, [open, anyWidth, dialog]);
 
   if (!open) return null;
 
@@ -450,7 +496,8 @@ export default function Sheet({
       data-kin-sheet
       className={[
         "fixed inset-0 z-50 flex flex-col justify-end",
-        anyWidth ? "" : "md:hidden",
+        dialog ? "md:items-center md:justify-center" : "",
+        anyWidth || dialog ? "" : "md:hidden",
       ].join(" ")}
     >
       <button
@@ -469,7 +516,7 @@ export default function Sheet({
         role="dialog"
         // A portaled layer is not in this subtree; claiming `aria-modal` while
         // it is up would tell a screen reader the layer does not exist.
-        aria-modal={layers > 0 ? undefined : true}
+        aria-modal={layers > 0 || !sheetOnTop ? undefined : true}
         aria-label={title}
         tabIndex={-1}
         onPointerDown={onPointerDown}
@@ -480,7 +527,11 @@ export default function Sheet({
           "kin-sheet-surface relative z-10 flex max-h-[85dvh] flex-col rounded-t-2xl outline-none",
           gestureDriven ? "" : "kin-sheet-enter",
           "pb-[max(1rem,env(safe-area-inset-bottom))]",
-          anyWidth ? "md:mx-auto md:mb-6 md:w-[min(28rem,calc(100vw-2rem))] md:self-center md:rounded-2xl" : "",
+          dialog
+            ? "md:mx-auto md:my-0 md:w-[min(34rem,calc(100vw-2rem))] md:self-center md:rounded-2xl"
+            : anyWidth
+              ? "md:mx-auto md:mb-6 md:w-[min(28rem,calc(100vw-2rem))] md:self-center md:rounded-2xl"
+              : "",
           className,
         ].join(" ")}
         style={{

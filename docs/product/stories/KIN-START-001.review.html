@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="kin-review-format" content="figma-flow-v1">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231f6feb'/%3E%3Cpath d='M16 14.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM6 16a10 10 0 0 0 20 0 10 10 0 0 0-20 0zm10 6.5a6.5 6.5 0 1 1 0-13 6.5 6.5 0 0 1 0 13z' fill='white'/%3E%3C/svg%3E">
+<title>KIN-START-001 · 新建一段对话 · Figma 审阅</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --ink: #1a1a1a;
+    --muted: #666a73;
+    --line: #dedee3;
+    --bg: #f1f1f4;
+    --page: #fbfbfd;
+    --card: #ffffff;
+    --accent: #1f6feb;
+    --accent-soft: #eef3ff;
+    --warn: #b42318;
+    --warn-soft: #fff1f0;
+    --ok: #137a3f;
+    --ok-soft: #eef8f1;
+    --gutter: clamp(16px, 5vw, 24px);
+    --radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #f5f5f7;
+      --muted: #a1a1aa;
+      --line: #35353a;
+      --bg: #0b0b0d;
+      --page: #141416;
+      --card: #1d1d20;
+      --accent: #6ea8fe;
+      --accent-soft: #17243a;
+      --warn: #ff8a80;
+      --warn-soft: #2a1717;
+      --ok: #6dd58c;
+      --ok-soft: #13251b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); }
+  code { padding: 1px 5px; border-radius: 5px; background: var(--bg); font-size: .9em; overflow-wrap: anywhere; }
+  .page { max-width: 860px; min-height: 100vh; margin: 0 auto; padding: 0 var(--gutter) calc(48px + env(safe-area-inset-bottom)); background: var(--page); }
+  header { padding: 30px 0 12px; }
+  .eyebrow { color: var(--muted); font-size: 12.5px; letter-spacing: .02em; }
+  h1 { margin: 6px 0 8px; font-size: 26px; line-height: 1.28; letter-spacing: -.02em; }
+  h1 small { display: block; margin-top: 2px; font-size: 18px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .meta { margin: 2px 0; color: var(--muted); font-size: 13px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+  .pill { display: inline-flex; align-items: center; height: 25px; padding: 0 10px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+  .pill.here { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); }
+  .pill.plain { color: var(--muted); background: var(--card); border: 1px solid var(--line); }
+  .pill.ok { color: var(--ok); background: var(--ok-soft); }
+  .pill.draft { color: var(--muted); background: var(--bg); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+  .summary { margin-top: 12px; border-left: 4px solid var(--accent); }
+  .summary p { margin: 0; font-size: 15.5px; }
+  .howto { margin-top: 12px; background: var(--accent-soft); border-color: transparent; }
+  .howto h2 { margin: 0 0 6px; font-size: 17px; }
+  .howto ol { margin: 6px 0 8px; padding-left: 20px; font-size: 14.5px; }
+  .howto li { margin: 5px 0; }
+  .note { color: var(--muted); font-size: 13.5px; }
+  .howto .note { margin: 4px 0 0; }
+  .toc {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; gap: 8px;
+    margin: 0 calc(-1 * var(--gutter));
+    padding: 8px var(--gutter);
+    overflow-x: auto;
+    background: var(--page);
+    border-bottom: 1px solid var(--line);
+    scrollbar-width: none;
+  }
+  .toc::-webkit-scrollbar { display: none; }
+  .toc a {
+    flex: none; display: inline-flex; align-items: center;
+    min-height: 44px; padding: 0 14px;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink);
+    font-size: 13px; text-decoration: none; white-space: nowrap;
+  }
+  .toc a.primary { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  section { padding-top: 30px; scroll-margin-top: 72px; }
+  h2 { margin: 0 0 10px; font-size: 20px; line-height: 1.35; letter-spacing: -.01em; }
+  h3 { margin: 0 0 6px; font-size: 16px; line-height: 1.4; }
+  h4 { margin: 16px 0 8px; font-size: 15px; line-height: 1.4; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 20px; }
+  li { margin: 6px 0; }
+  .lead { font-size: 15px; }
+  .bullets { font-size: 14.5px; }
+  .mece { margin-top: 10px; padding: 2px 14px; }
+  .mece-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+  .mece-row:last-child { border-bottom: 0; }
+  .mece-row .name { min-width: 0; }
+  .mece-row .who { margin-top: 2px; color: var(--muted); font-size: 12.5px; }
+  .mece-row.here { margin: 2px -8px; padding: 11px 8px; border-bottom: 0; border-radius: 10px; background: var(--accent-soft); }
+  .mece-row.here strong { color: var(--accent); }
+  .two { display: grid; gap: 10px; }
+  .two .card { border-left-width: 4px; }
+  .two .card h3 { font-size: 15px; }
+  .two .card ul { margin: 6px 0 0; padding-left: 18px; font-size: 14px; }
+  .now { border-left-color: var(--warn) !important; background: var(--warn-soft); }
+  .after { border-left-color: var(--ok) !important; background: var(--ok-soft); }
+  .screen-index { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 16px; }
+  .screen-index a {
+    display: inline-flex; align-items: center; min-height: 44px;
+    padding: 0 12px; border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--ink); font-size: 13px; text-decoration: none;
+  }
+  .screen { margin: 16px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; }
+  .screen-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .screen-head h3 { margin: 2px 0 0; }
+  .frame { margin: 0; }
+  .frame-scroll {
+    overflow-x: auto; overflow-y: hidden;
+    border: 1px solid var(--line); border-radius: 12px;
+    background: #fff;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+  .frame-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .frame img { display: block; height: auto; max-width: none; }
+  .fig-phone .frame-scroll { max-width: 390px; margin: 0 auto; }
+  .fig-phone img { width: 100%; }
+  .fig-wide img { width: 1100px; }
+  .fig-board img { width: 1600px; }
+  .frame figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+  .frame figcaption a { display: inline-flex; align-items: center; min-height: 44px; }
+  .flow { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .flow li {
+    display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 10px;
+    padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--bg); font-size: 14.5px;
+  }
+  .flow b { color: var(--accent); font-weight: 600; }
+  .flow span { min-width: 0; overflow-wrap: anywhere; }
+  .state-list { display: grid; gap: 8px; margin-top: 10px; }
+  .state { padding: 11px 13px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-size: 14px; }
+  .state b { display: block; margin-bottom: 2px; font-size: 14.5px; }
+  .state span { color: var(--muted); }
+  .decision { margin: 12px 0; padding: 14px; background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 14px; }
+  .decision h3 { font-size: 16px; }
+  .decision p { font-size: 14.5px; }
+  .decision .rec { margin: 6px 0; }
+  .decision .rec strong { color: var(--accent); }
+  .decision .tradeoff { color: var(--muted); font-size: 13.5px; }
+  .decision.settled { border-left-color: var(--ok); }
+  .decision.settled .rec strong { color: var(--ok); }
+  .reply { margin-top: 10px; }
+  .reply pre { margin: 8px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); font: 13.5px/1.9 -apple-system, BlinkMacSystemFont, "SF Mono", Menlo, monospace; white-space: pre-wrap; }
+  .sign { border-left: 4px solid var(--ok); }
+  .sign p { margin: 6px 0; }
+  footer { margin-top: 34px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  footer p { margin: 4px 0; }
+  a:focus-visible, .screen-index a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+  @media (min-width: 600px) {
+    body { padding: 26px 0; }
+    .page { min-height: auto; border-radius: 28px; box-shadow: 0 20px 60px rgba(0,0,0,.12); }
+    .toc { border-radius: 0; }
+    .two { grid-template-columns: 1fr 1fr; }
+  }
+  @media (min-width: 700px) {
+    .fig-wide img { width: 100%; }
+  }
+  @media (max-width: 380px) {
+    .flow li { grid-template-columns: 1fr; gap: 4px; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+
+  <header>
+    <div class="eyebrow">Figma 审阅版 · 2026-11-11 已签字</div>
+    <h1>KIN-START-001 · 新建一段对话 <small>Figma 设计稿 · Mac 与手机</small></h1>
+    <p class="meta">covered · 面：Mac / 手机 · 对照 <code>KIN-START-001.md</code></p>
+    <p class="meta">2026 年 11 月 11 日 · 重画 v2 · 5 屏 · 9 个状态</p>
+    <div class="tags">
+      <span class="pill ok">approved · 已签字</span>
+      <span class="pill plain">旅程 J3</span>
+      <span class="pill plain">Mac / 手机</span>
+      <span class="pill plain">P1</span>
+    </div>
+  </header>
+
+  <section class="card summary" aria-label="一句话">
+    <p><strong>一句话：</strong>当我想到一件事要交给 Kin，我想在 Mac 或手机上开一段新对话，一屏里决定在哪个项目、用哪个 agent、哪个模型、多大权限，以便马上开始，而不是先翻设置。</p>
+  </section>
+
+  <section class="card howto" aria-labelledby="how-title">
+    <h2 id="how-title">怎么审</h2>
+    <ol>
+      <li><strong>先看切法</strong>：这条和「接着问」「项目封面」「设置」各管什么，为什么不能并进去。</li>
+      <li><strong>再看每一屏</strong>：先看 Figma 帧，再读帧下面六段用户流程（起点、动作、立刻看到、慢/空/失败/断线、键盘与焦点、离开再回来）。</li>
+      <li><strong>最后回决定</strong>：D1–D4 每条都有推荐和代价；只回不同意的编号，页尾有回复模板。</li>
+    </ol>
+    <p class="note">2026-11-11 的回复：D1 不同意，改成参考 Codex 的居中输入卡；D2 也参考 Codex，项目入口放在卡下一条；D3、D4 同意。这一版 5 张帧和下面的流程已按这个方向重画，确认后才签字。</p>
+    <p class="note">本页是重画 v2，帧文件名已换成带 <code>composer</code> 的新名字。如果仍看到左右两栏，那是旧缓存：重新打开本页或强制刷新即可。</p>
+  </section>
+
+  <nav class="toc" aria-label="页内导航">
+    <a href="#mece" class="primary">切法</a>
+    <a href="#before-after">现在→之后</a>
+    <a href="#screens" class="primary">界面</a>
+    <a href="#states">状态</a>
+    <a href="#decisions" class="primary">决定</a>
+    <a href="#reply">回复模板</a>
+  </nav>
+
+  <section id="mece">
+    <h2>MECE：这条故事切在哪</h2>
+    <p class="note">这条回答「我第一次把一件事交给 Kin」：从空白开始，选好，发出去。它不接已有对话，也不管默认值或调度。</p>
+    <div class="card mece">
+      <div class="mece-row here">
+        <div class="name"><strong>新建一段对话</strong><div class="who">KIN-START-001（这条）</div></div>
+        <span class="pill here">本页</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">接着问一段对话<div class="who">KIN-CONTINUE-001</div></div>
+        <span class="pill ok">已交付</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">看它改了什么<div class="who">KIN-RESULT-001</div></div>
+        <span class="pill draft">draft</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">整理对话与项目<div class="who">KIN-MANAGE-001 · KIN-PROJECT-001</div></div>
+        <span class="pill ok">PROJECT 已签</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">设置与环境<div class="who">KIN-SETTINGS-001 / 002 · KIN-AGENTS-001</div></div>
+        <span class="pill ok">AGENTS 已签</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">让它按时跑<div class="who">KIN-ROUTINE-001</div></div>
+        <span class="pill ok">已签</span>
+      </div>
+      <div class="mece-row">
+        <div class="name">被叫回来<div class="who">KIN-NOTIFY-001</div></div>
+        <span class="pill ok">已签字</span>
+      </div>
+    </div>
+    <ul class="bullets">
+      <li><strong>为什么是独立意图：</strong>新建的起点是空的：没有标题、没有历史、没有可复用的上下文。接着问从已有对话开始，项目封面从已有项目开始，三者的空状态和第一屏都不一样。</li>
+      <li><strong>为什么不并进相邻故事：</strong>CONTINUE 不定义空输入与草稿；PROJECT 只回答「这个项目最近发生了什么」；SETTINGS 管默认值，不管这一次选什么；ROUTINE 是到点自己跑，不是现在开始。</li>
+      <li><strong>设备只是差异：</strong>Mac 和手机都是居中的一张输入卡：卡内写提示词、放权限与模型，卡下一条选设备与项目。Mac 的卡更宽、周围留白更多；手机的卡占满宽度，运行设置仍是底部面板。不按设备拆故事。</li>
+      <li><strong>job map 覆盖：</strong>定义 / 打开（第 1 步）→ 准备（第 2 步）→ 定位（第 3 步）→ 修改（第 4 步）→ 执行（第 5 步）→ 收尾（第 6 步），六步都有帧和流程。</li>
+      <li><strong>不在这一条：</strong>模板库、推荐提示词（不做）；接着问（CONTINUE）；项目封面的最近活动（PROJECT）；例行任务（ROUTINE）；默认值（SETTINGS）。</li>
+      <li><strong>大小：</strong>5 屏（Mac 新建 / Mac 设备与项目 / 手机新建 / 手机运行设置 / 状态板）；一次交付，两个面都成立。</li>
+    </ul>
+  </section>
+
+  <section id="before-after">
+    <h2>现在 → 之后</h2>
+    <div class="two">
+      <div class="card now">
+        <h3>现在</h3>
+        <ul>
+          <li>Mac 新建页装在一条 576px（<code>max-w-xl</code>）的窄栏里，1280 的窗口空着大半边。</li>
+          <li>设备、项目、模型、权限挤在输入框下方同一行，四件事互不相干却排在一起。</li>
+          <li>agent、模型、权限散在输入框周围，没有「先写、再选、再开始」的顺序感。</li>
+        </ul>
+      </div>
+      <div class="card after">
+        <h3>之后</h3>
+        <ul>
+          <li>Mac 和手机都用一张居中的输入卡：卡内写提示词，底部一行放权限、agent / 模型与「开始」。</li>
+          <li>「设备 · 项目」是卡下单独一条：先选机器，再选那台机器上的项目；换机器后 agent 列表跟着换。</li>
+          <li>手机与 Mac 同一构图，只是卡更窄、留白更少；运行设置仍是底部面板，和对话页同一个。</li>
+          <li>草稿保留到开始或清空；创建失败时留在新建页，提示词不丢。</li>
+          <li>没有可用 agent、机器离线、断线时，「开始」禁用并就地说明原因。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="screens">
+    <h2>界面与用户流程</h2>
+    <p class="note">每一屏先看 Figma 帧，再读下面六段流程。帧是设计源；宽帧在卡片内左右滑动，点「打开原图」可以全尺寸看。</p>
+
+    <div class="screen-index" aria-label="界面索引">
+      <a href="#screen-1">01 · Mac · 新建</a>
+      <a href="#screen-2">02 · Mac · 设备与项目</a>
+      <a href="#screen-3">03 · 手机 · 新建</a>
+      <a href="#screen-4">04 · 手机 · 运行设置</a>
+      <a href="#states">05 · 状态板</a>
+    </div>
+
+    <article class="screen" id="screen-1">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">01 · Mac · 1100×760</div>
+          <h3>Mac · 新建对话（居中输入卡）</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="Mac 新建对话的 Figma 帧" tabindex="0" data-start="300">
+          <img src="KIN-START-001.figma/frames/01-mac-composer.svg" alt="Mac 新建对话：左栏是唯一的对话列表与「＋ 新建对话」；主区居中一句「想让 Kin 做什么？」，下面一张输入卡，卡底一行是权限、Agent 与模型和「开始」，卡下单独一条「本机 · alpha」" loading="lazy">
+        </div>
+        <figcaption>
+          <span>1100×760 · Mac 帧 · 桌面按卡宽整张显示；手机上左右滑动，「打开原图」看 1:1</span>
+          <a href="KIN-START-001.figma/frames/01-mac-composer.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>Mac 任意页面点左栏顶部「＋ 新建对话」；居中输入卡出现，焦点在提示词，直接可以打字。</span></li>
+        <li><b>动作</b><span>写第一句；在卡底一行改权限、agent / 模型；点卡下「本机 · alpha」换机器或项目；点「开始」或按 ⌘Enter。</span></li>
+        <li><b>立刻看到</b><span>一屏同时看到提示词、怎么跑、在哪儿跑；卡底一行是权限与「Agent · 模型」，右侧只有一个「开始」；卡下一条显示「机器 · 项目」。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>机器列表加载时项目条写「正在找机器…」；模型显示当前值 +「加载中」；加载失败给重试且不清空已选；空内容、机器离线、没有可用 agent、断线时「开始」禁用并就地说明。</span></li>
+        <li><b>键盘与焦点</b><span>直接可打字；⌘Enter 开始；Tab 顺序是 提示词 → 权限 → agent / 模型 → 开始 → 项目条；Esc 关闭弹层并还焦点。</span></li>
+        <li><b>离开再回来</b><span>草稿保留；设备与项目按设备记住上次的项目；权限与模型保留已选值。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-2">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">02 · Mac · 1100×760</div>
+          <h3>Mac · 选择设备与项目</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-wide">
+        <div class="frame-scroll" role="region" aria-label="Mac 选择设备与项目弹层的 Figma 帧" tabindex="0" data-start="300">
+          <img src="KIN-START-001.figma/frames/02-mac-composer-picker.svg" alt="Mac 选择设备与项目：从输入卡下面的「本机 · alpha」一条向下展开，按机器分组列项目，本机 alpha 选中，另一台机器在线，NAS 标离线；底部可输入目录，提示方向键与 Enter、Esc" loading="lazy">
+        </div>
+        <figcaption>
+          <span>1100×760 · Mac 帧 · 桌面按卡宽整张显示；弹层从卡下这一条展开</span>
+          <a href="KIN-START-001.figma/frames/02-mac-composer-picker.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>点输入卡下的「本机 · alpha」这一条；弹层展开，焦点在搜索框。</span></li>
+        <li><b>动作</b><span>搜索或 ↑/↓ 选机器，再选那台机器上的项目；也可以输入一个目录；Enter 确认，Esc 关闭。</span></li>
+        <li><b>立刻看到</b><span>弹层按机器分组列项目，选中项打勾；这一条变成「机器 / 项目」；下面的 agent 列表跟着设备换。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>机器列表加载写「正在找机器…」；离线机器标「离线」；机器上没有项目时给「输入目录…」；记住的项目不在了就回到本机并说明，不静默换到别的机器。</span></li>
+        <li><b>键盘与焦点</b><span>打开后焦点在搜索框；↑/↓ 选择，Enter 确认，Esc 关闭并把焦点还给这一条。</span></li>
+        <li><b>离开再回来</b><span>设备与项目保留，按设备记住上次的项目。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-3">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">03 · 手机 · 390×844</div>
+          <h3>手机 · 新建对话</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机新建对话全屏的 Figma 帧" tabindex="0">
+          <img src="KIN-START-001.figma/frames/03-phone-composer.svg" alt="手机新建对话：全屏居中一句「想让 Kin 做什么？」，下面一张输入卡，卡底一行是权限、Agent 与模型和「开始」，卡下一条「本机 · alpha」；不自动弹键盘" loading="lazy">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-START-001.figma/frames/03-phone-composer.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>手机列表页点主按钮「新建」；全屏居中输入卡出现，不自动弹键盘。</span></li>
+        <li><b>动作</b><span>写提示词；点卡底的权限或「Claude Code · 默认模型」打开底部运行设置；点卡下「本机 · alpha」选设备与项目；点「开始」。</span></li>
+        <li><b>立刻看到</b><span>一张卡装下提示词与怎么跑，卡下一条是在哪儿跑；「开始」在卡内右下，只有一个；选择器都从底部弹出，不撑高页面。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>空内容时「开始」禁用；机器离线、没有可用 agent、断线时禁用并说明；创建失败留在本页，提示词不丢。</span></li>
+        <li><b>键盘与焦点</b><span>外接键盘 ⌘Enter 开始；键盘不遮挡输入框；关闭面板后焦点回到卡底那一行。</span></li>
+        <li><b>离开再回来</b><span>草稿与已选值都还在；开始后进入对话页，新建页不留在历史里。</span></li>
+      </ol>
+    </article>
+
+    <article class="screen" id="screen-4">
+      <div class="screen-head">
+        <div>
+          <div class="eyebrow">04 · 手机 · 390×844</div>
+          <h3>手机 · 运行设置</h3>
+        </div>
+        <span class="pill plain">Figma 帧</span>
+      </div>
+      <figure class="frame fig-phone">
+        <div class="frame-scroll" role="region" aria-label="手机运行设置底部面板的 Figma 帧" tabindex="0">
+          <img src="KIN-START-001.figma/frames/04-phone-composer-settings.svg" alt="手机运行设置：底部面板三行 Agent、模型、权限，每行当前值与一句后果，选完自动关闭；背景是未完成的新建页" loading="lazy">
+        </div>
+        <figcaption>
+          <span>390×844 · 手机帧</span>
+          <a href="KIN-START-001.figma/frames/04-phone-composer-settings.svg">打开原图</a>
+        </figcaption>
+      </figure>
+      <h4>用户流程</h4>
+      <ol class="flow">
+        <li><b>起点</b><span>点卡底的权限或「Agent · 模型」；底部面板滑上来，页面本身不跳。</span></li>
+        <li><b>动作</b><span>在面板里改 agent、模型、权限；选完自动关闭。</span></li>
+        <li><b>立刻看到</b><span>三行同屏，每行是当前值加一句后果；换 agent 后模型列表跟着换。</span></li>
+        <li><b>慢 / 空 / 失败 / 断线</b><span>模型加载中显示当前值 +「加载中」；加载失败给重试且不清空；模型不可用时说明原因，不静默回退。</span></li>
+        <li><b>键盘与焦点</b><span>外接键盘 ↑/↓ 选择、Enter 确认；Esc 关闭并把焦点还给卡底那一行。</span></li>
+        <li><b>离开再回来</b><span>三行保留已选值；草稿还在。</span></li>
+      </ol>
+    </article>
+  </section>
+
+  <section id="states">
+    <h2>状态</h2>
+    <p class="note">状态也是 Figma 帧的一部分；先看状态板，再看下面的检查表。宽板在卡片内左右滑动。</p>
+    <figure class="frame fig-board">
+      <div class="frame-scroll" role="region" aria-label="新建对话状态板的 Figma 板" tabindex="0">
+        <img src="KIN-START-001.figma/frames/05-states.svg" width="1600" height="1100" alt="新建对话状态板：空、加载、模型加载失败、断线、没有可用 agent、机器离线、记忆的项目不在了、创建失败、草稿与开始之后" loading="lazy" decoding="async">
+      </div>
+      <figcaption>
+        <span>1600×1100 · 状态板 · 左右滑动或打开原图</span>
+        <a href="KIN-START-001.figma/frames/05-states.svg">打开原图</a>
+      </figcaption>
+    </figure>
+    <div class="state-list">
+      <div class="state"><b>默认 / 空</b><span>提示词为空（含只有空白字符）时「开始」禁用；不显示成「正在准备」。</span></div>
+      <div class="state"><b>加载</b><span>机器列表写「正在找机器…」，模型行显示当前值 +「加载中」；骨架只给第一次加载，已有缓存时保留内容。</span></div>
+      <div class="state"><b>模型加载失败</b><span>行内给原因与「重试」；不清空已选，不静默回退到第一个模型。</span></div>
+      <div class="state"><b>断线</b><span>「连接已断 · 恢复后可以开始」；提示词与已选保留；不把它显示成「没有可用 agent」。</span></div>
+      <div class="state"><b>没有可用 agent</b><span>「还没有可用的 agent」+「去 Agent 运维 →」；主按钮禁用。</span></div>
+      <div class="state"><b>机器离线</b><span>选中的机器标「离线」，开始禁用并说明；给一台在线的可切换，不静默换机。</span></div>
+      <div class="state"><b>记忆的项目不在了</b><span>回到本机并说明「上次的项目不在了」；不静默换到别的机器，不清空提示词。</span></div>
+      <div class="state"><b>创建失败</b><span>留在新建页，说明原因并给「重试」；不进入一个空对话，提示词不丢。</span></div>
+      <div class="state"><b>草稿 / 开始之后</b><span>草稿保留到开始或清空；开始后进入对话页，新建页不留在历史里；标题先显示提示词前几个字。</span></div>
+    </div>
+  </section>
+
+  <section id="decisions">
+    <h2>要你拍板的</h2>
+    <p class="note">四条都已按 2026-11-11 的回复定下；这次只需确认重画后的帧与流程，页尾有回复模板。</p>
+    <div class="decision settled">
+      <h3>D1 Mac 新建页用宽布局还是保持窄栏</h3>
+      <p class="rec"><strong>已定（2026-11-11，按 Codex 方向）：</strong>不用左右两栏。改成居中的一张输入卡：卡内写提示词，卡底一行放权限、agent / 模型与「开始」；更大的窗口只让卡周围留白更多，不把控件拉成两列。</p>
+      <p class="tradeoff"><strong>代价：</strong>卡内一行只放最常用的三项，其余设置仍进运行设置面板；好处是和手机同一构图，写与发的动作留在视线中央。</p>
+    </div>
+    <div class="decision settled">
+      <h3>D2 设备 · 项目放在哪</h3>
+      <p class="rec"><strong>已定（2026-11-11，按 Codex 方向）：</strong>输入卡下面单独一条，点开先选机器、再选那台机器上的项目；不放进输入卡，也不和模型 / 权限同一行。</p>
+      <p class="tradeoff"><strong>代价：</strong>多一条的高度和一次弹层；换来输入卡保持干净，「在哪儿跑」和「怎么跑」分开，换机器时不会误改模型。</p>
+    </div>
+    <div class="decision settled">
+      <h3>D3 开始之后停在哪</h3>
+      <p class="rec"><strong>已定（2026-11-11，同意）：</strong>立刻进入对话页，第一条已发出并显示「正在运行」；新建页不留在历史里。</p>
+      <p class="tradeoff"><strong>代价：</strong>首轮失败要在对话页解释与重试；换来输入框马上可用，不用在新建页等结果。</p>
+    </div>
+    <div class="decision settled">
+      <h3>D4 草稿留多久</h3>
+      <p class="rec"><strong>已定（2026-11-11，同意）：</strong>离开保留，直到开始或手动清空；换设备后草稿仍在，但选择按新机器的能力收敛，并说明哪一项变了。</p>
+      <p class="tradeoff"><strong>代价：</strong>草稿可能过夜，需要一个明确的终点（开始 / 清空）；好处是误触返回不丢内容。</p>
+    </div>
+  </section>
+
+  <section id="reply">
+    <h2>回复模板</h2>
+    <div class="card reply">
+      <p class="note">签字时的实际回复（2026-11-11）：先回「D1 不同意，参考 Codex；D2 参考 Codex；D3、D4 同意」，重画后回「确认，签字，开始干活」。</p>
+      <pre>确认重画，签字</pre>
+      <p class="note">模板留作改版后重签用。</p>
+    </div>
+  </section>
+
+  <section id="sign">
+    <h2>签字</h2>
+    <div class="card sign">
+      <p><strong>已签字，2026-11-11。</strong>回复为「确认，签字，开始干活」：D1 / D2 按 Codex 方向重画后确认，D3 / D4 同意。<code>KIN-START-001.md</code> 已改为 <code>approved</code>，<code>registry.json</code> / <code>COVERAGE.md</code> 同步；交付时补 <code>NewChatPage.dom.test.tsx</code>、<code>PlacePicker.dom.test.tsx</code> 并扩充 <code>RunConfigSheet.dom.test.tsx</code>。</p>
+      <p class="note">Figma 帧或流程再改会重新发这一页；设计源始终是 <code>KIN-START-001.figma/frames/</code> 里的 SVG 帧和本页的流程。</p>
+    </div>
+  </section>
+
+  <footer>
+    <p>设计源：<code>KIN-START-001.figma/frames/</code>（SVG 帧）</p>
+    <p>审阅编排：<code>KIN-START-001.review.html</code>（本页）</p>
+    <p>合同：<code>KIN-START-001.md</code></p>
+    <p>Figma 审阅版 · figma-flow-v1</p>
+  </footer>
+
+</main>
+<script>
+  for (const el of document.querySelectorAll('.frame-scroll[data-start]')) {
+    if (el.clientWidth < 700) el.scrollLeft = Number(el.dataset.start) || 0;
+  }
+</script>
+</body>
+</html>

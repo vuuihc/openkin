@@ -155,8 +155,7 @@ Reach Kin at `http://your.vps.example.com:17777/?token=<token>`.
 
 Set the deep-link base so notifications point at the public URL:
 
-- Settings UI → **UI base URL** → `http://your.vps.example.com:17777`
-- or `PUT /api/settings` with `{"ui.base_url":"http://your.vps.example.com:17777"}`
+- `PUT /api/settings` with `{"ui.base_url":"http://your.vps.example.com:17777"}` (the console no longer has a field for it)
 
 For HTTPS, put Caddy/nginx + Let’s Encrypt in front of `remotePort`, or use frp’s HTTPS proxy type — Kin itself stays HTTP.
 

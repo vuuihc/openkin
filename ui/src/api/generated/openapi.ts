@@ -788,8 +788,11 @@ export interface paths {
          *     last read must discard its tail and refetch from `since_seq=0` rather
          *     than assume a gap.
          *
-         *     The response is unbounded: it returns every event after the cursor.
-         *     The endpoint answers `404` when the task does not exist.
+         *     `limit` optionally bounds the number of events in one answer so a
+         *     remote console can page a long transcript through a bounded frame. An
+         *     absent or zero limit preserves the local endpoint's historical
+         *     unbounded response. The endpoint answers `404` when the task does not
+         *     exist.
          *      */
         get: operations["listTaskEvents"];
         put?: never;
@@ -4415,6 +4418,11 @@ export interface components {
             lane: string;
             /** @description Wall-clock rule as JSON; empty for an interval routine. */
             recurrence?: string;
+            /**
+             * @description What each run's agent session starts from. `continue` (the default) resumes the newest run's session when it can; `fresh` starts a new session each run. Legacy rows read as `continue`.
+             * @enum {string}
+             */
+            conversation_mode?: "continue" | "fresh";
             claim_until_at?: number;
             last_outcome?: string;
             last_error?: string;
@@ -4441,6 +4449,11 @@ export interface components {
             missed_run_policy?: "coalesce" | "skip";
             lane?: string;
             recurrence?: string;
+            /**
+             * @description Omit for `continue`, the default.
+             * @enum {string}
+             */
+            conversation_mode?: "continue" | "fresh";
         };
         RoutinePatchRequest: {
             title?: string;
@@ -4459,6 +4472,11 @@ export interface components {
             lane?: string;
             /** @description Empty string clears the rule and returns to interval_secs. */
             recurrence?: string;
+            /**
+             * @description Unknown values are refused rather than read as either mode.
+             * @enum {string}
+             */
+            conversation_mode?: "continue" | "fresh";
         };
         RoutinePreviewRequest: {
             recurrence: string;
@@ -6418,6 +6436,8 @@ export interface operations {
             query?: {
                 /** @description Return events with a greater seq. Zero or absent reads from the start. */
                 since_seq?: number;
+                /** @description Maximum events to return after the cursor. Zero or absent is unbounded. */
+                limit?: number;
             };
             header?: never;
             path: {
@@ -8655,6 +8675,8 @@ export interface operations {
             query?: {
                 /** @description Return events with a greater seq. Zero or absent reads from the start. */
                 since_seq?: number;
+                /** @description Maximum events in this remote page. Zero or absent is unbounded. */
+                limit?: number;
             };
             header?: never;
             path: {
@@ -8675,7 +8697,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskEvent"][];
                 };
             };
-            /** @description Invalid task id or since_seq, or the machine refused the question */
+            /** @description Invalid task id, since_seq or limit, or the machine refused the question */
             400: {
                 headers: {
                     [name: string]: unknown;

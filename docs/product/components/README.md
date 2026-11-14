@@ -20,6 +20,7 @@
 
 - [SearchSelect](search-select.md) —— 可搜索的单选，长列表
 - [SheetSelect](sheet-select.md) —— 不可搜索的单选，短列表
+- [ActionSheet](action-sheet.md) —— 手机上的动作列表 / 单选面板
 - [SessionFilters](session-filters.md) —— 对话列表的状态 / 范围过滤
 
 ## 新增一条的门槛

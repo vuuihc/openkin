@@ -70,7 +70,7 @@ describe("manual import on Agent Ops", () => {
     window.addEventListener("kin:agent-sessions-changed", changed);
     try {
       page();
-      const button = await screen.findByRole("button", { name: "Import sessions now" });
+      const button = await screen.findByRole("button", { name: "Import sessions" });
       const readsBefore = vi.mocked(listAgents).mock.calls.length;
 
       await user.click(button);
@@ -95,16 +95,16 @@ describe("manual import on Agent Ops", () => {
         }),
     );
     page();
-    await user.click(await screen.findByRole("button", { name: "Import sessions now" }));
+    await user.click(await screen.findByRole("button", { name: "Import sessions" }));
 
-    const busy = await screen.findByRole("button", { name: "Importing…" });
+    const busy = await screen.findByRole("button", { name: "Loading…" });
     expect((busy as HTMLButtonElement).disabled).toBe(true);
 
     await act(async () => {
       resolveImport?.({ imported: 0, providers: {} });
     });
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Import sessions now" })).toBeTruthy(),
+      expect(screen.getByRole("button", { name: "Import sessions" })).toBeTruthy(),
     );
   });
 
@@ -112,7 +112,7 @@ describe("manual import on Agent Ops", () => {
     const user = userEvent.setup();
     vi.mocked(refreshMachines).mockRejectedValue(new Error("hub offline"));
     page();
-    await user.click(await screen.findByRole("button", { name: "Import sessions now" }));
+    await user.click(await screen.findByRole("button", { name: "Import sessions" }));
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("Failed to import Agent sessions");

@@ -238,6 +238,11 @@ const MaxRoutineResponse = 640 << 10
 // a frame NewFrame would reject after the fact.
 const MaxTaskResponse = 640 << 10
 
+// MaxTaskEvents bounds one transcript page. A relayed transcript must be
+// paged: asking for a long run's full history can exceed one frame even when
+// every individual event is small.
+const MaxTaskEvents = 200
+
 // MaxRoutinePath bounds one relayed console route — the path before its query
 // string. Every route this table answers is a fixed segment plus an id, so a
 // longer route is a mistake worth refusing before it is encoded into a query's
@@ -253,6 +258,13 @@ type RoutinesParams struct {
 	// its query string when it has one.
 	Path string `json:"path"`
 	Body []byte `json:"body,omitempty"`
+}
+
+// RoutinesResult is the machine's own console answer, relayed unchanged.
+type RoutinesResult struct {
+	Status      int    `json:"status"`
+	ContentType string `json:"content_type,omitempty"`
+	Body        []byte `json:"body,omitempty"`
 }
 
 // ConsoleResult is one machine's own console answer, relayed unchanged.
@@ -282,16 +294,20 @@ func (p TaskDetailParams) Validate() error {
 type TaskEventsParams struct {
 	ID       string `json:"id"`
 	SinceSeq int    `json:"since_seq,omitempty"`
+	Limit    int    `json:"limit,omitempty"`
 }
 
-// Validate refuses an id that is not one console path segment, and a negative
-// point in the transcript.
+// Validate refuses an id that is not one console path segment, a negative
+// point in the transcript, and a page that cannot fit or has no purpose.
 func (p TaskEventsParams) Validate() error {
 	if err := validateTaskID(p.ID); err != nil {
 		return err
 	}
 	if p.SinceSeq < 0 {
 		return fmt.Errorf("task transcript since_seq %d is negative", p.SinceSeq)
+	}
+	if p.Limit < 0 || p.Limit > MaxTaskEvents {
+		return fmt.Errorf("task transcript limit %d is outside 0..%d", p.Limit, MaxTaskEvents)
 	}
 	return nil
 }
@@ -457,6 +473,11 @@ const (
 	// The agent id and the session ref are bounded by MaxAgentID and
 	// MaxSessionRef, which a dispatch already uses for the same two things.
 	MaxAgentHistoryCursor = 512
+	// MaxAgentHistorySource bounds the source path a Hub may name for a
+	// session, as a hint that saves the answering machine a catalog walk. It
+	// is generous for a path and small enough not to matter in a frame; the
+	// answering machine checks it against its own roots either way.
+	MaxAgentHistorySource = 4096
 )
 
 // Query is one question about the machine it is sent to.
@@ -1294,6 +1315,11 @@ type AgentHistoryParams struct {
 	// sees when a long transcript opens at what happened last.
 	Tail  bool `json:"tail,omitempty"`
 	Limit int  `json:"limit,omitempty"`
+	// SourceURI is where this Hub's row says the session lives. It is only a
+	// hint that saves the answering machine a walk of every catalog: the
+	// machine verifies it against its own roots and against the session's own
+	// records, and falls back to discovery when either disagrees.
+	SourceURI string `json:"source_uri,omitempty"`
 }
 
 // AgentHistoryItem is one message, as it crosses the wire.
@@ -1353,6 +1379,9 @@ func (p AgentHistoryParams) Validate() error {
 		return err
 	}
 	if err := optional("before", p.Before, MaxAgentHistoryCursor); err != nil {
+		return err
+	}
+	if err := optional("source_uri", p.SourceURI, MaxAgentHistorySource); err != nil {
 		return err
 	}
 	if p.Tail && (strings.TrimSpace(p.Cursor) != "" || strings.TrimSpace(p.Before) != "") {

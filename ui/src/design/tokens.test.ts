@@ -470,7 +470,7 @@ describe("design tokens", () => {
   });
 
   it("keeps a colour literal out of the elevation geometry", () => {
-    // A literal in the config renders in both schemes and belongs to no gallery
+    // A literal in the config renders in both schemes and belongs to no token
     // group, which is exactly how the pair this replaced stayed wrong for three
     // slices: it was visible in neither the page nor the tokens.
     const literals = Object.entries(theme.boxShadow)
@@ -733,8 +733,8 @@ describe("design tokens", () => {
     // case is the measurement: it reads the colours that stylesheet actually
     // declares — so a scope recoloured later is covered without editing this —
     // and holds each to AA on the worst backdrop it can be drawn on. The surface
-    // it is drawn on is not fixed: the chat, a card and the artifact page all
-    // render markdown, so the lightest of the six is the one that decides.
+    // it is drawn on is not fixed: the chat and a card both render markdown, so
+    // the lightest of the six is the one that decides.
     const syntax = readFileSync(join(UI, "src/design/syntax.css"), "utf8").replace(
       /\/\*[\s\S]*?\*\//g,
       "",
@@ -1265,13 +1265,10 @@ describe("design tokens", () => {
       expect(wrong).toEqual([]);
     });
 
-    it("wears every elevation token as a class the ladder declares", () => {
+    it("maps every elevation token to a class the ladder declares", () => {
       // A token is a colour and a `box-shadow` needs geometry too, so the
-      // gallery cannot draw the token itself — the first version of that sample
-      // set the colour alone and rendered `none` in both schemes, which is a
-      // token that is declared, presented, measured, and drawn by nothing. The
-      // pairing therefore lives in `ELEVATION_CLASS` beside the group, and this
-      // holds it against the ladder in both directions.
+      // pairing lives in `ELEVATION_CLASS` beside the group; this holds it
+      // against the ladder in both directions, which is the map's contract.
       const tokens = TOKEN_GROUPS.filter((g) => g.kind === "elevation").flatMap((g) => [
         ...g.tokens,
       ]);
@@ -1281,24 +1278,6 @@ describe("design tokens", () => {
         (token) => theme.boxShadow[ELEVATION_CLASS[token].replace(/^shadow-/, "")] === undefined,
       );
       expect(offLadder).toEqual([]);
-      // And the map is only half of it: the sample has to *wear* the class. A
-      // guard that stopped at the map stayed green when the interpolation was
-      // deleted from `DesignSystemPage.tsx` — which is the same shape as the
-      // defect it was written for, one layer down (a token declared, presented,
-      // measured, and drawn by nothing). The page is read as source, so the
-      // template's `${…}` is part of the segment the scan sees.
-      const page = readFileSync(join(UI, "src/pages/DesignSystemPage.tsx"), "utf8");
-      // Anchored, because `includes("bg-kin-elevated")` is also true of
-      // `bg-kin-elevated-panel` — a name that is not a token and emits no CSS,
-      // so the loose test would have gone on passing while the sample wore
-      // nothing. The colour-class case above would catch the bogus name; this
-      // one should not need it to.
-      const wearsClass = /(?<![\w-])bg-kin-elevated(?![\w-])/;
-      const wears = strings(page).filter((s) => wearsClass.test(s));
-      expect({
-        wears: wears.length > 0,
-        raises: wears.some((s) => s.includes("ELEVATION_CLASS")),
-      }).toEqual({ wears: true, raises: true });
     });
 
     it("never draws a hairline on a static surface it also raises", () => {

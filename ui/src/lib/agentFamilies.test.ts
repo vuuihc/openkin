@@ -23,7 +23,7 @@ describe("agentTransport", () => {
   });
 });
 
-describe("collapseAgentVariants", () => {
+describe("collapseAgentVariants (KIN-AGENTS-001)", () => {
   it("keeps one entry per family, preferring a usable native adapter", () => {
     const collapsed = collapseAgentVariants([
       { id: "claude-acp", available: true },
@@ -37,6 +37,17 @@ describe("collapseAgentVariants", () => {
     const collapsed = collapseAgentVariants([
       { id: "claude-code", available: false },
       { id: "claude-acp", available: true },
+    ]);
+    expect(collapsed.map((a) => a.id)).toEqual(["claude-acp"]);
+  });
+
+  it("prefers the copy this machine has when neither can run", () => {
+    // Installedness outranks transport: a native adapter this machine does not
+    // have is not a better catalog row than the ACP client it does have. The
+    // row's actions (version, update command) only exist for the installed one.
+    const collapsed = collapseAgentVariants([
+      { id: "claude-code", available: false, installed: false },
+      { id: "claude-acp", available: false, installed: true },
     ]);
     expect(collapsed.map((a) => a.id)).toEqual(["claude-acp"]);
   });

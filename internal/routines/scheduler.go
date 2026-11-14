@@ -40,6 +40,9 @@ type Engine interface {
 type Scheduler struct {
 	Store  *store.Store
 	Engine Engine
+	// DeviceID is this daemon's identity. A run's session can be continued only
+	// when its provenance is empty (legacy) or names this same machine.
+	DeviceID string
 	// ValidateCreate is an optional defense-in-depth check shared with the
 	// HTTP/MCP task creation boundary.
 	ValidateCreate func(context.Context, task.CreateRequest) error
@@ -222,7 +225,7 @@ func (s *Scheduler) recoverManualDispatches(ctx context.Context, now time.Time, 
 		if used >= available {
 			break
 		}
-		req := s.routineCreateRequest(routine, dispatch.TaskID)
+		req := s.routineCreateRequest(ctx, routine, dispatch.TaskID)
 		if s.ValidateCreate != nil {
 			if err := s.ValidateCreate(ctx, req); err != nil {
 				_ = s.Store.CompleteRoutineDispatch(ctx, routine.ID, dispatch.DueAt, "failed")
@@ -313,7 +316,7 @@ func (s *Scheduler) dispatch(ctx context.Context, r store.Routine, token string,
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return err
 	}
-	req := s.routineCreateRequest(r, dispatch.TaskID)
+	req := s.routineCreateRequest(ctx, r, dispatch.TaskID)
 	if s.ValidateCreate != nil {
 		if err := s.ValidateCreate(ctx, req); err != nil {
 			_ = s.Store.CompleteRoutineDispatch(ctx, r.ID, r.NextDueAt, "failed")
@@ -462,7 +465,7 @@ func (s *Scheduler) runNow(ctx context.Context, routineID string, onCreated func
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return store.Task{}, err
 	}
-	req := s.routineCreateRequest(r, dispatch.TaskID)
+	req := s.routineCreateRequest(ctx, r, dispatch.TaskID)
 	if s.ValidateCreate != nil {
 		if err := s.ValidateCreate(ctx, req); err != nil {
 			_ = s.Store.CompleteRoutineDispatch(ctx, r.ID, dueAt, "failed")
@@ -501,7 +504,7 @@ func (s *Scheduler) createRoutineTask(ctx context.Context, routine store.Routine
 	return s.Engine.Create(ctx, req)
 }
 
-func (s *Scheduler) routineCreateRequest(r store.Routine, taskID string) task.CreateRequest {
+func (s *Scheduler) routineCreateRequest(ctx context.Context, r store.Routine, taskID string) task.CreateRequest {
 	prompt := r.Prompt
 	if !strings.Contains(prompt, task.ReportSignalMarker) {
 		prompt += task.ReportSignalTrailer
@@ -514,7 +517,7 @@ func (s *Scheduler) routineCreateRequest(r store.Routine, taskID string) task.Cr
 	if m := strings.TrimSpace(r.Model); m != "" {
 		model = &m
 	}
-	return task.CreateRequest{
+	req := task.CreateRequest{
 		ID:             taskID,
 		Agent:          r.Agent,
 		Cwd:            r.Cwd,
@@ -526,6 +529,91 @@ func (s *Scheduler) routineCreateRequest(r store.Routine, taskID string) task.Cr
 		RoutineID:      r.ID,
 		UserPrompt:     r.Prompt,
 	}
+	// The routine's signed default is that its runs continue one agent session:
+	// the next run resumes the newest run's session so the agent keeps the
+	// context of previous runs. A run is still its own task and its own feed
+	// row; only the provider session is carried. Fresh mode leaves the ref
+	// empty, which starts a new session in the routine's directory.
+	if !store.RoutineStartsFreshConversation(r.ConversationMode) {
+		req.SessionRef = s.previousRunSessionRef(ctx, r)
+	}
+	return req
+}
+
+// previousRunSessionRef is the session the next run may resume: the newest
+// run's native ref, when that run used the same agent, directory and model,
+// has stopped, and did not mint the ref on another machine.
+//
+// Agent identity matters because a different agent cannot resume another's
+// session, and the engine would silently drop the ref (or, worse for a managed
+// transcript agent, treat it as continuity it does not have). Directory and
+// model identity matter because resume resolves per project directory and
+// some adapters ignore the model flag on resume, so a changed setting would
+// otherwise keep running the old one. A live run is excluded because it still
+// owns its session. Provenance matters for the same reason ADR 0022 D6 gives:
+// a ref minted on another machine is not resumable here, and carrying it would
+// only produce a notice
+// on every run.
+//
+// A failed or canceled run still counts. Its ref is the session the agent was
+// working in, and continuing it is how a person sees why the last run failed
+// without retelling the story; a run that never got a ref simply has none.
+func (s *Scheduler) previousRunSessionRef(ctx context.Context, r store.Routine) string {
+	runs, err := s.Store.ListTasks(ctx, store.ListTasksOpts{
+		RoutineID: r.ID,
+		Limit:     1,
+		Scope:     store.Unscoped(),
+	})
+	if err != nil || len(runs) == 0 {
+		return ""
+	}
+	prev := runs[0]
+	// A ref is only resumable by the same agent, in the same directory and on
+	// the same model. The directory is part of where an agent looks the session
+	// up (`claude --resume` resolves per project), and some adapters ignore the
+	// model flag on resume (codex appends `--model` only when starting a new
+	// thread), so carrying either across an edit would silently run the old
+	// setting or fail the run.
+	if prev.Agent != r.Agent || prev.Cwd != r.Cwd || prev.SessionRef == nil {
+		return ""
+	}
+	if strings.TrimSpace(modelValue(prev.Model)) != strings.TrimSpace(r.Model) {
+		return ""
+	}
+	// A live run already owns its session. Attaching another process to it
+	// would put two runs in one agent session; wait for it to finish.
+	if !routineRunFinished(prev.Status) {
+		return ""
+	}
+	ref := strings.TrimSpace(*prev.SessionRef)
+	if ref == "" {
+		return ""
+	}
+	if prev.SessionRefDeviceID != nil {
+		provenance := strings.TrimSpace(*prev.SessionRefDeviceID)
+		if provenance != "" && provenance != strings.TrimSpace(s.DeviceID) {
+			return ""
+		}
+	}
+	return ref
+}
+
+// routineRunFinished reports whether a run has stopped. A failed or canceled
+// run still counts as a session to continue: its ref is the session the agent
+// was working in, and continuing it is how a person sees why it failed.
+func routineRunFinished(status string) bool {
+	switch status {
+	case task.StatusSucceeded, task.StatusFailed, task.StatusCanceled:
+		return true
+	}
+	return false
+}
+
+func modelValue(m *string) string {
+	if m == nil {
+		return ""
+	}
+	return *m
 }
 
 func stringPtr(value string) *string {

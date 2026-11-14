@@ -640,6 +640,7 @@ func ServeWith(version string, flags ServeFlags) error {
 	routineScheduler := &routines.Scheduler{
 		Store:            st,
 		Engine:           eng,
+		DeviceID:         identity.ID,
 		TotalConcurrency: maxConcurrent,
 		ValidateCreate: func(c context.Context, req task.CreateRequest) error {
 			if err := api.ValidateTaskCreateRequest(c, req); err != nil {

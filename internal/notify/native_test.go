@@ -152,7 +152,7 @@ func TestDeliverFansOutToDesktopAndAPNs(t *testing.T) {
 		Events:  pub,
 	}
 	results := s.Deliver(context.Background(), Payload{
-		Title: "Fix the login bug", Body: "Approval needed", URL: "/inbox?focus=a1",
+		Title: "Fix the login bug", Body: "Approval needed", URL: "/tasks/t1?focus=a1",
 		Kind: "approval", ID: "a1", TaskID: "t1",
 	})
 	if len(results) != 1 || !results[0].OK || results[0].Channel != "apns" || results[0].Device != "d1" {
@@ -162,14 +162,14 @@ func TestDeliverFansOutToDesktopAndAPNs(t *testing.T) {
 		t.Fatalf("desktop events = %d", len(pub.events))
 	}
 	ev := pub.events[0]
-	if ev.Kind != "approval" || ev.ID != "a1" || ev.URL != "/inbox?focus=a1" || ev.TaskID != "t1" {
+	if ev.Kind != "approval" || ev.ID != "a1" || ev.URL != "/tasks/t1?focus=a1" || ev.TaskID != "t1" {
 		t.Fatalf("event = %+v", ev)
 	}
 	if len(pusher.sent) != 1 || pusher.tokens[0] != "token-1" {
 		t.Fatalf("apns sends = %+v / %v", pusher.sent, pusher.tokens)
 	}
 	got := pusher.sent[0]
-	if got.Kind != "approval" || got.ID != "a1" || got.URL != "/inbox?focus=a1" {
+	if got.Kind != "approval" || got.ID != "a1" || got.URL != "/tasks/t1?focus=a1" {
 		t.Fatalf("apns notification = %+v", got)
 	}
 	if devices.marked["d1"] != "" {
@@ -218,7 +218,7 @@ func TestDeliverNeverReadsLegacyChannelSettings(t *testing.T) {
 	}}
 	s := &Sender{Store: settings, Events: &fakePublisher{}}
 	_ = s.Deliver(context.Background(), Payload{Title: "t", Kind: "task", ID: "x"})
-	_ = s.DeepLink(context.Background(), "/inbox")
+	_ = s.DeepLink(context.Background(), "/sessions")
 	for _, key := range settings.reads {
 		if key != KeyBaseURL {
 			t.Fatalf("read legacy setting %q", key)
@@ -228,21 +228,27 @@ func TestDeliverNeverReadsLegacyChannelSettings(t *testing.T) {
 
 func TestDeepLink(t *testing.T) {
 	s := &Sender{BaseURLOverride: "https://kin.example.com/"}
-	if got := s.DeepLink(context.Background(), "/inbox"); got != "https://kin.example.com/inbox" {
+	if got := s.DeepLink(context.Background(), "/sessions"); got != "https://kin.example.com/sessions" {
 		t.Fatalf("deep link = %q", got)
 	}
-	if got := s.DeepLink(context.Background(), "inbox"); got != "https://kin.example.com/inbox" {
+	if got := s.DeepLink(context.Background(), "sessions"); got != "https://kin.example.com/sessions" {
 		t.Fatalf("deep link without slash = %q", got)
 	}
 }
 
-func TestApprovalNamesTheApproval(t *testing.T) {
+func TestPendingLinkNamesTheConversationAndTheItem(t *testing.T) {
 	s := &Sender{BaseURLOverride: "https://kin.example.com"}
-	if got := s.inboxFocusLink(context.Background(), "a1"); got != "https://kin.example.com/inbox?focus=a1" {
+	if got := s.pendingLink(context.Background(), "t1", "a1"); got != "https://kin.example.com/tasks/t1?focus=a1" {
 		t.Fatalf("link = %q", got)
 	}
-	if got := s.inboxFocusLink(context.Background(), ""); got != "https://kin.example.com/inbox" {
-		t.Fatalf("empty link = %q", got)
+	// No item: the conversation is still the right landing.
+	if got := s.pendingLink(context.Background(), "t1", ""); got != "https://kin.example.com/tasks/t1" {
+		t.Fatalf("itemless link = %q", got)
+	}
+	// No task: no conversation to name, so the list — whose rows carry the same
+	// waiting count — is the only honest place to send the tap.
+	if got := s.pendingLink(context.Background(), "", "a1"); got != "https://kin.example.com/sessions" {
+		t.Fatalf("taskless link = %q", got)
 	}
 }
 

@@ -3,13 +3,9 @@ import type { PanelId } from "../lib/panels";
 import type { PlaceId } from "../lib/places";
 import {
   IconAgents,
-  IconArtifacts,
   IconExternal,
   IconFile,
-  IconInbox,
   IconPlus,
-  IconProjects,
-  IconPullRequest,
   IconRoutines,
   IconSessions,
   IconSettings,
@@ -30,7 +26,7 @@ import {
  * size it draws at — the sidebar's 15px footer rows and the palette's 16px list
  * rows are the same glyph at two sizes rather than two glyphs. Chrome the tables
  * do not decide (size, and which drawing a compact surface prefers) stays with the
- * surface, which is why the phone's tab bar draws its own inbox and settings.
+ * surface, which is why the phone's tab bar draws its own settings glyph.
  *
  * Icons live here rather than in `panels.ts` / `places.ts` so those stay data
  * modules the DOM-free tests can import — the same reason the panel table holds
@@ -40,19 +36,15 @@ import {
 export const PLACE_ICONS: Record<PlaceId, (p: IconProps) => ReactNode> = {
   new: IconPlus,
   sessions: IconSessions,
-  inbox: IconInbox,
-  artifacts: IconArtifacts,
   routines: IconRoutines,
-  projects: IconProjects,
   agents: IconAgents,
   settings: IconSettings,
 };
 
 export const PANEL_ICONS: Record<PanelId, (p: IconProps) => ReactNode> = {
-  // The workspace panel is the file tree and the diff; the PR panel is the pull
-  // request. Both are things the session owns, which is what they are drawn as.
+  // The workspace panel is the file tree and the diff; it is the thing the
+  // session owns, which is what it is drawn as.
   files: IconFile,
-  pr: IconPullRequest,
   // Publishing writes to the Hub, which is the one panel whose subject is
   // somewhere else.
   publish: IconExternal,

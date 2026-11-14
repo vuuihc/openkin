@@ -144,7 +144,6 @@ const MESSAGE_CLAUSES: Array<
   ["the find hit", (p) => ({ ...p, activeFindKey: "m1" })],
   ["selection mode", (p) => ({ ...p, selectionMode: true })],
   ["the selection", (p) => ({ ...p, selected: true })],
-  ["the save button's presence", (p) => ({ ...p, onSaveArtifact: () => undefined })],
 ];
 
 describe("sameMessage", () => {

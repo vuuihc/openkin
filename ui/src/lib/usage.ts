@@ -1,4 +1,75 @@
+import type { UsageRow } from "../api/client";
+
 export type CacheStatus = "reported" | "unknown" | "unsupported" | "mixed";
+
+export type UsageInterval = {
+  cost: number;
+  tokens: number;
+  tasks: number;
+  cacheRead: number;
+  cacheEligible: number;
+  input: number;
+  requests: number;
+  /** Cost per day, ascending, for the daily chart. */
+  byDay: [string, number][];
+  /**
+   * The interval produced no rows at all. A quiet interval is not "$0.00 spent"
+   * — it is a question with no activity behind it, and the console says "no
+   * usage in this range" instead of drawing a zero (KIN-AGENTS-001 step 2).
+   */
+  empty: boolean;
+  cacheStatus: CacheStatus;
+};
+
+/**
+ * Fold one interval's usage rows into the four headline numbers.
+ *
+ * Kept beside the other usage arithmetic because the "empty" distinction is a
+ * property of the rows, not of the sum: summing an empty list and summing a
+ * list whose entries really cost nothing produce the same zero, and only the
+ * first is allowed to read as "nothing happened".
+ */
+export function summarizeUsage(rows: readonly UsageRow[] | null | undefined): UsageInterval {
+  const list = rows ?? [];
+  let cost = 0;
+  let tokens = 0;
+  let tasks = 0;
+  let cacheRead = 0;
+  let cacheEligible = 0;
+  let input = 0;
+  let requests = 0;
+  const statuses = new Set<string>();
+  const days = new Map<string, number>();
+  for (const r of list) {
+    cost += r.cost_usd ?? 0;
+    tokens += r.tokens_in + r.tokens_out;
+    tasks += r.tasks;
+    cacheRead += r.cache_read_tokens;
+    cacheEligible += r.cache_eligible_input_tokens;
+    input += r.tokens_in;
+    requests += r.request_count;
+    statuses.add(r.cache_status);
+    days.set(r.date, (days.get(r.date) ?? 0) + (r.cost_usd ?? 0));
+  }
+  let cacheStatus: CacheStatus = "unknown";
+  if (statuses.size === 1) {
+    cacheStatus = cacheState(statuses.values().next().value, null);
+  } else if (statuses.size > 1) {
+    cacheStatus = "mixed";
+  }
+  return {
+    cost,
+    tokens,
+    tasks,
+    cacheRead,
+    cacheEligible,
+    input,
+    requests,
+    byDay: [...days.entries()].sort((a, b) => a[0].localeCompare(b[0])),
+    empty: list.length === 0,
+    cacheStatus,
+  };
+}
 
 export function formatTokenCount(tokens: number): string {
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(2)}M`;

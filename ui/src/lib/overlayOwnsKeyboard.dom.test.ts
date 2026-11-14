@@ -37,10 +37,10 @@ describe("overlayOwnsKeyboard", () => {
     expect(overlayOwnsKeyboard()).toBe(true);
   });
 
-  it("ignores a closed overlay host the framework leaves in the DOM", () => {
-    // Ionic keeps a closed inline action sheet mounted as a role="dialog"
-    // host. Treating it as open would kill every conversation shortcut below
-    // md, where that host exists.
+  it("ignores an overlay that is still mounted but hidden", () => {
+    // A closed dialog is allowed to stay in the DOM behind `display: none`.
+    // Treating it as open would kill every conversation shortcut while it
+    // exists.
     const host = document.createElement("div");
     host.setAttribute("role", "dialog");
     host.style.display = "none";

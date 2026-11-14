@@ -53,15 +53,17 @@ type Variant = {
   transport?: string;
   kind?: string;
   available: boolean;
+  installed?: boolean;
 };
 
 /**
  * One entry per family, in first-seen order.
  *
- * Within a family an available entry beats an unavailable one, then the
- * preferred transport wins (`native`, then `acp`, then `cli`). An unavailable
- * duplicate is dropped rather than shown: two rows that both say "not
- * installed" are the same fact twice.
+ * Within a family an available entry beats an unavailable one; among equals an
+ * installed entry beats one this machine does not have, then the preferred
+ * transport wins (`native`, then `acp`, then `cli`). An unavailable duplicate
+ * is dropped rather than shown: two rows that both say "not installed" are the
+ * same fact twice.
  */
 export function collapseAgentVariants<T extends Variant>(agents: T[]): T[] {
   const best = new Map<string, T>();
@@ -81,5 +83,9 @@ export function collapseAgentVariants<T extends Variant>(agents: T[]): T[] {
 
 function preference(agent: Variant): number {
   const transport = agentTransport(agent.id, agent.transport, agent.kind);
-  return (agent.available ? 10 : 0) + (3 - TRANSPORT_RANK[transport]);
+  return (
+    (agent.available ? 10 : 0) +
+    (agent.installed ? 4 : 0) +
+    (3 - TRANSPORT_RANK[transport])
+  );
 }

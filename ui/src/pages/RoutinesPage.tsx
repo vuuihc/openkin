@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ApiError,
@@ -41,9 +42,9 @@ import {
 } from "../lib/routineHistory";
 import { SlowConnectHint } from "../components/Skeleton";
 import SheetSelect from "../components/ui/SheetSelect";
+import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { useMachines } from "../hooks/useMachines";
 import { useRoutinePreview } from "../hooks/useRoutinePreview";
-import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useT } from "../i18n/react";
 import { catalogFor, isRemoteDevice } from "../lib/devices";
@@ -61,8 +62,13 @@ import {
   type PermissionMode,
 } from "../lib/permissionMode";
 import { modelsForAgent } from "../lib/agentModels";
+import {
+  DEFAULT_CONVERSATION_MODE,
+  nextRunConversation,
+  previousConversation,
+  type ConversationMode,
+} from "../lib/routineConversation";
 import { routineForm, routinePatch, routineTitle } from "../lib/routineEdit";
-import { routineStatusLabel } from "../lib/routineStatus";
 import { subscribeWS, useAppStore } from "../store/appStore";
 
 function formatWhen(ms?: number | null): string {
@@ -81,6 +87,29 @@ function formatInterval(secs: number): string {
   return `${Math.round(secs / 86400)}d`;
 }
 
+function statusLabel(
+  status: string,
+  tr: (key: string, vars?: Record<string, string | number>) => string,
+): string {
+  switch (status) {
+    case "queued":
+      return tr("routines.statusQueued");
+    case "running":
+      return tr("routines.statusRunning");
+    case "succeeded":
+      return tr("routines.statusSucceeded");
+    case "failed":
+      return tr("routines.statusFailed");
+    case "canceled":
+      return tr("routines.statusCanceled");
+    case "waiting_approval":
+    case "waiting_input":
+      return tr("routines.statusWaiting");
+    default:
+      return status;
+  }
+}
+
 /**
  * The form's fields as one value, so the create draft can be handed back
  * untouched after an edit borrowed the form.
@@ -92,6 +121,7 @@ type FormDraft = {
   agentId: string;
   model: string;
   permissionMode: PermissionMode;
+  conversationMode: ConversationMode;
   intervalSecs: number;
   rule: RoutineRule | null;
   ruleZone: string | null;
@@ -146,6 +176,16 @@ export default function RoutinesPage() {
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(() =>
     getDraftPermissionMode(),
   );
+  // Signed default (2026-11-11): a routine's runs keep one agent session going
+  // unless the reader asks for a new one per run.
+  const [conversationMode, setConversationMode] = useState<ConversationMode>(
+    DEFAULT_CONVERSATION_MODE,
+  );
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // The form as it looked when it opened, so closing can tell an untouched
+  // form from one that would lose typed words.
+  const openDraftRef = useRef<string | null>(null);
+  const formFocusFrame = useRef<number | null>(null);
   const [intervalSecs, setIntervalSecs] = useState(86400);
   const [routineRule, setRoutineRule] = useState<RoutineRule | null>(null);
   // The zone the rule's time is expressed in; null = the browser's zone.
@@ -156,10 +196,9 @@ export default function RoutinesPage() {
   // routines. The remembered choice is resolved once the machine list arrives;
   // see resolveRoutineDevice for why "this machine" is not the default on a
   // phone (there, this machine is the Hub, which holds no routines).
-  // A disabled-routine notification may already name which machine it belongs
-  // to (`/routines?device=<id>`). Prefer that once, then fall back to the
-  // remembered choice; the resolve effect below still confirms the machine
-  // exists before the page keeps it.
+  // A disabled-routine notification may name the machine in `/routines?device=`.
+  // Keep the URL and the visible machine in step so warm taps, Back/Forward,
+  // and a second tap of the same notification all select the right machine.
   const [searchParams, setSearchParams] = useSearchParams();
   const [deviceId, setDeviceId] = useState<string>(
     () => searchParams.get("device")?.trim() || readRoutineDevice(),
@@ -168,7 +207,7 @@ export default function RoutinesPage() {
   // overrule them.
   const deviceTouched = useRef(false);
   // A chooseMachine URL write is already reflected in deviceId and must not be
-  // re-read by the URL-sync effect below as a fresh navigation.
+  // re-read as a fresh navigation.
   const writingURL = useRef(false);
   const {
     machines,
@@ -177,6 +216,10 @@ export default function RoutinesPage() {
     failed: machinesFailed,
   } = useMachines();
   const machine = machineForRoutineDevice(machines, deviceId);
+  // A machine the list names and marks offline. This console is never offline
+  // to itself: it is answering the page. Writes are disabled while the selected
+  // machine is away; the page still shows what it last read.
+  const machineOffline = !!machine && !machine.isSelf && !machine.online;
   // Read from the id, not from the machine cache: when the machine list could
   // not be read the cache degrades to this machine alone, and a page that then
   // believed its remote routines were local would link to tasks the Hub cannot
@@ -188,9 +231,9 @@ export default function RoutinesPage() {
   remoteRef.current = remote;
   const deviceRef = useRef(deviceId);
   deviceRef.current = deviceId;
-  // Comparing only the id is not enough: A -> B -> A can put the page back on
-  // the same machine while a request from the first A view is still running.
-  // Every view transition gets a new generation so that response stays stale.
+  // A -> B -> A can return to the same device while a request from the first A
+  // view is still running. Each transition gets a generation so the old answer
+  // cannot mutate the new view.
   const viewGeneration = useRef(0);
   const renderedDevice = useRef(deviceId);
   if (renderedDevice.current !== deviceId) {
@@ -211,6 +254,7 @@ export default function RoutinesPage() {
   // what every routine ran with before the field existed.
   const [model, setModel] = useState("");
   const [creating, setCreating] = useState(false);
+  const formLocked = creating || machineOffline;
   // The routine the form is editing; null means it is creating a new one.
   const [editing, setEditing] = useState<Routine | null>(null);
   const formRef = useRef<HTMLElement | null>(null);
@@ -218,9 +262,6 @@ export default function RoutinesPage() {
   const toggleRef = useRef<HTMLButtonElement | null>(null);
   // The create draft an edit temporarily took over (see `closeForm`).
   const createDraftRef = useRef<FormDraft | null>(null);
-  // The form as it looked when it was opened. A difference means the reader
-  // has typed something that closing the form would throw away.
-  const openDraftRef = useRef<string | null>(null);
 
   // A device switch and a reconnect can both start a load; only the newest
   // answer may land, or one machine's routines would be shown under another
@@ -311,12 +352,8 @@ export default function RoutinesPage() {
     writeRoutineDevice(resolved);
   }, [machinesLoading, machinesFailed, machines, deviceId]);
 
-  // The URL is the page's second input for which machine it shows: a warm tap,
-  // a back/forward press, or a replayed notification changes `?device=` while
-  // this component stays mounted, and the useState initializer above only runs
-  // once. Apply the URL when it names a machine this Hub still knows; when it
-  // does not, converge both state and URL to the fallback so a back press does
-  // not land on a dead machine.
+  // The URL is a second input for the visible machine. It changes without a
+  // remount when another notification arrives or the reader uses Back/Forward.
   useEffect(() => {
     if (writingURL.current) {
       writingURL.current = false;
@@ -324,9 +361,9 @@ export default function RoutinesPage() {
     }
     const fromURL = searchParams.get("device")?.trim();
     if (!fromURL) {
-      // Give this history entry an explicit machine before a later switch can
-      // overwrite the remembered preference. Back and forward can then
-      // restore the machine that was actually visible in each entry.
+      // Make the current choice explicit before another machine can overwrite
+      // the remembered preference. Each history entry can now restore its own
+      // machine.
       if (machinesLoading || machinesFailed) return;
       const resolved = resolveRoutineDevice(machines, deviceId);
       if (resolved !== deviceId) setDeviceId(resolved);
@@ -341,15 +378,12 @@ export default function RoutinesPage() {
       return;
     }
     const resolved = resolveRoutineDevice(machines, fromURL);
-    if (resolved === fromURL) {
-      setDeviceId(fromURL);
-      writeRoutineDevice(fromURL);
-      return;
-    }
     setDeviceId(resolved);
     writeRoutineDevice(resolved);
-    writingURL.current = true;
-    setSearchParams({ device: resolved }, { replace: true });
+    if (resolved !== fromURL) {
+      writingURL.current = true;
+      setSearchParams({ device: resolved }, { replace: true });
+    }
   }, [searchParams, deviceId, machinesLoading, machinesFailed, machines]);
 
   // A failure re-arms this; a success clears the timestamp, resets the wait,
@@ -394,11 +428,13 @@ export default function RoutinesPage() {
     setEditing(null);
     createDraftRef.current = null;
     openDraftRef.current = null;
+    setSelectedId(null);
     setCwd("");
     setAgentId("");
     setModel("");
     setTitle("");
     setPrompt("");
+    setConversationMode(DEFAULT_CONVERSATION_MODE);
     setRoutineRule(null);
     setRuleZone(null);
     setNextRunLocal(defaultNextRunLocal());
@@ -435,18 +471,6 @@ export default function RoutinesPage() {
     });
   }, []);
 
-  // Another machine's run updates do not arrive on this Hub's WebSocket: the
-  // stream carries the tasks this daemon owns, and the run is a row in the
-  // machine's store. So while something in the relayed feed is still running,
-  // re-read the feed on a slow beat — the same "HTTP is the truth" rule the
-  // session feed follows, and it stops as soon as nothing is live.
-  const liveRun = useMemo(() => runs.some((r) => !isTerminal(r.status)), [runs]);
-  useEffect(() => {
-    if (!remote || !liveRun) return;
-    const timer = window.setInterval(() => void load(), 5_000);
-    return () => window.clearInterval(timer);
-  }, [remote, liveRun, load]);
-
   const noteworthy = useMemo(
     () => runs.filter((r) => r.routine_noteworthy || !isTerminal(r.status)),
     [runs],
@@ -455,6 +479,18 @@ export default function RoutinesPage() {
     () => runs.filter((r) => isTerminal(r.status) && !r.routine_noteworthy),
     [runs],
   );
+  const selected = useMemo(
+    () => routines.find((r) => r.id === selectedId) ?? null,
+    [routines, selectedId],
+  );
+  const unreadByRoutine = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const run of runs) {
+      if (!run.routine_unread || !run.routine_id) continue;
+      counts[run.routine_id] = (counts[run.routine_id] ?? 0) + 1;
+    }
+    return counts;
+  }, [runs]);
 
   const availableAgents = useMemo(() => machineAgents.filter((a) => a.available), [machineAgents]);
   // A new routine starts on the agent this machine would use. The choice is
@@ -485,12 +521,55 @@ export default function RoutinesPage() {
     return serializeRoutineRule(routineRule, null, ruleZone ?? localTimeZone());
   }, [routineRule, ruleZone]);
   const rulePreviewAt = useRoutinePreview(rulePayload);
+  // What the next run will start from. Editing reads the routine's own loaded
+  // history — the global feed may not reach back to this routine's last run,
+  // and the daemon only looks at that one row. Creating has no history, so the
+  // first run always starts a session.
+  //
+  // The comparison uses what the form would save, not the stored routine: the
+  // reader may be about to change the agent, directory or model, and the
+  // daemon compares the newest run against those saved values.
+  const conversationRuns = editing ? (history[editing.id] ?? []) : [];
+  const formCwd = (cwd || editing?.cwd || "").trim();
+  const conversationPrevious = previousConversation(
+    conversationRuns,
+    editing
+      ? { id: editing.id, agent: agentId, cwd: formCwd, model }
+      : undefined,
+  );
+  // Only the continue hint waits on history: "start a new session each run"
+  // needs to know nothing about the last run. While a first read is pending the
+  // hint says it is reading rather than guessing "first run"; a refetch after
+  // the page is already loaded keeps the known answer on screen (anti-flicker).
+  const conversationLoading =
+    !!editing && !!historyLoading[editing.id] && !history[editing.id];
+  const conversationPreview = nextRunConversation(
+    conversationMode,
+    conversationPrevious,
+    formCwd,
+  );
+  const conversationHint =
+    conversationMode === "fresh"
+      ? tr("routines.conversationFreshHint", {
+          cwd: conversationPreview.cwd || tr("routines.conversationCurrentDirectory"),
+        })
+      : conversationLoading
+        ? tr("routines.conversationChecking")
+        : conversationPreview.sessionRef
+          ? tr("routines.conversationContinues", {
+              when: formatWhen(
+                conversationPrevious?.finished_at ?? conversationPrevious?.created_at,
+              ),
+            })
+          : conversationRuns.length > 0
+            ? tr("routines.conversationRestart")
+            : tr("routines.conversationFirstRun");
 
   const onToggle = async (r: Routine) => {
     const view = currentView();
     setBusy((b) => ({ ...b, [r.id]: true }));
     try {
-      const updated = await patchRoutine(r.id, { enabled: !r.enabled }, deviceId);
+      const updated = await patchRoutine(r.id, { enabled: !r.enabled }, view.deviceId);
       if (!isCurrentView(view)) return;
       setRoutines((list) => list.map((x) => (x.id === r.id ? updated : x)));
     } catch (e) {
@@ -506,12 +585,13 @@ export default function RoutinesPage() {
     const view = currentView();
     setBusy((b) => ({ ...b, [r.id]: true }));
     try {
-      await deleteRoutine(r.id, deviceId);
+      await deleteRoutine(r.id, view.deviceId);
       if (!isCurrentView(view)) return;
       setRoutines((list) => list.filter((x) => x.id !== r.id));
       // Deleting the routine the form is editing would leave Save pointed at a
       // row that no longer exists.
       if (editing?.id === r.id) closeForm(true);
+      if (selectedId === r.id) setSelectedId(null);
     } catch (e) {
       if (!isCurrentView(view)) return;
       pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
@@ -525,8 +605,9 @@ export default function RoutinesPage() {
     setBusy((b) => ({ ...b, [r.id]: true }));
     try {
       const t = await runRoutineNow(r.id, view.deviceId);
-      // The page moved away while the run was starting, even if it has since
-      // returned to the same machine. This task belongs to the old view.
+      // The page moved to another machine while the run was starting. This
+      // task belongs to the view that was showing, even if the reader has
+      // since returned to the same machine.
       if (!isCurrentView(view)) return;
       setRuns((prev) => [t, ...prev].slice(0, 80));
       // The editor may be open on this routine; Run now should show up there
@@ -692,6 +773,14 @@ export default function RoutinesPage() {
     }
   };
 
+  /** Point the run-history panel at one routine and load its first page. */
+  const selectRoutine = (r: Routine) => {
+    setSelectedId(r.id);
+    if (!history[r.id] && !historyLoading[r.id] && !historyError[r.id]) {
+      void loadHistory(r.id);
+    }
+  };
+
   const onMarkAllRead = async () => {
     const view = currentView();
     try {
@@ -726,6 +815,7 @@ export default function RoutinesPage() {
     setTitle("");
     setPrompt("");
     setModel("");
+    setConversationMode(DEFAULT_CONVERSATION_MODE);
     setRoutineRule(null);
     setRuleZone(null);
     setNextRunLocal(defaultNextRunLocal());
@@ -738,11 +828,14 @@ export default function RoutinesPage() {
     agentId,
     model,
     permissionMode,
+    conversationMode,
     intervalSecs,
     rule: routineRule,
     ruleZone,
     nextRunLocal,
   });
+
+  const draftKey = (draft: FormDraft): string => JSON.stringify(draft);
 
   const applyDraft = (draft: FormDraft) => {
     setTitle(draft.title);
@@ -751,33 +844,24 @@ export default function RoutinesPage() {
     setAgentId(draft.agentId);
     setModel(draft.model);
     setPermissionMode(draft.permissionMode);
+    setConversationMode(draft.conversationMode);
     setIntervalSecs(draft.intervalSecs);
     setRoutineRule(draft.rule);
     setRuleZone(draft.ruleZone);
     setNextRunLocal(draft.nextRunLocal);
   };
 
-  const draftKey = (draft: FormDraft): string => JSON.stringify(draft);
-
-  // Opening the form (new or edit) records what it started as. The effect is
-  // keyed on the two events that start a form and deliberately not on the
-  // fields: re-running it per keystroke would move the baseline and make every
-  // form look clean.
-  useEffect(() => {
-    if (!showCreate) {
-      openDraftRef.current = null;
-      return;
-    }
-    openDraftRef.current = draftKey(formDraft());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showCreate, editing?.id]);
-
+  /**
+   * Close the form. A form with typed changes asks first — an accidental Esc
+   * must not lose a prompt the reader just wrote. `force` is for the paths that
+   * already decided: a successful save, or deleting the routine being edited.
+   *
+   * Returns false when the reader chose to stay.
+   */
   const closeForm = (force = false): boolean => {
     const dirty =
       openDraftRef.current !== null && draftKey(formDraft()) !== openDraftRef.current;
-    if (!force && dirty && typeof window.confirm === "function") {
-      if (!window.confirm(tr("routines.discardConfirm"))) return false;
-    }
+    if (!force && dirty && !window.confirm(tr("routines.discardConfirm"))) return false;
     openDraftRef.current = null;
     setShowCreate(false);
     // The control that opened the form is still on the page; focus goes back to
@@ -795,56 +879,96 @@ export default function RoutinesPage() {
     return true;
   };
 
-  // The shell's Back, edge swipe and ⌘N consult this before leaving the page;
-  // the form's own Cancel and toggle button call the same function, so every
-  // way out asks the same question. The boolean is the pure half: while the
-  // form differs from what it opened with, a same-URL history entry is armed so
-  // a system Back asks too.
-  const formIsDirty =
-    showCreate && openDraftRef.current !== null && draftKey(formDraft()) !== openDraftRef.current;
-  useLeaveGuard(() => closeForm(), formIsDirty);
+  const focusFormSoon = (scrollToForm: boolean) => {
+    if (formFocusFrame.current !== null) cancelAnimationFrame(formFocusFrame.current);
+    formFocusFrame.current = requestAnimationFrame(() => {
+      formFocusFrame.current = null;
+      const active = document.activeElement;
+      if (scrollToForm) {
+        const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+        formRef.current?.scrollIntoView?.({
+          block: "start",
+          behavior: reduce ? "auto" : "smooth",
+        });
+      }
+      // Opening moves focus from the trigger to the first form field. If the
+      // reader already chose another field in the meantime, keep their choice;
+      // a late frame must not steal the caret halfway through the first word.
+      if (
+        !(active instanceof HTMLElement) ||
+        active === document.body ||
+        !formRef.current?.contains(active)
+      ) {
+        titleRef.current?.focus();
+      }
+    });
+  };
+
+  useEffect(
+    () => () => {
+      if (formFocusFrame.current !== null) cancelAnimationFrame(formFocusFrame.current);
+    },
+    [],
+  );
+
+  const formDirty =
+    showCreate &&
+    openDraftRef.current !== null &&
+    draftKey(formDraft()) !== openDraftRef.current;
+
+  // Leaving the screen (header back, edge swipe, palette) closes the form the
+  // same way its own buttons do, so typed text is never dropped without the
+  // page's confirm.
+  useLeaveGuard(() => closeForm(), formDirty);
 
   const openCreate = () => {
     // Opening the create form from inside an edit first closes the edit, which
-    // restores the draft. A refused close leaves the edit (and its typed text)
-    // in place.
+    // restores the draft the create form had before the edit borrowed it —
+    // unless the reader chose to stay.
+    const restored = editing ? createDraftRef.current : null;
     if (editing && !closeForm()) return;
+    openDraftRef.current = draftKey(restored ?? formDraft());
     setShowCreate(true);
-    requestAnimationFrame(() => titleRef.current?.focus());
+    focusFormSoon(false);
   };
 
   const openEdit = (r: Routine) => {
     // Keep the create draft the first time an edit takes the form over.
     if (!editing) createDraftRef.current = formDraft();
     const draft = routineForm(r);
+    const next: FormDraft = {
+      title: draft.title,
+      prompt: draft.prompt,
+      cwd: draft.cwd,
+      agentId: draft.agent,
+      model: draft.model,
+      permissionMode: normalizePermissionMode(draft.permissionMode),
+      conversationMode: draft.conversationMode,
+      intervalSecs: draft.intervalSecs,
+      rule: draft.rule,
+      ruleZone: draft.ruleZone,
+      nextRunLocal:
+        draft.nextRunMs != null
+          ? toLocalInputValue(new Date(draft.nextRunMs))
+          : defaultNextRunLocal(),
+    };
     setEditing(r);
-    setTitle(draft.title);
-    setPrompt(draft.prompt);
-    setCwd(draft.cwd);
-    setPermissionMode(normalizePermissionMode(draft.permissionMode));
-    setAgentId(draft.agent);
-    setModel(draft.model);
-    setIntervalSecs(draft.intervalSecs);
-    setRoutineRule(draft.rule);
-    setRuleZone(draft.ruleZone);
-    setNextRunLocal(
-      draft.nextRunMs != null
-        ? toLocalInputValue(new Date(draft.nextRunMs))
-        : defaultNextRunLocal(),
-    );
+    applyDraft(next);
+    openDraftRef.current = draftKey(next);
     setShowCreate(true);
+    setSelectedId(r.id);
     void loadHistory(r.id);
     // The row that opened this is below the fold: bring the form into view and
     // put the caret in it, rather than leaving focus on a button the reader can
     // no longer see. A reader who asked for less motion gets the jump.
-    requestAnimationFrame(() => {
-      const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-      formRef.current?.scrollIntoView({ block: "start", behavior: reduce ? "auto" : "smooth" });
-      titleRef.current?.focus();
-    });
+    focusFormSoon(true);
   };
 
   const onSubmit = async () => {
+    if (machineOffline) {
+      pushToast(tr("routines.offlineBanner"), "error");
+      return;
+    }
     const p = prompt.trim();
     if (!p) {
       pushToast(tr("routines.needPrompt"), "error");
@@ -860,7 +984,6 @@ export default function RoutinesPage() {
       return;
     }
     if (editing) {
-      const view = currentView();
       const patch = routinePatch(editing, {
         title,
         prompt: p,
@@ -868,6 +991,7 @@ export default function RoutinesPage() {
         agent: agentId,
         model,
         permissionMode,
+        conversationMode,
         intervalSecs,
         rule: routineRule,
         nextRunMs: nextMs,
@@ -877,9 +1001,10 @@ export default function RoutinesPage() {
       // it again. It must not become an empty PATCH, and it must not touch the
       // schedule as a side effect of saving.
       if (!patch) {
-        closeForm();
+        closeForm(true);
         return;
       }
+      const view = currentView();
       setCreating(true);
       try {
         const updated = await patchRoutine(editing.id, patch, view.deviceId);
@@ -918,6 +1043,7 @@ export default function RoutinesPage() {
           agent: agentId || undefined,
           ...(model.trim() ? { model: model.trim() } : {}),
           permission_mode: permissionMode,
+          conversation_mode: conversationMode,
         },
         view.deviceId,
       );
@@ -954,21 +1080,21 @@ export default function RoutinesPage() {
    */
   const chooseMachine = (id: string) => {
     if (id === (deviceId || THIS_MACHINE)) return;
-    // The form's directory, agent, model and cadence belong to the machine it
-    // was opened on. Switching machines resets them, so a dirty form must go
-    // through the same discard question its Cancel button asks; a refused
-    // switch keeps the machine and every field exactly as they were.
+    // The open form belongs to the machine being left. Ask before dropping it,
+    // exactly as Esc does, rather than silently resetting the reader's words.
     if (showCreate && !closeForm()) return;
     deviceTouched.current = true;
+    if (editing) {
+      createDraftRef.current = null;
+      setEditing(null);
+    }
+    setShowCreate(false);
     resetForm();
     setCwd("");
     setAgentId("");
     writeRoutineDevice(id);
-    // The picker owns history on a Mac: each manual switch is a push, so back
-    // returns along the machines the reader actually visited rather than the
-    // URL staying on the first notification's machine. On a phone the machine
-    // is a view of the one list row, not a new screen: replacing keeps
-    // [list, routines B], so one Back reaches the list instead of routines A.
+    // Mac keeps the machines the reader actually visited; phone replaces the
+    // routines view so one Back still reaches the conversation list.
     writingURL.current = true;
     setSearchParams({ device: id }, { replace: isPhoneLayout() });
     // The sidebar badge counts the machine this page shows; a switch that did
@@ -979,7 +1105,7 @@ export default function RoutinesPage() {
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto kin-scroll">
-      <div className="mx-auto max-w-3xl px-4 py-6 md:px-6">
+      <div className="mx-auto max-w-5xl px-4 py-6 md:px-6">
         <div className="flex items-start justify-between gap-3">
           <div className="hidden md:block">
             <h1 className="text-hero font-bold tracking-tight text-kin-text">
@@ -992,8 +1118,8 @@ export default function RoutinesPage() {
               ref={toggleRef}
               type="button"
               aria-expanded={showCreate}
-              aria-controls="routine-form"
-              disabled={creating}
+              aria-controls={showCreate ? "routine-form" : undefined}
+              disabled={creating || (machineOffline && !showCreate)}
               onClick={() => (showCreate ? closeForm() : openCreate())}
               className={[
                 "min-h-11 flex-1 rounded-lg px-3 text-body font-medium md:flex-none",
@@ -1006,8 +1132,9 @@ export default function RoutinesPage() {
             </button>
             <button
               type="button"
+              disabled={machineOffline}
               onClick={() => void onMarkAllRead()}
-              className="min-h-11 flex-1 rounded-lg border border-[var(--kin-hairline)] px-3 text-body text-kin-secondary hover:bg-[var(--kin-fill)] md:flex-none"
+              className="min-h-11 flex-1 rounded-lg border border-[var(--kin-hairline)] px-3 text-body text-kin-secondary hover:bg-[var(--kin-fill)] disabled:opacity-50 md:flex-none"
             >
               {tr("routines.markAllRead")}
             </button>
@@ -1040,12 +1167,42 @@ export default function RoutinesPage() {
           />
         </div>
 
+        {machineOffline && (
+          <div
+            role="status"
+            className="mt-3 rounded-xl border border-kin-orange/40 bg-kin-orange/10 px-4 py-3 text-body leading-5 text-kin-orange-ink"
+          >
+            {tr("routines.offlineBanner")}
+          </div>
+        )}
+
         {showCreate && (
           <section
             id="routine-form"
             ref={formRef}
             aria-label={editing ? tr("routines.editPanelTitle") : tr("routines.createPanelTitle")}
             className="mt-5 scroll-mt-4 rounded-2xl border border-kin-blue/30 bg-kin-blue/5 p-4"
+            onKeyDown={(e) => {
+              // A sheet that is open handles its own Escape first and marks the
+              // event handled; closing the form underneath it would strand the
+              // picker.
+              if (e.defaultPrevented) return;
+              if (e.key === "Escape") {
+                e.preventDefault();
+                // A save in flight owns the form: closing it here would let the
+                // completion close whatever form the reader opened meanwhile.
+                // Offline is not a reason to refuse to close — closing is not
+                // a write.
+                if (!creating) closeForm();
+                return;
+              }
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                e.preventDefault();
+                // The same condition the Save button shows, so the shortcut
+                // never sends something the visible control would refuse.
+                if (!formLocked && prompt.trim() && cwd.trim()) void onSubmit();
+              }
+            }}
           >
             <h2 className="text-strong font-medium text-kin-text">
               {editing ? tr("routines.editPanelTitle") : tr("routines.createPanelTitle")}
@@ -1061,7 +1218,7 @@ export default function RoutinesPage() {
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder={tr("routines.titlePlaceholder")}
-                disabled={creating}
+                disabled={formLocked}
                 className="mt-1 w-full rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2 text-strong text-kin-text outline-none focus:border-kin-blue/40"
               />
             </label>
@@ -1073,7 +1230,7 @@ export default function RoutinesPage() {
                 onChange={(e) => setPrompt(e.target.value)}
                 placeholder={tr("routines.promptPlaceholder")}
                 rows={4}
-                disabled={creating}
+                disabled={formLocked}
                 className="mt-1 w-full resize-y rounded-xl border border-[var(--kin-hairline)] bg-kin-panel px-3 py-2.5 text-strong text-kin-text outline-none focus:border-kin-blue/40"
               />
             </label>
@@ -1081,7 +1238,7 @@ export default function RoutinesPage() {
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
               <PermissionModePicker
                 value={permissionMode}
-                disabled={creating}
+                disabled={formLocked}
                 onChange={setPermissionMode}
               />
               {availableAgents.length > 0 && (
@@ -1090,7 +1247,7 @@ export default function RoutinesPage() {
                   <SheetSelect
                     label={tr("routines.agentLabel")}
                     value={agentId}
-                    disabled={creating}
+                    disabled={formLocked}
                     options={[
                       /* A routine keeps the agent it was created with, even if
                          that agent is offline right now. Without this row the
@@ -1124,7 +1281,7 @@ export default function RoutinesPage() {
                   models={modelsForAgent(machineAgents, agentId)}
                   source={modelAgent?.model_list_source}
                   status={modelAgent?.model_list_status}
-                  disabled={creating}
+                  disabled={formLocked}
                   onChange={setModel}
                 />
               )}
@@ -1134,7 +1291,7 @@ export default function RoutinesPage() {
               <CwdPicker
                 className="w-full"
                 cwd={cwd}
-                locked={false}
+                locked={formLocked}
                 // The cwd is a path on the machine the routine runs on. Without
                 // this the panel would list this console's directories and the
                 // saved path would be one that machine has never heard of.
@@ -1153,14 +1310,48 @@ export default function RoutinesPage() {
                 onRuleChange={setRoutineRule}
                 ruleZone={ruleZone}
                 nextRunPreview={rulePreviewAt}
-                disabled={creating}
+                disabled={formLocked}
               />
             </div>
+
+            <fieldset className="mt-3 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2.5">
+              <legend className="px-1 text-caption font-semibold uppercase tracking-label text-kin-muted">
+                {tr("routines.conversationLabel")}
+              </legend>
+              {(
+                [
+                  ["continue", tr("routines.conversationContinue")],
+                  ["fresh", tr("routines.conversationFresh")],
+                ] as const
+              ).map(([mode, label]) => (
+                <label
+                  key={mode}
+                  className="flex min-h-11 items-center gap-2 text-body text-kin-text md:min-h-8"
+                >
+                  <input
+                    type="radio"
+                    name="routine-conversation"
+                    value={mode}
+                    checked={conversationMode === mode}
+                    disabled={formLocked}
+                    onChange={() => setConversationMode(mode)}
+                    className="h-4 w-4 accent-kin-blue"
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
+              <p className="mt-1 text-caption leading-5 text-kin-muted">
+                {conversationHint}
+              </p>
+            </fieldset>
 
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
-                className="rounded-lg px-3 py-1.5 text-strong text-kin-secondary"
+                // Only a save in flight blocks closing; an offline machine is
+                // a reason to disable writes, not the way out of the form.
+                disabled={creating}
+                className="rounded-lg px-3 py-1.5 text-strong text-kin-secondary disabled:opacity-50"
                 onClick={() => closeForm()}
               >
                 {tr("routines.cancel")}
@@ -1171,7 +1362,7 @@ export default function RoutinesPage() {
                 // message, not by a disabled button: the schedule field beside
                 // it still says "runs on the next tick", so a dead Save would
                 // be the only thing telling the reader otherwise.
-                disabled={creating || !prompt.trim() || !cwd.trim()}
+                disabled={formLocked || !prompt.trim() || !cwd.trim()}
                 className="rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand disabled:opacity-50"
                 onClick={() => void onSubmit()}
               >
@@ -1179,61 +1370,6 @@ export default function RoutinesPage() {
               </button>
             </div>
 
-            {editing && (
-              <section
-                className="mt-5 border-t border-[var(--kin-hairline)] pt-4"
-                aria-labelledby="routine-history-title"
-              >
-                <h3
-                  id="routine-history-title"
-                  className="text-caption font-semibold uppercase tracking-label text-kin-muted"
-                >
-                  {tr("routines.historyTitle")}
-                </h3>
-                {historyLoading[editing.id] ? (
-                  <p className="mt-2 text-body text-kin-muted">{tr("routines.historyLoading")}</p>
-                ) : historyError[editing.id] ? (
-                  <p className="mt-2 text-body text-kin-red-ink">{historyError[editing.id]}</p>
-                ) : (history[editing.id]?.length ?? 0) === 0 ? (
-                  <p className="mt-2 text-body text-kin-secondary">
-                    {remote ? tr("routines.historyEmptyRemote") : tr("routines.historyEmpty")}
-                  </p>
-                ) : (
-                  <ul className="mt-2 max-h-[min(320px,40vh)] space-y-2 overflow-y-auto kin-scroll">
-                    {history[editing.id].map((run) => (
-                      <RunCard
-                        key={run.id}
-                        run={run}
-                        onMarkRead={onMarkRead}
-                        tr={tr}
-                        quiet
-                        ownRoutine
-                        device={remote ? deviceId : undefined}
-                      />
-                    ))}
-                    {/* Inside the scroll box: the click happens at the bottom,
-                        and the rows it fetches appear just above the button,
-                        in view. Outside it, the label changed while the new
-                        rows landed off-screen. */}
-                    {historyHasMore[editing.id] &&
-                      (history[editing.id]?.length ?? 0) < ROUTINE_HISTORY_MAX && (
-                        <li>
-                          <button
-                            type="button"
-                            disabled={historyLoadingOlder[editing.id]}
-                            onClick={() => void loadOlderHistory(editing.id)}
-                            className="min-h-11 text-body text-kin-secondary hover:text-kin-text disabled:opacity-50 sm:min-h-8"
-                          >
-                            {historyLoadingOlder[editing.id]
-                              ? tr("routines.historyLoadingOlder")
-                              : tr("routines.historyLoadOlder")}
-                          </button>
-                        </li>
-                      )}
-                  </ul>
-                )}
-              </section>
-            )}
           </section>
         )}
 
@@ -1246,7 +1382,17 @@ export default function RoutinesPage() {
 
         {!loading && error && (
           <div className="mt-6 rounded-xl border border-kin-red/40 bg-kin-red/10 px-4 py-3 text-strong leading-5 text-kin-red-ink">
-            {error}
+            <p>{error}</p>
+            <button
+              type="button"
+              onClick={() => {
+                setLoading(true);
+                void load();
+              }}
+              className="mt-2 min-h-11 rounded-lg border border-kin-red/40 px-3 py-1 text-body text-kin-red-ink md:min-h-8"
+            >
+              {tr("routines.retry")}
+            </button>
           </div>
         )}
 
@@ -1267,7 +1413,8 @@ export default function RoutinesPage() {
                   {!showCreate && (
                     <button
                       type="button"
-                      className="mt-4 rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand"
+                      disabled={machineOffline || creating}
+                      className="mt-4 rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand disabled:opacity-50"
                       onClick={() => openCreate()}
                     >
                       {tr("routines.createEntry")}
@@ -1320,113 +1467,294 @@ export default function RoutinesPage() {
               )}
             </section>
 
-            <section className="mt-10">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <div className="text-caption font-semibold uppercase tracking-label text-kin-muted">
-                  {tr("routines.listSection")}
+            <div className="mt-10 md:grid md:grid-cols-[minmax(0,1fr)_340px] md:items-start md:gap-6">
+              <section className="min-w-0">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-caption font-semibold uppercase tracking-label text-kin-muted">
+                    {tr("routines.listSection")}
+                  </div>
+                  <input
+                    value={routineQuery}
+                    onChange={(e) => setRoutineQuery(e.target.value)}
+                    placeholder={tr("routines.searchPlaceholder")}
+                    aria-label={tr("routines.searchPlaceholder")}
+                    className="min-h-11 w-full rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2.5 text-body text-kin-text outline-none focus:border-kin-blue/40 sm:max-w-[260px]"
+                  />
                 </div>
-                <input
-                  value={routineQuery}
-                  onChange={(e) => setRoutineQuery(e.target.value)}
-                  placeholder={tr("routines.searchPlaceholder")}
-                  aria-label={tr("routines.searchPlaceholder")}
-                  className="min-h-11 w-full rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2.5 text-body text-kin-text outline-none focus:border-kin-blue/40 sm:max-w-[260px]"
-                />
-              </div>
-              {routines.length === 0 ? (
-                <p className="text-strong text-kin-secondary">{tr("routines.emptyList")}</p>
-              ) : (
-                <ul className="space-y-2.5">
-                  {routines.map((r) => (
-                    <li key={r.id} className="rounded-2xl bg-kin-panel/80 px-4 py-3">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="truncate text-strong font-medium text-kin-text">
-                              {r.title || r.prompt.slice(0, 48)}
-                            </span>
-                            <span
-                              className={
-                                r.enabled
-                                  ? "shrink-0 whitespace-nowrap rounded-full bg-kin-green/15 px-2 py-0.5 text-caption font-medium text-kin-green-ink"
-                                  : "shrink-0 whitespace-nowrap rounded-full bg-[var(--kin-fill)] px-2 py-0.5 text-caption text-kin-muted"
-                              }
+                {routines.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-[var(--kin-hairline-strong)] px-6 py-10 text-center">
+                    <p className="text-strong text-kin-secondary">{tr("routines.emptyList")}</p>
+                    <button
+                      type="button"
+                      disabled={machineOffline}
+                      onClick={() => openCreate()}
+                      className="mt-4 min-h-11 rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand disabled:opacity-50"
+                    >
+                      {tr("routines.createEntry")}
+                    </button>
+                  </div>
+                ) : (
+                  <ul className="space-y-2.5">
+                    {routines.map((r) => {
+                      const unread = unreadByRoutine[r.id] ?? 0;
+                      const selectedHere = selectedId === r.id;
+                      return (
+                        <li
+                          key={r.id}
+                          className={[
+                            "rounded-2xl px-4 py-3",
+                            selectedHere
+                              ? "bg-kin-blue/5 ring-1 ring-kin-blue/30"
+                              : "bg-kin-panel/80",
+                          ].join(" ")}
+                        >
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                            <button
+                              type="button"
+                              onClick={() => selectRoutine(r)}
+                              aria-pressed={selectedHere}
+                              aria-label={tr("routines.showRuns", {
+                                title: r.title || r.prompt.slice(0, 48),
+                              })}
+                              className="min-w-0 flex-1 rounded-lg text-left"
                             >
-                              {r.enabled ? tr("routines.enabled") : tr("routines.paused")}
-                            </span>
+                              <span className="flex flex-wrap items-center gap-2">
+                                <span className="truncate text-strong font-medium text-kin-text">
+                                  {r.title || r.prompt.slice(0, 48)}
+                                </span>
+                                <span
+                                  className={
+                                    r.enabled
+                                      ? "shrink-0 whitespace-nowrap rounded-full bg-kin-green/15 px-2 py-0.5 text-caption font-medium text-kin-green-ink"
+                                      : "shrink-0 whitespace-nowrap rounded-full bg-[var(--kin-fill)] px-2 py-0.5 text-caption text-kin-muted"
+                                  }
+                                >
+                                  {r.enabled ? tr("routines.enabled") : tr("routines.paused")}
+                                </span>
+                                {unread > 0 && (
+                                  <span className="shrink-0 whitespace-nowrap rounded-full bg-kin-blue/15 px-2 py-0.5 text-caption font-medium text-kin-blue-ink">
+                                    {tr("routines.unreadCount", { count: unread })}
+                                  </span>
+                                )}
+                              </span>
+                              <span className="mt-1 block truncate text-body text-kin-secondary">
+                                {r.agent} ·{" "}
+                                {describeRoutineRule(parseRoutineRule(r.recurrence), tr) ??
+                                  formatInterval(r.interval_secs)}{" "}
+                                · {r.cwd}
+                              </span>
+                              <span className="mt-0.5 block text-caption text-kin-muted">
+                                {tr("routines.nextDue")}
+                                {tr("common.labelSeparator")}
+                                {formatWhen(r.next_due_at)}
+                                {r.last_outcome === "succeeded"
+                                  ? ` · ${tr("routines.lastSucceeded")}`
+                                  : r.last_outcome === "failed"
+                                    ? ` · ${tr("routines.lastFailed")}`
+                                    : ""}
+                                {r.consec_failures > 0
+                                  ? ` · ${tr("routines.failures", { n: r.consec_failures })}`
+                                  : ""}
+                              </span>
+                            </button>
+                            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                disabled={!!busy[r.id] || creating || machineOffline}
+                                onClick={() => void onRunNow(r)}
+                                className="min-h-11 rounded-lg bg-kin-blue px-3 py-1 text-body font-medium text-kin-on-brand disabled:opacity-50 sm:min-h-8 sm:px-2.5"
+                              >
+                                {tr("routines.runNow")}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!!busy[r.id] || creating || machineOffline}
+                                onClick={() => openEdit(r)}
+                                aria-label={tr("routines.editRoutine", {
+                                  title: r.title || r.prompt.slice(0, 48),
+                                })}
+                                className="min-h-11 rounded-lg border border-[var(--kin-hairline)] px-3 py-1 text-body text-kin-secondary disabled:opacity-50 sm:min-h-8 sm:px-2.5"
+                              >
+                                {tr("routines.edit")}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!!busy[r.id] || creating || machineOffline}
+                                onClick={() => void onToggle(r)}
+                                className="min-h-11 rounded-lg border border-[var(--kin-hairline)] px-3 py-1 text-body text-kin-secondary disabled:opacity-50 sm:min-h-8 sm:px-2.5"
+                              >
+                                {r.enabled ? tr("routines.pause") : tr("routines.resume")}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!!busy[r.id] || creating || machineOffline}
+                                onClick={() => void onDelete(r)}
+                                className="min-h-11 rounded-lg px-3 py-1 text-body text-kin-red-ink/90 disabled:opacity-50 sm:min-h-8 sm:px-2.5"
+                              >
+                                {tr("routines.delete")}
+                              </button>
+                            </div>
                           </div>
-                          <div className="mt-1 truncate text-body text-kin-secondary">
-                            {r.agent} ·{" "}
-                            {describeRoutineRule(parseRoutineRule(r.recurrence), tr) ??
-                              formatInterval(r.interval_secs)}{" "}
-                            · {r.cwd}
-                          </div>
-                          <div className="mt-0.5 text-caption text-kin-muted">
-                            {tr("routines.nextDue")}
-                            {tr("common.labelSeparator")}
-                            {formatWhen(r.next_due_at)}
-                            {r.consec_failures > 0
-                              ? ` · ${tr("routines.failures", { n: r.consec_failures })}`
-                              : ""}
-                          </div>
-                        </div>
-                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-                          <button
-                            type="button"
-                            disabled={!!busy[r.id] || creating}
-                            onClick={() => void onRunNow(r)}
-                            className="min-h-11 rounded-lg bg-kin-blue px-3 py-1 text-body font-medium text-kin-on-brand disabled:opacity-50 sm:min-h-8 sm:px-2.5"
-                          >
-                            {tr("routines.runNow")}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={!!busy[r.id] || creating}
-                            onClick={() => openEdit(r)}
-                            aria-label={tr("routines.editRoutine", {
-                              title: r.title || r.prompt.slice(0, 48),
-                            })}
-                            className="min-h-11 rounded-lg border border-[var(--kin-hairline)] px-3 py-1 text-body text-kin-secondary disabled:opacity-50 sm:min-h-8 sm:px-2.5"
-                          >
-                            {tr("routines.edit")}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={!!busy[r.id] || creating}
-                            onClick={() => void onToggle(r)}
-                            className="min-h-11 rounded-lg border border-[var(--kin-hairline)] px-3 py-1 text-body text-kin-secondary disabled:opacity-50 sm:min-h-8 sm:px-2.5"
-                          >
-                            {r.enabled ? tr("routines.pause") : tr("routines.resume")}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={!!busy[r.id] || creating}
-                            onClick={() => void onDelete(r)}
-                            className="min-h-11 rounded-lg px-3 py-1 text-body text-kin-red-ink/90 disabled:opacity-50 sm:min-h-8 sm:px-2.5"
-                          >
-                            {tr("routines.delete")}
-                          </button>
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {routineHasMore && (
-                <button
-                  type="button"
-                  onClick={() => void loadMoreRoutines()}
-                  disabled={loadingMoreRoutines}
-                  className="mt-3 min-h-11 w-full rounded-lg border border-[var(--kin-hairline)] px-3 py-2 text-body text-kin-secondary hover:bg-[var(--kin-fill)]"
-                >
-                  {loadingMoreRoutines ? tr("tree.loadingMore") : tr("routines.loadMore")}
-                </button>
-              )}
-            </section>
+                          {selectedHere && (
+                            <div className="mt-3 md:hidden">
+                              <RunHistoryPanel
+                                routine={r}
+                                runs={history[r.id] ?? []}
+                                loading={!!historyLoading[r.id]}
+                                error={historyError[r.id]}
+                                hasMore={!!historyHasMore[r.id]}
+                                loadingOlder={!!historyLoadingOlder[r.id]}
+                                remote={remote}
+                                device={remote ? deviceId : undefined}
+                                onLoadOlder={() => void loadOlderHistory(r.id)}
+                                onRetry={() => void loadHistory(r.id)}
+                                onMarkRead={onMarkRead}
+                                tr={tr}
+                              />
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                {routineHasMore && (
+                  <button
+                    type="button"
+                    onClick={() => void loadMoreRoutines()}
+                    disabled={loadingMoreRoutines}
+                    className="mt-3 min-h-11 w-full rounded-lg border border-[var(--kin-hairline)] px-3 py-2 text-body text-kin-secondary hover:bg-[var(--kin-fill)]"
+                  >
+                    {loadingMoreRoutines ? tr("tree.loadingMore") : tr("routines.loadMore")}
+                  </button>
+                )}
+              </section>
+              <aside className="hidden md:sticky md:top-4 md:block">
+                {selected ? (
+                  <RunHistoryPanel
+                    routine={selected}
+                    runs={history[selected.id] ?? []}
+                    loading={!!historyLoading[selected.id]}
+                    error={historyError[selected.id]}
+                    hasMore={!!historyHasMore[selected.id]}
+                    loadingOlder={!!historyLoadingOlder[selected.id]}
+                    remote={remote}
+                    device={remote ? deviceId : undefined}
+                    onLoadOlder={() => void loadOlderHistory(selected.id)}
+                    onRetry={() => void loadHistory(selected.id)}
+                    onMarkRead={onMarkRead}
+                    tr={tr}
+                  />
+                ) : (
+                  <p className="rounded-2xl border border-dashed border-[var(--kin-hairline-strong)] px-4 py-6 text-body text-kin-secondary">
+                    {tr("routines.pickRoutine")}
+                  </p>
+                )}
+              </aside>
+            </div>
           </>
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * One routine's run records: when it ran, what came of it, and how long it
+ * took. The conversation itself stays in its project; this panel never renders
+ * messages, only the record and the way to open the conversation that owns
+ * them.
+ */
+function RunHistoryPanel({
+  routine,
+  runs,
+  loading,
+  error,
+  hasMore,
+  loadingOlder,
+  remote,
+  device,
+  onLoadOlder,
+  onRetry,
+  onMarkRead,
+  tr,
+}: {
+  routine: Routine;
+  runs: Task[];
+  loading: boolean;
+  error?: string;
+  hasMore: boolean;
+  loadingOlder: boolean;
+  /** A remote machine's runs come from the relayed feed; there is no older page. */
+  remote: boolean;
+  /** The remote machine whose task route owns this run. */
+  device?: string;
+  onLoadOlder: () => void;
+  onRetry: () => void;
+  onMarkRead: (id: string) => void;
+  tr: (key: string, vars?: Record<string, string | number>) => string;
+}) {
+  const title = routine.title || routine.prompt.slice(0, 48);
+  return (
+    <section
+      aria-labelledby={`runs-${routine.id}`}
+      className="rounded-2xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)] p-3"
+    >
+      <h2 id={`runs-${routine.id}`} className="truncate text-strong font-medium text-kin-text">
+        {tr("routines.runsPanelTitle", { title })}
+      </h2>
+      <p className="mt-0.5 text-caption leading-5 text-kin-muted">
+        {tr("routines.runsPanelHint")}
+      </p>
+      {loading ? (
+        <p className="mt-2 text-body text-kin-muted">{tr("routines.historyLoading")}</p>
+      ) : error ? (
+        <div className="mt-2">
+          <p className="text-body text-kin-red-ink">{error}</p>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-1 min-h-11 text-body text-kin-blue-ink hover:underline md:min-h-8"
+          >
+            {tr("routines.retry")}
+          </button>
+        </div>
+      ) : runs.length === 0 ? (
+        <p className="mt-2 text-body text-kin-secondary">
+          {remote ? tr("routines.historyEmptyRemote") : tr("routines.historyEmpty")}
+        </p>
+      ) : (
+        <ul className="mt-2 max-h-[min(420px,50vh)] space-y-2 overflow-y-auto kin-scroll">
+          {runs.map((run) => (
+            <RunCard
+              key={run.id}
+              run={run}
+              onMarkRead={onMarkRead}
+              tr={tr}
+              quiet
+              ownRoutine
+              device={device}
+            />
+          ))}
+          {/* Inside the scroll box: the click happens at the bottom, and the
+              rows it fetches appear just above the button, in view. */}
+          {hasMore && !remote && runs.length < ROUTINE_HISTORY_MAX && (
+            <li>
+              <button
+                type="button"
+                disabled={loadingOlder}
+                onClick={onLoadOlder}
+                className="min-h-11 text-body text-kin-secondary hover:text-kin-text disabled:opacity-50 sm:min-h-8"
+              >
+                {loadingOlder
+                  ? tr("routines.historyLoadingOlder")
+                  : tr("routines.historyLoadOlder")}
+              </button>
+            </li>
+          )}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -1444,12 +1772,7 @@ function RunCard({
   quiet?: boolean;
   /** The card already sits under its own routine; the id prefix is noise. */
   ownRoutine?: boolean;
-  /**
-   * The machine the run lives on, when that is not this console's own daemon.
-   * A remote run is a task in that machine's store, so its link names the
-   * machine: the ordinary /tasks/:id page would ask this Hub for a row only the
-   * machine has, and show "not found" for a run the reader just tapped.
-   */
+  /** The machine whose task store owns the run, for a remote routine. */
   device?: string;
 }) {
   const navigate = useNavigate();
@@ -1458,6 +1781,23 @@ function RunCard({
   const href = device
     ? `/machines/${encodeURIComponent(device)}/tasks/${encodeURIComponent(run.id)}`
     : `/tasks/${encodeURIComponent(run.id)}`;
+  const openRun = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+    const modifier =
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey;
+    if (modifier) {
+      // Keep Cmd/Ctrl/Shift-click's browser behavior. The click still marks a
+      // remote run read because its detail page cannot compensate later.
+      if (!event.defaultPrevented && run.routine_unread) onMarkRead(run.id);
+      return;
+    }
+    if (onGuardedLinkClick(event, navigate, location, href) && run.routine_unread) {
+      onMarkRead(run.id);
+    }
+  };
   return (
     <li
       className={[
@@ -1474,28 +1814,7 @@ function RunCard({
             <Link
               to={href}
               className="truncate text-strong font-medium text-kin-text hover:underline"
-              onClick={(event) => {
-                const modifier =
-                  event.button !== 0 ||
-                  event.metaKey ||
-                  event.ctrlKey ||
-                  event.shiftKey ||
-                  event.altKey;
-                if (modifier) {
-                  // The browser opens this run in a new tab; the console must
-                  // not take that away, but the row the person read is still
-                  // read. A remote run's detail page cannot compensate later,
-                  // so this click is the only chance.
-                  if (!event.defaultPrevented && run.routine_unread) onMarkRead(run.id);
-                  return;
-                }
-                // A run is a conversation-like destination: opened from the
-                // routines page on a phone, its parent is the list, and a dirty
-                // routine form is asked before the screen is left.
-                if (onGuardedLinkClick(event, navigate, location, href) && run.routine_unread) {
-                  onMarkRead(run.id);
-                }
-              }}
+              onClick={openRun}
             >
               {title}
             </Link>
@@ -1504,9 +1823,7 @@ function RunCard({
                 {tr("routines.noteworthy")}
               </span>
             )}
-            <span className="text-caption text-kin-muted">
-              {routineStatusLabel(run.status, tr)}
-            </span>
+            <span className="text-caption text-kin-muted">{statusLabel(run.status, tr)}</span>
           </div>
           {run.routine_tldr && (
             <p className="mt-1 text-strong text-kin-secondary">{run.routine_tldr}</p>
@@ -1515,6 +1832,13 @@ function RunCard({
             {formatWhen(run.finished_at ?? run.created_at)}
             {!ownRoutine && run.routine_id ? ` · ${run.routine_id.slice(0, 8)}` : ""}
           </div>
+          <Link
+            to={href}
+            onClick={openRun}
+            className="mt-1 inline-flex min-h-11 items-center text-body text-kin-blue-ink hover:underline md:min-h-0"
+          >
+            {tr("routines.openConversation")} →
+          </Link>
         </div>
         {run.routine_unread && (
           <button

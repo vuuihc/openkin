@@ -4,7 +4,7 @@
     "J1": "手机：打开 → 找到昨天的对话 → 继续 → 回答批准",
     "J2": "Mac：打开 → 搜到上周的对话 → 继续 → 改模型和权限 → 看 diff",
     "J3": "开始：任一端 → 新建 → 选 agent、模型、权限 → 发送",
-    "J4": "资料：找到产物、项目或例行任务并操作",
+    "J4": "资料：找到项目或例行任务并操作",
     "J5": "管理：找到一段对话 → 改名、置顶、归档或删除 → 列表恢复秩序",
     "J6": "设置：打开设置 → 改 agent、模型、设备或权限默认 → 新建对话用上新值",
     "J7": "通知：离开控制台 → 设备收到原生通知 → 点开落到那一条 → 处理完安静"
@@ -29,7 +29,6 @@
         "ui/src/App.tsx",
         "ui/src/components/CommandPalette.tsx",
         "ui/src/components/cards/ApprovalCard.tsx",
-        "ui/src/components/chat/AgentModelPicker.tsx",
         "ui/src/components/chat/ChatStream.tsx",
         "ui/src/components/chat/ModelPicker.tsx",
         "ui/src/components/chat/PermissionModePicker.tsx",
@@ -37,6 +36,8 @@
         "ui/src/components/layout/AppShell.tsx",
         "ui/src/components/layout/Sidebar.tsx",
         "ui/src/components/mobile/Sheet.tsx",
+        "ui/src/components/sessions/SessionList.tsx",
+        "ui/src/components/ui/ActionSheet.tsx",
         "ui/src/components/ui/SearchSelect.tsx",
         "ui/src/components/ui/SheetSelect.tsx",
         "ui/src/hooks/useAnchoredPanel.ts",
@@ -49,16 +50,14 @@
         "ui/src/lib/overlayOwnsKeyboard.ts",
         "ui/src/lib/phoneSessionBuckets.ts",
         "ui/src/lib/rowReturn.ts",
+        "ui/src/lib/sessionBucketOrder.ts",
+        "ui/src/lib/sessionFolds.ts",
         "ui/src/lib/sessionSearch.ts",
         "ui/src/pages/SessionsPage.tsx",
         "ui/src/pages/SessionsRoute.tsx",
         "ui/src/pages/StartRoute.tsx",
         "ui/src/pages/TaskDetailPage.tsx",
-        "ui/src/pages/TaskSessionHost.tsx",
-        "ui/src/components/sessions/SessionList.tsx",
-        "ui/src/components/ui/ActionSheet.tsx",
-        "ui/src/lib/sessionBucketOrder.ts",
-        "ui/src/lib/sessionFolds.ts"
+        "ui/src/pages/TaskSessionHost.tsx"
       ],
       "tests": [
         "ui/src/components/CommandPalette.dom.test.tsx",
@@ -67,6 +66,7 @@
         "ui/src/components/chat/PermissionModePicker.dom.test.tsx",
         "ui/src/components/chat/RunConfigSheet.dom.test.tsx",
         "ui/src/components/layout/Sidebar.dom.test.tsx",
+        "ui/src/components/ui/ActionSheet.dom.test.tsx",
         "ui/src/components/ui/SearchSelect.dom.test.tsx",
         "ui/src/components/ui/SheetSelect.dom.test.tsx",
         "ui/src/lib/approvalAttribution.test.ts",
@@ -84,8 +84,302 @@
         "ui/src/pages/findWiring.test.ts",
         "ui/src/pages/macKeyboardWiring.test.ts",
         "ui/src/pages/phoneRunConfigFace.test.ts",
-        "ui/src/pages/sessionPinnedWiring.test.ts",
-        "ui/src/components/ui/ActionSheet.dom.test.tsx"
+        "ui/src/pages/sessionImportedWiring.test.ts",
+        "ui/src/pages/sessionPinnedWiring.test.ts"
+      ],
+      "blockedReason": null
+    },
+    {
+      "id": "KIN-START-001",
+      "state": "covered",
+      "priority": "P1",
+      "journeys": [
+        "J3"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "新建一段对话",
+      "file": "docs/product/stories/KIN-START-001.md",
+      "surface": "新建一段对话",
+      "ownerPaths": [
+        "ui/src/pages/NewChatPage.tsx",
+        "ui/src/components/chat/RunConfigSheet.tsx",
+        "ui/src/lib/permissionMode.ts",
+        "ui/src/components/newchat/PlacePicker.tsx",
+        "ui/src/components/chat/Composer.tsx",
+        "ui/src/components/layout/AppShell.tsx",
+        "ui/src/lib/placeMemory.ts"
+      ],
+      "tests": [
+        "ui/src/components/chat/RunConfigSheet.dom.test.tsx",
+        "ui/src/pages/newChatDeepLinkWiring.test.ts",
+        "ui/src/pages/NewChatPage.dom.test.tsx",
+        "ui/src/components/newchat/PlacePicker.dom.test.tsx",
+        "ui/src/lib/placeMemory.test.ts",
+        "ui/src/lib/permissionMode.test.ts"
+      ],
+      "blockedReason": null
+    },
+    {
+      "id": "KIN-RESULT-001",
+      "state": "draft",
+      "priority": "P1",
+      "journeys": [
+        "J4"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "看它改了什么",
+      "file": "docs/product/stories/KIN-RESULT-001.md",
+      "surface": "看改动",
+      "ownerPaths": [
+        "ui/src/components/changedFileFace.tsx",
+        "ui/src/components/chat/shareExport.ts",
+        "ui/src/pages/TaskDetailPage.tsx"
+      ],
+      "tests": [],
+      "blockedReason": null
+    },
+    {
+      "id": "KIN-MANAGE-001",
+      "state": "draft",
+      "priority": "P1",
+      "journeys": [
+        "J5"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "整理一段对话",
+      "file": "docs/product/stories/KIN-MANAGE-001.md",
+      "surface": "Mac 上接着问 / 手机上接着问 的列表部分",
+      "ownerPaths": [
+        "ui/src/components/layout/Sidebar.tsx",
+        "ui/src/components/sessions/SessionList.tsx",
+        "ui/src/hooks/useSessionDeletion.ts",
+        "ui/src/pages/SessionsPage.tsx"
+      ],
+      "tests": [],
+      "blockedReason": null
+    },
+    {
+      "id": "KIN-SETTINGS-001",
+      "state": "draft",
+      "priority": "P1",
+      "journeys": [
+        "J6"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "改默认设置",
+      "file": "docs/product/stories/KIN-SETTINGS-001.md",
+      "surface": "设置与环境",
+      "ownerPaths": [
+        "ui/src/pages/SettingsPage.tsx",
+        "ui/src/components/settings/ProviderSettingsSection.tsx",
+        "ui/src/components/settings/LocalAgentSettingsSection.tsx"
+      ],
+      "tests": [],
+      "blockedReason": null
+    },
+    {
+      "id": "KIN-NOTIFY-001",
+      "state": "approved",
+      "priority": "P0",
+      "journeys": [
+        "J7"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "离开时被叫回来",
+      "file": "docs/product/stories/KIN-NOTIFY-001.md",
+      "surface": "系统通知中心（控制台不提供通知设置面）",
+      "ownerPaths": [
+        "cmd/kin/main.go",
+        "internal/apns/apns.go",
+        "internal/api/api.go",
+        "internal/api/push_devices.go",
+        "internal/auth/service.go",
+        "internal/notify/notify.go",
+        "internal/remote/auth.go",
+        "internal/server/notify.go",
+        "internal/server/server.go",
+        "internal/store/identity.go",
+        "internal/store/migrate.go",
+        "internal/store/push_devices.go",
+        "internal/store/store.go",
+        "ui/src/App.tsx",
+        "ui/src/api/account.ts",
+        "ui/src/api/client.ts",
+        "ui/src/components/NotificationTaps.tsx",
+        "ui/src/components/settings/AccountSection.tsx",
+        "ui/src/components/settings/PushPermissionRow.tsx",
+        "ui/src/i18n/locales/en.ts",
+        "ui/src/i18n/locales/zh.ts",
+        "ui/src/lib/nativePush.ts",
+        "ui/src/lib/notificationRoute.ts",
+        "ui/src/pages/SettingsPage.tsx",
+        "desktop/src/daemon-api.ts",
+        "desktop/src/main.ts",
+        "desktop/src/native-notifications.ts",
+        "desktop/src/notifications.ts",
+        "mobile/ios/App/App/AppDelegate.swift",
+        "mobile/ios/App/App/App.entitlements",
+        "mobile/ios/App/App/Info.plist",
+        "mobile/ios/App/App/KinBridgeViewController.swift",
+        "mobile/ios/App/App/KinNativePushPlugin.swift",
+        "mobile/ios/App/App/KinPushState.swift",
+        "mobile/ios/App/App/SceneDelegate.swift",
+        "mobile/ios/App/App.xcodeproj/project.pbxproj"
+      ],
+      "tests": [
+        "internal/apns/apns_test.go",
+        "internal/api/push_devices_test.go",
+        "internal/notify/native_test.go",
+        "internal/store/push_devices_test.go",
+        "internal/task/notifyfake_test.go",
+        "internal/task/notify_hook_test.go",
+        "internal/task/routine_hook_test.go",
+        "ui/src/components/NotificationTaps.dom.test.tsx",
+        "ui/src/components/settings/PushPermissionRow.dom.test.tsx",
+        "ui/src/api/account.test.ts",
+        "ui/src/lib/nativePush.test.ts",
+        "ui/src/lib/notificationRoute.test.ts",
+        "desktop/src/native-notifications.wiring.test.ts",
+        "desktop/src/notifications.test.ts"
+      ],
+      "blockedReason": null
+    },
+    {
+      "id": "KIN-SETTINGS-002",
+      "state": "approved",
+      "priority": "P1",
+      "journeys": [
+        "J1",
+        "J6"
+      ],
+      "surfaces": [
+        "mac"
+      ],
+      "title": "桌面壳一键升级",
+      "file": "docs/product/stories/KIN-SETTINGS-002.md",
+      "surface": "",
+      "ownerPaths": [],
+      "tests": [
+        "desktop/src/updater.test.ts",
+        "desktop/src/updater-wiring.test.ts",
+        "desktop/src/tray.wiring.test.ts"
+      ],
+      "blockedReason": null
+    },
+    {
+      "id": "KIN-PROJECT-001",
+      "state": "covered",
+      "priority": "P1",
+      "journeys": [
+        "J4"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "一个项目的封面：看清这里发生过什么，并从这里继续",
+      "file": "docs/product/stories/KIN-PROJECT-001.md",
+      "surface": "Mac 项目封面 / 手机项目封面",
+      "ownerPaths": [
+        "ui/src/pages/ProjectDetailPage.tsx",
+        "ui/src/lib/projectChats.ts",
+        "ui/src/lib/onePagerSummary.ts",
+        "ui/src/lib/projectCoverCache.ts",
+        "ui/src/lib/projectScroll.ts",
+        "ui/src/components/project/Heatmap.tsx",
+        "ui/src/components/sessions/SessionList.tsx"
+      ],
+      "tests": [
+        "ui/src/pages/ProjectDetailPage.dom.test.tsx",
+        "ui/src/pages/projectChatsWiring.test.ts",
+        "ui/src/lib/projectChats.test.ts",
+        "ui/src/lib/onePagerSummary.test.ts",
+        "ui/src/lib/projectCoverCache.test.ts",
+        "ui/src/lib/projectScroll.test.ts"
+      ],
+      "blockedReason": null
+    },
+    {
+      "id": "KIN-AGENTS-001",
+      "state": "blocked",
+      "priority": "P1",
+      "journeys": [
+        "J6"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "机器上的 agent：装了什么、能不能用、用掉多少",
+      "file": "docs/product/stories/KIN-AGENTS-001.md",
+      "surface": "",
+      "ownerPaths": [
+        "ui/src/pages/AgentsPage.tsx",
+        "ui/src/lib/agentCatalog.ts",
+        "ui/src/lib/agentFamilies.ts",
+        "ui/src/lib/agentLimits.ts",
+        "ui/src/lib/agentPageState.ts",
+        "ui/src/lib/agentSessionImport.ts",
+        "ui/src/lib/usage.ts",
+        "internal/adapter/detect/skills_catalog.go"
+      ],
+      "tests": [
+        "ui/src/pages/AgentsPage.dom.test.tsx",
+        "ui/src/lib/agentCatalog.test.ts",
+        "ui/src/lib/agentLimits.test.ts",
+        "ui/src/lib/agentPageState.test.ts",
+        "ui/src/lib/agentFamilies.test.ts",
+        "ui/src/lib/usage.test.ts",
+        "ui/src/lib/agentSessionImport.test.ts"
+      ],
+      "blockedReason": "The signed Agents page and its auto-import removal are implemented, but the full KIN-AGENTS-001 acceptance contract has not been re-run after integration with the current mainline."
+    },
+    {
+      "id": "KIN-ROUTINE-001",
+      "state": "covered",
+      "priority": "P1",
+      "journeys": [
+        "J4"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "让它按时跑：把一件事交给机器重复做",
+      "file": "docs/product/stories/KIN-ROUTINE-001.md",
+      "surface": "",
+      "ownerPaths": [
+        "ui/src/pages/RoutinesPage.tsx",
+        "ui/src/lib/routineDevice.ts",
+        "ui/src/lib/routineEdit.ts",
+        "ui/src/lib/routineHistory.ts",
+        "internal/routines/scheduler.go",
+        "internal/store/routines.go",
+        "internal/store/migrate.go",
+        "internal/api/routines.go",
+        "ui/src/lib/routineConversation.ts"
+      ],
+      "tests": [
+        "ui/src/lib/routineDevice.test.ts",
+        "ui/src/lib/routineEdit.test.ts",
+        "ui/src/lib/routineHistory.test.ts",
+        "ui/src/pages/RoutinesPage.dom.test.tsx",
+        "ui/src/lib/routineConversation.test.ts"
       ],
       "blockedReason": null
     },
@@ -124,227 +418,6 @@
         "ui/src/lib/phoneDeepLinkParent.test.ts"
       ],
       "blockedReason": null
-    },
-    {
-      "id": "KIN-START-001",
-      "state": "draft",
-      "priority": "P1",
-      "journeys": [
-        "J3"
-      ],
-      "surfaces": [
-        "mac",
-        "phone"
-      ],
-      "title": "新建一段对话",
-      "file": "docs/product/stories/KIN-START-001.md",
-      "surface": "新建一段对话",
-      "ownerPaths": [
-        "ui/src/pages/NewChatPage.tsx",
-        "ui/src/components/chat/RunConfigSheet.tsx",
-        "ui/src/lib/permissionMode.ts"
-      ],
-      "tests": [],
-      "blockedReason": null
-    },
-    {
-      "id": "KIN-RESULT-001",
-      "state": "draft",
-      "priority": "P1",
-      "journeys": [
-        "J4"
-      ],
-      "surfaces": [
-        "mac",
-        "phone"
-      ],
-      "title": "看它改了什么",
-      "file": "docs/product/stories/KIN-RESULT-001.md",
-      "surface": "找产物",
-      "ownerPaths": [
-        "ui/src/components/changedFileFace.tsx",
-        "ui/src/components/chat/shareExport.ts",
-        "ui/src/pages/ArtifactsPage.tsx",
-        "ui/src/pages/ArtifactDetailPage.tsx",
-        "ui/src/pages/TaskDetailPage.tsx"
-      ],
-      "tests": [],
-      "blockedReason": null
-    },
-    {
-      "id": "KIN-MANAGE-001",
-      "state": "draft",
-      "priority": "P1",
-      "journeys": [
-        "J5"
-      ],
-      "surfaces": [
-        "mac",
-        "phone"
-      ],
-      "title": "整理一段对话",
-      "file": "docs/product/stories/KIN-MANAGE-001.md",
-      "surface": "Mac 上接着问 / 手机上接着问 的列表部分",
-      "ownerPaths": [
-        "ui/src/components/layout/Sidebar.tsx",
-        "ui/src/pages/SessionsPage.tsx",
-        "ui/src/hooks/useSessionDeletion.ts"
-      ],
-      "tests": [],
-      "blockedReason": null
-    },
-    {
-      "id": "KIN-SETTINGS-001",
-      "state": "draft",
-      "priority": "P1",
-      "journeys": [
-        "J6"
-      ],
-      "surfaces": [
-        "mac",
-        "phone"
-      ],
-      "title": "改默认设置",
-      "file": "docs/product/stories/KIN-SETTINGS-001.md",
-      "surface": "设置与环境",
-      "ownerPaths": [
-        "ui/src/pages/SettingsPage.tsx",
-        "ui/src/components/settings/ProviderSettingsSection.tsx",
-        "ui/src/components/settings/LocalAgentSettingsSection.tsx",
-        "ui/src/components/settings/PhoneSection.tsx"
-      ],
-      "tests": [],
-      "blockedReason": null
-    },
-    {
-      "id": "KIN-NOTIFY-001",
-      "state": "approved",
-      "priority": "P0",
-      "journeys": [
-        "J7"
-      ],
-      "surfaces": [
-        "mac",
-        "phone"
-      ],
-      "title": "离开时被叫回来",
-      "file": "docs/product/stories/KIN-NOTIFY-001.md",
-      "surface": "设置 → 通知 / 系统通知中心",
-      "ownerPaths": [
-        "cmd/kin/main.go",
-        "internal/apns/apns.go",
-        "internal/api/api.go",
-        "internal/api/push_devices.go",
-        "internal/auth/service.go",
-        "internal/notify/notify.go",
-        "internal/remote/auth.go",
-        "internal/server/notify.go",
-        "internal/server/server.go",
-        "internal/store/identity.go",
-        "internal/store/migrate.go",
-        "internal/store/push_devices.go",
-        "internal/store/store.go",
-        "ui/src/App.tsx",
-        "ui/src/api/account.ts",
-        "ui/src/api/client.ts",
-        "ui/src/components/NotificationTaps.tsx",
-        "ui/src/components/settings/AccountSection.tsx",
-        "ui/src/components/settings/NativePushSettings.tsx",
-        "ui/src/i18n/locales/en.ts",
-        "ui/src/i18n/locales/zh.ts",
-        "ui/src/lib/nativePush.ts",
-        "ui/src/lib/notificationRoute.ts",
-        "ui/src/pages/SettingsPage.tsx",
-        "desktop/src/daemon-api.ts",
-        "desktop/src/main.ts",
-        "desktop/src/native-notifications.ts",
-        "desktop/src/notifications.ts",
-        "mobile/ios/App/App/AppDelegate.swift",
-        "mobile/ios/App/App/App.entitlements",
-        "mobile/ios/App/App/Info.plist",
-        "mobile/ios/App/App/KinBridgeViewController.swift",
-        "mobile/ios/App/App/KinNativePushPlugin.swift",
-        "mobile/ios/App/App/KinPushState.swift",
-        "mobile/ios/App/App/SceneDelegate.swift",
-        "mobile/ios/App/App.xcodeproj/project.pbxproj"
-      ],
-      "tests": [
-        "internal/apns/apns_test.go",
-        "internal/api/push_devices_test.go",
-        "internal/notify/native_test.go",
-        "internal/store/push_devices_test.go",
-        "internal/task/notifyfake_test.go",
-        "internal/task/notify_hook_test.go",
-        "internal/task/routine_hook_test.go",
-        "ui/src/components/NotificationTaps.dom.test.tsx",
-        "ui/src/components/settings/NativePushSettings.dom.test.tsx",
-        "ui/src/api/account.test.ts",
-        "ui/src/lib/nativePush.test.ts",
-        "ui/src/lib/notificationRoute.test.ts",
-        "desktop/src/native-notifications.wiring.test.ts",
-        "desktop/src/notifications.test.ts"
-      ],
-      "blockedReason": null
-    },
-    {
-      "id": "KIN-SETTINGS-002",
-      "state": "approved",
-      "priority": "P1",
-      "journeys": [
-        "J1",
-        "J6"
-      ],
-      "surfaces": [
-        "mac"
-      ],
-      "title": "桌面壳一键升级",
-      "file": "docs/product/stories/KIN-SETTINGS-002.md",
-      "surface": "",
-      "ownerPaths": [],
-      "tests": [
-        "desktop/src/updater.test.ts",
-        "desktop/src/updater-wiring.test.ts",
-        "desktop/src/tray.wiring.test.ts"
-      ],
-      "blockedReason": null
-    },
-    {
-      "id": "KIN-AGENTS-001",
-      "state": "blocked",
-      "priority": "P1",
-      "journeys": [
-        "J6"
-      ],
-      "surfaces": [
-        "mac",
-        "phone"
-      ],
-      "title": "机器上的 agent：装了什么、能不能用、用掉多少",
-      "file": "docs/product/stories/KIN-AGENTS-001.md",
-      "surface": "",
-      "ownerPaths": [
-        "ui/src/pages/AgentsPage.tsx",
-        "ui/src/components/layout/AppShell.tsx",
-        "ui/src/components/settings/LocalAgentSettingsSection.tsx",
-        "ui/src/hooks/useAgentCatalog.ts",
-        "ui/src/hooks/useAgentSessionImport.ts",
-        "ui/src/pages/SettingsPage.tsx",
-        "ui/src/lib/agentCatalog.ts",
-        "ui/src/lib/agentFamilies.ts",
-        "ui/src/lib/agentLimits.ts",
-        "ui/src/lib/agentSessionImport.ts",
-        "ui/src/lib/usage.ts",
-        "internal/adapter/detect/skills_catalog.go",
-        "internal/api/api.go",
-        "internal/store/agent_sessions.go"
-      ],
-      "tests": [
-        "ui/src/hooks/useAgentCatalog.test.tsx",
-        "ui/src/hooks/useAgentSessionImport.test.tsx",
-        "ui/src/components/settings/LocalAgentSettingsSection.dom.test.tsx",
-        "internal/api/settings_test.go"
-      ],
-      "blockedReason": "当前 main 基线缺少签字版 Agents 页面的实现与验收测试（AgentsPage.dom.test.tsx、agentPageState.ts）；本次只恢复并落地「不自动导入任何 agent 历史会话」条款，其余验收待页面恢复后重跑。"
     }
   ]
 }

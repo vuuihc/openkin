@@ -35,8 +35,6 @@ export function displayAgentSessionTitle(
   return suffix ? `${fallback} · ${suffix}` : fallback;
 }
 
-export type AgentSessionAvailability = "linked" | "resumable" | "read_only";
-
 export function canContinueAgentSession(
   session: Pick<AgentSession, "linked" | "cwd" | "capabilities">,
 ): boolean {
@@ -45,12 +43,4 @@ export function canContinueAgentSession(
     Boolean(session.cwd.trim()) &&
     session.capabilities?.includes("session_attach") === true
   );
-}
-
-export function agentSessionAvailability(
-  session: Pick<AgentSession, "linked" | "cwd" | "capabilities">,
-): AgentSessionAvailability {
-  if (session.linked) return "linked";
-  if (canContinueAgentSession(session)) return "resumable";
-  return "read_only";
 }

@@ -50,7 +50,7 @@ describe("useRemoteTaskRun", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
-    expect(mockedEvents).toHaveBeenLastCalledWith("node-1", "t-1", 2);
+    expect(mockedEvents).toHaveBeenLastCalledWith("node-1", "t-1", 2, 50);
     expect(result.current.task?.status).toBe("succeeded");
     expect(result.current.events.map((e) => e.seq)).toEqual([1, 2, 3]);
 
@@ -90,6 +90,25 @@ describe("useRemoteTaskRun", () => {
     });
     expect(result.current.task?.status).toBe("succeeded");
     expect(result.current.error).toBeNull();
+  });
+
+  it("drains every page after the task is terminal", async () => {
+    mockedTask.mockResolvedValueOnce(task("succeeded"));
+    mockedEvents
+      .mockResolvedValueOnce(events(...Array.from({ length: 50 }, (_, i) => i + 1)))
+      .mockResolvedValueOnce(events(51));
+
+    const { result } = renderHook(() => useRemoteTaskRun("node-1", "t-1"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(mockedEvents).toHaveBeenNthCalledWith(1, "node-1", "t-1", 0, 50);
+    expect(mockedEvents).toHaveBeenNthCalledWith(2, "node-1", "t-1", 50, 50);
+    expect(result.current.events.map((event) => event.seq)).toEqual(
+      Array.from({ length: 51 }, (_, i) => i + 1),
+    );
+    expect(result.current.task?.status).toBe("succeeded");
   });
 
   it("does not ask anyone without a machine and an id", async () => {

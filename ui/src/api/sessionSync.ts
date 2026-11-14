@@ -182,8 +182,8 @@ export class SessionSync {
       const applied = this.applyPage(page, startedAt);
       if (page.has_more) await this.drain();
       if (applied.length > 0) {
-        // No frames reach this client, so the inbox and any open transcript
-        // are re-read on the same signal a frame would have carried.
+        // No frames reach this client, so the pending list and any open
+        // transcript are re-read on the same signal a frame would have carried.
         void this.store.refreshPending(true);
         void this.store.refreshOpenDetails(changedTaskIds(applied));
       }

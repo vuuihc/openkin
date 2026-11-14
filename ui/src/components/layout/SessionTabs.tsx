@@ -61,7 +61,7 @@ export default function SessionTabs({ tabs, activeId, onSelect, onClose, onMove 
   // The strip scrolls, and the active tab can be off the right edge — the one
   // tab that must be findable without scrolling for it.
   useEffect(() => {
-    activeRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    activeRef.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, [activeId, tabs.length]);
 
   // Only rendered with at least one tab, so there is always something to focus.

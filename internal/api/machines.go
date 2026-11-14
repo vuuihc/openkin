@@ -121,6 +121,14 @@ func (s *Server) handleMachineTaskEvents(w http.ResponseWriter, r *http.Request)
 		}
 		params.SinceSeq = n
 	}
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid limit"})
+			return
+		}
+		params.Limit = n
+	}
 	if err := params.Validate(); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return

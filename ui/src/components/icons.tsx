@@ -54,25 +54,6 @@ export function IconSessions(p: IconProps) {
     <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.2-.6L3 21l1.7-4.6A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4Z" />,
   );
 }
-export function IconArtifacts(p: IconProps) {
-  return base(
-    p,
-    <>
-      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-      <path d="M8 7h8M8 11h6" />
-    </>,
-  );
-}
-export function IconProjects(p: IconProps) {
-  return base(
-    p,
-    <>
-      <path d="M3 7h7l2 2h9v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
-      <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2" />
-    </>,
-  );
-}
 export function IconAgents(p: IconProps) {
   return base(
     p,

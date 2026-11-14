@@ -8,6 +8,14 @@ import { NOTIFICATION_EVENT, type NotificationTapSource } from "../lib/notificat
 import { useAppStore } from "../store/appStore";
 import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { resetLeaveGuard } from "../lib/leaveGuard";
+import {
+  forgetNativeDevice,
+  forgetPendingNativeDelete,
+  rememberedNativeDevice,
+  rememberPendingNativeDelete,
+  type NativePushApi,
+  type NativePushPlugin,
+} from "../lib/nativePush";
 import { notePhoneLocation, resetPhoneNavigation } from "../lib/phoneNavigation";
 import { resetSheetExits } from "../lib/sheetExit";
 import Sheet from "./mobile/Sheet";
@@ -60,6 +68,8 @@ beforeEach(() => {
   h.clearDelivered.mockReset();
   h.delivered.mockReset();
   h.delivered.mockResolvedValue([]);
+  forgetNativeDevice();
+  forgetPendingNativeDelete();
   useAppStore.setState({ auth: { status: "ok" } });
   resetLeaveGuard();
   resetPhoneNavigation();
@@ -101,6 +111,82 @@ function tap(url: string) {
 }
 
 describe("NotificationTaps", () => {
+  function grantedPlugin(): NativePushPlugin {
+    return {
+      permission: vi.fn(async () => ({ status: "granted" as const })),
+      requestPermission: vi.fn(async () => ({ status: "granted" as const })),
+      register: vi.fn(async () => ({
+        installId: "install-0001",
+        token: ["token", "0001"].join("-"),
+        environment: "sandbox" as const,
+        name: "iPhone",
+      })),
+      unregister: vi.fn(async () => undefined),
+      openSettings: vi.fn(async () => undefined),
+    };
+  }
+
+  function pushApi(events: string[] = []) {
+    return {
+      registerPushDevice: vi.fn(async () => {
+        events.push("register");
+        return { id: "row-new" };
+      }),
+      deletePushDevice: vi.fn(async (id: string) => {
+        events.push(`delete:${id}`);
+      }),
+    } satisfies NativePushApi;
+  }
+
+  it("refreshes a remembered phone token on launch after flushing a pending deletion", async () => {
+    const plugin = grantedPlugin();
+    const events: string[] = [];
+    const api = pushApi(events);
+    rememberPendingNativeDelete("row-old");
+
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <NotificationTaps source={null} pushPlugin={plugin} pushApi={api} />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(api.registerPushDevice).toHaveBeenCalledTimes(1));
+    expect(events).toEqual(["delete:row-old", "register"]);
+    expect(rememberedNativeDevice()).toBe("row-new");
+  });
+
+  it("refreshes the phone token after returning to the foreground and after reconnect", async () => {
+    const plugin = grantedPlugin();
+    const api = pushApi();
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <NotificationTaps source={null} pushPlugin={plugin} pushApi={api} />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(api.registerPushDevice).toHaveBeenCalledTimes(1));
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(api.registerPushDevice).toHaveBeenCalledTimes(2));
+    act(() => useAppStore.setState({ reconnectGen: 1 }));
+    await waitFor(() => expect(api.registerPushDevice).toHaveBeenCalledTimes(3));
+  });
+
+  it("does not make the phone addressable while an old row is still undeleted", async () => {
+    const plugin = grantedPlugin();
+    const api = pushApi();
+    api.deletePushDevice.mockRejectedValue(new Error("offline"));
+    rememberPendingNativeDelete("row-old");
+
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <NotificationTaps source={null} pushPlugin={plugin} pushApi={api} />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(api.deletePushDevice).toHaveBeenCalledWith("row-old"));
+    expect(api.registerPushDevice).not.toHaveBeenCalled();
+  });
+
   it("lands on the item named by a warm tap and acknowledges it", async () => {
     const takePendingURL = vi.fn(async () => null);
     const { getByTestId } = mount({ takePendingURL });

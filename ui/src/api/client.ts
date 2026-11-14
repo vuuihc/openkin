@@ -647,8 +647,12 @@ export function listMachineTaskEvents(
   device: string,
   id: string,
   sinceSeq = 0,
+  limit = 50,
 ): Promise<TaskEvent[]> {
-  const q = sinceSeq > 0 ? `?since_seq=${sinceSeq}` : "";
+  const query = new URLSearchParams();
+  if (sinceSeq > 0) query.set("since_seq", String(sinceSeq));
+  if (limit > 0) query.set("limit", String(limit));
+  const q = query.size > 0 ? `?${query.toString()}` : "";
   return apiFetch<TaskEvent[]>(
     `/api/machines/${encodeURIComponent(device)}/tasks/${encodeURIComponent(id)}/events${q}`,
   );
@@ -1543,6 +1547,8 @@ export type Routine = {
   lane: string;
   /** Wall-clock rule as JSON; empty or absent for an interval routine. */
   recurrence?: string;
+  /** How each run starts its agent session; legacy rows read as continue. */
+  conversation_mode?: string;
   claim_until_at?: number;
   last_outcome?: string;
   last_error?: string;
@@ -1571,6 +1577,7 @@ export type CreateRoutineBody = {
   missed_run_policy?: "coalesce" | "skip";
   lane?: string;
   recurrence?: string;
+  conversation_mode?: "continue" | "fresh";
 };
 
 export type PatchRoutineBody = {
@@ -1589,6 +1596,7 @@ export type PatchRoutineBody = {
   lane?: string;
   /** "" clears the rule and hands the schedule back to interval_secs. */
   recurrence?: string;
+  conversation_mode?: "continue" | "fresh";
 };
 
 /** What a rule means before it is saved, as the daemon reads it. */

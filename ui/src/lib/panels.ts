@@ -25,7 +25,7 @@
  * the only way to add an id is to add it to the list, and the list is what the
  * test walks.
  */
-export const PANEL_IDS = ["files", "pr", "publish", "terminal"] as const;
+export const PANEL_IDS = ["files", "publish", "terminal"] as const;
 
 export type PanelId = (typeof PANEL_IDS)[number];
 
@@ -74,11 +74,6 @@ export const PANELS: PanelDescriptor[] = [
     // its file tree shows.
     id: "files",
     titleKey: "workspace.title",
-    available: (ctx) => ctx.taskId !== null,
-  },
-  {
-    id: "pr",
-    titleKey: "pr.title",
     available: (ctx) => ctx.taskId !== null,
   },
   {

@@ -72,9 +72,14 @@ const (
 	// produce; it is here because SessionCatalog is an interface and a row this
 	// machine cannot state the size of is a row that can fail the frame it
 	// travels in — which reads as a machine that did not answer.
-	maxTitle         = 256
-	maxCwd           = 1024
-	maxSourceURI     = 512
+	maxTitle = 256
+	maxCwd   = 1024
+	// A source path is a path: 512 cut the longer ones in half, and a hint that
+	// names a file this machine cannot open is worse than no hint at all — the
+	// other machine has to rediscover the session anyway. The wire's own bound
+	// is the one the hub asks with, so a path this machine lists is a path the
+	// hub can name back.
+	maxSourceURI     = worker.MaxAgentHistorySource
 	maxStatus        = 64
 	maxContentDigest = 128
 	// maxSessionCursor bounds a provider's own listing cursor. There is no wire
@@ -184,7 +189,14 @@ func (r *Responder) sessionHistory(ctx context.Context, asked worker.AgentHistor
 		limit = worker.MaxAgentHistoryItems
 	}
 	page, err := r.Sessions.ReadSessionHistory(ctx, strings.TrimSpace(asked.Agent), strings.TrimSpace(asked.Ref),
-		agent.HistoryQuery{Cursor: asked.Cursor, Before: asked.Before, Tail: asked.Tail, Limit: limit})
+		agent.HistoryQuery{
+			Cursor: asked.Cursor, Before: asked.Before, Tail: asked.Tail, Limit: limit,
+			// The asking Hub's hint about where this session's source is. The
+			// catalog checks it against this machine's roots and the session's
+			// own records before using it, so a hint from a stale row costs a
+			// rediscovery rather than reading a different transcript.
+			SourceURI: asked.SourceURI,
+		})
 	if err != nil {
 		// Including the provider having no catalog: a Hub that asked about a
 		// session it read from this machine deserves this machine's sentence

@@ -11,7 +11,7 @@ import PermissionModePicker from "./PermissionModePicker";
  *
  * The Mac side used to open an Ionic action sheet — an iPhone surface in the
  * middle of a desktop window, over the composer that was being configured.
- * These tests pin the surface itself: `role="menu"` and no `ion-action-sheet`
+ * These tests pin the surface itself: `role="menu"` and no phone sheet
  * at desktop width, the sheet still on a phone, Escape closing without
  * answering, and focus returning to the chip.
  */
@@ -56,7 +56,7 @@ describe("the permission picker", () => {
     // menu was clipped to the ~30px strip and painted nothing at all.
     expect(menu.className).toContain("fixed");
     expect(menu.parentElement).toBe(document.body);
-    expect(document.querySelector("ion-action-sheet")).toBeNull();
+    expect(document.querySelector("[data-kin-sheet]")).toBeNull();
     // #3: the same viewport measurement as the model and agent panels — the
     // menu stays inside the 1280px window and uses one side of the chip.
     const left = Number.parseFloat(menu.style.left);
@@ -99,10 +99,8 @@ describe("the permission picker", () => {
     const { chip } = setup(false);
     await userEvent.click(chip);
 
-    // The host is mounted closed as well; the expanded chip is what says the
-    // sheet was actually asked to open.
     expect(chip.getAttribute("aria-expanded")).toBe("true");
-    expect(document.querySelector("ion-action-sheet")).not.toBeNull();
+    expect(screen.getByRole("dialog", { name: "Permissions" })).toBeTruthy();
     expect(screen.queryByRole("menu")).toBeNull();
   });
 });

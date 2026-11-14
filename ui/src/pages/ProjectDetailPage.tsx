@@ -1,14 +1,22 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
   type KeyboardEvent,
-  type MouseEvent as ReactMouseEvent,
 } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { goBackToList } from "../lib/phoneBack";
+import { useLeaveGuard } from "../hooks/useLeaveGuard";
+import { runGuardedNavigation } from "../lib/leaveGuard";
+import {
+  draftEntryState,
+  onGuardedLinkClick,
+  phonePush,
+  returnListUrl,
+} from "../lib/phoneNavigation";
 import {
   ApiError,
   getOnePager,
@@ -16,151 +24,528 @@ import {
   getProjectPulse,
   isAuthenticated,
   listAgentSessions,
-  listProjectArtifacts,
   listProjectTasks,
+  listRoutines,
   patchProject,
   putOnePager,
   refreshProjectPulse,
-  listRoutines,
-  createRoutine,
-  type Artifact,
-  type Routine,
+  type OnePager,
   type OnePagerSummary,
   type Project,
   type ProjectMode,
   type ProjectPulse,
+  type PulseDay,
+  type Routine,
 } from "../api/client";
-import { launchRecipe } from "../recipes/launch";
-import ProjectSummaryCard from "../components/project/ProjectSummaryCard";
-import { IconBack, IconMachine } from "../components/icons";
-import RoutineScheduleFields, {
-  defaultNextRunLocal,
-  parseLocalDateTime,
-} from "../components/routine/RoutineScheduleFields";
-import { serializeRoutineRule, type RoutineRule } from "../lib/routineRecurrence";
-import Markdown from "../components/Markdown";
+import { IconBack, IconMachine, IconRoutines } from "../components/icons";
 import SearchSelect from "../components/ui/SearchSelect";
 import Heatmap from "../components/project/Heatmap";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
+import { useMinWidth } from "../hooks/useMinWidth";
 import { useSlowHint } from "../hooks/useSlowHint";
-import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { useMachines } from "../hooks/useMachines";
-import { runGuardedNavigation } from "../lib/leaveGuard";
-import {
-  currentPhoneLocation,
-  phonePush,
-  onGuardedLinkClick,
-  draftEntryState,
-  returnListUrl,
-} from "../lib/phoneNavigation";
 import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
 import { samePath } from "../lib/devices";
-import {
-  readRoutineDevice,
-  routineDeviceForProject,
-  THIS_MACHINE,
-  writeRoutineDevice,
-} from "../lib/routineDevice";
+import { onePagerFocus, setOnePagerFocus } from "../lib/onePagerSummary";
+import { clearProjectCover, readProjectCover, writeProjectCover } from "../lib/projectCoverCache";
 import {
   loadProjectChats,
-  normalizeProjectTab,
+  projectNewChatTarget,
   projectRoots,
-  PROJECT_TABS,
   type ProjectChatRow,
   type ProjectChatsOutcome,
-  type ProjectTab,
 } from "../lib/projectChats";
+import { readProjectScroll, writeProjectScroll } from "../lib/projectScroll";
+import { readRoutineDevice, routineDeviceForProject } from "../lib/routineDevice";
 import { formatRelativeTime } from "../lib/relativeTime";
+import { sessionStatusDotClass } from "../lib/sessionViewed";
 import { taskCardStatusView } from "../lib/taskCardStatus";
 import { useT } from "../i18n/react";
 import { useAppStore } from "../store/appStore";
 
-function formatWhen(ms: number): string {
-  if (!ms) return "—";
-  try {
-    return new Date(ms).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return "—";
-  }
-}
-
 /**
- * Project cover — pulse + editable One-Pager.
- * Scrolls inside AppShell main (overflow-y-auto).
+ * Project cover — the answer to "what happened here, and where do I continue".
+ *
+ * One surface, no tabs (KIN-PROJECT-001 D2): summary, recent activity, two
+ * weeks of pulse and the project's routines — the routines read-only, because
+ * scheduling belongs to /routines. The newest conversation is the only
+ * conversation row; a second list would duplicate the sidebar's.
+ *
+ * The reads are independent on purpose: the project record owns the page, the
+ * One-Pager owns the summary, the pulse owns the heatmaps, the activity feed
+ * owns its one row, and routines own their card. One failing feed blanks its
+ * own block, never the page.
  */
+
+/** The heatmaps answer "lately", so two weeks, not a quarter. */
+const PULSE_WINDOW_DAYS = 14;
+const ROUTINES_SHOWN = 3;
+
 export default function ProjectDetailPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const tr = useT();
-  const locationRef = useRef(location);
-  locationRef.current = location;
-  const idRef = useRef(id);
-  idRef.current = id;
   const pushToast = useAppStore((s) => s.pushToast);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
+  const wsStatus = useAppStore((s) => s.wsStatus);
+  const offline = wsStatus === "disconnected";
+  const wide = useMinWidth(1024);
+  const cardIds = useId();
 
   const [project, setProject] = useState<Project | null>(null);
   const [markdown, setMarkdown] = useState("");
   const [updatedAt, setUpdatedAt] = useState(0);
-  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
-  const [pulse, setPulse] = useState<ProjectPulse | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [windowDays, setWindowDays] = useState(90);
-  const [error, setError] = useState<string | null>(null);
+  const [summary, setSummary] = useState<OnePagerSummary | null>(null);
+  const [lastLoadedAt, setLastLoadedAt] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<{ message: string; notFound: boolean } | null>(null);
+
+  const [onePagerLoaded, setOnePagerLoaded] = useState(false);
+  const [onePagerLoading, setOnePagerLoading] = useState(true);
+  const [onePagerError, setOnePagerError] = useState<string | null>(null);
+
+  const [pulse, setPulse] = useState<ProjectPulse | null>(null);
+  const [pulseFor, setPulseFor] = useState<string | null>(null);
+  const [pulseLoading, setPulseLoading] = useState(true);
+  const [pulseError, setPulseError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const [routines, setRoutines] = useState<Routine[]>([]);
+  const [routinesFor, setRoutinesFor] = useState<string | null>(null);
+  const [routinesLoaded, setRoutinesLoaded] = useState(false);
+  const [routinesLoading, setRoutinesLoading] = useState(true);
+  const [routinesError, setRoutinesError] = useState<string | null>(null);
+
+  const [latest, setLatest] = useState<ProjectChatRow | null>(null);
+  const [lastImportAt, setLastImportAt] = useState<number | null>(null);
+  const [activityFor, setActivityFor] = useState<string | null>(null);
+  const [activityLoaded, setActivityLoaded] = useState(false);
+  const [activityLoading, setActivityLoading] = useState(true);
+  const [activityError, setActivityError] = useState<string | null>(null);
+  const [activityPartial, setActivityPartial] = useState(false);
+
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  /** The version the editor started from; a reconnect must not move it. */
+  const [editBase, setEditBase] = useState({ markdown: "", updatedAt: 0 });
   const [saving, setSaving] = useState(false);
-  const [continuing, setContinuing] = useState(false);
-  const [projectRoutines, setProjectRoutines] = useState<Routine[]>([]);
-  const [showRoutineModal, setShowRoutineModal] = useState(false);
-  const [routineTitle, setRoutineTitle] = useState("");
-  const [routinePrompt, setRoutinePrompt] = useState("");
-  const [routineInterval, setRoutineInterval] = useState(86400);
-  const [routineRule, setRoutineRule] = useState<RoutineRule | null>(null);
-  const [routineNextLocal, setRoutineNextLocal] = useState(() => defaultNextRunLocal());
-  const [creatingRoutine, setCreatingRoutine] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [conflict, setConflict] = useState<OnePager | null>(null);
 
-  const [summary, setSummary] = useState<OnePagerSummary | null>(null);
-  const slow = useSlowHint(loading);
-
-  // The tab lives in the URL for the same reason the session filters do: the
-  // header and the list cannot disagree, a reload keeps the tab, and a project's
-  // chats can be linked. An unknown value is the overview (see
-  // `normalizeProjectTab`), never an empty screen.
   const [params, setParams] = useSearchParams();
-  const tab = normalizeProjectTab(params.get("tab"));
-  const selectTab = (next: ProjectTab) => {
-    const p = new URLSearchParams(params);
-    if (next === "overview") p.delete("tab");
-    else p.set("tab", next);
-    // Replace, not push: the tab is a view of this project, and Back should
-    // leave the project rather than walk through the views it passed through.
-    setParams(p, { replace: true });
-  };
+  const projectRef = useRef<Project | null>(null);
+  const editingRef = useRef(false);
+  const coverRequest = useRef(0);
+  const onePagerRequest = useRef(0);
+  const routinesRequest = useRef(0);
+  const activityRequest = useRef(0);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const summaryFieldRef = useRef<HTMLTextAreaElement | null>(null);
+  const editButtonRef = useRef<HTMLButtonElement | null>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+  const scrollTopRef = useRef(0);
+  const restoredFor = useRef<string | null>(null);
+  const slow = useSlowHint(loading && !project);
+  const {
+    machines,
+    loading: machinesLoading,
+    failed: machinesFailed,
+  } = useMachines();
+  const selfDeviceId = (machines.find((machine) => machine.isSelf)?.id ?? "").trim();
+  const projectCwd =
+    project && project.id === id ? (projectRoots(project)[0] ?? "") : "";
+  const [routineDevice, routinesDeviceResolved] = useMemo((): [string, boolean] => {
+    if (machinesLoading) return ["", false];
+    if (machinesFailed) {
+      // A failed list degrades to the Hub alone. Matching the project against
+      // that fallback would confidently read the wrong machine's routines.
+      // The routines page's remembered remote choice is the best surviving
+      // evidence; with none, leave this card unresolved instead of guessing.
+      const remembered = readRoutineDevice().trim();
+      return [remembered, remembered.length > 0];
+    }
+    return [
+      routineDeviceForProject(machines, projectCwd, readRoutineDevice()),
+      true,
+    ];
+  }, [machines, machinesFailed, machinesLoading, projectCwd]);
 
-  // A one-pager that was typed into but not saved is the only draft this page
-  // owns. It has to be asked about before every route change the page itself
-  // starts: its own Back, a chat row, and a recipe launch. The shell asks the
-  // same question for its Back/edge-swipe/⌘N through `useLeaveGuard`; a browser
-  // system Back is outside the page and cannot be intercepted here.
-  const dirty = editing && draft.trim() !== markdown.trim();
-  const canLeave = useCallback(() => {
-    if (!dirty) return true;
-    return typeof window.confirm === "function"
-      ? window.confirm(tr("projects.summaryDiscard"))
-      : true;
-  }, [dirty, tr]);
-  // The shell's Back/edge/⌘N and every route this page starts ask the same
-  // guard. The boolean is the pure half: it arms the same-URL history entry
-  // that lets a system Back ask before React Router unmounts the editor.
-  useLeaveGuard(canLeave, dirty);
+  // The old ?tab= links predate the signed cover. They land on the cover and
+  // the address bar stops claiming a view that no longer exists.
+  useEffect(() => {
+    if (!params.has("tab")) return;
+    const next = new URLSearchParams(params);
+    next.delete("tab");
+    setParams(next, { replace: true });
+  }, [params, setParams]);
+
+  useEffect(() => {
+    projectRef.current = project;
+  }, [project]);
+
+  useEffect(() => {
+    editingRef.current = editing;
+  }, [editing]);
+
+  // Whatever opened the cover — the sidebar project title, usually — gets
+  // focus back when the reader leaves (contract step 6). The element may not
+  // exist after a route unmount, so `goBack` also falls back to the project's
+  // title button by name.
+  useEffect(() => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active !== document.body && active !== document.documentElement) {
+      openerRef.current = active;
+    }
+  }, [id]);
+
+  // Another project means a different cover, not the previous one under a new
+  // URL. Every request generation is bumped so an answer for the old route
+  // cannot install itself here; the cached cover, if any, paints first.
+  useEffect(() => {
+    coverRequest.current += 1;
+    onePagerRequest.current += 1;
+    routinesRequest.current += 1;
+    activityRequest.current += 1;
+    setError(null);
+    setEditing(false);
+    setConflict(null);
+    setSaved(false);
+    setEditBase({ markdown: "", updatedAt: 0 });
+    setMarkdown("");
+    setUpdatedAt(0);
+    setSummary(null);
+    setDraft("");
+    setOnePagerLoaded(false);
+    setOnePagerLoading(true);
+    setOnePagerError(null);
+    setPulse(null);
+    setPulseFor(null);
+    setPulseError(null);
+    setRoutines([]);
+    setRoutinesFor(null);
+    setRoutinesLoaded(false);
+    setRoutinesError(null);
+    setLatest(null);
+    setLastImportAt(null);
+    setActivityFor(null);
+    setActivityLoaded(false);
+    setActivityError(null);
+    setActivityPartial(false);
+
+    const cached = id ? readProjectCover(id) : null;
+    if (!cached) {
+      setProject(null);
+      setLastLoadedAt(0);
+      return;
+    }
+    setProject(cached.project);
+    setLastLoadedAt(cached.savedAt);
+    setPulse(cached.pulse);
+    if (cached.pulse) setPulseFor(id);
+    // Only a read that actually answered is replayed. A cached "empty" from a
+    // half-finished first visit is a gap, not an answer.
+    if (cached.routinesLoaded) {
+      setRoutines(cached.routines);
+      setRoutinesFor(id);
+      setRoutinesLoaded(true);
+    }
+    if (cached.activityLoaded) {
+      setLatest(cached.latest);
+      setLastImportAt(cached.lastImportAt);
+      setActivityFor(id);
+      setActivityLoaded(true);
+    }
+  }, [id]);
+
+  const loadProject = useCallback(async () => {
+    if (!isAuthenticated() || !id) return;
+    const gen = ++coverRequest.current;
+    setLoading(true);
+    try {
+      const p = await getProject(id);
+      if (gen !== coverRequest.current) return;
+      setProject(p);
+      setLastLoadedAt(Date.now());
+      setError(null);
+    } catch (e) {
+      if (gen !== coverRequest.current) return;
+      if (e instanceof ApiError && e.status === 401) return;
+      if (e instanceof ApiError && e.status === 404) {
+        // The record is gone, so the cached cover is wrong now. This is the
+        // only read allowed to say "project not found"; a missing One-Pager
+        // is a summary state, not a missing project.
+        clearProjectCover(id);
+        setProject(null);
+        setError({ message: tr("projects.notFound"), notFound: true });
+        return;
+      }
+      const message = e instanceof Error && e.message ? e.message : tr("projects.loadFailed");
+      // A reload that fails keeps the cover that is already on screen: an
+      // offline visit should still show the last result, not an empty page.
+      if (projectRef.current?.id === id) pushToast(message, "error");
+      else setError({ message, notFound: false });
+    } finally {
+      if (gen === coverRequest.current) setLoading(false);
+    }
+  }, [id, tr, pushToast]);
+
+  const loadOnePager = useCallback(async () => {
+    if (!isAuthenticated() || !id) return;
+    const gen = ++onePagerRequest.current;
+    setOnePagerLoading(true);
+    setOnePagerError(null);
+    try {
+      const op = await getOnePager(id);
+      if (gen !== onePagerRequest.current) return;
+      setMarkdown(op.markdown);
+      setUpdatedAt(op.updated_at);
+      setSummary(op.one_pager_summary ?? null);
+      // A reconnect must not throw away a line the reader is still typing.
+      if (!editingRef.current) {
+        setDraft(op.one_pager_summary?.focus ?? onePagerFocus(op.markdown));
+      }
+      setOnePagerLoaded(true);
+    } catch (e) {
+      if (gen !== onePagerRequest.current) return;
+      if (e instanceof ApiError && e.status === 401) return;
+      if (e instanceof ApiError && e.status === 404) {
+        // No One-Pager file yet: an empty, editable summary, not an error.
+        setMarkdown("");
+        setUpdatedAt(0);
+        setSummary(null);
+        if (!editingRef.current) setDraft("");
+        setOnePagerLoaded(true);
+        return;
+      }
+      setOnePagerError(tr("projects.summaryLoadFailed"));
+    } finally {
+      if (gen === onePagerRequest.current) setOnePagerLoading(false);
+    }
+  }, [id, tr]);
+
+  useEffect(() => {
+    void loadProject();
+  }, [loadProject, reconnectGen]);
+
+  useEffect(() => {
+    void loadOnePager();
+  }, [loadOnePager, reconnectGen]);
+
+  useEffect(() => {
+    if (!id || !isAuthenticated()) return;
+    let cancelled = false;
+    setPulseLoading(true);
+    setPulseError(null);
+    getProjectPulse(id, PULSE_WINDOW_DAYS)
+      .then((next) => {
+        if (!cancelled) {
+          setPulse(next);
+          setPulseFor(id);
+        }
+      })
+      .catch(() => {
+        // The previous pulse stays: "showing the last result" is the offline
+        // contract, and the heatmaps are read-only history either way.
+        if (!cancelled) setPulseError(tr("projects.overviewUnavailable"));
+      })
+      .finally(() => {
+        if (!cancelled) setPulseLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, reconnectGen, tr]);
+
+  const loadRoutines = useCallback(async () => {
+    if (!id || !projectCwd || machinesLoading || !isAuthenticated()) return;
+    const gen = ++routinesRequest.current;
+    if (!routinesDeviceResolved) {
+      setRoutines([]);
+      setRoutinesFor(id);
+      setRoutinesLoaded(true);
+      setRoutinesLoading(false);
+      setRoutinesError(tr("projects.routinesLoadFailed"));
+      return;
+    }
+    setRoutinesLoading(true);
+    setRoutinesError(null);
+    try {
+      const page = await listRoutines({ limit: 100 }, routineDevice || undefined);
+      if (gen !== routinesRequest.current) return;
+      setRoutines(
+        (page.routines ?? []).filter((routine) => samePath(routine.cwd, projectCwd)),
+      );
+      setRoutinesFor(id);
+      setRoutinesLoaded(true);
+    } catch {
+      if (gen === routinesRequest.current) setRoutinesError(tr("projects.routinesLoadFailed"));
+    } finally {
+      if (gen === routinesRequest.current) setRoutinesLoading(false);
+    }
+  }, [
+    id,
+    machinesLoading,
+    projectCwd,
+    routineDevice,
+    routinesDeviceResolved,
+    tr,
+  ]);
+
+  useEffect(() => {
+    void loadRoutines();
+  }, [loadRoutines, reconnectGen]);
+
+  const loadActivity = useCallback(
+    async (target: Project) => {
+      const projectId = target.id;
+      const gen = ++activityRequest.current;
+      setActivityLoading(true);
+      setActivityError(null);
+      setActivityPartial(false);
+      let outcome: ProjectChatsOutcome | null = null;
+      try {
+        outcome = await loadProjectChats({
+          projectId,
+          roots: projectRoots(target),
+          feed: {
+            tasks: () => listProjectTasks(projectId, 50),
+            sessions: (root) => listAgentSessions({ cwd: root, limit: 50 }),
+          },
+          copy: { untitled: tr("sessions.untitled"), loadFailed: tr("projects.loadFailed") },
+          selfDeviceId,
+          limit: 1,
+          isCurrent: () => gen === activityRequest.current,
+        });
+      } catch {
+        if (gen === activityRequest.current) {
+          // Keep the row that is already on screen; a reload failure is not a
+          // reason to forget the last answer.
+          setActivityFor(projectId);
+          setActivityPartial(false);
+          setActivityError(tr("projects.activityFailed"));
+        }
+      } finally {
+        if (gen === activityRequest.current) setActivityLoading(false);
+      }
+      if (!outcome) return;
+      setActivityFor(outcome.projectId);
+      setActivityPartial(outcome.partial);
+      setActivityError(outcome.error ? tr("projects.activityFailed") : null);
+      // A failed read says so; it does not erase the last row and its time.
+      // A successful empty read is the only thing that means "no conversations".
+      if (!outcome.error) {
+        setLatest(outcome.rows[0] ?? null);
+        setLastImportAt(outcome.lastImportAt);
+        setActivityLoaded(true);
+      }
+    },
+    [tr, selfDeviceId],
+  );
+
+  // A cover read for another route's project is not this route's answer.
+  const currentProject = project && project.id === id ? project : null;
+
+  useEffect(() => {
+    if (!currentProject) return;
+    void loadActivity(currentProject);
+    // A reconnect re-reads the row even when the project record came back
+    // unchanged; the conversation may have moved while the socket was down.
+  }, [currentProject, loadActivity, reconnectGen]);
+
+  const contentReady = !pulseLoading && !routinesLoading && !activityLoading;
+
+  // What the reader last saw, kept for the next visit — including an offline
+  // one. The daemon remains the source of truth; this is the first paint. It
+  // writes only once every block has settled, so a visit interrupted halfway
+  // cannot cache "no routines" or "no conversations" as if it were an answer.
+  useEffect(() => {
+    if (!currentProject || !contentReady) return;
+    const routinesCurrent = routinesFor === currentProject.id;
+    const activityCurrent = activityFor === currentProject.id;
+    writeProjectCover(currentProject.id, {
+      project: currentProject,
+      pulse: pulseFor === currentProject.id ? pulse : null,
+      routines: routinesCurrent ? routines : [],
+      routinesLoaded: routinesCurrent && routinesLoaded,
+      latest: activityCurrent ? latest : null,
+      lastImportAt: activityCurrent ? lastImportAt : null,
+      activityLoaded: activityCurrent && activityLoaded,
+      savedAt: lastLoadedAt || Date.now(),
+    });
+  }, [
+    currentProject,
+    contentReady,
+    pulse,
+    pulseFor,
+    routines,
+    routinesFor,
+    routinesLoaded,
+    latest,
+    lastImportAt,
+    activityFor,
+    activityLoaded,
+    lastLoadedAt,
+  ]);
+
+  // The page unmounts when a conversation opens; the reader's place in it
+  // should not.
+  useEffect(() => {
+    const projectId = id;
+    scrollTopRef.current = 0;
+    restoredFor.current = null;
+    return () => {
+      if (projectId) writeProjectScroll(projectId, scrollTopRef.current);
+    };
+  }, [id]);
+
+  // Restoring before the pulse, routines and activity have settled applies the
+  // saved offset to a short skeleton, where it clamps to the bottom — and that
+  // clamped value is what the next visit remembers. Wait for the blocks, then
+  // retry briefly while their real heights land.
+  useEffect(() => {
+    if (!currentProject || loading || !contentReady) return;
+    const projectId = currentProject.id;
+    if (restoredFor.current === projectId) return;
+    const saved = readProjectScroll(projectId);
+    if (saved <= 0) {
+      restoredFor.current = projectId;
+      return;
+    }
+    const el = scrollerRef.current;
+    if (!el) return;
+    if (typeof requestAnimationFrame !== "function") {
+      el.scrollTop = saved;
+      scrollTopRef.current = saved;
+      restoredFor.current = projectId;
+      return;
+    }
+    let frames = 0;
+    let raf = 0;
+    const apply = () => {
+      const target = scrollerRef.current;
+      if (!target) return;
+      target.scrollTop = saved;
+      if (target.scrollTop >= saved) {
+        scrollTopRef.current = saved;
+        restoredFor.current = projectId;
+        return;
+      }
+      if (frames >= 12) return;
+      frames += 1;
+      raf = requestAnimationFrame(apply);
+    };
+    raf = requestAnimationFrame(apply);
+    return () => cancelAnimationFrame(raf);
+  }, [currentProject, loading, contentReady]);
+
+  const summaryText = onePagerLoaded
+    ? summary
+      ? (summary.focus ?? "")
+      : onePagerFocus(markdown)
+    : "";
+  const dirty = editing && draft.trim() !== summaryText.trim();
+
   useEffect(() => {
     if (!dirty) return;
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -170,203 +555,72 @@ export default function ProjectDetailPage() {
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [dirty]);
-  const leaveToList = () => {
-    runGuardedNavigation(() => goBackToList(navigate));
-  };
 
-  const openChat = (row: ProjectChatRow) => {
-    const to = row.task
-      ? `/tasks/${encodeURIComponent(row.task.id)}`
-      : row.session
-        ? `/agent-sessions/${encodeURIComponent(row.session.id)}`
-        : "";
-    if (!to) return;
-    // On a phone the conversation under a project still comes back to the
-    // list, not to the project (KIN-CONTINUE-002). The page's own dirty guard
-    // is asked first.
-    runGuardedNavigation(() => phonePush(navigate, location, to));
-  };
+  const canLeave = useCallback(() => {
+    if (!dirty) return true;
+    return typeof window.confirm === "function"
+      ? window.confirm(tr("projects.summaryDiscard"))
+      : true;
+  }, [dirty, tr]);
 
-  const [chatRows, setChatRows] = useState<ProjectChatRow[]>([]);
-  // Rows answer for exactly one project. The page component outlives a route
-  // change, so without this the new project would wear the old project's list
-  // for the moment between its own read starting and finishing.
-  const [chatsFor, setChatsFor] = useState<string | null>(null);
-  const [chatsLoading, setChatsLoading] = useState(false);
-  const [chatsError, setChatsError] = useState<string | null>(null);
-  const [chatsPartial, setChatsPartial] = useState(false);
-  const chatsRequest = useRef(0);
-  const { machines, loading: machinesLoading } = useMachines();
-  const selfDeviceId = (machines.find((machine) => machine.isSelf)?.id ?? "").trim();
-  // Only this project's folder may name its routines. The page component
-  // outlives a route change, so the previous project's roots must not answer
-  // for the new one while its own read is still running.
-  const projectCwd = project && project.id === id ? (projectRoots(project)[0] ?? "") : "";
-  // A routine lives on the machine that owns its folder. The project page has
-  // no machine picker, and the folder is the one fact the Hub-side project and
-  // the machine both know, so the machine list answers for it.
-  const routineDevice = useMemo(
-    () => routineDeviceForProject(machines, projectCwd, readRoutineDevice()),
-    [machines, projectCwd],
-  );
+  useLeaveGuard(canLeave, dirty);
 
-  const load = useCallback(async () => {
-    if (!isAuthenticated() || !id) return;
-    setLoading(true);
-    try {
-      const [p, op, arts, pu] = await Promise.all([
-        getProject(id),
-        getOnePager(id),
-        listProjectArtifacts(id, 20).catch(() => [] as Artifact[]),
-        getProjectPulse(id, windowDays).catch(() => null),
-      ]);
-      setProject(p);
-      setMarkdown(op.markdown);
-      setUpdatedAt(op.updated_at);
-      setDraft(op.markdown);
-      setArtifacts(arts);
-      setPulse(pu);
-      setSummary(op.one_pager_summary ?? null);
-      setError(null);
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) return;
-      if (e instanceof ApiError && e.status === 404) {
-        setError(tr("projects.notFound"));
+  const goBack = useCallback(() => {
+    if (!canLeave()) return;
+    const opener = openerRef.current;
+    const name = projectRef.current?.name;
+    const restoreFocus = () => {
+      const run = () => {
+        if (opener?.isConnected) {
+          opener.focus();
+          return;
+        }
+        if (!name) return;
+        const buttons = Array.from(document.querySelectorAll<HTMLElement>("button[aria-label]"));
+        buttons.find((button) => button.getAttribute("aria-label") === name)?.focus();
+      };
+      if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(() => requestAnimationFrame(run));
       } else {
-        setError(e instanceof Error ? e.message : tr("projects.loadFailed"));
+        run();
       }
-      setProject(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [id, tr, windowDays]);
-
-  useEffect(() => {
-    void load();
-  }, [load, reconnectGen]);
-
-  /**
-   * The project's routines, read from the machine that owns its folder.
-   *
-   * A routine belongs to the machine that runs it, while a project is a
-   * Hub-side record keyed by cwd. Asking this daemon (on a phone, the Hub)
-   * lists routines the project does not own and hides the ones it does, so the
-   * request carries the resolved machine and the answer is matched by cwd.
-   * Matching by cwd rather than project id is deliberate: a node never learned
-   * the Hub's project id, and a routine created in this folder from New Chat
-   * has no project id at all.
-   */
-  useEffect(() => {
-    if (!isAuthenticated() || !id || !projectCwd) {
-      setProjectRoutines([]);
-      return;
-    }
-    // Choosing a machine before the list arrives would read this daemon and
-    // then correct itself, which on a phone is the Hub's empty store.
-    if (machinesLoading) return;
-    let stale = false;
-    void (async () => {
-      try {
-        const rs = await listRoutines({ limit: 100 }, routineDevice || undefined);
-        if (stale) return;
-        setProjectRoutines((rs.routines ?? []).filter((r) => samePath(r.cwd, projectCwd)));
-      } catch {
-        if (!stale) setProjectRoutines([]);
-      }
-    })();
-    return () => {
-      stale = true;
     };
-  }, [id, projectCwd, routineDevice, machinesLoading, reconnectGen]);
+    goBackToList(navigate);
+    restoreFocus();
+  }, [canLeave, navigate]);
 
-  /**
-   * The project's conversations, read when the tab is first shown.
-   *
-   * Two sources, one list: `GET /projects/{id}/tasks` is the project's Kin
-   * tasks (`project_id`, plus same-cwd rows), and the imported agent sessions
-   * whose cwd is one of the project's roots — the same two feeds the phone's
-   * session list merges, narrowed to this project. The task read is the one
-   * that can fail the whole tab; a root whose session read fails leaves the
-   * tasks on screen and says so underneath, because a half list that pretends
-   * to be whole is the failure this note exists to prevent.
-   *
-   * The previous answer stays visible while a reload runs: switching tabs back
-   * and forth should not blank a list that is already known.
-   */
-  const loadChats = useCallback(async () => {
-    if (!project) return;
-    const projectId = project.id;
-    const gen = ++chatsRequest.current;
-    setChatsLoading(true);
-    setChatsError(null);
-    setChatsPartial(false);
-    let outcome: ProjectChatsOutcome | null = null;
-    try {
-      outcome = await loadProjectChats({
-        projectId,
-        roots: projectRoots(project),
-        feed: {
-          tasks: () => listProjectTasks(projectId, 50),
-          sessions: (root) => listAgentSessions({ cwd: root, limit: 50 }),
-        },
-        copy: { untitled: tr("sessions.untitled"), loadFailed: tr("projects.loadFailed") },
-        selfDeviceId,
-        isCurrent: () => gen === chatsRequest.current,
-      });
-    } catch {
-      // The loader reports feed failures as values; anything that still throws
-      // is a shape the console did not expect. Show the retry box rather than
-      // leave the tab spinning on a rejected promise nobody awaits.
-      if (gen === chatsRequest.current) {
-        setChatRows([]);
-        setChatsFor(projectId);
-        setChatsPartial(false);
-        setChatsError(tr("projects.loadFailed"));
-      }
-    } finally {
-      // The loading flag always belongs to the newest read: a superseded one
-      // leaves it to the read that replaced it.
-      if (gen === chatsRequest.current) setChatsLoading(false);
-    }
-    // A superseded read writes nothing; the read that replaced it owns the
-    // state, including the loading flag.
-    if (!outcome) return;
-    setChatRows(outcome.rows);
-    setChatsFor(outcome.projectId);
-    setChatsPartial(outcome.partial);
-    setChatsError(outcome.error);
-  }, [project, tr, selfDeviceId]);
+  const applyOnePager = (op: OnePager) => {
+    setMarkdown(op.markdown);
+    setUpdatedAt(op.updated_at);
+    setSummary(op.one_pager_summary ?? null);
+    setDraft(op.one_pager_summary?.focus ?? onePagerFocus(op.markdown));
+  };
 
-  useEffect(() => {
-    if (tab !== "chats" || !project) return;
-    void loadChats();
-  }, [tab, project, loadChats]);
+  const focusEditButton = () => {
+    const focus = () => editButtonRef.current?.focus();
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(focus);
+    else focus();
+  };
 
-  // Only the chats tab is worth a parameter; `?tab=overview`, an old value or a
-  // typo all mean the bare project URL. Removing it keeps a copied link honest
-  // and stops the address bar disagreeing with the screen.
-  useEffect(() => {
-    const raw = params.get("tab");
-    if (raw === null || raw === "chats") return;
-    const next = new URLSearchParams(params);
-    next.delete("tab");
-    setParams(next, { replace: true });
-  }, [params, setParams]);
-
-  const onSave = async () => {
+  const saveSummary = async (base: string, baseUpdatedAt: number) => {
     if (!id) return;
     setSaving(true);
+    setSaved(false);
     try {
-      const op = await putOnePager(id, draft, updatedAt || undefined);
-      setMarkdown(op.markdown);
-      setUpdatedAt(op.updated_at);
-      setDraft(op.markdown);
+      const op = await putOnePager(id, setOnePagerFocus(base, draft), baseUpdatedAt || undefined);
+      applyOnePager(op);
       setEditing(false);
-      pushToast(tr("projects.saved"));
+      setConflict(null);
+      setSaved(true);
+      focusEditButton();
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
-        pushToast(tr("projects.conflict"), "error");
-        void load();
+        try {
+          const theirs = await getOnePager(id);
+          setConflict(theirs);
+        } catch {
+          pushToast(tr("projects.conflict"), "error");
+        }
       } else {
         pushToast(e instanceof Error ? e.message : tr("projects.saveFailed"), "error");
       }
@@ -375,77 +629,67 @@ export default function ProjectDetailPage() {
     }
   };
 
-  const onRefreshPulse = async () => {
-    if (!id) return;
-    setRefreshing(true);
-    try {
-      const res = await refreshProjectPulse(id, {
-        window_days: windowDays,
-        write: true,
-      });
-      setPulse(res.pulse);
-      setMarkdown(res.markdown);
-      setDraft(res.markdown);
-      setUpdatedAt(res.updated_at);
-      pushToast(tr("projects.refreshed"));
-    } catch (e) {
-      pushToast(e instanceof Error ? e.message : tr("projects.refreshFailed"), "error");
-    } finally {
-      setRefreshing(false);
-    }
+  // The base is the version the editor opened, not whatever a reconnect has
+  // since read. Saving against the newer version would overwrite another
+  // device's line without the conflict the contract promises.
+  const onSave = () => void saveSummary(editBase.markdown, editBase.updatedAt);
+
+  const onTakeTheirs = () => {
+    if (!conflict) return;
+    applyOnePager(conflict);
+    setEditing(false);
+    setConflict(null);
+    setSaved(false);
+    focusEditButton();
   };
 
-  const recipeCtx = () => ({
-    project_name: project?.name,
-    project_id: id,
-    cwd: project?.roots?.[0],
-    mode: project?.mode,
-  });
+  const onKeepMine = () => {
+    if (!conflict) return;
+    // Compose on their document, not the stale one, so choosing "overwrite"
+    // overwrites the focus line and leaves their other edits intact.
+    void saveSummary(conflict.markdown, conflict.updated_at);
+  };
 
-  const onLaunchRecipe = async (
-    recipeId: "focus.continue" | "cover.update" | "project.memory.tidy",
-  ) => {
-    if (!project || !id) return;
-    const origin = {
-      pathname: locationRef.current.pathname,
-      key: locationRef.current.key,
-      projectID: id,
-    };
-    const cwd = (project.roots?.[0] || "").trim();
-    if (!cwd) {
-      pushToast(tr("projects.continueNeedRoot"), "error");
+  const beginEdit = () => {
+    setDraft(summaryText);
+    setEditBase({ markdown, updatedAt });
+    setEditing(true);
+    setSaved(false);
+    setConflict(null);
+  };
+
+  const cancelEdit = () => {
+    setDraft(summaryText);
+    setEditing(false);
+    setConflict(null);
+    setSaved(false);
+    focusEditButton();
+  };
+
+  useEffect(() => {
+    if (!editing) return;
+    const field = summaryFieldRef.current;
+    if (!field) return;
+    field.focus();
+    const end = field.value.length;
+    try {
+      field.setSelectionRange(end, end);
+    } catch {
+      // Some browsers refuse selection on a hidden field; focus is enough.
+    }
+  }, [editing]);
+
+  const onSummaryKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!saving && !offline) onSave();
       return;
     }
-    setContinuing(true);
-    try {
-      const t = await launchRecipe({
-        id: recipeId,
-        cwd,
-        project_id: id,
-        ctx: recipeCtx(),
-      });
-      // The launch was approved for the cover that started it. A slow answer
-      // must not navigate away from a different screen the reader opened in
-      // the meantime (notably a dirty Settings), nor from another project.
-      const now = currentPhoneLocation() ?? locationRef.current;
-      if (
-        now.pathname !== origin.pathname ||
-        now.key !== origin.key ||
-        idRef.current !== origin.projectID
-      ) {
-        return;
-      }
-      // The approval belongs to this answer, not to the click that started the
-      // request. Ask the screen's guard that is current *now*: a One-Pager
-      // edited while the recipe ran is a new draft the start-time check never
-      // saw, and cancelling this question must leave the text in place. The
-      // start of the launch deliberately asks nothing, so this is one question
-      // rather than an old yes reused after a slow answer.
-      runGuardedNavigation(() => phonePush(navigate, locationRef.current, `/tasks/${t.id}`));
-    } catch (e) {
-      pushToast(e instanceof Error ? e.message : tr("projects.recipeLaunchFailed"), "error");
-    } finally {
-      setContinuing(false);
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      cancelEdit();
     }
   };
 
@@ -455,62 +699,132 @@ export default function ProjectDetailPage() {
       const p = await patchProject(id, { mode });
       setProject(p);
     } catch (e) {
-      pushToast(e instanceof Error ? e.message : "failed", "error");
+      pushToast(e instanceof Error ? e.message : tr("projects.modeSaveFailed"), "error");
     }
   };
 
-  const onCreateRoutine = async () => {
-    if (!project || !id) return;
-    const cwd = project.roots?.[0];
-    if (!cwd) {
-      pushToast(tr("routines.actionFailed"), "error");
-      return;
-    }
-    const prompt = routinePrompt.trim();
-    if (!prompt) return;
-    setCreatingRoutine(true);
+  const onRefreshPulse = async () => {
+    if (!id) return;
+    setRefreshing(true);
     try {
-      const nextMs = parseLocalDateTime(routineNextLocal);
-      const recurrence = serializeRoutineRule(routineRule, nextMs);
-      const r = await createRoutine(
-        {
-          title: routineTitle.trim() || undefined,
-          // The Hub's project id means nothing on another machine; there the
-          // routine is tied to the project by the folder it runs in, which this
-          // page matches on.
-          ...(routineDevice ? {} : { project_id: id }),
-          cwd,
-          prompt,
-          ...(recurrence
-            ? { recurrence }
-            : {
-                interval_secs: routineInterval,
-                ...(nextMs != null ? { next_due_at: nextMs } : {}),
-              }),
-          agent: "kin",
-        },
-        routineDevice || undefined,
-      );
-      // The routine was created on that machine, so the Routines page opens
-      // there; otherwise the page would stay on whatever machine it last showed
-      // and the routine just created would be missing from it.
-      writeRoutineDevice(routineDevice || THIS_MACHINE);
-      setProjectRoutines((list) => [r, ...list]);
-      setShowRoutineModal(false);
-      setRoutineTitle("");
-      setRoutinePrompt("");
-      pushToast(tr("routines.created"), "info");
+      const res = await refreshProjectPulse(id, {
+        window_days: PULSE_WINDOW_DAYS,
+        write: true,
+      });
+      setPulse(res.pulse);
+      setPulseFor(id);
+      setPulseError(null);
+      setMarkdown(res.markdown);
+      setUpdatedAt(res.updated_at);
+      setSummary((prev) => (prev ? { ...prev, focus: onePagerFocus(res.markdown) } : prev));
+      if (!editingRef.current) setDraft(onePagerFocus(res.markdown));
+      pushToast(tr("projects.refreshed"));
     } catch (e) {
-      pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
+      pushToast(e instanceof Error ? e.message : tr("projects.refreshFailed"), "error");
     } finally {
-      setCreatingRoutine(false);
+      setRefreshing(false);
     }
   };
 
-  if (loading) {
+  const openChat = (row: ProjectChatRow) => {
+    const to = row.task
+      ? `/tasks/${encodeURIComponent(row.task.id)}`
+      : row.session
+        ? `/agent-sessions/${encodeURIComponent(row.session.id)}`
+        : "";
+    if (!to) return;
+    runGuardedNavigation(() => phonePush(navigate, location, to));
+  };
+
+  const roots = currentProject ? projectRoots(currentProject) : [];
+  const newChat = currentProject
+    ? projectNewChatTarget(currentProject)
+    : ({ kind: "no-root" } as const);
+  const anyAvailableAgent = machines.some(
+    (machine) => machine.online && machine.agents.some((agent) => agent.available),
+  );
+  const noAgent = machines.length > 0 && !machinesLoading && !anyAvailableAgent;
+  const newChatReason = offline
+    ? tr("projects.newChatOffline")
+    : newChat.kind === "no-root"
+      ? tr("projects.continueNeedRoot")
+      : noAgent
+        ? tr("projects.newChatNoAgent")
+        : "";
+  const newChatDisabled = Boolean(newChatReason);
+  const newChatHref = newChat.kind === "no-root" ? null : newChat.href;
+
+  // Esc goes back and ⌘Enter starts a chat from anywhere on the cover, not
+  // only while a particular control has focus. Typing fields and open pickers
+  // keep their own keys.
+  useEffect(() => {
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const typing = Boolean(
+        target &&
+          (target.tagName === "INPUT" ||
+            target.tagName === "TEXTAREA" ||
+            target.tagName === "SELECT" ||
+            target.isContentEditable),
+      );
+      if (event.key === "Escape") {
+        if (editing || typing) return;
+        // A picker or sheet owns Escape while it is open; leaving the project
+        // because the reader closed a menu is not the same key press.
+        if (document.querySelector('[role="listbox"], [role="dialog"]')) return;
+        event.preventDefault();
+        goBack();
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        if (editing || typing || newChatDisabled || !newChatHref) return;
+        event.preventDefault();
+        runGuardedNavigation(() =>
+          phonePush(navigate, location, newChatHref, {
+            state: draftEntryState(returnListUrl(location)),
+          }),
+        );
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [editing, goBack, location, navigate, newChatDisabled, newChatHref]);
+
+  if (!currentProject) {
+    if (error) {
+      return (
+        <div className="flex-1 min-h-0 overflow-y-auto kin-scroll">
+          <div className="mx-auto max-w-5xl px-4 py-6">
+            <button
+              type="button"
+              className="mb-4 inline-flex items-center gap-1 text-strong text-kin-secondary hover:text-kin-text"
+              onClick={goBack}
+            >
+              <IconBack size={14} />
+              {tr("projects.back")}
+            </button>
+            <div
+              role="alert"
+              className="rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-strong text-kin-red-ink"
+            >
+              {error.message}
+            </div>
+            {!error.notFound && (
+              <button
+                type="button"
+                onClick={() => void loadProject()}
+                className="mt-3 min-h-11 rounded-lg border border-kin-hairline px-3 text-strong text-kin-text hover:bg-[var(--kin-fill-strong)]"
+              >
+                {tr("common.retry")}
+              </button>
+            )}
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex-1 min-h-0 overflow-y-auto kin-scroll">
-        <div className="mx-auto max-w-4xl px-4 py-6 space-y-3">
+        <div className="mx-auto max-w-5xl px-4 py-6 space-y-3">
           {slow && <SlowConnectHint show />}
           <SkeletonLine />
           <SkeletonLine />
@@ -520,592 +834,597 @@ export default function ProjectDetailPage() {
     );
   }
 
-  if (error || !project) {
-    return (
-      <div className="flex-1 min-h-0 overflow-y-auto kin-scroll">
-        <div className="mx-auto max-w-4xl px-4 py-6">
-          <button
-            type="button"
-            className="mb-4 inline-flex items-center gap-1 text-strong text-kin-secondary hover:text-kin-text"
-            onClick={leaveToList}
+  const activity = activityFor === currentProject.id ? latest : null;
+  const importAt = activityFor === currentProject.id ? lastImportAt : null;
+  const activityPartialShown = activityFor === currentProject.id && activityPartial;
+  const shownRoutines = routinesFor === currentProject.id ? routines : [];
+  // "What runs next" is the useful order on a cover, not storage order.
+  const nextRoutines = [...shownRoutines]
+    .sort((a, b) => (a.next_due_at || 0) - (b.next_due_at || 0))
+    .slice(0, ROUTINES_SHOWN);
+  const visiblePulse = pulseFor === currentProject.id ? pulse : null;
+  const pulseTotal = visiblePulse
+    ? [...(visiblePulse.session_heat ?? []), ...(visiblePulse.commit_heat ?? [])].reduce(
+        (sum, day) => sum + day.count,
+        0,
+      )
+    : 0;
+  const lastCommit = lastCommitAt(visiblePulse);
+  const now = Date.now();
+
+  const newChatControl = (
+    <NewChatControl
+      href={newChatHref}
+      disabledReason={newChatDisabled ? newChatReason : ""}
+      fullWidth={!wide}
+    />
+  );
+
+  return (
+    <div
+      ref={scrollerRef}
+      data-testid="project-scroll"
+      className="flex-1 min-h-0 overflow-y-auto kin-scroll"
+      onScroll={(event) => {
+        scrollTopRef.current = event.currentTarget.scrollTop;
+      }}
+    >
+      <div className="mx-auto max-w-5xl px-4 py-6 pb-24">
+        <button
+          type="button"
+          className="mb-3 inline-flex items-center gap-1 text-strong text-kin-secondary hover:text-kin-text"
+          onClick={goBack}
+        >
+          <IconBack size={14} />
+          {tr("projects.back")}
+        </button>
+
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h1
+              tabIndex={0}
+              className="truncate text-title leading-7 font-semibold text-kin-text"
+            >
+              {currentProject.name}
+            </h1>
+            {roots[0] && (
+              <div className="mt-1 max-w-sheet truncate text-body text-kin-secondary">
+                {roots[0]}
+              </div>
+            )}
+          </div>
+          <SearchSelect
+            label={tr("projects.mode")}
+            value={currentProject.mode}
+            options={[
+              { id: "ship", label: tr("projects.modeShip") },
+              { id: "learn", label: tr("projects.modeLearn") },
+              { id: "explore", label: tr("projects.modeExplore") },
+              { id: "maintain", label: tr("projects.modeMaintain") },
+            ]}
+            onChange={(next) => void onModeChange(next as ProjectMode)}
+            disabled={offline}
+            className="text-body text-kin-text"
+          />
+        </div>
+
+        {offline && lastLoadedAt > 0 && (
+          <div
+            role="status"
+            className="mb-3 rounded-lg border border-kin-hairline bg-kin-panel px-3 py-2 text-body text-kin-secondary"
           >
-            <IconBack size={14} />
-            {tr("projects.back")}
-          </button>
-          <div className="rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-strong text-kin-red-ink">
-            {error || tr("projects.notFound")}
+            {tr("projects.offlineSince", { time: formatRelativeTime(lastLoadedAt, now) })}
+          </div>
+        )}
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="space-y-4">
+            <section aria-labelledby={`${cardIds}-summary`} className="rounded-xl bg-kin-panel p-4">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <h2
+                  id={`${cardIds}-summary`}
+                  className="text-body font-medium uppercase tracking-label text-kin-secondary"
+                >
+                  {tr("projects.summaryTitle")}
+                </h2>
+                {!editing && onePagerLoaded && (
+                  <button
+                    ref={editButtonRef}
+                    type="button"
+                    disabled={offline}
+                    className="rounded-lg border border-kin-hairline px-3 py-1.5 text-strong text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
+                    onClick={beginEdit}
+                  >
+                    {tr("projects.summaryEdit")}
+                  </button>
+                )}
+              </div>
+
+              {onePagerError && (
+                <div
+                  role="alert"
+                  className="mb-3 rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-body text-kin-red-ink"
+                >
+                  <p>{onePagerError}</p>
+                  <button
+                    type="button"
+                    onClick={() => void loadOnePager()}
+                    className="mt-2 min-h-11 rounded-lg border border-kin-red/40 px-3 text-strong text-kin-red-ink"
+                  >
+                    {tr("common.retry")}
+                  </button>
+                </div>
+              )}
+
+              {!onePagerLoaded ? (
+                onePagerLoading ? (
+                  <div className="space-y-3 py-2">
+                    <SkeletonLine />
+                    <SkeletonLine />
+                  </div>
+                ) : null
+              ) : editing ? (
+                <>
+                  <textarea
+                    ref={summaryFieldRef}
+                    aria-label={tr("projects.summaryTitle")}
+                    className="min-h-16 w-full resize-y rounded-lg border border-kin-hairline bg-transparent p-3 text-strong leading-prose text-kin-text outline-none focus:border-kin-blue/40"
+                    value={draft}
+                    maxLength={300}
+                    placeholder={tr("projects.summaryPlaceholder")}
+                    disabled={offline || saving}
+                    onChange={(event) => setDraft(event.target.value)}
+                    onKeyDown={onSummaryKeyDown}
+                  />
+                  {offline ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <p className="text-caption text-kin-muted">{tr("projects.summaryOffline")}</p>
+                      <button
+                        type="button"
+                        className="min-h-11 rounded-lg px-3 text-strong text-kin-secondary"
+                        onClick={cancelEdit}
+                      >
+                        {tr("common.cancel")}
+                      </button>
+                    </div>
+                  ) : conflict ? (
+                    <div
+                      role="alert"
+                      className="mt-3 rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-body text-kin-red-ink"
+                    >
+                      <p className="font-medium">{tr("projects.conflictTitle")}</p>
+                      <p className="mt-1 whitespace-pre-wrap text-strong">
+                        {conflict.one_pager_summary?.focus ||
+                          onePagerFocus(conflict.markdown) ||
+                          tr("projects.summaryEmpty")}
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={saving}
+                          className="min-h-11 rounded-lg bg-kin-blue px-3 text-strong font-medium text-kin-on-brand disabled:opacity-50"
+                          onClick={onKeepMine}
+                        >
+                          {tr("projects.conflictKeepMine")}
+                        </button>
+                        <button
+                          type="button"
+                          className="min-h-11 rounded-lg border border-kin-hairline px-3 text-strong text-kin-text"
+                          onClick={onTakeTheirs}
+                        >
+                          {tr("projects.conflictTakeTheirs")}
+                        </button>
+                        <button
+                          type="button"
+                          className="min-h-11 rounded-lg px-3 text-strong text-kin-secondary"
+                          // Dismissing keeps the old base on purpose: the next
+                          // save meets the same 409 instead of silently
+                          // overwriting the version this editor has not read.
+                          onClick={() => setConflict(null)}
+                        >
+                          {tr("projects.conflictDismiss")}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={saving}
+                        className="min-h-11 rounded-lg bg-kin-blue px-3 text-strong font-medium text-kin-on-brand disabled:opacity-50"
+                        onClick={onSave}
+                      >
+                        {saving ? tr("projects.summarySaving") : tr("common.save")}
+                      </button>
+                      <button
+                        type="button"
+                        className="min-h-11 rounded-lg px-3 text-strong text-kin-secondary"
+                        onClick={cancelEdit}
+                      >
+                        {tr("common.cancel")}
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p
+                  className={[
+                    "text-strong leading-prose",
+                    summaryText ? "text-kin-text" : "text-kin-secondary",
+                  ].join(" ")}
+                >
+                  {summaryText || tr("projects.summaryEmpty")}
+                </p>
+              )}
+              {!editing && onePagerLoaded && saved && (
+                <p role="status" className="mt-2 text-caption text-kin-muted">
+                  {tr("projects.summarySaved")}
+                </p>
+              )}
+            </section>
+
+            <section aria-labelledby={`${cardIds}-recent`} className="rounded-xl bg-kin-panel p-4">
+              <h2
+                id={`${cardIds}-recent`}
+                className="mb-2 text-body font-medium uppercase tracking-label text-kin-secondary"
+              >
+                {tr("projects.recentTitle")}
+              </h2>
+
+              {activityError && (
+                <div
+                  role="alert"
+                  className="rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-strong text-kin-red-ink"
+                >
+                  <p>{activityError}</p>
+                  <button
+                    type="button"
+                    onClick={() => void loadActivity(currentProject)}
+                    className="mt-2 min-h-11 rounded-lg border border-kin-red/40 px-3 text-strong text-kin-red-ink"
+                  >
+                    {tr("common.retry")}
+                  </button>
+                </div>
+              )}
+
+              {activity ? (
+                <div className={activityError ? "mt-3" : ""}>
+                  <div className="text-caption font-medium text-kin-muted">
+                    {tr("projects.recentLastConversation")}
+                  </div>
+                  <RecentConversationRow
+                    row={activity}
+                    now={now}
+                    onOpen={() => openChat(activity)}
+                  />
+                </div>
+              ) : (activityLoading || activityFor !== currentProject.id) && !activityError ? (
+                <div className="space-y-3 py-2">
+                  <SkeletonLine />
+                  <SkeletonLine />
+                </div>
+              ) : !activityError ? (
+                <div className="py-1 text-body text-kin-secondary">
+                  <p>{tr("projects.recentEmpty")}</p>
+                  <p className="mt-1 text-kin-muted">{tr("projects.recentEmptyHint")}</p>
+                </div>
+              ) : null}
+
+              {activityPartialShown && !activityError && (
+                <p role="status" className="mt-2 text-caption text-kin-muted">
+                  {tr("projects.chatsPartial")}
+                </p>
+              )}
+
+              <dl className="mt-2 space-y-1 text-caption text-kin-muted">
+                {lastCommit !== null && (
+                  <div className="flex gap-1">
+                    <dt>{tr("projects.lastCommitWindow", { days: PULSE_WINDOW_DAYS })}</dt>
+                    <dd aria-hidden>{tr("common.labelSeparator")}</dd>
+                    <dd className="tabular-nums">{formatRelativeTime(lastCommit, now)}</dd>
+                  </div>
+                )}
+                {importAt !== null && (
+                  <div className="flex gap-1">
+                    <dt>{tr("projects.lastImport")}</dt>
+                    <dd aria-hidden>{tr("common.labelSeparator")}</dd>
+                    <dd className="tabular-nums">{formatRelativeTime(importAt, now)}</dd>
+                  </div>
+                )}
+              </dl>
+
+              <p className="mt-2 text-caption text-kin-muted">{tr("projects.recentOnlyLatest")}</p>
+
+              {wide && <div className="mt-3">{newChatControl}</div>}
+            </section>
+          </div>
+
+          <div className="space-y-4">
+            <section aria-labelledby={`${cardIds}-pulse`} className="rounded-xl bg-kin-panel p-4">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <h2
+                  id={`${cardIds}-pulse`}
+                  className="text-body font-medium uppercase tracking-label text-kin-secondary"
+                >
+                  {tr("projects.overviewWindow")}
+                </h2>
+                <button
+                  type="button"
+                  disabled={refreshing || offline}
+                  className="rounded-lg border border-kin-hairline px-2.5 py-1 text-body text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
+                  onClick={() => void onRefreshPulse()}
+                >
+                  {refreshing ? tr("projects.refreshing") : tr("projects.refresh")}
+                </button>
+              </div>
+
+              {pulseError && (
+                <div
+                  role="alert"
+                  className="mb-3 rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-body text-kin-red-ink"
+                >
+                  <p>{pulseError}</p>
+                  {visiblePulse && (
+                    <p className="mt-1 text-caption">
+                      {tr("projects.overviewStale", {
+                        time: formatRelativeTime(visiblePulse.generated_at, now),
+                      })}
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    disabled={refreshing || offline}
+                    onClick={() => void onRefreshPulse()}
+                    className="mt-2 min-h-11 rounded-lg border border-kin-red/40 px-3 text-strong text-kin-red-ink disabled:opacity-50"
+                  >
+                    {tr("projects.refresh")}
+                  </button>
+                </div>
+              )}
+
+              {visiblePulse ? (
+                pulseTotal === 0 ? (
+                  <p className="text-body text-kin-secondary">{tr("projects.overviewEmpty")}</p>
+                ) : (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Heatmap
+                      days={visiblePulse.session_heat}
+                      title={tr("projects.sessionHeat")}
+                      max={PULSE_WINDOW_DAYS}
+                    />
+                    <Heatmap
+                      days={visiblePulse.commit_heat}
+                      title={tr("projects.commitHeat")}
+                      max={PULSE_WINDOW_DAYS}
+                    />
+                  </div>
+                )
+              ) : pulseLoading || (pulseFor !== currentProject.id && !pulseError) ? (
+                <div className="space-y-3 py-2">
+                  <SkeletonLine />
+                  <SkeletonLine />
+                </div>
+              ) : null}
+            </section>
+
+            <section
+              aria-labelledby={`${cardIds}-routines`}
+              className="rounded-xl bg-kin-panel p-4"
+            >
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <h2
+                  id={`${cardIds}-routines`}
+                  className="flex items-center gap-1.5 text-body font-medium uppercase tracking-label text-kin-secondary"
+                >
+                  <IconRoutines size={13} />
+                  {tr("projects.routinesTitle")}
+                </h2>
+                {routinesDeviceResolved ? (
+                  <Link
+                    to={
+                      routineDevice
+                        ? `/routines?device=${encodeURIComponent(routineDevice)}`
+                        : "/routines"
+                    }
+                    onClick={(event) =>
+                      onGuardedLinkClick(
+                        event,
+                        navigate,
+                        location,
+                        routineDevice
+                          ? `/routines?device=${encodeURIComponent(routineDevice)}`
+                          : "/routines",
+                      )
+                    }
+                    className="inline-flex min-h-11 items-center gap-1 text-body text-kin-secondary hover:text-kin-text"
+                  >
+                    {tr("projects.openRoutines")}
+                    <span aria-hidden>→</span>
+                  </Link>
+                ) : null}
+              </div>
+
+              {routinesError && (
+                <div
+                  role="alert"
+                  className="mb-3 rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-body text-kin-red-ink"
+                >
+                  <p>{routinesError}</p>
+                  <button
+                    type="button"
+                    onClick={() => void loadRoutines()}
+                    className="mt-2 min-h-11 rounded-lg border border-kin-red/40 px-3 text-strong text-kin-red-ink"
+                  >
+                    {tr("common.retry")}
+                  </button>
+                </div>
+              )}
+
+              {(routinesLoading || routinesFor !== currentProject.id) &&
+              shownRoutines.length === 0 &&
+              !routinesError ? (
+                <div className="space-y-2 py-1">
+                  <SkeletonLine />
+                  <SkeletonLine />
+                </div>
+              ) : shownRoutines.length === 0 ? (
+                !routinesError && (
+                  <p className="text-body text-kin-secondary">{tr("projects.routinesEmpty")}</p>
+                )
+              ) : (
+                <ul className="space-y-1.5">
+                  {nextRoutines.map((routine) => (
+                    <li key={routine.id} className="text-body text-kin-text">
+                      <span className="font-medium">{routine.title}</span>
+                      <span className="text-kin-muted">
+                        {tr("common.labelSeparator")}
+                        {routine.enabled && routine.next_due_at > 0
+                          ? tr("projects.routineNext", {
+                              time: formatRelativeTime(routine.next_due_at, now),
+                            })
+                          : tr("routines.paused")}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <p className="mt-2 text-caption text-kin-muted">{tr("projects.routinesHint")}</p>
+            </section>
           </div>
         </div>
+
+        {!wide && <div className="mt-4">{newChatControl}</div>}
+      </div>
+    </div>
+  );
+}
+
+function NewChatControl({
+  href,
+  disabledReason,
+  fullWidth,
+}: {
+  href: string | null;
+  disabledReason: string;
+  fullWidth: boolean;
+}) {
+  const tr = useT();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const reasonId = useId();
+  const className = [
+    "inline-flex min-h-11 items-center justify-center rounded-lg bg-kin-blue px-3 text-strong font-medium text-kin-on-brand",
+    fullWidth ? "w-full" : "",
+  ].join(" ");
+
+  if (href === null || disabledReason) {
+    return (
+      <div className={fullWidth ? "w-full" : ""}>
+        <button
+          type="button"
+          disabled
+          aria-describedby={disabledReason ? reasonId : undefined}
+          className={`${className} opacity-50`}
+        >
+          {tr("projects.newChat")}
+        </button>
+        {disabledReason && (
+          <p id={reasonId} className="mt-1 text-caption text-kin-muted">
+            {disabledReason}
+          </p>
+        )}
       </div>
     );
   }
 
   return (
-    <>
-      <div className="flex-1 min-h-0 overflow-y-auto kin-scroll">
-        <div className="mx-auto max-w-4xl px-4 py-6 pb-16">
-          <button
-            type="button"
-            className="mb-3 inline-flex items-center gap-1 text-strong text-kin-secondary hover:text-kin-text"
-            onClick={leaveToList}
-          >
-            <IconBack size={14} />
-            {tr("projects.back")}
-          </button>
-
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h1 className="text-title leading-7 font-semibold text-kin-text">{project.name}</h1>
-              {project.roots?.[0] && (
-                <div className="mt-1 text-body text-kin-secondary truncate max-w-sheet">
-                  {project.roots[0]}
-                </div>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <SearchSelect
-                label={tr("projects.mode")}
-                value={project.mode}
-                options={[
-                  { id: "ship", label: tr("projects.modeShip") },
-                  { id: "learn", label: tr("projects.modeLearn") },
-                  { id: "explore", label: tr("projects.modeExplore") },
-                  { id: "maintain", label: tr("projects.modeMaintain") },
-                ]}
-                onChange={(next) => void onModeChange(next as ProjectMode)}
-                className="text-body text-kin-text"
-              />
-              <button
-                type="button"
-                disabled={continuing}
-                className="rounded-lg border border-kin-hairline px-3 py-1.5 text-strong text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
-                onClick={() => void onLaunchRecipe("cover.update")}
-                title={tr("projects.summarizeHint")}
-              >
-                {continuing ? tr("projects.recipeLaunching") : tr("projects.summarize")}
-              </button>
-              <button
-                type="button"
-                disabled={continuing}
-                className="rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand disabled:opacity-50"
-                onClick={() => void onLaunchRecipe("focus.continue")}
-                title={tr("projects.continueHint")}
-              >
-                {continuing ? tr("projects.recipeLaunching") : tr("projects.continueFocus")}
-              </button>
-              <button
-                type="button"
-                disabled={continuing}
-                className="rounded-lg border border-kin-hairline px-3 py-1.5 text-strong text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
-                onClick={() => void onLaunchRecipe("project.memory.tidy")}
-                title={tr("projects.memoryTidyHint")}
-              >
-                {continuing ? tr("projects.recipeLaunching") : tr("projects.memoryTidy")}
-              </button>
-              <button
-                type="button"
-                className="rounded-lg border border-kin-hairline px-3 py-1.5 text-strong text-kin-text hover:bg-[var(--kin-fill-strong)]"
-                onClick={() => setShowRoutineModal(true)}
-              >
-                {tr("routines.create")}
-              </button>
-              {projectRoutines.length > 0 && (
-                <span className="text-body text-kin-muted">
-                  {tr("routines.projectCount", { count: projectRoutines.length })}
-                </span>
-              )}
-              {tab === "overview" &&
-                (!editing ? (
-                  <button
-                    type="button"
-                    className="rounded-lg border border-kin-hairline px-3 py-1.5 text-strong text-kin-text hover:bg-[var(--kin-fill-strong)]"
-                    onClick={() => {
-                      setDraft(markdown);
-                      setEditing(true);
-                    }}
-                  >
-                    {tr("projects.editOnePager")}
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      disabled={saving}
-                      className="rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand disabled:opacity-50"
-                      onClick={() => void onSave()}
-                    >
-                      {tr("projects.saveOnePager")}
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-lg px-3 py-1.5 text-strong text-kin-secondary"
-                      onClick={() => {
-                        setDraft(markdown);
-                        setEditing(false);
-                      }}
-                    >
-                      {tr("projects.cancelEdit")}
-                    </button>
-                  </>
-                ))}
-            </div>
-          </div>
-
-          <ProjectTabStrip tab={tab} onSelect={selectTab} />
-
-          {tab === "overview" && (
-            <div role="tabpanel" id="project-panel-overview" aria-labelledby="project-tab-overview">
-              <section className="mb-4">
-                <ProjectSummaryCard project={project} summary={summary} />
-              </section>
-
-              <section className="mb-4 rounded-xl bg-kin-panel p-4 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-body font-medium uppercase tracking-label text-kin-secondary">
-                    {tr("projects.pulse")}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <SearchSelect
-                      label={tr("projects.pulse")}
-                      value={String(windowDays)}
-                      options={[
-                        { id: "30", label: tr("projects.window30") },
-                        { id: "90", label: tr("projects.window90") },
-                        { id: "180", label: tr("projects.window180") },
-                      ]}
-                      onChange={(next) => setWindowDays(Number(next) || 90)}
-                      className="text-body text-kin-text"
-                    />
-                    <button
-                      type="button"
-                      disabled={refreshing}
-                      className="rounded-lg border border-kin-hairline px-2.5 py-1 text-body text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
-                      onClick={() => void onRefreshPulse()}
-                    >
-                      {refreshing ? tr("projects.refreshing") : tr("projects.refreshPulse")}
-                    </button>
-                  </div>
-                </div>
-                {pulse ? (
-                  <>
-                    <div className="flex flex-wrap gap-3 text-body text-kin-secondary">
-                      <span>
-                        {tr("projects.sessionsInWindow")}
-                        {tr("common.labelSeparator")}
-                        <strong className="text-kin-text tabular-nums">
-                          {pulse.session_window}
-                        </strong>
-                      </span>
-                      <span>
-                        {tr("projects.commitsInWindow")}
-                        {tr("common.labelSeparator")}
-                        <strong className="text-kin-text tabular-nums">
-                          {pulse.git_available ? pulse.commit_window : "—"}
-                        </strong>
-                      </span>
-                      {(pulse.sessions_running > 0 || pulse.sessions_waiting > 0) && (
-                        <span>
-                          {pulse.sessions_running > 0 && <>run {pulse.sessions_running} </>}
-                          {pulse.sessions_waiting > 0 && <>wait {pulse.sessions_waiting}</>}
-                        </span>
-                      )}
-                    </div>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <Heatmap days={pulse.session_heat} title={tr("projects.sessionHeat")} />
-                      <Heatmap days={pulse.commit_heat} title={tr("projects.commitHeat")} />
-                    </div>
-                    {pulse.top_paths && pulse.top_paths.length > 0 && (
-                      <div className="text-body text-kin-secondary">
-                        <span className="text-kin-muted">
-                          {tr("projects.hotModules")}
-                          {tr("common.labelSeparator")}
-                        </span>
-                        {pulse.top_paths
-                          .slice(0, 6)
-                          .map((x: { path: string; count: number }) => `${x.path}(${x.count})`)
-                          .join(" · ")}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="text-body text-kin-secondary">{tr("projects.pulseEmpty")}</div>
-                )}
-              </section>
-
-              <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
-                <section className="rounded-xl bg-kin-panel p-4 min-h-80">
-                  <div className="mb-2 text-body font-medium uppercase tracking-label text-kin-secondary">
-                    {tr("projects.onePager")}
-                  </div>
-                  {editing ? (
-                    <textarea
-                      className="min-h-[480px] w-full resize-y rounded-lg border border-kin-hairline bg-transparent p-3 font-mono text-body leading-prose text-kin-text"
-                      value={draft}
-                      onChange={(e) => setDraft(e.target.value)}
-                    />
-                  ) : (
-                    <div className="prose-kin text-strong leading-prose">
-                      <Markdown text={markdown} />
-                    </div>
-                  )}
-                </section>
-
-                <aside className="space-y-3">
-                  <section className="rounded-xl bg-kin-panel p-3">
-                    <div className="mb-2 text-body font-medium uppercase tracking-label text-kin-secondary">
-                      {tr("projects.relatedArtifacts")}
-                    </div>
-                    {artifacts.length === 0 ? (
-                      <div className="text-body text-kin-secondary">
-                        {tr("projects.noArtifacts")}
-                      </div>
-                    ) : (
-                      <ul className="space-y-1.5">
-                        {artifacts.map((a) => (
-                          <li key={a.id}>
-                            <Link
-                              to={`/artifacts/${a.id}`}
-                              onClick={(event) =>
-                                // Opening a delivery is a push like any other:
-                                // on a phone the artifact replaces the project,
-                                // so Back is the list rather than the project
-                                // the reader just left (KIN-CONTINUE-002). The
-                                // page's dirty summary is asked first.
-                                onGuardedLinkClick(event, navigate, location, `/artifacts/${a.id}`)
-                              }
-                              className="block rounded-lg px-2 py-1.5 hover:bg-[var(--kin-fill-strong)]"
-                            >
-                              <div className="truncate text-body text-kin-text">{a.title}</div>
-                              <div className="mt-0.5 text-caption text-kin-secondary">
-                                {a.kind} · {formatWhen(a.created_at)}
-                              </div>
-                            </Link>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </section>
-                </aside>
-              </div>
-            </div>
-          )}
-
-          {tab === "chats" && (
-            <div role="tabpanel" id="project-panel-chats" aria-labelledby="project-tab-chats">
-              <ProjectChatsPanel
-                // Rows read for another project are not this project's answer:
-                // showing them under the new name is worse than a skeleton.
-                rows={chatsFor === project.id ? chatRows : []}
-                loading={chatsLoading || chatsFor !== project.id}
-                error={chatsError}
-                partial={chatsPartial}
-                root={projectRoots(project)[0] ?? ""}
-                onRetry={() => void loadChats()}
-                onOpen={openChat}
-                onNewChat={(event: ReactMouseEvent) => {
-                  const root = projectRoots(project)[0] ?? "";
-                  if (!root) return;
-                  // A plain router Link would put the draft on top of the
-                  // project, and closing it would return here instead of the
-                  // list (KIN-CONTINUE-002). The phone contract replaces this
-                  // screen with the list first and records the list as the
-                  // draft's origin, so both the header's Close and the
-                  // browser's Back land on `/sessions`.
-                  onGuardedLinkClick(
-                    event,
-                    navigate,
-                    location,
-                    `/new?cwd=${encodeURIComponent(root)}`,
-                    { state: draftEntryState(returnListUrl(location)) },
-                  );
-                }}
-              />
-            </div>
-          )}
-        </div>
-      </div>
-
-      {showRoutineModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-kin-elevated p-5 shadow-e3">
-            <h2 className="text-subtitle font-semibold text-kin-text">
-              {tr("routines.createTitle")}
-            </h2>
-            <label className="mt-4 block text-body text-kin-secondary">
-              {tr("routines.titleLabel")}
-              <input
-                value={routineTitle}
-                onChange={(e) => setRoutineTitle(e.target.value)}
-                placeholder={tr("routines.titlePlaceholder")}
-                className="mt-1 w-full rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2 text-strong text-kin-text outline-none focus:border-kin-blue/40"
-              />
-            </label>
-            <label className="mt-3 block text-body text-kin-secondary">
-              {tr("routines.promptLabel")}
-              <textarea
-                value={routinePrompt}
-                onChange={(e) => setRoutinePrompt(e.target.value)}
-                placeholder={tr("routines.promptPlaceholder")}
-                rows={4}
-                className="mt-1 w-full resize-y rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2 text-strong text-kin-text outline-none focus:border-kin-blue/40"
-              />
-            </label>
-            <div className="mt-3 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2.5">
-              <RoutineScheduleFields
-                intervalSecs={routineInterval}
-                onIntervalChange={setRoutineInterval}
-                nextRunLocal={routineNextLocal}
-                onNextRunLocalChange={setRoutineNextLocal}
-                rule={routineRule}
-                onRuleChange={setRoutineRule}
-                disabled={creatingRoutine}
-              />
-            </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                className="rounded-lg px-3 py-1.5 text-strong text-kin-secondary"
-                onClick={() => setShowRoutineModal(false)}
-              >
-                {tr("routines.cancel")}
-              </button>
-              <button
-                type="button"
-                disabled={creatingRoutine || !routinePrompt.trim()}
-                className="rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand disabled:opacity-50"
-                onClick={() => void onCreateRoutine()}
-              >
-                {tr("routines.submitCreate")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-
-function ProjectTabStrip({
-  tab,
-  onSelect,
-}: {
-  tab: ProjectTab;
-  onSelect: (tab: ProjectTab) => void;
-}) {
-  const tr = useT();
-  const refs = useRef<Record<string, HTMLButtonElement | null>>({});
-  const labels: Record<ProjectTab, string> = {
-    overview: tr("projects.tabOverview"),
-    chats: tr("projects.tabChats"),
-  };
-
-  // A tab strip is one stop in the tab order and the arrow keys move within it
-  // (`aria-selected` on a `role="tab"` with a roving `tabIndex`). Without this
-  // the two buttons would be two stops whose selection only changes on Enter,
-  // which reads as a pair of links, not a tab strip.
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (
-      event.key !== "ArrowRight" &&
-      event.key !== "ArrowLeft" &&
-      event.key !== "Home" &&
-      event.key !== "End"
-    ) {
-      return;
-    }
-    const index = PROJECT_TABS.indexOf(tab);
-    const next =
-      event.key === "Home"
-        ? 0
-        : event.key === "End"
-          ? PROJECT_TABS.length - 1
-          : event.key === "ArrowRight"
-            ? (index + 1) % PROJECT_TABS.length
-            : (index - 1 + PROJECT_TABS.length) % PROJECT_TABS.length;
-    event.preventDefault();
-    const id = PROJECT_TABS[next];
-    onSelect(id);
-    refs.current[id]?.focus();
-  };
-
-  return (
-    <div
-      role="tablist"
-      aria-label={tr("projects.tabs")}
-      onKeyDown={onKeyDown}
-      className="mb-4 flex gap-1 rounded-xl bg-kin-elevated/50 p-1"
+    <Link
+      to={href}
+      className={className}
+      onClick={(event) =>
+        onGuardedLinkClick(event, navigate, location, href, {
+          state: draftEntryState(returnListUrl(location)),
+        })
+      }
     >
-      {PROJECT_TABS.map((id) => {
-        const selected = id === tab;
-        return (
-          <button
-            key={id}
-            ref={(node) => {
-              refs.current[id] = node;
-            }}
-            type="button"
-            role="tab"
-            id={`project-tab-${id}`}
-            aria-selected={selected}
-            tabIndex={selected ? 0 : -1}
-            onClick={() => onSelect(id)}
-            className={[
-              "min-h-11 flex-1 rounded-lg px-3 text-strong font-medium outline-none transition sm:flex-none",
-              "focus-visible:ring-2 focus-visible:ring-kin-focus-ring",
-              selected
-                ? "bg-kin-blue text-kin-on-brand"
-                : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
-            ].join(" ")}
-          >
-            {labels[id]}
-          </button>
-        );
-      })}
-    </div>
+      {tr("projects.newChat")}
+    </Link>
   );
 }
 
-function ProjectChatsPanel({
-  rows,
-  loading,
-  error,
-  partial,
-  root,
-  onRetry,
+function RecentConversationRow({
+  row,
+  now,
   onOpen,
-  onNewChat,
 }: {
-  rows: ProjectChatRow[];
-  loading: boolean;
-  error: string | null;
-  partial: boolean;
-  /** The root a new chat would open in; empty when the project has none. */
-  root: string;
-  onRetry: () => void;
-  onOpen: (row: ProjectChatRow) => void;
-  /** A click on the new-chat link. The page owns it because only the page has
-   *  the router and the leave guard; the link keeps its href so a modifier
-   *  click still opens a tab. */
-  onNewChat: (event: ReactMouseEvent) => void;
+  row: ProjectChatRow;
+  now: number;
+  onOpen: () => void;
 }) {
   const tr = useT();
-  const now = Date.now();
+  const avatar = agentAvatarMeta(row.agentId);
+  const status = row.task ? taskCardStatusView(row.task.status) : null;
+  // The same dot rule as the list, so a row means the same thing in both
+  // places: green for a finished chat not yet seen, pulsing while it runs.
+  const dot = row.task ? sessionStatusDotClass(row.task.status, false) : null;
+  const label = [
+    row.title,
+    agentDisplayName(row.agentId),
+    formatRelativeTime(row.at, now),
+    status ? tr(status.labelKey) : "",
+    row.remote ? tr("machine.remote") : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
-    <section className="rounded-xl bg-kin-panel p-4">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <div className="text-body font-medium uppercase tracking-label text-kin-secondary">
-          {tr("projects.recentSessions")}
-        </div>
-        {root && (
-          <Link
-            to={`/new?cwd=${encodeURIComponent(root)}`}
-            onClick={onNewChat}
-            className="rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand"
-          >
-            {tr("projects.newChat")}
-          </Link>
-        )}
-      </div>
-
-      {error ? (
-        <div
-          role="alert"
-          className="rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-strong text-kin-red-ink"
-        >
-          <p>{error}</p>
-          <button
-            type="button"
-            onClick={onRetry}
-            className="mt-2 min-h-11 rounded-lg border border-kin-red/40 px-3 text-strong text-kin-red-ink"
-          >
-            {tr("projects.chatsRetry")}
-          </button>
-        </div>
-      ) : loading && rows.length === 0 ? (
-        <div className="space-y-3 py-2">
-          <SkeletonLine />
-          <SkeletonLine />
-          <SkeletonLine />
-        </div>
-      ) : rows.length === 0 ? (
-        <div className="py-2 text-body text-kin-secondary">
-          <p>{tr("projects.noSessions")}</p>
-          <p className="mt-1 text-kin-muted">{tr("projects.chatsEmptyHint")}</p>
-        </div>
-      ) : (
-        <ul className="divide-y divide-[var(--kin-hairline)]">
-          {rows.map((row) => {
-            const avatar = agentAvatarMeta(row.agentId);
-            const status = row.task ? taskCardStatusView(row.task.status) : null;
-            // Only the states a reader can act on get a dot: every finished
-            // chat is green in the list only because it is unread, and this
-            // screen has no unread notion — a field of dots would say nothing.
-            const attention =
-              status &&
-              (status.tone === "running" || status.tone === "approval" || status.tone === "failed")
-                ? status.dotClass
-                : null;
-            const label = [
-              row.title,
-              agentDisplayName(row.agentId),
-              formatRelativeTime(row.at, now),
-              status ? tr(status.labelKey) : "",
-              row.remote ? tr("machine.remote") : "",
-            ]
-              .filter(Boolean)
-              .join(" · ");
-            return (
-              <li key={row.task ? `task-${row.key}` : `session-${row.key}`}>
-                <button
-                  type="button"
-                  onClick={() => onOpen(row)}
-                  aria-label={label}
-                  className="kin-row-press flex min-h-11 w-full items-center gap-2.5 px-1 py-2.5 text-left"
-                >
-                  <span className="flex w-2 flex-none justify-center">
-                    {attention ? (
-                      <span className={`h-1.5 w-1.5 rounded-full ${attention}`} aria-hidden />
-                    ) : null}
-                  </span>
-                  <span
-                    className={`flex h-5 w-5 flex-none items-center justify-center rounded-full text-micro font-semibold ${avatar.className}`}
-                    title={agentDisplayName(row.agentId)}
-                    aria-hidden
-                  >
-                    {avatar.initials}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-subtitle font-medium leading-ui text-kin-text">
-                    {row.title}
-                  </span>
-                  {row.remote && (
-                    <span
-                      className="flex-none text-kin-muted"
-                      title={tr("machine.remote")}
-                      aria-hidden
-                    >
-                      <IconMachine size={12} />
-                    </span>
-                  )}
-                  <span className="flex-none text-caption leading-ui text-kin-muted tabular-nums">
-                    {formatRelativeTime(row.at, now)}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={label}
+      className="kin-row-press flex min-h-11 w-full items-center gap-2.5 px-1 py-2 text-left"
+    >
+      <span className="flex w-2 flex-none justify-center">
+        {dot ? <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden /> : null}
+      </span>
+      <span
+        className={`flex h-5 w-5 flex-none items-center justify-center rounded-full text-micro font-semibold ${avatar.className}`}
+        title={agentDisplayName(row.agentId)}
+        aria-hidden
+      >
+        {avatar.initials}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-subtitle font-medium leading-ui text-kin-text">
+        {row.title}
+      </span>
+      {row.remote && (
+        <span className="flex-none text-kin-muted" title={tr("machine.remote")} aria-hidden>
+          <IconMachine size={12} />
+        </span>
       )}
-
-      {partial && !error && (
-        <p role="status" className="mt-2 text-caption text-kin-muted">
-          {tr("projects.chatsPartial")}
-        </p>
-      )}
-      {loading && rows.length > 0 && (
-        <p className="mt-2 text-caption text-kin-muted" role="status">
-          {tr("projects.refreshing")}
-        </p>
-      )}
-    </section>
+      <span className="flex-none text-caption leading-ui text-kin-muted tabular-nums">
+        {formatRelativeTime(row.at, now)}
+      </span>
+      <span className="flex-none text-caption text-kin-secondary">
+        {tr("projects.recentContinue")} <span aria-hidden>→</span>
+      </span>
+    </button>
   );
+}
+
+/** The latest day with a commit inside the pulse window, as epoch ms. */
+export function lastCommitAt(pulse: ProjectPulse | null): number | null {
+  const days: PulseDay[] | undefined = pulse?.commit_heat;
+  if (!days?.length) return null;
+  for (let i = days.length - 1; i >= 0; i--) {
+    const day = days[i];
+    if (day.count <= 0) continue;
+    const [year, month, date] = day.date.split("-").map(Number);
+    if (!year || !month || !date) return null;
+    // The day's own clock, not noon: a commit seen before noon must not read
+    // as a future time, and the heat only knows the day.
+    return Math.min(new Date(year, month - 1, date).getTime(), Date.now());
+  }
+  return null;
 }

@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+// KIN-ROUTINE-001: the routine page owns machine choice, form state and run
+// history without rendering the conversation itself.
 // KIN-NOTIFY-001: a notification on an already-open routines page changes the
 // machine, and a manual switch writes the same URL, so a second tap of the same
 // notification is a real navigation again.
@@ -272,6 +274,7 @@ beforeEach(() => {
     model: value.model ?? "",
     permissionMode: value.permission_mode,
     intervalSecs: value.interval_secs,
+    conversationMode: value.conversation_mode === "fresh" ? "fresh" : "continue",
     rule: null,
     nextRunMs: value.next_due_at,
     ruleZone: null,

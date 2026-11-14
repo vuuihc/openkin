@@ -22,7 +22,7 @@ const tr = (path: string, params?: Record<string, string | number>): string =>
 // reads as "your other machine had nothing", and an error keyed by provider
 // alone sends the reader to look at the machine they are already on.
 
-describe("mergeAgentSessionImports", () => {
+describe("mergeAgentSessionImports (KIN-AGENTS-001)", () => {
   it("adds the machines' counts together", () => {
     const merged = mergeAgentSessionImports([
       { label: "This machine", result: { imported: 2, providers: { "claude-code": 2 } } },

@@ -38,12 +38,6 @@ final class KinPushState {
 
     // MARK: - APNs
 
-    var currentToken: String? {
-        lock.lock()
-        defer { lock.unlock() }
-        return token
-    }
-
     /// A registration answer from APNs, including a rotated token.
     func setToken(_ token: String) {
         lock.lock()
@@ -65,6 +59,16 @@ final class KinPushState {
         for (_, resolve) in waiters {
             resolve(.failure(KinPushError(message: message)))
         }
+    }
+
+    /// Forget the cached token without failing anyone already waiting: the
+    /// next APNs delivery resolves them. Used before a re-registration so a
+    /// token that rotated while this process stayed alive is not handed to the
+    /// node again.
+    func refreshToken() {
+        lock.lock()
+        token = nil
+        lock.unlock()
     }
 
     /// Stop delivering: the next registration starts from scratch. Waiters are
