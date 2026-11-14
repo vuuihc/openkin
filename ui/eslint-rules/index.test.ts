@@ -1,6 +1,7 @@
-import { RuleTester } from "eslint";
+import { ESLint, RuleTester } from "eslint";
+import { fileURLToPath } from "node:url";
 import tseslint from "typescript-eslint";
-import { afterAll, describe, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import kin from "./index.js";
 
 /**
@@ -255,4 +256,113 @@ tester.run("no-arbitrary-literal", kin.rules["no-arbitrary-literal"], {
       errors: [{ messageId: "named" }, { messageId: "named" }],
     },
   ],
+});
+
+// The added-file bans: off in `eslint.config.js`, on for the files a branch
+// adds. A test that renders a control on purpose is not a call site, so the
+// facade and tests are out of scope in the guard config.
+tester.run("no-raw-button", kin.rules["no-raw-button"], {
+  valid: [
+    { code: 'const C = () => <Button type="button">Go</Button>;' },
+    { code: 'const doc = "a raw <button> is banned in added files";' },
+    { code: "const C = () => <buttonish />;" },
+  ],
+  invalid: [
+    { code: 'const C = () => <button type="button" />;', errors: [{ messageId: "raw" }] },
+    { code: "const C = () => <div><button /></div>;", errors: [{ messageId: "raw" }] },
+  ],
+});
+
+tester.run("no-create-portal", kin.rules["no-create-portal"], {
+  valid: [
+    { code: 'import { createRoot } from "react-dom/client"; createRoot(el);' },
+    // A member on an unresolved object is somebody else's method.
+    { code: "overlay.createPortal(el, root);" },
+    // Same name, different lexical binding.
+    { code: "function C(createPortal) { return createPortal(el, root); }" },
+    {
+      code: 'import ReactDOM from "react-dom"; function C(ReactDOM) { return ReactDOM.createPortal(el, root); }',
+    },
+    {
+      code: 'import { createPortal as portal } from "react-dom"; function C(portal) { return portal(el, root); }',
+    },
+    { code: 'const doc = "createPortal(…) is the old overlay path";' },
+  ],
+  invalid: [
+    {
+      code: 'import { createPortal } from "react-dom"; createPortal(el, root);',
+      errors: [{ messageId: "portal" }],
+    },
+    {
+      code: 'import { createPortal as portal } from "react-dom"; portal(el, root);',
+      errors: [{ messageId: "portal" }],
+    },
+    {
+      code: 'import * as ReactDOM from "react-dom"; ReactDOM.createPortal(el, root);',
+      errors: [{ messageId: "portal" }],
+    },
+    {
+      code: 'import ReactDOM from "react-dom"; ReactDOM["createPortal"](el, root);',
+      errors: [{ messageId: "portal" }],
+    },
+    // The import may be written after the call; scope resolution still sees it.
+    {
+      code: 'const C = () => createPortal(el, root); import { createPortal } from "react-dom";',
+      errors: [{ messageId: "portal" }],
+    },
+    // No visible import: in this ESM tree the only sensible source is react-dom.
+    { code: "createPortal(el, root);", errors: [{ messageId: "portal" }] },
+  ],
+});
+
+tester.run("no-arbitrary-z-index", kin.rules["no-arbitrary-z-index"], {
+  valid: [
+    { code: 'const a = "z-0 z-10 z-20 z-50 -z-10";' },
+    { code: 'const a = "w-[50] top-[10px] text-[13px] z-10";' },
+    { code: 'const a = "z-[var(--kin-layer)]";' },
+    { code: "// z-[9999] in a comment is prose" },
+  ],
+  invalid: [
+    { code: 'const a = "z-[50]";', errors: [{ messageId: "arbitrary" }] },
+    { code: 'const a = "md:z-[9999]";', errors: [{ messageId: "arbitrary" }] },
+    // Tailwind's negative spelling, plain and behind a variant.
+    { code: 'const a = "-z-[10]";', errors: [{ messageId: "arbitrary" }] },
+    { code: 'const a = "hover:-z-[10]";', errors: [{ messageId: "arbitrary" }] },
+    {
+      code: "const C = () => <div className={`-z-[3] ${x}`} />;",
+      errors: [{ messageId: "arbitrary" }],
+    },
+    {
+      code: 'const a = "z-[100] -z-[200]";',
+      errors: [{ messageId: "arbitrary" }, { messageId: "arbitrary" }],
+    },
+  ],
+});
+
+/**
+ * The guard config through ESLint itself, not a mock: a disable directive
+ * ordinary lint supports must not become "rule not found", and an unused one
+ * must not fail the scoped run under `--max-warnings 0`.
+ */
+describe("eslint.guard.config.js", () => {
+  it("accepts a react-hooks disable directive and still reports the bans", async () => {
+    const ui = fileURLToPath(new URL("../", import.meta.url));
+    const eslint = new ESLint({
+      cwd: ui,
+      overrideConfigFile: fileURLToPath(new URL("../eslint.guard.config.js", import.meta.url)),
+    });
+    const [result] = await eslint.lintText(
+      [
+        'import { useEffect } from "react";',
+        "export function C() {",
+        "  // eslint-disable-next-line react-hooks/exhaustive-deps",
+        "  const value = 1;",
+        "  useEffect(() => {}, [value]);",
+        '  return <button type="button">go</button>;',
+        "}",
+      ].join("\n"),
+      { filePath: `${ui}src/components/Fixture.tsx` },
+    );
+    expect(result.messages.map((m) => m.ruleId)).toEqual(["kin/no-raw-button"]);
+  });
 });

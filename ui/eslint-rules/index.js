@@ -294,9 +294,143 @@ const noArbitraryLiteral = {
   },
 };
 
+/**
+ * The three added-file bans. `eslint.config.js` leaves them off: the tree still
+ * has legacy raw buttons, portals and arbitrary z-index values, so they run
+ * only through `eslint.guard.config.js` on the files a change adds.
+ *
+ * They read the AST, not the text. `createPortal` is resolved through the
+ * module scope, so an aliased import is the same call and a local binding of
+ * the same name is not.
+ */
+const noRawButton = {
+  meta: {
+    type: "problem",
+    docs: {
+      description:
+        "a new raw `<button>` bypasses the shared Button primitive, so focus, disabled and pressed states get a second implementation",
+    },
+    schema: [],
+    messages: {
+      raw: "a raw `<button>` is a hand-written control — use the shared `Button` from `src/components/ui/`, so focus, disabled and pressed states stay in one place",
+    },
+  },
+  create(context) {
+    return {
+      JSXOpeningElement(node) {
+        if (node.name.type === "JSXIdentifier" && node.name.name === "button") {
+          context.report({ node: node.name, messageId: "raw" });
+        }
+      },
+    };
+  },
+};
+
+const REACT_DOM = "react-dom";
+
+function findVariable(scope, name) {
+  for (let current = scope; current; current = current.upper) {
+    const variable = current.set.get(name);
+    if (variable) return variable;
+  }
+  return null;
+}
+
+/** The `ImportBinding` def for a react-dom import, or null for any other binding. */
+function reactDomImport(variable) {
+  const def = variable?.defs[0];
+  return def?.type === "ImportBinding" && def.parent.source.value === REACT_DOM ? def : null;
+}
+
+const noCreatePortal = {
+  meta: {
+    type: "problem",
+    docs: {
+      description:
+        "a new `createPortal` call starts an independent overlay implementation instead of using a shared sheet/popover primitive",
+    },
+    schema: [],
+    messages: {
+      portal:
+        "`createPortal(…)` starts a new overlay stack — use the shared sheet/popover primitive in `src/components/ui/`, so focus, Escape and stacking stay in one place",
+    },
+  },
+  create(context) {
+    return {
+      CallExpression(node) {
+        const callee = node.callee;
+        const scope = context.sourceCode.getScope(node);
+        if (callee.type === "Identifier") {
+          const variable = findVariable(scope, callee.name);
+          if (variable) {
+            const def = reactDomImport(variable);
+            const imported = def?.node.type === "ImportSpecifier" && def.node.imported;
+            if (!imported || (imported.name ?? imported.value) !== "createPortal") return;
+          } else if (callee.name !== "createPortal") {
+            return;
+          }
+          context.report({ node: callee, messageId: "portal" });
+          return;
+        }
+        if (callee.type !== "MemberExpression" || callee.object.type !== "Identifier") return;
+        const property = callee.computed
+          ? callee.property.type === "Literal"
+            ? callee.property.value
+            : null
+          : callee.property.type === "Identifier"
+            ? callee.property.name
+            : null;
+        if (property !== "createPortal") return;
+        const def = reactDomImport(findVariable(scope, callee.object.name));
+        if (
+          def &&
+          (def.node.type === "ImportDefaultSpecifier" ||
+            def.node.type === "ImportNamespaceSpecifier")
+        ) {
+          context.report({ node: callee, messageId: "portal" });
+        }
+      },
+    };
+  },
+};
+
+// `z-[50]`, `md:z-[9999]`, and Tailwind's negative `-z-[10]` (variant or not).
+// The lookbehind keeps `my-z-[10]` from reading as a z utility; a non-numeric
+// value is a token reference, not this rule's subject.
+const ARBITRARY_Z_INDEX = /(?<![\w-])-?z-\[-?\d+\](?![\w-])/g;
+
+const noArbitraryZIndex = {
+  meta: {
+    type: "problem",
+    docs: {
+      description:
+        "an arbitrary numeric z-index class invents a stacking level at the call site instead of using a named step",
+    },
+    schema: [],
+    messages: {
+      arbitrary:
+        "`{{value}}` invents a stacking level — use a named `z-*` step (`z-0`–`z-50`), so overlay order stays reviewable",
+    },
+  },
+  create(context) {
+    return {
+      Program() {
+        for (const segment of classSegments(context)) {
+          for (const [value] of segment.value.matchAll(ARBITRARY_Z_INDEX)) {
+            context.report({ node: segment.node, messageId: "arbitrary", data: { value } });
+          }
+        }
+      },
+    };
+  },
+};
+
 export default {
   rules: {
     "no-arbitrary-literal": noArbitraryLiteral,
+    "no-arbitrary-z-index": noArbitraryZIndex,
+    "no-create-portal": noCreatePortal,
+    "no-raw-button": noRawButton,
     "no-undefined-token": noUndefinedToken,
   },
 };

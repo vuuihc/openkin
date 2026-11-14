@@ -72,6 +72,19 @@ jobs:
           python3 -B scripts/check-ui-inventory.test.py
           python3 -B scripts/check-ui-inventory.py
 
+      # The added-file bans are off in the tree-wide lint. This runs their
+      # tests and the scoped runner after `npm ci` above. `UI_LINT_BASE` is
+      # separate from the format step's `BASE_SHA`: a PR compares against its
+      # base, a default-branch push against its previous tip, and a feature
+      # push leaves it empty so the runner stays cumulative against
+      # origin/main.
+      - name: Added-file UI lint guard
+        env:
+          UI_LINT_BASE: ${{ github.event.pull_request.base.sha || (github.ref_name == github.event.repository.default_branch && github.event.before || '') }}
+        run: |
+          python3 -B -m unittest scripts/ui_lint_guard_test.py
+          ./scripts/ui-lint-guard.sh
+
       # The smoke job boots the real binary against this build. It is uploaded
       # rather than rebuilt there so the console the daemon serves in the smoke
       # test is the same one this job's typecheck, tests and budget measured.
