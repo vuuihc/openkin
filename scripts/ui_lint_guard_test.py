@@ -9,6 +9,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -20,6 +21,31 @@ import ui_lint_guard as guard  # noqa: E402
 REAL_UI = HERE.parent / "ui"
 JOB = HERE / "ui-lint-guard.sh"
 RAW = "export const C = () => <button />;\n"
+CI_WORKFLOW = HERE.parent / ".github" / "workflows" / "ci.yml"
+BASE_BLOCK = ("# BEGIN ui-lint-base", "# END ui-lint-base")
+
+
+def ci_base(**fixtures: str) -> str:
+    """Run the workflow's own base-selection block with fixture inputs."""
+    lines = CI_WORKFLOW.read_text(encoding="utf-8").splitlines()
+    start = next(i for i, line in enumerate(lines) if BASE_BLOCK[0] in line)
+    end = next(i for i in range(start + 1, len(lines)) if BASE_BLOCK[1] in lines[i])
+    proc = subprocess.run(
+        ["bash", "-c", textwrap.dedent("\n".join(lines[start + 1 : end]))],
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "PR_BASE_SHA": "",
+            "EVENT_BEFORE": "",
+            "REF_NAME": "",
+            "DEFAULT_BRANCH": "",
+            **fixtures,
+        },
+    )
+    if proc.returncode != 0:
+        raise AssertionError(proc.stderr)
+    return proc.stdout
 
 
 class GuardTest(unittest.TestCase):
@@ -101,6 +127,32 @@ class GuardTest(unittest.TestCase):
             self.assertEqual(guard.run_lint(self.root, base), 0)
         # The reproduction line quotes a path with a space.
         self.assertIn("'src/New Name.tsx'", out.getvalue())
+        # Quoting is not cosmetic: a raw control in a spaced path is rejected.
+        self.write("ui/src/Bad Name.tsx", RAW)
+        self.assertNotEqual(guard.run_lint(self.root, base), 0)
+
+    def test_committed_moves_with_violations_are_linted_at_new_paths(self):
+        """A similar move is R, a rewrite is A; both new paths are in scope."""
+        kept = "".join(f"export const V{i} = () => <Button />;\n" for i in range(8))
+        self.write("ui/src/Old.tsx", kept)
+        self.write("ui/src/Rewrite.tsx", "export const O = () => <Button />;\n")
+        base = self.commit()
+        self.git("mv", "ui/src/Old.tsx", "ui/src/Moved.tsx")
+        self.git("mv", "ui/src/Rewrite.tsx", "ui/src/Replaced.tsx")
+        self.write("ui/src/Moved.tsx", RAW + kept.split("\n", 1)[1])
+        self.write("ui/src/Replaced.tsx", RAW)
+        self.commit("move and edit")
+        statuses = {
+            line.split("\t")[0][0]
+            for line in self.git(
+                "diff", "--name-status", "-M", "--diff-filter=AR", base, "--", "ui/src"
+            ).splitlines()
+        }
+        self.assertEqual(statuses, {"A", "R"})
+        self.assertEqual(
+            guard.selected_files(self.root, base), ["ui/src/Moved.tsx", "ui/src/Replaced.tsx"]
+        )
+        self.assertNotEqual(guard.run_lint(self.root, base), 0)
 
     def test_facade_generated_and_test_files_are_exempt(self):
         self.write("ui/src/Legacy.tsx", "export const L = () => <div />;\n")
@@ -133,6 +185,66 @@ class GuardTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"UI_LINT_BASE": ""}):
             with self.assertRaisesRegex(guard.GuardError, "origin/main"):
                 guard.resolve_base(self.root, None)
+
+    def test_unrelated_history_fails_closed(self):
+        self.write("ui/src/Legacy.tsx", "export const L = () => <div />;\n")
+        base = self.commit()
+        self.git("update-ref", "refs/remotes/origin/main", base)
+        self.git("checkout", "-q", "--orphan", "stranger")
+        self.write("ui/src/New.tsx", RAW)
+        self.commit("unrelated root")
+        # Both the explicit base and the origin/main fallback have no common
+        # history with HEAD; neither may be labelled a merge-base.
+        for explicit in (None, base):
+            with mock.patch.dict(os.environ, {"UI_LINT_BASE": ""}):
+                with self.assertRaisesRegex(guard.GuardError, "no merge-base"):
+                    guard.resolve_base(self.root, explicit)
+        with mock.patch.dict(os.environ, {"UI_LINT_BASE": ""}):
+            self.assertEqual(guard.main(["--list"], root=self.root), 2)
+
+    def test_ci_base_policy_selects_pr_default_and_feature_inputs(self):
+        self.assertEqual(
+            ci_base(
+                PR_BASE_SHA="pr-base",
+                EVENT_BEFORE="previous-tip",
+                REF_NAME="123/merge",
+                DEFAULT_BRANCH="main",
+            ),
+            "pr-base",
+        )
+        self.assertEqual(
+            ci_base(
+                PR_BASE_SHA="",
+                EVENT_BEFORE="previous-tip",
+                REF_NAME="main",
+                DEFAULT_BRANCH="main",
+            ),
+            "previous-tip",
+        )
+        # A feature push ignores the event's before and the format step's
+        # BASE_SHA: the guard stays cumulative against origin/main.
+        self.assertEqual(
+            ci_base(
+                PR_BASE_SHA="",
+                EVENT_BEFORE="previous-tip",
+                REF_NAME="feature",
+                DEFAULT_BRANCH="main",
+                BASE_SHA="previous-tip",
+            ),
+            "",
+        )
+
+    def test_ci_zero_before_fails_closed(self):
+        self.write("ui/src/Legacy.tsx", "export const L = () => <div />;\n")
+        self.commit()
+        zero = "0" * 40
+        base = ci_base(PR_BASE_SHA="", EVENT_BEFORE=zero, REF_NAME="main", DEFAULT_BRANCH="main")
+        self.assertEqual(base, zero)
+        err = io.StringIO()
+        with mock.patch.dict(os.environ, {"UI_LINT_BASE": base}), contextlib.redirect_stderr(err):
+            self.assertEqual(guard.main(["--list"], root=self.root), 2)
+        self.assertIn("UI_LINT_BASE", err.getvalue())
+        self.assertIn("not a commit", err.getvalue())
 
     def test_local_job_propagates_rule_test_failure(self):
         fake_bin = self.root / "bin"
