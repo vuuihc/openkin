@@ -122,25 +122,11 @@ transform」），`AppShell` 那条 20px 的透明感应条也没有任何可见
 跟手部分未动：`useEdgeSwipeBack` / `phoneBack` 只存在于本地未提交的工作树，
 `origin/main` 尚无该手势，等本地 WIP 推送后再修。
 
-### 2026-11-09 · 中 · routines 改为设备归属后的遗留项
-
-routines 的跨设备主路径已按 2026-11-08 的决策落地（见 `## 已修`，`901821bf`）：
-在任一客户端选中一台机器，就能看见并管理那台机器上的例行任务。同一决策下还有
-几处没有跟上，都不影响主路径，但多设备下仍会露出本机视角。
-
-期望：继续按「routines 属于 Device，Hub 只转发和鉴权」补齐：
-
-- **旧 Hub 库的 routines 没有迁移**：升级后它们仍由 Hub 调度，而 Routines 页
-  默认落在节点上，只有选「本机」才看得到。要不要禁用 / 迁移需要产品决定
-  （待定，2026-11-10 已问报告人）。
-
-线索：`internal/api/routines.go`（大多数操作已带 `device`）、
-`internal/mcp/server.go`、`ui/src/pages/RoutinesPage.tsx`（「本机」选项与旧数据的提示）。
-验收：旧数据有明确处置。
-
 ## 已修
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
+
+- 2026-11-09 · routines 改为设备归属后的遗留项（旧 Hub 库的 routines 没迁移、只有选「本机」才看得到）— PR #51（显示其他机器时提示「本机还有 N 个例行任务」并可一键切到本机；禁用 / 迁移 2026-11-10 已问报告人、超 48 小时无回答，按 §4 执行可回退默认值：不改数据只让现状可见，禁用 / 迁移仍待方向；3 条新 DOM 测试，check.sh 除已知 PanelSurface 抖动外全绿）
 
 - 2026-11-12 · 手机端「划」没有过渡（行左划的动作条部分）— PR #50（拖动第一次位移即挂载动作条，未提交前 inert + aria-hidden + pointer-events:none，收起保留到 180ms 滑回结束；SwipeReveal DOM 测试 10 passed、还原组件后 4 failed，check.sh 除并发构建下的 5s 超时抖动外全绿）
 - 2026-11-08 · 侧栏看不出设备 → 项目 → 对话的层级 — PR #47（每层一个 16px 缩进步长并嵌套相加，字重随深度递减：设备 semibold / 项目 body medium / 会话 regular，项目行不再用 `kin-section-label`；2026-11-10 的产品提问超过 48 小时无回答，按 §4 执行可回退的推荐默认值：16px 等步长、无分组背景、无竖线；Sidebar DOM 测试 16 passed、lint 0 error、check.sh 除既有负载抖动外全绿）
