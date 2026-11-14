@@ -5,11 +5,11 @@ import {
   ApiError,
   createRoutine,
   deleteRoutine,
+  getRoutine,
   isAuthenticated,
   isTerminal,
   listRoutineRuns,
   listRoutines,
-  listTasks,
   markAllRoutineRunsRead,
   markRoutineRunRead,
   patchRoutine,
@@ -35,7 +35,6 @@ import {
 import {
   appendOlderRuns,
   foldRoutineRun,
-  pageCursor,
   reconcileRoutineReads,
   ROUTINE_HISTORY_MAX,
   ROUTINE_HISTORY_PAGE,
@@ -137,9 +136,13 @@ export default function RoutinesPage() {
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [routineQuery, setRoutineQuery] = useState("");
   const [routineCursor, setRoutineCursor] = useState("");
+  const routineCursorQuery = useRef("");
   const [routineHasMore, setRoutineHasMore] = useState(false);
   const [loadingMoreRoutines, setLoadingMoreRoutines] = useState(false);
   const [runs, setRuns] = useState<Task[]>([]);
+  const [runsCursor, setRunsCursor] = useState("");
+  const [runsHasMore, setRunsHasMore] = useState(false);
+  const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
   // One routine's own recent runs, keyed by routine id; loaded when it is opened.
   const [history, setHistory] = useState<Record<string, Task[]>>({});
   // Keyed too: opening a second routine while the first is still loading must
@@ -155,6 +158,12 @@ export default function RoutinesPage() {
   const [historyLoadingOlder, setHistoryLoadingOlder] = useState<Record<string, boolean>>({});
   // The newest fetch per routine; an older one that lands late is discarded.
   const historySeq = useRef<Record<string, number>>({});
+  // First-page replacement and older-page loading finish independently. A
+  // first page invalidates older pagination without letting that older
+  // request's cleanup clear the replacement's own loading state.
+  const historyOlderSeq = useRef<Record<string, number>>({});
+  const olderRunsSeq = useRef(0);
+  const olderRoutinesSeq = useRef(0);
   // Unread only ever goes true -> false, so a write that landed while a fetch
   // was out must beat that fetch's older snapshot: the history would otherwise
   // show unread rows on a screen whose feed and badge say read.
@@ -178,9 +187,8 @@ export default function RoutinesPage() {
   );
   // Signed default (2026-11-11): a routine's runs keep one agent session going
   // unless the reader asks for a new one per run.
-  const [conversationMode, setConversationMode] = useState<ConversationMode>(
-    DEFAULT_CONVERSATION_MODE,
-  );
+  const [conversationMode, setConversationMode] =
+    useState<ConversationMode>(DEFAULT_CONVERSATION_MODE);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // The form as it looked when it opened, so closing can tell an untouched
   // form from one that would lose typed words.
@@ -257,6 +265,7 @@ export default function RoutinesPage() {
   const formLocked = creating || machineOffline;
   // The routine the form is editing; null means it is creating a new one.
   const [editing, setEditing] = useState<Routine | null>(null);
+  const editSeq = useRef(0);
   const formRef = useRef<HTMLElement | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
   const toggleRef = useRef<HTMLButtonElement | null>(null);
@@ -282,20 +291,37 @@ export default function RoutinesPage() {
     // ask again for the machine the page was going to open on.
     if (machinesLoading) return;
     const seq = ++loadSeq.current;
+    // Invalidate cursor owners at the start, not only after a successful page.
+    // A failed (including 401) refresh must not make an old cursor current again.
+    ++olderRunsSeq.current;
+    ++olderRoutinesSeq.current;
+    const query = routineQuery.trim() || undefined;
+    const epoch = readAllEpoch.current;
     try {
       const [rs, feed] = await Promise.all([
-        listRoutines({ limit: 100, q: routineQuery.trim() || undefined }, deviceId),
-        listRoutineRuns(80, deviceId),
+        listRoutines({ limit: 100, q: query }, deviceId),
+        listRoutineRuns(ROUTINE_HISTORY_PAGE, deviceId),
       ]);
       if (seq !== loadSeq.current) return;
       setRoutines(rs.routines ?? []);
+      routineCursorQuery.current = query ?? "";
       setRoutineCursor(rs.next_cursor ?? "");
       setRoutineHasMore(rs.has_more);
-      setRuns(feed);
+      setRuns(reconcileRoutineReads(feed.runs ?? [], readAllEpoch.current !== epoch, knownRead.current));
+      setRunsCursor(feed.runs_next_cursor ?? "");
+      setRunsHasMore(feed.runs_has_more ?? false);
+      // Each settled first page ends pagination for the cursor it replaced.
+      // An older request may have captured this load's generation after it began.
+      ++olderRunsSeq.current;
+      ++olderRoutinesSeq.current;
+      setLoadingMoreRuns(false);
+      setLoadingMoreRoutines(false);
       setError(null);
       setFailedAt(0);
     } catch (e) {
       if (seq !== loadSeq.current) return;
+      setLoadingMoreRuns(false);
+      setLoadingMoreRoutines(false);
       if (e instanceof ApiError && e.status === 401) return;
       setError(e instanceof Error ? e.message : tr("routines.loadFailed"));
       setFailedAt(Date.now());
@@ -304,31 +330,73 @@ export default function RoutinesPage() {
     }
   }, [tr, routineQuery, deviceId, machinesLoading]);
 
+  const loadMoreRuns = async () => {
+    if (!runsCursor || !runsHasMore || loadingMoreRuns || runs.length >= ROUTINE_HISTORY_MAX)
+      return;
+    const view = currentView();
+    const seq = loadSeq.current;
+    const olderSeq = ++olderRunsSeq.current;
+    const epoch = readAllEpoch.current;
+    setLoadingMoreRuns(true);
+    try {
+      const page = await listRoutineRuns(ROUTINE_HISTORY_PAGE, view.deviceId, runsCursor);
+      if (olderSeq !== olderRunsSeq.current || seq !== loadSeq.current || !isCurrentView(view))
+        return;
+      const tasks = reconcileRoutineReads(
+        page.runs ?? [],
+        readAllEpoch.current !== epoch,
+        knownRead.current,
+      );
+      setRuns((current) => appendOlderRuns(current, tasks));
+      setRunsCursor(page.runs_next_cursor ?? "");
+      setRunsHasMore(page.runs_has_more ?? false);
+    } catch (e) {
+      if (olderSeq !== olderRunsSeq.current || seq !== loadSeq.current || !isCurrentView(view))
+        return;
+      pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
+    } finally {
+      if (olderSeq === olderRunsSeq.current && seq === loadSeq.current && isCurrentView(view))
+        setLoadingMoreRuns(false);
+    }
+  };
   const loadMoreRoutines = async () => {
-    if (!routineCursor || !routineHasMore || loadingMoreRoutines) return;
+    const query = routineQuery.trim();
+    // The cursor belongs to the first page that produced it. Pairing it with a
+    // newer search would append an unrelated result set before that page lands.
+    if (
+      !routineCursor ||
+      !routineHasMore ||
+      loadingMoreRoutines ||
+      routineCursorQuery.current !== query
+    )
+      return;
     const view = currentView();
     setLoadingMoreRoutines(true);
     const seq = loadSeq.current;
+    const olderSeq = ++olderRoutinesSeq.current;
     try {
       const page = await listRoutines(
         {
           limit: 100,
           cursor: routineCursor,
-          q: routineQuery.trim() || undefined,
+          q: query || undefined,
         },
         deviceId,
       );
       // A page from the machine the page has since left is not this machine's
       // second page.
-      if (seq !== loadSeq.current || !isCurrentView(view)) return;
+      if (olderSeq !== olderRoutinesSeq.current || seq !== loadSeq.current || !isCurrentView(view))
+        return;
       setRoutines((current) => [...current, ...(page.routines ?? [])]);
       setRoutineCursor(page.next_cursor ?? "");
       setRoutineHasMore(page.has_more);
     } catch (e) {
-      if (!isCurrentView(view)) return;
+      if (olderSeq !== olderRoutinesSeq.current || seq !== loadSeq.current || !isCurrentView(view))
+        return;
       pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
     } finally {
-      if (isCurrentView(view)) setLoadingMoreRoutines(false);
+      if (olderSeq === olderRoutinesSeq.current && seq === loadSeq.current && isCurrentView(view))
+        setLoadingMoreRoutines(false);
     }
   };
 
@@ -405,9 +473,15 @@ export default function RoutinesPage() {
   // paths. Nothing from the old one may stay on screen while the new one loads:
   // a row from the wrong machine reads as that machine's routine.
   useEffect(() => {
+    ++editSeq.current;
     setRoutines([]);
     setRuns([]);
+    knownRead.current.clear();
+    setRunsCursor("");
+    setRunsHasMore(false);
+    setLoadingMoreRuns(false);
     setRoutineCursor("");
+    routineCursorQuery.current = "";
     setRoutineHasMore(false);
     setHistory({});
     setHistoryLoading({});
@@ -416,6 +490,7 @@ export default function RoutinesPage() {
     setHistoryCursor({});
     setHistoryLoadingOlder({});
     historySeq.current = {};
+    historyOlderSeq.current = {};
     setError(null);
     setFailedAt(0);
     setLoading(true);
@@ -452,15 +527,7 @@ export default function RoutinesPage() {
       if (remoteRef.current) return;
       const t = msg.data;
       if (!t.routine_id) return;
-      setRuns((prev) => {
-        const idx = prev.findIndex((x) => x.id === t.id);
-        if (idx >= 0) {
-          const next = prev.slice();
-          next[idx] = { ...next[idx], ...t };
-          return next;
-        }
-        return [t, ...prev].slice(0, 80);
-      });
+      setRuns((prev) => foldRoutineRun(prev, t) ?? prev);
       // The editor's list is a snapshot from when it opened. A scheduled run
       // that starts (or finishes) while the editor stays open has to land here
       // too, or the reader watches a list that never moves.
@@ -534,20 +601,22 @@ export default function RoutinesPage() {
   const conversationPrevious = previousConversation(
     conversationRuns,
     editing
-      ? { id: editing.id, agent: agentId, cwd: formCwd, model }
+      ? {
+          id: editing.id,
+          agent: agentId,
+          // Run summaries keep cwd / agent / model / session_ref for this
+          // comparison; prompt and dispatch remain in the detail read.
+          ...(cwd ? { cwd: formCwd } : {}),
+          ...(model || editing.model ? { model } : {}),
+        }
       : undefined,
   );
   // Only the continue hint waits on history: "start a new session each run"
   // needs to know nothing about the last run. While a first read is pending the
   // hint says it is reading rather than guessing "first run"; a refetch after
   // the page is already loaded keeps the known answer on screen (anti-flicker).
-  const conversationLoading =
-    !!editing && !!historyLoading[editing.id] && !history[editing.id];
-  const conversationPreview = nextRunConversation(
-    conversationMode,
-    conversationPrevious,
-    formCwd,
-  );
+  const conversationLoading = !!editing && !!historyLoading[editing.id] && !history[editing.id];
+  const conversationPreview = nextRunConversation(conversationMode, conversationPrevious, formCwd);
   const conversationHint =
     conversationMode === "fresh"
       ? tr("routines.conversationFreshHint", {
@@ -609,7 +678,7 @@ export default function RoutinesPage() {
       // task belongs to the view that was showing, even if the reader has
       // since returned to the same machine.
       if (!isCurrentView(view)) return;
-      setRuns((prev) => [t, ...prev].slice(0, 80));
+      setRuns((prev) => foldRoutineRun(prev, t) ?? prev);
       // The editor may be open on this routine; Run now should show up there
       // without waiting for the websocket echo (which the fold then dedupes).
       setHistory((prev) => {
@@ -654,123 +723,76 @@ export default function RoutinesPage() {
   };
 
   /**
-   * One routine's own runs, newest first. The global feed is capped, so a
-   * routine that has not run recently would otherwise look like it never ran;
-   * the daemon's list already supports the filter.
+   * Both local and relay reads are the same paged run summaries. Only prompt
+   * and dispatch go to the detail response; the continuation preview keeps
+   * its small comparison fields. A retry of an older page leaves the cached
+   * rows and its cursor intact.
    */
-  const loadHistory = async (id: string) => {
-    // An empty id means "no filter" to the daemon, which would show the newest
-    // tasks of any kind under one routine's name.
-    if (!id) return;
-    if (remote) {
-      // The Hub cannot read this machine's task table, and the relayed routine
-      // feed is its only window into that machine's runs: the newest runs of
-      // every routine on it, which this page already holds. That is the whole
-      // history this console can show, and there is no older page to ask for.
-      setHistory((prev) => ({ ...prev, [id]: runs.filter((x) => x.routine_id === id) }));
-      setHistoryHasMore((prev) => ({ ...prev, [id]: false }));
+  const readHistory = async (id: string, before: string) => {
+    if (
+      !id ||
+      (before &&
+        (!historyCursor[id] ||
+          historyLoadingOlder[id] ||
+          (history[id]?.length ?? 0) >= ROUTINE_HISTORY_MAX))
+    )
+      return;
+    const view = currentView();
+    const seq = (historySeq.current[id] ?? 0) + (before ? 0 : 1);
+    if (!before) historySeq.current[id] = seq;
+    const olderSeq = (historyOlderSeq.current[id] ?? 0) + 1;
+    historyOlderSeq.current[id] = olderSeq;
+    const epoch = readAllEpoch.current;
+    if (before) setHistoryLoadingOlder((prev) => ({ ...prev, [id]: true }));
+    else setHistoryLoading((prev) => ({ ...prev, [id]: true }));
+    try {
+      const page = await listRoutineRuns(
+        ROUTINE_HISTORY_PAGE,
+        remote ? view.deviceId : "",
+        before,
+        id,
+      );
+      if (historySeq.current[id] !== seq || historyOlderSeq.current[id] !== olderSeq || !isCurrentView(view))
+        return;
+      const tasks = reconcileRoutineReads(
+        page.runs ?? [],
+        readAllEpoch.current !== epoch,
+        knownRead.current,
+      );
+      setHistory((prev) => ({
+        ...prev,
+        [id]: before ? appendOlderRuns(prev[id] ?? [], tasks) : tasks,
+      }));
+      setHistoryHasMore((prev) => ({ ...prev, [id]: page.runs_has_more ?? false }));
+      setHistoryCursor((prev) => ({ ...prev, [id]: page.runs_next_cursor ?? "" }));
       setHistoryError((prev) => {
-        if (!(id in prev)) return prev;
         const next = { ...prev };
         delete next[id];
         return next;
       });
-      return;
-    }
-    // Reopening the same routine starts a second fetch; the older one must not
-    // overwrite the newer list when it lands late.
-    const view = currentView();
-    const seq = (historySeq.current[id] ?? 0) + 1;
-    historySeq.current[id] = seq;
-    const epoch = readAllEpoch.current;
-    setHistoryLoading((prev) => ({ ...prev, [id]: true }));
-    setHistoryError((prev) => {
-      if (!(id in prev)) return prev;
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
-    try {
-      const tasks = await listTasks({ routineId: id, limit: ROUTINE_HISTORY_PAGE });
-      if (historySeq.current[id] !== seq || !isCurrentView(view)) return;
-      const allRead = readAllEpoch.current !== epoch;
-      const read = knownRead.current;
-      setHistoryHasMore((prev) => ({ ...prev, [id]: tasks.length >= ROUTINE_HISTORY_PAGE }));
-      setHistoryCursor((prev) => ({ ...prev, [id]: pageCursor(tasks) }));
-      setHistory((prev) => ({
-        ...prev,
-        [id]: reconcileRoutineReads(tasks, allRead, read),
-      }));
     } catch (e) {
-      if (historySeq.current[id] !== seq || !isCurrentView(view)) return;
-      // A convenience: the editor works without it, but a failed fetch must
-      // not read as "this routine has never run".
-      setHistoryError((prev) => ({
-        ...prev,
-        [id]: e instanceof Error ? e.message : tr("routines.actionFailed"),
-      }));
+      if (historySeq.current[id] !== seq || historyOlderSeq.current[id] !== olderSeq || !isCurrentView(view))
+        return;
+      const error = e instanceof Error ? e.message : tr("routines.actionFailed");
+      if (before) pushToast(error, "error");
+      else setHistoryError((prev) => ({ ...prev, [id]: error }));
     } finally {
-      if (historySeq.current[id] === seq && isCurrentView(view)) {
+      if (!isCurrentView(view)) return;
+      if (before) {
+        if (historyOlderSeq.current[id] === olderSeq)
+          setHistoryLoadingOlder((prev) => ({ ...prev, [id]: false }));
+      } else if (historySeq.current[id] === seq && historyOlderSeq.current[id] === olderSeq) {
         setHistoryLoading((prev) => ({ ...prev, [id]: false }));
+        setHistoryLoadingOlder((prev) => ({ ...prev, [id]: false }));
       }
     }
   };
 
-  /**
-   * The next page of runs below the last one a page returned. The cursor is
-   * that page's oldest id ("id < before"); a page that came back empty or short
-   * means there is nothing older to ask for, so the button goes away. The list
-   * is capped, so the button and this guard stop asking at 200 rows; a page
-   * that straddles the cap keeps its newer rows and drops its oldest.
-   */
-  const loadOlderHistory = async (id: string) => {
-    // A remote machine's runs come from the feed, which has no older pages the
-    // Hub can ask for; the button is not shown there.
-    if (remote) return;
-    const cursor = historyCursor[id] ?? "";
-    if (
-      !id ||
-      !cursor ||
-      historyLoadingOlder[id] ||
-      (history[id]?.length ?? 0) >= ROUTINE_HISTORY_MAX
-    ) {
-      return;
-    }
-    // A re-open starts a newer initial fetch, which replaces the list this
-    // cursor came from; appending to that new list would skip the rows between
-    // the two pages. Same newest-wins policy as loadHistory.
-    const view = currentView();
-    const seq = historySeq.current[id] ?? 0;
-    const epoch = readAllEpoch.current;
-    const read = knownRead.current;
-    setHistoryLoadingOlder((prev) => ({ ...prev, [id]: true }));
-    try {
-      const page = await listTasks({
-        routineId: id,
-        limit: ROUTINE_HISTORY_PAGE,
-        before: cursor,
-      });
-      if (historySeq.current[id] !== seq || !isCurrentView(view)) return;
-      // The page can predate a mark-all (which publishes no task update) or a
-      // per-task mark; reconcile before appending or older rows come back
-      // unread over a badge that says everything is read.
-      const allRead = readAllEpoch.current !== epoch;
-      // The list may have grown while this page was in flight (a live run, the
-      // previous page); merging into the latest state keeps both.
-      setHistory((prev) => ({
-        ...prev,
-        [id]: appendOlderRuns(prev[id] ?? [], reconcileRoutineReads(page, allRead, read)),
-      }));
-      setHistoryHasMore((prev) => ({ ...prev, [id]: page.length >= ROUTINE_HISTORY_PAGE }));
-      setHistoryCursor((prev) => ({ ...prev, [id]: pageCursor(page) }));
-    } catch (e) {
-      if (!isCurrentView(view)) return;
-      pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
-    } finally {
-      if (isCurrentView(view)) {
-        setHistoryLoadingOlder((prev) => ({ ...prev, [id]: false }));
-      }
-    }
+  const loadHistory = (id: string) => (id ? readHistory(id, "") : Promise.resolve());
+
+  const loadOlderHistory = (id: string) => {
+    const before = historyCursor[id];
+    return before ? readHistory(id, before) : Promise.resolve();
   };
 
   /** Point the run-history panel at one routine and load its first page. */
@@ -859,8 +881,7 @@ export default function RoutinesPage() {
    * Returns false when the reader chose to stay.
    */
   const closeForm = (force = false): boolean => {
-    const dirty =
-      openDraftRef.current !== null && draftKey(formDraft()) !== openDraftRef.current;
+    const dirty = openDraftRef.current !== null && draftKey(formDraft()) !== openDraftRef.current;
     if (!force && dirty && !window.confirm(tr("routines.discardConfirm"))) return false;
     openDraftRef.current = null;
     setShowCreate(false);
@@ -906,15 +927,20 @@ export default function RoutinesPage() {
 
   useEffect(
     () => () => {
+      editSeq.current += 1; // a late detail belongs to the screen that asked
+    },
+    [],
+  );
+
+  useEffect(
+    () => () => {
       if (formFocusFrame.current !== null) cancelAnimationFrame(formFocusFrame.current);
     },
     [],
   );
 
   const formDirty =
-    showCreate &&
-    openDraftRef.current !== null &&
-    draftKey(formDraft()) !== openDraftRef.current;
+    showCreate && openDraftRef.current !== null && draftKey(formDraft()) !== openDraftRef.current;
 
   // Leaving the screen (header back, edge swipe, palette) closes the form the
   // same way its own buttons do, so typed text is never dropped without the
@@ -922,6 +948,7 @@ export default function RoutinesPage() {
   useLeaveGuard(() => closeForm(), formDirty);
 
   const openCreate = () => {
+    ++editSeq.current;
     // Opening the create form from inside an edit first closes the edit, which
     // restores the draft the create form had before the edit borrowed it —
     // unless the reader chose to stay.
@@ -932,10 +959,22 @@ export default function RoutinesPage() {
     focusFormSoon(false);
   };
 
-  const openEdit = (r: Routine) => {
-    // Keep the create draft the first time an edit takes the form over.
-    if (!editing) createDraftRef.current = formDraft();
-    const draft = routineForm(r);
+  const openEdit = async (r: Routine) => {
+    if (showCreate) return; // two drafts share this form; keep the visible one
+    const currentEditing = editing;
+    if (!currentEditing) createDraftRef.current = formDraft();
+    const view = currentView();
+    const seq = ++editSeq.current;
+    // A list summary deliberately has no prompt. Only this detail read opens
+    // the editor; a later list refresh must not replace the original again.
+    const full = await getRoutine(r.id, view.deviceId).catch((error: unknown) => {
+      if (isCurrentView(view) && seq === editSeq.current) {
+        pushToast(error instanceof Error ? error.message : tr("routines.actionFailed"), "error");
+      }
+      return null;
+    });
+    if (!full || !isCurrentView(view) || seq !== editSeq.current) return;
+    const draft = routineForm(full);
     const next: FormDraft = {
       title: draft.title,
       prompt: draft.prompt,
@@ -952,11 +991,15 @@ export default function RoutinesPage() {
           ? toLocalInputValue(new Date(draft.nextRunMs))
           : defaultNextRunLocal(),
     };
-    setEditing(r);
+    setEditing(full);
     applyDraft(next);
     openDraftRef.current = draftKey(next);
     setShowCreate(true);
+    // Form fields and save comparisons use `full`, never the list summary.
+    // Other full-returning actions replace the summary with the same Routine.
     setSelectedId(r.id);
+    // A summary is not a history page. Fetch the selected routine's runs too,
+    // through the same bounded reader and generation guards as Show runs.
     void loadHistory(r.id);
     // The row that opened this is below the fold: bring the form into view and
     // put the caret in it, rather than leaving focus on a button the reader can
@@ -1104,7 +1147,7 @@ export default function RoutinesPage() {
   };
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto kin-scroll">
+    <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden kin-scroll">
       <div className="mx-auto max-w-5xl px-4 py-6 md:px-6">
         <div className="flex items-start justify-between gap-3">
           <div className="hidden md:block">
@@ -1340,9 +1383,7 @@ export default function RoutinesPage() {
                   <span>{label}</span>
                 </label>
               ))}
-              <p className="mt-1 text-caption leading-5 text-kin-muted">
-                {conversationHint}
-              </p>
+              <p className="mt-1 text-caption leading-5 text-kin-muted">{conversationHint}</p>
             </fieldset>
 
             <div className="mt-4 flex justify-end gap-2">
@@ -1369,7 +1410,6 @@ export default function RoutinesPage() {
                 {editing ? tr("routines.save") : tr("routines.createAndOpen")}
               </button>
             </div>
-
           </section>
         )}
 
@@ -1462,6 +1502,16 @@ export default function RoutinesPage() {
                         </ul>
                       )}
                     </div>
+                  )}
+                  {runsHasMore && runs.length < ROUTINE_HISTORY_MAX && (
+                    <button
+                      type="button"
+                      disabled={loadingMoreRuns}
+                      onClick={() => void loadMoreRuns()}
+                      className="mt-2 min-h-11 w-full rounded-lg text-body text-kin-secondary hover:bg-kin-panel"
+                    >
+                      {loadingMoreRuns ? tr("tree.loadingMore") : tr("routines.historyLoadOlder")}
+                    </button>
                   )}
                 </div>
               )}
@@ -1569,7 +1619,7 @@ export default function RoutinesPage() {
                               <button
                                 type="button"
                                 disabled={!!busy[r.id] || creating || machineOffline}
-                                onClick={() => openEdit(r)}
+                                onClick={() => void openEdit(r)}
                                 aria-label={tr("routines.editRoutine", {
                                   title: r.title || r.prompt.slice(0, 48),
                                 })}
@@ -1685,7 +1735,7 @@ function RunHistoryPanel({
   error?: string;
   hasMore: boolean;
   loadingOlder: boolean;
-  /** A remote machine's runs come from the relayed feed; there is no older page. */
+  /** Empty-copy key differs between a local task list and a remote feed. */
   remote: boolean;
   /** The remote machine whose task route owns this run. */
   device?: string;
@@ -1703,9 +1753,7 @@ function RunHistoryPanel({
       <h2 id={`runs-${routine.id}`} className="truncate text-strong font-medium text-kin-text">
         {tr("routines.runsPanelTitle", { title })}
       </h2>
-      <p className="mt-0.5 text-caption leading-5 text-kin-muted">
-        {tr("routines.runsPanelHint")}
-      </p>
+      <p className="mt-0.5 text-caption leading-5 text-kin-muted">{tr("routines.runsPanelHint")}</p>
       {loading ? (
         <p className="mt-2 text-body text-kin-muted">{tr("routines.historyLoading")}</p>
       ) : error ? (
@@ -1738,7 +1786,7 @@ function RunHistoryPanel({
           ))}
           {/* Inside the scroll box: the click happens at the bottom, and the
               rows it fetches appear just above the button, in view. */}
-          {hasMore && !remote && runs.length < ROUTINE_HISTORY_MAX && (
+          {hasMore && runs.length < ROUTINE_HISTORY_MAX && (
             <li>
               <button
                 type="button"
@@ -1783,11 +1831,7 @@ function RunCard({
     : `/tasks/${encodeURIComponent(run.id)}`;
   const openRun = (event: ReactMouseEvent<HTMLAnchorElement>) => {
     const modifier =
-      event.button !== 0 ||
-      event.metaKey ||
-      event.ctrlKey ||
-      event.shiftKey ||
-      event.altKey;
+      event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
     if (modifier) {
       // Keep Cmd/Ctrl/Shift-click's browser behavior. The click still marks a
       // remote run read because its detail page cannot compensate later.
