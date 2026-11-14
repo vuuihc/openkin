@@ -370,7 +370,10 @@
         "ui/src/lib/routineHistory.ts",
         "internal/routines/scheduler.go",
         "internal/store/routines.go",
-        "internal/store/migrate.go",
+        "internal/store/store.go",
+        "internal/store/routines_test.go",
+        "internal/store/store_test.go",
+        "internal/api/routines_device_test.go",
         "internal/api/routines.go",
         "ui/src/lib/routineConversation.ts"
       ],
@@ -379,6 +382,7 @@
         "ui/src/lib/routineEdit.test.ts",
         "ui/src/lib/routineHistory.test.ts",
         "ui/src/pages/RoutinesPage.dom.test.tsx",
+        "ui/src/pages/RoutinesPage.guard.dom.test.tsx",
         "ui/src/lib/routineConversation.test.ts"
       ],
       "blockedReason": null
@@ -401,6 +405,8 @@
       "ownerPaths": [
         "ui/src/components/layout/AppShell.tsx",
         "ui/src/components/layout/PhoneFooter.tsx",
+        "ui/src/hooks/usePhoneTabSwipe.ts",
+        "ui/src/components/mobile/SwipeReveal.tsx",
         "ui/src/components/layout/Sidebar.tsx",
         "ui/src/components/mobile/SessionsHeader.tsx",
         "ui/src/pages/SessionsPage.tsx",
