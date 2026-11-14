@@ -1,0 +1,10 @@
+# DECISIONS (CEO calls Ethan can reverse)
+
+Format: `date · decision · why · how to reverse`.
+
+- 2026-11-15 · **KIN-CONTINUE-003 treated as approved** with the recommended defaults: four zones (conversations / projects / routines / settings), Mac sidebar + list + detail two-column, phone four tabs each with its own page stack, visual language stays Kin (`--kin-*`), Astryx only behind a Kin facade. · The design page was complete, the independent review had no blocker/major, and the only open item was a human signature that blocks every UX batch. · Reverse: edit the story status back to `draft` and tell the loop in STATUS.md "freeze UX batches".
+- 2026-11-15 · **Order of UX work: facade + Composer row (Q3) and conversation/new path (Batch C) before shell (B) and before Astryx (A).** · Highest-frequency path first; Batch A (React 19, Tailwind 4) is high blast radius and is only worth it once pages import Kin primitives. · Reverse: reorder the queue in `rsi/state/STATUS.md`.
+- 2026-11-15 · **Live state (`STATUS.md`, scorecard, reports, logs, flags) lives in `rsi/state/` (gitignored) in the control worktree, not on `main`.** · Avoid a commit-per-pulse on a public repo and keep local paths out of it; seeds are tracked as `rsi/STATUS.md` and `rsi/scorecard.md`. · Reverse: move the files and edit `common.sh`.
+- 2026-11-15 · **Loop subsumes gap-sweep.** The old routine auto-disabled after 3 gateway 403s; the new loop reads the same `gap-log.md`. Do not re-enable both. · Avoid two mergers racing. · Reverse: re-enable the routine in Kin and `touch rsi/state/PAUSE`.
+- 2026-11-15 · **No desktop rebuild overnight.** Merged work reaches Ethan's running app when he runs `./scripts/desktop-rebuild.sh` (listed in the morning report). · Rebuild restarts the live node. · Reverse: allow it in MANDATE.
+- 2026-11-15 · **Model routing:** workers = `volcengine-gw/volcengine/deepseek-v4.1-flash[1m]`; director/planner/advisor/reviewer = `volcengine-gw/kimi-k3.1-pro[1m]`; second reviewer / fallback = `codex/gpt-6.1-sol` (also magpie's fallback for the Volcano provider). · Per Ethan. · Reverse: edit `rsi/runtime/common.sh`.

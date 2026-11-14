@@ -443,3 +443,7 @@ fixtures, examples, comments, commit messages:
   only real fix, it changes every commit SHA from that point on, and the old
   objects can stay fetchable on the host until it garbage-collects. Rotate
   whatever was exposed rather than assuming the rewrite was enough.
+
+## RSI loop
+
+An unattended agent team (director / fixer / reviewer / dogfooder) improves Kin from `rsi/`. Read `rsi/GOAL.md` and `rsi/MANDATE.md` before touching UI structure or process; the loop's branches are `rsi/*` and its merge gate is in `rsi/MANDATE.md`. Live state is local (`rsi/state/`, gitignored).
