@@ -456,6 +456,29 @@
       ],
       "tests": [],
       "blockedReason": null
+    },
+    {
+      "id": "KIN-RESULT-002",
+      "state": "draft",
+      "priority": "P0",
+      "journeys": [
+        "J4"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "读懂文件、预览并返回原对话",
+      "file": "docs/product/stories/KIN-RESULT-002.md",
+      "surface": "对话详情 → 文件工作区",
+      "ownerPaths": [
+        "ui/src/pages/TaskDetailPage.tsx",
+        "ui/src/components/AccountScreen.tsx",
+        "ui/src/components/workspace/WorkspacePanel.tsx",
+        "ui/src/components/workspace/CodeViewer.tsx"
+      ],
+      "tests": [],
+      "blockedReason": null
     }
   ]
 }

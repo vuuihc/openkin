@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+<rect width="390" height="844" fill="#111315"/>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;fill:#e7e9eb}.muted{fill:#969da4}.small{font-size:12px}.label{font-size:14px}.title{font-size:16px;font-weight:600}.line{stroke:#30353a}.button{fill:#20252a;stroke:#3b4249}.accent{fill:#9fc2ff}</style>
+<text x="16" y="24" class="small muted">KIN-RESULT-002 · 01 / 手机 HTML</text>
+<rect y="38" width="390" height="50" fill="#181b1e"/><rect x="8" y="41" width="74" height="44" rx="9" class="button"/><path d="M25 57l-7 7 7 7" fill="none" stroke="#c8cdd2" stroke-width="1.8"/><text x="38" y="69" class="label">对话</text><text x="194" y="68" text-anchor="middle" class="title">工作区文件</text><text x="374" y="68" text-anchor="end" class="small muted">当前 source</text>
+<rect y="88" width="390" height="56" fill="#141719"/><rect x="8" y="94" width="74" height="44" rx="9" class="button"/><path d="M27 109l-7 7 7 7" fill="none" stroke="#c8cdd2" stroke-width="1.8"/><text x="38" y="121" class="label">文件</text><text x="94" y="113" class="title">console-design.html</text><text x="94" y="132" class="small muted">设计 / 总设计 · 28 KB</text>
+<rect x="12" y="151" width="170" height="44" rx="9" fill="#292f36"/><rect x="16" y="157" width="79" height="32" rx="6" fill="#424b56"/><text x="55" y="179" text-anchor="middle" class="label">预览</text><text x="135" y="179" text-anchor="middle" class="label muted">源码</text><rect x="190" y="151" width="188" height="44" rx="9" class="button"/><text x="284" y="178" text-anchor="middle" class="small">↻ 刷新 · 受限预览</text>
+<rect x="12" y="202" width="366" height="618" rx="12" fill="#f5f4ef"/>
+<text x="30" y="234" font-size="12" fill="#697069">K I N  /  产 品 体 验 设 计</text>
+<text x="30" y="280" font-size="31" font-weight="650" fill="#172027">同一件事，</text><text x="30" y="320" font-size="31" font-weight="650" fill="#172027">同一处继续。</text>
+<text x="30" y="351" font-size="14" fill="#697069">对话、项目、例行任务与设置</text>
+<rect x="30" y="377" width="330" height="1" fill="#d7d8d2"/>
+<text x="30" y="407" font-size="13" font-weight="600" fill="#172027">01  对话</text><text x="210" y="407" font-size="12" fill="#697069">列表 → 对话 → 结果</text>
+<rect x="30" y="423" width="330" height="72" rx="8" fill="#e6e9e7"/><rect x="43" y="438" width="4" height="42" rx="2" fill="#51776a"/><text x="59" y="452" font-size="13" fill="#172027">从刚才的结果继续</text><text x="59" y="475" font-size="12" fill="#697069">保留正在写的草稿和当前文件</text>
+<text x="30" y="529" font-size="13" font-weight="600" fill="#172027">02  项目</text><text x="210" y="529" font-size="12" fill="#697069">封面是工作的入口</text>
+<rect x="30" y="545" width="158" height="82" rx="8" fill="#dde4e5"/><rect x="202" y="545" width="158" height="82" rx="8" fill="#e6e1d7"/>
+<text x="43" y="572" font-size="12" fill="#34433f">最近活动</text><text x="43" y="599" font-size="19" fill="#172027">继续当前项目</text><text x="215" y="572" font-size="12" fill="#655b48">项目节奏</text><text x="215" y="599" font-size="19" fill="#172027">本周 6 次</text>
+<rect x="30" y="653" width="330" height="42" rx="21" fill="#1c3932"/><text x="195" y="679" text-anchor="middle" font-size="14" fill="#f5f4ef">回到这段对话</text>
+<text x="30" y="730" font-size="12" fill="#697069">静态预览 · 脚本和外部资源已禁用</text>
+<text x="30" y="779" font-size="12" fill="#8a908b">网页内部滚动，不覆盖上面的 Kin 返回按钮</text>
+<rect y="820" width="390" height="24" fill="#181b1e"/><rect x="145" y="831" width="100" height="4" rx="2" fill="#777f86"/>
+</svg>

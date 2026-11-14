@@ -12,6 +12,7 @@
 | 视觉：继续 Kin，不换主题与品牌 | 🟢 已与用户确定 | `--kin-*` 与不变量测试继续使用 |
 | 人工节点：总设计签字 + 整体交付验收 | 🟢 已与用户确定 | 两个 Goal 而不是八次逐区确认 |
 | Goal 0 · 总设计 | 🟡 已制作，待签字 | [审阅页](../product/stories/KIN-CONTINUE-003.review.html) + [合同](../product/stories/KIN-CONTINUE-003.md)；通知生命周期 / 项目刷新等复审问题已修正，独立复审无 blocker/major，尚无人为签字 |
+| 手机文件修复（RESULT-002） | 🟡 独立小设计已复审，无 blocker/major；待人为签字，产品未改 | [审阅页](../product/stories/KIN-RESULT-002.review.html)：3 帧 / 3 套流程；390/1100 真浏览器通过。历史/OIDC/HTML 合同两轮修正后窄复审通过；范围仅文件/diff 返回、自包含 HTML 预览、source 深链；**不是 Goal 1 开工** |
 | Astryx 固定接入成本 | 🟢 已实测 | [spike](2026-11-09-astryx-spike.md)：React 19 可构建，主题可映射，+83.9 kB raw / +25.1 kB gzip |
 | Tailwind 4 兼容 | 🟡 已验证路径，未落地主线 | 现有 spike：6 个失败用例、4 个测试类型错误、无层级 CSS 要审计 |
 | 当前故事与导航合同 | 🟡 存在明确冲突 | `NAVIGATION.md` D8 的旧四入口/推出模型；`KIN-PROJECT-001` 陈述的项目无独立列表 |
