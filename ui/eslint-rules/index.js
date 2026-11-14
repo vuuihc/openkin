@@ -295,13 +295,9 @@ const noArbitraryLiteral = {
 };
 
 /**
- * The three added-file bans. `eslint.config.js` leaves them off: the tree still
- * has legacy raw buttons, portals and arbitrary z-index values, so they run
- * only through `eslint.guard.config.js` on the files a change adds.
- *
- * They read the AST, not the text. `createPortal` is resolved through the
- * module scope, so an aliased import is the same call and a local binding of
- * the same name is not.
+ * The three added-file bans, off in `eslint.config.js` because the tree still
+ * has legacy controls and z-index values; only `eslint.guard.config.js` runs
+ * them, and it resolves `createPortal` through module scope.
  */
 const noRawButton = {
   meta: {
@@ -342,10 +338,7 @@ function reactDomImport(variable) {
   return def?.type === "ImportBinding" && def.parent.source.value === REACT_DOM ? def : null;
 }
 
-/**
- * A binding to the module object itself: a default import, a namespace, or the
- * default export written as a named import (`{ default as ReactDOM }`).
- */
+/** A default import, a namespace, or `{ default as X }` — the module object. */
 function reactDomModule(def) {
   if (def.node.type !== "ImportSpecifier") return true;
   const imported = def.node.imported;
@@ -402,8 +395,7 @@ const noCreatePortal = {
 
 // `z-[50]`, `md:z-[9999]`, and Tailwind's negative `-z-[10]` (variant or not).
 // A signed value (`z-[+9999]`) is the same invented step. The lookbehind keeps
-// `my-z-[10]` from reading as a z utility; a non-numeric value is a token
-// reference, not this rule's subject.
+// `my-z-[10]` out; a non-numeric value is a token reference, not this subject.
 const ARBITRARY_Z_INDEX = /(?<![\w-])-?z-\[[+-]?\d+\](?![\w-])/g;
 
 const noArbitraryZIndex = {

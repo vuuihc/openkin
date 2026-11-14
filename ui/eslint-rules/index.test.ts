@@ -258,9 +258,8 @@ tester.run("no-arbitrary-literal", kin.rules["no-arbitrary-literal"], {
   ],
 });
 
-// The added-file bans: off in `eslint.config.js`, on for the files a branch
-// adds. A test that renders a control on purpose is not a call site, so the
-// facade and tests are out of scope in the guard config.
+// The added-file bans run only on files a branch adds; tests and the facade
+// render controls on purpose and are exempt.
 tester.run("no-raw-button", kin.rules["no-raw-button"], {
   valid: [
     { code: 'const C = () => <Button type="button">Go</Button>;' },
@@ -278,7 +277,8 @@ tester.run("no-create-portal", kin.rules["no-create-portal"], {
     { code: 'import { createRoot } from "react-dom/client"; createRoot(el);' },
     // A member on an unresolved object is somebody else's method.
     { code: "overlay.createPortal(el, root);" },
-    // Same name, different lexical binding.
+    // Same name, different lexical binding: a parameter, then a shadowed
+    // default import.
     { code: "function C(createPortal) { return createPortal(el, root); }" },
     {
       code: 'import ReactDOM from "react-dom"; function C(ReactDOM) { return ReactDOM.createPortal(el, root); }',
@@ -351,11 +351,9 @@ tester.run("no-arbitrary-z-index", kin.rules["no-arbitrary-z-index"], {
   ],
 });
 
-/**
- * The guard config through ESLint itself, not a mock: a disable directive
- * ordinary lint supports must not become "rule not found", and an unused one
- * must not fail the scoped run under `--max-warnings 0`.
- */
+/** The guard config through ESLint itself: a disable directive ordinary lint
+ * supports must not read as "rule not found", and an unused one must not fail
+ * the scoped run under `--max-warnings 0`. */
 describe("eslint.guard.config.js", () => {
   it("accepts a react-hooks disable directive and still reports the bans", async () => {
     const ui = fileURLToPath(new URL("../", import.meta.url));
@@ -392,8 +390,7 @@ describe("eslint.guard.config.js", () => {
     ];
     for (const filePath of paths) {
       const [result] = await eslint.lintText(source, { filePath: `${ui}${filePath}` });
-      // Ignored by config: no kin finding. ESLint may add its own ruleId-null
-      // "file ignored" warning, which is the config working, not a finding.
+      // A ruleId-null "file ignored" warning is the config working, not a finding.
       expect({
         filePath,
         findings: result.messages.filter((m) => m.ruleId !== null).map((m) => m.ruleId),

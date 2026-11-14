@@ -64,12 +64,9 @@ jobs:
           npm test
           npx vite build
 
-      # The added-file bans are off in the tree-wide lint. This runs their
-      # tests and the scoped runner after `npm ci` above. The base block is
-      # separate from the format step's `BASE_SHA`: a PR compares against its
-      # base, a default-branch push against its previous tip, and a feature
-      # push leaves it empty so the runner stays cumulative against
-      # origin/main. The tests execute this exact block.
+      # The added-file bans are off in the tree-wide lint. This base block is
+      # separate from the format step's `BASE_SHA`: PRs use their base, default
+      # pushes their previous tip, feature pushes nothing (cumulative).
       - name: Added-file UI lint guard
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
