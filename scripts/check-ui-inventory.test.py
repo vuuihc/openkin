@@ -92,7 +92,7 @@ class CheckerTest(unittest.TestCase):
         self.fixture = Fixture()
         self.addCleanup(self.fixture.cleanup)
 
-    def run_checker(self) -> subprocess.CompletedProcess[str]:
+    def run_checker(self, *extra: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [
                 sys.executable,
@@ -102,10 +102,15 @@ class CheckerTest(unittest.TestCase):
                 str(self.fixture.src),
                 "--baseline",
                 str(self.fixture.baseline),
+                *extra,
             ],
             capture_output=True,
             text=True,
         )
+
+    def measure_samples(self, *lines: str) -> dict[str, dict[str, int]]:
+        self.fixture.write("components/Probe.tsx", "\n".join(lines))
+        return self.fixture.measured()
 
     def assert_fails_on(self, key: str) -> None:
         result = self.run_checker()
@@ -199,6 +204,95 @@ class CheckerTest(unittest.TestCase):
         self.fixture.write("components/Z.test.tsx", 'const T = () => <div className="z-[999]" />;')
         measured = self.fixture.measured()
         self.assertEqual(measured["magic_z"], {"occurrences": 3, "files": 1})
+
+    def test_rounded_surface_class_order_does_not_bypass_ratchet(self) -> None:
+        # Baseline one surface written one way, then add the same surface with
+        # the classes in the other order: detection must not depend on order,
+        # so the second occurrence has to fail the ratchet.
+        self.fixture.write("components/A.tsx", '"rounded-lg border"')
+        self.fixture.write_baseline(self.fixture.measured())
+        self.fixture.write("components/B.tsx", '"border rounded-lg"')
+        self.assert_fails_on("rounded_border_surface")
+
+    def test_rounded_surface_counts_both_orders_with_standalone_classes(self) -> None:
+        measured = self.measure_samples(
+            '"border rounded-lg"',
+            '"rounded-xl border"',
+            '"sm:rounded-2xl border"',
+            '"border-t rounded-lg"',
+            '"border-2 rounded-lg"',
+            '"border"',
+            '"rounded-lg"',
+            '"rounded-full border"',
+        )
+        # The three real surfaces count once each; a border or rounded variant
+        # on its own line does not complete a surface.
+        self.assertEqual(
+            measured["rounded_border_surface"], {"occurrences": 3, "files": 1}
+        )
+
+    def test_kin_btn_variants_are_not_standalone_adoption(self) -> None:
+        # The sanctioned CSS component API is kin-btn-primary/secondary/
+        # approve/deny. Only a bare kin-btn is hand-written adoption.
+        self.fixture.write(
+            "components/A.tsx",
+            '"kin-btn-primary kin-btn-secondary kin-btn-approve kin-btn-deny"',
+        )
+        measured = self.fixture.measured()
+        self.assertEqual(measured["kin_btn_class"], {"occurrences": 0, "files": 0})
+
+        self.fixture.write_baseline(measured)
+        result = self.run_checker()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+        self.fixture.write("components/B.tsx", '"kin-btn"')
+        self.assert_fails_on("kin_btn_class")
+
+    def test_kin_btn_class_counts_only_the_standalone_token(self) -> None:
+        measured = self.measure_samples(
+            '"kin-btn"',
+            '"kin-btn-primary"',
+            '"data-kin-btn"',
+            '"kin-btn kin-btn-deny"',
+        )
+        self.assertEqual(measured["kin_btn_class"], {"occurrences": 2, "files": 1})
+
+    def test_unreadable_source_is_a_concise_error(self) -> None:
+        self.fixture.write("components/A.tsx", SAMPLES["raw_button"])
+        self.fixture.write_baseline(self.fixture.measured())
+        (self.fixture.src / "components" / "Bad.tsx").write_bytes(b"\xff\xfe not utf-8")
+
+        result = self.run_checker()
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("UI_INVENTORY_ERROR", result.stderr)
+        self.assertNotIn("Traceback", result.stdout + result.stderr)
+        self.assertNotIn("UI_INVENTORY_OK", result.stdout)
+
+    def test_update_does_not_rewrite_baseline_after_source_error(self) -> None:
+        self.fixture.write("components/A.tsx", SAMPLES["raw_button"])
+        self.fixture.write_baseline(self.fixture.measured())
+        before = self.fixture.baseline.read_bytes()
+        (self.fixture.src / "components" / "Bad.tsx").write_bytes(b"\xff\xfe not utf-8")
+
+        result = self.run_checker("--update")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("UI_INVENTORY_ERROR", result.stderr)
+        self.assertNotIn("Traceback", result.stdout + result.stderr)
+        self.assertEqual(self.fixture.baseline.read_bytes(), before)
+
+    def test_file_count_increase_fails_when_occurrences_are_constant(self) -> None:
+        body = SAMPLES["raw_button"]
+        self.fixture.write("components/A.tsx", body + "\n" + body)
+        self.fixture.write_baseline(self.fixture.measured())
+        # Same two occurrences, now spread across two files: the file count is
+        # part of the contract and must fail on its own.
+        self.fixture.write("components/A.tsx", body)
+        self.fixture.write("components/B.tsx", body)
+
+        result = self.run_checker()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("raw_button", result.stdout)
+        self.assertIn("files: 2 > baseline 1", result.stdout)
 
     def test_check_script_runs_inventory_guard_unconditionally(self) -> None:
         script = (SCRIPTS / "check.sh").read_text(encoding="utf-8")

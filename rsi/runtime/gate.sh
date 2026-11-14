@@ -17,7 +17,7 @@ step() { # name cmd...
 # `ui/.prettierignore` through its own config discovery.
 prettier_ui_changed() {
   local files=()
-  local f
+  local f list
   # A range we cannot resolve is a gate failure, not an empty change set: a
   # clone without the remote ref would otherwise print "nothing to check".
   if ! $GIT rev-parse --verify --quiet origin/main >/dev/null; then
@@ -27,16 +27,28 @@ prettier_ui_changed() {
   # NUL-delimited git output keeps spaces in paths intact; newline is a safe
   # separator here because NULs become newlines before the read loop and a
   # newline in a UI filename is not a case this repository carries.
+  #
+  # The listing goes through a temporary file rather than `< <(...)` because a
+  # process substitution reports success even when `git diff` fails, which
+  # would turn a broken selection into "no changed UI files to format-check".
+  list="$(mktemp "${TMPDIR:-/tmp}/gate-ui-paths.XXXXXX")" || {
+    echo "cannot create a temporary file for the changed-file list"
+    return 1
+  }
+  if ! {
+    $GIT diff --name-only -z --diff-filter=ACMR origin/main...HEAD -- ui &&
+      $GIT diff --name-only -z --diff-filter=ACMR HEAD -- ui &&
+      $GIT ls-files --others --exclude-standard -z -- ui
+  } >"$list"; then
+    echo "cannot list changed UI files"
+    rm -f "$list"
+    return 1
+  fi
   while IFS= read -r f; do
     [ -n "$f" ] && [ -f "ui/$f" ] && files+=("$f")
-  done < <(
-    {
-      $GIT diff --name-only -z --diff-filter=ACMR origin/main...HEAD -- ui
-      $GIT diff --name-only -z --diff-filter=ACMR HEAD -- ui
-      $GIT ls-files --others --exclude-standard -z -- ui
-    } | tr '\0' '\n' | sed 's|^ui/||' |
-      grep -E '\.(ts|tsx|js|jsx|css|json|md)$' | sort -u
-  )
+  done < <(tr '\0' '\n' <"$list" | sed 's|^ui/||' |
+    grep -E '\.(ts|tsx|js|jsx|css|json|md)$' | sort -u)
+  rm -f "$list"
   if [ ${#files[@]} -eq 0 ]; then
     echo "no changed UI files to format-check"
     return 0

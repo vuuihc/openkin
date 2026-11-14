@@ -103,6 +103,8 @@ def check(source: Path, baseline_path: Path) -> list[str]:
 def write_baseline(source: Path, baseline_path: Path) -> dict[str, dict[str, int]]:
     if not ui_inventory.sources(source):
         raise BaselineError(f"no UI sources under {source}; refusing to write a zero baseline")
+    # Measure before opening the baseline: an unreadable source must leave the
+    # checked-in numbers exactly as they were.
     current = ui_inventory.measure(source)
     # One metric per line: readable in review without a brace tower per row.
     rows = ",\n".join(
@@ -135,7 +137,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"UI_INVENTORY_UPDATED {args.baseline} ({len(current)} metrics)")
             return 0
         problems = check(args.source, args.baseline)
-    except BaselineError as exc:
+    # A source that cannot be read is a measurement error, not a ratchet
+    # failure: say so concisely and never rewrite a baseline from partial data.
+    except (BaselineError, ui_inventory.SourceError, OSError, UnicodeDecodeError) as exc:
         print(f"UI_INVENTORY_ERROR: {exc}", file=sys.stderr)
         return 2
 
