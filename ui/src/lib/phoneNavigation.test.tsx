@@ -215,44 +215,24 @@ describe("evidence across reload and Forward", () => {
     mounted.unmount();
   });
 
-  it("keeps one direct list parent through a cold archived list, Back twice and Forward twice", async () => {
-    // A cold archived list is a deep link, so `synthesizePhoneParent` puts the
-    // plain list underneath it: [list, archived list, task]. Returning to the
-    // archived entry after visiting the plain one must reuse its token rather
-    // than re-minting it, or the task's marker no longer matches the ledger.
+  it("keeps the archived root's filters across a conversation Back and Forward", async () => {
+    // Archive is the same root, not a detail that gets a bare list parent.
     window.history.replaceState({ idx: 0 }, "", "/sessions?scope=archived");
-    expect(synthesizePhoneParent()).toBe(true);
+    expect(synthesizePhoneParent()).toBe(false);
     const mounted = await remountCurrent();
-    expect(window.location.search).toBe("?scope=archived");
-    expect(window.history.state.idx).toBe(1);
-
+    expect(window.history.state.idx).toBe(0);
     pushPhone("/tasks/t1");
     await waitFor(() => expect(window.location.pathname).toBe("/tasks/t1"));
-    expect(window.history.state.idx).toBe(2);
-    const taskToken = marker().token;
-
-    act(() => window.history.back());
-    await waitFor(() => expect(window.history.state.idx).toBe(1));
-    act(() => window.history.back());
-    await waitFor(() => expect(window.history.state.idx).toBe(0));
-    expect(window.location.search).toBe("");
-
-    act(() => window.history.forward());
-    await waitFor(() => expect(window.history.state.idx).toBe(1));
-    act(() => window.history.forward());
-    await waitFor(() => expect(window.location.pathname).toBe("/tasks/t1"));
-    expect(window.history.state.idx).toBe(2);
-
-    // The task still sees the archived list directly underneath it. Opening
-    // another conversation replaces the task instead of growing a third level.
-    expect(marker().token).toBe(taskToken);
-    pushPhone("/tasks/t2");
-    await waitFor(() => expect(window.location.pathname).toBe("/tasks/t2"));
-    expect(window.history.state.idx).toBe(2);
-
+    expect(window.history.state.idx).toBe(1);
     await backTo("/sessions");
     expect(window.location.search).toBe("?scope=archived");
-    expect(window.history.state.idx).toBe(1);
+    expect(window.history.state.idx).toBe(0);
+    act(() => window.history.forward());
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/t1"));
+    expect(marker().token).toBeTruthy();
+    await backTo("/sessions");
+    expect(window.location.search).toBe("?scope=archived");
+    expect(window.history.state.idx).toBe(0);
     mounted.unmount();
   });
 
@@ -286,6 +266,24 @@ describe("evidence across reload and Forward", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/tasks/t1"));
     expect(window.history.state.idx).toBe(1);
     restored.unmount();
+  });
+});
+
+describe("root peers on a deeper history entry", () => {
+  it("does not mistake a positive index for a removed list parent", async () => {
+    const mounted = await mountAt("/routines");
+    // Direct navigation intentionally has no list-parent evidence. A bare
+    // idx > 0 would pop back to Routines instead of switching to Chats.
+    act(() => {
+      current!.navigate("/tasks/t0");
+    });
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/t0"));
+    expect(window.history.state.idx).toBe(1);
+
+    pushPhone("/sessions");
+    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    expect(window.history.state.idx).toBe(1);
+    mounted.unmount();
   });
 });
 

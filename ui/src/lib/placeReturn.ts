@@ -16,7 +16,7 @@ const KEY = "kin.returnToPlace";
  * is stale or foreign — the mark outlives a deploy — and must not reach the
  * attribute selector in `focusPlaceReturn`.
  */
-const KNOWN_IDS = new Set(["archived", "routines", "agents", "settings", "new"]);
+const KNOWN_IDS = new Set(["routines", "agents", "settings", "new"]);
 
 export function rememberPlaceReturn(id: string): void {
   try {

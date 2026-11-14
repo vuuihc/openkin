@@ -5,10 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { waitFor } from "@testing-library/react";
 import { synthesizePhoneParent } from "./phoneDeepLinkParent";
 
-/**
- * KIN-CONTINUE-002, step 4 / NAVIGATION R7: a cold deep link must come back to
- * the list, including through the system Back the app cannot intercept after
- * the fact.
+/** KIN-CONTINUE-002, step 4 / NAVIGATION R7: a cold deep-linked pushed screen
+ * comes back to the list. Phone roots are equal peers, including cold ones.
  */
 
 function viewport(wide: boolean) {
@@ -35,13 +33,20 @@ afterEach(() => {
 });
 
 describe("the phone's cold deep link", () => {
-  it("gets the list as a real parent entry", async () => {
+  it("keeps every root at the cold launch depth, with no invented list parent", () => {
+    for (const path of ["/routines", "/agents", "/settings", "/sessions?scope=archived"]) {
+      window.history.replaceState({ idx: 0, key: "seed" }, "", path);
+      expect(synthesizePhoneParent()).toBe(false);
+      expect(window.location.pathname + window.location.search).toBe(path);
+      expect((window.history.state as { idx?: number }).idx).toBe(0);
+    }
+  });
+
+  it("gives a cold conversation a real list parent", async () => {
+    window.history.replaceState({ idx: 0, key: "seed" }, "", "/tasks/example");
     expect(synthesizePhoneParent()).toBe(true);
-    expect(window.location.pathname).toBe("/routines");
-    expect((window.history.state as { idx?: number }).idx).toBe(1);
-
+    expect(window.history.state.idx).toBe(1);
     window.history.back();
-
     await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
   });
 
@@ -52,8 +57,8 @@ describe("the phone's cold deep link", () => {
     expect((window.history.state as { idx?: number }).idx).toBe(1);
   });
 
-  it("leaves the list and the start route alone", () => {
-    window.history.replaceState({ idx: 0 }, "", "/sessions");
+  it("leaves the list and start route alone", () => {
+    window.history.replaceState({ idx: 0 }, "", "/sessions?search=alpha");
     expect(synthesizePhoneParent()).toBe(false);
     window.history.replaceState({ idx: 0 }, "", "/");
     expect(synthesizePhoneParent()).toBe(false);
@@ -72,11 +77,11 @@ describe("the phone's cold deep link", () => {
     expect(synthesizePhoneParent()).toBe(false);
   });
 
-  it("keeps the hash on the screen it re-pushes", () => {
-    window.history.replaceState({ idx: 0 }, "", "/routines#run-now");
+  it("keeps the hash on a detail it re-pushes", () => {
+    window.history.replaceState({ idx: 0 }, "", "/tasks/example#run-now");
     expect(synthesizePhoneParent()).toBe(true);
     expect(window.location.hash).toBe("#run-now");
-    expect(window.location.pathname).toBe("/routines");
+    expect(window.location.pathname).toBe("/tasks/example");
   });
 
   it("is actually installed before the router mounts", () => {

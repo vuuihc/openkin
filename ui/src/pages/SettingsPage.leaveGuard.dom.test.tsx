@@ -18,10 +18,8 @@ import SettingsPage from "./SettingsPage";
 
 /**
  * Settings has several forms that persist only through explicit Save actions.
- * On a phone, Back and the edge swipe must not unmount those drafts without a
- * question. The tests drive the current General / Agents / Providers / Routing /
- * Advanced surfaces; the Relay, Cloudflare and Notifications screens removed by
- * the signed redesign are intentionally absent.
+ * Settings is a peer root (KIN-CONTINUE-002), so its bottom tabs and blank
+ * tab swipes ask rather than quietly unmount those drafts.
  */
 
 const baseSettings = {
@@ -145,24 +143,22 @@ function viewport() {
 }
 
 function pointer(node: Element, type: string, clientX: number) {
-  fireEvent(
-    node,
-    new MouseEvent(type, {
-      bubbles: true,
-      cancelable: true,
-      clientX,
-      clientY: 20,
-      button: 0,
-    }),
-  );
+  const event = new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    clientX,
+    clientY: 20,
+    button: 0,
+  });
+  Object.assign(event, { pointerId: 1, pointerType: "touch", isPrimary: true });
+  fireEvent(node, event);
 }
 
-function edgeBack() {
-  const edge = document.querySelector("[data-kin-edge-back]");
-  expect(edge).toBeTruthy();
-  pointer(edge as Element, "pointerdown", 5);
-  pointer(edge as Element, "pointermove", 90);
-  pointer(edge as Element, "pointerup", 90);
+function tabSwipe(target = document.querySelector("main") as Element) {
+  expect(target).toBeTruthy();
+  pointer(target, "pointerdown", 100);
+  pointer(target, "pointermove", 220);
+  pointer(target, "pointerup", 220);
 }
 
 function shell(settingsURL = "/settings") {
@@ -172,6 +168,8 @@ function shell(settingsURL = "/settings") {
       <AppShell pendingApprovals={[]}>
         <Routes>
           <Route path="/sessions" element={<div>chats page</div>} />
+          <Route path="/agents" element={<div>agents page</div>} />
+          <Route path="/routines" element={<div>routines page</div>} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </AppShell>
@@ -234,7 +232,14 @@ afterEach(() => {
 });
 
 describe("settings forms ask before a phone departure", () => {
-  it("asks on header Back and edge swipe for Advanced, then Save releases it", async () => {
+  it("keeps the vertical root from cancelling the shell's horizontal tab gesture", () => {
+    shell();
+    expect(document.querySelector("main > .overflow-y-auto")?.className).toContain(
+      "overflow-x-hidden",
+    );
+  });
+
+  it("asks on every root departure for Advanced, then Save releases it", async () => {
     const user = userEvent.setup();
     const confirm = vi.mocked(window.confirm);
     shell("/settings?tab=advanced");
@@ -242,19 +247,22 @@ describe("settings forms ask before a phone departure", () => {
     const price = (await screen.findAllByDisplayValue("{}"))[0];
     fireEvent.change(price, { target: { value: '{"model":{"in":1}}' } });
 
-    await user.click(screen.getByRole("button", { name: "Back" }));
+    await user.click(screen.getByRole("link", { name: "Routines" }));
     expect(confirm).toHaveBeenCalledWith("Discard unsaved settings changes?");
     expectOnSettings();
-
-    edgeBack();
+    tabSwipe();
     expect(confirm).toHaveBeenCalledTimes(2);
-    expectOnSettings();
 
     const section = price.closest("section") as HTMLElement;
     await user.click(within(section).getByRole("button", { name: "Save price table" }));
     await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect((price as HTMLTextAreaElement).value).toBe(
+        JSON.stringify({ model: { in: 1 } }, null, 2),
+      ),
+    );
 
-    await user.click(screen.getByRole("button", { name: "Back" }));
+    await user.click(screen.getByRole("link", { name: "Chats" }));
     await waitFor(() => expect(screen.getByText("chats page")).toBeTruthy());
     expect(confirm).toHaveBeenCalledTimes(2);
   });
@@ -266,11 +274,14 @@ describe("settings forms ask before a phone departure", () => {
 
     await user.click(await screen.findByRole("button", { name: "Add provider" }));
     await user.type(screen.getByPlaceholderText(/OpenAI · Ollama/), "Local");
-    await user.click(screen.getByRole("button", { name: "Back" }));
+    await user.click(screen.getByRole("link", { name: "Chats" }));
 
     expect(confirm).toHaveBeenCalledWith("Discard unsaved settings changes?");
     expectOnSettings();
     expect(screen.getByDisplayValue("Local")).toBeTruthy();
+
+    await user.click(screen.getByRole("link", { name: "Routines" }));
+    expect(confirm).toHaveBeenCalledWith("Discard unsaved settings changes?");
   });
 
   it("keeps a provider edit made while its save request is out", async () => {
@@ -281,10 +292,7 @@ describe("settings forms ask before a phone departure", () => {
 
     await user.click(await screen.findByRole("button", { name: "Add provider" }));
     await user.type(screen.getByPlaceholderText(/OpenAI · Ollama/), "Local");
-    await user.type(
-      screen.getByPlaceholderText(/api\.openai\.com/),
-      "https://api.example.com/v1",
-    );
+    await user.type(screen.getByPlaceholderText(/api\.openai\.com/), "https://api.example.com/v1");
     await user.type(screen.getByPlaceholderText(/gpt-4\.1-mini/), "model-a");
     await user.click(screen.getByRole("button", { name: "Save provider" }));
     await waitFor(() => expect(createProvider).toHaveBeenCalledTimes(1));
@@ -303,7 +311,7 @@ describe("settings forms ask before a phone departure", () => {
     expect((screen.getByPlaceholderText(/gpt-4\.1-mini/) as HTMLInputElement).value).toBe(
       "model-b",
     );
-    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(screen.getByRole("link", { name: "Chats" }));
     expect(window.confirm).toHaveBeenCalledWith("Discard unsaved settings changes?");
     expectOnSettings();
   });
@@ -315,7 +323,7 @@ describe("settings forms ask before a phone departure", () => {
 
     await user.click(await screen.findByRole("button", { name: "Add role" }));
     await user.type(screen.getByLabelText("Role 1 name"), "Reviewer");
-    await user.click(screen.getByRole("button", { name: "Back" }));
+    await user.click(screen.getByRole("link", { name: "Chats" }));
 
     expect(confirm).toHaveBeenCalledWith("Discard unsaved settings changes?");
     expectOnSettings();
@@ -342,7 +350,7 @@ describe("settings forms ask before a phone departure", () => {
       .map((element) => (element as HTMLTextAreaElement | HTMLInputElement).value);
     expect(values).toContain('{\n  "server": true\n}');
 
-    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(screen.getByRole("link", { name: "Chats" }));
     expect(window.confirm).toHaveBeenCalledWith("Discard unsaved settings changes?");
   });
 
@@ -351,7 +359,7 @@ describe("settings forms ask before a phone departure", () => {
     shell("/settings?tab=routing");
 
     await user.click(await screen.findByRole("checkbox"));
-    await user.click(screen.getByRole("button", { name: "Back" }));
+    await user.click(screen.getByRole("link", { name: "Chats" }));
     expect(window.confirm).toHaveBeenCalledWith("Discard unsaved settings changes?");
     expectOnSettings();
     expect(fixtures.importEveryMachine).not.toHaveBeenCalled();
