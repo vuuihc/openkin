@@ -275,6 +275,17 @@ export default function RoutinesPage() {
   // that stays offline should keep trying, but not relay a request every 15
   // seconds forever. A good load puts it back to the short wait.
   const retryDelay = useRef(15_000);
+  // Routines created before they moved to the machines that run them still sit
+  // in this machine's store. The page opens on another machine, so without a
+  // pointer those rows are invisible: the list looks complete and the reader
+  // never learns that "this machine" has routines. What this machine holds,
+  // not what to do with it — migrating or retiring the rows is a separate,
+  // deliberate decision.
+  const [ownMachineRoutines, setOwnMachineRoutines] = useState<{
+    count: number;
+    more: boolean;
+  } | null>(null);
+  const ownMachineSeq = useRef(0);
   const load = useCallback(async () => {
     if (!isAuthenticated()) return;
     // Until the machine list settles, the page has not chosen a machine yet.
@@ -352,8 +363,36 @@ export default function RoutinesPage() {
     writeRoutineDevice(resolved);
   }, [machinesLoading, machinesFailed, machines, deviceId]);
 
-  // The URL is a second input for the visible machine. It changes without a
-  // remount when another notification arrives or the reader uses Back/Forward.
+  // Count what this machine itself holds while the page shows another one. A
+  // failed answer shows nothing rather than a false "no routines": the pointer
+  // is a convenience, and an invented zero would be worse than its absence.
+  useEffect(() => {
+    const seq = ++ownMachineSeq.current;
+    if (machinesLoading || machinesFailed || machine?.isSelf) {
+      setOwnMachineRoutines(null);
+      return;
+    }
+    let live = true;
+    void listRoutines({ limit: 100 }, THIS_MACHINE)
+      .then((page) => {
+        if (!live || seq !== ownMachineSeq.current) return;
+        const count = page.routines?.length ?? 0;
+        setOwnMachineRoutines(count > 0 ? { count, more: page.has_more } : null);
+      })
+      .catch(() => {
+        if (live && seq === ownMachineSeq.current) setOwnMachineRoutines(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [machinesLoading, machinesFailed, machine?.isSelf]);
+
+  // The URL is the page's second input for which machine it shows: a warm tap,
+  // a back/forward press, or a replayed notification changes `?device=` while
+  // this component stays mounted, and the useState initializer above only runs
+  // once. Apply the URL when it names a machine this Hub still knows; when it
+  // does not, converge both state and URL to the fallback so a back press does
+  // not land on a dead machine.
   useEffect(() => {
     if (writingURL.current) {
       writingURL.current = false;
@@ -1174,6 +1213,23 @@ export default function RoutinesPage() {
           >
             {tr("routines.offlineBanner")}
           </div>
+        )}
+
+        {ownMachineRoutines && (
+          <p className="mt-2 text-body text-kin-secondary">
+            {tr("routines.ownMachineHasRoutines", {
+              count: ownMachineRoutines.more
+                ? `${ownMachineRoutines.count}+`
+                : ownMachineRoutines.count,
+            })}{" "}
+            <button
+              type="button"
+              onClick={() => chooseMachine(THIS_MACHINE)}
+              className="min-h-11 text-kin-blue-ink hover:underline sm:min-h-0"
+            >
+              {tr("routines.ownMachineView")}
+            </button>
+          </p>
         )}
 
         {showCreate && (
