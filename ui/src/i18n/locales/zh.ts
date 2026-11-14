@@ -1549,6 +1549,8 @@ const zh = {
   routines: {
     title: "例行任务",
     machineLabel: "机器",
+    ownMachineHasRoutines: "本机还有 {count} 个例行任务。",
+    ownMachineView: "查看",
     subtitle: "定时报告与收件箱。有价值的结果会推送；安静的结果只进 feed。",
     loadFailed: "加载例行任务失败",
     actionFailed: "操作失败",

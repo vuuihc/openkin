@@ -1639,6 +1639,8 @@ const en: MessageTree = {
   routines: {
     title: "Routines",
     machineLabel: "Machine",
+    ownMachineHasRoutines: "This machine also has {count} routines.",
+    ownMachineView: "View them",
     subtitle:
       "Scheduled reports and their inbox. Noteworthy runs buzz; quiet ones stay in the feed.",
     loadFailed: "Failed to load routines",
