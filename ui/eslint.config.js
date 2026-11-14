@@ -1,7 +1,10 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createJiti } from "jiti";
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 import resolveConfig from "tailwindcss/resolveConfig.js";
+import { grandfathered } from "./eslint-rules/grandfather.js";
 import kin from "./eslint-rules/index.js";
 
 /**
@@ -26,6 +29,7 @@ import kin from "./eslint-rules/index.js";
  *   files — but the shape checks are switched off.
  */
 const jiti = createJiti(import.meta.url);
+const uiRoot = path.dirname(fileURLToPath(import.meta.url));
 const config = await jiti.import("./tailwind.config.ts", { default: true });
 const theme = resolveConfig(config).theme;
 const colours = Object.keys(theme.colors.kin).sort();
@@ -60,6 +64,13 @@ export default tseslint.config(
     rules: {
       "kin/no-undefined-token": ["error", { colours }],
       "kin/no-arbitrary-literal": ["error", { widths }],
+      /**
+       * `grandfather.js` maps each existing file to the count it is allowed; a
+       * new file starts at zero and the list may only shrink. Aggregate rows,
+       * including shapes this rule does not cover, are held by
+       * `scripts/check-ui-inventory.py`.
+       */
+      "kin/no-new-ui-primitive": ["error", { root: uiRoot, grandfather: grandfathered }],
       // Not a design rule, and here for the opposite reason: the tree already
       // carries `eslint-disable-next-line react-hooks/exhaustive-deps`
       // comments written when this config did not exist. A disable comment for
@@ -146,8 +157,15 @@ export default tseslint.config(
     },
   },
   {
+    // Tests spell the shapes they assert about, and a DOM test renders raw
+    // controls as fixtures. The ratchet is about shipped surfaces; the
+    // inventory measurement already excludes `*.test.tsx` for the same reason.
     files: ["**/*.test.{ts,tsx}"],
-    rules: { "kin/no-undefined-token": "off", "kin/no-arbitrary-literal": "off" },
+    rules: {
+      "kin/no-undefined-token": "off",
+      "kin/no-arbitrary-literal": "off",
+      "kin/no-new-ui-primitive": "off",
+    },
   },
   {
     // The design layer is where a colour literal is allowed, and it is also

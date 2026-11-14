@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""Tests for the console UI inventory ratchet.
+
+Run directly: `python3 -B scripts/check-ui-inventory.test.py`. Every verdict
+case runs the real checker against a temporary fixture tree and baseline;
+counts come from `ui_inventory.measure`, not a second copy of the regexes.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+SCRIPTS = Path(__file__).resolve().parent
+ROOT = SCRIPTS.parent
+CHECKER = SCRIPTS / "check-ui-inventory.py"
+
+sys.path.insert(0, str(SCRIPTS))
+import ui_inventory  # noqa: E402
+
+LABELS = {metric.key: metric.label for metric in ui_inventory.METRICS}
+
+# One occurrence of every tracked metric, so "all rows are compared" can be
+# proved for the whole set rather than only the three newest categories.
+SAMPLES = {
+    "raw_button": '<button type="button">Save</button>',
+    "kin_btn_class": '"kin-btn"',
+    "raw_input": '<input aria-label="name" />',
+    "kin_input_class": '"kin-input"',
+    "raw_textarea": "<textarea />",
+    "native_select": "<select />",
+    "raw_label": "<label>Name</label>",
+    "role_menu": 'role="menu"',
+    "role_listbox": 'role="listbox"',
+    "role_dialog": 'role="dialog"',
+    "role_tab": 'role="tab"',
+    "role_status": 'role="status"',
+    "role_alert": 'role="alert"',
+    "use_anchored_panel": "useAnchoredPanel(ref)",
+    "create_portal": "createPortal(null, document.body)",
+    "push_toast": "pushToast({ title: 'saved' })",
+    "rounded_border_surface": '"rounded-lg border"',
+    "magic_z": '"z-[60]"',
+}
+
+
+class Fixture:
+    """A throwaway `ui/src` tree plus a baseline beside it."""
+
+    def __init__(self) -> None:
+        self.root = Path(tempfile.mkdtemp(prefix="kin-ui-inventory-"))
+        self.src = self.root / "src"
+        self.src.mkdir()
+        self.baseline = self.root / "baseline.json"
+
+    def write(self, relative: str, body: str) -> None:
+        path = self.src / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+
+    def measured(self) -> dict[str, dict[str, int]]:
+        return ui_inventory.measure(self.src)
+
+    def write_baseline(self, metrics: dict[str, dict[str, int]] | str) -> None:
+        if isinstance(metrics, str):
+            self.baseline.write_text(metrics, encoding="utf-8")
+            return
+        rows = {
+            key: {
+                "label": LABELS[key],
+                "occurrences": row["occurrences"],
+                "files": row["files"],
+            }
+            for key, row in metrics.items()
+        }
+        self.baseline.write_text(
+            json.dumps({"note": "fixture", "metrics": rows}, indent=2), encoding="utf-8"
+        )
+
+    def cleanup(self) -> None:
+        shutil.rmtree(self.root, ignore_errors=True)
+
+
+class CheckerTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.fixture = Fixture()
+        self.addCleanup(self.fixture.cleanup)
+
+    def run_checker(self) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(CHECKER),
+                "--source",
+                str(self.fixture.src),
+                "--baseline",
+                str(self.fixture.baseline),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+    def assert_fails_on(self, key: str) -> None:
+        result = self.run_checker()
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(key, result.stdout + result.stderr)
+
+    def test_increase_fails(self) -> None:
+        self.fixture.write("components/A.tsx", SAMPLES["raw_button"])
+        self.fixture.write("components/B.tsx", SAMPLES["create_portal"])
+        self.fixture.write("components/C.tsx", SAMPLES["magic_z"])
+        self.fixture.write_baseline(self.fixture.measured())
+
+        # One more file and one more occurrence for each of the three
+        # categories the new lint rule also refuses in a new file.
+        self.fixture.write("components/D.tsx", SAMPLES["raw_button"])
+        self.fixture.write("components/E.tsx", SAMPLES["create_portal"])
+        self.fixture.write("components/F.tsx", SAMPLES["magic_z"])
+
+        result = self.run_checker()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        for key in ("raw_button", "create_portal", "magic_z"):
+            self.assertIn(key, result.stdout)
+
+    def test_equal_counts_pass(self) -> None:
+        self.fixture.write("components/A.tsx", SAMPLES["raw_button"] + "\n" + SAMPLES["magic_z"])
+        self.fixture.write_baseline(self.fixture.measured())
+        result = self.run_checker()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("UI_INVENTORY_OK", result.stdout)
+
+    def test_decrease_passes(self) -> None:
+        self.fixture.write("components/A.tsx", SAMPLES["raw_button"])
+        self.fixture.write("components/B.tsx", SAMPLES["raw_button"])
+        self.fixture.write_baseline(self.fixture.measured())
+        (self.fixture.src / "components" / "B.tsx").unlink()
+        result = self.run_checker()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("UI_INVENTORY_OK", result.stdout)
+
+    def test_missing_or_malformed_baseline_fails_closed(self) -> None:
+        self.fixture.write("components/A.tsx", SAMPLES["raw_button"])
+
+        result = self.run_checker()  # no baseline file at all
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("baseline", (result.stdout + result.stderr).lower())
+
+        for body in (
+            "{not json",
+            "{}",
+            '{"metrics": {}}',
+            '{"metrics": {"raw_button": {"occurrences": "many", "files": 1}}}',
+            '{"metrics": {"raw_button": {"occurrences": 1}}}',
+            '{"metrics": {"not_a_metric": {"occurrences": 1, "files": 1}}}',
+        ):
+            with self.subTest(body=body):
+                self.fixture.write_baseline(body)
+                result = self.run_checker()
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertNotIn("UI_INVENTORY_OK", result.stdout)
+
+        measured = self.fixture.measured()  # a baseline missing a tracked row
+        del measured["magic_z"]
+        self.fixture.write_baseline(measured)
+        result = self.run_checker()
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("magic_z", result.stdout + result.stderr)
+
+    def test_all_tracked_metrics_are_compared(self) -> None:
+        # One file with every shape, so a one-count increase is representable.
+        self.fixture.write("components/All.tsx", "\n".join(SAMPLES.values()))
+        measured = self.fixture.measured()
+        self.assertEqual(set(measured), set(LABELS))
+        for key, row in measured.items():
+            self.assertGreater(row["occurrences"], 0, key)
+
+        for key in LABELS:
+            with self.subTest(metric=key):
+                lowered = {k: dict(v) for k, v in measured.items()}
+                lowered[key]["occurrences"] -= 1
+                self.fixture.write_baseline(lowered)
+                self.assert_fails_on(key)
+
+    def test_measure_reports_numeric_z_spellings(self) -> None:
+        self.fixture.write(
+            "components/Z.tsx",
+            'const A = () => <div className="z-[60]" />;\n'
+            'const B = () => <div className={"z-[90]"} />;\n'
+            "const C = () => <div className={`z-[100] ${x}`} />;\n"
+            'const D = () => <div className="z-10 z-auto" />;\n',
+        )
+        self.fixture.write("components/Z.test.tsx", 'const T = () => <div className="z-[999]" />;')
+        measured = self.fixture.measured()
+        self.assertEqual(measured["magic_z"], {"occurrences": 3, "files": 1})
+
+    def test_check_script_runs_inventory_guard_unconditionally(self) -> None:
+        script = (SCRIPTS / "check.sh").read_text(encoding="utf-8")
+        self.assertRegex(script, r"(?m)^start ui-inventory job_ui_inventory$")
+        body = re.search(r"(?ms)^job_ui_inventory\(\) \{(.*?)^\}", script)
+        self.assertIsNotNone(body, "check.sh has no job_ui_inventory")
+        assert body is not None
+        self.assertIn("check-ui-inventory.py", body.group(1))
+        self.assertIn("check-ui-inventory.test.py", body.group(1))
+        self.assertNotIn("changed_ui_files", body.group(1))
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

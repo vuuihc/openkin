@@ -1,7 +1,8 @@
 import { RuleTester } from "eslint";
 import tseslint from "typescript-eslint";
-import { afterAll, describe, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import kin from "./index.js";
+import { grandfathered } from "./grandfather.js";
 
 /**
  * The rules, against their own cases rather than against the tree.
@@ -255,4 +256,113 @@ tester.run("no-arbitrary-literal", kin.rules["no-arbitrary-literal"], {
       errors: [{ messageId: "named" }, { messageId: "named" }],
     },
   ],
+});
+
+/**
+ * A new file may not add a raw control, direct portal or numeric layer.
+ * Existing files are grandfathered by path *and* allowed count, so an extra
+ * occurrence is a finding even when cleanup elsewhere keeps totals level.
+ */
+const grandfather = {
+  rawButton: { "src/components/ToastHost.tsx": 1 },
+  portal: { "src/components/ToastHost.tsx": 2 },
+  magicZ: { "src/components/ToastHost.tsx": 1 },
+};
+const ratchetOptions = [{ root: "/ui", grandfather }];
+const windows = [{ root: "C:\\repo\\ui", grandfather }];
+const newFile = "/ui/src/components/BrandNewThing.tsx";
+const toastHost = "/ui/src/components/ToastHost.tsx";
+const agentsButton = [
+  {
+    root: "/ui",
+    grandfather: {
+      ...grandfather,
+      rawButton: { ...grandfather.rawButton, "src/pages/AgentsPage.tsx": 1 },
+    },
+  },
+];
+
+const ok = (code, extra = {}) => ({ filename: newFile, code, options: ratchetOptions, ...extra });
+const bad = (code, messageId, extra = {}, filename = newFile, options = ratchetOptions) => ({
+  filename,
+  code,
+  options,
+  errors: [{ messageId, ...extra }],
+});
+const twice = (code, messageId) => ({
+  ...bad(code, messageId),
+  errors: [{ messageId }, { messageId }],
+});
+
+tester.run("no-new-ui-primitive", kin.rules["no-new-ui-primitive"], {
+  valid: [
+    ok('const C = () => <Button className="z-header z-10" />;'),
+    ok('const C = () => <div className="w-[240px] pt-[10vh] z-10" />;'),
+    ok('const C = () => <button className="z-[60]" type="button" />;', { filename: toastHost }),
+    ok('import { createPortal } from "react-dom"; const p = createPortal(null, document.body);', {
+      filename: toastHost,
+    }),
+    ok('const C = () => <button type="button" />;', {
+      filename: "C:\\repo\\ui\\src\\components\\ToastHost.tsx",
+      options: windows,
+    }),
+    ok('const C = () => <button type="button" />;', {
+      filename: "/ui/src/pages/AgentsPage.tsx",
+      options: agentsButton,
+    }),
+  ],
+  invalid: [
+    bad('const C = () => <button type="button">Save</button>;', "rawButton"),
+    bad('import { createPortal } from "react-dom";', "portal"),
+    bad("const p = ReactDOM.createPortal(null, document.body);", "portal"),
+    bad("const p = createPortal(null, document.body);", "portal"),
+    bad('const p = ReactDOM["createPortal"](null, document.body);', "portal"),
+    bad("const p = ReactDOM[`createPortal`](null, document.body);", "portal"),
+    bad("const { createPortal: portal } = ReactDOM; portal(null, document.body);", "portal"),
+    twice('import createPortal from "portal-lib"; createPortal(null, document.body);', "portal"),
+    bad(
+      'const C = () => <><button type="button" /><button type="button" /></>;',
+      "rawButton",
+      {
+        data: { allowed: 1 },
+      },
+      toastHost,
+    ),
+    bad(
+      'const C = () => <button type="button" />;',
+      "rawButton",
+      {},
+      "C:\\repo\\ui\\src\\components\\BrandNewThing.tsx",
+      windows,
+    ),
+    bad('const C = () => <div className="fixed inset-0 z-[60]" />;', "magicZ", {
+      data: { layer: "z-[60]", allowed: 0 },
+    }),
+    bad('const C = () => <div className={"z-[90]"} />;', "magicZ"),
+    bad("const C = () => <div className={`z-[100] ${x}`} />;", "magicZ"),
+    bad(
+      "const p = ReactDOM.createPortal(null, document.body);",
+      "portal",
+      {},
+      "/ui/src/pages/AgentsPage.tsx",
+    ),
+  ],
+});
+
+/** The configuration decision: real data in, test fixtures out. */
+describe("no-new-ui-primitive configuration", () => {
+  it("wires the checked-in grandfather list into non-test sources", async () => {
+    const config = (await import("../eslint.config.js")).default;
+    const sourceBlock = config.find(
+      (block) => Array.isArray(block.files) && block.files.includes("src/**/*.{ts,tsx}"),
+    );
+    expect(sourceBlock?.rules?.["kin/no-new-ui-primitive"]).toEqual([
+      "error",
+      { root: expect.any(String), grandfather: grandfathered },
+    ]);
+    const testBlock = config.find(
+      (block) => Array.isArray(block.files) && block.files.includes("**/*.test.{ts,tsx}"),
+    );
+    expect(testBlock?.rules?.["kin/no-new-ui-primitive"]).toBe("off");
+  });
 });

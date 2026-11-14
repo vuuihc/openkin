@@ -294,9 +294,140 @@ const noArbitraryLiteral = {
   },
 };
 
+/**
+ * The ratchet: a file not already on the list may not introduce a raw
+ * `<button>`, a direct `createPortal`, or a numeric `z-[n]`. Grandfathering is
+ * a path plus an allowed count, so an extra occurrence is reported even when
+ * cleanup elsewhere keeps the inventory totals level; the list may only
+ * shrink. Test fixtures are out of scope in `eslint.config.js`.
+ */
+function relativeFilename(context, root) {
+  // Normalise separators on both sides, then take the path under `ui/`.
+  const filename = (context.filename ?? context.getFilename?.() ?? "").split("\\").join("/");
+  const prefix = root.split("\\").join("/").replace(/\/$/, "") + "/";
+  return filename.startsWith(prefix)
+    ? filename.slice(prefix.length)
+    : filename.replace(/^\.\//, "");
+}
+
+const COUNTED_PATH = { type: "object", additionalProperties: { type: "integer", minimum: 0 } };
+
+const MAGIC_Z = /(?<![\w-])z-\[[0-9]+\]/g;
+
+const noNewUiPrimitive = {
+  meta: {
+    type: "problem",
+    docs: {
+      description:
+        "a new console file may not add a raw <button>, a direct createPortal, or a numeric z-[n] layer",
+    },
+    schema: [
+      {
+        type: "object",
+        properties: {
+          root: { type: "string" },
+          grandfather: {
+            type: "object",
+            properties: {
+              rawButton: COUNTED_PATH,
+              portal: COUNTED_PATH,
+              magicZ: COUNTED_PATH,
+            },
+            required: ["rawButton", "portal", "magicZ"],
+            additionalProperties: false,
+          },
+        },
+        required: ["root", "grandfather"],
+        additionalProperties: false,
+      },
+    ],
+    messages: {
+      rawButton:
+        "`<button>` exceeds this file's grandfathered count ({{allowed}}) — use `<Button>` from `components/ui`, or lower `eslint-rules/grandfather.js`",
+      portal:
+        "`createPortal` exceeds this file's grandfathered count ({{allowed}}) — use `Sheet`, `ActionSheet`, `SearchSelect` or an existing anchored panel",
+      magicZ:
+        "`{{layer}}` exceeds this file's grandfathered stacking layers ({{allowed}}) — use a named `z-*` utility from `tailwind.config.ts`",
+    },
+  },
+  create(context) {
+    const options = context.options[0];
+    // No grandfather list is a misconfiguration, not a free pass.
+    if (!options?.grandfather || typeof options.root !== "string") {
+      throw new Error(
+        "kin/no-new-ui-primitive needs `root` and `grandfather` — see eslint.config.js",
+      );
+    }
+    const file = relativeFilename(context, options.root);
+    const allowed = {
+      rawButton: options.grandfather.rawButton[file] ?? 0,
+      portal: options.grandfather.portal[file] ?? 0,
+      magicZ: options.grandfather.magicZ[file] ?? 0,
+    };
+    const seen = { rawButton: 0, portal: 0, magicZ: 0 };
+    const reportBeyond = (kind, node, data = {}) => {
+      seen[kind] += 1;
+      if (seen[kind] > allowed[kind]) {
+        context.report({ node, messageId: kind, data: { allowed: allowed[kind], ...data } });
+      }
+    };
+    return {
+      JSXOpeningElement(node) {
+        if (node.name.type === "JSXIdentifier" && node.name.name === "button") {
+          reportBeyond("rawButton", node);
+        }
+      },
+      ImportSpecifier(node) {
+        if (node.imported.type === "Identifier" && node.imported.name === "createPortal") {
+          reportBeyond("portal", node);
+        }
+      },
+      // Bare, default-import, destructured and computed spellings all count
+      // once; the import and member visitors own their own occurrences.
+      Identifier(node) {
+        if (node.name !== "createPortal") return;
+        const parent = node.parent;
+        if (!parent) return;
+        if (parent.type === "ImportSpecifier") return;
+        if (parent.type === "MemberExpression" && parent.property === node) return;
+        if (parent.type === "Property" && parent.key === node && !parent.computed) {
+          // `{ createPortal: portal } = ReactDOM` is still a portal; a plain
+          // object literal's key is not a reference.
+          if (parent.parent?.type === "ObjectPattern" || parent.shorthand) {
+            reportBeyond("portal", node);
+          }
+          return;
+        }
+        reportBeyond("portal", node);
+      },
+      MemberExpression(node) {
+        const property = node.property;
+        if (
+          (property.type === "Identifier" && property.name === "createPortal") ||
+          (property.type === "Literal" && property.value === "createPortal") ||
+          (property.type === "TemplateLiteral" &&
+            property.expressions.length === 0 &&
+            property.quasis[0]?.value.cooked === "createPortal")
+        ) {
+          reportBeyond("portal", node);
+        }
+      },
+      Program() {
+        for (const segment of classSegments(context)) {
+          MAGIC_Z.lastIndex = 0;
+          for (const [layer] of segment.value.matchAll(MAGIC_Z)) {
+            reportBeyond("magicZ", segment.node, { layer });
+          }
+        }
+      },
+    };
+  },
+};
+
 export default {
   rules: {
     "no-arbitrary-literal": noArbitraryLiteral,
+    "no-new-ui-primitive": noNewUiPrimitive,
     "no-undefined-token": noUndefinedToken,
   },
 };
