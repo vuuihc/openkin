@@ -11,7 +11,7 @@
 | Mac / 手机：同一 IA，不同容器 | 🟢 已与用户确定 | Mac 侧栏双栏；手机四 Tab + 各自页面栈 |
 | 视觉：继续 Kin，不换主题与品牌 | 🟢 已与用户确定 | `--kin-*` 与不变量测试继续使用 |
 | 人工节点：总设计签字 + 整体交付验收 | 🟢 已与用户确定 | 两个 Goal 而不是八次逐区确认 |
-| 单一总设计 Figma 审阅页 | 🔴 未制作、未签字 | **唯一挡住产品代码的事项**，见 Goal 0 |
+| Goal 0 · 总设计 | 🟡 已制作，待签字 | [审阅页](../product/stories/KIN-CONTINUE-003.review.html) + [合同](../product/stories/KIN-CONTINUE-003.md)；通知生命周期 / 项目刷新等复审问题已修正，独立复审无 blocker/major，尚无人为签字 |
 | Astryx 固定接入成本 | 🟢 已实测 | [spike](2026-11-09-astryx-spike.md)：React 19 可构建，主题可映射，+83.9 kB raw / +25.1 kB gzip |
 | Tailwind 4 兼容 | 🟡 已验证路径，未落地主线 | 现有 spike：6 个失败用例、4 个测试类型错误、无层级 CSS 要审计 |
 | 当前故事与导航合同 | 🟡 存在明确冲突 | `NAVIGATION.md` D8 的旧四入口/推出模型；`KIN-PROJECT-001` 陈述的项目无独立列表 |
@@ -107,7 +107,7 @@
 4. 在审阅页开头写 MECE：六条意图仍保留；四区不是第四种功能划分；其他故事管功能，总设计管共享面。说明将替换哪些旧决策。
 5. 审阅页从 `_REVIEW.html` 建立；必须满足 `figma-flow-v1`、离线 SVG、390px 不整体横滚、no CDN、暗色、sticky TOC、可复制回复模板。所有数据用占位符。
 6. 把所有已定决策标为「已定」，而不是重新提问；留下总设计一并签字的回复模板。
-7. 运行 `python3 scripts/stories.py`；预期 draft 阶段可验证合同与骨架，**不把状态置 approved 直到真实用户签字**。
+7. 运行 `python3 scripts/stories.py`。`KIN-CONTINUE-003` 以 draft 排入 registry，未来测试路径留在合同和本计划，不新造 registry 字段；`tests: []` 只表示无产品覆盖。正式批准前，先让导航验收测试存在并证明它在旧导航上失败，再将有编号、有断言的测试路径登记为正式 `tests`。
 8. 文档作一次 `docs(product): unify the console navigation and experience contract` 提交。纯文档走自动自审/自动评审；不要求额外的人工关卡。
 
 **完成：** 你一次确认总设计；计划表格将“总设计”标为绿，记录签字日期；Goal 1 才开始。
@@ -124,7 +124,7 @@
 - Modify: `ui/src/design/tokens.test.ts`, `ui/src/design/tailwind.test.ts`
 - Modify: `ui/eslint.config.js`, `ui/eslint-rules/*` only where the v4 config reader requires it
 - Create: `ui/src/design/AstryxProvider.tsx`, theme adapter + tests
-- Create: `ui/src/pages/DesignSystemPage.tsx` and a development-only route
+- Create: a development-only `DesignSystemPage.tsx` gallery (the existing gallery path is the contract)
 - Create: `docs/product/design/astryx-bridge.md`
 - Test: existing UI suite and token tests, plus provider tests
 
@@ -134,7 +134,7 @@
 2. 基于已完成 spike 的经验，安装 React 19、ReactDOM 19、Astryx core + neutral theme、StyleX 和 Tailwind 4/PostCSS 插件。**实际版本在安装时重新确认，不把 spike 的过时版本号当合同。**
 3. 先增加 layer-order / body-background / token 编译测试；确认新 Tailwind 行为下失败，再迁移。
 4. 重写 `resolveConfig` / v3 PostCSS 测试依赖，使用 v4 的编译 API；保留全部对比度、L*、焦点环等断言。必须为 v4 的单层化规则变化写回归。
-5. 接入 Provider：65 个 Kin token 逐项映射或明确标为 Kin 扩展；`data-theme` 驱动 `color-scheme`；语言、控件文案走 `ui/src/i18n/`；触屏点按 ≥44px；reduced-motion。
+5. 接入 Provider：接 `design/colors.ts` 的实际完整 Kin token 清单，逐项映射或明确标为 Kin 扩展；`data-theme` 驱动 `color-scheme`；语言、控件文案走 `ui/src/i18n/`；触屏点按 ≥44px；reduced-motion。
 6. `/dev/components` 展示所有被采用的控件、平台形态、默认/悬停/按下/焦点/禁用/加载/错误/IME/断线状态；生产构建不暴露该入口。
 7. 390/1100 整站截图回归，不只拍 gallery；记录 body 背景、placeholder、outline、圆角等预期变化。
 8. 验收：`npm run typecheck`、`npm test`、`npm run lint`、`npm run build`、全 token 测试；无意外旧页面基线破坏。
@@ -171,8 +171,8 @@
 
 **Files:**
 
-- Modify: `ui/src/pages/SessionsPage.tsx`, `SessionsRoute.tsx`, `StartRoute.tsx`, `NewChatPage.tsx`, `TaskSessionHost.tsx`, `TaskDetailPage.tsx`
-- Modify: `ui/src/components/sessions/SessionList.tsx`, `SessionFilters.tsx` under `components/ui/`
+- Modify: `ui/src/pages/SessionsPage.tsx`, `SessionsRoute.tsx`, `StartRoute.tsx`, `NewChatPage.tsx`, `TaskSessionHost.tsx`, `TaskDetailPage.tsx`, `AgentSessionDetailPage.tsx`
+- Modify: `ui/src/components/sessions/SessionList.tsx`, `SessionFilters.tsx` in that same `sessions/` directory
 - Modify: `ui/src/components/mobile/SessionsSearch.tsx`, `MobileList.tsx`, `SessionRowActions.tsx`
 - Modify: `ui/src/components/chat/Composer.tsx`, `ChatStream.tsx`, `RunConfigSheet.tsx`, `PermissionModePicker.tsx`, `ModelPicker.tsx` as needed for layout/primitives only
 - Create: `ui/src/components/sessions/ConversationScopeFilter.tsx` **only if** `SessionFilters` cannot express the signed selected/archive treatment
@@ -215,7 +215,7 @@
 
 **Files:**
 
-- Modify: `ui/src/pages/SettingsPage.tsx`, `AgentsPage.tsx`, `AgentSessionDetailPage.tsx`
+- Modify: `ui/src/pages/SettingsPage.tsx`, `AgentsPage.tsx` (AgentSessionDetail belongs to C, the conversation area, not this settings batch)
 - Move/split: Agents body into `ui/src/components/settings/AgentOperationsSection.tsx` or smaller domain pieces dictated by the signed frames; old `/agents` becomes redirect, not a second view
 - Modify: `ui/src/components/settings/SettingsPrimitives.tsx`, `ProviderSettingsSection.tsx`, `LocalAgentSettingsSection.tsx`, `AccountSection.tsx`
 - Modify: `ui/src/components/ui/*.tsx`, mobile `Sheet.tsx`, `useAnchoredPanel.ts` wrappers required to adopt Astryx once
@@ -296,7 +296,7 @@
 
 | 阶段 | 文件数 / 源码行 / 测试行 | 测试变化 | 包体变化 | 决策 / 阻塞 | 结果 |
 |---|---|---|---|---|---|
-| Goal 0 | 待实际 | 合同检查 | 无 | 总设计签字 | 未开始 |
+| Goal 0 | 26 文件；3 份文字合同合计 324 行；20 SVG；共 +392 / -9 | `stories.py` 通过；`check.sh` 14 项通过；20 SVG / 22 六拍流程 / 390+1100px 实际浏览器通过；并非产品覆盖 | 无 | 独立复审两项 major 已修、窄复审无 blocker/major；仍待总设计签字 | 文档已生成，产品实现未开始 |
 | Batch A | 待实际 | 6 个已知失败用例 + Provider / CSS | 以实测为准 | 上游版本复核 | 未开始 |
 | Batch B | 待实际 | 导航 / deep-link / history | 待测 | 项目集合 URL | 未开始 |
 | Batch C | 待实际 | 列表 / 对话 / 新建 | 待测 | 无新增功能 | 未开始 |

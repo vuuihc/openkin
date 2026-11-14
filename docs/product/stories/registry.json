@@ -418,6 +418,44 @@
         "ui/src/lib/phoneDeepLinkParent.test.ts"
       ],
       "blockedReason": null
+    },
+    {
+      "id": "KIN-CONTINUE-003",
+      "state": "draft",
+      "priority": "P0",
+      "journeys": [
+        "J1",
+        "J2",
+        "J3",
+        "J4",
+        "J5",
+        "J6",
+        "J7"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "统一控制台的四区导航与工作台",
+      "file": "docs/product/stories/KIN-CONTINUE-003.md",
+      "surface": "四区导航 / Mac 双栏 / 手机 Tab 与页面栈",
+      "ownerPaths": [
+        "ui/src/App.tsx",
+        "ui/src/components/layout/AppShell.tsx",
+        "ui/src/components/layout/PhoneFooter.tsx",
+        "ui/src/components/layout/Sidebar.tsx",
+        "ui/src/components/mobile/SessionsHeader.tsx",
+        "ui/src/pages/SessionsPage.tsx",
+        "ui/src/pages/StartRoute.tsx",
+        "ui/src/pages/ProjectDetailPage.tsx",
+        "ui/src/pages/RoutinesPage.tsx",
+        "ui/src/pages/SettingsPage.tsx",
+        "ui/src/lib/phoneBack.ts",
+        "ui/src/lib/phoneDeepLinkParent.ts",
+        "ui/src/lib/phoneNavigation.ts"
+      ],
+      "tests": [],
+      "blockedReason": null
     }
   ]
 }
