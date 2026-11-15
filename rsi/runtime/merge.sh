@@ -215,21 +215,43 @@ sync_main() { # -> 0 ok (pushed if changed), 1 conflict (sendback written), 2 tr
   $GIT -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null || { say "#$N: push after merge-main failed"; return 2; }
   return 0
 }
+check_buckets() { # gh's `pr checks --json name,bucket` on stdin -> space-separated buckets
+  python3 -c 'import json,sys
+try: print(" ".join(c.get("bucket","") for c in json.load(sys.stdin)))
+except Exception: pass' 2>/dev/null
+}
 ci_state() { # prints green|pending|fail ; waits (bounded) while pending
-  local tries=0 out
-  while [ $tries -lt 6 ]; do out="$($GH pr checks "$N" --repo "$GH_REPO" 2>&1)"; echo "$out" | grep -qi 'no checks reported' || break; tries=$((tries+1)); sleep 30; done
-  if echo "$out" | grep -qE '\bpending\b|\bqueued\b|in_progress'; then
-    say "#$N $SLUG: CI pending, waiting up to 25 min" >&2; with_timeout 1500 $GH pr checks "$N" --repo "$GH_REPO" --watch --interval 30 >/dev/null 2>&1
-    out="$($GH pr checks "$N" --repo "$GH_REPO" 2>&1)"
-  fi
+  local tries=0 out buckets
+  while [ $tries -lt 6 ]; do
+    out="$($GH pr checks "$N" --repo "$GH_REPO" --json name,bucket 2>&1)"
+    echo "$out" | grep -qi 'no checks reported' && break
+    [ -n "$(printf '%s' "$out" | check_buckets)" ] && break
+    tries=$((tries+1)); sleep 30
+  done
   printf '%s\n' "$out" > "$STATE/merge/$SLUG.ci.txt"
-  echo "$out" | grep -qE '\bpending\b|\bqueued\b|in_progress' && { echo pending; return; }
+  # No checks keeps the old behaviour: the gate and review already ran.
+  echo "$out" | grep -qi 'no checks reported' && { echo green; return; }
+  buckets="$(printf '%s' "$out" | check_buckets)"
+  case " $buckets " in
+    *" pending "*)
+      say "#$N $SLUG: CI pending, waiting up to 25 min" >&2
+      with_timeout 1500 $GH pr checks "$N" --repo "$GH_REPO" --watch --interval 30 >/dev/null 2>&1
+      out="$($GH pr checks "$N" --repo "$GH_REPO" --json name,bucket 2>&1)"
+      printf '%s\n' "$out" > "$STATE/merge/$SLUG.ci.txt"
+      buckets="$(printf '%s' "$out" | check_buckets)" ;;
+  esac
   # cancel-in-progress leaves a cancelled check next to the replacement run.
-  # That must not fail the PR: a real failure is "fail"; a cancelled run with
-  # no replacement yet is pending (retry next cycle).
-  echo "$out" | grep -qE '\bfail\b' && { echo fail; return; }
-  echo "$out" | grep -qiE '\bcancel' && { echo pending; return; }
-  echo green
+  # Ignore cancelled entries whenever a real verdict exists: a cancelled run
+  # next to a passing replacement is green, not pending forever. A cancelled
+  # run with no replacement yet is still pending (retry next cycle), and a
+  # real failure is always fail.
+  case " $buckets " in
+    *" fail "*) echo fail ;;
+    *" pending "*) echo pending ;;
+    *" pass "*) echo green ;;
+    *" cancel "*) echo pending ;;
+    *) echo green ;;
+  esac
 }
 
 # A gate or CI failure is mechanical when every failing test is outside the PR's
@@ -298,11 +320,11 @@ for l in sys.stdin:
 print(" ".join(sorted(set(bad))))') )"
   [ -z "$BAD" ] && HOLD="" || HOLD="package.json change outside the Astryx programme packages: $BAD"
 fi
-if [ "$SIZE" -gt 1000 ]; then
+if [ "$SIZE" -gt 800 ]; then
   if [ -f "$STATE/merge/$SLUG.size-ok" ]; then
     say "#$N $SLUG: CEO size waiver ($SIZE lines; $STATE/merge/$SLUG.size-ok)"
   else
-    HOLD="diff is $SIZE changed lines (>1000): split it"
+    HOLD="diff is $SIZE changed lines (>800): split it"
   fi
 fi
 echo "$CH" | grep -qE '^web/dist/assets/' && HOLD="web/dist/assets in diff"
@@ -322,16 +344,23 @@ fi
 
 # 4. gate and review IN PARALLEL. Review is keyed by the PR's own diff (web/dist/index.html and lockfile excluded), the gate by head SHA.
 DH="$($GIT -C "$WT" diff origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | shasum | cut -c1-16)"
+# MANDATE 2: the reviewer must be a different model from the worker. Workers run on $M_WORKER
+# (DeepSeek), so use the role that is a different family (reviewer-alt = gpt-6.1-sol). Selecting
+# the DeepSeek 'reviewer' here would put the worker's own model on its review.
+ROLE=reviewer-alt
+[ "$M_WORKER" = "$M_ALT" ] && ROLE=reviewer
 NEED_GATE=1; [ "$(cut -d' ' -f1 "$V" 2>/dev/null)" = "$SHA" ] && [ "$(cut -d' ' -f2 "$V" 2>/dev/null)" = PASS ] && NEED_GATE=0
-NEED_REV=1;  [ "$(cut -d' ' -f1 "$RV" 2>/dev/null)" = "$DH" ] && [ "$(cut -d' ' -f2 "$RV" 2>/dev/null)" = PASS ] && NEED_REV=0
 # Tiered review (CEO 2026-11-15, runtime/review-tier.py): small = ONE DeepSeek-max review (escalation signals other than rework>=2 off;
 # `VERDICT: UNSURE` -> sol once); medium = DeepSeek with the normal signals; large (risky paths, >500 lines, F/S/N/Q3a, deps, rework>=2) = sol.
 # Build, tests, UX gate, CI and the hold rules are the same for every tier.
 TIER_LINE="$($GIT -C "$WT" diff --numstat origin/main...HEAD | python3 "$RSI_DIR/runtime/review-tier.py" --title "$TITLE" --item "$ITEM" --attempts "$(attempts "$SLUG")" --numstat - 2>/dev/null)"
 TIER="$(echo "$TIER_LINE" | awk '{print $1}')"; ROLE="$(echo "$TIER_LINE" | awk '{print $2}')"; TIER="${TIER:-large}"; ROLE="${ROLE:-reviewer-alt}"
 [ -e "$STATE/merge/$SLUG.force-alt" ] && ROLE=reviewer-alt          # DeepSeek returned no verdict twice: use the standing second reviewer
+[ "$M_WORKER" = "$M_ALT" ] && ROLE=reviewer                         # MANDATE 2: never review on the worker's own model
 echo "$TIER" > "$STATE/merge/$SLUG.tier"; say "#$N $SLUG: review tier=$TIER role=$ROLE ($TIER_LINE)"
 REVTIER_ENV=""; [ "$TIER" = small ] && [ "$ROLE" = reviewer ] && REVTIER_ENV=small
+# A cached PASS only carries over when the same (different-family) role recorded it.
+NEED_REV=1;  [ "$(cut -d' ' -f1 "$RV" 2>/dev/null)" = "$DH" ] && [ "$(cut -d' ' -f2 "$RV" 2>/dev/null)" = PASS ] && [ "$(cut -d' ' -f4 "$RV" 2>/dev/null)" = "$ROLE" ] && NEED_REV=0
 GL="$RUNS/gate-merge-$SLUG-$(date +%H%M%S).log"; REVPID=""
 REV_OK=1; REV_NOTE=""; REV_REUSED=0
 # At most one strong-model review per PR per head SHA: reuse the cached verdict/fix-list, never re-run.

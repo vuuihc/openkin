@@ -7,7 +7,7 @@ launchd every 20 min (+ whenever a lane finishes) ─► run.sh pulse = FILL: di
         │   rework sendbacks → idle lanes automatically; queue → ≤25 min / ≤$5 / ≲400-line slices, each declaring its paths
         ▼   lanes.py claim REFUSES overlapping paths between active lanes
  worker lane 1 ┐   lane.sh run N: worktree ~/.kin/worktrees/rsi-<slug> (branch rsi/<slug>) → worker (deepseek flash, 40 min watchdog,
- worker lane 2 ├─►   $6 guard) → push → PR → hand over          (own lock per lane; default RSI_MAX_LANES=2 (3 supported), vitest workers=2)
+ worker lane 2 ├─►   $6 guard) → format changed UI/Go → push → PR → hand over   (own lock per lane; default RSI_MAX_LANES=2 (3 supported), vitest workers=2)
  (lane 3 only if RSI_MAX_LANES=3) ┘
         ▼
  launchd every 10 min (+ after each lane) ─► merge.sh = MERGE LANE (one at a time, oldest PR first)
@@ -34,3 +34,7 @@ Operate:
 - `runtime/merge.sh` = dispatcher (every 10 min and after lane/merge events) → up to 2 per-PR verifiers (`merge.sh --one`): sync main → hold rules → screenshots → **review ∥ gate** → CI → land under a lock. `state/merge/cycles.log` has verify/open-to-merge times.
 - Cloud slices (`executor: cloud` in `astryx-slices.json`): `slices.py cloud-pending`, briefs in `state/cloud-briefs/` (+ `INDEX.md`), `lanes.py cloud-list|cloud-release`.
 - Throughput knobs (2026-11-15, see DECISIONS): tiered review `runtime/review-tier.py` (`state/merge/<slug>.tier`), verifier slots `RSI_MERGE_WORKERS=2` + `RSI_MERGE_SMALL_SLOTS=1`, remote overflow off with `touch state/NO_REMOTE_OVERFLOW`, `RSI_BOX_MAX=3`, `RSI_CARBON_ENABLED=0`, sol quota marker `state/sol-limited-until`. Queue wait is logged in `state/merge/cycles.log` (`verifier_started queue_wait=Nm`).
+
+## NAS lanes (2026-11-15)
+
+- `runtime/nas/` = Mac-driven unattended workers on the LAN NAS. **This slice is the return path:** `ingest-nas.sh` lists finished jobs over ssh, fetches and verifies the git bundle, self-checks on the Mac (`heavy.sh`), pushes `rsi/<slug>` (never force), opens or refreshes the PR, and kicks `merge.sh`. Handled jobs are marked `ingested`/`held` on the NAS and acked locally, so a second run does nothing; a claim is released only by the run that owns it, an existing worktree is fast-forwarded only when clean and unchanged, the self-check is green only when it ran to completion, and visible UI is held (branch pushed, no PR) until real 390x844 and 1100x760 captures exist — the diff comes from `origin/main`, not the worker. The forward path (`pulse-nas.sh`, launchd job, `run.sh pulse` hook) is the follow-up `R-nas-worker-lanes-pulse` slice, and the isolated Compose stack, in-container `nas-lane.sh`, installer and smoke probe are `R-nas-worker-lanes-stack` (`rsi/state/followups.md`). Nothing invokes the script automatically until the pulse lands; run it by hand against an existing job tree. Details: `runtime/nas/README.md`. Tests: `bash rsi/runtime/nas/tests/test-nas.sh`.

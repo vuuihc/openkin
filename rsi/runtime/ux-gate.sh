@@ -47,6 +47,20 @@ else bash "$RSI_DIR/runtime/ux-walk.sh" "$WT" "$SHOTS" "@$UXD/changed.txt" > "$U
 if [ -e "$SHOTS/UNAVAILABLE" ]; then unavailable "ux walk unavailable: $(cat "$SHOTS/UNAVAILABLE")"; fi
 [ -s "$SHOTS/walk.json" ] || unavailable "walker wrote no walk.json"
 HARD="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("\n".join(d.get("hardFail",[])))' "$SHOTS/walk.json")"
+# Known walk artefacts (state/ux-known-artifacts.txt): exact hard-fail lines that are environment
+# defects, not this PR's. They are printed and saved, never silently swallowed; an empty or absent
+# file leaves the gate exactly as strict as before.
+KNOWN="$STATE/ux-known-artifacts.txt"
+UX_IGNORED=""
+if [ -n "$HARD" ] && [ -s "$KNOWN" ]; then
+  UX_IGNORED="$(printf '%s\n' "$HARD" | grep -F -f "$KNOWN" || true)"
+  if [ -n "$UX_IGNORED" ]; then
+    HARD="$(printf '%s\n' "$HARD" | grep -v -F -f "$KNOWN" || true)"
+    printf '%s\n' "$UX_IGNORED" > "$UXD/ignored.txt"
+    echo "ux-gate: ignored known walk artefacts ($KNOWN):"
+    printf '%s\n' "$UX_IGNORED" | sed 's/^/  - /'
+  fi
+fi
 NSHOT="$(ls "$SHOTS"/*.png 2>/dev/null | wc -l | tr -d ' ')"
 [ "$NSHOT" -gt 0 ] || unavailable "walk produced no screenshots"
 # 2. vision review
@@ -61,6 +75,7 @@ PF="$STATE/briefs/$SLUG-ux-review.md"; mkdir -p "$STATE/briefs"
   echo "Compare against: the BEFORE screenshots in $BASELINE (same names where they exist; the installed build before this programme) and the target prototype in $APPROVED_PROTO (the clickable shell Ethan approved; the product should converge on it, not on the old UI)."
   echo "Look at the attached diff only to explain what you see (do not run git/shell; the diff is provided). What the PR claims: $BODY"
   [ -n "$HARD" ] && { echo; echo "Walk hard failures (each is an automatic reject unless you can show it is a walker artefact):"; echo "$HARD"; }
+  [ -n "$UX_IGNORED" ] && { echo; echo "Known walk artefacts ignored for this run (pre-existing fixture gap, not a defect of this PR; still report it as 'not verifiable: needs seed data'):"; echo "$UX_IGNORED"; }
   echo "Note: a throwaway daemon may be EMPTY (see $SHOTS/seed.log); then judge empty/loading states and structure, and say 'not verifiable: needs seed data' for what you cannot see. Never invent what the screen shows."
   echo
   echo "Output format (last lines, exactly): "

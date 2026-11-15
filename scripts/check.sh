@@ -198,6 +198,7 @@ job_shell_syntax() {
 # every UI PR, so it is checked here rather than only in the running loop.
 job_shell_test() {
   ./scripts/install-hub.test.sh || return 1
+  bash rsi/runtime/format-changed.test.sh || return 1
   bash rsi/runtime/tests/test-merge-gen-resolve.sh
 }
 

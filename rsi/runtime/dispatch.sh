@@ -6,6 +6,7 @@
 #       reviewer-alt                     -> Hydrogen-medium (high for F/S/architecture or disagreement); sol then Carbon then Kimi
 #       ux-reviewer / ux-reviewer-alt    -> Hydrogen (multimodal vision); sol fallback, then Carbon, Kimi last
 # Policy: rsi/ROUTING.md. Escalation is logged with reason + outcome.
+# The merge lane selects reviewer-alt so a review never runs on the worker's model (MANDATE 2).
 # Prints the final result text (last ~6000 chars) and exits non-zero if the run errored.
 set -u
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"

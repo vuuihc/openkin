@@ -16,7 +16,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@astryxdesign/core": "^0.7.16",
+    "@astryxdesign/theme-neutral": "^0.7.16",
     "@monaco-editor/react": "^4.7.0",
+    "@stylexjs/stylex": "^0.19.2",
     "highlight.js": "^11.12.0",
     "mermaid": "^11.16.0",
     "monaco-editor": "^0.52.2",

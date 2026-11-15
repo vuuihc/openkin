@@ -8,7 +8,16 @@ fail=0; why=""
 step() { # name cmd...
   local n="$1"; shift
   echo "--- $n"
-  if "$@" > "$RUNS/gate-$$-$n.log" 2>&1; then echo "ok: $n"; else echo "FAIL: $n (see $RUNS/gate-$$-$n.log)"; tail -25 "$RUNS/gate-$$-$n.log"; fail=1; why="$why $n"; fi
+  if "$@" > "$RUNS/gate-$$-$n.log" 2>&1; then echo "ok: $n"; else
+    echo "FAIL: $n (see $RUNS/gate-$$-$n.log)"
+    # Keep the failing-test identifiers in the gate log itself. merge.sh classifies
+    # out-of-footprint / known-flaky failures from THIS file (outside-tests.py), and the
+    # per-step log is otherwise invisible to it: Vitest prints its "FAIL  src/… > name"
+    # header far above the last 25 lines, so a flaky DOM test read as a quality failure.
+    grep -aE '(FAIL|✗|×).*\.(test|spec)\.(tsx|ts|jsx|js)|^--- FAIL:|Failed Tests|Test Files|^FAIL[[:space:]]' "$RUNS/gate-$$-$n.log" 2>/dev/null | head -20
+    tail -25 "$RUNS/gate-$$-$n.log"
+    fail=1; why="$why $n"
+  fi
 }
 # Changed-file Prettier, not a repo-wide check: 55 historical UI files fail
 # `prettier --check`, so a grep over the whole tree would be permanently red
