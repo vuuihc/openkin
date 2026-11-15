@@ -20,6 +20,7 @@ import { describe, expect, it } from "vitest";
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 const SOURCE = readFileSync(join(UI, "src/components/sessions/SessionList.tsx"), "utf8");
+const ROW = readFileSync(join(UI, "src/components/sessions/SessionRow.tsx"), "utf8");
 
 const count = (needle: string) => SOURCE.split(needle).length - 1;
 
@@ -40,7 +41,7 @@ describe("the phone list's waiting count", () => {
     // The badge's own label sits inside the button, and the row's `aria-label`
     // wins over that subtree: a name that omitted the count would hide the one
     // thing the orange mark exists to say.
-    expect(SOURCE).toContain("<PendingBadge count={pendingCount} />");
-    expect(SOURCE).toContain('tr("sessions.pendingApprovals", { count: String(pendingCount) })');
+    expect(ROW).toContain("<PendingBadge count={pendingCount} />");
+    expect(ROW).toContain('tr("sessions.pendingApprovals", { count: String(pendingCount) })');
   });
 });
