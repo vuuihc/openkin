@@ -68,7 +68,6 @@ import {
   touchProject,
   touchSession,
   unarchiveProject,
-  type ProjectSortMode,
 } from "../../lib/projectSidebar";
 import { consumeRowReturn, rememberRowReturn, takeRowReturn } from "../../lib/rowReturn";
 import { sortSessionBuckets } from "../../lib/sessionBucketOrder";
@@ -98,13 +97,10 @@ import {
   IconPin,
   IconPlus,
   IconRefresh,
-  IconRestore,
-  IconSearch,
   IconSessions,
-  IconTrash,
 } from "../icons";
 import { MobileEmpty, MobileScreen } from "../mobile/MobileList";
-import SessionFilters, {
+import {
   normalizeScopeFilter,
   normalizeStatusFilter,
   type SessionScopeFilter,
@@ -112,6 +108,7 @@ import SessionFilters, {
 } from "../ui/SessionFilters";
 import { useAppStore } from "../../store/appStore";
 import SessionRow from "./SessionRow";
+import SessionToolbar, { SessionSelectionBar } from "./SessionToolbar";
 
 /**
  * The one conversation list.
@@ -557,7 +554,6 @@ export default function SessionList({
   };
   const selectionAllPinned =
     selectedIds.size > 0 && Array.from(selectedIds).every((id) => pinnedIds.has(id));
-  const pinLabel = selectionAllPinned ? tr("sessions.unpin") : tr("sessions.pin");
   const emptyView = searching
     ? {
         icon: <IconSessions size={30} />,
@@ -1018,37 +1014,19 @@ export default function SessionList({
     rows[next]?.focus();
   }
 
-  const searchField = (
-    <div className="px-3 pb-2">
-      <label className="relative flex items-center">
-        <IconSearch size={13} className="pointer-events-none absolute left-2.5 text-kin-muted" />
-        <input
-          ref={searchRef}
-          data-session-search
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={onSearchKeyDown}
-          placeholder={tr("nav.searchSessions")}
-          aria-label={tr("nav.searchSessions")}
-          className="h-8 w-full rounded-lg border border-transparent bg-[var(--kin-fill)] pl-8 pr-2 text-body text-kin-text outline-none transition-colors placeholder:text-kin-muted focus:border-kin-blue/40 focus:bg-[var(--kin-fill-strong)]"
-        />
-      </label>
-      {query.trim() ? (
-        <div className="mt-1 px-0.5 text-caption text-kin-muted">
-          {pendingQuery ? tr("common.loading") : tr("nav.searchHint")}
-        </div>
-      ) : null}
-    </div>
-  );
-
-  const filters = (
-    <SessionFilters
+  const toolbar = (
+    <SessionToolbar
+      search={shell === "sidebar"}
+      query={query}
+      pendingQuery={pendingQuery}
+      searchRef={searchRef}
+      onQueryChange={setQuery}
+      onSearchKeyDown={onSearchKeyDown}
       status={status}
       scope={scope}
-      onChange={changeFilter}
       sortMode={sortMode}
-      onSortChange={(mode: ProjectSortMode) => {
+      onFilterChange={changeFilter}
+      onSortChange={(mode) => {
         setProjectSortMode(mode);
         setPrefsTick((n) => n + 1);
       }}
@@ -1112,69 +1090,19 @@ export default function SessionList({
         )}
 
       {selectionMode && (
-        <div
-          data-selection-toolbar
-          className="sticky top-0 z-[3] flex min-h-12 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--kin-hairline)] bg-[var(--kin-page)] px-2.5 py-1.5 kin-glass"
-        >
-          <label className="flex min-h-11 items-center gap-2 text-strong font-medium text-kin-text">
-            <SelectAllCheckbox
-              checked={selectedIds.size > 0 && selectedIds.size === selectableCount}
-              partial={selectedIds.size > 0 && selectedIds.size < selectableCount}
-              onChange={selectAll}
-              label={tr("sessions.selectAll")}
-            />
-            {tr("sessions.selectedCount", { count: String(selectedIds.size) })}
-          </label>
-          {/* Icon-only batch actions keep three 44px targets and Cancel on one
-              line of a 248px sidebar. The viewport `sm:` labels this replaces
-              answered the window's width, not the sidebar's. */}
-          <div className="ml-auto flex items-center gap-1.5">
-            {scope !== "archived" && (
-              <button
-                type="button"
-                onClick={pinSelected}
-                disabled={selectedIds.size === 0 || selectionBusy}
-                aria-label={pinLabel}
-                title={pinLabel}
-                className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-[var(--kin-fill)] text-body font-medium text-kin-text disabled:opacity-40"
-              >
-                <IconPin size={14} />
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={scope === "archived" ? restoreSelected : archiveSelected}
-              disabled={selectedIds.size === 0 || selectionBusy}
-              aria-label={tr(scope === "archived" ? "sessions.restore" : "sessions.archive")}
-              title={tr(scope === "archived" ? "sessions.restore" : "sessions.archive")}
-              className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-[var(--kin-fill)] text-body font-medium text-kin-text disabled:opacity-40"
-            >
-              {scope === "archived" ? <IconRestore size={14} /> : <IconArchive size={14} />}
-            </button>
-            <button
-              type="button"
-              onClick={deleteSelected}
-              disabled={selectedIds.size === 0 || selectionBusy}
-              aria-label={
-                deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")
-              }
-              title={deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")}
-              aria-busy={deletingSelection || undefined}
-              className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-kin-red/15 text-body font-medium text-kin-red-ink disabled:opacity-40"
-            >
-              <IconTrash size={14} />
-            </button>
-            <button
-              type="button"
-              onClick={() => exitSelection(true)}
-              aria-label={tr("common.cancel")}
-              title={tr("common.cancel")}
-              className="flex min-h-11 min-w-11 items-center justify-center rounded-lg px-2.5 text-body font-medium text-kin-muted hover:text-kin-text"
-            >
-              {tr("common.cancel")}
-            </button>
-          </div>
-        </div>
+        <SessionSelectionBar
+          selectedCount={selectedIds.size}
+          selectableCount={selectableCount}
+          selectionBusy={selectionBusy}
+          deletingSelection={deletingSelection}
+          scope={scope}
+          allPinned={selectionAllPinned}
+          onSelectAll={selectAll}
+          onPin={pinSelected}
+          onArchiveOrRestore={scope === "archived" ? restoreSelected : archiveSelected}
+          onDelete={deleteSelected}
+          onExit={() => exitSelection(true)}
+        />
       )}
 
       {!loading && hasDraft && (
@@ -1301,8 +1229,7 @@ export default function SessionList({
   if (shell === "sidebar") {
     return (
       <>
-        {searchField}
-        {filters}
+        {toolbar}
         <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">{body}</div>
         {projectSheet}
       </>
@@ -1320,7 +1247,7 @@ export default function SessionList({
       scrollWhen={loading ? -1 : listed.reduce((n, bucket) => n + bucket.rows.length, 0)}
       className="mx-auto w-full max-w-2xl"
     >
-      {filters}
+      {toolbar}
       {body}
       {/* Room under the last row for the floating new-chat button, so the
           end of the list can scroll clear of it. */}
@@ -1461,33 +1388,6 @@ function DraftRow({
         </span>
       ) : null}
     </button>
-  );
-}
-
-function SelectAllCheckbox({
-  checked,
-  partial,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  partial: boolean;
-  onChange: () => void;
-  label: string;
-}) {
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (ref.current) ref.current.indeterminate = partial;
-  }, [partial]);
-  return (
-    <input
-      ref={ref}
-      type="checkbox"
-      checked={checked}
-      onChange={onChange}
-      className="h-5 w-5 accent-kin-blue"
-      aria-label={label}
-    />
   );
 }
 
