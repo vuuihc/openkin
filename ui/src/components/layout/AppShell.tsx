@@ -216,6 +216,9 @@ export default function AppShell({
     if (draftActive) closeDraft();
     else leaveScreen();
   });
+  // Only the offset is visual; the handlers stay on the fixed edge strip so
+  // `touch-action: pan-y` is decided where the finger lands.
+  const { offset: edgeOffset, handlers: edgeHandlers } = edgeBack;
 
   // The shell still needs task titles for the floating approval card. The
   // list itself owns its own feed now, including search, so this read is only
@@ -476,7 +479,7 @@ export default function AppShell({
           data-kin-edge-back
           className="fixed inset-y-0 left-0 z-30 w-5 md:hidden"
           style={{ touchAction: "pan-y" }}
-          {...edgeBack}
+          {...edgeHandlers}
         />
       )}
 
@@ -569,7 +572,26 @@ export default function AppShell({
         )}
 
         <main className="kin-main flex-1 min-h-0 overflow-hidden flex flex-col">
-          {children}
+          {/*
+            The phone's edge gesture moves this wrapper, not <main>. It is the
+            page surface: the shell's fixed sheets and the command palette are
+            outside it, and the offset exists only while a phone drag is active
+            (`useEdgeSwipeBack` zeroes it on release, cancel, disable and
+            unmount), so no fixed descendant is re-anchored after the gesture.
+            Never leave a translate on it at rest — `index.css` keeps route
+            transitions opacity-only for the same reason.
+          */}
+          <div
+            data-kin-swipe-surface
+            className={`bg-[var(--kin-page)] flex-1 min-h-0 min-w-0 flex flex-col ${
+              edgeOffset > 0 ? "shadow-e2" : ""
+            }`}
+            style={
+              edgeOffset > 0 ? { transform: `translate3d(${edgeOffset}px, 0, 0)` } : undefined
+            }
+          >
+            {children}
+          </div>
         </main>
 
         {/* An approval blocks the agent that asked for it wherever the reader

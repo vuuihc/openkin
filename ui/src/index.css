@@ -336,10 +336,18 @@ body {
   so a "small rise" on the page would move them relative to the page instead of
   the viewport. Opacity creates a stacking context and nothing else.
 
+  The one exception is the phone's edge-back gesture: `[data-kin-swipe-surface]`
+  carries a translate only while a finger is dragging the page right, and
+  `useEdgeSwipeBack` zeroes it on release, cancel, disable and unmount. At rest
+  it has no transform at all, so fixed descendants stay viewport-anchored; the
+  shell's sheets and the command palette are outside this wrapper anyway.
+
   The children of <main> are what mount and unmount on navigation; the session
   host beside them stays mounted, which is exactly why it is not the animated
-  element. 140ms is short enough to read as the new screen settling rather than
-  as an animation to wait out.
+  element. AppShell wraps them in the swipe surface, so the fade belongs to the
+  page children inside that wrapper — animating the wrapper itself would replay
+  once per gesture instead of once per route. 140ms is short enough to read as
+  the new screen settling rather than as an animation to wait out.
 */
 @keyframes kin-page-in {
   from {
@@ -349,7 +357,8 @@ body {
     opacity: 1;
   }
 }
-.kin-main > * {
+.kin-main > *:not([data-kin-swipe-surface]),
+.kin-main > [data-kin-swipe-surface] > * {
   animation: kin-page-in 140ms ease-out;
 }
 
@@ -401,7 +410,8 @@ body {
   animation: kin-brand-in 180ms ease-out;
 }
 @media (prefers-reduced-motion: reduce) {
-  .kin-main > *,
+  .kin-main > *:not([data-kin-swipe-surface]),
+  .kin-main > [data-kin-swipe-surface] > *,
   .kin-brand-enter,
   .kin-sheet-enter,
   .kin-scrim-enter {
