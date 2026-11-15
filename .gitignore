@@ -59,6 +59,12 @@ xcuserdata/
 # Repository-local temporary build caches
 .tmp/
 
+# Python bytecode. `scripts/*.py` import sibling modules, so any run without
+# `-B` (the RSI ratchet, a hand-run check) would otherwise leave the tree dirty
+# and fail the merge gate's clean-tree check on the next run.
+__pycache__/
+*.pyc
+
 # Maintainer working notes (not for public tree)
 docs/working/
 
