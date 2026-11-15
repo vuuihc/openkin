@@ -91,6 +91,11 @@ export function subscribeSheets(notify: () => void): () => void {
   };
 }
 
+/** Whether the real mounted sheet stack owns another surface's gestures. */
+export function sheetCount(): number {
+  return sheetStack.length;
+}
+
 function topSheetId(): symbol | null {
   return sheetStack[sheetStack.length - 1] ?? null;
 }

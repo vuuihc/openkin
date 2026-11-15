@@ -277,6 +277,37 @@ func TestDeleteTaskCascadesChildrenAndDetachesArtifacts(t *testing.T) {
 	}
 }
 
+func TestListTasksSummaryDoesNotChangePersistentOrFullReads(t *testing.T) {
+	s, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	task := Task{ID: "01SUMMARYTASK000000000000001", Title: "Read a bounded record", Agent: "kin", Cwd: "/work/alpha", Prompt: "durable original", Status: "succeeded", CreatedAt: 1, WorkspaceMode: "isolated", RoutineID: "r-summary", RoutineTLDR: "Visible summary"}
+	if err := s.InsertTask(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+	summary, err := s.ListTasks(context.Background(), ListTasksOpts{Summary: true, RoutineID: task.RoutineID, Scope: Unscoped()})
+	if err != nil || len(summary) != 1 {
+		t.Fatalf("summary: %+v, %v", summary, err)
+	}
+	got := summary[0]
+	if got.ID != task.ID || got.Title != task.Title || got.RoutineTLDR != task.RoutineTLDR || got.Status != task.Status {
+		t.Fatalf("summary lost the record: %+v", got)
+	}
+	if got.Prompt != "" || got.Cwd != task.Cwd || got.Agent != task.Agent || got.WorkspaceMode != "shared" || string(got.Dispatch) != "" {
+		t.Fatalf("summary carried the body, lost its continuation comparison keys, or lost its scan order: %+v", got)
+	}
+	full, err := s.GetTask(context.Background(), task.ID)
+	if err != nil || full.Prompt != task.Prompt || full.Cwd != task.Cwd || full.WorkspaceMode != task.WorkspaceMode {
+		t.Fatalf("detail differs: %+v, %v", full, err)
+	}
+	plain, err := s.ListTasks(context.Background(), ListTasksOpts{RoutineID: task.RoutineID, Scope: Unscoped()})
+	if err != nil || len(plain) != 1 || plain[0].Prompt != task.Prompt {
+		t.Fatalf("full list differs: %+v, %v", plain, err)
+	}
+}
+
 func TestListTasksQuery(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(filepath.Join(dir, "kin.db"))
