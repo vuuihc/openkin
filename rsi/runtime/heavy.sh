@@ -2,6 +2,8 @@
 # heavy.sh <cmd...> — run a CPU/memory-heavy command (build, full tests, tsc, go test) under a machine-wide semaphore.
 # LLM "thinking" in the lanes is cheap and runs in parallel; builds/tests are not (16 GB Mac: three at once = load 300+).
 # RSI_HEAVY_SLOTS (default 1) concurrent holders; a holder is a live pid; waits ≤ 30 min, then runs anyway. Re-entrant via RSI_HEAVY_HELD.
+# Reviewers (RSI_NO_HEAVY=1) never take or wait for the heavy slot: the gate already builds/tests; review must not queue behind it.
+if [ -n "${RSI_NO_HEAVY:-}" ]; then echo "[heavy] disabled for reviewers (the gate runs builds/tests); read code and diffs only: $*" >&2; exit 3; fi
 if [ -n "${RSI_HEAVY_HELD:-}" ]; then exec "$@"; fi
 D="${RSI_STATE:-$HOME/.kin/worktrees/rsi-ceo/rsi/state}/heavy"; mkdir -p "$D"
 SLOTS="${RSI_HEAVY_SLOTS:-1}"; waited=0; got=""
