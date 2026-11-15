@@ -1610,7 +1610,7 @@ const zh = {
     historyTitle: "运行历史",
     historyLoading: "正在加载运行记录…",
     historyEmpty: "还没有运行记录。",
-    historyEmptyRemote: "这台机器转发过来的最近运行里没有它。",
+    historyEmptyRemote: "这台机器上还没有这条例行任务的运行记录。",
     historyLoadOlder: "加载更早的运行",
     historyLoadingOlder: "正在加载更早的运行…",
     searchPlaceholder: "搜索 Routine",

@@ -147,6 +147,11 @@ afterEach(() => {
 });
 
 describe("the agents console (KIN-AGENTS-001)", () => {
+  it("clips the vertical root scroller so the shell owns a blank-content tab swipe", () => {
+    const { container } = renderPage();
+    expect(container.firstElementChild?.className).toContain("overflow-x-hidden");
+  });
+
   it("tells a signed-out agent apart from an available one and marks the default", async () => {
     client.listAgentManagement.mockResolvedValue([
       management({ id: "claude-code" }),

@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { setLocale } from "../i18n";
 import { liveResources } from "../api/liveResources";
 import { archiveProject } from "../lib/projectSidebar";
+import AppShell from "../components/layout/AppShell";
 import SessionsPage from "./SessionsPage";
 import SessionsRoute from "./SessionsRoute";
 import type { AgentSession, Project, Task } from "../api/client";
@@ -68,7 +69,7 @@ vi.mock("../api/client", async (importOriginal) => {
 vi.mock("../hooks/useMachines", () => ({
   useMachines: () => ({
     machines: [
-      { id: "mac-1", label: "MacBook", isSelf: true, online: true, roots: [], agents: [] },
+      { id: "mac-1", label: "Test node", isSelf: true, online: true, roots: [], agents: [] },
     ],
     loading: fixtures.machinesLoading,
     failed: false,
@@ -106,7 +107,9 @@ function task(id: string, title: string): Task {
 function phonePage(path = "/sessions") {
   return (
     <MemoryRouter initialEntries={[path]}>
-      <SessionsPage />
+      <AppShell pendingApprovals={[]}>
+        <SessionsPage />
+      </AppShell>
     </MemoryRouter>
   );
 }
@@ -136,12 +139,8 @@ describe("the /sessions route", () => {
     expect(document.querySelector("[data-phone-footer]")).toBeNull();
   });
 
-  it("shows the list page on a phone", () => {
-    render(
-      <MemoryRouter initialEntries={["/sessions"]}>
-        <SessionsRoute />
-      </MemoryRouter>,
-    );
+  it("shows the list page on a phone inside its real shell", () => {
+    render(phonePage());
     expect(document.querySelector("[data-phone-footer]")).toBeTruthy();
     expect(screen.queryByText("draft page")).toBeNull();
   });
@@ -161,13 +160,27 @@ describe("the /sessions route", () => {
 });
 
 describe("the phone page's states", () => {
+  it("keeps its vertical scroll body from owning a horizontal tab gesture", () => {
+    render(phonePage());
+    expect(document.querySelector("[data-phone-scroll]")?.className).toContain("overflow-x-hidden");
+  });
+
+  it("floats new chat just above the footer, not a second footer-height higher", () => {
+    render(phonePage());
+    const button = screen.getByRole("button", { name: "New chat" });
+    // The footer is <main>'s sibling, so its height is already outside this
+    // button's containing block. bottom-4 leaves the intended small gap.
+    expect(button.className).toContain("bottom-4");
+    expect(button.className).not.toContain("bottom-[4.5rem]");
+  });
+
   it("keeps the footer when the list read fails", async () => {
     fixtures.error = "boom";
     render(phonePage());
 
     expect(await screen.findByText("Could not load chats")).toBeTruthy();
     expect(document.querySelector("[data-phone-footer]")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Archived" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Chats" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Settings" })).toBeTruthy();
   });
 
@@ -282,7 +295,7 @@ describe("the phone page's states", () => {
     const links = footer?.querySelectorAll("a") ?? [];
     expect(links).toHaveLength(4);
     expect(Array.from(links).map((link) => link.textContent)).toEqual([
-      "Archived",
+      "Chats",
       "Routines",
       "Agent Ops",
       "Settings",

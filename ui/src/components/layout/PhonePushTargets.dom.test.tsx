@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BrowserRouter, Route, Routes, useNavigate } from "react-router-dom";
 import AppShell from "./AppShell";
@@ -131,7 +131,7 @@ vi.mock("../../api/client", async (importOriginal) => {
 vi.mock("../../hooks/useMachines", () => ({
   useMachines: () => ({
     machines: [
-      { id: "mac-1", label: "MacBook", isSelf: true, online: true, roots: ["/work"], agents: [] },
+      { id: "mac-1", label: "Test node", isSelf: true, online: true, roots: ["/work"], agents: [] },
     ],
     agents: [
       {
@@ -304,6 +304,7 @@ async function openDraftFromTheList(user: ReturnType<typeof userEvent.setup>) {
 }
 
 beforeEach(() => {
+  cleanup();
   resetLeaveGuard();
   setLocale("en");
   localStorage.clear();
@@ -326,7 +327,7 @@ describe("Agent Ops is a destination, so the draft it opens replaces it", () => 
 
     await user.click(screen.getByRole("link", { name: "Agent Ops" }));
     await waitFor(() => expect(window.location.pathname).toBe("/agents"));
-    expect(window.history.state.idx).toBe(1);
+    expect(window.history.state.idx).toBe(0);
 
     const actionsButton = (
       await screen.findAllByRole("button", {
@@ -361,7 +362,7 @@ describe("Agent Ops is a destination, so the draft it opens replaces it", () => 
     );
   });
 
-  it("keeps the draft's words when Agent Ops opens from it, and Back reaches the list", async () => {
+  it("keeps the draft's words when Agent Ops opens from it, then Chats returns", async () => {
     localStorage.setItem("kin_draft_prompt", "unsent words");
     const user = userEvent.setup();
     await openDraftFromTheList(user);
@@ -370,11 +371,11 @@ describe("Agent Ops is a destination, so the draft it opens replaces it", () => 
     await user.click(screen.getByRole("button", { name: "Manage agents →" }));
     await waitFor(() => expect(window.location.pathname).toBe("/agents"));
 
-    // The draft's entry was replaced, so the stack is [list, agents].
+    // Agent Ops is a peer of the list, not a detail over the draft.
     expect(window.history.state.idx).toBe(1);
-    await user.click(screen.getByRole("button", { name: "Back" }));
+    await user.click(screen.getByRole("link", { name: "Chats" }));
     await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
-    expect(window.history.state.idx).toBe(0);
+    expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
 
     // The words were never in the replaced entry: they are still recoverable
     // by opening the draft again.

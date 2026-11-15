@@ -2,7 +2,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import type { AgentInfo, MachineInfo, Task } from "../api/client";
 import { ApiError } from "../api/client";
 import { setLocale } from "../i18n";
@@ -96,6 +96,37 @@ function renderPage() {
         <Route path="/tasks/:id" element={<div>conversation</div>} />
       </Routes>
     </MemoryRouter>,
+  );
+}
+
+function renderDraftRootNavigation() {
+  function LocationState() {
+    return <output aria-label="entry state">{JSON.stringify(useLocation().state)}</output>;
+  }
+  window.history.replaceState({ idx: 0 }, "", "/new");
+  return render(
+    <BrowserRouter>
+      <Routes>
+        <Route
+          path="/new"
+          element={
+            <>
+              <NewChatPage />
+              <LocationState />
+            </>
+          }
+        />
+        <Route
+          path="/agents"
+          element={
+            <>
+              <div>agent management</div>
+              <LocationState />
+            </>
+          }
+        />
+      </Routes>
+    </BrowserRouter>,
   );
 }
 
@@ -200,6 +231,22 @@ describe("the draft (KIN-START-001)", () => {
     expect(await screen.findByText(/No agents available/)).toBeTruthy();
     await waitFor(() => expect(startButton().disabled).toBe(true));
     expect(screen.getByRole("button", { name: /Manage agents/ })).toBeTruthy();
+  });
+
+  it("goes from the draft to Agent Ops as a root, keeping the prompt", async () => {
+    setWideScreen(false);
+    client.listAgents.mockResolvedValue([]);
+    const user = userEvent.setup();
+    renderDraftRootNavigation();
+    await user.type(await screen.findByRole("textbox"), "Keep the draft");
+    await user.click(screen.getByRole("button", { name: /Manage agents/ }));
+    await screen.findByText("agent management");
+    expect(window.location.pathname).toBe("/agents");
+    // KIN-CONTINUE-002: this is a peer root, not a destination pushed over
+    // the draft. The draft itself remains in durable local draft storage.
+    expect(window.history.state.idx).toBe(0);
+    expect(window.history.state.usr).toBeNull();
+    expect(localStorage.getItem("kin_draft_prompt")).toBe("Keep the draft");
   });
 
   it("keeps the prompt when the remembered machine is offline and explains the block", async () => {

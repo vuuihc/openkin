@@ -4,12 +4,15 @@
 // KIN-NOTIFY-001: a notification on an already-open routines page changes the
 // machine, and a manual switch writes the same URL, so a second tap of the same
 // notification is a real navigation again.
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { within, act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import RoutinesPage from "./RoutinesPage";
 import { setLocale } from "../i18n";
 import {
+  ApiError,
   createRoutine,
+  getRoutine,
   listRoutineRuns,
   listRoutines,
   markAllRoutineRunsRead,
@@ -18,10 +21,13 @@ import {
   type Routine,
   type Task,
 } from "../api/client";
+import type { WSMessage } from "../api/contract";
 import { routineForm, routinePatch } from "../lib/routineEdit";
-import RoutinesPage from "./RoutinesPage";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  pushToast: vi.fn(),
+  reconnectGen: 0,
   machines: [] as Array<{
     isSelf: boolean;
     id: string;
@@ -31,6 +37,7 @@ const mocks = vi.hoisted(() => ({
   }>,
   loading: false,
   failed: false,
+  wsListeners: new Set<(message: WSMessage) => void>(),
 }));
 
 vi.mock("../hooks/useMachines", () => ({
@@ -47,12 +54,20 @@ vi.mock("../hooks/useRoutinePreview", () => ({ useRoutinePreview: () => null }))
 vi.mock("../hooks/useSlowHint", () => ({ useSlowHint: () => false }));
 
 vi.mock("../api/client", () => ({
-  ApiError: class ApiError extends Error {},
+  ApiError: class ApiError extends Error {
+    constructor(
+      public status: number,
+      message: string,
+    ) {
+      super(message);
+    }
+  },
   createRoutine: vi.fn(),
   deleteRoutine: vi.fn(),
+  getRoutine: vi.fn(),
   isAuthenticated: () => true,
   isTerminal: () => true,
-  listRoutineRuns: vi.fn(async () => []),
+  listRoutineRuns: vi.fn(async () => ({ routines: [], runs: [], has_more: false })),
   listRoutines: vi.fn(async () => ({ routines: [], next_cursor: "", has_more: false })),
   listTasks: vi.fn(async () => []),
   markAllRoutineRunsRead: vi.fn(),
@@ -62,9 +77,16 @@ vi.mock("../api/client", () => ({
 }));
 
 vi.mock("../store/appStore", () => ({
-  subscribeWS: () => () => {},
+  subscribeWS: (listener: (message: WSMessage) => void) => {
+    mocks.wsListeners.add(listener);
+    return () => mocks.wsListeners.delete(listener);
+  },
   useAppStore: (selector: (s: unknown) => unknown) =>
-    selector({ pushToast: vi.fn(), reconnectGen: 0, auth: { status: "ok" } }),
+    selector({
+      pushToast: mocks.pushToast,
+      reconnectGen: mocks.reconnectGen,
+      auth: { status: "ok" },
+    }),
 }));
 
 vi.mock("../i18n/react", () => {
@@ -85,13 +107,9 @@ vi.mock("../lib/routineRecurrence", () => ({
   serializeRoutineRule: () => null,
 }));
 
-vi.mock("../lib/routineHistory", () => ({
-  appendOlderRuns: vi.fn(),
-  foldRoutineRun: vi.fn(),
-  pageCursor: () => "",
-  reconcileRoutineReads: vi.fn(),
+vi.mock("../lib/routineHistory", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/routineHistory")>()),
   ROUTINE_HISTORY_MAX: 100,
-  ROUTINE_HISTORY_PAGE: 20,
 }));
 
 vi.mock("../components/Skeleton", () => ({ SlowConnectHint: () => null }));
@@ -187,9 +205,9 @@ function locationOf(router: ReturnType<typeof createMemoryRouter>): string {
 
 function standardMachines() {
   return [
-    { isSelf: true, id: "self-1", label: "This Mac", online: true, roots: [] },
-    { isSelf: false, id: "dev-a", label: "MacBook A", online: true, roots: [] },
-    { isSelf: false, id: "dev-b", label: "MacBook B", online: true, roots: [] },
+    { isSelf: true, id: "self-1", label: "Local node", online: true, roots: [] },
+    { isSelf: false, id: "dev-a", label: "Test node A", online: true, roots: [] },
+    { isSelf: false, id: "dev-b", label: "Test node B", online: true, roots: [] },
   ];
 }
 
@@ -259,12 +277,18 @@ beforeEach(() => {
   mocks.machines = standardMachines();
   mocks.loading = false;
   mocks.failed = false;
+  mocks.wsListeners.clear();
+  mocks.pushToast.mockClear();
+  mocks.reconnectGen = 0;
   vi.mocked(listRoutines).mockResolvedValue({
     routines: [],
     next_cursor: "",
     has_more: false,
   });
-  vi.mocked(listRoutineRuns).mockResolvedValue([]);
+  vi.mocked(listRoutineRuns).mockResolvedValue({ routines: [], runs: [], has_more: false });
+  vi.mocked(getRoutine).mockImplementation(async (id) =>
+    routine(id, "Full original", { prompt: "The whole stored prompt" }),
+  );
   vi.mocked(markAllRoutineRunsRead).mockResolvedValue({ marked: 0 });
   vi.mocked(routineForm).mockImplementation((value) => ({
     title: value.title,
@@ -332,13 +356,14 @@ describe("RoutinesPage machine selection from the URL", () => {
     await act(async () => {
       await router.navigate(-1);
     });
-    await waitFor(() => expect(machineValue()).toBe("dev-a"));
-    await waitFor(() => expect(listRoutineRuns).toHaveBeenLastCalledWith(80, "dev-a"));
+    await waitFor(() => expect(locationOf(router)).toBe("/routines?device=dev-a"));
+    await waitFor(() => expect(locationOf(router)).toBe("/routines?device=dev-a"));
+    expect(listRoutineRuns).toHaveBeenCalledWith(10, "dev-a");
     await act(async () => {
       await router.navigate(1);
     });
-    await waitFor(() => expect(machineValue()).toBe("dev-b"));
-    await waitFor(() => expect(listRoutineRuns).toHaveBeenLastCalledWith(80, "dev-b"));
+    await waitFor(() => expect(locationOf(router)).toBe("/routines?device=dev-b"));
+    await waitFor(() => expect(listRoutineRuns).toHaveBeenLastCalledWith(10, "dev-b"));
   });
 
   it("clears the old machine's draft when a notification changes machines", async () => {
@@ -354,7 +379,789 @@ describe("RoutinesPage machine selection from the URL", () => {
   });
 });
 
-describe("RoutinesPage device-scoped requests", () => {
+describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
+  it("clips the vertical root scroller so the browser leaves a horizontal tab gesture to the shell", () => {
+    const { container } = renderApp("/routines?device=dev-a");
+    // The actual Tailwind overflow-y-auto computes overflow-x:auto too, which
+    // makes a real browser issue pointercancel on a blank-content tab swipe.
+    expect(container.firstElementChild?.className).toContain("overflow-x-hidden");
+  });
+
+  it("reads a summary but opens and saves the full stored routine", async () => {
+    const full = routine("r1", "Complete original", {
+      prompt: "Do not truncate this prompt",
+      next_due_at: 60000,
+    });
+    vi.mocked(listRoutines).mockResolvedValue({
+      routines: [{ ...full, prompt: "" }],
+      has_more: false,
+    });
+    vi.mocked(getRoutine).mockResolvedValue(full);
+    vi.mocked(routinePatch).mockReturnValue(null);
+    renderApp("/routines?device=dev-a");
+    await screen.findByText("Complete original");
+    fireEvent.click(screen.getByRole("button", { name: /routines.editRoutine/ }));
+    expect(await screen.findByDisplayValue("Do not truncate this prompt")).toBeTruthy();
+    expect(getRoutine).toHaveBeenCalledWith("r1", "dev-a");
+    // A full definition and its bounded run history are separate reads. Editing
+    // must not mistake the summary-only selection for an already loaded history.
+    await waitFor(() => expect(listRoutineRuns).toHaveBeenCalledWith(10, "dev-a", "", "r1"));
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "routines.save" }));
+    await waitFor(() =>
+      expect(routinePatch).toHaveBeenCalledWith(
+        full,
+        expect.objectContaining({ prompt: "Do not truncate this prompt" }),
+      ),
+    );
+  });
+
+  it("appends the older global run feed without reusing its route cursor", async () => {
+    const old = run("001", "r1", "Older result");
+    vi.mocked(listRoutineRuns).mockImplementation(
+      async (_limit, _device, cursor = "", _routineId = "") =>
+        cursor
+          ? {
+              routines: [],
+              runs: [old],
+              has_more: false,
+              runs_next_cursor: "",
+              runs_has_more: false,
+            }
+          : {
+              routines: [],
+              runs: [run("003", "r1", "New result")],
+              has_more: false,
+              runs_next_cursor: "003",
+              runs_has_more: true,
+            },
+    );
+    renderApp("/routines?device=dev-a");
+    await screen.findByText("New result");
+    fireEvent.click(screen.getByRole("button", { name: "routines.historyLoadOlder" }));
+    await screen.findByText("Older result");
+    expect(screen.getByText("New result")).toBeTruthy();
+    await waitFor(() => expect(listRoutineRuns).toHaveBeenLastCalledWith(10, "dev-a", "003"));
+  });
+
+  it("does not truncate loaded older feed rows when a live run arrives", async () => {
+    mocks.machines = [{ isSelf: true, id: "self-1", label: "Local node", online: true, roots: [] }];
+    const older = deferred<Awaited<ReturnType<typeof listRoutineRuns>>>();
+    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, _device, cursor = "") => {
+      if (cursor === "deep") return older.promise;
+      if (cursor === "deeper")
+        return {
+          routines: [],
+          runs: [],
+          has_more: false,
+          runs_next_cursor: "",
+          runs_has_more: false,
+        };
+      return {
+        routines: [],
+        runs: Array.from({ length: 10 }, (_, index) =>
+          run(String(20 - index).padStart(3, "0"), "r1", `First page ${index}`),
+        ),
+        has_more: false,
+        runs_next_cursor: "deep",
+        runs_has_more: true,
+      };
+    });
+    renderApp("/routines?device=self");
+    await waitFor(() => expect(machineValue()).toBe("self"));
+    await act(async () => {});
+    await waitFor(() => expect(listRoutineRuns).toHaveBeenCalledWith(10, "self"));
+    await screen.findByText("First page 0");
+    fireEvent.click(screen.getByRole("button", { name: "routines.historyLoadOlder" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "tree.loadingMore" })).toBeTruthy(),
+    );
+    await waitFor(() => expect(listRoutineRuns).toHaveBeenCalledWith(10, "self", "deep"));
+    await act(async () => {
+      older.resolve({
+        routines: [],
+        runs: [run("009", "r1", "Older page")],
+        has_more: false,
+        runs_next_cursor: "deeper",
+        runs_has_more: true,
+      });
+      await older.promise;
+    });
+    await screen.findByText("Older page");
+    await act(async () => {
+      // Newer than the first page's head (020). Reusing an existing id would
+      // take foldRoutineRun's in-place branch, so the insert-then-cap path
+      // this test protects would never run.
+      for (const listener of mocks.wsListeners)
+        listener({ kind: "task_update", data: run("021", "r1", "Live run") });
+    });
+    expect(screen.getByText("Live run")).toBeTruthy();
+    expect(screen.getByText("Older page")).toBeTruthy();
+    expect(screen.getByText("First page 9")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "routines.historyLoadOlder" }));
+    await waitFor(() => expect(listRoutineRuns).toHaveBeenLastCalledWith(10, "self", "deeper"));
+  });
+
+  it("does not combine an old routine cursor with a query whose first page is pending", async () => {
+    const refreshed = deferred<Awaited<ReturnType<typeof listRoutines>>>();
+    vi.mocked(listRoutines).mockImplementation(async (options) => {
+      if (options?.q === "refresh") return refreshed.promise;
+      return {
+        routines: [routine("r1", "Original routine")],
+        next_cursor: "old",
+        has_more: true,
+      };
+    });
+    renderApp("/routines?device=dev-a");
+    await screen.findByText("Original routine");
+    fireEvent.change(screen.getByRole("textbox", { name: "routines.searchPlaceholder" }), {
+      target: { value: "refresh" },
+    });
+    await waitFor(() =>
+      expect(listRoutines).toHaveBeenCalledWith({ limit: 100, q: "refresh" }, "dev-a"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "routines.loadMore" }));
+    expect(
+      vi
+        .mocked(listRoutines)
+        .mock.calls.some(([options]) => options?.cursor === "old" && options?.q === "refresh"),
+    ).toBe(false);
+    await act(async () => {
+      refreshed.resolve({
+        routines: [routine("r2", "Refreshed routine")],
+        next_cursor: "new",
+        has_more: true,
+      });
+      await refreshed.promise;
+    });
+    await screen.findByText("Refreshed routine");
+    expect(screen.queryByText("Original routine")).toBeNull();
+  });
+
+  it("does not let an older feed response resurrect rows after Mark all read", async () => {
+    const older = deferred<Awaited<ReturnType<typeof listRoutineRuns>>>();
+    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, _device, cursor = "") =>
+      cursor === "old"
+        ? older.promise
+        : {
+            routines: [],
+            runs: [run("010", "r1", "Unread first page")],
+            has_more: false,
+            runs_next_cursor: "old",
+            runs_has_more: true,
+          },
+    );
+    renderApp("/routines?device=dev-a");
+    await screen.findByText("Unread first page");
+    fireEvent.click(screen.getByRole("button", { name: "routines.historyLoadOlder" }));
+    await waitFor(() => expect(listRoutineRuns).toHaveBeenCalledWith(10, "dev-a", "old"));
+    fireEvent.click(screen.getByRole("button", { name: "routines.markAllRead" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "routines.markRead" })).toBeNull(),
+    );
+    await act(async () => {
+      older.resolve({
+        routines: [],
+        runs: [run("009", "r1", "Previously unread older page")],
+        has_more: false,
+        runs_next_cursor: "older",
+        runs_has_more: true,
+      });
+      await older.promise;
+    });
+    await screen.findByText("Previously unread older page");
+    expect(screen.queryByRole("button", { name: "routines.markRead" })).toBeNull();
+  });
+
+  it("ignores a stale older feed rejection after a first-page refresh", async () => {
+    const older = deferred<Awaited<ReturnType<typeof listRoutineRuns>>>();
+    const refreshed = deferred<Awaited<ReturnType<typeof listRoutineRuns>>>();
+    let firstPages = 0;
+    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, _device, cursor = "") => {
+      if (cursor === "old") return older.promise;
+      if (cursor === "") {
+        firstPages += 1;
+        if (firstPages === 1) {
+          return {
+            routines: [],
+            runs: [run("010", "r1", "Original feed")],
+            has_more: false,
+            runs_next_cursor: "old",
+            runs_has_more: true,
+          };
+        }
+        return refreshed.promise;
+      }
+      return {
+        routines: [],
+        runs: [],
+        has_more: false,
+        runs_next_cursor: "",
+        runs_has_more: false,
+      };
+    });
+    renderApp("/routines?device=dev-a");
+    await screen.findByText("Original feed");
+    fireEvent.click(screen.getByRole("button", { name: "routines.historyLoadOlder" }));
+    expect(screen.getByRole("button", { name: "tree.loadingMore" })).toBeTruthy();
+    await waitFor(() =>
+      expect(vi.mocked(listRoutineRuns).mock.calls.some(([, , cursor]) => cursor === "old")).toBe(
+        true,
+      ),
+    );
+    fireEvent.change(screen.getByRole("textbox", { name: "routines.searchPlaceholder" }), {
+      target: { value: "refresh" },
+    });
+    await waitFor(() => expect(firstPages).toBe(2));
+    await act(async () => {
+      refreshed.resolve({
+        routines: [],
+        runs: [run("020", "r1", "Refreshed feed")],
+        has_more: false,
+        runs_next_cursor: "new",
+        runs_has_more: true,
+      });
+      await refreshed.promise;
+    });
+    await screen.findByText("Refreshed feed");
+    await act(async () => {
+      older.reject(new Error("stale older failure"));
+      await expect(older.promise).rejects.toThrow("stale older failure");
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "routines.historyLoadOlder" })).toBeTruthy(),
+    );
+    expect(mocks.pushToast).not.toHaveBeenCalledWith("stale older failure", "error");
+    fireEvent.click(screen.getByRole("button", { name: "routines.historyLoadOlder" }));
+    await waitFor(() => expect(listRoutineRuns).toHaveBeenLastCalledWith(10, "dev-a", "new"));
+  });
+
+  it("ignores a stale older routine rejection after a first-page refresh", async () => {
+    const older = deferred<Awaited<ReturnType<typeof listRoutines>>>();
+    const refreshed = deferred<Awaited<ReturnType<typeof listRoutines>>>();
+    let firstPages = 0;
+    vi.mocked(listRoutines).mockImplementation(async (options) => {
+      if (options?.cursor === "old") return older.promise;
+      if (options?.q === "refresh") return refreshed.promise;
+      firstPages += 1;
+      return {
+        routines: [routine("r1", "Original routine")],
+        next_cursor: "old",
+        has_more: true,
+      };
+    });
+    renderApp("/routines?device=dev-a");
+    await screen.findByText("Original routine");
+    fireEvent.click(screen.getByRole("button", { name: "routines.loadMore" }));
+    expect(screen.getByRole("button", { name: "tree.loadingMore" })).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: "routines.searchPlaceholder" }), {
+      target: { value: "refresh" },
+    });
+    await waitFor(() =>
+      expect(listRoutines).toHaveBeenCalledWith({ limit: 100, q: "refresh" }, "dev-a"),
+    );
+    await act(async () => {
+      refreshed.resolve({
+        routines: [routine("r2", "Refreshed routine")],
+        next_cursor: "new",
+        has_more: true,
+      });
+      await refreshed.promise;
+    });
+    await screen.findByText("Refreshed routine");
+    await act(async () => {
+      older.reject(new Error("stale routine failure"));
+      await expect(older.promise).rejects.toThrow("stale routine failure");
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "routines.loadMore" })).toBeTruthy(),
+    );
+    expect(mocks.pushToast).not.toHaveBeenCalledWith("stale routine failure", "error");
+    fireEvent.click(screen.getByRole("button", { name: "routines.loadMore" }));
+    await waitFor(() =>
+      expect(listRoutines).toHaveBeenLastCalledWith(
+        { limit: 100, cursor: "new", q: "refresh" },
+        "dev-a",
+      ),
+    );
+  });
+
+  it("ignores a stale older feed page that finishes after the refreshed cursor", async () => {
+    const older = deferred<Awaited<ReturnType<typeof listRoutineRuns>>>();
+    const refreshed = deferred<Awaited<ReturnType<typeof listRoutineRuns>>>();
+    let firstPages = 0;
+    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, _device, cursor = "") => {
+      if (cursor === "old") return older.promise;
+      if (cursor === "") {
+        firstPages += 1;
+        if (firstPages === 1) {
+          return {
+            routines: [],
+            runs: [run("010", "r1", "Original feed")],
+            has_more: false,
+            runs_next_cursor: "old",
+            runs_has_more: true,
+          };
+        }
+        return refreshed.promise;
+      }
+      return {
+        routines: [],
+        runs: [],
+        has_more: false,
+        runs_next_cursor: "",
+        runs_has_more: false,
+      };
+    });
+    renderApp("/routines?device=dev-a");
+    await screen.findByText("Original feed");
+    fireEvent.click(screen.getByRole("button", { name: "routines.historyLoadOlder" }));
+    expect(screen.getByRole("button", { name: "tree.loadingMore" })).toBeTruthy();
+    await waitFor(() =>
+      expect(vi.mocked(listRoutineRuns).mock.calls.some(([, , cursor]) => cursor === "old")).toBe(
+        true,
+      ),
+    );
+    fireEvent.change(screen.getByRole("textbox", { name: "routines.searchPlaceholder" }), {
+      target: { value: "refresh" },
+    });
+    await waitFor(() => expect(firstPages).toBe(2));
+    await act(async () => {
+      refreshed.resolve({
+        routines: [],
+        runs: [run("020", "r1", "Refreshed feed")],
+        has_more: false,
+        runs_next_cursor: "new",
+        runs_has_more: true,
+      });
+      await refreshed.promise;
+    });
+    await act(async () => {
+      older.resolve({
+        routines: [],
+        runs: [run("005", "r1", "Stale older feed")],
+        has_more: false,
+        runs_next_cursor: "stale",
+        runs_has_more: true,
+      });
+      await older.promise;
+    });
+    await screen.findByText("Refreshed feed");
+    expect(screen.queryByText("Stale older feed")).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "routines.historyLoadOlder" })).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "routines.historyLoadOlder" }));
+    await waitFor(() => expect(listRoutineRuns).toHaveBeenLastCalledWith(10, "dev-a", "new"));
+  });
+
+  it("rejects an older feed page started during a refresh after the first page lands", async () => {
+    const older = deferred<Awaited<ReturnType<typeof listRoutineRuns>>>();
+    const refreshed = deferred<Awaited<ReturnType<typeof listRoutineRuns>>>();
+    let firstPages = 0;
+    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, _device, cursor = "") => {
+      if (cursor === "old") return older.promise;
+      if (cursor === "") {
+        firstPages += 1;
+        if (firstPages === 1)
+          return {
+            routines: [],
+            runs: [run("010", "r1", "Original feed")],
+            has_more: false,
+            runs_next_cursor: "old",
+            runs_has_more: true,
+          };
+        return refreshed.promise;
+      }
+      return {
+        routines: [],
+        runs: [],
+        has_more: false,
+        runs_next_cursor: "",
+        runs_has_more: false,
+      };
+    });
+    renderApp("/routines?device=dev-a");
+    await screen.findByText("Original feed");
+    fireEvent.change(screen.getByRole("textbox", { name: "routines.searchPlaceholder" }), {
+      target: { value: "refresh" },
+    });
+    await waitFor(() => expect(firstPages).toBe(2));
+    fireEvent.click(screen.getByRole("button", { name: "routines.historyLoadOlder" }));
+    await waitFor(() => expect(listRoutineRuns).toHaveBeenCalledWith(10, "dev-a", "old"));
+    await act(async () => {
+      refreshed.resolve({
+        routines: [],
+        runs: [run("020", "r1", "Refreshed feed")],
+        has_more: false,
+        runs_next_cursor: "new",
+        runs_has_more: true,
+      });
+      await refreshed.promise;
+    });
+    await screen.findByText("Refreshed feed");
+    await act(async () => {
+      older.resolve({
+        routines: [],
+        runs: [run("005", "r1", "Stale older feed")],
+        has_more: false,
+        runs_next_cursor: "stale",
+        runs_has_more: true,
+      });
+      await older.promise;
+    });
+    expect(screen.queryByText("Stale older feed")).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "routines.historyLoadOlder" })).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "routines.historyLoadOlder" }));
+    await waitFor(() => expect(listRoutineRuns).toHaveBeenLastCalledWith(10, "dev-a", "new"));
+  });
+
+  it("ignores an older feed rejection started during a refresh after the first page lands", async () => {
+    const older = deferred<Awaited<ReturnType<typeof listRoutineRuns>>>();
+    const refreshed = deferred<Awaited<ReturnType<typeof listRoutineRuns>>>();
+    let firstPages = 0;
+    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, _device, cursor = "") => {
+      if (cursor === "old") return older.promise;
+      if (cursor === "") {
+        firstPages += 1;
+        if (firstPages === 1)
+          return {
+            routines: [],
+            runs: [run("010", "r1", "Original feed")],
+            has_more: false,
+            runs_next_cursor: "old",
+            runs_has_more: true,
+          };
+        return refreshed.promise;
+      }
+      return { routines: [], runs: [], has_more: false };
+    });
+    renderApp("/routines?device=dev-a");
+    await screen.findByText("Original feed");
+    fireEvent.change(screen.getByRole("textbox", { name: "routines.searchPlaceholder" }), {
+      target: { value: "refresh" },
+    });
+    await waitFor(() => expect(firstPages).toBe(2));
+    fireEvent.click(screen.getByRole("button", { name: "routines.historyLoadOlder" }));
+    await waitFor(() => expect(listRoutineRuns).toHaveBeenCalledWith(10, "dev-a", "old"));
+    await act(async () => {
+      refreshed.resolve({
+        routines: [],
+        runs: [run("020", "r1", "Refreshed feed")],
+        has_more: false,
+        runs_next_cursor: "new",
+        runs_has_more: true,
+      });
+      await refreshed.promise;
+    });
+    await screen.findByText("Refreshed feed");
+    await act(async () => {
+      older.reject(new Error("stale in-flight older failure"));
+      await expect(older.promise).rejects.toThrow("stale in-flight older failure");
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "routines.historyLoadOlder" })).toBeTruthy(),
+    );
+    expect(mocks.pushToast).not.toHaveBeenCalledWith("stale in-flight older failure", "error");
+  });
+
+  it("keeps an older routine page behind a first-page refresh", async () => {
+    const older = deferred<Awaited<ReturnType<typeof listRoutines>>>();
+    const refreshed = deferred<Awaited<ReturnType<typeof listRoutines>>>();
+    let firstPages = 0;
+    vi.mocked(listRoutines).mockImplementation(async (options) => {
+      if (options?.cursor === "old") return older.promise;
+      if (options?.q === "refresh") return refreshed.promise;
+      firstPages += 1;
+      return {
+        routines: [routine("r1", "Original routine")],
+        next_cursor: "old",
+        has_more: true,
+      };
+    });
+    renderApp("/routines?device=dev-a");
+    await screen.findByText("Original routine");
+    fireEvent.click(screen.getByRole("button", { name: "routines.loadMore" }));
+    await waitFor(() =>
+      expect(listRoutines).toHaveBeenCalledWith({ limit: 100, cursor: "old" }, "dev-a"),
+    );
+    fireEvent.change(screen.getByRole("textbox", { name: "routines.searchPlaceholder" }), {
+      target: { value: "refresh" },
+    });
+    await waitFor(() =>
+      expect(listRoutines).toHaveBeenCalledWith({ limit: 100, q: "refresh" }, "dev-a"),
+    );
+    await act(async () => {
+      refreshed.resolve({
+        routines: [routine("r2", "Refreshed routine")],
+        next_cursor: "new",
+        has_more: true,
+      });
+      await refreshed.promise;
+    });
+    await screen.findByText("Refreshed routine");
+    await act(async () => {
+      older.resolve({
+        routines: [routine("r0", "Stale older routine")],
+        next_cursor: "stale",
+        has_more: true,
+      });
+      await older.promise;
+    });
+    expect(screen.queryByText("Stale older routine")).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "routines.loadMore" })).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "routines.loadMore" }));
+    await waitFor(() =>
+      expect(listRoutines).toHaveBeenLastCalledWith(
+        { limit: 100, cursor: "new", q: "refresh" },
+        "dev-a",
+      ),
+    );
+  });
+
+  it("releases older pagination when an authentication refresh expires", async () => {
+    const refreshed = deferred<Awaited<ReturnType<typeof listRoutineRuns>>>();
+    let firstPages = 0;
+    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, _device, cursor = "") => {
+      if (cursor === "old")
+        return new Promise<Awaited<ReturnType<typeof listRoutineRuns>>>(() => {});
+      if (cursor === "") {
+        firstPages += 1;
+        if (firstPages === 1)
+          return {
+            routines: [],
+            runs: [run("010", "r1", "Original feed")],
+            has_more: false,
+            runs_next_cursor: "old",
+            runs_has_more: true,
+          };
+        return refreshed.promise;
+      }
+      return { routines: [], runs: [], has_more: false };
+    });
+    renderApp("/routines?device=dev-a");
+    await screen.findByText("Original feed");
+    fireEvent.click(screen.getByRole("button", { name: "routines.historyLoadOlder" }));
+    await waitFor(() => expect(listRoutineRuns).toHaveBeenCalledWith(10, "dev-a", "old"));
+    fireEvent.change(screen.getByRole("textbox", { name: "routines.searchPlaceholder" }), {
+      target: { value: "expired" },
+    });
+    await waitFor(() => expect(firstPages).toBe(2));
+    await act(async () => {
+      const error = new ApiError(401, "expired");
+      refreshed.reject(error);
+      await expect(refreshed.promise).rejects.toThrow("expired");
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "routines.historyLoadOlder" })).toBeTruthy(),
+    );
+  });
+
+  it("keeps an older routine history rejection and cursor behind a reopened first page", async () => {
+    const older = deferred<Awaited<ReturnType<typeof listRoutineRuns>>>();
+    const firstPages: Array<
+      ReturnType<typeof deferred<Awaited<ReturnType<typeof listRoutineRuns>>>>
+    > = [];
+    vi.mocked(listRoutines).mockResolvedValue({
+      routines: [routine("r1", "History")],
+      has_more: false,
+    });
+    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, _device, cursor = "", id = "") => {
+      if (id !== "r1") return { routines: [], runs: [], has_more: false };
+      if (cursor === "old") return older.promise;
+      if (cursor === "") {
+        const page = deferred<Awaited<ReturnType<typeof listRoutineRuns>>>();
+        firstPages.push(page);
+        return page.promise;
+      }
+      return {
+        routines: [],
+        runs: [],
+        has_more: false,
+        runs_next_cursor: "",
+        runs_has_more: false,
+      };
+    });
+    renderApp("/routines?device=dev-a");
+    fireEvent.click(await screen.findByRole("button", { name: "routines.showRuns" }));
+    await act(async () => {
+      firstPages[0].resolve({
+        routines: [],
+        runs: [run("010", "r1", "Original history")],
+        has_more: false,
+        runs_next_cursor: "old",
+        runs_has_more: true,
+      });
+      await firstPages[0].promise;
+    });
+    const panel = (await screen.findAllByRole("region", { name: /routines\.runsPanelTitle/ })).find(
+      (region) => region.parentElement?.className.includes("md:hidden"),
+    )!;
+    await within(panel).findByRole("link", { name: "Original history" });
+    fireEvent.click(within(panel).getByRole("button", { name: "routines.historyLoadOlder" }));
+    fireEvent.click(screen.getByRole("button", { name: /routines.editRoutine/ }));
+    await screen.findByDisplayValue("The whole stored prompt");
+    await waitFor(() => expect(firstPages).toHaveLength(2));
+    await act(async () => {
+      firstPages[1].resolve({
+        routines: [],
+        runs: [run("020", "r1", "Refreshed history")],
+        has_more: false,
+        runs_next_cursor: "new",
+        runs_has_more: true,
+      });
+      await firstPages[1].promise;
+    });
+    await within(panel).findByRole("link", { name: "Refreshed history" });
+    await act(async () => {
+      older.reject(new Error("stale history failure"));
+      await expect(older.promise).rejects.toThrow("stale history failure");
+    });
+    expect(mocks.pushToast).not.toHaveBeenCalledWith("stale history failure", "error");
+    await waitFor(() =>
+      expect(within(panel).getByRole("button", { name: "routines.historyLoadOlder" })).toBeTruthy(),
+    );
+    fireEvent.click(within(panel).getByRole("button", { name: "routines.historyLoadOlder" }));
+    await waitFor(() => expect(listRoutineRuns).toHaveBeenLastCalledWith(10, "dev-a", "new", "r1"));
+  });
+
+  it("pages one remote routine's own history below the global feed", async () => {
+    vi.mocked(listRoutines).mockResolvedValue({
+      routines: [routine("r1", "Own records")],
+      has_more: false,
+    });
+    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, _device, cursor = "", id = "") => {
+      if (id !== "r1")
+        return {
+          routines: [],
+          runs: [run("009", "other", "Unrelated run")],
+          has_more: false,
+          runs_next_cursor: "009",
+          runs_has_more: true,
+        };
+      if (cursor === "001")
+        return {
+          routines: [],
+          runs: [run("000", "r1", "Older own run")],
+          has_more: false,
+          runs_next_cursor: "000",
+          runs_has_more: false,
+        };
+      return {
+        routines: [],
+        runs: [run("001", "r1", "Old own run")],
+        has_more: false,
+        runs_next_cursor: "001",
+        runs_has_more: true,
+      };
+    });
+    renderApp("/routines?device=dev-a");
+    fireEvent.click(await screen.findByRole("button", { name: "routines.showRuns" }));
+    const panel = (await screen.findAllByRole("region", { name: /routines\.runsPanelTitle/ })).find(
+      (region) => region.parentElement?.className.includes("md:hidden"),
+    )!;
+    await within(panel).findByRole("link", { name: "Old own run" });
+    expect(listRoutineRuns).toHaveBeenCalledWith(10, "dev-a", "", "r1");
+    fireEvent.click(within(panel).getByRole("button", { name: "routines.historyLoadOlder" }));
+    await within(panel).findByRole("link", { name: "Older own run" });
+    expect(within(panel).getByRole("link", { name: "Old own run" })).toBeTruthy();
+    expect(listRoutineRuns).toHaveBeenLastCalledWith(10, "dev-a", "001", "r1");
+  });
+
+  it("a late detail never replaces a newer create draft", async () => {
+    const detail = deferred<Routine>();
+    vi.mocked(getRoutine).mockReturnValue(detail.promise);
+    vi.mocked(listRoutines).mockResolvedValue({
+      routines: [routine("r1", "Original")],
+      has_more: false,
+    });
+    renderApp("/routines?device=dev-a");
+    fireEvent.click(await screen.findByRole("button", { name: /routines.editRoutine/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: "routines.createEntry" })[0]);
+    const input = await screen.findByLabelText("routines.promptLabel");
+    fireEvent.change(input, { target: { value: "Keep this newer draft" } });
+    await screen.findByRole("button", { name: "routines.createAndOpen" });
+    await act(async () => detail.resolve(routine("r1", "Old", { prompt: "Old original" })));
+    expect(screen.getByDisplayValue("Keep this newer draft")).toBeTruthy();
+    expect(screen.queryByDisplayValue("Old original")).toBeNull();
+  });
+
+  it("a detail failure leaves the summary and editor without inventing a prompt", async () => {
+    vi.mocked(getRoutine).mockRejectedValue(new Error("detail unavailable"));
+    vi.mocked(listRoutines).mockResolvedValue({
+      routines: [{ ...routine("r1", "Original"), prompt: "" }],
+      has_more: false,
+    });
+    renderApp("/routines?device=dev-a");
+    fireEvent.click(await screen.findByRole("button", { name: /routines.editRoutine/ }));
+    await waitFor(() => expect(getRoutine).toHaveBeenCalledWith("r1", "dev-a"));
+    expect(screen.queryByLabelText("routines.promptLabel")).toBeNull();
+    expect(screen.getByText("Original")).toBeTruthy();
+  });
+
+  it("reads local run histories as bounded summaries with the same independent cursor", async () => {
+    mocks.machines = [{ isSelf: true, id: "self-1", label: "Local node", online: true, roots: [] }];
+    vi.mocked(listRoutines).mockResolvedValue({
+      routines: [routine("r1", "Original")],
+      has_more: false,
+    });
+    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, _device, cursor = "", id = "") => {
+      if (id !== "r1") return { routines: [], runs: [], has_more: false };
+      if (cursor === "003")
+        return {
+          routines: [],
+          runs: [run("002", "r1", "Older local summary")],
+          runs_has_more: false,
+          runs_next_cursor: "",
+          has_more: false,
+        };
+      return {
+        routines: [],
+        runs: [run("003", "r1", "Local summary")],
+        runs_has_more: true,
+        runs_next_cursor: "003",
+        has_more: false,
+      };
+    });
+    renderApp("/routines");
+    await screen.findByText("Original");
+    await waitFor(() => expect(machineValue()).toBe("self"));
+    await waitFor(() => expect(listRoutineRuns).toHaveBeenCalledWith(10, ""));
+    await userEvent.click(screen.getByRole("button", { name: "routines.showRuns" }));
+    await waitFor(() => expect(listRoutineRuns).toHaveBeenCalledWith(10, "", "", "r1"));
+    const panel = (await screen.findAllByRole("region", { name: /routines\.runsPanelTitle/ })).find(
+      (region) => region.parentElement?.className.includes("md:hidden"),
+    )!;
+    await within(panel).findByRole("link", { name: "Local summary" });
+    await userEvent.click(within(panel).getByRole("button", { name: "routines.historyLoadOlder" }));
+    await within(panel).findByRole("link", { name: "Older local summary" });
+    expect(within(panel).getByRole("link", { name: "Local summary" })).toBeTruthy();
+    expect(listRoutineRuns).toHaveBeenLastCalledWith(10, "", "003", "r1");
+  });
+
+  it("a failed new remote history read is visible and retryable", async () => {
+    vi.mocked(listRoutines).mockResolvedValue({
+      routines: [routine("r1", "Failure history")],
+      has_more: false,
+    });
+    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, _device, _cursor = "", id = "") =>
+      id === "r1"
+        ? Promise.reject(new Error("history unavailable"))
+        : Promise.resolve({ routines: [], runs: [], has_more: false }),
+    );
+    renderApp("/routines?device=dev-a");
+    fireEvent.click(await screen.findByRole("button", { name: "routines.showRuns" }));
+    const panels = (
+      await screen.findAllByRole("region", { name: /routines\.runsPanelTitle/ })
+    ).filter((region) => region.parentElement?.className.includes("md:hidden"));
+    await within(panels[0]).findByText("history unavailable");
+    expect(within(panels[0]).getByRole("button", { name: "routines.retry" })).toBeTruthy();
+  });
+
   it("does not let an old A create land after A → B → A", async () => {
     const first = deferred<Routine>();
     const second = deferred<Routine>();
@@ -402,6 +1209,41 @@ describe("RoutinesPage device-scoped requests", () => {
     await screen.findByText("current create");
   });
 
+  it("does not let an old A detail replace the current form after A → B → A", async () => {
+    vi.mocked(getRoutine).mockImplementation(async (id, device = "") =>
+      device === "dev-a"
+        ? routine(id, "Full A", { prompt: "Full A prompt", cwd: "/work/a" })
+        : routine(id, "Full B", { prompt: "Full B prompt", cwd: "/work/b" }),
+    );
+    vi.mocked(listRoutines).mockImplementation(async (_options, device = "dev-a") => ({
+      routines: [routine(`routine-${device}`, `${device.toUpperCase()} title`)],
+      has_more: false,
+    }));
+    const first = deferred<Routine>();
+    vi.mocked(getRoutine).mockReturnValueOnce(first.promise);
+    const { router } = renderApp("/routines?device=dev-a");
+    fireEvent.click(await screen.findByRole("button", { name: /routines.editRoutine/ }));
+    await waitFor(() => expect(getRoutine).toHaveBeenCalledWith("routine-dev-a", "dev-a"));
+
+    await navigate(router, "/routines?device=dev-b");
+    await screen.findByText("DEV-B title");
+    fireEvent.click(screen.getByRole("button", { name: /routines.editRoutine/ }));
+    expect(await screen.findByDisplayValue("Full B prompt")).toBeTruthy();
+    await navigate(router, "/routines?device=dev-a");
+    await screen.findByText("DEV-A title");
+    fireEvent.click(screen.getByRole("button", { name: /routines.editRoutine/ }));
+    expect(await screen.findByDisplayValue("Full A prompt")).toBeTruthy();
+
+    await act(async () =>
+      first.resolve(
+        routine("routine-a", "Stale A", { prompt: "Stale A prompt", cwd: "/work/stale" }),
+      ),
+    );
+    expect(screen.getByDisplayValue("Full A prompt")).toBeTruthy();
+    expect(screen.queryByDisplayValue("Stale A prompt")).toBeNull();
+    expect((screen.getByLabelText("cwd") as HTMLInputElement).value).toBe("/work/a");
+  });
+
   it("does not let an old A edit overwrite the routine list after A → B → A", async () => {
     const original = routine("routine-1", "original title");
     const edit = deferred<Routine>();
@@ -415,7 +1257,7 @@ describe("RoutinesPage device-scoped requests", () => {
     await screen.findByText("original title");
 
     fireEvent.click(screen.getByRole("button", { name: /routines.editRoutine/ }));
-    fireEvent.click(screen.getByRole("button", { name: "routines.save" }));
+    fireEvent.click(await screen.findByRole("button", { name: "routines.save" }));
     await waitFor(() => expect(patchRoutine).toHaveBeenCalledTimes(1));
 
     await navigate(router, "/routines?device=dev-b");
@@ -433,9 +1275,11 @@ describe("RoutinesPage device-scoped requests", () => {
 
   it("does not let an old A mark-all clear unread rows after A → B → A", async () => {
     const markAll = deferred<{ marked: number }>();
-    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, device) => [
-      run(`${device}-run`, "routine-1", `${device} report`),
-    ]);
+    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, device) => ({
+      routines: [],
+      runs: [run(`${device}-run`, "routine-1", `${device} report`)],
+      has_more: false,
+    }));
     vi.mocked(markAllRoutineRunsRead).mockReturnValueOnce(markAll.promise);
     const { router } = renderApp("/routines?device=dev-a");
     await screen.findByText("dev-a report");
@@ -526,7 +1370,7 @@ describe("switching machine while the routine form has edits", () => {
     const { router } = renderApp("/routines?device=dev-a");
     await screen.findByText("Morning review");
     fireEvent.click(screen.getByRole("button", { name: /routines.editRoutine/ }));
-    fireEvent.change(screen.getByLabelText("routines.titleLabel"), {
+    fireEvent.change(await screen.findByLabelText("routines.titleLabel"), {
       target: { value: "Changed title" },
     });
 
@@ -547,9 +1391,11 @@ describe("switching machine while the routine form has edits", () => {
 
 describe("marking a remote routine run read from its link", () => {
   it("keeps the browser's modifier-click default and still marks the run read", async () => {
-    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, device) => [
-      run(`${device}-run`, "routine-1", `${device} report`),
-    ]);
+    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, device) => ({
+      routines: [],
+      runs: [run(`${device}-run`, "routine-1", `${device} report`)],
+      has_more: false,
+    }));
     vi.mocked(markRoutineRunRead).mockReturnValue(new Promise(() => {}));
     renderApp("/routines?device=dev-a");
     const link = await screen.findByRole("link", { name: "dev-a report" });
@@ -571,9 +1417,11 @@ describe("marking a remote routine run read from its link", () => {
   });
 
   it("marks an ordinary click once and swallows a failed write", async () => {
-    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, device) => [
-      run(`${device}-run`, "routine-1", `${device} report`),
-    ]);
+    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, device) => ({
+      routines: [],
+      runs: [run(`${device}-run`, "routine-1", `${device} report`)],
+      has_more: false,
+    }));
     vi.mocked(markRoutineRunRead).mockRejectedValue(new Error("offline"));
     vi.mocked(markRoutineRunRead).mockClear();
     renderApp("/routines?device=dev-a");
