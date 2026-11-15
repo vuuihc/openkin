@@ -584,10 +584,37 @@ export function phonePush(
     return;
   }
   const origin = areaRootOf(`${location.pathname}${location.search}`);
+  const idx = routeIndex(location) ?? historyIndex();
+  const parent = idx !== null && idx > 0 ? rootParentAt(idx - 1) : null;
+  const area = origin?.area ?? here?.area ?? null;
+  const crossArea = area === null || !there || there.area !== area;
+  // A root, the legacy operations page and an unknown page are entry points,
+  // not details. Above another entry they were reached from that screen (a
+  // link or a notification, not a tab switch), so a push into another area
+  // replaces them: Back must still reach the screen before this area.
+  const entryPoint = origin !== null || here === null || here.name === "settings.operations";
+  if (
+    idx !== null &&
+    idx > 0 &&
+    entryPoint &&
+    (origin !== null || parent !== null) &&
+    crossArea
+  ) {
+    navigate(to, { replace: true, state: options?.state });
+    return;
+  }
+  // A project cover is the entry the signed table comes back to, so it stays
+  // underneath a conversation opened from it. Every other non-root screen
+  // sitting directly above an area root is replaced by the next push: a fork
+  // or a notification takes over that slot, and Back reaches the root.
+  if (idx !== null && idx > 0 && parent !== null && here?.name !== "projects.detail") {
+    navigate(to, { replace: true, state: options?.state });
+    return;
+  }
   if (origin) {
-    // Leaving a root: the same push is the child's parent, recorded so a tab
-    // press can pop straight back to this URL (filters included).
-    const idx = routeIndex(location) ?? historyIndex();
+    // Leaving a root at the start of its stack: the same push is the child's
+    // parent, recorded so a tab press can pop straight back to this URL
+    // (filters included).
     const token = registerRootEntry(`${location.pathname}${location.search}`, idx);
     navigate(to, { state: rootParentState(token, options?.state, idx, origin.url) });
     return;
