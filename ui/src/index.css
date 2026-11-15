@@ -31,6 +31,59 @@
 @config "../tailwind.config.ts";
 
 /*
+  Astryx's prose defaults must not reach Kin's existing markup.
+
+  Mounting Astryx's `Theme` injects a `@layer reset` block that styles bare
+  `h1`–`h6`, `p`, `small`, `code`/`pre` and `hr` (14px Figtree body text,
+  primary ink, and so on). Layer order alone does not make that harmless: a
+  declaration that targets the element beats the value it would otherwise
+  *inherit* from an ancestor, whatever the layer. So
+  `<div class="text-kin-red-ink"><p>{error}</p></div>` would paint the error in
+  primary ink, and a `<div class="text-body text-kin-secondary">` would stop
+  reaching a 13px paragraph. That is invisible on a screen whose paragraphs sit
+  under no parent utility, which is why the fix is one block here rather than
+  168 edits at the `<p>` call sites.
+
+  These rules sit in `base` — above Astryx's `reset`, below every Kin and
+  Astryx component layer — and restore what Tailwind preflight left to
+  inheritance. `font-family` and `font-size` on `code`/`pre` are deliberately
+  not restated: preflight's mono rule is in this same layer with element
+  specificity, so it already beats Astryx's reset-layer `:where` rule. Any
+  Astryx component still styles its own text through classes in a later layer;
+  this block only removes a default that was never Kin's. `astryxTheme.test.ts`
+  holds it to Astryx's generated prose, so a new prose property or selector
+  fails the test until it is neutralised here.
+*/
+@layer base {
+  :where(h1, h2, h3, h4, h5, h6) {
+    font-family: inherit;
+    font-size: inherit;
+    font-weight: inherit;
+    line-height: inherit;
+    color: inherit;
+  }
+
+  :where(p) {
+    font-family: inherit;
+    font-size: inherit;
+    font-weight: inherit;
+    line-height: inherit;
+    color: inherit;
+  }
+
+  :where(small) {
+    font-size: inherit;
+    font-weight: inherit;
+    line-height: inherit;
+    color: inherit;
+  }
+
+  :where(code, pre) {
+    line-height: inherit;
+  }
+}
+
+/*
   Tailwind 4 split v3's `outline-none` in two: today the name only clears
   `outline-style`, and the forced-colors fallback moved to `outline-hidden`.
   Every existing call site was written against the v3 meaning — hide the

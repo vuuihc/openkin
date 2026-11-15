@@ -4,7 +4,9 @@
  * Astryx components need three things from the console that Kin already owns:
  * the resolved colour scheme, the locale, and the theme tokens. This provider
  * reads the first two from where Kin already keeps them and hands them to
- * Astryx; it renders no DOM of its own and changes no page.
+ * Astryx; it adds no layout box of its own and changes no page. (Astryx's
+ * `Theme` renders a `display: contents` wrapper, so it contributes a DOM node
+ * but no box. Its prose defaults are neutralised in `index.css`.)
  *
  * The scheme comes from `<html data-theme>`, not from a second copy of the
  * preference. `applyTheme()` already resolves "system" to `light`/`dark` and

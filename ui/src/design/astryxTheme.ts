@@ -32,8 +32,7 @@ import { cssValue, PRESENTED_TOKENS } from "./colors";
  * directly for it.
  */
 export type KinTokenBinding =
-  | { readonly astryx: readonly string[]; readonly note?: string }
-  | { readonly extension: string };
+  { readonly astryx: readonly string[]; readonly note?: string } | { readonly extension: string };
 
 /**
  * Every Kin token, and where it goes.
@@ -92,7 +91,12 @@ export const KIN_TOKEN_BINDINGS: Readonly<Record<string, KinTokenBinding>> = {
 
   // Status ink: text and glyphs drawn on a surface, not on the fill.
   "--kin-blue-ink-rgb": {
-    astryx: ["--color-text-info", "--color-icon-info", "--color-text-accent", "--color-icon-accent"],
+    astryx: [
+      "--color-text-info",
+      "--color-icon-info",
+      "--color-text-accent",
+      "--color-icon-accent",
+    ],
   },
   "--kin-orange-ink-rgb": { astryx: ["--color-text-warning", "--color-icon-warning"] },
   "--kin-green-ink-rgb": { astryx: ["--color-text-success", "--color-icon-success"] },

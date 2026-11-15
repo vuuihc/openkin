@@ -1,4 +1,4 @@
-// @vitest-environment node
+// @vitest-environment jsdom
 /**
  * The bridge's contract.
  *
@@ -7,9 +7,18 @@
  * Astryx token, that no Astryx token is given two Kin values, and that the two
  * floors the provider promises (44px on touch, motion unchanged) are actually
  * in the theme rather than in a comment.
+ *
+ * Two more contracts keep the mounted bridge honest: Astryx's runtime prose
+ * defaults must be neutralised in `index.css` (a bare `<p>` may not stop
+ * inheriting its parent's ink), and the Provider must hand Astryx the live
+ * scheme and locale rather than a value captured at mount.
  */
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { resolve } from "node:path";
+import { createElement, type ReactNode } from "react";
+import { act, render, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import { generateThemeCSS, useLocale as useAstryxLocale, useTranslator } from "@astryxdesign/core";
 import {
   colorDefaults,
   durationDefaults,
@@ -25,6 +34,8 @@ import {
   typeScaleDefaults,
   radiusDefaults,
 } from "@astryxdesign/core/theme/tokens.stylex";
+import { getLocale, setLocale } from "../i18n";
+import { AstryxProvider } from "./AstryxProvider";
 import {
   astryxLocaleFor,
   astryxTokenValues,
@@ -34,6 +45,11 @@ import {
   kinExtensionTokens,
 } from "./astryxTheme";
 import { PRESENTED_TOKENS, cssValue } from "./colors";
+
+/** Read a file from the `ui/` package (the Vitest root), independent of the DOM URL. */
+function uiFile(relativePath: string): string {
+  return readFileSync(resolve(process.cwd(), relativePath), "utf8");
+}
 
 /** Every Astryx core token name, read from the defaults the package exports. */
 const ASTRYX_TOKEN_NAMES = new Set([
@@ -156,10 +172,7 @@ describe("kinAstryxTheme", () => {
   it("imports a stylesheet that still honours Reduce Motion", () => {
     // The provider promises reduced motion by relying on Astryx's own rules;
     // an upgrade that dropped them would make the promise silently false.
-    const css = readFileSync(
-      new URL("../../node_modules/@astryxdesign/core/dist/astryx.css", import.meta.url),
-      "utf8",
-    );
+    const css = uiFile("node_modules/@astryxdesign/core/dist/astryx.css");
     const guards = css.match(/@media \(prefers-reduced-motion: reduce\)/g) ?? [];
     expect(guards.length).toBeGreaterThan(0);
   });
@@ -167,12 +180,211 @@ describe("kinAstryxTheme", () => {
   it("imports a reset that maps data-theme to color-scheme", () => {
     // Astryx's Theme writes Kin's resolved scheme back to `<html data-theme>`;
     // this is the rule that turns it into the browser's own colour scheme.
-    const css = readFileSync(
-      new URL("../../node_modules/@astryxdesign/core/src/reset.css", import.meta.url),
-      "utf8",
-    );
+    const css = uiFile("node_modules/@astryxdesign/core/src/reset.css");
     expect(css).toMatch(/:where\(html\[data-theme="light"\]\)\s*\{\s*color-scheme: light;/);
     expect(css).toMatch(/:where\(html\[data-theme="dark"\]\)\s*\{\s*color-scheme: dark;/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Astryx's prose defaults vs. Kin's existing markup
+// ---------------------------------------------------------------------------
+
+/** One innermost `selector { declarations }` rule. */
+interface CssRule {
+  selector: string;
+  declarations: Map<string, string>;
+}
+
+/** Parse the innermost rules of a CSS string. `@layer`/`@scope` wrappers are skipped. */
+function parseRules(css: string): CssRule[] {
+  const rules: CssRule[] = [];
+  for (const match of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const selector = match[1].replace(/\s+/g, " ").trim();
+    const declarations = new Map<string, string>();
+    for (const part of match[2].split(";")) {
+      const colon = part.indexOf(":");
+      if (colon < 0) continue;
+      declarations.set(part.slice(0, colon).trim(), part.slice(colon + 1).trim());
+    }
+    if (declarations.size > 0) rules.push({ selector, declarations });
+  }
+  return rules;
+}
+
+/** The concatenated bodies of every `@layer <name> { … }` block. */
+function layerBodies(css: string, layer: string): string {
+  const needle = `@layer ${layer}`;
+  const bodies: string[] = [];
+  let from = 0;
+  for (;;) {
+    const at = css.indexOf(needle, from);
+    if (at < 0) break;
+    const open = css.indexOf("{", at);
+    if (open < 0) break;
+    // Skip the layer-order statement (`@layer reset, theme, base, …;`).
+    if (css.slice(at + needle.length, open).trim() !== "") {
+      from = open + 1;
+      continue;
+    }
+    let depth = 0;
+    let end = open;
+    for (; end < css.length; end++) {
+      if (css[end] === "{") depth += 1;
+      else if (css[end] === "}") {
+        depth -= 1;
+        if (depth === 0) break;
+      }
+    }
+    bodies.push(css.slice(open + 1, end));
+    from = end + 1;
+  }
+  return bodies.join("\n");
+}
+
+/**
+ * Astryx prose declarations that cannot reach Kin's markup even unneutralised.
+ *
+ * Both are beaten by Tailwind preflight, which is in `base` — a later layer
+ * than Astryx's `reset` — and, for `code`/`pre`, carries element specificity
+ * against Astryx's zero-specificity `:where`.
+ */
+const PROSE_DECLARATIONS_ALREADY_INERT: Record<string, { properties: string[]; reason: string }> = {
+  ":where(hr)": {
+    properties: ["border", "border-top"],
+    reason:
+      "Preflight's `hr` rule sets border-top-width and its universal rule sets the other border longhands, both in `base` above Astryx's `reset`.",
+  },
+  ":where(code, pre)": {
+    properties: ["font-family", "font-size"],
+    reason:
+      "Preflight's element-specific mono rule is in `base` above Astryx's reset-layer `:where` rule.",
+  },
+};
+
+/** `:where(a, b)` → `["a", "b"]`; any other selector is one entry. */
+function expandSelector(selector: string): string[] {
+  const match = /^:where\((.*)\)$/.exec(selector);
+  if (!match) return [selector];
+  return match[1].split(",").map((part) => part.trim());
+}
+
+describe("Astryx prose defaults", () => {
+  const indexCss = uiFile("src/index.css");
+  const baseLayer = layerBodies(indexCss, "base");
+  const neutralisers = new Map<string, Map<string, string>>();
+  for (const rule of parseRules(baseLayer)) {
+    for (const selector of expandSelector(rule.selector)) {
+      neutralisers.set(selector, rule.declarations);
+    }
+  }
+  const prose = parseRules(generateThemeCSS(kinAstryxTheme).prose);
+
+  it("are the bare elements Astryx styles, not an empty list", () => {
+    // If Astryx stops emitting prose, the neutraliser below becomes dead code
+    // and this fails loudly instead of the contract silently disappearing.
+    expect(prose.length).toBeGreaterThan(0);
+    expect(prose.map((rule) => rule.selector)).toContain(":where(p)");
+  });
+
+  it("are neutralised in index.css so a bare element keeps inheriting", () => {
+    const uncovered: string[] = [];
+    for (const rule of prose) {
+      const inert = PROSE_DECLARATIONS_ALREADY_INERT[rule.selector]?.properties ?? [];
+      const live = [...rule.declarations.keys()].filter((property) => !inert.includes(property));
+      for (const selector of expandSelector(rule.selector)) {
+        const neutraliser = neutralisers.get(selector);
+        if (!neutraliser) {
+          if (live.length > 0) {
+            uncovered.push(`${rule.selector}: no \`${selector}\` rule in index.css @layer base`);
+          }
+          continue;
+        }
+        for (const property of live) {
+          if (neutraliser.get(property) !== "inherit") {
+            uncovered.push(`${rule.selector} { ${property} }`);
+          }
+        }
+      }
+    }
+    expect(uncovered, "Astryx prose defaults that would repaint Kin's markup").toEqual([]);
+  });
+
+  it("keeps the inert-declaration allowlist honest", () => {
+    const selectors = new Set(prose.map((rule) => rule.selector));
+    for (const [selector, entry] of Object.entries(PROSE_DECLARATIONS_ALREADY_INERT)) {
+      expect(selectors.has(selector), `${selector} is no longer an Astryx prose selector`).toBe(
+        true,
+      );
+      expect(entry.reason.length, `${selector} has no reason`).toBeGreaterThan(20);
+    }
+  });
+
+  it("leaves inherited ink and size to the parent, which is the reported defect", () => {
+    // `<div class="text-kin-red-ink"><p>{error}</p></div>` and
+    // `<div class="text-body text-kin-secondary"><p>…</p></div>` lost the
+    // parent's colour and size to Astryx's direct `p` declarations.
+    expect(neutralisers.get("p")?.get("color")).toBe("inherit");
+    expect(neutralisers.get("p")?.get("font-size")).toBe("inherit");
+    expect(neutralisers.get("p")?.get("font-family")).toBe("inherit");
+    expect(neutralisers.get("p")?.get("line-height")).toBe("inherit");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Provider behaviour
+// ---------------------------------------------------------------------------
+
+/** What Astryx's own context resolves, read through its public hooks. */
+function LocaleProbe(): ReactNode {
+  const locale = useAstryxLocale();
+  const translate = useTranslator();
+  return createElement(
+    "span",
+    { "data-testid": "astryx-locale" },
+    `${locale}|${translate("@astryx.pagination.next")}`,
+  );
+}
+
+function probeText(): string {
+  return document.querySelector('[data-testid="astryx-locale"]')?.textContent ?? "";
+}
+
+describe("AstryxProvider", () => {
+  const originalLocale = getLocale();
+
+  afterEach(() => {
+    act(() => setLocale(originalLocale));
+  });
+
+  it("mounts the Kin theme as Astryx's root and follows scheme changes live", async () => {
+    document.documentElement.setAttribute("data-theme", "dark");
+    const { container } = render(
+      createElement(AstryxProvider, null, createElement("span", null, "child")),
+    );
+    // The wrapper adds no layout box (`display: contents`) but it is the
+    // element Astryx's @scope'd CSS hangs from.
+    const wrapper = container.querySelector('[data-astryx-theme="kin"]');
+    expect(wrapper, "Astryx's Theme wrapper").not.toBeNull();
+    expect(wrapper?.getAttribute("data-theme")).toBe("dark");
+
+    await act(async () => {
+      document.documentElement.setAttribute("data-theme", "light");
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(wrapper?.getAttribute("data-theme")).toBe("light"));
+  });
+
+  it("hands a live locale change to Astryx without remounting", async () => {
+    act(() => setLocale("zh"));
+    render(createElement(AstryxProvider, null, createElement(LocaleProbe)));
+    // The zh-CN generated catalog is passed through, so the key resolves to
+    // its shipped Chinese string rather than the English fallback.
+    expect(probeText()).toBe("zh-CN|转到下一页");
+
+    act(() => setLocale("en"));
+    await waitFor(() => expect(probeText()).toMatch(/^en\|/));
+    expect(probeText()).not.toContain("转到下一页");
   });
 });
 

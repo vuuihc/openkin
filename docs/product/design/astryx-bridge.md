@@ -13,8 +13,9 @@ before this slice.
 | `@stylexjs/stylex` | 0.19.2 | Runtime peer of Astryx's pre-compiled StyleX CSS |
 
 `ui/src/main.tsx` renders `<AstryxProvider>` inside `StrictMode`, around
-`BrowserRouter`. The Provider renders no DOM: it mounts Astryx's `Theme` and
-`InternationalizationProvider` and hands them the values Kin already owns.
+`BrowserRouter`. The Provider adds no layout box of its own — Astryx's `Theme`
+renders a `display: contents` wrapper — and hands Astryx the values Kin already
+owns.
 
 `ui/src/index.css` imports `@astryxdesign/core/reset.css` and
 `@astryxdesign/core/astryx.css` after `tailwindcss`. The cascade order is the
@@ -75,6 +76,35 @@ Astryx tokens without a Kin mapping keep the neutral theme's value. They are
 added when a component that needs them lands, not speculatively: a mapping is a
 colour decision and belongs on a screen.
 
+## Prose defaults are neutralised
+
+Mounting `Theme` also injects Astryx's prose defaults at runtime: a
+`@layer reset` block styling bare `h1`–`h6`, `p`, `small`, `code`/`pre` and
+`hr` with Astryx's type scale (14px Figtree body text, primary ink, and so on).
+Layer order does not make that safe. A declaration that targets the element
+beats the value the element would otherwise *inherit* from an ancestor,
+whatever layer it is in. Two shipped call sites showed the regression:
+
+- `RoutinesPage` renders `<div class="… text-kin-red-ink"><p>{error}</p></div>`;
+  the paragraph took primary ink instead of the inherited error ink.
+- `ProjectDetailPage` renders `<div class="text-body text-kin-secondary">`
+  around its empty-state paragraphs; they took 14px and primary ink instead of
+  the inherited 13px and secondary ink.
+
+`ui/src/index.css` therefore carries one `@layer base` block that restores
+`inherit` for every prose property Astryx declares. `base` is above Astryx's
+`reset` and below every component layer, so Astryx components still style
+their own text through classes; only the bare-element default is removed.
+`code`/`pre` restate only `line-height`, because Tailwind preflight already
+wins the mono family and size in the same layer with element specificity.
+`hr` needs no rule: preflight's `hr` and universal border rules already beat
+Astryx's reset-layer declarations.
+
+`astryxTheme.test.ts` derives the prose selector/property pairs from
+`generateThemeCSS(kinAstryxTheme)` and fails when any live declaration is not
+neutralised, so an Astryx upgrade that adds a prose property or selector cannot
+silently repaint existing pages.
+
 ## Provider behaviour
 
 - **Scheme.** Reads `<html data-theme>` (`light`/`dark`) with
@@ -99,6 +129,10 @@ colour decision and belongs on a screen.
   duplicate rule. The theme pins `motion: { tempo: 1, character: 'standard' }`
   — Kin's motion is Astryx's default, not an upstream default that can drift.
   The test holds the imported stylesheet to still carrying the guards.
+- **Coverage.** `astryxTheme.test.ts` mounts `AstryxProvider` and asserts that
+  flipping `<html data-theme>` changes the mode Astryx's root `Theme` carries,
+  and that an in-app locale change reaches Astryx's own context (the `zh-CN`
+  catalog resolves a key to Chinese, then `en` takes over) without a remount.
 
 ## Known gaps
 
