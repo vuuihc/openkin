@@ -18,6 +18,7 @@ import { describe, expect, it } from "vitest";
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 const SOURCE = readFileSync(join(UI, "src/components/sessions/SessionList.tsx"), "utf8");
+const ROW = readFileSync(join(UI, "src/components/sessions/SessionRow.tsx"), "utf8");
 
 describe("the pinned section's machine label", () => {
   it("asks the shared rule about every row", () => {
@@ -28,7 +29,7 @@ describe("the pinned section's machine label", () => {
     // The row's accessible name comes from `aria-label`, which overrides its
     // content: a label that left the device out would tell a screen reader a
     // different story from the one the chip shows.
-    expect(SOURCE).toContain("{deviceLabel}");
-    expect(SOURCE).toContain('row.remote ? deviceLabel || tr("machine.remote") : ""');
+    expect(ROW).toContain("{deviceLabel}");
+    expect(ROW).toContain('row.remote ? deviceLabel || tr("machine.remote") : ""');
   });
 });
