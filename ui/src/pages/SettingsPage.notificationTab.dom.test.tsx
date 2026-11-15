@@ -257,9 +257,7 @@ describe("a settings notification tap while the page is mounted", () => {
 
     expect(panel("general").hidden).toBe(false);
     expect(screen.getByText(/Agent operations now live in the Agents page/)).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Open Agents" }).getAttribute("href")).toBe(
-      "/agents",
-    );
+    expect(screen.getByRole("link", { name: "Open Agents" }).getAttribute("href")).toBe("/agents");
     expect(screen.getByTestId("url").textContent).toBe("/settings?tab=operations");
   });
 });
