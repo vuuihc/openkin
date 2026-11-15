@@ -219,6 +219,15 @@ job_stories() {
   python3 scripts/stories.py
 }
 
+# The inventory ratchet and the tests that prove the checker can fail. Always
+# runs: even a scripts-only change must not let a new raw control land, and the
+# checked-in baseline needs no ui/ change or local RSI state. `-B` avoids
+# __pycache__ in the tree.
+job_ui_inventory() {
+  python3 -B scripts/check-ui-inventory.test.py || return 1
+  python3 -B scripts/check-ui-inventory.py
+}
+
 start gofmt job_gofmt
 start vet job_vet
 start gotest job_gotest
@@ -233,6 +242,7 @@ start shell-syntax job_shell_syntax
 start shell-test job_shell_test
 start python-syntax job_python_syntax
 start stories job_stories
+start ui-inventory job_ui_inventory
 
 FAILED=()
 for i in "${!PIDS[@]}"; do

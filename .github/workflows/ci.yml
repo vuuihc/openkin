@@ -64,6 +64,14 @@ jobs:
           npm test
           npx vite build
 
+      # The inventory baseline is checked in, so CI enforces the same ratchet as
+      # `scripts/check.sh`. Tests first: a guard whose negative cases never run
+      # is a guard nobody has seen fail.
+      - name: UI inventory ratchet
+        run: |
+          python3 -B scripts/check-ui-inventory.test.py
+          python3 -B scripts/check-ui-inventory.py
+
       # The smoke job boots the real binary against this build. It is uploaded
       # rather than rebuilt there so the console the daemon serves in the smoke
       # test is the same one this job's typecheck, tests and budget measured.
