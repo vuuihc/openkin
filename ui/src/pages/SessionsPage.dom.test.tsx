@@ -162,9 +162,7 @@ describe("the /sessions route", () => {
 describe("the phone page's states", () => {
   it("keeps its vertical scroll body from owning a horizontal tab gesture", () => {
     render(phonePage());
-    expect(document.querySelector("[data-phone-scroll]")?.className).toContain(
-      "overflow-x-hidden",
-    );
+    expect(document.querySelector("[data-phone-scroll]")?.className).toContain("overflow-x-hidden");
   });
 
   it("floats new chat just above the footer, not a second footer-height higher", () => {

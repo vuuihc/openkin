@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   ApiError,
@@ -58,11 +51,7 @@ import {
   type UsageDays,
 } from "../lib/agentPageState";
 import { importToast } from "../lib/agentSessionImport";
-import {
-  draftEntryState,
-  phonePush,
-  returnListUrl,
-} from "../lib/phoneNavigation";
+import { draftEntryState, phonePush, returnListUrl } from "../lib/phoneNavigation";
 import { cacheRateLabel, formatTokenCount, summarizeUsage } from "../lib/usage";
 
 /**
@@ -87,9 +76,7 @@ type AgentAction = {
   run: () => void;
 };
 
-type SmokeReport =
-  | { at: number; results: AgentSmokeResult[] }
-  | { at: number; error: string };
+type SmokeReport = { at: number; results: AgentSmokeResult[] } | { at: number; error: string };
 
 type StatusTone = "ok" | "warn" | "bad" | "muted";
 
@@ -327,10 +314,7 @@ export default function AgentsPage() {
     for (const a of agents ?? []) m.set(a.id, agentFamily(a.id, a.family));
     return m;
   }, [agents]);
-  const familyOf = useCallback(
-    (id: string) => familyById.get(id) ?? agentFamily(id),
-    [familyById],
-  );
+  const familyOf = useCallback((id: string) => familyById.get(id) ?? agentFamily(id), [familyById]);
 
   /**
    * The product that holds the configured default, whichever variant carries
@@ -808,9 +792,7 @@ export default function AgentsPage() {
       if (attempt !== connectAttempt.current) return;
       setConnectedFamilies(before);
       writeConnectedFamilies(before);
-      setConnectError(
-        tr("agents.connectFailed", { name: a.name || a.id, reason: messageOf(e) }),
-      );
+      setConnectError(tr("agents.connectFailed", { name: a.name || a.id, reason: messageOf(e) }));
     } finally {
       if (attempt === connectAttempt.current) setConnecting(false);
     }
@@ -938,9 +920,7 @@ export default function AgentsPage() {
 
   // The sheet's target and its actions, read from the same list the phone rows
   // render: an agent that a refresh drops takes its sheet with it.
-  const actionAgent = actionsFor
-    ? (sortedCatalog.find((a) => a.id === actionsFor) ?? null)
-    : null;
+  const actionAgent = actionsFor ? (sortedCatalog.find((a) => a.id === actionsFor) ?? null) : null;
   const actionItems = actionAgent ? agentActions(actionAgent) : [];
 
   const smokeFailures =
@@ -978,9 +958,7 @@ export default function AgentsPage() {
                 {plan.discovered.length > 0 && (
                   <>
                     <span aria-hidden>·</span>
-                    <span>
-                      {tr("agents.discoveredCount", { count: plan.discovered.length })}
-                    </span>
+                    <span>{tr("agents.discoveredCount", { count: plan.discovered.length })}</span>
                     <button
                       type="button"
                       className="inline-flex items-center text-kin-blue-ink hover:underline max-md:min-h-11 md:min-h-6"
@@ -1116,7 +1094,9 @@ export default function AgentsPage() {
                 {usageError}
               </div>
             )}
-            <div className={`grid grid-cols-2 gap-3 sm:grid-cols-4 ${updating ? "opacity-60" : ""}`}>
+            <div
+              className={`grid grid-cols-2 gap-3 sm:grid-cols-4 ${updating ? "opacity-60" : ""}`}
+            >
               {[
                 { label: tr("usage.spend"), value: totals.empty ? "—" : formatCost(totals.cost) },
                 {
@@ -1254,21 +1234,68 @@ export default function AgentsPage() {
               <table className="w-full text-left text-strong md:min-w-table">
                 <thead className="bg-[var(--kin-fill)] text-caption uppercase tracking-label text-kin-muted">
                   <tr>
-                    <SortTh colKey="name" active={sortKey === "name"} dir={sortDir} onSort={toggleSort}>{tr("agents.colName")}</SortTh>
-                    <SortTh colKey="status" active={sortKey === "status"} dir={sortDir} onSort={toggleSort}>{tr("agents.colStatus")}</SortTh>
-                    <SortTh colKey="version" active={sortKey === "version"} dir={sortDir} onSort={toggleSort} className="hidden md:table-cell">
+                    <SortTh
+                      colKey="name"
+                      active={sortKey === "name"}
+                      dir={sortDir}
+                      onSort={toggleSort}
+                    >
+                      {tr("agents.colName")}
+                    </SortTh>
+                    <SortTh
+                      colKey="status"
+                      active={sortKey === "status"}
+                      dir={sortDir}
+                      onSort={toggleSort}
+                    >
+                      {tr("agents.colStatus")}
+                    </SortTh>
+                    <SortTh
+                      colKey="version"
+                      active={sortKey === "version"}
+                      dir={sortDir}
+                      onSort={toggleSort}
+                      className="hidden md:table-cell"
+                    >
                       {tr("agents.version")}
                     </SortTh>
-                    <SortTh colKey="auth" active={sortKey === "auth"} dir={sortDir} onSort={toggleSort} className="hidden md:table-cell">
+                    <SortTh
+                      colKey="auth"
+                      active={sortKey === "auth"}
+                      dir={sortDir}
+                      onSort={toggleSort}
+                      className="hidden md:table-cell"
+                    >
                       {tr("agents.colAuth")}
                     </SortTh>
-                    <SortTh colKey="cost" active={sortKey === "cost"} dir={sortDir} onSort={toggleSort} align="right" className="hidden md:table-cell">
+                    <SortTh
+                      colKey="cost"
+                      active={sortKey === "cost"}
+                      dir={sortDir}
+                      onSort={toggleSort}
+                      align="right"
+                      className="hidden md:table-cell"
+                    >
                       {tr("usage.spend")}
                     </SortTh>
-                    <SortTh colKey="tokens" active={sortKey === "tokens"} dir={sortDir} onSort={toggleSort} align="right" className="hidden md:table-cell">
+                    <SortTh
+                      colKey="tokens"
+                      active={sortKey === "tokens"}
+                      dir={sortDir}
+                      onSort={toggleSort}
+                      align="right"
+                      className="hidden md:table-cell"
+                    >
                       {tr("usage.tokens")}
                     </SortTh>
-                    <SortTh colKey="tasks" active={sortKey === "tasks"} dir={sortDir} onSort={toggleSort} align="right" className="hidden md:table-cell">
+                    <SortTh
+                      colKey="tasks"
+                      active={sortKey === "tasks"}
+                      dir={sortDir}
+                      onSort={toggleSort}
+                      align="right"
+                      className="hidden md:table-cell"
+                    >
                       {tr("usage.tasks")}
                     </SortTh>
                     {limitStatuses !== null && (
@@ -1345,9 +1372,7 @@ export default function AgentsPage() {
                               <span
                                 className="rounded-full bg-[var(--kin-fill)] px-2 py-0.5 text-micro font-semibold text-kin-secondary"
                                 title={
-                                  state === "generic"
-                                    ? tr("agentCatalog.genericHint")
-                                    : undefined
+                                  state === "generic" ? tr("agentCatalog.genericHint") : undefined
                                 }
                               >
                                 {kindBadge}
@@ -1684,9 +1709,7 @@ export default function AgentsPage() {
           }}
           title={actionAgent?.name}
           subtitle={
-            actionAgent
-              ? rowStatus(actionAgent, checkingFor(actionAgent)).label
-              : undefined
+            actionAgent ? rowStatus(actionAgent, checkingFor(actionAgent)).label : undefined
           }
           footer={
             <SheetSecondaryButton onClick={() => setActionsFor(null)}>
@@ -1860,8 +1883,9 @@ function RowMenu({
   useEffect(() => {
     if (!open) return;
     const menu = menuRef.current;
-    const items = () =>
-      [...(menu?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? [])];
+    const items = () => [
+      ...(menu?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? []),
+    ];
 
     items()[0]?.focus();
 

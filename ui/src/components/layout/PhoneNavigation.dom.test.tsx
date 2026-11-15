@@ -228,11 +228,7 @@ function pointer(node: Element, type: string, clientX: number, clientY = 20, tim
   fireEvent(node, event);
 }
 
-function tabSwipe(
-  start = 200,
-  end = 90,
-  target = document.querySelector("main") as HTMLElement,
-) {
+function tabSwipe(start = 200, end = 90, target = document.querySelector("main") as HTMLElement) {
   // The fling contract is instant velocity, so a synthetic move needs a
   // deliberate sample interval. Otherwise an unrelated async list render can
   // turn a 20px "not a swipe" sample into a fast fling on a loaded machine.

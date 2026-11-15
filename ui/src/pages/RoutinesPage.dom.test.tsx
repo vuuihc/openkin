@@ -55,7 +55,10 @@ vi.mock("../hooks/useSlowHint", () => ({ useSlowHint: () => false }));
 
 vi.mock("../api/client", () => ({
   ApiError: class ApiError extends Error {
-    constructor(public status: number, message: string) {
+    constructor(
+      public status: number,
+      message: string,
+    ) {
       super(message);
     }
   },
@@ -79,7 +82,11 @@ vi.mock("../store/appStore", () => ({
     return () => mocks.wsListeners.delete(listener);
   },
   useAppStore: (selector: (s: unknown) => unknown) =>
-    selector({ pushToast: mocks.pushToast, reconnectGen: mocks.reconnectGen, auth: { status: "ok" } }),
+    selector({
+      pushToast: mocks.pushToast,
+      reconnectGen: mocks.reconnectGen,
+      auth: { status: "ok" },
+    }),
 }));
 
 vi.mock("../i18n/react", () => {
@@ -443,16 +450,22 @@ describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
     vi.mocked(listRoutineRuns).mockImplementation(async (_limit, _device, cursor = "") => {
       if (cursor === "deep") return older.promise;
       if (cursor === "deeper")
-        return { routines: [], runs: [], has_more: false, runs_next_cursor: "", runs_has_more: false };
+        return {
+          routines: [],
+          runs: [],
+          has_more: false,
+          runs_next_cursor: "",
+          runs_has_more: false,
+        };
       return {
-            routines: [],
-            runs: Array.from({ length: 10 }, (_, index) =>
-              run(String(20 - index).padStart(3, "0"), "r1", `First page ${index}`),
-            ),
-            has_more: false,
-            runs_next_cursor: "deep",
-            runs_has_more: true,
-          };
+        routines: [],
+        runs: Array.from({ length: 10 }, (_, index) =>
+          run(String(20 - index).padStart(3, "0"), "r1", `First page ${index}`),
+        ),
+        has_more: false,
+        runs_next_cursor: "deep",
+        runs_has_more: true,
+      };
     });
     renderApp("/routines?device=self");
     await waitFor(() => expect(machineValue()).toBe("self"));
@@ -460,7 +473,9 @@ describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
     await waitFor(() => expect(listRoutineRuns).toHaveBeenCalledWith(10, "self"));
     await screen.findByText("First page 0");
     fireEvent.click(screen.getByRole("button", { name: "routines.historyLoadOlder" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "tree.loadingMore" })).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "tree.loadingMore" })).toBeTruthy(),
+    );
     await waitFor(() => expect(listRoutineRuns).toHaveBeenCalledWith(10, "self", "deep"));
     await act(async () => {
       older.resolve({
@@ -502,11 +517,21 @@ describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "routines.searchPlaceholder" }), {
       target: { value: "refresh" },
     });
-    await waitFor(() => expect(listRoutines).toHaveBeenCalledWith({ limit: 100, q: "refresh" }, "dev-a"));
+    await waitFor(() =>
+      expect(listRoutines).toHaveBeenCalledWith({ limit: 100, q: "refresh" }, "dev-a"),
+    );
     fireEvent.click(screen.getByRole("button", { name: "routines.loadMore" }));
-    expect(vi.mocked(listRoutines).mock.calls.some(([options]) => options?.cursor === "old" && options?.q === "refresh")).toBe(false);
+    expect(
+      vi
+        .mocked(listRoutines)
+        .mock.calls.some(([options]) => options?.cursor === "old" && options?.q === "refresh"),
+    ).toBe(false);
     await act(async () => {
-      refreshed.resolve({ routines: [routine("r2", "Refreshed routine")], next_cursor: "new", has_more: true });
+      refreshed.resolve({
+        routines: [routine("r2", "Refreshed routine")],
+        next_cursor: "new",
+        has_more: true,
+      });
       await refreshed.promise;
     });
     await screen.findByText("Refreshed routine");
@@ -531,7 +556,9 @@ describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
     fireEvent.click(screen.getByRole("button", { name: "routines.historyLoadOlder" }));
     await waitFor(() => expect(listRoutineRuns).toHaveBeenCalledWith(10, "dev-a", "old"));
     fireEvent.click(screen.getByRole("button", { name: "routines.markAllRead" }));
-    await waitFor(() => expect(screen.queryByRole("button", { name: "routines.markRead" })).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "routines.markRead" })).toBeNull(),
+    );
     await act(async () => {
       older.resolve({
         routines: [],
@@ -565,14 +592,22 @@ describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
         }
         return refreshed.promise;
       }
-      return { routines: [], runs: [], has_more: false, runs_next_cursor: "", runs_has_more: false };
+      return {
+        routines: [],
+        runs: [],
+        has_more: false,
+        runs_next_cursor: "",
+        runs_has_more: false,
+      };
     });
     renderApp("/routines?device=dev-a");
     await screen.findByText("Original feed");
     fireEvent.click(screen.getByRole("button", { name: "routines.historyLoadOlder" }));
     expect(screen.getByRole("button", { name: "tree.loadingMore" })).toBeTruthy();
     await waitFor(() =>
-      expect(vi.mocked(listRoutineRuns).mock.calls.some(([, , cursor]) => cursor === "old")).toBe(true),
+      expect(vi.mocked(listRoutineRuns).mock.calls.some(([, , cursor]) => cursor === "old")).toBe(
+        true,
+      ),
     );
     fireEvent.change(screen.getByRole("textbox", { name: "routines.searchPlaceholder" }), {
       target: { value: "refresh" },
@@ -593,12 +628,12 @@ describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
       older.reject(new Error("stale older failure"));
       await expect(older.promise).rejects.toThrow("stale older failure");
     });
-    await waitFor(() => expect(screen.getByRole("button", { name: "routines.historyLoadOlder" })).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "routines.historyLoadOlder" })).toBeTruthy(),
+    );
     expect(mocks.pushToast).not.toHaveBeenCalledWith("stale older failure", "error");
     fireEvent.click(screen.getByRole("button", { name: "routines.historyLoadOlder" }));
-    await waitFor(() =>
-      expect(listRoutineRuns).toHaveBeenLastCalledWith(10, "dev-a", "new"),
-    );
+    await waitFor(() => expect(listRoutineRuns).toHaveBeenLastCalledWith(10, "dev-a", "new"));
   });
 
   it("ignores a stale older routine rejection after a first-page refresh", async () => {
@@ -622,7 +657,9 @@ describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "routines.searchPlaceholder" }), {
       target: { value: "refresh" },
     });
-    await waitFor(() => expect(listRoutines).toHaveBeenCalledWith({ limit: 100, q: "refresh" }, "dev-a"));
+    await waitFor(() =>
+      expect(listRoutines).toHaveBeenCalledWith({ limit: 100, q: "refresh" }, "dev-a"),
+    );
     await act(async () => {
       refreshed.resolve({
         routines: [routine("r2", "Refreshed routine")],
@@ -636,7 +673,9 @@ describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
       older.reject(new Error("stale routine failure"));
       await expect(older.promise).rejects.toThrow("stale routine failure");
     });
-    await waitFor(() => expect(screen.getByRole("button", { name: "routines.loadMore" })).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "routines.loadMore" })).toBeTruthy(),
+    );
     expect(mocks.pushToast).not.toHaveBeenCalledWith("stale routine failure", "error");
     fireEvent.click(screen.getByRole("button", { name: "routines.loadMore" }));
     await waitFor(() =>
@@ -666,14 +705,22 @@ describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
         }
         return refreshed.promise;
       }
-      return { routines: [], runs: [], has_more: false, runs_next_cursor: "", runs_has_more: false };
+      return {
+        routines: [],
+        runs: [],
+        has_more: false,
+        runs_next_cursor: "",
+        runs_has_more: false,
+      };
     });
     renderApp("/routines?device=dev-a");
     await screen.findByText("Original feed");
     fireEvent.click(screen.getByRole("button", { name: "routines.historyLoadOlder" }));
     expect(screen.getByRole("button", { name: "tree.loadingMore" })).toBeTruthy();
     await waitFor(() =>
-      expect(vi.mocked(listRoutineRuns).mock.calls.some(([, , cursor]) => cursor === "old")).toBe(true),
+      expect(vi.mocked(listRoutineRuns).mock.calls.some(([, , cursor]) => cursor === "old")).toBe(
+        true,
+      ),
     );
     fireEvent.change(screen.getByRole("textbox", { name: "routines.searchPlaceholder" }), {
       target: { value: "refresh" },
@@ -701,11 +748,11 @@ describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
     });
     await screen.findByText("Refreshed feed");
     expect(screen.queryByText("Stale older feed")).toBeNull();
-    await waitFor(() => expect(screen.getByRole("button", { name: "routines.historyLoadOlder" })).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: "routines.historyLoadOlder" }));
     await waitFor(() =>
-      expect(listRoutineRuns).toHaveBeenLastCalledWith(10, "dev-a", "new"),
+      expect(screen.getByRole("button", { name: "routines.historyLoadOlder" })).toBeTruthy(),
     );
+    fireEvent.click(screen.getByRole("button", { name: "routines.historyLoadOlder" }));
+    await waitFor(() => expect(listRoutineRuns).toHaveBeenLastCalledWith(10, "dev-a", "new"));
   });
 
   it("rejects an older feed page started during a refresh after the first page lands", async () => {
@@ -726,7 +773,13 @@ describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
           };
         return refreshed.promise;
       }
-      return { routines: [], runs: [], has_more: false, runs_next_cursor: "", runs_has_more: false };
+      return {
+        routines: [],
+        runs: [],
+        has_more: false,
+        runs_next_cursor: "",
+        runs_has_more: false,
+      };
     });
     renderApp("/routines?device=dev-a");
     await screen.findByText("Original feed");
@@ -758,7 +811,9 @@ describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
       await older.promise;
     });
     expect(screen.queryByText("Stale older feed")).toBeNull();
-    await waitFor(() => expect(screen.getByRole("button", { name: "routines.historyLoadOlder" })).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "routines.historyLoadOlder" })).toBeTruthy(),
+    );
     fireEvent.click(screen.getByRole("button", { name: "routines.historyLoadOlder" }));
     await waitFor(() => expect(listRoutineRuns).toHaveBeenLastCalledWith(10, "dev-a", "new"));
   });
@@ -806,7 +861,9 @@ describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
       older.reject(new Error("stale in-flight older failure"));
       await expect(older.promise).rejects.toThrow("stale in-flight older failure");
     });
-    await waitFor(() => expect(screen.getByRole("button", { name: "routines.historyLoadOlder" })).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "routines.historyLoadOlder" })).toBeTruthy(),
+    );
     expect(mocks.pushToast).not.toHaveBeenCalledWith("stale in-flight older failure", "error");
   });
 
@@ -827,11 +884,15 @@ describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
     renderApp("/routines?device=dev-a");
     await screen.findByText("Original routine");
     fireEvent.click(screen.getByRole("button", { name: "routines.loadMore" }));
-    await waitFor(() => expect(listRoutines).toHaveBeenCalledWith({ limit: 100, cursor: "old" }, "dev-a"));
+    await waitFor(() =>
+      expect(listRoutines).toHaveBeenCalledWith({ limit: 100, cursor: "old" }, "dev-a"),
+    );
     fireEvent.change(screen.getByRole("textbox", { name: "routines.searchPlaceholder" }), {
       target: { value: "refresh" },
     });
-    await waitFor(() => expect(listRoutines).toHaveBeenCalledWith({ limit: 100, q: "refresh" }, "dev-a"));
+    await waitFor(() =>
+      expect(listRoutines).toHaveBeenCalledWith({ limit: 100, q: "refresh" }, "dev-a"),
+    );
     await act(async () => {
       refreshed.resolve({
         routines: [routine("r2", "Refreshed routine")],
@@ -850,7 +911,9 @@ describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
       await older.promise;
     });
     expect(screen.queryByText("Stale older routine")).toBeNull();
-    await waitFor(() => expect(screen.getByRole("button", { name: "routines.loadMore" })).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "routines.loadMore" })).toBeTruthy(),
+    );
     fireEvent.click(screen.getByRole("button", { name: "routines.loadMore" }));
     await waitFor(() =>
       expect(listRoutines).toHaveBeenLastCalledWith(
@@ -893,13 +956,20 @@ describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
       refreshed.reject(error);
       await expect(refreshed.promise).rejects.toThrow("expired");
     });
-    await waitFor(() => expect(screen.getByRole("button", { name: "routines.historyLoadOlder" })).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "routines.historyLoadOlder" })).toBeTruthy(),
+    );
   });
 
   it("keeps an older routine history rejection and cursor behind a reopened first page", async () => {
     const older = deferred<Awaited<ReturnType<typeof listRoutineRuns>>>();
-    const firstPages: Array<ReturnType<typeof deferred<Awaited<ReturnType<typeof listRoutineRuns>>>>> = [];
-    vi.mocked(listRoutines).mockResolvedValue({ routines: [routine("r1", "History")], has_more: false });
+    const firstPages: Array<
+      ReturnType<typeof deferred<Awaited<ReturnType<typeof listRoutineRuns>>>>
+    > = [];
+    vi.mocked(listRoutines).mockResolvedValue({
+      routines: [routine("r1", "History")],
+      has_more: false,
+    });
     vi.mocked(listRoutineRuns).mockImplementation(async (_limit, _device, cursor = "", id = "") => {
       if (id !== "r1") return { routines: [], runs: [], has_more: false };
       if (cursor === "old") return older.promise;
@@ -908,7 +978,13 @@ describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
         firstPages.push(page);
         return page.promise;
       }
-      return { routines: [], runs: [], has_more: false, runs_next_cursor: "", runs_has_more: false };
+      return {
+        routines: [],
+        runs: [],
+        has_more: false,
+        runs_next_cursor: "",
+        runs_has_more: false,
+      };
     });
     renderApp("/routines?device=dev-a");
     fireEvent.click(await screen.findByRole("button", { name: "routines.showRuns" }));
@@ -946,11 +1022,11 @@ describe("KIN-ROUTINE-001 bounded reads and complete editing", () => {
       await expect(older.promise).rejects.toThrow("stale history failure");
     });
     expect(mocks.pushToast).not.toHaveBeenCalledWith("stale history failure", "error");
-    await waitFor(() => expect(within(panel).getByRole("button", { name: "routines.historyLoadOlder" })).toBeTruthy());
-    fireEvent.click(within(panel).getByRole("button", { name: "routines.historyLoadOlder" }));
     await waitFor(() =>
-      expect(listRoutineRuns).toHaveBeenLastCalledWith(10, "dev-a", "new", "r1"),
+      expect(within(panel).getByRole("button", { name: "routines.historyLoadOlder" })).toBeTruthy(),
     );
+    fireEvent.click(within(panel).getByRole("button", { name: "routines.historyLoadOlder" }));
+    await waitFor(() => expect(listRoutineRuns).toHaveBeenLastCalledWith(10, "dev-a", "new", "r1"));
   });
 
   it("pages one remote routine's own history below the global feed", async () => {
