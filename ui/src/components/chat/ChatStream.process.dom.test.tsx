@@ -131,4 +131,30 @@ describe("process text outside tool cards", () => {
     // The final answer stays the visible conclusion beside the folded summary.
     expect(screen.getByText("The parser is fixed.")).toBeTruthy();
   });
+
+  it("keeps an answered round folded while a follow-up send is pending", () => {
+    const answered = [
+      userMessage(1, "please look at the parser"),
+      reasoning(2, "Inspecting the parser."),
+      toolUse(3, "call-1", "bash", { command: "ls" }),
+      toolResult(4, "call-1", "bash", "parser.ts"),
+      summary(5, "The parser is fixed."),
+    ];
+    const { container } = render(
+      <ChatStream
+        events={answered}
+        hostSpeaker="kin"
+        loading
+        pendingUserMessages={[{ key: "pending-1", text: "now check the lexer" }]}
+      />,
+    );
+
+    // The next ask is already in the column...
+    expect(screen.getByText("now check the lexer")).toBeTruthy();
+    // ...and the round it closed keeps its settled shape: the note stays behind
+    // the summary card instead of unfolding as a live row. A send in flight is
+    // not a reason to rewrite history the reader already read.
+    expect(screen.getByText("The parser is fixed.")).toBeTruthy();
+    expect(container.querySelector('[data-message-key="note-2"]')).toBeNull();
+  });
 });

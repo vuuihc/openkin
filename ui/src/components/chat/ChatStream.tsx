@@ -185,25 +185,26 @@ export default function ChatStream({
   // Rebuild when locale changes (tool summaries use t()).
   const items = useMemo(() => {
     const history = buildChatItems(events, hostSpeaker, hostModel, !loading);
+    // A send the composer handed over but the daemon has not echoed yet. The
+    // message has no event and no seq, but it does have a place — after
+    // everything the transcript knows — and that place is a round boundary:
+    // the reader has asked the next question, so the round above it is
+    // history. Passing it into the projection (rather than appending it
+    // afterwards) is what keeps that round folded during the send; without it
+    // the live view sees the previous, already answered round as the latest
+    // one and unfolds its notes until the echo arrives.
+    const pending = (pendingUserMessages ?? []).map((message): ChatItem => ({
+      kind: "message",
+      key: message.key,
+      speaker: "user",
+      text: message.text,
+      partial: false,
+    }));
     // A running turn reads as process text in the column with only its tools
     // behind folds; once it settles the whole round folds back into one
     // summary. Both shapes come from the same stored projection.
-    const built = loading ? projectLiveProcess(history) : mergeProcessRuns(history);
-    if (!pendingUserMessages || pendingUserMessages.length === 0) return built;
-    // Appended after the projection rather than passed into it: these messages
-    // have no event, so they start no round and carry no seq. What they do have
-    // is a place — after everything the transcript knows — which is exactly
-    // where the waiting row looks for the turn it belongs to.
-    return [
-      ...built,
-      ...pendingUserMessages.map((message): ChatItem => ({
-        kind: "message",
-        key: message.key,
-        speaker: "user",
-        text: message.text,
-        partial: false,
-      })),
-    ];
+    if (loading) return projectLiveProcess([...history, ...pending]);
+    return [...mergeProcessRuns(history), ...pending];
   }, [events, locale, hostSpeaker, hostModel, loading, pendingUserMessages]);
   const turns = useMemo(
     () => groupIntoTurns(items, hostSpeaker, normalizeModel(hostModel)),

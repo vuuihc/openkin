@@ -2112,6 +2112,64 @@ describe("projectLiveProcess", () => {
       note: { text: "Second look." },
     });
   });
+
+  it("keeps the host column identity when a worker note opens the live round", () => {
+    const events = [
+      ev(1, "message", {
+        role: "user",
+        content: [{ type: "text", text: "delegate the check" }],
+      }),
+      ev(2, "message", {
+        role: "reasoning",
+        phase: "progress",
+        speaker: "worker",
+        model: "worker-model",
+        text: "Worker checking.",
+        partial: false,
+        visibility: { user: true, task: true },
+      }),
+      ev(3, "tool_use", {
+        speaker: "kin",
+        tool_use_id: "call-1",
+        name: "bash",
+        input: { command: "ls" },
+        visibility: { user: true, task: true },
+      }),
+      ev(4, "tool_result", {
+        speaker: "kin",
+        tool_use_id: "call-1",
+        name: "bash",
+        output: "ChatStream.tsx",
+        ok: true,
+        visibility: { user: true, task: true },
+      }),
+      ev(5, "message", {
+        role: "assistant",
+        phase: "summary",
+        speaker: "kin",
+        text: "Delegated and done.",
+        partial: false,
+        visibility: { user: true, task: true },
+      }),
+    ];
+
+    const live = projectLiveProcess(buildChatItems(events, "kin", "host-model"));
+
+    // The row still says whose note it is — attribution lives on the note.
+    const note = live.find((item) => item.kind === "process_note");
+    expect(note).toMatchObject({
+      kind: "process_note",
+      speaker: "kin",
+      note: { speaker: "worker", model: "worker-model", text: "Worker checking." },
+    });
+
+    // The column the note opens stays the host's, for the host's tool and
+    // answer that follow it.
+    const agentTurn = groupIntoTurns(live, "kin", "host-model").find(
+      (turn) => turn.kind === "agent",
+    );
+    expect(agentTurn).toMatchObject({ speaker: "kin", model: "host-model" });
+  });
 });
 
 describe("shouldShowGenericThinking", () => {

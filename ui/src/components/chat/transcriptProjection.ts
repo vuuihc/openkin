@@ -125,6 +125,12 @@ export type ProgressItem = {
 export type ProcessNoteItem = {
   kind: "process_note";
   key: string;
+  /**
+   * The identity of the column this row is drawn in — the host's, never the
+   * note author's. `groupIntoTurns` reads these two fields to name the whole
+   * agent column, so a worker note that leads a round must not rename the
+   * host's tools and answers after it.
+   */
   speaker: string;
   model?: string;
   /** The note exactly as the projection built it, keys and source included. */
@@ -1112,8 +1118,13 @@ function splitLiveProcess(items: ChatItem[]): ChatItem[] {
       out.push({
         kind: "process_note",
         key: step.key,
-        speaker: step.speaker,
-        model: step.model,
+        // The column belongs to the host even when it delegated the note to a
+        // worker: groupIntoTurns reads these fields for every item after it in
+        // the column, so copying the note author here would hand the host's
+        // subsequent tools and answers to the worker's avatar. The note keeps
+        // its own speaker and model, which is what the row's attribution shows.
+        speaker: item.speaker,
+        model: item.model,
         note: step,
       });
     }
