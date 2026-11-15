@@ -226,6 +226,20 @@ def level_for(total: float, kimi_max: float, stop: float) -> str:
     return "ok"
 
 
+def apply_policy(data: dict, kimi_max: float, stop: float, kimi_day: float) -> dict:
+    """Re-derive the cap-dependent fields from the current environment.
+
+    The spend read is cached, but caps are policy: a cached snapshot must never pin the
+    thresholds it happened to be computed with.
+    """
+    out = dict(data)
+    out["kimi_max"] = kimi_max
+    out["kimi_day_max"] = kimi_day
+    out["stop_workers"] = stop
+    out["level"] = level_for(float(out.get("cny") or 0), kimi_max, stop)
+    return out
+
+
 def log_line(state: Path, msg: str) -> None:
     state.mkdir(parents=True, exist_ok=True)
     path = state / "volc-budget.log"
@@ -274,7 +288,7 @@ def compute(refresh: bool = False) -> dict:
     cache_secs = int(os.environ.get("RSI_VOLC_CACHE_SECS") or DEFAULT_CACHE_SECS)
     cached = load_cache(state, cache_secs, today, refresh)
     if cached:
-        return cached
+        return apply_policy(cached, kimi_max, stop, kimi_day)
 
     source = "usage.jsonl"
     rows = read_jsonl(ledger_path(), start)
@@ -282,17 +296,12 @@ def compute(refresh: bool = False) -> dict:
         source = "magpie-csv"
         rows = read_csv(start)
     agg = aggregate(rows)
-    lvl = level_for(agg["total"], kimi_max, stop)
     data = {
         "computed_at": now_sgt().isoformat(timespec="seconds"),
         "day": today,
         "timezone": "Asia/Singapore",
         "cny": round(agg["total"], 2),
-        "level": lvl,
-        "kimi_max": kimi_max,
-        "kimi_day_max": kimi_day,
         "kimi_cny": round(sum(v["cny"] for k, v in agg["by"].items() if k.startswith("kimi")), 2),
-        "stop_workers": stop,
         "calls": agg["calls"],
         "unpriced_calls": agg["unpriced_calls"],
         "source": source,
@@ -301,7 +310,7 @@ def compute(refresh: bool = False) -> dict:
             for k, v in sorted(agg["by"].items())
         },
     }
-    return data
+    return apply_policy(data, kimi_max, stop, kimi_day)
 
 
 def apply(data: dict) -> dict:
@@ -391,6 +400,51 @@ def self_test() -> int:
     agg = aggregate(rows)
     assert abs(agg["total"] - 17.0) < 1e-9, agg
     assert abs(sum(v["cny"] for k, v in agg["by"].items() if k.startswith("kimi")) - 13.0) < 1e-9
+    # A fresh spend cache must not preserve the caps it was computed with: spend may be cached,
+    # but the caps are policy and must follow the current environment (M3 regression).
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        st = Path(td)
+        (st / "volc-budget.json").write_text(
+            json.dumps(
+                dict(
+                    computed_at=now_sgt().isoformat(timespec="seconds"),
+                    day=now_sgt().strftime("%Y-%m-%d"),
+                    timezone="Asia/Singapore",
+                    cny=100.0,
+                    level="ok",
+                    kimi_max=80.0,
+                    kimi_day_max=80.0,
+                    kimi_cny=100.0,
+                    stop_workers=560.0,
+                    calls=1,
+                    unpriced_calls=0,
+                    source="usage.jsonl",
+                    by_model={},
+                )
+            ),
+            encoding="utf-8",
+        )
+        saved = {k: os.environ.get(k) for k in ("RSI_STATE", "RSI_VOLC_KIMI_MAX", "RSI_VOLC_KIMI_DAY_MAX")}
+        os.environ["RSI_STATE"] = td
+        os.environ["RSI_VOLC_KIMI_MAX"] = "20"
+        os.environ["RSI_VOLC_KIMI_DAY_MAX"] = "10"
+        try:
+            d = compute()
+            assert d["cny"] == 100.0, d  # spend still served from the cache
+            assert d["kimi_max"] == 20.0, d  # caps and level re-derived from the environment
+            assert d["kimi_day_max"] == 10.0, d
+            assert d["level"] == "no-kimi", d
+            exported = export_sh(d)
+            assert "RSI_VOLC_KIMI_MAX=20.0" in exported, exported
+            assert "RSI_VOLC_KIMI_DAY_MAX=10.0" in exported, exported
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
     print("volc-budget self-test ok")
     return 0
 
