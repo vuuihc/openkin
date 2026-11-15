@@ -97,7 +97,15 @@ while IFS=$'\t' read -r -u 3 N SLUG TITLE; do
     say "#$N $SLUG: gate on ${SHA:0:8} ($SIZE lines)"
     GL="$RUNS/gate-merge-$SLUG-$(date +%H%M%S).log"
     gate_lock || { say "#$N: gate lock timeout"; continue; }
+    # Workers often build before their last edit: regenerate web/dist/index.html (the only tracked build output) so a stale
+    # bundle is never a reason to bounce a PR. Pushed so CI sees the same file.
+    if echo "$CH" | grep -q '^ui/' && [ -d "$WT/ui/node_modules" ]; then
+      ( cd "$WT/ui" && npm run build >/dev/null 2>&1 ) && [ -n "$($GIT -C "$WT" status --porcelain -- web/dist/index.html)" ] \
+        && $GIT -C "$WT" commit -q -m "chore(web): rebuild dist" -- web/dist/index.html && $GIT -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null
+      SHA="$($GIT -C "$WT" rev-parse HEAD)"
+    fi
     ( cd "$WT" && bash "$RSI_DIR/runtime/gate.sh" "$WT" ) > "$GL" 2>&1; GRC=$?; gate_unlock
+    $GIT -C "$WT" checkout -q -- . 2>/dev/null   # drop build leftovers in our own rsi worktree (tracked files only)
     if [ $GRC -ne 0 ] || ! grep -q '^GATE_RESULT=PASS' "$GL"; then
       say "#$N $SLUG: gate FAIL: $(grep '^GATE_RESULT' "$GL")"; sendback "$SLUG" "$ITEM" "gate failed: $(grep '^GATE_RESULT' "$GL" | head -1)" "$GL"
       scorecard_row "$ITEM $SLUG" "$M_WORKER" "-" "gate FAIL ($(grep '^GATE_RESULT' "$GL" | head -1))" "[#$N](https://github.com/$GH_REPO/pull/$N)" "patched" "see $GL"; continue
