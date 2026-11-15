@@ -2,6 +2,7 @@
 # gate.sh <worktree>  — the merge gate. Prints GATE_RESULT=PASS|FAIL with the reasons.
 set -u
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
+source "$(cd "$(dirname "$0")" && pwd)/node-stamp.sh"
 WT="$1"; cd "$WT" || { echo "GATE_RESULT=FAIL no worktree"; exit 1; }
 fail=0; why=""
 step() { # name cmd...
@@ -58,6 +59,10 @@ prettier_ui_changed() {
 }
 
 mkdir -p "$RUNS"
+# Repair ui/node_modules before the first console compile, not after it. A bare directory-existence
+# test was true for a symlink into another worktree and for an install older than its own lockfile,
+# so the repair never ran and tsc/vitest/build failed on a tree that was not the PR's fault.
+ui_node_stamp() { node_stamp_ensure ui; }
 $GIT fetch -q origin main 2>/dev/null
 changed="$($GIT diff --name-only origin/main...HEAD)"
 echo "changed files: $(echo "$changed" | grep -c .)"
@@ -65,9 +70,9 @@ lines="$($GIT diff --shortstat origin/main...HEAD -- . ':!web/dist/index.html' '
 echo "diff size: $lines"
 echo "$changed" | grep -qE '^(web/dist/assets/|\.env|.*secret)' && { echo "FAIL: forbidden path in diff"; fail=1; why="$why forbidden-path"; }
 [ -n "$($GIT status --porcelain)" ] && { echo "FAIL: working tree not clean (commit or discard)"; $GIT status --short | head; fail=1; why="$why dirty-tree"; }
+echo "$changed" | grep -q '^ui/' && step node-stamp ui_node_stamp
 [ -x scripts/check.sh ] && step check ./scripts/check.sh
 if echo "$changed" | grep -q '^ui/'; then
-  [ -d ui/node_modules ] || step npm-ci bash -c 'cd ui && npm ci'
   step typecheck bash -c 'cd ui && npm run typecheck'
   step lint bash -c 'cd ui && npm run lint'
   step test bash -c 'cd ui && npm test'
