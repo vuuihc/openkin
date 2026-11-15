@@ -19,7 +19,11 @@ import { FONT_SIZE, LEADING } from "./src/design/type.ts";
  * Two ladders are the exception, each for its own reason. Radius is Tailwind's
  * own scale, not ours — S3's rule was no new numbers and no new names, so the
  * six steps the tree uses are a *subset* of the defaults, checked by name in the
- * guard rather than restated here. The container widths are `extend`ed onto
+ * guard rather than restated here. One step is pinned: Tailwind 4 moved the
+ * default `rounded-sm` from 2px to 4px, and the four call sites (an inline
+ * highlight, the cwd picker's focusable path, two heatmap cells) were drawn at
+ * 2px. The pin below keeps the shipped geometry rather than accepting a silent
+ * redesign. The container widths are `extend`ed onto
  * Tailwind's `width`/`maxWidth`/`minWidth`, because Tailwind's own scale already
  * covers the control chrome (`w-5` is a 20px icon box) and the ladder S7 wrote is
  * one name per *container*, not a ruler — the comment on `width` below says
@@ -145,6 +149,11 @@ export default {
       },
     },
     extend: {
+      // Tailwind 4's default `sm` is 4px; every step above it is unchanged
+      // from the scale this tree was drawn on. See the note on radius above.
+      borderRadius: {
+        sm: "0.125rem",
+      },
       fontFamily: {
         sans: [
           "-apple-system",
