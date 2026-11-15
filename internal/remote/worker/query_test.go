@@ -1,10 +1,62 @@
 package worker
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 )
+
+func TestRoutineRequestPromptBoundaryLeavesRoomForJSONAndOneFrame(t *testing.T) {
+	body, err := json.Marshal(map[string]string{"prompt": strings.Repeat("x", 128<<10)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(body) > MaxRoutineBody {
+		t.Fatalf("%d-byte prompt plus its field names exceeds %d-byte body", len(body), MaxRoutineBody)
+	}
+	params, err := json.Marshal(RoutinesParams{Method: "PATCH", Path: "/api/routines/example", Body: body})
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame, err := NewFrame("query", Query{ID: "q-1", Method: QueryRoutines, Params: params})
+	if err != nil {
+		t.Fatalf("boundary prompt cannot be framed: %v / %d params bytes", err, len(params))
+	}
+	encoded, err := json.Marshal(frame)
+	if err != nil || len(encoded) > MaxFrameBytes {
+		t.Fatalf("boundary prompt exceeds a wire frame: %v / %d bytes", err, len(encoded))
+	}
+}
+
+func TestRoutineRequestAtTheBodyBoundFitsTheParamsAndFrame(t *testing.T) {
+	// This is transport framing, not a hypothetical prompt's escaping cost. The
+	// []byte body has already been encoded by the caller; JSON stores its base64
+	// here. Keep the route at its own maximum to include the other bounded field.
+	request := RoutinesParams{
+		Method: "PATCH",
+		Path:   "/api/routines/" + strings.Repeat("q", MaxRoutinePath-len("/api/routines/")),
+		Body:   make([]byte, MaxRoutineBody),
+	}
+	if err := request.Validate(); err != nil {
+		t.Fatalf("a request at the documented bounds was refused: %v", err)
+	}
+	params, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(params) > MaxQueryParams {
+		t.Fatalf("the request bound cannot fit its params: %d > %d", len(params), MaxQueryParams)
+	}
+	frame, err := NewFrame("query", Query{ID: "q-1", Method: QueryRoutines, Params: params})
+	if err != nil {
+		t.Fatalf("the request bound cannot be framed: %v", err)
+	}
+	encoded, err := json.Marshal(frame)
+	if err != nil || len(encoded) > MaxFrameBytes {
+		t.Fatalf("the request bound exceeds a wire frame: %v / %d bytes", err, len(encoded))
+	}
+}
 
 // A question's envelope is checked here; which questions exist is the answering
 // machine's business.
