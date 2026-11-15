@@ -19,6 +19,7 @@ import { describe, expect, it } from "vitest";
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 const SOURCE = readFileSync(join(UI, "src/components/sessions/SessionList.tsx"), "utf8");
+const ROW = readFileSync(join(UI, "src/components/sessions/SessionRow.tsx"), "utf8");
 
 describe("the phone list's delete wiring", () => {
   it("delegates the confirmation and the requests to the shared hook", () => {
@@ -69,7 +70,7 @@ describe("the phone list's delete wiring", () => {
     expect(SOURCE).toContain("selectionLocked={selectionBusy}");
     // The tap path specifically: the keyboard path has the same guard, so a
     // bare substring would still pass if only one of them kept it.
-    expect(SOURCE).toContain(
+    expect(ROW).toContain(
       "if (rowSelectable(row, scope) && !selectionLocked) onToggleSelect();",
     );
   });

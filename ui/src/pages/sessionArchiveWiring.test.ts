@@ -21,6 +21,7 @@ import { describe, expect, it } from "vitest";
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 const SOURCE = readFileSync(join(UI, "src/components/sessions/SessionList.tsx"), "utf8");
+const ROW = readFileSync(join(UI, "src/components/sessions/SessionRow.tsx"), "utf8");
 const TASK_DETAIL = readFileSync(join(UI, "src/pages/TaskDetailPage.tsx"), "utf8");
 
 describe("the phone list's archive wiring", () => {
@@ -74,7 +75,7 @@ describe("the phone list's archive wiring", () => {
     // The strip is chosen from the row's own flag first: a conversation put
     // away on its own uncovers restore + delete even when its project is
     // still filed.
-    expect(SOURCE).toContain("const mode: SessionRowActionMode | null = row.task.archived_at");
+    expect(ROW).toContain("const mode: SessionRowActionMode | null = row.task.archived_at");
   });
 
   it("pages each feed from its own tail", () => {
@@ -156,7 +157,7 @@ describe("the phone list's archive wiring", () => {
     // rule, and the row's checkbox, tap, keyboard and select-all all read it.
     expect(SOURCE).toContain("if (!rowSelectable(row, scope)) return;");
     expect(SOURCE).toContain("onClick={scope === \"archived\" ? restoreSelected : archiveSelected}");
-    expect(SOURCE).toContain("selectionMode && rowSelectable(row, scope) ? (");
+    expect(ROW).toContain("selectionMode && rowSelectable(row, scope) ? (");
     expect(SOURCE).toContain("new Set(selectableTaskIds(listed, scope))");
     expect(SOURCE).toContain("const present = new Set(selectableTaskIds(listed, scope));");
     expect(SOURCE).toContain("const selectableCount = selectableTaskIds(listed, scope).length;");
