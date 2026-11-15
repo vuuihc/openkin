@@ -99,21 +99,43 @@ sync_main() { # -> 0 ok (pushed if changed), 1 conflict (sendback written), 2 tr
   $GIT -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null || { say "#$N: push after merge-main failed"; return 2; }
   return 0
 }
+check_buckets() { # gh's `pr checks --json bucket` on stdin -> space-separated buckets
+  python3 -c 'import json,sys
+try: print(" ".join(c.get("bucket","") for c in json.load(sys.stdin)))
+except Exception: pass' 2>/dev/null
+}
 ci_state() { # prints green|pending|fail ; waits (bounded) while pending
-  local tries=0 out
-  while [ $tries -lt 6 ]; do out="$($GH pr checks "$N" --repo "$GH_REPO" 2>&1)"; echo "$out" | grep -qi 'no checks reported' || break; tries=$((tries+1)); sleep 30; done
-  if echo "$out" | grep -qE '\bpending\b|\bqueued\b|in_progress'; then
-    say "#$N $SLUG: CI pending, waiting up to 25 min" >&2; with_timeout 1500 $GH pr checks "$N" --repo "$GH_REPO" --watch --interval 30 >/dev/null 2>&1
-    out="$($GH pr checks "$N" --repo "$GH_REPO" 2>&1)"
-  fi
+  local tries=0 out buckets
+  while [ $tries -lt 6 ]; do
+    out="$($GH pr checks "$N" --repo "$GH_REPO" --json bucket 2>&1)"
+    echo "$out" | grep -qi 'no checks reported' && break
+    [ -n "$(printf '%s' "$out" | check_buckets)" ] && break
+    tries=$((tries+1)); sleep 30
+  done
   printf '%s\n' "$out" > "$STATE/merge/$SLUG.ci.txt"
-  echo "$out" | grep -qE '\bpending\b|\bqueued\b|in_progress' && { echo pending; return; }
+  # No checks keeps the old behaviour: the gate and review already ran.
+  echo "$out" | grep -qi 'no checks reported' && { echo green; return; }
+  buckets="$(printf '%s' "$out" | check_buckets)"
+  case " $buckets " in
+    *" pending "*)
+      say "#$N $SLUG: CI pending, waiting up to 25 min" >&2
+      with_timeout 1500 $GH pr checks "$N" --repo "$GH_REPO" --watch --interval 30 >/dev/null 2>&1
+      out="$($GH pr checks "$N" --repo "$GH_REPO" --json bucket 2>&1)"
+      printf '%s\n' "$out" > "$STATE/merge/$SLUG.ci.txt"
+      buckets="$(printf '%s' "$out" | check_buckets)" ;;
+  esac
   # cancel-in-progress leaves a cancelled check next to the replacement run.
-  # That must not fail the PR: a real failure is "fail"; a cancelled run with
-  # no replacement yet is pending (retry next cycle).
-  echo "$out" | grep -qE '\bfail\b' && { echo fail; return; }
-  echo "$out" | grep -qiE '\bcancel' && { echo pending; return; }
-  echo green
+  # Ignore cancelled entries whenever a real verdict exists: a cancelled run
+  # next to a passing replacement is green, not pending forever. A cancelled
+  # run with no replacement yet is still pending (retry next cycle), and a
+  # real failure is always fail.
+  case " $buckets " in
+    *" fail "*) echo fail ;;
+    *" pending "*) echo pending ;;
+    *" pass "*) echo green ;;
+    *" cancel "*) echo pending ;;
+    *) echo green ;;
+  esac
 }
 
 $GIT -C "$RSI_CTRL" fetch -q origin main "$BR" 2>/dev/null
