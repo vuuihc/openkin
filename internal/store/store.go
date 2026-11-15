@@ -316,6 +316,10 @@ type ListTasksOpts struct {
 	RoutineID string
 	// RoutineUnreadOnly keeps only unread routine runs (implies routine runs).
 	RoutineUnreadOnly bool
+	// Summary is only for a routine-run feed. Prompt, dispatch and workspace
+	// snapshots stay in the detail; agent / cwd / model / session_ref remain
+	// available for the editor's session-continuation comparison.
+	Summary bool
 	// Scope is what the caller is allowed to see. The zero value matches
 	// nothing, so every request-facing caller must set it; see TaskScope.
 	Scope TaskScope
@@ -471,6 +475,10 @@ func scanTask(scanner interface {
 
 const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, session_ref_device_id, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, workspace_repo, project_id, routine_id, routine_noteworthy, routine_tldr, routine_unread, workspace_policy, current_workspace_id, event_epoch, dispatch, executing_device_id, workspace_anchor_id, hub_seq, owner_user_id, archived_at`
 
+// Feed cards link to the owning conversation for the full task. The summary
+// column order must match taskColumns; omit text and dispatch, not ids or status.
+const taskSummaryColumns = `id, title, agent, cwd, '' AS prompt, model, session_ref, session_ref_device_id, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, '' AS workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, workspace_repo, project_id, routine_id, routine_noteworthy, routine_tldr, routine_unread, workspace_policy, current_workspace_id, event_epoch, NULL AS dispatch, executing_device_id, workspace_anchor_id, hub_seq, owner_user_id, archived_at`
+
 // escapeLike escapes \, %, and _ so user input is treated as a literal substring.
 func escapeLike(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
@@ -490,9 +498,13 @@ func (s *Store) ListTasks(ctx context.Context, opts ListTasksOpts) ([]Task, erro
 		limit = 200
 	}
 
+	columns := taskColumns
+	if opts.Summary {
+		columns = taskSummaryColumns
+	}
 	var b strings.Builder
 	args := make([]any, 0, 4)
-	b.WriteString(`SELECT ` + taskColumns + ` FROM tasks WHERE 1=1`)
+	b.WriteString(`SELECT ` + columns + ` FROM tasks WHERE 1=1`)
 	scopeCond, scopeArgs := opts.Scope.predicate("")
 	b.WriteString(` AND ` + scopeCond)
 	args = append(args, scopeArgs...)

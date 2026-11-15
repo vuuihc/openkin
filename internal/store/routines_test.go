@@ -8,6 +8,37 @@ import (
 	"time"
 )
 
+func TestRoutineSummaryReadOmitsTextOnlyInProjection(t *testing.T) {
+	s, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	r := Routine{ID: "r-summary", Cwd: "/work/alpha", Agent: "kin", Prompt: "persistent original", LastError: "previous failure detail", IntervalSecs: 60, NextDueAt: 12345, Enabled: true, Title: "Sweep", ConversationMode: ConversationFresh, Model: "model-test"}
+	if err := s.InsertRoutine(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	page, err := s.ListRoutinesPage(context.Background(), ListRoutinesOpts{Summary: true})
+	if err != nil || len(page.Routines) != 1 {
+		t.Fatalf("summary: %+v, %v", page, err)
+	}
+	got := page.Routines[0]
+	if got.Prompt != "" || got.LastError != r.LastError {
+		t.Fatalf("summary carried the prompt or hid a failure: %+v", got)
+	}
+	if got.Cwd != r.Cwd || got.NextDueAt != r.NextDueAt || !got.Enabled || got.ConversationMode != r.ConversationMode || got.Model != r.Model {
+		t.Fatalf("summary lost scheduling state: %+v", got)
+	}
+	full, err := s.GetRoutine(context.Background(), r.ID)
+	if err != nil || full.Prompt != r.Prompt || full.LastError != r.LastError {
+		t.Fatalf("detail changed durable text: %+v, %v", full, err)
+	}
+	plain, err := s.ListRoutines(context.Background(), ListRoutinesOpts{})
+	if err != nil || len(plain) != 1 || plain[0].Prompt != r.Prompt {
+		t.Fatalf("legacy read was projected: %+v, %v", plain, err)
+	}
+}
+
 func TestRoutineCRUDAndDue(t *testing.T) {
 	s, err := Open(":memory:")
 	if err != nil {

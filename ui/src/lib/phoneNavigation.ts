@@ -267,6 +267,20 @@ function isListPath(pathname: string): boolean {
   return pathname === LIST_PATH;
 }
 
+/** The four equal phone roots, shared by footer, swipe and external entries. */
+export const PHONE_TAB_IDS = ["sessions", "routines", "agents", "settings"] as const;
+export type PhoneTabId = (typeof PHONE_TAB_IDS)[number];
+
+/** A root URL may carry its own device / filter state, but not a detail path. */
+export function phoneTabPath(to: string): string | null {
+  if (/^(?:[a-z][a-z\d+.-]*:)?\/\//i.test(to) || !to.startsWith("/")) return null;
+  const [pathname] = to.split(/[?#]/, 1);
+  return PHONE_TAB_IDS.some((id) => pathname === `/${id}`) ? pathname : null;
+}
+export function isPhoneTabPath(to: string): boolean {
+  return phoneTabPath(to) !== null;
+}
+
 /** A destination URL that is the list itself, with or without its params. */
 function isListTarget(to: string): boolean {
   return to === LIST_PATH || to.startsWith(`${LIST_PATH}?`) || to.startsWith(`${LIST_PATH}#`);
@@ -394,6 +408,19 @@ export function phonePush(
     navigate(to, { replace: true, state: options?.state });
     return;
   }
+  if (phone && isListTarget(to) && listIsDirectParent(location)) {
+    // A list route is a root only when it is not already this detail's real
+    // parent. Back must pop that parent rather than replacing it away.
+    navigate(-1);
+    return;
+  }
+  if (phone && isPhoneTabPath(to)) {
+    // An entry point does not change the destination's stack role. A routine
+    // notification, the palette or a footer link all switch a root peer.
+    // Conversation rows, projects and the draft keep their pushed Back below.
+    navigate(to, { replace: true, state: options?.state });
+    return;
+  }
   if (!phone) {
     const navigateOptions =
       options?.replace === undefined && options?.state === undefined
@@ -454,8 +481,9 @@ export function phonePush(
 }
 
 /**
- * The click handler for a real `<Link>` that must honour both the page's leave
- * guard and the phone push contract.
+ * Every entry point shares the phone destination rules: four roots replace
+ * peers, while a pushed screen with a real list parent can still pop back to
+ * it. The browser Back gesture of the old page asks its own leave-guard first.
  *
  * Modifier clicks are left alone: opening a link in a new tab does not leave
  * this page, so there is nothing to ask, and the browser's own behaviour is
