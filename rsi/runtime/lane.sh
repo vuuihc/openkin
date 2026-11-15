@@ -20,14 +20,20 @@ fi
 
 if [ "$CMD" = autofill ]; then
   [ -e "$STATE/PAUSE" ] && exit 0
+  # Astryx programme first: `autofill astryx` takes only sendbacks whose item is a slice id (or Q3a); `autofill rest` the others.
+  SCOPE="${2:-all}"
   for sb in "$STATE"/sendback/*.md; do
     [ -e "$sb" ] || continue
     slug="$(basename "$sb" .md)"
+    itm="$(sed -n 's/^item: *//p' "$sb" | head -1)"
+    is_astryx=$(python3 -c "import json,sys;ids={s['id'] for s in json.load(open('$RSI_DIR/astryx-slices.json'))['slices']};print(1 if sys.argv[1] in ids else 0)" "$itm" 2>/dev/null || echo 0)
+    [ "$SCOPE" = astryx ] && [ "$is_astryx" != 1 ] && continue
+    [ "$SCOPE" = rest ] && [ "$is_astryx" = 1 ] && continue
     # skip if some lane already works on it
     python3 "$LANES_PY" slugs | grep -qx "$slug" && continue
     idle="$(python3 "$LANES_PY" idle | head -1)"; [ -z "$idle" ] && { echo "no idle lane for rework $slug"; break; }
     br="rsi/$slug"; $GIT -C "$RSI_CTRL" fetch -q origin "$br" 2>/dev/null
-    paths="$($GIT -C "$RSI_CTRL" diff --name-only "origin/main...origin/$br" 2>/dev/null | head -40)"
+    paths="$($GIT -C "$RSI_CTRL" diff --name-only "origin/main...origin/$br" 2>/dev/null | grep -vx "web/dist/index.html" | head -40)"
     [ -z "$paths" ] && { echo "rework $slug: no diff vs main, skipping"; continue; }
     item="$(sed -n 's/^item: *//p' "$sb" | head -1)"; item="${item:-R-$slug}"
     # shellcheck disable=SC2086
@@ -76,7 +82,7 @@ HDR="$STATE/lanes/$N.worker-brief.md"
 cat <<HD
 # Lane worker contract (read first)
 You are the WORKER for RSI item $ITEM in worktree \`$WT\` on branch \`$BR\`. Mode: $MODE.
-- Budget: finish in about 25 minutes and at most about \$5. If the slice is bigger than that, deliver the smallest green first slice, commit it, and list what remains in \`$STATE/followups.md\` (append).
+- Budget: finish in about 45 minutes and at most about \$8 (Astryx programme slices are up to ~800 changed lines). If the slice is bigger than that, deliver the smallest green first slice, commit it, and list what remains in \`$STATE/followups.md\` (append).
 - Stay inside your declared paths; do not touch files other lanes may be editing. Declared paths: $(python3 -c "import json;print(', '.join(json.load(open('$STATE/lanes/$N.json'))['paths']))")
 - Test first. Run FOCUSED checks only (typecheck, lint on changed files, the tests you wrote/touched, \`go test\` for touched packages). The merge lane runs the full gate (\`gate.sh\`) and an independent review afterwards. Use \`VITEST_MAX_WORKERS=2\` for vitest; other lanes are running on the same machine.
 - If \`ui/\` changed: \`cd ui && npm run build\`, commit \`web/dist/index.html\` only (never \`web/dist/assets/\`). For visible UI also save 390×844 and 1100×760 before/after screenshots under \`$STATE/shots/$SLUG/\`.
