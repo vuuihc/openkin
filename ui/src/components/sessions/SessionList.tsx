@@ -26,15 +26,10 @@ import { useSessionDeletion } from "../../hooks/useSessionDeletion";
 import { useCoarsePointer } from "../../hooks/useMediaQuery";
 import { useMachines } from "../../hooks/useMachines";
 import { useLocale, useT } from "../../i18n/react";
-import { agentAvatarMeta, agentDisplayName } from "../../lib/agentMention";
 import { settleArchiveBatch } from "../../lib/archiveBatch";
 import type { Machine } from "../../lib/devices";
 import { runGuardedNavigation } from "../../lib/leaveGuard";
-import {
-  draftEntryState,
-  listUrlFor,
-  phonePush,
-} from "../../lib/phoneNavigation";
+import { draftEntryState, listUrlFor, phonePush } from "../../lib/phoneNavigation";
 import {
   DRAFT_PATH,
   getDraftCwd,
@@ -75,7 +70,6 @@ import {
   unarchiveProject,
   type ProjectSortMode,
 } from "../../lib/projectSidebar";
-import { formatRelativeTime } from "../../lib/relativeTime";
 import { consumeRowReturn, rememberRowReturn, takeRowReturn } from "../../lib/rowReturn";
 import { sortSessionBuckets } from "../../lib/sessionBucketOrder";
 import { sessionFeedTasks } from "../../lib/sessionFeed";
@@ -85,10 +79,8 @@ import { rowSelectable, selectableTaskIds } from "../../lib/sessionSelection";
 import {
   getViewedSessionIds,
   markSessionViewed,
-  sessionStatusDotClass,
   subscribeSessionViewed,
 } from "../../lib/sessionViewed";
-import { taskCardStatusView } from "../../lib/taskCardStatus";
 import { getPinnedTaskIds, setTaskPinned } from "../../lib/taskPins";
 import { mergeTaskTail } from "../../lib/taskTail";
 import ActionSheet from "../ui/ActionSheet";
@@ -96,7 +88,6 @@ import HighlightedText from "../HighlightedText";
 import {
   IconAlert,
   IconArchive,
-  IconCheck,
   IconChevronDown,
   IconFile,
   IconFilter,
@@ -113,12 +104,6 @@ import {
   IconTrash,
 } from "../icons";
 import { MobileEmpty, MobileScreen } from "../mobile/MobileList";
-import SessionRowActions, {
-  sessionRowActionsWidth,
-  type SessionRowActionMode,
-} from "../mobile/SessionRowActions";
-import SwipeReveal from "../mobile/SwipeReveal";
-import PendingBadge from "../ui/PendingBadge";
 import SessionFilters, {
   normalizeScopeFilter,
   normalizeStatusFilter,
@@ -126,6 +111,7 @@ import SessionFilters, {
   type SessionStatusFilter,
 } from "../ui/SessionFilters";
 import { useAppStore } from "../../store/appStore";
+import SessionRow from "./SessionRow";
 
 /**
  * The one conversation list.
@@ -152,10 +138,7 @@ const LIST_STATE_KEYS = ["search", "status", "scope"] as const;
  * composer's prefill and `find` the transcript's find seed, both of which
  * belong to the page being left.
  */
-function listStateQuery(
-  params: URLSearchParams,
-  extra: Record<string, string> = {},
-): string {
+function listStateQuery(params: URLSearchParams, extra: Record<string, string> = {}): string {
   const next = new URLSearchParams();
   for (const key of LIST_STATE_KEYS) {
     const value = params.get(key);
@@ -249,6 +232,14 @@ export default function SessionList({
   const archivingSelectionRef = useRef(false);
   const selectionBusy = deletingSelection || archivingSelection;
   const selectionEpoch = useRef(0);
+  // The row that started multi-select. An explicit Escape or Cancel hands the
+  // keyboard back to it; every other way out (a batch, a filter change, a row
+  // that was deleted) must leave focus where it is.
+  const selectionOriginId = useRef<string | null>(null);
+  // A row to focus on the next commit. Entering and leaving the mode both
+  // replace the row element, so the browser drops focus to <body> unless it is
+  // put back; Escape would then have no row in the list to travel through.
+  const focusRowAfterCommit = useRef<string | null>(null);
   const [swipeOpen, setSwipeOpen] = useState<string | null>(null);
   const [prefsTick, setPrefsTick] = useState(0);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -262,9 +253,24 @@ export default function SessionList({
   useEffect(() => subscribeProjectSidebar(() => setPrefsTick((n) => n + 1)), []);
   useEffect(() => {
     selectionEpoch.current += 1;
+    selectionOriginId.current = null;
     setSelectionMode(false);
     setSelectedIds(new Set());
   }, [query, status, scope]);
+
+  // A focused move is one-shot and belongs to the mode change itself: the ref
+  // is consumed in the commit that flips `selectionMode`, so a later list
+  // update cannot pull focus back — and a commit that lands between the key
+  // press and that flip cannot spend the ref on a row the flip will replace.
+  useEffect(() => {
+    const id = focusRowAfterCommit.current;
+    if (!id) return;
+    focusRowAfterCommit.current = null;
+    Array.from(listRef.current?.querySelectorAll<HTMLElement>("[data-session-row]") ?? [])
+      .find((row) => row.dataset.sessionRow === id)
+      ?.focus();
+    // Only the mode flip consumes the ref; `selectionMode` is the whole input.
+  }, [selectionMode]);
 
   const draftPrompt = useSyncExternalStore(subscribeDraft, getDraftPrompt, () => "");
   const draftCwd = useSyncExternalStore(subscribeDraft, getDraftCwd, () => "");
@@ -460,13 +466,7 @@ export default function SessionList({
   // wall of zero-count headings.
   const canSeed = scope === "active" && !status && taskList.loaded && !taskList.error;
   const seeded = useMemo(
-    () =>
-      seedProjects(
-        buckets,
-        canSeed ? projects : [],
-        archivedCwds,
-        tr("sessions.noProject"),
-      ),
+    () => seedProjects(buckets, canSeed ? projects : [], archivedCwds, tr("sessions.noProject")),
     [buckets, projects, canSeed, archivedCwds, tr],
   );
   const filtered = useMemo(() => filterProjectBuckets(seeded, query), [seeded, query]);
@@ -648,6 +648,7 @@ export default function SessionList({
         selectionLocked={selectionBusy}
         selectedIds={selectedIds}
         onToggleSelect={toggleSelected}
+        onStartSelection={enterSelection}
         onLongPress={enterSelection}
         swipeOpen={swipeOpen}
         onSwipeOpenChange={setSwipeOpen}
@@ -661,9 +662,7 @@ export default function SessionList({
         query={query}
         archived={scope === "archived"}
         onRestoreProject={
-          scope === "archived" &&
-          bucketIsLocal(bucket) &&
-          archivedCwdFor(bucket.key, archivedCwds)
+          scope === "archived" && bucketIsLocal(bucket) && archivedCwdFor(bucket.key, archivedCwds)
             ? () => {
                 const cwd = archivedCwdFor(bucket.key, archivedCwds);
                 if (cwd) unarchiveProject(cwd);
@@ -698,6 +697,8 @@ export default function SessionList({
 
   function enterSelection(row: PhoneSessionRow) {
     if (!rowSelectable(row, scope)) return;
+    selectionOriginId.current = row.task!.id;
+    focusRowAfterCommit.current = row.task!.id;
     setSelectionMode(true);
     setSelectedIds(new Set([row.task!.id]));
     setSwipeOpen(null);
@@ -719,10 +720,15 @@ export default function SessionList({
     });
   }
 
-  function exitSelection() {
+  /** `restoreFocus` is for a person leaving on purpose (Escape, Cancel). Batch
+   *  work and automatic cleanup leave the keyboard alone. */
+  function exitSelection(restoreFocus = false) {
+    const origin = selectionOriginId.current;
+    selectionOriginId.current = null;
     selectionEpoch.current += 1;
     setSelectionMode(false);
     setSelectedIds(new Set());
+    if (restoreFocus) focusRowAfterCommit.current = origin;
   }
 
   function pinSelected() {
@@ -993,6 +999,15 @@ export default function SessionList({
 
   function onListKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (event.defaultPrevented || isImeKeyEvent(event.nativeEvent)) return;
+    if (event.key === "Escape") {
+      // Escape belongs to the field a person is typing in; only an active
+      // selection claims it here, and it leaves through the same path as the
+      // toolbar's Cancel so focus returns to the row that started it.
+      if (!selectionMode) return;
+      event.preventDefault();
+      exitSelection(true);
+      return;
+    }
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     const rows = sessionRows();
     const at = rows.indexOf(document.activeElement as HTMLElement);
@@ -1097,7 +1112,10 @@ export default function SessionList({
         )}
 
       {selectionMode && (
-        <div className="sticky top-0 z-[3] flex min-h-12 items-center gap-2 border-b border-[var(--kin-hairline)] bg-[var(--kin-page)] px-3 kin-glass">
+        <div
+          data-selection-toolbar
+          className="sticky top-0 z-[3] flex min-h-12 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--kin-hairline)] bg-[var(--kin-page)] px-2.5 py-1.5 kin-glass"
+        >
           <label className="flex min-h-11 items-center gap-2 text-strong font-medium text-kin-text">
             <SelectAllCheckbox
               checked={selectedIds.size > 0 && selectedIds.size === selectableCount}
@@ -1107,6 +1125,9 @@ export default function SessionList({
             />
             {tr("sessions.selectedCount", { count: String(selectedIds.size) })}
           </label>
+          {/* Icon-only batch actions keep three 44px targets and Cancel on one
+              line of a 248px sidebar. The viewport `sm:` labels this replaces
+              answered the window's width, not the sidebar's. */}
           <div className="ml-auto flex items-center gap-1.5">
             {scope !== "archived" && (
               <button
@@ -1115,10 +1136,9 @@ export default function SessionList({
                 disabled={selectedIds.size === 0 || selectionBusy}
                 aria-label={pinLabel}
                 title={pinLabel}
-                className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-[var(--kin-fill)] px-2.5 text-body font-medium text-kin-text disabled:opacity-40 sm:px-3"
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-[var(--kin-fill)] text-body font-medium text-kin-text disabled:opacity-40"
               >
                 <IconPin size={14} />
-                <span className="hidden sm:inline">{pinLabel}</span>
               </button>
             )}
             <button
@@ -1127,31 +1147,29 @@ export default function SessionList({
               disabled={selectedIds.size === 0 || selectionBusy}
               aria-label={tr(scope === "archived" ? "sessions.restore" : "sessions.archive")}
               title={tr(scope === "archived" ? "sessions.restore" : "sessions.archive")}
-              className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-[var(--kin-fill)] px-2.5 text-body font-medium text-kin-text disabled:opacity-40 sm:px-3"
+              className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-[var(--kin-fill)] text-body font-medium text-kin-text disabled:opacity-40"
             >
               {scope === "archived" ? <IconRestore size={14} /> : <IconArchive size={14} />}
-              <span className="hidden sm:inline">
-                {tr(scope === "archived" ? "sessions.restore" : "sessions.archive")}
-              </span>
             </button>
             <button
               type="button"
               onClick={deleteSelected}
               disabled={selectedIds.size === 0 || selectionBusy}
-              aria-label={deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")}
+              aria-label={
+                deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")
+              }
               title={deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")}
               aria-busy={deletingSelection || undefined}
-              className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-kin-red/15 px-2.5 text-body font-medium text-kin-red-ink disabled:opacity-40 sm:px-3"
+              className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-kin-red/15 text-body font-medium text-kin-red-ink disabled:opacity-40"
             >
               <IconTrash size={14} />
-              <span className="hidden sm:inline">
-                {deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")}
-              </span>
             </button>
             <button
               type="button"
-              onClick={exitSelection}
-              className="flex min-h-11 min-w-11 items-center justify-center rounded-lg px-2.5 text-body font-medium text-kin-muted hover:text-kin-text sm:px-3"
+              onClick={() => exitSelection(true)}
+              aria-label={tr("common.cancel")}
+              title={tr("common.cancel")}
+              className="flex min-h-11 min-w-11 items-center justify-center rounded-lg px-2.5 text-body font-medium text-kin-muted hover:text-kin-text"
             >
               {tr("common.cancel")}
             </button>
@@ -1369,10 +1387,7 @@ function DeviceSection({
   return (
     <section aria-label={label}>
       <div
-        className={[
-          "flex items-center gap-1.5 pb-0.5 pt-3",
-          sidebar ? "px-2" : "px-4",
-        ].join(" ")}
+        className={["flex items-center gap-1.5 pb-0.5 pt-3", sidebar ? "px-2" : "px-4"].join(" ")}
       >
         <IconMachine size={14} className="flex-none text-kin-muted" />
         <span
@@ -1495,6 +1510,7 @@ function ProjectBucket({
   selectionLocked,
   selectedIds,
   onToggleSelect,
+  onStartSelection,
   onLongPress,
   swipeOpen,
   onSwipeOpenChange,
@@ -1533,6 +1549,7 @@ function ProjectBucket({
   selectionLocked: boolean;
   selectedIds: ReadonlySet<string>;
   onToggleSelect: (id: string) => void;
+  onStartSelection: (row: PhoneSessionRow) => void;
   onLongPress: (row: PhoneSessionRow) => void;
   swipeOpen: string | null;
   onSwipeOpenChange: (open: string | null) => void;
@@ -1660,10 +1677,7 @@ function ProjectBucket({
                 >
                   <IconPin size={12} strokeWidth={pinnedProject ? 2.2 : 1.7} />
                 </ProjectIconButton>
-                <ProjectIconButton
-                  label={tr("nav.archiveProject")}
-                  onClick={onArchiveProject}
-                >
+                <ProjectIconButton label={tr("nav.archiveProject")} onClick={onArchiveProject}>
                   <IconArchive size={12} />
                 </ProjectIconButton>
               </>
@@ -1707,6 +1721,7 @@ function ProjectBucket({
               onToggleSelect={() => {
                 if (row.task) onToggleSelect(row.task.id);
               }}
+              onStartSelection={() => onStartSelection(row)}
               onLongPress={() => onLongPress(row)}
               swipeOpen={swipeOpen === row.key}
               onSwipeOpenChange={(open) => onSwipeOpenChange(open ? row.key : null)}
@@ -1767,251 +1782,6 @@ function ProjectIconButton({
           : active
             ? "text-kin-blue-ink opacity-100"
             : "text-kin-muted opacity-0 hover:bg-[var(--kin-fill-strong)] hover:text-kin-text focus:opacity-100 group-hover/proj:opacity-100",
-      ].join(" ")}
-    >
-      {children}
-    </button>
-  );
-}
-
-function SessionRow({
-  row,
-  deviceLabel,
-  now,
-  viewedIds,
-  pendingCount,
-  active,
-  onOpen,
-  shell,
-  coarse,
-  selectionMode,
-  selectionLocked,
-  selected,
-  onToggleSelect,
-  onLongPress,
-  swipeOpen,
-  onSwipeOpenChange,
-  pinned,
-  onPin,
-  onArchive,
-  onDelete,
-  onRestore,
-  scope,
-  query,
-}: {
-  row: PhoneSessionRow;
-  deviceLabel: string;
-  query: string;
-  now: number;
-  viewedIds: ReadonlySet<string>;
-  pendingCount: number;
-  active: boolean;
-  onOpen: () => void;
-  shell: "sidebar" | "page";
-  coarse: boolean;
-  selectionMode: boolean;
-  selectionLocked: boolean;
-  selected: boolean;
-  onToggleSelect: () => void;
-  onLongPress: () => void;
-  swipeOpen: boolean;
-  onSwipeOpenChange: (open: boolean) => void;
-  pinned: boolean;
-  onPin: () => void;
-  onArchive: () => void;
-  onDelete: () => void;
-  onRestore: () => void;
-  scope: SessionScopeFilter;
-}) {
-  const tr = useT();
-  const dot = row.task ? sessionStatusDotClass(row.task.status, viewedIds.has(row.task.id)) : null;
-  const avatar = agentAvatarMeta(row.agentId);
-  const label = [
-    row.title,
-    agentDisplayName(row.agentId),
-    formatRelativeTime(row.at, now),
-    row.task && dot ? tr(taskCardStatusView(row.task.status).labelKey) : "",
-    pendingCount > 0 ? tr("sessions.pendingApprovals", { count: String(pendingCount) }) : "",
-    row.remote ? deviceLabel || tr("machine.remote") : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const gutter = shell === "sidebar" ? "px-2" : "px-4";
-
-  const rowButton = (
-    <button
-      type="button"
-      data-session-row={row.task?.id ?? row.session?.id}
-      onClick={() => {
-        if (selectionMode) {
-          if (rowSelectable(row, scope) && !selectionLocked) onToggleSelect();
-          return;
-        }
-        if (swipeOpen) {
-          onSwipeOpenChange(false);
-          return;
-        }
-        onOpen();
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" && event.shiftKey) {
-          event.preventDefault();
-          if (rowSelectable(row, scope) && !selectionLocked) onToggleSelect();
-        }
-      }}
-      aria-disabled={selectionMode && selectionLocked ? true : undefined}
-      aria-label={label}
-      aria-pressed={selectionMode ? selected : undefined}
-      className={[
-        "kin-row-press flex min-h-11 w-full items-center gap-2.5 py-2.5 text-left",
-        gutter,
-        selectionMode && selected ? "bg-[var(--kin-fill)]" : "",
-        active ? "bg-[var(--kin-fill-strong)]" : "",
-      ].join(" ")}
-    >
-      <span className="flex w-2 flex-none justify-center">
-        {selectionMode && rowSelectable(row, scope) ? (
-          <span
-            className={[
-              "flex h-4 w-4 items-center justify-center rounded-full border",
-              selected
-                ? "border-kin-blue bg-kin-blue text-kin-on-brand"
-                : "border-[var(--kin-hairline-strong)]",
-            ].join(" ")}
-            aria-hidden
-          >
-            {selected ? <IconCheck size={10} strokeWidth={2.5} /> : null}
-          </span>
-        ) : dot ? (
-          <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden />
-        ) : null}
-      </span>
-      <span
-        className={`flex h-5 w-5 flex-none items-center justify-center rounded-full text-micro font-semibold ${avatar.className}`}
-        title={agentDisplayName(row.agentId)}
-      >
-        {avatar.initials}
-      </span>
-      <span
-        className={[
-          "min-w-0 flex-1 truncate leading-ui text-kin-text",
-          shell === "sidebar" ? "text-body font-normal" : "text-subtitle font-medium",
-        ].join(" ")}
-      >
-        <HighlightedText text={row.title} query={query} />
-      </span>
-      {row.remote && (
-        <span
-          className="flex-none text-kin-muted"
-          title={deviceLabel || tr("machine.remote")}
-          aria-hidden
-        >
-          <IconMachine size={12} />
-        </span>
-      )}
-      <PendingBadge count={pendingCount} />
-      {deviceLabel ? (
-        <span className="max-w-[6rem] flex-none truncate text-caption leading-ui text-kin-muted">
-          {deviceLabel}
-        </span>
-      ) : null}
-      <span className="flex-none text-caption leading-ui text-kin-muted tabular-nums">
-        {formatRelativeTime(row.at, now)}
-      </span>
-    </button>
-  );
-
-  // A row uncovers the strip that describes where it is. In the archive view
-  // that is restore + delete, and only for a conversation that was archived on
-  // its own: a live chat listed under an archived project is put back by the
-  // project's own Restore, and a per-row "Restore" there would do nothing.
-  if (selectionMode || !row.task) return rowButton;
-  const mode: SessionRowActionMode | null = row.task.archived_at
-    ? "archived"
-    : scope === "archived"
-      ? null
-      : "active";
-  if (!mode) return rowButton;
-
-  // The desktop's overflow is hover/focus-revealed inline controls; the phone's
-  // is the swipe strip. Both call the same handlers, so the feature set is the
-  // same and only the gesture that uncovers it differs.
-  if (shell === "sidebar" && !coarse) {
-    return (
-      <div
-        className={[
-          "group/session flex items-center rounded-lg",
-          active ? "bg-[var(--kin-fill-strong)]" : "",
-        ].join(" ")}
-      >
-        <div className="min-w-0 flex-1">{rowButton}</div>
-        <div className="flex flex-none items-center gap-0.5 pr-2">
-          {mode === "active" && (
-            <RowIconButton
-              label={pinned ? tr("sessions.unpin") : tr("sessions.pin")}
-              onClick={onPin}
-            >
-              <IconPin size={12} />
-            </RowIconButton>
-          )}
-          <RowIconButton
-            label={mode === "archived" ? tr("sessions.restore") : tr("sessions.archive")}
-            onClick={mode === "archived" ? onRestore : onArchive}
-          >
-            {mode === "archived" ? <IconRestore size={12} /> : <IconArchive size={12} />}
-          </RowIconButton>
-          <RowIconButton label={tr("sessions.delete")} onClick={onDelete} danger>
-            <IconTrash size={12} />
-          </RowIconButton>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <SwipeReveal
-      open={swipeOpen}
-      onOpenChange={onSwipeOpenChange}
-      onLongPress={onLongPress}
-      width={sessionRowActionsWidth(mode)}
-      actions={
-        <SessionRowActions
-          mode={mode}
-          pinned={pinned}
-          onPin={onPin}
-          onArchive={onArchive}
-          onRestore={onRestore}
-          onDelete={onDelete}
-        />
-      }
-    >
-      {rowButton}
-    </SwipeReveal>
-  );
-}
-
-function RowIconButton({
-  label,
-  onClick,
-  danger = false,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  danger?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      onClick={onClick}
-      className={[
-        "touch-hide inline-flex h-6 w-6 items-center justify-center rounded-md text-kin-muted opacity-0 transition-opacity focus:opacity-100 group-hover/session:opacity-100",
-        danger
-          ? "hover:bg-kin-red/10 hover:text-kin-red-ink"
-          : "hover:bg-[var(--kin-fill-strong)] hover:text-kin-text",
       ].join(" ")}
     >
       {children}

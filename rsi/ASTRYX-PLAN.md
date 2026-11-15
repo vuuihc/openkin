@@ -1,7 +1,7 @@
 # ASTRYX-PLAN — the UX unification as lane-sized slices
 
 Source of truth for *what* is built: `docs/plans/2026-11-14-ux-unification.md` (Batches A–E, Goal 2), `docs/plans/2026-11-09-astryx-spike.md`, `docs/product/stories/KIN-CONTINUE-003.md` + `ux-unification-story-map.md` (all on `origin/main`; no unpushed local-main docs are needed).
-Source of truth for *what to run next*: `rsi/astryx-slices.json` (54 slices + the in-flight Q3a), scheduled by `rsi/runtime/slices.py ready`. A slice is done when its id shows up in `state/merged.log` (the merge lane writes it).
+Source of truth for *what to run next*: `rsi/astryx-slices.json` (55 slices + the in-flight Q3a), scheduled by `rsi/runtime/slices.py ready`. A slice is done when its id shows up in `state/merged.log` (the merge lane writes it).
 Ethan's directive (2026-11-15): this programme is the top priority; bug-fix pacing is parked (P0 only). KIN-CONTINUE-003 stays treated as signed (DECISIONS 2026-11-15).
 
 ## Facts from the code (2026-11-15)
@@ -25,18 +25,27 @@ Sizes: M ≈ 30 min / ≤ 500 lines, L ≈ 45 min / ≤ 800 lines.
 | **0 Foundation** (serial) | F1 Tailwind 4 + layer order + token test port (—) → F2 React 19 (F1) → F3 Astryx dep + Provider + full token map + 44px/reduced-motion (F2) → F4 gallery (F3) | critical path; only one F slice at a time (lockfile). MANDATE exception for package.json recorded |
 | **1 Facade** (parallel after F3) | F5a Button/TextInput/Textarea/Field (F3,Q3a) · F5b Menu/Popover (F3,Q3a) · F5c Dialog/BottomSheet (F3) · F5e Tabs/Tooltip/Toast (F3) → F5d Select/SearchSelect/SheetSelect (F5b,F5c) | one concern per file group, docs per component |
 | **1′ Independent** (starts now) | N1 area model → N2 routes/redirects/notification targets, N3 phone stacks, → N4 `operations` settings tab (N2) · T1→T2→T3 TaskDetail extraction · L1→L2 SessionList extraction · R1→R2 Routines extraction · P1 ProjectDetail extraction · E4a Agents body → settings (N4) | zero visible change; fills lanes during Phase 0 |
-| **2 Shell** | S1 Mac four-area nav (N2,F5b) · S2 phone four tabs + per-area stacks (N3,F5c) → S3 transitions + reduced motion (S1,S2) | first visible Astryx-era change |
+| **2 Shell** | S1 Mac four-area nav (N2,F5b) · S2 phone four tabs + per-area stacks (N3,F5c) → S3 transitions + reduced motion (S1,S2) | first visible Astryx-era change. **Gated: not claimable or mergeable until `state/ux-proto/APPROVED` exists** (see UX gates) |
 | **3 Conversation** (Batch C) | C1a/C1b pickers (F5b,F5d) · C1c RunConfigSheet (F5c,F5d) → C1d Composer bottom row (C1a,C1c) → C2 NewChatPage (C1d,S2) · C3a TaskDetail header/panels (T2,F5*) → C3b conversation host (T3,C1d) · C4a ChatStream controls · C4b approval cards · C5a rows (L1) · C5b scope filter (L2,F5e,N1) → C5c sessions page (C5a,C5b,S2) · W1 workspace · W2 terminal/publish/share | the dogfood path; Composer bottom row lands at C1d |
 | **4 Projects & routines** (Batch D) | P2 projects collection (P1,N2,S1,S2,F5a) · P3 ProjectDetail facade (P1) · R3 routine list/runs (R2) · R4 routine editor (R1,F5d) | |
 | **5 Settings & agents** (Batch E) | E1 settings page (N4,F5a,F5d) → E2 sections, E3 routing · E4b→E4c agent operations (E4a) · E5 agent session/approvals/tray · E6 account/connect | |
 | **6 Close-out** (Goal 2) | G1 lint-ban legacy primitives + lower baseline (C3b,C5c,E4c,R4,P3,W2) · G2 docs (S3) · G3 journeys J1–J7 smoke at 390/1100/1280 (S3,C2,C5c) → G4 bundle/inventory report + acceptance note (G1,G3) | Ethan's single acceptance walk-through |
 
-Counts: F 9 · N 4 · S 3 · X (extractions) 9 · C 14 · D 4 · E 7 · G 4 = **54 slices**.
+Counts: V 1 · F 9 · N 4 · S 3 · X (extractions) 9 · C 14 · D 4 · E 7 · G 4 = **55 slices** (V1 = seeded fixtures for the journey walk; F2 depends on it).
 Critical path: F1→F2→F3→F5b→F5d→C1a→C1d→C2/C3b→G3→G4 (≈ 10 sequential merges). Max useful width after F3 ≈ 6–8 ready slices, so 3 lanes stay busy.
 
 ## Throughput and ETA (honest)
 Measured 2026-11-15 with 2 lanes: ≈ 5–40 min worker run + merge lane ≈ 10 min gate (serialised) + 5–10 min review + 5 min CI; slices needing one rework take ~1.5–2 h from claim to merge; 1 merge per ~1–1.5 h overall so far, improving as the merge lane warms up.
 At 3 lanes and ~1.5–2 merges/hour (best realistic): 54 slices ≈ **27–36 h** of wall clock, plus ~10 % for sendbacks. At the observed 1 merge/h it is ≈ 54 h. Estimate for the visible milestones (from now, in order): Mac+phone shell (S1/S2) ≈ 10–14 h; Composer bottom row (C1d) ≈ 12–16 h; conversation path (C3b/C5c) ≈ 20–26 h; everything ≈ 30–40 h. Levers: a pipelined second review worker, larger L slices, relaxing review to delta-only after the first pass.
+
+## UX gates and acceptance (added 2026-11-15 after the UX audit, `rsi/UX-AUDIT.md`)
+Until now only the slicing was reviewed, not the experience. Four additions:
+1. **Clickable prototype** `rsi/ux-proto/` (Mac 1440/1100 + phone 390, J1–J7, walked headlessly, self-critiqued twice). It is the visual target: slices converge on it, and the UX reviewer compares against it.
+2. **Approval gate:** S1–S3 carry `"gate": "ux-approved"`; no lane or cloud claim, and no merge, until Ethan creates `rsi/state/ux-proto/APPROVED` after looking at the prototype.
+3. **UX gate on every UI-touching PR** (all slices, F* included): journey walk of the real console on a throwaway daemon at 390/1100/1280 + vision review on a different model, scored on `rsi/UX-RUBRIC.md` (clarity, density, consistency, feedback, keyboard); reject if any axis <3, mean <3.5 or a hard failure. Details and thresholds: `UX-AUDIT.md` § gates.
+4. **Per-slice UX acceptance** was appended to the briefs of S1/S2/S3/C1d/C2/C3a/C3b/C4b/C5a/C5b/W1/P3/E1 (rail compaction and list-yields rule, needs-you badge/chips/dock, one run-config chip on phone, one primary per screen, 44 px, panel container, two-layer pickers…). Slice **V1** seeds fixtures so reviewers see populated screens; **G3** now builds on the harness that already exists instead of creating it at the end.
+Rule of thumb for every UI slice: the PR must show *what the user sees now* on the journeys it touches; "tests green" is not acceptance (TASTE 9).
+Not in this programme but flagged as a decision, not an omission: the T3-style review loop (turn/branch/uncommitted diff scopes, line comments → agent, one-button PR). W1 builds the panel it will live in; the features are a post-G4 parity item.
 
 ## Rules that stay
 Red lines and merge gate in MANDATE stand. Not in this programme: Go API/DB/agent protocol changes, new product features, theme/brand/font change. A needed change of those → ADR + `needs-ceo.md`, never a silent merge. Desktop is not rebuilt by the loop; Ethan runs `scripts/desktop-rebuild.sh` to see merged work.

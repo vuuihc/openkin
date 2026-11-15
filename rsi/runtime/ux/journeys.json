@@ -1,0 +1,32 @@
+{
+  "_doc": "Journeys J1-J7 of KIN-CONTINUE-003 as route-level walks of the REAL console (rsi/runtime/ux/walk.mjs). `steps` are declarative: goto <path> | click <text-regex or css> | fill <css> <text> | hover <text-regex or css> | key <chord> | place <picker-css> | enabled <text-regex or css> | shot <name>. Selectors are best-effort (zh+en); a selector prefixed with `?` is optional (empty-daemon / missing seed) and is recorded as skipped; any other missing or failed action is a hard failure. `place` opens the working-directory picker, chooses a listed place or a project root the daemon reports, and records `<journey>-<vp>-skipped-no-workdir` (a skip, not a failure) when there is genuinely nothing to choose. `enabled` asserts a control is usable without pressing it (a throwaway daemon has no fake agent, so starting a run would launch a real CLI); a disabled control is a hard failure unless the page names the missing prerequisite on screen. `paths` maps changed files to the journeys they can affect (first match wins; no match = all journeys). `viewports` are WxH.",
+  "viewports": { "phone": "390x844", "mac": "1100x760", "mac-wide": "1280x800" },
+  "journeys": {
+    "J1": { "title": "Phone: find yesterday's chat, continue, answer an approval", "viewports": ["phone"],
+      "steps": [["goto", "/sessions"], ["shot", "list"], ["click", "?[data-session-row], a[href^='/tasks/'], [data-task], [role=option]"], ["shot", "conversation"], ["click", "?/批准|同意|Approve|Allow|Accept/"], ["shot", "approval"], ["key", "Tab"], ["shot", "conversation-focus"]] },
+    "J2": { "title": "Mac: search last week's chat, continue, change model/permission, look at the diff", "viewports": ["mac", "mac-wide"],
+      "steps": [["goto", "/sessions"], ["shot", "list"], ["click", "?[data-session-row], a[href^='/tasks/'], [data-task], [role=option]"], ["shot", "conversation"], ["click", "?/权限|Permission/"], ["shot", "permission-picker"], ["key", "Escape"], ["click", "?/模型|Model/"], ["shot", "model-picker"], ["key", "Escape"], ["click", "?/变更|文件|Changes|Files/"], ["shot", "workspace-panel"]] },
+    "J3": { "title": "New chat on both surfaces: choose where it runs, type, reach a startable composer", "viewports": ["phone", "mac"],
+      "steps": [["goto", "/new"], ["shot", "empty"], ["fill", "textarea", "Draft: summarise this week's TODOs"], ["shot", "drafted"],
+        ["place", "button[aria-label^='设备与项目'], button[aria-label*='Device & project'], button[aria-label*='Place'], button[aria-label*='Workspace']"],
+        ["shot", "place"], ["enabled", "button[aria-label='开始'], button[aria-label='Start']"], ["shot", "started"]] },
+    "J4": { "title": "Projects and routines", "viewports": ["phone", "mac"],
+      "steps": [["goto", "/projects"], ["shot", "projects"], ["click", "?a[href^='/projects/'], [data-proj]"], ["shot", "project-cover"], ["goto", "/routines"], ["shot", "routines"]] },
+    "J5": { "title": "Manage a chat: row actions (pin / rename / archive / delete)", "viewports": ["phone", "mac"],
+      "steps": [["goto", "/sessions"], ["hover", "?[data-session-row], a[href^='/tasks/'], [data-task], [role=option]"], ["shot", "row-hover"], ["click", "?[aria-haspopup=menu], [data-row-actions], button[aria-label*='More'], button[aria-label*='更多']"], ["shot", "row-actions"]] },
+    "J6": { "title": "Settings and agent operations", "viewports": ["phone", "mac"],
+      "steps": [["goto", "/settings"], ["shot", "settings"], ["goto", "/settings?tab=operations"], ["shot", "operations"], ["goto", "/agents"], ["shot", "legacy-agents-redirect"]] },
+    "J7": { "title": "Notification deep link lands on the exact card", "viewports": ["phone", "mac"],
+      "steps": [["goto", "/tasks/demo-task?focus=demo-item"], ["shot", "landing"], ["click", "?/返回|Back/"], ["shot", "back"]] }
+  },
+  "paths": [
+    ["ui/src/components/layout/", ["J1", "J2", "J3", "J4", "J5", "J6", "J7"]],
+    ["ui/src/pages/NewChat|ui/src/pages/StartRoute", ["J3"]],
+    ["ui/src/pages/Sessions|ui/src/components/sessions/|ui/src/components/mobile/", ["J1", "J2", "J5"]],
+    ["ui/src/pages/TaskDetail|ui/src/pages/TaskSession|ui/src/components/chat/|ui/src/components/cards/|ui/src/components/workspace/", ["J1", "J2", "J7"]],
+    ["ui/src/pages/Project|ui/src/lib/project", ["J4"]],
+    ["ui/src/pages/Routine|ui/src/pages/MachineTask|ui/src/components/routine/", ["J4"]],
+    ["ui/src/pages/Settings|ui/src/pages/Agents|ui/src/components/settings/", ["J6"]],
+    ["ui/src/components/ui/|ui/src/design/|ui/src/index.css|ui/package.json|ui/tailwind|ui/postcss", ["J1", "J2", "J3", "J4", "J5", "J6", "J7"]]
+  ]
+}

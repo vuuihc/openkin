@@ -2,7 +2,14 @@ name: ci
 
 on:
   push:
+    branches: [main]
   pull_request:
+
+# One in-flight run per ref. A newer push (or a synchronize on the PR) cancels
+# the superseded run so it does not finish red and email again.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:

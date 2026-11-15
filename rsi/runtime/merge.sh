@@ -8,6 +8,7 @@
 set -u
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
+source "$(cd "$(dirname "$0")" && pwd)/node-stamp.sh"
 MERGE_WORKERS="${RSI_MERGE_WORKERS:-2}"
 CODE_RE='^(ui/|internal/|cmd/|scripts/|desktop/|mobile/|web/|go\.mod|go\.sum|\.github/)'   # main changes here invalidate a carried-forward gate
 say() { echo "[$(date +%T)] $*"; }
@@ -25,8 +26,83 @@ sendback() { # slug item title detail-file
   say "sendback $slug (#$a): $title"; KICK=1
 }
 
+# ------------------------------------------------- generated files (pure functions of the tree)
+# A merge of origin/main can conflict in files nobody wrote by hand: the embedded console entry and
+# the UI inventory baseline. Bouncing a PR back to a rework lane for those burns one of its three
+# attempts and taxes every future Astryx slice, so resolve them here by regenerating. Anything else
+# — another conflicted path, a failed regeneration, or a baseline that would grow — returns 1 and
+# the caller writes the usual "merge conflict with main" sendback.
+GEN_DIST=web/dist/index.html
+GEN_INV=scripts/ui-inventory-baseline.json
+# Both regenerators are overridable so rsi/runtime/tests/test-merge-gen-resolve.sh can run in a
+# temp repo with stubs; the defaults are the commands a person would run.
+DIST_BUILD="${RSI_DIST_BUILD_CMD:-npm run build}"
+INV_UPDATE="${RSI_INV_UPDATE_CMD:-python3 scripts/check-ui-inventory.py --update}"
+
+ratchet_ok() { # worktree -> 0 when the regenerated inventory did not grow past origin/main's copy
+  local wt="$1" base rc; base="$(mktemp)" || return 1
+  $GIT -C "$wt" show "origin/main:$GEN_INV" > "$base" 2>/dev/null || { rm -f "$base"; return 1; }
+  python3 - "$base" "$wt/$GEN_INV" <<'PY'
+import json, sys
+# "Counts may only go down" (scripts/check-ui-inventory.py) outranks merge convenience: a merge
+# that would raise the ratchet is a sendback, never a commit.
+try:
+    old = json.load(open(sys.argv[1], encoding="utf-8"))["metrics"]
+    new = json.load(open(sys.argv[2], encoding="utf-8"))["metrics"]
+except Exception as exc:
+    print("inventory baseline unreadable: %s" % exc, file=sys.stderr); sys.exit(1)
+grown = []
+for key, fields in sorted(new.items()):
+    prev = old.get(key) or {}
+    for field in ("occurrences", "files"):
+        was, now = prev.get(field), fields.get(field)
+        if not isinstance(was, int) or not isinstance(now, int):
+            grown.append("%s.%s: no integer count to compare" % (key, field))
+        elif now > was:
+            grown.append("%s.%s: %d -> %d" % (key, field, was, now))
+if grown:
+    print("inventory ratchet would grow: " + "; ".join(grown), file=sys.stderr); sys.exit(1)
+PY
+  rc=$?; rm -f "$base"; return $rc
+}
+
+gen_resolve() { # worktree -> 0 resolved and committed; 1 anything else (caller aborts and sends back)
+  local wt="$1" un p has_dist=0 has_inv=0
+  un="$($GIT -C "$wt" diff --name-only --diff-filter=U)" || return 1
+  [ -n "$un" ] || return 1
+  while IFS= read -r p; do
+    [ -z "$p" ] && continue
+    [ "$p" = "$GEN_DIST" ] || [ "$p" = "$GEN_INV" ] || return 1   # a source conflict is a person's job
+  done <<< "$un"
+  echo "$un" | grep -qxF "$GEN_DIST" && has_dist=1
+  echo "$un" | grep -qxF "$GEN_INV" && has_inv=1
+  # Take ours as the base, then REGENERATE BEFORE COMMITTING: a failed build or a growing ratchet
+  # must leave `git merge --abort` possible, and that only restores an uncommitted merge. The
+  # regenerated files ride in the merge commit itself, so the tree is clean when this returns.
+  while IFS= read -r p; do
+    [ -z "$p" ] && continue
+    $GIT -C "$wt" checkout --ours -- "$p" || return 1
+  done <<< "$un"
+  if [ $has_dist -eq 1 ]; then
+    # A stale or symlinked ui install made this rebuild die silently behind the old `-d` test.
+    # No lockfile (hermetic temp repos) means there is no install to repair.
+    [ -f "$wt/ui/package-lock.json" ] && { node_stamp_ensure "$wt/ui" || return 1; }
+    ( cd "$wt/ui" && bash -c "$DIST_BUILD" ) >/dev/null 2>&1 || return 1
+  fi
+  if [ $has_inv -eq 1 ]; then
+    ( cd "$wt" && bash -c "$INV_UPDATE" ) >/dev/null 2>&1 || return 1
+    ratchet_ok "$wt" || return 1
+  fi
+  while IFS= read -r p; do
+    [ -z "$p" ] && continue
+    $GIT -C "$wt" add -- "$p" || return 1
+  done <<< "$un"
+  $GIT -C "$wt" commit -q --no-edit || return 1
+}
+
 # ------------------------------------------------------------------ dispatcher
 if [ "${1:-}" != "--one" ]; then
+  [ "${1:-}" = "--resolve-generated" ] && { gen_resolve "${2:?worktree required}"; exit $?; }
   DRY=0; [ "${1:-}" = "--dry-run" ] && DRY=1
   [ -e "$STATE/PAUSE" ] && { echo "paused"; exit 0; }
   # legacy single-instance lock (pre-pipeline merge.sh still running): do not double-process
@@ -78,21 +154,12 @@ ITEM="$(echo "$BODY" | sed -n 's/.*RSI item: *\([A-Za-z0-9._-]*\).*/\1/p' | head
 V="$STATE/merge/$SLUG.verified"; RV="$STATE/merge/$SLUG.reviewed"; PREV="$STATE/merge/$SLUG.review.txt"
 say "#$N $SLUG ($ITEM) verifier start"
 
-dist_resolve() { # worktree: resolve a lone web/dist/index.html conflict by rebuilding
-  local wt="$1" un; un="$($GIT -C "$wt" diff --name-only --diff-filter=U)"
-  [ "$un" = "web/dist/index.html" ] || return 1
-  $GIT -C "$wt" checkout --ours web/dist/index.html && $GIT -C "$wt" add web/dist/index.html || return 1
-  $GIT -C "$wt" commit -q --no-edit || return 1
-  ( cd "$wt/ui" && npm run build >/dev/null 2>&1 ) || return 1
-  [ -n "$($GIT -C "$wt" status --porcelain -- web/dist/index.html)" ] && $GIT -C "$wt" commit -q -am "chore(web): rebuild dist after merging main"
-  return 0
-}
 mklock() { local d="$1" max="$2" w=0; while ! mkdir "$d" 2>/dev/null; do o="$(cat "$d/pid" 2>/dev/null)"; if [ -n "$o" ] && ! kill -0 "$o" 2>/dev/null; then rm -rf "$d"; continue; fi; sleep 15; w=$((w+15)); [ $w -gt "$max" ] && return 1; done; echo $$ > "$d/pid"; }
 sync_main() { # -> 0 ok (pushed if changed), 1 conflict (sendback written), 2 transient failure
   $GIT -C "$WT" merge-base --is-ancestor origin/main HEAD && return 0
   say "#$N $SLUG: merging origin/main"
   if ! $GIT -C "$WT" merge -q --no-edit origin/main >/dev/null 2>&1; then
-    if dist_resolve "$WT"; then say "#$N: web/dist/index.html conflict resolved by rebuild"
+    if gen_resolve "$WT"; then say "#$N: conflict(s) in generated files resolved by regeneration"
     else CF="$($GIT -C "$WT" diff --name-only --diff-filter=U)"; $GIT -C "$WT" merge --abort >/dev/null 2>&1
       printf 'merge of origin/main conflicts in:\n%s\n' "$CF" > "$STATE/merge/$SLUG.err"; sendback "$SLUG" "$ITEM" "merge conflict with main" "$STATE/merge/$SLUG.err"; return 1; fi
   fi
@@ -108,7 +175,11 @@ ci_state() { # prints green|pending|fail ; waits (bounded) while pending
   fi
   printf '%s\n' "$out" > "$STATE/merge/$SLUG.ci.txt"
   echo "$out" | grep -qE '\bpending\b|\bqueued\b|in_progress' && { echo pending; return; }
-  echo "$out" | grep -qE '\bfail\b|cancel' && { echo fail; return; }
+  # cancel-in-progress leaves a cancelled check next to the replacement run.
+  # That must not fail the PR: a real failure is "fail"; a cancelled run with
+  # no replacement yet is pending (retry next cycle).
+  echo "$out" | grep -qE '\bfail\b' && { echo fail; return; }
+  echo "$out" | grep -qiE '\bcancel' && { echo pending; return; }
   echo green
 }
 
@@ -193,8 +264,10 @@ if [ $NEED_GATE -eq 1 ]; then
   if ! mklock "$STATE/.gate.lock" 1800; then GATE_OK=0; GATE_NOTE="gate lock timeout"; say "#$N: gate lock timeout"
   else
     # Workers often build before their last edit: regenerate web/dist/index.html (the only tracked build output) so a stale bundle
-    # never bounces a PR. Pushed so CI sees the same file.
-    if echo "$CH" | grep -q '^ui/' && [ -d "$WT/ui/node_modules" ]; then
+    # never bounces a PR. Pushed so CI sees the same file. The install is repaired first: behind a `-d` test a stale or symlinked
+    # tree made this build die silently, leaving the dist stale so gate.sh then failed the PR for a second, unrelated reason.
+    if echo "$CH" | grep -q '^ui/'; then
+      node_stamp_ensure "$WT/ui" || say "#$N $SLUG: ui install repair failed; dist rebuild may be incomplete"
       ( cd "$WT/ui" && npm run build >/dev/null 2>&1 ) && [ -n "$($GIT -C "$WT" status --porcelain -- web/dist/index.html)" ] \
         && $GIT -C "$WT" commit -q -m "chore(web): rebuild dist" -- web/dist/index.html && $GIT -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null
       SHA="$($GIT -C "$WT" rev-parse HEAD)"
@@ -209,8 +282,16 @@ if [ -n "$REVPID" ]; then
   wait "$REVPID"; CHILD=""
   cp "$PREV.new" "$PREV"; rm -f "$PREV.new"
   VERD="$(grep -oE 'VERDICT: *(PASS|FAIL)' "$PREV" | tail -1 | grep -oE 'PASS|FAIL')"
-  echo "$DH ${VERD:-NONE} $SHA $ROLE" > "$RV"
-  if [ "$VERD" != PASS ]; then REV_OK=0; REV_NOTE="independent review ${VERD:-gave no verdict}"; say "#$N $SLUG: review ${VERD:-NO VERDICT}"; fi
+  if [ -z "$VERD" ]; then
+    # Reviewer infra (empty log / no VERDICT): retry next cycle. Do not send back or cache this SHA as reviewed
+    # (a cached NONE would make the next pass a delta-since-HEAD empty review).
+    say "#$N $SLUG: review NO VERDICT (reviewer infra) — retry next cycle, not a sendback"
+    if [ -s "$PREV.prev" ]; then mv "$PREV.prev" "$PREV"; else rm -f "$PREV"; fi
+    [ $GATE_OK -eq 0 ] || exit 0
+  else
+    echo "$DH $VERD $SHA $ROLE" > "$RV"
+    if [ "$VERD" != PASS ]; then REV_OK=0; REV_NOTE="independent review FAIL"; say "#$N $SLUG: review FAIL"; fi
+  fi
 fi
 RMODEL="$([ $ROLE = reviewer ] && echo "$M_DIRECTOR" || echo "$M_ALT")"
 if [ $GATE_OK -eq 0 ] || [ $REV_OK -eq 0 ]; then
@@ -224,6 +305,40 @@ fi
 [ $NEED_GATE -eq 1 ] && echo "$SHA PASS $ROLE" > "$V"
 [ $NEED_GATE -eq 1 ] || [ $NEED_REV -eq 1 ] && $GH pr comment "$N" --repo "$GH_REPO" --body "RSI merge lane: gate PASS and independent review ($ROLE$([ $NEED_REV -eq 0 ] && echo ", carried over: PR diff unchanged")) VERDICT: PASS on ${SHA:0:8}. Gate log: ${GL##*/}." >/dev/null 2>&1
 VERIFIED_AT=$(date +%s); echo "$(date '+%F %H:%M') #$N $SLUG verify=$(( (VERIFIED_AT - T0) / 60 ))m gate=$([ $NEED_GATE -eq 1 ] && echo ran || echo cached) review=$([ $NEED_REV -eq 1 ] && echo ran || echo cached)" >> "$STATE/merge/cycles.log"
+
+# 4b. UX gate (CEO 2026-11-15; Ethan: a redesign must not end up demo-grade). Two parts, both before landing:
+#   (a) a slice with `"gate": "ux-approved"` (S1-S3, the visible shell) is verified but NOT merged until state/ux-proto/APPROVED exists;
+#   (b) any PR that touches UI source gets a journey walk of the real console (screenshots 390/1100/1280) + a vision review scored on
+#       UX-RUBRIC.md (clarity, density, consistency, feedback, keyboard). Reject (sendback) below threshold; infra trouble never bounces a PR:
+#       it stays verified, is NOT merged, and is listed in needs-ceo.md. RSI_UX_GATE=off disables (emergency only; log it in DECISIONS).
+if ! python3 "$RSI_DIR/runtime/slices.py" gate-ok "$ITEM" >/dev/null 2>&1; then
+  say "#$N $SLUG ($ITEM): verified, waiting for state/ux-proto/APPROVED (UX approval gate) -> not merging"; exit 0
+fi
+UI_TOUCH=0
+echo "$CH" | grep -E '^ui/src/.*\.(tsx|css)$' | grep -vqE '\.(test|spec)\.' && UI_TOUCH=1
+echo "$CH" | grep -qE '^(ui/package(-lock)?\.json|ui/tailwind|ui/postcss)' && UI_TOUCH=1
+if [ $UI_TOUCH -eq 1 ] && [ "${RSI_UX_GATE:-on}" != off ]; then
+  UXV="$STATE/merge/$SLUG.uxverified"
+  MAINUI="$($GIT -C "$WT" rev-parse origin/main:ui 2>/dev/null || $GIT -C "$WT" rev-parse origin/main)-$($GIT -C "$WT" rev-parse HEAD:ui/package-lock.json 2>/dev/null || echo none)"
+  if [ "$(cut -d' ' -f1 "$UXV" 2>/dev/null)" = "$DH" ] && [ "$(cut -d' ' -f2 "$UXV" 2>/dev/null)" = PASS ] && [ "$(cut -d' ' -f3 "$UXV" 2>/dev/null)" = "$MAINUI" ]; then
+    say "#$N $SLUG: UX gate carried over (PR diff and origin/main:ui unchanged)"
+  else
+    say "#$N $SLUG: UX gate (journey walk + vision review)"
+    bash "$RSI_DIR/runtime/ux-gate.sh" "$WT" "$SLUG" "$ITEM" "$N" "$DH" "$ROLE"; urc=$?
+    SC="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(" ".join("%s=%s"%kv for kv in d["scores"].items()), "mean=%s"%d["mean"])' "$STATE/ux/$SLUG/scores.json" 2>/dev/null)"
+    if [ $urc -eq 0 ]; then
+      echo "$DH PASS $MAINUI" > "$UXV"
+      $GH pr comment "$N" --repo "$GH_REPO" --body "RSI UX gate: PASS on ${SHA:0:8} ($SC). Journey screenshots are kept on the CEO machine (rsi/state/shots/$SLUG/journeys/). Rubric: rsi/UX-RUBRIC.md." >/dev/null 2>&1
+    elif [ $urc -eq 1 ]; then
+      say "#$N $SLUG: UX gate FAIL ($SC)"; sendback "$SLUG" "$ITEM" "UX gate failed ($SC)" "$STATE/merge/$SLUG.ux.txt"
+      scorecard_row "$ITEM $SLUG" "$M_WORKER" "$RMODEL (ux)" "UX FAIL $SC" "[#$N]($PRURL)" "patched" "see state/ux/$SLUG"; exit 0
+    else
+      [ -e "$STATE/merge/$SLUG.uxunavail.$DH" ] || { touch "$STATE/merge/$SLUG.uxunavail.$DH"
+      printf -- '- %s PR #%s rsi/%s: UX gate could not run (%s); verified, NOT merged. Fix the walker/daemon or set RSI_UX_GATE=off and record it in DECISIONS.\n' "$(date '+%F %H:%M')" "$N" "$SLUG" "$(cat "$STATE/ux/$SLUG/unavailable.txt" 2>/dev/null | head -c 160)" >> "$STATE/needs-ceo.md"; }
+      say "#$N $SLUG: UX gate unavailable -> not merging"; exit 0
+    fi
+  fi
+fi
 
 # 5. NO_MERGE honours
 if [ -e "$STATE/NO_MERGE" ]; then say "#$N $SLUG: verified, NO_MERGE set -> not merging"; exit 0; fi

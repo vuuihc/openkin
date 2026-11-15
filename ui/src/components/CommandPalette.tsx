@@ -4,7 +4,7 @@ import { isAuthenticated, listProjects, type Project } from "../api/client";
 import { t } from "../i18n";
 import { useMinWidth } from "../hooks/useMinWidth";
 import { canLeaveScreen, runGuardedNavigation } from "../lib/leaveGuard";
-import { phonePush } from "../lib/phoneNavigation";
+import { phonePush, returnListUrl } from "../lib/phoneNavigation";
 import { useT } from "../i18n/react";
 import { paletteEntries, type PaletteEntry } from "../lib/palette";
 import type { PanelContext, PanelId } from "../lib/panels";
@@ -79,14 +79,9 @@ export default function CommandPalette({
   const tr = useT();
 
   /**
-   * Go somewhere, keeping the phone's history one level deep.
-   *
-   * Every phone screen's parent is the list (D2/R5), but the palette can open
-   * a place or a conversation from any screen. Pushing there would make Back
-   * return to the screen the reader just hopped from — the exact counterexample
-   * R5 names — so on a phone, moving from anything but the list replaces the
-   * current entry with the list first and pushes on top of it. The Mac keeps
-   * ordinary browser history.
+   * Go somewhere through the same navigation contract as every other entry.
+   * Root places are sibling replacements; conversations and the draft push
+   * over the remembered list, on the phone only. No palette-specific invention.
    */
   const go = useCallback(
     (to: string, approved = false) => {
@@ -151,7 +146,7 @@ export default function CommandPalette({
             onNewChat(true);
             return;
           }
-          go(entry.path, true);
+          go(entry.id === "sessions" ? returnListUrl(location) : entry.path, true);
         };
       }
       return () => {

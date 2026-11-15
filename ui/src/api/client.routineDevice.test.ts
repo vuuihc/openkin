@@ -47,6 +47,12 @@ describe("routine requests and their machine", () => {
     await markRoutineRunRead("t-1", "device-laptop");
     await markAllRoutineRunsRead("device-laptop");
     await listRoutineRuns(50, "device-laptop");
+    await listRoutineRuns(20, "device-laptop", "old-run", "routine-1");
+    const history = new URL(urls.at(-1) ?? "", "http://kin.example.com").searchParams;
+    expect(history.get("page")).toBe("1");
+    expect(history.get("limit")).toBe("1");
+    expect(history.get("runs_cursor")).toBe("old-run");
+    expect(history.get("routine_id")).toBe("routine-1");
     for (const url of urls) {
       expect(query(url).get("device")).toBe("device-laptop");
     }
