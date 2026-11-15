@@ -2,7 +2,11 @@ name: ci
 
 on:
   push:
+    # `branches` alone would silently drop tag refs, which ran this workflow
+    # before the push filter existed. `release.yml` builds `v*` tags, and they
+    # keep the same CI gate here.
     branches: [main]
+    tags: ["v*"]
   pull_request:
 
 # One in-flight run per ref. A newer push (or a synchronize on the PR) cancels
