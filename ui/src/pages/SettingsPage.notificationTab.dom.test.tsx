@@ -247,6 +247,21 @@ describe("a settings notification tap while the page is mounted", () => {
     expect(panel("routing").hidden).toBe(true);
     expect(screen.getByTestId("url").textContent).toBe("/settings");
   });
+
+  // The area table accepts `/settings?tab=operations`, but its panel arrives
+  // with N4. General alone would read as "the link was wrong"; the notice names
+  // where Agent operations lives now and gives the reader the way there.
+  it("explains an operations tab and links to Agents until N4 hosts the panel", async () => {
+    renderSettings("/settings?tab=operations");
+    await screen.findByRole("tablist");
+
+    expect(panel("general").hidden).toBe(false);
+    expect(screen.getByText(/Agent operations now live in the Agents page/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open Agents" }).getAttribute("href")).toBe(
+      "/agents",
+    );
+    expect(screen.getByTestId("url").textContent).toBe("/settings?tab=operations");
+  });
 });
 
 describe("dirty settings tab changes and system Back", () => {

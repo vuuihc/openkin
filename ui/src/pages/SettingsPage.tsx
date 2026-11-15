@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ApiError,
   activateProvider,
@@ -696,6 +696,11 @@ export default function SettingsPage() {
     );
   }
 
+  // The URL is also the source of the notice below: `operations` is a known
+  // destination, but its panel arrives with N4, so the page draws General plus
+  // one explicit pointer instead of silently pretending the tab never existed.
+  const requestedTab = normalizeSettingsTab(new URLSearchParams(location.search).get("tab"));
+
   const settingsTabs: SettingsTabItem[] = [
     {
       id: "general",
@@ -732,6 +737,14 @@ export default function SettingsPage() {
       activeTab={activeTab}
       onTabChange={selectTab}
     >
+      {requestedTab === "operations" ? (
+        <p className="text-body leading-5 text-kin-secondary">
+          {tr("settings.operationsMoved")}{" "}
+          <Link to="/agents" className="text-kin-blue-ink hover:underline">
+            {tr("settings.operationsOpen")}
+          </Link>
+        </p>
+      ) : null}
       {error ? (
         <p
           className="rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-body leading-4 text-kin-red-ink"

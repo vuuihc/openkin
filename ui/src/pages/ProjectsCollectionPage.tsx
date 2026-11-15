@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { listProjects, type Project } from "../api/client";
+import { MobileCard } from "../components/mobile/MobileList";
+import { MobileChevron } from "../components/mobile/MobileHeader";
 import { useT } from "../i18n/react";
 
 /**
@@ -36,31 +38,45 @@ export default function ProjectsCollectionPage() {
   }, []);
 
   return (
-    <div className="flex-1 overflow-y-auto kin-scroll px-4 sm:px-6 py-6 space-y-4">
-      <h1 className="text-hero font-bold">{tr("nav.projects")}</h1>
-      {failed ? (
-        // Visible text without a new live region: the inventory ratchet is flat
-        // for this slice, and the real collection page (P2) owns the shared
-        // error surface. The failure is still distinct from the empty state.
-        <p className="text-body leading-5 text-kin-red-ink">{tr("projects.loadFailed")}</p>
-      ) : projects === null ? (
-        <p className="text-body leading-5 text-kin-muted">{tr("common.loading")}</p>
-      ) : projects.length === 0 ? (
-        <p className="text-body leading-5 text-kin-muted">{tr("projects.empty")}</p>
-      ) : (
-        <ul className="space-y-1">
-          {projects.map((project) => (
-            <li key={project.id}>
-              <Link
-                to={`/projects/${project.id}`}
-                className="flex min-h-11 items-center justify-between gap-3 rounded-lg px-3 py-2 text-strong hover:bg-[var(--kin-fill)]"
-              >
-                <span className="min-w-0 truncate">{project.name}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+    <div className="flex-1 overflow-y-auto kin-scroll">
+      <div className="mx-auto flex w-full max-w-page flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8">
+        <h1 className="text-hero font-bold">{tr("nav.projects")}</h1>
+        {failed ? (
+          // Visible text without a new live region: the inventory ratchet is flat
+          // for this slice, and the real collection page (P2) owns the shared
+          // error surface. The failure is still distinct from the empty state.
+          <p className="text-body leading-5 text-kin-red-ink">{tr("projects.loadFailed")}</p>
+        ) : projects === null ? (
+          <p className="text-body leading-5 text-kin-muted">{tr("common.loading")}</p>
+        ) : projects.length === 0 ? (
+          <p className="text-body leading-5 text-kin-muted">{tr("projects.empty")}</p>
+        ) : (
+          <MobileCard>
+            {projects.map((project) => {
+              const detail = [project.mode, project.roots?.[0]].filter(Boolean).join(" · ");
+              return (
+                <Link
+                  key={project.id}
+                  to={`/projects/${project.id}`}
+                  className="flex min-h-[52px] w-full items-center gap-3 px-4 py-2.5 text-left kin-row-press"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-subtitle font-medium leading-ui text-kin-text">
+                      {project.name}
+                    </span>
+                    {detail ? (
+                      <span className="mt-0.5 block truncate text-caption leading-ui text-kin-muted">
+                        {detail}
+                      </span>
+                    ) : null}
+                  </span>
+                  <MobileChevron />
+                </Link>
+              );
+            })}
+          </MobileCard>
+        )}
+      </div>
     </div>
   );
 }

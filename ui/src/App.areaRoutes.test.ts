@@ -103,7 +103,7 @@ describe("area routes", () => {
   it("lists a loaded project at its detail URL", async () => {
     vi.mocked(listProjects).mockResolvedValue([PROJECT]);
     renderAt("/projects");
-    const link = await screen.findByRole("link", { name: "alpha" });
+    const link = await screen.findByRole("link", { name: /alpha/ });
     expect(link.getAttribute("href")).toBe("/projects/p1");
   });
 
