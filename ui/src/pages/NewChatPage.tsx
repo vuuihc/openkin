@@ -33,8 +33,6 @@ import {
   pendingSend as newPendingSend,
   type PendingSend,
 } from "../lib/pendingSend";
-import { phonePush } from "../lib/phoneNavigation";
-import { displayUserPrompt } from "../lib/attachments";
 import ProjectSummaryCard from "../components/project/ProjectSummaryCard";
 import PlacePicker, { type Place } from "../components/newchat/PlacePicker";
 import { liveResources } from "../api/liveResources";

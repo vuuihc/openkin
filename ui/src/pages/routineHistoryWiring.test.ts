@@ -34,14 +34,17 @@ describe("the routine editor's run history", () => {
   });
 
   it("asks for one bounded summary page and records its independent cursor", () => {
-    const read = PAGE.slice(PAGE.indexOf("const readHistory ="), PAGE.indexOf("const loadHistory ="));
+    const read = PAGE.slice(
+      PAGE.indexOf("const readHistory ="),
+      PAGE.indexOf("const loadHistory ="),
+    );
     expect(read).toContain("await listRoutineRuns(");
     expect(read).toContain("ROUTINE_HISTORY_PAGE,");
     expect(read).toContain('remote ? view.deviceId : "",');
     expect(read).toContain("before,");
     expect(read).toContain("id,");
     expect(read).toContain("page.runs_has_more ?? false");
-    expect(read).toContain("page.runs_next_cursor ?? \"\"");
+    expect(read).toContain('page.runs_next_cursor ?? ""');
   });
 
   it("pages older runs from the boundary the last page returned", () => {
@@ -49,7 +52,9 @@ describe("the routine editor's run history", () => {
     // from the list's tail: a live push can place a deeper run at the tail, and
     // asking below that id would skip every run between the two.
     expect(PAGE).toContain("return before ? readHistory(id, before) : Promise.resolve();");
-    expect(PAGE).toContain("setHistoryCursor((prev) => ({ ...prev, [id]: page.runs_next_cursor ?? \"\" }));");
+    expect(PAGE).toContain(
+      'setHistoryCursor((prev) => ({ ...prev, [id]: page.runs_next_cursor ?? "" }));',
+    );
     expect(PAGE).toContain("before ? appendOlderRuns(prev[id] ?? [], tasks) : tasks");
   });
 
@@ -57,9 +62,12 @@ describe("the routine editor's run history", () => {
     // The summary API, not the retained row count, owns the cursor and has-more.
     // Both local and relay paths run this same reader; all state writes wait
     // for the per-routine generation / current-device check after its await.
-    const read = PAGE.slice(PAGE.indexOf("const readHistory ="), PAGE.indexOf("const loadHistory ="));
+    const read = PAGE.slice(
+      PAGE.indexOf("const readHistory ="),
+      PAGE.indexOf("const loadHistory ="),
+    );
     const awaited = read.indexOf("await listRoutineRuns(");
-    const guarded = read.indexOf("if (historySeq.current[id] !== seq ||");
+    const guarded = read.search(/if \(\s*historySeq\.current\[id\] !== seq \|\|/);
     const applied = read.indexOf("setHistory((prev) =>");
     const hasMore = read.indexOf("setHistoryHasMore((prev) =>");
     const cursor = read.indexOf("setHistoryCursor((prev) =>");
@@ -82,10 +90,15 @@ describe("the routine editor's run history", () => {
     // the rows between the two pages and could hide the button with a short
     // page. Every fetch path has the newest-wins guard.
     expect(PAGE).toContain("const seq = (historySeq.current[id] ?? 0) + (before ? 0 : 1);");
-    const read = PAGE.slice(PAGE.indexOf("const readHistory ="), PAGE.indexOf("const loadHistory ="));
+    const read = PAGE.slice(
+      PAGE.indexOf("const readHistory ="),
+      PAGE.indexOf("const loadHistory ="),
+    );
     expect(read.split("historySeq.current[id] !== seq").length - 1).toBe(2);
     expect(read).toContain("historySeq.current[id] = seq;");
-    expect(read).toContain("if (historySeq.current[id] === seq && historyOlderSeq.current[id] === olderSeq)");
+    expect(read).toContain(
+      "if (historySeq.current[id] === seq && historyOlderSeq.current[id] === olderSeq)",
+    );
     expect(read).toContain("if (historyOlderSeq.current[id] === olderSeq)");
   });
 
