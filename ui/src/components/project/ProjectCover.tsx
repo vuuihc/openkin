@@ -16,7 +16,8 @@ import { useT } from "../../i18n/react";
  * The cover, not each control, owns Escape and ⌘Enter (KIN-PROJECT-001 step
  * 6): leaving and starting the next chat are cover-level actions, and a reader
  * should not have to focus a particular button first. Typing fields, open
- * pickers and an active summary edit keep their own keys.
+ * pickers and an active summary edit keep their own keys. The page mounts this
+ * headless on its loading and error screens so those keys stay bound.
  */
 type Props = {
   /** The project record, cached or fresh. `null` paints the loading state. */
@@ -55,10 +56,10 @@ export default function ProjectCover({
       const target = event.target instanceof HTMLElement ? event.target : null;
       const typing = Boolean(
         target &&
-          (target.tagName === "INPUT" ||
-            target.tagName === "TEXTAREA" ||
-            target.tagName === "SELECT" ||
-            target.isContentEditable),
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable),
       );
       if (event.key === "Escape") {
         if (editing || typing) return;
@@ -80,8 +81,14 @@ export default function ProjectCover({
   }, [canStartChat, editing, onBack, onStartChat]);
 
   if (!project) {
+    // Headless mount: the page keeps the keys bound where no cover is painted.
+    if (!loading) return null;
     return (
-      <div data-testid="project-cover-loading" aria-busy={loading || undefined} className="mb-4 space-y-3">
+      <div
+        data-testid="project-cover-loading"
+        aria-busy={loading || undefined}
+        className="mb-4 space-y-3"
+      >
         {loading && (
           <>
             <SkeletonLine />

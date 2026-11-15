@@ -69,7 +69,7 @@ describe("the project cover's data wiring (KIN-PROJECT-001)", () => {
   });
 
   it("shows the activity row only for the project it was read for", () => {
-    expect(SOURCE).toContain('const [activityFor, setActivityFor] = useState<string | null>(null)');
+    expect(SOURCE).toContain("const [activityFor, setActivityFor] = useState<string | null>(null)");
     expect(SOURCE).toContain("setActivityFor(outcome.projectId)");
     expect(SOURCE).toContain("activityFor === currentProject.id ? latest : null");
   });
@@ -77,7 +77,9 @@ describe("the project cover's data wiring (KIN-PROJECT-001)", () => {
   it("keeps the previous row when a reload fails", () => {
     // The DOM suite pins the behavior; this pins that the preservation is
     // structural — a replay of the last row, not a re-read that could be empty.
-    expect(SOURCE).toContain('setActivityError(outcome.error ? tr("projects.activityFailed") : null)');
+    expect(SOURCE).toContain(
+      'setActivityError(outcome.error ? tr("projects.activityFailed") : null)',
+    );
     expect(SOURCE).not.toMatch(/setActivityError[\s\S]{0,80}setLatest\(null\)/);
   });
 
@@ -96,14 +98,12 @@ describe("the project cover's data wiring (KIN-PROJECT-001)", () => {
     expect(SOURCE).toContain("const p = await getProject(id)");
     expect(SOURCE).toContain("const op = await getOnePager(id)");
     expect(SOURCE).toContain("setOnePagerError");
-    expect(SOURCE).toContain('e instanceof ApiError && e.status === 404');
+    expect(SOURCE).toContain("e instanceof ApiError && e.status === 404");
   });
 
   it("keeps the routines block read-only and points at /routines", () => {
     expect(SOURCE).toContain("listRoutines({ limit: 100 }, routineDevice || undefined)");
-    expect(SOURCE).toContain(
-      "`/routines?device=${encodeURIComponent(routineDevice)}`",
-    );
+    expect(SOURCE).toContain("`/routines?device=${encodeURIComponent(routineDevice)}`");
     expect(SOURCE).toContain("onGuardedLinkClick(");
     expect(SOURCE).toContain("routineDeviceForProject(");
     expect(SOURCE).not.toContain("createRoutine");
@@ -113,7 +113,9 @@ describe("the project cover's data wiring (KIN-PROJECT-001)", () => {
 
   it("composes the summary into Current Focus and saves against its version", () => {
     expect(SOURCE).toContain("setOnePagerFocus(base, draft)");
-    expect(SOURCE).toContain("putOnePager(id, setOnePagerFocus(base, draft), baseUpdatedAt || undefined)");
+    expect(SOURCE).toContain(
+      "putOnePager(id, setOnePagerFocus(base, draft), baseUpdatedAt || undefined)",
+    );
     // A conflict composes on the other version, so choosing overwrite keeps
     // their sections that this editor does not own.
     expect(SOURCE).toContain("void saveSummary(conflict.markdown, conflict.updated_at)");
@@ -125,7 +127,7 @@ describe("the project cover's data wiring (KIN-PROJECT-001)", () => {
 
   it("offers one new-chat target and no guess for a multi-root project", () => {
     expect(SOURCE).toContain("projectNewChatTarget(currentProject)");
-    expect(SOURCE).not.toContain('`/new?cwd=${encodeURIComponent(root)}`');
+    expect(SOURCE).not.toContain("`/new?cwd=${encodeURIComponent(root)}`");
   });
 
   it("lets offline show the last result and disables the writes", () => {
@@ -140,7 +142,9 @@ describe("the project cover's data wiring (KIN-PROJECT-001)", () => {
     expect(SOURCE).toContain("readProjectScroll(projectId)");
     // Restoring against a skeleton clamps the offset and forgets it. Wait for
     // the blocks that give the page its height.
-    expect(SOURCE).toContain("const contentReady = !pulseLoading && !routinesLoading && !activityLoading");
+    expect(SOURCE).toContain(
+      "const contentReady = !pulseLoading && !routinesLoading && !activityLoading",
+    );
     expect(SOURCE).toContain("if (!currentProject || loading || !contentReady) return;");
   });
 
@@ -152,7 +156,7 @@ describe("the project cover's data wiring (KIN-PROJECT-001)", () => {
 
   it("binds Esc and ⌘Enter at the window, not only while the scroller has focus", () => {
     expect(SOURCE).toContain('window.addEventListener("keydown", onKeyDown)');
-    expect(SOURCE).toContain('event.metaKey || event.ctrlKey');
+    expect(SOURCE).toContain("event.metaKey || event.ctrlKey");
     expect(SOURCE).toContain("phonePush(navigate, location, newChatHref, {");
     expect(SOURCE).toContain('button.getAttribute("aria-label") === name');
   });

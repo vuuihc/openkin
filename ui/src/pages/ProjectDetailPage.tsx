@@ -145,14 +145,9 @@ export default function ProjectDetailPage() {
   const scrollTopRef = useRef(0);
   const restoredFor = useRef<string | null>(null);
   const slow = useSlowHint(loading && !project);
-  const {
-    machines,
-    loading: machinesLoading,
-    failed: machinesFailed,
-  } = useMachines();
+  const { machines, loading: machinesLoading, failed: machinesFailed } = useMachines();
   const selfDeviceId = (machines.find((machine) => machine.isSelf)?.id ?? "").trim();
-  const projectCwd =
-    project && project.id === id ? (projectRoots(project)[0] ?? "") : "";
+  const projectCwd = project && project.id === id ? (projectRoots(project)[0] ?? "") : "";
   const [routineDevice, routinesDeviceResolved] = useMemo((): [string, boolean] => {
     if (machinesLoading) return ["", false];
     if (machinesFailed) {
@@ -163,10 +158,7 @@ export default function ProjectDetailPage() {
       const remembered = readRoutineDevice().trim();
       return [remembered, remembered.length > 0];
     }
-    return [
-      routineDeviceForProject(machines, projectCwd, readRoutineDevice()),
-      true,
-    ];
+    return [routineDeviceForProject(machines, projectCwd, readRoutineDevice()), true];
   }, [machines, machinesFailed, machinesLoading, projectCwd]);
 
   // The old ?tab= links predate the signed cover. They land on the cover and
@@ -192,7 +184,11 @@ export default function ProjectDetailPage() {
   // title button by name.
   useEffect(() => {
     const active = document.activeElement;
-    if (active instanceof HTMLElement && active !== document.body && active !== document.documentElement) {
+    if (
+      active instanceof HTMLElement &&
+      active !== document.body &&
+      active !== document.documentElement
+    ) {
       openerRef.current = active;
     }
   }, [id]);
@@ -371,9 +367,7 @@ export default function ProjectDetailPage() {
     try {
       const page = await listRoutines({ limit: 100 }, routineDevice || undefined);
       if (gen !== routinesRequest.current) return;
-      setRoutines(
-        (page.routines ?? []).filter((routine) => samePath(routine.cwd, projectCwd)),
-      );
+      setRoutines((page.routines ?? []).filter((routine) => samePath(routine.cwd, projectCwd)));
       setRoutinesFor(id);
       setRoutinesLoaded(true);
     } catch {
@@ -381,14 +375,7 @@ export default function ProjectDetailPage() {
     } finally {
       if (gen === routinesRequest.current) setRoutinesLoading(false);
     }
-  }, [
-    id,
-    machinesLoading,
-    projectCwd,
-    routineDevice,
-    routinesDeviceResolved,
-    tr,
-  ]);
+  }, [id, machinesLoading, projectCwd, routineDevice, routinesDeviceResolved, tr]);
 
   useEffect(() => {
     void loadRoutines();
@@ -691,7 +678,6 @@ export default function ProjectDetailPage() {
     }
   };
 
-
   const onModeChange = async (mode: ProjectMode) => {
     if (!id) return;
     try {
@@ -762,10 +748,24 @@ export default function ProjectDetailPage() {
     );
   }, [location, navigate, newChatHref]);
 
+  // The cover owns the window keys, so mount it headless on the two screens
+  // that paint no cover: Escape is the only way back from either.
+  const keys = (
+    <ProjectCover
+      project={null}
+      now={0}
+      canStartChat={canStartChat}
+      onBack={goBack}
+      onModeChange={() => {}}
+      onStartChat={startChat}
+    />
+  );
+
   if (!currentProject) {
     if (error) {
       return (
         <div className="flex-1 min-h-0 overflow-y-auto kin-scroll">
+          {keys}
           <div className="mx-auto max-w-5xl px-4 py-6">
             <button
               type="button"
@@ -796,6 +796,7 @@ export default function ProjectDetailPage() {
     }
     return (
       <div className="flex-1 min-h-0 overflow-y-auto kin-scroll">
+        {keys}
         <div className="mx-auto max-w-5xl px-4 py-6 space-y-3">
           {slow && <SlowConnectHint show />}
           <SkeletonLine />
