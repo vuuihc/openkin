@@ -134,6 +134,64 @@ else
   bad "prep leaves a fresh tree alone (rc=$rc7 npm-log=$([ -e "$LOG7" ] && echo present || echo absent) state=$(node_stamp_state "$WT7/ui"))"
 fi
 
+# prep: a real install made before the current lockfile is stale, not "installed" — repair it.
+H8="$T/home8"; C8="$T/ctrl8"; WT8="$H8/.kin/worktrees/rsi-t"
+mkdir -p "$WT8/ui" "$C8/rsi"
+printf '{"name":"ui","lockfileVersion":3}\n' > "$WT8/ui/package-lock.json"
+fixture "$WT8/ui"
+node_stamp_mark "$WT8/ui"
+printf '{"name":"ui","lockfileVersion":3,"packages":{"x":{}}}\n' > "$WT8/ui/package-lock.json"
+LOG8="$T/npm8.log"
+HOME="$H8" RSI_CTRL="$C8" RSI_NPM="$STUB" NODE_STAMP_STUB_LOG="$LOG8" \
+  bash "$RT/prep-worktree.sh" "$WT8" > "$T/prep8.out" 2>&1
+rc8=$?
+calls8=0
+[ -f "$LOG8" ] && calls8="$(wc -l < "$LOG8" | tr -d ' ')"
+if [ $rc8 -eq 0 ] && [ "$calls8" = 1 ] && grep -q '^ci' "$LOG8" 2>/dev/null &&
+  [ "$(node_stamp_state "$WT8/ui")" = fresh ]; then
+  ok "prep repairs a real install that predates the lockfile"
+else
+  bad "prep repairs a real install that predates the lockfile (rc=$rc8 npm-calls=$calls8 state=$(node_stamp_state "$WT8/ui"))"
+fi
+
+# prep: an absent target clones a fresh, lock-identical donor instead of running npm ci.
+H9="$T/home9"; C9="$T/ctrl9"; D9="$H9/.kin/worktrees/rsi-donor"; WT9="$H9/.kin/worktrees/rsi-t"
+mkdir -p "$D9/ui" "$WT9/ui" "$C9/rsi"
+fixture "$D9/ui"
+cp "$D9/ui/package-lock.json" "$WT9/ui/package-lock.json"   # identical lock, absent target
+node_stamp_mark "$D9/ui"
+LOG9="$T/npm9.log"
+HOME="$H9" RSI_CTRL="$C9" RSI_NPM="$STUB" NODE_STAMP_STUB_LOG="$LOG9" \
+  bash "$RT/prep-worktree.sh" "$WT9" > "$T/prep9.out" 2>&1
+rc9=$?
+if [ $rc9 -eq 0 ] && [ ! -e "$LOG9" ] && [ -d "$WT9/ui/node_modules/.bin" ] &&
+  [ "$(node_stamp_state "$WT9/ui")" = fresh ]; then
+  ok "prep clones a fresh lock-identical donor instead of installing"
+else
+  bad "prep clones a fresh lock-identical donor instead of installing (rc=$rc9 npm-log=$([ -e "$LOG9" ] && echo present || echo absent) state=$(node_stamp_state "$WT9/ui"))"
+fi
+
+# prep: a donor with an identical lockfile but no stamp is stale — never clone it; install in the
+# target and leave the donor's tree untouched.
+H10="$T/home10"; C10="$T/ctrl10"; D10="$H10/.kin/worktrees/rsi-donor"; WT10="$H10/.kin/worktrees/rsi-t"
+mkdir -p "$D10/ui" "$WT10/ui" "$C10/rsi"
+fixture "$D10/ui"          # a real install, never stamped: stale although the lock matches
+cp "$D10/ui/package-lock.json" "$WT10/ui/package-lock.json"
+donor10_listing="$(listing "$D10/ui")"
+donor10_sha="$(sha "$D10/ui")"
+LOG10="$T/npm10.log"
+HOME="$H10" RSI_CTRL="$C10" RSI_NPM="$STUB" NODE_STAMP_STUB_LOG="$LOG10" \
+  bash "$RT/prep-worktree.sh" "$WT10" > "$T/prep10.out" 2>&1
+rc10=$?
+calls10=0
+[ -f "$LOG10" ] && calls10="$(wc -l < "$LOG10" | tr -d ' ')"
+if [ $rc10 -eq 0 ] && [ "$calls10" = 1 ] && [ "$(node_stamp_state "$WT10/ui")" = fresh ] &&
+  [ "$(listing "$D10/ui")" = "$donor10_listing" ] && [ "$(sha "$D10/ui")" = "$donor10_sha" ]; then
+  ok "prep skips a stale lock-identical donor and installs in the target"
+else
+  bad "prep skips a stale lock-identical donor and installs in the target (rc=$rc10 npm-calls=$calls10 state=$(node_stamp_state "$WT10/ui") donor-intact=$([ "$(listing "$D10/ui")" = "$donor10_listing" ] && echo yes || echo no))"
+fi
+
 # The gate must repair before the first console compile, and the old `-d` test must be gone:
 # `-d` followed a symlink and accepted a pre-lockfile install, so the repair never ran and
 # tsc/vitest/build failed on a tree that was not the PR's fault.
