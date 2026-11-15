@@ -42,8 +42,8 @@ export type RoutineEditorProps = {
   deviceId: string;
   nextRunPreview?: number | null;
   conversationHint: string;
-  titleRef: RefObject<HTMLInputElement>;
-  sectionRef: RefObject<HTMLElement>;
+  titleRef: RefObject<HTMLInputElement | null>;
+  sectionRef: RefObject<HTMLElement | null>;
 };
 
 export default function RoutineEditor({
