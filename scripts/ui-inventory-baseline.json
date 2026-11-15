@@ -8,7 +8,7 @@
     "raw_textarea": {"label": "<textarea", "occurrences": 7, "files": 6},
     "native_select": {"label": "原生 <select", "occurrences": 0, "files": 0},
     "raw_label": {"label": "<label", "occurrences": 41, "files": 15},
-    "role_menu": {"label": "role=\"menu\"", "occurrences": 7, "files": 6},
+    "role_menu": {"label": "role=\"menu\"", "occurrences": 8, "files": 7},
     "role_listbox": {"label": "role=\"listbox\"", "occurrences": 12, "files": 7},
     "role_dialog": {"label": "role=\"dialog\"", "occurrences": 17, "files": 11},
     "role_tab": {"label": "role=\"tab\"", "occurrences": 5, "files": 4},
