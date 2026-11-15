@@ -9,10 +9,9 @@ import RoutinesPage from "./RoutinesPage";
 /**
  * A machine switch is a view of the one routines screen.
  *
- * On a phone the routines page is one push above the list, so switching
- * `?device=A` to `?device=B` replaces that entry: `[list, routines B]`, and one
- * Back reaches the list. On a Mac the sidebar keeps the stack ordinary, so B
- * is pushed over A and Back shows the machine the reader came from.
+ * On a phone Routines is a peer root; switching it from `?device=A` to
+ * `?device=B` replaces that entry: `[list, routines B]`. On a Mac the sidebar
+ * keeps the stack ordinary, so B is pushed over A and Back returns to A.
  *
  * Real `BrowserRouter` history is the assertion: a MemoryRouter cannot tell a
  * replace from a push.
@@ -24,7 +23,8 @@ vi.mock("../api/client", () => ({
   deleteRoutine: vi.fn(),
   isAuthenticated: () => true,
   isTerminal: () => true,
-  listRoutineRuns: vi.fn(async () => []),
+  listRoutineRuns: vi.fn(async () => ({ routines: [], runs: [], has_more: false })),
+  getRoutine: vi.fn(),
   listRoutines: vi.fn(async (_params?: unknown, device?: string) => ({
     routines:
       device === "dev-b"

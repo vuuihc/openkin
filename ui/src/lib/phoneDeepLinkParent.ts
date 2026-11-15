@@ -1,11 +1,13 @@
 /**
- * Give a cold deep link a parent, so the system Back lands on the list.
+ * Give a cold deep-linked pushed screen a parent, so system Back lands on the
+ * conversation list. The four root destinations do not invent that parent:
+ * they are the reader's peer-level starting point, not a pushed child.
  *
  * The in-app back button and the left-edge swipe can synthesize `/sessions`
  * when the history has nothing behind it (`lib/phoneBack.ts`). The browser's
  * own Back cannot: on the first entry of a cold launch it leaves the app, and
- * the story promises that a conversation, a destination or an archived scope
- * opened from a notification comes back to the list, not out of Kin
+ * the story promises that a conversation or another pushed detail opened from
+ * a notification comes back to the list, not out of Kin
  * (KIN-CONTINUE-002, step 4; NAVIGATION R7).
  *
  * The only place to fix that without a race is before the router mounts: turn
@@ -16,9 +18,10 @@
  * It is deliberately narrow:
  * - phone layout only; the Mac keeps ordinary browser history,
  * - only when the app has no in-app entry behind it (`idx === 0`),
- * - not for `/` (the start route resolves it) and not for the plain list.
+ * - not for `/` (the start route resolves it) and not for a root peer,
+ *   including the conversation list's search / status / archive filters.
  */
-import { listParentState, registerListEntry } from "./phoneNavigation";
+import { isPhoneTabPath, listParentState, registerListEntry } from "./phoneNavigation";
 
 const PHONE_QUERY = "(min-width: 768px)";
 
@@ -33,7 +36,7 @@ export function synthesizePhoneParent(win: Window = window): boolean {
   if (wasIndex(win.history.state) !== 0) return false;
 
   const here = win.location.pathname + win.location.search + win.location.hash;
-  if (here === "/" || here === "/sessions") return false;
+  if (here === "/" || isPhoneTabPath(here)) return false;
 
   const state = (win.history.state ?? {}) as Record<string, unknown>;
   const usr = typeof state.usr === "object" && state.usr !== null ? state.usr : undefined;

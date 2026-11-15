@@ -1,18 +1,17 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
 import {
-  getUsageSummary,
-  type AgentSessionImportResult,
-  type Approval,
-} from "../../api/client";
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { getUsageSummary, type AgentSessionImportResult, type Approval } from "../../api/client";
 import { useTaskList, useTaskResource } from "../../api/useLiveResources";
 import { isImeKeyEvent } from "../../lib/ime";
-import {
-  DRAFT_PATH,
-  draftSurfaceActive,
-  getDraftCwd,
-  subscribeDraft,
-} from "../../lib/draftChat";
+import { DRAFT_PATH, draftSurfaceActive, getDraftCwd, subscribeDraft } from "../../lib/draftChat";
 import { useMinWidth } from "../../hooks/useMinWidth";
 import { importToast } from "../../lib/agentSessionImport";
 import { useAgentSessionImport } from "../../hooks/useAgentSessionImport";
@@ -39,6 +38,8 @@ import {
 } from "../../lib/panels";
 import { useMachines } from "../../hooks/useMachines";
 import { remoteMachine } from "../../lib/devices";
+import { placeById } from "../../lib/places";
+import { focusPlaceReturn, rememberPlaceReturn, takePlaceReturn } from "../../lib/placeReturn";
 import { taskDisplayTitle } from "../../lib/taskTitle";
 import { floatingApprovals } from "../../lib/floatingApprovals";
 import { useApprovalDecision } from "../../hooks/useApprovalDecision";
@@ -47,6 +48,7 @@ import { runGuardedNavigation } from "../../lib/leaveGuard";
 import { goBackToList } from "../../lib/phoneBack";
 import {
   notePhoneLocation,
+  PHONE_TAB_IDS,
   draftEntryState,
   draftReturnUrl,
   phonePush,
@@ -54,6 +56,8 @@ import {
   routerHasParent,
 } from "../../lib/phoneNavigation";
 import FloatingApproval from "../cards/FloatingApproval";
+import PhoneFooter from "./PhoneFooter";
+import { usePhoneTabSwipe } from "../../hooks/usePhoneTabSwipe";
 import ErrorBoundary from "../ErrorBoundary";
 
 type Props = {
@@ -84,16 +88,11 @@ function taskIdFromPath(pathname: string): string | null {
 }
 
 /**
- * Desktop: sidebar + main. Phone: the list page is the only navigation
- * surface; conversations, the draft and the destinations push over it and come
- * back in one step. There is no drawer and no dock (KIN-CONTINUE-002).
- * New chat → navigate to DRAFT_PATH (no modal).
+ * Desktop: sidebar + main. Phone: four sibling roots share the footer and
+ * content swipes; conversations and drafts push and come back in one step.
+ * New chat goes to DRAFT_PATH (no modal). See KIN-CONTINUE-002.
  */
-export default function AppShell({
-  children,
-  pendingApprovals,
-  routineUnreadCount = 0,
-}: Props) {
+export default function AppShell({ children, pendingApprovals, routineUnreadCount = 0 }: Props) {
   const location = useLocation();
   const navigate = useNavigate();
   const tr = useT();
@@ -124,8 +123,8 @@ export default function AppShell({
     ? pathname === "/agents"
       ? tr("nav.agentOperations")
       : pathname === "/routines"
-          ? tr("nav.routines")
-          : ""
+        ? tr("nav.routines")
+        : ""
     : "";
   const mobileTitle = draftActive
     ? tr("nav.newChat")
@@ -134,7 +133,8 @@ export default function AppShell({
       : location.pathname.startsWith("/settings")
         ? tr("nav.settings")
         : listTitle || tr("app.name");
-  const onSessionsTab = location.pathname.startsWith("/sessions");
+  const onSessionsTab = location.pathname === "/sessions";
+  const onPhoneTab = PHONE_TAB_IDS.some((id) => pathname === placeById(id).path);
 
   /**
    * Routes whose page title lives in this bar on a phone. Each of them hides
@@ -149,8 +149,7 @@ export default function AppShell({
    * The draft is not one of them: its page opens with the greeting as its own
    * `<h1>`, so the bar names the screen in a span.
    */
-  const barIsHeading =
-    location.pathname.startsWith("/settings") || listTitle !== "";
+  const barIsHeading = location.pathname.startsWith("/settings") || listTitle !== "";
 
   /**
    * Screens that ship their own header (back button + the real title).
@@ -212,9 +211,25 @@ export default function AppShell({
   const leaveScreen = () => {
     runGuardedNavigation(() => goBackToList(navigate));
   };
-  const edgeBack = useEdgeSwipeBack(!wide && !onSessionsTab, () => {
+  const edgeBack = useEdgeSwipeBack(!wide && !onPhoneTab, () => {
     if (draftActive) closeDraft();
     else leaveScreen();
+  });
+
+  // Equal roots replace one another. A detail / draft still pushes and returns.
+  // Feedback stays in gesture thresholds: never put a transform on `.kin-main`,
+  // where fixed panels and sheets would lose the viewport as their container.
+  const tabSwipe = usePhoneTabSwipe(!wide && onPhoneTab, (direction) => {
+    const index = PHONE_TAB_IDS.findIndex((id) => placeById(id).path === pathname);
+    const next = PHONE_TAB_IDS[index + direction];
+    if (!next) return;
+    const place = placeById(next);
+    const target = next === "sessions" ? returnListUrl(location) : place.path;
+    if (target === `${location.pathname}${location.search}`) return;
+    runGuardedNavigation(() => {
+      rememberPlaceReturn(next);
+      phonePush(navigate, location, target);
+    });
   });
 
   // The shell still needs task titles for the floating approval card. The
@@ -290,13 +305,29 @@ export default function AppShell({
     [location, navigate],
   );
 
+  // Restore only once at the commit on which the entry is present. A render
+  // may be repeated or abandoned; a layout effect cannot consume a mark twice
+  // or let a frame from an old page consume the next navigation's mark.
+  const returnedPlace = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (wide || pathname !== "/sessions") {
+      returnedPlace.current = null;
+      return;
+    }
+    if (returnedPlace.current) return;
+    const id = takePlaceReturn();
+    if (id && focusPlaceReturn(id)) returnedPlace.current = id;
+  }, [location, wide, pathname]);
+
   // The list is the phone's home; remember the exact view (search, filters)
   // whenever it is on screen so a later push can return to it. The same
   // subscription removes a list record from a depth the route has since
   // replaced with another screen, so a stale depth cannot claim a parent.
   useEffect(() => {
     notePhoneLocation(location);
-  }, [location]);
+    // Focus belongs to the committed-route layout effect, which takes the mark
+    // exactly once and leaves no frame to take a later destination's mark.
+  }, [location, wide, pathname]);
 
   // The terminal is the shell's panel, and the shell's panel is the one keyed to
   // no session: there is one instance, and its directory follows the route. It
@@ -470,7 +501,7 @@ export default function AppShell({
         pull as a pan. `pan-y` leaves vertical scrolling alone. It is absent on
         the list page, which is the root and has nowhere to go back to.
       */}
-      {!wide && !onSessionsTab && (
+      {!wide && !onPhoneTab && (
         <div
           aria-hidden="true"
           data-kin-edge-back
@@ -516,15 +547,11 @@ export default function AppShell({
                 <MobileHeaderButton label={tr("app.close")} onClick={closeDraft}>
                   <IconX size={20} strokeWidth={2.1} />
                 </MobileHeaderButton>
-              ) : (
-                /* Every other pushed screen has the list as its parent. The
-                   header button and the left-edge swipe call the same helper,
-                   and both ask the page before it goes, so they cannot
-                   disagree and neither bypasses an unsaved-edit guard. */
+              ) : !onPhoneTab ? (
                 <MobileHeaderButton label={tr("app.back")} onClick={leaveScreen}>
                   <IconBack size={20} />
                 </MobileHeaderButton>
-              )
+              ) : null
             }
             trailing={
               /* The command palette is the only extra control here. The
@@ -568,9 +595,18 @@ export default function AppShell({
           </div>
         )}
 
-        <main className="kin-main flex-1 min-h-0 overflow-hidden flex flex-col">
+        <main
+          className="kin-main flex-1 min-h-0 overflow-hidden flex flex-col"
+          data-phone-tab={onPhoneTab ? pathname : undefined}
+          // Single-finger pans belong to the tab swipe; pinch-zoom stays with
+          // the browser. The hook ignores multi-touch, so zoom never switches.
+          style={!wide && onPhoneTab ? { touchAction: "pan-y pinch-zoom" } : undefined}
+          {...tabSwipe}
+        >
           {children}
         </main>
+
+        {!wide && onPhoneTab && <PhoneFooter />}
 
         {/* An approval blocks the agent that asked for it wherever the reader
             happens to be. On the list page the footer and its new-chat button
@@ -580,10 +616,7 @@ export default function AppShell({
             Inside a boundary of its own: the card renders an agent-supplied
             payload, and a throw in it must cost one card rather than the
             shell around every screen. */}
-        <ErrorBoundary
-          fallback={null}
-          resetKey={floating.map((approval) => approval.id).join(",")}
-        >
+        <ErrorBoundary fallback={null} resetKey={floating.map((approval) => approval.id).join(",")}>
           <FloatingApproval
             approvals={floating}
             titleFor={(taskId) => taskDisplayTitle(tasks.find((task) => task.id === taskId))}
@@ -594,7 +627,7 @@ export default function AppShell({
                 phonePush(navigate, location, `/tasks/${encodeURIComponent(taskId)}`),
               )
             }
-            raised={pathname === "/sessions"}
+            raised={!wide && onPhoneTab}
             screenKey={pathname}
             expectsBottomChrome={measuredBottomBand}
           />

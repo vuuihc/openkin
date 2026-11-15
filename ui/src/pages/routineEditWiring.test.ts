@@ -40,11 +40,14 @@ describe("editing a routine", () => {
     // is where its initial values come from.
     expect(LIST).toContain('{tr("routines.edit")}');
     expect(LIST).toContain("onClick={() => onEdit(r)}");
-    expect(PAGE).toContain("const draft = routineForm(r);");
-    expect(PAGE).toContain("setRoutineRule(draft.rule);");
-    expect(PAGE).toContain("setRuleZone(draft.ruleZone);");
-    expect(PAGE).toContain("setNextRunLocal(");
-    expect(PAGE).toContain("toLocalInputValue(new Date(draft.nextRunMs))");
+    expect(PAGE).toContain("onEdit={(r) => void openEdit(r)}");
+    const open = block("const openEdit = async", "focusFormSoon(true);");
+    expect(open).toContain("await getRoutine(r.id, view.deviceId)");
+    expect(open).toContain("const draft = routineForm(full);");
+    expect(open).toContain("rule: draft.rule,");
+    expect(open).toContain("ruleZone: draft.ruleZone,");
+    expect(open).toContain("toLocalInputValue(new Date(draft.nextRunMs))");
+    expect(open).toContain("applyDraft(next);");
   });
 
   it("saves through the patch rule, not the whole form", () => {
@@ -103,7 +106,7 @@ describe("editing a routine", () => {
       expect(restore).toContain(setter);
     }
     // The draft is taken before the edit fills the form, and put back on close.
-    expect(PAGE).toContain("if (!editing) createDraftRef.current = formDraft();");
+    expect(PAGE).toContain("if (!currentEditing) createDraftRef.current = formDraft();");
     expect(PAGE).toContain("if (draft) applyDraft(draft);");
     expect(PAGE).toContain("if (editing && !closeForm()) return;");
   });
