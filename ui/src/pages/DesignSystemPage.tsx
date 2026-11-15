@@ -182,9 +182,9 @@ export default function DesignSystemPage() {
         <h1 className="text-hero text-kin-text">Design system gallery</h1>
         <p className="mt-1 max-w-page-narrow text-body leading-prose text-kin-secondary">
           Developer-only. This route exists only while <code>import.meta.env.DEV</code> is true; a
-          production build registers no route and falls through to the console&apos;s{" "}
-          <code>*</code> redirect. Scaffolding labels are English because this page is not
-          reachable in the shipped console.
+          production build registers no route and falls through to the console&apos;s <code>*</code>{" "}
+          redirect. Scaffolding labels are English because this page is not reachable in the shipped
+          console.
         </p>
       </header>
 
@@ -317,12 +317,7 @@ export default function DesignSystemPage() {
           title="Desktop"
           note="Above 768px the same chip opens a menu anchored to itself. This second instance is here so both shapes are visible on one page."
         >
-          <SheetSelect
-            label="Density"
-            value={density}
-            options={DENSITIES}
-            onChange={setDensity}
-          />
+          <SheetSelect label="Density" value={density} options={DENSITIES} onChange={setDensity} />
         </FormBlock>
       </Section>
 
