@@ -1,18 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import {
-  getUsageSummary,
-  type AgentSessionImportResult,
-  type Approval,
-} from "../../api/client";
+import { getUsageSummary, type AgentSessionImportResult, type Approval } from "../../api/client";
 import { useTaskList, useTaskResource } from "../../api/useLiveResources";
 import { isImeKeyEvent } from "../../lib/ime";
-import {
-  DRAFT_PATH,
-  draftSurfaceActive,
-  getDraftCwd,
-  subscribeDraft,
-} from "../../lib/draftChat";
+import { DRAFT_PATH, draftSurfaceActive, getDraftCwd, subscribeDraft } from "../../lib/draftChat";
 import { useMinWidth } from "../../hooks/useMinWidth";
 import { importToast } from "../../lib/agentSessionImport";
 import { useAgentSessionImport } from "../../hooks/useAgentSessionImport";
@@ -89,11 +80,7 @@ function taskIdFromPath(pathname: string): string | null {
  * back in one step. There is no drawer and no dock (KIN-CONTINUE-002).
  * New chat → navigate to DRAFT_PATH (no modal).
  */
-export default function AppShell({
-  children,
-  pendingApprovals,
-  routineUnreadCount = 0,
-}: Props) {
+export default function AppShell({ children, pendingApprovals, routineUnreadCount = 0 }: Props) {
   const location = useLocation();
   const navigate = useNavigate();
   const tr = useT();
@@ -124,8 +111,8 @@ export default function AppShell({
     ? pathname === "/agents"
       ? tr("nav.agentOperations")
       : pathname === "/routines"
-          ? tr("nav.routines")
-          : ""
+        ? tr("nav.routines")
+        : ""
     : "";
   const mobileTitle = draftActive
     ? tr("nav.newChat")
@@ -149,8 +136,7 @@ export default function AppShell({
    * The draft is not one of them: its page opens with the greeting as its own
    * `<h1>`, so the bar names the screen in a span.
    */
-  const barIsHeading =
-    location.pathname.startsWith("/settings") || listTitle !== "";
+  const barIsHeading = location.pathname.startsWith("/settings") || listTitle !== "";
 
   /**
    * Screens that ship their own header (back button + the real title).
@@ -586,9 +572,7 @@ export default function AppShell({
             className={`bg-[var(--kin-page)] flex-1 min-h-0 min-w-0 flex flex-col ${
               edgeOffset > 0 ? "shadow-e2" : ""
             }`}
-            style={
-              edgeOffset > 0 ? { transform: `translate3d(${edgeOffset}px, 0, 0)` } : undefined
-            }
+            style={edgeOffset > 0 ? { transform: `translate3d(${edgeOffset}px, 0, 0)` } : undefined}
           >
             {children}
           </div>
@@ -602,10 +586,7 @@ export default function AppShell({
             Inside a boundary of its own: the card renders an agent-supplied
             payload, and a throw in it must cost one card rather than the
             shell around every screen. */}
-        <ErrorBoundary
-          fallback={null}
-          resetKey={floating.map((approval) => approval.id).join(",")}
-        >
+        <ErrorBoundary fallback={null} resetKey={floating.map((approval) => approval.id).join(",")}>
           <FloatingApproval
             approvals={floating}
             titleFor={(taskId) => taskDisplayTitle(tasks.find((task) => task.id === taskId))}

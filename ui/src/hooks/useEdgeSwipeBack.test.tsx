@@ -18,13 +18,7 @@ import { useEdgeSwipeBack } from "./useEdgeSwipeBack";
  * fire. The shared `moveVelocity` tests cover the fling math; the fling case
  * here only proves the release path still commits and clears the offset.
  */
-function Harness({
-  enabled = true,
-  onBack,
-}: {
-  enabled?: boolean;
-  onBack: () => void;
-}) {
+function Harness({ enabled = true, onBack }: { enabled?: boolean; onBack: () => void }) {
   const { handlers, offset, dragging } = useEdgeSwipeBack(enabled, onBack);
   return (
     <div
