@@ -1255,6 +1255,15 @@ function LiveNoteRow({
       : note.status === "running"
         ? "bg-kin-blue animate-breathe"
         : "bg-kin-green";
+  // The dot is the only sighted status cue; the same status has to be a word
+  // for a screen reader. Reuse the task strings so "running"/"done"/"failed"
+  // read the same everywhere.
+  const statusLabel =
+    note.status === "error"
+      ? tr("tasks.statusFailed")
+      : note.status === "running"
+        ? tr("tasks.statusRunning")
+        : tr("tasks.statusDone");
   const label = tr(noteLabelKey(note.source));
   const attribution = noteNeedsAttribution(note, hostSpeaker)
     ? [agentAvatarMeta(note.speaker).label, note.model].filter(Boolean).join(" · ")
@@ -1267,6 +1276,7 @@ function LiveNoteRow({
     >
       <div className="flex min-w-0 items-center gap-2">
         <span className={`w-1.5 h-1.5 flex-none rounded-full ${statusDot}`} aria-hidden="true" />
+        <span className="sr-only">{statusLabel}</span>
         <span className="flex-none font-mono text-caption text-kin-muted">{label}</span>
         {attribution && (
           <span className="min-w-0 truncate text-caption text-kin-muted" title={attribution}>

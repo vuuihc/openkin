@@ -1993,7 +1993,7 @@ describe("projectLiveProcess", () => {
     });
   });
 
-  it("does not create blank live note rows or duplicate the final answer", () => {
+  it("does not create blank live note rows or duplicate the streamed answer", () => {
     const items: ChatItem[] = [
       {
         kind: "progress",
@@ -2022,8 +2022,10 @@ describe("projectLiveProcess", () => {
         kind: "message",
         key: "answer",
         speaker: "kin",
-        text: "Done.",
-        phase: "summary",
+        text: "Done so far.",
+        // Still streaming: the round has not answered yet, which is what makes
+        // this a live view at all.
+        partial: true,
         seq: 9,
       },
     ];
@@ -2032,7 +2034,104 @@ describe("projectLiveProcess", () => {
 
     expect(live).toHaveLength(2);
     expect(live[0]).toMatchObject({ kind: "progress", steps: [{ key: "tool-1" }] });
-    expect(live[1]).toMatchObject({ kind: "message", key: "answer", text: "Done." });
+    expect(live[1]).toMatchObject({ kind: "message", key: "answer", text: "Done so far." });
+  });
+
+  it("folds the answered round when a follow-up is sent and again when it is refused", () => {
+    const answered = [
+      ev(1, "message", { role: "user", content: [{ type: "text", text: "please look" }] }),
+      ev(2, "message", {
+        role: "reasoning",
+        phase: "progress",
+        speaker: "kin",
+        text: "Inspecting the parser.",
+        partial: false,
+        visibility: { user: true, task: true },
+      }),
+      ev(3, "tool_use", {
+        speaker: "kin",
+        tool_use_id: "call-1",
+        name: "bash",
+        input: { command: "ls" },
+        visibility: { user: true, task: true },
+      }),
+      ev(4, "tool_result", {
+        speaker: "kin",
+        tool_use_id: "call-1",
+        name: "bash",
+        output: "parser.ts",
+        ok: true,
+        visibility: { user: true, task: true },
+      }),
+      ev(5, "message", {
+        role: "assistant",
+        phase: "summary",
+        speaker: "kin",
+        text: "The parser is fixed.",
+        partial: false,
+        visibility: { user: true, task: true },
+      }),
+    ];
+    const followUp = ev(6, "message", {
+      role: "user",
+      content: [{ type: "text", text: "now check the lexer" }],
+    });
+
+    // Sent: the ask is a round boundary, so the answered round folds.
+    const pending = projectLiveProcess(buildChatItems([...answered, followUp], "kin"));
+    // Refused: the local ask is gone, but the wait it left behind is not live
+    // work — the same answered round must stay folded.
+    const refused = projectLiveProcess(buildChatItems(answered, "kin"));
+
+    expect(refused.map((item) => item.kind)).toEqual(["message", "progress", "message"]);
+    expect(refused[1]).toMatchObject({
+      kind: "progress",
+      steps: [{ kind: "note" }, { kind: "tool" }],
+    });
+    expect(refused[2]).toMatchObject({ kind: "message", text: "The parser is fixed." });
+
+    expect(pending.map((item) => item.kind)).toEqual(["message", "progress", "message", "message"]);
+    expect(pending[3]).toMatchObject({ kind: "message", text: "now check the lexer" });
+    for (const view of [pending, refused]) {
+      expect(view.some((item) => item.kind === "process_note")).toBe(false);
+    }
+  });
+
+  it("does not treat a still-streaming summary as the round's final answer", () => {
+    const items: ChatItem[] = [
+      {
+        kind: "progress",
+        key: "prog-0",
+        speaker: "kin",
+        steps: [
+          {
+            kind: "note",
+            key: "note-1",
+            speaker: "kin",
+            text: "Looking at the parser.",
+            status: "done",
+            source: "reasoning",
+            seq: 2,
+          },
+        ],
+      },
+      {
+        kind: "message",
+        key: "answer",
+        speaker: "kin",
+        text: "Half an answer",
+        phase: "summary",
+        // The answer is still being written: there is no final answer for the
+        // round to settle on yet, so the note above it stays live text.
+        partial: true,
+        seq: 3,
+      },
+    ];
+
+    const live = projectLiveProcess(items);
+
+    expect(live.some((item) => item.kind === "process_note")).toBe(true);
+    expect(live.at(-1)).toMatchObject({ kind: "message", key: "answer", partial: true });
   });
 
   it("preserves note keys and source attribution when streaming text grows", () => {
@@ -2148,7 +2247,8 @@ describe("projectLiveProcess", () => {
         phase: "summary",
         speaker: "kin",
         text: "Delegated and done.",
-        partial: false,
+        // Still streaming: the answer is being written, so the round is live.
+        partial: true,
         visibility: { user: true, task: true },
       }),
     ];

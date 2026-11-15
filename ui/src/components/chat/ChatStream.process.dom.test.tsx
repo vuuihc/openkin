@@ -157,4 +157,53 @@ describe("process text outside tool cards", () => {
     expect(screen.getByText("The parser is fixed.")).toBeTruthy();
     expect(container.querySelector('[data-message-key="note-2"]')).toBeNull();
   });
+
+  it("keeps the answered round folded when the follow-up is refused", () => {
+    const answered = [
+      userMessage(1, "please look at the parser"),
+      reasoning(2, "Inspecting the parser."),
+      toolUse(3, "call-1", "bash", { command: "ls" }),
+      toolResult(4, "call-1", "bash", "parser.ts"),
+      summary(5, "The parser is fixed."),
+    ];
+    const pending = { key: "pending-1", text: "now check the lexer" };
+    const { container, rerender } = render(
+      <ChatStream events={answered} hostSpeaker="kin" loading pendingUserMessages={[pending]} />,
+    );
+
+    expect(screen.getByText("now check the lexer")).toBeTruthy();
+    expect(container.querySelector('[data-message-key="note-2"]')).toBeNull();
+
+    // The daemon refused the send: the local bubble goes away, and the page can
+    // still be waiting for the answer it will never get. That wait is not live
+    // work, so the round above it must not unfold now.
+    rerender(<ChatStream events={answered} hostSpeaker="kin" loading />);
+
+    expect(screen.queryByText("now check the lexer")).toBeNull();
+    expect(screen.getByText("The parser is fixed.")).toBeTruthy();
+    expect(container.querySelector('[data-message-key="note-2"]')).toBeNull();
+  });
+
+  it("announces a live note's status to a screen reader", () => {
+    const streaming = [
+      userMessage(1, "please think about the parser"),
+      event(2, "message", {
+        role: "reasoning",
+        speaker: "kin",
+        partial: true,
+        message_id: "m1",
+        index: 1,
+        content: [{ type: "text", text: "Thinking about the parser." }],
+      }),
+    ];
+    const { container } = render(<ChatStream events={streaming} hostSpeaker="kin" loading />);
+
+    const row = [...container.querySelectorAll<HTMLElement>("[data-message-key]")].find((el) =>
+      el.textContent?.includes("Thinking about the parser."),
+    );
+    expect(row).toBeTruthy();
+    // The colored dot is aria-hidden; the same status has to be a word, and it
+    // has to be the status the dot is drawn from.
+    expect(row?.querySelector(".sr-only")?.textContent).toBe(t("tasks.statusDone"));
+  });
 });

@@ -1070,6 +1070,12 @@ export function mergeProcessRuns(items: ChatItem[]): ChatItem[] {
  * Earlier rounds stay folded. The live round is the one after the last user
  * message; the prefix goes through `mergeProcessRuns`, the same terminal
  * contract the settled view uses, so a new message never unfolds history.
+ *
+ * A round with no work after its final answer is not live either. `loading`
+ * can be true while the transcript is only waiting — a send the daemon has not
+ * answered, or one it refused — and the round above that wait is already
+ * finished. Unfolding it there would rewrite a shape the reader has read, so
+ * the whole column takes the settled projection until new process arrives.
  */
 export function projectLiveProcess(items: ChatItem[]): ChatItem[] {
   let liveFrom = 0;
@@ -1080,9 +1086,48 @@ export function projectLiveProcess(items: ChatItem[]): ChatItem[] {
       break;
     }
   }
-  const live = splitLiveProcess(items.slice(liveFrom));
-  if (liveFrom === 0) return live;
-  return [...mergeProcessRuns(items.slice(0, liveFrom)), ...live];
+  const live = items.slice(liveFrom);
+  const answer = finalAnswerIndex(live);
+  const waiting = answer < 0 ? live : live.slice(answer + 1);
+  // A pending user message (or a refused one) leaves nothing after the last
+  // ask; a completed round leaves only its final answer. Neither has process
+  // to show, so the settled shape is the honest one.
+  if (!waiting.some((item) => item.kind === "progress" || item.kind === "process_note")) {
+    return mergeProcessRuns(items);
+  }
+  const projected = splitLiveProcess(live);
+  if (liveFrom === 0) return projected;
+  return [...mergeProcessRuns(items.slice(0, liveFrom)), ...projected];
+}
+
+/**
+ * The item a round ends on: the final answer the settled view keeps outside
+ * its fold, or `-1` while no answer has landed.
+ *
+ * `projectLiveProcess` and `mergeProcessRun` must agree on this — one decides
+ * whether a round is still live, the other which message the settled card
+ * stops at — or `loading` alone would be enough to unfold an answered round.
+ */
+function finalAnswerIndex(items: readonly ChatItem[]): number {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    // A summary still streaming is the answer being written, not the answer:
+    // the round it belongs to is live until the final version lands.
+    if (item.kind === "message" && item.phase === "summary" && !item.partial) return index;
+  }
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (
+      item.kind === "message" &&
+      item.speaker !== "user" &&
+      !item.partial &&
+      item.phase !== "plan" &&
+      item.phase !== "progress"
+    ) {
+      return index;
+    }
+  }
+  return -1;
 }
 
 /** Split one round's process boxes into readable notes and tool-only cards. */
@@ -1136,28 +1181,7 @@ function splitLiveProcess(items: ChatItem[]): ChatItem[] {
 function mergeProcessRun(run: ProcessRunItem[]): ChatItem[] {
   if (!run.some((item) => item.kind === "progress")) return run;
 
-  let finalMessageIdx = -1;
-  for (let index = run.length - 1; index >= 0; index -= 1) {
-    const item = run[index];
-    if (item.kind === "message" && item.phase === "summary") {
-      finalMessageIdx = index;
-      break;
-    }
-  }
-  if (finalMessageIdx < 0) {
-    for (let index = run.length - 1; index >= 0; index -= 1) {
-      const item = run[index];
-      if (
-        item.kind === "message" &&
-        !item.partial &&
-        item.phase !== "plan" &&
-        item.phase !== "progress"
-      ) {
-        finalMessageIdx = index;
-        break;
-      }
-    }
-  }
+  const finalMessageIdx = finalAnswerIndex(run);
 
   const merged: ChatItem[] = [];
   let segment: ProcessRunItem[] = [];
