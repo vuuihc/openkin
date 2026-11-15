@@ -1,0 +1,223 @@
+// @vitest-environment jsdom
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ProviderEntry, Settings } from "../api/client";
+import { setLocale } from "../i18n";
+import { useAppStore } from "../store/appStore";
+import SettingsPage from "./SettingsPage";
+
+/**
+ * `?tab=` arriving while Settings is already on screen.
+ *
+ * A notification tap is a router navigation, not a remount: React Router keeps
+ * `SettingsPage` mounted when only the query changes, so a tab read once in a
+ * state initializer froze the panel the page first opened on. The parser and
+ * source-string tests in `settingsTabsWiring.test.ts` cannot see that failure;
+ * this file mounts the page and moves the route under it.
+ *
+ * The URL is the source of the panel in both directions, so a later tap for the
+ * tab that is already in the URL is a real move after the reader picked another
+ * one by hand — `NotificationTaps` compares the target with the current URL.
+ */
+
+const baseSettings = {
+  price_table: "{}",
+  agent_limits: "{}",
+  agent_roles: "[]",
+  "agent.default": "",
+  limit_policy: "wait",
+  "limit_policy.fallback_agents": "[]",
+  "provider.active_id": "",
+} as unknown as Settings;
+
+const fixtures = vi.hoisted(() => ({
+  settings: {} as Record<string, unknown>,
+  providers: [] as ProviderEntry[],
+}));
+
+vi.mock("../api/useLiveResources", () => ({
+  useTaskList: () => ({
+    data: [],
+    loaded: true,
+    error: null,
+    pageFull: false,
+    loading: false,
+  }),
+  useTaskResource: () => ({ data: { task: undefined }, loaded: true, error: null }),
+  usePendingResources: () => ({
+    data: { approvals: [], questions: [] },
+    loaded: true,
+    error: null,
+  }),
+}));
+
+vi.mock("../api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../api/client")>();
+  return {
+    ...actual,
+    getSettings: vi.fn(async () => fixtures.settings as unknown as Settings),
+    updateSettings: vi.fn(async (body: Record<string, string>) => {
+      fixtures.settings = { ...fixtures.settings, ...body };
+      return fixtures.settings as unknown as Settings;
+    }),
+    listProviders: vi.fn(async () => ({
+      active_id:
+        fixtures.providers.find((provider) => provider.active)?.id ??
+        String(fixtures.settings["provider.active_id"] ?? ""),
+      providers: fixtures.providers,
+    })),
+    listAgents: vi.fn(async () => []),
+    listAgentProviders: vi.fn(async () => []),
+    listProviderModels: vi.fn(async () => ({ models: [] })),
+    createProvider: vi.fn(),
+    updateProvider: vi.fn(),
+    activateProvider: vi.fn(),
+    deleteProvider: vi.fn(),
+    getRoutingDefaults: vi.fn(async () => ({
+      enabled: false,
+      default_team: "",
+      objective: "balanced",
+      max_attempts_per_step: 3,
+      terminal_limit_policy: "ask",
+      manual_fallback: false,
+      quality_floor: "",
+      force_phases: [],
+    })),
+    getRoutingOptions: vi.fn(async () => ({ teams: [] })),
+    getRoutingProfiles: vi.fn(async () => ({ profiles: [] })),
+    updateRoutingDefaults: vi.fn(),
+    updateRoutingProfiles: vi.fn(),
+    isAuthenticated: vi.fn(() => true),
+    serverVersion: vi.fn().mockResolvedValue({
+      desktop_id: "desktop-hub",
+      desktop_name: "hub",
+    }),
+    listMachines: vi.fn(async () => []),
+  };
+});
+
+vi.mock("../hooks/useMachines", () => ({
+  useMachines: () => ({ machines: [], loading: false, failed: false }),
+}));
+
+vi.mock("../hooks/useMinWidth", () => ({
+  useMinWidth: () => false,
+}));
+
+vi.mock("../hooks/useAgentSessionImport", () => ({
+  useAgentSessionImport: () => ({
+    importing: false,
+    importEveryMachine: vi.fn(async () => ({ imported: 0, providers: {} })),
+  }),
+  importsInFlight: () => false,
+}));
+
+vi.mock("../lib/desktop", () => ({
+  isKinDesktop: () => false,
+}));
+
+vi.mock("../components/terminal/TerminalPanel", () => ({
+  default: () => null,
+}));
+
+/** The tap: a router navigation to a settings section, page already mounted. */
+function NotificationTap({ to }: { to: string }) {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => navigate(to)}>
+      tap notification
+    </button>
+  );
+}
+
+/** The URL the console is on, for the "the panel is the URL" assertions. */
+function CurrentURL() {
+  const location = useLocation();
+  return <output data-testid="url">{location.pathname + location.search}</output>;
+}
+
+function renderSettings(initialEntry = "/settings") {
+  return render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <Routes>
+        <Route path="/settings" element={<SettingsPage />} />
+      </Routes>
+      <NotificationTap to="/settings?tab=routing" />
+      <CurrentURL />
+    </MemoryRouter>,
+  );
+}
+
+function panel(id: string): HTMLElement {
+  const node = document.getElementById(`settings-panel-${id}`);
+  expect(node).toBeTruthy();
+  return node as HTMLElement;
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  setLocale("en");
+  localStorage.clear();
+  sessionStorage.clear();
+  fixtures.settings = { ...baseSettings } as unknown as Record<string, unknown>;
+  fixtures.providers = [];
+  useAppStore.setState({ reconnectGen: 0 });
+  Element.prototype.scrollIntoView = vi.fn();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+});
+
+describe("a settings notification tap while the page is mounted", () => {
+  it("opens the section the URL names", async () => {
+    const user = userEvent.setup();
+    renderSettings();
+    await screen.findByRole("tablist");
+    expect(panel("general").hidden).toBe(false);
+    expect(panel("routing").hidden).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "tap notification" }));
+
+    await waitFor(() => expect(panel("routing").hidden).toBe(false));
+    expect(panel("general").hidden).toBe(true);
+    expect(screen.getByTestId("url").textContent).toBe("/settings?tab=routing");
+  });
+
+  it("keeps an unsaved draft while the panel changes", async () => {
+    const user = userEvent.setup();
+    renderSettings("/settings?tab=advanced");
+    const price = (await screen.findAllByDisplayValue("{}"))[0];
+    fireEvent.change(price, { target: { value: '{"mine":true}' } });
+
+    await user.click(screen.getByRole("button", { name: "tap notification" }));
+
+    await waitFor(() => expect(panel("routing").hidden).toBe(false));
+    expect(screen.getByDisplayValue('{"mine":true}')).toBeTruthy();
+  });
+
+  // The panel and the URL must agree after a hand-picked tab too. Without the
+  // rewrite, this page would show Routing while `NotificationTaps` still saw
+  // the old URL as "already here" and silently dropped a later tap for it.
+  it("puts a hand-picked tab in the URL", async () => {
+    const user = userEvent.setup();
+    renderSettings();
+    await screen.findByRole("tablist");
+
+    await user.click(screen.getByRole("tab", { name: "Routing" }));
+
+    await waitFor(() => expect(panel("routing").hidden).toBe(false));
+    expect(screen.getByTestId("url").textContent).toBe("/settings?tab=routing");
+
+    await user.click(screen.getByRole("tab", { name: "General" }));
+
+    await waitFor(() => expect(panel("general").hidden).toBe(false));
+    expect(screen.getByTestId("url").textContent).toBe("/settings");
+  });
+});

@@ -175,10 +175,7 @@ export default function App() {
 
   return (
     <>
-      <AppShell
-        pendingApprovals={pending.data.approvals}
-        routineUnreadCount={routineUnreadCount}
-      >
+      <AppShell pendingApprovals={pending.data.approvals} routineUnreadCount={routineUnreadCount}>
         <ErrorBoundary>
           {/*
             Session keep-alive lives outside <Routes> so /tasks/:id → /new

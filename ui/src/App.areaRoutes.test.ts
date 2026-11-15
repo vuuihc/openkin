@@ -81,9 +81,7 @@ const PROJECT: Project = {
 };
 
 function renderAt(path: string) {
-  return render(
-    createElement(MemoryRouter, { initialEntries: [path] }, createElement(App)),
-  );
+  return render(createElement(MemoryRouter, { initialEntries: [path] }, createElement(App)));
 }
 
 beforeEach(() => {

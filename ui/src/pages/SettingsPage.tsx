@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   ApiError,
   activateProvider,
@@ -77,6 +78,21 @@ type RenderedSettingsTab = Exclude<SettingsTabId, "operations">;
 
 function renderedSettingsTab(tab: SettingsTabId): RenderedSettingsTab {
   return tab === "operations" ? "general" : tab;
+}
+
+/**
+ * The URL that names a panel.
+ *
+ * Selecting a tab is a same-screen state change, so it rewrites the current
+ * entry instead of stacking one per tab. Unrelated parameters are preserved:
+ * only the one this page owns is written.
+ */
+function settingsTabPath(tab: SettingsTabId, pathname: string, search: string): string {
+  const params = new URLSearchParams(search);
+  if (tab === "general") params.delete("tab");
+  else params.set("tab", tab);
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
 }
 
 // Compare the role rows that are visible, not the serializer's output. A
@@ -170,12 +186,35 @@ export default function SettingsPage() {
   const [reveal, setReveal] = useState(false);
   const [busy, setBusy] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => getThemeMode());
+  // The panel follows the router, not a one-time read of `window.location`: a
+  // notification tap can name `?tab=` while this page is already mounted, and
+  // React Router keeps the component rather than remounting it. Choosing a tab
+  // writes the URL too, so the page and `NotificationTaps` agree on what is on
+  // screen (it compares a tap with the current URL).
+  //
+  // A tab switch does not discard drafts, so it does not ask the leave guard:
+  // every panel stays mounted (`hidden` in `SettingsTabPanel`) and its local
+  // state survives. Leaving Settings still asks through `useLeaveGuard`.
+  const location = useLocation();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<RenderedSettingsTab>(() =>
-    typeof window === "undefined"
-      ? "general"
-      : renderedSettingsTab(
-          normalizeSettingsTab(new URLSearchParams(window.location.search).get("tab")),
-        ),
+    renderedSettingsTab(normalizeSettingsTab(new URLSearchParams(location.search).get("tab"))),
+  );
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    // A URL without `tab` means "the Settings screen, not one of its sections"
+    // — a sidebar or palette trip back here. It must not hide the panel (and
+    // the draft) the reader is already on. A cold start at `?tab=` is covered
+    // by the initial state above.
+    if (!params.has("tab")) return;
+    setActiveTab(renderedSettingsTab(normalizeSettingsTab(params.get("tab"))));
+  }, [location.search]);
+  const selectTab = useCallback(
+    (tab: SettingsTabId) => {
+      setActiveTab(renderedSettingsTab(tab));
+      navigate(settingsTabPath(tab, location.pathname, location.search), { replace: true });
+    },
+    [navigate, location.pathname, location.search],
   );
   const reconnectGen = useAppStore((s) => s.reconnectGen);
   const pushToast = useAppStore((s) => s.pushToast);
@@ -248,72 +287,69 @@ export default function SettingsPage() {
     );
   }, []);
 
-  const applyServerSettings = useCallback(
-    (nextSettings: Settings, preserveDirty: boolean) => {
-      const next = settingsDraftFromServer(nextSettings);
-      const previous = serverDraftRef.current;
-      const current = draftValuesRef.current;
-      const keep = <K extends keyof SettingsDraft>(key: K): SettingsDraft[K] =>
-        preserveDirty &&
-        previous !== null &&
-        JSON.stringify(current[key]) !== JSON.stringify(previous[key])
-          ? current[key]
-          : next[key];
-      setPriceTable(keep("priceTable"));
-      setAgentLimitsText(keep("agentLimits"));
-      setRoles(keep("roles"));
-      setAgentDefault(keep("agentDefault"));
-      setLimitPolicy(keep("limitPolicy"));
-      setLimitFallbackText(keep("limitFallback"));
-      serverDraftRef.current = next;
-      setSettingsBaseline(settingsDraftKey(next));
-    },
-    [],
-  );
+  const applyServerSettings = useCallback((nextSettings: Settings, preserveDirty: boolean) => {
+    const next = settingsDraftFromServer(nextSettings);
+    const previous = serverDraftRef.current;
+    const current = draftValuesRef.current;
+    const keep = <K extends keyof SettingsDraft>(key: K): SettingsDraft[K] =>
+      preserveDirty &&
+      previous !== null &&
+      JSON.stringify(current[key]) !== JSON.stringify(previous[key])
+        ? current[key]
+        : next[key];
+    setPriceTable(keep("priceTable"));
+    setAgentLimitsText(keep("agentLimits"));
+    setRoles(keep("roles"));
+    setAgentDefault(keep("agentDefault"));
+    setLimitPolicy(keep("limitPolicy"));
+    setLimitFallbackText(keep("limitFallback"));
+    serverDraftRef.current = next;
+    setSettingsBaseline(settingsDraftKey(next));
+  }, []);
 
-  const applySavedSettings = useCallback(
-    (nextSettings: Settings, submitted: SettingsDraft) => {
-      const next = settingsDraftFromServer(nextSettings);
-      const current = draftValuesRef.current;
-      const take = (key: keyof SettingsDraft) =>
-        JSON.stringify(current[key]) === JSON.stringify(submitted[key]);
-      if (take("priceTable")) setPriceTable(next.priceTable);
-      if (take("agentLimits")) setAgentLimitsText(next.agentLimits);
-      if (take("roles")) setRoles(next.roles);
-      if (take("agentDefault")) setAgentDefault(next.agentDefault);
-      if (take("limitPolicy")) setLimitPolicy(next.limitPolicy);
-      if (take("limitFallback")) setLimitFallbackText(next.limitFallback);
-      serverDraftRef.current = next;
-      setSettingsBaseline(settingsDraftKey(next));
-    },
-    [],
-  );
+  const applySavedSettings = useCallback((nextSettings: Settings, submitted: SettingsDraft) => {
+    const next = settingsDraftFromServer(nextSettings);
+    const current = draftValuesRef.current;
+    const take = (key: keyof SettingsDraft) =>
+      JSON.stringify(current[key]) === JSON.stringify(submitted[key]);
+    if (take("priceTable")) setPriceTable(next.priceTable);
+    if (take("agentLimits")) setAgentLimitsText(next.agentLimits);
+    if (take("roles")) setRoles(next.roles);
+    if (take("agentDefault")) setAgentDefault(next.agentDefault);
+    if (take("limitPolicy")) setLimitPolicy(next.limitPolicy);
+    if (take("limitFallback")) setLimitFallbackText(next.limitFallback);
+    serverDraftRef.current = next;
+    setSettingsBaseline(settingsDraftKey(next));
+  }, []);
 
-  const load = useCallback(async (preserveDirty = false) => {
-    setError(null);
-    try {
-      const s = await getSettings();
-      setSettings(s);
-      applyServerSettings(s, preserveDirty);
-      setActiveProviderId(s["provider.active_id"] ?? "");
+  const load = useCallback(
+    async (preserveDirty = false) => {
+      setError(null);
       try {
-        const reg = await listProviders();
-        setProviders(reg.providers ?? []);
-        setActiveProviderId(reg.active_id ?? s["provider.active_id"] ?? "");
-      } catch {
-        setProviders([]);
+        const s = await getSettings();
+        setSettings(s);
+        applyServerSettings(s, preserveDirty);
+        setActiveProviderId(s["provider.active_id"] ?? "");
+        try {
+          const reg = await listProviders();
+          setProviders(reg.providers ?? []);
+          setActiveProviderId(reg.active_id ?? s["provider.active_id"] ?? "");
+        } catch {
+          setProviders([]);
+        }
+        listAgents()
+          .then(setAgentList)
+          .catch(() => undefined);
+        listAgentProviders()
+          .then(setAgentProviders)
+          .catch(() => undefined);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) return;
+        setError(e instanceof ApiError ? e.message : String(e));
       }
-      listAgents()
-        .then(setAgentList)
-        .catch(() => undefined);
-      listAgentProviders()
-        .then(setAgentProviders)
-        .catch(() => undefined);
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) return;
-      setError(e instanceof ApiError ? e.message : String(e));
-    }
-  }, [applyServerSettings]);
+    },
+    [applyServerSettings],
+  );
 
   useEffect(() => {
     void load();
@@ -691,7 +727,7 @@ export default function SettingsPage() {
       subtitle={tr("settings.subtitle")}
       tabs={settingsTabs}
       activeTab={activeTab}
-      onTabChange={setActiveTab}
+      onTabChange={selectTab}
     >
       {error ? (
         <p

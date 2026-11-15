@@ -53,7 +53,7 @@ export default function ProjectsCollectionPage() {
             <li key={project.id}>
               <Link
                 to={`/projects/${project.id}`}
-                className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-strong hover:bg-[var(--kin-fill)]"
+                className="flex min-h-11 items-center justify-between gap-3 rounded-lg px-3 py-2 text-strong hover:bg-[var(--kin-fill)]"
               >
                 <span className="min-w-0 truncate">{project.name}</span>
               </Link>

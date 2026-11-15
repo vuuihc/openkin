@@ -88,12 +88,7 @@ function highlight(text: string, q: string): ReactNode {
  * (the area table's icon id, mapped by `AREA_ICONS`), and the closures a row
  * needs to actually go somewhere.
  */
-export default function CommandPalette({
-  open,
-  onClose,
-  onTogglePanel,
-  panelCtx,
-}: Props) {
+export default function CommandPalette({ open, onClose, onTogglePanel, panelCtx }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const wide = useMinWidth(768);
@@ -240,17 +235,7 @@ export default function CommandPalette({
       : [];
 
     return [...actions, ...recipeActions];
-  }, [
-    go,
-    launchingRecipe,
-    onClose,
-    onTogglePanel,
-    panelCtx,
-    projects,
-    pushToast,
-    query,
-    tr,
-  ]);
+  }, [go, launchingRecipe, onClose, onTogglePanel, panelCtx, projects, pushToast, query, tr]);
 
   useEffect(() => {
     setActive(0);
