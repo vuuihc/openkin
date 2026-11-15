@@ -8,6 +8,7 @@
 # Each job writes its own log; a failing job prints the tail. Exit status is
 # nonzero if any job failed, so this is safe to use at a commit gate.
 set -uo pipefail
+export GOMAXPROCS="${GOMAXPROCS:-2}" GO_TEST_P="${GO_TEST_P:-2}" VITEST_MAX_WORKERS="${VITEST_MAX_WORKERS:-2}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -104,7 +105,7 @@ job_vet() {
 
 job_gotest() {
   if [[ "$ALL" == "1" ]]; then
-    go test -timeout 300s ./...
+    go test -p "${GO_TEST_P:-2}" -timeout 300s ./...
     return
   fi
   local pkgs
@@ -115,7 +116,7 @@ job_gotest() {
   fi
   echo "packages: $pkgs"
   # shellcheck disable=SC2086
-  go test -timeout 120s -count=1 $pkgs
+  go test -p "${GO_TEST_P:-2}" -timeout 120s -count=1 $pkgs
 }
 
 # The probes are their own Go modules, so the root vet/test jobs cannot see
@@ -127,7 +128,7 @@ job_probe() {
   fi
   local mod
   for mod in probe/kin-probe probe/kin-probe-w4 probe/kin-probe-w4b; do
-    ( cd "$mod" && go vet ./... && go test -race -timeout 300s -count=1 ./... ) || return 1
+    ( cd "$mod" && go vet ./... && go test -p "${GO_TEST_P:-2}" -race -timeout 300s -count=1 ./... ) || return 1
   done
 }
 
@@ -147,7 +148,7 @@ job_ui_test() {
     echo "no changed console files"
     return 0
   fi
-  ( cd ui && npm run test )
+  ( cd ui && npm run test -- --maxWorkers="${VITEST_MAX_WORKERS:-2}" )
 }
 
 job_ui_tsc() {

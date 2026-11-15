@@ -114,9 +114,10 @@ run_claude() { # model [effort]
   [ -n "$effort" ] && args+=( --effort "$effort" )
   ( cd "$CWD" && "$CLAUDE" "${args[@]}" < /dev/null >> "$LOG" 2>&1 ) &
   local pid=$!
-  ( sleep "${DISPATCH_MAX_SECS:-3000}"; kill -TERM "$pid" 2>/dev/null ) & local wd=$!
+  ( sleep "${DISPATCH_MAX_SECS:-3000}"; rsi_kill_tree "$pid"; kill -TERM -"$pid" 2>/dev/null ) & local wd=$!
   wait "$pid"; local rc=$?
   kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
+  rsi_kill_tree "$pid"
   return $rc
 }
 
@@ -217,9 +218,10 @@ run_agy() { # hydrogen|hydrogen-high|carbon
     [ -s "$LOG.agy.json" ] && cp "$LOG.agy.json" "$LOG.agy.attempt${attempt}.json" 2>/dev/null || true
     ( cd "$CWD" && "$bin" "${args[@]}" < /dev/null > "$LOG.agy.json" 2>> "$LOG" ) &
     local pid=$!
-    ( sleep "${DISPATCH_MAX_SECS:-3000}"; kill -TERM "$pid" 2>/dev/null ) & local wd=$!
+    ( sleep "${DISPATCH_MAX_SECS:-3000}"; rsi_kill_tree "$pid"; kill -TERM -"$pid" 2>/dev/null ) & local wd=$!
     wait "$pid"; rc=$?
     kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
+    rsi_kill_tree "$pid"
     note_agy_limit
     python3 - "$LOG.agy.json" "$LOG.txt" <<'PY'
 import json,sys

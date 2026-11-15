@@ -59,6 +59,8 @@ prettier_ui_changed() {
 }
 
 mkdir -p "$RUNS"
+trap 'for kid in $(pgrep -P $$ 2>/dev/null || true); do rsi_kill_tree "$kid"; done' EXIT
+export GOMAXPROCS="${GOMAXPROCS:-2}" GO_TEST_P="${GO_TEST_P:-2}" VITEST_MAX_WORKERS="${VITEST_MAX_WORKERS:-2}"
 # Repair ui/node_modules before the first console compile, not after it. A bare directory-existence
 # test was true for a symlink into another worktree and for an install older than its own lockfile,
 # so the repair never ran and tsc/vitest/build failed on a tree that was not the PR's fault.
@@ -75,7 +77,7 @@ echo "$changed" | grep -q '^ui/' && step node-stamp ui_node_stamp
 if echo "$changed" | grep -q '^ui/'; then
   step typecheck bash -c 'cd ui && npm run typecheck'
   step lint bash -c 'cd ui && npm run lint'
-  step test bash -c 'cd ui && npm test'
+  step test bash -c 'cd ui && npm test -- --maxWorkers="${VITEST_MAX_WORKERS:-2}"'
   step build bash -c 'cd ui && npm run build'
   [ -n "$($GIT status --porcelain -- . ':!web/dist/index.html')" ] && { echo "FAIL: build left uncommitted changes"; fail=1; why="$why dirty-after-build"; }
   $GIT diff --quiet -- web/dist/index.html || { echo "FAIL: web/dist/index.html stale — commit the rebuilt file"; fail=1; why="$why stale-dist"; }

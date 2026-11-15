@@ -64,13 +64,31 @@ BUDGET_GUARD="${BUDGET_GUARD:-15}"
 # --- Parallel lanes (CEO 2026-11-15) ---
 export RSI_STATE="$STATE"
 export RSI_MAX_LANES="${RSI_MAX_LANES:-3}"        # worker lanes; the merge lane is separate. 3 swamped this 16 GB Mac (swap 90%, load 100+) -> 2.
-export RSI_LOAD_MAX="${RSI_LOAD_MAX:-100000}"      # loadavg is useless on macOS (threads count: 300+ with one vitest run); the heavy.sh semaphore + memory guard do the work
+# Do not default RSI_LOAD_MAX to 100000 (that disabled the guard). lanes.py
+# treats a missing or >=10000 value as 2× cores, and also refuses a new local
+# worker when free swap is below RSI_SWAP_FREE_MIN_MB (default 2048).
 export VITEST_MAX_WORKERS="${VITEST_MAX_WORKERS:-2}"  # three lanes of default-parallel vitest overload 8 cores
+export GOMAXPROCS="${GOMAXPROCS:-2}"
+export GO_TEST_P="${GO_TEST_P:-2}"
 LANE_WORKER_SECS="${LANE_WORKER_SECS:-3000}"       # worker watchdog (50 min); Astryx slices target ~45 min / <= $8 / <= 800 lines
 LANE_BUDGET_USD="${LANE_BUDGET_USD:-9}"            # runaway guard per worker run (target spend <= $5)
 FILL_SECS="${FILL_SECS:-1200}"
 LANES_PY="$RSI_DIR/runtime/lanes.py"
 mkdir -p "$STATE/lanes" "$STATE/sendback" "$STATE/merge"
+
+
+# Reap a process and its descendants (children first). Never signals pid 1.
+# Used on lane exit/timeout so a killed worker cannot leave vitest/go/node/agy behind.
+rsi_kill_tree() {
+  local root="${1:-}" c
+  [ -n "$root" ] && [ "$root" -gt 1 ] 2>/dev/null || return 0
+  for c in $(pgrep -P "$root" 2>/dev/null || true); do
+    rsi_kill_tree "$c"
+  done
+  kill -TERM "$root" 2>/dev/null || true
+  sleep 0.3
+  kill -KILL "$root" 2>/dev/null || true
+}
 
 with_timeout() { # secs cmd...   (macOS has no `timeout`)
   local s="$1"; shift
