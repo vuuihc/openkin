@@ -4,3 +4,5 @@ Read rsi/MANDATE.md, rsi/GOAL.md, rsi/roles/planner.md, rsi/roles/designer-guard
 
 Do: (1) regroom the queue in {{STATE}}/STATUS.md (≤ 12 rows; ordered by leverage on GOAL's five flows; each row: id, item, flow, source, acceptance in one line, state). Split anything >800 lines by technical dependency. (2) Move merged items out; mark blocked ones with the single question. (3) Run `python3 {{CTRL}}/rsi/runtime/ratchet.py check {{CTRL}}` and note the numbers. (4) If a CEO product call is pending in {{STATE}}/decisions-pending.md, decide it from PRINCIPLE/IA/TASTE and note it. (5) Do not write product code and do not open PRs; planning only. Write STATUS.md atomically. Final message: the new top 3 items and why.
 If DRY_RUN=1 change nothing.
+
+Parallel lanes: the queue feeds up to {{MAXLANES}} worker lanes. When regrooming, keep items small (≈25 min, ≤ $5, ≲ 400 lines), give each a likely path footprint so the fill pulse can run disjoint items in parallel, and mark which items can run concurrently. Read {{STATE}}/needs-ceo.md and {{STATE}}/lanes/*.json first. STATUS.md edits are atomic (temp + mv).

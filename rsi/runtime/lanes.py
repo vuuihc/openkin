@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+"""Lane registry for the parallel Kin RSI loop.
+
+Every worker lane owns one slot (1..RSI_MAX_LANES), one worktree/branch and one JSON
+record in $STATE/lanes/<n>.json.  A lane is ACTIVE while it is `claimed` (≤ CLAIM_TTL old)
+or `running` with a live pid.  Claims declare the repo paths the lane will touch; a claim
+that overlaps another active lane's paths is refused (exit 3).  Mutations hold an flock.
+
+  lanes.py status                      table of lanes (+ last result of idle ones)
+  lanes.py idle                        idle lane numbers, one per line (honours load guard)
+  lanes.py claim N --slug S --item ID --brief FILE [--mode new|rework] --paths P [P ...]
+  lanes.py get N                       shell-quotable key=value lines
+  lanes.py start N PID | finish N --status S [--pr N] [--note T] | claimed
+"""
+import argparse, fcntl, fnmatch, json, os, sys, time, glob, shlex
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+STATE = os.environ.get("RSI_STATE") or os.path.normpath(os.path.join(HERE, "..", "state"))
+LDIR = os.path.join(STATE, "lanes")
+MAX_LANES = int(os.environ.get("RSI_MAX_LANES", "3"))
+CLAIM_TTL = 25 * 60
+LOAD_MAX = float(os.environ.get("RSI_LOAD_MAX", "100000"))
+TOO_BROAD = {".", "", "*", "**", "ui", "ui/src", "internal", "web", "docs", "scripts", "desktop", "mobile", "cmd"}
+os.makedirs(os.path.join(LDIR, "history"), exist_ok=True)
+# Lanes above MAX_LANES that are still running (after the limit was lowered) stay visible so claims/merge-lane see them.
+_ex = [int(os.path.basename(f)[:-5]) for f in glob.glob(os.path.join(LDIR, "[0-9]*.json"))]
+ALL_LANES = max([MAX_LANES] + _ex)
+
+
+class Lock:
+    def __enter__(self):
+        self.f = open(os.path.join(LDIR, ".flock"), "w")
+        fcntl.flock(self.f, fcntl.LOCK_EX)
+    def __exit__(self, *a):
+        fcntl.flock(self.f, fcntl.LOCK_UN); self.f.close()
+
+
+def path_of(n): return os.path.join(LDIR, f"{n}.json")
+
+def load(n):
+    try:
+        return json.load(open(path_of(n)))
+    except Exception:
+        return None
+
+def save(n, d):
+    tmp = path_of(n) + ".tmp"
+    json.dump(d, open(tmp, "w"), indent=1)
+    os.replace(tmp, path_of(n))
+
+def alive(pid):
+    try:
+        os.kill(int(pid), 0); return True
+    except Exception:
+        return False
+
+def is_active(d):
+    if not d: return False
+    if d.get("status") == "claimed": return time.time() - d.get("claimed_at", 0) < CLAIM_TTL
+    if d.get("status") == "running": return alive(d.get("pid", 0))
+    return False
+
+def norm(p):
+    p = p.strip().lstrip("./").rstrip("/")
+    return p
+
+def overlap(a, b):
+    a, b = norm(a), norm(b)
+    if a == b or a.startswith(b + "/") or b.startswith(a + "/"): return True
+    return fnmatch.fnmatch(a, b) or fnmatch.fnmatch(b, a)
+
+def reap():
+    """A running lane whose pid died without finishing becomes `crashed` (idle)."""
+    for n in range(1, ALL_LANES + 1):
+        d = load(n)
+        if d and d.get("status") == "running" and not alive(d.get("pid", 0)):
+            d.update(status="crashed", finished_at=time.time()); save(n, d)
+        elif d and d.get("status") == "claimed" and time.time() - d.get("claimed_at", 0) >= CLAIM_TTL:
+            d.update(status="expired", finished_at=time.time()); save(n, d)
+
+def fmt(d):
+    if not d: return "idle (never used)"
+    st = d.get("status")
+    age = int((time.time() - (d.get("started_at") or d.get("claimed_at") or 0)) / 60)
+    base = f"{st:8} {d.get('item','?')} {d.get('slug','?')} mode={d.get('mode','new')}"
+    if is_active(d): return f"ACTIVE   {base} age={age}m paths={','.join(d.get('paths', []))}"
+    return f"idle     last: {base} pr={d.get('pr','-')} note={d.get('note','')[:90]}"
+
+def cmd_status(a):
+    reap()
+    for n in range(1, ALL_LANES + 1):
+        print(f"lane {n}: {fmt(load(n))}")
+    try: print("loadavg1=%.1f max=%.0f" % (os.getloadavg()[0], LOAD_MAX))
+    except Exception: pass
+
+def cmd_idle(a):
+    with Lock():
+        reap()
+        try:
+            if os.getloadavg()[0] > LOAD_MAX:
+                print(f"load too high ({os.getloadavg()[0]:.1f} > {LOAD_MAX:.0f}); not filling", file=sys.stderr); return
+        except Exception: pass
+        try:
+            import subprocess
+            out = subprocess.run(["memory_pressure"], capture_output=True, text=True, timeout=10).stdout
+            free = int(out.split("System-wide memory free percentage:")[1].split("%")[0])
+            if free < int(os.environ.get("RSI_MEM_FREE_MIN", "10")):
+                print(f"memory free {free}% too low; not filling", file=sys.stderr); return
+        except Exception: pass
+        for n in range(1, MAX_LANES + 1):
+            if not is_active(load(n)): print(n)
+
+def cmd_claim(a):
+    paths = [norm(p) for p in a.paths]
+    bad = [p for p in paths if p in TOO_BROAD or len(p.split("/")) < 2 and "." not in p]
+    if not paths or bad:
+        print(f"REFUSED: declare specific files/dirs (too broad or empty: {bad or 'none given'})"); sys.exit(5)
+    if not os.path.isfile(a.brief): print(f"REFUSED: brief {a.brief} missing"); sys.exit(6)
+    with Lock():
+        reap()
+        if not 1 <= a.lane <= MAX_LANES: print("REFUSED: no such lane"); sys.exit(4)
+        cur = load(a.lane)
+        if is_active(cur): print(f"REFUSED: lane {a.lane} busy ({cur.get('slug')})"); sys.exit(4)
+        for n in range(1, ALL_LANES + 1):
+            o = load(n)
+            if n == a.lane or not is_active(o): continue
+            if o.get("slug") == a.slug: print(f"REFUSED: slug {a.slug} already active in lane {n}"); sys.exit(3)
+            for p in paths:
+                for q in o.get("paths", []):
+                    if overlap(p, q):
+                        print(f"REFUSED: overlap with lane {n} ({o.get('item')} {o.get('slug')}): '{p}' vs '{q}'. Pick an item in a disjoint area."); sys.exit(3)
+        if cur:
+            os.replace(path_of(a.lane), os.path.join(LDIR, "history", f"{time.strftime('%Y%m%d-%H%M%S')}-{cur.get('slug','x')}.json"))
+        save(a.lane, dict(lane=a.lane, slug=a.slug, item=a.item, brief=a.brief, mode=a.mode, paths=paths,
+                          status="claimed", claimed_at=time.time()))
+    print(f"CLAIMED lane {a.lane}: {a.item} {a.slug} paths={paths}")
+
+def cmd_get(a):
+    d = load(a.lane) or {}
+    for k in ("slug", "item", "brief", "mode", "status", "pr"):
+        print(f"L_{k.upper()}={shlex.quote(str(d.get(k, '')))}")
+
+def cmd_start(a):
+    with Lock():
+        d = load(a.lane); d.update(status="running", pid=a.pid, started_at=time.time()); save(a.lane, d)
+
+def cmd_finish(a):
+    with Lock():
+        d = load(a.lane) or {}
+        d.update(status=a.status, finished_at=time.time(), note=a.note or "")
+        if a.pr: d["pr"] = a.pr
+        save(a.lane, d)
+
+def cmd_claimed(a):
+    with Lock():
+        reap()
+        for n in range(1, ALL_LANES + 1):
+            d = load(n)
+            if d and d.get("status") == "claimed" and time.time() - d.get("claimed_at", 0) < CLAIM_TTL: print(n)
+
+def cmd_slugs(a):  # slugs of active lanes (merge lane must not touch their worktrees)
+    reap()
+    for n in range(1, ALL_LANES + 1):
+        d = load(n)
+        if is_active(d): print(d.get("slug"))
+
+p = argparse.ArgumentParser(); sub = p.add_subparsers(dest="c", required=True)
+sub.add_parser("status").set_defaults(f=cmd_status)
+sub.add_parser("idle").set_defaults(f=cmd_idle)
+sub.add_parser("claimed").set_defaults(f=cmd_claimed)
+sub.add_parser("slugs").set_defaults(f=cmd_slugs)
+c = sub.add_parser("claim"); c.add_argument("lane", type=int); c.add_argument("--slug", required=True); c.add_argument("--item", required=True)
+c.add_argument("--brief", required=True); c.add_argument("--mode", default="new", choices=["new", "rework"]); c.add_argument("--paths", nargs="+", default=[]); c.set_defaults(f=cmd_claim)
+g = sub.add_parser("get"); g.add_argument("lane", type=int); g.set_defaults(f=cmd_get)
+s = sub.add_parser("start"); s.add_argument("lane", type=int); s.add_argument("pid", type=int); s.set_defaults(f=cmd_start)
+f = sub.add_parser("finish"); f.add_argument("lane", type=int); f.add_argument("--status", required=True); f.add_argument("--pr", default=""); f.add_argument("--note", default=""); f.set_defaults(f=cmd_finish)
+a = p.parse_args(); a.f(a)
