@@ -1,7 +1,6 @@
 import { createJiti } from "jiti";
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
-import resolveConfig from "tailwindcss/resolveConfig.js";
 import kin from "./eslint-rules/index.js";
 
 /**
@@ -27,8 +26,9 @@ import kin from "./eslint-rules/index.js";
  */
 const jiti = createJiti(import.meta.url);
 const config = await jiti.import("./tailwind.config.ts", { default: true });
-const theme = resolveConfig(config).theme;
-const colours = Object.keys(theme.colors.kin).sort();
+// Tailwind 4 has no `resolveConfig`. The colour ladder is an assigned
+// `theme.colors`, so the config itself is already the resolved answer here.
+const colours = Object.keys(config.theme.colors.kin).sort();
 // The width ladder, in the shape the rule needs: one entry per step, with the
 // utility prefix that spends it. Read from `extend` rather than from the
 // resolved theme on purpose — the resolved `maxWidth` is mostly Tailwind's own
