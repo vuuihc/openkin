@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { useRef, useState, type ReactNode, type RefObject } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Popover, { type PopoverProps } from "./Popover";
 
@@ -65,6 +65,46 @@ function Host({
         {...placement}
       >
         {children ?? <button type="button">Apply</button>}
+      </Popover>
+    </div>
+  );
+}
+
+/**
+ * Two layers, the inner one opened from the parent's panel and portaled to
+ * `<body>`. Both `onOpenChange` callbacks are inline, so every render hands
+ * each layer a fresh closure and React re-subscribes its document listeners
+ * in an order the component does not control — the case where "one Escape
+ * dismisses one layer" must not depend on listener order.
+ */
+function NestedHost() {
+  const [outer, setOuter] = useState(false);
+  const [inner, setInner] = useState(false);
+  const outerRef = useRef<HTMLButtonElement>(null);
+  const innerRef = useRef<HTMLButtonElement>(null);
+  return (
+    <div>
+      <button ref={outerRef} type="button" onClick={() => setOuter((value) => !value)}>
+        Outer trigger
+      </button>
+      <button type="button">Outside</button>
+      <Popover
+        open={outer}
+        onOpenChange={(value) => setOuter(value)}
+        triggerRef={outerRef}
+        label="Outer"
+      >
+        <button ref={innerRef} type="button" onClick={() => setInner(true)}>
+          Inner trigger
+        </button>
+        <Popover
+          open={inner}
+          onOpenChange={(value) => setInner(value)}
+          triggerRef={innerRef}
+          label="Inner"
+        >
+          <button type="button">Inner action</button>
+        </Popover>
       </Popover>
     </div>
   );
@@ -210,5 +250,137 @@ describe("the anchored popover", () => {
     expect(dialog.style.top).toBe("");
     expect(dialog.style.bottom).toBe("106px");
     expect(dialog.style.maxHeight).toBe("360px");
+  });
+});
+
+describe("focus containment with controls nobody can see", () => {
+  it("skips hidden first and last controls for initial focus and Tab wrapping", async () => {
+    render(
+      <Host startOpen>
+        <button type="button" hidden>
+          Hidden first
+        </button>
+        <button type="button">Visible first</button>
+        <button type="button">Visible last</button>
+        <button type="button" style={{ display: "none" }}>
+          Hidden last
+        </button>
+      </Host>,
+    );
+
+    const hiddenFirst = screen.getByText("Hidden first");
+    const hiddenLast = screen.getByText("Hidden last");
+    const visibleFirst = screen.getByRole("button", { name: "Visible first" });
+    const visibleLast = screen.getByRole("button", { name: "Visible last" });
+
+    // Initial focus must land on the first control that can actually take it.
+    await waitFor(() => expect(document.activeElement).toBe(visibleFirst));
+
+    // With the hidden last control counted, Tab from the visible last would
+    // wrap onto nothing and focus would fall to <body> with the dialog open.
+    await userEvent.tab();
+    expect(document.activeElement).toBe(visibleLast);
+    expect(document.activeElement).not.toBe(hiddenLast);
+    expect(document.activeElement).not.toBe(document.body);
+
+    await userEvent.tab();
+    expect(document.activeElement).toBe(visibleFirst);
+    expect(document.activeElement).not.toBe(document.body);
+
+    await userEvent.tab({ shift: true });
+    expect(document.activeElement).toBe(visibleLast);
+    expect(document.activeElement).not.toBe(hiddenFirst);
+    expect(document.activeElement).not.toBe(document.body);
+  });
+});
+
+describe("nested layers", () => {
+  async function openBoth() {
+    render(<NestedHost />);
+    await userEvent.click(screen.getByRole("button", { name: "Outer trigger" }));
+    await userEvent.click(screen.getByRole("button", { name: "Inner trigger" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Inner action" })),
+    );
+  }
+
+  const dialogNames = () =>
+    screen.queryAllByRole("dialog").map((element) => element.getAttribute("aria-label"));
+
+  it("dismisses exactly one layer per Escape", async () => {
+    await openBoth();
+    expect(dialogNames()).toEqual(["Outer", "Inner"]);
+
+    await userEvent.keyboard("{Escape}");
+
+    // One press closes the inner layer and nothing else, whichever document
+    // listener ran first.
+    expect(dialogNames()).toEqual(["Outer"]);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Inner trigger" }));
+
+    await userEvent.keyboard("{Escape}");
+
+    expect(dialogNames()).toEqual([]);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Outer trigger" }));
+  });
+
+  it("does not dismiss the parent when the nested panel is clicked", async () => {
+    await openBoth();
+
+    await userEvent.click(screen.getByRole("button", { name: "Inner action" }));
+
+    // The inner panel is portaled to <body>, so DOM containment alone calls
+    // it "outside" and closes the parent behind it.
+    expect(dialogNames()).toEqual(["Outer", "Inner"]);
+
+    await userEvent.click(screen.getByRole("button", { name: "Outside" }));
+
+    expect(dialogNames()).toEqual([]);
+  });
+});
+
+describe("input guards", () => {
+  it("leaves Escape to an IME composition, on both signals", async () => {
+    const onOpenChange = vi.fn();
+    render(
+      <Host startOpen onOpenChange={onOpenChange}>
+        <input aria-label="Compose" />
+      </Host>,
+    );
+    const input = screen.getByRole("textbox", { name: "Compose" });
+    await waitFor(() => expect(document.activeElement).toBe(input));
+
+    fireEvent.keyDown(input, { key: "Escape", isComposing: true });
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Filters" })).toBeTruthy();
+    expect(document.activeElement).toBe(input);
+
+    // Older IMEs report the composition through the 229 sentinel instead.
+    fireEvent.keyDown(input, { key: "Escape", keyCode: 229 });
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Filters" })).toBeTruthy();
+    expect(document.activeElement).toBe(input);
+
+    // A plain Escape still dismisses.
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(screen.queryByRole("dialog", { name: "Filters" })).toBeNull();
+  });
+
+  it("dismisses on a touch pointerdown outside but not inside", async () => {
+    const onOpenChange = vi.fn();
+    render(<Host startOpen onOpenChange={onOpenChange} />);
+    const apply = screen.getByRole("button", { name: "Apply" });
+    await waitFor(() => expect(document.activeElement).toBe(apply));
+
+    fireEvent.pointerDown(apply, { pointerType: "touch" });
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Filters" })).toBeTruthy();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Outside" }), {
+      pointerType: "touch",
+    });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(screen.queryByRole("dialog", { name: "Filters" })).toBeNull();
   });
 });

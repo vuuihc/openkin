@@ -1,4 +1,6 @@
 import {
+  createContext,
+  useContext,
   useEffect,
   useId,
   useRef,
@@ -8,6 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useAnchoredPanel } from "../../hooks/useAnchoredPanel";
+import { isImeKeyEvent } from "../../lib/ime";
 
 /**
  * The elements a dialog may hold focus on. The panel itself is focusable with
@@ -22,6 +25,112 @@ const FOCUSABLE = [
   "textarea:not([disabled])",
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
+
+/**
+ * Whether a selector match is a usable Tab stop, not just a match.
+ *
+ * A hidden control still matches `button:not([disabled])`: Tab containment
+ * that trusts the selector alone wraps onto a control nobody can see, and the
+ * next Tab lands on `<body>` while the dialog still claims to be modal.
+ * `display: none` is not inherited in the computed style, so an ancestor
+ * that hides the control has to be walked; `visibility` is inherited, so the
+ * control's own computed value already speaks for its ancestors.
+ */
+function isUsableFocusTarget(element: HTMLElement, panel: HTMLElement): boolean {
+  if (element.tabIndex < 0) return false;
+  const own = window.getComputedStyle(element);
+  if (own.visibility === "hidden" || own.visibility === "collapse") return false;
+  for (let node: HTMLElement | null = element; node; node = node.parentElement) {
+    if (node.hasAttribute("inert")) return false;
+    if (window.getComputedStyle(node).display === "none") return false;
+    if (node === panel) break;
+  }
+  return true;
+}
+
+/** The stops a Tab press may visit in this panel, in document order. */
+function focusableWithin(panel: HTMLElement): HTMLElement[] {
+  return Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((element) =>
+    isUsableFocusTarget(element, panel),
+  );
+}
+
+/**
+ * One open popover. The refs are read at event time, so a panel that is
+ * portaled a render after `open` turns true, or a trigger the caller swaps,
+ * never leaves a stale element behind in the registry.
+ */
+type PopoverLayer = {
+  panelRef: RefObject<HTMLDivElement | null>;
+  triggerRef: RefObject<HTMLElement | null>;
+  /** The layer this one was opened from, when popovers nest. */
+  parent: PopoverLayer | null;
+};
+
+/** The layers open right now, so one layer can see the others. */
+const openLayers = new Set<PopoverLayer>();
+
+/**
+ * Escapes already answered during this dispatch. Document listeners run in
+ * registration order, which React does not promise across renders, so the
+ * topmost layer claims the event instead of assuming it runs last.
+ */
+const answeredEscapes = new WeakSet<Event>();
+
+/** The popover whose panel is rendering this subtree, if any. */
+const PopoverLayerContext = createContext<PopoverLayer | null>(null);
+
+function depthOf(layer: PopoverLayer): number {
+  let depth = 0;
+  for (let cursor = layer.parent; cursor; cursor = cursor.parent) depth += 1;
+  return depth;
+}
+
+/** Whether `layer` was opened from inside `ancestor`, at any depth. */
+function isWithinLayer(layer: PopoverLayer, ancestor: PopoverLayer): boolean {
+  for (let cursor = layer.parent; cursor; cursor = cursor.parent) {
+    if (cursor === ancestor) return true;
+  }
+  return false;
+}
+
+/**
+ * Everything this layer owns: its own panel and trigger, plus the panels and
+ * triggers of layers opened from inside it. A nested popover portals its panel
+ * to `<body>`, so DOM containment alone would call its panel "outside" and
+ * dismiss the parent behind it.
+ */
+function reaches(layer: PopoverLayer, node: Node | null): boolean {
+  if (!node) return false;
+  if (layer.panelRef.current?.contains(node) || layer.triggerRef.current?.contains(node)) {
+    return true;
+  }
+  for (const other of openLayers) {
+    if (other === layer || !isWithinLayer(other, layer)) continue;
+    if (other.panelRef.current?.contains(node) || other.triggerRef.current?.contains(node)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * The deepest open layer whose reach holds `node`. One Escape belongs to one
+ * layer: the deepest one under focus, whatever order listeners run in.
+ */
+function topLayerAt(node: Node | null): PopoverLayer | null {
+  let top: PopoverLayer | null = null;
+  let topDepth = -1;
+  for (const layer of openLayers) {
+    if (!reaches(layer, node)) continue;
+    const depth = depthOf(layer);
+    if (depth >= topDepth) {
+      top = layer;
+      topDepth = depth;
+    }
+  }
+  return top;
+}
 
 export type PopoverProps = {
   /** Controlled: the caller owns the trigger's click and its `open` state. */
@@ -63,10 +172,16 @@ export type PopoverProps = {
  * Escape dismissal, focus moving into the panel after the anchor has actually
  * been measured (a panel portaled from a layout effect is not in the DOM on
  * the render `open` first turns true), Tab staying inside while it is open,
- * focus returning to the trigger on Escape, and every document listener being
- * removed on close. Escape only answers when focus is in this layer — a panel
- * in the corner must not close on an Escape pressed in the conversation
- * (TASTE rule 16).
+ * skipping controls that cannot actually take focus, focus returning to the
+ * trigger on Escape, and every document listener being removed on close.
+ * Escape only answers when focus is in this layer — a panel in the corner must
+ * not close on an Escape pressed in the conversation (TASTE rule 16) — and an
+ * Escape during an IME composition belongs to the composition, not the layer.
+ *
+ * Popovers nest (a picker opened from a panel opened from the composer). A
+ * layer therefore counts a nested layer's portaled panel as its own reach, and
+ * exactly one Escape dismisses exactly one layer: the deepest open one under
+ * focus, independent of document-listener order.
  *
  * Deliberately not owned: domain options, data loading, model/agent/permission
  * selection, arrow-key item navigation (the menu built on top owns its own
@@ -88,6 +203,12 @@ export default function Popover({
   className,
 }: PopoverProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const parentLayer = useContext(PopoverLayerContext);
+  const layerRef = useRef<PopoverLayer | null>(null);
+  if (layerRef.current === null) {
+    layerRef.current = { panelRef, triggerRef, parent: parentLayer };
+  }
+  const layer = layerRef.current;
   const generatedId = useId();
   const panelId = id ?? generatedId;
   const anchor = useAnchoredPanel(open, triggerRef, {
@@ -103,18 +224,30 @@ export default function Popover({
 
   useEffect(() => {
     if (!open) return;
-    const inside = (node: Node | null) =>
-      Boolean(node && (triggerRef.current?.contains(node) || panelRef.current?.contains(node)));
+    // The caller may hand a different trigger ref on a later render; the
+    // registry reads refs at event time, so keep the layer pointing at the
+    // one the current render uses.
+    layer.triggerRef = triggerRef;
+    openLayers.add(layer);
 
-    const onPointerDown = (event: MouseEvent) => {
-      if (inside(event.target as Node)) return;
+    const onPointerDown = (event: PointerEvent) => {
+      // A layer opened from inside this one is still this layer's reach: a
+      // click in the nested panel must not dismiss the parent behind it.
+      if (reaches(layer, event.target as Node)) return;
       onOpenChange(false);
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || event.defaultPrevented || isImeKeyEvent(event)) return;
       // Only the layer the reader is in answers the key. A panel left open
       // elsewhere must not swallow an Escape meant for the conversation.
-      if (!inside(document.activeElement)) return;
+      if (!reaches(layer, document.activeElement)) return;
+      // Nested layers each install their own document listener, and React
+      // gives no order guarantee across re-renders: the deepest layer under
+      // focus claims the Escape, so one press dismisses one layer whether the
+      // child's listener ran before or after this one.
+      if (topLayerAt(document.activeElement) !== layer) return;
+      if (answeredEscapes.has(event)) return;
+      answeredEscapes.add(event);
       event.preventDefault();
       onOpenChange(false);
       // The panel is the thing holding focus and it is about to go away.
@@ -122,21 +255,24 @@ export default function Popover({
       triggerRef.current?.focus({ preventScroll: true });
     };
 
-    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
     return () => {
-      document.removeEventListener("mousedown", onPointerDown);
+      openLayers.delete(layer);
+      document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [open, onOpenChange, triggerRef]);
+  }, [open, onOpenChange, triggerRef, layer]);
 
   useEffect(() => {
     if (!open || !anchored) return;
     const panel = panelRef.current;
     if (!panel) return;
     // A dialog with no focusable content still takes focus itself, so Escape
-    // and Tab do not belong to whatever was focused before it opened.
-    const first = panel.querySelector<HTMLElement>(FOCUSABLE);
+    // and Tab do not belong to whatever was focused before it opened. Hidden
+    // controls are skipped: focusing one would put focus somewhere the reader
+    // cannot see.
+    const [first] = focusableWithin(panel);
     (first ?? panel).focus({ preventScroll: true });
   }, [open, anchored]);
 
@@ -144,7 +280,7 @@ export default function Popover({
     if (event.key !== "Tab") return;
     const panel = panelRef.current;
     if (!panel) return;
-    const items = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE));
+    const items = focusableWithin(panel);
     if (items.length === 0) {
       event.preventDefault();
       panel.focus({ preventScroll: true });
@@ -165,29 +301,31 @@ export default function Popover({
   if (!open || !anchor) return null;
 
   return createPortal(
-    <div
-      ref={panelRef}
-      id={panelId}
-      role="dialog"
-      aria-label={label}
-      tabIndex={-1}
-      onKeyDown={onPanelKeyDown}
-      style={{
-        left: anchor.left,
-        width: anchor.width,
-        maxHeight: anchor.maxHeight,
-        top: anchor.top,
-        bottom: anchor.bottom,
-      }}
-      className={[
-        "fixed z-50 overflow-y-auto kin-scroll rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated p-1.5 shadow-e3 focus:outline-none",
-        className,
-      ]
-        .filter(Boolean)
-        .join(" ")}
-    >
-      {children}
-    </div>,
+    <PopoverLayerContext.Provider value={layer}>
+      <div
+        ref={panelRef}
+        id={panelId}
+        role="dialog"
+        aria-label={label}
+        tabIndex={-1}
+        onKeyDown={onPanelKeyDown}
+        style={{
+          left: anchor.left,
+          width: anchor.width,
+          maxHeight: anchor.maxHeight,
+          top: anchor.top,
+          bottom: anchor.bottom,
+        }}
+        className={[
+          "fixed z-50 overflow-y-auto kin-scroll rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated p-1.5 shadow-e3 focus:outline-none",
+          className,
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        {children}
+      </div>
+    </PopoverLayerContext.Provider>,
     document.body,
   );
 }
