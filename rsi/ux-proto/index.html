@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="zh-CN" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kin · 四区外壳原型 (KIN-CONTINUE-003)</title>
+<!-- Standalone, zero-build clickable prototype of the four-zone shell. Kin tokens (design/theme.css values), fake data only.
+     It approximates Astryx with plain CSS: it exists to judge the EXPERIENCE (structure, density, flow), not to ship code. -->
+<style>
+:root{color-scheme:dark;--kin-page:#0e0e10;--kin-sidebar:#141416;--kin-bg:#1a1a1c;--kin-inspector:#222226;--kin-elevated:#2c2c2e;
+--kin-text:#f5f5f7;--kin-secondary:#c7c7cc;--kin-muted:#98989d;--kin-hair:rgba(255,255,255,.08);--kin-hair2:rgba(255,255,255,.14);
+--kin-fill:rgba(255,255,255,.06);--kin-fill2:rgba(255,255,255,.1);--kin-focus:#0a84ff;--blue:#0a84ff;--blue-ink:#6cb2ff;
+--orange:#ff9f0a;--orange-ink:#ffb340;--green:#30d158;--green-ink:#8de4a0;--red:#ff453a;--red-ink:#ff8a80;--on-brand:#fff;
+--add:rgba(48,209,88,.14);--del:rgba(255,69,58,.14);--sh2:0 8px 24px rgba(0,0,0,.45)}
+html.light{color-scheme:light;--kin-page:#e0e0e5;--kin-sidebar:#ececf0;--kin-bg:#fff;--kin-inspector:#ebebf0;--kin-elevated:#f4f4f6;
+--kin-text:#1c1c1e;--kin-secondary:#3a3a3c;--kin-muted:#5c5c61;--kin-hair:rgba(0,0,0,.09);--kin-hair2:rgba(0,0,0,.16);
+--kin-fill:rgba(0,0,0,.04);--kin-fill2:rgba(0,0,0,.08);--kin-focus:#0b6fe0;--blue-ink:#0a52b4;--orange-ink:#7d4400;--green-ink:#105c27;--red-ink:#a51f18;--sh2:0 8px 24px rgba(0,0,0,.08)}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;background:var(--kin-page);color:var(--kin-text);font:13px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,"PingFang SC",sans-serif;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;text-align:left}
+input,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--kin-focus);outline-offset:1px;border-radius:6px}
+svg.i{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.mut{color:var(--kin-muted)}.sec{color:var(--kin-secondary)}.sm{font-size:11.5px}.xs{font-size:11px}.b{font-weight:600}.row{display:flex;align-items:center;gap:8px}.sp{flex:1}.trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+/* shell */
+#app{height:100%;display:flex;position:relative;overflow:hidden}
+.rail{width:208px;background:var(--kin-page);border-right:1px solid var(--kin-hair);display:flex;flex-direction:column;padding:12px 10px;gap:2px;flex:none;transition:width .16s}
+.rail .logo{font-weight:700;font-size:17px;padding:4px 8px 12px;display:flex;align-items:center;gap:8px}
+.rail .logo i{width:22px;height:22px;border-radius:6px;background:var(--blue);display:grid;place-items:center;color:#fff;font:700 12px/1 system-ui;font-style:normal}
+.nav{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;color:var(--kin-secondary);min-height:34px;position:relative;width:100%}
+.nav:hover{background:var(--kin-fill)}.nav[aria-current=page]{background:var(--kin-fill2);color:var(--kin-text);font-weight:600}
+.nav .bd{margin-left:auto;font-size:11px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;display:grid;place-items:center;background:var(--orange);color:#1a1a1c;font-weight:700}
+.nav .kbd{margin-left:auto;font-size:10.5px;color:var(--kin-muted)}
+.rail.compact{width:64px;align-items:center}.rail.compact .nav{width:44px;height:44px;justify-content:center;padding:0}.rail.compact .nav span:not(.bd),.rail.compact .kbd,.rail.compact .logo b,.rail.compact .hint span{display:none}
+.rail.compact .nav .bd{position:absolute;top:2px;right:0;margin:0;min-width:15px;height:15px;font-size:10px}
+.rail .hint{margin-top:auto;display:flex;gap:8px;align-items:center;padding:8px 10px;color:var(--kin-muted);font-size:11.5px;border-radius:8px}
+.rail .hint:hover{background:var(--kin-fill)}
+.col{width:304px;background:var(--kin-sidebar);border-right:1px solid var(--kin-hair);display:flex;flex-direction:column;flex:none;min-height:0}
+.colh{padding:14px 14px 8px;display:flex;flex-direction:column;gap:10px}
+.title{font-size:17px;font-weight:700}
+.main{flex:1;min-width:0;background:var(--kin-bg);display:flex;flex-direction:column;min-height:0;position:relative}
+.panel.wide{width:min(780px,56vw)}.panel{width:440px;flex:none;background:var(--kin-inspector);border-left:1px solid var(--kin-hair);display:flex;flex-direction:column;min-height:0}
+.scroll{overflow:auto;min-height:0;flex:1}
+/* controls */
+.btn,.chip{flex:none}.btn{display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:32px;border-radius:8px;background:var(--kin-fill2);font-weight:500;white-space:nowrap}
+.btn:hover{background:var(--kin-hair2)}.btn.pri{background:var(--blue);color:var(--on-brand);font-weight:600}.btn.pri:hover{filter:brightness(1.1)}
+.btn.sm{height:26px;padding:0 9px;font-size:12px;border-radius:7px}.btn.ghost{background:none}.btn.ghost:hover{background:var(--kin-fill)}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.icon{flex:none;width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:var(--kin-secondary)}.icon:hover{background:var(--kin-fill)}.icon[aria-pressed=true]{background:var(--kin-fill2);color:var(--kin-text)}
+.chip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:14px;background:var(--kin-fill);color:var(--kin-secondary);font-size:12px;white-space:nowrap}.chip:hover{background:var(--kin-fill2);color:var(--kin-text)}
+.seg{display:flex;background:var(--kin-fill);border-radius:8px;padding:2px;gap:2px}.seg button{flex:1;text-align:center;height:26px;border-radius:6px;font-size:12px;color:var(--kin-secondary);padding:0 8px;white-space:nowrap}.seg button[aria-selected=true]{background:var(--kin-elevated);color:var(--kin-text);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.search{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:8px;background:var(--kin-fill);color:var(--kin-muted)}.search input{flex:1;background:none;border:0;outline:0;min-width:0;color:var(--kin-text)}
+.card{background:var(--kin-elevated);border-radius:12px;padding:14px}
+.dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--kin-muted)}.dot.run{background:var(--blue);animation:pulse 1.4s infinite}.dot.wait{background:var(--orange)}.dot.ok{background:var(--green)}.dot.bad{background:var(--red)}
+@keyframes pulse{50%{opacity:.35}}
+.pill{white-space:nowrap;flex:none;display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:11px;font-size:11.5px;background:var(--kin-fill)}
+.pill.run{color:var(--blue-ink);background:rgba(10,132,255,.14)}.pill.wait{color:var(--orange-ink);background:rgba(255,159,10,.14)}.pill.ok{color:var(--green-ink);background:rgba(48,209,88,.12)}.pill.bad{color:var(--red-ink);background:rgba(255,69,58,.14)}
+/* list */
+.grp{padding:12px 14px 4px;font-size:11px;font-weight:600;color:var(--kin-muted);display:flex;gap:6px;align-items:center;letter-spacing:.02em}
+.grp.p{padding-left:22px;color:var(--kin-secondary)}
+.item{display:flex;gap:10px;padding:9px 14px 9px 22px;width:100%;position:relative;align-items:flex-start;min-height:44px}
+.item:hover{background:var(--kin-fill)}.item[aria-selected=true]{background:var(--kin-fill2)}.item[aria-selected=true]::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:2px;background:var(--blue)}
+.item .dot{margin-top:6px}.item .rm{position:absolute;right:8px;top:8px;width:28px;height:28px;border-radius:7px;display:none;place-items:center;color:var(--kin-secondary);background:var(--kin-fill2)}.item:hover .rm,.item:focus-within .rm{display:grid}.item:hover .cnt{display:none}.phone .item .rm{display:none!important}.item .t{font-weight:500;font-size:13px}.item .m{font-size:11.5px;color:var(--kin-muted)}
+.cnt{margin-left:auto;font-size:11px;min-width:18px;height:18px;border-radius:9px;display:grid;place-items:center;padding:0 5px;background:rgba(255,159,10,.2);color:var(--orange-ink);font-weight:700;flex:none}
+/* detail */
+.dh{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--kin-hair);min-height:56px;background:var(--kin-bg)}
+.dh h1{font-size:15px;font-weight:600}
+.msgs{padding:20px 0 12px;display:flex;flex-direction:column;gap:16px}
+.msgs>*{width:min(720px,calc(100% - 40px));margin:0 auto}
+.u{align-self:flex-end;background:var(--kin-fill2);border-radius:14px;padding:9px 13px;margin-left:auto;margin-right:max(20px,calc((100% - 720px)/2));width:auto;max-width:min(560px,calc(100% - 56px))}
+.tool{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--kin-secondary);background:var(--kin-fill);border-radius:8px;padding:6px 10px}
+.tool code{font:11.5px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--kin-text)}
+.ev{border:1px solid var(--kin-hair2);border-radius:12px;padding:10px 12px;display:flex;align-items:center;gap:10px}
+.appr{border:1px solid rgba(255,159,10,.55);background:rgba(255,159,10,.07);border-radius:12px;padding:12px 14px;scroll-margin:80px}
+.appr.hl{box-shadow:0 0 0 3px rgba(255,159,10,.35);animation:glow 1.6s 1}
+@keyframes glow{from{box-shadow:0 0 0 8px rgba(255,159,10,.0)}}
+.composer{padding:8px 16px 14px;background:linear-gradient(transparent,var(--kin-bg) 18px)}
+.cbox{width:min(720px,100%);margin:0 auto;border:1px solid var(--kin-hair2);border-radius:14px;background:var(--kin-elevated);padding:10px 10px 8px}
+.cbox textarea{width:100%;background:none;border:0;outline:0;resize:none;min-height:44px;line-height:1.5;padding:2px 4px;color:var(--kin-text)}
+.cbox:focus-within{border-color:var(--blue)}
+.pop{position:absolute;z-index:60;background:var(--kin-elevated);border:1px solid var(--kin-hair2);border-radius:12px;box-shadow:var(--sh2);padding:6px;min-width:230px}
+.pop button{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;width:100%;min-height:34px}.pop button:hover{background:var(--kin-fill)}.pop .ck{margin-left:auto;color:var(--blue-ink)}
+.scrim{position:absolute;inset:0;z-index:50;background:rgba(0,0,0,.45);display:flex;justify-content:center;align-items:flex-start;padding-top:12vh}
+.pal{width:560px;max-width:92%;background:var(--kin-elevated);border-radius:14px;box-shadow:var(--sh2);overflow:hidden;align-self:flex-start;border:1px solid var(--kin-hair2)}
+.pal input{width:100%;height:48px;background:none;border:0;border-bottom:1px solid var(--kin-hair);padding:0 16px;outline:0;font-size:15px}
+.pal button{display:flex;gap:10px;align-items:center;padding:9px 16px;width:100%}.pal button:hover,.pal button.on{background:var(--kin-fill2)}
+.banner{position:absolute;z-index:70;left:50%;top:10px;transform:translateX(-50%);width:min(380px,calc(100% - 20px));background:var(--kin-elevated);border:1px solid var(--kin-hair2);border-radius:16px;box-shadow:var(--sh2);padding:10px 12px;display:flex;gap:10px;animation:drop .25s}
+@keyframes drop{from{transform:translate(-50%,-30px);opacity:0}}
+.off{background:rgba(255,159,10,.14);color:var(--orange-ink);padding:6px 16px;font-size:12px;display:flex;gap:8px;align-items:center}
+.sk{background:linear-gradient(90deg,var(--kin-fill),var(--kin-fill2),var(--kin-fill));background-size:200% 100%;animation:sh 1.2s infinite;border-radius:6px}@keyframes sh{to{background-position:-200% 0}}
+/* diff */
+.fl{display:flex;flex-direction:column;border-bottom:1px solid var(--kin-hair)}
+.fl button{display:flex;gap:8px;align-items:center;padding:7px 14px;font-size:12.5px}.fl button:hover{background:var(--kin-fill)}.fl button[aria-selected=true]{background:var(--kin-fill2)}
+.diff{font:11.5px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace}
+.diff{min-width:max-content}.dl{display:flex;gap:0;padding-right:10px;position:relative;white-space:pre;cursor:default}.dl .n{width:34px;text-align:right;color:var(--kin-muted);padding-right:8px;flex:none;user-select:none}
+.dl .g{width:22px;flex:none;text-align:center;color:var(--kin-muted);opacity:0;cursor:pointer;user-select:none}.dl:hover .g{opacity:1;color:var(--blue-ink)}
+.dl.a{background:var(--add)}.dl.d{background:var(--del)}.dl.h{color:var(--kin-muted);background:var(--kin-fill);padding:2px 8px}
+.cm{margin:4px 12px 6px 56px;background:var(--kin-elevated);border:1px solid var(--kin-hair2);border-radius:10px;padding:8px 10px;font:12.5px/1.45 -apple-system,system-ui,"PingFang SC",sans-serif;white-space:normal}
+.cm textarea{width:100%;background:var(--kin-fill);border:0;border-radius:6px;padding:6px 8px;min-height:44px;outline:0;color:var(--kin-text)}
+/* tables / forms */
+.tbl{width:100%;border-collapse:collapse}.tbl th{font-weight:500;color:var(--kin-muted);text-align:left;padding:8px 12px;font-size:11.5px;border-bottom:1px solid var(--kin-hair)}.tbl td{padding:10px 12px;border-bottom:1px solid var(--kin-hair);vertical-align:middle}.tbl tr.sel td{background:var(--kin-fill)}
+.field{display:flex;flex-direction:column;gap:4px;margin-bottom:14px}.field label{font-weight:600;font-size:12.5px}.field .in{height:34px;border-radius:8px;background:var(--kin-fill);border:1px solid var(--kin-hair);padding:0 10px;display:flex;align-items:center;justify-content:space-between}
+.tog{width:38px;height:22px;border-radius:11px;background:var(--kin-fill2);position:relative;flex:none}.tog::after{content:"";position:absolute;left:2px;top:2px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.15s}.tog[aria-checked=true]{background:var(--green)}.tog[aria-checked=true]::after{left:18px}
+.heat{display:grid;grid-template-columns:repeat(14,1fr);gap:3px}.heat i{aspect-ratio:1;border-radius:3px;background:var(--kin-fill2)}.heat i.l1{background:#0e4429}.heat i.l2{background:#006d32}.heat i.l3{background:#26a641}.heat i.l4{background:#39d353}
+/* ===== phone ===== */
+.phone #app{flex-direction:column}
+.phone .pg{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--kin-bg);position:relative;animation:in .18s}
+@keyframes in{from{opacity:0;transform:translateY(4px)}}
+@keyframes push{from{transform:translateX(24px);opacity:0}}
+.phone .pg.push{animation:push .2s}
+@media (prefers-reduced-motion:reduce){.phone .pg,.phone .pg.push,.banner,.appr.hl{animation:none}}
+.tabs{display:flex;border-top:1px solid var(--kin-hair);background:var(--kin-sidebar);padding:6px 4px calc(6px + env(safe-area-inset-bottom,0px) + 14px);flex:none}
+.tabs button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;min-height:48px;justify-content:center;color:var(--kin-muted);font-size:10.5px;position:relative;border-radius:10px;text-align:center}
+.tabs button[aria-current=page]{color:var(--kin-text);font-weight:600}.tabs button[aria-current=page] svg{color:var(--blue-ink)}
+.tabs .bd{position:absolute;top:2px;left:calc(50% + 6px);background:var(--orange);color:#1a1a1c;font-size:10px;min-width:16px;height:16px;border-radius:8px;display:grid;place-items:center;font-weight:700;padding:0 4px}
+.phone .ph{padding:14px 16px 8px;display:flex;align-items:center;gap:10px}.phone .ph .title{font-size:26px;letter-spacing:-.01em}
+.phone .dh{padding:8px 8px;min-height:52px}.phone .item{padding-left:16px;min-height:56px}.phone .grp{padding-left:16px}.phone .grp.p{padding-left:16px}
+.phone .item[aria-selected=true]{background:none}.phone .item[aria-selected=true]::before{display:none}
+.phone .btn,.phone .btn.sm{min-height:44px;min-width:44px;justify-content:center}.phone .fl button{min-height:44px}.phone .tool,.phone .cm{font-size:13px}.phone .icon{width:44px;height:44px}.phone .chip{height:44px}.phone .seg button{height:36px}.sheet button{min-height:48px;display:flex;align-items:center;gap:10px;padding:8px 10px;width:100%;border-radius:8px}.sheet button:hover{background:var(--kin-fill)}.phone .cbox{border-radius:16px}
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:60;background:var(--kin-elevated);border-radius:20px 20px 0 0;padding:8px 8px 30px;box-shadow:var(--sh2);animation:up .22s}.sheet::before{content:"";display:block;width:36px;height:4px;border-radius:2px;background:var(--kin-hair2);margin:2px auto 10px}
+@keyframes up{from{transform:translateY(40px);opacity:0}}
+.sheet.tall{top:60px;display:flex;flex-direction:column}
+.fab{position:absolute;right:16px;bottom:16px}
+.phone .cbox textarea{min-height:24px}.cbrow{display:flex;align-items:center;gap:6px}.cbrow .chip{min-width:0;flex:0 1 auto}.phone .sendi{width:44px;padding:0}.fix{position:fixed;right:8px;bottom:8px;z-index:99;font-size:10px;opacity:.6}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+"use strict";
+/* ---------- tiny helpers ---------- */
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const P={chat:'<path d="M4 5h16v11H9l-5 4z"/>',folder:'<path d="M3 6h6l2 2h10v11H3z"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',
+plus:'<path d="M12 5v14M5 12h14"/>',search:'<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',chev:'<path d="M9 6l6 6-6 6"/>',down:'<path d="M6 9l6 6 6-6"/>',back:'<path d="M15 5l-7 7 7 7"/>',send:'<path d="M12 19V5M5 12l7-7 7 7"/>',stop:'<rect x="6" y="6" width="12" height="12" rx="2"/>',
+diff:'<path d="M12 4v10M7 9h10M7 19h10"/>',file:'<path d="M6 3h8l4 4v14H6z"/>',term:'<path d="M4 6l5 5-5 5M12 18h8"/>',panel:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>',check:'<path d="M5 12l5 5 9-10"/>',x:'<path d="M6 6l12 12M18 6L6 18"/>',more:'<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>',clip:'<path d="M20 11l-8 8a5 5 0 01-7-7l9-9a3.5 3.5 0 015 5l-9 9a2 2 0 01-3-3l8-8"/>',pr:'<circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><path d="M6 8v8M18 16V9a3 3 0 00-3-3h-3"/>',bell:'<path d="M6 16V11a6 6 0 0112 0v5l2 2H4zM10 20h4"/>',side:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>'};
+const I=(n,c='')=>`<svg class="i ${c}" viewBox="0 0 24 24">${P[n]}</svg>`;
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const Q=new URLSearchParams(location.search);
+if(Q.get('theme')==='light')document.documentElement.className='light';
+const PHONE=()=>window.innerWidth<700;
+document.documentElement.classList.toggle('phone',PHONE());
+
+/* ---------- fake data (placeholders only) ---------- */
+const AREAS=[['chats','对话','chat'],['projects','项目','folder'],['routines','例行任务','clock'],['settings','设置','gear']];
+const TASKS=[
+ {id:'t1',title:'完善移动端的导航结构',dev:'本机',proj:'控制台',st:'wait',meta:'刚刚 · 等待批准',branch:'ux/four-areas',files:3},
+ {id:'t2',title:'核对发布说明',dev:'本机',proj:'控制台',st:'run',meta:'12 分钟前 · 运行中',branch:'docs/release-notes',files:1},
+ {id:'t3',title:'审查设置页的表单',dev:'本机',proj:'控制台',st:'ok',meta:'昨天 · 已完成',branch:'ux/settings-forms',files:2},
+ {id:'t4',title:'通知落点定位对话',dev:'工作室',proj:'移动端',st:'bad',meta:'昨天 · 失败 · 测试未通过',branch:'fix/notify-target',files:1},
+ {id:'t5',title:'整理依赖升级清单',dev:'工作室',proj:'移动端',st:'ok',meta:'3 天前 · 已完成',branch:'chore/deps',files:0},
+ {id:'t6',title:'旧版 relay 迁移记录',dev:'本机',proj:'例行维护',st:'ok',meta:'上周 · 已归档',archived:1,branch:'',files:0}];
+const PROJECTS=[{id:'p1',name:'控制台',dev:'本机',n:12,focus:'统一 Mac 与手机的对话工作台，让四个区域的状态与返回可预期。',last:'完善移动端的导航结构'},{id:'p2',name:'移动端',dev:'工作室',n:5,focus:'通知点按直达具体卡片，离线时不丢草稿。',last:'通知落点定位对话'},{id:'p3',name:'例行维护',dev:'本机',n:3,focus:'每周依赖与日志巡检。',last:'旧版 relay 迁移记录'}];
+const ROUTINES=[{id:'r1',name:'每日工作摘要',when:'每天 09:30',st:'ok',last:'成功 · 3 分钟'},{id:'r2',name:'检查依赖更新',when:'每周一 10:00',st:'bad',last:'失败 · 超时'},{id:'r3',name:'整理工作记录',when:'每周五 18:00',st:'paused',last:'已暂停'}];
+const SECTIONS=[['general','通用'],['agents','Agent'],['providers','模型提供商'],['routing','路由与额度'],['advanced','高级'],['operations','Agent 运维']];
+const DIFF=[
+ {f:'ui/src/lib/areas.ts',a:34,d:0,t:[['h','@@ -0,0 +1,34 @@ 新增：四区定义表'],['a',1,"export const AREAS = ["],['a',2,"  { id: 'chats', root: '/sessions', icon: 'chat' },"],['a',3,"  { id: 'projects', root: '/projects', icon: 'folder' },"],['a',4,"  { id: 'routines', root: '/routines', icon: 'clock' },"],['a',5,"  { id: 'settings', root: '/settings', icon: 'gear' },"],['a',6,"] as const"]]},
+ {f:'ui/src/components/layout/AreaNav.tsx',a:18,d:6,t:[['h','@@ -12,9 +12,21 @@ AreaNav'],['c',12,"  const current = useArea()"],['d',13,"  return <Sidebar items={LEGACY} />"],['a',13,"  return ("],['a',14,"    <nav aria-label=\"区域\">"],['a',15,"      {AREAS.map(a => <AreaLink key={a.id} area={a} current={current} />)}"],['a',16,"    </nav>"],['a',17,"  )"]]},
+ {f:'ui/src/pages/SessionsRoute.tsx',a:4,d:2,t:[['h','@@ -40,6 +40,8 @@'],['c',40,"  const scope = params.get('scope') ?? 'all'"],['d',41,"  if (scope === 'archived') return <ArchivedNav />"],['a',41,"  // 归档只是对话范围，不是第五区"],['a',42,"  return <SessionList scope={scope} />"]]}];
+const AGENTS=['Claude Code','Codex','Droid'],MODELS=['Opus 4.1','Sonnet 4','Auto'],PERMS=[['默认','每次修改前询问'],['接受编辑','自动改文件，命令询问'],['计划模式','只读，先出方案'],['全部放行','不再询问（YOLO）']];
+
+/* ---------- state ---------- */
+const S={area:'chats',rail:'auto',
+ chats:{scope:'all',q:'',sel:'t1',loaded:false},
+ projects:{sel:'p1',q:'',dev:'全部'},routines:{sel:'r1'},settings:{sec:'general'},
+ panel:{open:false,tab:'changes',scope:'turn',file:0,comments:{},composing:null,sent:0},
+ stack:{chats:[],projects:[],routines:[],settings:[]},
+ pop:null,pal:null,sheet:null,banner:null,offline:false,hl:null,newChat:false,
+ draft:{t1:'',new:''},cfg:{agent:0,model:0,perm:0},approved:false,extra:[],tasks:JSON.parse(JSON.stringify(TASKS)),scroll:{},theme:document.documentElement.className};
+S.listHidden=()=>S.panel.open&&(S.panel.wide||window.innerWidth<1280);
+S.compact=()=>S.rail==='compact'||(S.rail==='auto'&&(S.panel.open||window.innerWidth<1280));
+const T=id=>S.tasks.find(t=>t.id===id);
+const attention=()=>S.tasks.filter(t=>t.st==='wait'&&!t.archived).length;
+const running=()=>S.tasks.filter(t=>t.st==='run'&&!t.archived).length;
+const stDot=s=>`<span class="dot ${({run:'run',wait:'wait',ok:'ok',bad:'bad'})[s]||''}"></span>`;
+const stPill=s=>({run:'<span class="pill run"><span class="dot run"></span>运行中</span>',wait:'<span class="pill wait"><span class="dot wait"></span>等待批准</span>',ok:'<span class="pill ok">已完成</span>',bad:'<span class="pill bad">失败</span>'})[s];
+
+/* ---------- navigation ---------- */
+function go(area){ if(S.area!==area){saveScroll();S.area=area;S.newChat=false;S.pop=null;} else if(PHONE()){S.stack[area]=[];S.newChat=false} render() }
+function push(page){S.stack[S.area].push(page);S.pop=null;S.pushed=true;render()}
+function back(){ if(S.pop||S.sheet){S.pop=null;S.sheet=null}else if(S.pal){S.pal=null}else if(S.newChat){S.newChat=false}else if(S.stack[S.area].length){S.stack[S.area].pop()} render() }
+function openTask(id,opts={}){S.area='chats';S.chats.sel=id;S.newChat=false;S.pop=null;S.pal=null;S.hl=opts.hl||null;
+  if(PHONE()){S.stack.chats=[{p:'task',id}];S.pushed=true}
+  render(); if(S.hl)setTimeout(()=>{const a=$('#appr');a&&a.scrollIntoView({block:'center'})},30)}
+function saveScroll(){$$('[data-sk]').forEach(e=>S.scroll[e.dataset.sk]=e.scrollTop)}
+function restoreScroll(){$$('[data-sk]').forEach(e=>{const v=S.scroll[e.dataset.sk];if(v!=null)e.scrollTop=v})}
+const topPg=()=>{const s=S.stack[S.area];return s[s.length-1]};
+
+/* ---------- pieces ---------- */
+function pickers(){const c=S.cfg;if(PHONE())return `<button class="chip" data-pop="cfg" style="min-width:0"><span class="trunc" style="max-width:150px">${esc(AGENTS[c.agent])} · ${esc(MODELS[c.model])} · ${esc(PERMS[c.perm][0])}</span> ${I('down')}</button>`;return `<button class="chip" data-pop="agent">${esc(AGENTS[c.agent])} ${I('down')}</button><button class="chip" data-pop="model">${esc(MODELS[c.model])} ${I('down')}</button><button class="chip" data-pop="perm">权限：${esc(PERMS[c.perm][0])} ${I('down')}</button>`}
+function popover(){ if(!S.pop)return ''; if(S.pop==='cfg'){const c=S.cfg;const rows=[['agent','Agent',AGENTS[c.agent]],['model','模型',MODELS[c.model]],['perm','权限',PERMS[c.perm][0]+' · '+PERMS[c.perm][1]]].map(([k,l,v])=>`<button data-pop="${k}" style="justify-content:space-between"><span>${l}</span><span class="mut trunc" style="max-width:210px">${esc(v)}</span>${I('chev','mut')}</button>`).join('');return `<div class="scrim" data-close style="align-items:flex-end;padding:0"><div class="sheet" style="position:relative;width:100%" data-stop><div class="b" style="padding:4px 10px 8px">运行配置</div>${rows}<div class="xs mut" style="padding:8px 10px">只影响这次对话；默认值在 设置 → 通用</div></div></div>`} if(S.pop.startsWith('row:')){const id=S.pop.slice(4),t=T(id);const items=[['pin','置顶'],['rename','改名'],['archive',t.archived?'取消归档':'归档'],['del','删除']];const body=items.map(([k,l])=>`<button data-rowact="${k}:${id}" ${k==='del'?'style="color:var(--red-ink)"':''}>${l}</button>`).join('');return PHONE()?`<div class="scrim" data-close style="align-items:flex-end;padding:0"><div class="sheet" style="position:relative;width:100%" data-stop><div class="b" style="padding:6px 10px 8px">${esc(t.title)}</div>${body}</div></div>`:`<div class="pop" style="left:${S.popX}px;top:${S.popY}px;min-width:170px" data-stop>${body}</div>`} const k=S.pop; const lst=k==='agent'?AGENTS.map(a=>[a,'']):k==='model'?MODELS.map(a=>[a,'']):PERMS;
+ const cur=S.cfg[k], body=lst.map((x,i)=>`<button data-pick="${k}:${i}">${i===cur?'<span class="ck">':'<span style="width:16px">'}${i===cur?I('check'):''}</span><span><div>${esc(x[0])}</div>${x[1]?`<div class="mut xs">${esc(x[1])}</div>`:''}</span></button>`).join('');
+ if(PHONE()) return `<div class="scrim" data-close style="align-items:flex-end;padding:0"><div class="sheet" style="position:relative;width:100%" data-stop><div class="b" style="padding:4px 10px 8px">${({agent:'Agent',model:'模型',perm:'权限'})[k]}</div>${body}</div></div>`;
+ return `<div class="pop" style="left:${S.popX||0}px;top:${S.popY||0}px;transform:translateY(-100%)" data-stop>${body}</div>`}
+function composer(id){const t=id==='new'?null:T(id);const run=t&&t.st==='run';const ph=id==='new'?'描述目标。启动前可调整 Agent、模型与权限。':run?'运行中也可以补充：发送会排队或打断':'继续提问…';
+ return `<div class="composer"><div class="cbox"><textarea id="cin" data-draft="${id}" rows="2" placeholder="${ph}">${esc(S.draft[id]||'')}</textarea><div class="cbrow" style="${PHONE()?'':'flex-wrap:wrap'}">${I('clip','mut')}${pickers()}<span class="sp"></span>${run?`<button class="btn sm ${PHONE()?'sendi':''}" aria-label="停止">${I('stop')}${PHONE()?'':' 停止'}</button>`:''}<button class="btn ${(id==='new'||S.draft[id])?'pri ':''}sm ${PHONE()?'sendi':''}" data-send="${id}" aria-label="${id==='new'?'开始对话':'发送'}">${I('send')}${PHONE()?'':(id==='new'?' 开始对话':' 发送')}</button></div></div>
+ <div class="xs mut" style="text-align:center;margin-top:6px">${S.cfg.perm===3?'<span style="color:var(--orange-ink)">全部放行：不会再询问</span> · ':''}⌘Enter 发送 · Enter 换行</div></div>`}
+function transcript(id){const t=T(id);const x=[];
+ x.push(`<div class="u">${esc(id==='t1'?'把手机底栏改成对话/项目/例行任务/设置四个同级入口，归档变成对话里的范围。':id==='t2'?'核对发布说明里的版本号和变更条目，不一致的列出来。':'继续上次的工作')}</div>`);
+ x.push(`<div>我先读一下现有导航代码，再改。<br>${id==='t1'?'四个区域共享同一份定义表，Mac 侧栏和手机 Tab 都从它渲染，所以名称、图标、顺序不会再分叉。':'已经对照了 CHANGELOG 与 package 版本。'}</div>`);
+ x.push(`<div class="tool">${I('file')} 读取 <code>ui/src/lib/areas.ts</code> <span class="mut">· 0.2s</span></div>`);
+ x.push(`<div class="tool">${I('diff')} 修改 <code>AreaNav.tsx</code> <span class="mut">· +18 −6</span></div>`);
+ if(id==='t1'){ x.push(`<div class="ev">${I('diff','mut')}<div><div class="b">本轮改了 3 个文件 <span class="mut" style="font-weight:400">+56 −8</span></div><div class="mut xs">areas.ts · AreaNav.tsx · SessionsRoute.tsx</div></div><span class="sp"></span><button class="btn sm" data-act="panel:changes">查看变更</button></div>`);
+  if(!S.approved) x.push(`<div class="appr${S.hl==='appr'?' hl':''}" id="appr"><div class="row b">${I('bell','')} 允许修改导航组件？</div><div class="sec" style="margin:4px 0 10px">将改写 <code>Sidebar.tsx</code>（22 个按钮）并删除旧的底栏入口。只影响本机的 <b>控制台</b> 项目。</div><div class="row"><button class="btn sm" data-act="approve">允许</button><button class="btn sm" data-act="deny">拒绝</button><span class="mut xs">× 本次对话不再询问</span></div></div>`);
+  else x.push(`<div class="tool" style="color:var(--green-ink)">${I('check')} 已允许 · 正在改写 Sidebar.tsx</div>`);
+ }
+ if(id==='t2'){ for(let i=1;i<=22;i++)x.push(`<div class="tool">${I('term')} <code>diff</code> CHANGELOG 第 ${i} 条 ↔ package 版本 · 一致</div>`); x.push(...S.extra.map(s=>`<div class="tool">${I('term')} ${s}</div>`)); x.push(`<div class="row sec"><span class="dot run"></span> 正在比对第 ${6+S.extra.length} / 14 条… <span class="mut">已用 ${3+S.extra.length} 分钟</span></div>`) }
+ if(S.sent&&id==='t1') x.push(`<div class="u">${S.sent} 条行评论已发给 Agent，请按评论修改。</div>`);
+ if(id==='t3') x.push(`<div>表单已统一：label / hint / error 都用 aria-describedby 关联。</div><div class="ev">${I('check','')}<div class="b">本轮改了 2 个文件 <span class="mut" style="font-weight:400">+31 −12</span></div><span class="sp"></span><button class="btn sm" data-act="panel:changes">查看变更</button></div>`);
+ if(id==='t4') x.push(`<div class="appr" style="border-color:rgba(255,69,58,.5);background:rgba(255,69,58,.07)"><div class="b" style="color:var(--red-ink)">测试未通过</div><div class="sec" style="margin:4px 0 8px">NotificationTaps.dom.test.tsx：点按同一 item 后没有重新送达。</div><button class="btn sm">让 Agent 修复</button></div>`);
+ return x.join('')}
+function gitBar(t){return `<div class="row mut xs" style="flex-wrap:nowrap;overflow:hidden;white-space:nowrap">${PHONE()?stPill(t.st):''}${t.dev} / ${t.proj}${t.branch?` · ${I('pr','')}${t.branch}`:''}</div>`}
+function dock(id){if(id!=='t1'||S.approved)return '';return `<div style="padding:0 16px"><div class="cbox" style="border-color:rgba(255,159,10,.6);background:rgba(255,159,10,.08);display:flex;align-items:center;gap:10px;padding:8px 12px;margin-bottom:-4px"><span class="dot wait"></span><span style="flex:1;min-width:0" class="trunc"><b>等待你批准</b> · 允许修改导航组件？</span><button class="btn sm" data-act="jump">查看</button><button class="btn pri sm" data-act="approve">允许</button></div></div>`}
+function taskDetail(id,ph){const t=T(id);const showBack=ph;
+ return `<div class="dh">${showBack?`<button class="icon" data-back aria-label="返回">${I('back')}</button>`:''}${(!ph&&S.listHidden())?`<button class="icon" data-act="showlist" aria-label="显示对话列表" title="显示对话列表">${I('side')}</button>`:''}<div style="min-width:0"><h1 class="trunc">${esc(t.title)}</h1>${gitBar(t)}</div><span class="sp"></span>${ph?'':stPill(t.st)}${ph?'':`<button class="icon" aria-pressed="${S.panel.open}" data-act="panel" aria-label="变更与文件 (⌘\\)" title="变更与文件 ⌘\\">${I('panel')}</button>`}<button class="icon" aria-label="更多">${I('more')}</button></div>
+ ${S.offline?`<div class="off">${I('bell')} 已断线，正在重连…已有内容保留，发送会排队</div>`:''}
+ <div class="scroll" data-sk="task-${id}" id="msgs"><div class="msgs">${transcript(id)}</div></div>${S.newBelow&&id==='t2'?`<button class="btn sm" data-act="tobottom" style="position:absolute;left:50%;transform:translateX(-50%);bottom:${ph?150:140}px;background:var(--kin-elevated);box-shadow:var(--sh2)">${I('down')} 有新进展</button>`:''}${ph&&S.panel.open?'':dock(id)+composer(id)}`}
+function listRow(t,sel){return `<button class="item" role="option" data-task="${t.id}" aria-selected="${sel}" aria-haspopup="menu">${stDot(t.st)}<span style="min-width:0;flex:1"><div class="t trunc">${esc(t.title)}</div><div class="m trunc">${esc(t.meta)}</div></span>${t.st==='wait'?'<span class="cnt">1</span>':''}<span class="rm" data-rowmenu="${t.id}" role="button" tabindex="0" aria-label="更多操作">${I('more')}</span></button>`}
+function chatList(ph){const c=S.chats;let ts=S.tasks.filter(t=>c.scope==='archived'?t.archived:!t.archived);
+ if(c.scope==='wait')ts=ts.filter(t=>t.st==='wait');if(c.scope==='run')ts=ts.filter(t=>t.st==='run');
+ if(c.q)ts=ts.filter(t=>t.title.includes(c.q));
+ const rank={wait:0,run:1,bad:2,ok:3};const devs=[...new Set(ts.map(t=>t.dev))];
+ let h='';if(!c.loaded)h=[1,2,3,4].map(()=>`<div style="padding:10px 22px"><div class="sk" style="height:12px;width:70%;margin-bottom:8px"></div><div class="sk" style="height:10px;width:40%"></div></div>`).join('');
+ else if(!ts.length)h=`<div style="padding:40px 24px;text-align:center" class="mut"><div class="b sec" style="margin-bottom:6px">${c.scope==='wait'?'没有需要你处理的':'这里还没有对话'}</div><div>${c.scope==='wait'?'Agent 需要批准或回答时，会出现在这里。':'点“新建”开始一件事。'}</div></div>`;
+ else for(const d of devs){const ds=ts.filter(t=>t.dev===d);h+=`<div class="grp">${d.toUpperCase()==d?d:d}<span class="sp"></span><span class="xs">${ds.length}</span></div>`;
+   for(const p of [...new Set(ds.map(t=>t.proj))]){h+=`<div class="grp p">${I('folder')} ${p}</div>`;h+=ds.filter(t=>t.proj===p).sort((a,b)=>rank[a.st]-rank[b.st]).map(t=>listRow(t,!ph&&t.id===c.sel&&!S.newChat)).join('')}}
+ const na=attention(),nr=running();
+ return `<div class="colh">${ph?'':`<div class="row"><div class="title">对话</div><span class="sp"></span><button class="btn sm" data-act="new">${I('plus')} 新建 <span class="xs mut">⌘N</span></button></div>`}
+  <div class="search">${I('search')}<input id="q" placeholder="搜索对话" value="${esc(c.q)}" aria-label="搜索对话"></div>
+  <div class="seg" role="tablist">${[['all','全部'],['wait','待处理'+(na?' '+na:'')],['run','运行中'+(nr?' '+nr:'')],['archived','已归档']].map(([k,l])=>`<button role="tab" data-scope="${k}" aria-selected="${c.scope===k}">${l}</button>`).join('')}</div></div>
+  <div class="scroll" data-sk="chatlist" role="listbox" aria-label="对话">${h}</div>
+  <div class="xs mut" style="padding:8px 14px;border-top:1px solid var(--kin-hair)">设备 → 项目 → 对话 · 归档只是范围</div>`}
+function newChat(ph){const sel=S.cfg;
+ return `<div class="dh">${ph?`<button class="icon" data-back aria-label="关闭">${I('x')}</button>`:''}<h1>新建对话</h1><span class="sp"></span></div>
+ <div class="scroll"><div style="width:min(720px,calc(100% - 32px));margin:${ph?'18px':'7vh'} auto 0">
+ <div style="font-size:${ph?22:26}px;font-weight:700;margin-bottom:4px">开始一件事</div><div class="mut" style="margin-bottom:16px">描述目标。运行配置在发送前就能看清。</div>
+ <div class="card" style="padding:12px"><div class="row" style="margin-bottom:6px;flex-wrap:wrap"><button class="chip" data-act="proj-pick">${I('folder')} 本机 / 控制台 ${I('down')}</button><span class="mut xs">最近：</span><button class="chip">移动端</button><button class="chip">例行维护</button></div></div>
+ <div style="height:12px"></div></div>${composer('new')}</div>`}
+function projCover(id,ph){const p=PROJECTS.find(x=>x.id===id);
+ return `<div class="dh">${ph?`<button class="icon" data-back aria-label="返回">${I('back')}</button>`:''}<div><h1>${p.name}</h1><div class="mut xs">${p.dev} · ${p.n} 段对话</div></div><span class="sp"></span>${ph?'':`<button class="btn pri sm" data-act="new-in:${p.id}">${I('plus')} 在此项目新建对话</button>`}</div>
+ <div class="scroll" data-sk="proj-${id}"><div style="width:min(760px,calc(100% - 32px));margin:20px auto;display:flex;flex-direction:column;gap:18px">
+ <div><div class="b" style="margin-bottom:8px">当前焦点</div><div class="card row"><div class="sec" style="flex:1">${p.focus}</div><button class="btn sm">编辑</button></div></div>
+ <div><div class="b" style="margin-bottom:8px">最近活动</div><button class="card row" style="width:100%" data-task="t1">${stDot('wait')}<div style="flex:1"><div class="b">${p.last}</div><div class="mut xs">等待批准 · 刚刚</div></div>${I('chev','mut')}</button></div>
+ <div><div class="row" style="margin-bottom:8px"><span class="b">最近两周</span><span class="sp"></span><button class="btn sm ghost">刷新</button></div><div class="card"><div class="heat">${Array.from({length:14},(_,i)=>`<i class="l${[0,2,3,1,0,0,4,3,2,0,1,3,4,2][i]}"></i>`).join('')}</div><div class="mut xs" style="margin-top:8px">8 天有活动 · 摘要 / 例行任务 / 改动热点</div></div></div>
+ <div class="mut xs">例行任务：只读，去「例行任务」管理 →</div></div></div>${ph?`<div style="padding:10px 16px 34px;border-top:1px solid var(--kin-hair)"><button class="btn pri" style="width:100%" data-act="new-in:${p.id}">${I('plus')} 在此项目新建对话</button></div>`:''}`}
+function projList(){const c=S.projects;const ps=PROJECTS.filter(p=>(c.dev==='全部'||p.dev===c.dev)&&p.name.includes(c.q));
+ return `<div class="colh">${PHONE()?'':'<div class="row"><div class="title">项目</div></div>'}<div class="search">${I('search')}<input id="pq" placeholder="搜索项目" value="${esc(c.q)}" aria-label="搜索项目"></div><div class="seg">${['全部','本机','工作室'].map(d=>`<button data-pdev="${d}" aria-selected="${c.dev===d}">${d}</button>`).join('')}</div></div>
+ <div class="scroll" data-sk="projlist">${ps.map(p=>`<button class="item" data-proj="${p.id}" aria-selected="${!PHONE()&&c.sel===p.id}"><span style="flex:1;min-width:0"><div class="t">${p.name}</div><div class="m">${p.dev} · ${p.n} 段对话</div></span>${PHONE()?I('chev','mut'):''}</button>`).join('')||'<div class="mut" style="padding:30px;text-align:center">没有匹配的项目</div>'}</div>`}
+function routineTable(ph){return `<table class="tbl"><thead><tr><th>任务</th>${ph?'':'<th>计划</th>'}<th>上次运行</th></tr></thead><tbody>${ROUTINES.map(r=>`<tr class="${S.routines.sel===r.id?'sel':''}" data-rt="${r.id}" style="cursor:pointer"><td><div class="b">${r.name}</div>${ph?`<div class="mut xs">${r.when}</div>`:''}</td>${ph?'':`<td>${r.when}</td>`}<td><span class="pill ${r.st==='ok'?'ok':r.st==='bad'?'bad':''}">${r.last}</span></td></tr>`).join('')}</tbody></table>`}
+function routines(ph){const r=ROUTINES.find(x=>x.id===S.routines.sel);
+ return `<div class="${ph?'ph':'dh'}" ${ph?'':'style="padding:14px 20px"'}><div class="title">例行任务</div><span class="sp"></span><button class="btn pri sm" data-act="rnew">${I('plus')} 新建任务</button></div>
+ <div class="row" style="padding:0 ${ph?16:20}px 10px"><button class="chip">${I('clock')} 工作室 · 在线 ${I('down')}</button><span class="mut xs">4 个任务 · 下次 09:00</span></div>
+ <div class="scroll" data-sk="routines">${routineTable(ph)}${ph?'':`<div class="card" style="margin:16px 20px"><div class="b">${r.name} · 最近运行</div><div class="mut" style="margin:4px 0 10px">选择的机器属于例行任务，不属于导航。运行详情是只读记录，批准与停止在那台机器自己的控制台上。</div><button class="btn sm" data-act="rundetail">打开运行详情 ${I('chev')}</button></div>`}</div>`}
+function settings(ph,detail){const sec=S.settings.sec;
+ const nav=SECTIONS.map(([k,l])=>`<button class="item" data-sec="${k}" aria-selected="${!ph&&sec===k}" style="min-height:44px;align-items:center;padding-left:${ph?16:22}px"><span style="flex:1">${l}</span>${ph?I('chev','mut'):''}</button>`).join('');
+ const body=sec==='operations'?`<div class="b" style="font-size:17px;margin-bottom:4px">Agent 运维</div><div class="mut" style="margin-bottom:14px">机器、Agent 目录与用量。发现新 Agent 不会自动接入。</div>
+  <table class="tbl"><thead><tr><th>机器</th><th>Agent</th><th>状态</th></tr></thead><tbody><tr><td class="b">本机</td><td>Claude Code · Codex</td><td><span class="pill ok">在线</span></td></tr><tr><td class="b">工作室</td><td>Claude Code · Droid</td><td><span class="pill ok">在线</span></td></tr><tr><td class="b">旧笔记本</td><td>—</td><td><span class="pill">离线 · 3 天</span></td></tr></tbody></table>
+  <div class="card row" style="margin-top:16px"><div style="flex:1"><div class="b">发现 1 个新 Agent</div><div class="mut xs">Trae · 已安装，未接入</div></div><button class="btn sm">确认接入</button></div>`
+  :`<div class="b" style="font-size:17px;margin-bottom:14px">${(SECTIONS.find(s=>s[0]===sec)||[])[1]}</div>
+  <div class="field"><label>外观</label><div class="seg" style="width:240px"><button aria-selected="false">浅色</button><button aria-selected="true">深色</button><button aria-selected="false">跟随系统</button></div></div>
+  <div class="field"><label>默认 Agent</label><div class="in"><span>Claude Code</span>${I('down','mut')}</div><span class="mut xs">新对话的起点；可在发送前更改。</span></div>
+  <div class="field"><label>默认权限</label><div class="in"><span>默认 · 每次修改前询问</span>${I('down','mut')}</div></div>
+  <div class="row field" style="flex-direction:row;justify-content:space-between"><div><label>通知</label><div class="mut xs">此设备：已授权</div></div><div class="tog" role="switch" aria-checked="true" tabindex="0"></div></div>`;
+ if(ph&&!detail)return `<div class="ph"><div class="title">设置</div></div><div class="scroll" data-sk="settings">${nav}</div>`;
+ if(ph)return `<div class="dh"><button class="icon" data-back aria-label="返回">${I('back')}</button><h1>${(SECTIONS.find(s=>s[0]===sec)||[])[1]}</h1></div><div class="scroll" style="padding:16px">${body}</div>`;
+ return `<div class="col" style="width:224px"><div class="colh"><div class="title">设置</div></div><div class="scroll">${nav}</div></div><div class="main"><div class="scroll" data-sk="settings" style="padding:28px 40px"><div style="max-width:620px">${body}</div></div></div>`}
+function diffPanel(ph){const p=S.panel,f=DIFF[p.file];const nc=Object.values(p.comments).reduce((a,b)=>a+b.length,0);
+ const lines=f.t.map((l,i)=>{const k=p.file+':'+i;const cs=(p.comments[k]||[]).map(c=>`<div class="cm">${esc(c)}</div>`).join('');
+  const comp=p.composing===k?`<div class="cm"><textarea id="cmt" placeholder="给 Agent 的评论…"></textarea><div class="row" style="margin-top:6px"><button class="btn sm" data-cmsave="${k}">添加评论</button><button class="btn sm ghost" data-cmcancel>取消</button></div></div>`:'';
+  if(l[0]==='h')return `<div class="dl h">${esc(l[1])}</div>`;
+  return `<div class="dl ${l[0]==='a'?'a':l[0]==='d'?'d':''}"><span class="g" data-cm="${k}" title="添加评论">+</span><span class="n">${l[1]}</span><span>${l[0]==='a'?'+ ':l[0]==='d'?'− ':'  '}${esc(l[2])}</span></div>${cs}${comp}`}).join('');
+ return `<div class="${ph?'':'dh'}" ${ph?'style="padding:10px 12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--kin-hair)"':'style="min-height:56px"'}>${ph?`<button class="icon" data-act="panel" aria-label="关闭">${I('x')}</button>`:''}<div class="seg" style="flex:1">${[['changes','变更'],['files','文件'],['term','终端'],['pr','PR']].map(([k,l])=>`<button data-ptab="${k}" aria-selected="${p.tab===k}">${l}</button>`).join('')}</div>${ph?'':`<button class="icon" data-act="wide" aria-pressed="${!!p.wide}" aria-label="展开面板" title="展开/收起">${I('side')}</button><button class="icon" data-act="panel" aria-label="关闭面板">${I('x')}</button>`}</div>
+ ${p.tab!=='changes'?`<div class="mut" style="padding:40px 24px;text-align:center">${p.tab==='files'?'文件树与预览（沿用现有 WorkspacePanel，换进同一标签容器）':p.tab==='term'?'终端（沿用现有 xterm 面板）':'PR 与 CI（沿用现有 PullRequestPanel）'}</div>`:`
+ <div style="padding:10px 14px 4px"><div class="sec xs" style="margin-bottom:8px"><b>Agent 说：</b>新增区域定义表，Mac 侧栏与手机 Tab 都从它渲染；归档收成对话范围。</div><div class="row"><div class="seg" style="flex:1">${[['turn','本轮'],['branch','分支'],['unc','未提交']].map(([k,l])=>`<button data-pscope="${k}" aria-selected="${p.scope===k}">${l}</button>`).join('')}</div></div></div>
+ <div class="fl">${DIFF.map((d,i)=>`<button data-pfile="${i}" aria-selected="${p.file===i}">${I('file','mut')}<span class="trunc" style="flex:1">${d.f.split('/').pop()}</span><span class="xs" style="color:var(--green-ink)">+${d.a}</span><span class="xs" style="color:var(--red-ink)">−${d.d}</span></button>`).join('')}</div>
+ <div class="scroll" data-sk="diff"><div class="diff">${lines}</div></div>
+ <div class="row" style="padding:10px 14px;border-top:1px solid var(--kin-hair);background:var(--kin-inspector)"><span class="sec xs" style="flex:1">${nc?`${nc} 条评论`:'悬停行号点 + 可评论'}</span><button class="btn ${(nc&&S.approved)?'pri ':''}sm" data-act="sendc" ${nc?'':'disabled'}>发给 Agent</button><button class="btn ${(!nc&&S.approved)?'pri ':''}sm" data-act="pr">提交并创建 PR</button></div>`}`}
+/* ---------- composition ---------- */
+function mac(){
+ const rail=`<nav class="rail ${S.compact()?'compact':''}" aria-label="区域"><div class="logo"><i>K</i><b>Kin</b></div>${AREAS.map(([k,l,ic],n)=>`<button class="nav" data-area="${k}" aria-current="${S.area===k?'page':'false'}" aria-label="${l}" title="${l} ⌘${n+1}">${I(ic)}<span>${l}</span>${k==='chats'&&attention()?`<span class="bd" aria-label="${attention()} 条待处理">${attention()}</span>`:`<span class="kbd">⌘${n+1}</span>`}</button>`).join('')}<button class="hint" data-act="pal" title="⌘K">${I('search')}<span>搜索与命令 ⌘K</span></button></nav>`;
+ let mid='';
+ if(S.area==='chats'){const c=S.chats;mid=`${S.listHidden()&&!S.newChat?'':`<div class="col">${chatList(false)}</div>`}<div class="main">${S.newChat?newChat(false):taskDetail(c.sel,false)}</div>${S.panel.open&&!S.newChat?`<aside class="panel ${S.panel.wide?'wide':''}" aria-label="变更与文件">${diffPanel(false)}</aside>`:''}`}
+ else if(S.area==='projects')mid=`<div class="col">${projList()}</div><div class="main">${S.newChat?newChat(false):projCover(S.projects.sel,false)}</div>`;
+ else if(S.area==='routines')mid=`<div class="main">${routines(false)}</div>`;
+ else mid=settings(false);
+ return rail+mid}
+function phone(){
+ const root=!S.stack[S.area].length&&!S.newChat&&!(S.area==='settings'&&false);let pg='';const tp=topPg();
+ if(S.newChat)pg=newChat(true);
+ else if(S.area==='chats')pg=tp?(S.panel.open?diffPanel(true):taskDetail(tp.id,true)):`<div class="ph"><div class="title">对话</div><span class="sp"></span><button class="btn sm" data-act="new">${I('plus')} 新建</button></div>${chatList(true)}`;
+ else if(S.area==='projects')pg=tp?projCover(tp.id,true):`<div class="ph"><div class="title">项目</div></div>${projList()}`;
+ else if(S.area==='routines')pg=routines(true);
+ else pg=settings(true,!!tp);
+ const showTabs=root||(S.area==='settings'&&!tp);
+ const tabs=`<nav class="tabs" aria-label="区域">${AREAS.map(([k,l,ic])=>`<button data-area="${k}" aria-current="${S.area===k?'page':'false'}" aria-label="${l}">${I(ic)}<span>${l}</span>${k==='chats'&&attention()?`<span class="bd">${attention()}</span>`:''}</button>`).join('')}</nav>`;
+ return `<div class="pg ${S.pushed?'push':''}" id="pg">${pg}</div>${showTabs?tabs:''}`}
+function overlays(){let h='';
+ if(S.banner)h+=`<div class="banner" role="alert" data-banner>${I('bell')}<div style="flex:1;min-width:0"><div class="b">${esc(S.banner.t)}</div><div class="sec">${esc(S.banner.b)}</div></div><span class="xs mut">现在</span></div>`;
+ if(S.pal){const q=S.pal.q||'';const cmds=[['新建对话','⌘N','new'],...AREAS.map(([k,l],n)=>['前往 '+l,'⌘'+(n+1),'area:'+k]),...S.tasks.filter(t=>!t.archived).map(t=>['对话：'+t.title,t.meta.split(' · ')[0],'task:'+t.id]),['打开变更面板','⌘\\','panel']].filter(c=>c[0].includes(q));
+  h+=`<div class="scrim" data-close><div class="pal" data-stop><input id="pin" placeholder="搜索对话、区域和命令" value="${esc(q)}" autofocus>${cmds.slice(0,8).map((c,i)=>`<button class="${i===0?'on':''}" data-cmd="${c[2]}"><span style="flex:1">${esc(c[0])}</span><span class="mut xs">${c[1]}</span></button>`).join('')||'<div class="mut" style="padding:16px">没有结果</div>'}</div></div>`}
+ if(S.pop)h+=popover();
+ return h}
+function render(){const act=document.activeElement&&document.activeElement.id;const st=act&&document.activeElement.selectionStart;saveScroll();
+ const ph=PHONE();document.documentElement.classList.toggle('phone',ph);
+ $('#app').innerHTML=(ph?phone():mac())+overlays();restoreScroll();S.pushed=false;
+ const m=$('#msgs');if(m&&S.stick!==false&&!S.hl&&!S.keepScroll){m.scrollTop=m.scrollHeight;S.newBelow=false}S.keepScroll=false;
+ if(act&&$('#'+act)){const e=$('#'+act);e.focus();try{e.setSelectionRange(st,st)}catch(_){}}
+ if(S.pal&&!act)$('#pin')&&$('#pin').focus()}
+/* ---------- events ---------- */
+document.addEventListener('click',e=>{const rm=e.target.closest('[data-rowmenu]');if(rm){e.stopPropagation();const r=rm.getBoundingClientRect();S.pop='row:'+rm.dataset.rowmenu;S.popX=Math.min(r.left,window.innerWidth-190);S.popY=r.bottom+4;return render()}
+ const ra=e.target.closest('[data-rowact]');if(ra){const[k,id]=ra.dataset.rowact.split(':');const t=T(id);if(k==='archive')t.archived=t.archived?0:1;if(k==='del')S.tasks=S.tasks.filter(x=>x.id!==id);if(k==='pin')t.pinned=1;S.pop=null;if(S.chats.sel===id){const n=S.tasks.find(x=>!x.archived);S.chats.sel=n&&n.id}return render()}
+ const t=e.target.closest('[data-area],[data-task],[data-scope],[data-act],[data-back],[data-pop],[data-pick],[data-proj],[data-pdev],[data-sec],[data-rt],[data-ptab],[data-pscope],[data-pfile],[data-cm],[data-cmsave],[data-cmcancel],[data-close],[data-stop],[data-cmd],[data-banner],[data-send]');
+ if(!t){if(S.pop){S.pop=null;render()}return}
+ const d=t.dataset;
+ if(d.stop!==undefined&&!e.target.closest('[data-pick],[data-cmd]'))return;
+ if('close' in d&&e.target===t){S.pal=null;S.pop=null;return render()}
+ if(d.area)return go(d.area);
+ if(d.back!==undefined)return back();
+ if(d.banner!==undefined){S.banner=null;return openTask('t1',{hl:'appr'})}
+ if(d.cmd){const [k,v]=d.cmd.split(':');S.pal=null;if(k==='new'){S.area='chats';S.newChat=true}else if(k==='area')S.area=v;else if(k==='task')return openTask(v);else if(k==='panel')S.panel.open=true;return render()}
+ if(d.task){S.chats.sel=d.task;S.newChat=false;S.area='chats';if(PHONE()){S.stack.chats=[{p:'task',id:d.task}];S.pushed=true}S.stick=true;return render()}
+ if(d.scope){S.chats.scope=d.scope;return render()}
+ if(d.proj){S.projects.sel=d.proj;if(PHONE())push({p:'proj',id:d.proj});else render();return}
+ if(d.pdev){S.projects.dev=d.pdev;return render()}
+ if(d.sec){S.settings.sec=d.sec;if(PHONE())push({p:'sec'});else render();return}
+ if(d.rt){S.routines.sel=d.rt;return render()}
+ if(d.ptab){S.panel.tab=d.ptab;return render()}
+ if(d.pscope){S.panel.scope=d.pscope;return render()}
+ if(d.pfile){S.panel.file=+d.pfile;return render()}
+ if(d.cm){S.panel.composing=d.cm;return render()}
+ if(d.cmcancel!==undefined){S.panel.composing=null;return render()}
+ if(d.cmsave){const v=$('#cmt').value.trim();if(v)(S.panel.comments[d.cmsave]=S.panel.comments[d.cmsave]||[]).push(v);S.panel.composing=null;return render()}
+ if(d.pop){const r=t.getBoundingClientRect();S.pop=d.pop;S.popX=Math.max(8,Math.min(r.left,window.innerWidth-250));S.popY=r.top-6;e.stopPropagation();return render()}
+ if(d.pick){const[k,i]=d.pick.split(':');S.cfg[k]=+i;S.pop=PHONE()?'cfg':null;return render()}
+ if(d.send){const id=d.send;if(id==='new'){const v=($('#cin').value||'').trim()||'整理本周的待办并给出优先级';const n='t'+(S.tasks.length+1);S.tasks.unshift({id:n,title:v.slice(0,24),dev:'本机',proj:'控制台',st:'run',meta:'刚刚 · 运行中',branch:'',files:0});S.draft.new='';S.chats.sel=n;S.newChat=false;S.area='chats';if(PHONE()){S.stack.chats=[{p:'task',id:n}];S.pushed=true}S.extra=[];return render()}
+   S.draft[id]='';return render()}
+ const a=d.act;if(!a)return;
+ if(a==='new'){S.newChat=true;return render()}
+ if(a.startsWith('new-in')){S.newChat=true;return render()}
+ if(a==='pal'){S.pal={q:''};return render()}
+ if(a==='approve'){S.approved=true;T('t1').st='run';T('t1').meta='刚刚 · 运行中';return render()}
+ if(a==='jump'){const x=$('#appr');x&&x.scrollIntoView({block:'center',behavior:'smooth'});return}
+ if(a==='deny'){T('t1').st='ok';T('t1').meta='刚刚 · 已拒绝';S.approved=true;return render()}
+ if(a==='tobottom'){S.newBelow=false;S.stick=true;render();return}
+ if(a==='showlist'){S.panel.wide=false;if(window.innerWidth<1280)S.panel.open=false;return render()}
+ if(a==='wide'){S.panel.wide=!S.panel.wide;return render()}
+ if(a==='panel'){S.panel.open=!S.panel.open;return render()}
+ if(a.startsWith('panel:')){S.panel.open=true;S.panel.tab=a.split(':')[1];return render()}
+ if(a==='sendc'){S.panel.sent=Object.values(S.panel.comments).reduce((x,y)=>x+y.length,0);S.sent=S.panel.sent;S.panel.comments={};if(PHONE())S.panel.open=false;return render()}
+ if(a==='pr'){S.banner={t:'已创建 PR #72',b:'ux/four-areas → main · CI 运行中'};render();setTimeout(()=>{S.banner=null;render()},2500)}
+});
+document.addEventListener('input',e=>{const t=e.target;
+ if(t.id==='q'){S.chats.q=t.value;S.chats.loaded=true;render()}
+ else if(t.id==='pq'){S.projects.q=t.value;render()}
+ else if(t.id==='pin'){S.pal.q=t.value;render()}
+ else if(t.dataset.draft)S.draft[t.dataset.draft]=t.value});
+document.addEventListener('keydown',e=>{const meta=e.metaKey||e.ctrlKey;
+ if(meta&&e.key==='k'){e.preventDefault();S.pal=S.pal?null:{q:''};return render()}
+ if(meta&&/^[1-4]$/.test(e.key)){e.preventDefault();return go(AREAS[+e.key-1][0])}
+ if(meta&&e.key==='n'){e.preventDefault();S.newChat=true;return render()}
+ if(meta&&e.key==='\\'){e.preventDefault();S.panel.open=!S.panel.open;return render()}
+ if(e.key==='Escape'){if(S.pop||S.pal||S.panel.composing||S.newChat||S.sheet){S.pop=null;S.pal=null;S.panel.composing=null;S.newChat=false;S.sheet=null;return render()}if(S.panel.open){S.panel.open=false;return render()}}
+ if(e.key==='Enter'&&meta&&e.target.dataset&&e.target.dataset.draft){const b=$('[data-send]');b&&b.click()}
+ if(e.key==='Enter'&&S.pal){const b=$('[data-cmd]');b&&b.click()}
+ if(!PHONE()&&S.area==='chats'&&(e.key==='j'||e.key==='k')&&!/INPUT|TEXTAREA/.test(document.activeElement.tagName)&&!S.pal&&!S.pop){const vis=S.tasks.filter(t=>!t.archived);const i=vis.findIndex(t=>t.id===S.chats.sel);const n=vis[Math.max(0,Math.min(vis.length-1,i+(e.key==='j'?1:-1)))];S.chats.sel=n.id;render()}});
+window.addEventListener('resize',render);
+document.addEventListener('contextmenu',e=>{const it=e.target.closest('[data-task]');if(it&&it.classList.contains('item')){e.preventDefault();S.pop='row:'+it.dataset.task;render()}});
+/* live "follow a running task": a new step every few seconds; stay pinned to the bottom unless the user scrolled up */
+setInterval(()=>{if(Q.get('still'))return;if(S.chats.sel==='t2'&&S.area==='chats'&&S.extra.length<5){S.extra.push('<code>diff</code> v1.'+(4+S.extra.length)+' ↔ CHANGELOG 第 '+(7+S.extra.length)+' 条 · 一致');const m=$('#msgs');S.stick=m?(m.scrollHeight-m.scrollTop-m.clientHeight<80):true;S.newBelow=!S.stick;S.keepScroll=!S.stick;render()}},4000);
+/* test/dev hooks for the journey walk */
+window.kinProto={step(){S.extra.push('<code>diff</code> 新一步');const m=$('#msgs');S.stick=m?(m.scrollHeight-m.scrollTop-m.clientHeight<80):true;S.newBelow=!S.stick;S.keepScroll=!S.stick;render()},notify(){S.banner={t:'Kin · 完善移动端的导航结构',b:'允许修改导航组件？ 轻点处理'};render()},offline(v){S.offline=v;render()},theme(m){document.documentElement.className=m==='light'?'light':'';render()},state:S,reduceMotion(){document.head.insertAdjacentHTML('beforeend','<style>*{animation:none!important;transition:none!important}</style>')}};
+setTimeout(()=>{S.chats.loaded=true;render()},Q.get('still')?0:700);
+render();
+</script>
+</body>
+</html>
