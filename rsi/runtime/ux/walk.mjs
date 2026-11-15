@@ -41,6 +41,8 @@ async function lint(page, phone) {
   }, phone);
 }
 for (const j of want) {
+  const seed = j === 'J7' && fs.existsSync(path.join(out, 'seed.log')) ? fs.readFileSync(path.join(out, 'seed.log'), 'utf8') : '';
+  if (j === 'J7' && (/no scripts\/journeys_seed|seed failed|empty daemon/i.test(seed) || !seed.trim())) { screens.push({ journey: j, viewport: 'n/a', name: 'J7-skipped-no-fixtures', url: '', lint: {}, notes: ['skipped J7: no seeded notification target'] }); continue; }
   const J = spec.journeys[j];
   for (const vpName of J.viewports) {
     const [w, h] = spec.viewports[vpName].split('x').map(Number); const phone = w < 700;

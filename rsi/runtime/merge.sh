@@ -246,7 +246,7 @@ echo "$CH" | grep -E '^ui/src/.*\.(tsx|css)$' | grep -vqE '\.(test|spec)\.' && U
 echo "$CH" | grep -qE '^(ui/package(-lock)?\.json|ui/tailwind|ui/postcss)' && UI_TOUCH=1
 if [ $UI_TOUCH -eq 1 ] && [ "${RSI_UX_GATE:-on}" != off ]; then
   UXV="$STATE/merge/$SLUG.uxverified"
-  MAINUI="$($GIT -C "$WT" rev-parse origin/main:ui 2>/dev/null || $GIT -C "$WT" rev-parse origin/main)"
+  MAINUI="$($GIT -C "$WT" rev-parse origin/main:ui 2>/dev/null || $GIT -C "$WT" rev-parse origin/main)-$($GIT -C "$WT" rev-parse HEAD:ui/package-lock.json 2>/dev/null || echo none)"
   if [ "$(cut -d' ' -f1 "$UXV" 2>/dev/null)" = "$DH" ] && [ "$(cut -d' ' -f2 "$UXV" 2>/dev/null)" = PASS ] && [ "$(cut -d' ' -f3 "$UXV" 2>/dev/null)" = "$MAINUI" ]; then
     say "#$N $SLUG: UX gate carried over (PR diff and origin/main:ui unchanged)"
   else
