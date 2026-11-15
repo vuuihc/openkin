@@ -48,7 +48,9 @@ func timestampStderr() {
 			_ = target.Close()
 			return
 		}
+		done := make(chan struct{})
 		go func() {
+			defer close(done)
 			buf := make([]byte, 32*1024)
 			var carry []byte
 			for {
@@ -75,10 +77,27 @@ func timestampStderr() {
 		// The descriptor now holds its own reference to the pipe; this one
 		// would keep the write end alive even if everything else closed it.
 		_ = w.Close()
+		timestampFlushed = done
 	})
 }
 
-var timestampOnce sync.Once
+// flushTimestampStderr closes the spliced write end (fd 2) so the reader
+// goroutine sees EOF, then waits for it to finish writing the original
+// descriptor. After this, further writes to stderr are not timestamped.
+// Tests (and an orderly shutdown) use this instead of a sleep, which races
+// under a loaded CI runner.
+func flushTimestampStderr() {
+	if timestampFlushed == nil {
+		return
+	}
+	_ = syscall.Close(2)
+	<-timestampFlushed
+}
+
+var (
+	timestampOnce    sync.Once
+	timestampFlushed chan struct{}
+)
 
 // appendTimestamp writes chunk to dst with a timestamp at the start of every
 // complete line it contains, and returns the trailing partial line to carry

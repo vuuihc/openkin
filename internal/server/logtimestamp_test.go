@@ -116,10 +116,10 @@ func TestTimestampStderrSplicesTheRealDescriptor(t *testing.T) {
 		fmt.Fprintf(os.Stderr, "kin: node: connected\n")
 		fmt.Fprintf(os.Stderr, "partial that")
 		fmt.Fprintf(os.Stderr, " completes\n")
-		// The reader goroutine drains asynchronously; a yield gives it a beat
-		// to stamp before the process exits, which is when the parent reads
-		// the log. A here-deadline loop would be a no-op with nothing to poll.
-		time.Sleep(20 * time.Millisecond)
+		// Close the pipe write end and wait for the stamper to drain. A sleep
+		// here raced: on a loaded CI runner the log was still empty after 20ms
+		// (run 43694877337, same SHA later green on the pull_request workflow).
+		flushTimestampStderr()
 		return
 	}
 

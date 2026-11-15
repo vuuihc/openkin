@@ -108,7 +108,11 @@ ci_state() { # prints green|pending|fail ; waits (bounded) while pending
   fi
   printf '%s\n' "$out" > "$STATE/merge/$SLUG.ci.txt"
   echo "$out" | grep -qE '\bpending\b|\bqueued\b|in_progress' && { echo pending; return; }
-  echo "$out" | grep -qE '\bfail\b|cancel' && { echo fail; return; }
+  # cancel-in-progress leaves a cancelled check next to the replacement run.
+  # That must not fail the PR: a real failure is "fail"; a cancelled run with
+  # no replacement yet is pending (retry next cycle).
+  echo "$out" | grep -qE '\bfail\b' && { echo fail; return; }
+  echo "$out" | grep -qiE '\bcancel' && { echo pending; return; }
   echo green
 }
 
