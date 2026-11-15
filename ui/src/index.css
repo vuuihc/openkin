@@ -1,19 +1,62 @@
+/*
+  The cascade order, declared once and before anything is imported.
+
+  Tailwind 4 emits its preflight and utilities into real cascade layers, which
+  is what lets a component library's own layers (Astryx's `reset` and
+  `astryx-base`/`astryx-theme`, F3) coexist instead of being flattened by an
+  unlayered preflight. The order is load-bearing: without this line the later
+  import's `reset` layer sorts *after* `utilities` and resets `.kin-btn`'s
+  background and padding to zero (measured in the spike). `reset` is first
+  because it is the one layer allowed to clear what every other layer builds on.
+*/
+@layer reset, theme, base, astryx-base, astryx-theme, components, utilities;
+
 @import "@xterm/xterm/css/xterm.css";
 @import "./design/theme.css";
 @import "./design/syntax.css";
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../tailwind.config.ts";
 
-html,
-body,
-#root {
-  min-height: 100%;
-  min-height: 100dvh;
-  max-width: 100%;
+/*
+  Tailwind 4 split v3's `outline-none` in two: today the name only clears
+  `outline-style`, and the forced-colors fallback moved to `outline-hidden`.
+  Every existing call site was written against the v3 meaning — hide the
+  outline, but leave a 2px transparent one that Windows High Contrast paints —
+  so the utility is redefined here instead of being migrated at 68 sites.
+  `@apply outline-none` resolves through this definition too (`.kin-input`),
+  and the `--tw-outline-style` variable keeps v4's `outline-*` composition
+  working. A future `outline-hidden` stays equivalent.
+*/
+@utility outline-none {
+  --tw-outline-style: none;
+  outline-style: none;
+  @media (forced-colors: active) {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+  }
 }
 
 /*
+  The document baseline lives in `base`, not unlayered.
+
+  Under Tailwind 3 these element rules and the generated utilities were both
+  unlayered, so specificity decided: `<body class="bg-kin-bg">` (0,1,0) beat
+  `body` (0,0,1). Tailwind 4 puts utilities in a layer, and an unlayered rule
+  wins over *every* layer regardless of specificity — so leaving `body` where it
+  was turned the page background from `--kin-bg` to `--kin-page` (#1a1a1c →
+  #0e0e10). Only rules that a utility is meant to be able to override belong
+  here; the component and platform styles below stay unlayered on purpose.
+*/
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+    min-height: 100dvh;
+    max-width: 100%;
+  }
+
+  /*
   The one font stack, named so the platform controls can adopt it too.
 
   Not a `--kin-` token on purpose: that namespace is the design tokens declared
@@ -22,22 +65,50 @@ body,
   it is the family the console already renders in, shared with Ionic's sheet so
   the two do not diverge on a platform where the stacks differ (Windows/Linux).
 */
-:root {
-  --console-font-sans:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
-}
+  :root {
+    --console-font-sans:
+      -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
+  }
 
-body {
-  margin: 0;
-  overflow-x: hidden;
-  background: var(--kin-page);
-  color: var(--kin-text);
-  font-family: var(--console-font-sans);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
+  body {
+    margin: 0;
+    overflow-x: hidden;
+    background: var(--kin-page);
+    color: var(--kin-text);
+    font-family: var(--console-font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 
-/*
+  /*
+  Two v3 preflight defaults Tailwind 4 dropped, restored here rather than at
+  the call sites.
+
+  The placeholder colour was `colors.gray.400` (the config assigns its own
+  palette, so v3 itself fell back to #9ca3af); v4 paints currentColor at 50%.
+  Fields that are not `.kin-input` and carry no `placeholder:` utility — the
+  routine editor's textarea and the publish panel's fields among them — would
+  otherwise change colour on upgrade. `.kin-input`'s muted token is a utility
+  rule in a later layer and still wins where it is used.
+
+  `cursor: pointer` for buttons and button roles was v3 preflight; v4 removed
+  it, which would change the desktop cursor over every `.kin-btn-*`.
+  */
+  input::placeholder,
+  textarea::placeholder {
+    color: #9ca3af;
+  }
+
+  button,
+  [role="button"] {
+    cursor: pointer;
+  }
+
+  :disabled {
+    cursor: default;
+  }
+
+  /*
   A wide child must not turn the layout into something that pans.
 
   `clip`, not `hidden`: `hidden` on the root makes the viewport a scroll
@@ -53,10 +124,11 @@ body {
   text. A page that is quietly 40px wider than the phone reads as "the width
   is wrong" even when nothing legible is out there.
 */
-@supports (overflow: clip) {
-  html,
-  body {
-    overflow-x: clip;
+  @supports (overflow: clip) {
+    html,
+    body {
+      overflow-x: clip;
+    }
   }
 }
 
@@ -76,12 +148,13 @@ body {
   so it escapes the root's padding entirely and has to re-apply the inset
   itself — `pb-[max(1rem,env(safe-area-inset-bottom))]`.
 
-  Note on mechanism: these are in `@layer utilities` for tidiness, not for
-  cascade order. Tailwind v3 emits no real `@layer` blocks, so a custom utility
-  is emitted *after* the core ones and beats `px-4`/`pb-10`/`w-4` on the same
-  element at equal specificity. That is why the helpers below are written as
-  `max()`, and why `.touch-mini` can shrink a button that already carries a
-  `w-*`. Never put a bare `env()` helper and a `p*` utility on the same element.
+  Note on mechanism: these are in `@layer utilities`, and a custom utility is
+  emitted *after* the generated ones in that layer, so it beats `px-4`/`pb-10`/
+  `w-4` on the same element at equal specificity. Tailwind 4 makes the layer
+  real, but source order inside it is unchanged, which is what this block was
+  already relying on. That is why the helpers below are written as `max()`, and
+  why `.touch-mini` can shrink a button that already carries a `w-*`. Never put
+  a bare `env()` helper and a `p*` utility on the same element.
 */
 @layer utilities {
   /* Horizontal gutter that is *at least* the design gutter, and grows to clear
@@ -496,23 +569,32 @@ body {
     outline: 2px solid var(--kin-focus-ring);
     outline-offset: 2px;
   }
-  .kin-btn {
+  /* The shared geometry is composed with a selector group, not `@apply
+     kin-btn`: Tailwind 4 removed applying a custom class, and the group emits
+     the same declarations at the same 0,1,0 specificity the old expansion had
+     in each variant rule. Every variant is used on its own, so listing all
+     five selectors is what keeps `.kin-btn-primary` a complete button. */
+  .kin-btn,
+  .kin-btn-primary,
+  .kin-btn-secondary,
+  .kin-btn-approve,
+  .kin-btn-deny {
     @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-strong font-semibold transition-colors min-h-11 sm:min-h-0;
   }
   /* `brightness-110`, not a lighter blue: an opacity modifier on the fill would
      darken the button by letting the surface through, which is the opposite of
      what a hover wants. It is also the idiom `kin-btn-approve` already used. */
   .kin-btn-primary {
-    @apply kin-btn bg-kin-blue text-kin-on-brand hover:brightness-110;
+    @apply bg-kin-blue text-kin-on-brand hover:brightness-110;
   }
   .kin-btn-secondary {
-    @apply kin-btn border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-text hover:bg-[var(--kin-fill-strong)];
+    @apply border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-text hover:bg-[var(--kin-fill-strong)];
   }
   .kin-btn-approve {
-    @apply kin-btn bg-kin-orange text-kin-on-status hover:brightness-110;
+    @apply bg-kin-orange text-kin-on-status hover:brightness-110;
   }
   .kin-btn-deny {
-    @apply kin-btn border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-text;
+    @apply border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-text;
   }
   .kin-input {
     @apply w-full rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-3 py-2 text-strong leading-5 text-kin-text placeholder:text-kin-muted outline-none focus:border-kin-blue/50 focus:ring-1 focus:ring-kin-focus-ring;
