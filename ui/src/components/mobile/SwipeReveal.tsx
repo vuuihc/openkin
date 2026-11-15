@@ -203,6 +203,7 @@ export default function SwipeReveal({
   return (
     <div
       className="relative overflow-hidden"
+      data-phone-swipe
       style={{ touchAction: "pan-y" }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}

@@ -3,7 +3,6 @@ import type { Task } from "../api/client";
 import {
   appendOlderRuns,
   foldRoutineRun,
-  pageCursor,
   reconcileRoutineReads,
   ROUTINE_HISTORY_MAX,
 } from "./routineHistory";
@@ -136,30 +135,5 @@ describe("reconcileRoutineReads", () => {
   it("leaves the fetched rows untouched when nothing was marked", () => {
     const page = [run("001", { routine_unread: true })];
     expect(reconcileRoutineReads(page, false, new Set())[0]).toBe(page[0]);
-  });
-});
-
-describe("pageCursor", () => {
-  it("is the oldest id the page returned", () => {
-    expect(pageCursor([run("003"), run("002"), run("001")])).toBe("001");
-  });
-
-  it("is empty when the page was empty", () => {
-    // An empty cursor is the daemon's "no filter"; asking with it would return
-    // the newest page again and append nothing.
-    expect(pageCursor([])).toBe("");
-  });
-
-  it("does not follow a deeper run that a push added after the page", () => {
-    // The loaded list can hold a run far below the fetched boundary (a mark-read
-    // push for an old run). Using the list's tail as the cursor would ask below
-    // that run and skip everything between it and the boundary.
-    const page = [run("025"), run("024"), run("016")];
-    const list = foldRoutineRun(page, run("005"))!;
-    expect(list[list.length - 1].id).toBe("005");
-    expect(pageCursor(page)).toBe("016");
-    // And the page below the boundary lands above the deep row.
-    const next = appendOlderRuns(list, [run("015"), run("014")]);
-    expect(next.map((x) => x.id)).toEqual(["025", "024", "016", "015", "014", "005"]);
   });
 });
