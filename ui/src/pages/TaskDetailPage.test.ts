@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import source from "./TaskDetailPage.tsx?raw";
+// The rail moved to `TaskPanels` in the T2 extraction; the guard follows the
+// markup it is about rather than the file it used to live in.
+import panelsSource from "../components/task/TaskPanels.tsx?raw";
 
 describe("TaskDetailPage session rail breakpoints", () => {
   it("keeps compact usage visible until the side rail appears, and off the phone", () => {
@@ -7,7 +10,7 @@ describe("TaskDetailPage session rail breakpoints", () => {
       /<div className="([^"]+)">\s*<div className="max-md:hidden">\s*<TaskUsageSummary/,
     )?.[1];
     const usageClasses = source.match(/<div className="([^"]+)">\s*<TaskUsageSummary/)?.[1];
-    const railClasses = source.match(
+    const railClasses = panelsSource.match(
       /<aside\s+className="([^"]+)"\s+aria-label=\{tr\("task\.sessionRail"\)\}/,
     )?.[1];
 
