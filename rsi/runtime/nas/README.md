@@ -49,4 +49,11 @@ ssh nas 'docker exec magpie magpie gateway-key add kin-rsi-nas'
 # write the printed sk-magpie-key-… into ~/kin-rsi-nas/secrets/magpie.key (mode 600)
 ```
 
-Do not reuse the existing `openclaw` or `hermes` caller keys. Do not change magpie providers, ports, or routing.
+
+A dedicated key named `kin-rsi-nas` (id `ea912749d1ed091a4c0f088a`) was added with approval. Revert the key (does not delete the secrets file):
+
+```bash
+ssh nas 'docker exec magpie magpie gateway-key remove ea912749d1ed091a4c0f088a'
+```
+
+Then remove `~/kin-rsi-nas/secrets/magpie.key` if you also want the local copy gone. Do not reuse the existing `openclaw` or `hermes` caller keys. Do not change magpie providers, ports, or routing.
