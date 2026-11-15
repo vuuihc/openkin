@@ -43,13 +43,9 @@ export function projectRoots(project: Pick<Project, "roots"> | null): string[] {
  * not look usable.
  */
 export type ProjectNewChatTarget =
-  | { kind: "cwd"; href: string }
-  | { kind: "picker"; href: string }
-  | { kind: "no-root" };
+  { kind: "cwd"; href: string } | { kind: "picker"; href: string } | { kind: "no-root" };
 
-export function projectNewChatTarget(
-  project: Pick<Project, "roots"> | null,
-): ProjectNewChatTarget {
+export function projectNewChatTarget(project: Pick<Project, "roots"> | null): ProjectNewChatTarget {
   const roots = projectRoots(project);
   if (roots.length === 0) return { kind: "no-root" };
   if (roots.length > 1) return { kind: "picker", href: "/new" };
@@ -169,9 +165,7 @@ export async function loadProjectChats(args: {
   if (!current()) return null;
   const settled = await Promise.allSettled(args.roots.map((root) => args.feed.sessions(root)));
   if (!current()) return null;
-  const sessions = settled.flatMap((result) =>
-    result.status === "fulfilled" ? result.value : [],
-  );
+  const sessions = settled.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
   try {
     return {
       projectId: args.projectId,

@@ -86,9 +86,7 @@ export function quotaWait(
     return { waiting: false, elapsedMs: null, recoveryAt: null };
   }
   const elapsedMs =
-    firstSeenAt != null && Number.isFinite(firstSeenAt)
-      ? Math.max(0, now - firstSeenAt)
-      : null;
+    firstSeenAt != null && Number.isFinite(firstSeenAt) ? Math.max(0, now - firstSeenAt) : null;
   return { waiting: true, elapsedMs, recoveryAt: nextPeriodStart(limit.period_start) };
 }
 

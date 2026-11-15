@@ -90,9 +90,7 @@ export default function Menu({
   // reorder rows while the menu is open, and a remembered id that no longer
   // resolves falls back to the first row that can take focus.
   const active =
-    activeId && enabled.some((item) => item.id === activeId)
-      ? activeId
-      : (enabled[0]?.id ?? null);
+    activeId && enabled.some((item) => item.id === activeId) ? activeId : (enabled[0]?.id ?? null);
 
   useEffect(() => {
     if (open) return;

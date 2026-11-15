@@ -26,7 +26,7 @@ describe("the new-chat deep link (KIN-START-001)", () => {
     expect(SOURCE).toContain("} else if (!queryHandled.current) {");
     expect(SOURCE).toContain("queryHandled.current = true;");
     expect(SOURCE).toContain('next.delete("q");');
-    expect(SOURCE).toContain('setParams(next, { replace: true });');
+    expect(SOURCE).toContain("setParams(next, { replace: true });");
     expect(SOURCE).toContain("liveDraftRef.current = draftValue;");
     expect(SOURCE).toContain("setDraftValue(value);");
     expect(SOURCE).toContain("const existing = liveDraftRef.current;");

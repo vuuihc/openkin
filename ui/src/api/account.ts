@@ -267,9 +267,7 @@ export async function signOut(): Promise<void> {
   // still runs under the credential it revokes.
   const token = getToken();
   clearToken();
-  const headers: HeadersInit | undefined = token
-    ? { Authorization: `Bearer ${token}` }
-    : undefined;
+  const headers: HeadersInit | undefined = token ? { Authorization: `Bearer ${token}` } : undefined;
   // Unregister first: the delete is authorized by the cookie logout revokes,
   // and a phone left showing the sign-in screen must not keep ringing with
   // this account's work. The node deletes session-bound rows on logout too;

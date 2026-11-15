@@ -545,27 +545,21 @@ describe("a tap on a phone with real browser history", () => {
     wideViewport();
     openAt(["/routines?device=node-a"], { takePendingURL: async () => null });
     await waitFor(() =>
-      expect(screen.getByTestId("routines-location").textContent).toBe(
-        "/routines?device=node-a",
-      ),
+      expect(screen.getByTestId("routines-location").textContent).toBe("/routines?device=node-a"),
     );
     expect(window.history.state.idx).toBe(0);
 
     tap("/routines?device=node-b");
 
     await waitFor(() =>
-      expect(screen.getByTestId("routines-location").textContent).toBe(
-        "/routines?device=node-b",
-      ),
+      expect(screen.getByTestId("routines-location").textContent).toBe("/routines?device=node-b"),
     );
     // The Mac keeps ordinary nested history: B is a push above A, so one Back
     // shows the machine the reader came from. A replace here erased A.
     expect(window.history.state.idx).toBe(1);
     await act(async () => window.history.back());
     await waitFor(() =>
-      expect(screen.getByTestId("routines-location").textContent).toBe(
-        "/routines?device=node-a",
-      ),
+      expect(screen.getByTestId("routines-location").textContent).toBe("/routines?device=node-a"),
     );
     expect(window.history.state.idx).toBe(0);
   });

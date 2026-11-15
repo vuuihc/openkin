@@ -43,7 +43,10 @@ vi.mock("../../api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../api/client")>();
   return {
     ...actual,
-    listAgentSessionsPage: vi.fn(async () => ({ items: [] as AgentSession[], next_cursor: undefined })),
+    listAgentSessionsPage: vi.fn(async () => ({
+      items: [] as AgentSession[],
+      next_cursor: undefined,
+    })),
     listProjects: vi.fn(async () => fixtures.projects),
     listTasks: vi.fn(async () => []),
     ensureProject: vi.fn(async () => ({ id: "p", name: "shared" })),
@@ -187,9 +190,7 @@ describe("a project menu on a path two machines share", () => {
     // project. They share a path but not an identity, so the remote row has
     // no Restore and the empty local heading still does.
     const remote = section(/Studio/);
-    expect(
-      await within(remote).findByRole("button", { name: /remote-put-away/ }),
-    ).toBeTruthy();
+    expect(await within(remote).findByRole("button", { name: /remote-put-away/ })).toBeTruthy();
     expect(within(remote).queryByRole("button", { name: /Restore/ })).toBeNull();
 
     const local = section(/This machine/);
