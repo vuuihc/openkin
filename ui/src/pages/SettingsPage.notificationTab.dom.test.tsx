@@ -1,10 +1,18 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { BrowserRouter, MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import {
+  BrowserRouter,
+  MemoryRouter,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProviderEntry, Settings } from "../api/client";
 import { setLocale } from "../i18n";
+import { isLeaveGuardArmed, resetLeaveGuard } from "../lib/leaveGuard";
 import { useAppStore } from "../store/appStore";
 import { parseNotificationRoute } from "../lib/notificationRoute";
 import SettingsPage from "./SettingsPage";
@@ -243,12 +251,14 @@ describe("a settings notification tap while the page is mounted", () => {
 
 describe("dirty settings tab changes and system Back", () => {
   afterEach(() => {
+    resetLeaveGuard();
+    vi.restoreAllMocks();
     window.history.replaceState(null, "", "/");
   });
 
   it("reaches /sessions after one approved Back following dirty tab switches", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     window.history.replaceState(null, "", "/sessions");
     window.history.pushState(null, "", "/settings?tab=advanced");
     render(
@@ -262,12 +272,26 @@ describe("dirty settings tab changes and system Back", () => {
     );
     const price = (await screen.findAllByDisplayValue("{}"))[0];
     fireEvent.change(price, { target: { value: '{"mine":true}' } });
+    // The guard arms on a deferred reconcile. Clicking a tab before that would
+    // rewrite the entry the sentinel is meant to protect, so the test would
+    // pass without ever exercising the guard.
+    await waitFor(() => expect(isLeaveGuardArmed()).toBe(true));
 
     await user.click(screen.getByRole("tab", { name: "General" }));
-    await waitFor(() => expect(panel("general").hidden).toBe(false));
+    await waitFor(() => expect(screen.getByTestId("url").textContent).toBe("/settings"));
+    await waitFor(() => expect(isLeaveGuardArmed()).toBe(true));
 
-    window.history.back();
+    await user.click(screen.getByRole("tab", { name: "Routing" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("url").textContent).toBe("/settings?tab=routing"),
+    );
+    await waitFor(() => expect(isLeaveGuardArmed()).toBe(true));
+
+    act(() => window.history.back());
     await waitFor(() => expect(screen.getByTestId("sessions")).toBeTruthy());
     expect(screen.getByTestId("url").textContent).toBe("/sessions");
+    // Both dirty switches re-armed instead of leaving an entry each, so the
+    // one Back that leaves Settings asks exactly once on the way out.
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
   });
 });
