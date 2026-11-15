@@ -8,6 +8,7 @@
 set -u
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
+source "$(cd "$(dirname "$0")" && pwd)/node-stamp.sh"
 MERGE_WORKERS="${RSI_MERGE_WORKERS:-2}"
 CODE_RE='^(ui/|internal/|cmd/|scripts/|desktop/|mobile/|web/|go\.mod|go\.sum|\.github/)'   # main changes here invalidate a carried-forward gate
 say() { echo "[$(date +%T)] $*"; }
@@ -83,6 +84,9 @@ gen_resolve() { # worktree -> 0 resolved and committed; 1 anything else (caller 
     $GIT -C "$wt" checkout --ours -- "$p" || return 1
   done <<< "$un"
   if [ $has_dist -eq 1 ]; then
+    # A stale or symlinked ui install made this rebuild die silently behind the old `-d` test.
+    # No lockfile (hermetic temp repos) means there is no install to repair.
+    [ -f "$wt/ui/package-lock.json" ] && { node_stamp_ensure "$wt/ui" || return 1; }
     ( cd "$wt/ui" && bash -c "$DIST_BUILD" ) >/dev/null 2>&1 || return 1
   fi
   if [ $has_inv -eq 1 ]; then
@@ -260,8 +264,10 @@ if [ $NEED_GATE -eq 1 ]; then
   if ! mklock "$STATE/.gate.lock" 1800; then GATE_OK=0; GATE_NOTE="gate lock timeout"; say "#$N: gate lock timeout"
   else
     # Workers often build before their last edit: regenerate web/dist/index.html (the only tracked build output) so a stale bundle
-    # never bounces a PR. Pushed so CI sees the same file.
-    if echo "$CH" | grep -q '^ui/' && [ -d "$WT/ui/node_modules" ]; then
+    # never bounces a PR. Pushed so CI sees the same file. The install is repaired first: behind a `-d` test a stale or symlinked
+    # tree made this build die silently, leaving the dist stale so gate.sh then failed the PR for a second, unrelated reason.
+    if echo "$CH" | grep -q '^ui/'; then
+      node_stamp_ensure "$WT/ui" || say "#$N $SLUG: ui install repair failed; dist rebuild may be incomplete"
       ( cd "$WT/ui" && npm run build >/dev/null 2>&1 ) && [ -n "$($GIT -C "$WT" status --porcelain -- web/dist/index.html)" ] \
         && $GIT -C "$WT" commit -q -m "chore(web): rebuild dist" -- web/dist/index.html && $GIT -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null
       SHA="$($GIT -C "$WT" rev-parse HEAD)"
