@@ -68,10 +68,11 @@ case "$MODE" in
     MAXSECS="$FILL_SECS"; PROMPT_FILE="$RSI_DIR/runtime/prompts/fill.md"
     # debounce: lane-finish / merge triggers + the 20-min tick must not stack director runs
     if [ $FORCE -eq 0 ] && [ -e "$STATE/last_fill" ] && [ $(( $(date +%s) - $(cat "$STATE/last_fill") )) -lt 480 ]; then echo "skip: fill ran <8 min ago"; exit 0; fi
-    [ $DRY -eq 0 ] && bash "$RSI_DIR/runtime/lane.sh" autofill   # sendbacks -> rework lanes, no LLM
+    [ $DRY -eq 0 ] && bash "$RSI_DIR/runtime/lane.sh" autofill astryx   # Astryx sendbacks -> rework lanes first, no LLM
     IDLE="$(python3 "$LANES_PY" idle | tr '\n' ' ')"
     LANES_TXT="$(python3 "$LANES_PY" status)"
-    [ -z "${IDLE// }" ] && { echo "no idle lane. $LANES_TXT"; exit 0; }
+    CLOUD_PENDING="$(python3 "$RSI_DIR/runtime/slices.py" cloud-pending 2>/dev/null | wc -l | tr -d ' ')"
+    [ -z "${IDLE// }" ] && [ "${CLOUD_PENDING:-0}" -eq 0 ] && { echo "no idle lane and no cloud brief pending. $LANES_TXT"; exit 0; }
     date +%s > "$STATE/last_fill";;
   daily) [ $FORCE -eq 0 ] && ls "$RUNS"/${TODAY}*-daily.jsonl >/dev/null 2>&1 && { echo "skip: daily already ran today"; exit 0; }; MAXSECS=5400; PROMPT_FILE="$RSI_DIR/runtime/prompts/daily.md";;
   dream) [ $FORCE -eq 0 ] && [ -s "$STATE/reports/$TODAY-morning.md" ] && { echo "skip: report exists"; exit 0; }; MAXSECS=5400; PROMPT_FILE="$RSI_DIR/runtime/prompts/dream.md";;
@@ -105,7 +106,7 @@ fi
 echo "run=$MODE exit=$RC result_ok=$([ $PR -eq 0 ] && echo yes || echo no) log=$LOG"
 
 # Lanes the director claimed are launched even if its final message failed (claims expire after 25 min otherwise).
-[ "$MODE" = pulse ] && [ $DRY -eq 0 ] && bash "$RSI_DIR/runtime/lane.sh" start-claimed
+[ "$MODE" = pulse ] && [ $DRY -eq 0 ] && { bash "$RSI_DIR/runtime/lane.sh" start-claimed; bash "$RSI_DIR/runtime/lane.sh" autofill rest; }   # non-Astryx reworks only take leftover lanes
 
 if [ $RC -eq 143 ] && grep -q '"note":"watchdog timeout' "$LOG"; then count_timeout "$MODE" "log: ${LOG##*/}"; exit 1; fi
 if [ $RC -ne 0 ] || [ $PR -ne 0 ]; then count_fail "$MODE" "$(tail -c 200 "$LOG.result.txt" | tr '\n' ' ')  log: ${LOG##*/}"; exit 1; fi
