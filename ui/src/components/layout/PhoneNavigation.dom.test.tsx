@@ -425,11 +425,11 @@ describe("destinations and back", () => {
     expect(screen.getByText("guarded page")).toBeTruthy();
   });
 
-  it("asks the page once when the palette moves to a destination", async () => {
-    // The palette row asks before closing, and the navigation it then calls
-    // asks its own guard. One departure must be one question: a page guarding
-    // with `window.confirm` would otherwise show the same dialog twice
-    // (KIN-CONTINUE-002 review). N2: the rows are the four area destinations.
+  it("asks the page once when the palette starts a new chat", async () => {
+    // The palette row asks before closing, and the shell's new-chat entry
+    // point has its own guard for ⌘N and the list's empty state. One
+    // departure must be one question: a page guarding with `window.confirm`
+    // would otherwise show the same dialog twice (KIN-CONTINUE-002 review).
     const user = userEvent.setup();
     const canLeave = vi.fn(() => true);
     guard.current = canLeave;
@@ -437,10 +437,10 @@ describe("destinations and back", () => {
     expect(screen.getByText("guarded page")).toBeTruthy();
 
     fireEvent.keyDown(window, { key: "k", metaKey: true });
-    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await user.click(await screen.findByRole("button", { name: /New chat/ }));
 
     expect(canLeave).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(screen.getByText("settings page")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("draft page")).toBeTruthy());
   });
 
   it("asks the page before the edge swipe leaves it", () => {

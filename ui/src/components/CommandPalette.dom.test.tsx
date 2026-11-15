@@ -146,16 +146,21 @@ describe("the command palette", () => {
     expect(screen.getByTestId("path").textContent).toBe("/routines");
   });
 
-  // N2: the palette's destinations are the four areas, so the draft and the
-  // legacy Agent Ops row are no longer offered. The leave guard is still asked
-  // before any destination moves — the Settings row proves that above.
-  it("offers no destination outside the four areas", () => {
+  it("asks the page before the New chat row navigates", () => {
+    // `onNewChat` navigates on its own, so the guard has to run before the row
+    // does anything, not inside the place navigation afterwards.
     viewport(false);
-    renderProbe();
+    setLeaveGuard(() => false);
+    const onNewChat = vi.fn();
+    render(
+      <MemoryRouter initialEntries={["/routines"]}>
+        <Probe onNewChat={onNewChat} />
+      </MemoryRouter>,
+    );
 
-    expect(screen.queryByRole("button", { name: /New chat/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Agent Ops/ })).toBeNull();
-    expect(screen.getByRole("button", { name: "Projects" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /New chat/ }));
+    expect(onNewChat).not.toHaveBeenCalled();
+    expect(screen.getByTestId("path").textContent).toBe("/routines");
   });
 
   it("asks the page once, not twice, when the reader agrees", () => {
@@ -170,6 +175,22 @@ describe("the command palette", () => {
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(canLeave).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("path").textContent).toBe("/settings");
+  });
+
+  it("asks the page once before the New chat row navigates", () => {
+    viewport(false);
+    const canLeave = vi.fn(() => true);
+    setLeaveGuard(canLeave);
+    const onNewChat = vi.fn();
+    render(
+      <MemoryRouter initialEntries={["/routines"]}>
+        <Probe onNewChat={onNewChat} />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /New chat/ }));
+    expect(canLeave).toHaveBeenCalledTimes(1);
+    expect(onNewChat).toHaveBeenCalledWith(true);
   });
 
   it("never asks the daemon for conversations or transcript text", async () => {
