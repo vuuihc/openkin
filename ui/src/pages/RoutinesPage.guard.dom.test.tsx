@@ -9,7 +9,7 @@ import { setLocale } from "../i18n";
 import type { Routine } from "../api/client";
 
 /**
- * D4: an edited routine is a draft.
+ * KIN-ROUTINE-001 D4: an edited routine is a draft.
  *
  * The Routines page's form used to close from its own Cancel/toggle without
  * asking, and the shell's Back, edge swipe and ⌘N had no guard to consult
@@ -24,7 +24,8 @@ vi.mock("../api/client", async (importOriginal) => {
     ...actual,
     isAuthenticated: vi.fn(() => true),
     listRoutines: vi.fn(),
-    listRoutineRuns: vi.fn(async () => []),
+    getRoutine: vi.fn(async () => routine),
+    listRoutineRuns: vi.fn(async () => ({ routines: [], runs: [], has_more: false })),
     listTasks: vi.fn(async () => []),
     previewRoutine: vi.fn(async () => ({ next_due_at: 0 })),
   };
@@ -73,10 +74,12 @@ beforeEach(() => {
   setLocale("en");
   localStorage.clear();
   window.history.replaceState({ idx: 0 }, "", "/");
-  vi.mocked(listRoutines).mockReset().mockResolvedValue({
-    routines: [routine],
-    has_more: false,
-  });
+  vi.mocked(listRoutines)
+    .mockReset()
+    .mockResolvedValue({
+      routines: [routine],
+      has_more: false,
+    });
 });
 
 function page() {
@@ -98,18 +101,23 @@ describe("the routines form's leave guard", () => {
 
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     try {
-      await user.click(within(document.getElementById("routine-form")!).getByRole("button", { name: "Cancel" }));
-      expect(confirm).toHaveBeenCalledWith("Discard the unsaved routine?");
-      expect((screen.getByPlaceholderText(/Review new PRs since yesterday/) as HTMLTextAreaElement).value).toBe(
-        "Check the queue",
+      await user.click(
+        within(document.getElementById("routine-form")!).getByRole("button", { name: "Cancel" }),
       );
+      expect(confirm).toHaveBeenCalledWith("Discard the unsaved routine?");
+      expect(
+        (screen.getByPlaceholderText(/Review new PRs since yesterday/) as HTMLTextAreaElement)
+          .value,
+      ).toBe("Check the queue");
 
       // The shell's Back/edge/⌘N path asks the same registered guard.
       expect(canLeaveScreen()).toBe(false);
 
       confirm.mockReturnValue(true);
       expect(canLeaveScreen()).toBe(true);
-      await user.click(within(document.getElementById("routine-form")!).getByRole("button", { name: "Cancel" }));
+      await user.click(
+        within(document.getElementById("routine-form")!).getByRole("button", { name: "Cancel" }),
+      );
       await waitFor(() =>
         expect(screen.queryByPlaceholderText(/Review new PRs since yesterday/)).toBeNull(),
       );
@@ -131,12 +139,16 @@ describe("the routines form's leave guard", () => {
     try {
       expect(canLeaveScreen()).toBe(false);
 
-      await user.click(within(document.getElementById("routine-form")!).getByRole("button", { name: "Cancel" }));
+      await user.click(
+        within(document.getElementById("routine-form")!).getByRole("button", { name: "Cancel" }),
+      );
       expect(confirm).toHaveBeenCalledWith("Discard the unsaved routine?");
       expect(screen.getByDisplayValue("Changed title")).toBeTruthy();
 
       confirm.mockReturnValue(true);
-      await user.click(within(document.getElementById("routine-form")!).getByRole("button", { name: "Cancel" }));
+      await user.click(
+        within(document.getElementById("routine-form")!).getByRole("button", { name: "Cancel" }),
+      );
       await waitFor(() => expect(screen.queryByDisplayValue("Changed title")).toBeNull());
     } finally {
       confirm.mockRestore();
@@ -147,7 +159,9 @@ describe("the routines form's leave guard", () => {
     const user = userEvent.setup();
     page();
     await user.click(await screen.findByRole("button", { name: "New routine" }));
-    const prompt = screen.getByPlaceholderText(/Review new PRs since yesterday/) as HTMLTextAreaElement;
+    const prompt = screen.getByPlaceholderText(
+      /Review new PRs since yesterday/,
+    ) as HTMLTextAreaElement;
     await user.type(prompt, "Keep me");
     expect(document.activeElement).toBe(prompt);
     expect(prompt.value).toBe("Keep me");
@@ -158,9 +172,10 @@ describe("the routines form's leave guard", () => {
       act(() => window.history.back());
       await waitFor(() => expect(confirm).toHaveBeenCalledWith("Discard the unsaved routine?"));
       expect(window.location.pathname).toBe("/");
-      expect((screen.getByPlaceholderText(/Review new PRs since yesterday/) as HTMLTextAreaElement).value).toBe(
-        "Keep me",
-      );
+      expect(
+        (screen.getByPlaceholderText(/Review new PRs since yesterday/) as HTMLTextAreaElement)
+          .value,
+      ).toBe("Keep me");
     } finally {
       confirm.mockRestore();
     }
@@ -168,12 +183,10 @@ describe("the routines form's leave guard", () => {
 
   it("does not let deferred autofocus steal a prompt the reader has already chosen", async () => {
     const frames: FrameRequestCallback[] = [];
-    const request = vi
-      .spyOn(window, "requestAnimationFrame")
-      .mockImplementation((callback) => {
-        frames.push(callback);
-        return frames.length;
-      });
+    const request = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
     try {
       const user = userEvent.setup();
       page();

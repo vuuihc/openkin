@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/vuuihc/openkin/internal/node"
 	"github.com/vuuihc/openkin/internal/remote/worker"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 // routineCall is one request as the machine received it.
@@ -196,7 +199,188 @@ func TestRoutineRequestsForThisMachineStayLocal(t *testing.T) {
 	}
 }
 
-// A 401 from the machine is that machine's own loopback auth failing, not the
+// KIN-ROUTINE-001 J4: the phone's first screen is a bounded list read, not an
+// export of 80 full prompts and every routine definition. A stored prompt is
+// never cut down: its own GET remains the complete edit read.
+func TestRoutinePhoneReadSurvivesRunsAndDefinitionsOverTheFrame(t *testing.T) {
+	machine, machineStore := newRoutinesTestServer(t)
+	machine.DesktopID = "desktop-<desktop-id>"
+	machineHTTP := httptest.NewServer(machine.Handler())
+	t.Cleanup(machineHTTP.Close)
+
+	const promptBytes = 12000
+	longPrompt := strings.Repeat("stored prompt ", promptBytes/14)
+	if err := machineStore.InsertRoutine(t.Context(), store.Routine{
+		ID: "r-large", Title: "Large but readable", Cwd: t.TempDir(), Agent: "kin",
+		Prompt: longPrompt, IntervalSecs: 3600, Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Enough stored history to fail the original query at 80 runs. These IDs are
+	// monotonic, so the second cursor page must include the oldest row just once.
+	for i := range 80 {
+		if err := machineStore.InsertTask(t.Context(), store.Task{
+			ID: fmt.Sprintf("01ARZ3NDEKTSV4RRFFQ69G5F%02d", i+1), Title: "Long prompt retained",
+			Cwd: t.TempDir(), Agent: "kin", Status: "succeeded", CreatedAt: int64(i + 1),
+			RoutineID: "r-large", Prompt: longPrompt, RoutineTLDR: "A bounded summary",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	hub, master, conns := machinesServer(t)
+	deviceID := dialMachine(t, hub, conns, master, &node.Responder{
+		Roots:    []string{t.TempDir()},
+		Routines: node.LocalRoutineCaller(machineHTTP.URL, func() string { return "test-token" }),
+	})
+	type page struct {
+		Routines   []store.Routine `json:"routines"`
+		Runs       []store.Task    `json:"runs"`
+		NextCursor string          `json:"runs_next_cursor"`
+		HasMore    bool            `json:"runs_has_more"`
+	}
+	readPage := func(query string) *httptest.ResponseRecorder {
+		t.Helper()
+		return askRoutine(t, hub, master, http.MethodGet,
+			"/api/routines?device="+deviceID+"&"+query, "")
+	}
+
+	// The console's original request, sent first: the relay used to refuse it
+	// whole because 80 runs carried their prompts. The feed now drops prompts
+	// for every shape, not only paged reads (#52's fix, kept by this merge), so
+	// the legacy call also fits the frame. The response bound itself is
+	// unchanged; worker's own tests still cover it.
+	old := readPage("runs=1&runs_limit=80")
+	if old.Code != http.StatusOK || old.Body.Len() > worker.MaxRoutineResponse {
+		t.Fatalf("the legacy full feed is refused or over the frame: %d %d bytes %s",
+			old.Code, old.Body.Len(), old.Body.String())
+	}
+
+	first := readPage("limit=30&page=1&runs=1&runs_limit=30")
+	if first.Code != http.StatusOK {
+		t.Fatalf("the bounded first page failed: %d %s", first.Code, first.Body.String())
+	}
+	if first.Body.Len() > worker.MaxRoutineResponse {
+		t.Fatalf("the first page still exceeds the frame: %d bytes", first.Body.Len())
+	}
+	var body page
+	if err := json.Unmarshal(first.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Routines) != 1 || body.Routines[0].Prompt != "" {
+		t.Fatalf("a list definition carried its full prompt: %+v", body.Routines)
+	}
+	if len(body.Runs) != 30 || !body.HasMore || body.NextCursor != body.Runs[29].ID {
+		t.Fatalf("first run page = %d, more %v, cursor %q", len(body.Runs), body.HasMore, body.NextCursor)
+	}
+	for _, run := range body.Runs {
+		if run.Prompt != "" || run.Dispatch != nil {
+			t.Fatalf("a list run carried the conversation's input: %+v", run)
+		}
+		if run.Title != "Long prompt retained" || run.RoutineTLDR == "" {
+			t.Fatalf("the summary lost the fields its row shows: %+v", run)
+		}
+	}
+	own := readPage("page=1&limit=1&runs=1&runs_limit=10&routine_id=missing")
+	var ownPage page
+	err := json.Unmarshal(own.Body.Bytes(), &ownPage)
+	if own.Code != http.StatusOK || err != nil || len(ownPage.Runs) != 0 {
+		t.Fatalf("a scoped history must be an empty bounded page: %d, %v", own.Code, err)
+	}
+	if len(ownPage.Routines) != 1 || ownPage.Routines[0].Prompt != "" {
+		t.Fatalf("routine history must not widen into another export: %+v", ownPage)
+	}
+	if own.Body.Len() > worker.MaxRoutineResponse {
+		t.Fatalf("empty scoped history carried definitions over the frame: %d", own.Body.Len())
+	}
+	second := readPage("limit=30&page=1&runs=1&runs_limit=30&runs_cursor=" + body.NextCursor)
+	if second.Code != http.StatusOK {
+		t.Fatalf("the next run page failed: %d %s", second.Code, second.Body.String())
+	}
+	var next page
+	if err := json.Unmarshal(second.Body.Bytes(), &next); err != nil {
+		t.Fatal(err)
+	}
+	if len(next.Runs) != 30 || next.Runs[0].ID == body.Runs[0].ID {
+		t.Fatalf("the cursor restarted the history: %+v", next.Runs)
+	}
+
+	// One row is deliberately close to the relayed request-body ceiling. Its list
+	// read still fits, and the editor's own detail response returns all of it.
+	// The old 128 KiB transport limit applied to the whole JSON request, even
+	// though a persisted prompt could be just as large. This new prompt proves
+	// that the boundary matches the stored language, not its encoding.
+	huge := strings.Repeat("x", 128<<10)
+	if err := machineStore.InsertRoutine(t.Context(), store.Routine{
+		ID: "r-huge", Title: "Complete original", Cwd: t.TempDir(), Agent: "kin",
+		Prompt: huge, IntervalSecs: 3600, Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	first = readPage("limit=30&page=1&runs=1&runs_limit=30")
+	if first.Code != http.StatusOK || first.Body.Len() > worker.MaxRoutineResponse {
+		t.Fatalf("a maximum-sized definition broke its list: %d / %d bytes", first.Code, first.Body.Len())
+	}
+	detail := askRoutine(t, hub, master, http.MethodGet, "/api/routines/r-huge?device="+deviceID, "")
+	if detail.Code != http.StatusOK {
+		t.Fatalf("the complete edit read failed: %d", detail.Code)
+	}
+	var stored store.Routine
+	if err := json.Unmarshal(detail.Body.Bytes(), &stored); err != nil || stored.Prompt != huge {
+		t.Fatalf("the original prompt did not round trip: %v / %d bytes", err, len(stored.Prompt))
+	}
+
+	// A prompt at the old transport boundary still has to fit when its JSON
+	// field name and quotes accompany a real remote edit. The 640 KiB response
+	// bound is irrelevant here: this direction carries a JSON request.
+	changed := huge + " edited"
+	changedJSON, err := json.Marshal(map[string]string{"prompt": changed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := askRoutine(t, hub, master, http.MethodPatch,
+		"/api/routines/r-huge?device="+deviceID, string(changedJSON))
+	if updated.Code != http.StatusOK {
+		t.Fatalf("the readable prompt boundary could not be saved: %d %s", updated.Code, updated.Body.String())
+	}
+	var changedStored store.Routine
+	if err := json.Unmarshal(updated.Body.Bytes(), &changedStored); err != nil || changedStored.Prompt != changed {
+		t.Fatalf("the edited original prompt did not round trip: %v / %d bytes", err, len(changedStored.Prompt))
+	}
+
+	tooLargeJSON, err := json.Marshal(map[string]string{"prompt": strings.Repeat("x", worker.MaxRoutineBody)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := askRoutine(t, hub, master, http.MethodPatch,
+		"/api/routines/r-huge?device="+deviceID, string(tooLargeJSON)); rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("an oversized request was not bounded: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Seven unprojected 128 KiB definitions cannot fit one response, even though
+	// each of their individual detail reads below that transport bound fits.
+	for i := range 7 {
+		if err := machineStore.InsertRoutine(t.Context(), store.Routine{
+			ID: fmt.Sprintf("r-raw-%d", i), Title: "Raw original", Cwd: t.TempDir(), Agent: "kin",
+			Prompt: huge, IntervalSecs: 3600, Enabled: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The frame limit stays a safety boundary, not the mechanism that makes a
+	// list work. A raw legacy export is still refused.
+	unbounded := readPage("")
+	if unbounded.Code != http.StatusNotImplemented || !strings.Contains(unbounded.Body.String(), "over the") {
+		t.Fatalf("the wire's protective bound was removed: %d", unbounded.Code)
+	}
+
+	// This is a list refusal, not a stopped schedule.
+	stillScheduled, err := machineStore.GetRoutine(t.Context(), "r-huge")
+	if err != nil || !stillScheduled.Enabled || stillScheduled.NextDueAt <= 0 {
+		t.Fatalf("a read changed the saved schedule: %+v, %v", stillScheduled, err)
+	}
+}
+
 // caller's session ending. Forwarding it would drop the person to the Hub's
 // connect screen over a rotated token on a laptop.
 func TestRoutineRelayDoesNotForwardTheMachinesOwnAuthFailure(t *testing.T) {
