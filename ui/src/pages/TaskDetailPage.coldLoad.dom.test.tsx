@@ -82,6 +82,10 @@ vi.mock("../api/client", async (importOriginal) => {
 vi.mock("../hooks/useMachines", () => ({
   useMachines: () => ({ machines: [], loading: false, failed: false }),
 }));
+// The slow hint is a 10s timer; the test is about what is on screen when it
+// turns on, not about waiting for it.
+const slow = vi.hoisted(() => ({ value: false }));
+vi.mock("../hooks/useSlowHint", () => ({ useSlowHint: () => slow.value }));
 vi.mock("../components/mobile/MobileHeader", () => ({
   default: ({ title, trailing }: { title?: string; trailing?: ReactNode }) => (
     <div data-testid="mobile-header">
@@ -89,13 +93,7 @@ vi.mock("../components/mobile/MobileHeader", () => ({
       {trailing}
     </div>
   ),
-  MobileHeaderButton: ({
-    label,
-    children,
-  }: {
-    label?: string;
-    children?: ReactNode;
-  }) => (
+  MobileHeaderButton: ({ label, children }: { label?: string; children?: ReactNode }) => (
     <button type="button" aria-label={label}>
       {children}
     </button>
@@ -147,6 +145,7 @@ class ResizeObserverStub {
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", ResizeObserverStub);
   setLocale("en");
+  slow.value = false;
   localStorage.clear();
   store.state.version = 0;
   store.state.loaded = false;
@@ -196,12 +195,29 @@ describe("a cold entry into a conversation", () => {
     expect(screen.getByTestId("chat-stream").getAttribute("data-loading")).toBe("false");
   });
 
-  it("shows a page skeleton while a cold entry has no row to draw", () => {
+  it("shows the Kin waiting mark instead of a full-page skeleton when no row exists", () => {
     open();
-    expect(document.querySelectorAll(".animate-pulse").length).toBeGreaterThan(0);
+    // A header bar and two message bubbles pulsing at a layout that does not
+    // exist yet read as a page that failed to load. The mark is what is true:
+    // the console is bringing the conversation back.
+    expect(document.querySelectorAll(".animate-pulse").length).toBe(0);
     expect(screen.queryByTestId("mobile-header")).toBeNull();
     expect(screen.queryByTestId("composer")).toBeNull();
-    expect(screen.getByRole("status", { name: /Loading/ })).toBeTruthy();
+    const status = screen.getByRole("status", { name: /Loading/ });
+    expect(status.querySelector("svg")).toBeTruthy();
+  });
+
+  it("keeps the slow-connect hint with the waiting mark and removes both on detail arrival", () => {
+    slow.value = true;
+    open();
+    expect(screen.getByRole("status", { name: /Loading/ }).querySelector("svg")).toBeTruthy();
+    expect(screen.getByText(/Still connecting/)).toBeTruthy();
+    act(() => {
+      store.resolve({ ...cached, title: "Fresh title", status: "succeeded" });
+    });
+    expect(screen.queryByRole("status", { name: /Loading/ })).toBeNull();
+    expect(screen.queryByText(/Still connecting/)).toBeNull();
+    expect(screen.getByTestId("mobile-header").textContent).toContain("Fresh title");
   });
 
   it("leaves the brand mark for the real page once the detail answers", () => {
