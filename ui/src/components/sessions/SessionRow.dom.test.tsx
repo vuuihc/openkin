@@ -203,9 +203,7 @@ describe("SessionRow", () => {
 
     // Already in the mode, the same shortcut toggles this row.
     rerender(
-      <SessionRow
-        {...props({ onToggleSelect, onStartSelection, onOpen, selectionMode: true })}
-      />,
+      <SessionRow {...props({ onToggleSelect, onStartSelection, onOpen, selectionMode: true })} />,
     );
     fireEvent.keyDown(rowButton(/Fix the build/), { key: "Enter", shiftKey: true });
     expect(onToggleSelect).toHaveBeenCalledTimes(1);
