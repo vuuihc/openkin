@@ -15,11 +15,13 @@ launch() { # n
 
 if [ "$CMD" = start-claimed ]; then
   [ -e "$STATE/PAUSE" ] && { echo paused; exit 0; }
+  rsi_allow_workers || { echo "volc budget: not starting new worker lanes until next Asia/Singapore day (¥${RSI_VOLC_CNY:-?} >= ¥${RSI_VOLC_STOP_WORKERS:-560}; $STATE/volc-budget.log)"; exit 0; }
   for n in $(python3 "$LANES_PY" claimed); do launch "$n"; sleep 2; done; exit 0
 fi
 
 if [ "$CMD" = autofill ]; then
   [ -e "$STATE/PAUSE" ] && exit 0
+  rsi_allow_workers || { echo "volc budget: not filling rework lanes until next Asia/Singapore day"; exit 0; }
   # Astryx programme first: `autofill astryx` takes only sendbacks whose item is a slice id (or Q3a); `autofill rest` the others.
   SCOPE="${2:-all}"
   for sb in "$STATE"/sendback/*.md; do
@@ -43,6 +45,7 @@ if [ "$CMD" = autofill ]; then
 fi
 
 [ "$CMD" = run ] && [ -n "$N" ] || { echo "usage: lane.sh run <n> | start-claimed | autofill"; exit 2; }
+rsi_allow_workers || { echo "volc budget: deferring lane $N until next Asia/Singapore day"; exit 0; }
 eval "$(python3 "$LANES_PY" get "$N")"
 [ "$L_STATUS" = claimed ] || { echo "lane $N not in claimed state ($L_STATUS)"; exit 0; }
 SLUG="$L_SLUG"; ITEM="$L_ITEM"; BRIEF="$L_BRIEF"; MODE="$L_MODE"
@@ -117,12 +120,30 @@ if [ "$MODE" != rework ] && [ "$AHEAD" -eq 0 ]; then
   finish failed "" "worker produced no commits rc=$WRC after ${W_MIN}m"; exit 1
 fi
 
+# A new PR takes its title — and therefore the squash-merge subject on main —
+# from the tip commit. Capture the worker's subject before the format commit
+# moves the tip, or every lane that needed formatting lands as "style: format
+# changed UI and Go files". Skip the loop's own housekeeping commits.
+WORKER_TITLE="$($GIT -C "$WT" log --format=%s origin/main..HEAD 2>/dev/null \
+  | awk '!/^style: format changed UI and Go files$/ && !/^chore\(rsi\): commit remaining tracked edits/ { print; exit }')"
+
+count_format_fail() { # not a runner failure: after --write this is a parse/env problem (missing ui/node_modules, npx/gofmt), so count it apart
+  local n=$(( $(cat "$STATE/consec_format" 2>/dev/null || echo 0) + 1 )); echo $n > "$STATE/consec_format"
+  notify "Kin RSI: $1 failed ($n in a row)" "${2:-}"
+  [ $n -ge 6 ] && echo "6 consecutive format-check failures $(date) — check worker env (ui/node_modules, npx/gofmt)" > "$STATE/PAUSE"
+  return 0
+}
+
 # Format changed UI/Go files the way CI checks them; commit; refuse to push on failure.
-if ! bash "$RSI_DIR/runtime/format-changed.sh" --write --commit --check "$WT"; then
-  count_fail "lane $N format" "changed-files prettier/gofmt check failed"
-  finish failed "" "format check failed; not pushing"
+FMT_ERR="$STATE/lanes/$N.format.err"
+if ! bash "$RSI_DIR/runtime/format-changed.sh" --write --commit --check "$WT" >"$FMT_ERR" 2>&1; then
+  FMT_DETAIL="$(tail -c 300 "$FMT_ERR" 2>/dev/null | tr '\n' ' ')"
+  count_format_fail "lane $N format" "${FMT_DETAIL:-no output}"
+  finish failed "" "format check failed: ${FMT_DETAIL:-see $FMT_ERR}; not pushing"
   exit 1
 fi
+echo 0 > "$STATE/consec_format"
+[ -s "$FMT_ERR" ] && tail -3 "$FMT_ERR"
 
 # push + PR (normal push only)
 if ! $GIT -C "$WT" push -q -u origin "$BR" 2>"$STATE/lanes/$N.push.err"; then
@@ -130,7 +151,7 @@ if ! $GIT -C "$WT" push -q -u origin "$BR" 2>"$STATE/lanes/$N.push.err"; then
 fi
 PRN="$($GH pr list --repo "$GH_REPO" --head "$BR" --state open --json number --jq '.[0].number' 2>/dev/null)"
 if [ -z "$PRN" ]; then
-  TITLE="$($GIT -C "$WT" log -1 --format=%s origin/main..HEAD 2>/dev/null | head -1)"; TITLE="${TITLE:-chore(rsi): $ITEM $SLUG}"
+  TITLE="$WORKER_TITLE"; [ -n "$TITLE" ] || TITLE="$($GIT -C "$WT" log -1 --format=%s origin/main..HEAD 2>/dev/null | head -1)"; TITLE="${TITLE:-chore(rsi): $ITEM $SLUG}"
   BODY="$STATUS_NOTE_FILE"; [ -s "$BODY" ] || { BODY="$STATE/lanes/$N.pr-body.fallback.md"; printf 'RSI lane %s, item %s.\n\nWorker summary:\n\n%s\n\nRSI item: %s\n' "$N" "$ITEM" "$(tail -c 3000 "$STATE/lanes/$N.worker.txt")" "$ITEM" > "$BODY"; }
   PRURL="$($GH pr create --repo "$GH_REPO" --base main --head "$BR" --title "$TITLE" --body-file "$BODY" 2>&1 | tail -1)"
   PRN="$(echo "$PRURL" | sed -n 's#.*/pull/\([0-9]*\).*#\1#p')"

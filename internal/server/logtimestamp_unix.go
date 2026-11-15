@@ -83,15 +83,27 @@ func timestampStderr() {
 
 // flushTimestampStderr closes the spliced write end (fd 2) so the reader
 // goroutine sees EOF, then waits for it to finish writing the original
-// descriptor. After this, further writes to stderr are not timestamped.
-// Tests (and an orderly shutdown) use this instead of a sleep, which races
-// under a loaded CI runner.
+// descriptor. It then reopens fd 2 on /dev/null, so later diagnostics (a
+// panic, the race detector) still have a descriptor to write to. Tests use
+// this instead of a sleep, which races under a loaded CI runner; a production
+// caller would lose timestamps for the rest of the process's life.
 func flushTimestampStderr() {
 	if timestampFlushed == nil {
 		return
 	}
 	_ = syscall.Close(2)
 	<-timestampFlushed
+	// Closing fd 2 outright made every later write EBADF, and a file opened
+	// later could land on fd 2 and silently receive diagnostics. Keep the
+	// descriptor valid but off the log.
+	fd, err := syscall.Open(os.DevNull, syscall.O_WRONLY, 0)
+	if err != nil {
+		return
+	}
+	if fd != 2 {
+		_ = unix.Dup2(fd, 2)
+		_ = syscall.Close(fd)
+	}
 }
 
 var (

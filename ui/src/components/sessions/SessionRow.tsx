@@ -48,6 +48,7 @@ export type SessionRowProps = {
   selectionLocked: boolean;
   selected: boolean;
   onToggleSelect: () => void;
+  onStartSelection: () => void;
   onLongPress: () => void;
   swipeOpen: boolean;
   onSwipeOpenChange: (open: boolean) => void;
@@ -73,6 +74,7 @@ export default function SessionRow({
   selectionLocked,
   selected,
   onToggleSelect,
+  onStartSelection,
   onLongPress,
   swipeOpen,
   onSwipeOpenChange,
@@ -117,7 +119,11 @@ export default function SessionRow({
       onKeyDown={(event) => {
         if (event.key === "Enter" && event.shiftKey) {
           event.preventDefault();
-          if (rowSelectable(row, scope) && !selectionLocked) onToggleSelect();
+          if (!rowSelectable(row, scope) || selectionLocked) return;
+          // Shift+Enter is the keyboard's long press: outside the mode it
+          // enters through the same door as the pointer path.
+          if (selectionMode) onToggleSelect();
+          else onStartSelection();
         }
       }}
       aria-disabled={selectionMode && selectionLocked ? true : undefined}
