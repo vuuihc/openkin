@@ -20,7 +20,19 @@ KIN_STATE_DIR="$TMP/state" "$BIN" serve --port "$PORT" >"$TMP/daemon.log" 2>&1 &
 for i in $(seq 1 120); do curl -fs -o /dev/null --max-time 2 "http://127.0.0.1:$PORT/api/health" 2>/dev/null && break; kill -0 "$PID" 2>/dev/null || unavail "daemon exited: $(tail -c 300 "$TMP/daemon.log")"; sleep 0.25; done
 curl -fs -o /dev/null --max-time 2 "http://127.0.0.1:$PORT/api/health" || unavail "daemon did not answer /api/health"
 TOKEN="$(cat "$TMP/state/token" 2>/dev/null)"; [ -n "$TOKEN" ] || unavail "no token written"
-if [ -f "$WT/scripts/journeys_seed.py" ]; then KIN_BASE="http://127.0.0.1:$PORT" KIN_TOKEN="$TOKEN" python3 "$WT/scripts/journeys_seed.py" >"$OUT/seed.log" 2>&1 || echo "seed failed (walk continues on what exists)" >> "$OUT/seed.log"; else echo "no scripts/journeys_seed.py: walking an empty daemon (empty states only)" > "$OUT/seed.log"; fi
+# Seed from the worktree when it has the script. A worktree cut before the seed
+# landed does not, so run origin/main's copy through `python3 -`: the walk should
+# describe the PR, not the age of the branch. A missing seed on both is not a
+# failure — the walk records empty states and the journeys that need fixtures skip.
+if [ -f "$WT/scripts/journeys_seed.py" ]; then
+  echo "seed: $WT/scripts/journeys_seed.py" > "$OUT/seed.log"
+  KIN_BASE="http://127.0.0.1:$PORT" KIN_TOKEN="$TOKEN" python3 "$WT/scripts/journeys_seed.py" >>"$OUT/seed.log" 2>&1 || echo "seed failed (walk continues on what exists)" >> "$OUT/seed.log"
+elif git -C "$WT" cat-file -e origin/main:scripts/journeys_seed.py 2>/dev/null; then
+  echo "seed: worktree has no scripts/journeys_seed.py; using origin/main:scripts/journeys_seed.py" > "$OUT/seed.log"
+  git -C "$WT" show origin/main:scripts/journeys_seed.py | KIN_BASE="http://127.0.0.1:$PORT" KIN_TOKEN="$TOKEN" python3 - >>"$OUT/seed.log" 2>&1 || echo "seed failed (walk continues on what exists)" >> "$OUT/seed.log"
+else
+  echo "no scripts/journeys_seed.py in the worktree or origin/main: walking an empty daemon (empty states only)" > "$OUT/seed.log"
+fi
 ARGS=(--base "http://127.0.0.1:$PORT" --token "$TOKEN" --out "$OUT")
 case "$SEL" in @*) ARGS+=(--files "${SEL#@}");; ?*) ARGS+=(--journeys "$SEL");; esac
 node "$RSI_DIR/runtime/ux/walk.mjs" "${ARGS[@]}" > "$OUT/walk.log" 2>&1; rc=$?
