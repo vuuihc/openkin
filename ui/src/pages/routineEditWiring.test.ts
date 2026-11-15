@@ -20,6 +20,9 @@ const PAGE = readFileSync(join(UI, "src/pages/RoutinesPage.tsx"), "utf8");
 // leave guard, and the create/patch calls. Form-layout assertions read the
 // component that renders the controls.
 const EDITOR = readFileSync(join(UI, "src/components/routine/RoutineEditor.tsx"), "utf8");
+// The rows live in their own component too; the page still owns the handlers
+// they call and every request the form makes.
+const LIST = readFileSync(join(UI, "src/components/routine/RoutineList.tsx"), "utf8");
 const NEW_CHAT = readFileSync(join(UI, "src/pages/NewChatPage.tsx"), "utf8");
 
 /** The source between two markers, so a test can speak about one function. */
@@ -35,8 +38,8 @@ describe("editing a routine", () => {
   it("opens the form on the routine's own values", () => {
     // The form is the create form; the only difference between the two modes
     // is where its initial values come from.
-    expect(PAGE).toContain('{tr("routines.edit")}');
-    expect(PAGE).toContain("onClick={() => openEdit(r)}");
+    expect(LIST).toContain('{tr("routines.edit")}');
+    expect(LIST).toContain("onClick={() => onEdit(r)}");
     expect(PAGE).toContain("const draft = routineForm(r);");
     expect(PAGE).toContain("setRoutineRule(draft.rule);");
     expect(PAGE).toContain("setRuleZone(draft.ruleZone);");
@@ -121,7 +124,7 @@ describe("editing a routine", () => {
       "disabled={creating || (machineOffline && !showCreate)}\n              onClick={() => (showCreate ? closeForm() : openCreate())}",
     );
     // Four row actions: run now, edit, pause/resume, delete.
-    expect(PAGE.split("disabled={!!busy[r.id] || creating || machineOffline}").length - 1).toBe(4);
+    expect(LIST.split("disabled={!!busy[r.id] || creating || machineOffline}").length - 1).toBe(4);
   });
 });
 
