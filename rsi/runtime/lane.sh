@@ -120,6 +120,13 @@ if [ "$MODE" != rework ] && [ "$AHEAD" -eq 0 ]; then
   finish failed "" "worker produced no commits rc=$WRC after ${W_MIN}m"; exit 1
 fi
 
+# Format changed UI/Go files the way CI checks them; commit; refuse to push on failure.
+if ! bash "$RSI_DIR/runtime/format-changed.sh" --write --commit --check "$WT"; then
+  count_fail "lane $N format" "changed-files prettier/gofmt check failed"
+  finish failed "" "format check failed; not pushing"
+  exit 1
+fi
+
 # push + PR (normal push only)
 if ! $GIT -C "$WT" push -q -u origin "$BR" 2>"$STATE/lanes/$N.push.err"; then
   count_fail "lane $N push" "$(tail -c 150 "$STATE/lanes/$N.push.err")"; finish failed "" "push failed"; exit 1
