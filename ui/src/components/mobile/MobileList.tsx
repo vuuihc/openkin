@@ -282,7 +282,9 @@ export function MobileEmpty({
     <div className="flex flex-col items-center px-8 py-16 text-center">
       {icon ? <div className="mb-3 text-kin-muted opacity-70">{icon}</div> : null}
       <p className="text-subtitle font-medium text-kin-text">{title}</p>
-      {hint ? <p className="mt-1.5 max-w-[18rem] text-body leading-prose text-kin-muted">{hint}</p> : null}
+      {hint ? (
+        <p className="mt-1.5 max-w-[18rem] text-body leading-prose text-kin-muted">{hint}</p>
+      ) : null}
       {action ? <div className="mt-4">{action}</div> : null}
     </div>
   );

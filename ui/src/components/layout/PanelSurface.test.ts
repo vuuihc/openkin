@@ -36,9 +36,7 @@ const SKIP_DIRS = new Set(["node_modules", "dist"]);
  * navigation drawer used to be the second entry; KIN-CONTINUE-002 deleted it,
  * so the session panel is the only full-bleed surface left.
  */
-const ALLOWED = new Map([
-  ["src/components/layout/PanelSurface.tsx", "the one session surface"],
-]);
+const ALLOWED = new Map([["src/components/layout/PanelSurface.tsx", "the one session surface"]]);
 
 function sourceFiles(): string[] {
   const out: string[] = [];

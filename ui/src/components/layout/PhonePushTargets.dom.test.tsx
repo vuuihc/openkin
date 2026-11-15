@@ -72,7 +72,10 @@ vi.mock("../../api/client", async (importOriginal) => {
   return {
     ...actual,
     isAuthenticated: vi.fn(() => true),
-    listAgentSessionsPage: vi.fn(async () => ({ items: fixtures.sessions, next_cursor: undefined })),
+    listAgentSessionsPage: vi.fn(async () => ({
+      items: fixtures.sessions,
+      next_cursor: undefined,
+    })),
     listAgentSessions: vi.fn(async () => fixtures.sessions),
     listProjects: vi.fn(async () => []),
     listTasks: vi.fn(async () => []),
@@ -277,8 +280,7 @@ function Jump() {
 function DirtySettings() {
   const [text, setText] = useState("");
   useLeaveGuard(
-    () =>
-      typeof window.confirm === "function" ? window.confirm("Discard settings draft?") : true,
+    () => (typeof window.confirm === "function" ? window.confirm("Discard settings draft?") : true),
     text.trim() !== "",
   );
   return (
@@ -326,9 +328,11 @@ describe("Agent Ops is a destination, so the draft it opens replaces it", () => 
     await waitFor(() => expect(window.location.pathname).toBe("/agents"));
     expect(window.history.state.idx).toBe(1);
 
-    const actionsButton = (await screen.findAllByRole("button", {
-      name: /^Actions — Claude Code$/,
-    })).find((button) => button.getAttribute("aria-haspopup") === "dialog");
+    const actionsButton = (
+      await screen.findAllByRole("button", {
+        name: /^Actions — Claude Code$/,
+      })
+    ).find((button) => button.getAttribute("aria-haspopup") === "dialog");
     expect(actionsButton).toBeTruthy();
     await user.click(actionsButton!);
     const sheet = await screen.findByRole("dialog", { name: "Claude Code" });
@@ -339,7 +343,9 @@ describe("Agent Ops is a destination, so the draft it opens replaces it", () => 
     // The prefill is consumed: it is in the draft now, not left in the URL to
     // overwrite later edits on reload.
     await waitFor(() => expect(window.location.search).not.toContain("q="));
-    expect(screen.getByTestId("composer-value").textContent).toContain("Please install Claude Code");
+    expect(screen.getByTestId("composer-value").textContent).toContain(
+      "Please install Claude Code",
+    );
     expect(window.history.state.idx).toBe(1);
 
     // Closing the draft is the same one step.
@@ -350,7 +356,9 @@ describe("Agent Ops is a destination, so the draft it opens replaces it", () => 
     // Reopening the draft brings the same words back from the saved draft.
     await user.click(document.querySelector("[data-phone-return='new']") as HTMLElement);
     await waitFor(() => expect(window.location.pathname).toBe("/new"));
-    expect(screen.getByTestId("composer-value").textContent).toContain("Please install Claude Code");
+    expect(screen.getByTestId("composer-value").textContent).toContain(
+      "Please install Claude Code",
+    );
   });
 
   it("keeps the draft's words when Agent Ops opens from it, and Back reaches the list", async () => {

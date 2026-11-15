@@ -3,12 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import type {
-  AgentInfo,
-  AgentLimitStatus,
-  AgentManagement,
-  UsageRow,
-} from "../api/client";
+import type { AgentInfo, AgentLimitStatus, AgentManagement, UsageRow } from "../api/client";
 import { setLocale } from "../i18n";
 import { useAppStore } from "../store/appStore";
 import {
@@ -70,9 +65,7 @@ function product(partial: Partial<AgentInfo> & Pick<AgentInfo, "id" | "name">): 
  * A product Kin can host that is not connected yet: it has a permission
  * ladder, so Kin can run a turn in it once it is added to the catalog.
  */
-function discoverable(
-  partial: Partial<AgentInfo> & Pick<AgentInfo, "id" | "name">,
-): AgentInfo {
+function discoverable(partial: Partial<AgentInfo> & Pick<AgentInfo, "id" | "name">): AgentInfo {
   return product({
     available: false,
     reason: "detected; awaiting Kin maintainer smoke test before enabling",
@@ -199,9 +192,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Connect Cursor?")).toBeTruthy();
-    expect(
-      within(dialog).getByText(/does not import Cursor's history sessions/i),
-    ).toBeTruthy();
+    expect(within(dialog).getByText(/does not import Cursor's history sessions/i)).toBeTruthy();
     // Reading the explanation changes nothing on its own.
     expect(screen.getAllByText("Cursor")).toHaveLength(1);
 
@@ -293,12 +284,10 @@ describe("the agents console (KIN-AGENTS-001)", () => {
       rejectNinety(new Error("offline"));
     });
 
-    expect(
-      await screen.findByText("Couldn't load that range; showing the last one."),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("radio", { name: "This week" }).getAttribute("aria-checked"),
-    ).toBe("true");
+    expect(await screen.findByText("Couldn't load that range; showing the last one.")).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "This week" }).getAttribute("aria-checked")).toBe(
+      "true",
+    );
     expect(client.getUsageSummary).toHaveBeenCalledTimes(2);
   });
 
@@ -345,9 +334,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Verify availability" }));
 
-    expect(
-      await screen.findByText("Failed: Codex — Not logged in"),
-    ).toBeTruthy();
+    expect(await screen.findByText("Failed: Codex — Not logged in")).toBeTruthy();
     expect(screen.getByText("1 passed · 1 failed · 1 skipped")).toBeTruthy();
   });
 
@@ -368,18 +355,18 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     const view = renderPage();
 
     expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
-    expect(
-      screen.getByRole("radio", { name: "This week" }).getAttribute("aria-checked"),
-    ).toBe("true");
+    expect(screen.getByRole("radio", { name: "This week" }).getAttribute("aria-checked")).toBe(
+      "true",
+    );
 
     const tokensHeader = screen.getByRole("columnheader", { name: /Tokens/ });
     fireEvent.click(within(tokensHeader).getByRole("button"));
     expect(tokensHeader.getAttribute("aria-sort")).toBe("descending");
     fireEvent.click(screen.getByRole("radio", { name: "30 days" }));
     await waitFor(() =>
-      expect(
-        screen.getByRole("radio", { name: "30 days" }).getAttribute("aria-checked"),
-      ).toBe("true"),
+      expect(screen.getByRole("radio", { name: "30 days" }).getAttribute("aria-checked")).toBe(
+        "true",
+      ),
     );
 
     view.unmount();
@@ -388,9 +375,9 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect(
       (await screen.findByRole("radio", { name: "30 days" })).getAttribute("aria-checked"),
     ).toBe("true");
-    expect(
-      screen.getByRole("columnheader", { name: /Tokens/ }).getAttribute("aria-sort"),
-    ).toBe("descending");
+    expect(screen.getByRole("columnheader", { name: /Tokens/ }).getAttribute("aria-sort")).toBe(
+      "descending",
+    );
   });
 
   it("removes a product from the catalog without uninstalling it", async () => {
@@ -422,11 +409,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
         used_tokens: 0,
       } satisfies AgentLimitStatus,
     ]);
-    writeQuotaWaitSince(
-      "codex",
-      localMidnightISO(),
-      Date.now() - 12 * 60_000,
-    );
+    writeQuotaWaitSince("codex", localMidnightISO(), Date.now() - 12 * 60_000);
     renderPage();
 
     expect(await screen.findByText("Waiting · 12 min")).toBeTruthy();
@@ -444,22 +427,18 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     });
     renderPage();
 
-    expect(
-      await screen.findByText("Couldn't load that range; showing the last one."),
-    ).toBeTruthy();
+    expect(await screen.findByText("Couldn't load that range; showing the last one.")).toBeTruthy();
     // Nothing loaded, so the retry is the only way out of the error state; it
     // must ask for the range the control shows (7), not arm the revert guard.
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 
     expect((await screen.findAllByText("$12.400")).length).toBeGreaterThan(0);
-    expect(
-      screen.getByRole("radio", { name: "This week" }).getAttribute("aria-checked"),
-    ).toBe("true");
+    expect(screen.getByRole("radio", { name: "This week" }).getAttribute("aria-checked")).toBe(
+      "true",
+    );
 
     fireEvent.click(screen.getByRole("radio", { name: "30 days" }));
-    await waitFor(() =>
-      expect(client.getUsageSummary.mock.calls.at(-1)).toEqual([30]),
-    );
+    await waitFor(() => expect(client.getUsageSummary.mock.calls.at(-1)).toEqual([30]));
     expect(client.getUsageSummary.mock.calls.map((c) => c[0])).toEqual([7, 7, 30]);
   });
 
@@ -475,16 +454,14 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     });
     renderPage();
 
-    expect(
-      await screen.findByText("Couldn't load that range; showing the last one."),
-    ).toBeTruthy();
+    expect(await screen.findByText("Couldn't load that range; showing the last one.")).toBeTruthy();
     fireEvent.click(screen.getByRole("radio", { name: "30 days" }));
 
     expect((await screen.findAllByText("$12.400")).length).toBeGreaterThan(0);
     expect(client.getUsageSummary.mock.calls.map((c) => c[0])).toEqual([7, 30]);
-    expect(
-      screen.getByRole("radio", { name: "30 days" }).getAttribute("aria-checked"),
-    ).toBe("true");
+    expect(screen.getByRole("radio", { name: "30 days" }).getAttribute("aria-checked")).toBe(
+      "true",
+    );
   });
 
   it("reloads the range the control shows after a reconnect", async () => {
@@ -500,9 +477,9 @@ describe("the agents console (KIN-AGENTS-001)", () => {
 
     fireEvent.click(screen.getByRole("radio", { name: "30 days" }));
     await waitFor(() =>
-      expect(
-        screen.getByRole("radio", { name: "30 days" }).getAttribute("aria-checked"),
-      ).toBe("true"),
+      expect(screen.getByRole("radio", { name: "30 days" }).getAttribute("aria-checked")).toBe(
+        "true",
+      ),
     );
 
     // Clear the switch's own call: the assertion below must be satisfied by a
@@ -516,24 +493,20 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     // The reconnect effect reads `daysRef`, which the [days] effect keeps in
     // step; closing over the original `days` or the last loaded range would
     // reload the wrong interval.
-    await waitFor(() =>
-      expect(client.getUsageSummary.mock.calls).toEqual([[30]]),
-    );
+    await waitFor(() => expect(client.getUsageSummary.mock.calls).toEqual([[30]]));
   });
 
   it("re-reads the limits with Recheck, not only on arrival", async () => {
-    client.getUsageLimits
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([
-        {
-          agent: "codex",
-          status: "over",
-          period_start: localMidnightISO(),
-          used_spend_usd: 10,
-          limit_spend_usd: 10,
-          used_tokens: 0,
-        } satisfies AgentLimitStatus,
-      ]);
+    client.getUsageLimits.mockResolvedValueOnce([]).mockResolvedValue([
+      {
+        agent: "codex",
+        status: "over",
+        period_start: localMidnightISO(),
+        used_spend_usd: 10,
+        limit_spend_usd: 10,
+        used_tokens: 0,
+      } satisfies AgentLimitStatus,
+    ]);
     writeQuotaWaitSince("codex", localMidnightISO(), Date.now() - 12 * 60_000);
     renderPage();
 
@@ -549,9 +522,7 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     // The daemon records usage under the transport that ran the turn; the
     // catalog shows one row per product. A row keyed by the displayed id would
     // read zero for every ACP turn.
-    client.getUsageSummary.mockResolvedValue([
-      usageRow({ agent: "claude-acp", cost_usd: 5.25 }),
-    ]);
+    client.getUsageSummary.mockResolvedValue([usageRow({ agent: "claude-acp", cost_usd: 5.25 })]);
     renderPage();
 
     expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
@@ -591,21 +562,19 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     fireEvent.click(screen.getByRole("button", { name: "View" }));
     // Nine rows plus the lost family is ten slots: the catalog is full, and a
     // hole nobody can see would otherwise block every new product forever.
-    expect(
-      (screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled,
-    ).toBe(true);
+    expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Remove vanished" }));
 
     await waitFor(() =>
-      expect(
-        (screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled,
-      ).toBe(false),
+      expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
     );
     expect(readConnectedFamilies()).not.toContain("vanished");
-    expect(
-      screen.queryByText("1 connected product(s) this machine no longer reports"),
-    ).toBeNull();
+    expect(screen.queryByText("1 connected product(s) this machine no longer reports")).toBeNull();
   });
 
   it("cancels a connect that is still in flight", async () => {
@@ -801,7 +770,10 @@ describe("the agents console (KIN-AGENTS-001)", () => {
           deferred.resolve = resolve;
         });
       }
-      return [{ ...claude, default: false }, { ...codex, default: true }];
+      return [
+        { ...claude, default: false },
+        { ...codex, default: true },
+      ];
     });
     renderPage();
 

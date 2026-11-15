@@ -147,14 +147,9 @@ export default function ProjectDetailPage() {
   const scrollTopRef = useRef(0);
   const restoredFor = useRef<string | null>(null);
   const slow = useSlowHint(loading && !project);
-  const {
-    machines,
-    loading: machinesLoading,
-    failed: machinesFailed,
-  } = useMachines();
+  const { machines, loading: machinesLoading, failed: machinesFailed } = useMachines();
   const selfDeviceId = (machines.find((machine) => machine.isSelf)?.id ?? "").trim();
-  const projectCwd =
-    project && project.id === id ? (projectRoots(project)[0] ?? "") : "";
+  const projectCwd = project && project.id === id ? (projectRoots(project)[0] ?? "") : "";
   const [routineDevice, routinesDeviceResolved] = useMemo((): [string, boolean] => {
     if (machinesLoading) return ["", false];
     if (machinesFailed) {
@@ -165,10 +160,7 @@ export default function ProjectDetailPage() {
       const remembered = readRoutineDevice().trim();
       return [remembered, remembered.length > 0];
     }
-    return [
-      routineDeviceForProject(machines, projectCwd, readRoutineDevice()),
-      true,
-    ];
+    return [routineDeviceForProject(machines, projectCwd, readRoutineDevice()), true];
   }, [machines, machinesFailed, machinesLoading, projectCwd]);
 
   // The old ?tab= links predate the signed cover. They land on the cover and
@@ -194,7 +186,11 @@ export default function ProjectDetailPage() {
   // title button by name.
   useEffect(() => {
     const active = document.activeElement;
-    if (active instanceof HTMLElement && active !== document.body && active !== document.documentElement) {
+    if (
+      active instanceof HTMLElement &&
+      active !== document.body &&
+      active !== document.documentElement
+    ) {
       openerRef.current = active;
     }
   }, [id]);
@@ -373,9 +369,7 @@ export default function ProjectDetailPage() {
     try {
       const page = await listRoutines({ limit: 100 }, routineDevice || undefined);
       if (gen !== routinesRequest.current) return;
-      setRoutines(
-        (page.routines ?? []).filter((routine) => samePath(routine.cwd, projectCwd)),
-      );
+      setRoutines((page.routines ?? []).filter((routine) => samePath(routine.cwd, projectCwd)));
       setRoutinesFor(id);
       setRoutinesLoaded(true);
     } catch {
@@ -383,14 +377,7 @@ export default function ProjectDetailPage() {
     } finally {
       if (gen === routinesRequest.current) setRoutinesLoading(false);
     }
-  }, [
-    id,
-    machinesLoading,
-    projectCwd,
-    routineDevice,
-    routinesDeviceResolved,
-    tr,
-  ]);
+  }, [id, machinesLoading, projectCwd, routineDevice, routinesDeviceResolved, tr]);
 
   useEffect(() => {
     void loadRoutines();
@@ -762,10 +749,10 @@ export default function ProjectDetailPage() {
       const target = event.target instanceof HTMLElement ? event.target : null;
       const typing = Boolean(
         target &&
-          (target.tagName === "INPUT" ||
-            target.tagName === "TEXTAREA" ||
-            target.tagName === "SELECT" ||
-            target.isContentEditable),
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable),
       );
       if (event.key === "Escape") {
         if (editing || typing) return;
@@ -881,10 +868,7 @@ export default function ProjectDetailPage() {
 
         <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
-            <h1
-              tabIndex={0}
-              className="truncate text-title leading-7 font-semibold text-kin-text"
-            >
+            <h1 tabIndex={0} className="truncate text-title leading-7 font-semibold text-kin-text">
               {currentProject.name}
             </h1>
             {roots[0] && (

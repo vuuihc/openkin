@@ -341,8 +341,9 @@ describe("a warm list under the project it opened", () => {
         expect(confirm).toHaveBeenCalledWith("Your summary is unsaved. Leave anyway?"),
       );
       expect(window.location.pathname).toBe("/projects/p1");
-      expect((screen.getByRole("textbox", { name: "One-line summary" }) as HTMLTextAreaElement).value)
-        .toBe("Unsaved");
+      expect(
+        (screen.getByRole("textbox", { name: "One-line summary" }) as HTMLTextAreaElement).value,
+      ).toBe("Unsaved");
     } finally {
       confirm.mockRestore();
     }

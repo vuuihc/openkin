@@ -3,8 +3,7 @@ import { useT } from "../../i18n/react";
 import { MobileCard, MobileRow } from "../mobile/MobileList";
 import { MobileChevron } from "../mobile/MobileHeader";
 
-export type SettingsTabId =
-  "general" | "agents" | "providers" | "routing" | "advanced";
+export type SettingsTabId = "general" | "agents" | "providers" | "routing" | "advanced";
 
 export type SettingsTabItem = {
   id: SettingsTabId;

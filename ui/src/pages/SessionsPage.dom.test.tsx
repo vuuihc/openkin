@@ -189,7 +189,7 @@ describe("the phone page's states", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
 
-    const calls = refresh.mock.calls as unknown as [ { archived?: boolean } ][];
+    const calls = refresh.mock.calls as unknown as [{ archived?: boolean }][];
     expect(calls.some(([params]) => params.archived === true)).toBe(true);
     refresh.mockRestore();
   });

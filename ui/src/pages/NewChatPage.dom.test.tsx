@@ -160,11 +160,11 @@ describe("the draft (KIN-START-001)", () => {
 
     expect(await screen.findByRole("heading", { name: "What should Kin do?" })).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Start" })).toHaveLength(1);
-    expect(await screen.findByRole("button", { name: "Device & project: This machine · alpha" })).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: "Device & project: This machine · alpha" }),
+    ).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Run settings/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Run settings/ }).textContent).toContain(
-      "Default",
-    );
+    expect(screen.getByRole("button", { name: /^Run settings/ }).textContent).toContain("Default");
   });
 
   it("keeps Start disabled on an empty prompt and enables it when there is text", async () => {
@@ -435,9 +435,7 @@ describe("the draft (KIN-START-001)", () => {
     await user.click(screen.getByRole("option", { name: /Opus/ }));
     await user.keyboard("{Escape}");
 
-    await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "Run settings" })).toBeNull(),
-    );
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Run settings" })).toBeNull());
     expect(promptBox().value).toBe("keep the draft");
     expect(screen.getByRole("button", { name: /^Run settings/ }).textContent).toContain("Opus");
   });

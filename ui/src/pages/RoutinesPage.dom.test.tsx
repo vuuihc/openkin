@@ -507,9 +507,9 @@ describe("switching machine while the routine form has edits", () => {
     expect(confirm).toHaveBeenCalledWith("routines.discardConfirm");
     expect(machineValue()).toBe("dev-a");
     expect(locationOf(router)).toBe("/routines?device=dev-a");
-    expect(
-      (screen.getByLabelText("routines.promptLabel") as HTMLTextAreaElement).value,
-    ).toBe("unfinished draft");
+    expect((screen.getByLabelText("routines.promptLabel") as HTMLTextAreaElement).value).toBe(
+      "unfinished draft",
+    );
 
     confirm.mockReturnValue(true);
     fireEvent.click(screen.getByTestId("machine-option-dev-b"));

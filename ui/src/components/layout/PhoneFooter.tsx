@@ -34,8 +34,7 @@ export default function PhoneFooter() {
   const location = useLocation();
   const navigate = useNavigate();
   const params = new URLSearchParams(location.search);
-  const archivedScope =
-    location.pathname === "/sessions" && params.get("scope") === "archived";
+  const archivedScope = location.pathname === "/sessions" && params.get("scope") === "archived";
   // Archiving is a scope of this list, not a new address: keep the search and
   // status the reader already narrowed to when switching the scope.
   params.set("scope", "archived");

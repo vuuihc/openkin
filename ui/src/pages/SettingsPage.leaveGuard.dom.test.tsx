@@ -281,10 +281,7 @@ describe("settings forms ask before a phone departure", () => {
 
     await user.click(await screen.findByRole("button", { name: "Add provider" }));
     await user.type(screen.getByPlaceholderText(/OpenAI · Ollama/), "Local");
-    await user.type(
-      screen.getByPlaceholderText(/api\.openai\.com/),
-      "https://api.example.com/v1",
-    );
+    await user.type(screen.getByPlaceholderText(/api\.openai\.com/), "https://api.example.com/v1");
     await user.type(screen.getByPlaceholderText(/gpt-4\.1-mini/), "model-a");
     await user.click(screen.getByRole("button", { name: "Save provider" }));
     await waitFor(() => expect(createProvider).toHaveBeenCalledTimes(1));
