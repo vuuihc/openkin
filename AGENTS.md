@@ -46,8 +46,8 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
    not run, with residual risk.
 6. **Worktree, gate, then land.** Develop features in a dedicated worktree
    when practical. After checks pass, run the Feature completion gate
-   (advanced-model review and fixes, commit, integrate/release, desktop
-   rebuild)—do not wait for a reminder. In a Kin-managed workspace exposing
+   (review with DeepSeek/sonnet by default, escalate only when necessary,
+   then commit, integrate/release, desktop rebuild)—do not wait for a reminder. In a Kin-managed workspace exposing
    `mcp__kin__complete_workspace`, let Kin integrate and release; never remove
    the current Kin worktree yourself. Do not commit known-failing work unless
    the user explicitly requests a checkpoint.
@@ -88,8 +88,9 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
 6. Run the narrowest relevant checks while iterating, then the full applicable
    verification before completion.
 7. After a feature/module is complete and its checks pass, run the **Feature
-   completion gate** (high-model `@codex`/`@claude` review → fix until no
-   blocker/major issues → commit → integrate/release → desktop rebuild). In a
+   completion gate** (review with DeepSeek/sonnet by default → escalate only
+   when necessary → fix until no blocker/major issues → commit →
+   integrate/release → desktop rebuild). In a
    Kin-managed workspace exposing `mcp__kin__complete_workspace`, call it after
    committing and let Kin perform integration and release. Without that tool,
    use the manual merge/remove steps below. Do not skip review or leave
@@ -261,14 +262,22 @@ fresh Electron shell:
 After a **feature or user-visible change set** is implemented and its relevant
 checks pass, do **not** stop at self-review. Finish with this gate in order:
 
-1. **High-model automated review.** Invoke a sub-agent with an advanced model
-   (`@codex` or `@claude`, preferring the highest available tier such as
-   Codex high / Claude Opus-class) to review the full diff and nearby call
-   sites. Ask for correctness, regressions, security, missing tests, API/UI
-   contract drift, and residual risk. Prefer a structured severity report
-   (`blocker` / `major` / `nit`). Follow the review protocol and risk-surface
-   checklist in `docs/product/LESSONS.md` (freeze the tree, mutants before
-   review, one full report, fix once, verify the delta).
+1. **Automated review.** Invoke a sub-agent to review the full diff and nearby
+   call sites. Default to the current session model or `model: "sonnet"`
+   (DeepSeek). Do **not** default to `model: "opus"`, `@claude` Opus-class, or
+   Kimi — those spend the company Volcengine key. Escalate to a stronger
+   model only when a concrete signal is present: reviewer disagreement, two
+   or more failed review/fix rounds, a foundational or cross-cutting
+   architecture change (three or more top-level areas, or an ADR-level
+   decision), or a build/test failure the current model could not diagnose.
+   Then prefer `codex/gpt-6.1-sol` first, Carbon
+   (`agy -p --model gemini-4-carbon-high`) for a second independent opinion
+   or UI screenshots, and Kimi last if both are unavailable. Ask for
+   correctness, regressions, security, missing tests, API/UI contract drift,
+   and residual risk. Prefer a structured severity report (`blocker` /
+   `major` / `nit`). Follow the review protocol and risk-surface checklist
+   in `docs/product/LESSONS.md` (freeze the tree, mutants before review, one
+   full report, fix once, verify the delta).
 2. **Fix review findings.** Address every `blocker` and `major` item. Re-run
    the relevant tests/build. Request another review pass after material fixes.
    Repeat until the latest review reports **no blocker or major issues**.
@@ -316,7 +325,7 @@ Scope notes:
 
 - **Done means reviewed, committed, integrated, released, and rebuilt:** when a
   coherent feature is finished and verified, complete the Feature completion
-  gate in the same session (high-model review, fix majors, commit,
+  gate in the same session (review, fix majors, commit,
   integrate/release through `mcp__kin__complete_workspace` when exposed or the
   manual fallback otherwise, and `./scripts/desktop-rebuild.sh` when binary/UI
   changed).
