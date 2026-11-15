@@ -409,6 +409,13 @@
   so a "small rise" on the page would move them relative to the page instead of
   the viewport. Opacity creates a stacking context and nothing else.
 
+  The one exception is the phone's edge-back gesture: the page root carries a
+  translate read from `--page-swipe-x` only while a finger is dragging it right,
+  and `useEdgeSwipeBack` zeroes the offset on release, cancel, disable and
+  unmount. The rule targets `.kin-main > *`, not `.kin-main` itself, so the DOM
+  keeps main's shape (every page root stays a direct child) and no fixed
+  descendant is re-anchored at rest.
+
   The children of <main> are what mount and unmount on navigation; the session
   host beside them stays mounted, which is exactly why it is not the animated
   element. 140ms is short enough to read as the new screen settling rather than
@@ -424,6 +431,18 @@
 }
 .kin-main > * {
   animation: kin-page-in 140ms ease-out;
+}
+
+/*
+  The finger, not a route change, moves the page: `AppShell` sets
+  `data-kin-swiping` and `--page-swipe-x` on <main> only while a phone edge drag
+  is active, and clears both at rest. The lift is `shadow-e2` as a class would
+  be, so the moving surface uses the same elevation token as any other raised
+  panel.
+*/
+.kin-main[data-kin-swiping] > * {
+  @apply shadow-e2;
+  transform: translate3d(var(--page-swipe-x, 0px), 0, 0);
 }
 
 /*

@@ -209,13 +209,19 @@ run_agy() { # hydrogen|hydrogen-high|carbon
   [ -n "${WT_ROOT:-}" ] && args+=( --add-dir "$WT_ROOT" )
   [ -n "${RSI_CTRL:-}" ] && args+=( --add-dir "$RSI_CTRL" )
   [ -n "${STATE:-}" ] && args+=( --add-dir "$STATE" )
-  ( cd "$CWD" && "$bin" "${args[@]}" < /dev/null > "$LOG.agy.json" 2>> "$LOG" ) &
-  local pid=$!
-  ( sleep "${DISPATCH_MAX_SECS:-3000}"; kill -TERM "$pid" 2>/dev/null ) & local wd=$!
-  wait "$pid"; local rc=$?
-  kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
-  note_agy_limit
-  python3 - "$LOG.agy.json" "$LOG.txt" <<'PY'
+  local tries=1
+  case "$name" in hydrogen|hydrogen-high) tries=3;; esac
+  local attempt=0 rc=1 pr=1
+  while [ $attempt -lt $tries ]; do
+    attempt=$((attempt+1))
+    [ -s "$LOG.agy.json" ] && cp "$LOG.agy.json" "$LOG.agy.attempt${attempt}.json" 2>/dev/null || true
+    ( cd "$CWD" && "$bin" "${args[@]}" < /dev/null > "$LOG.agy.json" 2>> "$LOG" ) &
+    local pid=$!
+    ( sleep "${DISPATCH_MAX_SECS:-3000}"; kill -TERM "$pid" 2>/dev/null ) & local wd=$!
+    wait "$pid"; rc=$?
+    kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
+    note_agy_limit
+    python3 - "$LOG.agy.json" "$LOG.txt" <<'PY'
 import json,sys
 src, dst = sys.argv[1], sys.argv[2]
 try:
@@ -230,8 +236,20 @@ text = (d.get("response") or d.get("text") or "")
 open(dst,"w").write(text)
 sys.exit(0 if text.strip() else 1)
 PY
-  local pr=$?
-  [ $rc -eq 0 ] && [ $pr -eq 0 ]
+    pr=$?
+    if [ $rc -eq 0 ] && [ $pr -eq 0 ]; then
+      return 0
+    fi
+    # Transient Antigravity errors (F3 UX 20:33: Eligibility check failed / loadCodeAssist EOF)
+    # must be retried, not immediately treated as "no verdict" and downgraded to medium.
+    if [ $attempt -lt $tries ] && grep -qiE 'Eligibility check failed|loadCodeAssist|authentication failed or timed out|connection reset|i/o timeout|UNAVAILABLE|status code 50[023]|EOF' "$LOG" "$LOG.agy.json" 2>/dev/null; then
+      echo "[agy $name attempt $attempt: transient API error; retrying in $((5 * attempt))s]" >&2
+      sleep $((5 * attempt))
+      continue
+    fi
+    break
+  done
+  return 1
 }
 
 run_codex() {

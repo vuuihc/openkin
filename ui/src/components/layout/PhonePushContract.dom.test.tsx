@@ -1,14 +1,15 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import AppShell from "./AppShell";
 import SessionsPage from "../../pages/SessionsPage";
 import ProjectDetailPage from "../../pages/ProjectDetailPage";
 import RoutinesPage from "../../pages/RoutinesPage";
 import { setLocale } from "../../i18n";
 import { resetLeaveGuard } from "../../lib/leaveGuard";
+import { phonePush } from "../../lib/phoneNavigation";
 import type { Task } from "../../api/client";
 
 /**
@@ -86,24 +87,28 @@ vi.mock("../../api/client", async (importOriginal) => {
     getOnePager: vi.fn(async () => ({ project_id: "p1", markdown: "", updated_at: 1 })),
     getProjectPulse: vi.fn(async () => null),
     listRoutines: vi.fn(async () => ({ routines: [], has_more: false })),
-    listRoutineRuns: vi.fn(async () => [
-      {
-        id: "run-1",
-        title: "Nightly run",
-        cwd: "/work/alpha",
-        agent: "kin",
-        prompt: "",
-        status: "succeeded",
-        tokens_in: 0,
-        tokens_out: 0,
-        event_epoch: 0,
-        created_at: 1,
-        finished_at: 2,
-        routine_id: "routine-1",
-        routine_noteworthy: true,
-        routine_unread: false,
-      } as Task,
-    ]),
+    listRoutineRuns: vi.fn(async () => ({
+      routines: [],
+      runs: [
+        {
+          id: "run-1",
+          title: "Nightly run",
+          cwd: "/work/alpha",
+          agent: "kin",
+          prompt: "",
+          status: "succeeded",
+          tokens_in: 0,
+          tokens_out: 0,
+          event_epoch: 0,
+          created_at: 1,
+          finished_at: 2,
+          routine_id: "routine-1",
+          routine_noteworthy: true,
+          routine_unread: false,
+        } as Task,
+      ],
+      has_more: false,
+    })),
     listTasks: vi.fn(async () => []),
     ensureProject: vi.fn(async () => ({ id: "p1", name: "alpha" })),
     getSettings: vi.fn(async () => null),
@@ -182,6 +187,20 @@ function listTask(): Task {
   } as Task;
 }
 
+/** A conversation's destination action uses the same shared root contract. */
+function ConversationPage() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  return (
+    <>
+      <div>conversation page</div>
+      <button type="button" onClick={() => phonePush(navigate, location, "/routines")}>
+        Open routines
+      </button>
+    </>
+  );
+}
+
 /** Start at a cold destination on a real history stack. */
 function browser(initial: string) {
   window.history.replaceState({ idx: 0 }, "", initial);
@@ -192,8 +211,9 @@ function browser(initial: string) {
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/projects/:id" element={<ProjectDetailPage />} />
           <Route path="/routines" element={<RoutinesPage />} />
+          <Route path="/agents" element={<div>agent operations</div>} />
           <Route path="/new" element={<div>draft page</div>} />
-          <Route path="/tasks/:id" element={<div>conversation page</div>} />
+          <Route path="/tasks/:id" element={<ConversationPage />} />
         </Routes>
       </AppShell>
     </BrowserRouter>,
@@ -206,7 +226,8 @@ describe("the archive is a scope, not a second list entry", () => {
     browser("/sessions");
     await screen.findByRole("heading", { name: "Chats" });
 
-    await user.click(screen.getByRole("link", { name: "Archived" }));
+    await user.click(screen.getByRole("button", { name: "Filter" }));
+    await user.click(screen.getByRole("button", { name: "Archived" }));
     await waitFor(() => expect(window.location.search).toContain("scope=archived"));
     expect(window.location.pathname).toBe("/sessions");
     // Still the first entry: the phone has one list, and Back has nothing
@@ -220,6 +241,7 @@ async function browserBack(): Promise<void> {
 }
 
 beforeEach(() => {
+  cleanup();
   resetLeaveGuard();
   setLocale("en");
   localStorage.clear();
@@ -227,6 +249,60 @@ beforeEach(() => {
   fixtures.tasks = [];
   window.history.replaceState({ idx: 0 }, "", "/");
   viewport();
+});
+
+describe("the four roots on real history", () => {
+  it("swipes back to the one real list beneath a peer root", async () => {
+    const user = userEvent.setup();
+    fixtures.tasks = [listTask()];
+    browser("/sessions");
+    await user.click(await screen.findByRole("button", { name: /listed-chat/ }));
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/listed-chat"));
+    expect(window.history.state.idx).toBe(1);
+
+    // Routines replaces the conversation at depth 1; the list is still its
+    // proven parent at depth 0. Swiping to Chats must pop rather than replace
+    // the root with a second list at depth 1.
+    await user.click(screen.getByRole("button", { name: "Open routines" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/routines"));
+    expect(window.history.state.idx).toBe(1);
+    const main = document.querySelector("main") as HTMLElement;
+    for (const [type, x] of [
+      ["pointerdown", 90],
+      ["pointermove", 210],
+      ["pointerup", 210],
+    ] as const) {
+      const event = new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX: x,
+        clientY: 300,
+        button: 0,
+      });
+      Object.assign(event, { pointerId: 1, pointerType: "touch", isPrimary: true });
+      fireEvent(main, event);
+    }
+    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    expect(window.history.state.idx).toBe(0);
+    await screen.findByRole("heading", { name: "Chats" });
+  });
+
+  it("replaces a peer root and carries the remembered archive scope back", async () => {
+    const user = userEvent.setup();
+    browser("/sessions?search=alpha&scope=archived");
+    await user.click(await screen.findByRole("link", { name: "Routines" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/routines"));
+    expect(window.history.state.idx).toBe(0);
+    expect(screen.getByRole("link", { name: "Routines" }).getAttribute("aria-current")).toBe(
+      "page",
+    );
+
+    await user.click(screen.getByRole("link", { name: "Chats" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    expect(window.location.search).toContain("search=alpha");
+    expect(window.location.search).toContain("scope=archived");
+    expect(window.history.state.idx).toBe(0);
+  });
 });
 
 describe("the list under a conversation", () => {
@@ -312,17 +388,49 @@ describe("a warm list under the project it opened", () => {
     expect(window.history.state.idx).toBe(0);
   });
 
-  it("opens project routines with one Back to the list", async () => {
+  it("treats project routines as a peer root, after the summary's guard", async () => {
     const user = userEvent.setup();
-    await openProjectFromList(user);
-
-    await user.click(screen.getByRole("link", { name: /Go to routines/ }));
-    await waitFor(() => expect(window.location.pathname).toBe("/routines"));
-    expect(window.history.state.idx).toBe(1);
-
-    await browserBack();
-    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
-    expect(screen.getByRole("heading", { name: "Chats" })).toBeTruthy();
+    window.history.replaceState({ idx: 0 }, "", "/sessions");
+    render(
+      <BrowserRouter>
+        <AppShell pendingApprovals={[]}>
+          <Routes>
+            <Route path="/sessions" element={<SessionsPage />} />
+            <Route path="/projects/:id" element={<ProjectDetailPage />} />
+            <Route path="/routines" element={<div>routines root</div>} />
+            <Route path="/agents" element={<div>agents root</div>} />
+            <Route path="/settings" element={<div>settings root</div>} />
+          </Routes>
+        </AppShell>
+      </BrowserRouter>,
+    );
+    await user.click(await screen.findByRole("button", { name: "alpha" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/projects/p1"));
+    await screen.findByRole("heading", { name: "alpha" });
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.type(screen.getByRole("textbox", { name: "One-line summary" }), "Unsaved");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    try {
+      await user.click(screen.getByRole("link", { name: /Go to routines/ }));
+      await waitFor(() => expect(confirm).toHaveBeenCalled());
+      expect(window.location.pathname).toBe("/projects/p1");
+      confirm.mockReturnValue(true);
+      await user.click(screen.getByRole("link", { name: /Go to routines/ }));
+      await waitFor(() => expect(window.location.pathname).toBe("/routines"));
+      expect(window.history.state.idx).toBe(1);
+      await user.click(screen.getByRole("link", { name: "Chats" }));
+      await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+      // Routines replaced the project detail, while the original list remains
+      // beneath it. Chats must pop to that real parent, not replace it with a
+      // second list entry. A cold root with a non-list parent is covered in
+      // phoneNavigation.test.tsx: a positive idx alone is not parent evidence.
+      expect(window.history.state.idx).toBe(0);
+      expect(screen.queryByRole("heading", { name: "routines root" })).toBeNull();
+      // The direct list → detail Back return is covered below and by
+      // `goBackToList`; this root switch was the behavior under test here.
+    } finally {
+      confirm.mockRestore();
+    }
   });
 
   it("asks before the browser Back discards a project summary draft", async () => {

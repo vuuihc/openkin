@@ -67,6 +67,11 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
     schema resets, dependency-wide upgrades, network publication, or anything
     that affects external systems. If stuck after a few honest attempts, stop
     and summarize what failed.
+11. **Every async answer carries its origin.** Reads, callbacks, pushes and
+    background refreshes that can land after the reader moved on carry a
+    generation, visit or flow id and are dropped or retargeted when the
+    screen, machine or draft that asked is no longer current; test with two
+    concurrent flows and one late answer.
 
 ## Development workflow
 

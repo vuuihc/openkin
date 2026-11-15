@@ -9,7 +9,7 @@ import { setLocale } from "../i18n";
 import type { Routine } from "../api/client";
 
 /**
- * D4: an edited routine is a draft.
+ * KIN-ROUTINE-001 D4: an edited routine is a draft.
  *
  * The Routines page's form used to close from its own Cancel/toggle without
  * asking, and the shell's Back, edge swipe and ⌘N had no guard to consult
@@ -24,7 +24,8 @@ vi.mock("../api/client", async (importOriginal) => {
     ...actual,
     isAuthenticated: vi.fn(() => true),
     listRoutines: vi.fn(),
-    listRoutineRuns: vi.fn(async () => []),
+    getRoutine: vi.fn(async () => routine),
+    listRoutineRuns: vi.fn(async () => ({ routines: [], runs: [], has_more: false })),
     listTasks: vi.fn(async () => []),
     previewRoutine: vi.fn(async () => ({ next_due_at: 0 })),
   };
