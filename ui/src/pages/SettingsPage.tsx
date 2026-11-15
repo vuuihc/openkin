@@ -230,72 +230,69 @@ export default function SettingsPage() {
     );
   }, []);
 
-  const applyServerSettings = useCallback(
-    (nextSettings: Settings, preserveDirty: boolean) => {
-      const next = settingsDraftFromServer(nextSettings);
-      const previous = serverDraftRef.current;
-      const current = draftValuesRef.current;
-      const keep = <K extends keyof SettingsDraft>(key: K): SettingsDraft[K] =>
-        preserveDirty &&
-        previous !== null &&
-        JSON.stringify(current[key]) !== JSON.stringify(previous[key])
-          ? current[key]
-          : next[key];
-      setPriceTable(keep("priceTable"));
-      setAgentLimitsText(keep("agentLimits"));
-      setRoles(keep("roles"));
-      setAgentDefault(keep("agentDefault"));
-      setLimitPolicy(keep("limitPolicy"));
-      setLimitFallbackText(keep("limitFallback"));
-      serverDraftRef.current = next;
-      setSettingsBaseline(settingsDraftKey(next));
-    },
-    [],
-  );
+  const applyServerSettings = useCallback((nextSettings: Settings, preserveDirty: boolean) => {
+    const next = settingsDraftFromServer(nextSettings);
+    const previous = serverDraftRef.current;
+    const current = draftValuesRef.current;
+    const keep = <K extends keyof SettingsDraft>(key: K): SettingsDraft[K] =>
+      preserveDirty &&
+      previous !== null &&
+      JSON.stringify(current[key]) !== JSON.stringify(previous[key])
+        ? current[key]
+        : next[key];
+    setPriceTable(keep("priceTable"));
+    setAgentLimitsText(keep("agentLimits"));
+    setRoles(keep("roles"));
+    setAgentDefault(keep("agentDefault"));
+    setLimitPolicy(keep("limitPolicy"));
+    setLimitFallbackText(keep("limitFallback"));
+    serverDraftRef.current = next;
+    setSettingsBaseline(settingsDraftKey(next));
+  }, []);
 
-  const applySavedSettings = useCallback(
-    (nextSettings: Settings, submitted: SettingsDraft) => {
-      const next = settingsDraftFromServer(nextSettings);
-      const current = draftValuesRef.current;
-      const take = (key: keyof SettingsDraft) =>
-        JSON.stringify(current[key]) === JSON.stringify(submitted[key]);
-      if (take("priceTable")) setPriceTable(next.priceTable);
-      if (take("agentLimits")) setAgentLimitsText(next.agentLimits);
-      if (take("roles")) setRoles(next.roles);
-      if (take("agentDefault")) setAgentDefault(next.agentDefault);
-      if (take("limitPolicy")) setLimitPolicy(next.limitPolicy);
-      if (take("limitFallback")) setLimitFallbackText(next.limitFallback);
-      serverDraftRef.current = next;
-      setSettingsBaseline(settingsDraftKey(next));
-    },
-    [],
-  );
+  const applySavedSettings = useCallback((nextSettings: Settings, submitted: SettingsDraft) => {
+    const next = settingsDraftFromServer(nextSettings);
+    const current = draftValuesRef.current;
+    const take = (key: keyof SettingsDraft) =>
+      JSON.stringify(current[key]) === JSON.stringify(submitted[key]);
+    if (take("priceTable")) setPriceTable(next.priceTable);
+    if (take("agentLimits")) setAgentLimitsText(next.agentLimits);
+    if (take("roles")) setRoles(next.roles);
+    if (take("agentDefault")) setAgentDefault(next.agentDefault);
+    if (take("limitPolicy")) setLimitPolicy(next.limitPolicy);
+    if (take("limitFallback")) setLimitFallbackText(next.limitFallback);
+    serverDraftRef.current = next;
+    setSettingsBaseline(settingsDraftKey(next));
+  }, []);
 
-  const load = useCallback(async (preserveDirty = false) => {
-    setError(null);
-    try {
-      const s = await getSettings();
-      setSettings(s);
-      applyServerSettings(s, preserveDirty);
-      setActiveProviderId(s["provider.active_id"] ?? "");
+  const load = useCallback(
+    async (preserveDirty = false) => {
+      setError(null);
       try {
-        const reg = await listProviders();
-        setProviders(reg.providers ?? []);
-        setActiveProviderId(reg.active_id ?? s["provider.active_id"] ?? "");
-      } catch {
-        setProviders([]);
+        const s = await getSettings();
+        setSettings(s);
+        applyServerSettings(s, preserveDirty);
+        setActiveProviderId(s["provider.active_id"] ?? "");
+        try {
+          const reg = await listProviders();
+          setProviders(reg.providers ?? []);
+          setActiveProviderId(reg.active_id ?? s["provider.active_id"] ?? "");
+        } catch {
+          setProviders([]);
+        }
+        listAgents()
+          .then(setAgentList)
+          .catch(() => undefined);
+        listAgentProviders()
+          .then(setAgentProviders)
+          .catch(() => undefined);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) return;
+        setError(e instanceof ApiError ? e.message : String(e));
       }
-      listAgents()
-        .then(setAgentList)
-        .catch(() => undefined);
-      listAgentProviders()
-        .then(setAgentProviders)
-        .catch(() => undefined);
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) return;
-      setError(e instanceof ApiError ? e.message : String(e));
-    }
-  }, [applyServerSettings]);
+    },
+    [applyServerSettings],
+  );
 
   useEffect(() => {
     void load();
@@ -616,7 +613,7 @@ export default function SettingsPage() {
 
   if (error && !settings) {
     return (
-      <div className="flex-1 overflow-y-auto kin-scroll px-4 sm:px-6 py-6">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden kin-scroll px-4 sm:px-6 py-6">
         <h1 className="hidden text-hero font-bold md:block">{tr("settings.title")}</h1>
         <p className="text-strong leading-5 text-kin-red-ink mt-3" role="alert">
           {error}
@@ -627,7 +624,7 @@ export default function SettingsPage() {
 
   if (!settings) {
     return (
-      <div className="flex-1 overflow-y-auto kin-scroll px-4 sm:px-6 py-6 space-y-4">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden kin-scroll px-4 sm:px-6 py-6 space-y-4">
         <h1 className="hidden text-hero font-bold md:block">{tr("settings.title")}</h1>
         <SlowConnectHint show={slow} />
         <div className="rounded-xl border border-[var(--kin-hairline)] p-4 space-y-3">

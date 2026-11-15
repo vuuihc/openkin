@@ -33,59 +33,54 @@ describe("the routine editor's run history", () => {
     expect(PAGE).toContain("return folded ? { ...prev, [r.id]: folded } : prev;");
   });
 
-  it("asks for one page and records whether more may exist", () => {
-    expect(PAGE).toContain(
-      "const tasks = await listTasks({ routineId: id, limit: ROUTINE_HISTORY_PAGE });",
+  it("asks for one bounded summary page and records its independent cursor", () => {
+    const read = PAGE.slice(
+      PAGE.indexOf("const readHistory ="),
+      PAGE.indexOf("const loadHistory ="),
     );
-    expect(PAGE).toContain("tasks.length >= ROUTINE_HISTORY_PAGE");
+    expect(read).toContain("await listRoutineRuns(");
+    expect(read).toContain("ROUTINE_HISTORY_PAGE,");
+    expect(read).toContain('remote ? view.deviceId : "",');
+    expect(read).toContain("before,");
+    expect(read).toContain("id,");
+    expect(read).toContain("page.runs_has_more ?? false");
+    expect(read).toContain('page.runs_next_cursor ?? ""');
   });
 
   it("pages older runs from the boundary the last page returned", () => {
     // `before` is the daemon's ULID cursor. It must come from the page, not
     // from the list's tail: a live push can place a deeper run at the tail, and
     // asking below that id would skip every run between the two.
-    expect(PAGE).toContain('const cursor = historyCursor[id] ?? "";');
-    expect(PAGE).toContain("before: cursor,");
-    expect(PAGE).toContain("setHistoryCursor((prev) => ({ ...prev, [id]: pageCursor(tasks) }));");
-    expect(PAGE).toContain("setHistoryCursor((prev) => ({ ...prev, [id]: pageCursor(page) }));");
+    expect(PAGE).toContain("return before ? readHistory(id, before) : Promise.resolve();");
     expect(PAGE).toContain(
-      "appendOlderRuns(prev[id] ?? [], reconcileRoutineReads(page, allRead, read))",
+      'setHistoryCursor((prev) => ({ ...prev, [id]: page.runs_next_cursor ?? "" }));',
     );
-    expect(PAGE).toContain("page.length >= ROUTINE_HISTORY_PAGE");
+    expect(PAGE).toContain("before ? appendOlderRuns(prev[id] ?? [], tasks) : tasks");
   });
 
-  it("applies the newer page only after the newer-wins guard", () => {
-    // The guard exists to drop a page the next open has outdated. Moving it
-    // above the await would make it always pass, and a stale page would be
-    // appended to the list the re-open replaced. Every write from that page —
-    // rows, has-more, cursor — has to sit behind it.
-    const start = PAGE.indexOf("const loadOlderHistory");
-    const awaited = PAGE.indexOf("await listTasks", start);
-    const guarded = PAGE.indexOf(
-      "if (historySeq.current[id] !== seq || !isCurrentView(view)) return;",
-      start,
+  it("applies a page only after the newer-wins guard", () => {
+    // The summary API, not the retained row count, owns the cursor and has-more.
+    // Both local and relay paths run this same reader; all state writes wait
+    // for the per-routine generation / current-device check after its await.
+    const read = PAGE.slice(
+      PAGE.indexOf("const readHistory ="),
+      PAGE.indexOf("const loadHistory ="),
     );
-    const applied = PAGE.indexOf("appendOlderRuns(prev[id] ?? []", start);
-    const hasMore = PAGE.indexOf(
-      "setHistoryHasMore((prev) => ({ ...prev, [id]: page.length >= ROUTINE_HISTORY_PAGE }));",
-      start,
-    );
-    const cursor = PAGE.indexOf(
-      "setHistoryCursor((prev) => ({ ...prev, [id]: pageCursor(page) }));",
-      start,
-    );
-    expect(awaited).toBeGreaterThan(start);
+    const awaited = read.indexOf("await listRoutineRuns(");
+    const guarded = read.search(/if \(\s*historySeq\.current\[id\] !== seq \|\|/);
+    const applied = read.indexOf("setHistory((prev) =>");
+    const hasMore = read.indexOf("setHistoryHasMore((prev) =>");
+    const cursor = read.indexOf("setHistoryCursor((prev) =>");
+    expect(awaited).toBeGreaterThan(-1);
     expect(guarded).toBeGreaterThan(awaited);
     expect(applied).toBeGreaterThan(guarded);
     expect(hasMore).toBeGreaterThan(guarded);
     expect(cursor).toBeGreaterThan(guarded);
   });
 
-  it("reconciles both fetches against what the reader already marked read", () => {
-    // Mark all read publishes no task update, so a page that was already in
-    // flight would otherwise append unread rows over a read badge.
-    expect(PAGE).toContain("reconcileRoutineReads(tasks, allRead, read)");
-    expect(PAGE).toContain("reconcileRoutineReads(page, allRead, read)");
+  it("reconciles both local and relay reads against what the reader marked read", () => {
+    expect(PAGE).toContain("readAllEpoch.current !== epoch,");
+    expect(PAGE).toContain("knownRead.current,");
     expect(PAGE).toContain("const epoch = readAllEpoch.current;");
     expect(PAGE).toContain("readAllEpoch.current += 1;");
   });
@@ -94,10 +89,17 @@ describe("the routine editor's run history", () => {
     // The cursor belongs to the list the re-open replaced; appending would skip
     // the rows between the two pages and could hide the button with a short
     // page. Every fetch path has the newest-wins guard.
-    expect(PAGE).toContain("const seq = historySeq.current[id] ?? 0;");
-    expect(
-      PAGE.split("if (historySeq.current[id] !== seq || !isCurrentView(view)) return;").length - 1,
-    ).toBe(3);
+    expect(PAGE).toContain("const seq = (historySeq.current[id] ?? 0) + (before ? 0 : 1);");
+    const read = PAGE.slice(
+      PAGE.indexOf("const readHistory ="),
+      PAGE.indexOf("const loadHistory ="),
+    );
+    expect(read.split("historySeq.current[id] !== seq").length - 1).toBe(2);
+    expect(read).toContain("historySeq.current[id] = seq;");
+    expect(read).toContain(
+      "if (historySeq.current[id] === seq && historyOlderSeq.current[id] === olderSeq)",
+    );
+    expect(read).toContain("if (historyOlderSeq.current[id] === olderSeq)");
   });
 
   it("keeps the history branches in loading / error / empty order", () => {
@@ -117,13 +119,16 @@ describe("the routine editor's run history", () => {
   });
 
   it("loads the history when the editor opens", () => {
-    expect(PAGE).toContain("void loadHistory(r.id);");
+    const edit = PAGE.slice(PAGE.indexOf("const openEdit ="), PAGE.indexOf("const onSubmit ="));
+    // The row selector has the same call; checking the whole page used to pass
+    // even after editing had lost its history read and rendered "No runs yet".
+    expect(edit).toContain("void loadHistory(r.id);");
   });
 
-  it("offers the older page only when the last one was full and the cap is not reached", () => {
-    // The panel gets the flag and the rows it was given; a remote machine's
-    // feed has no cursor this console can page, so it offers nothing.
-    expect(PAGE).toContain("{hasMore && !remote && runs.length < ROUTINE_HISTORY_MAX && (");
+  it("offers the older page only for an explicit cursor and below the cap", () => {
+    // Both local and remote carry runs_has_more / runs_next_cursor. The panel
+    // has one answer for both, but asks only while the reader is below the cap.
+    expect(PAGE).toContain("{hasMore && runs.length < ROUTINE_HISTORY_MAX && (");
     expect(PAGE).toContain("hasMore={!!historyHasMore[r.id]}");
     expect(PAGE).toContain("hasMore={!!historyHasMore[selected.id]}");
     // And the fetch refuses too: a long-lived editor whose list fills between
