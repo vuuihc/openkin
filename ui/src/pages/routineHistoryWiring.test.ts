@@ -19,6 +19,9 @@ import { describe, expect, it } from "vitest";
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 const PAGE = readFileSync(join(UI, "src/pages/RoutinesPage.tsx"), "utf8");
+// The panel and its card moved out of the page; their own contract (branch
+// order, the older-page button) is asserted against the component now.
+const RUNS = readFileSync(join(UI, "src/components/routine/RoutineRuns.tsx"), "utf8");
 
 describe("the routine editor's run history", () => {
   it("folds live task updates into the open routine's list", () => {
@@ -104,9 +107,9 @@ describe("the routine editor's run history", () => {
     // A failed fetch must not read as "this routine has never run", and a
     // loading state must not flash the empty line underneath it. The order
     // lives in the panel that both the phone row and the desktop aside mount.
-    const panel = PAGE.slice(
-      PAGE.indexOf("function RunHistoryPanel"),
-      PAGE.indexOf("function RunCard"),
+    const panel = RUNS.slice(
+      RUNS.indexOf("export function RunHistoryPanel"),
+      RUNS.indexOf("export function RunCard"),
     );
     const loading = panel.indexOf("{loading ? (");
     const failure = panel.indexOf(") : error ? (");
@@ -123,13 +126,13 @@ describe("the routine editor's run history", () => {
   it("offers the older page only when the last one was full and the cap is not reached", () => {
     // The panel gets the flag and the rows it was given; a remote machine's
     // feed has no cursor this console can page, so it offers nothing.
-    expect(PAGE).toContain("{hasMore && !remote && runs.length < ROUTINE_HISTORY_MAX && (");
+    expect(RUNS).toContain("{hasMore && !remote && runs.length < ROUTINE_HISTORY_MAX && (");
     expect(PAGE).toContain("hasMore={!!historyHasMore[r.id]}");
     expect(PAGE).toContain("hasMore={!!historyHasMore[selected.id]}");
     // And the fetch refuses too: a long-lived editor whose list fills between
     // the render and the click must not ask for rows the merge would drop.
     expect(PAGE).toContain("(history[id]?.length ?? 0) >= ROUTINE_HISTORY_MAX");
-    expect(PAGE).toContain('tr("routines.historyLoadingOlder")');
-    expect(PAGE).toContain('tr("routines.historyLoadOlder")');
+    expect(RUNS).toContain('tr("routines.historyLoadingOlder")');
+    expect(RUNS).toContain('tr("routines.historyLoadOlder")');
   });
 });
