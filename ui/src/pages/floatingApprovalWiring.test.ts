@@ -55,9 +55,9 @@ describe("the floating approval's wiring", () => {
     // longer has a modal sibling to hide behind, so the old `!mobileOpen`
     // wrapper must not creep back, and neither must the drawer's state.
     expect(shell).not.toMatch(/mobileOpen|MobileDock|useDrawerSwipe|kin-dock-pad/);
-    // The list page's footer and its new-chat button are the only bottom
-    // furniture on the phone; everywhere else the card keeps the lower offset.
-    expect(shell).toMatch(/raised=\{pathname === "\/sessions"\}/);
+    // Four peer roots share the footer and its raised approval card. A detail
+    // or draft still measures its own bottom surface rather than the root tab.
+    expect(shell).toMatch(/raised=\{!wide && onPhoneTab\}/);
   });
 
   it("answers through the one shared decision path", () => {

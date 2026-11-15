@@ -1559,6 +1559,9 @@ export type RoutinePage = {
   next_cursor?: string;
   has_more: boolean;
   runs?: Task[];
+  /** Cursors for runs are separate from the definitions' next_cursor. */
+  runs_next_cursor?: string;
+  runs_has_more?: boolean;
 };
 
 export type CreateRoutineBody = {
@@ -1753,10 +1756,24 @@ export function getA2ATask(id: string): Promise<A2ATask> {
   return apiFetch<A2ATask>(`/a2a/v1/tasks/${encodeURIComponent(id)}`);
 }
 
-export function listRoutineRuns(limit = 50, device?: string): Promise<Task[]> {
-  return apiFetch<RoutinePage>(
-    routinePath(`/api/routines?runs=1&runs_limit=${limit}`, device),
-  ).then((r) => r.runs ?? []);
+/** Definitions only need scheduling state on a run read, not another prompt copy. */
+const ROUTINE_FEED_PAGE = 50;
+
+export function listRoutineRuns(
+  limit = ROUTINE_FEED_PAGE,
+  device?: string,
+  cursor = "",
+  routineId = "",
+): Promise<RoutinePage> {
+  const params = new URLSearchParams({
+    page: "1",
+    limit: "1",
+    runs: "1",
+    runs_limit: String(limit),
+  });
+  if (cursor) params.set("runs_cursor", cursor);
+  if (routineId) params.set("routine_id", routineId);
+  return apiFetch<RoutinePage>(routinePath(`/api/routines?${params}`, device));
 }
 
 export function decideApproval(id: string, decision: "approved" | "denied"): Promise<Approval> {

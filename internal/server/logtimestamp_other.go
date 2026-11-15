@@ -6,3 +6,5 @@ package server
 // The log is still complete, just without per-line timestamps; the platforms
 // this daemon ships on (darwin, linux) use logtimestamp_unix.go.
 func timestampStderr() {}
+
+func flushTimestampStderr() {}

@@ -3238,9 +3238,13 @@ paths:
     get:
       operationId: listRoutines
       description: |
-        Routine definitions, newest first. A request with none of `page`,
-        `cursor`, or `q` receives the legacy bare array, except that `runs=1`
-        always receives the page object with a `runs` feed. Holder only.
+        Routine definitions, newest first. An explicitly paged request returns
+        list summaries; fetch `/api/routines/{id}` before editing its complete
+        prompt. A request with none of `page`,
+        `cursor`, `q`, or `routine_id` receives the legacy full definitions.
+        `routine_id` is a read scope for the run feed, not a definition filter;
+        callers must still `getRoutine` before editing. `runs=1` always
+        receives the page object.
       parameters:
         - in: query
           name: project_id
@@ -3280,6 +3284,18 @@ paths:
           schema:
             type: string
             enum: ["1"]
+        - in: query
+          name: runs_cursor
+          required: false
+          schema:
+            type: string
+          description: Return runs older than this task id. Independent of the definitions' cursor.
+        - in: query
+          name: routine_id
+          required: false
+          schema:
+            type: string
+          description: Restrict the requested runs feed to this routine on its owning machine.
         - in: query
           name: runs_limit
           required: false
@@ -7787,7 +7803,11 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Task"
-          description: Present only when the request asked for `runs=1`.
+          description: Run summaries only when the request asked for `runs=1` and an explicit list page. Full input stays on the run's detail read.
+        runs_next_cursor:
+          type: string
+        runs_has_more:
+          type: boolean
     RoutineCreateRequest:
       type: object
       required: [cwd, prompt]

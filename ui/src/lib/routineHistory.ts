@@ -1,9 +1,9 @@
 import type { Task } from "../api/client";
 
 /**
- * How many runs one page of a routine's history asks for. The tasks route caps
- * at the same number, so a page that came back full is the only "maybe more"
- * signal it gives — the response is a bare array, not a `{items, has_more}`.
+ * How many runs one page of a routine's history asks for. Local and relayed
+ * reads use the same routine summary route, whose explicit cursor and has_more
+ * are independent of the definitions' cursor.
  */
 export const ROUTINE_HISTORY_PAGE = 10;
 
@@ -27,8 +27,8 @@ export const ROUTINE_HISTORY_MAX = 200;
  * task id is a ULID: a run that started after the fetch (a scheduled run, Run
  * now) is newer than everything loaded and lands at the front, while an old run
  * whose read state just changed belongs in its chronological place instead of
- * above newer rows. It can also be older than the paging cursor; the cursor is
- * tracked separately (`pageCursor`) so that fold cannot move it.
+ * above newer rows. The page cursor is tracked separately so the fold cannot
+ * move it.
  *
  * An undefined list means the editor has not loaded that routine yet. A push
  * must not invent a partial history the fetch would then contradict; the fetch
@@ -85,17 +85,4 @@ export function reconcileRoutineReads(
   knownRead: ReadonlySet<string>,
 ): Task[] {
   return tasks.map((x) => (allRead || knownRead.has(x.id) ? { ...x, routine_unread: false } : x));
-}
-
-/**
- * The cursor for the page below the one just applied, or "" when that page was
- * empty.
- *
- * The daemon's `before` is a ULID cursor ("id < before"), so the oldest id the
- * page returned is the boundary. It is deliberately not the oldest loaded row:
- * a live push can place a much older run at the tail, and asking below that id
- * would skip every run between the fetched boundary and it.
- */
-export function pageCursor(page: Task[]): string {
-  return page.length > 0 ? page[page.length - 1].id : "";
 }
