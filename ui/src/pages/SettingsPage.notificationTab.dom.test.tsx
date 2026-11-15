@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { BrowserRouter, MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProviderEntry, Settings } from "../api/client";
 import { setLocale } from "../i18n";
 import { useAppStore } from "../store/appStore";
+import { parseNotificationRoute } from "../lib/notificationRoute";
 import SettingsPage from "./SettingsPage";
 
 /**
@@ -138,13 +139,13 @@ function CurrentURL() {
   return <output data-testid="url">{location.pathname + location.search}</output>;
 }
 
-function renderSettings(initialEntry = "/settings") {
+function renderSettings(initialEntry = "/settings", tapTo = "/settings?tab=routing") {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
-      <NotificationTap to="/settings?tab=routing" />
+      <NotificationTap to={tapTo} />
       <CurrentURL />
     </MemoryRouter>,
   );
@@ -219,5 +220,54 @@ describe("a settings notification tap while the page is mounted", () => {
 
     await waitFor(() => expect(panel("general").hidden).toBe(false));
     expect(screen.getByTestId("url").textContent).toBe("/settings");
+  });
+
+  it("opens General when a notification is canonicalized to /settings without ?tab=", async () => {
+    const user = userEvent.setup();
+    const target = parseNotificationRoute(
+      "https://console.example/settings?tab=general",
+      "https://console.example",
+    ).path;
+    expect(target).toBe("/settings");
+    renderSettings("/settings?tab=routing", target);
+    await screen.findByRole("tablist");
+    expect(panel("routing").hidden).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "tap notification" }));
+
+    await waitFor(() => expect(panel("general").hidden).toBe(false));
+    expect(panel("routing").hidden).toBe(true);
+    expect(screen.getByTestId("url").textContent).toBe("/settings");
+  });
+});
+
+describe("dirty settings tab changes and system Back", () => {
+  afterEach(() => {
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("reaches /sessions after one approved Back following dirty tab switches", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    window.history.replaceState(null, "", "/sessions");
+    window.history.pushState(null, "", "/settings?tab=advanced");
+    render(
+      <BrowserRouter>
+        <Routes>
+          <Route path="/sessions" element={<div data-testid="sessions">sessions</div>} />
+          <Route path="/settings" element={<SettingsPage />} />
+        </Routes>
+        <CurrentURL />
+      </BrowserRouter>,
+    );
+    const price = (await screen.findAllByDisplayValue("{}"))[0];
+    fireEvent.change(price, { target: { value: '{"mine":true}' } });
+
+    await user.click(screen.getByRole("tab", { name: "General" }));
+    await waitFor(() => expect(panel("general").hidden).toBe(false));
+
+    window.history.back();
+    await waitFor(() => expect(screen.getByTestId("sessions")).toBeTruthy());
+    expect(screen.getByTestId("url").textContent).toBe("/sessions");
   });
 });

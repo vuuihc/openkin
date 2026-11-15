@@ -44,6 +44,7 @@ import {
 import { normalizeSettingsTab, type SettingsTabId } from "../lib/areaNavigation";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useLeaveGuard } from "../hooks/useLeaveGuard";
+import { runGuardedNavigation } from "../lib/leaveGuard";
 import { applyTheme, getThemeMode, setThemeMode, type ThemeMode } from "../lib/theme";
 import { useAppStore } from "../store/appStore";
 import { useT } from "../i18n/react";
@@ -202,22 +203,19 @@ export default function SettingsPage() {
   );
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    // A URL without `tab` means "the Settings screen, not one of its sections"
-    // — a sidebar or palette trip back here. It must not hide the panel (and
-    // the draft) the reader is already on. A cold start at `?tab=` is covered
-    // by the initial state above.
-    if (!params.has("tab")) return;
+    // Absent `tab` is General (the settings root). A General notification is
+    // canonicalized to `/settings`, and a sidebar or palette trip to the
+    // root must show that panel. Drafts survive because every panel stays
+    // mounted (`hidden` in `SettingsTabPanel`).
     setActiveTab(renderedSettingsTab(normalizeSettingsTab(params.get("tab"))));
   }, [location.search]);
   const selectTab = useCallback(
     (tab: SettingsTabId) => {
-      setActiveTab(renderedSettingsTab(tab));
       const path = settingsTabPath(tab, location.pathname, location.search);
-      // Deferred to N3: rewriting the leave-guard sentinel in place while a
-      // draft is armed is a separate history bug (same-pathname replace lands
-      // on the former sentinel). `lib/leaveGuard.ts` and its test stay on
-      // main until that slice; a tab switch here is a plain replace.
-      navigate(path, { replace: true });
+      // Pop an armed leave-guard sentinel before the same-pathname replace so
+      // a dirty tab switch does not bury a Settings entry under a new sentinel.
+      if (!runGuardedNavigation(() => navigate(path, { replace: true }), true)) return;
+      setActiveTab(renderedSettingsTab(tab));
     },
     [navigate, location.pathname, location.search],
   );
