@@ -20,9 +20,15 @@ fi
 
 if [ "$CMD" = autofill ]; then
   [ -e "$STATE/PAUSE" ] && exit 0
+  # Astryx programme first: `autofill astryx` takes only sendbacks whose item is a slice id (or Q3a); `autofill rest` the others.
+  SCOPE="${2:-all}"
   for sb in "$STATE"/sendback/*.md; do
     [ -e "$sb" ] || continue
     slug="$(basename "$sb" .md)"
+    itm="$(sed -n 's/^item: *//p' "$sb" | head -1)"
+    is_astryx=$(python3 -c "import json,sys;ids={s['id'] for s in json.load(open('$RSI_DIR/astryx-slices.json'))['slices']};print(1 if sys.argv[1] in ids else 0)" "$itm" 2>/dev/null || echo 0)
+    [ "$SCOPE" = astryx ] && [ "$is_astryx" != 1 ] && continue
+    [ "$SCOPE" = rest ] && [ "$is_astryx" = 1 ] && continue
     # skip if some lane already works on it
     python3 "$LANES_PY" slugs | grep -qx "$slug" && continue
     idle="$(python3 "$LANES_PY" idle | head -1)"; [ -z "$idle" ] && { echo "no idle lane for rework $slug"; break; }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Astryx slice scheduler: which slices of rsi/astryx-slices.json can start now.
+"""Astryx slice scheduler (executor=cloud slices: see `cloud-pending` and lanes.py cloud-claim): which slices of rsi/astryx-slices.json can start now.
 
   slices.py ready [--json]   ready slices (deps merged, not in flight), flagged if they overlap an active lane
   slices.py status           done / in-flight / ready / waiting counts per track
@@ -36,8 +36,28 @@ def open_prs():
         return {p["number"] for p in json.loads(out)}
     except Exception: return None
 
+def cloud_claims():
+    out = []
+    for f in glob.glob(os.path.join(STATE, "cloud", "*.json")):
+        try: out.append(json.load(open(f)))
+        except Exception: pass
+    return out
+
+def cloud_expired():
+    out = set()
+    for f in glob.glob(os.path.join(STATE, "cloud", "expired", "*.json")):
+        try:
+            d = json.load(open(f))
+            if not os.path.basename(f).startswith("done-"): out.add(d.get("item"))
+        except Exception: pass
+    return out
+
+def executor(s):  # cloud only while the programme says so and an earlier hand-off was not left unlaunched
+    return "cloud" if s.get("executor") == "cloud" and s["id"] not in cloud_expired() else "local"
+
 def inflight():
     ops = open_prs(); fl = {}
+    for c in cloud_claims(): fl[c["item"]] = "cloud " + c["slug"]
     for r in lanes():
         it = r.get("item"); st = r.get("status")
         if not it: continue
@@ -61,6 +81,7 @@ def active_claims():
         try: d = json.load(open(f))
         except Exception: continue
         if d.get("status") in ("claimed", "running"): res.append(d)
+    for c in cloud_claims(): res.append(dict(c, lane="cloud"))
     return res
 
 def compute():
@@ -94,10 +115,17 @@ def main():
     if cmd == "ready":
         # Existing Q3a counts as satisfied only once merged; deps on it show as waiting until then.
         out = [(s, ov) for s, st, ov in rows if st == "ready"]
-        if "--json" in sys.argv: print(json.dumps([dict(id=s["id"], title=s["title"], size=s["size"], deps=s["deps"], paths=s["paths"], overlaps=ov) for s, ov in out], ensure_ascii=False, indent=1)); return
+        if "--local" in sys.argv: out = [(s, ov) for s, ov in out if executor(s) == "local"]
+        if "--json" in sys.argv: print(json.dumps([dict(id=s["id"], executor=executor(s), title=s["title"], size=s["size"], deps=s["deps"], paths=s["paths"], overlaps=ov) for s, ov in out], ensure_ascii=False, indent=1)); return
         if not out: print("(no ready Astryx slice)")
         for s, ov in out:
             print("%-5s %s size=%s deps=%s%s\n       paths: %s" % (s["id"], s["title"], s["size"], ",".join(s["deps"]) or "-", ("  ** OVERLAPS " + ov) if ov else "", ", ".join(s["paths"])))
+        return
+    if cmd == "cloud-pending":  # ready cloud slices still without a hand-off (capped by RSI_CLOUD_MAX outstanding)
+        cap = int(os.environ.get("RSI_CLOUD_MAX", "5")) - len(cloud_claims())
+        out = [s for s, st, ov in rows if st == "ready" and executor(s) == "cloud" and not ov][:max(cap, 0)]
+        if "--json" in sys.argv: print(json.dumps([dict(id=s["id"], title=s["title"], size=s["size"], deps=s["deps"], paths=s["paths"]) for s in out], ensure_ascii=False, indent=1)); return
+        for s in out: print("%-5s %s | paths: %s" % (s["id"], s["title"], ", ".join(s["paths"])))
         return
     # status
     tr = {}
