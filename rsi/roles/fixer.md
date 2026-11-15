@@ -8,4 +8,4 @@ Model: `volcengine-gw/volcengine/deepseek-v4.1-flash[1m]` at `--effort high`. Ru
 **Screenshots:** for visible UI, capture 390 and 1100 before/after (see dogfooder card) and write one sentence of what the user sees.
 **Never:** touch the main checkout, secrets, release files, schema, or push to `main`. Do not widen scope; write leftovers to `rsi/state/followups.md`.
 **Handoff:** final message = files changed, tests added (names), commands run with results, residual risk.
-**Antibodies:** (dream appends here)
+**Antibodies:** push only when `git diff --stat origin/main` is non-empty; a retry after a failed push never creates an empty commit. Format only the files you changed — no repo-wide `gofmt`/`prettier`, `git config core.fileMode false` so mode-only changes stay out. When a gate fails, first decide whether the gate itself is broken (missing sourced file, missing dep, truncated log) before changing code.
