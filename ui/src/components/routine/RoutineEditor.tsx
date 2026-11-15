@@ -4,16 +4,12 @@ import CwdPicker from "../chat/CwdPicker";
 import ModelPicker from "../chat/ModelPicker";
 import PermissionModePicker from "../chat/PermissionModePicker";
 import SheetSelect from "../ui/SheetSelect";
-import { DEFAULT_CONVERSATION_MODE, type ConversationMode } from "../../lib/routineConversation";
+import type { ConversationMode } from "../../lib/routineConversation";
 import type { PermissionMode } from "../../lib/permissionMode";
 import type { RoutineRule } from "../../lib/routineRecurrence";
 import { useT } from "../../i18n/react";
 import RoutineScheduleFields from "./RoutineScheduleFields";
 
-/**
- * The form's fields as one value, so the create draft can be handed back
- * untouched after an edit borrowed the form.
- */
 export type FormDraft = {
   title: string;
   prompt: string;
@@ -28,32 +24,8 @@ export type FormDraft = {
   nextRunLocal: string;
 };
 
-/** The form before anyone typed in it. */
-export function formDraftDefaults(): FormDraft {
-  return {
-    title: "",
-    prompt: "",
-    cwd: "",
-    agentId: "",
-    model: "",
-    permissionMode: "default",
-    conversationMode: DEFAULT_CONVERSATION_MODE,
-    intervalSecs: 86400,
-    rule: null,
-    ruleZone: null,
-    nextRunLocal: "",
-  };
-}
-
-/** Identity of a form state, for telling an untouched form from an edited one. */
-export function draftKey(draft: FormDraft): string {
-  return JSON.stringify(draft);
-}
-
 export type RoutineEditorProps = {
-  /** The whole form as one controlled value. */
   value: FormDraft;
-  /** The routine being edited; null while creating a new one. */
   editing: Routine | null;
   /** One patch per user edit, applied by the page's form state. */
   onChange: (patch: Partial<FormDraft>) => void;
@@ -63,31 +35,17 @@ export type RoutineEditorProps = {
   creating: boolean;
   /** creating || machineOffline: every field and Save is held. */
   formLocked: boolean;
-  /** Agents this machine offers; may be empty when it has none. */
   agents: AgentInfo[];
-  /** Models the selected agent reports. */
   models: AgentModelOption[];
   modelSource?: AgentInfo["model_list_source"];
   modelStatus?: AgentInfo["model_list_status"];
-  /** The machine the routine belongs to; its directories are the picker's. */
   deviceId: string;
-  /** The daemon's next-run answer for a repeated rule. */
   nextRunPreview?: number | null;
-  /** Plain sentence explaining what the next run continues or starts. */
   conversationHint: string;
-  /** The page focuses the first field when the form opens. */
   titleRef: RefObject<HTMLInputElement>;
-  /** The page scrolls and restores focus against this section. */
   sectionRef: RefObject<HTMLElement>;
 };
 
-/**
- * The routines create/edit form.
- *
- * Controlled and persistence-free: the page owns the draft, the leave guard,
- * and the create/patch calls. This component renders one value and reports
- * edits as a patch, so the form can be read, tested and moved on its own.
- */
 export default function RoutineEditor({
   value,
   editing,

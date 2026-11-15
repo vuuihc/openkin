@@ -22,7 +22,7 @@ import {
   parseLocalDateTime,
   toLocalInputValue,
 } from "../components/routine/RoutineScheduleFields";
-import RoutineEditor, { draftKey, type FormDraft } from "../components/routine/RoutineEditor";
+import RoutineEditor, { type FormDraft } from "../components/routine/RoutineEditor";
 import {
   describeRoutineRule,
   localTimeZone,
@@ -158,9 +158,8 @@ export default function RoutinesPage() {
   );
   // Signed default (2026-11-11): a routine's runs keep one agent session going
   // unless the reader asks for a new one per run.
-  const [conversationMode, setConversationMode] = useState<ConversationMode>(
-    DEFAULT_CONVERSATION_MODE,
-  );
+  const [conversationMode, setConversationMode] =
+    useState<ConversationMode>(DEFAULT_CONVERSATION_MODE);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // The form as it looked when it opened, so closing can tell an untouched
   // form from one that would lose typed words.
@@ -552,21 +551,14 @@ export default function RoutinesPage() {
   const formCwd = (cwd || editing?.cwd || "").trim();
   const conversationPrevious = previousConversation(
     conversationRuns,
-    editing
-      ? { id: editing.id, agent: agentId, cwd: formCwd, model }
-      : undefined,
+    editing ? { id: editing.id, agent: agentId, cwd: formCwd, model } : undefined,
   );
   // Only the continue hint waits on history: "start a new session each run"
   // needs to know nothing about the last run. While a first read is pending the
   // hint says it is reading rather than guessing "first run"; a refetch after
   // the page is already loaded keeps the known answer on screen (anti-flicker).
-  const conversationLoading =
-    !!editing && !!historyLoading[editing.id] && !history[editing.id];
-  const conversationPreview = nextRunConversation(
-    conversationMode,
-    conversationPrevious,
-    formCwd,
-  );
+  const conversationLoading = !!editing && !!historyLoading[editing.id] && !history[editing.id];
+  const conversationPreview = nextRunConversation(conversationMode, conversationPrevious, formCwd);
   const conversationHint =
     conversationMode === "fresh"
       ? tr("routines.conversationFreshHint", {
@@ -854,6 +846,8 @@ export default function RoutinesPage() {
     nextRunLocal,
   });
 
+  const draftKey = (draft: FormDraft): string => JSON.stringify(draft);
+
   const applyDraft = (draft: FormDraft) => {
     setTitle(draft.title);
     setPrompt(draft.prompt);
@@ -868,8 +862,7 @@ export default function RoutinesPage() {
     setNextRunLocal(draft.nextRunLocal);
   };
 
-  // The editor reports edits as one patch; each field is still its own state,
-  // so this is the same setter the field would have called directly.
+  // The editor reports one patch per edit; each field still has its own state.
   const applyPatch = (patch: Partial<FormDraft>) => {
     if (patch.title !== undefined) setTitle(patch.title);
     if (patch.prompt !== undefined) setPrompt(patch.prompt);
@@ -892,8 +885,7 @@ export default function RoutinesPage() {
    * Returns false when the reader chose to stay.
    */
   const closeForm = (force = false): boolean => {
-    const dirty =
-      openDraftRef.current !== null && draftKey(formDraft()) !== openDraftRef.current;
+    const dirty = openDraftRef.current !== null && draftKey(formDraft()) !== openDraftRef.current;
     if (!force && dirty && !window.confirm(tr("routines.discardConfirm"))) return false;
     openDraftRef.current = null;
     setShowCreate(false);
@@ -945,9 +937,7 @@ export default function RoutinesPage() {
   );
 
   const formDirty =
-    showCreate &&
-    openDraftRef.current !== null &&
-    draftKey(formDraft()) !== openDraftRef.current;
+    showCreate && openDraftRef.current !== null && draftKey(formDraft()) !== openDraftRef.current;
 
   // Leaving the screen (header back, edge swipe, palette) closes the form the
   // same way its own buttons do, so typed text is never dropped without the
