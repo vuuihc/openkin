@@ -192,10 +192,13 @@ job_shell_syntax() {
 
 # The installer is the path an agent runs end to end. Its contract tests use a
 # fake Docker, so they are fast and need no daemon; no other job executes the
-# script's behavior.
+# script's behavior. The merge-lane resolver test is the same shape: temp git
+# repos, stub regenerators, no network — the sendback path is load-bearing for
+# every UI PR, so it is checked here rather than only in the running loop.
 job_shell_test() {
   ./scripts/install-hub.test.sh || return 1
-  bash rsi/runtime/format-changed.test.sh
+  bash rsi/runtime/format-changed.test.sh || return 1
+  bash rsi/runtime/tests/test-merge-gen-resolve.sh
 }
 
 job_python_syntax() {

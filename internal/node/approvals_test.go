@@ -24,10 +24,24 @@ type fakeInbox struct {
 	refuse   error
 	waitErr  error
 	decision chan string
+	wake     chan struct{}
 }
 
 func newFakeInbox() *fakeInbox {
-	return &fakeInbox{rows: make(map[string]store.Approval), decision: make(chan string, 8)}
+	return &fakeInbox{
+		rows:     make(map[string]store.Approval),
+		decision: make(chan string, 8),
+		wake:     make(chan struct{}),
+	}
+}
+
+// bump wakes every in-flight WaitApproval so it re-checks the row and waitErr.
+// drop() and setWaitErr() used to leave a waiter blocked on the decision
+// channel — TestAQuestionWhoseRowIsGoneIsRefused then raced on whether await()
+// had already entered the wait before the row was deleted.
+func (f *fakeInbox) bump() {
+	close(f.wake)
+	f.wake = make(chan struct{})
 }
 
 func (f *fakeInbox) RequestApproval(_ context.Context, req task.CreateApprovalRequest) (store.Approval, error) {
@@ -43,30 +57,50 @@ func (f *fakeInbox) RequestApproval(_ context.Context, req task.CreateApprovalRe
 	return row, nil
 }
 
-func (f *fakeInbox) WaitApproval(ctx context.Context, id string, _ time.Duration) (store.Approval, error) {
-	f.mu.Lock()
-	row, ok := f.rows[id]
-	waitErr := f.waitErr
-	f.mu.Unlock()
-	if waitErr != nil {
-		return store.Approval{}, waitErr
+func (f *fakeInbox) WaitApproval(ctx context.Context, id string, timeout time.Duration) (store.Approval, error) {
+	var timer <-chan time.Time
+	if timeout > 0 {
+		t := time.NewTimer(timeout)
+		defer t.Stop()
+		timer = t.C
 	}
-	if !ok {
-		return store.Approval{}, store.ErrNotFound
-	}
-	if row.Decision != store.DecisionPending {
-		return row, nil
-	}
-	select {
-	case decision := <-f.decision:
+	for {
 		f.mu.Lock()
-		row = f.rows[id]
-		row.Decision = decision
-		f.rows[id] = row
+		row, ok := f.rows[id]
+		waitErr := f.waitErr
+		wake := f.wake
 		f.mu.Unlock()
-		return row, nil
-	case <-ctx.Done():
-		return store.Approval{}, ctx.Err()
+		if waitErr != nil {
+			return store.Approval{}, waitErr
+		}
+		if !ok {
+			return store.Approval{}, store.ErrNotFound
+		}
+		if row.Decision != store.DecisionPending {
+			return row, nil
+		}
+		select {
+		case decision := <-f.decision:
+			f.mu.Lock()
+			row, exists := f.rows[id]
+			if !exists {
+				f.mu.Unlock()
+				return store.Approval{}, store.ErrNotFound
+			}
+			row.Decision = decision
+			f.rows[id] = row
+			f.mu.Unlock()
+			return row, nil
+		case <-wake:
+			// drop / setWaitErr: loop and re-check rather than staying blocked.
+			continue
+		case <-timer:
+			// Honour the poll timeout the way the real engine does: return the
+			// still-pending row so await() can loop and see a row that vanished.
+			return row, nil
+		case <-ctx.Done():
+			return store.Approval{}, ctx.Err()
+		}
 	}
 }
 
@@ -114,6 +148,7 @@ func (f *fakeInbox) decided(id string) (string, string) {
 func (f *fakeInbox) setWaitErr(err error) {
 	f.mu.Lock()
 	f.waitErr = err
+	f.bump()
 	f.mu.Unlock()
 }
 
@@ -121,6 +156,7 @@ func (f *fakeInbox) setWaitErr(err error) {
 func (f *fakeInbox) drop(id string) {
 	f.mu.Lock()
 	delete(f.rows, id)
+	f.bump()
 	f.mu.Unlock()
 }
 
@@ -524,6 +560,32 @@ func TestARetryThatKeepsFailingIsNotRetoldEverySecond(t *testing.T) {
 // TestAQuestionWhoseRowIsGoneIsRefused is the other half of the same rule: when
 // the question itself is gone, there is nothing left to wait for, and the device
 // is told so rather than left polling a row that does not exist.
+func TestAWaitReturnsPromptlyWhenTheQuestionRowIsDropped(t *testing.T) {
+	t.Parallel()
+	inbox := newFakeInbox()
+	got, err := inbox.RequestApproval(context.Background(), task.CreateApprovalRequest{TaskID: "task-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, waitErr := inbox.WaitApproval(context.Background(), got.ID, time.Minute)
+		done <- waitErr
+	}()
+	// Give the waiter time to block so this covers the in-flight path, not
+	// the "row already gone" fast path.
+	time.Sleep(20 * time.Millisecond)
+	inbox.drop(got.ID)
+	select {
+	case waitErr := <-done:
+		if !errors.Is(waitErr, store.ErrNotFound) {
+			t.Fatalf("WaitApproval after drop: got %v, want store.ErrNotFound", waitErr)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("WaitApproval stayed blocked after the question row was dropped")
+	}
+}
+
 func TestAQuestionWhoseRowIsGoneIsRefused(t *testing.T) {
 	turns := NewTurns()
 	inbox := newFakeInbox()
