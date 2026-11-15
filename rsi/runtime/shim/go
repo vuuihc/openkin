@@ -1,0 +1,4 @@
+#!/bin/bash
+SHIM="$(cd "$(dirname "$0")" && pwd)"; HEAVY="$SHIM/../heavy.sh"
+REAL="$(PATH="${PATH//$SHIM:/}" command -v go)"
+case "$1" in test|build|vet) exec "$HEAVY" "$REAL" "$@";; *) exec "$REAL" "$@";; esac

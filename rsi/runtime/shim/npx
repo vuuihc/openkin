@@ -1,0 +1,8 @@
+#!/bin/bash
+SHIM="$(cd "$(dirname "$0")" && pwd)"; HEAVY="$SHIM/../heavy.sh"
+REAL="$(PATH="${PATH//$SHIM:/}" command -v npx)"
+case "$1" in
+  vitest|tsc|vite|eslint|prettier) exec "$HEAVY" "$REAL" "$@";;
+  --no-install|-y|--yes) case "$2" in vitest|tsc|vite|eslint|prettier) exec "$HEAVY" "$REAL" "$@";; *) exec "$REAL" "$@";; esac;;
+  *) exec "$REAL" "$@";;
+esac
