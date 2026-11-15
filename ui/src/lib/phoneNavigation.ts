@@ -593,13 +593,7 @@ export function phonePush(
   // link or a notification, not a tab switch), so a push into another area
   // replaces them: Back must still reach the screen before this area.
   const entryPoint = origin !== null || here === null || here.name === "settings.operations";
-  if (
-    idx !== null &&
-    idx > 0 &&
-    entryPoint &&
-    (origin !== null || parent !== null) &&
-    crossArea
-  ) {
+  if (idx !== null && idx > 0 && entryPoint && (origin !== null || parent !== null) && crossArea) {
     navigate(to, { replace: true, state: options?.state });
     return;
   }
