@@ -35,10 +35,6 @@ type Guard = { canLeave: () => boolean; dirty: () => boolean };
 let current: Guard | null = null;
 let armed = false;
 let sentinel: string | null = null;
-/** `idx` stamped on the armed sentinel, used to tell an in-place replace from a push. */
-let armedIdx: number | null = null;
-/** A URL a same-pathname replace left on the (former) sentinel; applied after that entry is popped. */
-let rewritingUrl: string | null = null;
 let listening = false;
 let pendingAction: (() => void) | null = null;
 /** The sentinel an in-flight departure is unwinding from. */
@@ -86,8 +82,6 @@ function armHistory(): void {
   window.history.pushState({ ...state, kinLeaveGuard: token }, "", window.location.href);
   sentinel = token;
   armed = true;
-  const idx = historyState()?.idx;
-  armedIdx = typeof idx === "number" ? idx : null;
   if (!listening) {
     window.addEventListener("popstate", onPopState);
     listening = true;
@@ -99,14 +93,12 @@ function releaseSentinel(): void {
   if (!sentinelIsTop()) {
     armed = false;
     sentinel = null;
-    armedIdx = null;
     return;
   }
   // The pop is asynchronous; onPopState treats an empty pending action as a
   // silent release (the guard may already be gone by then).
   armed = false;
   sentinel = null;
-  armedIdx = null;
   window.history.back();
 }
 
@@ -118,25 +110,8 @@ function reconcile(): void {
     // and its draft are still mounted either way, so the old token no longer
     // describes the top of the stack: arm again over the entry that is.
     if (armed && !sentinelIsTop() && !sheetIsTop()) {
-      const idx = historyState()?.idx;
-      // React Router's replace rewrites the top entry (often the sentinel)
-      // in place: the marker is gone but `idx` is unchanged, and the real
-      // page entry still sits underneath with the previous URL. Pop the
-      // rewritten former sentinel, then replace that real entry with the
-      // new URL and re-arm, so one approved Back leaves the screen.
-      const rewrittenInPlace =
-        typeof idx === "number" && armedIdx !== null && idx === armedIdx;
-      if (rewrittenInPlace && typeof window !== "undefined") {
-        rewritingUrl = window.location.href;
-        armed = false;
-        sentinel = null;
-        armedIdx = null;
-        window.history.back();
-        return;
-      }
       armed = false;
       sentinel = null;
-      armedIdx = null;
     }
     armHistory();
   } else releaseSentinel();
@@ -161,14 +136,6 @@ export function scheduleLeaveGuardReconcile(): void {
 }
 
 function onPopState(event: PopStateEvent): void {
-  if (rewritingUrl !== null) {
-    const url = rewritingUrl;
-    rewritingUrl = null;
-    const state = (event.state ?? {}) as Record<string, unknown>;
-    window.history.replaceState(state, "", url);
-    armHistory();
-    return;
-  }
   if (pendingAction) {
     const state = (event.state ?? null) as Record<string, unknown> | null;
     // A departure may have to walk back through entries the page does not own:
@@ -192,7 +159,6 @@ function onPopState(event: PopStateEvent): void {
     releasing = false;
     armed = false;
     sentinel = null;
-    armedIdx = null;
     const beforePathname = window.location.pathname;
     action();
     // A same-pathname navigation keeps the page mounted and still dirty.
@@ -221,7 +187,6 @@ function onPopState(event: PopStateEvent): void {
   // The sentinel was popped. The screen is still mounted and can be asked.
   armed = false;
   sentinel = null;
-  armedIdx = null;
   if (!current) return;
   if (current.canLeave()) {
     allowing = true;
@@ -306,8 +271,6 @@ export function resetLeaveGuard(): void {
   current = null;
   armed = false;
   sentinel = null;
-  armedIdx = null;
-  rewritingUrl = null;
   pendingAction = null;
   pendingToken = null;
   releasing = false;

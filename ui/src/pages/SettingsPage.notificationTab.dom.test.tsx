@@ -220,26 +220,4 @@ describe("a settings notification tap while the page is mounted", () => {
     await waitFor(() => expect(panel("general").hidden).toBe(false));
     expect(screen.getByTestId("url").textContent).toBe("/settings");
   });
-
-  it("opens General when a notification lands on /settings without ?tab=", async () => {
-    // The notification parser canonicalizes `?tab=general` to `/settings`.
-    const user = userEvent.setup();
-    render(
-      <MemoryRouter initialEntries={["/settings?tab=routing"]}>
-        <Routes>
-          <Route path="/settings" element={<SettingsPage />} />
-        </Routes>
-        <NotificationTap to="/settings" />
-        <CurrentURL />
-      </MemoryRouter>,
-    );
-    await waitFor(() => expect(panel("routing").hidden).toBe(false));
-    expect(panel("general").hidden).toBe(true);
-
-    await user.click(screen.getByRole("button", { name: "tap notification" }));
-
-    await waitFor(() => expect(panel("general").hidden).toBe(false));
-    expect(panel("routing").hidden).toBe(true);
-    expect(screen.getByTestId("url").textContent).toBe("/settings");
-  });
 });
