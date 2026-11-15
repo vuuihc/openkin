@@ -165,7 +165,11 @@ export function SettingsLayout({
               prototype gives every phone screen one nav bar — so the grid of
               tabs starts where the h1 was, not 30px lower. */}
           <h1 className="hidden text-hero font-bold tracking-tight md:block">{title}</h1>
-          <p className="text-strong leading-5 text-kin-secondary">{subtitle}</p>
+          {/* Tailwind 4's `space-y-1` is a bottom margin on the preceding
+              sibling, so the `hidden` h1 contributes no gap on a phone and the
+              description sat 4px high; the phone keeps its own gap and md
+              lets `space-y-1` supply the only one. */}
+          <p className="mt-1 text-strong leading-5 text-kin-secondary md:mt-0">{subtitle}</p>
         </div>
         <div
           role="tablist"
