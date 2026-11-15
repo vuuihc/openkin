@@ -43,6 +43,8 @@ type Props = {
    * (border, radius, padding, type size) stays the primitive's.
    */
   className?: string;
+  /** The trigger node, for a caller that needs to return focus to it. */
+  buttonRef?: RefObject<HTMLButtonElement | null>;
 };
 
 /**
@@ -73,7 +75,7 @@ type ChipProps = {
   disabled?: boolean;
   bordered: boolean;
   className?: string;
-  buttonRef?: RefObject<HTMLButtonElement>;
+  buttonRef?: RefObject<HTMLButtonElement | null>;
   onClick: () => void;
 };
 
@@ -116,9 +118,12 @@ function Chip({
   );
 }
 
-function labelOf(
-  { value, options, display, placeholder }: Pick<Props, "value" | "options" | "display" | "placeholder">,
-): string {
+function labelOf({
+  value,
+  options,
+  display,
+  placeholder,
+}: Pick<Props, "value" | "options" | "display" | "placeholder">): string {
   return display ?? options.find((option) => option.id === value)?.label ?? placeholder ?? value;
 }
 
@@ -132,6 +137,7 @@ function ActionSheetSelect({
   disabled,
   bordered = true,
   className,
+  buttonRef,
 }: Props) {
   const [open, setOpen] = useState(false);
   const current = labelOf({ value, options, display, placeholder });
@@ -146,6 +152,7 @@ function ActionSheetSelect({
         disabled={disabled}
         bordered={bordered}
         className={className}
+        buttonRef={buttonRef}
         onClick={() => setOpen(true)}
       />
       <ActionSheet
@@ -183,9 +190,13 @@ function MenuSelect({
   disabled,
   bordered = true,
   className,
+  buttonRef,
 }: Props) {
   const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const fallbackRef = useRef<HTMLButtonElement>(null);
+  // A caller-supplied ref is the trigger ref: anchoring and focus return read
+  // the same node, so there is only one object to keep in step.
+  const triggerRef = buttonRef ?? fallbackRef;
   const menuRef = useRef<HTMLDivElement>(null);
   const current = labelOf({ value, options, display, placeholder });
   const anchor = useAnchoredPanel(open, triggerRef, {
@@ -238,8 +249,11 @@ function MenuSelect({
     // Opening with the keyboard lands on the current choice, not the first
     // row: the next arrow then moves relative to what is set.
     const rows = menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]');
-    (menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitemradio"][aria-checked="true"]') ??
-      rows?.[0])?.focus({ preventScroll: true });
+    (
+      menuRef.current?.querySelector<HTMLButtonElement>(
+        '[role="menuitemradio"][aria-checked="true"]',
+      ) ?? rows?.[0]
+    )?.focus({ preventScroll: true });
   }, [open, anchored]);
 
   const onMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {

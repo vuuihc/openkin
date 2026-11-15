@@ -8,11 +8,7 @@ import AppShell from "./AppShell";
 import Sheet from "../mobile/Sheet";
 import SettingsPage from "../../pages/SettingsPage";
 import { setLocale } from "../../i18n";
-import {
-  isLeaveGuardArmed,
-  resetLeaveGuard,
-  runGuardedNavigation,
-} from "../../lib/leaveGuard";
+import { isLeaveGuardArmed, resetLeaveGuard, runGuardedNavigation } from "../../lib/leaveGuard";
 import { useAppStore } from "../../store/appStore";
 import type { Settings } from "../../api/client";
 
@@ -36,7 +32,7 @@ const baseSettings = {
   "relay.url": "",
   price_table: "{}",
   agent_limits: "{}",
-  "agent_roles": "[]",
+  agent_roles: "[]",
   "agent.default": "",
   limit_policy: "wait",
   "limit_policy.fallback_agents": "[]",
@@ -282,9 +278,7 @@ describe("the OAuth callback's cleanup", () => {
     await waitFor(() => expect(isLeaveGuardArmed()).toBe(true));
 
     act(() => window.history.back());
-    await waitFor(() =>
-      expect(confirm).toHaveBeenCalledWith("Discard unsaved settings changes?"),
-    );
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith("Discard unsaved settings changes?"));
     expect(window.location.pathname).toBe("/settings");
   });
 });
@@ -315,6 +309,9 @@ describe("navigating to the screen you are already on", () => {
     act(() => window.history.back());
     await waitFor(() => expect(confirm.mock.calls.length).toBe(asked + 1));
     expect(window.location.pathname).toBe("/settings");
+    // The allowed pop is asynchronous: press Back again only once the entry is
+    // re-armed, or the second press arrives mid-departure.
+    await waitFor(() => expect(isLeaveGuardArmed()).toBe(true));
 
     act(() => window.history.back());
     await waitFor(() => expect(window.location.pathname).toBe("/sessions"));

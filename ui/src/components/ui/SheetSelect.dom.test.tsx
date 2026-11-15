@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useEffect, useRef, type RefObject } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -36,10 +37,26 @@ function viewport(wide: boolean) {
 function setup(wide: boolean, value = "") {
   viewport(wide);
   const onChange = vi.fn();
-  render(
-    <SheetSelect label="Role" value={value} options={OPTIONS} onChange={onChange} />,
-  );
+  render(<SheetSelect label="Role" value={value} options={OPTIONS} onChange={onChange} />);
   return { onChange, chip: screen.getByRole("button", { name: /^Role/ }) };
+}
+
+/**
+ * A caller's ref, created the way a parent creates one. The component reads it
+ * as the trigger ref, so the node it points at is the chip the reader clicks.
+ */
+function RefHarness({ capture }: { capture: (ref: RefObject<HTMLButtonElement | null>) => void }) {
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => capture(buttonRef), [capture, buttonRef]);
+  return (
+    <SheetSelect
+      label="Role"
+      value=""
+      options={OPTIONS}
+      onChange={() => {}}
+      buttonRef={buttonRef}
+    />
+  );
 }
 
 beforeEach(() => {
@@ -75,6 +92,22 @@ describe("the sheet select on a Mac", () => {
     expect(document.activeElement).toBe(chip);
   });
 
+  it("sets the external button ref to the trigger node", () => {
+    viewport(true);
+    const captured: { ref: RefObject<HTMLButtonElement | null> | null } = { ref: null };
+    render(
+      <RefHarness
+        capture={(ref) => {
+          captured.ref = ref;
+        }}
+      />,
+    );
+
+    const chip = screen.getByRole("button", { name: /^Role/ });
+    expect(chip).toBeInstanceOf(HTMLButtonElement);
+    expect(captured.ref?.current).toBe(chip);
+  });
+
   it("closes on Escape without changing the value", async () => {
     const { onChange, chip } = setup(true, "reviewer");
     await userEvent.click(chip);
@@ -96,5 +129,19 @@ describe("the sheet select on a phone", () => {
     expect(sheet).toBeTruthy();
     expect(screen.getByRole("button", { name: "Reviewer" })).toBeTruthy();
     expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("keeps the trigger focused after choosing an option", async () => {
+    const { onChange, chip } = setup(false);
+    await userEvent.click(chip);
+    expect(screen.getByRole("dialog", { name: "Role" })).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "Reviewer" }));
+
+    expect(onChange).toHaveBeenCalledWith("reviewer");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // The sheet restores focus to whoever opened it; with React 19's ref
+    // cleanup timing, the chip must still be that node when the row answers.
+    expect(document.activeElement).toBe(chip);
   });
 });
