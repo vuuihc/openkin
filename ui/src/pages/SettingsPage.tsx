@@ -38,10 +38,9 @@ import {
   SettingsLayout,
   SettingsSection,
   SettingsTabPanel,
-  settingsTabFromSearch,
-  type SettingsTabId,
   type SettingsTabItem,
 } from "../components/settings/SettingsPrimitives";
+import { normalizeSettingsTab, type SettingsTabId } from "../lib/areaNavigation";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { applyTheme, getThemeMode, setThemeMode, type ThemeMode } from "../lib/theme";
@@ -63,6 +62,21 @@ function prettyJSON(raw: string | undefined, fallback: string): string {
   } catch {
     return raw ?? fallback;
   }
+}
+
+/**
+ * The panels this page can draw today.
+ *
+ * `operations` is a real settings destination — the area table owns it, a
+ * notification link can name it, and the palette can offer it — but its body
+ * arrives with N4, together with the Agent-operations move. Drawing the tab
+ * now would show a blank page, so the page renders General for it; the URL
+ * keeps the section, and N4 removes this narrowing when the panel lands.
+ */
+type RenderedSettingsTab = Exclude<SettingsTabId, "operations">;
+
+function renderedSettingsTab(tab: SettingsTabId): RenderedSettingsTab {
+  return tab === "operations" ? "general" : tab;
 }
 
 // Compare the role rows that are visible, not the serializer's output. A
@@ -156,8 +170,12 @@ export default function SettingsPage() {
   const [reveal, setReveal] = useState(false);
   const [busy, setBusy] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => getThemeMode());
-  const [activeTab, setActiveTab] = useState<SettingsTabId>(() =>
-    typeof window === "undefined" ? "general" : settingsTabFromSearch(window.location.search),
+  const [activeTab, setActiveTab] = useState<RenderedSettingsTab>(() =>
+    typeof window === "undefined"
+      ? "general"
+      : renderedSettingsTab(
+          normalizeSettingsTab(new URLSearchParams(window.location.search).get("tab")),
+        ),
   );
   const reconnectGen = useAppStore((s) => s.reconnectGen);
   const pushToast = useAppStore((s) => s.pushToast);

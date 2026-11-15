@@ -4,37 +4,41 @@
  * The palette used to hold its own answers: six hand-written navigation actions,
  * each one a `navigate("/…")` literal beside a locale key, plus a terminal row
  * gated by a `terminalAvailable` prop the shell computed from the panel registry.
- * So the same three facts — which places exist, which panels exist, and whether a
- * panel applies here — had two sources, and the palette's copy was the one nobody
- * remembered to update. This module is the palette asking the tables instead:
- * `PLACES` for where it can go, `availablePanels` for what it can open.
+ * Then N1 made the four areas the console's destinations, and the palette became
+ * the third surface — after the router and a notification tap — that must read
+ * that one table. So a destination is `AREAS`' row or it is not offered: the
+ * palette cannot list a place the area navigation does not, which is the drift
+ * this module exists to stop.
  *
- * It stays data-only, like both of those modules, so the guard that walks it runs
- * without a DOM.
+ * It stays data-only, like `areas.ts` and `panels.ts`, so the guard that walks
+ * it runs without a DOM. The icon is the area table's DOM-free icon id; the
+ * surface maps it to a component.
  *
  * Two things here are deliberately *not* derived, because they are not lists of
  * places: the recipe rows (they depend on the most recently active project, which
  * is live data) and the chat rows (the task list from the API).
  */
 
+import { areaById, MAC_NAV_AREA_IDS, type Area, type AreaId } from "./areas";
 import { availablePanels, type PanelContext, type PanelId } from "./panels";
-import { PLACES, type PlaceId } from "./places";
 
 /**
  * One row's worth of what to draw and what it does.
  *
  * `kind` is the whole difference between the two families, and it is in the type
- * rather than inferred from the id: a place navigates, a panel opens or closes,
+ * rather than inferred from the id: an area navigates, a panel opens or closes,
  * and the two ids come from different spaces that happen to share a name for
  * nothing.
  */
 export type PaletteEntry =
   | {
-      kind: "place";
-      id: PlaceId;
+      kind: "area";
+      id: AreaId;
+      /** The area root, from the table. */
       path: string;
       labelKey: string;
-      hint?: string;
+      /** DOM-free icon id; the surface maps it to its own component. */
+      icon: Area["icon"];
     }
   | {
       kind: "panel";
@@ -44,14 +48,18 @@ export type PaletteEntry =
     };
 
 /**
- * The palette's rows for this context: every place, then every panel that applies
- * here.
+ * The palette's rows for this context: every area the area navigation lists,
+ * then every panel that applies here.
  *
- * Order is the tables' order, so the palette reads the way the sidebar does and a
- * new row lands where its table says rather than at the end of a hand-written
- * list. Availability is asked, not assumed: `availablePanels` is the same call
- * that decides whether the panel's own toggle is drawn, so the palette cannot
- * offer something the header refuses to.
+ * Order is the tables' order, so the palette reads the way the area chrome does
+ * and a new area lands where its table row says rather than at the end of a
+ * hand-written list. Membership is asked of the same `macNav` flag the Mac
+ * navigation uses — an area that joins the phone model without entering the
+ * sidebar cannot silently appear here.
+ *
+ * Availability is asked, not assumed: `availablePanels` is the same call that
+ * decides whether the panel's own toggle is drawn, so the palette cannot offer
+ * something the header refuses to.
  *
  * What the *shell* asks with is the shell's own context — no session in front —
  * so in the running app the panel half of the list is the terminal and nothing
@@ -62,18 +70,21 @@ export type PaletteEntry =
  * where no session page is listening.
  */
 export function paletteEntries(ctx: PanelContext): PaletteEntry[] {
-  const places: PaletteEntry[] = PLACES.map((p) => ({
-    kind: "place",
-    id: p.id,
-    path: p.path,
-    labelKey: p.labelKey,
-    hint: p.hint,
-  }));
+  const areas: PaletteEntry[] = MAC_NAV_AREA_IDS.map((id) => {
+    const area = areaById(id);
+    return {
+      kind: "area",
+      id,
+      path: area.root,
+      labelKey: area.labelKey,
+      icon: area.icon,
+    };
+  });
   const panels: PaletteEntry[] = availablePanels(ctx).map((p) => ({
     kind: "panel",
     id: p.id,
     labelKey: p.titleKey,
     hint: p.hint,
   }));
-  return [...places, ...panels];
+  return [...areas, ...panels];
 }

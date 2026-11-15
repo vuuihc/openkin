@@ -7,17 +7,38 @@ import { canLeaveScreen, runGuardedNavigation } from "../lib/leaveGuard";
 import { phonePush } from "../lib/phoneNavigation";
 import { useT } from "../i18n/react";
 import { paletteEntries, type PaletteEntry } from "../lib/palette";
+import type { Area } from "../lib/areas";
 import type { PanelContext, PanelId } from "../lib/panels";
 import { listRecipes, type RecipeId } from "../recipes/catalog";
 import { launchRecipe } from "../recipes/launch";
 import { PANEL_ICONS, PLACE_ICONS } from "./placeIcons";
-import { IconSearch } from "./icons";
+import { IconFolder, IconSearch, type IconProps } from "./icons";
 import { useAppStore } from "../store/appStore";
+
+/**
+ * One icon per area, keyed by the table's icon id.
+ *
+ * A `Record` over the union the table derives, like `PLACE_ICONS`: a new area
+ * cannot ship as a grey question mark, because the compiler refuses this module
+ * until its glyph exists. `projects` has no place glyph — it was not a place
+ * before N2 — so it borrows the folder the shell already draws for a project.
+ */
+const AREA_ICONS: Record<Area["icon"], (p: IconProps) => ReactNode> = {
+  sessions: PLACE_ICONS.sessions,
+  projects: IconFolder,
+  routines: PLACE_ICONS.routines,
+  settings: PLACE_ICONS.settings,
+};
 
 type Props = {
   open: boolean;
   onClose: () => void;
-  /** `approved` marks that this caller already asked the page's leave guard. */
+  /**
+   * Retained for the shell's signature; the palette no longer lists the draft.
+   * The four areas own destinations and the draft is not one, so the row is
+   * gone. Removing the prop touches `AppShell.tsx`, outside this slice's
+   * footprint — it can go with the next shell change.
+   */
   onNewChat: (approved?: boolean) => void;
   /** Opens (or closes) a panel, in whichever view the shell owns. */
   onTogglePanel: (id: PanelId) => void;
@@ -58,18 +79,18 @@ function highlight(text: string, q: string): ReactNode {
  * opened there, and the palette only goes places and runs commands.
  *
  * The Actions section is not written here. It is `paletteEntries(panelCtx)` — every
- * place the shell can go, then every panel this context offers — so a place or a
- * panel added to its table turns up in this list by existing, rather than by being
- * remembered. The context is the shell's (no session in front), so the panel rows
- * here are the shell's panels; a session's own are opened from its header, for the
- * reason `paletteEntries` gives. What stays local is what a table cannot hold: the
- * copy (asked of the locale by the key the table names), the icons (`placeIcons`),
- * and the two closures a row needs to actually go somewhere.
+ * area the navigation lists, then every panel this context offers — so an area or
+ * a panel added to its table turns up in this list by existing, rather than by
+ * being remembered. The context is the shell's (no session in front), so the panel
+ * rows here are the shell's panels; a session's own are opened from its header,
+ * for the reason `paletteEntries` gives. What stays local is what a table cannot
+ * hold: the copy (asked of the locale by the key the table names), the icons
+ * (the area table's icon id, mapped by `AREA_ICONS`), and the closures a row
+ * needs to actually go somewhere.
  */
 export default function CommandPalette({
   open,
   onClose,
-  onNewChat,
   onTogglePanel,
   panelCtx,
 }: Props) {
@@ -134,23 +155,16 @@ export default function CommandPalette({
     const match = (s: string) => !q || s.toLowerCase().includes(q);
 
     // The palette's own rows, from the tables. `hint` is the row's own shortcut
-    // where one exists (`⌘N` on the draft, `Ctrl+\`` on the terminal), which is
-    // why it travels with the entry rather than being decided per kind here.
+    // where one exists (`Ctrl+\`` on the terminal), which is why it travels with
+    // the entry rather than being decided per kind here.
     const entryRuns = (entry: PaletteEntry): (() => void) => {
-      if (entry.kind === "place") {
+      if (entry.kind === "area") {
         return () => {
-          // Ask before anything moves: `onNewChat` navigates on its own, so a
-          // refusal after it would be a dead control (KIN-CONTINUE-002 review).
-          // The answer travels with the call, so the navigation does not ask a
-          // second time and reopen the same confirm.
+          // Ask before anything moves: leaving the screen through a destination
+          // row is still leaving it, and a page holding unsaved text gets the
+          // same question the back button asks.
           if (!canLeaveScreen()) return;
           onClose();
-          // The draft goes through the shell's own entry point: it focuses the
-          // existing draft instead of navigating to a second one.
-          if (entry.id === "new") {
-            onNewChat(true);
-            return;
-          }
           go(entry.path, true);
         };
       }
@@ -161,14 +175,14 @@ export default function CommandPalette({
     };
 
     const baseActions: Item[] = paletteEntries(panelCtx).map((entry) => {
-      // Namespaced so a place and a panel that share a word cannot collide in the
-      // React key list or in the icon lookup.
-      const Icon = entry.kind === "place" ? PLACE_ICONS[entry.id] : PANEL_ICONS[entry.id];
+      // Namespaced so an area and a panel that share a word cannot collide in
+      // the React key list or in the icon lookup.
+      const Icon = entry.kind === "area" ? AREA_ICONS[entry.icon] : PANEL_ICONS[entry.id];
       return {
         kind: "action" as const,
         id: `${entry.kind}:${entry.id}`,
         label: tr(entry.labelKey),
-        hint: entry.hint,
+        hint: entry.kind === "panel" ? entry.hint : undefined,
         icon: <Icon size={16} />,
         run: entryRuns(entry),
       };
@@ -230,7 +244,6 @@ export default function CommandPalette({
     go,
     launchingRecipe,
     onClose,
-    onNewChat,
     onTogglePanel,
     panelCtx,
     projects,

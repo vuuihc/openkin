@@ -9,6 +9,7 @@ import NotificationTaps from "./components/NotificationTaps";
 import AppShell from "./components/layout/AppShell";
 import ToastHost from "./components/ToastHost";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
+import ProjectsCollectionPage from "./pages/ProjectsCollectionPage";
 import NewChatPage from "./pages/NewChatPage";
 import SessionsRoute from "./pages/SessionsRoute";
 import StartRoute from "./pages/StartRoute";
@@ -195,6 +196,11 @@ export default function App() {
             <Route path="/approvals" element={<Navigate to="/sessions" replace />} />
             {/* Task detail UI is rendered by TaskSessionHost above. */}
             <Route path="/tasks/:id" element={null} />
+            {/* The Projects area root. `/agents` and `/usage` still render the
+                Agents page: their settings/operations destination has no panel
+                content until N4 hosts the tab, so redirecting now would be a
+                blank tab. `App.areaRoutes.test.ts` pins that deferral. */}
+            <Route path="/projects" element={<ProjectsCollectionPage />} />
             <Route path="/projects/:id" element={<ProjectDetailPage />} />
             <Route path="/agents" element={<AgentsPage />} />
             <Route path="/routines" element={<RoutinesPage />} />

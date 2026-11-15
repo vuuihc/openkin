@@ -257,16 +257,18 @@ describe("the list under a conversation", () => {
     expect(screen.getByRole("heading", { name: "Chats" })).toBeTruthy();
   });
 
-  it("puts the list under a draft started from the palette on a destination", async () => {
+  it("puts the list under a palette destination opened from another destination", async () => {
+    // N2: the palette lists the four area destinations and no longer starts a
+    // draft, so the same history rule is proven with a destination row.
     const user = userEvent.setup();
     browser("/routines");
     expect((await screen.findAllByRole("heading", { name: "Routines" })).length).toBeGreaterThan(0);
 
     fireEvent.keyDown(window, { key: "k", metaKey: true });
-    await user.click(await screen.findByRole("button", { name: /New chat/ }));
-    await waitFor(() => expect(window.location.pathname).toBe("/new"));
+    await user.click(await screen.findByRole("button", { name: "Projects" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/projects"));
 
-    await user.click(screen.getByRole("button", { name: "Close" }));
+    await browserBack();
     await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
     expect(screen.getByRole("heading", { name: "Chats" })).toBeTruthy();
   });
