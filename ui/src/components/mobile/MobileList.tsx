@@ -6,7 +6,9 @@ import { MobileChevron } from "./MobileHeader";
  *
  * `overflow-y-auto` on the page rather than on the document: the shell is a
  * fixed-height column, and a page that scrolled the document would take the
- * header and the footer with it.
+ * header and the footer with it. Its implicit `overflow-x: auto` would also let
+ * the browser cancel a blank-content horizontal tab swipe: explicitly clip it.
+ * Components that genuinely scroll horizontally own that behavior themselves.
  *
  * Nothing is reserved for a floating pill here. The phone list page's footer
  * is a flex sibling of this container (KIN-CONTINUE-002), so the scroll body
@@ -120,7 +122,9 @@ export function MobileScreen({
     <div
       ref={ref}
       data-phone-scroll={scrollKey ? "" : undefined}
-      className={["flex-1 min-h-0 overflow-y-auto kin-scroll", className].join(" ")}
+      className={["flex-1 min-h-0 overflow-y-auto overflow-x-hidden kin-scroll", className].join(
+        " ",
+      )}
     >
       {children}
     </div>
@@ -282,7 +286,9 @@ export function MobileEmpty({
     <div className="flex flex-col items-center px-8 py-16 text-center">
       {icon ? <div className="mb-3 text-kin-muted opacity-70">{icon}</div> : null}
       <p className="text-subtitle font-medium text-kin-text">{title}</p>
-      {hint ? <p className="mt-1.5 max-w-[18rem] text-body leading-prose text-kin-muted">{hint}</p> : null}
+      {hint ? (
+        <p className="mt-1.5 max-w-[18rem] text-body leading-prose text-kin-muted">{hint}</p>
+      ) : null}
       {action ? <div className="mt-4">{action}</div> : null}
     </div>
   );

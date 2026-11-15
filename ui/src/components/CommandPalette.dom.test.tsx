@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  BrowserRouter,
+  MemoryRouter,
+  useLocation,
+  useNavigate,
+  useNavigationType,
+} from "react-router-dom";
 import { setLocale, t } from "../i18n";
 import { resetLeaveGuard, setLeaveGuard } from "../lib/leaveGuard";
 import CommandPalette from "./CommandPalette";
@@ -36,9 +42,11 @@ vi.mock("../api/client", async () => {
 function Probe({ onNewChat = vi.fn() }: { onNewChat?: () => void } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
+  const action = useNavigationType();
   return (
     <>
       <span data-testid="path">{location.pathname}</span>
+      <span data-testid="action">{action}</span>
       <button type="button" onClick={() => navigate(-1)}>
         back
       </button>
@@ -124,6 +132,24 @@ describe("the command palette", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "back" }));
     expect(screen.getByTestId("path").textContent).toBe("/sessions");
+  });
+
+  it("replaces a cold routines root from the palette without inventing a list parent", async () => {
+    viewport(false);
+    window.history.replaceState({ idx: 0 }, "", "/routines");
+    render(
+      <BrowserRouter>
+        <Probe />
+      </BrowserRouter>,
+    );
+    expect(screen.getByTestId("path").textContent).toBe("/routines");
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await waitFor(() => expect(screen.getByTestId("path").textContent).toBe("/settings"));
+    expect(screen.getByTestId("action").textContent).toBe("REPLACE");
+    expect(window.history.state.idx).toBe(0);
+    act(() => window.history.back());
+    // This is a real root replacement: no synthetic list exists underneath.
+    await waitFor(() => expect(window.location.pathname).not.toBe("/sessions"));
   });
 
   it("keeps ordinary browser history on a Mac", () => {

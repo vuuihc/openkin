@@ -232,6 +232,14 @@ export default function SessionList({
   const archivingSelectionRef = useRef(false);
   const selectionBusy = deletingSelection || archivingSelection;
   const selectionEpoch = useRef(0);
+  // The row that started multi-select. An explicit Escape or Cancel hands the
+  // keyboard back to it; every other way out (a batch, a filter change, a row
+  // that was deleted) must leave focus where it is.
+  const selectionOriginId = useRef<string | null>(null);
+  // A row to focus on the next commit. Entering and leaving the mode both
+  // replace the row element, so the browser drops focus to <body> unless it is
+  // put back; Escape would then have no row in the list to travel through.
+  const focusRowAfterCommit = useRef<string | null>(null);
   const [swipeOpen, setSwipeOpen] = useState<string | null>(null);
   const [prefsTick, setPrefsTick] = useState(0);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -245,9 +253,24 @@ export default function SessionList({
   useEffect(() => subscribeProjectSidebar(() => setPrefsTick((n) => n + 1)), []);
   useEffect(() => {
     selectionEpoch.current += 1;
+    selectionOriginId.current = null;
     setSelectionMode(false);
     setSelectedIds(new Set());
   }, [query, status, scope]);
+
+  // A focused move is one-shot and belongs to the mode change itself: the ref
+  // is consumed in the commit that flips `selectionMode`, so a later list
+  // update cannot pull focus back — and a commit that lands between the key
+  // press and that flip cannot spend the ref on a row the flip will replace.
+  useEffect(() => {
+    const id = focusRowAfterCommit.current;
+    if (!id) return;
+    focusRowAfterCommit.current = null;
+    Array.from(listRef.current?.querySelectorAll<HTMLElement>("[data-session-row]") ?? [])
+      .find((row) => row.dataset.sessionRow === id)
+      ?.focus();
+    // Only the mode flip consumes the ref; `selectionMode` is the whole input.
+  }, [selectionMode]);
 
   const draftPrompt = useSyncExternalStore(subscribeDraft, getDraftPrompt, () => "");
   const draftCwd = useSyncExternalStore(subscribeDraft, getDraftCwd, () => "");
@@ -625,6 +648,7 @@ export default function SessionList({
         selectionLocked={selectionBusy}
         selectedIds={selectedIds}
         onToggleSelect={toggleSelected}
+        onStartSelection={enterSelection}
         onLongPress={enterSelection}
         swipeOpen={swipeOpen}
         onSwipeOpenChange={setSwipeOpen}
@@ -673,6 +697,8 @@ export default function SessionList({
 
   function enterSelection(row: PhoneSessionRow) {
     if (!rowSelectable(row, scope)) return;
+    selectionOriginId.current = row.task!.id;
+    focusRowAfterCommit.current = row.task!.id;
     setSelectionMode(true);
     setSelectedIds(new Set([row.task!.id]));
     setSwipeOpen(null);
@@ -694,10 +720,15 @@ export default function SessionList({
     });
   }
 
-  function exitSelection() {
+  /** `restoreFocus` is for a person leaving on purpose (Escape, Cancel). Batch
+   *  work and automatic cleanup leave the keyboard alone. */
+  function exitSelection(restoreFocus = false) {
+    const origin = selectionOriginId.current;
+    selectionOriginId.current = null;
     selectionEpoch.current += 1;
     setSelectionMode(false);
     setSelectedIds(new Set());
+    if (restoreFocus) focusRowAfterCommit.current = origin;
   }
 
   function pinSelected() {
@@ -968,6 +999,15 @@ export default function SessionList({
 
   function onListKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (event.defaultPrevented || isImeKeyEvent(event.nativeEvent)) return;
+    if (event.key === "Escape") {
+      // Escape belongs to the field a person is typing in; only an active
+      // selection claims it here, and it leaves through the same path as the
+      // toolbar's Cancel so focus returns to the row that started it.
+      if (!selectionMode) return;
+      event.preventDefault();
+      exitSelection(true);
+      return;
+    }
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     const rows = sessionRows();
     const at = rows.indexOf(document.activeElement as HTMLElement);
@@ -1072,7 +1112,10 @@ export default function SessionList({
         )}
 
       {selectionMode && (
-        <div className="sticky top-0 z-[3] flex min-h-12 items-center gap-2 border-b border-[var(--kin-hairline)] bg-[var(--kin-page)] px-3 kin-glass">
+        <div
+          data-selection-toolbar
+          className="sticky top-0 z-[3] flex min-h-12 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--kin-hairline)] bg-[var(--kin-page)] px-2.5 py-1.5 kin-glass"
+        >
           <label className="flex min-h-11 items-center gap-2 text-strong font-medium text-kin-text">
             <SelectAllCheckbox
               checked={selectedIds.size > 0 && selectedIds.size === selectableCount}
@@ -1082,6 +1125,9 @@ export default function SessionList({
             />
             {tr("sessions.selectedCount", { count: String(selectedIds.size) })}
           </label>
+          {/* Icon-only batch actions keep three 44px targets and Cancel on one
+              line of a 248px sidebar. The viewport `sm:` labels this replaces
+              answered the window's width, not the sidebar's. */}
           <div className="ml-auto flex items-center gap-1.5">
             {scope !== "archived" && (
               <button
@@ -1090,10 +1136,9 @@ export default function SessionList({
                 disabled={selectedIds.size === 0 || selectionBusy}
                 aria-label={pinLabel}
                 title={pinLabel}
-                className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-[var(--kin-fill)] px-2.5 text-body font-medium text-kin-text disabled:opacity-40 sm:px-3"
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-[var(--kin-fill)] text-body font-medium text-kin-text disabled:opacity-40"
               >
                 <IconPin size={14} />
-                <span className="hidden sm:inline">{pinLabel}</span>
               </button>
             )}
             <button
@@ -1102,12 +1147,9 @@ export default function SessionList({
               disabled={selectedIds.size === 0 || selectionBusy}
               aria-label={tr(scope === "archived" ? "sessions.restore" : "sessions.archive")}
               title={tr(scope === "archived" ? "sessions.restore" : "sessions.archive")}
-              className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-[var(--kin-fill)] px-2.5 text-body font-medium text-kin-text disabled:opacity-40 sm:px-3"
+              className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-[var(--kin-fill)] text-body font-medium text-kin-text disabled:opacity-40"
             >
               {scope === "archived" ? <IconRestore size={14} /> : <IconArchive size={14} />}
-              <span className="hidden sm:inline">
-                {tr(scope === "archived" ? "sessions.restore" : "sessions.archive")}
-              </span>
             </button>
             <button
               type="button"
@@ -1118,17 +1160,16 @@ export default function SessionList({
               }
               title={deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")}
               aria-busy={deletingSelection || undefined}
-              className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-kin-red/15 px-2.5 text-body font-medium text-kin-red-ink disabled:opacity-40 sm:px-3"
+              className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-kin-red/15 text-body font-medium text-kin-red-ink disabled:opacity-40"
             >
               <IconTrash size={14} />
-              <span className="hidden sm:inline">
-                {deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")}
-              </span>
             </button>
             <button
               type="button"
-              onClick={exitSelection}
-              className="flex min-h-11 min-w-11 items-center justify-center rounded-lg px-2.5 text-body font-medium text-kin-muted hover:text-kin-text sm:px-3"
+              onClick={() => exitSelection(true)}
+              aria-label={tr("common.cancel")}
+              title={tr("common.cancel")}
+              className="flex min-h-11 min-w-11 items-center justify-center rounded-lg px-2.5 text-body font-medium text-kin-muted hover:text-kin-text"
             >
               {tr("common.cancel")}
             </button>
@@ -1469,6 +1510,7 @@ function ProjectBucket({
   selectionLocked,
   selectedIds,
   onToggleSelect,
+  onStartSelection,
   onLongPress,
   swipeOpen,
   onSwipeOpenChange,
@@ -1507,6 +1549,7 @@ function ProjectBucket({
   selectionLocked: boolean;
   selectedIds: ReadonlySet<string>;
   onToggleSelect: (id: string) => void;
+  onStartSelection: (row: PhoneSessionRow) => void;
   onLongPress: (row: PhoneSessionRow) => void;
   swipeOpen: string | null;
   onSwipeOpenChange: (open: string | null) => void;
@@ -1678,6 +1721,7 @@ function ProjectBucket({
               onToggleSelect={() => {
                 if (row.task) onToggleSelect(row.task.id);
               }}
+              onStartSelection={() => onStartSelection(row)}
               onLongPress={() => onLongPress(row)}
               swipeOpen={swipeOpen === row.key}
               onSwipeOpenChange={(open) => onSwipeOpenChange(open ? row.key : null)}
