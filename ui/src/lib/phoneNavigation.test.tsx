@@ -9,7 +9,13 @@ import {
   type NavigateFunction,
 } from "react-router-dom";
 import { useEffect } from "react";
-import { notePhoneLocation, phonePush, resetPhoneNavigation } from "./phoneNavigation";
+import {
+  notePhoneLocation,
+  phonePush,
+  resetPhoneNavigation,
+  returnAreaUrl,
+  returnListUrl,
+} from "./phoneNavigation";
 import { synthesizePhoneParent } from "./phoneDeepLinkParent";
 
 /**
@@ -95,6 +101,7 @@ function viewport(wide = false) {
 }
 
 beforeEach(() => {
+  vi.restoreAllMocks();
   resetPhoneNavigation();
   window.history.replaceState({ idx: 0 }, "", "/");
   sessionStorage.clear();
@@ -105,19 +112,21 @@ beforeEach(() => {
 });
 
 describe("the list as a phone screen's parent", () => {
-  it("stamps a destination pushed from the list and replaces it from there", async () => {
+  it("stamps a destination pushed from the list and keeps it under the next push", async () => {
     const mounted = await mountAt("/sessions?search=alpha");
     pushPhone("/projects/p1");
     await waitFor(() => expect(window.location.pathname).toBe("/projects/p1"));
     expect(window.history.state.idx).toBe(1);
     expect(marker()).toMatchObject({ token: expect.any(String), parentIdx: 0 });
 
-    // From that project, pushing a conversation replaces it instead of
-    // stacking the list a second time.
+    // The project cover is the original entry a conversation was opened from
+    // (the signed table: "project entry returns to that project cover"). It
+    // stays underneath; Back pops to it, not to the list.
     pushPhone("/tasks/t1");
     await waitFor(() => expect(window.location.pathname).toBe("/tasks/t1"));
-    expect(window.history.state.idx).toBe(1);
+    expect(window.history.state.idx).toBe(2);
 
+    await backTo("/projects/p1");
     await backTo("/sessions");
     expect(window.location.search).toBe("?search=alpha");
     expect(window.history.state.idx).toBe(0);
@@ -155,15 +164,15 @@ describe("the list as a phone screen's parent", () => {
     mounted.unmount();
   });
 
-  it("synthesizes exactly one list under a cold project with no list evidence", async () => {
+  it("keeps a cold project entry under the conversation opened from it", async () => {
     const mounted = await mountAt("/projects/p1");
     pushPhone("/tasks/t1");
     await waitFor(() => expect(window.location.pathname).toBe("/tasks/t1"));
 
-    // [list, task]: the project's entry became the list, and the task was one
-    // push above it.
+    // [project, task]: the real entry stays underneath; no list is invented
+    // in place of the page the person was actually on.
     expect(window.history.state.idx).toBe(1);
-    await backTo("/sessions");
+    await backTo("/projects/p1");
     expect(window.history.state.idx).toBe(0);
     mounted.unmount();
   });
@@ -185,7 +194,8 @@ describe("evidence across reload and Forward", () => {
 
     pushPhone("/tasks/t1");
     await waitFor(() => expect(window.location.pathname).toBe("/tasks/t1"));
-    expect(window.history.state.idx).toBe(1);
+    expect(window.history.state.idx).toBe(2);
+    await backTo("/projects/p1");
     await backTo("/sessions");
     expect(window.history.state.idx).toBe(0);
     reloaded.unmount();
@@ -209,7 +219,8 @@ describe("evidence across reload and Forward", () => {
 
     pushPhone("/tasks/t1");
     await waitFor(() => expect(window.location.pathname).toBe("/tasks/t1"));
-    expect(window.history.state.idx).toBe(1);
+    expect(window.history.state.idx).toBe(2);
+    await backTo("/projects/p1");
     await backTo("/sessions");
     expect(window.location.search).toBe("?search=beta");
     mounted.unmount();
@@ -245,8 +256,10 @@ describe("evidence across reload and Forward", () => {
     const mounted = await remountCurrent();
     pushPhone("/tasks/t1");
     await waitFor(() => expect(window.location.pathname).toBe("/tasks/t1"));
-    expect(window.history.state.idx).toBe(1);
-    await backTo("/sessions");
+    expect(window.history.state.idx).toBe(2);
+    await backTo("/projects/p1");
+    await backTo("/projects");
+    expect(window.history.state.idx).toBe(0);
     mounted.unmount();
   });
 
@@ -262,9 +275,11 @@ describe("evidence across reload and Forward", () => {
     const restored = await remountCurrent();
     expect(marker().token).toBe(before.token);
 
-    pushPhone("/tasks/t1");
-    await waitFor(() => expect(window.location.pathname).toBe("/tasks/t1"));
-    expect(window.history.state.idx).toBe(1);
+    // The marker still names the depth the area root was minted for, so a tab
+    // press pops to the real entry instead of stacking a second list.
+    pushPhone("/sessions");
+    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    expect(window.history.state.idx).toBe(0);
     restored.unmount();
   });
 });
@@ -287,6 +302,70 @@ describe("root peers on a deeper history entry", () => {
   });
 });
 
+describe("four area stacks on a phone", () => {
+  it("a tab switch replaces the top entry and never pops the area you left", async () => {
+    const mounted = await mountAt("/sessions");
+    const go = vi.spyOn(window.history, "go");
+
+    // Three round trips: projects replaces the conversations root each time.
+    // The depth never grows and no [projects, conversation, projects,
+    // conversation] loop can form, because a switch is a replace, not a push.
+    for (let round = 0; round < 3; round += 1) {
+      pushPhone("/projects");
+      await waitFor(() => expect(window.location.pathname).toBe("/projects"));
+      expect(window.history.state.idx).toBe(0);
+
+      pushPhone("/sessions");
+      await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+      expect(window.history.state.idx).toBe(0);
+    }
+    expect(go).not.toHaveBeenCalledWith(-1);
+
+    go.mockRestore();
+    mounted.unmount();
+  });
+
+  it("each area remembers its own root URL", async () => {
+    const mounted = await mountAt("/sessions?search=a&status=pending");
+    pushPhone("/routines?device=node-1");
+    await waitFor(() => expect(window.location.pathname).toBe("/routines"));
+
+    // Each area answers with its own root, filters and device included.
+    expect(returnListUrl({ pathname: "/routines", search: "?device=node-1" })).toBe(
+      "/sessions?search=a&status=pending",
+    );
+    expect(returnAreaUrl({ pathname: "/routines", search: "?device=node-1" })).toBe(
+      "/routines?device=node-1",
+    );
+
+    // A push under routines returns to the routines root, not to Chats.
+    pushPhone("/machines/node-1/tasks/t1");
+    await waitFor(() => expect(window.location.pathname).toBe("/machines/node-1/tasks/t1"));
+    expect(window.history.state.idx).toBe(1);
+    await backTo("/routines");
+    expect(window.location.search).toBe("?device=node-1");
+    expect(window.history.state.idx).toBe(0);
+
+    // And a push under conversations returns to the list's own filters.
+    pushPhone("/sessions?search=a&status=pending");
+    await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
+    pushPhone("/tasks/t2");
+    await waitFor(() => expect(window.location.pathname).toBe("/tasks/t2"));
+    expect(window.history.state.idx).toBe(1);
+    await backTo("/sessions");
+    expect(window.location.search).toBe("?search=a&status=pending");
+    expect(window.history.state.idx).toBe(0);
+
+    // A bare tab path — what the footer and the swipe pass — returns the area
+    // root the reader last had, device included.
+    pushPhone("/routines");
+    await waitFor(() => expect(window.location.pathname).toBe("/routines"));
+    expect(window.location.search).toBe("?device=node-1");
+    expect(window.history.state.idx).toBe(0);
+    mounted.unmount();
+  });
+});
+
 describe("evidence that must not be trusted", () => {
   it("refuses a marker copied onto a deeper entry", async () => {
     const mounted = await mountAt("/sessions");
@@ -302,10 +381,10 @@ describe("evidence that must not be trusted", () => {
 
     pushPhone("/tasks/t1");
     await waitFor(() => expect(window.location.pathname).toBe("/tasks/t1"));
-    // The marker names depth 0, but this entry is at depth 2: the list was
-    // synthesized at depth 2 rather than trusted from the copied marker.
+    // The marker names depth 0, but this entry is at depth 2: the copied
+    // marker is refused and the conversation is pushed above the real entry.
     expect(window.history.state.idx).toBe(3);
-    await backTo("/sessions");
+    await backTo("/projects/p2");
     expect(window.history.state.idx).toBe(2);
     mounted.unmount();
   });
@@ -324,9 +403,11 @@ describe("evidence that must not be trusted", () => {
 
     pushPhone("/tasks/t1");
     await waitFor(() => expect(window.location.pathname).toBe("/tasks/t1"));
-    // The settings entry became the list (one replacement), then the task was
-    // pushed above it. The old list record at depth 0 did not survive.
+    // The settings root replaced the list at depth 0 and became the task's
+    // parent. The old list record at that depth did not survive.
     expect(window.history.state.idx).toBe(1);
+    await backTo("/settings");
+    expect(window.history.state.idx).toBe(0);
     mounted.unmount();
   });
 });
