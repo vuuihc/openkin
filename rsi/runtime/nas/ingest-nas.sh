@@ -3,9 +3,10 @@
 # (tsc, UI inventory, vitest) under heavy.sh, push rsi/<slug> (normal push, never force), open or update
 # the PR, record it like a lane, release the cloud claim, kick merge.sh. Failed jobs release the claim
 # so the slice can fall back to a local or box lane.
-# Ownership is never assumed: a claim is released only by the run whose launched_at stamp it carries
-# (under the scheduler flock), an existing worktree is only fast-forwarded when clean, on-branch and an
-# ancestor of the bundle, and the published branch/PR head must already contain the NAS commit.
+# Ownership is never assumed: a claim is released or a result published only when job.json carries a valid
+# launched_at and the claim carries the same stamp (under the scheduler flock), an existing worktree is only
+# fast-forwarded while the per-slug merge lock is held and cannot discard a newer HEAD, and the published
+# branch/PR head must already contain the NAS commit.
 # Idempotent twice over: handled jobs are marked `ingested`/`held` on the NAS and their run identity is
 # recorded in state/nas/acks.txt, so a second pulse does no work and writes no second history/notice.
 # Every remote call is bounded (M8); the job list is read on fd 3 so ssh cannot drain it (M3).
@@ -38,6 +39,45 @@ fi
 acked() { grep -qxF "$1" "$STATE/nas/acks.txt" 2>/dev/null; }
 ack() { echo "$1" >> "$STATE/nas/acks.txt"; }
 
+# A run identity is a positive finite number from job.json. Missing, malformed or legacy metadata prints
+# nothing, and callers must then neither release the claim nor publish the result (M3).
+run_ident() { # FILE KEY
+  python3 - "$1" "$2" <<'PYI' 2>/dev/null
+import json,math,sys
+try: v=json.load(open(sys.argv[1])).get(sys.argv[2])
+except Exception: sys.exit(1)
+if isinstance(v,bool) or v is None: sys.exit(1)
+try: f=float(v)
+except Exception: sys.exit(1)
+if not math.isfinite(f) or f<=0: sys.exit(1)
+print(v)
+PYI
+}
+
+# The merge lane owns a slug's worktree through state/merge/<slug>.lock (a directory holding its pid).
+# Ingest takes the same lock for its worktree mutation, so a verifier cannot commit between our checks and
+# the fast-forward, and ingest never touches a worktree a live verifier is using (M4).
+SLUG_LOCK=""
+slug_lock_drop() { [ -n "$SLUG_LOCK" ] && rm -rf "$SLUG_LOCK"; SLUG_LOCK=""; }
+trap slug_lock_drop EXIT
+slug_lock_take() { # SLUG — 0 taken, 1 owned by a live merge worker
+  local L="$STATE/merge/$1.lock" pid n=0
+  mkdir -p "$STATE/merge"
+  while [ "$n" -lt 5 ]; do
+    if mkdir "$L" 2>/dev/null; then echo $$ > "$L/pid"; SLUG_LOCK="$L"; return 0; fi
+    pid="$(cat "$L/pid" 2>/dev/null || true)"
+    [ -z "$pid" ] && return 1                    # freshly created or unknown owner: not provably stale
+    kill -0 "$pid" 2>/dev/null && return 1
+    # Reclaim a dead verifier's lock atomically, so two pulses cannot both "reclaim" and take it.
+    if mv "$L" "$L.stale.$$" 2>/dev/null; then rm -rf "$L.stale.$$"; fi
+    n=$((n+1))
+  done
+  return 1
+}
+
+# A local lane owns the same worktree through lanes.py's active slug list.
+lane_active() { python3 "${NAS_LANES_PY:-$LANES_PY}" slugs 2>/dev/null | grep -qxF "$1"; }
+
 # Mark the remote record consumed so the next pulse's list no longer selects it (M4). Guarded by the
 # identity we handled, so a newer rerun of the same slug is never clobbered.
 mark_remote() { # slug ident newstatus
@@ -54,10 +94,12 @@ PY"
 }
 
 # Is state/cloud/<slug>.json still this NAS run's claim? Read under the scheduler's shared flock, and
-# compare the run identity the pulse stamped into job.json (launched_at). A missing claim file means there
-# is nothing to own (already released), which is not a conflict.
-claim_owned() { # SLUG [JOB_LAUNCHED_AT]
-  python3 - "$STATE/lanes" "$STATE/cloud/$1.json" "$1" "${2:-}" <<'PYO' >/dev/null 2>&1
+# require the exact run identity the pulse stamped into job.json (launched_at); a missing/legacy stamp on
+# either side is not ownership. A missing claim file means there is nothing to own (already released),
+# which is not a conflict.
+claim_owned() { # SLUG JOB_LAUNCHED_AT
+  [ -n "${2:-}" ] || return 1
+  python3 - "$STATE/lanes" "$STATE/cloud/$1.json" "$1" "$2" <<'PYO' >/dev/null 2>&1
 import fcntl,json,os,sys
 ldir,f,slug,want=sys.argv[1:5]
 if not os.path.exists(f): sys.exit(0)
@@ -66,18 +108,20 @@ fcntl.flock(lock,fcntl.LOCK_SH)
 try:
     d=json.load(open(f))
     if (d.get('taker') or '')!='nas' or d.get('slug')!=slug: sys.exit(1)
-    if want:
-        cur=d.get('launched_at')
-        if cur is not None and str(float(cur))!=str(float(want)): sys.exit(1)
+    try:
+        if str(float(d['launched_at']))!=str(float(want)): sys.exit(1)
+    except Exception: sys.exit(1)
 finally:
     fcntl.flock(lock,fcntl.LOCK_UN); lock.close()
 PYO
 }
 
 # Release this run's claim under the same flock the scheduler writes claims with (M3). Never touch a
-# claim another executor took over; exit 3 so the caller can say so instead of claiming a release.
-release_claim() { # SLUG done|failed [JOB_LAUNCHED_AT]
-  python3 - "$STATE/lanes" "$STATE/cloud/$1.json" "$1" "$2" "${3:-}" <<'PYR'
+# claim another executor took over, and never release without a valid matching identity; exit 3 so the
+# caller can say so instead of claiming a release.
+release_claim() { # SLUG done|failed JOB_LAUNCHED_AT
+  [ -n "${3:-}" ] || { echo "claim for $1 has no run identity; left alone" >&2; return 3; }
+  python3 - "$STATE/lanes" "$STATE/cloud/$1.json" "$1" "$2" "$3" <<'PYR'
 import fcntl,json,os,sys
 ldir,f,slug,why,want=sys.argv[1:6]
 if not os.path.exists(f): sys.exit(0)
@@ -86,10 +130,11 @@ try:
     d=json.load(open(f))
     if (d.get('taker') or '')!='nas' or d.get('slug')!=slug:
         print('claim for %s is not ours (taker=%r); left alone' % (slug,(d.get('taker') or '')), file=sys.stderr); sys.exit(3)
-    if want:
-        cur=d.get('launched_at')
-        if cur is not None and str(float(cur))!=str(float(want)):
+    try:
+        if str(float(d['launched_at']))!=str(float(want)):
             print('claim for %s belongs to another NAS run; left alone' % slug, file=sys.stderr); sys.exit(3)
+    except Exception:
+        print('claim for %s has no run identity; left alone' % slug, file=sys.stderr); sys.exit(3)
     dest=os.path.join(os.path.dirname(f),'expired'); os.makedirs(dest,exist_ok=True)
     os.replace(f,os.path.join(dest,('done-' if why=='done' else '')+slug+'.json'))
 finally:
@@ -97,25 +142,70 @@ finally:
 PYR
 }
 
-# Two real captures at the two required widths (M6). A directory with a text file, or one capture, is not
-# evidence: the file must be a PNG/JPEG of some size and its name must carry the width.
+# Two distinct, decodable captures at the two required sizes (M6): 390x844 and 1100x760. A filename is not
+# evidence. PNGs are chunk-checked (CRC), IDAT-decompressed and size-checked; JPEGs are walked to a real
+# SOF frame and must reach EOI. Truncated, corrupt, wrong-size or single-file evidence all fail.
 shots_ok() { # DIR
   python3 - "$1" <<'PYS' >/dev/null 2>&1
-import os,re,sys
+import os,struct,sys,zlib
 d=sys.argv[1]
-want={390:False,1100:False}
+want={390:(390,844),1100:(1100,760)}
+PNG=b'\x89PNG\r\n\x1a\n'
+def png_size(data):
+    if not data.startswith(PNG): return None
+    pos=8; w=h=ct=im=None; idat=[]; first=True
+    while pos+12<=len(data):
+        ln=struct.unpack('>I',data[pos:pos+4])[0]; typ=data[pos+4:pos+8]
+        if pos+12+ln>len(data): return None
+        body=data[pos+8:pos+8+ln]
+        if zlib.crc32(typ+body)&0xffffffff!=struct.unpack('>I',data[pos+8+ln:pos+12+ln])[0]: return None
+        if first and typ!=b'IHDR': return None
+        first=False
+        if typ==b'IHDR':
+            if ln!=13: return None
+            w,h,bd,ct,cm,fm,im=struct.unpack('>IIBBBBB',body)
+            if bd not in (8,16) or ct not in (0,2,3,4,6) or im not in (0,1): return None
+        elif typ==b'IDAT': idat.append(body)
+        elif typ==b'IEND':
+            if w is None or not idat: return None
+            try: raw=zlib.decompress(b''.join(idat))
+            except zlib.error: return None
+            ch={0:1,2:3,3:1,4:2,6:4}[ct]
+            if im==0 and len(raw)!=h*(1+(w*ch*bd+7)//8): return None   # truncated pixel stream
+            return (w,h)
+        pos+=12+ln
+    return None
+def jpeg_size(data):
+    if not data.startswith(b'\xff\xd8\xff'): return None
+    i=2; dims=None
+    while i+2<=len(data):
+        if data[i]!=0xff: return None
+        m=data[i+1]
+        if m==0xff: i+=1; continue
+        if m==0xd9: return dims
+        if m==0xd8 or 0xd0<=m<=0xd7 or m==0x01: i+=2; continue
+        if i+4>len(data): return None
+        ln=struct.unpack('>H',data[i+2:i+4])[0]
+        if ln<2 or i+2+ln>len(data): return None
+        if m==0xda: return dims if b'\xff\xd9' in data[i:] else None   # entropy data must reach EOI
+        if m in (0xc0,0xc1,0xc2,0xc3,0xc5,0xc6,0xc7,0xc9,0xca,0xcb,0xcd,0xce,0xcf) and ln>=7:
+            h,w=struct.unpack('>HH',data[i+5:i+9]); dims=(w,h)
+        i+=2+ln
+    return None
+found={}
 try: names=sorted(os.listdir(d))
 except OSError: sys.exit(1)
 for n in names:
     p=os.path.join(d,n)
     try:
         if not os.path.isfile(p) or os.path.getsize(p)<1024: continue
-        head=open(p,'rb').read(8)
+        data=open(p,'rb').read()
     except OSError: continue
-    if not (head.startswith(b'\x89PNG\r\n\x1a\n') or head.startswith(b'\xff\xd8\xff')): continue
-    for w in want:
-        if re.search(r'(^|[^0-9])%d([^0-9]|$)'%w, n): want[w]=True
-sys.exit(0 if all(want.values()) else 1)
+    dims=png_size(data) or jpeg_size(data)
+    if not dims: continue
+    for w,wh in want.items():
+        if dims==wh and w not in found: found[w]=p
+sys.exit(0 if set(found)==set(want) and len(set(found.values()))==2 else 1)
 PYS
 }
 
@@ -164,13 +254,21 @@ selfcheck_mac() { # WT J
   ! grep -qE '^(TSC|INV|VITEST)-FAIL' "$LOG"
 }
 
-hold_slug() { # SLUG ITEM J WHY  — visible UI with no shots: keep the branch, do not open a PR
-  local SLUG="$1" ITEM="$2" J="$3" WHY="$4"
+hold_slug() { # SLUG ITEM J WHY [PRN] — visible UI with no shots: never publish the visible change
+  local SLUG="$1" ITEM="$2" J="$3" WHY="$4" PRN="${5:-}"
   mkdir -p "$STATE/nas/hold"
   {
     echo "# $ITEM $SLUG held: $WHY"
-    echo "Branch rsi/$SLUG is pushed. Capture 390x844 and 1100x760 before/after into"
-    echo "$STATE/shots/$SLUG/ then: gh pr create --repo $GH_REPO --base main --head rsi/$SLUG --title '<title>' --body-file $J/pr-body.md"
+    if [ -n "$PRN" ]; then
+      echo "PR #$PRN stays at its previous head: pushing this result would add visible UI with no captures."
+      echo "NAS result: $(with_timeout 30 "$GIT" -C "$CTRL" rev-parse "$REF" 2>/dev/null || echo unknown) in refs/nas/$SLUG."
+      echo "Capture 390x844 and 1100x760 before/after into $STATE/shots/$SLUG/, then publish the result:"
+      echo "  git -C $CTRL push origin refs/nas/$SLUG:refs/heads/rsi/$SLUG"
+      echo "  gh pr edit $PRN --repo $GH_REPO --body-file $J/pr-body.md"
+    else
+      echo "Branch rsi/$SLUG is pushed. Capture 390x844 and 1100x760 before/after into"
+      echo "$STATE/shots/$SLUG/ then: gh pr create --repo $GH_REPO --base main --head rsi/$SLUG --title '<title>' --body-file $J/pr-body.md"
+    fi
   } > "$STATE/nas/hold/$SLUG.md"
   echo "- $(date '+%F %H:%M') nas job $ITEM $SLUG held for screenshots (390x844, 1100x760): see rsi/state/nas/hold/$SLUG.md" >> "$STATE/needs-ceo.md"
   echo "held $SLUG: $WHY"
@@ -193,6 +291,58 @@ hold_diverged() { # SLUG ITEM REMOTE_SHA PRN
   echo "held $SLUG: branch diverged (remote $RSHA)"
 }
 
+# Materialise the lane worktree and prove it is at the bundle's commit (M4/M7). Runs under the per-slug
+# merge lock, never re-points an existing branch, and fast-forwards with `merge --ff-only`, which cannot
+# discard a HEAD that advanced after our checks. Prints why it refused and returns 1 to leave it alone.
+sync_worktree() { # SLUG WT BR REF EXPECT
+  local SLUG="$1" WT="$2" BR="$3" REF="$4" EXPECT="$5" CUR_BR CUR GOT
+  if lane_active "$SLUG"; then
+    echo "a local lane is active on $SLUG; leaving its worktree alone"; return 1
+  fi
+  if ! slug_lock_take "$SLUG"; then
+    echo "a merge worker owns $SLUG; leaving its worktree alone"; return 1
+  fi
+  if [ ! -e "$WT/.git" ]; then                       # linked worktrees use a .git *file*, not a directory
+    if [ -e "$WT" ] && [ -n "$(ls -A "$WT" 2>/dev/null)" ]; then
+      echo "worktree path $WT exists but is not a git worktree; leaving it alone"; slug_lock_drop; return 1
+    fi
+    with_timeout 120 "$GIT" -C "$CTRL" worktree prune
+    if "$GIT" -C "$CTRL" show-ref --verify --quiet "refs/heads/$BR"; then
+      # An existing branch may already carry merge/rework commits: only check it out when the bundle
+      # contains them. `worktree add -B` would silently re-point the branch; never use it here.
+      if ! with_timeout 60 "$GIT" -C "$CTRL" merge-base --is-ancestor "refs/heads/$BR" "$REF"; then
+        echo "branch $BR has commits the NAS bundle does not contain; leaving it alone"; slug_lock_drop; return 1
+      fi
+      with_timeout 120 "$GIT" -C "$CTRL" worktree add -q "$WT" "$BR" || { echo "worktree add failed $SLUG"; slug_lock_drop; return 1; }
+    else
+      # `-b` fails if the branch appeared meanwhile, rather than resetting it.
+      with_timeout 120 "$GIT" -C "$CTRL" worktree add -q -b "$BR" "$WT" "$REF" || { echo "worktree add failed $SLUG"; slug_lock_drop; return 1; }
+    fi
+  fi
+  if ! with_timeout 120 "$GIT" -C "$WT" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "existing path $WT is not a usable worktree; leaving it alone"; slug_lock_drop; return 1
+  fi
+  CUR_BR="$(with_timeout 60 "$GIT" -C "$WT" symbolic-ref --short -q HEAD 2>/dev/null || true)"
+  if [ "$CUR_BR" != "$BR" ]; then
+    echo "worktree $WT is on '${CUR_BR:-detached}', not $BR; leaving it alone"; slug_lock_drop; return 1
+  fi
+  if [ -n "$(with_timeout 60 "$GIT" -C "$WT" status --porcelain 2>/dev/null || true)" ]; then
+    echo "worktree $WT has uncommitted changes; leaving it alone"; slug_lock_drop; return 1
+  fi
+  if ! with_timeout 60 "$GIT" -C "$WT" merge-base --is-ancestor HEAD "$REF"; then
+    echo "worktree $WT has commits the NAS bundle does not contain; leaving it alone"; slug_lock_drop; return 1
+  fi
+  if ! with_timeout 120 "$GIT" -C "$WT" merge --ff-only -q "$REF" >/dev/null 2>&1; then
+    echo "worktree $WT could not be fast-forwarded safely; leaving it alone"; slug_lock_drop; return 1
+  fi
+  GOT="$(with_timeout 60 "$GIT" -C "$WT" rev-parse HEAD)"
+  if [ "$GOT" != "$EXPECT" ]; then
+    echo "worktree HEAD $GOT != bundle $EXPECT for $SLUG"; slug_lock_drop; return 1
+  fi
+  slug_lock_drop
+  return 0
+}
+
 while IFS=, read -r SLUG ST <&3; do
   [ -n "$SLUG" ] || continue
   case "$SLUG" in *[!a-z0-9._-]*|"") echo "skip bad slug $SLUG"; continue;; esac
@@ -207,10 +357,12 @@ while IFS=, read -r SLUG ST <&3; do
   with_timeout "$SSH_T" "$SCP_BIN" -q "$NAS_HOST:$REMOTE/work/jobs/$SLUG/job.json" "$J/job.json" 2>/dev/null || true
   with_timeout "$SSH_T" "$SCP_BIN" -q "$NAS_HOST:$REMOTE/work/jobs/$SLUG/pr-body.md" "$J/pr-body.md" 2>/dev/null || true
   ITEM="$(python3 -c "import json,os;print(json.load(open('$J/job.json')).get('item','') if os.path.exists('$J/job.json') else '')")"
-  JOB_LAUNCH="$(python3 -c "import json,os;d=json.load(open('$J/job.json'));print(d.get('launched_at') or '') if os.path.exists('$J/job.json') else ''" 2>/dev/null || true)"
+  JOB_LAUNCH="$([ -s "$J/job.json" ] && run_ident "$J/job.json" launched_at || true)"
   if [ "$ST" = failed ]; then
     NOTE="$(python3 -c "import json;print(json.load(open('$J/status.json')).get('note',''))")"
-    if release_claim "$SLUG" failed "$JOB_LAUNCH"; then
+    if [ -z "$JOB_LAUNCH" ]; then
+      echo "- $(date '+%F %H:%M') nas job $ITEM $SLUG failed: $NOTE (claim not released: job.json has no valid run identity)" >> "$STATE/needs-ceo.md"
+    elif release_claim "$SLUG" failed "$JOB_LAUNCH"; then
       echo "- $(date '+%F %H:%M') nas job $ITEM $SLUG failed: $NOTE (claim released; slice falls back)" >> "$STATE/needs-ceo.md"
     else
       echo "- $(date '+%F %H:%M') nas job $ITEM $SLUG failed: $NOTE (claim kept by its current owner; not released)" >> "$STATE/needs-ceo.md"
@@ -220,6 +372,12 @@ while IFS=, read -r SLUG ST <&3; do
     echo "failed $SLUG: $NOTE"; continue
   fi
   [ "$ST" = done ] || continue
+  # No valid identity means we cannot prove this result or its claim is ours. Leave both alone; a repaired
+  # job.json can be ingested by the next pulse, and a permanently malformed one never publishes (M3).
+  if [ -z "$JOB_LAUNCH" ]; then
+    echo "no valid run identity for $SLUG (job.json missing or malformed); leaving the finished result alone"
+    continue
+  fi
   with_timeout "$XFER_T" "$SCP_BIN" -q "$NAS_HOST:$REMOTE/work/jobs/$SLUG/bundle" "$J/bundle" || { echo "no bundle $SLUG"; continue; }
   BR="rsi/$SLUG"; REF="refs/nas/$SLUG"
   with_timeout "$XFER_T" "$GIT" -C "$CTRL" fetch -q origin 2>/dev/null || true
@@ -234,35 +392,9 @@ while IFS=, read -r SLUG ST <&3; do
     continue
   fi
 
-  # Materialise a worktree and prove it is at the bundle's commit before checking or publishing (M7).
+  # Materialise a worktree and prove it is at the bundle's commit before checking or publishing (M4/M7).
   WT="$WT_ROOT/rsi-$SLUG"
-  if [ ! -e "$WT/.git" ]; then                       # linked worktrees use a .git *file*, not a directory
-    if [ -e "$WT" ] && [ -n "$(ls -A "$WT" 2>/dev/null)" ]; then
-      echo "worktree path $WT exists but is not a git worktree; leaving it alone"; continue
-    fi
-    with_timeout 120 "$GIT" -C "$CTRL" worktree prune
-    with_timeout 120 "$GIT" -C "$CTRL" worktree add -q -B "$BR" "$WT" "$REF" || { echo "worktree add failed $SLUG"; continue; }
-  fi
-  if ! with_timeout 120 "$GIT" -C "$WT" rev-parse --git-dir >/dev/null 2>&1; then
-    echo "existing path $WT is not a usable worktree; leaving it alone"; continue
-  fi
-  # An existing worktree may hold a later merge/rework commit or uncommitted edits. Only a clean, on-branch
-  # worktree whose HEAD the bundle already contains may be fast-forwarded; never reset anything else (M4).
-  CUR_BR="$(with_timeout 60 "$GIT" -C "$WT" symbolic-ref --short -q HEAD 2>/dev/null || true)"
-  if [ "$CUR_BR" != "$BR" ]; then
-    echo "worktree $WT is on '${CUR_BR:-detached}', not $BR; leaving it alone"; continue
-  fi
-  if [ -n "$(with_timeout 60 "$GIT" -C "$WT" status --porcelain 2>/dev/null || true)" ]; then
-    echo "worktree $WT has uncommitted changes; leaving it alone"; continue
-  fi
-  if ! with_timeout 60 "$GIT" -C "$WT" merge-base --is-ancestor HEAD "$REF"; then
-    echo "worktree $WT has commits the NAS bundle does not contain; leaving it alone"; continue
-  fi
-  if ! with_timeout 120 "$GIT" -C "$WT" checkout -q -B "$BR" "$REF"; then
-    echo "worktree checkout failed $SLUG"; continue
-  fi
-  GOT="$("$GIT" -C "$WT" rev-parse HEAD)"
-  [ "$GOT" = "$WANT" ] || { echo "worktree HEAD $GOT != bundle $WANT for $SLUG"; continue; }
+  sync_worktree "$SLUG" "$WT" "$BR" "$REF" "$WANT" || continue
 
   # Visible UI without the two required captures is held, not published (M6). The base is trusted Git
   # state (origin/main, just fetched), never the worker's optional status.base, and a shots directory only
@@ -283,11 +415,16 @@ while IFS=, read -r SLUG ST <&3; do
   [ -n "$VISIBLE" ] && { NEEDS_SHOTS=1; HOLD_WHY="visible UI changed and no two-width shots in $SHOTS"; }
   [ -s "$PRB" ] && grep -qiE '^screenshots?: *pending' "$PRB" && { NEEDS_SHOTS=1; HOLD_WHY="${HOLD_WHY:-worker reported screenshots pending}"; }
   [ "$NEEDS_SHOTS" = 1 ] && shots_ok "$SHOTS" && NEEDS_SHOTS=0
-  [ -n "$PRN" ] && NEEDS_SHOTS=0        # already published once: never unpublish by holding
+  # Enforcement applies to incoming changes whether or not a PR already exists (M6b). An open PR keeps its
+  # previous head: pushing this result would publish visible UI with no captures and hand it to merge.
   if [ "$NEEDS_SHOTS" = 1 ]; then
-    with_timeout "$XFER_T" "$GIT" -C "$CTRL" push -q origin "$REF:refs/heads/$BR" 2>"$STATE/nas/push.err" || { echo "push failed $SLUG: $(tail -c 200 "$STATE/nas/push.err")"; continue; }
     printf '\nScreenshots: pending Mac capture at 390x844 and 1100x760 (NAS worker has no browser). Visible files: %s\n' "$(echo "$VISIBLE" | tr '\n' ' ')" >> "$PRB"
-    hold_slug "$SLUG" "$ITEM" "$J" "$HOLD_WHY"
+    if [ -z "$PRN" ]; then
+      with_timeout "$XFER_T" "$GIT" -C "$CTRL" push -q origin "$REF:refs/heads/$BR" 2>"$STATE/nas/push.err" || { echo "push failed $SLUG: $(tail -c 200 "$STATE/nas/push.err")"; continue; }
+      hold_slug "$SLUG" "$ITEM" "$J" "$HOLD_WHY"
+    else
+      hold_slug "$SLUG" "$ITEM" "$J" "$HOLD_WHY" "$PRN"
+    fi
     mark_remote "$SLUG" "$IDENT" held
     ack "$ACK_KEY"
     continue
@@ -304,6 +441,11 @@ while IFS=, read -r SLUG ST <&3; do
   grep -q "RSI item:" "$PRB" || printf '\nRSI item: %s\n' "$ITEM" >> "$PRB"
   printf '\nMac self-check after NAS hand-over: %s (tsc, UI inventory ratchet, full vitest).\n' "$SC" >> "$PRB"
 
+  # Ownership must still hold at the moment of publishing, not only before the self-check (M3).
+  if ! claim_owned "$SLUG" "$JOB_LAUNCH"; then
+    echo "claim for $SLUG changed hands during the self-check; not publishing"
+    continue
+  fi
   # The PR head must contain this job's commit before the result is consumed, whether the PR already exists
   # or not (M7). Non-fast-forward means a merge/rework lane added commits: hold both sides, discard neither.
   if ! LSOUT="$(with_timeout "$SSH_T" "$GIT" -C "$CTRL" ls-remote origin "refs/heads/$BR" 2>/dev/null)"; then

@@ -24,25 +24,35 @@ pulse (follow-up) ─► container runs nas-lane.sh ─► <NAS>/work/jobs/<slug
                                                   ingest-nas.sh ◄──┘        (this slice)
   1. list finished jobs over ssh (bounded; -n and fd 3 so ssh cannot drain the list)
   2. failed job: release the claim only when this run still owns it, mark ingested, tell the CEO once
-  3. done job: fetch + verify the bundle, then prove the claim is still this run's before publishing
-  4. worktree: reuse only when clean, on rsi/<slug>, and HEAD is an ancestor of the bundle
-  5. visible UI (diff from origin/main, never the worker's `base`) without two real captures → hold
+  3. done job: require a valid `launched_at`, fetch + verify the bundle, then prove the claim still matches
+     before the self-check and again before publishing
+  4. worktree: under the per-slug merge lock, only when clean, on rsi/<slug>, and HEAD is an ancestor of
+     the bundle; fast-forwarded with `merge --ff-only`, never re-pointed
+  5. visible UI (diff from origin/main, never the worker's `base`) without two decodable captures → hold;
+     an already-open PR keeps its previous head
   6. self-check under heavy.sh (tsc, UI inventory ratchet, full vitest), green only when it completed
   7. push (never force), open/refresh the PR, history row, release claim, mark ingested, kick merge.sh
 ```
 
 ## Ownership and conflict rules
 
-- **A claim is released only by the run that owns it.** `job.json` carries the claim's `launched_at` as the
-  run identity. Ingest releases (success or failure) under `state/lanes/.flock` only when `taker=nas`, the
-  slug matches, and the stamp still matches; a brief that a failed start returned and box then took is left
-  alone, and a finished result under a foreign claim is reported instead of published.
-- **An existing worktree is fast-forwarded, never reset.** Ingest reuses `$WT_ROOT/rsi-<slug>` only when it is
-  clean, on `rsi/<slug>`, and its HEAD is an ancestor of the fetched bundle commit. Commits a merge or rework
-  lane added (or uncommitted edits) stop the job with a log line instead of being discarded.
+- **A claim is released or a result published only by the run that proves it owns it.** `job.json` carries
+  the claim's `launched_at` as the run identity. Ingest requires a valid numeric stamp on both sides: a
+  missing, malformed or legacy `job.json` (including a failed metadata transfer) neither releases the claim
+  nor publishes the result, and a claim without the same stamp is left alone. Releases happen under
+  `state/lanes/.flock` only when `taker=nas`, the slug matches, and the stamp still matches. A brief that a
+  failed start returned and box then took is left alone; a finished result under a foreign claim is reported
+  instead of published.
+- **An existing worktree is fast-forwarded, never reset.** Ingest takes the same per-slug lock as the merge
+  lane (`state/merge/<slug>.lock`) for the mutation, and skips the slug while a merge verifier or a local
+  lane is active. It reuses `$WT_ROOT/rsi-<slug>` only when it is clean, on `rsi/<slug>`, and its HEAD is an
+  ancestor of the fetched bundle; the update is `git merge --ff-only`, so a HEAD that advanced after the
+  checks fails the job instead of being discarded. Creation uses `-b`/an existing branch checkout, never
+  `-B`. Commits a merge or rework lane added (or uncommitted edits) stop the job with a log line.
 - **A PR head must contain the result before it is consumed.** Ingest pushes whether or not a PR exists, and
   refuses (holding the job with `state/nas/hold/<slug>.md`) when the remote branch or PR head is not an
-  ancestor of the NAS commit. Nothing is force-pushed.
+  ancestor of the NAS commit. Nothing is force-pushed. When an incoming result changes visible UI without
+  captures, an already-open PR is left at its previous head rather than receiving the unpublishable change.
 - **A handled job is handled once.** The remote record is marked `ingested`/`held` and the exact run identity
   (`slug:status:started_at`) is appended to `state/nas/acks.txt`, so a second run repairs a half-finished pass
   without repeating the work, the history row or the CEO notice.
@@ -58,12 +68,14 @@ read as green; the failing log and the reason are kept in `state/nas/xfer/<slug>
 
 NAS workers have no browser. When a finished job changes rendered UI (`ui/src/**/*.tsx|css`, tests excluded)
 in the diff against `origin/main` — computed from Git, never from the worker's `status.base` — and
-`rsi/state/shots/<slug>/` does not hold a real 390-wide **and** a real 1100-wide capture (PNG/JPEG, named for
-its width), `ingest-nas.sh` pushes the branch but does **not** open the PR: it writes
-`rsi/state/nas/hold/<slug>.md` with the exact capture-and-publish command and one line in
-`rsi/state/needs-ceo.md`. Capture 390x844 and 1100x760, then create the PR. Workers are told to write
-`Screenshots: pending …` rather than claiming "none"; one capture, a text file, or a diff that cannot be
-computed all hold the job rather than publishing it.
+`rsi/state/shots/<slug>/` does not hold two **distinct, decodable** captures at exactly **390x844** and
+**1100x760**, `ingest-nas.sh` does **not** publish the change. Filenames are not evidence: PNG chunks are
+CRC-checked, their IDAT stream is decompressed and size-checked, JPEGs must reach EOI, and the measured
+dimensions must match. Truncated, corrupt, wrong-size, duplicated or single-file evidence all hold the job.
+The hold writes `rsi/state/nas/hold/<slug>.md` with the exact capture-and-publish command and one line in
+`rsi/state/needs-ceo.md`. An unpublished branch is pushed first so captures can be taken from it; an
+already-open PR keeps its previous head, because pushing would publish visible UI with no captures. Workers
+are told to write `Screenshots: pending …` rather than claiming "none".
 
 ## Operate
 
