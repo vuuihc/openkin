@@ -166,25 +166,59 @@ sync_main() { # -> 0 ok (pushed if changed), 1 conflict (sendback written), 2 tr
   $GIT -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null || { say "#$N: push after merge-main failed"; return 2; }
   return 0
 }
+check_buckets() { # gh's `pr checks --json name,bucket` on stdin -> space-separated buckets
+  python3 -c 'import json,sys
+try: print(" ".join(c.get("bucket","") for c in json.load(sys.stdin)))
+except Exception: pass' 2>/dev/null
+}
 ci_state() { # prints green|pending|fail ; waits (bounded) while pending
-  local tries=0 out
-  while [ $tries -lt 6 ]; do out="$($GH pr checks "$N" --repo "$GH_REPO" 2>&1)"; echo "$out" | grep -qi 'no checks reported' || break; tries=$((tries+1)); sleep 30; done
-  if echo "$out" | grep -qE '\bpending\b|\bqueued\b|in_progress'; then
-    say "#$N $SLUG: CI pending, waiting up to 25 min" >&2; with_timeout 1500 $GH pr checks "$N" --repo "$GH_REPO" --watch --interval 30 >/dev/null 2>&1
-    out="$($GH pr checks "$N" --repo "$GH_REPO" 2>&1)"
-  fi
+  local tries=0 out buckets
+  while [ $tries -lt 6 ]; do
+    out="$($GH pr checks "$N" --repo "$GH_REPO" --json name,bucket 2>&1)"
+    echo "$out" | grep -qi 'no checks reported' && break
+    [ -n "$(printf '%s' "$out" | check_buckets)" ] && break
+    tries=$((tries+1)); sleep 30
+  done
   printf '%s\n' "$out" > "$STATE/merge/$SLUG.ci.txt"
-  echo "$out" | grep -qE '\bpending\b|\bqueued\b|in_progress' && { echo pending; return; }
+  # No checks keeps the old behaviour: the gate and review already ran.
+  echo "$out" | grep -qi 'no checks reported' && { echo green; return; }
+  buckets="$(printf '%s' "$out" | check_buckets)"
+  case " $buckets " in
+    *" pending "*)
+      say "#$N $SLUG: CI pending, waiting up to 25 min" >&2
+      with_timeout 1500 $GH pr checks "$N" --repo "$GH_REPO" --watch --interval 30 >/dev/null 2>&1
+      out="$($GH pr checks "$N" --repo "$GH_REPO" --json name,bucket 2>&1)"
+      printf '%s\n' "$out" > "$STATE/merge/$SLUG.ci.txt"
+      buckets="$(printf '%s' "$out" | check_buckets)" ;;
+  esac
   # cancel-in-progress leaves a cancelled check next to the replacement run.
-  # That must not fail the PR: a real failure is "fail"; a cancelled run with
-  # no replacement yet is pending (retry next cycle).
-  echo "$out" | grep -qE '\bfail\b' && { echo fail; return; }
-  echo "$out" | grep -qiE '\bcancel' && { echo pending; return; }
-  echo green
+  # Ignore cancelled entries whenever a real verdict exists: a cancelled run
+  # next to a passing replacement is green, not pending forever. A cancelled
+  # run with no replacement yet is still pending (retry next cycle), and a
+  # real failure is always fail.
+  case " $buckets " in
+    *" fail "*) echo fail ;;
+    *" pending "*) echo pending ;;
+    *" pass "*) echo green ;;
+    *" cancel "*) echo pending ;;
+    *) echo green ;;
+  esac
 }
 
 $GIT -C "$RSI_CTRL" fetch -q origin main "$BR" 2>/dev/null
-[ -e "$WT" ] || $GIT -C "$RSI_CTRL" worktree add -q "$WT" -B "$BR" "origin/$BR" 2>/dev/null || { say "#$N: cannot make worktree"; exit 0; }
+if [ ! -e "$WT" ]; then
+  $GIT -C "$RSI_CTRL" worktree add -q "$WT" -B "$BR" "origin/$BR" 2>/dev/null \
+    || $GIT -C "$RSI_CTRL" worktree prune -q 2>/dev/null \
+    || true
+  if [ ! -e "$WT" ]; then
+    EXISTING="$($GIT -C "$RSI_CTRL" worktree list --porcelain | awk -v b="refs/heads/$BR" '
+      $1=="worktree"{w=$2} $1=="branch" && $2==b {print w; exit}')"
+    if [ -n "$EXISTING" ] && [ "$EXISTING" != "$WT" ]; then
+      $GIT -C "$RSI_CTRL" worktree move "$EXISTING" "$WT" 2>/dev/null || true
+    fi
+  fi
+  [ -e "$WT" ] || { say "#$N: cannot make worktree"; exit 0; }
+fi
 [ -n "$($GIT -C "$WT" status --porcelain --untracked-files=no)" ] && { say "#$N $SLUG: worktree has uncommitted tracked edits, skip"; exit 0; }
 $GIT -C "$WT" merge -q --ff-only "origin/$BR" >/dev/null 2>&1 || { say "#$N $SLUG: local branch diverged from origin, skip"; exit 0; }
 
@@ -212,7 +246,7 @@ for l in sys.stdin:
 print(" ".join(sorted(set(bad))))') )"
   [ -z "$BAD" ] && HOLD="" || HOLD="package.json change outside the Astryx programme packages: $BAD"
 fi
-[ "$SIZE" -gt 1000 ] && HOLD="diff is $SIZE changed lines (>1000): split it"
+[ "$SIZE" -gt 800 ] && HOLD="diff is $SIZE changed lines (>800): split it"
 echo "$CH" | grep -qE '^web/dist/assets/' && HOLD="web/dist/assets in diff"
 if [ -n "$HOLD" ]; then
   if [ "${HOLD#diff is}" != "$HOLD" ]; then printf '%s\n' "$HOLD" > "$STATE/merge/$SLUG.err"; sendback "$SLUG" "$ITEM" "$HOLD" "$STATE/merge/$SLUG.err"
@@ -230,11 +264,14 @@ fi
 
 # 4. gate and review IN PARALLEL. Review is keyed by the PR's own diff (web/dist/index.html and lockfile excluded), the gate by head SHA.
 DH="$($GIT -C "$WT" diff origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | shasum | cut -c1-16)"
+# MANDATE 2: the reviewer must be a different model from the worker. Workers run on $M_WORKER
+# (DeepSeek), so use the role that is a different family (reviewer-alt = gpt-6.1-sol). Selecting
+# the DeepSeek 'reviewer' here would put the worker's own model on its review.
+ROLE=reviewer-alt
+[ "$M_WORKER" = "$M_ALT" ] && ROLE=reviewer
 NEED_GATE=1; [ "$(cut -d' ' -f1 "$V" 2>/dev/null)" = "$SHA" ] && [ "$(cut -d' ' -f2 "$V" 2>/dev/null)" = PASS ] && NEED_GATE=0
-NEED_REV=1;  [ "$(cut -d' ' -f1 "$RV" 2>/dev/null)" = "$DH" ] && [ "$(cut -d' ' -f2 "$RV" 2>/dev/null)" = PASS ] && NEED_REV=0
-ROLE=reviewer
-echo "$CH" | grep -qE '^(internal/(auth|store|permission)|.*(permission|persist))' && ROLE=reviewer-alt
-[ "$SIZE" -gt 500 ] && ROLE=reviewer-alt
+# A cached PASS only carries over when the same (different-family) role recorded it.
+NEED_REV=1;  [ "$(cut -d' ' -f1 "$RV" 2>/dev/null)" = "$DH" ] && [ "$(cut -d' ' -f2 "$RV" 2>/dev/null)" = PASS ] && [ "$(cut -d' ' -f4 "$RV" 2>/dev/null)" = "$ROLE" ] && NEED_REV=0
 GL="$RUNS/gate-merge-$SLUG-$(date +%H%M%S).log"; REVPID=""
 if [ $NEED_REV -eq 1 ]; then
   LASTREV="$(cut -d' ' -f3 "$RV" 2>/dev/null)"   # last reviewed SHA (any verdict)
