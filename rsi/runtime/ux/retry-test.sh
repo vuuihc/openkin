@@ -28,6 +28,7 @@ case "$(cat "$RETRY_T/review.mode" 2>/dev/null)" in
 esac
 SH
 UXD="$T/st/ux/retry-test"; MARK="$T/st/merge/retry-test.uxcooldown"; SHOTS="$T/st/shots/retry-test/journeys"
+SENT="$T/st/merge/retry-test.ux.txt"   # the sendback body the cooldown tick must not delete
 nrev() { [ -e "$T/reviewcalls" ] && wc -l < "$T/reviewcalls" | tr -d ' ' || echo 0; }
 nwalk() { [ -e "$T/walkcalls" ] && wc -l < "$T/walkcalls" | tr -d ' ' || echo 0; }
 gate() { # <diff-hash> [extra env assignments...]  -> the gate's exit code
@@ -40,16 +41,22 @@ gate() { # <diff-hash> [extra env assignments...]  -> the gate's exit code
 # 1+2. unavailable reviewer -> cooldown marker; the next tick on the same diff must not dispatch, walk or delete evidence.
 echo down > "$T/review.mode"
 gate aaaa; r1=$?
+e=$(cut -d' ' -f1 "$MARK" 2>/dev/null); d=$(( ${e:-0} - $(date +%s) ))
+[ "$d" -ge 1740 ] && [ "$d" -le 1860 ] \
+  && ok "the cooldown expires on the default 30-minute wait (${d}s out)" \
+  || bad "cooldown expiry is ${d}s out, want 1740..1860 (30 min)"
 printf 'sentinel\n' > "$UXD/walk.out"
 printf 'stale\n' > "$UXD/unavailable.txt"     # the cooled tick must refresh both with run 1's stored reason
+printf 'sendback\n' > "$SENT"                 # ...and must keep run 1's sendback body and screenshots
 gate aaaa; r2=$?
 [ "$r1" -eq 2 ] && [ "$r2" -eq 2 ] && [ "$(nrev)" -eq 1 ] && [ -s "$MARK" ] \
   && ok "unavailable writes a cooldown and does not re-dispatch" \
   || bad "unavailable: exits $r1/$r2 reviews=$(nrev) marker=$([ -s "$MARK" ] && echo yes || echo no), want 2/2 1 yes"
 [ "$(cat "$UXD/walk.out" 2>/dev/null)" = sentinel ] && [ -d "$SHOTS" ] && [ "$(nwalk)" -eq 1 ] \
   && [ "$(cat "$UXD/unavailable.txt" 2>/dev/null)" = "ux reviewer unavailable: dispatch exit 3" ] \
-  && ok "cooldown skips the walk" \
-  || bad "cooldown tick touched walk.out/shots/reason (walk.out='$(cat "$UXD/walk.out" 2>/dev/null)' shots=$([ -d "$SHOTS" ] && echo yes || echo no) walks=$(nwalk) reason='$(cat "$UXD/unavailable.txt" 2>/dev/null)')"
+  && [ -s "$SHOTS/j1-390-1-1.png" ] && [ "$(cat "$SENT" 2>/dev/null)" = sendback ] \
+  && ok "cooldown skips the walk and keeps the screenshots and sendback body" \
+  || bad "cooldown tick touched walk.out/shots/reason/sendback (walk.out='$(cat "$UXD/walk.out" 2>/dev/null)' shots=$([ -d "$SHOTS" ] && echo yes || echo no) png=$([ -s "$SHOTS/j1-390-1-1.png" ] && echo yes || echo no) walks=$(nwalk) reason='$(cat "$UXD/unavailable.txt" 2>/dev/null)' sendback='$(cat "$SENT" 2>/dev/null)')"
 
 # 3. a different diff hash (pushed fix) bypasses the cooldown at once.
 gate bbbb; r3=$?
