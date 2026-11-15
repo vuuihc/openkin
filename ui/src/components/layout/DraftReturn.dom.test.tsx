@@ -53,7 +53,7 @@ vi.mock("../../api/client", async (importOriginal) => {
 vi.mock("../../hooks/useMachines", () => ({
   useMachines: () => ({
     machines: [
-      { id: "mac-1", label: "MacBook", isSelf: true, online: true, roots: [], agents: [] },
+      { id: "mac-1", label: "Test node", isSelf: true, online: true, roots: [], agents: [] },
     ],
     agents: [],
     loading: false,
@@ -137,8 +137,8 @@ describe("closing the draft returns to the list that was left", () => {
     await user.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Chats" })).toBeTruthy());
     expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe("alpha");
-    expect(screen.getByRole("link", { name: "Archived" }).getAttribute("aria-current")).toBe(
-      "page",
+    expect(screen.getByRole("link", { name: "Chats" }).getAttribute("href")).toContain(
+      "scope=archived",
     );
   });
 
