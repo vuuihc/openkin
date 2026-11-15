@@ -17,7 +17,7 @@ if [ $CHECK -eq 1 ] || [ $STAT -eq 1 ]; then
     echo "ctrl: $RSI_CTRL"; for t in "$CLAUDE" "$GIT" "$GH"; do [ -x "$t" ] && echo "ok $t" || echo "MISSING $t"; done
     for t in node npm go python3; do command -v $t >/dev/null && echo "ok $t" || echo "MISSING $t"; done
     for p in fill daily dream; do [ -s "$RSI_DIR/runtime/prompts/$p.md" ] && echo "prompt $p ok" || echo "prompt $p MISSING"; done
-    for m in pulse merge dream daily nas; do launchctl print "gui/$(id -u)/com.ethan.kin-rsi-$m" >/dev/null 2>&1 && echo "launchd $m loaded" || echo "launchd $m NOT loaded"; done
+    for m in pulse merge dream daily; do launchctl print "gui/$(id -u)/com.ethan.kin-rsi-$m" >/dev/null 2>&1 && echo "launchd $m loaded" || echo "launchd $m NOT loaded"; done
   fi
   python3 "$LANES_PY" status
   for f in PAUSE NO_MERGE; do [ -e "$STATE/$f" ] && echo "$f set: $(cat "$STATE/$f")"; done
@@ -107,8 +107,6 @@ echo "run=$MODE exit=$RC result_ok=$([ $PR -eq 0 ] && echo yes || echo no) log=$
 
 # Lanes the director claimed are launched even if its final message failed (claims expire after 25 min otherwise).
 [ "$MODE" = pulse ] && [ $DRY -eq 0 ] && { bash "$RSI_DIR/runtime/lane.sh" start-claimed; bash "$RSI_DIR/runtime/lane.sh" autofill rest; }   # non-Astryx reworks only take leftover lanes
-# NAS lanes are Mac-driven and unattended: kick pulse-nas.sh without blocking the fill (it also has its own launchd job).
-[ "$MODE" = pulse ] && [ $DRY -eq 0 ] && [ -x "$RSI_DIR/runtime/nas/pulse-nas.sh" ] && { nohup /bin/bash "$RSI_DIR/runtime/nas/pulse-nas.sh" >> "$RUNS/launchd-nas.log" 2>&1 < /dev/null & disown 2>/dev/null; true; }
 
 if [ $RC -eq 143 ] && grep -q '"note":"watchdog timeout' "$LOG"; then count_timeout "$MODE" "log: ${LOG##*/}"; exit 1; fi
 if [ $RC -ne 0 ] || [ $PR -ne 0 ]; then count_fail "$MODE" "$(tail -c 200 "$LOG.result.txt" | tr '\n' ' ')  log: ${LOG##*/}"; exit 1; fi

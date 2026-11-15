@@ -1,12 +1,11 @@
 #!/bin/bash
-# test-nas.sh — regression tests for the Mac-driven NAS lanes.
-# No NAS, no network, no Claude: ssh/scp/docker/gh are fakes in the temp sandbox, and "the NAS" is a
+# test-nas.sh — regression tests for the Mac-driven NAS ingest path.
+# No NAS, no network, no Claude: ssh/scp/gh are fakes in the temp sandbox, and "the NAS" is a
 # temp tree (NAS_REMOTE) that remote commands reach because the fake ssh runs the command string locally.
 # Each test targets one review finding. Run: bash rsi/runtime/nas/tests/test-nas.sh
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 NASDIR="$(cd "$HERE/.." && pwd)"
-PULSE="$NASDIR/pulse-nas.sh"
 INGEST="$NASDIR/ingest-nas.sh"
 PASS=0; FAIL=0
 
@@ -19,8 +18,8 @@ finish() { echo; echo "$PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]; }
 sandbox() {
   T=$(mktemp -d "${TMPDIR:-/tmp}/nas-test.XXXXXX")
   mkdir -p "$T/bin" "$T/state/cloud" "$T/state/cloud-briefs" "$T/state/nas" "$T/state/lanes" \
-           "$T/nas/work/jobs" "$T/nas/work/logs" "$T/nas/work/wt" "$T/wt" "$T/gh"
-  : > "$T/starts"; : > "$T/gh.log"
+           "$T/nas/work/jobs" "$T/nas/work/logs" "$T/wt"
+  : > "$T/gh.log"
   printf 'brief\n' > "$T/state/cloud-briefs/brief.md"
 
   # fake ssh: -n redirects stdin, otherwise stdin is drained like real ssh; the command string runs locally.
@@ -39,9 +38,6 @@ done
 shift || true            # host
 cmd="$*"
 [ "$n" = 1 ] || cat >/dev/null
-[ "${FAKE_SSH_DOWN:-0}" = 1 ] && exit 255
-case "$cmd" in *"/proc/loadavg"*) echo "0.10 12.00"; exit 0;; esac   # the only Linux-only probe
-case "$cmd" in *"for d in /proc/"*) [ "${FAKE_SCAN_FAIL:-0}" = 1 ] && exit 255;; esac   # worker discovery
 exec bash -c "$cmd"
 EOS
 
@@ -57,28 +53,6 @@ for i in $(seq 0 $((n-2))); do
   case "$src" in *:*) src="${src#*:}";; esac
   cp "$src" "$dst"
 done
-EOS
-
-  # fake docker: inspect=up, exec scan echoes FAKE_ALIVE, exec of /opt/rsi/nas-lane.sh records a start.
-  cat > "$T/bin/docker" <<'EOS'
-#!/bin/bash
-[ "${1:-}" = inspect ] && { echo true; exit 0; }
-if [ "${1:-}" = exec ]; then
-  case "$*" in *"/proc/"*) cat "${FAKE_ALIVE:-/dev/null}" 2>/dev/null; exit 0;; esac
-  prev=""
-  for a in "$@"; do
-    if [ "$prev" = "/opt/rsi/nas-lane.sh" ]; then
-      [ "${FAKE_START_FAIL:-0}" = 1 ] && exit 1
-      echo "$a" >> "${FAKE_STARTS:?}"
-      printf '{"status":"running","slug":"%s","started_at":%s,"updated_at":%s}\n' \
-        "$a" "$(date +%s)" "$(date +%s)" > "${FAKE_REMOTE:?}/work/jobs/$a/status.json"
-      exit 0
-    fi
-    prev="$a"
-  done
-  exit 0
-fi
-exit 0
 EOS
 
   # fake gh: no PR unless FAKE_PR is set; a list prints "NUMBER<TAB>FAKE_PR_HEAD"; create/edit log.
@@ -109,24 +83,12 @@ EOS
   git -C "$T/ctrl" push -q origin main
 }
 
-run_pulse() { # T [extra env...]
-  local T="$1"; shift
-  env NAS_STATE="$T/state" NAS_CTRL="$T/ctrl" NAS_REMOTE="$T/nas" NAS_WT_ROOT="$T/wt" \
-      NAS_SSH="$T/bin/ssh" NAS_SCP="$T/bin/scp" NAS_GH="$T/bin/gh" \
-      FAKE_STARTS="$T/starts" FAKE_REMOTE="$T/nas" FAKE_GHLOG="$T/gh.log" FAKE_GHEDIT="$T/gh-edit.log" \
-      NAS_NO_MERGE=1 NAS_SELFCHECK_CMD=true NAS_MAX_LANES=2 "$@" bash "$PULSE"
-}
 run_ingest() { # T [extra env...]
   local T="$1"; shift
   env NAS_STATE="$T/state" NAS_CTRL="$T/ctrl" NAS_REMOTE="$T/nas" NAS_WT_ROOT="$T/wt" \
       NAS_SSH="$T/bin/ssh" NAS_SCP="$T/bin/scp" NAS_GH="$T/bin/gh" \
-      FAKE_STARTS="$T/starts" FAKE_REMOTE="$T/nas" FAKE_GHLOG="$T/gh.log" FAKE_GHEDIT="$T/gh-edit.log" \
+      FAKE_GHLOG="$T/gh.log" FAKE_GHEDIT="$T/gh-edit.log" \
       NAS_NO_MERGE=1 NAS_SELFCHECK_CMD=true "$@" bash "$INGEST"
-}
-claim() { # T SLUG ITEM
-  local T="$1" slug="$2" item="$3"
-  printf '{"slug":"%s","item":"%s","brief":"%s","paths":["rsi/runtime/nas"],"status":"claimed","claimed_at":1}\n' \
-    "$slug" "$item" "$T/state/cloud-briefs/brief.md" > "$T/state/cloud/$slug.json"
 }
 claim_as() { # T SLUG ITEM TAKER LAUNCHED_AT
   printf '{"slug":"%s","item":"%s","brief":"%s","paths":["docs"],"status":"launched","taker":"%s","launched_at":%s,"claimed_at":%s}\n' \
@@ -170,16 +132,6 @@ job() { # T SLUG ITEM visible(0|1)
 }
 jget() { python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get(sys.argv[2],''))" "$1" "$2"; }
 
-# --- T1: two claims both start; ssh cannot drain the claim list (M3) ------------------------------
-t_two_claims() {
-  local T; sandbox; T=$T
-  claim "$T" s1 R-T-1; claim "$T" s2 R-T-2
-  run_pulse "$T" > "$T/pulse.log" 2>&1
-  check "M3 two claim rows start two lanes" [ "$(wc -l < "$T/starts" | tr -d ' ')" = 2 ]
-  check "M3 first claim is owned by nas" [ "$(jget "$T/state/cloud/s1.json" taker)" = nas ]
-  check "M3 second claim is owned by nas" [ "$(jget "$T/state/cloud/s2.json" taker)" = nas ]
-}
-
 # --- T2: ingest twice does the work once (M4) -----------------------------------------------------
 t_ingest_twice() {
   local T; sandbox; T=$T
@@ -198,60 +150,6 @@ t_ingest_twice() {
     "$(git -C "$T/ctrl" rev-parse main)" > "$T/nas/work/jobs/s1/status.json"
   run_ingest "$T" > "$T/ingest3.log" 2>&1
   check "M4 acked identity is never re-ingested" [ "$(ls "$T/state/lanes/history" | wc -l | tr -d ' ')" = 1 ]
-}
-
-# --- T3: claims take the shared scheduler flock; parallel pulses start one lane (M5) --------------
-t_claim_lock() {
-  local T; sandbox; T=$T
-  claim "$T" s1 R-T-3
-  python3 - "$T/state/lanes" <<'PY' &
-import fcntl,os,sys,time
-lock=open(os.path.join(sys.argv[1],'.flock'),'w'); fcntl.flock(lock,fcntl.LOCK_EX); time.sleep(5)
-PY
-  local holder=$!
-  sleep 0.3
-  run_pulse "$T" > "$T/pulse-held.log" 2>&1 &
-  local pulse=$!
-  sleep 1
-  check "M5 claim waits for the shared flock (no start)" [ ! -s "$T/starts" ]
-  check "M5 claim waits for the shared flock (no taker)" [ -z "$(jget "$T/state/cloud/s1.json" taker)" ]
-  wait "$pulse"; wait "$holder" 2>/dev/null
-  check "M5 claim proceeds once the flock is free" grep -qx s1 "$T/starts"
-  local T2; sandbox; T2=$T
-  claim "$T2" s9 R-T-3
-  run_pulse "$T2" > "$T2/p1.log" 2>&1 & local a=$!
-  run_pulse "$T2" > "$T2/p2.log" 2>&1 & local b=$!
-  wait "$a"; wait "$b"
-  check "M5 concurrent pulses start exactly one lane" [ "$(wc -l < "$T2/starts" | tr -d ' ')" = 1 ]
-  check "M5 claim JSON is never left truncated" python3 -c "import json;json.load(open('$T2/state/cloud/s9.json'))"
-}
-
-# --- T4: failed start releases the brief and stops retrying (M6) ----------------------------------
-t_start_failure() {
-  local T; sandbox; T=$T
-  claim "$T" s1 R-T-4
-  run_pulse "$T" FAKE_SCP_FAIL=1 > "$T/p1.log" 2>&1
-  check "M6 failed start starts nothing" [ ! -s "$T/starts" ]
-  check "M6 failed start releases the claim" [ -z "$(jget "$T/state/cloud/s1.json" taker)" ]
-  check "M6 failed start counts the failure" [ "$(jget "$T/state/cloud/s1.json" nas_start_failures)" = 1 ]
-  run_pulse "$T" FAKE_SCP_FAIL=1 > "$T/p2.log" 2>&1
-  check "M6 second failure counts" [ "$(jget "$T/state/cloud/s1.json" nas_start_failures)" = 2 ]
-  run_pulse "$T" > "$T/p3.log" 2>&1
-  check "M6 blocked brief is no longer retried" [ ! -s "$T/starts" ]
-  check "M6 blocked brief is logged" grep -q 'blocked after repeated start failures: s1' "$T/p3.log"
-}
-
-# --- T5: a crashed worker stops occupying capacity (M6) ------------------------------------------
-t_crashed_worker() {
-  local T; sandbox; T=$T
-  mkdir -p "$T/nas/work/jobs/old"
-  printf '{"status":"running","slug":"old","started_at":%s,"updated_at":%s}\n' \
-    "$(( $(date +%s) - 7200 ))" "$(( $(date +%s) - 7200 ))" > "$T/nas/work/jobs/old/status.json"
-  claim "$T" s2 R-T-5
-  run_pulse "$T" > "$T/pulse.log" 2>&1
-  check "M6 dead worker record is marked failed" [ "$(jget "$T/nas/work/jobs/old/status.json" status)" = failed ]
-  check "M6 dead worker note names the cause" grep -q 'worker process gone' "$T/nas/work/jobs/old/status.json"
-  check "M6 freed slot starts new work" grep -qx s2 "$T/starts"
 }
 
 # --- T6: existing linked worktree is reused and verified; a failed add stops publishing (M7) -----
@@ -282,49 +180,7 @@ t_screenshot_hold() {
   check "M9 remote job marked held" [ "$(jget "$T/nas/work/jobs/s1/status.json" status)" = held ]
   check "M9 CEO is told once" [ "$(grep -c 'held for screenshots' "$T/state/needs-ceo.md")" = 1 ]
   run_ingest "$T" > "$T/ingest2.log" 2>&1
-  check "M9 a second pulse repeats nothing" [ "$(grep -c 'held for screenshots' "$T/state/needs-ceo.md")" = 1 ]
-}
-
-# --- T8: a skipped pulse never removes the running pulse's lock (M1) -----------------------------
-t_lock_ownership() {
-  local T; sandbox; T=$T
-  claim "$T" s1 R-T-8
-  # Hold the scheduler flock until the test says so: the first pulse takes the pulse lock and then waits.
-  python3 - "$T/state/lanes" "$T/release" <<'PY' &
-import fcntl,os,sys,time
-lock=open(os.path.join(sys.argv[1],'.flock'),'w'); fcntl.flock(lock,fcntl.LOCK_EX)
-while not os.path.exists(sys.argv[2]): time.sleep(0.05)
-PY
-  local holder=$!
-  sleep 0.2
-  run_pulse "$T" > "$T/a.log" 2>&1 & local a=$!
-  local i=0
-  while [ ! -s "$T/state/nas/.pulse.lock/pid" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i+1)); done
-  check "M1 the first pulse owns a live lock" bash -c "kill -0 \"\$(cat '$T/state/nas/.pulse.lock/pid')\" 2>/dev/null"
-  run_pulse "$T" > "$T/b.log" 2>&1
-  check "M1 second pulse skips while the first runs" grep -q 'already running' "$T/b.log"
-  check "M1 second pulse leaves the first pulse lock alone" test -d "$T/state/nas/.pulse.lock"
-  run_pulse "$T" > "$T/c.log" 2>&1
-  check "M1 third pulse skips too" grep -q 'already running' "$T/c.log"
-  check "M1 third pulse leaves the first pulse lock alone" test -d "$T/state/nas/.pulse.lock"
-  : > "$T/release"; wait "$holder" 2>/dev/null; wait "$a" 2>/dev/null
-  check "M1 the first pulse still starts its lane" grep -qx s1 "$T/starts"
-  check "M1 exactly one lane started" [ "$(wc -l < "$T/starts" | tr -d ' ')" = 1 ]
-  check "M1 the owner releases its own lock" test ! -e "$T/state/nas/.pulse.lock"
-}
-
-# --- T9: failed process discovery stops reconciliation and starts (M2) ---------------------------
-t_discovery_failure() {
-  local T; sandbox; T=$T
-  mkdir -p "$T/nas/work/jobs/old"
-  printf '{"status":"running","slug":"old","started_at":%s,"updated_at":%s}\n' \
-    "$(( $(date +%s) - 60 ))" "$(( $(date +%s) - 60 ))" > "$T/nas/work/jobs/old/status.json"
-  claim "$T" s2 R-T-9
-  run_pulse "$T" FAKE_SCAN_FAIL=1 > "$T/pulse.log" 2>&1
-  check "M2 failed discovery is reported" grep -q 'worker process discovery failed' "$T/pulse.log"
-  check "M2 a live worker is not declared dead" [ "$(jget "$T/nas/work/jobs/old/status.json" status)" = running ]
-  check "M2 no replacement work starts" [ ! -s "$T/starts" ]
-  check "M2 no brief is claimed" [ -z "$(jget "$T/state/cloud/s2.json" taker)" ]
+  check "M9 a second run repeats nothing" [ "$(grep -c 'held for screenshots' "$T/state/needs-ceo.md")" = 1 ]
 }
 
 # --- T10: release only touches a claim this NAS run still owns (M3) -----------------------------
@@ -480,15 +336,9 @@ t_existing_pr() {
 if [ "${1:-}" = "--sandbox" ]; then sandbox; echo "$T"; exit 0; fi
 if [ -n "${1:-}" ]; then "$1"; finish; exit $?; fi    # test-nas.sh <function> — one test (mutant runs)
 
-t_two_claims
 t_ingest_twice
-t_claim_lock
-t_start_failure
-t_crashed_worker
 t_worktree_recovery
 t_screenshot_hold
-t_lock_ownership
-t_discovery_failure
 t_release_ownership
 t_worktree_ownership
 t_selfcheck_completion
