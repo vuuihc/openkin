@@ -22,7 +22,7 @@ PRS="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json number,headR
 import json,sys
 for p in sorted(json.load(sys.stdin), key=lambda p:p["number"]):
     h=p["headRefName"]; ls={l["name"] for l in p["labels"]}
-    if not h.startswith("rsi/") or h.startswith("rsi/dream-") or p["isDraft"] or ls & {"hold","needs-ceo"}: continue
+    if not h.startswith("rsi/") or h.startswith("rsi/dream-") or h == "rsi/ceo-loop" or p["isDraft"] or ls & {"hold","needs-ceo"}: continue
     print("%d\t%s\t%s" % (p["number"], h[4:], p["title"]))')"
 [ -z "$PRS" ] && { say "no open rsi PRs"; exit 0; }
 ACTIVE="$(python3 "$LANES_PY" slugs)"
