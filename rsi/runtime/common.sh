@@ -30,18 +30,19 @@ export GIT_TERMINAL_PROMPT=0
 # Let the Bash tool wait for long builds/tests inside a claude -p run.
 export BASH_DEFAULT_TIMEOUT_MS=3300000 BASH_MAX_TIMEOUT_MS=3600000
 
-# Model routing (CEO 2026-11-15, supersedes the earlier all-Kimi / all-Codex plans).
-# Workers / rework: DeepSeek V4.1 Flash at --effort high ("normal"; magpie offers low/high/max).
-# Director / fill pulse / planner / dream / first merge reviewer: same model at --effort max.
-# Second reviewer and API-error fallback: codex/gpt-6.1-sol (different family, not the Volcengine key).
-# Default UX vision reviewer (once PR #73's ux-gate.sh lands): also gpt-6.1-sol via claude -p (codex exec cannot view images).
-# Kimi k3.1 pro: escalation only (reviewer disagreement, 2nd+ rework round, or Astryx F1–F4 / S1–S3),
-# and only while today's Kimi list CNY is under ¥80 and overall Volcengine list CNY is under ¥450; otherwise gpt-6.1-sol.
+# Model routing — policy in rsi/ROUTING.md (CEO 2026-11-15). Default DeepSeek; escalate only on necessity.
+# Workers / rework: DeepSeek V4.1 Flash at --effort high. Director/planner/dream/first reviewer: same model at --effort max.
+# Standing second reviewer and default UX vision reviewer: codex/gpt-6.1-sol (ChatGPT, not Volcengine).
+# Necessity escalations (escalate.py): gpt-6.1-sol first for review/reasoning; Carbon (agy gemini-4-carbon-high, Antigravity) for
+# second opinion / UI vision / long context; Kimi last (Volcengine, ¥80/day cap).
 M_WORKER='volcengine-gw/volcengine/deepseek-v4.1-flash[1m]'
 M_DIRECTOR='volcengine-gw/volcengine/deepseek-v4.1-flash[1m]'
 M_ALT='codex/gpt-6.1-sol'
 M_CODEX='codex/gpt-6.1-sol'
 M_KIMI='volcengine-gw/kimi-k3.1-pro[1m]'
+M_CARBON='agy/gemini-4-carbon-high'
+M_CARBON_AGY="${M_CARBON_AGY:-gemini-4-carbon-high}"
+AGY="${AGY:-$(command -v agy 2>/dev/null || true)}"
 M_WORKER_EFFORT="${M_WORKER_EFFORT:-high}"
 M_DIRECTOR_EFFORT="${M_DIRECTOR_EFFORT:-max}"
 BUDGET_GUARD="${BUDGET_GUARD:-15}"

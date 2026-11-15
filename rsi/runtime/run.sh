@@ -24,6 +24,7 @@ if [ $CHECK -eq 1 ] || [ $STAT -eq 1 ]; then
   python3 "$RSI_DIR/runtime/volc-budget.py" --apply >/dev/null 2>&1 || true
   [ -s "$STATE/volc-budget.json" ] && python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print('volc list CNY today: ¥%.2f (%s); Kimi ¥%.2f / ¥%.0f'%(d['cny'],d['level'],d.get('kimi_cny') or 0,d.get('kimi_day_max') or 80))" "$STATE/volc-budget.json" 2>/dev/null
   python3 "$RSI_DIR/runtime/reviewer-misses.py" --status 2>/dev/null || true
+  python3 "$RSI_DIR/runtime/escalate.py" --weekly >/dev/null 2>&1 && [ -s "$STATE/escalations-weekly.md" ] && sed -n "1,8p" "$STATE/escalations-weekly.md"
   [ -s "$STATE/escalations.log" ] && { echo "--- escalations (tail)"; tail -5 "$STATE/escalations.log"; }
   echo "consec_fail=$(cat "$STATE/consec_fail" 2>/dev/null || echo 0) consec_timeout=$(cat "$STATE/consec_timeout" 2>/dev/null || echo 0)"
   echo "merge lane: $([ -d "$STATE/.merge.lock" ] && echo "running pid $(cat "$STATE/.merge.lock/pid")" || echo idle)"
@@ -67,7 +68,10 @@ fi
 
 TODAY="$(date +%F)"; STAMP="$(date +%F-%H%M%S)"
 # Daily / dream refresh the reviewer-miss ledger so the planner can judge quality after 2–3 days.
-if [ "$MODE" = daily ] || [ "$MODE" = dream ]; then python3 "$RSI_DIR/runtime/reviewer-misses.py" --update >/dev/null 2>&1 || true; fi
+if [ "$MODE" = daily ] || [ "$MODE" = dream ]; then
+  python3 "$RSI_DIR/runtime/reviewer-misses.py" --update >/dev/null 2>&1 || true
+  python3 "$RSI_DIR/runtime/escalate.py" --weekly >/dev/null 2>&1 || true
+fi
 IDLE=""; LANES_TXT=""
 case "$MODE" in
   pulse)

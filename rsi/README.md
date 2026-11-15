@@ -12,7 +12,7 @@ launchd every 20 min (+ whenever a lane finishes) ─► run.sh pulse = FILL: di
         ▼
  launchd every 10 min (+ after each lane) ─► merge.sh = MERGE LANE (one at a time, oldest PR first)
         merge origin/main into the branch (never force-push; web/dist/index.html conflicts auto-rebuilt) → hold rules →
-        gate.sh → independent review (DeepSeek --effort max, or codex for risky/>500 lines; Kimi only on escalation) → UX vision gate after #73 (codex default) → CI → squash-merge
+        gate.sh → independent review (DeepSeek --effort max, or codex for risky/>500 lines; stronger models only per rsi/ROUTING.md) → UX vision gate after #73 (codex default, Carbon on necessity) → CI → squash-merge
         failure → state/sendback/<slug>.md → rework lane (max 3 rounds, then state/needs-ceo.md)
 launchd 07:40 + 08:55 ─► run.sh dream  ─► state/reports/YYYY-MM-DD-morning.md
 launchd 08:15 ─► run.sh daily  ─► planner regroom of the queue (items sized for lanes)
