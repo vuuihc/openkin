@@ -308,7 +308,7 @@ if [ $NEED_REV -eq 1 ]; then
   } > "$RB"
   say "#$N $SLUG: review by $ROLE (parallel with gate), $([ -n "${LASTREV:-}" ] && echo delta-since-${LASTREV:0:8} || echo full)"
   cp "$PREV" "$PREV.prev" 2>/dev/null
-  ( RSI_REVIEW_TIER="$REVTIER_ENV" RSI_NO_HEAVY=1 BUDGET_GUARD=8 DISPATCH_MAX_SECS=1800 "$RSI_DIR/runtime/dispatch.sh" "$ROLE" "$WT" "$RB" "merge-$SLUG-review" > "$PREV.new" 2>&1 ) &
+  ( RSI_ITEM="$ITEM" RSI_REVIEW_TIER="$REVTIER_ENV" RSI_NO_HEAVY=1 BUDGET_GUARD=8 DISPATCH_MAX_SECS=1800 "$RSI_DIR/runtime/dispatch.sh" "$ROLE" "$WT" "$RB" "merge-$SLUG-review" > "$PREV.new" 2>&1 ) &
   REVPID=$!; CHILD=$REVPID
 fi
 GATE_OK=1; GATE_NOTE=""
@@ -371,7 +371,7 @@ if [ -n "$REVPID" ]; then
       # DeepSeek said it cannot decide: ask the standing second reviewer (sol) once, on the same brief.
       say "#$N $SLUG: DeepSeek review UNSURE -> second reviewer (reviewer-alt) once"; cp "$PREV" "$PREV.unsure"
       ROLE=reviewer-alt; REVTIER_ENV=""
-      ( RSI_NO_HEAVY=1 BUDGET_GUARD=8 DISPATCH_MAX_SECS=1800 "$RSI_DIR/runtime/dispatch.sh" reviewer-alt "$WT" "$RB" "merge-$SLUG-review" > "$PREV" 2>&1 )
+      ( RSI_ITEM="$ITEM" RSI_NO_HEAVY=1 BUDGET_GUARD=8 DISPATCH_MAX_SECS=1800 "$RSI_DIR/runtime/dispatch.sh" reviewer-alt "$WT" "$RB" "merge-$SLUG-review" > "$PREV" 2>&1 )
       d_rc=$?
       if [ $d_rc -eq 3 ] || (grep -q '\[hold strong review:' "$PREV" 2>/dev/null && ! grep -qE 'VERDICT: *(PASS|FAIL)' "$PREV"); then
         say "#$N $SLUG: sol hold after UNSURE — retry when quota returns"

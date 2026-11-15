@@ -78,7 +78,7 @@ elif python3 "$RSI_DIR/runtime/escalate.py" --no-strong-available >/dev/null 2>&
   unavailable "ux reviewer held: no strong reviewer available (Hydrogen/sol limited)"
 else
   UROLE="ux-reviewer"; [ "$ROLE" = "reviewer-alt" ] && UROLE="ux-reviewer-alt"
-  RSI_NO_HEAVY=1 BUDGET_GUARD=8 DISPATCH_MAX_SECS=1500 "$RSI_DIR/runtime/dispatch.sh" "$UROLE" "$WT" "$PF" "merge-$SLUG-ux" > "$UXR" 2>&1; DRC=$?
+  RSI_ITEM="$ITEM" RSI_NO_HEAVY=1 BUDGET_GUARD=8 DISPATCH_MAX_SECS=1500 "$RSI_DIR/runtime/dispatch.sh" "$UROLE" "$WT" "$PF" "merge-$SLUG-ux" > "$UXR" 2>&1; DRC=$?
   if [ "${DRC:-0}" -eq 3 ]; then
     unavailable "ux reviewer held: no strong reviewer available (dispatch hold)"
   fi
