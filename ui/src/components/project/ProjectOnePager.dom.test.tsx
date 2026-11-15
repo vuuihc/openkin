@@ -90,9 +90,7 @@ describe("the project one-pager section", () => {
     const view = renderOnePager();
 
     await user.click(screen.getByRole("button", { name: "Edit" }));
-    expect(document.activeElement).toBe(
-      screen.getByRole("textbox", { name: "One-line summary" }),
-    );
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "One-line summary" }));
 
     view.rerender(<ProjectOnePager {...view.props} saved />);
     // The Edit button is re-rendered by the same state change, so the focus
