@@ -13,6 +13,7 @@ import {
   mergeProcessRuns,
   pendingRefSeqs,
   progressRows,
+  projectLiveProcess,
   roundEvidenceByTurn,
   roundsOf,
   shouldShowGenericThinking,
@@ -1868,6 +1869,248 @@ describe("mergeProcessRuns", () => {
       { kind: "meta", key: "rd-2", label: "Routing: review → prov-a/a-smart-1" },
       { kind: "message", text: "final answer" },
     ]);
+  });
+});
+
+describe("projectLiveProcess", () => {
+  const liveProcessEvents = [
+    ev(1, "message", {
+      role: "user",
+      content: [{ type: "text", text: "please trace the render path" }],
+    }),
+    ev(2, "message", {
+      role: "reasoning",
+      phase: "progress",
+      speaker: "kin",
+      text: "Inspecting the repository.",
+      partial: false,
+      visibility: { user: true, task: true },
+    }),
+    ev(3, "tool_use", {
+      speaker: "kin",
+      tool_use_id: "call-1",
+      name: "glob",
+      input: { pattern: "**/*.tsx" },
+      visibility: { user: true, task: true },
+    }),
+    ev(4, "tool_result", {
+      speaker: "kin",
+      tool_use_id: "call-1",
+      name: "glob",
+      output: "ChatStream.tsx",
+      ok: true,
+      visibility: { user: true, task: true },
+    }),
+    ev(5, "message", {
+      role: "assistant",
+      phase: "progress",
+      speaker: "kin",
+      text: "Located the rendering path.",
+      partial: false,
+      visibility: { user: true, task: true },
+    }),
+    ev(6, "tool_use", {
+      speaker: "kin",
+      tool_use_id: "call-2",
+      name: "read_file",
+      input: { path: "ChatStream.tsx" },
+      visibility: { user: true, task: true },
+    }),
+  ];
+
+  it("keeps live reasoning and narration outside tool cards in event order", () => {
+    const live = projectLiveProcess(buildChatItems(liveProcessEvents, "kin"));
+
+    expect(live.map((item) => item.kind)).toEqual([
+      "message",
+      "process_note",
+      "progress",
+      "process_note",
+      "progress",
+    ]);
+    expect(live[1]).toMatchObject({
+      kind: "process_note",
+      note: {
+        kind: "note",
+        text: "Inspecting the repository.",
+        source: "reasoning",
+        status: "done",
+        seq: 2,
+      },
+    });
+    expect(live[2]).toMatchObject({
+      kind: "progress",
+      steps: [{ kind: "tool", key: "tool-call-1", name: "glob", status: "done" }],
+    });
+    expect(live[3]).toMatchObject({
+      kind: "process_note",
+      note: { text: "Located the rendering path.", source: "note", seq: 5 },
+    });
+    expect(live[4]).toMatchObject({
+      kind: "progress",
+      steps: [{ kind: "tool", key: "tool-call-2", name: "read_file", status: "running" }],
+    });
+
+    // A tool card is only tools: it must not take the text on either side of it.
+    for (const item of live) {
+      if (item.kind !== "progress") continue;
+      expect(item.steps.every((step) => step.kind === "tool")).toBe(true);
+    }
+  });
+
+  it("keeps terminal process in one expandable summary after live note projection", () => {
+    const finalized = [
+      ...liveProcessEvents,
+      ev(7, "message", {
+        role: "assistant",
+        phase: "summary",
+        speaker: "kin",
+        text: "Fixed the rendering path.",
+        partial: false,
+        visibility: { user: true, task: true },
+      }),
+    ];
+    const built = buildChatItems(finalized, "kin", undefined, true);
+    // The running view is a projection, not a rewrite: the stored items keep
+    // the notes and tools the settled view folds.
+    projectLiveProcess(built);
+
+    const settled = mergeProcessRuns(built);
+    expect(settled.map((item) => item.kind)).toEqual(["message", "progress", "message"]);
+    expect(settled[1]).toMatchObject({
+      kind: "progress",
+      steps: [
+        { kind: "note", text: "Inspecting the repository." },
+        { kind: "tool", name: "glob", status: "done" },
+        { kind: "note", text: "Located the rendering path." },
+        { kind: "tool", name: "read_file", status: "running" },
+      ],
+    });
+    expect(settled[2]).toMatchObject({
+      kind: "message",
+      text: "Fixed the rendering path.",
+      phase: "summary",
+    });
+  });
+
+  it("does not create blank live note rows or duplicate the final answer", () => {
+    const items: ChatItem[] = [
+      {
+        kind: "progress",
+        key: "prog-0",
+        speaker: "kin",
+        steps: [
+          {
+            kind: "note",
+            key: "blank",
+            speaker: "kin",
+            text: "   ",
+            status: "done",
+            source: "reasoning",
+          },
+          {
+            kind: "tool",
+            key: "tool-1",
+            speaker: "kin",
+            name: "bash",
+            summary: "ls",
+            status: "done",
+          },
+        ],
+      },
+      {
+        kind: "message",
+        key: "answer",
+        speaker: "kin",
+        text: "Done.",
+        phase: "summary",
+        seq: 9,
+      },
+    ];
+
+    const live = projectLiveProcess(items);
+
+    expect(live).toHaveLength(2);
+    expect(live[0]).toMatchObject({ kind: "progress", steps: [{ key: "tool-1" }] });
+    expect(live[1]).toMatchObject({ kind: "message", key: "answer", text: "Done." });
+  });
+
+  it("preserves note keys and source attribution when streaming text grows", () => {
+    const chunk = (seq: number, text: string) =>
+      ev(seq, "message", {
+        role: "reasoning",
+        speaker: "kin",
+        partial: true,
+        message_id: "m1",
+        index: 1,
+        content: [{ type: "text", text }],
+        visibility: { user: true, task: true },
+      });
+    const first = projectLiveProcess(buildChatItems([chunk(1, "Look")], "kin"));
+    const grown = projectLiveProcess(
+      buildChatItems([chunk(1, "Look"), chunk(2, "Looking closer")], "kin"),
+    );
+
+    const firstNote = first.find((item) => item.kind === "process_note");
+    const grownNote = grown.find((item) => item.kind === "process_note");
+    expect(firstNote).toMatchObject({
+      key: "message-kin-reasoning-m1-1",
+      note: { text: "Look", source: "reasoning" },
+    });
+    expect(grownNote).toMatchObject({
+      key: "message-kin-reasoning-m1-1",
+      note: { text: "LookLooking closer", source: "reasoning" },
+    });
+    expect(grown.filter((item) => item.kind === "process_note")).toHaveLength(1);
+  });
+
+  it("leaves an earlier round folded while the live round expands", () => {
+    const events = [
+      ev(1, "message", { role: "user", content: [{ type: "text", text: "first ask" }] }),
+      ev(2, "message", {
+        role: "reasoning",
+        phase: "progress",
+        speaker: "kin",
+        text: "First look.",
+        partial: false,
+        visibility: { user: true, task: true },
+      }),
+      ev(3, "message", {
+        role: "assistant",
+        phase: "summary",
+        speaker: "kin",
+        text: "First done.",
+        partial: false,
+        visibility: { user: true, task: true },
+      }),
+      ev(4, "message", { role: "user", content: [{ type: "text", text: "second ask" }] }),
+      ev(5, "message", {
+        role: "reasoning",
+        phase: "progress",
+        speaker: "kin",
+        text: "Second look.",
+        partial: false,
+        visibility: { user: true, task: true },
+      }),
+    ];
+
+    const live = projectLiveProcess(buildChatItems(events, "kin"));
+
+    expect(live.map((item) => item.kind)).toEqual([
+      "message",
+      "progress",
+      "message",
+      "message",
+      "process_note",
+    ]);
+    expect(live[1]).toMatchObject({
+      kind: "progress",
+      steps: [{ kind: "note", text: "First look." }],
+    });
+    expect(live[4]).toMatchObject({
+      kind: "process_note",
+      note: { text: "Second look." },
+    });
   });
 });
 

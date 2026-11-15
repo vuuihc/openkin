@@ -39,6 +39,7 @@ import {
   groupIntoTurns,
   isProgressCardRunning,
   mergeProcessRuns,
+  projectLiveProcess,
   noteLabelKey,
   noteNeedsAttribution,
   normalizeModel,
@@ -183,7 +184,11 @@ export default function ChatStream({
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
   // Rebuild when locale changes (tool summaries use t()).
   const items = useMemo(() => {
-    const built = mergeProcessRuns(buildChatItems(events, hostSpeaker, hostModel, !loading));
+    const history = buildChatItems(events, hostSpeaker, hostModel, !loading);
+    // A running turn reads as process text in the column with only its tools
+    // behind folds; once it settles the whole round folds back into one
+    // summary. Both shapes come from the same stored projection.
+    const built = loading ? projectLiveProcess(history) : mergeProcessRuns(history);
     if (!pendingUserMessages || pendingUserMessages.length === 0) return built;
     // Appended after the projection rather than passed into it: these messages
     // have no event, so they start no round and carry no seq. What they do have
@@ -256,6 +261,12 @@ export default function ChatStream({
     for (const item of items) {
       if (item.kind === "message") {
         if (item.text.trim().length > 0) findable.push({ key: item.key, text: item.text });
+        continue;
+      }
+      if (item.kind === "process_note") {
+        if (item.note.text.trim().length > 0) {
+          findable.push({ key: item.key, text: item.note.text });
+        }
         continue;
       }
       if (item.kind !== "progress") continue;
@@ -737,6 +748,15 @@ function AgentTurn({
                 />
               );
             }
+            case "process_note":
+              return (
+                <LiveNoteRow
+                  key={item.key}
+                  note={item.note}
+                  hostSpeaker={hostSpeaker}
+                  findActive={item.key === activeFindKey}
+                />
+              );
             case "error":
               return (
                 <div
@@ -1206,6 +1226,59 @@ function ProgressCard({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * A note while its turn is still running: process text in the column rather
+ * than a row behind a fold. The label and attribution come from the same
+ * source the settled card uses, so thinking, plan and narration stay tellable
+ * apart without opening anything.
+ */
+function LiveNoteRow({
+  note,
+  hostSpeaker,
+  findActive = false,
+}: {
+  note: NoteStep;
+  /** The session's host agent: a note that is not its voice says whose it is. */
+  hostSpeaker: string;
+  /** The note the find bar is pointing at. */
+  findActive?: boolean;
+}) {
+  const tr = useT();
+  const statusDot =
+    note.status === "error"
+      ? "bg-kin-red"
+      : note.status === "running"
+        ? "bg-kin-blue animate-breathe"
+        : "bg-kin-green";
+  const label = tr(noteLabelKey(note.source));
+  const attribution = noteNeedsAttribution(note, hostSpeaker)
+    ? [agentAvatarMeta(note.speaker).label, note.model].filter(Boolean).join(" · ")
+    : "";
+  return (
+    <div
+      data-message-key={note.key}
+      data-find-active={findActive ? "true" : undefined}
+      className={[
+        "min-w-0 rounded-lg py-0.5",
+        findActive ? "ring-2 ring-kin-blue/45" : "",
+      ].join(" ")}
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        <span className={`w-1.5 h-1.5 flex-none rounded-full ${statusDot}`} aria-hidden="true" />
+        <span className="flex-none font-mono text-caption text-kin-muted">{label}</span>
+        {attribution && (
+          <span className="min-w-0 truncate text-caption text-kin-muted" title={attribution}>
+            {attribution}
+          </span>
+        )}
+      </div>
+      <div className="mt-0.5 whitespace-pre-wrap break-words text-body text-kin-secondary">
+        {note.text}
+      </div>
     </div>
   );
 }

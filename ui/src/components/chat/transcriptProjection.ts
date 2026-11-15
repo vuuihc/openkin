@@ -115,6 +115,22 @@ export type ProgressItem = {
   steps: ProgressStep[];
 };
 
+/**
+ * A process note drawn as text in the conversation while its turn runs.
+ *
+ * A view item only: `buildChatItems` keeps the note inside its progress box,
+ * which is the shape the settled summary folds, and `projectLiveProcess` lifts
+ * a copy out for the running view without editing the stored step.
+ */
+export type ProcessNoteItem = {
+  kind: "process_note";
+  key: string;
+  speaker: string;
+  model?: string;
+  /** The note exactly as the projection built it, keys and source included. */
+  note: NoteStep;
+};
+
 export type ChatItem =
   | {
       kind: "message";
@@ -128,6 +144,7 @@ export type ChatItem =
       seq?: number;
     }
   | ProgressItem
+  | ProcessNoteItem
   | { kind: "error"; key: string; message: string }
   | {
       kind: "meta";
@@ -242,6 +259,9 @@ export function chatItemSeqRange(item: ChatItem): { from: number; to: number } |
       if (step.seq > to) to = step.seq;
     }
     return to >= from ? { from, to } : null;
+  }
+  if (item.kind === "process_note") {
+    return typeof item.note.seq === "number" ? { from: item.note.seq, to: item.note.seq } : null;
   }
   return null;
 }
@@ -1030,6 +1050,78 @@ export function mergeProcessRuns(items: ChatItem[]): ChatItem[] {
   return out;
 }
 
+/**
+ * Show the round that is still being written as it happens.
+ *
+ * The stored projection keeps every note and tool of a round in one progress
+ * box so the settled view can fold them into a single summary. While the turn
+ * runs, that box is the wrong shape: the reader wants the reasoning, plan and
+ * narration as text, and only the tool calls behind a fold. This returns a view
+ * of the same items — notes lifted into `process_note` rows, tools regrouped
+ * into the cards between them — without editing the input or the keys it
+ * carries.
+ *
+ * Earlier rounds stay folded. The live round is the one after the last user
+ * message; the prefix goes through `mergeProcessRuns`, the same terminal
+ * contract the settled view uses, so a new message never unfolds history.
+ */
+export function projectLiveProcess(items: ChatItem[]): ChatItem[] {
+  let liveFrom = 0;
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item.kind === "message" && item.speaker === "user") {
+      liveFrom = index + 1;
+      break;
+    }
+  }
+  const live = splitLiveProcess(items.slice(liveFrom));
+  if (liveFrom === 0) return live;
+  return [...mergeProcessRuns(items.slice(0, liveFrom)), ...live];
+}
+
+/** Split one round's process boxes into readable notes and tool-only cards. */
+function splitLiveProcess(items: ChatItem[]): ChatItem[] {
+  const out: ChatItem[] = [];
+  for (const item of items) {
+    if (item.kind !== "progress") {
+      out.push(item);
+      continue;
+    }
+    let tools: ToolStep[] = [];
+    const flushTools = () => {
+      if (tools.length === 0) return;
+      out.push({
+        kind: "progress",
+        // The first call of the group names its card: keys are stable as the
+        // stream grows, and a note between two calls starts a new one.
+        key: `${item.key}:${tools[0].key}`,
+        speaker: item.speaker,
+        model: item.model,
+        steps: tools,
+      });
+      tools = [];
+    };
+    for (const step of item.steps) {
+      if (step.kind === "tool") {
+        tools.push(step);
+        continue;
+      }
+      // An empty reasoning chunk is not a row the reader can use.
+      if (!step.text.trim()) continue;
+      flushTools();
+      out.push({
+        kind: "process_note",
+        key: step.key,
+        speaker: step.speaker,
+        model: step.model,
+        note: step,
+      });
+    }
+    flushTools();
+  }
+  return out;
+}
+
 function mergeProcessRun(run: ProcessRunItem[]): ChatItem[] {
   if (!run.some((item) => item.kind === "progress")) return run;
 
@@ -1376,6 +1468,7 @@ export function shouldShowGenericThinking(items: ChatItem[], loading: boolean): 
   }
   return !items.slice(roundStart).some((item) => {
     if (item.kind === "message") return item.text.trim().length > 0;
+    if (item.kind === "process_note") return item.note.text.trim().length > 0;
     if (item.kind !== "progress") return false;
     return item.steps.some((step) => step.kind === "tool" || step.text.trim().length > 0);
   });
@@ -1387,8 +1480,15 @@ export function isProgressCardRunning(
   loading: boolean,
 ): boolean {
   if (!loading) return false;
-  const lastItem = items[items.length - 1];
-  return lastItem?.kind === "progress" && lastItem.key === item.key;
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const last = items[index];
+    // A note between tool groups is still part of the running turn; it does
+    // not close the card above it the way a displayed answer does.
+    if (last.kind === "process_note") continue;
+    if (last.kind === "progress") return last.key === item.key;
+    return false;
+  }
+  return false;
 }
 
 /** One row of the progress box, in reading order. */
@@ -1602,7 +1702,7 @@ export function findSpeakerModel(events: TaskEvent[], speaker: string): string |
 }
 
 export function chatItemModel(item: ChatItem): string | undefined {
-  if (item.kind === "message" || item.kind === "progress") {
+  if (item.kind === "message" || item.kind === "progress" || item.kind === "process_note") {
     return item.model;
   }
   return undefined;
