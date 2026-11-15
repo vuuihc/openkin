@@ -18,7 +18,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ANSI = re.compile(r"\x1b\[[0-9;]*[mK]")
+ANSI = re.compile(r"(?:\x1b\[|\^\[\[)[0-9;]*[mK]")
 # gh run view --log-failed: JOB<TAB>STEP<TAB>TIMESTAMP<SPACE-or-TAB>message
 LOG_PREFIX = re.compile(
     r"^[^\t]+\t[^\t]+\t\d{4}-\d{2}-\d{2}T\S+[ \t]+"
@@ -28,7 +28,7 @@ FAIL_PKG_TAB = re.compile(r"^FAIL\t(\S+)\t")
 FAIL_PKG_BRACKET = re.compile(r"^FAIL\s+(\S+)\s+\[")
 # vitest / jest: "FAIL  src/foo/bar.test.ts" or "FAIL  ui/src/..."
 FAIL_FILE = re.compile(
-    r"(?:^|\s)(?:FAIL|✗|×)\s+((?:src|ui|internal|cmd|scripts|desktop|mobile)/[^\s:]+\.(?:go|ts|tsx|js|jsx))"
+    r"(?:^|\s)(?:FAIL|✗|×)\s+((?:src|ui|internal|cmd|scripts|desktop|mobile)/[^\s:]+\.(?:go|tsx|ts|jsx|js))"
 )
 TEST_FILE_HINT = re.compile(
     r"^\s+((?:[./])?(?:internal|cmd|scripts|ui|src)/[\w./-]+_test\.go):"
