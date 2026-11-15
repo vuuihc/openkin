@@ -209,8 +209,16 @@ if [ -n "$REVPID" ]; then
   wait "$REVPID"; CHILD=""
   cp "$PREV.new" "$PREV"; rm -f "$PREV.new"
   VERD="$(grep -oE 'VERDICT: *(PASS|FAIL)' "$PREV" | tail -1 | grep -oE 'PASS|FAIL')"
-  echo "$DH ${VERD:-NONE} $SHA $ROLE" > "$RV"
-  if [ "$VERD" != PASS ]; then REV_OK=0; REV_NOTE="independent review ${VERD:-gave no verdict}"; say "#$N $SLUG: review ${VERD:-NO VERDICT}"; fi
+  if [ -z "$VERD" ]; then
+    # Reviewer infra (empty log / no VERDICT): retry next cycle. Do not send back or cache this SHA as reviewed
+    # (a cached NONE would make the next pass a delta-since-HEAD empty review).
+    say "#$N $SLUG: review NO VERDICT (reviewer infra) — retry next cycle, not a sendback"
+    if [ -s "$PREV.prev" ]; then mv "$PREV.prev" "$PREV"; else rm -f "$PREV"; fi
+    [ $GATE_OK -eq 0 ] || exit 0
+  else
+    echo "$DH $VERD $SHA $ROLE" > "$RV"
+    if [ "$VERD" != PASS ]; then REV_OK=0; REV_NOTE="independent review FAIL"; say "#$N $SLUG: review FAIL"; fi
+  fi
 fi
 RMODEL="$([ $ROLE = reviewer ] && echo "$M_DIRECTOR" || echo "$M_ALT")"
 if [ $GATE_OK -eq 0 ] || [ $REV_OK -eq 0 ]; then
