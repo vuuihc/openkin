@@ -1262,10 +1262,7 @@ function LiveNoteRow({
     <div
       data-message-key={note.key}
       data-find-active={findActive ? "true" : undefined}
-      className={[
-        "min-w-0 rounded-lg py-0.5",
-        findActive ? "ring-2 ring-kin-blue/45" : "",
-      ].join(" ")}
+      className={`min-w-0 rounded-lg py-0.5${findActive ? " ring-2 ring-kin-blue/45" : ""}`}
     >
       <div className="flex min-w-0 items-center gap-2">
         <span className={`w-1.5 h-1.5 flex-none rounded-full ${statusDot}`} aria-hidden="true" />

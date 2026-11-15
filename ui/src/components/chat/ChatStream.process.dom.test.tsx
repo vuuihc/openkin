@@ -82,9 +82,7 @@ describe("process text outside tool cards", () => {
   ];
 
   it("shows live reasoning and progress narration outside collapsed tool cards", () => {
-    const { container } = render(
-      <ChatStream events={liveEvents} hostSpeaker="kin" loading />,
-    );
+    const { container } = render(<ChatStream events={liveEvents} hostSpeaker="kin" loading />);
 
     // The process text reads in the column without opening anything.
     const reasoningRow = screen.getByText("Inspecting the repository.");
