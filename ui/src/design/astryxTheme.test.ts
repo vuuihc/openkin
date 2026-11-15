@@ -148,6 +148,25 @@ describe("kinAstryxTheme", () => {
     expect(kinAstryxTheme.tokens["--color-text-primary"]).toBe(cssValue("--kin-text"));
   });
 
+  it("keeps Kin's console font stack instead of the neutral base's Figtree", () => {
+    // Astryx's component layer writes `:scope { font-family:
+    // var(--font-family-body) }` on the theme wrapper, which outranks the base
+    // layer and would otherwise repaint the whole console in Figtree.
+    expect(kinAstryxTheme.tokens["--font-family-body"]).toBe("var(--console-font-sans)");
+    expect(kinAstryxTheme.tokens["--font-family-heading"]).toBe("var(--console-font-sans)");
+
+    // The neutral base's coarse-pointer rule re-emits its typography axis,
+    // families included, in a later media block for screens below `lg`; the
+    // 44px rule is appended after it and must carry the same stack or phones
+    // fall back to Figtree.
+    const rules = kinAstryxTheme.__adaptationRules ?? [];
+    const coarse = [...rules]
+      .reverse()
+      .find((rule) => rule.when.pointer === "coarse" && "--size-element-sm" in rule.tokens);
+    expect(coarse?.tokens["--font-family-body"]).toBe("var(--console-font-sans)");
+    expect(coarse?.tokens["--font-family-heading"]).toBe("var(--console-font-sans)");
+  });
+
   it("raises every Astryx control to the 44px floor on a coarse pointer", () => {
     const rules = kinAstryxTheme.__adaptationRules ?? [];
     // The neutral base ships its own coarse-pointer rule for typography; the

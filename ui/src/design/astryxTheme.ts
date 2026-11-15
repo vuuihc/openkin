@@ -185,6 +185,21 @@ export function astryxTokenValues(): Record<string, string> {
  */
 export const COARSE_POINTER_CONTROL_FLOOR = "44px";
 
+/**
+ * Kin's console font stack, as Astryx's two family tokens.
+ *
+ * `neutralTheme` ships Figtree, and Astryx writes
+ * `:scope { font-family: var(--font-family-body) }` on the theme wrapper — a
+ * component-layer rule that outranks the base layer, so an inherited Figtree
+ * stack would replace `--console-font-sans` for the whole console. The neutral
+ * theme's coarse-pointer rule re-emits its typography axis (families included)
+ * in a later media block, so the stack has to be pinned in both layers.
+ */
+const KIN_FONT_TOKENS = {
+  "--font-family-body": "var(--console-font-sans)",
+  "--font-family-heading": "var(--console-font-sans)",
+} as const;
+
 const coarsePointerRule = {
   when: { pointer: "coarse" as const },
   value: {
@@ -192,6 +207,7 @@ const coarsePointerRule = {
       "--size-element-sm": COARSE_POINTER_CONTROL_FLOOR,
       "--size-element-md": COARSE_POINTER_CONTROL_FLOOR,
       "--size-element-lg": COARSE_POINTER_CONTROL_FLOOR,
+      ...KIN_FONT_TOKENS,
     },
   },
 };
@@ -208,7 +224,10 @@ const coarsePointerRule = {
 export const kinAstryxTheme = defineTheme({
   name: "kin",
   extends: neutralTheme,
-  tokens: astryxTokenValues(),
+  tokens: {
+    ...astryxTokenValues(),
+    ...KIN_FONT_TOKENS,
+  },
   motion: { tempo: 1, character: "standard" },
   adaptations: { rules: [coarsePointerRule] },
 });
