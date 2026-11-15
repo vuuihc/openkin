@@ -175,13 +175,14 @@ fi
 
 # 4. gate and review IN PARALLEL. Review is keyed by the PR's own diff (web/dist/index.html and lockfile excluded), the gate by head SHA.
 DH="$($GIT -C "$WT" diff origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | shasum | cut -c1-16)"
-NEED_GATE=1; [ "$(cut -d' ' -f1 "$V" 2>/dev/null)" = "$SHA" ] && [ "$(cut -d' ' -f2 "$V" 2>/dev/null)" = PASS ] && NEED_GATE=0
-NEED_REV=1;  [ "$(cut -d' ' -f1 "$RV" 2>/dev/null)" = "$DH" ] && [ "$(cut -d' ' -f2 "$RV" 2>/dev/null)" = PASS ] && NEED_REV=0
 # MANDATE 2: the reviewer must be a different model from the worker. Workers run on $M_WORKER
 # (DeepSeek), so use the role that is a different family (reviewer-alt = gpt-6.1-sol). Selecting
 # the DeepSeek 'reviewer' here would put the worker's own model on its review.
 ROLE=reviewer-alt
 [ "$M_WORKER" = "$M_ALT" ] && ROLE=reviewer
+NEED_GATE=1; [ "$(cut -d' ' -f1 "$V" 2>/dev/null)" = "$SHA" ] && [ "$(cut -d' ' -f2 "$V" 2>/dev/null)" = PASS ] && NEED_GATE=0
+# A cached PASS only carries over when the same (different-family) role recorded it.
+NEED_REV=1;  [ "$(cut -d' ' -f1 "$RV" 2>/dev/null)" = "$DH" ] && [ "$(cut -d' ' -f2 "$RV" 2>/dev/null)" = PASS ] && [ "$(cut -d' ' -f4 "$RV" 2>/dev/null)" = "$ROLE" ] && NEED_REV=0
 GL="$RUNS/gate-merge-$SLUG-$(date +%H%M%S).log"; REVPID=""
 if [ $NEED_REV -eq 1 ]; then
   LASTREV="$(cut -d' ' -f3 "$RV" 2>/dev/null)"   # last reviewed SHA (any verdict)
