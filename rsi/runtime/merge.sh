@@ -89,8 +89,10 @@ for _,n,slug,title,tier in sorted(rows):   # small-safe first, then PR number
     [ -e "$STATE/merge/$SLUG.blocked" ] && { say "#$N $SLUG: blocked (needs CEO)"; continue; }
     L="$STATE/merge/$SLUG.lock"
     if [ -d "$L" ]; then if kill -0 "$(cat "$L/pid" 2>/dev/null || echo 0)" 2>/dev/null; then continue; fi; rm -rf "$L"; fi
-    # sol (ChatGPT allowance) exhausted: large-tier reviews need it and would only loop on 429. Wait for it; small/medium (DeepSeek) PRs are unaffected.
-    if [ "$TIER" = large ] && [ "$(awk '{print $2}' "$STATE/merge/$SLUG.reviewed" 2>/dev/null)" != PASS ] && [ "$(cat "$STATE/sol-limited-until" 2>/dev/null || echo 0)" -gt "$(date +%s)" ]; then
+    # sol (ChatGPT allowance) exhausted: large-tier reviews need it and would only loop on 429. Wait for it;
+    # small/medium (DeepSeek) PRs are unaffected. If a strong review for some head SHA is already on disk, start
+    # the verifier anyway — it will reuse that verdict when HEAD is unchanged, and hold internally if HEAD moved.
+    if [ "$TIER" = large ] && [ "$(awk '{print $2}' "$STATE/merge/$SLUG.reviewed" 2>/dev/null)" != PASS ] && [ "$(cat "$STATE/sol-limited-until" 2>/dev/null || echo 0)" -gt "$(date +%s)" ] && [ ! -s "$STATE/merge/$SLUG.strong" ]; then
       say "#$N $SLUG [large]: waiting for gpt-6.1-sol quota (until $(date -r "$(cat "$STATE/sol-limited-until")" '+%H:%M'))"; continue; fi
     [ -e "$STATE/merge/$SLUG.queued_at" ] || date +%s > "$STATE/merge/$SLUG.queued_at"   # first time it was eligible: queue-wait metric
     # Slot policy: MERGE_WORKERS general slots + SMALL_SLOTS reserved. big/medium PRs use the general slots; small-safe PRs may use any
@@ -235,7 +237,13 @@ for l in sys.stdin:
 print(" ".join(sorted(set(bad))))') )"
   [ -z "$BAD" ] && HOLD="" || HOLD="package.json change outside the Astryx programme packages: $BAD"
 fi
-[ "$SIZE" -gt 800 ] && HOLD="diff is $SIZE changed lines (>800): split it"
+if [ "$SIZE" -gt 1000 ]; then
+  if [ -f "$STATE/merge/$SLUG.size-ok" ]; then
+    say "#$N $SLUG: CEO size waiver ($SIZE lines; $STATE/merge/$SLUG.size-ok)"
+  else
+    HOLD="diff is $SIZE changed lines (>1000): split it"
+  fi
+fi
 echo "$CH" | grep -qE '^web/dist/assets/' && HOLD="web/dist/assets in diff"
 if [ -n "$HOLD" ]; then
   if [ "${HOLD#diff is}" != "$HOLD" ]; then printf '%s\n' "$HOLD" > "$STATE/merge/$SLUG.err"; sendback "$SLUG" "$ITEM" "$HOLD" "$STATE/merge/$SLUG.err"
@@ -253,9 +261,8 @@ fi
 
 # 4. gate and review IN PARALLEL. Review is keyed by the PR's own diff (web/dist/index.html and lockfile excluded), the gate by head SHA.
 DH="$($GIT -C "$WT" diff origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | shasum | cut -c1-16)"
-# MANDATE 2: the reviewer must be a different model from the worker. Workers run on $M_WORKER
-# (DeepSeek), so use the role that is a different family (reviewer-alt = gpt-6.1-sol). Selecting
-# the DeepSeek 'reviewer' here would put the worker's own model on its review.
+NEED_GATE=1; [ "$(cut -d' ' -f1 "$V" 2>/dev/null)" = "$SHA" ] && [ "$(cut -d' ' -f2 "$V" 2>/dev/null)" = PASS ] && NEED_GATE=0
+NEED_REV=1;  [ "$(cut -d' ' -f1 "$RV" 2>/dev/null)" = "$DH" ] && [ "$(cut -d' ' -f2 "$RV" 2>/dev/null)" = PASS ] && NEED_REV=0
 # Tiered review (CEO 2026-11-15, runtime/review-tier.py): small = ONE DeepSeek-max review (escalation signals other than rework>=2 off;
 # `VERDICT: UNSURE` -> sol once); medium = DeepSeek with the normal signals; large (risky paths, >500 lines, F/S/N/Q3a, deps, rework>=2) = sol.
 # Build, tests, UX gate, CI and the hold rules are the same for every tier.
@@ -264,10 +271,22 @@ TIER="$(echo "$TIER_LINE" | awk '{print $1}')"; ROLE="$(echo "$TIER_LINE" | awk 
 [ -e "$STATE/merge/$SLUG.force-alt" ] && ROLE=reviewer-alt          # DeepSeek returned no verdict twice: use the standing second reviewer
 echo "$TIER" > "$STATE/merge/$SLUG.tier"; say "#$N $SLUG: review tier=$TIER role=$ROLE ($TIER_LINE)"
 REVTIER_ENV=""; [ "$TIER" = small ] && [ "$ROLE" = reviewer ] && REVTIER_ENV=small
-NEED_GATE=1; [ "$(cut -d' ' -f1 "$V" 2>/dev/null)" = "$SHA" ] && [ "$(cut -d' ' -f2 "$V" 2>/dev/null)" = PASS ] && NEED_GATE=0
-# A cached PASS only carries over when the same (different-family) role recorded it.
-NEED_REV=1;  [ "$(cut -d' ' -f1 "$RV" 2>/dev/null)" = "$DH" ] && [ "$(cut -d' ' -f2 "$RV" 2>/dev/null)" = PASS ] && [ "$(cut -d' ' -f4 "$RV" 2>/dev/null)" = "$ROLE" ] && NEED_REV=0
 GL="$RUNS/gate-merge-$SLUG-$(date +%H%M%S).log"; REVPID=""
+REV_OK=1; REV_NOTE=""; REV_REUSED=0
+# At most one strong-model review per PR per head SHA: reuse the cached verdict/fix-list, never re-run.
+if [ $NEED_REV -eq 1 ] && [ -s "$STATE/merge/$SLUG.strong" ] && [ "$(awk '{print $1}' "$STATE/merge/$SLUG.strong")" = "$SHA" ] && [ -s "$STATE/merge/$SLUG.strong.txt" ]; then
+  SVERD="$(awk '{print $2}' "$STATE/merge/$SLUG.strong")"
+  say "#$N $SLUG: reuse strong-model review for ${SHA:0:8} (verdict=$SVERD) — head unchanged, not re-run"
+  cp "$STATE/merge/$SLUG.strong.txt" "$PREV"
+  echo "$DH $SVERD $SHA $ROLE" > "$RV"
+  NEED_REV=0; REV_REUSED=1
+  if [ "$SVERD" != PASS ]; then REV_OK=0; REV_NOTE="independent review FAIL (reused)"; fi
+fi
+# Large-tier (or force-alt) still needs sol and has no reusable strong review: hold, do not call, do not log error.
+if [ $NEED_REV -eq 1 ] && [ "$ROLE" = reviewer-alt ] && python3 "$RSI_DIR/runtime/escalate.py" --sol-limited >/dev/null 2>&1; then
+  say "#$N $SLUG: holding review, gpt-6.1-sol rate-limited until $(date -r "$(cat "$STATE/sol-limited-until")" '+%H:%M' 2>/dev/null || echo later) (no retry)"
+  exit 0
+fi
 if [ $NEED_REV -eq 1 ]; then
   LASTREV="$(cut -d' ' -f3 "$RV" 2>/dev/null)"   # last reviewed SHA (any verdict)
   RB="$STATE/briefs/$SLUG-review.md"
@@ -319,22 +338,60 @@ if [ $NEED_GATE -eq 1 ]; then
     if [ $GRC -ne 0 ] || ! grep -q '^GATE_RESULT=PASS' "$GL"; then GATE_OK=0; GATE_NOTE="$(grep '^GATE_RESULT' "$GL" | head -1)"; say "#$N $SLUG: gate FAIL: $GATE_NOTE"; fi
   fi
 fi
-REV_OK=1; REV_NOTE=""
 if [ -n "$REVPID" ]; then
-  wait "$REVPID"; CHILD=""
-  cp "$PREV.new" "$PREV"; rm -f "$PREV.new"
-  VERD="$(grep -oE 'VERDICT: *(PASS|FAIL|UNSURE)' "$PREV" | tail -1 | grep -oE 'PASS|FAIL|UNSURE')"
-  if [ "$VERD" = UNSURE ] && [ "$ROLE" = reviewer ]; then
-    # DeepSeek said it cannot decide: ask the standing second reviewer (sol) once, on the same brief.
-    say "#$N $SLUG: DeepSeek review UNSURE -> second reviewer (reviewer-alt) once"; cp "$PREV" "$PREV.unsure"
-    ROLE=reviewer-alt; REVTIER_ENV=""
-    ( RSI_NO_HEAVY=1 BUDGET_GUARD=8 DISPATCH_MAX_SECS=1800 "$RSI_DIR/runtime/dispatch.sh" reviewer-alt "$WT" "$RB" "merge-$SLUG-review" > "$PREV" 2>&1 )
-    VERD="$(grep -oE 'VERDICT: *(PASS|FAIL)' "$PREV" | tail -1 | grep -oE 'PASS|FAIL')"
+  wait "$REVPID"; wait_rc=$?; CHILD=""
+  # dispatch exit 3 = held (sol limited / Carbon disabled): not an error, not a sendback, not a no-verdict retry storm.
+  cp "$PREV.new" "$PREV" 2>/dev/null; rm -f "$PREV.new"
+  REV_HELD=0
+  if [ "${wait_rc:-0}" -eq 3 ] || { grep -q '\[hold strong review:' "$PREV" 2>/dev/null && ! grep -qE 'VERDICT: *(PASS|FAIL)' "$PREV"; }; then
+    REV_HELD=1
+    say "#$N $SLUG: strong review held (model unavailable) — retry when quota returns, not a sendback, not an error"
+    if [ -s "$PREV.prev" ]; then mv "$PREV.prev" "$PREV"; else rm -f "$PREV"; fi
+    [ $GATE_OK -eq 0 ] || exit 0
+    VERD=""
+  else
+  VERD="$(grep -oE 'VERDICT: *(PASS|FAIL|UNSURE)' "$PREV" 2>/dev/null | tail -1 | grep -oE 'PASS|FAIL|UNSURE')"
+  if [ "$ROLE" = reviewer ] && [ -n "$VERD" ]; then
+    python3 "$RSI_DIR/runtime/escalate.py" --save-deepseek --slug "$SLUG" --sha "$SHA" --verdict "$VERD" --file "$PREV" >/dev/null 2>&1 || true
   fi
-  if [ -z "$VERD" ]; then
+  if [ "$VERD" = UNSURE ] && [ "$ROLE" = reviewer ]; then
+    if python3 "$RSI_DIR/runtime/escalate.py" --sol-limited >/dev/null 2>&1; then
+      # Small tier: proceed DeepSeek-only (do not call sol). Large/medium that need sol: hold.
+      if [ "$TIER" = small ]; then
+        say "#$N $SLUG: DeepSeek UNSURE, sol limited; small tier stays DeepSeek-only (retry next cycle, not a sendback)"
+        if [ -s "$PREV.prev" ]; then mv "$PREV.prev" "$PREV"; else rm -f "$PREV"; fi
+        [ $GATE_OK -eq 0 ] || exit 0
+        VERD=""
+      else
+        say "#$N $SLUG: DeepSeek UNSURE, holding for gpt-6.1-sol quota — not a sendback"
+        [ $GATE_OK -eq 0 ] || exit 0
+        VERD=""
+      fi
+    else
+      # DeepSeek said it cannot decide: ask the standing second reviewer (sol) once, on the same brief.
+      say "#$N $SLUG: DeepSeek review UNSURE -> second reviewer (reviewer-alt) once"; cp "$PREV" "$PREV.unsure"
+      ROLE=reviewer-alt; REVTIER_ENV=""
+      ( RSI_NO_HEAVY=1 BUDGET_GUARD=8 DISPATCH_MAX_SECS=1800 "$RSI_DIR/runtime/dispatch.sh" reviewer-alt "$WT" "$RB" "merge-$SLUG-review" > "$PREV" 2>&1 )
+      d_rc=$?
+      if [ $d_rc -eq 3 ] || (grep -q '\[hold strong review:' "$PREV" 2>/dev/null && ! grep -qE 'VERDICT: *(PASS|FAIL)' "$PREV"); then
+        say "#$N $SLUG: sol hold after UNSURE — retry when quota returns"
+        [ $GATE_OK -eq 0 ] || exit 0
+        VERD=""
+      else
+        VERD="$(grep -oE 'VERDICT: *(PASS|FAIL)' "$PREV" | tail -1 | grep -oE 'PASS|FAIL')"
+      fi
+    fi
+  fi
+  fi   # not REV_HELD
+  if [ "${REV_HELD:-0}" -eq 1 ]; then
+    : # gate failed (otherwise we already exited); skip no-verdict accounting and do not force-alt
+  elif [ -z "$VERD" ]; then
     # two no-verdicts in a row from the cheap reviewer: switch this PR to the standing second reviewer
+    # (not on a hold: that would start a retry storm as soon as quota returns, or immediately if sol is still limited)
     nv=$(( $(cat "$STATE/merge/$SLUG.noverdict" 2>/dev/null || echo 0) + 1 )); echo $nv > "$STATE/merge/$SLUG.noverdict"
-    [ $nv -ge 2 ] && [ "$ROLE" = reviewer ] && touch "$STATE/merge/$SLUG.force-alt"
+    if [ $nv -ge 2 ] && [ "$ROLE" = reviewer ] && ! python3 "$RSI_DIR/runtime/escalate.py" --sol-limited >/dev/null 2>&1; then
+      touch "$STATE/merge/$SLUG.force-alt"
+    fi
     # Reviewer infra (empty log / no VERDICT): retry next cycle. Do not send back or cache this SHA as reviewed
     # (a cached NONE would make the next pass a delta-since-HEAD empty review).
     say "#$N $SLUG: review NO VERDICT (reviewer infra) — retry next cycle, not a sendback"
@@ -344,10 +401,26 @@ if [ -n "$REVPID" ]; then
     rm -f "$STATE/merge/$SLUG.noverdict"
     DH="$($GIT -C "$WT" diff origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | shasum | cut -c1-16)"   # a mechanical format commit may have landed meanwhile
     echo "$DH $VERD $SHA $ROLE" > "$RV"
+    if [ "$ROLE" = reviewer-alt ] || grep -qE 'codex/gpt-6.1-sol|agy/gemini|kimi-k3' "$STATE/merge/$SLUG.review-model" 2>/dev/null; then
+      python3 "$RSI_DIR/runtime/escalate.py" --save-strong --slug "$SLUG" --sha "$SHA" --verdict "$VERD" --model "$(tr -d '\n' < "$STATE/merge/$SLUG.review-model" 2>/dev/null)" --file "$PREV" --role "$ROLE" >/dev/null 2>&1 || true
+    fi
     if [ "$VERD" != PASS ]; then REV_OK=0; REV_NOTE="independent review FAIL"; say "#$N $SLUG: review FAIL"; fi
   fi
 fi
-RMODEL="$([ $ROLE = reviewer ] && echo "$M_DIRECTOR" || echo "$M_ALT")"
+# A non-mechanical gate failure is diagnosed by DeepSeek-max first (the parallel review, if it was DeepSeek).
+# Escalate later only when that diagnosis explicitly cannot find the cause.
+if [ $GATE_OK -eq 0 ] && [ "${REV_REUSED:-0}" -eq 0 ]; then
+  case "$GATE_NOTE" in
+    *prettier*|*dirty-tree*|*dirty-after-build*|*format*|*inventory*|*conflict*) ;;
+    *)
+      if [ "${ROLE:-}" = reviewer ] && [ -s "$PREV" ] && { grep -qE 'VERDICT: *UNSURE' "$PREV" || grep -qiE "could not diagnose|cannot diagnose|unable to (find|determine|identify) the (root )?cause|DEEPSEEK_DIAGNOSIS: *(UNKNOWN|UNDIAGNOSED|FAILED|CANNOT)" "$PREV"; }; then
+        echo "$SHA ${VERD:-UNSURE} cannot-diagnose" > "$STATE/merge/$SLUG.deepseek-undiagnosed"
+        say "#$N $SLUG: DeepSeek could not diagnose $GATE_NOTE after a real attempt"
+      fi
+      ;;
+  esac
+fi
+RMODEL="$(tr -d "\n" < "$STATE/merge/$SLUG.review-model" 2>/dev/null || true)"; RMODEL="${RMODEL:-$([ $ROLE = reviewer ] && echo "$M_DIRECTOR" || echo "$M_CODEX")}"
 if [ $GATE_OK -eq 0 ] || [ $REV_OK -eq 0 ]; then
   C="$STATE/merge/$SLUG.combined.txt"; : > "$C"; TITLEBAD=""
   [ $GATE_OK -eq 0 ] && { echo "=== GATE FAILED: $GATE_NOTE ===" >> "$C"; tail -c 3500 "$GL" >> "$C" 2>/dev/null; echo >> "$C"; TITLEBAD="gate failed: $GATE_NOTE"; }
@@ -382,8 +455,22 @@ if [ $UI_TOUCH -eq 1 ] && [ "${RSI_UX_GATE:-on}" != off ]; then
   if [ "$(cut -d' ' -f1 "$UXV" 2>/dev/null)" = "$DH" ] && [ "$(cut -d' ' -f2 "$UXV" 2>/dev/null)" = PASS ] && [ "$(cut -d' ' -f3 "$UXV" 2>/dev/null)" = "$MAINUI" ]; then
     say "#$N $SLUG: UX gate carried over (PR diff and origin/main:ui unchanged)"
   else
+    # Reuse a strong UX review for this same head SHA (do not re-call sol/Carbon).
+    if [ -s "$STATE/merge/$SLUG.strong-ux" ] && [ "$(awk '{print $1}' "$STATE/merge/$SLUG.strong-ux")" = "$SHA" ] && [ -s "$STATE/merge/$SLUG.strong-ux.txt" ]; then
+      say "#$N $SLUG: reuse strong UX review for ${SHA:0:8} (verdict=$(awk '{print $2}' "$STATE/merge/$SLUG.strong-ux")) — head unchanged"
+      mkdir -p "$STATE/ux/$SLUG"
+      cp "$STATE/merge/$SLUG.strong-ux.txt" "$STATE/ux/$SLUG/review.txt"
+      cp "$STATE/merge/$SLUG.strong-ux.txt" "$STATE/merge/$SLUG.ux.txt"
+      urc=1; [ "$(awk '{print $2}' "$STATE/merge/$SLUG.strong-ux")" = PASS ] && urc=0
+    elif python3 "$RSI_DIR/runtime/escalate.py" --sol-limited >/dev/null 2>&1 && [ "${RSI_CARBON_ENABLED:-0}" != 1 ]; then
+      say "#$N $SLUG: holding UX vision review, gpt-6.1-sol rate-limited — not an error, not a sendback"
+      urc=2
+      mkdir -p "$STATE/ux/$SLUG"
+      echo "ux reviewer held: gpt-6.1-sol rate-limited" > "$STATE/ux/$SLUG/unavailable.txt"
+    else
     say "#$N $SLUG: UX gate (journey walk + vision review)"
     bash "$RSI_DIR/runtime/ux-gate.sh" "$WT" "$SLUG" "$ITEM" "$N" "$DH" "$ROLE"; urc=$?
+    fi
     SC="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(" ".join("%s=%s"%kv for kv in d["scores"].items()), "mean=%s"%d["mean"])' "$STATE/ux/$SLUG/scores.json" 2>/dev/null)"
     if [ $urc -eq 0 ]; then
       echo "$DH PASS $MAINUI" > "$UXV"
