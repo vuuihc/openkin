@@ -72,13 +72,11 @@ import PermissionModePicker from "../components/chat/PermissionModePicker";
 import ModelPicker from "../components/chat/ModelPicker";
 import { IconAlert, IconKin, IconMachine } from "../components/icons";
 import { SlowConnectHint } from "../components/Skeleton";
-import PanelSurface from "../components/layout/PanelSurface";
 import ActionSheet, { type ActionSheetRow } from "../components/ui/ActionSheet";
-import PublishPanel from "../components/pr/PublishPanel";
 import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
 import FileQuickOpen from "../components/workspace/FileQuickOpen";
-import WorkspacePanel from "../components/workspace/WorkspacePanel";
 import TaskUsageSummary from "../components/usage/TaskUsageSummary";
+import TaskPanels from "../components/task/TaskPanels";
 import WorkerTimeline from "../components/task/WorkerTimeline";
 import TaskHeader from "../components/task/TaskHeader";
 import ShareDialog from "../components/task/ShareDialog";
@@ -115,7 +113,7 @@ import {
 import { clearFollowUpDraft, getFollowUpDraft, setFollowUpDraft } from "../lib/followUpDraft";
 import { clearSessionScroll, getSessionScroll, setSessionScroll } from "../lib/sessionScroll";
 import { modelPickerLabel, modelsForAgent } from "../lib/agentModels";
-import { isPanelAvailable, panelForView, resolvePanel, type PanelContext } from "../lib/panels";
+import { panelForView, resolvePanel, type PanelContext } from "../lib/panels";
 import { useAppStore } from "../store/appStore";
 import { displayUserPrompt } from "../lib/attachments";
 
@@ -1674,7 +1672,6 @@ export default function TaskDetailPage({
   };
   const panel = resolvePanel(panelForView(shownPanel, id), panelCtx);
   const filesOpen = panel === "files";
-  const publishOpen = panel === "publish";
   const project = projectLabel(task.cwd);
   const degraded = wsStatus !== "connected" && !terminal;
   // The session's agent belongs to the machine that runs it, not to this one.
@@ -2151,73 +2148,31 @@ export default function TaskDetailPage({
         </div>
       </div>
 
-      {/* Session side rail — usage + diffs, floats over the chat instead of squeezing its width (Codex-style). */}
-      <aside
-        className="hidden min-[1600px]:flex absolute top-14 right-3 bottom-3 z-10 w-rail flex-col gap-2.5 rounded-xl bg-[var(--kin-inspector)] backdrop-blur-md shadow-e2 px-3 py-3 min-h-0 overflow-y-auto kin-scroll"
-        aria-label={tr("task.sessionRail")}
-      >
-        <TaskUsageSummary usage={usage} loading={usageLoading} variant="card" />
-        <ChangedFilesBar
-          files={changedFiles}
-          onOpenPath={onOpenWorkspacePath}
-          onOpenPanel={openFilesPanel}
-          reviewActions={terminal}
-          onKeepAll={onKeepAllChanges}
-          onDiscardAll={onDiscardAllChanges}
-          actionsBusy={reviewBusy}
-          variant="card"
-        />
-      </aside>
-
-      {filesOpen && (
-        <PanelSurface label={tr("workspace.title")}>
-          <div className="h-full w-full">
-            <WorkspacePanel
-              taskId={task.id}
-              cwd={task.cwd}
-              openPath={workspaceOpenPath}
-              openNonce={workspaceOpenNonce}
-              events={events}
-              changedFiles={changedFiles}
-              selectedWorkspaceId={selectedWorkspaceId}
-              currentWorkspaceId={task.current_workspace_id}
-              onSelectWorkspace={setSelectedWorkspaceId}
-              reviewActions={terminal}
-              onDiscardAll={onDiscardAllChanges}
-              actionsBusy={reviewBusy}
-              // Publishing is offered for a session on another machine and no
-              // other: the Hub refuses the write for a checkout it holds, and a
-              // button that could only ever be refused is worse than no button.
-              // Asked of the registry rather than of `machine`, so the rule has
-              // one home — the same one `resolvePanel` just consulted.
-              onPublish={isPanelAvailable("publish", panelCtx) ? openPublishPanel : undefined}
-              onFindFile={() => setFileFinderOpen(true)}
-              onClose={() => hidePanel(id)}
-            />
-          </div>
-        </PanelSurface>
-      )}
-
-      {publishOpen && machine && (
-        <PublishPanel
-          taskId={task.id}
-          machine={machine}
-          // Where the Hub remembers the work being. It is what the machine
-          // recorded when the session started (or the last publish corrected),
-          // and the sheet says "unknown" rather than guessing when there is
-          // nothing: only that machine can answer, and it answers when asked.
-          repo={task.workspace_repo ?? undefined}
-          branch={task.workspace_branch ?? undefined}
-          draft={publishDraft}
-          // Both answers that change the Hub's row — a publish, and the escape
-          // that moves the checkout — land here, so the row under this page is
-          // read again. The row is what the sheet opens with and what the
-          // repository chip draws; the branch strip beside it asks the machine
-          // on its own and is not this.
-          onRowChanged={() => void liveResources.refreshTask(task.id, true)}
-          onClose={() => hidePanel(id)}
-        />
-      )}
+      <TaskPanels
+        task={task}
+        machine={machine}
+        panel={panel}
+        panelCtx={panelCtx}
+        usage={usage}
+        usageLoading={usageLoading}
+        events={events}
+        changedFiles={changedFiles}
+        reviewBusy={reviewBusy}
+        terminal={terminal}
+        workspaceOpenPath={workspaceOpenPath}
+        workspaceOpenNonce={workspaceOpenNonce}
+        selectedWorkspaceId={selectedWorkspaceId}
+        onSelectWorkspace={setSelectedWorkspaceId}
+        onOpenPath={onOpenWorkspacePath}
+        onOpenFilesPanel={openFilesPanel}
+        onKeepAll={onKeepAllChanges}
+        onDiscardAll={onDiscardAllChanges}
+        onPublish={openPublishPanel}
+        onFindFile={() => setFileFinderOpen(true)}
+        onClosePanel={() => hidePanel(id)}
+        publishDraft={publishDraft}
+        onPublishRowChanged={() => void liveResources.refreshTask(task.id, true)}
+      />
 
       {/*
         Last, so it is painted over the panels and sheets it can be opened
