@@ -121,12 +121,22 @@ def cmd_idle(a):
         for n in range(1, cap + 1):
             if not is_active(load(n)): print(n)
 
+def ux_gate_refuse(item):
+    """Slices marked "gate": "ux-approved" in astryx-slices.json (S1-S3: the visible shell) cannot be claimed until Ethan has looked at the
+    prototype and created state/ux-proto/APPROVED. The merge lane enforces the same on landing (slices.py gate-ok)."""
+    try:
+        sl = {x["id"]: x for x in json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "astryx-slices.json")))["slices"]}
+    except Exception: return
+    if sl.get(item, {}).get("gate") == "ux-approved" and not os.path.exists(os.path.join(STATE, "ux-proto", "APPROVED")):
+        print(f"REFUSED: {item} is gated on state/ux-proto/APPROVED (UX prototype approval)"); sys.exit(7)
+
 def cmd_claim(a):
     paths = [norm(p) for p in a.paths if norm(p) not in IGNORED]
     bad = [p for p in paths if p in TOO_BROAD or len(p.split("/")) < 2 and "." not in p]
     if not paths or bad:
         print(f"REFUSED: declare specific files/dirs (too broad or empty: {bad or 'none given'})"); sys.exit(5)
     if not os.path.isfile(a.brief): print(f"REFUSED: brief {a.brief} missing"); sys.exit(6)
+    ux_gate_refuse(a.item)
     with Lock():
         reap()
         if not 1 <= a.lane <= MAX_LANES: print("REFUSED: no such lane"); sys.exit(4)
@@ -162,6 +172,7 @@ def cloud_claims(reap_expired=True):
     return out
 
 def cmd_cloud_claim(a):
+    ux_gate_refuse(a.item)
     paths = [norm(p) for p in a.paths if norm(p) not in IGNORED]
     bad = [p for p in paths if p in TOO_BROAD]
     if not paths or bad: print(f"REFUSED: declare specific files/dirs (too broad or empty: {bad or 'none given'})"); sys.exit(5)
