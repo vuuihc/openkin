@@ -77,6 +77,7 @@ while IFS=$'\t' read -r -u 3 N SLUG TITLE; do
     fi
     $GIT -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null || { say "#$N: push after merge-main failed"; continue; }
   fi
+  bash "$RSI_DIR/runtime/prep-worktree.sh" "$WT" 2>&1 | tail -2
   SHA="$($GIT -C "$WT" rev-parse HEAD)"; V="$STATE/merge/$SLUG.verified"
 
   # 2. hold rules (MANDATE): never auto-merge these

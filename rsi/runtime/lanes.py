@@ -19,7 +19,7 @@ STATE = os.environ.get("RSI_STATE") or os.path.normpath(os.path.join(HERE, "..",
 LDIR = os.path.join(STATE, "lanes")
 MAX_LANES = int(os.environ.get("RSI_MAX_LANES", "3"))
 CLAIM_TTL = 25 * 60
-LOAD_MAX = float(os.environ.get("RSI_LOAD_MAX", "28"))
+LOAD_MAX = float(os.environ.get("RSI_LOAD_MAX", "100000"))
 TOO_BROAD = {".", "", "*", "**", "ui", "ui/src", "internal", "web", "docs", "scripts", "desktop", "mobile", "cmd"}
 os.makedirs(os.path.join(LDIR, "history"), exist_ok=True)
 # Lanes above MAX_LANES that are still running (after the limit was lowered) stay visible so claims/merge-lane see them.
