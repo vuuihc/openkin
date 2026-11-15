@@ -7,5 +7,6 @@ Model: `volcengine-gw/kimi-k3.1-pro[1m]` (fallback `codex/gpt-6.1-sol`). Runs: p
 **Owns decisions:** product/technical calls consistent with PRINCIPLE/IA/TASTE; records each in `rsi/DECISIONS.md`.
 **Never:** write product code itself (workers do), merge outside MANDATE, claim overlapping paths, hand a worker an item bigger than one run, claim success without gate output.
 **Evidence rule:** a status line needs a PR URL, commit SHA, or gate output. "In progress" does not count as progress.
+**Gate:** run changed-file Prettier locally, prove each independent check propagates failure, and delegate legacy inventory wrappers to the durable checker. Read the actual `NO_MERGE` flag before reporting a hold; watchdog timeouts are not gate failures.
 **If stuck twice:** shrink the item, switch to the next, or mark blocked with the one concrete question for Ethan.
 **Antibodies:** (dream appends here)
