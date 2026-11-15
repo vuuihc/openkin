@@ -74,7 +74,16 @@ async function choosePlace(page, selector) {
   if (await clickListedPlace(page)) return; // already offered (a fixture, or a panel left open)
   const raw = String(selector), optional = raw.startsWith('?'), sel = optional ? raw.slice(1) : raw;
   const trigger = page.locator(sel).first();
-  if (await trigger.count() === 0) throw skipJourney('no working-directory picker (' + sel + ')');
+  // A missing picker, a picker without its search field, or one that offers
+  // nothing after typing a known root is the page being broken, not an empty
+  // environment: those stay hard failures so a PR that breaks the picker cannot
+  // walk green. Only "there is genuinely nothing to choose" skips (below).
+  if (await trigger.count() === 0) throw new Error('no working-directory picker (' + sel + ')');
+  // The trigger is disabled while the machine list is still being fetched; give
+  // that fetch a bounded moment instead of reading it as a picker that failed.
+  let off = await trigger.isDisabled().catch(() => false);
+  for (let i = 0; off && i < 30; i++) { await page.waitForTimeout(100); off = await trigger.isDisabled().catch(() => false); }
+  if (off) throw new Error('the working-directory picker (' + sel + ') stayed disabled');
   // Open from the keyboard: a mouse press blurs the composer, the page lays out
   // again under the pointer, and the click lands on the wrapper (observed on
   // /new at 1100px). Enter on the focused trigger is the accessible path and is
@@ -86,10 +95,10 @@ async function choosePlace(page, selector) {
   const root = await firstProjectRoot();
   if (!root) throw skipJourney('the picker offers no project or recent directory, and the daemon knows no project root to choose');
   const search = page.locator('[role=dialog] input[type=search]').first();
-  if (await search.count() === 0) throw skipJourney('the directory picker opened without a search field');
+  if (await search.count() === 0) throw new Error('the directory picker opened without a search field');
   await search.fill(root);
   await page.waitForTimeout(500);
-  if (!(await clickListedPlace(page))) throw skipJourney('typing ' + root + ' into the picker offered no directory to choose');
+  if (!(await clickListedPlace(page))) throw new Error('typing ' + root + ' into the picker offered no directory to choose');
 }
 for (const j of want) {
   const seed = j === 'J7' && fs.existsSync(path.join(out, 'seed.log')) ? fs.readFileSync(path.join(out, 'seed.log'), 'utf8') : '';

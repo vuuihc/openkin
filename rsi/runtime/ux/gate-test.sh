@@ -83,7 +83,8 @@ screens = d["screens"]
 for vp in ("phone", "mac"):
     hit = [s for s in screens if s["name"].startswith(f"J3-{vp}-") and s["name"].endswith("-skipped-no-workdir")]
     assert hit, f"no J3-{vp}-skipped-no-workdir screen in {[s['name'] for s in screens]}"
-    assert hit[-1].get("notes"), hit[-1]
+    # Only "nothing to choose" may skip: a broken picker is a hard failure (3.5).
+    assert any("daemon knows no project root" in note for note in hit[-1].get("notes", [])), hit[-1]
 PY
   else bad "J3 case 2: the throwaway daemon did not start"; fi
   stop_daemon
@@ -127,5 +128,26 @@ PY
   elif grep -q 'origin/main:scripts/journeys_seed.py' "$T/j3-fallback/seed.log" 2>/dev/null && grep -q 'fallback-seed-ran' "$T/j3-fallback/seed.log" && [ -s "$T/j3-fallback/walk.json" ]; then
     ok "seed falls back to origin/main when the worktree has no script"
   else bad "seed fallback not recorded: $(cat "$T/j3-fallback/seed.log" 2>/dev/null)"; fi
+
+  # 3.5 a page whose picker trigger is gone is a broken product, not an empty daemon
+  mkdir -p "$T/j3-nopicker/new"
+  cat > "$T/j3-nopicker/new/index.html" <<'HTML'
+<!doctype html><meta charset="utf-8"><title>J3 fixture</title>
+<p>A static page shaped like the draft, with no working-directory picker at all.</p>
+<textarea aria-label="prompt">Draft</textarea>
+HTML
+  : > "$T/j3-nopicker/favicon.ico"
+  NPORT=$(freeport)
+  python3 -m http.server "$NPORT" --bind 127.0.0.1 --directory "$T/j3-nopicker" >"$T/j3-nopicker/server.log" 2>&1 & NPID=$!
+  for _ in $(seq 1 40); do curl -fs -o /dev/null --max-time 1 "http://127.0.0.1:$NPORT/new/" 2>/dev/null && break; sleep 0.1; done
+  mkdir -p "$T/j3-nopicker-out"
+  node "$RT/ux/walk.mjs" --base "http://127.0.0.1:$NPORT" --out "$T/j3-nopicker-out" --journeys J3 >"$T/j3-nopicker-out/walk.log" 2>&1
+  kill -KILL "$NPID" 2>/dev/null; wait "$NPID" 2>/dev/null
+  python3 - "$T/j3-nopicker-out/walk.json" <<'PY' && ok "a missing picker is a hard failure, not a skip" || bad "a missing picker was not a hard failure (see $T/j3-nopicker-out/walk.json)"
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert any("J3/" in h and "no working-directory picker" in h for h in d["hardFail"]), d["hardFail"]
+assert not any("skipped-no-workdir" in s["name"] for s in d["screens"]), [s["name"] for s in d["screens"]]
+PY
 else echo "skip J3 walk cases (set UX_KIN_BIN)"; fi
 exit $fail

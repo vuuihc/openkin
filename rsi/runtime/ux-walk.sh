@@ -28,7 +28,7 @@ if [ -f "$WT/scripts/journeys_seed.py" ]; then
   echo "seed: $WT/scripts/journeys_seed.py" > "$OUT/seed.log"
   KIN_BASE="http://127.0.0.1:$PORT" KIN_TOKEN="$TOKEN" python3 "$WT/scripts/journeys_seed.py" >>"$OUT/seed.log" 2>&1 || echo "seed failed (walk continues on what exists)" >> "$OUT/seed.log"
 elif git -C "$WT" cat-file -e origin/main:scripts/journeys_seed.py 2>/dev/null; then
-  echo "seed: worktree has no scripts/journeys_seed.py; using origin/main:scripts/journeys_seed.py" > "$OUT/seed.log"
+  echo "seed: origin/main:scripts/journeys_seed.py (this worktree has none)" > "$OUT/seed.log"
   git -C "$WT" show origin/main:scripts/journeys_seed.py | KIN_BASE="http://127.0.0.1:$PORT" KIN_TOKEN="$TOKEN" python3 - >>"$OUT/seed.log" 2>&1 || echo "seed failed (walk continues on what exists)" >> "$OUT/seed.log"
 else
   echo "no scripts/journeys_seed.py in the worktree or origin/main: walking an empty daemon (empty states only)" > "$OUT/seed.log"
