@@ -675,7 +675,7 @@ export default function SettingsPage() {
 
   if (error && !settings) {
     return (
-      <div className="flex-1 overflow-y-auto kin-scroll px-4 sm:px-6 py-6">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden kin-scroll px-4 sm:px-6 py-6">
         <h1 className="hidden text-hero font-bold md:block">{tr("settings.title")}</h1>
         <p className="text-strong leading-5 text-kin-red-ink mt-3" role="alert">
           {error}
@@ -686,7 +686,7 @@ export default function SettingsPage() {
 
   if (!settings) {
     return (
-      <div className="flex-1 overflow-y-auto kin-scroll px-4 sm:px-6 py-6 space-y-4">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden kin-scroll px-4 sm:px-6 py-6 space-y-4">
         <h1 className="hidden text-hero font-bold md:block">{tr("settings.title")}</h1>
         <SlowConnectHint show={slow} />
         <div className="rounded-xl border border-[var(--kin-hairline)] p-4 space-y-3">

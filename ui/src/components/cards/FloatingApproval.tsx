@@ -71,8 +71,7 @@ export default function FloatingApproval({
   // that is one sort change away from starving the request it was built to
   // surface.
   const current = approvals.reduce<Approval | null>(
-    (oldest, approval) =>
-      !oldest || approval.created_at < oldest.created_at ? approval : oldest,
+    (oldest, approval) => (!oldest || approval.created_at < oldest.created_at ? approval : oldest),
     null,
   );
   const currentId = current?.id ?? "";
@@ -140,8 +139,7 @@ export default function FloatingApproval({
       window.addEventListener("resize", measure);
       // ResizeObserver is absent in jsdom; the measurement above still runs
       // once there, which is all a test needs.
-      resizeObserver =
-        typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+      resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
       resizeObserver?.observe(found);
       return true;
     };
@@ -214,6 +212,10 @@ export default function FloatingApproval({
       <div
         role="status"
         aria-live="polite"
+        // The card sits outside the pane that owns tab swiping, so this cannot
+        // fire today; it keeps a gesture starting here from turning the page if
+        // the card ever moves inside that pane.
+        data-phone-swipe="true"
         className="kin-glass pointer-events-auto flex items-center gap-2 self-start rounded-full py-1 pl-3 pr-2 shadow-e2"
       >
         <span className="text-caption font-semibold uppercase tracking-label text-kin-muted">
