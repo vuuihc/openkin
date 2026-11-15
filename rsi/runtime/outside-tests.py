@@ -19,9 +19,9 @@ import sys
 from pathlib import Path
 
 ANSI = re.compile(r"\x1b\[[0-9;]*[mK]")
-# gh run view --log-failed: JOB<TAB>STEP<TAB>TIMESTAMP<TAB>message
+# gh run view --log-failed: JOB<TAB>STEP<TAB>TIMESTAMP<SPACE-or-TAB>message
 LOG_PREFIX = re.compile(
-    r"^[^\t]+\t[^\t]+\t\d{4}-\d{2}-\d{2}T[^\t]*\t"
+    r"^[^\t]+\t[^\t]+\t\d{4}-\d{2}-\d{2}T\S+[ \t]+"
 )
 FAIL_TEST = re.compile(r"--- FAIL: (\S+)")
 FAIL_PKG_TAB = re.compile(r"^FAIL\t(\S+)\t")
@@ -311,6 +311,19 @@ build	Run go test ./...	2026-11-15T11:49:13.4234567Z	FAIL	github.com/vuuihc/open
     summary_bad = summary_ok + "desktop\tfail\t30s\thttps://example/4\n"
     ok, reason = classify(ci_log, ui_only, set(), mod, summary_bad)
     assert not ok and "desktop" in reason, reason
+
+
+    # Real `gh run view --log-failed` lines use a space, not a tab, after the
+    # timestamp. That must still attach --- FAIL: to the FAIL\tpkg line.
+    real = (
+        "build\tGo test\t2026-11-15T12:15:54.7041662Z --- FAIL: TestAStartedTurnIsNotFailedByTheDeadline (0.19s)\n"
+        "build\tGo test\t2026-11-15T12:15:54.7044579Z     turns_test.go:1068: the deadline failed a turn\n"
+        "build\tGo test\t2026-11-15T12:15:54.7045100Z FAIL\n"
+        "build\tGo test\t2026-11-15T12:15:54.7045442Z FAIL\tgithub.com/vuuihc/openkin/internal/node\t8.289s\n"
+    )
+    ok, reason = classify(real, ui_only, set(), mod, None)
+    assert ok and "outside PR footprint" in reason, reason
+    assert "internal/node" in reason, reason
 
     empty_ok, reason = classify("everything passed\n", ui_only, set(), mod, None)
     assert not empty_ok and "no failing tests" in reason, reason
