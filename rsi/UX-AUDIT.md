@@ -1,0 +1,57 @@
+# UX-AUDIT — is the Astryx redesign good to use, not just well sliced? (CEO, 2026-11-15)
+
+**Honest starting point.** Until today only the *slicing* of the programme was reviewed (order, dependencies, size). The target design itself existed as 20 static SVG frames (`KIN-CONTINUE-003.figma/`) whose status reads "已制作，待签字" — no human signed it, DECISIONS treats it as signed, and nobody ever clicked through it. The first time a person would have seen the new UX was G3/G4, after ~50 merges. That is exactly how earlier agent output ended up not demo-grade. This audit, the clickable prototype (`rsi/ux-proto/`) and the gates below close that gap.
+
+## Method
+- Read `ASTRYX-PLAN.md`, `astryx-slices.json`, `KIN-CONTINUE-003` (+ review page frames rendered to PNG), `IA.md`, `TASTE.md`, `2026-11-14-ux-unification.md`, the LODY gap report.
+- Walked the **installed build** (the "before") on a throwaway daemon at 390/1100/1280 → `rsi/state/shots/baseline/` (33 screens, empty daemon). Note: today's Mac/phone UI is already fairly polished; "not worse than today" is itself part of the bar.
+- Built the clickable prototype, walked J1–J7 headlessly (Chrome via playwright-core), looked at every screenshot, wrote the critique, fixed, walked again (iter1 → iter2 → final). 
+- Compared with T3 Code (public docs: thread sidebar, right-panel tabs, per-turn/branch/uncommitted diff scopes, thread attention states, one-button PR) and LODY (our own gap report: Now panel, tabbed side panel, diff comments).
+
+## Journeys (KIN-CONTINUE-003 numbering)
+J1 phone: find yesterday's chat → continue → answer an approval · J2 Mac: search → continue → model/permission → review the diff · J3 new chat (both) · J4 projects & routines · J5 manage (pin/rename/archive/delete) · J6 settings & agent operations · J7 notification → exact card → back.
+(User phrasing → J: *new chat* J3, *switch project* J4/J2, *follow a running task* J2, *review diffs/process* J2, *routines* J4, *settings/agents* J6, *mobile* J1/J7.)
+
+## Top UX risks found, and what changed
+| # | Risk (evidence) | Fix in the plan / gates |
+|---|---|---|
+| 1 | **No experience gate until the very end.** Visible UX first judged at G3, after ~50 merges; frames never signed or clicked. | Clickable prototype now; **S1–S3 gated on `state/ux-proto/APPROVED`**; **UX gate on every UI-touching PR** (journey walk + vision review + rubric); G3 harness lands now, not at the end. |
+| 2 | **Mac has no room for the review loop.** The signed 1100×760 frame is rail ≈237 + list ≈305 + detail ≈540: opening a diff/files panel (T3's centre of gravity) leaves ~100 px for the chat. | S1: rail auto-compacts to 64 px, **list column yields** when the panel is open/expanded or window <1280, chat never <420 px (walk asserts it). W1: right panel is one tab container (Changes/Files/Terminal/PR) with an expand toggle. |
+| 3 | **No attention model.** "What needs me / what is running" is absent from the area nav and rows (T3 groups by attention; Lody has a Now panel). The prototype's first compact rail even *hid* the needs-you badge. | S1/S2 badge on Conversations (survives compact); C5b chips *All / Needs you N / Running N / Archived*, needs-you+running sorted first per project; C3b **approval docked above the composer**; rows carry status in words, not colour only (C5a). |
+| 4 | **Primary-button chaos** (TASTE 6). First prototype pass had 3–4 solid buttons per screen (New, Send, Allow, Create PR, Save comment). | Rule "primary follows attention": approval > send review comments > send message > create PR; list "New" is secondary; walker asserts ≤1 primary per screen (also added to TASTE 6 addendum). |
+| 5 | **Phone composer can't carry agent+model+permission+dir** at 44 px targets (3 chips wrap, send drops to a second line). | C1d: one run-config chip → sheet → second-layer option sheet (matches Kin's RunConfigSheet idea); Mac keeps three anchored popovers; send/stop are 44 px icon buttons, row never wraps. |
+| 6 | **Phone header overload** (back + long title + status pill + more) wraps the pill; **project cover CTA** crammed into the header; duplicate "项目" title (found in iter1). | C3a: status moves to the subtitle row; P3/S2: CTA as bottom bar; no duplicate titles (S2). |
+| 7 | **Review loop gap vs T3** — per-turn diff summary, scopes, line comments → send to agent, one-click PR (GOAL F3) are in *no slice*, because the programme bans new features and W1 was "controls only". The redesign would ship a nicer shell around the weakest J2 step. | W1 gets the container/layout rules (turn summary line, scope control only when data exists, horizontal scroll, expand). The real review features stay a **post-G4 parity item** (needs an ADR if it touches API) — flagged explicitly so it is a decision, not an omission. Prototype shows the target. |
+| 8 | **Foundation regressions are invisible.** F1–F3 (Tailwind 4, React 19, Astryx) are "behaviour-preserving" but change every pixel; there was no baseline and an empty daemon shows only empty states. | Baseline captured; **V1 seed fixtures** (new slice, F2 depends on it); every UI PR, F* included, is walked and compared to BEFORE. |
+| 9 | **Hybrid-state window.** S1/S2 would land ~10–14 h in while page interiors are still old, direct-to-main with no flag. | S1–S3 gated on APPROVED; rule: Ethan is not asked to `desktop-rebuild` until the conversation path (C3b + C5c) has merged; UX gate scores every intermediate PR against BEFORE *and* the prototype. |
+| 10 | **Empty-daemon blind spot** — a reviewer sees only empty states. | V1; reviewer must say "not verifiable: needs seed data" instead of guessing (`seed.log` shows which). |
+| 11 | **Keyboard flow missing from the IA** (T3/Lody are keyboard-first). | S1 acceptance: ⌘1–4 areas, ⌘N, ⌘K palette, j/k, Esc closes one layer; rubric axis *keyboard*. |
+| 12 | **J5 (manage) had no frame** — pin/rename/archive/delete would silently regress. | C5a: Mac hover/focus "…" anchored menu, phone long-press sheet (in the prototype). |
+| 13 | **"Follow a running task"** is not designed: no stay-pinned vs scrolled-up behaviour. | C3b: pinned to bottom unless the reader scrolled up, then a "new activity" pill. |
+| 14 | **Astryx look risk** (generic neutral theme, +25 kB gzip) may flatten Kin. | F4 gallery and F5* are UX-gated like any UI PR; rubric *consistency* compares to the prototype, not just to "doesn't crash". |
+
+## T3 Code / LODY vs the prototype (what we match, what we deliberately do not)
+| Job | T3 Code | LODY (gap report) | Kin target (prototype) |
+|---|---|---|---|
+| Find/continue | Project-grouped thread sidebar, attention states (working / pinned / settled), new thread keeps project | Home "Now" panel: needs you, running, done | Device → project → chat list; **Needs you / Running chips with counts**, needs-you first, badge on the area; approval docked at the composer |
+| New chat | composer-first, project/branch toolbar | similar | composer-first, project chip + recents, run settings visible before send; instant mount (GOAL F1) |
+| Follow a run | live thread, plan + tool rows | live | live rows, pinned-to-bottom with "new activity" pill, Stop in composer |
+| Review | right panel tabs (diff/files/terminal), **turn / branch / uncommitted** scopes, line comments, one-button PR | tabbed side panel, diff comments | same panel shape; turn summary + scope control + line comments → "send to agent" + PR button; features themselves = post-G4 item (risk 7) |
+| Routines, cost, self-host, phone call-back | — | partial | Kin's differentiators; unchanged, but inside the same shell (four areas, per-area state) |
+| Phone | thread list + thread | native app | four tabs at area roots, per-tab stack, one run-config chip, notification → exact card → Back to area root |
+
+## Prototype, iterations, evidence
+- `rsi/ux-proto/` (committed): `index.html` (standalone), `walk.mjs`, README. Walk output on the CEO machine: `rsi/state/ux-proto/{iter1,iter2,final,final-1100}/` (1440×900 + 390×844@2x, and 1100×760); the reference frames rendered from the signed SVGs are in `rsi/state/ux-proto/ref/`.
+- **iter1 → iter2 self-critique (against T3 Code):** compact rail lost the needs-you badge (bug); approval scrolled out of reach in long chats (→ dock); phone header pill wrapped; duplicate title and cramped CTA on phone projects; phone composer wrapped and truncated; review panel clipped code and, once expanded, crushed the chat to ~210 px (→ list yields, expand toggle, horizontal scroll); stacked segmented controls in the panel (→ summary line first); no J5, no "follow running" affordance, no first-load skeleton check. All fixed and asserted by the walk (146 checks at 1440/390, 73 at 1100, all green).
+- What the prototype is **not**: not Astryx, not real data, not performance. Latency/feedback is judged by the rubric on the real console.
+
+## The gates (what runs, who decides)
+1. **Approval gate.** `"gate": "ux-approved"` on S1, S2, S3 in `astryx-slices.json`. `slices.py ready/cloud-pending` do not offer them, `lanes.py claim|cloud-claim` refuse them (exit 7), and `merge.sh` leaves an S1–S3 PR *verified but unmerged*. Ethan looks at the prototype/screenshots, then `touch rsi/state/ux-proto/APPROVED`. `slices.py gates` lists the state; `slices.py status` prints a line while it is closed.
+2. **UX gate on every UI PR** (`merge.sh` step 4b → `runtime/ux-gate.sh`), for any PR touching `ui/src/**/*.tsx|css` (not tests): throwaway daemon from the PR worktree (never :7777) + `scripts/journeys_seed.py` once V1 exists → `runtime/ux/walk.mjs` walks the journeys the changed paths map to (`journeys.json`; unmapped = all) at 390 / 1100 / 1280 → screenshots + aria trees + lint in `rsi/state/shots/<slug>/journeys/` → a **vision reviewer on a different model** (`ux-reviewer`: Kimi k3.1 pro; `ux-reviewer-alt`: gpt-6.1-sol through `claude -p` for diffs >500 lines) opens the images, compares with BEFORE and the prototype, and scores **clarity, density, consistency, feedback, keyboard** 1–5 (`UX-RUBRIC.md`). Decision is recomputed by the script: **reject if any axis <3, mean <3.5, a walk hard failure (blank page, horizontal overflow, page error, 5xx), or no complete score line**. Reject → one combined sendback with the findings → rework lane → delta re-review → UX gate again. A pass is cached by PR diff hash and a PR comment records the scores.
+3. **Infra safety.** If the walk cannot run (no Chrome, daemon won't boot) the PR is *verified but not merged* and a line goes to `needs-ceo.md` (once per diff); it never bounces the PR or trips NO_MERGE. `RSI_UX_GATE=off` disables the gate (record it in DECISIONS).
+4. Checks of the plumbing: `UX_KIN_BIN=<kin> bash rsi/runtime/ux/gate-test.sh` (slice gate, claim guard, walker, threshold maths).
+
+## Decisions recorded (CEO)
+- Programme plan amended: V1 slice (seed fixtures; F2 depends on it), S1–S3 gated on APPROVED, UX acceptance added to S1/S2/S3/C1d/C2/C3a/C3b/C4b/C5a/C5b/W1/P3/E1, G3/G4 rebased on the harness and the prototype.
+- TASTE 6 addendum (primary follows attention) and 17–19 (panel yields, needs-you visible, run config shape) added.
+- Open for Ethan: (1) look at the prototype and `touch rsi/state/ux-proto/APPROVED` or tell me what to change; (2) is the labelled 208 px Mac rail OK with an auto-compact 64 px rail, or do you want icons-only always; (3) accept that diff-review features (per-turn scope, line comments → agent, one-button PR) are a post-G4 item rather than part of this overhaul.
