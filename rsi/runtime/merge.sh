@@ -8,6 +8,7 @@
 set -u
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
+source "$(cd "$(dirname "$0")" && pwd)/node-stamp.sh"
 MERGE_WORKERS="${RSI_MERGE_WORKERS:-2}"
 CODE_RE='^(ui/|internal/|cmd/|scripts/|desktop/|mobile/|web/|go\.mod|go\.sum|\.github/)'   # main changes here invalidate a carried-forward gate
 say() { echo "[$(date +%T)] $*"; }
@@ -83,6 +84,7 @@ dist_resolve() { # worktree: resolve a lone web/dist/index.html conflict by rebu
   [ "$un" = "web/dist/index.html" ] || return 1
   $GIT -C "$wt" checkout --ours web/dist/index.html && $GIT -C "$wt" add web/dist/index.html || return 1
   $GIT -C "$wt" commit -q --no-edit || return 1
+  node_stamp_ensure "$wt/ui" || return 1   # a stale install made this rebuild fail silent
   ( cd "$wt/ui" && npm run build >/dev/null 2>&1 ) || return 1
   [ -n "$($GIT -C "$wt" status --porcelain -- web/dist/index.html)" ] && $GIT -C "$wt" commit -q -am "chore(web): rebuild dist after merging main"
   return 0
@@ -197,8 +199,10 @@ if [ $NEED_GATE -eq 1 ]; then
   if ! mklock "$STATE/.gate.lock" 1800; then GATE_OK=0; GATE_NOTE="gate lock timeout"; say "#$N: gate lock timeout"
   else
     # Workers often build before their last edit: regenerate web/dist/index.html (the only tracked build output) so a stale bundle
-    # never bounces a PR. Pushed so CI sees the same file.
-    if echo "$CH" | grep -q '^ui/' && [ -d "$WT/ui/node_modules" ]; then
+    # never bounces a PR. Pushed so CI sees the same file. The install is repaired first: behind a `-d` test a stale or symlinked
+    # tree made this build die silently, leaving the dist stale so gate.sh then failed the PR for a second, unrelated reason.
+    if echo "$CH" | grep -q '^ui/'; then
+      node_stamp_ensure "$WT/ui" || say "#$N $SLUG: ui install repair failed; dist rebuild may be incomplete"
       ( cd "$WT/ui" && npm run build >/dev/null 2>&1 ) && [ -n "$($GIT -C "$WT" status --porcelain -- web/dist/index.html)" ] \
         && $GIT -C "$WT" commit -q -m "chore(web): rebuild dist" -- web/dist/index.html && $GIT -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null
       SHA="$($GIT -C "$WT" rev-parse HEAD)"
