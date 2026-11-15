@@ -97,6 +97,13 @@ def cmd_idle(a):
             if os.getloadavg()[0] > LOAD_MAX:
                 print(f"load too high ({os.getloadavg()[0]:.1f} > {LOAD_MAX:.0f}); not filling", file=sys.stderr); return
         except Exception: pass
+        try:
+            import subprocess
+            out = subprocess.run(["memory_pressure"], capture_output=True, text=True, timeout=10).stdout
+            free = int(out.split("System-wide memory free percentage:")[1].split("%")[0])
+            if free < int(os.environ.get("RSI_MEM_FREE_MIN", "10")):
+                print(f"memory free {free}% too low; not filling", file=sys.stderr); return
+        except Exception: pass
         for n in range(1, MAX_LANES + 1):
             if not is_active(load(n)): print(n)
 
