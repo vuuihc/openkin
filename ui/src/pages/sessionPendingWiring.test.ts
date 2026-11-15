@@ -20,9 +20,6 @@ import { describe, expect, it } from "vitest";
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 const SOURCE = readFileSync(join(UI, "src/components/sessions/SessionList.tsx"), "utf8");
-// The row props moved to SessionGroups with the grouping extraction; the count
-// still comes from the one subscription in the list.
-const GROUPS = readFileSync(join(UI, "src/components/sessions/SessionGroups.tsx"), "utf8");
 const ROW = readFileSync(join(UI, "src/components/sessions/SessionRow.tsx"), "utf8");
 
 const count = (needle: string) => SOURCE.split(needle).length - 1;
@@ -37,7 +34,7 @@ describe("the phone list's waiting count", () => {
 
   it("hands the per-task counts down to the rows", () => {
     expect(count("pendingByTask={pendingByTask}")).toBe(1);
-    expect(GROUPS).toContain("pendingCount={row.task ? (pendingByTask.get(row.task.id) ?? 0) : 0}");
+    expect(SOURCE).toContain("pendingCount={row.task ? (pendingByTask.get(row.task.id) ?? 0) : 0}");
   });
 
   it("draws the chip and says the count in the row's name", () => {

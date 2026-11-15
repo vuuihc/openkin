@@ -27,7 +27,7 @@ export type SessionToolbarProps = {
   search?: boolean;
   query: string;
   pendingQuery: boolean;
-  searchRef: RefObject<HTMLInputElement>;
+  searchRef: RefObject<HTMLInputElement | null>;
   onQueryChange: (query: string) => void;
   onSearchKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
   status: SessionStatusFilter;
