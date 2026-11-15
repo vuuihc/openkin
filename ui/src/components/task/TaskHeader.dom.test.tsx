@@ -65,7 +65,27 @@ function phoneBar(utils: ReturnType<typeof setup>["utils"]) {
   return within(utils.container.querySelector("header") as HTMLElement);
 }
 
+/**
+ * The desktop bar is the phone bar's sibling. The two bars are one another's
+ * mirror image at the `md` breakpoint: the phone bar carries `md:hidden` and
+ * the desktop bar carries `hidden md:flex`. Reading the sibling rather than a
+ * test id keeps the assertion about the split the component actually renders.
+ */
+function desktopBar(utils: ReturnType<typeof setup>["utils"]) {
+  return (utils.container.querySelector("header") as HTMLElement).nextElementSibling as HTMLElement;
+}
+
 describe("TaskHeader", () => {
+  it("keeps the phone and desktop bars on opposite sides of the md breakpoint", () => {
+    const { utils } = setup();
+    const phone = utils.container.querySelector("header") as HTMLElement;
+    const desktop = desktopBar(utils);
+
+    expect(phone.className.split(/\s+/)).toContain("md:hidden");
+    expect(desktop.className.split(/\s+/)).toContain("hidden");
+    expect(desktop.className.split(/\s+/)).toContain("md:flex");
+  });
+
   it("renders the phone header with the session title and a back button", () => {
     const { props, utils } = setup();
     const header = phoneBar(utils);
