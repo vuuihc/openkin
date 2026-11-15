@@ -26,8 +26,83 @@ sendback() { # slug item title detail-file
   say "sendback $slug (#$a): $title"; KICK=1
 }
 
+# ------------------------------------------------- generated files (pure functions of the tree)
+# A merge of origin/main can conflict in files nobody wrote by hand: the embedded console entry and
+# the UI inventory baseline. Bouncing a PR back to a rework lane for those burns one of its three
+# attempts and taxes every future Astryx slice, so resolve them here by regenerating. Anything else
+# — another conflicted path, a failed regeneration, or a baseline that would grow — returns 1 and
+# the caller writes the usual "merge conflict with main" sendback.
+GEN_DIST=web/dist/index.html
+GEN_INV=scripts/ui-inventory-baseline.json
+# Both regenerators are overridable so rsi/runtime/tests/test-merge-gen-resolve.sh can run in a
+# temp repo with stubs; the defaults are the commands a person would run.
+DIST_BUILD="${RSI_DIST_BUILD_CMD:-npm run build}"
+INV_UPDATE="${RSI_INV_UPDATE_CMD:-python3 scripts/check-ui-inventory.py --update}"
+
+ratchet_ok() { # worktree -> 0 when the regenerated inventory did not grow past origin/main's copy
+  local wt="$1" base rc; base="$(mktemp)" || return 1
+  $GIT -C "$wt" show "origin/main:$GEN_INV" > "$base" 2>/dev/null || { rm -f "$base"; return 1; }
+  python3 - "$base" "$wt/$GEN_INV" <<'PY'
+import json, sys
+# "Counts may only go down" (scripts/check-ui-inventory.py) outranks merge convenience: a merge
+# that would raise the ratchet is a sendback, never a commit.
+try:
+    old = json.load(open(sys.argv[1], encoding="utf-8"))["metrics"]
+    new = json.load(open(sys.argv[2], encoding="utf-8"))["metrics"]
+except Exception as exc:
+    print("inventory baseline unreadable: %s" % exc, file=sys.stderr); sys.exit(1)
+grown = []
+for key, fields in sorted(new.items()):
+    prev = old.get(key) or {}
+    for field in ("occurrences", "files"):
+        was, now = prev.get(field), fields.get(field)
+        if not isinstance(was, int) or not isinstance(now, int):
+            grown.append("%s.%s: no integer count to compare" % (key, field))
+        elif now > was:
+            grown.append("%s.%s: %d -> %d" % (key, field, was, now))
+if grown:
+    print("inventory ratchet would grow: " + "; ".join(grown), file=sys.stderr); sys.exit(1)
+PY
+  rc=$?; rm -f "$base"; return $rc
+}
+
+gen_resolve() { # worktree -> 0 resolved and committed; 1 anything else (caller aborts and sends back)
+  local wt="$1" un p has_dist=0 has_inv=0
+  un="$($GIT -C "$wt" diff --name-only --diff-filter=U)" || return 1
+  [ -n "$un" ] || return 1
+  while IFS= read -r p; do
+    [ -z "$p" ] && continue
+    [ "$p" = "$GEN_DIST" ] || [ "$p" = "$GEN_INV" ] || return 1   # a source conflict is a person's job
+  done <<< "$un"
+  echo "$un" | grep -qxF "$GEN_DIST" && has_dist=1
+  echo "$un" | grep -qxF "$GEN_INV" && has_inv=1
+  # Take ours as the base, then REGENERATE BEFORE COMMITTING: a failed build or a growing ratchet
+  # must leave `git merge --abort` possible, and that only restores an uncommitted merge. The
+  # regenerated files ride in the merge commit itself, so the tree is clean when this returns.
+  while IFS= read -r p; do
+    [ -z "$p" ] && continue
+    $GIT -C "$wt" checkout --ours -- "$p" || return 1
+  done <<< "$un"
+  if [ $has_dist -eq 1 ]; then
+    # A stale or symlinked ui install made this rebuild die silently behind the old `-d` test.
+    # No lockfile (hermetic temp repos) means there is no install to repair.
+    [ -f "$wt/ui/package-lock.json" ] && { node_stamp_ensure "$wt/ui" || return 1; }
+    ( cd "$wt/ui" && bash -c "$DIST_BUILD" ) >/dev/null 2>&1 || return 1
+  fi
+  if [ $has_inv -eq 1 ]; then
+    ( cd "$wt" && bash -c "$INV_UPDATE" ) >/dev/null 2>&1 || return 1
+    ratchet_ok "$wt" || return 1
+  fi
+  while IFS= read -r p; do
+    [ -z "$p" ] && continue
+    $GIT -C "$wt" add -- "$p" || return 1
+  done <<< "$un"
+  $GIT -C "$wt" commit -q --no-edit || return 1
+}
+
 # ------------------------------------------------------------------ dispatcher
 if [ "${1:-}" != "--one" ]; then
+  [ "${1:-}" = "--resolve-generated" ] && { gen_resolve "${2:?worktree required}"; exit $?; }
   DRY=0; [ "${1:-}" = "--dry-run" ] && DRY=1
   [ -e "$STATE/PAUSE" ] && { echo "paused"; exit 0; }
   # legacy single-instance lock (pre-pipeline merge.sh still running): do not double-process
@@ -79,22 +154,12 @@ ITEM="$(echo "$BODY" | sed -n 's/.*RSI item: *\([A-Za-z0-9._-]*\).*/\1/p' | head
 V="$STATE/merge/$SLUG.verified"; RV="$STATE/merge/$SLUG.reviewed"; PREV="$STATE/merge/$SLUG.review.txt"
 say "#$N $SLUG ($ITEM) verifier start"
 
-dist_resolve() { # worktree: resolve a lone web/dist/index.html conflict by rebuilding
-  local wt="$1" un; un="$($GIT -C "$wt" diff --name-only --diff-filter=U)"
-  [ "$un" = "web/dist/index.html" ] || return 1
-  $GIT -C "$wt" checkout --ours web/dist/index.html && $GIT -C "$wt" add web/dist/index.html || return 1
-  $GIT -C "$wt" commit -q --no-edit || return 1
-  node_stamp_ensure "$wt/ui" || return 1   # a stale install made this rebuild fail silent
-  ( cd "$wt/ui" && npm run build >/dev/null 2>&1 ) || return 1
-  [ -n "$($GIT -C "$wt" status --porcelain -- web/dist/index.html)" ] && $GIT -C "$wt" commit -q -am "chore(web): rebuild dist after merging main"
-  return 0
-}
 mklock() { local d="$1" max="$2" w=0; while ! mkdir "$d" 2>/dev/null; do o="$(cat "$d/pid" 2>/dev/null)"; if [ -n "$o" ] && ! kill -0 "$o" 2>/dev/null; then rm -rf "$d"; continue; fi; sleep 15; w=$((w+15)); [ $w -gt "$max" ] && return 1; done; echo $$ > "$d/pid"; }
 sync_main() { # -> 0 ok (pushed if changed), 1 conflict (sendback written), 2 transient failure
   $GIT -C "$WT" merge-base --is-ancestor origin/main HEAD && return 0
   say "#$N $SLUG: merging origin/main"
   if ! $GIT -C "$WT" merge -q --no-edit origin/main >/dev/null 2>&1; then
-    if dist_resolve "$WT"; then say "#$N: web/dist/index.html conflict resolved by rebuild"
+    if gen_resolve "$WT"; then say "#$N: conflict(s) in generated files resolved by regeneration"
     else CF="$($GIT -C "$WT" diff --name-only --diff-filter=U)"; $GIT -C "$WT" merge --abort >/dev/null 2>&1
       printf 'merge of origin/main conflicts in:\n%s\n' "$CF" > "$STATE/merge/$SLUG.err"; sendback "$SLUG" "$ITEM" "merge conflict with main" "$STATE/merge/$SLUG.err"; return 1; fi
   fi
