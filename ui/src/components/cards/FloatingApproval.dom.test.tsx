@@ -313,7 +313,11 @@ describe("FloatingApproval", () => {
   });
 
   it("clears the dock when the page marks nothing", () => {
-    const { container } = setup({ screenKey: "/sessions", expectsBottomChrome: false, raised: true });
+    const { container } = setup({
+      screenKey: "/sessions",
+      expectsBottomChrome: false,
+      raised: true,
+    });
     const aside = container.querySelector("aside");
     expect(aside?.style.bottom).toBe("");
     expect(aside?.className).toContain("bottom-[calc(9.25rem");

@@ -72,8 +72,7 @@ export default function ModelPicker({
   // custom row (it is not in the catalog), and never force the custom input
   // — nothing was typed.
   const namedByTranscript = !current && Boolean(fallbackDisplay?.trim());
-  const display =
-    custom || currentIsCustom ? current || tr("modelPicker.custom") : undefined;
+  const display = custom || currentIsCustom ? current || tr("modelPicker.custom") : undefined;
   // The sentinel, not the raw id — see `modelPickerSelection`.
   const selection = modelPickerSelection(current, custom || currentIsCustom);
   const effectiveSelection = namedByTranscript ? CUSTOM_MODEL_ID : selection;
@@ -87,9 +86,7 @@ export default function ModelPicker({
     // should not blank the control: materialise that name as the explicit
     // value, so the custom field opens prefilled with what actually ran.
     const value =
-      id === CUSTOM_MODEL_ID && namedByTranscript
-        ? fallbackDisplay!.trim()
-        : next.value;
+      id === CUSTOM_MODEL_ID && namedByTranscript ? fallbackDisplay!.trim() : next.value;
     setCustom(next.custom);
     onChange(value);
   };

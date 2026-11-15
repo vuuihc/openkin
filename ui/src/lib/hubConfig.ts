@@ -19,7 +19,10 @@
 /** The Capacitor plugin implemented by the iOS app target. */
 export type HubConfigPlugin = {
   getHubUrl(): Promise<{ url?: string }>;
-  setHubUrl(input: { url: string; confirm?: boolean }): Promise<{ url: string; insecure?: boolean }>;
+  setHubUrl(input: {
+    url: string;
+    confirm?: boolean;
+  }): Promise<{ url: string; insecure?: boolean }>;
   clearHubUrl(): Promise<void>;
   /** Drop the shell's durable copy of the Hub session, and the live cookie
    * with it. Optional: an older shell build has no such method. */
@@ -142,8 +145,7 @@ export async function takeConnectLink(plugin: HubConfigPlugin): Promise<string> 
  * silent success.
  */
 export type AuthCallback =
-  | { kind: "code"; code: string }
-  | { kind: "error"; code: string; deviceKey: string };
+  { kind: "code"; code: string } | { kind: "error"; code: string; deviceKey: string };
 
 export function parseAuthCallback(raw: string): AuthCallback | null {
   if (!raw) return null;

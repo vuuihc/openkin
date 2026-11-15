@@ -57,13 +57,16 @@ describe("the shared action sheet", () => {
 
   it("closes before it runs the row", async () => {
     const calls: string[] = [];
-    setup([
-      {
-        id: "share",
-        label: "Share",
-        onSelect: () => calls.push("row"),
-      },
-    ], vi.fn(() => calls.push("close")));
+    setup(
+      [
+        {
+          id: "share",
+          label: "Share",
+          onSelect: () => calls.push("row"),
+        },
+      ],
+      vi.fn(() => calls.push("close")),
+    );
 
     await userEvent.click(screen.getByRole("button", { name: "Share" }));
     // The row runs only once the sheet's history entry is behind us; a row that
@@ -113,9 +116,7 @@ describe("the shared action sheet", () => {
 
   it("does not run a disabled row", async () => {
     const onSelect = vi.fn();
-    const { onClose } = setup([
-      { id: "stop", label: "Stopping…", disabled: true, onSelect },
-    ]);
+    const { onClose } = setup([{ id: "stop", label: "Stopping…", disabled: true, onSelect }]);
     const row = screen.getByRole("button", { name: "Stopping…" });
     expect(row.hasAttribute("disabled")).toBe(true);
     await userEvent.click(row);

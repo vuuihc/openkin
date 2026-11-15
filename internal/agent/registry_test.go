@@ -119,10 +119,10 @@ func TestGetRunnableErrors(t *testing.T) {
 		},
 		Entry{
 			ID: "meta", Name: "Meta", Priority: 50,
-			Caps:   []Capability{CapabilityOrchestrate},
-			Runner: nil,
+			Caps:       []Capability{CapabilityOrchestrate},
+			Runner:     nil,
 			Controller: stubController{},
-			Status: func(context.Context) Status { return Status{Installed: true, Available: true} },
+			Status:     func(context.Context) Status { return Status{Installed: true, Available: true} },
 		},
 	)
 	_, err := r.GetRunnable(context.Background(), "missing")

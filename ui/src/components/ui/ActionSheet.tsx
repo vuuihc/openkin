@@ -62,9 +62,7 @@ export default function ActionSheet({
       subtitle={subtitle}
       anyWidth={anyWidth}
       bodyClassName="pb-2"
-      footer={
-        <SheetSecondaryButton onClick={onClose}>{tr("common.cancel")}</SheetSecondaryButton>
-      }
+      footer={<SheetSecondaryButton onClick={onClose}>{tr("common.cancel")}</SheetSecondaryButton>}
     >
       <ul className="flex flex-col gap-0.5">
         {rows.map((row) => (
