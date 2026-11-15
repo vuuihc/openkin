@@ -4,6 +4,7 @@
 #       planner|director                 -> kimi, can write docs/state
 #       reviewer                         -> kimi, read-only tools
 #       reviewer-alt                     -> codex gpt-6.1-sol (read-only), falls back to claude -p on M_ALT
+#       ux-reviewer / ux-reviewer-alt    -> kimi / gpt-6.1-sol through claude -p (image-capable Read), read-only
 # Prints the final result text (last ~6000 chars) and exits non-zero if the run errored.
 set -u
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
@@ -18,6 +19,8 @@ case "$ROLE" in
   planner|director)               MODEL="$M_DIRECTOR"; TOOLS=("${WRITE_TOOLS[@]}");;
   reviewer)                       MODEL="$M_DIRECTOR"; TOOLS=("${READ_TOOLS[@]}");;
   reviewer-alt)                   MODEL="$M_ALT"; TOOLS=("${READ_TOOLS[@]}");;
+  ux-reviewer)                    MODEL="$M_DIRECTOR"; TOOLS=("${READ_TOOLS[@]}");;   # vision: reads the journey screenshots
+  ux-reviewer-alt)                MODEL="$M_ALT"; TOOLS=("${READ_TOOLS[@]}");;        # claude -p on M_ALT (no codex exec: it cannot view images)
   *) echo "unknown role $ROLE"; exit 2;;
 esac
 
