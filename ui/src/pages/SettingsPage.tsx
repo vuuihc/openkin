@@ -44,6 +44,7 @@ import {
 import { normalizeSettingsTab, type SettingsTabId } from "../lib/areaNavigation";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useLeaveGuard } from "../hooks/useLeaveGuard";
+import { runGuardedNavigation } from "../lib/leaveGuard";
 import { applyTheme, getThemeMode, setThemeMode, type ThemeMode } from "../lib/theme";
 import { useAppStore } from "../store/appStore";
 import { useT } from "../i18n/react";
@@ -202,17 +203,22 @@ export default function SettingsPage() {
   );
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    // A URL without `tab` means "the Settings screen, not one of its sections"
-    // — a sidebar or palette trip back here. It must not hide the panel (and
-    // the draft) the reader is already on. A cold start at `?tab=` is covered
-    // by the initial state above.
-    if (!params.has("tab")) return;
+    // A URL without `tab` is General: notification parsing canonicalizes
+    // `?tab=general` to `/settings`, and mounted panels already keep their
+    // drafts (`hidden` in `SettingsTabPanel`), so following the URL cannot
+    // lose unsaved text.
     setActiveTab(renderedSettingsTab(normalizeSettingsTab(params.get("tab"))));
   }, [location.search]);
   const selectTab = useCallback(
     (tab: SettingsTabId) => {
       setActiveTab(renderedSettingsTab(tab));
-      navigate(settingsTabPath(tab, location.pathname, location.search), { replace: true });
+      const path = settingsTabPath(tab, location.pathname, location.search);
+      // Replacing while the leave-guard sentinel is on top would rewrite the
+      // sentinel and leave the previous tab underneath. Release the sentinel
+      // first (approved: a tab change does not discard drafts), then replace
+      // the real entry so one approved Back still leaves Settings.
+      const go = () => navigate(path, { replace: true });
+      if (!runGuardedNavigation(go, true)) go();
     },
     [navigate, location.pathname, location.search],
   );

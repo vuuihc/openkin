@@ -115,9 +115,12 @@ describe("a same-pathname move while the page is dirty", () => {
     expect(window.location.search).toBe("?tab=b");
     expect(isLeaveGuardArmed()).toBe(false);
 
+    const lengthAfterRewrite = window.history.length;
     scheduleLeaveGuardReconcile();
-    await tick();
-    expect(isLeaveGuardArmed()).toBe(true);
+    await until(() => isLeaveGuardArmed() && window.location.search === "?tab=b");
+    // The rewritten sentinel was collapsed, not stacked: length stays put
+    // (pop + replace + re-arm push = net zero).
+    expect(window.history.length).toBe(lengthAfterRewrite);
 
     window.history.back();
     await until(() => canLeave.mock.calls.length === 1);
@@ -132,13 +135,10 @@ describe("a same-pathname move while the page is dirty", () => {
 
     allowed = true;
     window.history.back();
-    // The agreed pop lands on the pre-rewrite /page entry: same pathname, so
-    // the screen is still here and the next Back must ask again.
-    await until(() => window.location.pathname === "/page" && window.location.search === "");
-    await until(() => isLeaveGuardArmed());
-
-    window.history.back();
+    // The rewrite was applied to the real page entry after the former
+    // sentinel was popped, so one approved Back leaves the screen.
     await until(() => window.location.pathname === "/base");
+    expect(window.location.search).toBe("");
   });
 
   it("re-arms after a same-pathname push buries the page's entry", async () => {
