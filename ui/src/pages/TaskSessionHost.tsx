@@ -6,6 +6,7 @@ import { useT } from "../i18n/react";
 import { rememberLastConversation } from "../lib/lastConversation";
 import { dropSessionCache, taskIdFromPathname, touchSessionCache } from "../lib/sessionCache";
 import { getViewedSessionIds, subscribeSessionViewed } from "../lib/sessionViewed";
+import { peekPendingSend } from "../lib/pendingSend";
 import { tabMark, waitingTaskIds } from "../lib/sessionSwitcher";
 import {
   closeSessionTab,
@@ -92,9 +93,20 @@ export default function TaskSessionHost() {
    * loads, with a thin progress line saying the switch is happening; the
    * replacement is a content swap inside the same shell, not a page load.
    *
-   * `shownId` only advances when the active pane has loaded. A second switch
-   * made during the first one therefore keeps the last pane that had content,
-   * not the intermediate one that never appeared.
+   * `shownId` only advances when the active pane can draw itself. A second
+   * switch made during the first one therefore keeps the last pane that had
+   * content, not the intermediate one that never appeared.
+   *
+   * "Can draw itself" is not only "its detail answered". A conversation the
+   * console just created is fully drawn from what the create answer already
+   * gave us — the list row carries the header and composer, and the draft's
+   * handed-over bubble carries the transcript — so waiting for the GET would
+   * hold the *previous* conversation in front for a request the new pane does
+   * not need. Readiness accepts that row and that handoff.
+   *
+   * The handoff alone is only a bridge, not a permanent source: this pane's
+   * child consumes it on mount, and the seeded list row anchors readiness after
+   * that. A cold entry has neither and still waits, honestly.
    */
   const [shownId, setShownId] = useState<string | null>(null);
   // The active session can be older than the loaded page (the tab order
@@ -102,7 +114,13 @@ export default function TaskSessionHost() {
   // comes from the detail subscription the pane already holds — one more reader
   // of that lease, not another request.
   const activeDetail = useTaskResource(activeId ?? "", Boolean(activeId));
-  const activeReady = Boolean(activeId) && activeDetail.loaded;
+  // The create answer seeds the live list through `applyTaskSnapshot`, so the
+  // row is the anchor; a pane's own `gone` reads still outrank it, so a deleted
+  // conversation cannot come back just because a stale list still names it.
+  const activeRow = activeId ? tasksById.get(activeId) : undefined;
+  const activeHandoff = activeId ? peekPendingSend(activeId) : null;
+  const activeReady =
+    Boolean(activeId) && (activeDetail.loaded || Boolean(activeRow) || Boolean(activeHandoff));
   useEffect(() => {
     if (!activeId) {
       setShownId(null);
