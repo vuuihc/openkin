@@ -62,13 +62,13 @@ for (const j of want) {
           const l = await lint(page, phone); screens.push({ journey: j, viewport: vpName, name, url: new URL(page.url()).pathname + new URL(page.url()).search.replace(/token=[^&]+/g, 'token=<redacted>'), lint: l });
           if (l.bodyText < 20) hardFail.push(`${name}: blank page`);
           if (l.overflowX) hardFail.push(`${name}: horizontal page overflow`);
-        } else if (op === 'click' || op === 'hover') {
-          const loc = a.startsWith('/') ? page.getByText(new RegExp(a.slice(1, a.lastIndexOf('/')), 'i')).first() : page.locator(a).first();
-          if (await loc.count() === 0) { log.push('skipped ' + op + ' ' + a); continue; }
-          await (op === 'click' ? loc.click({ timeout: 3000 }) : loc.hover({ timeout: 3000 })); await page.waitForTimeout(400);
-        } else if (op === 'fill') { const loc = page.locator(a).first(); if (await loc.count() === 0) { log.push('skipped fill ' + a); continue; } await loc.fill(b, { timeout: 3000 }); }
-        else if (op === 'key') { await page.keyboard.press(a); await page.waitForTimeout(200); }
-      } catch (e) { log.push(`${op} ${a}: ${String(e.message).split('\n')[0].slice(0, 120)}`); }
+        } else if (op === 'click' || op === 'hover' || op === 'fill') {
+          const raw = String(a), optional = raw.startsWith('?'), sel = optional ? raw.slice(1) : raw;
+          const loc = sel.startsWith('/') ? page.getByText(new RegExp(sel.slice(1, sel.lastIndexOf('/')), 'i')).first() : page.locator(sel).first();
+          if (await loc.count() === 0) { if (optional) { log.push('skipped ' + op + ' ' + sel); continue; } hardFail.push(`${j}/${vpName}: missing required ${op} ${sel}`); continue; }
+          if (op === 'fill') await loc.fill(b, { timeout: 3000 }); else await (op === 'click' ? loc.click({ timeout: 3000 }) : loc.hover({ timeout: 3000 })); await page.waitForTimeout(400);
+        } else if (op === 'key') { await page.keyboard.press(a); await page.waitForTimeout(200); }
+      } catch (e) { const msg = `${op} ${a}: ${String(e.message).split('\n')[0].slice(0, 120)}`; log.push(msg); hardFail.push(`${j}/${vpName}: ${msg}`); }
     }
     if (errs.length) hardFail.push(`${j}/${vpName}: page errors: ${[...new Set(errs)].slice(0, 3).join(' | ')}`);
     if (bad.length) hardFail.push(`${j}/${vpName}: 5xx: ${[...new Set(bad)].slice(0, 3).join(', ')}`);

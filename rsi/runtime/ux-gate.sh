@@ -43,8 +43,9 @@ UXR="$UXD/review.txt"
 if [ -n "${RSI_UX_REVIEW_CMD:-}" ]; then bash -c "$RSI_UX_REVIEW_CMD" _ "$PF" > "$UXR" 2>&1
 else
   UROLE="ux-reviewer"; [ "$ROLE" = "reviewer-alt" ] && UROLE="ux-reviewer-alt"
-  RSI_NO_HEAVY=1 BUDGET_GUARD=8 DISPATCH_MAX_SECS=1500 "$RSI_DIR/runtime/dispatch.sh" "$UROLE" "$WT" "$PF" "merge-$SLUG-ux" > "$UXR" 2>&1 || true
+  RSI_NO_HEAVY=1 BUDGET_GUARD=8 DISPATCH_MAX_SECS=1500 "$RSI_DIR/runtime/dispatch.sh" "$UROLE" "$WT" "$PF" "merge-$SLUG-ux" > "$UXR" 2>&1; DRC=$?
 fi
+[ -z "${RSI_UX_REVIEW_CMD:-}" ] && [ "${DRC:-0}" -ne 0 ] && ! grep -qE 'UX_SCORES:' "$UXR" 2>/dev/null && { echo "ux reviewer unavailable: dispatch exit $DRC" > "$UXD/unavailable.txt"; exit 2; }
 # 3. decide (recomputed from the numbers; the model's own verdict only matters as a tie to the text)
 python3 - "$UXR" "$UXD/scores.json" "$ERR" "$SHOTS" "$HARD" <<'PY'
 import re, sys, json
@@ -52,7 +53,7 @@ txt = open(sys.argv[1], errors="replace").read(); out, err, shots, hard = sys.ar
 m = re.findall(r"UX_SCORES:\s*(.+)", txt); axes = ["clarity", "density", "consistency", "feedback", "keyboard"]
 sc = {}
 if m:
-    for k, v in re.findall(r"(\w+)\s*=\s*(\d)", m[-1]): sc[k] = int(v)
+    for k, v in re.findall(r"(\w+)\s*=\s*([1-5])\b", m[-1]): sc[k] = int(v)
 vm = re.findall(r"UX_VERDICT:\s*(PASS|FAIL)", txt); verdict = vm[-1] if vm else "NONE"
 ok = all(a in sc for a in axes)
 mean = sum(sc[a] for a in axes) / 5 if ok else 0
