@@ -8,7 +8,8 @@
 set -u
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
-MERGE_WORKERS="${RSI_MERGE_WORKERS:-2}"
+MERGE_WORKERS="${RSI_MERGE_WORKERS:-2}"          # verifier slots for any PR
+SMALL_SLOTS="${RSI_MERGE_SMALL_SLOTS:-1}"        # extra slot only small-safe PRs may use: a 3-line refactor never queues behind two big reviews
 CODE_RE='^(ui/|internal/|cmd/|scripts/|desktop/|mobile/|web/|go\.mod|go\.sum|\.github/)'   # main changes here invalidate a carried-forward gate
 say() { echo "[$(date +%T)] $*"; }
 attempts() { cat "$STATE/merge/$1.attempts" 2>/dev/null || echo 0; }
@@ -21,8 +22,25 @@ sendback() { # slug item title detail-file
     [ $b -ge 2 ] && [ ! -e "$STATE/NO_MERGE" ] && echo "two PRs blocked after their rework rounds ($(date))" > "$STATE/NO_MERGE"
     notify "Kin RSI: PR rsi/$slug blocked" "$title"; return
   fi
-  { echo "item: $item"; echo "attempt: $a"; echo "# Sent back by the merge lane: $title"; echo; echo "Branch rsi/$slug. Fix every finding below in one pass, then stop (the merge lane re-gates and re-reviews the delta)."; echo; echo '```'; tail -c 7000 "$det"; echo '```'; } > "$STATE/sendback/$slug.md"
+  write_sendback "$slug" "$item" "$title" "$det" "$a" targeted
   say "sendback $slug (#$a): $title"; KICK=1
+}
+write_sendback() { # slug item title detail-file attempt-label kind(targeted|mechanical)
+  local slug="$1" item="$2" title="$3" det="$4" a="$5" kind="${6:-targeted}"
+  {
+    echo "item: $item"; echo "attempt: $a"; echo "kind: $kind"; echo "# Sent back by the merge lane: $title"; echo
+    echo "Branch rsi/$slug. Make MINIMAL, TARGETED edits: fix exactly the items below, do not regenerate or rewrite files, do not touch code the items do not name. Then re-run only the focused checks and stop (the merge lane re-gates and re-reviews the delta)."
+    if [ "$kind" = mechanical ]; then echo "This is a MECHANICAL fix (conflict/format/infra), not a quality sendback: resolve it and change nothing else."; fi
+    if [ -s "${SB_FIXLIST:-/nonexistent}" ]; then echo; echo "## Fix list (file:line, issue, required change)"; echo; cat "$SB_FIXLIST"; fi
+    if [ -s "${SB_GATEFAILS:-/nonexistent}" ]; then echo; echo "## Failing gate lines (exact)"; echo; echo '```'; cat "$SB_GATEFAILS"; echo '```'; fi
+    echo; echo "## Raw report"; echo '```'; tail -c 6000 "$det"; echo '```'
+  } > "$STATE/sendback/$slug.md"
+}
+sendback_mech() { # slug item title detail-file : mechanical failure (merge conflict, format, infra). Does NOT count as a sendback; capped at 5 then counts.
+  local slug="$1" item="$2" title="$3" det="$4" m; m=$(( $(cat "$STATE/merge/$slug.mech" 2>/dev/null || echo 0) + 1 )); echo $m > "$STATE/merge/$slug.mech"
+  if [ $m -gt 5 ]; then sendback "$slug" "$item" "$title (mechanical x$m)" "$det"; return; fi
+  write_sendback "$slug" "$item" "$title" "$det" "mech-$m" mechanical
+  say "mechanical rework $slug (#$m, not counted as a sendback): $title"; KICK=1
 }
 
 # ------------------------------------------------------------------ dispatcher
@@ -35,25 +53,53 @@ if [ "${1:-}" != "--one" ]; then
   if ! mkdir "$DL" 2>/dev/null; then o="$(cat "$DL/pid" 2>/dev/null || true)"; if [ -n "$o" ] && kill -0 "$o" 2>/dev/null; then exit 0; fi; rm -rf "$DL"; mkdir "$DL" 2>/dev/null || exit 0; fi
   echo $$ > "$DL/pid"; trap 'rm -rf "$DL"' EXIT
   $GIT -C "$RSI_CTRL" fetch -q origin main 2>/dev/null
-  PRS="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json number,headRefName,isDraft,labels,title 2>/dev/null | python3 -c '
-import json,sys
-for p in sorted(json.load(sys.stdin), key=lambda p:p["number"]):
+  # `files` makes the GraphQL query heavy and it occasionally fails/times out: retry once, then fall back to a light query (tier unknown = large).
+  PRJ="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json number,headRefName,isDraft,labels,title,files,body 2>/dev/null)"
+  echo "$PRJ" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1 || { sleep 3; PRJ="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json number,headRefName,isDraft,labels,title,files,body 2>/dev/null)"; }
+  echo "$PRJ" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1 || PRJ="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json number,headRefName,isDraft,labels,title,body 2>/dev/null)"
+  PRS="$(printf '%s' "$PRJ" | STATE="$STATE" TIERPY="$RSI_DIR/runtime/review-tier.py" python3 -c '
+import json,sys,os,re,subprocess
+st=os.environ["STATE"]; rows=[]
+for p in json.load(sys.stdin):
     h=p["headRefName"]; ls={l["name"] for l in p["labels"]}
     if not h.startswith("rsi/") or h.startswith("rsi/dream-") or h.startswith("rsi/ceo-") or p["isDraft"] or ls & {"hold","needs-ceo"}: continue
-    print("%d\t%s\t%s" % (p["number"], h[4:], p["title"].replace("\t"," ")))')"
+    slug=h[4:]; m=re.search(r"RSI item: *([A-Za-z0-9._-]+)", p.get("body") or ""); item=m.group(1) if m else ""
+    try: att=int(open("%s/merge/%s.attempts" % (st,slug)).read().strip() or 0)
+    except Exception: att=0
+    tier="large"
+    try:
+        if "files" not in p: raise ValueError("no files")
+        out=subprocess.run(["python3",os.environ["TIERPY"],"--title",p["title"],"--item",item,"--attempts",str(att),"--gh-json","-"],input=json.dumps(p.get("files") or []),capture_output=True,text=True,timeout=20).stdout.split()
+        tier=out[0] if out else "large"
+    except Exception: pass
+    rows.append((0 if tier=="small" else 1, p["number"], slug, p["title"].replace("\t"," "), tier))
+for _,n,slug,title,tier in sorted(rows):   # small-safe first, then PR number
+    print("%d\t%s\t%s\t%s" % (n,slug,title,tier))')"
   [ -z "$PRS" ] && { say "no open rsi PRs"; exit 0; }
   ACTIVE="$(python3 "$LANES_PY" slugs)"
-  running=0; for l in "$STATE"/merge/*.lock; do [ -d "$l" ] && kill -0 "$(cat "$l/pid" 2>/dev/null || echo 0)" 2>/dev/null && running=$((running+1)); done
-  while IFS=$'\t' read -r -u 3 N SLUG TITLE; do
+  running=0; running_big=0
+  for l in "$STATE"/merge/*.lock; do
+    [ -d "$l" ] && kill -0 "$(cat "$l/pid" 2>/dev/null || echo 0)" 2>/dev/null || continue
+    running=$((running+1)); rs="$(basename "$l" .lock)"; [ "$(cat "$STATE/merge/$rs.tier" 2>/dev/null)" = small ] || running_big=$((running_big+1))
+  done
+  while IFS=$'\t' read -r -u 3 N SLUG TITLE TIER; do
     [ -z "$N" ] && continue
     echo "$ACTIVE" | grep -qx "$SLUG" && { say "#$N $SLUG: lane active, skip"; continue; }
     [ -e "$STATE/sendback/$SLUG.md" ] && { say "#$N $SLUG: waiting for rework"; continue; }
     [ -e "$STATE/merge/$SLUG.blocked" ] && { say "#$N $SLUG: blocked (needs CEO)"; continue; }
     L="$STATE/merge/$SLUG.lock"
     if [ -d "$L" ]; then if kill -0 "$(cat "$L/pid" 2>/dev/null || echo 0)" 2>/dev/null; then continue; fi; rm -rf "$L"; fi
-    [ $running -ge "$MERGE_WORKERS" ] && { say "#$N $SLUG: all $MERGE_WORKERS verifier slots busy"; continue; }
+    # sol (ChatGPT allowance) exhausted: large-tier reviews need it and would only loop on 429. Wait for it; small/medium (DeepSeek) PRs are unaffected.
+    if [ "$TIER" = large ] && [ "$(awk '{print $2}' "$STATE/merge/$SLUG.reviewed" 2>/dev/null)" != PASS ] && [ "$(cat "$STATE/sol-limited-until" 2>/dev/null || echo 0)" -gt "$(date +%s)" ]; then
+      say "#$N $SLUG [large]: waiting for gpt-6.1-sol quota (until $(date -r "$(cat "$STATE/sol-limited-until")" '+%H:%M'))"; continue; fi
+    [ -e "$STATE/merge/$SLUG.queued_at" ] || date +%s > "$STATE/merge/$SLUG.queued_at"   # first time it was eligible: queue-wait metric
+    # Slot policy: MERGE_WORKERS general slots + SMALL_SLOTS reserved. big/medium PRs use the general slots; small-safe PRs may use any
+    # free slot but never the last one a big PR could take (small concurrency <= MERGE_WORKERS + SMALL_SLOTS - 1), so neither starves.
+    if [ "$TIER" = small ]; then [ $((running - running_big)) -ge $((MERGE_WORKERS + SMALL_SLOTS - 1)) ] || [ $running -ge $((MERGE_WORKERS + SMALL_SLOTS)) ] && { say "#$N $SLUG [small]: small slots busy"; continue; }
+    else [ $running_big -ge "$MERGE_WORKERS" ] || [ $running -ge $((MERGE_WORKERS + SMALL_SLOTS)) ] && { say "#$N $SLUG [$TIER]: all $MERGE_WORKERS general verifier slots busy"; continue; }; fi
     [ $DRY -eq 1 ] && { say "#$N $SLUG: would verify (dry-run)"; running=$((running+1)); continue; }
     mkdir "$L" 2>/dev/null || continue; echo $$ > "$L/pid"   # claimed; the worker rewrites its own pid
+    echo "$TIER" > "$STATE/merge/$SLUG.tier"; [ "$TIER" = small ] || running_big=$((running_big+1))
     nohup /bin/bash "$SELF" --one "$N" "$SLUG" "$TITLE" >> "$RUNS/merge-worker-$SLUG.log" 2>&1 < /dev/null & echo $! > "$L/pid"; disown 2>/dev/null || true
     say "#$N $SLUG: verifier started (pid $!)"; running=$((running+1)); sleep 1
   done 3<<< "$PRS"
@@ -76,7 +122,8 @@ BR="rsi/$SLUG"; WT="$WT_ROOT/rsi-$SLUG"; PRURL="https://github.com/$GH_REPO/pull
 BODY="$($GH pr view "$N" --repo "$GH_REPO" --json body --jq .body 2>/dev/null)"
 ITEM="$(echo "$BODY" | sed -n 's/.*RSI item: *\([A-Za-z0-9._-]*\).*/\1/p' | head -1)"; ITEM="${ITEM:-R-$SLUG}"
 V="$STATE/merge/$SLUG.verified"; RV="$STATE/merge/$SLUG.reviewed"; PREV="$STATE/merge/$SLUG.review.txt"
-say "#$N $SLUG ($ITEM) verifier start"
+QW=""; if [ -s "$STATE/merge/$SLUG.queued_at" ]; then QW=" queue_wait=$(( (T0 - $(cat "$STATE/merge/$SLUG.queued_at")) / 60 ))m"; rm -f "$STATE/merge/$SLUG.queued_at"; fi
+say "#$N $SLUG ($ITEM) verifier start$QW"; [ -n "$QW" ] && echo "$(date '+%F %H:%M') #$N $SLUG verifier_started$QW tier=$(cat "$STATE/merge/$SLUG.tier" 2>/dev/null || echo ?)" >> "$STATE/merge/cycles.log"
 
 dist_resolve() { # worktree: resolve a lone web/dist/index.html conflict by rebuilding
   local wt="$1" un; un="$($GIT -C "$wt" diff --name-only --diff-filter=U)"
@@ -87,14 +134,45 @@ dist_resolve() { # worktree: resolve a lone web/dist/index.html conflict by rebu
   [ -n "$($GIT -C "$wt" status --porcelain -- web/dist/index.html)" ] && $GIT -C "$wt" commit -q -am "chore(web): rebuild dist after merging main"
   return 0
 }
+inv_resolve() { # mechanical: the only conflicts are scripts/ui-inventory-baseline.json (+ web/dist/index.html). Take main's baseline; it must still pass the
+  # ratchet on the merged tree (so no growth is ever waved through); then record any further decrease with --update. Else leave it to a rework lane.
+  local wt="$1" un; un="$($GIT -C "$wt" diff --name-only --diff-filter=U | sort | tr '\n' ' ')"
+  case "$un" in "scripts/ui-inventory-baseline.json "|"scripts/ui-inventory-baseline.json web/dist/index.html ") ;; *) return 1;; esac
+  $GIT -C "$wt" checkout --theirs scripts/ui-inventory-baseline.json 2>/dev/null && $GIT -C "$wt" add scripts/ui-inventory-baseline.json || return 1
+  if echo "$un" | grep -q 'web/dist'; then $GIT -C "$wt" checkout --ours web/dist/index.html 2>/dev/null && $GIT -C "$wt" add web/dist/index.html || return 1; fi
+  if ! ( cd "$wt" && python3 scripts/check-ui-inventory.py >/dev/null 2>&1 ); then
+    # A pure extraction moves raw elements into a NEW file: occurrences are unchanged but `files` grows by one. For refactor/extract PRs only,
+    # accept a regenerated baseline when no metric's OCCURRENCES grew (what the CEO did by hand for #59/#62). Anything else goes to rework.
+    echo "${TITLE:-}" | grep -qiE '^refactor|extract' || { $GIT -C "$wt" merge --abort >/dev/null 2>&1; return 1; }
+    cp "$wt/scripts/ui-inventory-baseline.json" "$wt/.inv-main.json"
+    ( cd "$wt" && python3 scripts/check-ui-inventory.py --update >/dev/null 2>&1 )
+    if ! python3 - "$wt/.inv-main.json" "$wt/scripts/ui-inventory-baseline.json" <<'PY'
+import json,sys
+a=json.load(open(sys.argv[1]))["metrics"]; b=json.load(open(sys.argv[2]))["metrics"]
+sys.exit(0 if all(b[k]["occurrences"] <= a[k]["occurrences"] for k in a) else 1)
+PY
+    then rm -f "$wt/.inv-main.json"; $GIT -C "$wt" merge --abort >/dev/null 2>&1; return 1; fi
+    rm -f "$wt/.inv-main.json"; $GIT -C "$wt" add scripts/ui-inventory-baseline.json
+  fi
+  $GIT -C "$wt" commit -q --no-edit || return 1
+  if echo "$un" | grep -q 'web/dist'; then
+    ( cd "$wt/ui" && npm run build >/dev/null 2>&1 ) || { $GIT -C "$wt" reset -q --hard ORIG_HEAD; return 1; }
+    [ -n "$($GIT -C "$wt" status --porcelain -- web/dist/index.html)" ] && $GIT -C "$wt" commit -q -am "chore(web): rebuild dist after merging main"
+  fi
+  ( cd "$wt" && python3 scripts/check-ui-inventory.py --update >/dev/null 2>&1 )
+  [ -n "$($GIT -C "$wt" status --porcelain -- scripts/ui-inventory-baseline.json)" ] && $GIT -C "$wt" commit -q -m "chore(ui): ratchet the inventory baseline down after merging main" -- scripts/ui-inventory-baseline.json
+  return 0
+}
 mklock() { local d="$1" max="$2" w=0; while ! mkdir "$d" 2>/dev/null; do o="$(cat "$d/pid" 2>/dev/null)"; if [ -n "$o" ] && ! kill -0 "$o" 2>/dev/null; then rm -rf "$d"; continue; fi; sleep 15; w=$((w+15)); [ $w -gt "$max" ] && return 1; done; echo $$ > "$d/pid"; }
 sync_main() { # -> 0 ok (pushed if changed), 1 conflict (sendback written), 2 transient failure
   $GIT -C "$WT" merge-base --is-ancestor origin/main HEAD && return 0
   say "#$N $SLUG: merging origin/main"
   if ! $GIT -C "$WT" merge -q --no-edit origin/main >/dev/null 2>&1; then
+    CF="$($GIT -C "$WT" diff --name-only --diff-filter=U)"
     if dist_resolve "$WT"; then say "#$N: web/dist/index.html conflict resolved by rebuild"
-    else CF="$($GIT -C "$WT" diff --name-only --diff-filter=U)"; $GIT -C "$WT" merge --abort >/dev/null 2>&1
-      printf 'merge of origin/main conflicts in:\n%s\n' "$CF" > "$STATE/merge/$SLUG.err"; sendback "$SLUG" "$ITEM" "merge conflict with main" "$STATE/merge/$SLUG.err"; return 1; fi
+    elif inv_resolve "$WT"; then say "#$N: ui-inventory-baseline.json (+dist) conflict resolved mechanically (ratchet re-checked)"
+    else $GIT -C "$WT" merge --abort >/dev/null 2>&1
+      printf 'merge of origin/main conflicts in:\n%s\n' "$CF" > "$STATE/merge/$SLUG.err"; sendback_mech "$SLUG" "$ITEM" "merge conflict with main" "$STATE/merge/$SLUG.err"; return 1; fi
   fi
   $GIT -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null || { say "#$N: push after merge-main failed"; return 2; }
   return 0
@@ -178,8 +256,14 @@ DH="$($GIT -C "$WT" diff origin/main...HEAD -- . ':!web/dist/index.html' ':!*pac
 # MANDATE 2: the reviewer must be a different model from the worker. Workers run on $M_WORKER
 # (DeepSeek), so use the role that is a different family (reviewer-alt = gpt-6.1-sol). Selecting
 # the DeepSeek 'reviewer' here would put the worker's own model on its review.
-ROLE=reviewer-alt
-[ "$M_WORKER" = "$M_ALT" ] && ROLE=reviewer
+# Tiered review (CEO 2026-11-15, runtime/review-tier.py): small = ONE DeepSeek-max review (escalation signals other than rework>=2 off;
+# `VERDICT: UNSURE` -> sol once); medium = DeepSeek with the normal signals; large (risky paths, >500 lines, F/S/N/Q3a, deps, rework>=2) = sol.
+# Build, tests, UX gate, CI and the hold rules are the same for every tier.
+TIER_LINE="$($GIT -C "$WT" diff --numstat origin/main...HEAD | python3 "$RSI_DIR/runtime/review-tier.py" --title "$TITLE" --item "$ITEM" --attempts "$(attempts "$SLUG")" --numstat - 2>/dev/null)"
+TIER="$(echo "$TIER_LINE" | awk '{print $1}')"; ROLE="$(echo "$TIER_LINE" | awk '{print $2}')"; TIER="${TIER:-large}"; ROLE="${ROLE:-reviewer-alt}"
+[ -e "$STATE/merge/$SLUG.force-alt" ] && ROLE=reviewer-alt          # DeepSeek returned no verdict twice: use the standing second reviewer
+echo "$TIER" > "$STATE/merge/$SLUG.tier"; say "#$N $SLUG: review tier=$TIER role=$ROLE ($TIER_LINE)"
+REVTIER_ENV=""; [ "$TIER" = small ] && [ "$ROLE" = reviewer ] && REVTIER_ENV=small
 NEED_GATE=1; [ "$(cut -d' ' -f1 "$V" 2>/dev/null)" = "$SHA" ] && [ "$(cut -d' ' -f2 "$V" 2>/dev/null)" = PASS ] && NEED_GATE=0
 # A cached PASS only carries over when the same (different-family) role recorded it.
 NEED_REV=1;  [ "$(cut -d' ' -f1 "$RV" 2>/dev/null)" = "$DH" ] && [ "$(cut -d' ' -f2 "$RV" 2>/dev/null)" = PASS ] && [ "$(cut -d' ' -f4 "$RV" 2>/dev/null)" = "$ROLE" ] && NEED_REV=0
@@ -199,11 +283,13 @@ if [ $NEED_REV -eq 1 ]; then
     echo "Behaviour claimed (PR body): $(echo "$BODY" | head -c 3500)"
     echo; echo "Checklist and grading: $RSI_DIR/roles/reviewer.md ; binding rules: $RSI_DIR/MANDATE.md ; screenshots (if any): $STATE/shots/$SLUG/ or links in the PR body."
     echo "The gate (tests, lint, build, ratchet) is running separately; its verdict is not your job."
-    echo; echo "Grade every finding blocker/major/nit. End with exactly one line: VERDICT: PASS (no blocker/major) or VERDICT: FAIL, followed by the blocker/major list."
+    if [ "$TIER" = small ]; then echo; echo "This is a SMALL-SAFE slice (pure refactor/extract or tiny diff; tests added only). You are the only reviewer, so check hard that behaviour, props, handlers, keyboard, a11y names, i18n and test strength are preserved. If you genuinely cannot decide, say so instead of guessing: end with VERDICT: UNSURE and why."; fi
+    echo; echo "Grade every finding blocker/major/nit. Before the verdict, if there is any blocker/major, print a block that starts with a line exactly 'FIXLIST:' and then one line per blocker/major: '- path:line | blocker or major | the issue | the smallest change that fixes it'. The worker applies that list as minimal edits, so be exact (real file and line in the PR head)."
+    echo "End with exactly one line: VERDICT: PASS (no blocker/major) or VERDICT: FAIL, followed by the blocker/major list."
   } > "$RB"
   say "#$N $SLUG: review by $ROLE (parallel with gate), $([ -n "${LASTREV:-}" ] && echo delta-since-${LASTREV:0:8} || echo full)"
   cp "$PREV" "$PREV.prev" 2>/dev/null
-  ( RSI_NO_HEAVY=1 BUDGET_GUARD=8 DISPATCH_MAX_SECS=1800 "$RSI_DIR/runtime/dispatch.sh" "$ROLE" "$WT" "$RB" "merge-$SLUG-review" > "$PREV.new" 2>&1 ) &
+  ( RSI_REVIEW_TIER="$REVTIER_ENV" RSI_NO_HEAVY=1 BUDGET_GUARD=8 DISPATCH_MAX_SECS=1800 "$RSI_DIR/runtime/dispatch.sh" "$ROLE" "$WT" "$RB" "merge-$SLUG-review" > "$PREV.new" 2>&1 ) &
   REVPID=$!; CHILD=$REVPID
 fi
 GATE_OK=1; GATE_NOTE=""
@@ -220,6 +306,16 @@ if [ $NEED_GATE -eq 1 ]; then
     fi
     ( cd "$WT" && bash "$RSI_DIR/runtime/gate.sh" "$WT" ) > "$GL" 2>&1; GRC=$?; rm -rf "$STATE/.gate.lock"
     $GIT -C "$WT" checkout -q -- . 2>/dev/null   # drop build leftovers (tracked files only) in our own rsi worktree
+    # Mechanical failure (format only): format the changed files, commit, push, re-gate ONCE. Not a sendback, not a rework round.
+    if [ $GRC -ne 0 ] && [ "$(grep '^GATE_RESULT' "$GL" | head -1 | sed 's/.*FAIL: *//; s/ *$//')" = prettier ] && [ ! -e "$STATE/merge/$SLUG.autoformatted.$SHA" ]; then
+      touch "$STATE/merge/$SLUG.autoformatted.$SHA"; say "#$N $SLUG: gate failed on prettier only -> auto-format, push, re-gate (mechanical)"
+      if bash "$RSI_DIR/runtime/format-changed.sh" --write --commit --check "$WT" >> "$GL.fmt" 2>&1 && $GIT -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null; then
+        SHA="$($GIT -C "$WT" rev-parse HEAD)"; GL="$RUNS/gate-merge-$SLUG-$(date +%H%M%S).log"
+        if mklock "$STATE/.gate.lock" 1800; then
+          ( cd "$WT" && bash "$RSI_DIR/runtime/gate.sh" "$WT" ) > "$GL" 2>&1; GRC=$?; rm -rf "$STATE/.gate.lock"; $GIT -C "$WT" checkout -q -- . 2>/dev/null
+        else GRC=1; fi
+      fi
+    fi
     if [ $GRC -ne 0 ] || ! grep -q '^GATE_RESULT=PASS' "$GL"; then GATE_OK=0; GATE_NOTE="$(grep '^GATE_RESULT' "$GL" | head -1)"; say "#$N $SLUG: gate FAIL: $GATE_NOTE"; fi
   fi
 fi
@@ -227,14 +323,26 @@ REV_OK=1; REV_NOTE=""
 if [ -n "$REVPID" ]; then
   wait "$REVPID"; CHILD=""
   cp "$PREV.new" "$PREV"; rm -f "$PREV.new"
-  VERD="$(grep -oE 'VERDICT: *(PASS|FAIL)' "$PREV" | tail -1 | grep -oE 'PASS|FAIL')"
+  VERD="$(grep -oE 'VERDICT: *(PASS|FAIL|UNSURE)' "$PREV" | tail -1 | grep -oE 'PASS|FAIL|UNSURE')"
+  if [ "$VERD" = UNSURE ] && [ "$ROLE" = reviewer ]; then
+    # DeepSeek said it cannot decide: ask the standing second reviewer (sol) once, on the same brief.
+    say "#$N $SLUG: DeepSeek review UNSURE -> second reviewer (reviewer-alt) once"; cp "$PREV" "$PREV.unsure"
+    ROLE=reviewer-alt; REVTIER_ENV=""
+    ( RSI_NO_HEAVY=1 BUDGET_GUARD=8 DISPATCH_MAX_SECS=1800 "$RSI_DIR/runtime/dispatch.sh" reviewer-alt "$WT" "$RB" "merge-$SLUG-review" > "$PREV" 2>&1 )
+    VERD="$(grep -oE 'VERDICT: *(PASS|FAIL)' "$PREV" | tail -1 | grep -oE 'PASS|FAIL')"
+  fi
   if [ -z "$VERD" ]; then
+    # two no-verdicts in a row from the cheap reviewer: switch this PR to the standing second reviewer
+    nv=$(( $(cat "$STATE/merge/$SLUG.noverdict" 2>/dev/null || echo 0) + 1 )); echo $nv > "$STATE/merge/$SLUG.noverdict"
+    [ $nv -ge 2 ] && [ "$ROLE" = reviewer ] && touch "$STATE/merge/$SLUG.force-alt"
     # Reviewer infra (empty log / no VERDICT): retry next cycle. Do not send back or cache this SHA as reviewed
     # (a cached NONE would make the next pass a delta-since-HEAD empty review).
     say "#$N $SLUG: review NO VERDICT (reviewer infra) — retry next cycle, not a sendback"
     if [ -s "$PREV.prev" ]; then mv "$PREV.prev" "$PREV"; else rm -f "$PREV"; fi
     [ $GATE_OK -eq 0 ] || exit 0
   else
+    rm -f "$STATE/merge/$SLUG.noverdict"
+    DH="$($GIT -C "$WT" diff origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | shasum | cut -c1-16)"   # a mechanical format commit may have landed meanwhile
     echo "$DH $VERD $SHA $ROLE" > "$RV"
     if [ "$VERD" != PASS ]; then REV_OK=0; REV_NOTE="independent review FAIL"; say "#$N $SLUG: review FAIL"; fi
   fi
@@ -244,6 +352,11 @@ if [ $GATE_OK -eq 0 ] || [ $REV_OK -eq 0 ]; then
   C="$STATE/merge/$SLUG.combined.txt"; : > "$C"; TITLEBAD=""
   [ $GATE_OK -eq 0 ] && { echo "=== GATE FAILED: $GATE_NOTE ===" >> "$C"; tail -c 3500 "$GL" >> "$C" 2>/dev/null; echo >> "$C"; TITLEBAD="gate failed: $GATE_NOTE"; }
   [ $REV_OK -eq 0 ] && { echo "=== INDEPENDENT REVIEW: $REV_NOTE ===" >> "$C"; tail -c 3500 "$PREV" >> "$C"; echo >> "$C"; TITLEBAD="${TITLEBAD:+$TITLEBAD; }$REV_NOTE"; }
+  # Targeted rework: a line-level fix list from the reviewer's FIXLIST block (or the file:line findings of its prose) and the exact failing gate lines.
+  SB_FIXLIST="$STATE/merge/$SLUG.fixlist.md"; SB_GATEFAILS="$STATE/merge/$SLUG.gatefails.txt"; rm -f "$SB_FIXLIST" "$SB_GATEFAILS"
+  [ $REV_OK -eq 0 ] && python3 "$RSI_DIR/runtime/fixlist.py" "$PREV" > "$SB_FIXLIST" 2>/dev/null
+  [ $GATE_OK -eq 0 ] && grep -E 'error TS[0-9]+|^ *(FAIL|✗|×) |AssertionError|^FAIL:|Error:|not ok|--- FAIL' "$GL" 2>/dev/null | head -30 > "$SB_GATEFAILS"
+  export SB_FIXLIST SB_GATEFAILS
   sendback "$SLUG" "$ITEM" "$TITLEBAD" "$C"
   scorecard_row "$ITEM $SLUG" "$M_WORKER" "$RMODEL" "$TITLEBAD" "[#$N]($PRURL)" "patched" "see ${GL##*/}"
   exit 0

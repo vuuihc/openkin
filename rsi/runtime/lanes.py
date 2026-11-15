@@ -67,8 +67,11 @@ def is_active(d):
     return False
 
 def norm(p):
-    p = p.strip().lstrip("./").rstrip("/")
-    return p
+    # NOT lstrip("./"): that strips characters, so ".gitignore" became "gitignore" and the claim was REFUSED (too broad),
+    # which kept rework lanes idle for PRs that touch a dotfile (found 2026-11-15: #59/#63 waited >1h).
+    p = p.strip()
+    while p.startswith("./"): p = p[2:]
+    return p.rstrip("/")
 
 def overlap(a, b):
     a, b = norm(a), norm(b)

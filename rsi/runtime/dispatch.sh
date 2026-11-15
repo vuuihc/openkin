@@ -42,6 +42,22 @@ run_claude() { # model [effort]
   return $rc
 }
 
+# gpt-6.1-sol runs on the ChatGPT Plus allowance. When it says "usage limit ... not asked again before HH:MM UTC+8", remember until when so the
+# merge lane stops starting sol-dependent (large-tier) verifiers and burning a gate + a dead call per cycle (state/sol-limited-until, epoch).
+note_sol_limit() {
+  local f t
+  for f in "$LOG" "$LOG.txt"; do [ -s "$f" ] && t="$(tail -c 6000 "$f" | grep -oE 'not asked again before [0-9]{1,2}:[0-9]{2} UTC\+8' | tail -1)" && [ -n "$t" ] && break; t=""; done
+  [ -n "${t:-}" ] || return 0
+  python3 - "$t" "$STATE/sol-limited-until" <<'PY'
+import sys,re,time,datetime
+m=re.search(r"(\d{1,2}):(\d{2})",sys.argv[1]); now=datetime.datetime.now()
+d=now.replace(hour=int(m.group(1)),minute=int(m.group(2)),second=0,microsecond=0)
+if d<=now: d+=datetime.timedelta(days=1)
+open(sys.argv[2],"w").write(str(int(d.timestamp())))
+PY
+}
+trap note_sol_limit EXIT
+
 if [ "$ROLE" = "reviewer-alt" ] && command -v codex >/dev/null 2>&1; then
   ( cd "$CWD" && codex exec -m gpt-6.1-sol -s read-only "$PROMPT" < /dev/null > "$LOG.txt" 2>&1 ) && { tail -c 6000 "$LOG.txt"; exit 0; }
   echo "[codex exec failed, falling back to claude -p on $M_ALT]" >&2
