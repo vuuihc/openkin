@@ -1,0 +1,28 @@
+#!/bin/bash
+# ux-walk.sh <worktree> <outdir> [journeys-or-@files]   Boots a THROWAWAY daemon from the worktree (temp state dir, free port, never :7777),
+# seeds it when scripts/journeys_seed.py exists, walks the journeys with rsi/runtime/ux/walk.mjs, tears the daemon down.
+# exit 0 walked | 2 could not run (reason in <outdir>/UNAVAILABLE). Heavy steps (go build, npm build) go through the heavy.sh shims.
+#   UX_KIN_BIN=/path/to/kin   use a prebuilt binary instead of building the worktree (baseline / tests)
+set -u
+source "$(cd "$(dirname "$0")" && pwd)/common.sh"
+WT="$1"; OUT="$2"; SEL="${3:-}"; mkdir -p "$OUT"
+unavail() { echo "$*" > "$OUT/UNAVAILABLE"; echo "[ux-walk] unavailable: $*" >&2; exit 2; }
+TMP="$(mktemp -d)"; PID=""; trap '[ -n "$PID" ] && kill -KILL "$PID" 2>/dev/null; rm -rf "$TMP"' EXIT
+BIN="${UX_KIN_BIN:-}"
+if [ -z "$BIN" ]; then
+  [ -d "$WT/web/dist/assets" ] || { ( cd "$WT/ui" && npm run build >/dev/null 2>&1 ) || unavail "ui build failed in $WT"; }
+  ( cd "$WT" && go build -o "$TMP/kin" ./cmd/kin ) >"$TMP/build.log" 2>&1 || unavail "go build failed: $(tail -c 300 "$TMP/build.log")"
+  BIN="$TMP/kin"
+fi
+PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
+mkdir -p "$TMP/state"
+KIN_STATE_DIR="$TMP/state" "$BIN" serve --port "$PORT" >"$TMP/daemon.log" 2>&1 & PID=$!
+for i in $(seq 1 120); do curl -fs -o /dev/null --max-time 2 "http://127.0.0.1:$PORT/api/health" 2>/dev/null && break; kill -0 "$PID" 2>/dev/null || unavail "daemon exited: $(tail -c 300 "$TMP/daemon.log")"; sleep 0.25; done
+curl -fs -o /dev/null --max-time 2 "http://127.0.0.1:$PORT/api/health" || unavail "daemon did not answer /api/health"
+TOKEN="$(cat "$TMP/state/token" 2>/dev/null)"; [ -n "$TOKEN" ] || unavail "no token written"
+if [ -f "$WT/scripts/journeys_seed.py" ]; then KIN_BASE="http://127.0.0.1:$PORT" KIN_TOKEN="$TOKEN" python3 "$WT/scripts/journeys_seed.py" >"$OUT/seed.log" 2>&1 || echo "seed failed (walk continues on what exists)" >> "$OUT/seed.log"; else echo "no scripts/journeys_seed.py: walking an empty daemon (empty states only)" > "$OUT/seed.log"; fi
+ARGS=(--base "http://127.0.0.1:$PORT" --token "$TOKEN" --out "$OUT")
+case "$SEL" in @*) ARGS+=(--files "${SEL#@}");; ?*) ARGS+=(--journeys "$SEL");; esac
+node "$RSI_DIR/runtime/ux/walk.mjs" "${ARGS[@]}" > "$OUT/walk.log" 2>&1; rc=$?
+[ $rc -eq 2 ] && unavail "walker could not run: $(tail -c 300 "$OUT/walk.log")"
+cat "$OUT/walk.log"; exit 0
