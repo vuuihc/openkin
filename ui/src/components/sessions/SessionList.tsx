@@ -258,16 +258,19 @@ export default function SessionList({
     setSelectedIds(new Set());
   }, [query, status, scope]);
 
-  // A focused move is one-shot: the ref is consumed on the first commit after
-  // the mode change, so a later list update cannot pull focus back.
+  // A focused move is one-shot and belongs to the mode change itself: the ref
+  // is consumed in the commit that flips `selectionMode`, so a later list
+  // update cannot pull focus back — and a commit that lands between the key
+  // press and that flip cannot spend the ref on a row the flip will replace.
   useEffect(() => {
     const id = focusRowAfterCommit.current;
     if (!id) return;
     focusRowAfterCommit.current = null;
-    sessionRows()
+    Array.from(listRef.current?.querySelectorAll<HTMLElement>("[data-session-row]") ?? [])
       .find((row) => row.dataset.sessionRow === id)
       ?.focus();
-  });
+    // Only the mode flip consumes the ref; `selectionMode` is the whole input.
+  }, [selectionMode]);
 
   const draftPrompt = useSyncExternalStore(subscribeDraft, getDraftPrompt, () => "");
   const draftCwd = useSyncExternalStore(subscribeDraft, getDraftCwd, () => "");
