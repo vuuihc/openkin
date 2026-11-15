@@ -29,3 +29,7 @@ Operate:
 - Reinstall launchd jobs after editing templates: `rsi/runtime/launchd/install.sh [pulse merge dream daily]`.
 - Dry check: `rsi/runtime/run.sh --check`. Old serial director prompt kept as `runtime/prompts/pulse-serial.md`.
 - Reuse for another project: copy `rsi/`, edit GOAL/MANDATE/roles and the paths in `runtime/common.sh`.
+
+## Merge pipeline and cloud lane (2026-11-15)
+- `runtime/merge.sh` = dispatcher (every 10 min and after lane/merge events) → up to 2 per-PR verifiers (`merge.sh --one`): sync main → hold rules → screenshots → **review ∥ gate** → CI → land under a lock. `state/merge/cycles.log` has verify/open-to-merge times.
+- Cloud slices (`executor: cloud` in `astryx-slices.json`): `slices.py cloud-pending`, briefs in `state/cloud-briefs/` (+ `INDEX.md`), `lanes.py cloud-list|cloud-release`.
