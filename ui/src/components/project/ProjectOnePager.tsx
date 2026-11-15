@@ -1,5 +1,5 @@
 /* eslint-disable kin/no-raw-button -- markup moved unchanged from ProjectDetailPage; new controls should use a shared primitive. */
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { OnePager } from "../../api/client";
 import { onePagerFocus } from "../../lib/onePagerSummary";
 import { SkeletonLine } from "../Skeleton";
@@ -66,6 +66,12 @@ export default function ProjectOnePager({
 
   const dirty = editing && draft.trim() !== summaryText.trim();
 
+  const focusEditButton = useCallback(() => {
+    const focus = () => editButtonRef.current?.focus();
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(focus);
+    else focus();
+  }, []);
+
   useEffect(() => {
     onEditingChange(editing);
   }, [editing, onEditingChange]);
@@ -79,10 +85,15 @@ export default function ProjectOnePager({
     if (!editing) setDraft(summaryText);
   }, [editing, summaryText]);
 
-  // A successful save closes the editor once the page has accepted it.
+  // A successful save closes the editor once the page has accepted it, and —
+  // like cancel and take-theirs — leaves the caret on the Edit button rather
+  // than on the body the unmounted textarea fell back to.
   useEffect(() => {
-    if (saved && editing) setEditing(false);
-  }, [saved, editing]);
+    if (saved && editing) {
+      setEditing(false);
+      focusEditButton();
+    }
+  }, [saved, editing, focusEditButton]);
 
   useEffect(() => {
     if (!editing) return;
@@ -96,12 +107,6 @@ export default function ProjectOnePager({
       // Some browsers refuse selection on a hidden field; focus is enough.
     }
   }, [editing]);
-
-  const focusEditButton = () => {
-    const focus = () => editButtonRef.current?.focus();
-    if (typeof requestAnimationFrame === "function") requestAnimationFrame(focus);
-    else focus();
-  };
 
   const beginEdit = () => {
     setDraft(summaryText);

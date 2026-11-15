@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ComponentProps } from "react";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { OnePager } from "../../api/client";
 import { setLocale } from "../../i18n";
@@ -83,5 +83,40 @@ describe("the project one-pager section", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(props.onSave).toHaveBeenCalledWith("edited line");
+  });
+
+  it("returns focus to the Edit button when a save succeeds", async () => {
+    const user = userEvent.setup();
+    const view = renderOnePager();
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(document.activeElement).toBe(
+      screen.getByRole("textbox", { name: "One-line summary" }),
+    );
+
+    view.rerender(<ProjectOnePager {...view.props} saved />);
+    // The Edit button is re-rendered by the same state change, so the focus
+    // returns on the next frame, not synchronously.
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+    });
+
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Edit" }));
+  });
+
+  it("keeps focus in the editor while a save is in flight", async () => {
+    const user = userEvent.setup();
+    const view = renderOnePager();
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const field = screen.getByRole("textbox", { name: "One-line summary" });
+    expect(document.activeElement).toBe(field);
+
+    // Saving is not success: the editor stays open and keeps the caret until
+    // the page reports that the save landed.
+    view.rerender(<ProjectOnePager {...view.props} saving />);
+
+    expect(screen.getByRole("textbox", { name: "One-line summary" })).toBe(field);
+    expect(document.activeElement).toBe(field);
   });
 });
