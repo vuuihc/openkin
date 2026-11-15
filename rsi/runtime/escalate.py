@@ -2,15 +2,15 @@
 """Enforce rsi/ROUTING.md: escalate off DeepSeek only when a necessity signal fires.
 
 Prints shell assignments:
-  RSI_ESCALATE_MODEL=codex|carbon|kimi|
-  RSI_ESCALATE_FALLBACK=carbon,kimi
+  RSI_ESCALATE_MODEL=hydrogen|hydrogen-high|codex|carbon|kimi|
+  RSI_ESCALATE_FALLBACK=codex,carbon,kimi
   RSI_ESCALATE_REASON='...'
   RSI_ESCALATE_COST_SOURCE=chatgpt|antigravity|volcengine|
   RSI_ESCALATE_ID=<uuid>
   RSI_ESCALATE_REUSE=0|1
   RSI_ESCALATE_REUSE_FILE=...
   RSI_ESCALATE_REUSE_VERDICT=PASS|FAIL|
-  RSI_ESCALATE_HOLD=|sol-limited|carbon-disabled|no-strong-model
+  RSI_ESCALATE_HOLD=|sol-limited|agy-limited|agy-disabled|carbon-disabled|no-strong-model
 
 Logs decisions and outcomes to $RSI_STATE/escalations.jsonl and escalations.log.
 --outcome stitches the run result onto the same id.
@@ -60,9 +60,9 @@ BM_FINDING = re.compile(
     re.I,
 )
 DEEPSEEK_MODEL = re.compile(r"deepseek|volcengine-gw", re.I)
-STRONG_MODEL = re.compile(r"codex|gpt-6\.1-sol|carbon|agy/gemini|kimi-k3", re.I)
+STRONG_MODEL = re.compile(r"codex|gpt-6\.1-sol|carbon|hydrogen|agy/gemini|kimi-k3", re.I)
 
-COST = {"codex": "chatgpt", "carbon": "antigravity", "kimi": "volcengine"}
+COST = {"codex": "chatgpt", "hydrogen": "antigravity", "hydrogen-high": "antigravity", "carbon": "antigravity", "kimi": "volcengine"}
 
 
 def now() -> datetime:
@@ -413,23 +413,45 @@ def kimi_allowed() -> tuple[bool, dict]:
     return ok, dict(level=level, kimi_cny=kimi_cny, cap=cap, total=total)
 
 
+def agy_bin() -> str | None:
+    candidates = [
+        os.environ.get("AGY") or "",
+        os.environ.get("M_CARBON_BIN") or "",
+        "/opt/homebrew/bin/agy",
+        str(Path.home() / ".antigravity/antigravity/bin/agy"),
+    ]
+    for env in candidates:
+        if env and Path(env).is_file() and os.access(env, os.X_OK):
+            return env
+    return shutil.which("agy")
+
+
+def agy_enabled() -> bool:
+    # RSI_CARBON_ENABLED was the old switch (default 0 after empty SUCCESS reviews).
+    # Both flags now default to on; either set to 0 disables every agy model.
+    carbon = os.environ.get("RSI_CARBON_ENABLED", "1")
+    flag = os.environ.get("RSI_AGY_ENABLED", carbon)
+    return flag == "1" and agy_bin() is not None
+
+
 def carbon_available() -> bool:
-    # Carbon runs as `agy -p --mode plan --sandbox`, which denies Bash: a reviewer / UX / director run
-    # that must read the diff returns EMPTY (31/31 on 2026-11-15). Off until it can be fed the diff inline.
-    if os.environ.get("RSI_CARBON_ENABLED", "0") != "1":
-        return False
-    env = os.environ.get("AGY") or os.environ.get("M_CARBON_BIN")
-    if env and Path(env).is_file() and os.access(env, os.X_OK):
-        return True
-    return shutil.which("agy") is not None
+    return agy_enabled()
 
 
-def sol_limited_until(state: Path) -> int:
-    p = state / "sol-limited-until"
+def _limited_until(state: Path, name: str) -> int:
+    p = state / name
     try:
         return int(p.read_text().strip() or "0")
     except Exception:
         return 0
+
+
+def sol_limited_until(state: Path) -> int:
+    return _limited_until(state, "sol-limited-until")
+
+
+def agy_limited_until(state: Path) -> int:
+    return _limited_until(state, "agy-limited-until")
 
 
 def sol_is_limited(state: Path, now_ts: int | None = None) -> bool:
@@ -438,18 +460,40 @@ def sol_is_limited(state: Path, now_ts: int | None = None) -> bool:
     return until > ts
 
 
-def preference(role: str, reasons: list[str]) -> list[str]:
-    """Strong models in order. Kimi is always last and only used if earlier ones are unavailable."""
-    ux = role in {"ux-reviewer", "ux-reviewer-alt"}
-    want_carbon = ux or any(
-        r.startswith("architecture-cross-cutting") or "long-context" in r or "second-opinion" in r
+def agy_is_limited(state: Path, now_ts: int | None = None) -> bool:
+    until = agy_limited_until(state)
+    ts = int(now_ts if now_ts is not None else datetime.now().timestamp())
+    return until > ts
+
+
+def no_strong_available(state: Path, kimi_ok: bool = False) -> bool:
+    """True when Hydrogen/Carbon and sol are all unusable (a hold, not an error)."""
+    agy_ok = agy_enabled() and not agy_is_limited(state)
+    sol_ok = not sol_is_limited(state)
+    return (not agy_ok) and (not sol_ok) and (not kimi_ok)
+
+
+def wants_high(reasons: list[str]) -> bool:
+    # hydrogen-high only for foundation/shell, architecture, or a second pass after disagreement.
+    # Never xhigh by default.
+    return any(
+        r.startswith("astryx-foundation")
+        or r.startswith("architecture")
+        or r == "reviewer-disagreement"
+        or r.startswith("reviewer-disagreement")
         for r in reasons
     )
-    if role == "reviewer-alt":
-        want_carbon = True
-    if ux or want_carbon:
-        return ["carbon", "codex", "kimi"]
-    return ["codex", "carbon", "kimi"]
+
+
+def preference(role: str, reasons: list[str]) -> list[str]:
+    """Strong models in order. Hydrogen-medium first (UX too). Kimi is always last."""
+    if wants_high(reasons):
+        return ["hydrogen-high", "hydrogen", "codex", "carbon", "kimi"]
+    return ["hydrogen", "codex", "carbon", "kimi"]
+
+
+def _agy_name(name: str) -> bool:
+    return name in {"hydrogen", "hydrogen-high", "carbon"}
 
 
 def pick(role: str, reasons: list[str], kimi_ok: bool, state: Path) -> tuple[str, list[str], str]:
@@ -457,9 +501,15 @@ def pick(role: str, reasons: list[str], kimi_ok: bool, state: Path) -> tuple[str
     available: list[str] = []
     blocked_bits: list[str] = []
     for name in order:
-        if name == "carbon" and not carbon_available():
-            blocked_bits.append("carbon-disabled")
-            continue
+        if _agy_name(name):
+            if not agy_enabled():
+                if "agy-disabled" not in blocked_bits:
+                    blocked_bits.append("agy-disabled")
+                continue
+            if agy_is_limited(state):
+                if "agy-limited" not in blocked_bits:
+                    blocked_bits.append("agy-limited")
+                continue
         if name == "codex" and sol_is_limited(state):
             blocked_bits.append("sol-limited")
             continue
@@ -471,18 +521,22 @@ def pick(role: str, reasons: list[str], kimi_ok: bool, state: Path) -> tuple[str
     fallback = available[1:]
     blocked = ""
     if not chosen:
-        if "sol-limited" in blocked_bits and "carbon-disabled" in blocked_bits:
-            blocked = "sol-limited"
+        if "sol-limited" in blocked_bits and ("agy-disabled" in blocked_bits or "agy-limited" in blocked_bits):
+            # Keep sol-limited when agy is simply off, so existing hold tests and messages stay stable.
+            blocked = "agy-limited" if "agy-limited" in blocked_bits else "sol-limited"
         elif "sol-limited" in blocked_bits:
             blocked = "sol-limited"
-        elif "carbon-disabled" in blocked_bits and not available:
-            blocked = "no-strong-model" if "kimi-blocked" in blocked_bits else "carbon-disabled"
+        elif "agy-limited" in blocked_bits:
+            blocked = "agy-limited"
+        elif "agy-disabled" in blocked_bits and not available:
+            blocked = "no-strong-model" if "kimi-blocked" in blocked_bits else "agy-disabled"
         elif "kimi-blocked" in blocked_bits:
             blocked = "kimi-blocked"
         else:
             blocked = "no-strong-model"
-    elif "kimi-blocked" in blocked_bits:
-        blocked = "kimi-blocked"
+    elif blocked_bits:
+        # Keep skipped-path flags (agy-limited, kimi-blocked, ...) in the reason even when a fallback was chosen.
+        blocked = ",".join(blocked_bits)
     return chosen, fallback, blocked
 
 
@@ -660,7 +714,7 @@ def primary_triggers(reason: str) -> list[str]:
             out.append("architecture")
         elif r.startswith("deps"):
             out.append("deps")
-        elif r in {"reviewer-disagreement", "gate-undiagnosed", "reuse-sha", "sol-limited"}:
+        elif r in {"reviewer-disagreement", "gate-undiagnosed", "reuse-sha", "sol-limited", "agy-limited", "standing-strong-review"}:
             out.append(r)
         else:
             out.append(r)
@@ -886,12 +940,37 @@ def self_test() -> int:
         hit = cached_strong(st, "z", "deadbeef")
         assert hit and hit["verdict"] == "FAIL"
         assert cached_strong(st, "z", "other") is None
-        # 6) sol-limited: pick returns no model.
+        # 6) sol-limited + agy off: pick returns no model (hold).
+        os.environ["RSI_AGY_ENABLED"] = "0"
+        os.environ["RSI_CARBON_ENABLED"] = "0"
         (st / "sol-limited-until").write_text(str(int(datetime.now().timestamp()) + 3600))
         chosen, fb, blocked = pick("reviewer", ["astryx-foundation-or-shell:F1"], False, st)
         assert chosen == "" and blocked == "sol-limited"
-        # carbon disabled + sol limited does not invent a model
-        assert not carbon_available()
+        assert not carbon_available() and not agy_enabled()
+        # sol-limited + agy on: Hydrogen-high is chosen for F1 (do not hold).
+        fake = st / "fake-agy"
+        fake.write_text("#!/bin/sh\nexit 0\n")
+        fake.chmod(0o755)
+        os.environ["RSI_AGY_ENABLED"] = "1"
+        os.environ["RSI_CARBON_ENABLED"] = "1"
+        os.environ["AGY"] = str(fake)
+        assert agy_enabled()
+        chosen, fb, blocked = pick("reviewer", ["astryx-foundation-or-shell:F1"], False, st)
+        assert chosen == "hydrogen-high" and "hydrogen" in fb and "codex" not in fb  # sol still limited
+        # ordinary disagreement uses high; a standing/normal review uses medium.
+        chosen, fb, blocked = pick("reviewer-alt", ["reviewer-disagreement"], False, st)
+        assert chosen == "hydrogen-high"
+        chosen, fb, blocked = pick("ux-reviewer", ["standing-strong-review"], False, st)
+        assert chosen == "hydrogen"
+        # agy-limited + sol free: fall back to sol, skip every agy model.
+        (st / "agy-limited-until").write_text(str(int(datetime.now().timestamp()) + 3600))
+        (st / "sol-limited-until").write_text("0")
+        chosen, fb, blocked = pick("reviewer", ["astryx-foundation-or-shell:F1"], False, st)
+        assert chosen == "codex"
+        assert all(n not in [chosen, *fb] for n in ("hydrogen", "hydrogen-high", "carbon"))
+        os.environ["RSI_AGY_ENABLED"] = "0"
+        os.environ["RSI_CARBON_ENABLED"] = "0"
+        os.environ.pop("AGY", None)
         # 7) weekly daily worth-it line
         eid = "test-id"
         log_decision(
@@ -923,9 +1002,14 @@ def self_test() -> int:
         recs = [json.loads(l) for l in (st / "escalations.jsonl").read_text().splitlines()]
         assert any(r.get("kind") == "hold" and r.get("outcome") == "hold" for r in recs)
     order = preference("reviewer", ["reviewer-disagreement"])
-    assert order[0] == "codex" and order[-1] == "kimi"
-    ux = preference("ux-reviewer", ["reviewer-disagreement"])
-    assert ux[0] == "carbon"
+    assert order[0] == "hydrogen-high" and "codex" in order and order[-1] == "kimi"
+    ux = preference("ux-reviewer", ["standing-strong-review"])
+    assert ux[0] == "hydrogen" and ux[1] == "codex"
+    xh = preference("reviewer-alt", ["astryx-foundation-or-shell:F3"])
+    assert xh[0] == "hydrogen-high" and xh[1] == "hydrogen" and xh[2] == "codex"
+    arch = preference("director", ["architecture-cross-cutting:ui,internal,desktop"])
+    assert arch[0] == "hydrogen-high"
+    assert "hydrogen-xhigh" not in preference("reviewer-alt", ["astryx-foundation-or-shell:F1"])
     print("escalate self-test ok")
     return 0
 
@@ -954,6 +1038,20 @@ def main(argv: list[str]) -> int:
         until = sol_limited_until(state)
         if sol_is_limited(state):
             sys.stdout.write(str(until) + "\n")
+            return 0
+        sys.stdout.write("0\n")
+        return 1
+    if "--agy-limited" in argv:
+        until = agy_limited_until(state)
+        if agy_is_limited(state):
+            sys.stdout.write(str(until) + "\n")
+            return 0
+        sys.stdout.write("0\n")
+        return 1
+    if "--no-strong-available" in argv:
+        allowed, _budget = kimi_allowed()
+        if no_strong_available(state, allowed):
+            sys.stdout.write("1\n")
             return 0
         sys.stdout.write("0\n")
         return 1
@@ -1069,9 +1167,11 @@ def main(argv: list[str]) -> int:
     model = reason = cost = eid = ""
     fallback: list[str] = []
     hold = ""
-    if reasons:
-        model, fallback, blocked = pick(role, reasons, allowed, state)
-        reason = ",".join(reasons)
+    standing = (not reasons) and role in {"reviewer-alt", "ux-reviewer", "ux-reviewer-alt"}
+    if reasons or standing:
+        use_reasons = reasons or ["standing-strong-review"]
+        model, fallback, blocked = pick(role, use_reasons, allowed, state)
+        reason = ",".join(use_reasons)
         if blocked:
             reason = reason + "|" + blocked
         if not model:

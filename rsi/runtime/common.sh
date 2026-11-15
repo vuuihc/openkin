@@ -11,7 +11,7 @@ WT_ROOT="$HOME/.kin/worktrees"
 MAIN_CHECKOUT="$HOME/Workspace/study/kin-multidevice"   # read-only for the loop
 
 NODE_BIN="$(ls -d "$HOME"/.nvm/versions/node/*/bin 2>/dev/null | sort -V | tail -1 || true)"
-export PATH="$HOME/.local/bin:$HOME/Library/pnpm:/opt/homebrew/bin:/usr/local/go/bin:$HOME/go/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export PATH="$HOME/.antigravity/antigravity/bin:$HOME/.local/bin:$HOME/Library/pnpm:/opt/homebrew/bin:/usr/local/go/bin:$HOME/go/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 [ -n "$NODE_BIN" ] && export PATH="$NODE_BIN:$PATH"
 # Heavy-command shims (npm/npx/go): builds, full tests and tsc run one at a time machine-wide (see heavy.sh).
 # The first full parallel fill put this 16 GB Mac at load 300+ and swap 90% because three builds/test runs overlapped.
@@ -30,12 +30,33 @@ export GIT_TERMINAL_PROMPT=0
 # Let the Bash tool wait for long builds/tests inside a claude -p run.
 export BASH_DEFAULT_TIMEOUT_MS=3300000 BASH_MAX_TIMEOUT_MS=3600000
 
-# Model routing (Ethan, 2026-11-15; CEO 2026-11-15). Edit here to change roles.
-# Workers / rework and the control plane default to DeepSeek V4.1 Flash; the standing second
-# reviewer is gpt-6.1-sol (ChatGPT, not Volcengine). Kimi demand is budget-gated below.
+# Model routing — policy in rsi/ROUTING.md (CEO 2026-11-15). Default DeepSeek; escalate only on necessity.
+# Workers / rework: DeepSeek V4.1 Flash at --effort high. Director/planner/dream/first reviewer: same model at --effort max.
+# Strong reviewers: Antigravity gemini-4-hydrogen-medium first (UX too — Hydrogen is multimodal).
+# hydrogen-high only for F1–F4 / S1–S3 / architecture, or a second strong pass after disagreement.
+# Never xhigh by default. gpt-6.1-sol second, Carbon third, Kimi last (Volcengine, ¥80/day cap).
 M_WORKER='volcengine-gw/volcengine/deepseek-v4.1-flash[1m]'
 M_DIRECTOR='volcengine-gw/volcengine/deepseek-v4.1-flash[1m]'
 M_ALT='codex/gpt-6.1-sol'
+M_CODEX='codex/gpt-6.1-sol'
+M_KIMI='volcengine-gw/kimi-k3.1-pro[1m]'
+M_HYDROGEN='agy/gemini-4-hydrogen-medium'
+M_HYDROGEN_HIGH='agy/gemini-4-hydrogen-high'
+M_HYDROGEN_AGY="${M_HYDROGEN_AGY:-gemini-4-hydrogen-medium}"
+M_HYDROGEN_HIGH_AGY="${M_HYDROGEN_HIGH_AGY:-gemini-4-hydrogen-high}"
+M_CARBON='agy/gemini-4-carbon-high'
+M_CARBON_AGY="${M_CARBON_AGY:-gemini-4-carbon-high}"
+# Pin the Antigravity CLI; launchd PATH is short and command -v can miss it.
+if [ -z "${AGY:-}" ] || [ ! -x "${AGY:-}" ]; then
+  for _agy in /opt/homebrew/bin/agy "$HOME/.antigravity/antigravity/bin/agy" "$(command -v agy 2>/dev/null || true)"; do
+    [ -n "$_agy" ] && [ -x "$_agy" ] && AGY="$_agy" && break
+  done
+  unset _agy
+fi
+# Re-enabled now that dispatch feeds the diff inline and allows read_file (the earlier empty SUCCESS
+# was Bash denied in headless, not a missing sign-in). Set either to 0 to disable all agy models.
+export RSI_CARBON_ENABLED="${RSI_CARBON_ENABLED:-1}"
+export RSI_AGY_ENABLED="${RSI_AGY_ENABLED:-$RSI_CARBON_ENABLED}"
 M_WORKER_EFFORT="${M_WORKER_EFFORT:-high}"
 M_DIRECTOR_EFFORT="${M_DIRECTOR_EFFORT:-max}"
 BUDGET_GUARD="${BUDGET_GUARD:-15}"
@@ -93,13 +114,11 @@ notify() { # title body
   mkdir -p "$STATE/outbox"; printf '%s\n%s\n' "$t" "$b" > "$STATE/outbox/$(date +%F-%H%M%S)-notification.txt"
 }
 
-# Volcengine list-price budget (Mac magpie, Asia/Singapore day). See runtime/volc-budget.py.
-# >= ¥450 (RSI_VOLC_KIMI_MAX): no Kimi.
+# Volcengine list-price budget (Mac magpie, Asia/Singapore day). See runtime/volc-budget.py and escalate.py.
+# >= ¥450 (RSI_VOLC_KIMI_MAX): no Kimi; fall back to gpt-6.1-sol.
 # >= ¥560 (RSI_VOLC_STOP_WORKERS): new worker lanes / box pack / NAS pulse stand down until tomorrow.
-# Kimi daily cap ¥80 (RSI_VOLC_KIMI_DAY_MAX): further Kimi runs blocked.
+# Kimi daily cap ¥80 (RSI_VOLC_KIMI_DAY_MAX): further Kimi escalations fall back to gpt-6.1-sol.
 rsi_budget_apply() {
-  # Preserve a caller's explicit cap: the tool re-reads policy on every call and a cached
-  # spend snapshot carries the caps it was computed with (volc-budget.py recomputes them).
   RSI_VOLC_CNY=; RSI_VOLC_LEVEL=ok; RSI_VOLC_DAY=; RSI_VOLC_KIMI_CNY=; RSI_VOLC_KIMI_DAY_MAX="${RSI_VOLC_KIMI_DAY_MAX:-80}"
   local ev
   ev="$(python3 "$RSI_DIR/runtime/volc-budget.py" --export 2>/dev/null)" || return 0

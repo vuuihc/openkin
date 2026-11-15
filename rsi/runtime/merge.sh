@@ -92,8 +92,8 @@ for _,n,slug,title,tier in sorted(rows):   # small-safe first, then PR number
     # sol (ChatGPT allowance) exhausted: large-tier reviews need it and would only loop on 429. Wait for it;
     # small/medium (DeepSeek) PRs are unaffected. If a strong review for some head SHA is already on disk, start
     # the verifier anyway — it will reuse that verdict when HEAD is unchanged, and hold internally if HEAD moved.
-    if [ "$TIER" = large ] && [ "$(awk '{print $2}' "$STATE/merge/$SLUG.reviewed" 2>/dev/null)" != PASS ] && [ "$(cat "$STATE/sol-limited-until" 2>/dev/null || echo 0)" -gt "$(date +%s)" ] && [ ! -s "$STATE/merge/$SLUG.strong" ]; then
-      say "#$N $SLUG [large]: waiting for gpt-6.1-sol quota (until $(date -r "$(cat "$STATE/sol-limited-until")" '+%H:%M'))"; continue; fi
+    if [ "$TIER" = large ] && [ "$(awk '{print $2}' "$STATE/merge/$SLUG.reviewed" 2>/dev/null)" != PASS ] && [ ! -s "$STATE/merge/$SLUG.strong" ] && python3 "$RSI_DIR/runtime/escalate.py" --no-strong-available >/dev/null 2>&1; then
+      say "#$N $SLUG [large]: waiting for a strong reviewer (Hydrogen/sol quota)"; continue; fi
     [ -e "$STATE/merge/$SLUG.queued_at" ] || date +%s > "$STATE/merge/$SLUG.queued_at"   # first time it was eligible: queue-wait metric
     # Slot policy: MERGE_WORKERS general slots + SMALL_SLOTS reserved. big/medium PRs use the general slots; small-safe PRs may use any
     # free slot but never the last one a big PR could take (small concurrency <= MERGE_WORKERS + SMALL_SLOTS - 1), so neither starves.
@@ -282,9 +282,9 @@ if [ $NEED_REV -eq 1 ] && [ -s "$STATE/merge/$SLUG.strong" ] && [ "$(awk '{print
   NEED_REV=0; REV_REUSED=1
   if [ "$SVERD" != PASS ]; then REV_OK=0; REV_NOTE="independent review FAIL (reused)"; fi
 fi
-# Large-tier (or force-alt) still needs sol and has no reusable strong review: hold, do not call, do not log error.
-if [ $NEED_REV -eq 1 ] && [ "$ROLE" = reviewer-alt ] && python3 "$RSI_DIR/runtime/escalate.py" --sol-limited >/dev/null 2>&1; then
-  say "#$N $SLUG: holding review, gpt-6.1-sol rate-limited until $(date -r "$(cat "$STATE/sol-limited-until")" '+%H:%M' 2>/dev/null || echo later) (no retry)"
+# Large-tier (or force-alt) needs a strong reviewer and has no reusable verdict: hold only when Hydrogen and sol are both unavailable.
+if [ $NEED_REV -eq 1 ] && [ "$ROLE" = reviewer-alt ] && python3 "$RSI_DIR/runtime/escalate.py" --no-strong-available >/dev/null 2>&1; then
+  say "#$N $SLUG: holding review, no strong reviewer available (Hydrogen/sol limited) (no retry)"
   exit 0
 fi
 if [ $NEED_REV -eq 1 ]; then
@@ -297,7 +297,7 @@ if [ $NEED_REV -eq 1 ]; then
       echo "This is a RE-REVIEW after rework. Review ONLY the delta since the last reviewed commit: git diff $LASTREV..HEAD (plus how it interacts with the rest). The full PR diff is git diff origin/main...HEAD if you need context."
       echo; echo "Previous review notes (verify each blocker/major is fixed; flag anything new in the delta):"; tail -c 4000 "$PREV"
     else
-      echo "Run: git diff origin/main...HEAD (and read call sites)."
+      echo "The PR diff is attached for you (git diff origin/main...HEAD). Do not run shell/git commands if you are on agy — headless mode will deny them and return an empty review. Read the attached diff and call sites."
     fi
     echo "Behaviour claimed (PR body): $(echo "$BODY" | head -c 3500)"
     echo; echo "Checklist and grading: $RSI_DIR/roles/reviewer.md ; binding rules: $RSI_DIR/MANDATE.md ; screenshots (if any): $STATE/shots/$SLUG/ or links in the PR body."
@@ -455,18 +455,18 @@ if [ $UI_TOUCH -eq 1 ] && [ "${RSI_UX_GATE:-on}" != off ]; then
   if [ "$(cut -d' ' -f1 "$UXV" 2>/dev/null)" = "$DH" ] && [ "$(cut -d' ' -f2 "$UXV" 2>/dev/null)" = PASS ] && [ "$(cut -d' ' -f3 "$UXV" 2>/dev/null)" = "$MAINUI" ]; then
     say "#$N $SLUG: UX gate carried over (PR diff and origin/main:ui unchanged)"
   else
-    # Reuse a strong UX review for this same head SHA (do not re-call sol/Carbon).
+    # Reuse a strong UX review for this same head SHA (do not re-call Hydrogen/sol).
     if [ -s "$STATE/merge/$SLUG.strong-ux" ] && [ "$(awk '{print $1}' "$STATE/merge/$SLUG.strong-ux")" = "$SHA" ] && [ -s "$STATE/merge/$SLUG.strong-ux.txt" ]; then
       say "#$N $SLUG: reuse strong UX review for ${SHA:0:8} (verdict=$(awk '{print $2}' "$STATE/merge/$SLUG.strong-ux")) — head unchanged"
       mkdir -p "$STATE/ux/$SLUG"
       cp "$STATE/merge/$SLUG.strong-ux.txt" "$STATE/ux/$SLUG/review.txt"
       cp "$STATE/merge/$SLUG.strong-ux.txt" "$STATE/merge/$SLUG.ux.txt"
       urc=1; [ "$(awk '{print $2}' "$STATE/merge/$SLUG.strong-ux")" = PASS ] && urc=0
-    elif python3 "$RSI_DIR/runtime/escalate.py" --sol-limited >/dev/null 2>&1 && [ "${RSI_CARBON_ENABLED:-0}" != 1 ]; then
-      say "#$N $SLUG: holding UX vision review, gpt-6.1-sol rate-limited — not an error, not a sendback"
+    elif python3 "$RSI_DIR/runtime/escalate.py" --no-strong-available >/dev/null 2>&1; then
+      say "#$N $SLUG: holding UX vision review, no strong reviewer available (Hydrogen/sol) — not an error, not a sendback"
       urc=2
       mkdir -p "$STATE/ux/$SLUG"
-      echo "ux reviewer held: gpt-6.1-sol rate-limited" > "$STATE/ux/$SLUG/unavailable.txt"
+      echo "ux reviewer held: no strong reviewer available" > "$STATE/ux/$SLUG/unavailable.txt"
     else
     say "#$N $SLUG: UX gate (journey walk + vision review)"
     bash "$RSI_DIR/runtime/ux-gate.sh" "$WT" "$SLUG" "$ITEM" "$N" "$DH" "$ROLE"; urc=$?

@@ -3,8 +3,8 @@
 # role: worker|fixer|builder|dogfooder  -> DeepSeek flash --effort high, can write
 #       planner|director                 -> DeepSeek flash --effort max, can write docs/state; may escalate per ROUTING.md
 #       reviewer                         -> DeepSeek flash --effort max, read-only; may escalate per ROUTING.md
-#       reviewer-alt                     -> gpt-6.1-sol (standing different family); Carbon if a necessity signal fires
-#       ux-reviewer / ux-reviewer-alt    -> gpt-6.1-sol via claude -p; Carbon on necessity (vision / long context)
+#       reviewer-alt                     -> Hydrogen-medium (high for F/S/architecture or disagreement); sol then Carbon then Kimi
+#       ux-reviewer / ux-reviewer-alt    -> Hydrogen (multimodal vision); sol fallback, then Carbon, Kimi last
 # Policy: rsi/ROUTING.md. Escalation is logged with reason + outcome.
 # Prints the final result text (last ~6000 chars) and exits non-zero if the run errored.
 set -u
@@ -26,11 +26,13 @@ case "$ROLE" in
   *) echo "unknown role $ROLE"; exit 2;;
 esac
 
-use_name() { # codex|carbon|kimi -> set MODEL/EFFORT
+use_name() { # hydrogen|hydrogen-high|codex|carbon|kimi -> set MODEL/EFFORT
   case "$1" in
-    carbon) MODEL="${M_CARBON:-agy/gemini-4-carbon-high}"; EFFORT="";;
-    kimi)   MODEL="$M_KIMI"; EFFORT="$M_DIRECTOR_EFFORT";;
-    codex)  MODEL="$M_CODEX"; EFFORT="";;
+    hydrogen-high) MODEL="${M_HYDROGEN_HIGH:-agy/gemini-4-hydrogen-high}"; EFFORT="";;
+    hydrogen)      MODEL="${M_HYDROGEN:-agy/gemini-4-hydrogen-medium}"; EFFORT="";;
+    carbon)        MODEL="${M_CARBON:-agy/gemini-4-carbon-high}"; EFFORT="";;
+    kimi)          MODEL="$M_KIMI"; EFFORT="$M_DIRECTOR_EFFORT";;
+    codex)         MODEL="$M_CODEX"; EFFORT="";;
     *) return 1;;
   esac
 }
@@ -39,6 +41,8 @@ use_name() { # codex|carbon|kimi -> set MODEL/EFFORT
 RSI_ESCALATE_REUSE=0; RSI_ESCALATE_REUSE_FILE=; RSI_ESCALATE_REUSE_VERDICT=; RSI_ESCALATE_HOLD=
 SHA="$(git -C "$CWD" rev-parse HEAD 2>/dev/null || true)"
 sol_limited_now() { python3 "$RSI_DIR/runtime/escalate.py" --sol-limited >/dev/null 2>&1; }
+agy_limited_now() { python3 "$RSI_DIR/runtime/escalate.py" --agy-limited >/dev/null 2>&1; }
+agy_enabled_now() { [ "${RSI_AGY_ENABLED:-${RSI_CARBON_ENABLED:-1}}" = 1 ]; }
 hold_strong() { # reason: do not call a strong model, do not log 'error'
   echo "[hold strong review: $1]" >&2
   exit 3
@@ -65,12 +69,11 @@ if [ "$ROLE" != worker ] && [ "$ROLE" != fixer ] && [ "$ROLE" != builder ] && [ 
     fi
   fi
 fi
-# Default reviewer-alt / UX path is already gpt-6.1-sol. If it is rate-limited and we did not
-# pick another available strong model, hold instead of burning a 429 and logging 'error'.
+# Standing strong path is Hydrogen, then sol. Hold only when no subscription model is available.
 case "$ROLE" in
   reviewer-alt|ux-reviewer|ux-reviewer-alt)
-    if [ -z "${RSI_ESCALATE_MODEL:-}" ] && sol_limited_now; then
-      hold_strong "sol-limited"
+    if [ -z "${RSI_ESCALATE_MODEL:-}" ] && python3 "$RSI_DIR/runtime/escalate.py" --no-strong-available >/dev/null 2>&1; then
+      hold_strong "${RSI_ESCALATE_HOLD:-sol-limited}"
     fi
     ;;
 esac
@@ -117,19 +120,101 @@ run_claude() { # model [effort]
   return $rc
 }
 
-run_agy() {
-  local bin="${AGY:-agy}"
-  command -v "$bin" >/dev/null 2>&1 || { [ -x "$bin" ] || return 2; }
-  local args=( -p "$PROMPT" --model "${M_CARBON_AGY:-gemini-4-carbon-high}"
-               --output-format json --mode plan --sandbox --disable-slash-commands
-               --print-timeout "${DISPATCH_MAX_SECS:-3000}s" --add-dir "$CWD" )
+agy_bin() {
+  if [ -n "${AGY:-}" ] && [ -x "$AGY" ]; then printf '%s\n' "$AGY"; return 0; fi
+  local c
+  for c in /opt/homebrew/bin/agy "$HOME/.antigravity/antigravity/bin/agy"; do
+    [ -x "$c" ] && { printf '%s\n' "$c"; return 0; }
+  done
+  command -v agy 2>/dev/null
+}
+
+agy_cli_model() { # hydrogen|hydrogen-high|carbon -> gemini-4-...
+  case "$1" in
+    hydrogen-high) printf '%s\n' "${M_HYDROGEN_HIGH_AGY:-gemini-4-hydrogen-high}";;
+    carbon)        printf '%s\n' "${M_CARBON_AGY:-gemini-4-carbon-high}";;
+    *)             printf '%s\n' "${M_HYDROGEN_AGY:-gemini-4-hydrogen-medium}";;
+  esac
+}
+
+# Record Antigravity quota/limit like sol-limited-until. Default hold is 45 minutes if no clock is given.
+note_agy_limit() {
+  python3 - "$LOG" "$LOG.agy.json" "$LOG.txt" "$STATE/agy-limited-until" <<'PY'
+import json,re,sys,time,datetime
+paths, stamp = sys.argv[1:4], sys.argv[4]
+blob = ""
+for p in paths:
+    try:
+        blob += open(p, errors="replace").read()[-12000] + "\n"
+    except Exception:
+        pass
+try:
+    d=json.load(open(sys.argv[2]))
+    blob += " " + str(d.get("error") or "") + " " + str(d.get("status") or "") + " " + str(d.get("response") or "")
+except Exception:
+    d={}
+pat = re.compile(r"quota|rate.?limit|usage limit|resource.?exhausted|429|allowance|not asked again before|exceeded your current quota|RESOURCE_EXHAUSTED", re.I)
+if not pat.search(blob):
+    sys.exit(0)
+m=re.search(r"not asked again before\s+(\d{1,2}):(\d{2})", blob)
+now=datetime.datetime.now()
+if m:
+    until=now.replace(hour=int(m.group(1)), minute=int(m.group(2)), second=0, microsecond=0)
+    if until<=now: until += datetime.timedelta(days=1)
+    epoch=int(until.timestamp())
+else:
+    epoch=int(time.time()) + 45*60
+open(stamp,"w").write(str(epoch))
+sys.exit(0)
+PY
+}
+
+run_agy() { # hydrogen|hydrogen-high|carbon
+  local name="${1:-hydrogen}"
+  local bin; bin="$(agy_bin || true)"
+  [ -n "$bin" ] && [ -x "$bin" ] || { echo "[agy missing]" >&2; return 2; }
+  local model; model="$(agy_cli_model "$name")"
+  local ctx="$LOG.agy.ctx"; mkdir -p "$ctx"
+  # Feed the diff inline / as a file. Headless agy auto-denies Bash, so "Run: git diff" produced
+  # status=SUCCESS with an empty response and denied_actions=Bash (30/31 runs on 2026-11-15).
+  if git -C "$CWD" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "$CWD" diff --stat origin/main...HEAD > "$ctx/diff.stat.txt" 2>/dev/null || true
+    git -C "$CWD" diff origin/main...HEAD > "$ctx/diff.patch" 2>/dev/null || true
+  fi
+  local prompt_file="$ctx/prompt.md"
+  {
+    printf '%s\n' "$PROMPT"
+    echo
+    echo "IMPORTANT: Do not run shell, git, or package-manager commands. Headless mode cannot approve them and will return an empty review."
+    echo "The full \`git diff origin/main...HEAD\` is on disk at $ctx/diff.patch (stat: $ctx/diff.stat.txt). Use the Read tool if you need more than is inlined below. Screenshots, if this is a UX review, are already on disk at the paths named in the brief — open those PNG files with the Read tool."
+    if [ -s "$ctx/diff.stat.txt" ]; then
+      echo; echo "Diff stat:"; cat "$ctx/diff.stat.txt"
+    fi
+    if [ -s "$ctx/diff.patch" ]; then
+      local sz; sz=$(wc -c < "$ctx/diff.patch" | tr -d ' ')
+      echo; echo "Attached diff (also at $ctx/diff.patch, $sz bytes):"
+      echo '```diff'
+      if [ "${sz:-0}" -le 250000 ]; then cat "$ctx/diff.patch"
+      else head -c 250000 "$ctx/diff.patch"; echo; echo "... [truncated; Read $ctx/diff.patch for the rest]"
+      fi
+      echo '```'
+    fi
+  } > "$prompt_file"
+  local agy_prompt; agy_prompt="$(cat "$prompt_file")"
+  local settings="$RSI_DIR/runtime/agy-review.settings.json"
+  local args=( -p "$agy_prompt" --model "$model"
+               --output-format json --sandbox --disable-slash-commands
+               --print-timeout "${DISPATCH_MAX_SECS:-3000}s" --add-dir "$CWD" --add-dir "$ctx" )
+  [ -f "$settings" ] && args+=( --settings "$settings" )
   [ -n "${WT_ROOT:-}" ] && args+=( --add-dir "$WT_ROOT" )
   [ -n "${RSI_CTRL:-}" ] && args+=( --add-dir "$RSI_CTRL" )
+  [ -n "${STATE:-}" ] && args+=( --add-dir "$STATE" )
   ( cd "$CWD" && "$bin" "${args[@]}" < /dev/null > "$LOG.agy.json" 2>> "$LOG" ) &
   local pid=$!
   ( sleep "${DISPATCH_MAX_SECS:-3000}"; kill -TERM "$pid" 2>/dev/null ) & local wd=$!
   wait "$pid"; local rc=$?
   kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
+  note_agy_limit
   python3 - "$LOG.agy.json" "$LOG.txt" <<'PY'
 import json,sys
 src, dst = sys.argv[1], sys.argv[2]
@@ -170,7 +255,7 @@ stamp_review() { # file: persist DeepSeek / strong verdict against this SHA so t
     *deepseek*|*volcengine*)
       python3 "$RSI_DIR/runtime/escalate.py" --save-deepseek --slug "$slug" --sha "$SHA" --verdict "$verd" --file "$f" >/dev/null 2>&1 || true
       ;;
-    *codex*|*gpt-6.1-sol*|*carbon*|*kimi*)
+    *codex*|*gpt-6.1-sol*|*carbon*|*hydrogen*|*agy*|*kimi*)
       python3 "$RSI_DIR/runtime/escalate.py" --save-strong --slug "$slug" --sha "$SHA" --verdict "$verd" --model "$MODEL" --file "$f" --role "$ROLE" >/dev/null 2>&1 || true
       ;;
   esac
@@ -194,14 +279,16 @@ emit_and_exit() { # rc  [file]
   exit $rc
 }
 
-run_named() { # carbon|codex|kimi|or a raw model id. Returns 0 ok, 1 failed call, 3 skipped (unavailable, not an error).
+run_named() { # hydrogen|hydrogen-high|carbon|codex|kimi|or a raw model id. Returns 0 ok, 1 failed call, 3 skipped.
   local name="$1"
   case "$name" in
-    carbon)
-      # Carbon is off by default (RSI_CARBON_ENABLED=0). Never call it when disabled.
-      if [ "${RSI_CARBON_ENABLED:-0}" != 1 ]; then return 3; fi
-      use_name carbon; record_model
-      if run_agy; then return 0; fi
+    hydrogen|hydrogen-high|carbon)
+      if ! agy_enabled_now; then echo "[skip $name: agy disabled]" >&2; return 3; fi
+      if agy_limited_now; then echo "[skip $name: agy-limited]" >&2; return 3; fi
+      use_name "$name"; record_model
+      if run_agy "$name"; then return 0; fi
+      # Quota during the call is a skip (hold/fallback), not a hard error storm.
+      if agy_limited_now; then return 3; fi
       return 1;;
     codex)
       # Do not call gpt-6.1-sol while the ChatGPT allowance is exhausted: a 429 cannot succeed.

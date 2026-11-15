@@ -6,8 +6,9 @@ H="$(cd "$(dirname "$0")/.." && pwd)"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 ok() { echo "PASS $*"; }; bad() { echo "FAIL $*" >&2; exit 1; }
 PY="$H/escalate.py"
-export RSI_STATE="$T/st"; mkdir -p "$T/st/merge" "$T/st/sendback"
-check() { RSI_STATE="$T/st" python3 "$PY" --check --role "$1" --slug "$2" --item "$3" --sha "${4:-}"; }
+export RSI_STATE="$T/st" RSI_AGY_ENABLED=0 RSI_CARBON_ENABLED=0
+mkdir -p "$T/st/merge" "$T/st/sendback"
+check() { RSI_STATE="$T/st" RSI_AGY_ENABLED="${RSI_AGY_ENABLED:-0}" RSI_CARBON_ENABLED="${RSI_CARBON_ENABLED:-0}" python3 "$PY" --check --role "$1" --slug "$2" --item "$3" --sha "${4:-}"; }
 
 # --- self-test ---
 python3 "$PY" --self-test >/dev/null && ok self-test || bad self-test
@@ -86,6 +87,28 @@ n1=$(wc -l < "$T/st/escalations.jsonl")
 check reviewer-alt s S1 shaS >/dev/null
 n2=$(wc -l < "$T/st/escalations.jsonl")
 [ "$n1" -eq "$n2" ] && ok hold-deduped || bad hold-deduped
+
+# --- Hydrogen-medium default; high only for F/S/architecture or disagreement; agy-limited -> sol ---
+fake="$T/fake-agy"; printf '#!/bin/sh\nexit 0\n' > "$fake"; chmod +x "$fake"
+export RSI_AGY_ENABLED=1 RSI_CARBON_ENABLED=1 AGY="$fake"
+# clear the sol limit from the previous case
+rm -f "$T/st/sol-limited-until"
+out="$(check reviewer-alt n T1 shaN)"
+echo "$out" | grep -q "RSI_ESCALATE_MODEL=hydrogen$" && echo "$out" | grep -q "standing-strong-review" && ok standing-hydrogen-medium || { echo "$out"; bad standing-hydrogen-medium; }
+out="$(check reviewer-alt f F1 shaFnew)"
+# f still has attempts=2 and item F1 from earlier, but shaFnew is a new sha so no reuse if we use a fresh slug
+echo 'item: F3' > "$T/st/sendback/f3.md"
+out="$(check reviewer-alt f3 F3 shaF3)"
+echo "$out" | grep -q "RSI_ESCALATE_MODEL=hydrogen-high" && echo "$out" | grep -q "astryx-foundation-or-shell:F3" && ok foundation-hydrogen-high || { echo "$out"; bad foundation-hydrogen-high; }
+echo $(( $(date +%s) + 3600 )) > "$T/st/agy-limited-until"
+out="$(check reviewer-alt f3 F3 shaF3)"
+echo "$out" | grep -q "RSI_ESCALATE_MODEL=codex" && echo "$out" | grep -q "agy-limited" && ok agy-limited-falls-to-sol || { echo "$out"; bad agy-limited-falls-to-sol; }
+RSI_STATE="$T/st" python3 "$PY" --agy-limited >/dev/null && ok agy-limited-cli || bad agy-limited-cli
+# both limited -> hold
+echo $(( $(date +%s) + 3600 )) > "$T/st/sol-limited-until"
+RSI_STATE="$T/st" python3 "$PY" --no-strong-available >/dev/null && ok no-strong-available-cli || bad no-strong-available-cli
+rm -f "$T/st/agy-limited-until" "$T/st/sol-limited-until"
+unset AGY; export RSI_AGY_ENABLED=0 RSI_CARBON_ENABLED=0
 
 # --- weekly daily worth-it line ---
 # empty limited marker so weekly does not care
