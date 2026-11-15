@@ -29,8 +29,11 @@ echo "NAS root: $REMOTE"
 with_timeout "$SSH_T" "${SSH[@]}" "$NAS_HOST" "mkdir -p '$REMOTE'/{compose,nas-side,secrets,work/{jobs,wt,logs,home/.claude}}"
 
 # Copy scripts and compose (no secrets). UGOS rsync/scp reject some home paths; tar-over-ssh works.
-COPYFILE_DISABLE=1 tar czf - -C "$HERE/compose" . | with_timeout "$XFER_T" "${SSH_IO[@]}" "$NAS_HOST" "tar xzf - -C '$REMOTE/compose'"
-COPYFILE_DISABLE=1 tar czf - -C "$HERE/nas-side" . | with_timeout "$XFER_T" "${SSH_IO[@]}" "$NAS_HOST" "tar xzf - -C '$REMOTE/nas-side'"
+# These two must run in the foreground: with_timeout backgrounds its child, and a backgrounded command's
+# stdin is /dev/null, which would silently ship an empty archive. ssh's ConnectTimeout + ServerAlive
+# options bound them instead.
+COPYFILE_DISABLE=1 tar czf - -C "$HERE/compose" . | "${SSH_IO[@]}" "$NAS_HOST" "tar xzf - -C '$REMOTE/compose'"
+COPYFILE_DISABLE=1 tar czf - -C "$HERE/nas-side" . | "${SSH_IO[@]}" "$NAS_HOST" "tar xzf - -C '$REMOTE/nas-side'"
 # Compose interpolates KIN_RSI_NAS_ROOT from this file; it is generated here, never committed.
 with_timeout "$SSH_T" "${SSH[@]}" "$NAS_HOST" "printf 'KIN_RSI_NAS_ROOT=%s\n' '$REMOTE' > '$REMOTE/compose/.env' && chmod 600 '$REMOTE/compose/.env'"
 # settings for the container home
@@ -62,7 +65,7 @@ if ! with_timeout "$XFER_T" "${SSH[@]}" "$NAS_HOST" "if [ -d '$REMOTE/work/openk
   echo "NAS git clone/fetch failed; shipping origin/main bundle from this Mac"
   BUNDLE="$(mktemp /tmp/openkin-origin-main.XXXXXX.bundle)"
   with_timeout "$XFER_T" "$GIT" -C "$RSI_CTRL" bundle create "$BUNDLE" origin/main
-  COPYFILE_DISABLE=1 tar czf - -C "$(dirname "$BUNDLE")" "$(basename "$BUNDLE")" | with_timeout "$XFER_T" "${SSH_IO[@]}" "$NAS_HOST" "tar xzf - -C /tmp"
+  COPYFILE_DISABLE=1 tar czf - -C "$(dirname "$BUNDLE")" "$(basename "$BUNDLE")" | "${SSH_IO[@]}" "$NAS_HOST" "tar xzf - -C /tmp"
   with_timeout "$XFER_T" "${SSH[@]}" "$NAS_HOST" "
     set -e
     mkdir -p '$REMOTE/work'
