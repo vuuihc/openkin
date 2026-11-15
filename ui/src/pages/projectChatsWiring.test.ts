@@ -16,7 +16,16 @@ import { describe, expect, it } from "vitest";
  * page needs a daemon, a machine list and a router.
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
-const SOURCE = readFileSync(join(UI, "src/pages/ProjectDetailPage.tsx"), "utf8");
+// The page composes its sections; the seams below live in the page, the cover
+// (keys and the offline notice) and the one-pager (the save body), so read the
+// composition rather than one file.
+const SOURCE = [
+  "src/pages/ProjectDetailPage.tsx",
+  "src/components/project/ProjectCover.tsx",
+  "src/components/project/ProjectOnePager.tsx",
+]
+  .map((path) => readFileSync(join(UI, path), "utf8"))
+  .join("\n");
 
 describe("the project cover's data wiring (KIN-PROJECT-001)", () => {
   it("asks the project's own task feed through the loader", () => {
@@ -108,15 +117,15 @@ describe("the project cover's data wiring (KIN-PROJECT-001)", () => {
   });
 
   it("composes the summary into Current Focus and saves against its version", () => {
-    expect(SOURCE).toContain("setOnePagerFocus(base, draft)");
-    expect(SOURCE).toContain("putOnePager(id, setOnePagerFocus(base, draft), baseUpdatedAt || undefined)");
+    expect(SOURCE).toContain("setOnePagerFocus(base, body)");
+    expect(SOURCE).toContain("putOnePager(id, setOnePagerFocus(base, body), baseUpdatedAt || undefined)");
     // A conflict composes on the other version, so choosing overwrite keeps
     // their sections that this editor does not own.
-    expect(SOURCE).toContain("void saveSummary(conflict.markdown, conflict.updated_at)");
+    expect(SOURCE).toContain("void saveSummary(conflict.markdown, conflict.updated_at, body)");
     // The base does not move under a reconnect; otherwise a concurrent edit on
     // another device would be overwritten without a 409.
     expect(SOURCE).toContain("setEditBase({ markdown, updatedAt })");
-    expect(SOURCE).toContain("saveSummary(editBase.markdown, editBase.updatedAt)");
+    expect(SOURCE).toContain("saveSummary(editBase.markdown, editBase.updatedAt, body)");
   });
 
   it("offers one new-chat target and no guess for a multi-root project", () => {
