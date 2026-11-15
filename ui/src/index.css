@@ -15,6 +15,19 @@
 @import "./design/theme.css";
 @import "./design/syntax.css";
 @import "tailwindcss";
+/*
+  Astryx's stylesheets, after Tailwind's.
+
+  Each one declares the same layer order this file declares at the top, so the
+  load order between them does not decide the cascade. `reset` lands in the
+  first layer — below Tailwind's preflight, which is in `base` — so Astryx's
+  reset cannot undo Kin's baseline; `astryx-base` and `astryx-theme` sit above
+  the component layer's neighbours, below `utilities`. The theme's own generated
+  CSS (token values, component overrides) is injected at runtime by
+  `AstryxProvider`; only the reset and the component styles are files.
+*/
+@import "@astryxdesign/core/reset.css";
+@import "@astryxdesign/core/astryx.css";
 @config "../tailwind.config.ts";
 
 /*

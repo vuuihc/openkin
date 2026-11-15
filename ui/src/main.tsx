@@ -11,6 +11,7 @@ import {
   refreshAccount,
   signInWithLink,
 } from "./api/account";
+import { AstryxProvider } from "./design/AstryxProvider";
 import { useAppStore } from "./store/appStore";
 import { loginVisit, withoutLoginHash } from "./lib/loginLink";
 import { hubAnswers, hubBootPlan } from "./lib/hubBoot";
@@ -148,9 +149,11 @@ void (async () => {
   synthesizePhoneParent();
   createRoot(root).render(
     <StrictMode>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
+      <AstryxProvider>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </AstryxProvider>
     </StrictMode>,
   );
 })();
