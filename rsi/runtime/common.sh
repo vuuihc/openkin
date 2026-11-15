@@ -30,10 +30,14 @@ export GIT_TERMINAL_PROMPT=0
 # Let the Bash tool wait for long builds/tests inside a claude -p run.
 export BASH_DEFAULT_TIMEOUT_MS=3300000 BASH_MAX_TIMEOUT_MS=3600000
 
-# Model routing (Ethan, 2026-11-15). Edit here to change roles.
+# Model routing (Ethan, 2026-11-15; CEO 2026-11-15). Edit here to change roles.
+# Workers / rework and the control plane default to DeepSeek V4.1 Flash; the standing second
+# reviewer is gpt-6.1-sol (ChatGPT, not Volcengine). Kimi demand is budget-gated below.
 M_WORKER='volcengine-gw/volcengine/deepseek-v4.1-flash[1m]'
-M_DIRECTOR='volcengine-gw/kimi-k3.1-pro[1m]'
+M_DIRECTOR='volcengine-gw/volcengine/deepseek-v4.1-flash[1m]'
 M_ALT='codex/gpt-6.1-sol'
+M_WORKER_EFFORT="${M_WORKER_EFFORT:-high}"
+M_DIRECTOR_EFFORT="${M_DIRECTOR_EFFORT:-max}"
 BUDGET_GUARD="${BUDGET_GUARD:-15}"
 
 # --- Parallel lanes (CEO 2026-11-15) ---
@@ -88,3 +92,19 @@ notify() { # title body
   [ -x "$KIN_BIN" ] && "$KIN_BIN" notify "$t" "$b" >/dev/null 2>&1 || true
   mkdir -p "$STATE/outbox"; printf '%s\n%s\n' "$t" "$b" > "$STATE/outbox/$(date +%F-%H%M%S)-notification.txt"
 }
+
+# Volcengine list-price budget (Mac magpie, Asia/Singapore day). See runtime/volc-budget.py.
+# >= ¥450 (RSI_VOLC_KIMI_MAX): no Kimi.
+# >= ¥560 (RSI_VOLC_STOP_WORKERS): new worker lanes / box pack / NAS pulse stand down until tomorrow.
+# Kimi daily cap ¥80 (RSI_VOLC_KIMI_DAY_MAX): further Kimi runs blocked.
+rsi_budget_apply() {
+  # Preserve a caller's explicit cap: the tool re-reads policy on every call and a cached
+  # spend snapshot carries the caps it was computed with (volc-budget.py recomputes them).
+  RSI_VOLC_CNY=; RSI_VOLC_LEVEL=ok; RSI_VOLC_DAY=; RSI_VOLC_KIMI_CNY=; RSI_VOLC_KIMI_DAY_MAX="${RSI_VOLC_KIMI_DAY_MAX:-80}"
+  local ev
+  ev="$(python3 "$RSI_DIR/runtime/volc-budget.py" --export 2>/dev/null)" || return 0
+  eval "$ev" 2>/dev/null || true
+}
+rsi_allow_kimi() { python3 "$RSI_DIR/runtime/volc-budget.py" --allow-kimi >/dev/null 2>&1; }
+rsi_allow_workers() { python3 "$RSI_DIR/runtime/volc-budget.py" --allow-workers >/dev/null 2>&1; }
+rsi_budget_apply
