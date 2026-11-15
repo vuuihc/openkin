@@ -220,6 +220,65 @@ card"）需要按新契约改写；i18n `chat.progress.*` en / zh 同步。
 390px 截图：运行中能连续读到思考 / 过程文本与工具卡交错；结束后只剩结论与一行摘要。
 `./scripts/check.sh` 绿。
 
+### 2026-11-12 · 高 · 例行任务查不到 gap sweep，机器回答 655361 bytes / 上限 655360 bytes
+
+例行任务页面查不到按小时读取本文件的 gap sweep 任务。完整错误是：
+`the machine declined to answer: the routine answer is 655361 bytes, over the 655360-byte limit`。
+已复现并确定是列表响应经过 relay 时整体超过回答上限，不是凭漏掉的位数猜测 model token
+超限：只读实时聚合有 3 份 routine、80 份 run，共 697231 bytes，其中 run JSON 684170 bytes。
+原读取每份都携带完整 prompt / dispatch。开发中的显式摘要分页用真实 SQLite →
+机器 → Node → Hub 链路复现失败并验证新读取；本机历史也已改读同一 summary，不再单走
+旧 `listTasks` 大历史。抓到本案例真实错误之前曾出现 digit 混淆；最终只以错误原文的
+655361 为准。原注释曾误把 last_error 归为只另读诊断；改为摘要仍显示失败，store 测试
+直接验证。编辑只通过单条 GET 的完整原文比较保存；同 id 的过期编辑详情或 PATCH 响应也
+分别验证不覆盖当前设备。本轮没有删除真实任务、改写或截断其持久化 prompt。
+
+2026-11-14 当前门禁：读取与手机导航的实现及聚焦回归已推进到 8 个相关 UI 文件 151 项通过；
+签字 story 的目的地入口焦点恢复保持不变，未通过的 peer-focus 实验已撤回。非缓存 worker/API/store
+测试及 store/API race 均通过；功能 worktree 的 console build 成功。完整 `check.sh --all` 的
+Go/vet/tsc/OpenAPI/story 等通过，但默认并发 UI 不稳定：一轮 8 项超时，另一轮 2 项失败（含
+WorkspacePanel 断言失败）；逐文件串行复跑 71 项全过，完整套件在 `--maxWorkers=2` 下
+238 文件 / 2360 项全过（退出 0），与 14 job 并发下的 CPU 饥饿和 5 秒超时一致，不把局部
+重跑写成 gate 全绿。六个针对最终 root 历史、冷 root、Sheet ownership 和 128 KiB 请求包装的
+mutant 全部红证并恢复。128 KiB prompt 加 JSON 键后 PATCH 413 的旧 relay 边界已用真实
+Hub→Node 测试复现，并为 request 的 JSON 包装保留独立 32 KiB 空间、整体仍有界；未截断原文。
+最终 embedded bundle 的 390px 真 Chromium 已通过双方向空白横滑、边界不 wrap、纵向拖动、真实双指
+与 pointercancel 不切页、真实 Machine Sheet 背景优先、未保存 Settings 离开确认、归档恢复和草稿返回；
+例程历史及合成失败可见，编辑读回完整 11,000 字符原文且 Cancel 不写。390px FAB 位于 footer 上方，
+1100px 无手机 footer 和横向溢出，新页面无 Runtime/console error。
+独立分页审查发现 1 blocker / 2 major：live push 截断已翻页 feed、旧 cursor 与新搜索混用、
+迟到 feed 未与全部已读对账。三条均已在真实 DOM 回归中先复现失败，再修复并通过；新增
+4 个保护经串行 mutant 全部红证并恢复。随后冻结树的独立复审给 1 项 major 测试缺口与 7 项 nit；
+M1 与 nit 2/5 已修并红证；delta 复审确认未引入 blocker / major，并纠正 nit 1 的红证不成立
+（审批卡在 `<main>` 之外，手势不会冒泡到监听器，属性对当前行为惰性；测试改为断言兄弟布局）。
+复跑：最终源码完整 UI 套件 238 文件 / 2360 项通过，`go test ./internal/api -count=1` 退出 0。
+实时节点只读检查：gap sweep 定义当前为 **disabled**，`last_error` 是 `run failed`；最近
+20:00 一次成功，21:00 / 22:00 / 23:00 连续失败；daily LESSONS routine 正常成功。列表读取
+与调度状态必须分开记录。
+功能提交已在 `fix/phone-routines-tabs` 落地；发布 / Hub 部署、真手机读取和 gap sweep
+两次连续真实运行仍未完成，因此本条保留在 Open，不写成全部已修，也不把页面读取修复
+称为调度已修好。
+
+期望：gap sweep 在例行任务中有可辨认、可打开、可手动运行的记录，历史运行与错误
+能正常查看；token 超限错误消失，gap sweep 能读取 `docs/plans/gap-log.md` 并完成
+一次真实调度。修复必须覆盖超限数据的真实读取和持久化路径：先保存原始报错、请求
+大小与涉及的任务 / 运行记录，再区分是 SQLite 字段宽度、请求 / 代理限制、上游模型
+上下文限制，还是列表查询错误地把超长 prompt / transcript 拼进去；不能凭「65530」
+这个数字猜原因。若只是查询失败，任务本身和调度状态必须恢复；若任务确实不存在，
+补充可追溯的创建 / 恢复流程，不能静默新建重复任务。
+
+不要：为了绕过报错直接删除任务或历史、降低 / 截断 prompt 后继续累积超限内容、
+只改报错文案，或只让页面隐藏错误而不恢复真实查询与调度。
+
+待定（已解决）：原始字节错误及列表聚合路径已附上；不再需要另报人确认 token 猜测。
+线索：`internal/api/routines.go`、
+`internal/store/routines.go`、`internal/store/routine_dispatch.go`、
+`internal/routines/scheduler.go`、`internal/node/routines.go`，
+`ui/src/pages/RoutinesPage.tsx`，以及实际节点上的 gap sweep 任务定义与最近运行日志。
+验收：用超过当前边界的 prompt / run 数据复现失败测试；修复后同一数据能读回并展示；
+重启后 gap sweep 记录与调度仍存在；连续两次真实运行无重复任务、无 token 超限错误；
+`./scripts/check.sh` 与 `./scripts/smoke.sh` 绿。
+
 ### 2026-11-12 · 高 · 手机端「划」没有过渡：返回硬切，行左划的动作条松手才出现
 
 手机上滑动是「松手才动」的。左缘右滑返回时，手指已经划过 64px，屏幕上的页面

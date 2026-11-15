@@ -56,9 +56,9 @@ describe("the routines page and its machine", () => {
 
   it("sends the machine with every routine request", () => {
     expect(PAGE).toContain(
-      "listRoutines({ limit: 100, q: routineQuery.trim() || undefined }, deviceId)",
+      "listRoutines({ limit: 100, q: query }, deviceId)",
     );
-    expect(PAGE).toContain("listRoutineRuns(80, deviceId)");
+    expect(PAGE).toContain("listRoutineRuns(ROUTINE_HISTORY_PAGE, deviceId)");
     expect(PAGE).toContain("patchRoutine(r.id, { enabled: !r.enabled }, view.deviceId)");
     expect(PAGE).toContain("deleteRoutine(r.id, view.deviceId)");
     expect(PAGE).toContain("runRoutineNow(r.id, view.deviceId)");

@@ -74,6 +74,9 @@ type ListRoutinesOpts struct {
 	Limit     int
 	Before    string // cursor: rows older than this routine id
 	Query     string // literal substring over title, prompt, cwd, agent, id
+	// Summary omits each row's stored prompt while preserving status, schedule
+	// and last_error. Copying full text into every remote row can exceed a frame.
+	Summary bool
 }
 
 type RoutinePage struct {
@@ -83,6 +86,12 @@ type RoutinePage struct {
 }
 
 const routineColumns = `id, project_id, cwd, agent, model, permission_mode, prompt, interval_secs, enabled, last_run_at, next_due_at, consec_failures, created_at, title, missed_run_policy, lane, recurrence, conversation_mode, claim_until_at, last_outcome, last_error`
+
+// Summary reads omit the stored prompt; errors and the rest of the row stay
+// visible. Explicit aliases keep the scan order the same; GetRoutine and full
+// ListRoutines still read every durable field. Do not derive columns by
+// replacing substrings: id also occurs in project_id.
+const routineSummaryColumns = `id, project_id, cwd, agent, model, permission_mode, '' AS prompt, interval_secs, enabled, last_run_at, next_due_at, consec_failures, created_at, title, missed_run_policy, lane, recurrence, conversation_mode, claim_until_at, last_outcome, last_error`
 
 func scanRoutine(scanner interface {
 	Scan(dest ...any) error
@@ -247,8 +256,12 @@ func (s *Store) ListRoutinesPage(ctx context.Context, opts ListRoutinesOpts) (Ro
 	if limit > 500 {
 		limit = 500
 	}
+	columns := routineColumns
+	if opts.Summary {
+		columns = routineSummaryColumns
+	}
 	var b strings.Builder
-	b.WriteString(`SELECT ` + routineColumns + ` FROM routines WHERE 1=1`)
+	b.WriteString(`SELECT ` + columns + ` FROM routines WHERE 1=1`)
 	args := make([]any, 0, 8)
 	if opts.ProjectID != "" {
 		b.WriteString(` AND project_id = ?`)

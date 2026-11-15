@@ -173,10 +173,20 @@ func conversationModeValue(raw string) (string, bool) {
 
 func (s *Server) handleListRoutines(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
+	// One predicate decides both the projection and the response shape: a
+	// legacy array is never a different payload than the page object it
+	// pretends to be. An empty `q` or `routine_id` is not a request for a page.
+	routineID := strings.TrimSpace(q.Get("routine_id"))
+	query := q.Get("q")
+	explicitPage := q.Get("page") != "" || q.Get("cursor") != "" || query != "" || routineID != ""
+	// Only an explicit page gets the projected list. The legacy shape remains
+	// intact for other API readers; the relay's finite frame is no reason to
+	// change every existing client's response into a summary.
 	opts := store.ListRoutinesOpts{
 		ProjectID: q.Get("project_id"),
 		Before:    q.Get("cursor"),
-		Query:     q.Get("q"),
+		Query:     query,
+		Summary:   explicitPage,
 	}
 	if v := q.Get("enabled"); v != "" {
 		b := v == "1" || strings.EqualFold(v, "true")
@@ -203,7 +213,17 @@ func (s *Server) handleListRoutines(w http.ResponseWriter, r *http.Request) {
 				limit = n
 			}
 		}
-		runs, err := s.Store.ListTasks(r.Context(), store.ListTasksOpts{RoutineID: "*", Limit: limit, Scope: taskScope(r), Archived: store.ArchivedExclude})
+		// Fetch one extra row to answer "older runs exist" without a second query.
+		// Runs have their own cursor: next_cursor is for definitions, and using
+		// it here would mix two orderings after more definitions are created.
+		runsOpts := store.ListTasksOpts{
+			RoutineID: "*", Limit: limit + 1, Before: q.Get("runs_cursor"),
+			Summary: opts.Summary, Scope: taskScope(r), Archived: store.ArchivedExclude,
+		}
+		if routineID != "" {
+			runsOpts.RoutineID = routineID
+		}
+		runs, err := s.Store.ListTasks(r.Context(), runsOpts)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -220,18 +240,32 @@ func (s *Server) handleListRoutines(w http.ResponseWriter, r *http.Request) {
 		// whole routines page with it: no routines, no runs, only the machine's
 		// size sentence. The row fields a console renders stay; the prompt is
 		// still read from the run's own detail (GET /api/tasks/{id}).
+		//
+		// This is unconditional, not only for Summary: the legacy ?runs=1
+		// export is exactly the shape that hit the bound.
 		for i := range runs {
 			runs[i].Prompt = ""
+		}
+		moreRuns := len(runs) > limit
+		if moreRuns {
+			runs = runs[:limit]
+		}
+		runsCursor := ""
+		if moreRuns {
+			runsCursor = runs[len(runs)-1].ID
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"routines": page.Routines, "runs": runs,
 			"next_cursor": page.NextCursor, "has_more": page.HasMore,
+			"runs_next_cursor": runsCursor, "runs_has_more": moreRuns,
 		})
 		return
 	}
 	// Preserve the original array response for legacy clients that do not opt
-	// into the cursor contract. New clients send page=1 or a cursor.
-	if q.Get("page") == "" && q.Get("cursor") == "" && q.Get("q") == "" {
+	// into the cursor contract. New clients send page=1 or a cursor. The shape
+	// follows the same predicate that chose Summary, so an array can never
+	// carry the page object's projected rows.
+	if !explicitPage {
 		writeJSON(w, http.StatusOK, page.Routines)
 		return
 	}

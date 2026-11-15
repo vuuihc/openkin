@@ -1586,7 +1586,7 @@ const en: MessageTree = {
     "historyTitle": "Run history",
     "historyLoading": "Loading runs…",
     "historyEmpty": "No runs yet.",
-    "historyEmptyRemote": "No runs in the recent runs relayed from this machine.",
+    "historyEmptyRemote": "No runs for this routine on this machine.",
     "historyLoadOlder": "Load older runs",
     "historyLoadingOlder": "Loading older runs…",
     "searchPlaceholder": "Search routines",
