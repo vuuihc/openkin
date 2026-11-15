@@ -28,13 +28,15 @@ describe("the phone list's delete wiring", () => {
     // Scoped to the two delete paths: the project heading's archive is a
     // different action and keeps its own confirmation.
     expect(SOURCE).toContain("useSessionDeletion()");
-    const deletePaths = SOURCE.slice(
-      SOURCE.indexOf("async function deleteRow"),
-      SOURCE.indexOf("function forgetPins"),
-    ) + SOURCE.slice(
-      SOURCE.indexOf("async function deleteSelected"),
-      SOURCE.indexOf("async function loadOlder"),
-    );
+    const deletePaths =
+      SOURCE.slice(
+        SOURCE.indexOf("async function deleteRow"),
+        SOURCE.indexOf("function forgetPins"),
+      ) +
+      SOURCE.slice(
+        SOURCE.indexOf("async function deleteSelected"),
+        SOURCE.indexOf("async function loadOlder"),
+      );
     expect(deletePaths).toContain("deleteOne(");
     expect(deletePaths).toContain("deleteMany(");
     expect(deletePaths).not.toContain("window.confirm");
@@ -64,15 +66,13 @@ describe("the phone list's delete wiring", () => {
       "onClick={deleteSelected}\n              disabled={selectedIds.size === 0 || selectionBusy}",
     );
     expect(SOURCE).toContain(
-      "onClick={scope === \"archived\" ? restoreSelected : archiveSelected}\n              disabled={selectedIds.size === 0 || selectionBusy}",
+      'onClick={scope === "archived" ? restoreSelected : archiveSelected}\n              disabled={selectedIds.size === 0 || selectionBusy}',
     );
     // Row taps would change the selection the batch captured while it runs.
     expect(SOURCE).toContain("selectionLocked={selectionBusy}");
     // The tap path specifically: the keyboard path has the same guard, so a
     // bare substring would still pass if only one of them kept it.
-    expect(ROW).toContain(
-      "if (rowSelectable(row, scope) && !selectionLocked) onToggleSelect();",
-    );
+    expect(ROW).toContain("if (rowSelectable(row, scope) && !selectionLocked) onToggleSelect();");
   });
 
   it("clears a selection the visible list no longer shows", () => {
@@ -85,7 +85,9 @@ describe("the phone list's delete wiring", () => {
   it("drops a selected id whose row has left the list", () => {
     // A 404 from another device's delete leaves the id selected with no row:
     // the count and the select-all checkbox would describe nothing.
-    expect(SOURCE).toContain("if (next.length !== selectedIds.size) setSelectedIds(new Set(next));");
+    expect(SOURCE).toContain(
+      "if (next.length !== selectedIds.size) setSelectedIds(new Set(next));",
+    );
   });
 
   it("drops a deleted conversation from the pin preference", () => {

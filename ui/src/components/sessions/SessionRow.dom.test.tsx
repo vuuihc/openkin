@@ -69,12 +69,7 @@ function importedRow(): PhoneSessionRow {
   };
 }
 
-/** `onStartSelection` lands with the in-flight multi-select change; passing it
- *  on the base that does not consume it is harmless, and the Shift+Enter test
- *  accepts either entry callback. */
-type TestProps = SessionRowProps & { onStartSelection?: () => void };
-
-function props(overrides: Partial<TestProps> = {}): TestProps {
+function props(overrides: Partial<SessionRowProps> = {}): SessionRowProps {
   return {
     row: taskRow(),
     deviceLabel: "",
@@ -130,9 +125,7 @@ beforeEach(() => {
 
 describe("SessionRow", () => {
   it("renders the conversation title agent status device and relative time without changing the accessible label", () => {
-    const { container } = render(
-      <SessionRow {...props({ deviceLabel: "Studio" })} />,
-    );
+    const { container } = render(<SessionRow {...props({ deviceLabel: "Studio" })} />);
 
     expect(screen.getByText("Fix the build")).toBeTruthy();
     expect(screen.getByText("Studio")).toBeTruthy();
@@ -193,16 +186,21 @@ describe("SessionRow", () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 
-  it("Shift Enter enters selection through onStartSelection when that prop exists in the synced base", () => {
-    const onStartSelection = vi.fn();
+  it("Shift Enter enters selection through onToggleSelect and never opens the thread", () => {
     const onToggleSelect = vi.fn();
-    // The base in flight has no onStartSelection; the synced one calls it.
-    // Either way exactly one entry callback fires for one key press.
-    render(<SessionRow {...props({ onStartSelection, onToggleSelect })} />);
+    const onOpen = vi.fn();
+    const { rerender } = render(<SessionRow {...props({ onToggleSelect, onOpen })} />);
 
     fireEvent.keyDown(rowButton(/Fix the build/), { key: "Enter", shiftKey: true });
 
-    expect(onStartSelection.mock.calls.length + onToggleSelect.mock.calls.length).toBe(1);
+    expect(onToggleSelect).toHaveBeenCalledTimes(1);
+    expect(onOpen).not.toHaveBeenCalled();
+
+    // A locked selection refuses the shortcut for the same reason a click is refused.
+    rerender(<SessionRow {...props({ onToggleSelect, onOpen, selectionLocked: true })} />);
+    fireEvent.keyDown(rowButton(/Fix the build/), { key: "Enter", shiftKey: true });
+    expect(onToggleSelect).toHaveBeenCalledTimes(1);
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
   it("desktop sidebar shows pin archive and delete actions and forwards each callback", async () => {
@@ -210,9 +208,7 @@ describe("SessionRow", () => {
     const onArchive = vi.fn();
     const onDelete = vi.fn();
     render(
-      <SessionRow
-        {...props({ shell: "sidebar", coarse: false, onPin, onArchive, onDelete })}
-      />,
+      <SessionRow {...props({ shell: "sidebar", coarse: false, onPin, onArchive, onDelete })} />,
     );
 
     await userEvent.click(screen.getByRole("button", { name: "Pin" }));
@@ -259,11 +255,7 @@ describe("SessionRow", () => {
     expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
 
     rerender(
-      <SessionRow
-        {...active}
-        row={taskRow({ task: task("row-1", 99) })}
-        scope="archived"
-      />,
+      <SessionRow {...active} row={taskRow({ task: task("row-1", 99) })} scope="archived" />,
     );
     const restore = screen.getByRole("button", { name: "Restore" });
     // Two 76px chips: the archive view uncovers restore + delete only.
@@ -308,9 +300,7 @@ describe("SessionRow", () => {
     expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
 
-    rerender(
-      <SessionRow {...props({ shell: "sidebar", coarse: false, row: importedRow() })} />,
-    );
+    rerender(<SessionRow {...props({ shell: "sidebar", coarse: false, row: importedRow() })} />);
     expect(screen.getByRole("button", { name: /Imported chat/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Pin" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
