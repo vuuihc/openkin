@@ -57,7 +57,7 @@ describe("the shared button", () => {
       // the component rather than only to the generated stylesheet.
       expect(button.className).toContain("kin-btn");
       expect(button.className).toContain("min-h-11");
-      expect(button.className).toContain("focus-visible:outline-[var(--kin-focus-ring)]");
+      expect(button.className).toContain("focus-visible:outline-kin-focus-ring");
     }
     expect(primary.className).toContain("kin-btn-primary");
     expect(quiet.className).not.toContain("kin-btn-primary");

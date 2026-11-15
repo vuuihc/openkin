@@ -4,7 +4,7 @@ export type ButtonVariant = "default" | "secondary" | "quiet";
 
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   /**
-   * The console's three action weights, all built on the existing `.kin-btn`
+   * The console's three action weights, all built on the existing `.kin-btn-*`
    * vocabulary:
    *  - `default` is the one filled action on a surface (send, publish);
    *  - `secondary` is a bordered peer (cancel, stop);
@@ -21,12 +21,13 @@ const VARIANT: Record<ButtonVariant, string> = {
 };
 
 /**
- * The console's action button, as a native `<button>`.
+ * The console's action button, as a native button element.
  *
- * `.kin-btn` already owns the shape and the touch floor (44px under the
- * `.touch-lg` breakpoint), and the focus token is drawn outside the fill so a
- * primary button's ring is not invisible against its own blue. What this
- * component adds is the React contract the next Composer migration needs: a
+ * The stylesheet's `.kin-btn-*` classes already own the shape and the touch
+ * floor (44px under the `.touch-lg` breakpoint), and the focus token is drawn
+ * outside the fill so a primary button's ring is not invisible against its
+ * own blue. What this component adds is the React contract the next Composer
+ * migration needs: a
  * forwarded ref for the popover anchor, `type="button"` by default so a
  * control inside a form does not submit it by accident, and one variant prop
  * instead of each call site assembling the class string again.
@@ -45,12 +46,12 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
       type={type}
       className={[
         "kin-btn",
-        // The floor `.kin-btn` already draws; stated here too so the touch
+        // The floor the stylesheet already draws; stated here too so the touch
         // target travels with the component rather than only with the
         // stylesheet a caller might replace.
         "min-h-11 sm:min-h-0",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2",
-        "focus-visible:outline-[var(--kin-focus-ring)]",
+        "focus-visible:outline-kin-focus-ring",
         "disabled:cursor-not-allowed disabled:opacity-60",
         VARIANT[variant],
         className,
