@@ -48,10 +48,19 @@ for (const j of want) {
     const [w, h] = spec.viewports[vpName].split('x').map(Number); const phone = w < 700;
     const ctx = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: phone ? 2 : 1, isMobile: phone, hasTouch: phone });
     if (token) await ctx.addInitScript((t) => { try { localStorage.setItem('kin_token', t); } catch (_) {} }, token);
-    const page = await ctx.newPage(); const errs = [], bad = [];
+    const page = await ctx.newPage(); const errs = [], bad = [], soft = [];
     page.on('pageerror', (e) => errs.push(String(e.message).slice(0, 200)));
-    page.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text().slice(0, 160)); });
-    page.on('response', (r) => { if (r.status() >= 500) bad.push(r.status() + ' ' + new URL(r.url()).pathname); });
+    // A failed request also prints a content-free "Failed to load resource" console line. Attribute
+    // failures to the response below, where the URL and status are known, so a 404 can be told apart
+    // from a broken app; keep every other console error.
+    page.on('console', (m) => { if (m.type() === 'error' && !/^Failed to load resource/.test(m.text())) errs.push('console: ' + m.text().slice(0, 160)); });
+    page.on('response', (r) => {
+      const p = new URL(r.url()).pathname;
+      // `/api/projects/by-root` answers 404 for "this directory has no project yet" — the page renders
+      // that empty state on purpose (an unseeded throwaway daemon is all such directories).
+      if (r.status() === 404 && p === '/api/projects/by-root') { soft.push('no project for ' + new URL(r.url()).searchParams.get('path')); return; }
+      if (r.status() >= 400) bad.push(r.status() + ' ' + p);
+    });
     const log = []; let n = 0;
     for (const st of J.steps) {
       const [op, a, b] = st;
@@ -64,16 +73,23 @@ for (const j of want) {
           const l = await lint(page, phone); screens.push({ journey: j, viewport: vpName, name, url: new URL(page.url()).pathname + new URL(page.url()).search.replace(/token=[^&]+/g, 'token=<redacted>'), lint: l });
           if (l.bodyText < 20) hardFail.push(`${name}: blank page`);
           if (l.overflowX) hardFail.push(`${name}: horizontal page overflow`);
-        } else if (op === 'click' || op === 'hover' || op === 'fill') {
+        } else if (op === 'click' || op === 'hover' || op === 'fill' || op === 'enabled') {
           const raw = String(a), optional = raw.startsWith('?'), sel = optional ? raw.slice(1) : raw;
           const loc = sel.startsWith('/') ? page.getByText(new RegExp(sel.slice(1, sel.lastIndexOf('/')), 'i')).first() : page.locator(sel).first();
           if (await loc.count() === 0) { if (optional) { log.push('skipped ' + op + ' ' + sel); continue; } hardFail.push(`${j}/${vpName}: missing required ${op} ${sel}`); continue; }
+          // `enabled` never clicks: the walk daemon is throwaway and has no fake agent, so a real
+          // Start would launch a live CLI. It asserts the control a person would press is usable.
+          if (op === 'enabled') {
+            if (await loc.isDisabled()) { hardFail.push(`${j}/${vpName}: ${sel} is disabled (${await loc.evaluate((e) => (e.closest('[data-send-block]')?.textContent || document.querySelector('[role=status]')?.textContent || '').trim().slice(0, 80))})`); continue; }
+            log.push('enabled ' + sel); await page.waitForTimeout(200); continue;
+          }
           if (op === 'fill') await loc.fill(b, { timeout: 3000 }); else await (op === 'click' ? loc.click({ timeout: 3000 }) : loc.hover({ timeout: 3000 })); await page.waitForTimeout(400);
         } else if (op === 'key') { await page.keyboard.press(a); await page.waitForTimeout(200); }
       } catch (e) { const msg = `${op} ${a}: ${String(e.message).split('\n')[0].slice(0, 120)}`; log.push(msg); hardFail.push(`${j}/${vpName}: ${msg}`); }
     }
     if (errs.length) hardFail.push(`${j}/${vpName}: page errors: ${[...new Set(errs)].slice(0, 3).join(' | ')}`);
-    if (bad.length) hardFail.push(`${j}/${vpName}: 5xx: ${[...new Set(bad)].slice(0, 3).join(', ')}`);
+    if (bad.length) hardFail.push(`${j}/${vpName}: 4xx/5xx: ${[...new Set(bad)].slice(0, 3).join(', ')}`);
+    if (soft.length) log.push('soft: ' + [...new Set(soft)].slice(0, 3).join(', '));
     screens.filter((s) => s.journey === j && s.viewport === vpName).forEach((s) => { s.notes = log; });
     await ctx.close();
   }
