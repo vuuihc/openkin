@@ -7,6 +7,8 @@
 #    over ssh, start nas-lane.sh in the isolated container (agent thinking only).
 # Lanes: NAS_MAX_LANES=2, but lane 2 only starts when NAS 1-min load < 3 and MemAvailable > 6 GB.
 # Every remote call is bounded: a hung ssh dies with the pulse instead of holding the lock forever.
+# The pulse lock is owned (a skipped pulse never removes it) and failed worker discovery stops the pulse
+# before it can read "no live processes" as "every running job is dead".
 set -u
 source "$(cd "$(dirname "$0")/.." && pwd)/common.sh"
 STATE="${NAS_STATE:-$STATE}"; export RSI_STATE="$STATE"
@@ -32,7 +34,14 @@ log() { echo "[$(date '+%F %H:%M:%S %Z')] $*"; }
 [ -e "$STATE/PAUSE" ] && { echo "paused ($STATE/PAUSE)"; exit 0; }
 
 LOCK="$STATE/nas/.pulse.lock"
-cleanup() { rm -rf "$LOCK"; }
+HAVE_LOCK=0
+# Only ever remove a lock this pulse still owns (M1): a skipped second pulse must not delete the running
+# pulse's lock, or a third pulse would start ingestion alongside it.
+cleanup() {
+  [ "$HAVE_LOCK" = 1 ] || return 0
+  [ "$(cat "$LOCK/pid" 2>/dev/null || true)" = "$$" ] || return 0
+  rm -rf "$LOCK"
+}
 trap cleanup EXIT
 trap 'exit 130' INT TERM HUP
 take_lock() {
@@ -42,19 +51,24 @@ take_lock() {
 }
 if ! take_lock; then
   OLD="$(cat "$LOCK/pid" 2>/dev/null || true)"
-  STARTED="$(cat "$LOCK/started" 2>/dev/null || echo 0)"
+  STARTED="$(cat "$LOCK/started" 2>/dev/null || stat -f %m "$LOCK" 2>/dev/null || echo 0)"
   AGE=$(( $(date +%s) - ${STARTED:-0} ))
   if [ -n "$OLD" ] && kill -0 "$OLD" 2>/dev/null && [ "$AGE" -lt "$PULSE_MAX_SECS" ]; then
     echo "skip: nas pulse already running pid $OLD (${AGE}s)"; exit 0
+  fi
+  if [ -z "$OLD" ] && [ "$AGE" -lt 60 ]; then
+    echo "skip: another pulse is taking the nas pulse lock"; exit 0
   fi
   # A pulse older than the bound is wedged; only reclaim our own script, never an unrelated pid.
   if [ -n "$OLD" ] && kill -0 "$OLD" 2>/dev/null && ps -o command= -p "$OLD" 2>/dev/null | grep -q 'pulse-nas\.sh'; then
     log "reclaiming wedged nas pulse pid $OLD (${AGE}s >= ${PULSE_MAX_SECS}s)"
     kill -TERM "$OLD" 2>/dev/null || true; sleep 2; kill -KILL "$OLD" 2>/dev/null || true
   fi
-  rm -rf "$LOCK"
+  # Reclaim only the exact stale lock we inspected; if someone else already replaced it, leave theirs (M1).
+  [ "$(cat "$LOCK/pid" 2>/dev/null || true)" = "$OLD" ] && rm -rf "$LOCK"
   take_lock || { echo "skip: could not take nas pulse lock"; exit 0; }
 fi
+HAVE_LOCK=1
 
 # 0. Bounded reachability probe before anything else. On failure, do nothing remote this round.
 REMOTE="${NAS_REMOTE:-}"
@@ -101,7 +115,13 @@ awk -v l="$LOAD" -v m="$MEM" 'BEGIN{exit !((l+0)>=5 || (m+0)<3)}' && { log "NAS 
 # nas-lane.sh process is gone, or any queued/running record older than MAX_JOB_SECS, is marked failed
 # so it is ingested (claim released, one notice) instead of occupying a slot forever.
 SCAN='docker exec kin-rsi-nas-worker sh -c '"'"'for d in /proc/[0-9]*; do c=$(tr "\0" " " < "$d/cmdline" 2>/dev/null) || continue; case "$c" in *nas-lane.sh*) echo "$c";; esac; done'"'"''
-ALIVE="$(with_timeout "$SSH_T" "${SSH[@]}" "$NAS_HOST" "$SCAN" 2>/dev/null | sed -n 's#.*nas-lane\.sh \([a-z0-9._-]*\).*#\1#p' | sort -u | tr '\n' ' ')" || ALIVE=""
+# Discovery must succeed before it can be trusted (M2): a failed ssh/docker used to leave ALIVE empty,
+# which reconciliation read as "every running worker is dead" and replaced live jobs.
+if ! SCAN_OUT="$(with_timeout "$SSH_T" "${SSH[@]}" "$NAS_HOST" "$SCAN" 2>/dev/null)"; then
+  log "worker process discovery failed (ssh/docker); not reconciling and not starting new work"
+  exit 0
+fi
+ALIVE="$(printf '%s\n' "$SCAN_OUT" | sed -n 's#.*nas-lane\.sh \([a-z0-9._-]*\).*#\1#p' | sort -u | tr '\n' ' ')"
 RUNNING=$(with_timeout "$SSH_T" "${SSH[@]}" "$NAS_HOST" "ALIVE='$ALIVE' MAXJOB='$MAX_JOB_SECS' ROOT='$REMOTE' python3 - <<'PY'
 import json,os,glob,time,sys
 root=os.environ['ROOT']; alive=set(os.environ.get('ALIVE','').split()); mx=int(os.environ['MAXJOB'])
@@ -201,8 +221,9 @@ while IFS=$'\t' read -r SLUG ITEM BRIEF_REL <&3; do
   python3 - "$JOBDIR/job.json" "$ITEM" "$BRIEF" "$STATE/cloud/$SLUG.json" <<'PY' || { log "job.json failed for $SLUG"; unclaim "$SLUG" "job.json failed"; continue; }
 import json,sys,os
 out,item,brief,cf=sys.argv[1:5]
-paths=json.load(open(cf)).get("paths",[]) if os.path.exists(cf) else []
-json.dump(dict(item=item,paths=paths,brief=open(brief).read()), open(out,"w"))
+d=json.load(open(cf)) if os.path.exists(cf) else {}
+# launched_at is this run's identity: ingest only releases a claim whose stamp still matches (M3).
+json.dump(dict(item=item,paths=d.get("paths",[]),launched_at=d.get("launched_at"),brief=open(brief).read()), open(out,"w"))
 PY
 
   if ! with_timeout "$SSH_T" "${SSH[@]}" "$NAS_HOST" "mkdir -p '$REMOTE/work/jobs/$SLUG' '$REMOTE/work/logs'"; then
