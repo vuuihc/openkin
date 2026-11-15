@@ -13,6 +13,10 @@ MAIN_CHECKOUT="$HOME/Workspace/study/kin-multidevice"   # read-only for the loop
 NODE_BIN="$(ls -d "$HOME"/.nvm/versions/node/*/bin 2>/dev/null | sort -V | tail -1 || true)"
 export PATH="$HOME/.local/bin:$HOME/Library/pnpm:/opt/homebrew/bin:/usr/local/go/bin:$HOME/go/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 [ -n "$NODE_BIN" ] && export PATH="$NODE_BIN:$PATH"
+# Heavy-command shims (npm/npx/go): builds, full tests and tsc run one at a time machine-wide (see heavy.sh).
+# The first full parallel fill put this 16 GB Mac at load 300+ and swap 90% because three builds/test runs overlapped.
+export PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/shim:$PATH"
+export RSI_HEAVY_SLOTS="${RSI_HEAVY_SLOTS:-1}" UV_THREADPOOL_SIZE="${UV_THREADPOOL_SIZE:-4}"
 
 CLAUDE="$HOME/.local/bin/claude"
 GIT=/usr/bin/git
