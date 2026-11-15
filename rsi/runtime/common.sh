@@ -34,7 +34,7 @@ BUDGET_GUARD="${BUDGET_GUARD:-15}"
 
 # --- Parallel lanes (CEO 2026-11-15) ---
 export RSI_STATE="$STATE"
-export RSI_MAX_LANES="${RSI_MAX_LANES:-3}"        # worker lanes; the merge lane is separate. Drop to 2 if the Mac overloads.
+export RSI_MAX_LANES="${RSI_MAX_LANES:-2}"        # worker lanes; the merge lane is separate. 3 swamped this 16 GB Mac (swap 90%, load 100+) -> 2.
 export RSI_LOAD_MAX="${RSI_LOAD_MAX:-28}"          # 1-min loadavg above which no new lane is started
 export VITEST_MAX_WORKERS="${VITEST_MAX_WORKERS:-2}"  # three lanes of default-parallel vitest overload 8 cores
 LANE_WORKER_SECS="${LANE_WORKER_SECS:-2400}"       # worker watchdog (~40 min); director slices to ~25 min / <= $5

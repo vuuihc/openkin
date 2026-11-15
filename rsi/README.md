@@ -7,8 +7,8 @@ launchd every 20 min (+ whenever a lane finishes) ─► run.sh pulse = FILL: di
         │   rework sendbacks → idle lanes automatically; queue → ≤25 min / ≤$5 / ≲400-line slices, each declaring its paths
         ▼   lanes.py claim REFUSES overlapping paths between active lanes
  worker lane 1 ┐   lane.sh run N: worktree ~/.kin/worktrees/rsi-<slug> (branch rsi/<slug>) → worker (deepseek flash, 40 min watchdog,
- worker lane 2 ├─►   $6 guard) → push → PR → hand over          (own lock per lane; RSI_MAX_LANES=3, vitest workers=2)
- worker lane 3 ┘
+ worker lane 2 ├─►   $6 guard) → push → PR → hand over          (own lock per lane; default RSI_MAX_LANES=2 (3 supported), vitest workers=2)
+ (lane 3 only if RSI_MAX_LANES=3) ┘
         ▼
  launchd every 10 min (+ after each lane) ─► merge.sh = MERGE LANE (one at a time, oldest PR first)
         merge origin/main into the branch (never force-push; web/dist/index.html conflicts auto-rebuilt) → hold rules →
@@ -24,7 +24,7 @@ Control worktree: `~/.kin/worktrees/rsi-ceo` (branch `rsi/ceo-loop`, owned by th
 Operate:
 - Status: `rsi/runtime/run.sh --status` (lanes, flags, counters, merge lane, merged.log) · `cat rsi/state/STATUS.md` · logs in `rsi/runtime/runs/` (`*-laneN.log`, `*-dispatch-laneN-<slug>-worker.jsonl`, `gate-merge-*.log`, `launchd-merge.log`) · reports in `rsi/state/reports/`.
 - Pause everything: `touch rsi/state/PAUSE` (lanes in flight finish; nothing new starts) · resume: `rm` it. Stop merging only: `touch rsi/state/NO_MERGE` (merge lane still verifies, never merges).
-- Fewer lanes (machine overloaded): `RSI_MAX_LANES=2` in `runtime/common.sh` (or the launchd plist env); lane 3 simply stops being filled. Serial mode = `RSI_MAX_LANES=1`.
+- Fewer lanes (machine overloaded): `RSI_MAX_LANES=2` (the default; 3 is supported but swamped this 16 GB Mac). Serial mode = `RSI_MAX_LANES=1`.
 - Fill now: `rsi/runtime/run.sh pulse --force` · merge lane now: `rsi/runtime/merge.sh` (`--dry-run` to list) · one lane by hand: claim with `lanes.py claim N --slug S --item ID --brief FILE --paths P…` then `rsi/runtime/lane.sh run N`.
 - Reinstall launchd jobs after editing templates: `rsi/runtime/launchd/install.sh [pulse merge dream daily]`.
 - Dry check: `rsi/runtime/run.sh --check`. Old serial director prompt kept as `runtime/prompts/pulse-serial.md`.

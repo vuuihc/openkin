@@ -22,6 +22,9 @@ CLAIM_TTL = 25 * 60
 LOAD_MAX = float(os.environ.get("RSI_LOAD_MAX", "28"))
 TOO_BROAD = {".", "", "*", "**", "ui", "ui/src", "internal", "web", "docs", "scripts", "desktop", "mobile", "cmd"}
 os.makedirs(os.path.join(LDIR, "history"), exist_ok=True)
+# Lanes above MAX_LANES that are still running (after the limit was lowered) stay visible so claims/merge-lane see them.
+_ex = [int(os.path.basename(f)[:-5]) for f in glob.glob(os.path.join(LDIR, "[0-9]*.json"))]
+ALL_LANES = max([MAX_LANES] + _ex)
 
 
 class Lock:
@@ -68,7 +71,7 @@ def overlap(a, b):
 
 def reap():
     """A running lane whose pid died without finishing becomes `crashed` (idle)."""
-    for n in range(1, MAX_LANES + 1):
+    for n in range(1, ALL_LANES + 1):
         d = load(n)
         if d and d.get("status") == "running" and not alive(d.get("pid", 0)):
             d.update(status="crashed", finished_at=time.time()); save(n, d)
@@ -85,7 +88,7 @@ def fmt(d):
 
 def cmd_status(a):
     reap()
-    for n in range(1, MAX_LANES + 1):
+    for n in range(1, ALL_LANES + 1):
         print(f"lane {n}: {fmt(load(n))}")
     try: print("loadavg1=%.1f max=%.0f" % (os.getloadavg()[0], LOAD_MAX))
     except Exception: pass
@@ -118,7 +121,7 @@ def cmd_claim(a):
         if not 1 <= a.lane <= MAX_LANES: print("REFUSED: no such lane"); sys.exit(4)
         cur = load(a.lane)
         if is_active(cur): print(f"REFUSED: lane {a.lane} busy ({cur.get('slug')})"); sys.exit(4)
-        for n in range(1, MAX_LANES + 1):
+        for n in range(1, ALL_LANES + 1):
             o = load(n)
             if n == a.lane or not is_active(o): continue
             if o.get("slug") == a.slug: print(f"REFUSED: slug {a.slug} already active in lane {n}"); sys.exit(3)
@@ -151,13 +154,13 @@ def cmd_finish(a):
 def cmd_claimed(a):
     with Lock():
         reap()
-        for n in range(1, MAX_LANES + 1):
+        for n in range(1, ALL_LANES + 1):
             d = load(n)
             if d and d.get("status") == "claimed" and time.time() - d.get("claimed_at", 0) < CLAIM_TTL: print(n)
 
 def cmd_slugs(a):  # slugs of active lanes (merge lane must not touch their worktrees)
     reap()
-    for n in range(1, MAX_LANES + 1):
+    for n in range(1, ALL_LANES + 1):
         d = load(n)
         if is_active(d): print(d.get("slug"))
 
