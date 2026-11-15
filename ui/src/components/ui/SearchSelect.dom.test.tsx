@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -302,5 +303,34 @@ describe("short lists", () => {
     await userEvent.click(desktopTrigger());
     expect(screen.queryByRole("combobox")).toBeNull();
     expect(screen.getByRole("listbox")).toBeTruthy();
+  });
+});
+
+// `main.tsx` mounts the app in StrictMode, which double-invokes renders,
+// effects and ref callbacks in development. The walk is the same one a reader
+// makes, run the way the console actually mounts.
+describe("StrictMode", () => {
+  it("opens, chooses and closes under StrictMode", async () => {
+    const onChange = vi.fn();
+    render(
+      <StrictMode>
+        <SearchSelect
+          label="Model"
+          value=""
+          options={OPTIONS}
+          onChange={onChange}
+          searchable
+          searchPlaceholder="Search models"
+          emptyLabel="No matching models"
+        />
+      </StrictMode>,
+    );
+
+    await userEvent.click(desktopTrigger());
+    const list = screen.getByRole("listbox", { name: "Model" });
+    await userEvent.click(within(list).getByRole("option", { name: "Opus 5.5" }));
+
+    expect(onChange).toHaveBeenCalledWith("claude-opus-5-5");
+    expect(screen.queryByRole("listbox")).toBeNull();
   });
 });

@@ -52,6 +52,12 @@ def cloud_expired():
         except Exception: pass
     return out
 
+GATES = {"ux-approved": "ux-proto/APPROVED"}  # gate name -> marker file under state/ (Ethan creates it after looking at the prototype)
+
+def gate_open(s):
+    g = s.get("gate")
+    return (not g) or os.path.exists(os.path.join(STATE, GATES.get(g, "no-such-gate")))
+
 def executor(s):  # cloud only while the programme says so and an earlier hand-off was not left unlaunched
     return "cloud" if s.get("executor") == "cloud" and s["id"] not in cloud_expired() else "local"
 
@@ -92,6 +98,7 @@ def compute():
         i = s["id"]
         if i in done: st = "done"
         elif i in fl: st = "inflight: " + fl[i]
+        elif all(d in done for d in s["deps"]) and not gate_open(s): st = "gated: state/" + GATES.get(s["gate"], s["gate"])
         elif all(d in done for d in s["deps"]): st = "ready"
         else: st = "waiting: " + ",".join(d for d in s["deps"] if d not in done)
         ov = ""
@@ -109,6 +116,12 @@ def compute():
 
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
+    if cmd == "gate-ok":  # gate-ok ITEM -> exit 0 when the item has no closed gate (unknown items are never gated)
+        s = BY.get(sys.argv[2]); sys.exit(0 if (s is None or gate_open(s)) else 1)
+    if cmd == "gates":
+        for s in SL:
+            if s.get("gate"): print("%-4s %-12s %s" % (s["id"], s["gate"], "open" if gate_open(s) else "CLOSED (create state/%s)" % GATES.get(s["gate"], "?")))
+        return
     if cmd == "show":
         print(json.dumps(BY[sys.argv[2]], indent=1, ensure_ascii=False)); return
     rows = compute()
@@ -131,10 +144,12 @@ def main():
     tr = {}
     for s, st, ov in rows:
         k = s["track"]; d = tr.setdefault(k, dict(done=0, inflight=0, ready=0, waiting=0, total=0))
-        d["total"] += 1; d[("inflight" if st.startswith("inflight") else "waiting" if st.startswith("waiting") else st)] += 1
+        d["total"] += 1; d[("inflight" if st.startswith("inflight") else "waiting" if st.startswith(("waiting", "gated")) else st)] += 1
     tot = sum(d["total"] for d in tr.values()); dn = sum(d["done"] for d in tr.values())
     print("Astryx programme: %d/%d slices merged" % (dn, tot))
     for k, d in sorted(tr.items()): print("  track %s: %s" % (k, " ".join("%s=%d" % kv for kv in d.items())))
     for s, st, ov in rows:
         if st.startswith("inflight"): print("  in flight: %-5s %s [%s]" % (s["id"], s["title"], st))
+    g = [s["id"] for s, st, ov in rows if st.startswith("gated")]
+    if g: print("  UX gate closed (waiting for Ethan to create state/ux-proto/APPROVED after viewing the prototype): " + " ".join(g))
 main()

@@ -15,6 +15,18 @@
    "brief": "In flight. Kin-owned facade API; implementation swaps to Astryx in F5a/F5b."
   },
   {
+   "id": "V1",
+   "track": "V",
+   "title": "Seeded fixtures for the journey walk (so UX review sees populated screens)",
+   "deps": [],
+   "size": "M",
+   "paths": [
+    "scripts/journeys_seed.py",
+    "scripts/journeys_seed_test.py"
+   ],
+   "brief": "The UX gate walks the real console on a throwaway daemon (rsi/runtime/ux-walk.sh runs scripts/journeys_seed.py with KIN_BASE and KIN_TOKEN when it exists). Today the daemon is empty, so reviewers only see empty states. Write scripts/journeys_seed.py: through the public HTTP API / the fake agent the tests use (find it under internal/), create: two devices' worth of conversations in states running, waiting-approval (one pending approval card), done, failed, archived across 2-3 projects (placeholder names only, no real hosts/emails), one project with a current focus, three routines (ok, failed, paused). Idempotent; never touches anything but the given KIN_BASE; exits 0 and prints what it created; a state the API cannot produce is skipped with a printed reason (no schema/API changes). Add a small test or dry-run flag. No ui/ changes."
+  },
+  {
    "id": "F1",
    "track": "F",
    "title": "Tailwind 4 compatibility layer",
@@ -36,7 +48,8 @@
    "track": "F",
    "title": "React 19 upgrade",
    "deps": [
-    "F1"
+    "F1",
+    "V1"
    ],
    "size": "M",
    "paths": [
@@ -383,7 +396,8 @@
     "ui/src/components/layout/AreaNav.tsx",
     "ui/src/components/layout/AreaNavigation.dom.test.tsx"
    ],
-   "brief": "Replace the hand-written Sidebar (22 raw buttons) with a four-area nav (conversations/projects/routines/settings) from the area table, selected state, stable header/panel geometry; Mac list+detail two-column; keep TaskSessionHost cache, terminal, approvals, connection gate, tray exceptions. Astryx SideNav behind a Kin AreaNav facade. 1100x760 + 1280x800 screenshots."
+   "brief": "Replace the hand-written Sidebar (22 raw buttons) with a four-area nav (conversations/projects/routines/settings) from the area table, selected state, stable header/panel geometry; Mac list+detail two-column; keep TaskSessionHost cache, terminal, approvals, connection gate, tray exceptions. Astryx SideNav behind a Kin AreaNav facade. 1100x760 + 1280x800 screenshots. UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): Mac rail 208px with labels, auto-compact to a 64px icon rail when the review panel is open or the window is <1280 (tooltips; the needs-you badge on Conversations MUST survive compact); list column ~304px; the list column hides (with a show-list button in the header) when the review panel is expanded or the window <1280 so the chat keeps >=420px; per-area search/scope/selection/scroll preserved across area switches; shortcuts Cmd+1..4 areas, Cmd+N new chat, Cmd+K palette; one primary button per screen ('New' in the list header is secondary). Target look: rsi/ux-proto (clickable prototype; run `python3 -m http.server -d rsi/ux-proto 8765`). ",
+   "gate": "ux-approved"
   },
   {
    "id": "S2",
@@ -401,7 +415,8 @@
     "ui/src/pages/SessionsRoute.tsx",
     "ui/src/pages/StartRoute.tsx"
    ],
-   "brief": "Four real tabs at area roots only (hidden on detail/new/non-general settings), each tab keeps its own stack, filters, scroll, unsaved edit; no horizontal tab swipe; left-edge swipe = back. 390x844 screenshots; update PhoneNavigation/PhonePushTargets tests."
+   "brief": "Four real tabs at area roots only (hidden on detail/new/non-general settings), each tab keeps its own stack, filters, scroll, unsaved edit; no horizontal tab swipe; left-edge swipe = back. 390x844 screenshots; update PhoneNavigation/PhonePushTargets tests. UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): tab bar only at area roots with a needs-you badge on Conversations; 'New' in the list header is secondary; every tap target >=44px; no duplicated screen titles; the project cover's primary CTA is a bottom bar, not crammed in the header; section pages (settings) hide the tab bar. Target look: rsi/ux-proto (clickable prototype; run `python3 -m http.server -d rsi/ux-proto 8765`). ",
+   "gate": "ux-approved"
   },
   {
    "id": "S3",
@@ -417,7 +432,8 @@
     "ui/src/lib/areaTransition.test.ts",
     "ui/src/index.css"
    ],
-   "brief": "Root areas: short fade + slight translate; detail push/pop symmetric; Mac only updates content region; prefers-reduced-motion removes translate; hidden pages never receive keys."
+   "brief": "Root areas: short fade + slight translate; detail push/pop symmetric; Mac only updates content region; prefers-reduced-motion removes translate; hidden pages never receive keys. UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): skeleton only for a block's first load (shell stays mounted); area switch keeps scroll and drafts; reduced-motion removes translate; notification deep link lands on the exact card with a highlight, and Back goes to the conversations root (area parent).",
+   "gate": "ux-approved"
   },
   {
    "id": "C1a",
@@ -478,7 +494,7 @@
    "paths": [
     "ui/src/components/chat/Composer.tsx"
    ],
-   "brief": "Unify Composer bottom row (agent/model/permission/dir) on the facade: one opening pattern, stable height, send/stop buttons on Button, IME and draft semantics preserved."
+   "brief": "Unify Composer bottom row (agent/model/permission/dir) on the facade: one opening pattern, stable height, send/stop buttons on Button, IME and draft semantics preserved. UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): phone: agent/model/permission collapse into ONE run-config chip (e.g. 'Claude Code - Opus - Default') that opens a sheet whose rows open a second-layer option sheet; Mac: three anchored popovers; send/stop are 44px icon buttons on phone, the composer row never wraps; send is the accent only when there is something to send."
   },
   {
    "id": "C2",
@@ -492,7 +508,7 @@
    "paths": [
     "ui/src/pages/NewChatPage.tsx"
    ],
-   "brief": "Migrate NewChatPage (950 lines) controls and layout; draft protection, pending send, cwd param preserved; phone single column, Mac uses the detail region."
+   "brief": "Migrate NewChatPage (950 lines) controls and layout; draft protection, pending send, cwd param preserved; phone single column, Mac uses the detail region. UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): composer-first new chat: project/device chip with recents, run settings visible before sending, Start is the screen's one primary; on send the new conversation row, header and composer are mounted instantly (no skeleton, no blank)."
   },
   {
    "id": "C3a",
@@ -509,7 +525,7 @@
     "ui/src/components/task/TaskHeader.tsx",
     "ui/src/components/task/TaskPanels.tsx"
    ],
-   "brief": "Replace raw buttons/menus/dialogs in the extracted header and panels with facade components; behaviour tests unchanged."
+   "brief": "Replace raw buttons/menus/dialogs in the extracted header and panels with facade components; behaviour tests unchanged. UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): phone header: title row plus a subtitle row carrying the status pill, device/project and branch (the status pill must never wrap); Mac header shows the pill and a panel toggle."
   },
   {
    "id": "C3b",
@@ -525,7 +541,7 @@
     "ui/src/components/task/TaskConversation.tsx",
     "ui/src/pages/TaskDetailPage.tsx"
    ],
-   "brief": "Finish TaskDetail: remaining controls to facade; page becomes route shell; focus/scroll/approval/terminal behaviour verified by existing tests."
+   "brief": "Finish TaskDetail: remaining controls to facade; page becomes route shell; focus/scroll/approval/terminal behaviour verified by existing tests. UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): when an approval is pending it docks above the composer (Allow primary, View scrolls to the inline card) so it is reachable without scrolling; a running conversation keeps the reader pinned to the bottom unless they scrolled up, then offers a 'new activity' pill."
   },
   {
    "id": "C4a",
@@ -557,7 +573,7 @@
     "ui/src/components/cards/UserQuestionCard.tsx",
     "ui/src/components/cards/LimitCard.tsx"
    ],
-   "brief": "Buttons/inputs on facade; approval semantics, hotkeys and focus tests untouched."
+   "brief": "Buttons/inputs on facade; approval semantics, hotkeys and focus tests untouched. UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): approval/question cards: exactly one primary action on screen (approval > send comments > send message > create PR); dock pattern as in C3b; deep link highlights the card."
   },
   {
    "id": "C5a",
@@ -574,7 +590,7 @@
     "ui/src/components/mobile/SessionRowActions.tsx",
     "ui/src/components/mobile/SwipeReveal.tsx"
    ],
-   "brief": "Row menu/actions/swipe-reveal on facade Menu/Button; pin/archive/delete unchanged."
+   "brief": "Row menu/actions/swipe-reveal on facade Menu/Button; pin/archive/delete unchanged. UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): Mac: a '...' button on hover/focus opens an anchored menu (pin/rename/archive/delete); phone: long-press opens a sheet; status is also in words (not colour dots only); needs-you count on the row."
   },
   {
    "id": "C5b",
@@ -591,7 +607,7 @@
     "ui/src/components/sessions/ConversationScopeFilter.tsx",
     "ui/src/components/sessions/SessionToolbar.tsx"
    ],
-   "brief": "All/Pending/Archived as scope of the single collection; filters/search in the URL; keep exact status filters; red tests first (docs/product/components/session-filters.md)."
+   "brief": "All/Pending/Archived as scope of the single collection; filters/search in the URL; keep exact status filters; red tests first (docs/product/components/session-filters.md). UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): scope chips All / Needs you N / Running N / Archived with live counts; needs-you then running sort first inside each project group."
   },
   {
    "id": "C5c",
@@ -627,7 +643,7 @@
     "ui/src/components/workspace/FileQuickOpen.tsx",
     "ui/src/components/workspace/OpenInMenu.tsx"
    ],
-   "brief": "Migrate controls only; no data/diff logic changes."
+   "brief": "Migrate controls only; no data/diff logic changes. UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): right panel is ONE tab container (Changes / Files / Terminal / PR) with an expand toggle; changes shows a turn summary line and a scope control (this turn / branch / uncommitted, only the scopes that have data); long code lines scroll horizontally; opening/expanding it makes the list column yield (see S1) so the chat never drops under 420px; review comments stay one click from 'send to agent'."
   },
   {
    "id": "W2",
@@ -683,7 +699,7 @@
     "ui/src/components/project/ProjectActivity.tsx",
     "ui/src/pages/ProjectDetailPage.tsx"
    ],
-   "brief": "Facade controls; keep One-Pager, focus, heatmap, recent activity, per-section failure independence; return to origin."
+   "brief": "Facade controls; keep One-Pager, focus, heatmap, recent activity, per-section failure independence; return to origin. UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): project cover: Mac primary CTA in the header, phone CTA as a bottom bar; heat map and recent activity unchanged."
   },
   {
    "id": "R3",
@@ -733,7 +749,7 @@
     "ui/src/pages/SettingsPage.tsx",
     "ui/src/components/settings/SettingsPrimitives.tsx"
    ],
-   "brief": "Settings root + tab ids (general/providers/agents/operations/routing/advanced), Mac inner left column, phone section stack; label/hint/error/aria wiring unified; leave guard and tab URL tests preserved."
+   "brief": "Settings root + tab ids (general/providers/agents/operations/routing/advanced), Mac inner left column, phone section stack; label/hint/error/aria wiring unified; leave guard and tab URL tests preserved. UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): phone settings = grouped list -> section page (no tab strip), Mac = inner left column + form; 'Agent operations' reachable in two taps; each field has label, hint, error wired."
   },
   {
    "id": "E2",
@@ -873,7 +889,7 @@
     "scripts/journeys-smoke.sh",
     "scripts/journeys_smoke.py"
    ],
-   "brief": "Scripted browser run of the seven journeys against a throwaway daemon with screenshots saved under rsi/state/shots/journeys/."
+   "brief": "Build on rsi/runtime/ux/walk.mjs + journeys.json (landed with the UX gate PR): add scripts/journeys-smoke.sh that runs the full J1-J7 walk with seeded data (V1) at 390/1100/1280 on a throwaway daemon, saves under rsi/state/shots/journeys/, and prints a table next to the prototype's screens (rsi/state/ux-proto/final). Extend journeys.json steps for the new areas once they exist (area switch state preserved, deep-link highlight, offline banner)."
   },
   {
    "id": "G4",
@@ -887,7 +903,7 @@
    "paths": [
     "docs/plans/2026-11-14-ux-unification.md"
    ],
-   "brief": "Fill the plan section 3 measured table, bundle raw/gzip/CSS before-after, inventory numbers, red/unverified list, evidence links; this is the single acceptance note for Ethan."
+   "brief": "Fill the plan section 3 measured table, bundle raw/gzip/CSS before-after, inventory numbers, red/unverified list, evidence links; this is the single acceptance note for Ethan. The acceptance note must include a side-by-side of each journey's final screenshot vs the approved prototype and the UX gate scores of the last PR per area."
   }
  ]
 }
