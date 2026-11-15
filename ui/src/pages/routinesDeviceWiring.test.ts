@@ -15,6 +15,8 @@ import { describe, expect, it } from "vitest";
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 const PAGE = readFileSync(join(UI, "src/pages/RoutinesPage.tsx"), "utf8");
+// The form's directory control lives in the editor component now.
+const EDITOR = readFileSync(join(UI, "src/components/routine/RoutineEditor.tsx"), "utf8");
 const APP = readFileSync(join(UI, "src/App.tsx"), "utf8");
 
 describe("the routines page and its machine", () => {
@@ -53,16 +55,14 @@ describe("the routines page and its machine", () => {
   });
 
   it("sends the machine with every routine request", () => {
-    expect(PAGE).toContain(
-      "listRoutines({ limit: 100, q: routineQuery.trim() || undefined }, deviceId)",
-    );
-    expect(PAGE).toContain("listRoutineRuns(80, deviceId)");
+    expect(PAGE).toContain("listRoutines({ limit: 100, q: query }, deviceId)");
+    expect(PAGE).toContain("listRoutineRuns(ROUTINE_HISTORY_PAGE, deviceId)");
     expect(PAGE).toContain("patchRoutine(r.id, { enabled: !r.enabled }, view.deviceId)");
     expect(PAGE).toContain("deleteRoutine(r.id, view.deviceId)");
     expect(PAGE).toContain("runRoutineNow(r.id, view.deviceId)");
     expect(PAGE).toContain("markRoutineRunRead(taskId, view.deviceId)");
     expect(PAGE).toContain("markAllRoutineRunsRead(view.deviceId)");
-    expect(PAGE).toContain("device={deviceId || undefined}");
+    expect(EDITOR).toContain("device={deviceId || undefined}");
   });
 
   it("widens the retry instead of polling a sleeping machine forever", () => {
