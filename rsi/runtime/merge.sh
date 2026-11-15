@@ -196,6 +196,31 @@ ci_state() { # prints green|pending|fail ; waits (bounded) while pending
   echo green
 }
 
+# A gate or CI failure is mechanical when every failing test is outside the PR's
+# touched packages, or is a known-flaky name (runtime/flaky-tests.txt): rerun
+# once and do not count it as a quality sendback. Rework lanes cannot fix tests
+# they were not allowed to touch, so we also do not kick a worker.
+outside_tests_only() { # worktree log [summary] — writes $STATE/merge/$SLUG.outside-reason.txt
+  local wt="$1" log="$2" sum="${3:-}" reason="$STATE/merge/$SLUG.outside-reason.txt"
+  if python3 "$RSI_DIR/runtime/outside-tests.py" --worktree "$wt" --log "$log" ${sum:+--summary "$sum"} > "$reason" 2>&1; then
+    return 0
+  fi
+  return 1
+}
+fetch_ci_failed_log() { # outfile
+  local out="$1" run
+  run=$(grep -oE 'actions/runs/[0-9]+' "$STATE/merge/$SLUG.ci.txt" 2>/dev/null | head -1 | awk -F/ '{print $3}')
+  [ -n "$run" ] || return 1
+  $GH run view "$run" --repo "$GH_REPO" --log-failed > "$out" 2>/dev/null || return 1
+  [ -s "$out" ]
+}
+rerun_failed_ci() {
+  local run
+  run=$(grep -oE 'actions/runs/[0-9]+' "$STATE/merge/$SLUG.ci.txt" 2>/dev/null | head -1 | awk -F/ '{print $3}')
+  [ -n "$run" ] || return 1
+  $GH run rerun "$run" --failed --repo "$GH_REPO"
+}
+
 $GIT -C "$RSI_CTRL" fetch -q origin main "$BR" 2>/dev/null
 if [ ! -e "$WT" ]; then
   $GIT -C "$RSI_CTRL" worktree add -q "$WT" -B "$BR" "origin/$BR" 2>/dev/null \
@@ -311,7 +336,7 @@ if [ $NEED_REV -eq 1 ]; then
   ( RSI_ITEM="$ITEM" RSI_REVIEW_TIER="$REVTIER_ENV" RSI_NO_HEAVY=1 BUDGET_GUARD=8 DISPATCH_MAX_SECS=1800 "$RSI_DIR/runtime/dispatch.sh" "$ROLE" "$WT" "$RB" "merge-$SLUG-review" > "$PREV.new" 2>&1 ) &
   REVPID=$!; CHILD=$REVPID
 fi
-GATE_OK=1; GATE_NOTE=""
+GATE_OK=1; GATE_NOTE=""; GATE_OUTSIDE=0
 if [ $NEED_GATE -eq 1 ]; then
   say "#$N $SLUG: gate on ${SHA:0:8} ($SIZE lines)"
   if ! mklock "$STATE/.gate.lock" 1800; then GATE_OK=0; GATE_NOTE="gate lock timeout"; say "#$N: gate lock timeout"
@@ -335,7 +360,22 @@ if [ $NEED_GATE -eq 1 ]; then
         else GRC=1; fi
       fi
     fi
-    if [ $GRC -ne 0 ] || ! grep -q '^GATE_RESULT=PASS' "$GL"; then GATE_OK=0; GATE_NOTE="$(grep '^GATE_RESULT' "$GL" | head -1)"; say "#$N $SLUG: gate FAIL: $GATE_NOTE"; fi
+    GATE_OUTSIDE=0
+    if [ $GRC -ne 0 ] || ! grep -q '^GATE_RESULT=PASS' "$GL"; then
+      if outside_tests_only "$WT" "$GL" && [ ! -e "$STATE/merge/$SLUG.gate-outside-retry.$SHA" ]; then
+        touch "$STATE/merge/$SLUG.gate-outside-retry.$SHA"
+        say "#$N $SLUG: gate failed only on tests outside the PR footprint (or known-flaky): $(tr -d '\n' < "$STATE/merge/$SLUG.outside-reason.txt"); rerunning gate once"
+        GL="$RUNS/gate-merge-$SLUG-$(date +%H%M%S).log"
+        if mklock "$STATE/.gate.lock" 1800; then
+          ( cd "$WT" && bash "$RSI_DIR/runtime/gate.sh" "$WT" ) > "$GL" 2>&1; GRC=$?; rm -rf "$STATE/.gate.lock"; $GIT -C "$WT" checkout -q -- . 2>/dev/null
+        else GRC=1; fi
+      fi
+    fi
+    if [ $GRC -ne 0 ] || ! grep -q '^GATE_RESULT=PASS' "$GL"; then
+      GATE_OK=0; GATE_NOTE="$(grep '^GATE_RESULT' "$GL" | head -1)"
+      outside_tests_only "$WT" "$GL" && GATE_OUTSIDE=1
+      say "#$N $SLUG: gate FAIL: $GATE_NOTE$([ $GATE_OUTSIDE -eq 1 ] && echo ' (outside-footprint or known-flaky tests)')"
+    fi
   fi
 fi
 if [ -n "$REVPID" ]; then
@@ -422,6 +462,10 @@ if [ $GATE_OK -eq 0 ] && [ "${REV_REUSED:-0}" -eq 0 ]; then
 fi
 RMODEL="$(tr -d "\n" < "$STATE/merge/$SLUG.review-model" 2>/dev/null || true)"; RMODEL="${RMODEL:-$([ $ROLE = reviewer ] && echo "$M_DIRECTOR" || echo "$M_CODEX")}"
 if [ $GATE_OK -eq 0 ] || [ $REV_OK -eq 0 ]; then
+  if [ $GATE_OK -eq 0 ] && [ $REV_OK -eq 1 ] && [ "${GATE_OUTSIDE:-0}" -eq 1 ]; then
+    say "#$N $SLUG: gate still failing only on tests outside the PR footprint (or known-flaky) after one rerun — mechanical, not a quality sendback, not kicking a rework lane"
+    exit 0
+  fi
   C="$STATE/merge/$SLUG.combined.txt"; : > "$C"; TITLEBAD=""
   [ $GATE_OK -eq 0 ] && { echo "=== GATE FAILED: $GATE_NOTE ===" >> "$C"; tail -c 3500 "$GL" >> "$C" 2>/dev/null; echo >> "$C"; TITLEBAD="gate failed: $GATE_NOTE"; }
   [ $REV_OK -eq 0 ] && { echo "=== INDEPENDENT REVIEW: $REV_NOTE ===" >> "$C"; tail -c 3500 "$PREV" >> "$C"; echo >> "$C"; TITLEBAD="${TITLEBAD:+$TITLEBAD; }$REV_NOTE"; }
@@ -494,7 +538,23 @@ if [ -e "$STATE/NO_MERGE" ]; then say "#$N $SLUG: verified, NO_MERGE set -> not 
 for round in 1 2 3; do
   CIS="$(ci_state)"
   [ "$CIS" = pending ] && { say "#$N $SLUG: CI still pending, retry next cycle"; exit 0; }
-  [ "$CIS" = fail ] && { sendback "$SLUG" "$ITEM" "CI failed" "$STATE/merge/$SLUG.ci.txt"; exit 0; }
+  [ "$CIS" = fail ] && {
+    CLOG="$STATE/merge/$SLUG.ci-log.txt"
+    if fetch_ci_failed_log "$CLOG" && outside_tests_only "$WT" "$CLOG" "$STATE/merge/$SLUG.ci.txt"; then
+      if [ ! -e "$STATE/merge/$SLUG.ci-outside-retry.$SHA" ]; then
+        touch "$STATE/merge/$SLUG.ci-outside-retry.$SHA"
+        if rerun_failed_ci; then
+          say "#$N $SLUG: CI failed only on tests outside the PR footprint (or known-flaky): $(tr -d '\n' < "$STATE/merge/$SLUG.outside-reason.txt"); reran the failed jobs once — not a quality sendback"
+        else
+          say "#$N $SLUG: CI failed only on tests outside the PR footprint (or known-flaky) but could not rerun the jobs; retry next cycle — not a quality sendback"
+        fi
+        exit 0
+      fi
+      say "#$N $SLUG: CI still failing only on tests outside the PR footprint (or known-flaky) after one rerun — mechanical, not a quality sendback, not kicking a rework lane"
+      exit 0
+    fi
+    sendback "$SLUG" "$ITEM" "CI failed" "$STATE/merge/$SLUG.ci.txt"; exit 0
+  }
   mklock "$STATE/.land.lock" 900 || { say "#$N: land lock timeout"; exit 0; }
   $GIT -C "$WT" fetch -q origin main 2>/dev/null
   if $GIT -C "$WT" merge-base --is-ancestor origin/main HEAD; then
