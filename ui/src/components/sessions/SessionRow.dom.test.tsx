@@ -85,6 +85,7 @@ function props(overrides: Partial<SessionRowProps> = {}): SessionRowProps {
     selectionLocked: false,
     selected: false,
     onToggleSelect: vi.fn(),
+    onStartSelection: vi.fn(),
     onLongPress: vi.fn(),
     swipeOpen: false,
     onSwipeOpenChange: vi.fn(),
@@ -186,19 +187,39 @@ describe("SessionRow", () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 
-  it("Shift Enter enters selection through onToggleSelect and never opens the thread", () => {
+  it("Shift Enter enters selection through onStartSelection and never opens the thread", () => {
     const onToggleSelect = vi.fn();
+    const onStartSelection = vi.fn();
     const onOpen = vi.fn();
-    const { rerender } = render(<SessionRow {...props({ onToggleSelect, onOpen })} />);
+    const { rerender } = render(
+      <SessionRow {...props({ onToggleSelect, onStartSelection, onOpen })} />,
+    );
 
     fireEvent.keyDown(rowButton(/Fix the build/), { key: "Enter", shiftKey: true });
 
+    expect(onStartSelection).toHaveBeenCalledTimes(1);
+    expect(onToggleSelect).not.toHaveBeenCalled();
+    expect(onOpen).not.toHaveBeenCalled();
+
+    // Already in the mode, the same shortcut toggles this row.
+    rerender(
+      <SessionRow
+        {...props({ onToggleSelect, onStartSelection, onOpen, selectionMode: true })}
+      />,
+    );
+    fireEvent.keyDown(rowButton(/Fix the build/), { key: "Enter", shiftKey: true });
     expect(onToggleSelect).toHaveBeenCalledTimes(1);
+    expect(onStartSelection).toHaveBeenCalledTimes(1);
     expect(onOpen).not.toHaveBeenCalled();
 
     // A locked selection refuses the shortcut for the same reason a click is refused.
-    rerender(<SessionRow {...props({ onToggleSelect, onOpen, selectionLocked: true })} />);
+    rerender(
+      <SessionRow
+        {...props({ onToggleSelect, onStartSelection, onOpen, selectionLocked: true })}
+      />,
+    );
     fireEvent.keyDown(rowButton(/Fix the build/), { key: "Enter", shiftKey: true });
+    expect(onStartSelection).toHaveBeenCalledTimes(1);
     expect(onToggleSelect).toHaveBeenCalledTimes(1);
     expect(onOpen).not.toHaveBeenCalled();
   });
