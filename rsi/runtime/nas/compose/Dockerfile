@@ -6,7 +6,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g @anthropic-ai/claude-code \
     && git config --system --add safe.directory '*'
-# node image already has uid 1000 `node`, matching the NAS user zhushihao.
+# node image already has uid 1000 `node`, matching the NAS account configured in docker-compose.yml.
 USER node
 WORKDIR /work
 ENTRYPOINT ["tini", "--"]

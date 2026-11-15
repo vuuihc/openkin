@@ -78,7 +78,8 @@ You are the WORKER for RSI item $ITEM in the git worktree \`$WT\` on branch \`$B
 - If \`ui/\` would need a production build, say so in the PR body; do not run \`npm run build\` here.
 - UI ratchet: do not grow raw \`<button>\`, \`createPortal\`, or numeric \`z-[n]\` unless the brief sanctions \`--update\`. Do not run the ratchet script unless it is a one-liner you already know is instant.
 - Commit everything with Conventional Commits (explicit paths). Leave the tree clean.
-- Before you finish write the PR body to \`$PRB\` with sections: Summary · What the user sees now · Tests (names; note that NAS did not run the full suite) · Risk · Screenshots (\`Screenshots: none: NAS worker has no desktop browser\`) · and a line \`RSI item: $ITEM\`.
+- Before you finish write the PR body to \`$PRB\` with sections: Summary · What the user sees now · Tests (names; note that NAS did not run the full suite) · Risk · Screenshots · and a line \`RSI item: $ITEM\`.
+- Screenshots are a merge gate, not a formality. If your change has any rendered effect (files under \`ui/src\`), write \`Screenshots: pending Mac capture at 390x844 and 1100x760\` and list the screens/surfaces you changed. The Mac holds the PR until those shots exist; do not claim there is nothing to see. Only when the change cannot change any pixel, write \`Screenshots: none: <why it is not visible>\`.
 - Final message: files changed, tests added, residual risk.
 HD
 echo; echo "# Brief (from the director)"; python3 -c "import json;print(json.load(open('$J/job.json'))['brief'])"
@@ -114,10 +115,10 @@ printf '\nNAS lane hand-over: agent thinking only (no full tsc/vitest/build on t
 TITLE="$(git -C "$WT" log -1 --format=%s "$BASE"..HEAD | head -1)"
 git -C "$WT" bundle create "$J/bundle" "$BASE".."$BR" || fail "bundle"
 python3 - "$J" "$TITLE" "$(git -C "$WT" rev-parse "$BASE")" <<'PY'
-import json,sys
+import json,os,sys
 j,t,base=sys.argv[1:4]
 d=json.load(open(j+"/status.json"))
 d.update(status="done",pr_title=t,base=base,phase="done",selfcheck="deferred-to-mac")
-json.dump(d,open(j+"/status.json","w"))
+tmp=j+"/status.json.tmp"; json.dump(d,open(tmp,"w")); os.replace(tmp,j+"/status.json")
 PY
 echo "[$(date +%T)] nas lane done $SLUG"

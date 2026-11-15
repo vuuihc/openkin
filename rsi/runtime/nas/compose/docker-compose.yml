@@ -28,9 +28,11 @@ services:
       HOME: /work/home
       ANTHROPIC_BASE_URL: http://host.docker.internal:3425
     volumes:
-      - /home/zhushihao/kin-rsi-nas/work:/work
-      - /home/zhushihao/kin-rsi-nas/secrets:/secrets:ro
-      - /home/zhushihao/kin-rsi-nas/nas-side:/opt/rsi:ro
+      # KIN_RSI_NAS_ROOT comes from the .env install-nas.sh generates on the NAS; no account path is
+      # committed. Compose fails loudly instead of mounting "/work" if the file is missing.
+      - ${KIN_RSI_NAS_ROOT:?set KIN_RSI_NAS_ROOT in .env (install-nas.sh writes it)}/work:/work
+      - ${KIN_RSI_NAS_ROOT:?set KIN_RSI_NAS_ROOT in .env (install-nas.sh writes it)}/secrets:/secrets:ro
+      - ${KIN_RSI_NAS_ROOT:?set KIN_RSI_NAS_ROOT in .env (install-nas.sh writes it)}/nas-side:/opt/rsi:ro
     networks:
       - kin-rsi-nas
     # No ports. No privileged. No host/macvlan.
