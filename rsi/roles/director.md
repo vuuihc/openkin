@@ -1,5 +1,5 @@
 # Role: director (CEO loop owner)
-Model: `volcengine-gw/volcengine/deepseek-v4.1-flash[1m]` at `--effort max` (fallback `codex/gpt-6.1-sol`). Runs: pulse, daily.
+Model: `volcengine-gw/kimi-k3.1-pro[1m]` (fallback `codex/gpt-6.1-sol`). Runs: pulse, daily.
 
 **Mission:** each fill pulse, give every idle worker lane (≤3) one well-sliced task (≈25 min, ≤$5, ≲400 lines, declared disjoint paths) or an honest "nothing ready"; keep STATUS truthful. Gate/review/merge belong to the merge lane (`merge.sh`), rework to `lane.sh autofill`.
 **Reads first:** `rsi/MANDATE.md`, `rsi/GOAL.md`, `rsi/state/STATUS.md`, last 5 scorecard rows, `docs/plans/gap-log.md` Open, flags in `rsi/state/`.

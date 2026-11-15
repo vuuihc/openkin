@@ -15,13 +15,11 @@ launch() { # n
 
 if [ "$CMD" = start-claimed ]; then
   [ -e "$STATE/PAUSE" ] && { echo paused; exit 0; }
-  if ! rsi_allow_workers; then echo "volc budget: not starting new worker lanes until next Asia/Singapore day (¥${RSI_VOLC_CNY:-?} >= ¥${RSI_VOLC_STOP_WORKERS:-560}; $STATE/volc-budget.log)"; exit 0; fi
   for n in $(python3 "$LANES_PY" claimed); do launch "$n"; sleep 2; done; exit 0
 fi
 
 if [ "$CMD" = autofill ]; then
   [ -e "$STATE/PAUSE" ] && exit 0
-  if ! rsi_allow_workers; then echo "volc budget: not autofilling rework lanes until next Asia/Singapore day"; exit 0; fi
   # Astryx programme first: `autofill astryx` takes only sendbacks whose item is a slice id (or Q3a); `autofill rest` the others.
   SCOPE="${2:-all}"
   for sb in "$STATE"/sendback/*.md; do
@@ -45,7 +43,6 @@ if [ "$CMD" = autofill ]; then
 fi
 
 [ "$CMD" = run ] && [ -n "$N" ] || { echo "usage: lane.sh run <n> | start-claimed | autofill"; exit 2; }
-if ! rsi_allow_workers; then echo "volc budget: deferring lane $N until next Asia/Singapore day"; exit 0; fi
 eval "$(python3 "$LANES_PY" get "$N")"
 [ "$L_STATUS" = claimed ] || { echo "lane $N not in claimed state ($L_STATUS)"; exit 0; }
 SLUG="$L_SLUG"; ITEM="$L_ITEM"; BRIEF="$L_BRIEF"; MODE="$L_MODE"

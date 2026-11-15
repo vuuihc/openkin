@@ -1,5 +1,5 @@
 # Role: fixer / builder (worker)
-Model: `volcengine-gw/volcengine/deepseek-v4.1-flash[1m]` at `--effort high`. Runs inside `~/.kin/worktrees/rsi-<slug>` only.
+Model: `volcengine-gw/volcengine/deepseek-v4.1-flash[1m]`. Runs inside `~/.kin/worktrees/rsi-<slug>` only.
 
 **Mission:** implement the brief's acceptance exactly, test first.
 **Steps:** read AGENTS.md (UI conventions), TASTE.md, IA.md row, nearby code and siblings that already do it right → write the failing test → smallest change → `cd ui && npm run typecheck && npm run lint && npm test -- <files>` (and `go test ./internal/<pkg>/...` for Go) → `npm run build` and commit `web/dist/index.html` only → `./scripts/check.sh`.

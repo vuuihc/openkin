@@ -157,7 +157,7 @@ for l in sys.stdin:
 print(" ".join(sorted(set(bad))))') )"
   [ -z "$BAD" ] && HOLD="" || HOLD="package.json change outside the Astryx programme packages: $BAD"
 fi
-[ "$SIZE" -gt 1000 ] && HOLD="diff is $SIZE changed lines (>1000): split it"
+[ "$SIZE" -gt 800 ] && HOLD="diff is $SIZE changed lines (>800): split it"
 echo "$CH" | grep -qE '^web/dist/assets/' && HOLD="web/dist/assets in diff"
 if [ -n "$HOLD" ]; then
   if [ "${HOLD#diff is}" != "$HOLD" ]; then printf '%s\n' "$HOLD" > "$STATE/merge/$SLUG.err"; sendback "$SLUG" "$ITEM" "$HOLD" "$STATE/merge/$SLUG.err"
@@ -177,9 +177,11 @@ fi
 DH="$($GIT -C "$WT" diff origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | shasum | cut -c1-16)"
 NEED_GATE=1; [ "$(cut -d' ' -f1 "$V" 2>/dev/null)" = "$SHA" ] && [ "$(cut -d' ' -f2 "$V" 2>/dev/null)" = PASS ] && NEED_GATE=0
 NEED_REV=1;  [ "$(cut -d' ' -f1 "$RV" 2>/dev/null)" = "$DH" ] && [ "$(cut -d' ' -f2 "$RV" 2>/dev/null)" = PASS ] && NEED_REV=0
-ROLE=reviewer
-echo "$CH" | grep -qE '^(internal/(auth|store|permission)|.*(permission|persist))' && ROLE=reviewer-alt
-[ "$SIZE" -gt 500 ] && ROLE=reviewer-alt
+# MANDATE 2: the reviewer must be a different model from the worker. Workers run on $M_WORKER
+# (DeepSeek), so use the role that is a different family (reviewer-alt = gpt-6.1-sol). Selecting
+# the DeepSeek 'reviewer' here would put the worker's own model on its review.
+ROLE=reviewer-alt
+[ "$M_WORKER" = "$M_ALT" ] && ROLE=reviewer
 GL="$RUNS/gate-merge-$SLUG-$(date +%H%M%S).log"; REVPID=""
 if [ $NEED_REV -eq 1 ]; then
   LASTREV="$(cut -d' ' -f3 "$RV" 2>/dev/null)"   # last reviewed SHA (any verdict)
@@ -236,7 +238,7 @@ if [ -n "$REVPID" ]; then
     if [ "$VERD" != PASS ]; then REV_OK=0; REV_NOTE="independent review FAIL"; say "#$N $SLUG: review FAIL"; fi
   fi
 fi
-RMODEL="$(tr -d "\n" < "$STATE/merge/$SLUG.review-model" 2>/dev/null || true)"; RMODEL="${RMODEL:-$([ $ROLE = reviewer ] && echo "$M_DIRECTOR" || echo "$M_CODEX")}"
+RMODEL="$([ $ROLE = reviewer ] && echo "$M_DIRECTOR" || echo "$M_ALT")"
 if [ $GATE_OK -eq 0 ] || [ $REV_OK -eq 0 ]; then
   C="$STATE/merge/$SLUG.combined.txt"; : > "$C"; TITLEBAD=""
   [ $GATE_OK -eq 0 ] && { echo "=== GATE FAILED: $GATE_NOTE ===" >> "$C"; tail -c 3500 "$GL" >> "$C" 2>/dev/null; echo >> "$C"; TITLEBAD="gate failed: $GATE_NOTE"; }
