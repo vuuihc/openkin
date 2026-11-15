@@ -249,9 +249,9 @@ describe("scale ladders through Tailwind", () => {
     // `tokens.test.ts`'s off-ladder case, so the compiled claim is about the
     // elevation steps themselves. The name is split so this file does not
     // spell the forbidden class in a scanned string.
-    expect(removed.filter((name) => name !== "shad" + "ow-none" && emitted.has(`.${name}`))).toEqual(
-      [],
-    );
+    expect(
+      removed.filter((name) => name !== "shad" + "ow-none" && emitted.has(`.${name}`)),
+    ).toEqual([]);
   });
 });
 
@@ -329,33 +329,60 @@ describe("cascade foundation through the real stylesheet", () => {
     const css = await stylesheet();
     const input = one(css, ".kin-input");
     expect(input.layers).toEqual(["components"]);
-    expect(input.text).toMatch(
-      /(?:&)?::placeholder\s*\{[^}]*color:\s*rgb\(var\(--kin-muted-rgb\)/,
-    );
+    expect(input.text).toMatch(/(?:&)?::placeholder\s*\{[^}]*color:\s*rgb\(var\(--kin-muted-rgb\)/);
     // The default it is overriding is still there, in the earlier layer.
     const base = css.slice(css.indexOf("@layer base"), css.indexOf("@layer utilities"));
     expect(base).toMatch(/::placeholder\s*\{[^}]*color:\s*currentcolor/);
+    // v3 painted every placeholder `colors.gray.400` (#9ca3af); the config
+    // assigns its own palette, so v3 itself fell back to that hex. The
+    // compatibility rule restores it for fields with neither `.kin-input` nor a
+    // `placeholder:` utility, and sits after preflight inside `base`, so the
+    // muted token above still wins from the later layer.
+    const legacy = one(css, "input::placeholder, textarea::placeholder");
+    expect(legacy.layers).toEqual(["base"]);
+    expect(legacy.text).toContain("color: #9ca3af");
+  });
+
+  it("restores v3 preflight's pointer cursor on buttons", async () => {
+    // v3 preflight gave `button` and `[role="button"]` a pointer cursor; v4
+    // removed the rule, which changes the desktop cursor over every
+    // `.kin-btn-*`. `cursor-*` utilities still sort later, so an explicit
+    // choice wins.
+    const css = await stylesheet();
+    const pointer = one(css, 'button, [role="button"]');
+    expect(pointer.layers).toEqual(["base"]);
+    expect(pointer.text).toContain("cursor: pointer");
+    expect(one(css, ":disabled").text).toContain("cursor: default");
   });
 
   it("keeps outline-none and forced-colors focus behavior explicit", async () => {
-    // Tailwind 4 split v3's single `outline-none` in two: `outline-none` now
+    // Tailwind 4 split v3's single `outline-none` in two: the bare utility now
     // only sets `outline-style: none`, and the forced-colors transparent
-    // outline moved to `outline-hidden`. Pin both meanings so a future change
-    // cannot remove the Windows High Contrast fallback silently, and keep the
-    // visible indicator `.kin-input` already draws for everyone else.
-    const css = await utilities("outline-none outline-hidden");
-    const none = one(css, ".outline-none").text;
-    expect(none).toContain("--tw-outline-style: none");
-    expect(none).toContain("outline-style: none");
-    expect(none).not.toContain("forced-colors");
-    const hidden = one(css, ".outline-hidden").text;
-    expect(hidden).toContain("forced-colors");
-    expect(hidden).toContain("outline: 2px solid transparent");
+    // outline moved to `outline-hidden`. Every existing call site was written
+    // against the v3 meaning, so `index.css` redefines the utility. This case
+    // compiles the real stylesheet and checks the emitted rules, not the
+    // source: delete the `@utility` block and the forced-colors assertions
+    // fail on `.outline-none` and on `.kin-input`'s `@apply` alike.
+    const css = await stylesheet(["outline-none"]);
+    const none = one(css, ".outline-none");
+    expect(none.layers).toEqual(["utilities"]);
+    expect(none.text).toContain("--tw-outline-style: none");
+    expect(none.text).toContain("outline-style: none");
+    expect(none.text).toContain("forced-colors");
+    expect(none.text).toContain("outline: 2px solid transparent");
+    // `outline-hidden` keeps saying the same thing, so a future migration to
+    // the new name is a rename and not a behaviour change.
+    const hidden = one(await utilities("outline-hidden"), ".outline-hidden");
+    expect(hidden.text).toContain("forced-colors");
+    expect(hidden.text).toContain("outline: 2px solid transparent");
     // The accessible answer for the filled/boxed controls is not `outline`;
     // it is the focus ring on the token, which the stylesheet must still emit.
-    const input = one(await stylesheet(), ".kin-input").text;
-    expect(input).toContain("--tw-ring-color: var(--kin-focus-ring)");
-    expect(input).toContain("--tw-ring-shadow");
+    const input = one(css, ".kin-input");
+    expect(input.text).toContain("--tw-ring-color: var(--kin-focus-ring)");
+    expect(input.text).toContain("--tw-ring-shadow");
+    // `.kin-input` spends `outline-none` through `@apply`, so the composed
+    // rule is the evidence that the control keeps its High Contrast indicator.
+    expect(input.text).toContain("forced-colors");
   });
 
   it("compiles custom button compositions without applying a custom class", async () => {
@@ -366,10 +393,7 @@ describe("cascade foundation through the real stylesheet", () => {
     // Comments go first: this file names the forbidden composition in prose,
     // and a scan that failed on its own explanation would be a guard nobody
     // keeps.
-    const source = readFileSync(join(UI, "src/index.css"), "utf8").replace(
-      /\/\*[\s\S]*?\*\//g,
-      "",
-    );
+    const source = readFileSync(join(UI, "src/index.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
     expect(source).not.toMatch(/@apply[^;]*\bkin-btn\b/);
     const shared = one(
       css,
@@ -391,10 +415,34 @@ describe("cascade foundation through the real stylesheet", () => {
       });
     }
     const variants: [string, string[]][] = [
-      [".kin-btn-primary", ["background-color: rgb(var(--kin-blue-rgb) / 1)", "color: var(--kin-on-brand)", "brightness(110%)"]],
-      [".kin-btn-secondary", ["border-color: var(--kin-hairline-strong)", "background-color: var(--kin-fill)", "background-color: var(--kin-fill-strong)"]],
-      [".kin-btn-approve", ["background-color: rgb(var(--kin-orange-rgb) / 1)", "color: var(--kin-on-status)", "brightness(110%)"]],
-      [".kin-btn-deny", ["border-color: var(--kin-hairline-strong)", "background-color: var(--kin-fill)"]],
+      [
+        ".kin-btn-primary",
+        [
+          "background-color: rgb(var(--kin-blue-rgb) / 1)",
+          "color: var(--kin-on-brand)",
+          "brightness(110%)",
+        ],
+      ],
+      [
+        ".kin-btn-secondary",
+        [
+          "border-color: var(--kin-hairline-strong)",
+          "background-color: var(--kin-fill)",
+          "background-color: var(--kin-fill-strong)",
+        ],
+      ],
+      [
+        ".kin-btn-approve",
+        [
+          "background-color: rgb(var(--kin-orange-rgb) / 1)",
+          "color: var(--kin-on-status)",
+          "brightness(110%)",
+        ],
+      ],
+      [
+        ".kin-btn-deny",
+        ["border-color: var(--kin-hairline-strong)", "background-color: var(--kin-fill)"],
+      ],
     ];
     for (const [selector, declarations] of variants) {
       const rule = one(css, selector);

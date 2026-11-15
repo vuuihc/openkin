@@ -109,9 +109,40 @@ function names(values: string[]): Record<string, string> {
  * system, so `sidebar`, `page` and the container ladder cannot drift.
  */
 const SPACING_STEPS = [
-  "0", "0.5", "1", "1.5", "2", "2.5", "3", "3.5", "4", "5", "6", "7", "8", "9",
-  "10", "11", "12", "14", "16", "20", "24", "28", "32", "36", "40", "44", "48",
-  "52", "56", "60", "64", "72", "80", "96",
+  "0",
+  "0.5",
+  "1",
+  "1.5",
+  "2",
+  "2.5",
+  "3",
+  "3.5",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9",
+  "10",
+  "11",
+  "12",
+  "14",
+  "16",
+  "20",
+  "24",
+  "28",
+  "32",
+  "36",
+  "40",
+  "44",
+  "48",
+  "52",
+  "56",
+  "60",
+  "64",
+  "72",
+  "80",
+  "96",
 ];
 const CONTAINERS = Object.keys(namespace("--container-"));
 
@@ -127,23 +158,55 @@ const theme = {
     ...SPACING_STEPS,
     ...Object.keys(namespace("--width-")),
     ...CONTAINERS,
-    "auto", "px", "full", "screen", "min", "max", "fit", "svw", "lvw", "dvw",
+    "auto",
+    "px",
+    "full",
+    "screen",
+    "min",
+    "max",
+    "fit",
+    "svw",
+    "lvw",
+    "dvw",
   ]),
   maxWidth: names([
     ...CONTAINERS,
     ...Object.keys(namespace("--max-width-")),
-    "0", "none", "full", "min", "max", "fit", "prose", "screen", "px",
+    "0",
+    "none",
+    "full",
+    "min",
+    "max",
+    "fit",
+    "prose",
+    "screen",
+    "px",
   ]),
   minWidth: names([
     ...SPACING_STEPS,
     ...Object.keys(namespace("--min-width-")),
     ...CONTAINERS,
-    "0", "full", "min", "max", "fit", "px", "auto",
+    "0",
+    "full",
+    "min",
+    "max",
+    "fit",
+    "px",
+    "auto",
   ]),
   minHeight: names([
     ...SPACING_STEPS,
     ...Object.keys(namespace("--min-height-")),
-    "0", "full", "screen", "svh", "lvh", "dvh", "min", "max", "fit", "auto",
+    "0",
+    "full",
+    "screen",
+    "svh",
+    "lvh",
+    "dvh",
+    "min",
+    "max",
+    "fit",
+    "auto",
   ]),
 } as unknown as Record<string, Record<string, string>>;
 
@@ -950,9 +1013,9 @@ describe("design tokens", () => {
       // from being a guess: every step it names has to compile. Tailwind 4's
       // radius namespace holds the sized steps and `full` is a static utility,
       // so asking the compiler covers both without copying `9999px` here.
-      expect(RADIUS.filter((name) => design.candidatesToCss([`rounded-${name}`])[0] === null)).toEqual(
-        [],
-      );
+      expect(
+        RADIUS.filter((name) => design.candidatesToCss([`rounded-${name}`])[0] === null),
+      ).toEqual([]);
     });
 
     it("leaves no arbitrary value on an axis the ladder has words for", () => {

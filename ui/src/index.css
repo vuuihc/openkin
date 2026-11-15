@@ -18,6 +18,25 @@
 @config "../tailwind.config.ts";
 
 /*
+  Tailwind 4 split v3's `outline-none` in two: today the name only clears
+  `outline-style`, and the forced-colors fallback moved to `outline-hidden`.
+  Every existing call site was written against the v3 meaning — hide the
+  outline, but leave a 2px transparent one that Windows High Contrast paints —
+  so the utility is redefined here instead of being migrated at 68 sites.
+  `@apply outline-none` resolves through this definition too (`.kin-input`),
+  and the `--tw-outline-style` variable keeps v4's `outline-*` composition
+  working. A future `outline-hidden` stays equivalent.
+*/
+@utility outline-none {
+  --tw-outline-style: none;
+  outline-style: none;
+  @media (forced-colors: active) {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+  }
+}
+
+/*
   The document baseline lives in `base`, not unlayered.
 
   Under Tailwind 3 these element rules and the generated utilities were both
@@ -59,6 +78,34 @@
     font-family: var(--console-font-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  /*
+  Two v3 preflight defaults Tailwind 4 dropped, restored here rather than at
+  the call sites.
+
+  The placeholder colour was `colors.gray.400` (the config assigns its own
+  palette, so v3 itself fell back to #9ca3af); v4 paints currentColor at 50%.
+  Fields that are not `.kin-input` and carry no `placeholder:` utility — the
+  routine editor's textarea and the publish panel's fields among them — would
+  otherwise change colour on upgrade. `.kin-input`'s muted token is a utility
+  rule in a later layer and still wins where it is used.
+
+  `cursor: pointer` for buttons and button roles was v3 preflight; v4 removed
+  it, which would change the desktop cursor over every `.kin-btn-*`.
+  */
+  input::placeholder,
+  textarea::placeholder {
+    color: #9ca3af;
+  }
+
+  button,
+  [role="button"] {
+    cursor: pointer;
+  }
+
+  :disabled {
+    cursor: default;
   }
 
   /*
