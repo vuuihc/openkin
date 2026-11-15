@@ -128,7 +128,10 @@ export function SessionSelectionBar({
   const tr = useT();
   const pinLabel = allPinned ? tr("sessions.unpin") : tr("sessions.pin");
   return (
-    <div className="sticky top-0 z-[3] flex min-h-12 items-center gap-2 border-b border-[var(--kin-hairline)] bg-[var(--kin-page)] px-3 kin-glass">
+    <div
+      data-selection-toolbar
+      className="sticky top-0 z-[3] flex min-h-12 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--kin-hairline)] bg-[var(--kin-page)] px-2.5 py-1.5 kin-glass"
+    >
       <label className="flex min-h-11 items-center gap-2 text-strong font-medium text-kin-text">
         <SelectAllCheckbox
           checked={selectedCount > 0 && selectedCount === selectableCount}
@@ -138,6 +141,9 @@ export function SessionSelectionBar({
         />
         {tr("sessions.selectedCount", { count: String(selectedCount) })}
       </label>
+      {/* Icon-only batch actions keep three 44px targets and Cancel on one
+          line of a 248px sidebar. The viewport `sm:` labels this replaces
+          answered the window's width, not the sidebar's. */}
       <div className="ml-auto flex items-center gap-1.5">
         {scope !== "archived" && (
           <button
@@ -146,10 +152,9 @@ export function SessionSelectionBar({
             disabled={selectedCount === 0 || selectionBusy}
             aria-label={pinLabel}
             title={pinLabel}
-            className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-[var(--kin-fill)] px-2.5 text-body font-medium text-kin-text disabled:opacity-40 sm:px-3"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-[var(--kin-fill)] text-body font-medium text-kin-text disabled:opacity-40"
           >
             <IconPin size={14} />
-            <span className="hidden sm:inline">{pinLabel}</span>
           </button>
         )}
         <button
@@ -158,12 +163,9 @@ export function SessionSelectionBar({
           disabled={selectedCount === 0 || selectionBusy}
           aria-label={tr(scope === "archived" ? "sessions.restore" : "sessions.archive")}
           title={tr(scope === "archived" ? "sessions.restore" : "sessions.archive")}
-          className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-[var(--kin-fill)] px-2.5 text-body font-medium text-kin-text disabled:opacity-40 sm:px-3"
+          className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-[var(--kin-fill)] text-body font-medium text-kin-text disabled:opacity-40"
         >
           {scope === "archived" ? <IconRestore size={14} /> : <IconArchive size={14} />}
-          <span className="hidden sm:inline">
-            {tr(scope === "archived" ? "sessions.restore" : "sessions.archive")}
-          </span>
         </button>
         <button
           type="button"
@@ -172,17 +174,16 @@ export function SessionSelectionBar({
           aria-label={deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")}
           title={deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")}
           aria-busy={deletingSelection || undefined}
-          className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-kin-red/15 px-2.5 text-body font-medium text-kin-red-ink disabled:opacity-40 sm:px-3"
+          className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-kin-red/15 text-body font-medium text-kin-red-ink disabled:opacity-40"
         >
           <IconTrash size={14} />
-          <span className="hidden sm:inline">
-            {deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")}
-          </span>
         </button>
         <button
           type="button"
           onClick={onExit}
-          className="flex min-h-11 min-w-11 items-center justify-center rounded-lg px-2.5 text-body font-medium text-kin-muted hover:text-kin-text sm:px-3"
+          aria-label={tr("common.cancel")}
+          title={tr("common.cancel")}
+          className="flex min-h-11 min-w-11 items-center justify-center rounded-lg px-2.5 text-body font-medium text-kin-muted hover:text-kin-text"
         >
           {tr("common.cancel")}
         </button>

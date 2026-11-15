@@ -2126,9 +2126,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Routine definitions, newest first. A request with none of `page`,
-         *     `cursor`, or `q` receives the legacy bare array, except that `runs=1`
-         *     always receives the page object with a `runs` feed. Holder only.
+        /** @description Routine definitions, newest first. An explicitly paged request returns
+         *     list summaries; fetch `/api/routines/{id}` before editing its complete
+         *     prompt. A request with none of `page`,
+         *     `cursor`, `q`, or `routine_id` receives the legacy full definitions.
+         *     `routine_id` is a read scope for the run feed, not a definition filter;
+         *     callers must still `getRoutine` before editing. `runs=1` always
+         *     receives the page object.
          *      */
         get: operations["listRoutines"];
         put?: never;
@@ -4431,8 +4435,10 @@ export interface components {
             routines: components["schemas"]["Routine"][];
             next_cursor?: string;
             has_more: boolean;
-            /** @description Present only when the request asked for `runs=1`. */
+            /** @description Run summaries only when the request asked for `runs=1` and an explicit list page. Full input stays on the run's detail read. */
             runs?: components["schemas"]["Task"][];
+            runs_next_cursor?: string;
+            runs_has_more?: boolean;
         };
         RoutineCreateRequest: {
             title?: string;
@@ -9432,6 +9438,10 @@ export interface operations {
                 q?: string;
                 page?: string;
                 runs?: "1";
+                /** @description Return runs older than this task id. Independent of the definitions' cursor. */
+                runs_cursor?: string;
+                /** @description Restrict the requested runs feed to this routine on its owning machine. */
+                routine_id?: string;
                 runs_limit?: number;
                 /** @description The machine that owns the routines. Omitted, empty, or `self` is this
                  *     daemon; a paired device id is relayed over the node control channel to

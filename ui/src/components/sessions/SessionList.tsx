@@ -229,6 +229,14 @@ export default function SessionList({
   const archivingSelectionRef = useRef(false);
   const selectionBusy = deletingSelection || archivingSelection;
   const selectionEpoch = useRef(0);
+  // The row that started multi-select. An explicit Escape or Cancel hands the
+  // keyboard back to it; every other way out (a batch, a filter change, a row
+  // that was deleted) must leave focus where it is.
+  const selectionOriginId = useRef<string | null>(null);
+  // A row to focus on the next commit. Entering and leaving the mode both
+  // replace the row element, so the browser drops focus to <body> unless it is
+  // put back; Escape would then have no row in the list to travel through.
+  const focusRowAfterCommit = useRef<string | null>(null);
   const [swipeOpen, setSwipeOpen] = useState<string | null>(null);
   const [prefsTick, setPrefsTick] = useState(0);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -242,9 +250,24 @@ export default function SessionList({
   useEffect(() => subscribeProjectSidebar(() => setPrefsTick((n) => n + 1)), []);
   useEffect(() => {
     selectionEpoch.current += 1;
+    selectionOriginId.current = null;
     setSelectionMode(false);
     setSelectedIds(new Set());
   }, [query, status, scope]);
+
+  // A focused move is one-shot and belongs to the mode change itself: the ref
+  // is consumed in the commit that flips `selectionMode`, so a later list
+  // update cannot pull focus back — and a commit that lands between the key
+  // press and that flip cannot spend the ref on a row the flip will replace.
+  useEffect(() => {
+    const id = focusRowAfterCommit.current;
+    if (!id) return;
+    focusRowAfterCommit.current = null;
+    Array.from(listRef.current?.querySelectorAll<HTMLElement>("[data-session-row]") ?? [])
+      .find((row) => row.dataset.sessionRow === id)
+      ?.focus();
+    // Only the mode flip consumes the ref; `selectionMode` is the whole input.
+  }, [selectionMode]);
 
   const draftPrompt = useSyncExternalStore(subscribeDraft, getDraftPrompt, () => "");
   const draftCwd = useSyncExternalStore(subscribeDraft, getDraftCwd, () => "");
@@ -621,6 +644,7 @@ export default function SessionList({
         selectionLocked={selectionBusy}
         selectedIds={selectedIds}
         onToggleSelect={toggleSelected}
+        onStartSelection={enterSelection}
         onLongPress={enterSelection}
         swipeOpen={swipeOpen}
         onSwipeOpenChange={setSwipeOpen}
@@ -669,6 +693,8 @@ export default function SessionList({
 
   function enterSelection(row: PhoneSessionRow) {
     if (!rowSelectable(row, scope)) return;
+    selectionOriginId.current = row.task!.id;
+    focusRowAfterCommit.current = row.task!.id;
     setSelectionMode(true);
     setSelectedIds(new Set([row.task!.id]));
     setSwipeOpen(null);
@@ -690,10 +716,15 @@ export default function SessionList({
     });
   }
 
-  function exitSelection() {
+  /** `restoreFocus` is for a person leaving on purpose (Escape, Cancel). Batch
+   *  work and automatic cleanup leave the keyboard alone. */
+  function exitSelection(restoreFocus = false) {
+    const origin = selectionOriginId.current;
+    selectionOriginId.current = null;
     selectionEpoch.current += 1;
     setSelectionMode(false);
     setSelectedIds(new Set());
+    if (restoreFocus) focusRowAfterCommit.current = origin;
   }
 
   function pinSelected() {
@@ -964,6 +995,15 @@ export default function SessionList({
 
   function onListKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (event.defaultPrevented || isImeKeyEvent(event.nativeEvent)) return;
+    if (event.key === "Escape") {
+      // Escape belongs to the field a person is typing in; only an active
+      // selection claims it here, and it leaves through the same path as the
+      // toolbar's Cancel so focus returns to the row that started it.
+      if (!selectionMode) return;
+      event.preventDefault();
+      exitSelection(true);
+      return;
+    }
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     const rows = sessionRows();
     const at = rows.indexOf(document.activeElement as HTMLElement);
@@ -1061,7 +1101,7 @@ export default function SessionList({
           onPin={pinSelected}
           onArchiveOrRestore={scope === "archived" ? restoreSelected : archiveSelected}
           onDelete={deleteSelected}
-          onExit={exitSelection}
+          onExit={() => exitSelection(true)}
         />
       )}
 
@@ -1370,6 +1410,7 @@ function ProjectBucket({
   selectionLocked,
   selectedIds,
   onToggleSelect,
+  onStartSelection,
   onLongPress,
   swipeOpen,
   onSwipeOpenChange,
@@ -1408,6 +1449,7 @@ function ProjectBucket({
   selectionLocked: boolean;
   selectedIds: ReadonlySet<string>;
   onToggleSelect: (id: string) => void;
+  onStartSelection: (row: PhoneSessionRow) => void;
   onLongPress: (row: PhoneSessionRow) => void;
   swipeOpen: string | null;
   onSwipeOpenChange: (open: string | null) => void;
@@ -1579,6 +1621,7 @@ function ProjectBucket({
               onToggleSelect={() => {
                 if (row.task) onToggleSelect(row.task.id);
               }}
+              onStartSelection={() => onStartSelection(row)}
               onLongPress={() => onLongPress(row)}
               swipeOpen={swipeOpen === row.key}
               onSwipeOpenChange={(open) => onSwipeOpenChange(open ? row.key : null)}

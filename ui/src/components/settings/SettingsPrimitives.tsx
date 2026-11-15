@@ -3,8 +3,7 @@ import { useT } from "../../i18n/react";
 import { MobileCard, MobileRow } from "../mobile/MobileList";
 import { MobileChevron } from "../mobile/MobileHeader";
 
-export type SettingsTabId =
-  "general" | "agents" | "providers" | "routing" | "advanced";
+export type SettingsTabId = "general" | "agents" | "providers" | "routing" | "advanced";
 
 export type SettingsTabItem = {
   id: SettingsTabId;
@@ -159,7 +158,7 @@ export function SettingsLayout({
   };
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-y-auto kin-scroll">
+    <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden kin-scroll">
       <div className="mx-auto flex w-full max-w-page flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8">
         <div className="space-y-1">
           {/* The shell's header already names this screen on the phone, and the

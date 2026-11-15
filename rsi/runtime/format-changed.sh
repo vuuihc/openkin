@@ -43,6 +43,10 @@ go_paths() {
 
 uniq_lines() { awk 'NF && !seen[$0]++ {print}'; }
 
+TMPFILES=""
+cleanup_tmp() { [ -n "$TMPFILES" ] && rm -f $TMPFILES; }
+trap cleanup_tmp EXIT
+
 # Run prettier on relative-to-ui paths listed on stdin (one file per line).
 run_prettier() { # --write | --check
   local mode="$1" list tmp
@@ -58,10 +62,32 @@ run_prettier() { # --write | --check
   rm -f "$tmp"
 }
 
+TOUCHED=""
 if [ $WRITE -eq 1 ]; then
-  # Working tree vs base, so uncommitted worker edits are formatted too.
-  UI_WRITE="$( ( ui_rel "$base" || true ) | uniq_lines )"
-  GO_WRITE="$( ( go_paths "$base" || true ) | uniq_lines )"
+  # Branch-owned scope, the same set `--check` sees. A two-dot diff against a
+  # base that advanced mid-lane (merge.sh fetches origin main in the shared
+  # repo) also lists files main changed; formatting those would ship work the
+  # branch never touched, and conflict when main is merged back.
+  write_base="$base"
+  if mb="$($GIT_BIN -C "$WT" merge-base "$base" HEAD 2>/dev/null)" && [ -n "$mb" ]; then
+    write_base="$mb"
+  fi
+  # Working tree vs the fork point, so uncommitted worker edits are formatted too.
+  UI_WRITE="$( ( ui_rel "$write_base" || true ) | uniq_lines )"
+  GO_WRITE="$( ( go_paths "$write_base" || true ) | uniq_lines )"
+
+  # Snapshot the candidates before formatting so `--commit` can stage only the
+  # files prettier/gofmt actually rewrote, not every dirty file under ui/.
+  CAND="$(mktemp)"; BEFORE="$(mktemp)"; TMPFILES="$CAND $BEFORE"
+  {
+    printf '%s\n' "$UI_WRITE" | awk 'NF { print "ui/" $0 }'
+    printf '%s\n' "$GO_WRITE"
+  } | uniq_lines > "$CAND"
+  while IFS= read -r f; do
+    [ -n "$f" ] && [ -f "$WT/$f" ] || continue
+    printf '%s\t%s\n' "$f" "$($GIT_BIN -C "$WT" hash-object -- "$f" 2>/dev/null || echo '?')"
+  done < "$CAND" > "$BEFORE"
+
   if [ -n "$UI_WRITE" ]; then
     printf '%s\n' "$UI_WRITE" | run_prettier --write
   fi
@@ -78,19 +104,22 @@ if [ $WRITE -eq 1 ]; then
     done
     IFS="$oldifs"
   fi
+
+  TOUCHED="$(mktemp)"; TMPFILES="$TMPFILES $TOUCHED"
+  while IFS=$'\t' read -r f before_hash; do
+    [ -n "$f" ] && [ -f "$WT/$f" ] || continue
+    after_hash="$($GIT_BIN -C "$WT" hash-object -- "$f" 2>/dev/null || echo '?')"
+    [ "$after_hash" = "$before_hash" ] || printf '%s\n' "$f" >> "$TOUCHED"
+  done < "$BEFORE"
 fi
 
-if [ $COMMIT -eq 1 ]; then
-  DIRTY="$($GIT_BIN -C "$WT" status --porcelain --untracked-files=no -- ui '*.go' || true)"
-  if [ -n "$DIRTY" ]; then
-    $GIT_BIN -C "$WT" add -u -- ui
-    oldifs="$IFS"
-    IFS='
-'
-    for f in $($GIT_BIN -C "$WT" diff --name-only --diff-filter=ACMR -- '*.go' || true); do
-      [ -n "$f" ] && $GIT_BIN -C "$WT" add -- "$f"
-    done
-    IFS="$oldifs"
+if [ $COMMIT -eq 1 ] && [ -n "$TOUCHED" ] && [ -s "$TOUCHED" ]; then
+  # Only the formatter output. Anything else the worker left dirty is the
+  # worker's commit to make, and lane.sh already committed tracked leftovers.
+  while IFS= read -r f; do
+    [ -n "$f" ] && $GIT_BIN -C "$WT" add -- "$f"
+  done < "$TOUCHED"
+  if ! $GIT_BIN -C "$WT" diff --cached --quiet; then
     $GIT_BIN -C "$WT" commit -q -m "style: format changed UI and Go files"
   fi
 fi

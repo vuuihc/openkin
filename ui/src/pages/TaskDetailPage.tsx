@@ -5,7 +5,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
@@ -71,28 +70,15 @@ import RepoChip from "../components/chat/RepoChip";
 import CwdPicker from "../components/chat/CwdPicker";
 import PermissionModePicker from "../components/chat/PermissionModePicker";
 import ModelPicker from "../components/chat/ModelPicker";
-import {
-  IconAlert,
-  IconArchive,
-  IconBack,
-  IconKin,
-  IconMachine,
-  IconMore,
-  IconPanel,
-  IconRestore,
-  IconShare,
-  IconTrash,
-} from "../components/icons";
+import { IconAlert, IconKin, IconMachine } from "../components/icons";
 import { SlowConnectHint } from "../components/Skeleton";
-import PanelSurface from "../components/layout/PanelSurface";
-import MobileHeader, { MobileHeaderButton } from "../components/mobile/MobileHeader";
 import ActionSheet, { type ActionSheetRow } from "../components/ui/ActionSheet";
-import PublishPanel from "../components/pr/PublishPanel";
 import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
 import FileQuickOpen from "../components/workspace/FileQuickOpen";
-import WorkspacePanel from "../components/workspace/WorkspacePanel";
 import TaskUsageSummary from "../components/usage/TaskUsageSummary";
+import TaskPanels from "../components/task/TaskPanels";
 import WorkerTimeline from "../components/task/WorkerTimeline";
+import TaskHeader from "../components/task/TaskHeader";
 import ShareDialog from "../components/task/ShareDialog";
 import { workerActivity, type WorkerRow } from "../components/task/workerActivity";
 import { extractChangedFiles } from "../lib/changedFiles";
@@ -127,7 +113,7 @@ import {
 import { clearFollowUpDraft, getFollowUpDraft, setFollowUpDraft } from "../lib/followUpDraft";
 import { clearSessionScroll, getSessionScroll, setSessionScroll } from "../lib/sessionScroll";
 import { modelPickerLabel, modelsForAgent } from "../lib/agentModels";
-import { isPanelAvailable, panelForView, resolvePanel, type PanelContext } from "../lib/panels";
+import { panelForView, resolvePanel, type PanelContext } from "../lib/panels";
 import { useAppStore } from "../store/appStore";
 import { displayUserPrompt } from "../lib/attachments";
 
@@ -1686,7 +1672,6 @@ export default function TaskDetailPage({
   };
   const panel = resolvePanel(panelForView(shownPanel, id), panelCtx);
   const filesOpen = panel === "files";
-  const publishOpen = panel === "publish";
   const project = projectLabel(task.cwd);
   const degraded = wsStatus !== "connected" && !terminal;
   // The session's agent belongs to the machine that runs it, not to this one.
@@ -1815,150 +1800,27 @@ export default function TaskDetailPage({
   return (
     <div className="flex-1 min-w-0 min-h-0 flex relative">
       <div className="flex-1 min-w-0 min-h-0 flex flex-col kin-surface-chat">
-        {/*
-          The phone's one bar: back, the session's title, and the ⋯ that opens
-          the same action sheet the chip row used to. The chip row was a second
-          44px line holding a host badge, a project link, a status word and the
-          overflow trigger — on a 390px screen it took two rows and its own
-          horizontal scroll, and the title above it was truncated to make room.
-          The status survives as the subtitle; everything else is one tap away.
-        */}
-        <MobileHeader
-          title={task.title || displayUserPrompt(task.prompt || "")}
-          subtitle={
-            // The project is what the session belongs to; the round's state is
-            // appended while it is live rather than replacing the project, so
-            // the second line still answers "which session is this" when a run
-            // is in flight.
-            [
-              task.cwd ? project : undefined,
-              !terminal ? (degraded ? tr("task.reconnect") : tr("task.running")) : undefined,
-            ]
-              .filter(Boolean)
-              .join(" · ") || undefined
-          }
-          leading={
-            <MobileHeaderButton label={tr("app.back")} onClick={goBack}>
-              <IconBack size={20} strokeWidth={2} />
-            </MobileHeaderButton>
-          }
-          trailing={
-            <MobileHeaderButton
-              label={tr("task.sessionActions")}
-              onClick={() => setActionsOpen(true)}
-              tone="muted"
-            >
-              <IconMore size={19} />
-            </MobileHeaderButton>
-          }
+        <TaskHeader
+          task={task}
+          hostAgentName={hostAgentName}
+          hostAgentAvatar={hostAgentAvatar}
+          project={project}
+          terminal={terminal}
+          degraded={degraded}
+          filesOpen={filesOpen}
+          archiving={archiving}
+          deleting={deleting}
+          stopping={stopping}
+          onToggleWorkspace={() => {
+            togglePanel(id, "files");
+          }}
+          onShare={() => setShareOpen(true)}
+          onToggleArchive={onToggleArchive}
+          onDelete={onDelete}
+          onStop={onStop}
+          onBack={goBack}
+          onOpenActions={() => setActionsOpen(true)}
         />
-
-        {/* Desktop's bar. Same content as before; the phone branch above owns
-            the small widths now, so the mobile-only controls are gone. */}
-        <div
-          className="hidden md:flex min-h-11 flex-none items-center px-5 border-b border-[var(--kin-hairline)]"
-          style={{ WebkitAppRegion: "drag" } as CSSProperties}
-        >
-          <div className="min-w-0 flex-1">
-            <div className="text-strong font-semibold text-kin-text truncate">
-              {task.title || displayUserPrompt(task.prompt || "")}
-            </div>
-          </div>
-          <div
-            /* `min-w-0`, not `flex-none`: the row is desktop-only now, and a
-               non-shrinking cluster whose natural width passes the window edge
-               was clipped there instead of scrolling inside its own box. */
-            className="ml-2 flex min-w-0 items-center gap-2 overflow-x-auto kin-scroll whitespace-nowrap text-body text-kin-muted"
-            style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
-          >
-            <span
-              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1"
-              title={tr("newChat.hostAgent", { name: hostAgentName })}
-            >
-              <span
-                className={`w-4 h-4 rounded-md inline-flex items-center justify-center text-micro font-semibold ${hostAgentAvatar.className}`}
-              >
-                {hostAgentAvatar.initials}
-              </span>
-              <span>{tr("newChat.hostAgent", { name: hostAgentName })}</span>
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                togglePanel(id, "files");
-              }}
-              className={[
-                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-body transition-colors",
-                filesOpen
-                  ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
-                  : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary hover:text-kin-text",
-              ].join(" ")}
-              title={tr("workspace.toggle")}
-            >
-              <IconPanel size={13} />
-              <span>{tr("workspace.title")}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setShareOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-secondary transition-colors hover:text-kin-text"
-              title={tr("task.shareTitle")}
-            >
-              <IconShare size={13} />
-              <span>{tr("task.share")}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => void onToggleArchive()}
-              disabled={archiving}
-              className="inline-flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-secondary transition-colors hover:text-kin-text disabled:opacity-40"
-              title={task?.archived_at ? tr("task.unarchiveSession") : tr("task.archiveSession")}
-              aria-label={
-                task?.archived_at ? tr("task.unarchiveSession") : tr("task.archiveSession")
-              }
-            >
-              {task?.archived_at ? <IconRestore size={13} /> : <IconArchive size={13} />}
-            </button>
-            <button
-              type="button"
-              onClick={() => void onDelete()}
-              disabled={deleting}
-              className="inline-flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-secondary hover:text-kin-red-ink hover:border-kin-red/35 disabled:opacity-40"
-              title={tr("task.deleteSession")}
-              aria-label={tr("task.deleteSession")}
-            >
-              <IconTrash size={13} />
-            </button>
-            {task.project_id ? (
-              <Link
-                to={`/projects/${encodeURIComponent(task.project_id)}`}
-                title={project}
-                className="max-w-[10rem] md:max-w-none truncate text-kin-secondary hover:text-kin-text hover:underline"
-              >
-                {project}
-              </Link>
-            ) : (
-              <span className="max-w-[10rem] md:max-w-none truncate" title={project}>
-                {project}
-              </span>
-            )}
-            {!terminal && (
-              <>
-                <span className="text-kin-blue-ink tabular-nums">
-                  {degraded ? tr("task.reconnect") : tr("task.running")}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => void onStop()}
-                  disabled={stopping}
-                  className="text-body font-semibold text-kin-red-ink hover:bg-kin-red/15 disabled:opacity-40 px-1.5 py-0.5 rounded-md border border-kin-red/30 bg-kin-red/10"
-                >
-                  {stopping ? tr("task.stopping") : tr("composer.stop")}
-                </button>
-              </>
-            )}
-          </div>
-        </div>
 
         {!wide && (
           <ActionSheet
@@ -2286,73 +2148,31 @@ export default function TaskDetailPage({
         </div>
       </div>
 
-      {/* Session side rail — usage + diffs, floats over the chat instead of squeezing its width (Codex-style). */}
-      <aside
-        className="hidden min-[1600px]:flex absolute top-14 right-3 bottom-3 z-10 w-rail flex-col gap-2.5 rounded-xl bg-[var(--kin-inspector)] backdrop-blur-md shadow-e2 px-3 py-3 min-h-0 overflow-y-auto kin-scroll"
-        aria-label={tr("task.sessionRail")}
-      >
-        <TaskUsageSummary usage={usage} loading={usageLoading} variant="card" />
-        <ChangedFilesBar
-          files={changedFiles}
-          onOpenPath={onOpenWorkspacePath}
-          onOpenPanel={openFilesPanel}
-          reviewActions={terminal}
-          onKeepAll={onKeepAllChanges}
-          onDiscardAll={onDiscardAllChanges}
-          actionsBusy={reviewBusy}
-          variant="card"
-        />
-      </aside>
-
-      {filesOpen && (
-        <PanelSurface label={tr("workspace.title")}>
-          <div className="h-full w-full">
-            <WorkspacePanel
-              taskId={task.id}
-              cwd={task.cwd}
-              openPath={workspaceOpenPath}
-              openNonce={workspaceOpenNonce}
-              events={events}
-              changedFiles={changedFiles}
-              selectedWorkspaceId={selectedWorkspaceId}
-              currentWorkspaceId={task.current_workspace_id}
-              onSelectWorkspace={setSelectedWorkspaceId}
-              reviewActions={terminal}
-              onDiscardAll={onDiscardAllChanges}
-              actionsBusy={reviewBusy}
-              // Publishing is offered for a session on another machine and no
-              // other: the Hub refuses the write for a checkout it holds, and a
-              // button that could only ever be refused is worse than no button.
-              // Asked of the registry rather than of `machine`, so the rule has
-              // one home — the same one `resolvePanel` just consulted.
-              onPublish={isPanelAvailable("publish", panelCtx) ? openPublishPanel : undefined}
-              onFindFile={() => setFileFinderOpen(true)}
-              onClose={() => hidePanel(id)}
-            />
-          </div>
-        </PanelSurface>
-      )}
-
-      {publishOpen && machine && (
-        <PublishPanel
-          taskId={task.id}
-          machine={machine}
-          // Where the Hub remembers the work being. It is what the machine
-          // recorded when the session started (or the last publish corrected),
-          // and the sheet says "unknown" rather than guessing when there is
-          // nothing: only that machine can answer, and it answers when asked.
-          repo={task.workspace_repo ?? undefined}
-          branch={task.workspace_branch ?? undefined}
-          draft={publishDraft}
-          // Both answers that change the Hub's row — a publish, and the escape
-          // that moves the checkout — land here, so the row under this page is
-          // read again. The row is what the sheet opens with and what the
-          // repository chip draws; the branch strip beside it asks the machine
-          // on its own and is not this.
-          onRowChanged={() => void liveResources.refreshTask(task.id, true)}
-          onClose={() => hidePanel(id)}
-        />
-      )}
+      <TaskPanels
+        task={task}
+        machine={machine}
+        panel={panel}
+        panelCtx={panelCtx}
+        usage={usage}
+        usageLoading={usageLoading}
+        events={events}
+        changedFiles={changedFiles}
+        reviewBusy={reviewBusy}
+        terminal={terminal}
+        workspaceOpenPath={workspaceOpenPath}
+        workspaceOpenNonce={workspaceOpenNonce}
+        selectedWorkspaceId={selectedWorkspaceId}
+        onSelectWorkspace={setSelectedWorkspaceId}
+        onOpenPath={onOpenWorkspacePath}
+        onOpenFilesPanel={openFilesPanel}
+        onKeepAll={onKeepAllChanges}
+        onDiscardAll={onDiscardAllChanges}
+        onPublish={openPublishPanel}
+        onFindFile={() => setFileFinderOpen(true)}
+        onClosePanel={() => hidePanel(id)}
+        publishDraft={publishDraft}
+        onPublishRowChanged={() => void liveResources.refreshTask(task.id, true)}
+      />
 
       {/*
         Last, so it is painted over the panels and sheets it can be opened

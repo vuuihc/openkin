@@ -120,6 +120,13 @@ func TestTimestampStderrSplicesTheRealDescriptor(t *testing.T) {
 		// here raced: on a loaded CI runner the log was still empty after 20ms
 		// (run 43694877337, same SHA later green on the pull_request workflow).
 		flushTimestampStderr()
+		// fd 2 must stay writable after the flush: a later diagnostic (panic,
+		// race report) writes to it. Closing the descriptor outright made this
+		// an EBADF the parent could not see. The line goes to /dev/null, so
+		// the log must not gain it.
+		if _, err := fmt.Fprintf(os.Stderr, "kin: after flush\n"); err != nil {
+			os.Exit(3)
+		}
 		return
 	}
 
@@ -162,5 +169,10 @@ func TestTimestampStderrSplicesTheRealDescriptor(t *testing.T) {
 	}
 	if strings.Index(text, "kin: node: connected") > strings.Index(text, "partial that completes") {
 		t.Fatalf("lines out of order: %q", text)
+	}
+	// The child wrote once more after the flush. It must not reach the log:
+	// the descriptor now points at /dev/null, not the file launchd opened.
+	if strings.Contains(text, "kin: after flush") {
+		t.Fatalf("post-flush stderr reached the log: %q", text)
 	}
 }

@@ -3,16 +3,16 @@
 A small agent team that moves Kin toward T3-Code-class dogfood quality, unattended, report-after.
 
 ```
-launchd every 20 min (+ whenever a lane finishes) ─► run.sh pulse = FILL: director (kimi, ≤20 min, no-op if no lane is idle)
+launchd every 20 min (+ whenever a lane finishes) ─► run.sh pulse = FILL: director (DeepSeek --effort max, ≤20 min, no-op if no lane is idle)
         │   rework sendbacks → idle lanes automatically; queue → ≤25 min / ≤$5 / ≲400-line slices, each declaring its paths
         ▼   lanes.py claim REFUSES overlapping paths between active lanes
  worker lane 1 ┐   lane.sh run N: worktree ~/.kin/worktrees/rsi-<slug> (branch rsi/<slug>) → worker (deepseek flash, 40 min watchdog,
- worker lane 2 ├─►   $6 guard) → push → PR → hand over          (own lock per lane; default RSI_MAX_LANES=2 (3 supported), vitest workers=2)
+ worker lane 2 ├─►   $6 guard) → format changed UI/Go → push → PR → hand over   (own lock per lane; default RSI_MAX_LANES=2 (3 supported), vitest workers=2)
  (lane 3 only if RSI_MAX_LANES=3) ┘
         ▼
  launchd every 10 min (+ after each lane) ─► merge.sh = MERGE LANE (one at a time, oldest PR first)
         merge origin/main into the branch (never force-push; web/dist/index.html conflicts auto-rebuilt) → hold rules →
-        gate.sh → independent review (kimi, or codex for risky/>500 lines; never the worker's model) → CI → squash-merge
+        gate.sh → independent review (codex/gpt-6.1-sol; never the worker's model) → CI → squash-merge
         failure → state/sendback/<slug>.md → rework lane (max 3 rounds, then state/needs-ceo.md)
 launchd 07:40 + 08:55 ─► run.sh dream  ─► state/reports/YYYY-MM-DD-morning.md
 launchd 08:15 ─► run.sh daily  ─► planner regroom of the queue (items sized for lanes)
@@ -33,3 +33,7 @@ Operate:
 ## Merge pipeline and cloud lane (2026-11-15)
 - `runtime/merge.sh` = dispatcher (every 10 min and after lane/merge events) → up to 2 per-PR verifiers (`merge.sh --one`): sync main → hold rules → screenshots → **review ∥ gate** → CI → land under a lock. `state/merge/cycles.log` has verify/open-to-merge times.
 - Cloud slices (`executor: cloud` in `astryx-slices.json`): `slices.py cloud-pending`, briefs in `state/cloud-briefs/` (+ `INDEX.md`), `lanes.py cloud-list|cloud-release`.
+
+## NAS lanes (2026-11-15)
+
+- `runtime/nas/` = Mac-driven unattended workers on the LAN NAS. **This slice is the return path:** `ingest-nas.sh` lists finished jobs over ssh, fetches and verifies the git bundle, self-checks on the Mac (`heavy.sh`), pushes `rsi/<slug>` (never force), opens or refreshes the PR, and kicks `merge.sh`. Handled jobs are marked `ingested`/`held` on the NAS and acked locally, so a second run does nothing; a claim is released only by the run that owns it, an existing worktree is fast-forwarded only when clean and unchanged, the self-check is green only when it ran to completion, and visible UI is held (branch pushed, no PR) until real 390x844 and 1100x760 captures exist — the diff comes from `origin/main`, not the worker. The forward path (`pulse-nas.sh`, launchd job, `run.sh pulse` hook) is the follow-up `R-nas-worker-lanes-pulse` slice, and the isolated Compose stack, in-container `nas-lane.sh`, installer and smoke probe are `R-nas-worker-lanes-stack` (`rsi/state/followups.md`). Nothing invokes the script automatically until the pulse lands; run it by hand against an existing job tree. Details: `runtime/nas/README.md`. Tests: `bash rsi/runtime/nas/tests/test-nas.sh`.
