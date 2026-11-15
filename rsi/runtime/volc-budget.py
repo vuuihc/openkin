@@ -379,7 +379,7 @@ def self_test() -> int:
     assert abs(d1 - (2 + 0.04 + 8)) < 1e-9, d1
     assert family("volcengine/deepseek-v4.1-flash", "deepseek-v4-1-flash-261017") == "deepseek-v4.1-flash"
     assert family("kimi-k3.1-pro") == "kimi-k3.1-pro"
-    assert is_volc("volcengine-gw", "st8tp3ajl0df3n8b8l8qu.apigateway-cn-beijing.volceapi.com")
+    assert is_volc("volcengine-gw", "example.apigateway-cn-beijing.volceapi.com")
     assert not is_volc("codex", "chatgpt.com")
     assert level_for(449, 450, 560) == "ok"
     assert level_for(450, 450, 560) == "no-kimi"

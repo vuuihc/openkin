@@ -277,7 +277,7 @@ def pick(role: str, reasons: list[str], kimi_ok: bool) -> tuple[str, list[str], 
 def log_decision(state: Path, rec: dict) -> None:
     state.mkdir(parents=True, exist_ok=True)
     rec = dict(rec)
-    rec.setdefault("ts", now().strftime("%Y-%m-%d %H:%M:%S %Z"))
+    rec.setdefault("ts", now().isoformat())
     with (state / "escalations.jsonl").open("a", encoding="utf-8") as f:
         f.write(json.dumps(rec, sort_keys=True) + "\n")
     line = (
@@ -304,7 +304,7 @@ def record_outcome(state: Path, eid: str, outcome: str, note: str, model: str, t
             if not updated and eid and rec.get("id") == eid:
                 rec["outcome"] = outcome
                 rec["outcome_note"] = note
-                rec["outcome_ts"] = now().strftime("%Y-%m-%d %H:%M:%S %Z")
+                rec["outcome_ts"] = now().isoformat()
                 if model:
                     rec["outcome_model"] = model
                 rows.append(json.dumps(rec, sort_keys=True))
@@ -319,7 +319,7 @@ def record_outcome(state: Path, eid: str, outcome: str, note: str, model: str, t
     if not updated:
         rec = dict(
             id=eid or str(uuid.uuid4()),
-            ts=now().strftime("%Y-%m-%d %H:%M:%S %Z"),
+            ts=now().isoformat(),
             tag=tag,
             model=model,
             outcome=outcome,
@@ -341,16 +341,17 @@ def week_bounds(day: datetime | None = None) -> tuple[datetime, datetime]:
 
 def parse_ts(value: str) -> datetime | None:
     value = (value or "").strip()
-    for fmt in ("%Y-%m-%d %H:%M:%S %Z", "%Y-%m-%d %H:%M:%S SGT", "%Y-%m-%dT%H:%M:%S%z"):
-        try:
-            dt = datetime.strptime(value.replace("SGT", "+0800"), fmt.replace("%Z", "%z") if "SGT" in value else fmt)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=SGT)
-            return dt
-        except Exception:
-            continue
+    if not value:
+        return None
+    value = value.replace(" UTC+08:00", "+08:00").replace(" SGT", "+08:00")
+    if "T" not in value[:19] and " " in value:
+        date, rest = value.split(" ", 1)
+        value = date + "T" + rest
     try:
-        return datetime.fromisoformat(value)
+        dt = datetime.fromisoformat(value)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=SGT)
+        return dt
     except Exception:
         return None
 

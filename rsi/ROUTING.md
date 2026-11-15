@@ -10,7 +10,7 @@ This file is the policy. `runtime/escalate.py` enforces it and logs every decisi
 |---|---|---|---|
 | Worker / rework | DeepSeek V4.1 Flash | `--effort high` | Volcengine (cheap; official off-peak ¥1 / ¥0.02 / ¥4 per M) |
 | Director, fill, planner, dream, first merge reviewer | DeepSeek V4.1 Flash | `--effort max` | Volcengine (same list prices; max uses more thinking tokens) |
-| Second code reviewer (`reviewer-alt`, risky paths or >500 lines) | `codex/gpt-6.1-sol` | — | ChatGPT Plus (`zshyou@gmail.com` via Codex/magpie). Not Volcengine. Standing “different family” requirement, not an escalation. |
+| Second code reviewer (`reviewer-alt`, risky paths or >500 lines) | `codex/gpt-6.1-sol` | — | ChatGPT Plus (via Codex/magpie). Not Volcengine. Standing “different family” requirement, not an escalation. |
 | UX vision reviewer (once PR #73’s `ux-gate.sh` lands) | `codex/gpt-6.1-sol` via `claude -p` (not `codex exec`; images) | — | Same ChatGPT account. Default stays here so Carbon is not spent on every screenshot pass. |
 
 Do not start from Kimi or Carbon. DeepSeek at `--effort max` is the first lever for harder control-plane work.
@@ -30,7 +30,7 @@ Escalate only when at least one concrete signal is present. Vague “this seems 
 Once a signal fires, pick the first model that fits and is available. Cost source is part of the fit: prefer a subscription that is not the Volcengine key.
 
 1. **`gpt-6.1-sol` first** for review and reasoning (first reviewer, planner/director/dream architecture calls, “why is this failing?”). ChatGPT account, no Volcengine spend.
-2. **Carbon (Antigravity `gemini-4-carbon-high`)** for a second independent opinion, UI vision, or long context (1M-class window, image input, reasoning). Invoked non-interactively with `agy -p --model gemini-4-carbon-high` under the local Antigravity sign-in (`zshisme@gmail.com`, Google consumer subscription, no GCP quota project). This is not the Factory/Droid alias `factory/gemini-4-carbon` (that would bill the Factory account; do not use it from this loop).
+2. **Carbon (Antigravity `gemini-4-carbon-high`)** for a second independent opinion, UI vision, or long context (1M-class window, image input, reasoning). Invoked non-interactively with `agy -p --model gemini-4-carbon-high` under the local Antigravity Google consumer sign-in (no GCP quota project). This is not the Factory/Droid alias `factory/gemini-4-carbon` (that would bill the Factory account; do not use it from this loop).
 3. **Kimi k3.1 pro last.** Company Volcengine key, official list CNY. Only if Codex and Carbon are both unavailable (missing CLI, auth, or API/quota error) **and** today’s Kimi list CNY is under ¥80 (`RSI_VOLC_KIMI_DAY_MAX`) **and** overall Volcengine list CNY is under ¥450 (`RSI_VOLC_KIMI_MAX`). Otherwise stay on the last working subscription model.
 
 UX vision escalations prefer Carbon (vision / long context) then gpt-6.1-sol, then Kimi last. A further opinion after `reviewer-alt` already ran Codex also prefers Carbon.
