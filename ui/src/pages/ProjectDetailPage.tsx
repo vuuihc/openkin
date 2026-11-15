@@ -29,15 +29,15 @@ import {
   type PulseDay,
   type Routine,
 } from "../api/client";
-import { IconBack, IconRoutines } from "../components/icons";
+import { IconBack, IconMachine, IconRoutines } from "../components/icons";
+import SearchSelect from "../components/ui/SearchSelect";
 import Heatmap from "../components/project/Heatmap";
-import ProjectActivity from "../components/project/ProjectActivity";
-import ProjectCover, { NewChatControl } from "../components/project/ProjectCover";
 import ProjectOnePager from "../components/project/ProjectOnePager";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import { useMinWidth } from "../hooks/useMinWidth";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useMachines } from "../hooks/useMachines";
+import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
 import { samePath } from "../lib/devices";
 import { onePagerFocus, setOnePagerFocus } from "../lib/onePagerSummary";
 import { clearProjectCover, readProjectCover, writeProjectCover } from "../lib/projectCoverCache";
@@ -51,6 +51,8 @@ import {
 import { readProjectScroll, writeProjectScroll } from "../lib/projectScroll";
 import { readRoutineDevice, routineDeviceForProject } from "../lib/routineDevice";
 import { formatRelativeTime } from "../lib/relativeTime";
+import { sessionStatusDotClass } from "../lib/sessionViewed";
+import { taskCardStatusView } from "../lib/taskCardStatus";
 import { useT } from "../i18n/react";
 import { useAppStore } from "../store/appStore";
 
@@ -676,34 +678,47 @@ export default function ProjectDetailPage() {
         : "";
   const newChatDisabled = Boolean(newChatReason);
   const newChatHref = newChat.kind === "no-root" ? null : newChat.href;
-  const canStartChat = !newChatDisabled && Boolean(newChatHref);
-  const startChat = useCallback(() => {
-    if (!newChatHref) return;
-    runGuardedNavigation(() =>
-      phonePush(navigate, location, newChatHref, {
-        state: draftEntryState(returnListUrl(location)),
-      }),
-    );
-  }, [location, navigate, newChatHref]);
 
-  // The cover owns the window keys, so mount it headless on the two screens
-  // that paint no cover: Escape is the only way back from either.
-  const keys = (
-    <ProjectCover
-      project={null}
-      now={0}
-      canStartChat={canStartChat}
-      onBack={goBack}
-      onModeChange={() => {}}
-      onStartChat={startChat}
-    />
-  );
+  // Esc goes back and ⌘Enter starts a chat from anywhere on the cover, not
+  // only while a particular control has focus. Typing fields and open pickers
+  // keep their own keys.
+  useEffect(() => {
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const typing = Boolean(
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable),
+      );
+      if (event.key === "Escape") {
+        if (editing || typing) return;
+        // A picker or sheet owns Escape while it is open; leaving the project
+        // because the reader closed a menu is not the same key press.
+        if (document.querySelector('[role="listbox"], [role="dialog"]')) return;
+        event.preventDefault();
+        goBack();
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        if (editing || typing || newChatDisabled || !newChatHref) return;
+        event.preventDefault();
+        runGuardedNavigation(() =>
+          phonePush(navigate, location, newChatHref, {
+            state: draftEntryState(returnListUrl(location)),
+          }),
+        );
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [editing, goBack, location, navigate, newChatDisabled, newChatHref]);
 
   if (!currentProject) {
     if (error) {
       return (
         <div className="flex-1 min-h-0 overflow-y-auto kin-scroll">
-          {keys}
           <div className="mx-auto max-w-5xl px-4 py-6">
             <button
               type="button"
@@ -734,7 +749,6 @@ export default function ProjectDetailPage() {
     }
     return (
       <div className="flex-1 min-h-0 overflow-y-auto kin-scroll">
-        {keys}
         <div className="mx-auto max-w-5xl px-4 py-6 space-y-3">
           {slow && <SlowConnectHint show />}
           <SkeletonLine />
@@ -781,18 +795,49 @@ export default function ProjectDetailPage() {
       }}
     >
       <div className="mx-auto max-w-5xl px-4 py-6 pb-24">
-        <ProjectCover
-          project={currentProject}
-          root={roots[0] ?? ""}
-          offline={offline}
-          lastLoadedAt={lastLoadedAt}
-          now={now}
-          editing={editing}
-          canStartChat={canStartChat}
-          onBack={goBack}
-          onModeChange={(mode) => void onModeChange(mode)}
-          onStartChat={startChat}
-        />
+        <button
+          type="button"
+          className="mb-3 inline-flex items-center gap-1 text-strong text-kin-secondary hover:text-kin-text"
+          onClick={goBack}
+        >
+          <IconBack size={14} />
+          {tr("projects.back")}
+        </button>
+
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h1 tabIndex={0} className="truncate text-title leading-7 font-semibold text-kin-text">
+              {currentProject.name}
+            </h1>
+            {roots[0] && (
+              <div className="mt-1 max-w-sheet truncate text-body text-kin-secondary">
+                {roots[0]}
+              </div>
+            )}
+          </div>
+          <SearchSelect
+            label={tr("projects.mode")}
+            value={currentProject.mode}
+            options={[
+              { id: "ship", label: tr("projects.modeShip") },
+              { id: "learn", label: tr("projects.modeLearn") },
+              { id: "explore", label: tr("projects.modeExplore") },
+              { id: "maintain", label: tr("projects.modeMaintain") },
+            ]}
+            onChange={(next) => void onModeChange(next as ProjectMode)}
+            disabled={offline}
+            className="text-body text-kin-text"
+          />
+        </div>
+
+        {offline && lastLoadedAt > 0 && (
+          <div
+            role="status"
+            className="mb-3 rounded-lg border border-kin-hairline bg-kin-panel px-3 py-2 text-body text-kin-secondary"
+          >
+            {tr("projects.offlineSince", { time: formatRelativeTime(lastLoadedAt, now) })}
+          </div>
+        )}
 
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="space-y-4">
@@ -817,22 +862,80 @@ export default function ProjectDetailPage() {
               onDirtyChange={onDirtyChange}
             />
 
-            <ProjectActivity
-              titleId={`${cardIds}-recent`}
-              activity={activity}
-              loading={activityLoading}
-              ready={activityFor === currentProject.id}
-              error={activityError}
-              partial={activityPartialShown}
-              lastCommit={lastCommit}
-              importAt={importAt}
-              windowDays={PULSE_WINDOW_DAYS}
-              now={now}
-              onRetry={() => void loadActivity(currentProject)}
-              onOpen={openChat}
-              continueControl={newChatControl}
-              showContinue={wide}
-            />
+            <section aria-labelledby={`${cardIds}-recent`} className="rounded-xl bg-kin-panel p-4">
+              <h2
+                id={`${cardIds}-recent`}
+                className="mb-2 text-body font-medium uppercase tracking-label text-kin-secondary"
+              >
+                {tr("projects.recentTitle")}
+              </h2>
+
+              {activityError && (
+                <div
+                  role="alert"
+                  className="rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-strong text-kin-red-ink"
+                >
+                  <p>{activityError}</p>
+                  <button
+                    type="button"
+                    onClick={() => void loadActivity(currentProject)}
+                    className="mt-2 min-h-11 rounded-lg border border-kin-red/40 px-3 text-strong text-kin-red-ink"
+                  >
+                    {tr("common.retry")}
+                  </button>
+                </div>
+              )}
+
+              {activity ? (
+                <div className={activityError ? "mt-3" : ""}>
+                  <div className="text-caption font-medium text-kin-muted">
+                    {tr("projects.recentLastConversation")}
+                  </div>
+                  <RecentConversationRow
+                    row={activity}
+                    now={now}
+                    onOpen={() => openChat(activity)}
+                  />
+                </div>
+              ) : (activityLoading || activityFor !== currentProject.id) && !activityError ? (
+                <div className="space-y-3 py-2">
+                  <SkeletonLine />
+                  <SkeletonLine />
+                </div>
+              ) : !activityError ? (
+                <div className="py-1 text-body text-kin-secondary">
+                  <p>{tr("projects.recentEmpty")}</p>
+                  <p className="mt-1 text-kin-muted">{tr("projects.recentEmptyHint")}</p>
+                </div>
+              ) : null}
+
+              {activityPartialShown && !activityError && (
+                <p role="status" className="mt-2 text-caption text-kin-muted">
+                  {tr("projects.chatsPartial")}
+                </p>
+              )}
+
+              <dl className="mt-2 space-y-1 text-caption text-kin-muted">
+                {lastCommit !== null && (
+                  <div className="flex gap-1">
+                    <dt>{tr("projects.lastCommitWindow", { days: PULSE_WINDOW_DAYS })}</dt>
+                    <dd aria-hidden>{tr("common.labelSeparator")}</dd>
+                    <dd className="tabular-nums">{formatRelativeTime(lastCommit, now)}</dd>
+                  </div>
+                )}
+                {importAt !== null && (
+                  <div className="flex gap-1">
+                    <dt>{tr("projects.lastImport")}</dt>
+                    <dd aria-hidden>{tr("common.labelSeparator")}</dd>
+                    <dd className="tabular-nums">{formatRelativeTime(importAt, now)}</dd>
+                  </div>
+                )}
+              </dl>
+
+              <p className="mt-2 text-caption text-kin-muted">{tr("projects.recentOnlyLatest")}</p>
+
+              {wide && <div className="mt-3">{newChatControl}</div>}
+            </section>
           </div>
 
           <div className="space-y-4">
@@ -993,6 +1096,119 @@ export default function ProjectDetailPage() {
         {!wide && <div className="mt-4">{newChatControl}</div>}
       </div>
     </div>
+  );
+}
+
+function NewChatControl({
+  href,
+  disabledReason,
+  fullWidth,
+}: {
+  href: string | null;
+  disabledReason: string;
+  fullWidth: boolean;
+}) {
+  const tr = useT();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const reasonId = useId();
+  const className = [
+    "inline-flex min-h-11 items-center justify-center rounded-lg bg-kin-blue px-3 text-strong font-medium text-kin-on-brand",
+    fullWidth ? "w-full" : "",
+  ].join(" ");
+
+  if (href === null || disabledReason) {
+    return (
+      <div className={fullWidth ? "w-full" : ""}>
+        <button
+          type="button"
+          disabled
+          aria-describedby={disabledReason ? reasonId : undefined}
+          className={`${className} opacity-50`}
+        >
+          {tr("projects.newChat")}
+        </button>
+        {disabledReason && (
+          <p id={reasonId} className="mt-1 text-caption text-kin-muted">
+            {disabledReason}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <Link
+      to={href}
+      className={className}
+      onClick={(event) =>
+        onGuardedLinkClick(event, navigate, location, href, {
+          state: draftEntryState(returnListUrl(location)),
+        })
+      }
+    >
+      {tr("projects.newChat")}
+    </Link>
+  );
+}
+
+function RecentConversationRow({
+  row,
+  now,
+  onOpen,
+}: {
+  row: ProjectChatRow;
+  now: number;
+  onOpen: () => void;
+}) {
+  const tr = useT();
+  const avatar = agentAvatarMeta(row.agentId);
+  const status = row.task ? taskCardStatusView(row.task.status) : null;
+  // The same dot rule as the list, so a row means the same thing in both
+  // places: green for a finished chat not yet seen, pulsing while it runs.
+  const dot = row.task ? sessionStatusDotClass(row.task.status, false) : null;
+  const label = [
+    row.title,
+    agentDisplayName(row.agentId),
+    formatRelativeTime(row.at, now),
+    status ? tr(status.labelKey) : "",
+    row.remote ? tr("machine.remote") : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={label}
+      className="kin-row-press flex min-h-11 w-full items-center gap-2.5 px-1 py-2 text-left"
+    >
+      <span className="flex w-2 flex-none justify-center">
+        {dot ? <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden /> : null}
+      </span>
+      <span
+        className={`flex h-5 w-5 flex-none items-center justify-center rounded-full text-micro font-semibold ${avatar.className}`}
+        title={agentDisplayName(row.agentId)}
+        aria-hidden
+      >
+        {avatar.initials}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-subtitle font-medium leading-ui text-kin-text">
+        {row.title}
+      </span>
+      {row.remote && (
+        <span className="flex-none text-kin-muted" title={tr("machine.remote")} aria-hidden>
+          <IconMachine size={12} />
+        </span>
+      )}
+      <span className="flex-none text-caption leading-ui text-kin-muted tabular-nums">
+        {formatRelativeTime(row.at, now)}
+      </span>
+      <span className="flex-none text-caption text-kin-secondary">
+        {tr("projects.recentContinue")} <span aria-hidden>→</span>
+      </span>
+    </button>
   );
 }
 
