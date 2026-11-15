@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -215,6 +216,9 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
     if (draftActive) closeDraft();
     else leaveScreen();
   });
+  // Only the offset is visual; the handlers stay on the fixed edge strip so
+  // `touch-action: pan-y` is decided where the finger lands.
+  const { offset: edgeOffset, handlers: edgeHandlers } = edgeBack;
 
   // Equal roots replace one another. A detail / draft still pushes and returns.
   // Feedback stays in gesture thresholds: never put a transform on `.kin-main`,
@@ -507,7 +511,7 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
           data-kin-edge-back
           className="fixed inset-y-0 left-0 z-30 w-5 md:hidden"
           style={{ touchAction: "pan-y" }}
-          {...edgeBack}
+          {...edgeHandlers}
         />
       )}
 
@@ -600,7 +604,20 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
           data-phone-tab={onPhoneTab ? pathname : undefined}
           // Single-finger pans belong to the tab swipe; pinch-zoom stays with
           // the browser. The hook ignores multi-touch, so zoom never switches.
-          style={!wide && onPhoneTab ? { touchAction: "pan-y pinch-zoom" } : undefined}
+          //
+          // The edge-back offset is a custom property, not an inline transform:
+          // `index.css` moves `.kin-main > *`, so every page root stays a
+          // direct child of <main> and `.kin-main` itself never becomes the
+          // containing block for a fixed panel. The property and the attribute
+          // exist only while a phone drag is active — `useEdgeSwipeBack` zeroes
+          // them on release, cancel, disable and unmount.
+          style={
+            {
+              ...(!wide && onPhoneTab ? { touchAction: "pan-y pinch-zoom" } : null),
+              ...(edgeOffset > 0 ? { "--page-swipe-x": `${edgeOffset}px` } : null),
+            } as CSSProperties
+          }
+          data-kin-swiping={edgeOffset > 0 ? "true" : undefined}
           {...tabSwipe}
         >
           {children}
