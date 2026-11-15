@@ -12,7 +12,7 @@ that overlaps another active lane's paths is refused (exit 3).  Mutations hold a
   lanes.py get N                       shell-quotable key=value lines
   lanes.py start N PID | finish N --status S [--pr N] [--note T] | claimed
 """
-import argparse, fcntl, fnmatch, json, os, sys, time, glob, shlex
+import subprocess, argparse, fcntl, fnmatch, json, os, sys, time, glob, shlex
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATE = os.environ.get("RSI_STATE") or os.path.normpath(os.path.join(HERE, "..", "state"))
@@ -20,6 +20,8 @@ LDIR = os.path.join(STATE, "lanes")
 MAX_LANES = int(os.environ.get("RSI_MAX_LANES", "3"))
 CLAIM_TTL = 25 * 60
 LOAD_MAX = float(os.environ.get("RSI_LOAD_MAX", "100000"))
+# Generated/derived files every UI lane touches; the merge lane rebuilds/merges them, so they never count as a claim.
+IGNORED = {"web/dist/index.html"}
 TOO_BROAD = {".", "", "*", "**", "ui", "ui/src", "internal", "web", "docs", "scripts", "desktop", "mobile", "cmd"}
 os.makedirs(os.path.join(LDIR, "history"), exist_ok=True)
 # Lanes above MAX_LANES that are still running (after the limit was lowered) stay visible so claims/merge-lane see them.
@@ -101,17 +103,22 @@ def cmd_idle(a):
                 print(f"load too high ({os.getloadavg()[0]:.1f} > {LOAD_MAX:.0f}); not filling", file=sys.stderr); return
         except Exception: pass
         try:
-            import subprocess
             out = subprocess.run(["memory_pressure"], capture_output=True, text=True, timeout=10).stdout
             free = int(out.split("System-wide memory free percentage:")[1].split("%")[0])
             if free < int(os.environ.get("RSI_MEM_FREE_MIN", "10")):
                 print(f"memory free {free}% too low; not filling", file=sys.stderr); return
         except Exception: pass
-        for n in range(1, MAX_LANES + 1):
+        cap = MAX_LANES
+        try:  # the third lane only when swap has room (16 GB Mac): below 2.5 GB free swap, cap at 2 lanes
+            sw = subprocess.run(["sysctl", "-n", "vm.swapusage"], capture_output=True, text=True, timeout=5).stdout
+            free_mb = float(sw.split("free =")[1].split("M")[0])
+            if free_mb < float(os.environ.get("RSI_SWAP_FREE_MIN_MB", "2500")): cap = min(cap, 2)
+        except Exception: pass
+        for n in range(1, cap + 1):
             if not is_active(load(n)): print(n)
 
 def cmd_claim(a):
-    paths = [norm(p) for p in a.paths]
+    paths = [norm(p) for p in a.paths if norm(p) not in IGNORED]
     bad = [p for p in paths if p in TOO_BROAD or len(p.split("/")) < 2 and "." not in p]
     if not paths or bad:
         print(f"REFUSED: declare specific files/dirs (too broad or empty: {bad or 'none given'})"); sys.exit(5)
