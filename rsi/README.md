@@ -33,3 +33,8 @@ Operate:
 ## Merge pipeline and cloud lane (2026-11-15)
 - `runtime/merge.sh` = dispatcher (every 10 min and after lane/merge events) → up to 2 per-PR verifiers (`merge.sh --one`): sync main → hold rules → screenshots → **review ∥ gate** → CI → land under a lock. `state/merge/cycles.log` has verify/open-to-merge times.
 - Cloud slices (`executor: cloud` in `astryx-slices.json`): `slices.py cloud-pending`, briefs in `state/cloud-briefs/` (+ `INDEX.md`), `lanes.py cloud-list|cloud-release`.
+
+## NAS lanes and box lanes (2026-11-15)
+
+- `runtime/nas/` = Mac-driven unattended workers on the LAN NAS. `pulse-nas.sh` (launchd `com.ethan.kin-rsi-nas` every 20 min, also kicked from `run.sh pulse`) claims untaken cloud briefs (`taker=nas`; never steals `taker=box`), ships a git bundle over ssh, runs Claude Code in an isolated Compose stack (1.0 CPU / 5 GB, thinking only, host magpie on :3425 via host-gateway; needs an enabled magpie *gateway/caller* key in `~/kin-rsi-nas/secrets/magpie.key` — `MAGPIE_WEB_KEY` is the UI key only and is not added automatically), then `ingest-nas.sh` self-checks on the Mac (`heavy.sh`), pushes `rsi/<slug>` (never force), opens the PR, and kicks `merge.sh`. Install: `rsi/runtime/nas/install-nas.sh`. Revert: `ssh nas 'cd ~/kin-rsi-nas/compose && docker compose down'` and `launchctl bootout gui/$(id -u)/com.ethan.kin-rsi-nas`. Details: `runtime/nas/README.md`. `NAS_MAX_LANES=2` (lane 2 only if NAS load < 3 and MemAvailable > 6 GB).
+- `runtime/box/` = the same idea for a Linux box with no inbound route (pack / CopyToBox / inbox / outbox / ingest; `taker=box`). Details: `runtime/box/README.md`.
