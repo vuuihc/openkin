@@ -206,7 +206,19 @@ ci_state() { # prints green|pending|fail ; waits (bounded) while pending
 }
 
 $GIT -C "$RSI_CTRL" fetch -q origin main "$BR" 2>/dev/null
-[ -e "$WT" ] || $GIT -C "$RSI_CTRL" worktree add -q "$WT" -B "$BR" "origin/$BR" 2>/dev/null || { say "#$N: cannot make worktree"; exit 0; }
+if [ ! -e "$WT" ]; then
+  $GIT -C "$RSI_CTRL" worktree add -q "$WT" -B "$BR" "origin/$BR" 2>/dev/null \
+    || $GIT -C "$RSI_CTRL" worktree prune -q 2>/dev/null \
+    || true
+  if [ ! -e "$WT" ]; then
+    EXISTING="$($GIT -C "$RSI_CTRL" worktree list --porcelain | awk -v b="refs/heads/$BR" '
+      $1=="worktree"{w=$2} $1=="branch" && $2==b {print w; exit}')"
+    if [ -n "$EXISTING" ] && [ "$EXISTING" != "$WT" ]; then
+      $GIT -C "$RSI_CTRL" worktree move "$EXISTING" "$WT" 2>/dev/null || true
+    fi
+  fi
+  [ -e "$WT" ] || { say "#$N: cannot make worktree"; exit 0; }
+fi
 [ -n "$($GIT -C "$WT" status --porcelain --untracked-files=no)" ] && { say "#$N $SLUG: worktree has uncommitted tracked edits, skip"; exit 0; }
 $GIT -C "$WT" merge -q --ff-only "origin/$BR" >/dev/null 2>&1 || { say "#$N $SLUG: local branch diverged from origin, skip"; exit 0; }
 
@@ -234,7 +246,7 @@ for l in sys.stdin:
 print(" ".join(sorted(set(bad))))') )"
   [ -z "$BAD" ] && HOLD="" || HOLD="package.json change outside the Astryx programme packages: $BAD"
 fi
-[ "$SIZE" -gt 1000 ] && HOLD="diff is $SIZE changed lines (>1000): split it"
+[ "$SIZE" -gt 800 ] && HOLD="diff is $SIZE changed lines (>800): split it"
 echo "$CH" | grep -qE '^web/dist/assets/' && HOLD="web/dist/assets in diff"
 if [ -n "$HOLD" ]; then
   if [ "${HOLD#diff is}" != "$HOLD" ]; then printf '%s\n' "$HOLD" > "$STATE/merge/$SLUG.err"; sendback "$SLUG" "$ITEM" "$HOLD" "$STATE/merge/$SLUG.err"
@@ -252,11 +264,14 @@ fi
 
 # 4. gate and review IN PARALLEL. Review is keyed by the PR's own diff (web/dist/index.html and lockfile excluded), the gate by head SHA.
 DH="$($GIT -C "$WT" diff origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | shasum | cut -c1-16)"
+# MANDATE 2: the reviewer must be a different model from the worker. Workers run on $M_WORKER
+# (DeepSeek), so use the role that is a different family (reviewer-alt = gpt-6.1-sol). Selecting
+# the DeepSeek 'reviewer' here would put the worker's own model on its review.
+ROLE=reviewer-alt
+[ "$M_WORKER" = "$M_ALT" ] && ROLE=reviewer
 NEED_GATE=1; [ "$(cut -d' ' -f1 "$V" 2>/dev/null)" = "$SHA" ] && [ "$(cut -d' ' -f2 "$V" 2>/dev/null)" = PASS ] && NEED_GATE=0
-NEED_REV=1;  [ "$(cut -d' ' -f1 "$RV" 2>/dev/null)" = "$DH" ] && [ "$(cut -d' ' -f2 "$RV" 2>/dev/null)" = PASS ] && NEED_REV=0
-ROLE=reviewer
-echo "$CH" | grep -qE '^(internal/(auth|store|permission)|.*(permission|persist))' && ROLE=reviewer-alt
-[ "$SIZE" -gt 500 ] && ROLE=reviewer-alt
+# A cached PASS only carries over when the same (different-family) role recorded it.
+NEED_REV=1;  [ "$(cut -d' ' -f1 "$RV" 2>/dev/null)" = "$DH" ] && [ "$(cut -d' ' -f2 "$RV" 2>/dev/null)" = PASS ] && [ "$(cut -d' ' -f4 "$RV" 2>/dev/null)" = "$ROLE" ] && NEED_REV=0
 GL="$RUNS/gate-merge-$SLUG-$(date +%H%M%S).log"; REVPID=""
 if [ $NEED_REV -eq 1 ]; then
   LASTREV="$(cut -d' ' -f3 "$RV" 2>/dev/null)"   # last reviewed SHA (any verdict)
