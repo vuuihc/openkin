@@ -195,6 +195,7 @@ job_shell_syntax() {
 # script's behavior.
 job_shell_test() {
   ./scripts/install-hub.test.sh
+  bash rsi/runtime/format-changed.test.sh
 }
 
 job_python_syntax() {
