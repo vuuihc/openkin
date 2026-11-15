@@ -209,9 +209,7 @@ describe("coldStartPhoneParent", () => {
     // project or a machine are not promoted to a parent; a later navigation
     // layer supplies a real origin from history evidence.
     expect(coldStartPhoneParent(loc("/tasks/task-1?focus=appr-1&utm=push"))).toBe("/sessions");
-    expect(coldStartPhoneParent(loc("/agent-sessions/session-1?from=project-1"))).toBe(
-      "/sessions",
-    );
+    expect(coldStartPhoneParent(loc("/agent-sessions/session-1?from=project-1"))).toBe("/sessions");
     expect(coldStartPhoneParent(loc("/new?cwd=%2Froot&machine=node-1&model=opus"))).toBe(
       "/sessions",
     );

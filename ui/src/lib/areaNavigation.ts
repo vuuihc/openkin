@@ -274,9 +274,7 @@ export function coldStartPhoneParent(location: LocationLike): string | null {
       // Pending resolution owns the focus; until it names a task, the list is
       // the destination and the focus rides along. `encodeURIComponent` matches
       // `notificationRoute`'s existing encoding of the same value.
-      return resolved.focus
-        ? `/sessions?focus=${encodeURIComponent(resolved.focus)}`
-        : "/sessions";
+      return resolved.focus ? `/sessions?focus=${encodeURIComponent(resolved.focus)}` : "/sessions";
     case "projects.detail":
       return "/projects";
     case "routines.machineTask":
