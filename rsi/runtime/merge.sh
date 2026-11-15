@@ -85,7 +85,21 @@ while IFS=$'\t' read -r -u 3 N SLUG TITLE; do
   SIZE="$($GIT -C "$WT" diff --numstat origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | awk '{s+=$1+$2} END{print s+0}')"
   HOLD=""
   echo "$CH" | grep -qE '^(go\.mod|ui/package\.json|internal/store/.*migrat|.*migrations?/|internal/auth)' && HOLD="touches deps/migrations/auth (MANDATE: needs CEO + ADR)"
-  [ "$SIZE" -gt 900 ] && HOLD="diff is $SIZE changed lines (>900): split it"
+  # CEO 2026-11-15 (Ethan: Astryx overhaul approved): the Astryx foundation slices F1-F3 may change ui/package.json, but only
+  # for the programme's packages. Anything else in package.json (or go.mod/migrations/auth) still holds for the CEO.
+  if [ -n "$HOLD" ] && echo "$ITEM" | grep -qE '^F[123]$' && ! echo "$CH" | grep -qE '^(go\.mod|internal/store/.*migrat|.*migrations?/|internal/auth)'; then
+    BAD="$( ( $GIT -C "$WT" diff -U0 origin/main...HEAD -- ui/package.json | python3 -c '
+import re,sys
+ok=re.compile(r"^(react|react-dom|@types/react|@types/react-dom|tailwindcss|@tailwindcss/.*|postcss|autoprefixer|@astryxdesign/.*|@stylexjs/.*)$")
+bad=[]
+for l in sys.stdin:
+    m=re.match(r"^[+-]\s*\"([^\"]+)\"\s*:\s*\"[^\"]*\",?\s*$", l)
+    if m and not l.startswith(("+++","---")) and not ok.match(m.group(1)) and m.group(1) not in ("version","name","description"):
+        bad.append(m.group(1))
+print(" ".join(sorted(set(bad))))') )"
+    [ -z "$BAD" ] && HOLD="" || HOLD="package.json change outside the Astryx programme packages: $BAD"
+  fi
+  [ "$SIZE" -gt 1000 ] && HOLD="diff is $SIZE changed lines (>1000): split it"
   echo "$CH" | grep -qE '^web/dist/assets/' && HOLD="web/dist/assets in diff"
   if [ -n "$HOLD" ]; then
     if [ "${HOLD#diff is}" != "$HOLD" ]; then printf '%s\n' "$HOLD" > "$STATE/merge/$SLUG.err"; sendback "$SLUG" "$ITEM" "$HOLD" "$STATE/merge/$SLUG.err"

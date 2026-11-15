@@ -38,11 +38,11 @@ BUDGET_GUARD="${BUDGET_GUARD:-15}"
 
 # --- Parallel lanes (CEO 2026-11-15) ---
 export RSI_STATE="$STATE"
-export RSI_MAX_LANES="${RSI_MAX_LANES:-2}"        # worker lanes; the merge lane is separate. 3 swamped this 16 GB Mac (swap 90%, load 100+) -> 2.
+export RSI_MAX_LANES="${RSI_MAX_LANES:-3}"        # worker lanes; the merge lane is separate. 3 swamped this 16 GB Mac (swap 90%, load 100+) -> 2.
 export RSI_LOAD_MAX="${RSI_LOAD_MAX:-100000}"      # loadavg is useless on macOS (threads count: 300+ with one vitest run); the heavy.sh semaphore + memory guard do the work
 export VITEST_MAX_WORKERS="${VITEST_MAX_WORKERS:-2}"  # three lanes of default-parallel vitest overload 8 cores
-LANE_WORKER_SECS="${LANE_WORKER_SECS:-2400}"       # worker watchdog (~40 min); director slices to ~25 min / <= $5
-LANE_BUDGET_USD="${LANE_BUDGET_USD:-6}"            # runaway guard per worker run (target spend <= $5)
+LANE_WORKER_SECS="${LANE_WORKER_SECS:-3000}"       # worker watchdog (50 min); Astryx slices target ~45 min / <= $8 / <= 800 lines
+LANE_BUDGET_USD="${LANE_BUDGET_USD:-9}"            # runaway guard per worker run (target spend <= $5)
 FILL_SECS="${FILL_SECS:-1200}"
 LANES_PY="$RSI_DIR/runtime/lanes.py"
 mkdir -p "$STATE/lanes" "$STATE/sendback" "$STATE/merge"
