@@ -58,3 +58,6 @@ agy -p "$PROMPT" --model gemini-4-carbon-high \
 ```
 
 Local CLI: `agy` 1.5.8 (`~/.antigravity/antigravity/bin/agy`). Auth is the existing Antigravity OAuth (type `antigravity`), not a magpie provider. Magpie’s Antigravity plugin is marked retired and no Antigravity quota card appears in `magpie accounts`. Remaining Antigravity quota is not currently visible from the CLI; treat it as a finite consumer subscription and keep Carbon behind this policy.
+
+If Carbon returns no usable result (process died, empty log, or a review with no `VERDICT: PASS` / `VERDICT: FAIL` line), `dispatch.sh` falls back to `codex/gpt-6.1-sol`. A reviewer-infra no-verdict is a retry in `merge.sh`, not a sendback and not a burned rework round.
+

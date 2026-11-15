@@ -98,8 +98,9 @@ if str(d.get("status") or "").upper() not in ("SUCCESS","OK",""):
     # still extract text if any, but fail
     open(dst,"w").write(d.get("response") or d.get("text") or json.dumps(d)[:4000])
     sys.exit(2)
-open(dst,"w").write(d.get("response") or d.get("text") or "")
-sys.exit(0)
+text = (d.get("response") or d.get("text") or "")
+open(dst,"w").write(text)
+sys.exit(0 if text.strip() else 1)
 PY
   local pr=$?
   [ $rc -eq 0 ] && [ $pr -eq 0 ]
@@ -142,19 +143,32 @@ run_named() { # carbon|codex|kimi|or a raw model id
   esac
 }
 
+needs_verdict() {
+  case "$ROLE" in reviewer|reviewer-alt|ux-reviewer|ux-reviewer-alt) return 0;; *) return 1;; esac
+}
+usable_result() {
+  if [ -s "$LOG.txt" ]; then
+    if needs_verdict; then grep -qE "VERDICT: *(PASS|FAIL)" "$LOG.txt"; else return 0; fi
+  elif needs_verdict; then
+    return 1
+  else
+    return 0
+  fi
+}
+
 # If we already escalated to a named strong model, run that (then fallbacks). Otherwise the role default.
 rc=1
 if [ -n "${RSI_ESCALATE_MODEL:-}" ]; then
-  if run_named "$RSI_ESCALATE_MODEL"; then
+  if run_named "$RSI_ESCALATE_MODEL" && usable_result; then
     rc=0
   else
-    echo "[$RSI_ESCALATE_MODEL failed; trying fallbacks: ${RSI_ESCALATE_FALLBACK:-none}]" >&2
+    echo "[$RSI_ESCALATE_MODEL failed or returned no verdict; trying fallbacks: ${RSI_ESCALATE_FALLBACK:-none}]" >&2
     IFS=',' read -r -a FBs <<< "${RSI_ESCALATE_FALLBACK:-}"
     rc=1
     for fb in "${FBs[@]+"${FBs[@]}"}"; do
       [ -n "$fb" ] || continue
       echo "[fallback -> $fb]" >&2
-      if run_named "$fb"; then rc=0; break; fi
+      if run_named "$fb" && usable_result; then rc=0; break; fi
     done
   fi
   if [ $rc -eq 0 ] && [ -s "$LOG.txt" ]; then emit_and_exit 0 "$LOG.txt"; fi

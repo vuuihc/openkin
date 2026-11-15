@@ -113,7 +113,19 @@ ci_state() { # prints green|pending|fail ; waits (bounded) while pending
 }
 
 $GIT -C "$RSI_CTRL" fetch -q origin main "$BR" 2>/dev/null
-[ -e "$WT" ] || $GIT -C "$RSI_CTRL" worktree add -q "$WT" -B "$BR" "origin/$BR" 2>/dev/null || { say "#$N: cannot make worktree"; exit 0; }
+if [ ! -e "$WT" ]; then
+  $GIT -C "$RSI_CTRL" worktree add -q "$WT" -B "$BR" "origin/$BR" 2>/dev/null \
+    || $GIT -C "$RSI_CTRL" worktree prune -q 2>/dev/null \
+    || true
+  if [ ! -e "$WT" ]; then
+    EXISTING="$($GIT -C "$RSI_CTRL" worktree list --porcelain | awk -v b="refs/heads/$BR" '
+      $1=="worktree"{w=$2} $1=="branch" && $2==b {print w; exit}')"
+    if [ -n "$EXISTING" ] && [ "$EXISTING" != "$WT" ]; then
+      $GIT -C "$RSI_CTRL" worktree move "$EXISTING" "$WT" 2>/dev/null || true
+    fi
+  fi
+  [ -e "$WT" ] || { say "#$N: cannot make worktree"; exit 0; }
+fi
 [ -n "$($GIT -C "$WT" status --porcelain --untracked-files=no)" ] && { say "#$N $SLUG: worktree has uncommitted tracked edits, skip"; exit 0; }
 $GIT -C "$WT" merge -q --ff-only "origin/$BR" >/dev/null 2>&1 || { say "#$N $SLUG: local branch diverged from origin, skip"; exit 0; }
 
@@ -209,8 +221,16 @@ if [ -n "$REVPID" ]; then
   wait "$REVPID"; CHILD=""
   cp "$PREV.new" "$PREV"; rm -f "$PREV.new"
   VERD="$(grep -oE 'VERDICT: *(PASS|FAIL)' "$PREV" | tail -1 | grep -oE 'PASS|FAIL')"
-  echo "$DH ${VERD:-NONE} $SHA $ROLE" > "$RV"
-  if [ "$VERD" != PASS ]; then REV_OK=0; REV_NOTE="independent review ${VERD:-gave no verdict}"; say "#$N $SLUG: review ${VERD:-NO VERDICT}"; fi
+  if [ -z "$VERD" ]; then
+    # Reviewer infra (empty log / no VERDICT): retry next cycle. Do not send back or cache this SHA as reviewed
+    # (a cached NONE would make the next pass a delta-since-HEAD empty review).
+    say "#$N $SLUG: review NO VERDICT (reviewer infra) — retry next cycle, not a sendback"
+    if [ -s "$PREV.prev" ]; then mv "$PREV.prev" "$PREV"; else rm -f "$PREV"; fi
+    [ $GATE_OK -eq 0 ] || exit 0
+  else
+    echo "$DH $VERD $SHA $ROLE" > "$RV"
+    if [ "$VERD" != PASS ]; then REV_OK=0; REV_NOTE="independent review FAIL"; say "#$N $SLUG: review FAIL"; fi
+  fi
 fi
 RMODEL="$(tr -d "\n" < "$STATE/merge/$SLUG.review-model" 2>/dev/null || true)"; RMODEL="${RMODEL:-$([ $ROLE = reviewer ] && echo "$M_DIRECTOR" || echo "$M_CODEX")}"
 if [ $GATE_OK -eq 0 ] || [ $REV_OK -eq 0 ]; then
