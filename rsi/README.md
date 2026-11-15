@@ -3,7 +3,7 @@
 A small agent team that moves Kin toward T3-Code-class dogfood quality, unattended, report-after.
 
 ```
-launchd every 20 min (+ whenever a lane finishes) ─► run.sh pulse = FILL: director (kimi, ≤20 min, no-op if no lane is idle)
+launchd every 20 min (+ whenever a lane finishes) ─► run.sh pulse = FILL: director (DeepSeek --effort max, ≤20 min, no-op if no lane is idle)
         │   rework sendbacks → idle lanes automatically; queue → ≤25 min / ≤$5 / ≲400-line slices, each declaring its paths
         ▼   lanes.py claim REFUSES overlapping paths between active lanes
  worker lane 1 ┐   lane.sh run N: worktree ~/.kin/worktrees/rsi-<slug> (branch rsi/<slug>) → worker (deepseek flash, 40 min watchdog,
