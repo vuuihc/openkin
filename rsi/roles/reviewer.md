@@ -1,5 +1,5 @@
 # Role: reviewer
-Model: `volcengine-gw/kimi-k3.1-pro[1m]`, or `codex/gpt-6.1-sol` for high-risk diffs. **Never the worker's model.** Read-only.
+Model: first reviewer `volcengine-gw/volcengine/deepseek-v4.1-flash[1m]` at `--effort max`; `reviewer-alt` (risky paths or >500 lines) = `codex/gpt-6.1-sol`. Kimi k3.1 pro only via `runtime/escalate.py` (disagreement, 2nd+ rework, F1–F4/S1–S3; ¥80/day cap). **Never the worker's model.** Read-only.
 
 **Mission:** one complete report per diff, graded blocker / major / nit, no code changes.
 **Checklist (from docs/product/LESSONS.md):** keyboard ownership (⌘F/Esc/j/k) · focus timing · history/back/deep link · two-width consistency (390/1100) · empty/slow/error/disconnected · i18n both languages · generated files (`web/dist/index.html` only) · accessible names/state · TASTE 1–16 · tests fail when behaviour regresses (name the mutant) · red lines in MANDATE · public-repo hygiene (no hosts/IPs/emails).

@@ -212,7 +212,7 @@ if [ -n "$REVPID" ]; then
   echo "$DH ${VERD:-NONE} $SHA $ROLE" > "$RV"
   if [ "$VERD" != PASS ]; then REV_OK=0; REV_NOTE="independent review ${VERD:-gave no verdict}"; say "#$N $SLUG: review ${VERD:-NO VERDICT}"; fi
 fi
-RMODEL="$([ $ROLE = reviewer ] && echo "$M_DIRECTOR" || echo "$M_ALT")"
+RMODEL="$(tr -d "\n" < "$STATE/merge/$SLUG.review-model" 2>/dev/null || true)"; RMODEL="${RMODEL:-$([ $ROLE = reviewer ] && echo "$M_DIRECTOR" || echo "$M_CODEX")}"
 if [ $GATE_OK -eq 0 ] || [ $REV_OK -eq 0 ]; then
   C="$STATE/merge/$SLUG.combined.txt"; : > "$C"; TITLEBAD=""
   [ $GATE_OK -eq 0 ] && { echo "=== GATE FAILED: $GATE_NOTE ===" >> "$C"; tail -c 3500 "$GL" >> "$C" 2>/dev/null; echo >> "$C"; TITLEBAD="gate failed: $GATE_NOTE"; }

@@ -3,7 +3,7 @@
 A small agent team that moves Kin toward T3-Code-class dogfood quality, unattended, report-after.
 
 ```
-launchd every 20 min (+ whenever a lane finishes) ─► run.sh pulse = FILL: director (kimi, ≤20 min, no-op if no lane is idle)
+launchd every 20 min (+ whenever a lane finishes) ─► run.sh pulse = FILL: director (DeepSeek --effort max, ≤20 min, no-op if no lane is idle)
         │   rework sendbacks → idle lanes automatically; queue → ≤25 min / ≤$5 / ≲400-line slices, each declaring its paths
         ▼   lanes.py claim REFUSES overlapping paths between active lanes
  worker lane 1 ┐   lane.sh run N: worktree ~/.kin/worktrees/rsi-<slug> (branch rsi/<slug>) → worker (deepseek flash, 40 min watchdog,
@@ -12,7 +12,7 @@ launchd every 20 min (+ whenever a lane finishes) ─► run.sh pulse = FILL: di
         ▼
  launchd every 10 min (+ after each lane) ─► merge.sh = MERGE LANE (one at a time, oldest PR first)
         merge origin/main into the branch (never force-push; web/dist/index.html conflicts auto-rebuilt) → hold rules →
-        gate.sh → independent review (kimi, or codex for risky/>500 lines; never the worker's model) → CI → squash-merge
+        gate.sh → independent review (DeepSeek --effort max, or codex for risky/>500 lines; Kimi only on escalation) → UX vision gate after #73 (codex default) → CI → squash-merge
         failure → state/sendback/<slug>.md → rework lane (max 3 rounds, then state/needs-ceo.md)
 launchd 07:40 + 08:55 ─► run.sh dream  ─► state/reports/YYYY-MM-DD-morning.md
 launchd 08:15 ─► run.sh daily  ─► planner regroom of the queue (items sized for lanes)
