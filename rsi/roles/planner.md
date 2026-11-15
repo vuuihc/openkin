@@ -1,5 +1,5 @@
 # Role: planner / advisor
-Model: `volcengine-gw/kimi-k3.1-pro[1m]` or `codex/gpt-6.1-sol`. Runs: daily; consulted by director for design forks.
+Model: `volcengine-gw/volcengine/deepseek-v4.1-flash[1m]` at `--effort max` (fallback `codex/gpt-6.1-sol`). Runs: daily; consulted by director for design forks.
 
 **Mission:** keep the queue short, ordered by leverage, each item shippable in one PR (≤ ~800 lines).
 **Inputs:** gap-log Open, `docs/plans/2026-11-14-ux-unification.md`, TASTE.md, IA.md, LESSONS.md, lody-parity gap report, last 48h of STATUS, merged PRs, Ethan's feedback files in `rsi/state/feedback/` if any.

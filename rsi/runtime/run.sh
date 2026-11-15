@@ -1,7 +1,7 @@
 #!/bin/bash
 # run.sh <pulse|daily|dream> [--force] [--dry-run]   |   run.sh --check | --status
 # Runner for the Kin RSI loop (parallel lanes, CEO 2026-11-15).
-#   pulse = FILL: a short director run (kimi) that assigns tasks to idle worker lanes, then launches them detached.
+#   pulse = FILL: a short director run (DeepSeek V4.1 Flash --effort max) that assigns tasks to idle worker lanes, then launches them detached.
 #           Cadence: launchd every 20 min + whenever a lane finishes / the merge lane acts. Quick no-op when no lane is idle.
 #   daily/dream = planner regroom / nightly consolidation + morning report. They wait (bounded) for the fill lock only,
 #           never for lane or merge locks, and still run if the wait times out.
@@ -20,7 +20,9 @@ if [ $CHECK -eq 1 ] || [ $STAT -eq 1 ]; then
     for m in pulse merge dream daily; do launchctl print "gui/$(id -u)/com.ethan.kin-rsi-$m" >/dev/null 2>&1 && echo "launchd $m loaded" || echo "launchd $m NOT loaded"; done
   fi
   python3 "$LANES_PY" status
-  for f in PAUSE NO_MERGE; do [ -e "$STATE/$f" ] && echo "$f set: $(cat "$STATE/$f")"; done
+  for f in PAUSE NO_MERGE VOLC_NO_KIMI VOLC_STOP_WORKERS; do [ -e "$STATE/$f" ] && echo "$f set: $(cat "$STATE/$f")"; done
+  python3 "$RSI_DIR/runtime/volc-budget.py" --apply >/dev/null 2>&1 || true
+  [ -s "$STATE/volc-budget.json" ] && python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print('volc list CNY today: ¥%.2f (%s); Kimi ¥%.2f / ¥%.0f'%(d['cny'],d['level'],d.get('kimi_cny') or 0,d.get('kimi_day_max') or 80))" "$STATE/volc-budget.json" 2>/dev/null
   echo "consec_fail=$(cat "$STATE/consec_fail" 2>/dev/null || echo 0) consec_timeout=$(cat "$STATE/consec_timeout" 2>/dev/null || echo 0)"
   echo "merge lane: $([ -d "$STATE/.merge.lock" ] && echo "running pid $(cat "$STATE/.merge.lock/pid")" || echo idle)"
   [ -e "$STATE/merged.log" ] && { echo "--- merged.log (tail)"; tail -5 "$STATE/merged.log"; }
@@ -68,7 +70,7 @@ case "$MODE" in
     MAXSECS="$FILL_SECS"; PROMPT_FILE="$RSI_DIR/runtime/prompts/fill.md"
     # debounce: lane-finish / merge triggers + the 20-min tick must not stack director runs
     if [ $FORCE -eq 0 ] && [ -e "$STATE/last_fill" ] && [ $(( $(date +%s) - $(cat "$STATE/last_fill") )) -lt 480 ]; then echo "skip: fill ran <8 min ago"; exit 0; fi
-    [ $DRY -eq 0 ] && bash "$RSI_DIR/runtime/lane.sh" autofill astryx   # Astryx sendbacks -> rework lanes first, no LLM
+    [ $DRY -eq 0 ] && rsi_allow_workers && bash "$RSI_DIR/runtime/lane.sh" autofill astryx   # Astryx sendbacks -> rework lanes first, no LLM
     IDLE="$(python3 "$LANES_PY" idle | tr '\n' ' ')"
     LANES_TXT="$(python3 "$LANES_PY" status)"
     CLOUD_PENDING="$(python3 "$RSI_DIR/runtime/slices.py" cloud-pending 2>/dev/null | wc -l | tr -d ' ')"
@@ -83,20 +85,23 @@ PROMPT="$(sed -e "s#{{MODE}}#$MODE#g" -e "s#{{NOW}}#$(date '+%F %H:%M %Z')#g" -e
 if [ $DRY -eq 1 ]; then TOOLS=(Read Glob Grep); else TOOLS=(Read Write Edit Glob Grep Bash Agent Skill WebFetch WebSearch); fi
 GUARD=$BUDGET_GUARD; [ "$MODE" = pulse ] && GUARD=8
 
-run_once() { # model
-  ( cd "$RSI_CTRL" && "$CLAUDE" -p "$PROMPT" --model "$1" \
-      --allowedTools "${TOOLS[@]}" --permission-mode bypassPermissions \
-      --add-dir "$WT_ROOT" "$MAIN_CHECKOUT" \
-      --max-budget-usd "$GUARD" \
-      --output-format stream-json --verbose < /dev/null >> "$LOG" 2>&1 ) &
+run_once() { # model [effort]
+  local model="$1" effort="${2:-}"
+  local args=( -p "$PROMPT" --model "$model"
+      --allowedTools "${TOOLS[@]}" --permission-mode bypassPermissions
+      --add-dir "$WT_ROOT" "$MAIN_CHECKOUT"
+      --max-budget-usd "$GUARD"
+      --output-format stream-json --verbose )
+  [ -n "$effort" ] && args+=( --effort "$effort" )
+  ( cd "$RSI_CTRL" && "$CLAUDE" "${args[@]}" < /dev/null >> "$LOG" 2>&1 ) &
   local pid=$!
   ( sleep "$MAXSECS"; echo '{"type":"runner","note":"watchdog timeout, terminating"}' >> "$LOG"; kill -TERM "$pid" 2>/dev/null ) & local wd=$!
   wait "$pid"; local rc=$?
   kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
   return $rc
 }
-echo "run=$MODE start=$(date +%T) log=$LOG model=$M_DIRECTOR idle_lanes=[${IDLE% }]"
-run_once "$M_DIRECTOR"; RC=$?
+echo "run=$MODE start=$(date +%T) log=$LOG model=$M_DIRECTOR effort=$M_DIRECTOR_EFFORT idle_lanes=[${IDLE% }]"
+run_once "$M_DIRECTOR" "$M_DIRECTOR_EFFORT"; RC=$?
 python3 "$RSI_DIR/runtime/parse_result.py" "$LOG" > "$LOG.result.txt" 2>&1; PR=$?
 if { [ $RC -ne 0 ] || [ $PR -ne 0 ]; } && tail -c 4000 "$LOG" | grep -qiE '403|forbidden|quota|rate.?limit|overloaded|Failed to authenticate|credit'; then
   echo '{"type":"runner","note":"API error, retrying on fallback model"}' >> "$LOG"
@@ -106,7 +111,14 @@ fi
 echo "run=$MODE exit=$RC result_ok=$([ $PR -eq 0 ] && echo yes || echo no) log=$LOG"
 
 # Lanes the director claimed are launched even if its final message failed (claims expire after 25 min otherwise).
-[ "$MODE" = pulse ] && [ $DRY -eq 0 ] && { bash "$RSI_DIR/runtime/lane.sh" start-claimed; bash "$RSI_DIR/runtime/lane.sh" autofill rest; }   # non-Astryx reworks only take leftover lanes
+if [ "$MODE" = pulse ] && [ $DRY -eq 0 ]; then
+  if rsi_allow_workers; then
+    bash "$RSI_DIR/runtime/lane.sh" start-claimed
+    bash "$RSI_DIR/runtime/lane.sh" autofill rest   # non-Astryx reworks only take leftover lanes
+  else
+    echo "volc budget: not starting new worker lanes until next Asia/Singapore day (¥${RSI_VOLC_CNY:-?} >= ¥${RSI_VOLC_STOP_WORKERS:-560})"
+  fi
+fi
 
 if [ $RC -eq 143 ] && grep -q '"note":"watchdog timeout' "$LOG"; then count_timeout "$MODE" "log: ${LOG##*/}"; exit 1; fi
 if [ $RC -ne 0 ] || [ $PR -ne 0 ]; then count_fail "$MODE" "$(tail -c 200 "$LOG.result.txt" | tr '\n' ' ')  log: ${LOG##*/}"; exit 1; fi
