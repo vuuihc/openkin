@@ -16,23 +16,30 @@ import { describe, expect, it } from "vitest";
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 const PAGE = readFileSync(join(UI, "src/pages/RoutinesPage.tsx"), "utf8");
+// The form itself lives in its own component; the page owns the draft, the
+// leave guard, and the create/patch calls. Form-layout assertions read the
+// component that renders the controls.
+const EDITOR = readFileSync(join(UI, "src/components/routine/RoutineEditor.tsx"), "utf8");
+// The rows live in their own component too; the page still owns the handlers
+// they call and every request the form makes.
+const LIST = readFileSync(join(UI, "src/components/routine/RoutineList.tsx"), "utf8");
 const NEW_CHAT = readFileSync(join(UI, "src/pages/NewChatPage.tsx"), "utf8");
 
 /** The source between two markers, so a test can speak about one function. */
-function block(start: string, end: string): string {
-  const from = PAGE.indexOf(start);
-  const to = PAGE.indexOf(end, from + start.length);
+function block(start: string, end: string, source = PAGE): string {
+  const from = source.indexOf(start);
+  const to = source.indexOf(end, from + start.length);
   expect(from).toBeGreaterThan(-1);
   expect(to).toBeGreaterThan(from);
-  return PAGE.slice(from, to);
+  return source.slice(from, to);
 }
 
 describe("editing a routine", () => {
   it("opens the form on the routine's own values", () => {
     // The form is the create form; the only difference between the two modes
     // is where its initial values come from.
-    expect(PAGE).toContain('{tr("routines.edit")}');
-    expect(PAGE).toContain("onClick={() => openEdit(r)}");
+    expect(LIST).toContain('{tr("routines.edit")}');
+    expect(LIST).toContain("onClick={() => onEdit(r)}");
     expect(PAGE).toContain("const draft = routineForm(r);");
     expect(PAGE).toContain("setRoutineRule(draft.rule);");
     expect(PAGE).toContain("setRuleZone(draft.ruleZone);");
@@ -51,14 +58,14 @@ describe("editing a routine", () => {
     // another zone would be re-stamped with the browser's.
     const scheduled = block("const patch = routinePatch(editing, {", "});");
     expect(scheduled).toContain("ruleZone,");
-    expect(PAGE).toContain("ruleZone={ruleZone}");
+    expect(EDITOR).toContain("ruleZone={ruleZone}");
   });
 
   it("says which of the two things the form is doing", () => {
-    expect(PAGE).toContain(
+    expect(EDITOR).toContain(
       'editing ? tr("routines.editPanelTitle") : tr("routines.createPanelTitle")',
     );
-    expect(PAGE).toContain('editing ? tr("routines.save") : tr("routines.createAndOpen")');
+    expect(EDITOR).toContain('editing ? tr("routines.save") : tr("routines.createAndOpen")');
   });
 
   it("gives the create form back what the edit borrowed it from", () => {
@@ -106,7 +113,7 @@ describe("editing a routine", () => {
     // field is often empty when the form opens, so the check runs on submit.
     expect(PAGE).toContain('if (routineRule?.kind === "once" && nextMs == null) {');
     expect(PAGE).toContain('pushToast(tr("routines.needNextRun"), "error");');
-    expect(PAGE).toContain("disabled={formLocked || !prompt.trim() || !cwd.trim()}");
+    expect(EDITOR).toContain("disabled={formLocked || !prompt.trim() || !cwd.trim()}");
     expect(PAGE).not.toContain("parseLocalDateTime(nextRunLocal) == null");
   });
 
@@ -117,7 +124,7 @@ describe("editing a routine", () => {
       "disabled={creating || (machineOffline && !showCreate)}\n              onClick={() => (showCreate ? closeForm() : openCreate())}",
     );
     // Four row actions: run now, edit, pause/resume, delete.
-    expect(PAGE.split("disabled={!!busy[r.id] || creating || machineOffline}").length - 1).toBe(4);
+    expect(LIST.split("disabled={!!busy[r.id] || creating || machineOffline}").length - 1).toBe(4);
   });
 });
 
@@ -125,23 +132,25 @@ describe("a routine's model", () => {
   it("is picked from the routine's own agent, not from a free list", () => {
     // A model id from another agent's catalog is a run that fails at start,
     // so the picker lists exactly the models the selected agent reports.
-    const picker = block("<ModelPicker", "/>");
+    const picker = block("<ModelPicker", "/>", EDITOR);
     expect(picker).toContain("value={model}");
-    expect(picker).toContain("models={modelsForAgent(machineAgents, agentId)}");
-    expect(picker).toContain("onChange={setModel}");
+    expect(picker).toContain("models={models}");
+    expect(picker).toContain("onChange={(model) => onChange({ model })}");
     expect(picker).toContain("disabled={formLocked}");
     // The picker's "Custom" flag survives a value change by design, so a
     // cleared model needs a fresh mount to stop reading "Custom" with a blank
     // box. The key is what makes the form identity part of that mount.
     expect(picker).toContain('key={`${editing?.id ?? "new"}:${agentId}`}');
+    // The page still decides which catalog is the selected agent's.
+    expect(PAGE).toContain("models={modelsForAgent(machineAgents, agentId)}");
   });
 
   it("is cleared when the agent changes", () => {
     // The same rule New Chat applies: the new agent does not know the old
     // catalog's id, and a stored one it cannot run would fail every fire
     // instead of falling back to its default.
-    const handler = block("setAgentId(next);", "}}");
-    expect(handler).toContain('setModel("");');
+    const handler = block("onChange={(agentId) => {", "}}", EDITOR);
+    expect(handler).toContain('onChange({ agentId, model: "" });');
   });
 
   it("travels with create and with a patch", () => {
