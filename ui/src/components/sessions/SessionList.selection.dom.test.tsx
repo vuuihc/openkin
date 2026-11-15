@@ -48,9 +48,10 @@ vi.mock("../../api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../api/client")>();
   return {
     ...actual,
-    listAgentSessionsPage: vi.fn(
-      async () => ({ items: [] as AgentSession[], next_cursor: undefined }),
-    ),
+    listAgentSessionsPage: vi.fn(async () => ({
+      items: [] as AgentSession[],
+      next_cursor: undefined,
+    })),
     listTasks: vi.fn(async () => []),
     listProjects: vi.fn(async () => [] as Project[]),
     ensureProject: vi.fn(async () => ({ id: "p", name: "alpha" })),
@@ -137,14 +138,14 @@ function intrinsicWidth(el: HTMLElement): number {
     return Math.max(ICON_TARGET, 20 + icon + textWidth(text));
   }
   // The count/select-all label: checkbox + gap + text.
-  return (el.querySelector('input[type="checkbox"]') ? 20 + 8 : 0) + textWidth(el.textContent ?? "");
+  return (
+    (el.querySelector('input[type="checkbox"]') ? 20 + 8 : 0) + textWidth(el.textContent ?? "")
+  );
 }
 
 function groupWidth(el: HTMLElement): number {
   if (el.children.length === 0) return intrinsicWidth(el);
-  const widths = Array.from(el.children).map((child) =>
-    groupWidth(child as HTMLElement),
-  );
+  const widths = Array.from(el.children).map((child) => groupWidth(child as HTMLElement));
   return widths.reduce((sum, w) => sum + w, 0) + CONTROL_GAP * (widths.length - 1);
 }
 
@@ -403,9 +404,13 @@ describe("existing selection entry and movement", () => {
     // ↑/↓ still move between rows.
     row("alpha-1").focus();
     await user.keyboard("{ArrowDown}");
-    expect((document.activeElement as HTMLElement).getAttribute("data-session-row")).toBe("alpha-2");
+    expect((document.activeElement as HTMLElement).getAttribute("data-session-row")).toBe(
+      "alpha-2",
+    );
     await user.keyboard("{ArrowUp}");
-    expect((document.activeElement as HTMLElement).getAttribute("data-session-row")).toBe("alpha-1");
+    expect((document.activeElement as HTMLElement).getAttribute("data-session-row")).toBe(
+      "alpha-1",
+    );
   });
 
   it("enters selection from Shift+Enter on a row that was not in selection mode", () => {

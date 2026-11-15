@@ -30,11 +30,7 @@ import { agentAvatarMeta, agentDisplayName } from "../../lib/agentMention";
 import { settleArchiveBatch } from "../../lib/archiveBatch";
 import type { Machine } from "../../lib/devices";
 import { runGuardedNavigation } from "../../lib/leaveGuard";
-import {
-  draftEntryState,
-  listUrlFor,
-  phonePush,
-} from "../../lib/phoneNavigation";
+import { draftEntryState, listUrlFor, phonePush } from "../../lib/phoneNavigation";
 import {
   DRAFT_PATH,
   getDraftCwd,
@@ -152,10 +148,7 @@ const LIST_STATE_KEYS = ["search", "status", "scope"] as const;
  * composer's prefill and `find` the transcript's find seed, both of which
  * belong to the page being left.
  */
-function listStateQuery(
-  params: URLSearchParams,
-  extra: Record<string, string> = {},
-): string {
+function listStateQuery(params: URLSearchParams, extra: Record<string, string> = {}): string {
   const next = new URLSearchParams();
   for (const key of LIST_STATE_KEYS) {
     const value = params.get(key);
@@ -480,13 +473,7 @@ export default function SessionList({
   // wall of zero-count headings.
   const canSeed = scope === "active" && !status && taskList.loaded && !taskList.error;
   const seeded = useMemo(
-    () =>
-      seedProjects(
-        buckets,
-        canSeed ? projects : [],
-        archivedCwds,
-        tr("sessions.noProject"),
-      ),
+    () => seedProjects(buckets, canSeed ? projects : [], archivedCwds, tr("sessions.noProject")),
     [buckets, projects, canSeed, archivedCwds, tr],
   );
   const filtered = useMemo(() => filterProjectBuckets(seeded, query), [seeded, query]);
@@ -682,9 +669,7 @@ export default function SessionList({
         query={query}
         archived={scope === "archived"}
         onRestoreProject={
-          scope === "archived" &&
-          bucketIsLocal(bucket) &&
-          archivedCwdFor(bucket.key, archivedCwds)
+          scope === "archived" && bucketIsLocal(bucket) && archivedCwdFor(bucket.key, archivedCwds)
             ? () => {
                 const cwd = archivedCwdFor(bucket.key, archivedCwds);
                 if (cwd) unarchiveProject(cwd);
@@ -1177,7 +1162,9 @@ export default function SessionList({
               type="button"
               onClick={deleteSelected}
               disabled={selectedIds.size === 0 || selectionBusy}
-              aria-label={deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")}
+              aria-label={
+                deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")
+              }
               title={deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")}
               aria-busy={deletingSelection || undefined}
               className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-kin-red/15 text-body font-medium text-kin-red-ink disabled:opacity-40"
@@ -1407,10 +1394,7 @@ function DeviceSection({
   return (
     <section aria-label={label}>
       <div
-        className={[
-          "flex items-center gap-1.5 pb-0.5 pt-3",
-          sidebar ? "px-2" : "px-4",
-        ].join(" ")}
+        className={["flex items-center gap-1.5 pb-0.5 pt-3", sidebar ? "px-2" : "px-4"].join(" ")}
       >
         <IconMachine size={14} className="flex-none text-kin-muted" />
         <span
@@ -1700,10 +1684,7 @@ function ProjectBucket({
                 >
                   <IconPin size={12} strokeWidth={pinnedProject ? 2.2 : 1.7} />
                 </ProjectIconButton>
-                <ProjectIconButton
-                  label={tr("nav.archiveProject")}
-                  onClick={onArchiveProject}
-                >
+                <ProjectIconButton label={tr("nav.archiveProject")} onClick={onArchiveProject}>
                   <IconArchive size={12} />
                 </ProjectIconButton>
               </>
