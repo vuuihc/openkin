@@ -17,12 +17,14 @@ import { describe, expect, it } from "vitest";
  * needs a daemon, a machine list and two live subscriptions.
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
-const SOURCE = readFileSync(join(UI, "src/components/sessions/SessionList.tsx"), "utf8");
+// The bucket's rows moved to SessionGroups with the grouping extraction; the
+// rule is still asked once for every row it draws.
+const GROUPS = readFileSync(join(UI, "src/components/sessions/SessionGroups.tsx"), "utf8");
 const ROW = readFileSync(join(UI, "src/components/sessions/SessionRow.tsx"), "utf8");
 
 describe("the pinned section's machine label", () => {
   it("asks the shared rule about every row", () => {
-    expect(SOURCE).toContain("deviceLabel={pinnedRowDeviceName(bucket.key, row, machines)}");
+    expect(GROUPS).toContain("deviceLabel={pinnedRowDeviceName(bucket.key, row, machines)}");
   });
 
   it("shows the answer on the row and reads it out", () => {

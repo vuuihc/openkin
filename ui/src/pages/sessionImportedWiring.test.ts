@@ -21,6 +21,9 @@ import { describe, expect, it } from "vitest";
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 const SOURCE = readFileSync(join(UI, "src/components/sessions/SessionList.tsx"), "utf8");
+// The bucket heading and its rows moved to SessionGroups with the grouping
+// extraction; fold state and the fold rule still live in the list.
+const GROUPS = readFileSync(join(UI, "src/components/sessions/SessionGroups.tsx"), "utf8");
 
 describe("the phone list's imported group", () => {
   it("folds a machine's imports until the reader opens them", () => {
@@ -42,13 +45,13 @@ describe("the phone list's imported group", () => {
     // The count is drawn from the bucket itself, so a fold and its number can
     // never disagree; the accessible name is the same string, not the bare
     // "Imported sessions" a highlight would leave behind mid-search.
-    expect(SOURCE).toContain('tr("sessions.imported", { count: String(bucket.rows.length) })');
-    expect(SOURCE).toContain("aria-label={heading}");
+    expect(GROUPS).toContain('tr("sessions.imported", { count: String(bucket.rows.length) })');
+    expect(GROUPS).toContain("aria-label={heading}");
   });
 
   it("draws the conversation mark instead of a project folder", () => {
     // An import is not a project: a folder icon would promise a project page
     // and pin, archive and cover actions that do not apply.
-    expect(SOURCE).toContain("{imported ? (\n            <IconSessions");
+    expect(GROUPS).toContain("{imported ? (\n            <IconSessions");
   });
 });
