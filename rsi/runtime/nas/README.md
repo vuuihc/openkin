@@ -1,8 +1,19 @@
 # NAS lanes (rsi/runtime/nas)
 
-Extra RSI worker capacity on a LAN NAS (UGREEN DX4600, UGOS Pro). The Mac can SSH to it (`Host nas` in `~/.ssh/config`), so the loop is **unattended and Mac-driven**: no CopyToBox hop, no inbound ports on the NAS stack.
+Extra RSI worker capacity on a LAN NAS (UGREEN DX4600, UGOS Pro). The Mac can SSH to it (`Host nas` in
+`~/.ssh/config`), so the loop is **unattended and Mac-driven**: no CopyToBox hop, no inbound ports on
+the NAS stack.
 
-The NAS CPU is weak (Celeron N5105, 4 cores) but RAM is plentiful. Lanes do **agent thinking only**. Full `tsc` / UI inventory / vitest run on the Mac under `heavy.sh` after the result is fetched.
+The NAS CPU is weak (Celeron N5105, 4 cores) but RAM is plentiful. Lanes do **agent thinking only**.
+Full `tsc` / UI inventory / vitest run on the Mac under `heavy.sh` after the result is fetched.
+
+This slice ships the **Mac-side control plane** (`pulse-nas.sh`, `ingest-nas.sh`, their tests, and the
+launchd/run.sh hooks). The isolated Compose stack, the in-container `nas-lane.sh`, the installer and
+the `claude -p` smoke probe are a follow-up slice (`R-nas-worker-lanes-stack`, recorded in
+`rsi/state/followups.md`), which keeps this review under the merge lane's size cap. Until that lands
+the pulse probes the NAS, ingests nothing, logs `NAS worker container not running` and exits 0. The
+deferred installer needs a provisioned magpie **gateway/caller** key in `<NAS root>/secrets/magpie.key`
+(mode 600); a browser UI key is not a caller key.
 
 ```
 launchd every 20 min + run.sh pulse ─► pulse-nas.sh
@@ -19,15 +30,6 @@ launchd every 20 min + run.sh pulse ─► pulse-nas.sh
        docker exec nas-lane.sh in the isolated container (Claude Code → host magpie :3425)
 ```
 
-## Stack
-
-- Location on the NAS: `~/kin-rsi-nas` (volume1 NVMe, **not** the UGOS `/` overlay). The absolute path is resolved at install time from the NAS account's `$HOME` and written to `compose/.env`; no account path is committed.
-- Isolated Docker Compose project `kin-rsi-nas`: one `worker` container, **user-defined bridge `kin-rsi-nas` only** (no host/macvlan, does not join existing networks, no published ports, no privileged).
-- Limits for the whole stack (up to 2 lanes share it): **1.0 CPU, 5 GB RAM**.
-- Image: Node 24 + npm, git, Python 3, Claude Code CLI. No secrets in the image.
-- Claude talks to the **already-running** NAS magpie on port 3425 via `host.docker.internal` (`extra_hosts: host-gateway`). Model aliases match the Mac `~/.claude/settings.json`: workers `volcengine-gw/volcengine/deepseek-v4.1-flash[1m]`, opus alias `volcengine-gw/kimi-k3.1-pro[1m]`. A caller key is mounted read-only at `/secrets/magpie.key`; magpie config is not modified by these scripts.
-- OpenClash VM, libvirt, Tailscale, openkin-hub, and magpie config are never touched.
-
 ## Lanes and guards
 
 - `NAS_MAX_LANES=2` (default). Lane 2 starts only when NAS 1-minute load `< 3` and `MemAvailable > 6 GB`.
@@ -43,27 +45,7 @@ NAS workers have no browser. When a finished job changes rendered UI (`ui/src/**
 
 ## Operate
 
-- Install the stack (once): `rsi/runtime/nas/install-nas.sh` (needs a provisioned caller key; see below)
-- Smoke `claude -p`: `rsi/runtime/nas/smoke-nas.sh` (expects `NAS_LANE_OK`)
 - Pulse now: `rsi/runtime/nas/pulse-nas.sh`
 - Reinstall the launchd job: `rsi/runtime/launchd/install.sh nas`
 - Regression tests: `bash rsi/runtime/nas/tests/test-nas.sh` (fake ssh/scp/docker/gh; no NAS, no network)
-- Revert: `ssh nas 'cd ~/kin-rsi-nas/compose && docker compose down'` and `launchctl bootout gui/$(id -u)/com.ethan.kin-rsi-nas`. Data stays in `~/kin-rsi-nas` until you delete it. The Mac job is also removed by deleting `~/Library/LaunchAgents/com.ethan.kin-rsi-nas.plist`.
-
-## Magpie auth (do not edit magpie config from these scripts)
-
-A browser UI key (`MAGPIE_WEB_KEY`) is **not** a gateway caller key; the worker container reaches magpie via `host.docker.internal:3425` (host-gateway), which magpie treats as a remote caller, so it needs an **enabled gateway / caller key** in `<NAS root>/secrets/magpie.key` (mode 600). `install-nas.sh` never reads or copies a credential out of another container; it only checks that the file exists and prints these instructions when it does not:
-
-```bash
-ssh nas 'docker exec magpie magpie gateway-key add kin-rsi-nas'
-# write the printed sk-magpie-key-… into <NAS root>/secrets/magpie.key (mode 600)
-```
-
-Adding a key is a magpie config change and is done **once, with approval**. To revert it, list the keys and remove the one you added — the id is local state, not something this repository records:
-
-```bash
-ssh nas 'docker exec magpie magpie gateway-key list'
-ssh nas 'docker exec magpie magpie gateway-key remove <id>'
-```
-
-Then remove `<NAS root>/secrets/magpie.key` if you also want the local copy gone. Do not reuse any other caller key. Do not change magpie providers, ports, or routing.
+- Revert: `launchctl bootout gui/$(id -u)/com.ethan.kin-rsi-nas` and delete `~/Library/LaunchAgents/com.ethan.kin-rsi-nas.plist`. Tearing down the NAS Compose project belongs to the follow-up stack slice (`ssh nas 'cd ~/kin-rsi-nas/compose && docker compose down'`); data stays in `~/kin-rsi-nas` until you delete it.

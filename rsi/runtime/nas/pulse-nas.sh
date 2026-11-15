@@ -72,7 +72,7 @@ with_timeout "$INGEST_T" bash "$RSI_DIR/runtime/nas/ingest-nas.sh" || log "inges
 
 # 2. Capacity: is the stack up? What is load/mem? How many lanes are really running?
 if ! with_timeout "$SSH_T" "${SSH[@]}" "$NAS_HOST" "docker inspect -f '{{.State.Running}}' kin-rsi-nas-worker 2>/dev/null | grep -q true"; then
-  log "NAS worker container not running; try $RSI_DIR/runtime/nas/install-nas.sh"
+  log "NAS worker container not running; the container stack is a follow-up slice (runtime/nas/README.md)"
   exit 0
 fi
 
