@@ -21,7 +21,14 @@
 
 export type UsageDays = 7 | 30 | 90;
 
-export type AgentSortKey = "name" | "status" | "version" | "auth" | "cost" | "tokens" | "tasks";
+export type AgentSortKey =
+  | "name"
+  | "status"
+  | "version"
+  | "auth"
+  | "cost"
+  | "tokens"
+  | "tasks";
 
 export type AgentSortDir = "asc" | "desc";
 
@@ -116,7 +123,10 @@ export function readAgentPagePrefs(storage: Store | null = store()): Partial<Age
   }
 }
 
-export function writeAgentPagePrefs(prefs: AgentPagePrefs, storage: Store | null = store()): void {
+export function writeAgentPagePrefs(
+  prefs: AgentPagePrefs,
+  storage: Store | null = store(),
+): void {
   writeRaw(PREFS_KEY, JSON.stringify(prefs), storage);
 }
 

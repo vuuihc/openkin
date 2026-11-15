@@ -83,5 +83,9 @@ export function collapseAgentVariants<T extends Variant>(agents: T[]): T[] {
 
 function preference(agent: Variant): number {
   const transport = agentTransport(agent.id, agent.transport, agent.kind);
-  return (agent.available ? 10 : 0) + (agent.installed ? 4 : 0) + (3 - TRANSPORT_RANK[transport]);
+  return (
+    (agent.available ? 10 : 0) +
+    (agent.installed ? 4 : 0) +
+    (3 - TRANSPORT_RANK[transport])
+  );
 }

@@ -13,9 +13,17 @@ import { useEdgeSwipeBack } from "./useEdgeSwipeBack";
  * coordinates React reads, and `pointerType` stays undefined so the mouse
  * guard does not fire.
  */
-function Harness({ enabled = true, onBack }: { enabled?: boolean; onBack: () => void }) {
+function Harness({
+  enabled = true,
+  onBack,
+}: {
+  enabled?: boolean;
+  onBack: () => void;
+}) {
   const props = useEdgeSwipeBack(enabled, onBack);
-  return <div data-testid="edge" style={{ position: "fixed", left: 0, width: 20 }} {...props} />;
+  return (
+    <div data-testid="edge" style={{ position: "fixed", left: 0, width: 20 }} {...props} />
+  );
 }
 
 function pointer(node: Element, type: string, clientX: number, clientY = 20, time = 0) {

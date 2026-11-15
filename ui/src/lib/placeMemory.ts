@@ -34,7 +34,7 @@ export function rememberedProject(machineId: string): string {
   const map = read();
   // Own keys only: a stored machine id is untrusted input, and a prototype
   // key ("constructor", "toString") would otherwise hand back a function.
-  return Object.hasOwn(map, machineId) ? (map[machineId] ?? "") : "";
+  return Object.hasOwn(map, machineId) ? map[machineId] ?? "" : "";
 }
 
 /** Remember where this machine works. An empty cwd forgets the entry. */

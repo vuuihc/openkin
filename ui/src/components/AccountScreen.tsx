@@ -1,21 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import {
-  AuthError,
-  claimOwner,
-  exchangeLoginCode,
-  joinHub,
-  signIn,
-  signInWithLink,
-  startOIDC,
-} from "../api/account";
+import { AuthError, claimOwner, exchangeLoginCode, joinHub, signIn, signInWithLink, startOIDC } from "../api/account";
 import { authErrorText, CODE_FIELDS, prefilledCode } from "../lib/accountGate";
-import {
-  hubConfigPlugin,
-  newDeviceKey,
-  parseAuthCallback,
-  takeAuthCallback,
-  type HubConfigPlugin,
-} from "../lib/hubConfig";
+import { hubConfigPlugin, newDeviceKey, parseAuthCallback, takeAuthCallback, type HubConfigPlugin } from "../lib/hubConfig";
 import { withoutClaimHash } from "../lib/loginLink";
 import { hasFinePointer } from "../lib/pointer";
 import { useT } from "../i18n/react";
@@ -403,19 +389,21 @@ function OIDCButton({
         setPending({
           deviceKey: newDeviceKey(),
           open: (url) => {
-            plugin.openSystemBrowser({ url }).catch(() => {
-              // The shell refuses what it cannot carry — an https-only URL
-              // is a plain-HTTP Hub, a supported but untrusted-for-OAuth
-              // configuration. A silent rejection would leave this flow
-              // polling forever; the failure event lands in the same error
-              // line every other sign-in failure uses.
-              setPending(null);
-              window.dispatchEvent(
-                new CustomEvent("kin:app-sign-in-failed", {
-                  detail: { code: "browser_unavailable", message: "" },
-                }),
-              );
-            });
+            plugin
+              .openSystemBrowser({ url })
+              .catch(() => {
+                // The shell refuses what it cannot carry — an https-only URL
+                // is a plain-HTTP Hub, a supported but untrusted-for-OAuth
+                // configuration. A silent rejection would leave this flow
+                // polling forever; the failure event lands in the same error
+                // line every other sign-in failure uses.
+                setPending(null);
+                window.dispatchEvent(
+                  new CustomEvent("kin:app-sign-in-failed", {
+                    detail: { code: "browser_unavailable", message: "" },
+                  }),
+                );
+              });
           },
         });
         startOIDC(provider, window.location.pathname);
