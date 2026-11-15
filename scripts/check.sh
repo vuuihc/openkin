@@ -194,7 +194,7 @@ job_shell_syntax() {
 # fake Docker, so they are fast and need no daemon; no other job executes the
 # script's behavior.
 job_shell_test() {
-  ./scripts/install-hub.test.sh
+  ./scripts/install-hub.test.sh || return 1
   bash rsi/runtime/format-changed.test.sh
 }
 
