@@ -17,6 +17,12 @@ Thumbs.db
 *.pem
 *.key
 
+# Python bytecode caches. `scripts/` has importable helper modules, and any
+# `python3 scripts/...` run without `-B` writes one. The RSI gate rejects an
+# unclean tree and only resets tracked files, so an unignored cache left by
+# one gate run fails the next one.
+__pycache__/
+
 # Dependencies & build
 node_modules
 ui/dist/

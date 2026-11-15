@@ -1033,6 +1033,7 @@ export default function ProjectDetailPage() {
                         routineDevice
                           ? `/routines?device=${encodeURIComponent(routineDevice)}`
                           : "/routines",
+                        { approved: false },
                       )
                     }
                     className="inline-flex min-h-11 items-center gap-1 text-body text-kin-secondary hover:text-kin-text"
