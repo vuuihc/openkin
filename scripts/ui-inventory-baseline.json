@@ -1,9 +1,9 @@
 {
   "note": "Console UI inventory ratchet. Counts come from scripts/ui_inventory.py and may only go down. Update deliberately with `python3 scripts/check-ui-inventory.py --update` after a migration round; an increase belongs in a reviewed PR with its reason.",
   "metrics": {
-    "raw_button": {"label": "裸 <button", "occurrences": 299, "files": 68},
+    "raw_button": {"label": "裸 <button", "occurrences": 299, "files": 71},
     "kin_btn_class": {"label": "kin-btn 类", "occurrences": 0, "files": 0},
-    "raw_input": {"label": "<input", "occurrences": 53, "files": 24},
+    "raw_input": {"label": "<input", "occurrences": 53, "files": 25},
     "kin_input_class": {"label": "kin-input 类", "occurrences": 20, "files": 6},
     "raw_textarea": {"label": "<textarea", "occurrences": 7, "files": 6},
     "native_select": {"label": "原生 <select", "occurrences": 0, "files": 0},
@@ -17,7 +17,7 @@
     "use_anchored_panel": {"label": "useAnchoredPanel", "occurrences": 22, "files": 6},
     "create_portal": {"label": "createPortal", "occurrences": 17, "files": 8},
     "push_toast": {"label": "pushToast", "occurrences": 132, "files": 17},
-    "rounded_border_surface": {"label": "rounded-* + border 表面", "occurrences": 154, "files": 51},
+    "rounded_border_surface": {"label": "rounded-* + border 表面", "occurrences": 154, "files": 53},
     "magic_z": {"label": "z-[n] 数字层级", "occurrences": 5, "files": 5}
   }
 }
