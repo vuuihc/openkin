@@ -1,9 +1,10 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import postcss from "postcss";
-import tailwindcss from "tailwindcss";
-import resolveConfig from "tailwindcss/resolveConfig";
+import { createJiti } from "jiti";
+import { __unstable__loadDesignSystem, compile } from "tailwindcss";
+import type { Config } from "tailwindcss";
 import { describe, expect, it } from "vitest";
 import config from "../../tailwind.config.ts";
 import {
@@ -48,10 +49,166 @@ const UI = fileURLToPath(new URL("../..", import.meta.url));
 // mismatch that left `index.html` outside every guard.
 const SKIP_DIRS = new Set(["node_modules", "dist"]);
 
-/** The ladders as Tailwind resolves them — read here, never copied. */
-const theme = (
-  resolveConfig(config) as unknown as { theme: Record<string, Record<string, string>> }
-).theme;
+/**
+ * The ladders as Tailwind resolves them — read here, never copied.
+ *
+ * Tailwind 3 exposed `resolveConfig(config)`; Tailwind 4's config *is* the CSS
+ * theme, and the supported reader is the compiler's design system, loaded from
+ * the same `@config` entry the build uses. `compile` and
+ * `__unstable__loadDesignSystem` read no filesystem of their own, so the two
+ * loaders below mirror the Vite/PostCSS pipeline: the package's stylesheet,
+ * the stylesheet's relative imports, and the `.ts` config through jiti (the
+ * path `design/type.ts` already needs). `candidatesToCss` then answers the
+ * questions that used to be `theme.ringWidth` / `theme.outlineWidth`: a width
+ * is on the scale when the compiler emits it, which is a stronger check than
+ * a name in a resolved object.
+ */
+const BASE = join(UI, "src");
+const require = createRequire(join(UI, "package.json"));
+const jiti = createJiti(join(UI, "tailwind.config.ts"));
+const PROBE = '@import "tailwindcss";\n@config "../tailwind.config.ts";';
+
+async function loadStylesheet(id: string, base: string) {
+  const file =
+    id === "tailwindcss"
+      ? require.resolve("tailwindcss/index.css")
+      : id.startsWith(".")
+        ? resolve(base, id)
+        : require.resolve(id);
+  return { path: file, base: dirname(file), content: readFileSync(file, "utf8") };
+}
+
+async function loadModule(id: string, base: string) {
+  const file = id.startsWith(".") ? resolve(base, id) : require.resolve(id);
+  const loaded = (await jiti.import(file)) as Config | { default: Config };
+  const module = "default" in loaded ? loaded.default : loaded;
+  return { path: file, base: dirname(file), module };
+}
+
+const OPTIONS = { base: BASE, loadStylesheet, loadModule };
+const design = await __unstable__loadDesignSystem(PROBE, OPTIONS);
+
+/** One CSS theme namespace as `name → value`, as v3's resolved theme read. */
+function namespace(ns: string): Record<string, string> {
+  return Object.fromEntries(
+    [...design.theme.entries()]
+      .filter(([key]) => key.startsWith(ns))
+      .map(([key, entry]) => [key.slice(ns.length), entry.value]),
+  );
+}
+
+/** A name-only scale, for the guards that ask whether a class name exists. */
+function names(values: string[]): Record<string, string> {
+  return Object.fromEntries(values.map((name) => [name, name]));
+}
+
+/**
+ * The four scales that v3 resolved from Tailwind's defaults and v4 generates
+ * from its spacing ruler. The numeric steps are the same ruler S7 wrote the
+ * tree on (0–96 in the 4px scale); the named steps are read out of the design
+ * system, so `sidebar`, `page` and the container ladder cannot drift.
+ */
+const SPACING_STEPS = [
+  "0",
+  "0.5",
+  "1",
+  "1.5",
+  "2",
+  "2.5",
+  "3",
+  "3.5",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9",
+  "10",
+  "11",
+  "12",
+  "14",
+  "16",
+  "20",
+  "24",
+  "28",
+  "32",
+  "36",
+  "40",
+  "44",
+  "48",
+  "52",
+  "56",
+  "60",
+  "64",
+  "72",
+  "80",
+  "96",
+];
+const CONTAINERS = Object.keys(namespace("--container-"));
+
+const theme = {
+  // Assigned ladders: the config is the whole scale, so reading it directly
+  // is reading what the compiler receives.
+  colors: config.theme.colors,
+  boxShadow: config.theme.boxShadow,
+  lineHeight: config.theme.lineHeight,
+  letterSpacing: config.theme.letterSpacing,
+  // Tailwind's own scales, as the compiler generates them.
+  width: names([
+    ...SPACING_STEPS,
+    ...Object.keys(namespace("--width-")),
+    ...CONTAINERS,
+    "auto",
+    "px",
+    "full",
+    "screen",
+    "min",
+    "max",
+    "fit",
+    "svw",
+    "lvw",
+    "dvw",
+  ]),
+  maxWidth: names([
+    ...CONTAINERS,
+    ...Object.keys(namespace("--max-width-")),
+    "0",
+    "none",
+    "full",
+    "min",
+    "max",
+    "fit",
+    "prose",
+    "screen",
+    "px",
+  ]),
+  minWidth: names([
+    ...SPACING_STEPS,
+    ...Object.keys(namespace("--min-width-")),
+    ...CONTAINERS,
+    "0",
+    "full",
+    "min",
+    "max",
+    "fit",
+    "px",
+    "auto",
+  ]),
+  minHeight: names([
+    ...SPACING_STEPS,
+    ...Object.keys(namespace("--min-height-")),
+    "0",
+    "full",
+    "screen",
+    "svh",
+    "lvh",
+    "dvh",
+    "min",
+    "max",
+    "fit",
+    "auto",
+  ]),
+} as unknown as Record<string, Record<string, string>>;
 
 /**
  * The radius steps the tree uses.
@@ -700,9 +857,21 @@ describe("design tokens", () => {
     // pattern: an arbitrary hex after the axis prefix is the same untokenised
     // blue, and an opacity modifier on the token renders **no indicator at
     // all**, because Tailwind cannot put a `/NN` on a `var()` colour.
+    // A width is allowed when the compiler emits that utility; the extra
+    // names are axes that are not widths at all (`ring-inset`,
+    // `outline-none`). Tailwind 4 has no `ringWidth`/`outlineWidth` theme
+    // namespace to read, and "does the compiler emit it" is the stronger
+    // question anyway.
+    const widthSteps = (axis: string, extra: string[]) =>
+      new Set([
+        ...extra,
+        ...["0", "1", "2", "4", "8"].filter(
+          (step) => design.candidatesToCss([`${axis}-${step}`])[0] !== null,
+        ),
+      ]);
     const widths: Record<string, Set<string>> = {
-      ring: new Set([...Object.keys(theme.ringWidth), "inset"]),
-      outline: new Set([...Object.keys(theme.outlineWidth), "none"]),
+      ring: widthSteps("ring", ["inset"]),
+      outline: widthSteps("outline", ["none"]),
     };
     const bad: string[] = [];
     for (const file of sourceFiles()) {
@@ -841,10 +1010,12 @@ describe("design tokens", () => {
 
     it("keeps the radius steps on Tailwind's scale", () => {
       // `RADIUS` is the one hand-written allow-list, so this is what keeps it
-      // from being a guess: every step it names has to be a key of the resolved
-      // radius scale. Drop one from Tailwind's defaults and this goes red
-      // instead of the ladder quietly resolving to nothing.
-      expect(RADIUS.filter((name) => theme.borderRadius[name] === undefined)).toEqual([]);
+      // from being a guess: every step it names has to compile. Tailwind 4's
+      // radius namespace holds the sized steps and `full` is a static utility,
+      // so asking the compiler covers both without copying `9999px` here.
+      expect(
+        RADIUS.filter((name) => design.candidatesToCss([`rounded-${name}`])[0] === null),
+      ).toEqual([]);
     });
 
     it("leaves no arbitrary value on an axis the ladder has words for", () => {
@@ -1183,20 +1354,28 @@ describe("design tokens", () => {
     // repository check on a loaded machine it has crossed 5s and failed the
     // suite for being slow, not for finding anything.
     it("generates CSS for every colour class in the tree", async () => {
-      // The same file set Tailwind's `content` globs describe, built here as
+      // The same file set Tailwind's content scan describes, built here as
       // absolute paths so the case does not depend on the working directory —
       // and without the tests, which do not render. `index.html` is in it
-      // because `content` scans it: the shell paints `bg-kin-bg text-kin-text`
+      // because the build scans it: the shell paints `bg-kin-bg text-kin-text`
       // on `<body>` before any script runs, and that pair was outside every
       // guard while the filter named four extensions Tailwind does not care
       // about.
+      //
+      // Tailwind 4's compiler takes the candidate list explicitly instead of
+      // a `content` array, so the classes this case then checks are the same
+      // classes the build was asked to produce. A candidate the config cannot
+      // resolve is still deleted rather than reported, which is what makes
+      // `defines` below the assertion.
       const rendered = sourceFiles().filter(
         (f) => /\.(ts|tsx|js|jsx|html)$/.test(f) && !/\.test\./.test(f),
       );
       expect(rendered.length).toBeGreaterThan(100);
-      const { css } = await postcss([
-        tailwindcss({ ...config, content: rendered } as never),
-      ]).process("@tailwind utilities;", { from: join(UI, "src/design/theme.css") });
+      const asked = [
+        ...new Set(rendered.flatMap((file) => candidates(readFileSync(file, "utf8")))),
+      ];
+      const compiler = await compile(PROBE, OPTIONS);
+      const css = compiler.build(asked);
 
       const bad: string[] = [];
       let total = 0;
