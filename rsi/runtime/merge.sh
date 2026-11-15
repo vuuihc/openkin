@@ -99,7 +99,7 @@ sync_main() { # -> 0 ok (pushed if changed), 1 conflict (sendback written), 2 tr
   $GIT -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null || { say "#$N: push after merge-main failed"; return 2; }
   return 0
 }
-check_buckets() { # gh's `pr checks --json bucket` on stdin -> space-separated buckets
+check_buckets() { # gh's `pr checks --json name,bucket` on stdin -> space-separated buckets
   python3 -c 'import json,sys
 try: print(" ".join(c.get("bucket","") for c in json.load(sys.stdin)))
 except Exception: pass' 2>/dev/null
@@ -107,7 +107,7 @@ except Exception: pass' 2>/dev/null
 ci_state() { # prints green|pending|fail ; waits (bounded) while pending
   local tries=0 out buckets
   while [ $tries -lt 6 ]; do
-    out="$($GH pr checks "$N" --repo "$GH_REPO" --json bucket 2>&1)"
+    out="$($GH pr checks "$N" --repo "$GH_REPO" --json name,bucket 2>&1)"
     echo "$out" | grep -qi 'no checks reported' && break
     [ -n "$(printf '%s' "$out" | check_buckets)" ] && break
     tries=$((tries+1)); sleep 30
@@ -120,7 +120,7 @@ ci_state() { # prints green|pending|fail ; waits (bounded) while pending
     *" pending "*)
       say "#$N $SLUG: CI pending, waiting up to 25 min" >&2
       with_timeout 1500 $GH pr checks "$N" --repo "$GH_REPO" --watch --interval 30 >/dev/null 2>&1
-      out="$($GH pr checks "$N" --repo "$GH_REPO" --json bucket 2>&1)"
+      out="$($GH pr checks "$N" --repo "$GH_REPO" --json name,bucket 2>&1)"
       printf '%s\n' "$out" > "$STATE/merge/$SLUG.ci.txt"
       buckets="$(printf '%s' "$out" | check_buckets)" ;;
   esac
