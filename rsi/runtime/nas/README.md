@@ -7,7 +7,7 @@ The NAS CPU is weak (Celeron N5105, 4 cores) but RAM is plentiful. Lanes do **ag
 ```
 launchd every 20 min + run.sh pulse ─► pulse-nas.sh
   1. ingest-nas.sh     finished jobs: fetch bundle, heavy.sh self-check, push rsi/<slug>
-                       (never force), open PR like ingest-box.sh, cloud-release, kick merge.sh
+                       (never force), open the PR, cloud-release, kick merge.sh
   2. if a NAS lane is idle:
        claim a state/cloud/*.json brief with no taker (never steal taker=box or taker=nas)
        set taker=nas, heartbeat claimed_at
