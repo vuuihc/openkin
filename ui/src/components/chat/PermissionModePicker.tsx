@@ -238,8 +238,10 @@ function PermissionMenu({
     // first row: the next arrow key then moves relative to what is set. The
     // first row is the fallback when the current mode is not offered here.
     const menu = menuRef.current;
-    (menu?.querySelector<HTMLButtonElement>('[role="menuitemradio"][aria-checked="true"]') ??
-      menu?.querySelector<HTMLButtonElement>('[role="menuitemradio"]'))?.focus({
+    (
+      menu?.querySelector<HTMLButtonElement>('[role="menuitemradio"][aria-checked="true"]') ??
+      menu?.querySelector<HTMLButtonElement>('[role="menuitemradio"]')
+    )?.focus({
       preventScroll: true,
     });
   }, [open, anchored]);

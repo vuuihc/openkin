@@ -38,12 +38,12 @@ describe("the permission ladder (KIN-START-001)", () => {
   });
 
   it("offers only what the run advertises", () => {
-    expect(permissionModesForAgent({ permission_modes: ["default", "accept_edits"] }, true)).toEqual(
-      ["default", "accept_edits"],
-    );
-    expect(permissionModesForAgent({ permission_modes: ["default", "accept_edits"] }, false)).toEqual(
-      ["default", "accept_edits"],
-    );
+    expect(
+      permissionModesForAgent({ permission_modes: ["default", "accept_edits"] }, true),
+    ).toEqual(["default", "accept_edits"]);
+    expect(
+      permissionModesForAgent({ permission_modes: ["default", "accept_edits"] }, false),
+    ).toEqual(["default", "accept_edits"]);
     expect(permissionModesForAgent({ permission_modes: [] }, true)).toEqual(["default"]);
   });
 

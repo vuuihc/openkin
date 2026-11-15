@@ -67,7 +67,10 @@ describe("forgetHubSession", () => {
   });
 
   it("does not fail the sign-out when the shell refuses", async () => {
-    const plugin = { ...fullPlugin(), forgetSession: async () => Promise.reject(new Error("nope")) };
+    const plugin = {
+      ...fullPlugin(),
+      forgetSession: async () => Promise.reject(new Error("nope")),
+    };
     await expect(forgetHubSession(iosScope(plugin))).resolves.toBeUndefined();
   });
 });
@@ -82,7 +85,9 @@ describe("parseAuthCallback", () => {
   });
 
   it("reads an error callback with its device key for attribution", () => {
-    expect(parseAuthCallback("kin://auth-callback?error=identity_not_linked&device_key=k1")).toEqual({
+    expect(
+      parseAuthCallback("kin://auth-callback?error=identity_not_linked&device_key=k1"),
+    ).toEqual({
       kind: "error",
       code: "identity_not_linked",
       deviceKey: "k1",

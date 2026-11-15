@@ -35,8 +35,7 @@ type LegacyServiceWorkers = {
 
 function browserServiceWorkers(): LegacyServiceWorkers | null {
   if (typeof navigator === "undefined") return null;
-  const workers = (navigator as Navigator & { serviceWorker?: LegacyServiceWorkers })
-    .serviceWorker;
+  const workers = (navigator as Navigator & { serviceWorker?: LegacyServiceWorkers }).serviceWorker;
   return workers ?? null;
 }
 
@@ -46,16 +45,14 @@ function browserServiceWorkers(): LegacyServiceWorkers | null {
  * same origin installed: only Kin's push worker is ours to remove.
  */
 function isLegacyKinWorker(registration: LegacyRegistration): boolean {
-  return [registration.active, registration.installing, registration.waiting].some(
-    (worker) => {
-      if (typeof worker?.scriptURL !== "string") return false;
-      try {
-        return new URL(worker.scriptURL).pathname === "/sw.js";
-      } catch {
-        return false;
-      }
-    },
-  );
+  return [registration.active, registration.installing, registration.waiting].some((worker) => {
+    if (typeof worker?.scriptURL !== "string") return false;
+    try {
+      return new URL(worker.scriptURL).pathname === "/sw.js";
+    } catch {
+      return false;
+    }
+  });
 }
 
 export async function cleanupLegacyWebPush(

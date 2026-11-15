@@ -33,10 +33,7 @@ export type FloatingContext = {
   onInbox?: boolean;
 };
 
-export function floatingApprovals(
-  approvals: Approval[],
-  ctx: FloatingContext,
-): Approval[] {
+export function floatingApprovals(approvals: Approval[], ctx: FloatingContext): Approval[] {
   if (ctx.onInbox) return [];
   if (!ctx.visibleTaskId) return approvals;
   return approvals.filter((approval) => approval.task_id !== ctx.visibleTaskId);

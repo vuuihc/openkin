@@ -182,9 +182,7 @@ export function NotificationTaps({
             // read from another screen must not leave that screen underneath:
             // the guard would return there instead of to the list. The Mac keeps
             // ordinary history, which `phonePush` leaves alone at that width.
-            runGuardedNavigation(() =>
-              phonePush(navigateRef.current, locationRef.current, target),
-            );
+            runGuardedNavigation(() => phonePush(navigateRef.current, locationRef.current, target));
             activeTarget.current = null;
           }
         } finally {
@@ -260,10 +258,7 @@ export function NotificationTaps({
   return null;
 }
 
-async function reconcileDelivered(
-  approvals: Set<string>,
-  questions: Set<string>,
-): Promise<void> {
+async function reconcileDelivered(approvals: Set<string>, questions: Set<string>): Promise<void> {
   const delivered = await deliveredNotificationTargets();
   for (const target of delivered) {
     if (target.kind === "approval" && !approvals.has(target.id)) {

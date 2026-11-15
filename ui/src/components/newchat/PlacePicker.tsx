@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../../i18n/react";
 import { cwdSuggestions, findMachine, type Machine } from "../../lib/devices";
@@ -209,7 +215,9 @@ export default function PlacePicker({
           onClose={() => close(false)}
           title={tr("newChat.placeTitle")}
           footer={
-            <SheetSecondaryButton onClick={() => close()}>{tr("common.cancel")}</SheetSecondaryButton>
+            <SheetSecondaryButton onClick={() => close()}>
+              {tr("common.cancel")}
+            </SheetSecondaryButton>
           }
         >
           {panel}
@@ -265,8 +273,7 @@ function PlacePanel({
             .map((path) => ({ path, name: projectLabel(path) }))
             .filter(
               (project) =>
-                machineMatches ||
-                `${project.name} ${project.path}`.toLowerCase().includes(q),
+                machineMatches || `${project.name} ${project.path}`.toLowerCase().includes(q),
             );
           return { machine, name, projects, machineMatches };
         })
@@ -360,7 +367,9 @@ function PlacePanel({
             className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-body text-kin-text hover:bg-[var(--kin-fill-strong)] focus:bg-[var(--kin-fill-strong)] focus:outline-none"
           >
             <IconFolder size={14} className="flex-none text-kin-secondary" />
-            <span className="min-w-0 flex-1 truncate">{tr("newChat.placeUse", { path: directory })}</span>
+            <span className="min-w-0 flex-1 truncate">
+              {tr("newChat.placeUse", { path: directory })}
+            </span>
           </button>
         ) : null}
 
@@ -369,12 +378,7 @@ function PlacePanel({
             machine.online ? tr("newChat.placeOnline") : tr("machine.offline")
           }`;
           return (
-            <div
-              key={machine.id || "__self"}
-              role="group"
-              aria-label={header}
-              className="mb-1"
-            >
+            <div key={machine.id || "__self"} role="group" aria-label={header} className="mb-1">
               <div
                 className={[
                   "px-2 pb-1 pt-1.5 text-caption font-medium",
@@ -401,7 +405,9 @@ function PlacePanel({
                       aria-selected={wide ? selected : undefined}
                       aria-current={!wide && selected ? "true" : undefined}
                       disabled={disabled}
-                      onClick={() => onPick({ machineId: machine.isSelf ? "" : machine.id, cwd: project.path })}
+                      onClick={() =>
+                        onPick({ machineId: machine.isSelf ? "" : machine.id, cwd: project.path })
+                      }
                       className={[
                         "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors",
                         "hover:bg-[var(--kin-fill-strong)] focus:bg-[var(--kin-fill-strong)] focus:outline-none",
@@ -409,10 +415,16 @@ function PlacePanel({
                       ].join(" ")}
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-body text-kin-text">{project.name}</span>
-                        <span className="block truncate text-caption text-kin-muted">{project.path}</span>
+                        <span className="block truncate text-body text-kin-text">
+                          {project.name}
+                        </span>
+                        <span className="block truncate text-caption text-kin-muted">
+                          {project.path}
+                        </span>
                       </span>
-                      {selected ? <IconCheck size={13} className="flex-none text-kin-blue-ink" /> : null}
+                      {selected ? (
+                        <IconCheck size={13} className="flex-none text-kin-blue-ink" />
+                      ) : null}
                     </button>
                   );
                 })
