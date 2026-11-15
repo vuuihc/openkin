@@ -34,6 +34,12 @@ target/
 .cache/
 *.tsbuildinfo
 
+# Python bytecode. The scripts/ helpers import each other, and the inventory
+# checker is run without `-B` by tooling outside this repo, so a check run must
+# not leave an untracked directory behind.
+__pycache__/
+*.py[cod]
+
 # Binary
 /kin
 
