@@ -224,6 +224,7 @@ export default function DesignSystemPage() {
             title="Session actions"
             subtitle="Runs on this machine"
             rows={actionRows}
+            anyWidth
           />
         </FormBlock>
       </Section>
@@ -384,6 +385,12 @@ export default function DesignSystemPage() {
           <div data-state="default" className="flex flex-col gap-1">
             <Button variant="secondary">Default action</Button>
             <span className="text-caption text-kin-muted">default</span>
+          </div>
+          <div data-state="hover" className="flex flex-col gap-1">
+            <Button variant="secondary">Hover action</Button>
+            <span className="text-caption text-kin-muted">
+              hover (data-state; the control&apos;s own classes draw the wash)
+            </span>
           </div>
           <div data-state="pressed" className="flex flex-col gap-1">
             <Button variant="secondary">Pressed action</Button>

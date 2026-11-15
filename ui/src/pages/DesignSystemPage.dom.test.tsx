@@ -4,7 +4,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { setLocale } from "../i18n";
-import { DesignSystemPage, designSystemRoute } from "./DesignSystemPage";
+import DesignSystemPage, { designSystemRoute } from "./DesignSystemPage";
 
 /**
  * F4: the developer-only gallery at `/dev/components`.
@@ -120,9 +120,11 @@ describe("the gallery", () => {
     const states = primitive(container, "States");
 
     expect(states.querySelector('[data-state="default"] button')).toBeTruthy();
-    // jsdom cannot apply :hover/:active, so the pressed case is marked on a
-    // wrapper with `data-state="pressed"`; the control's own shipped classes
-    // draw the wash. This is the documented hook for the later visual pass.
+    // jsdom cannot apply :hover/:active, so the hover and pressed cases are
+    // marked on wrappers with `data-state="hover"` / `data-state="pressed"`;
+    // the control's own shipped classes draw the wash. This is the documented
+    // hook for the later visual pass.
+    expect(states.querySelector('[data-state="hover"] button')).toBeTruthy();
     expect(states.querySelector('[data-state="pressed"] button')).toBeTruthy();
 
     const disabled = within(states).getByRole("button", { name: "Disabled example" });
