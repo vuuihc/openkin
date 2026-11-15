@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.ethan.kin-rsi-merge</string>
+  <key>ProgramArguments</key><array><string>/bin/bash</string><string>__CTRL__/rsi/runtime/merge.sh</string></array>
+  <key>WorkingDirectory</key><string>__CTRL__</string>
+  <key>EnvironmentVariables</key><dict><key>TZ</key><string>Asia/Singapore</string><key>HOME</key><string>__HOME__</string></dict>
+  <key>StartInterval</key><integer>600</integer>
+  <key>AbandonProcessGroup</key><true/>
+  <key>RunAtLoad</key><false/>
+  <key>StandardOutPath</key><string>__CTRL__/rsi/runtime/runs/launchd-merge.log</string>
+  <key>StandardErrorPath</key><string>__CTRL__/rsi/runtime/runs/launchd-merge.log</string>
+</dict></plist>
