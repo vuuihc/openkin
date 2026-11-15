@@ -409,18 +409,17 @@
   so a "small rise" on the page would move them relative to the page instead of
   the viewport. Opacity creates a stacking context and nothing else.
 
-  The one exception is the phone's edge-back gesture: `[data-kin-swipe-surface]`
-  carries a translate only while a finger is dragging the page right, and
-  `useEdgeSwipeBack` zeroes it on release, cancel, disable and unmount. At rest
-  it has no transform at all, so fixed descendants stay viewport-anchored; the
-  shell's sheets and the command palette are outside this wrapper anyway.
+  The one exception is the phone's edge-back gesture: the page root carries a
+  translate read from `--page-swipe-x` only while a finger is dragging it right,
+  and `useEdgeSwipeBack` zeroes the offset on release, cancel, disable and
+  unmount. The rule targets `.kin-main > *`, not `.kin-main` itself, so the DOM
+  keeps main's shape (every page root stays a direct child) and no fixed
+  descendant is re-anchored at rest.
 
   The children of <main> are what mount and unmount on navigation; the session
   host beside them stays mounted, which is exactly why it is not the animated
-  element. AppShell wraps them in the swipe surface, so the fade belongs to the
-  page children inside that wrapper — animating the wrapper itself would replay
-  once per gesture instead of once per route. 140ms is short enough to read as
-  the new screen settling rather than as an animation to wait out.
+  element. 140ms is short enough to read as the new screen settling rather than
+  as an animation to wait out.
 */
 @keyframes kin-page-in {
   from {
@@ -430,9 +429,20 @@
     opacity: 1;
   }
 }
-.kin-main > *:not([data-kin-swipe-surface]),
-.kin-main > [data-kin-swipe-surface] > * {
+.kin-main > * {
   animation: kin-page-in 140ms ease-out;
+}
+
+/*
+  The finger, not a route change, moves the page: `AppShell` sets
+  `data-kin-swiping` and `--page-swipe-x` on <main> only while a phone edge drag
+  is active, and clears both at rest. The lift is `shadow-e2` as a class would
+  be, so the moving surface uses the same elevation token as any other raised
+  panel.
+*/
+.kin-main[data-kin-swiping] > * {
+  @apply shadow-e2;
+  transform: translate3d(var(--page-swipe-x, 0px), 0, 0);
 }
 
 /*
@@ -483,8 +493,7 @@
   animation: kin-brand-in 180ms ease-out;
 }
 @media (prefers-reduced-motion: reduce) {
-  .kin-main > *:not([data-kin-swipe-surface]),
-  .kin-main > [data-kin-swipe-surface] > *,
+  .kin-main > *,
   .kin-brand-enter,
   .kin-sheet-enter,
   .kin-scrim-enter {

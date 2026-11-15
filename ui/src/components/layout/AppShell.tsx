@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -603,27 +604,23 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
           data-phone-tab={onPhoneTab ? pathname : undefined}
           // Single-finger pans belong to the tab swipe; pinch-zoom stays with
           // the browser. The hook ignores multi-touch, so zoom never switches.
-          style={!wide && onPhoneTab ? { touchAction: "pan-y pinch-zoom" } : undefined}
+          //
+          // The edge-back offset is a custom property, not an inline transform:
+          // `index.css` moves `.kin-main > *`, so every page root stays a
+          // direct child of <main> and `.kin-main` itself never becomes the
+          // containing block for a fixed panel. The property and the attribute
+          // exist only while a phone drag is active — `useEdgeSwipeBack` zeroes
+          // them on release, cancel, disable and unmount.
+          style={
+            {
+              ...(!wide && onPhoneTab ? { touchAction: "pan-y pinch-zoom" } : null),
+              ...(edgeOffset > 0 ? { "--page-swipe-x": `${edgeOffset}px` } : null),
+            } as CSSProperties
+          }
+          data-kin-swiping={edgeOffset > 0 ? "true" : undefined}
           {...tabSwipe}
         >
-          {/*
-            The phone's edge gesture moves this wrapper, not <main>. It is the
-            page surface: the shell's fixed sheets and the command palette are
-            outside it, and the offset exists only while a phone drag is active
-            (`useEdgeSwipeBack` zeroes it on release, cancel, disable and
-            unmount), so no fixed descendant is re-anchored after the gesture.
-            Never leave a translate on it at rest — `index.css` keeps route
-            transitions opacity-only for the same reason.
-          */}
-          <div
-            data-kin-swipe-surface
-            className={`bg-[var(--kin-page)] flex-1 min-h-0 min-w-0 flex flex-col ${
-              edgeOffset > 0 ? "shadow-e2" : ""
-            }`}
-            style={edgeOffset > 0 ? { transform: `translate3d(${edgeOffset}px, 0, 0)` } : undefined}
-          >
-            {children}
-          </div>
+          {children}
         </main>
 
         {!wide && onPhoneTab && <PhoneFooter />}
