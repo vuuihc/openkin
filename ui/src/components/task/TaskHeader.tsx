@@ -18,9 +18,10 @@ import MobileHeader, { MobileHeaderButton } from "../mobile/MobileHeader";
  * The desktop bar's five controls are moved verbatim from `TaskDetailPage`,
  * not re-implemented: this slice is an extraction with zero behaviour change.
  * Migrating them to the shared `Button` is the facade work this extraction
- * unblocks, and belongs in its own reviewed change rather than here.
+ * unblocks, and belongs in its own reviewed change rather than here. The
+ * suppression is per control, so a sixth raw button added here later is still
+ * reported.
  */
-/* eslint-disable kin/no-raw-button */
 
 /**
  * The conversation's header, at both widths.
@@ -79,9 +80,7 @@ export default function TaskHeader({
 }: TaskHeaderProps) {
   const tr = useT();
   const title = task.title || displayUserPrompt(task.prompt || "");
-  const archiveLabel = task.archived_at
-    ? tr("task.unarchiveSession")
-    : tr("task.archiveSession");
+  const archiveLabel = task.archived_at ? tr("task.unarchiveSession") : tr("task.archiveSession");
 
   return (
     <>
@@ -150,6 +149,8 @@ export default function TaskHeader({
             </span>
             <span>{tr("newChat.hostAgent", { name: hostAgentName })}</span>
           </span>
+          {/* eslint-disable-next-line kin/no-raw-button -- moved unchanged from
+              TaskDetailPage; the facade migration is the next slice. */}
           <button
             type="button"
             onClick={onToggleWorkspace}
@@ -164,6 +165,8 @@ export default function TaskHeader({
             <IconPanel size={13} />
             <span>{tr("workspace.title")}</span>
           </button>
+          {/* eslint-disable-next-line kin/no-raw-button -- moved unchanged from
+              TaskDetailPage; the facade migration is the next slice. */}
           <button
             type="button"
             onClick={onShare}
@@ -173,6 +176,8 @@ export default function TaskHeader({
             <IconShare size={13} />
             <span>{tr("task.share")}</span>
           </button>
+          {/* eslint-disable-next-line kin/no-raw-button -- moved unchanged from
+              TaskDetailPage; the facade migration is the next slice. */}
           <button
             type="button"
             onClick={() => void onToggleArchive()}
@@ -183,6 +188,8 @@ export default function TaskHeader({
           >
             {task.archived_at ? <IconRestore size={13} /> : <IconArchive size={13} />}
           </button>
+          {/* eslint-disable-next-line kin/no-raw-button -- moved unchanged from
+              TaskDetailPage; the facade migration is the next slice. */}
           <button
             type="button"
             onClick={() => void onDelete()}
@@ -211,6 +218,8 @@ export default function TaskHeader({
               <span className="text-kin-blue-ink tabular-nums">
                 {degraded ? tr("task.reconnect") : tr("task.running")}
               </span>
+              {/* eslint-disable-next-line kin/no-raw-button -- moved unchanged
+                  from TaskDetailPage; the facade migration is the next slice. */}
               <button
                 type="button"
                 onClick={() => void onStop()}
