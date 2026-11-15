@@ -10,9 +10,11 @@ that overlaps another active lane's paths is refused (exit 3).  Mutations hold a
   lanes.py idle                        idle lane numbers, one per line (honours load guard)
   lanes.py claim N --slug S --item ID --brief FILE [--mode new|rework] --paths P [P ...]
   lanes.py get N                       shell-quotable key=value lines
+  lanes.py cloud-claim --slug S --item ID --brief FILE --paths P [P ...]   hand a slice to an external agent (expires after 3h unlaunched)
+  lanes.py cloud-list | cloud-release SLUG
   lanes.py start N PID | finish N --status S [--pr N] [--note T] | claimed
 """
-import argparse, fcntl, fnmatch, json, os, sys, time, glob, shlex
+import subprocess, argparse, fcntl, fnmatch, json, os, sys, time, glob, shlex
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATE = os.environ.get("RSI_STATE") or os.path.normpath(os.path.join(HERE, "..", "state"))
@@ -20,8 +22,12 @@ LDIR = os.path.join(STATE, "lanes")
 MAX_LANES = int(os.environ.get("RSI_MAX_LANES", "3"))
 CLAIM_TTL = 25 * 60
 LOAD_MAX = float(os.environ.get("RSI_LOAD_MAX", "100000"))
+# Generated/derived files every UI lane touches; the merge lane rebuilds/merges them, so they never count as a claim.
+IGNORED = {"web/dist/index.html"}
 TOO_BROAD = {".", "", "*", "**", "ui", "ui/src", "internal", "web", "docs", "scripts", "desktop", "mobile", "cmd"}
-os.makedirs(os.path.join(LDIR, "history"), exist_ok=True)
+CDIR = os.path.join(STATE, "cloud")          # slices handed to external (cloud) agents: claims keep local lanes off their paths
+CLOUD_TTL = int(os.environ.get("RSI_CLOUD_TTL_MIN", "180")) * 60
+os.makedirs(os.path.join(LDIR, "history"), exist_ok=True); os.makedirs(os.path.join(CDIR, "expired"), exist_ok=True)
 # Lanes above MAX_LANES that are still running (after the limit was lowered) stay visible so claims/merge-lane see them.
 _ex = [int(os.path.basename(f)[:-5]) for f in glob.glob(os.path.join(LDIR, "[0-9]*.json"))]
 ALL_LANES = max([MAX_LANES] + _ex)
@@ -101,17 +107,22 @@ def cmd_idle(a):
                 print(f"load too high ({os.getloadavg()[0]:.1f} > {LOAD_MAX:.0f}); not filling", file=sys.stderr); return
         except Exception: pass
         try:
-            import subprocess
             out = subprocess.run(["memory_pressure"], capture_output=True, text=True, timeout=10).stdout
             free = int(out.split("System-wide memory free percentage:")[1].split("%")[0])
             if free < int(os.environ.get("RSI_MEM_FREE_MIN", "10")):
                 print(f"memory free {free}% too low; not filling", file=sys.stderr); return
         except Exception: pass
-        for n in range(1, MAX_LANES + 1):
+        cap = MAX_LANES
+        try:  # the third lane only when swap has room (16 GB Mac): below 2.5 GB free swap, cap at 2 lanes
+            sw = subprocess.run(["sysctl", "-n", "vm.swapusage"], capture_output=True, text=True, timeout=5).stdout
+            free_mb = float(sw.split("free =")[1].split("M")[0])
+            if free_mb < float(os.environ.get("RSI_SWAP_FREE_MIN_MB", "1000")): cap = min(cap, 2)
+        except Exception: pass
+        for n in range(1, cap + 1):
             if not is_active(load(n)): print(n)
 
 def cmd_claim(a):
-    paths = [norm(p) for p in a.paths]
+    paths = [norm(p) for p in a.paths if norm(p) not in IGNORED]
     bad = [p for p in paths if p in TOO_BROAD or len(p.split("/")) < 2 and "." not in p]
     if not paths or bad:
         print(f"REFUSED: declare specific files/dirs (too broad or empty: {bad or 'none given'})"); sys.exit(5)
@@ -121,6 +132,11 @@ def cmd_claim(a):
         if not 1 <= a.lane <= MAX_LANES: print("REFUSED: no such lane"); sys.exit(4)
         cur = load(a.lane)
         if is_active(cur): print(f"REFUSED: lane {a.lane} busy ({cur.get('slug')})"); sys.exit(4)
+        for c in cloud_claims():
+            if c.get("item") == a.item: print(f"REFUSED: {a.item} is handed to a cloud agent ({c.get('slug')})"); sys.exit(3)
+            for p in paths:
+                for q in c.get("paths", []):
+                    if overlap(p, q): print(f"REFUSED: overlap with cloud claim {c.get('item')} {c.get('slug')}: '{p}' vs '{q}'. Pick an item in a disjoint area."); sys.exit(3)
         for n in range(1, ALL_LANES + 1):
             o = load(n)
             if n == a.lane or not is_active(o): continue
@@ -134,6 +150,45 @@ def cmd_claim(a):
         save(a.lane, dict(lane=a.lane, slug=a.slug, item=a.item, brief=a.brief, mode=a.mode, paths=paths,
                           status="claimed", claimed_at=time.time()))
     print(f"CLAIMED lane {a.lane}: {a.item} {a.slug} paths={paths}")
+
+def cloud_claims(reap_expired=True):
+    out = []
+    for f in sorted(glob.glob(os.path.join(CDIR, "*.json"))):
+        try: d = json.load(open(f))
+        except Exception: continue
+        if reap_expired and time.time() - d.get("claimed_at", 0) > CLOUD_TTL:
+            os.replace(f, os.path.join(CDIR, "expired", os.path.basename(f))); continue
+        out.append(d)
+    return out
+
+def cmd_cloud_claim(a):
+    paths = [norm(p) for p in a.paths if norm(p) not in IGNORED]
+    bad = [p for p in paths if p in TOO_BROAD]
+    if not paths or bad: print(f"REFUSED: declare specific files/dirs (too broad or empty: {bad or 'none given'})"); sys.exit(5)
+    if not os.path.isfile(a.brief): print(f"REFUSED: brief {a.brief} missing"); sys.exit(6)
+    with Lock():
+        reap()
+        for n in range(1, ALL_LANES + 1):
+            o = load(n)
+            if not is_active(o): continue
+            for p in paths:
+                for q in o.get("paths", []):
+                    if overlap(p, q): print(f"REFUSED: overlap with lane {n} ({o.get('item')}): '{p}' vs '{q}'"); sys.exit(3)
+        for c in cloud_claims():
+            if c.get("slug") == a.slug or c.get("item") == a.item: print(f"REFUSED: {a.item}/{a.slug} already handed to cloud"); sys.exit(3)
+            for p in paths:
+                for q in c.get("paths", []):
+                    if overlap(p, q): print(f"REFUSED: overlap with cloud claim {c.get('item')} {c.get('slug')}: '{p}' vs '{q}'"); sys.exit(3)
+        json.dump(dict(slug=a.slug, item=a.item, brief=a.brief, paths=paths, status="claimed", claimed_at=time.time()), open(os.path.join(CDIR, f"{a.slug}.json"), "w"))
+    print(f"CLOUD-CLAIMED {a.item} {a.slug} brief={a.brief} paths={paths}")
+
+def cmd_cloud_release(a):
+    f = os.path.join(CDIR, f"{a.slug}.json")
+    if os.path.exists(f): os.replace(f, os.path.join(CDIR, "expired", f"done-{a.slug}.json")); print("released", a.slug)
+
+def cmd_cloud_list(a):
+    for c in cloud_claims():
+        print("%-6s %-28s age=%dm brief=%s paths=%s" % (c["item"], c["slug"], (time.time() - c["claimed_at"]) / 60, c["brief"], ",".join(c["paths"])))
 
 def cmd_get(a):
     d = load(a.lane) or {}
@@ -171,6 +226,9 @@ sub.add_parser("claimed").set_defaults(f=cmd_claimed)
 sub.add_parser("slugs").set_defaults(f=cmd_slugs)
 c = sub.add_parser("claim"); c.add_argument("lane", type=int); c.add_argument("--slug", required=True); c.add_argument("--item", required=True)
 c.add_argument("--brief", required=True); c.add_argument("--mode", default="new", choices=["new", "rework"]); c.add_argument("--paths", nargs="+", default=[]); c.set_defaults(f=cmd_claim)
+cc = sub.add_parser("cloud-claim"); cc.add_argument("--slug", required=True); cc.add_argument("--item", required=True); cc.add_argument("--brief", required=True); cc.add_argument("--paths", nargs="+", default=[]); cc.set_defaults(f=cmd_cloud_claim)
+cr = sub.add_parser("cloud-release"); cr.add_argument("slug"); cr.set_defaults(f=cmd_cloud_release)
+sub.add_parser("cloud-list").set_defaults(f=cmd_cloud_list)
 g = sub.add_parser("get"); g.add_argument("lane", type=int); g.set_defaults(f=cmd_get)
 s = sub.add_parser("start"); s.add_argument("lane", type=int); s.add_argument("pid", type=int); s.set_defaults(f=cmd_start)
 f = sub.add_parser("finish"); f.add_argument("lane", type=int); f.add_argument("--status", required=True); f.add_argument("--pr", default=""); f.add_argument("--note", default=""); f.set_defaults(f=cmd_finish)
