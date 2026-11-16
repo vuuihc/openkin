@@ -18,10 +18,10 @@ type PermissionPickerProps = ComponentProps<typeof PermissionModePicker>;
 type ModelPickerProps = ComponentProps<typeof ModelPicker>;
 
 /**
- * The conversation's bottom band: the waiting-on-you strip, the composer with
- * its phone run-config face, and the `md`-up strip that names the agent, the
- * permission mode, the model, the directory, the repository, the branch and
- * the machine.
+ * The conversation's bottom band: the waiting-on-you strip and the composer.
+ * Both run-config faces — the phone chip and the `md`-up strip that names the
+ * agent, the permission mode, the model, the directory, the repository, the
+ * branch and the machine — ride on the composer's own control row.
  *
  * Extracted from `TaskDetailPage` unchanged so the page's state, handlers and
  * lifecycle logic can be read — and later edited — without scrolling past the

@@ -95,10 +95,10 @@ type Props = {
   fileSearch?: (query: string) => Promise<string[]>;
   /**
    * The phone's run-config face, rendered between the attach control and the
-   * send control on the composer's own footer row. It is hidden from `md` up,
-   * where the strip under the composer names the model, the mode and the
-   * project — a second copy of the same two controls would be one too many
-   * ways to change them. Between `sm` and `md` the card is already the flat
+   * send control on the composer's own footer row. By default it is hidden
+   * from `md` up, where the strip under the composer names the model, the mode
+   * and the project — a second copy of the same two controls would be one too
+   * many ways to change them. Between `sm` and `md` the card is already the flat
    * desktop shape and the face rides along in that row: the strip does not
    * exist yet at that width, and a control nobody can see is worse than one
    * whose form does not quite match the row it sits in.
@@ -1085,8 +1085,9 @@ export default function Composer({
                   // The slot is the one thing allowed to exceed the row: on a
                   // Mac the run strip can be wider than the card, and it
                   // scrolls inside this wrapper instead of pushing the send
-                  // control off the line. On the phone the same slot is hidden
-                  // from `md` up, where the desktop strip owns those settings.
+                  // control off the line. By default the same slot is hidden
+                  // from `md` up, where a separate strip owns those settings;
+                  // `footerWide` keeps it at every width.
                   footerWide ? "overflow-x-auto" : "",
                   footerWide ? "" : "md:hidden",
                 ].join(" ")}
@@ -1099,7 +1100,11 @@ export default function Composer({
             )}
             <span
               className={[
-                "text-caption text-kin-muted items-center gap-1",
+                // The hints keep their intrinsic width: the only thing that may
+                // give way is the run-config slot, which scrolls inside its own
+                // wrapper. A shrinkable hint would collapse and let the slot,
+                // settings and send paint past the card's edge instead.
+                "flex-none text-caption text-kin-muted items-center gap-1",
                 // `@` is not a desktop key: a phone keyboard has one, and this
                 // is the only place the delegation feature is named. The ⌘↵
                 // legend below it is the one that gets the `sm` gate.
@@ -1113,7 +1118,7 @@ export default function Composer({
             </span>
             <span
               className={[
-                "text-caption text-kin-muted items-center gap-1",
+                "flex-none text-caption text-kin-muted items-center gap-1",
                 expanded ? "hidden sm:inline-flex" : "hidden",
               ].join(" ")}
             >

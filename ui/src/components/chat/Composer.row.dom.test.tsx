@@ -54,6 +54,31 @@ describe("Composer control row", () => {
     expect(row.classList.contains("overflow-x-auto")).toBe(false);
   });
 
+  it("reserves the key hints so only the run-config slot can shrink", async () => {
+    const user = userEvent.setup();
+    const { row } = setup({ footerWide: true, footer: <span data-testid="cfg" /> });
+
+    // The hints only expand once there is a draft; that is the state where the
+    // row is widest and the card can overflow.
+    await user.type(screen.getByRole("textbox"), "h");
+
+    const hints = Array.from(row.querySelectorAll("kbd")).map((kbd) => kbd.parentElement);
+    expect(hints).toHaveLength(2);
+    for (const hint of hints) {
+      expect(hint).not.toBeNull();
+      // Non-shrinking: their width is reserved, so the flexible slot is what
+      // gives way and scrolls. A shrinkable hint collapses instead and lets
+      // the row paint past the card's edge.
+      expect(hint!.classList.contains("flex-none")).toBe(true);
+      expect(row.contains(hint)).toBe(true);
+    }
+
+    const slotWrapper = screen.getByTestId("cfg").parentElement!;
+    expect(slotWrapper.classList.contains("flex-1")).toBe(true);
+    expect(slotWrapper.classList.contains("min-w-0")).toBe(true);
+    expect(slotWrapper.classList.contains("overflow-x-auto")).toBe(true);
+  });
+
   it("sends from a quiet button until there is something to send", async () => {
     const user = userEvent.setup();
     setup();
