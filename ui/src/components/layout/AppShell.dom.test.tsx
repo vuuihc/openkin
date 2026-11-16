@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import AppShell, {
   CONVERSATION_MIN,
@@ -135,6 +135,26 @@ describe("the Mac list column", () => {
 
   it("keeps the list when no panel is open", () => {
     const { container } = shell("/tasks/task-1");
+    expect(listColumn(container)).not.toBeNull();
+  });
+
+  it("keeps the list when the named panel is not offered for this session", () => {
+    // `publish` exists only while the session runs on another machine. The
+    // page resolves the panel and draws nothing here, so a shell that only
+    // asked "is one named?" would hide the list under a panel that never
+    // appears — and the page's `Show list` button with it.
+    useAppStore.setState({ shownPanel: { view: "task-1", id: "publish" } });
+    const { container } = shell("/tasks/task-1");
+    expect(listColumn(container)).not.toBeNull();
+  });
+
+  it("restores the list when the panel closes", () => {
+    useAppStore.setState({ shownPanel: { view: "task-1", id: "files" } });
+    const { container } = shell("/tasks/task-1");
+    expect(listColumn(container)).toBeNull();
+
+    // What `TaskHeader`'s `Show list` does: close this view's panel.
+    act(() => useAppStore.getState().hidePanel("task-1"));
     expect(listColumn(container)).not.toBeNull();
   });
 });

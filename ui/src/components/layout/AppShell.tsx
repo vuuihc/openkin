@@ -391,27 +391,6 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
   // disagree about it.
   const terminalAvailable = isPanelAvailable("terminal", shellCtx);
   const terminalPanel = resolvePanel(panelForView(shownPanel, SHELL_VIEW), shellCtx);
-  // Whether a panel is covering the conversation right now. The rail compacts
-  // on it: at 1100 or with the panel open, labels cost the conversation width
-  // the review loop needs (TASTE 17). The shell's panel counts too — the
-  // terminal opens over a conversation while `shownPanel` names the shell's
-  // view, not the conversation's, and the rail must compact underneath it.
-  // S1 only compacts the rail — making the panel a column and yielding the
-  // list is S1b.
-  const panelOpen =
-    terminalPanel !== null ||
-    (selectedTaskId !== null && panelForView(shownPanel, selectedTaskId) !== null);
-  /**
-   * One surface at a time: while a panel is open for the conversation in
-   * front, the list column yields to it, at every width the shell is wide.
-   *
-   * `panelForView` is what keeps this honest in both directions. A panel
-   * opened in another conversation is not this one's to hide the list for,
-   * and the terminal's view is the shell's, so it leaves the list alone.
-   * Derived rather than stored: "the list is hidden" is not a second fact
-   * about the panel, and a store field could disagree with it.
-   */
-  const listYielded = selectedTaskId !== null && panelForView(shownPanel, selectedTaskId) !== null;
   // The shell's way to open any of its panels, by id. The palette asks for one by
   // the id its table names rather than for a specific panel, so a panel added to
   // the table needs no second entry point here.
@@ -521,6 +500,45 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
         name: remoteTask.text,
       })
     : null;
+
+  /**
+   * The session panel `TaskDetailPage` will actually draw, resolved with the
+   * same facts the page builds its context from.
+   *
+   * Availability is the part that must not be skipped: `shownPanel` can name a
+   * panel this session does not offer (publish on a local session, a task
+   * whose machine just went away), and the page then renders no panel at all.
+   * A shell that only asked "is a panel named?" would hide the list for a
+   * surface that never appears — no panel and no `Show list` button to bring
+   * the list back.
+   */
+  const openTaskPanel =
+    selectedTaskId !== null
+      ? resolvePanel(panelForView(shownPanel, selectedTaskId), {
+          taskId: selectedTaskId,
+          remote: remoteTask !== null,
+          desktop,
+        })
+      : null;
+  // Whether a panel is covering the conversation right now. The rail compacts
+  // on it: at 1100 or with the panel open, labels cost the conversation width
+  // the review loop needs (TASTE 17). The shell's panel counts too — the
+  // terminal opens over a conversation while `shownPanel` names the shell's
+  // view, not the conversation's, and the rail must compact underneath it.
+  const panelOpen = terminalPanel !== null || openTaskPanel !== null;
+  /**
+   * One surface at a time: while a panel is open for the conversation in
+   * front, the list column yields to it, at every width the shell is wide.
+   *
+   * `panelForView` is what keeps this honest in both directions. A panel
+   * opened in another conversation is not this one's to hide the list for,
+   * and the terminal's view is the shell's, so it leaves the list alone.
+   * `resolvePanel` keeps the other direction honest: a panel that is named but
+   * not offered here is not drawn by the page either, so it must not hide the
+   * list. Derived rather than stored: "the list is hidden" is not a second
+   * fact about the panel, and a store field could disagree with it.
+   */
+  const listYielded = openTaskPanel !== null;
 
   // Tray "New Chat" deep-link: /?new=1 or /new
   useEffect(() => {
