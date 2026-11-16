@@ -1829,6 +1829,47 @@ describe("mergeProcessRuns", () => {
     });
   });
 
+  it("splits only the trailing run, so a finished round keeps its card", () => {
+    // A follow-up posts into the same task: it is still non-terminal, but the
+    // first round already ended at the user message and must not re-open.
+    const items: ChatItem[] = [
+      progressWithNotes("p1", ["First round note."]),
+      message("final", "First round answer."),
+      { kind: "message", key: "u2", speaker: "user", text: "follow up" },
+      progressWithNotes("p2", ["Second round note."]),
+      message("live", "still working", true),
+    ];
+
+    const merged = mergeProcessRuns(items, true);
+
+    // Round one keeps the exact card it had while it was the live round.
+    expect(merged[0]).toMatchObject({
+      kind: "progress",
+      key: "p1",
+      steps: [
+        { kind: "tool", name: "bash" },
+        { kind: "note", text: "First round note." },
+        { kind: "tool", name: "read" },
+      ],
+    });
+    expect((merged[0] as ProgressItem).prose).toBeUndefined();
+    expect((merged[0] as ProgressItem).live).toBeUndefined();
+
+    // Round two is the live one: its note is body prose, its tools a card.
+    const liveNote = merged.find(
+      (item): item is ProgressItem =>
+        item.kind === "progress" &&
+        item.steps.some((step) => step.kind === "note" && step.text === "Second round note."),
+    );
+    expect(liveNote?.prose).toBe(true);
+    const liveTool = merged.find(
+      (item): item is ProgressItem =>
+        item.kind === "progress" &&
+        item.steps.some((step) => step.kind === "tool" && step.key === "p2-t1"),
+    );
+    expect(liveTool?.live).toBe(true);
+  });
+
   it("merges consecutive progress cards without splitting notes", () => {
     const a: ProgressItem = {
       kind: "progress",

@@ -113,6 +113,31 @@ describe("a running turn's prose", () => {
     expect(screen.getByText(t("chat.progress.running"))).toBeTruthy();
   });
 
+  it("leaves an earlier round folded while a later round runs", () => {
+    // A follow-up posts into the same task, so the task stays non-terminal —
+    // but the first round already finished and must not re-open as prose.
+    const followUp = [
+      userMessage(1, "first request"),
+      note(2, "reasoning", "first round thinking"),
+      note(3, "assistant", "first round answer"),
+      userMessage(4, "follow up"),
+      note(5, "reasoning", "second round thinking"),
+    ];
+    const { container } = render(<ChatStream events={followUp} hostSpeaker="kin" loading />);
+
+    // The live round's note is body prose...
+    const liveNote = container.querySelector<HTMLElement>('[data-message-key="note-5"]');
+    expect(liveNote?.textContent).toContain("second round thinking");
+
+    // ...while the finished round stays one collapsed card: its note is not
+    // body text until the reader asks for the steps.
+    expect(container.querySelector('[data-message-key="note-2"]')).toBeNull();
+    const toggles = container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]");
+    expect(toggles).toHaveLength(1);
+    fireEvent.click(toggles[0]);
+    expect(screen.getByText("first round thinking")).toBeTruthy();
+  });
+
   it("keeps a settled process card even when it held only notes", () => {
     const onlyNotes = [
       userMessage(1, "please think"),

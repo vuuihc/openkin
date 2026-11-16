@@ -113,6 +113,18 @@ export type ProgressItem = {
   speaker: string;
   model?: string;
   steps: ProgressStep[];
+  /**
+   * A note of the run still in progress, drawn as body prose. Only a live
+   * split sets it; every earlier run belongs to a finished round and folds
+   * back into its card even while a later round runs.
+   */
+  prose?: true;
+  /**
+   * A tools-only card built from the run still in progress. The live split
+   * draws notes after it, so it is not the last item and carries its own
+   * liveness for the card's breathing state.
+   */
+  live?: true;
 };
 
 export type ChatItem =
@@ -1015,13 +1027,17 @@ export function buildChatItems(
  * each note its own item and keeps only the tools in the card, which is how the
  * live transcript shows thinking and narration in the conversation column while
  * a finished turn still folds into one row.
+ *
+ * Only the trailing run can be the live one: every run before it ended at a
+ * message, so those rounds are already finished and keep their cards. Splitting
+ * them again would re-open work the reader has already seen collapsed.
  */
 export function mergeProcessRuns(items: ChatItem[], splitNotes = false): ChatItem[] {
   const out: ChatItem[] = [];
   let run: ProcessRunItem[] = [];
-  const flushRun = () => {
+  const flushRun = (live = false) => {
     if (run.length === 0) return;
-    out.push(...mergeProcessRun(run, splitNotes));
+    out.push(...mergeProcessRun(run, splitNotes && live));
     run = [];
   };
   for (const item of items) {
@@ -1032,7 +1048,8 @@ export function mergeProcessRuns(items: ChatItem[], splitNotes = false): ChatIte
       out.push(item);
     }
   }
-  flushRun();
+  // The run still in progress is the one the reader is watching.
+  flushRun(true);
   return out;
 }
 
@@ -1103,6 +1120,7 @@ function splitProcessRun(run: ProcessRunItem[], finalMessageIdx: number): ChatIt
             speaker: item.speaker,
             model: item.model,
             steps: [],
+            live: true,
           };
         }
         tools.steps.push(step);
@@ -1124,7 +1142,7 @@ function noteItemOf(
   model: string | undefined,
   step: NoteStep,
 ): ProgressItem {
-  return { kind: "progress", key, speaker, model, steps: [step] };
+  return { kind: "progress", key, speaker, model, steps: [step], prose: true };
 }
 
 /** A message folded into a process item says the same thing a note says. */

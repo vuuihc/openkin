@@ -745,13 +745,16 @@ function AgentTurn({
             case "progress": {
               // A live turn's notes are body text: the reader is following what
               // the agent thinks and says, not reading a summary of work already
-              // done. The tools keep their card. Only top-level notes arrive as
-              // items of their own — a subagent's note lives inside the tool row
-              // that spawned it — so nothing here can pull a nested row out.
+              // done. The tools keep their card. Only the run still in progress
+              // is split, and only its notes carry `prose`; an earlier round's
+              // notes stay folded in that round's card. A subagent's note is a
+              // top-level step, not a child of the tool row that spawned it, so
+              // it arrives here too — rendered as body prose with attribution.
+              // Nothing here can pull a nested row out: only ToolSteps nest.
               // Settled turns keep their card even when it held only notes: the
               // split is the running presentation, not a new settled shape.
               if (
-                loading &&
+                item.prose === true &&
                 item.steps.length > 0 &&
                 item.steps.every((step) => step.kind === "note")
               ) {
@@ -775,12 +778,12 @@ function AgentTurn({
                   key={item.key}
                   item={item}
                   hostSpeaker={hostSpeaker}
-                  // A live turn draws the notes after this card as body text, so
-                  // the card is no longer the last item while its tool still
-                  // runs; the tool's own status is what keeps it breathing.
+                  // Only the live run's card can be followed by notes; an
+                  // earlier round's unresolved call must not breathe through
+                  // the rest of the task.
                   running={
                     isProgressCardRunning(allItems, item, loading) ||
-                    (loading &&
+                    (item.live === true &&
                       item.steps.some((step) => step.kind === "tool" && step.status === "running"))
                   }
                   onOpenPath={onOpenPath}
