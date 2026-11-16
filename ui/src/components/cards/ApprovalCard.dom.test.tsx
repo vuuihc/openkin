@@ -251,6 +251,113 @@ describe("the approval card", () => {
     expect(status).not.toContain("node-7f3a");
   });
 
+  it("approve and deny are facade buttons carrying kin-btn-approve and kin-btn-deny, and still call their handlers", async () => {
+    // `FloatingApproval` focuses the next card's button by these class names
+    // after a decision, so they have to survive the migration.
+    const onApprove = vi.fn();
+    const onDeny = vi.fn();
+    render(
+      <MemoryRouter>
+        <ApprovalCard approval={pending} busy={null} onApprove={onApprove} onDeny={onDeny} />
+      </MemoryRouter>,
+    );
+
+    const approve = screen.getByRole("button", { name: "Approve" });
+    const deny = screen.getByRole("button", { name: "Deny" });
+    expect(approve.className).toContain("kin-btn-approve");
+    expect(approve.className).toContain("kin-btn");
+    expect(deny.className).toContain("kin-btn-deny");
+    expect(deny.className).toContain("kin-btn");
+
+    await userEvent.click(approve);
+    await userEvent.click(deny);
+    expect(onApprove).toHaveBeenCalledTimes(1);
+    expect(onDeny).toHaveBeenCalledTimes(1);
+  });
+
+  it("busy still disables both and says Approving… / Denying…", () => {
+    const view = (busy: "approved" | "denied" | null) => (
+      <MemoryRouter>
+        <ApprovalCard approval={pending} busy={busy} onApprove={() => {}} onDeny={() => {}} />
+      </MemoryRouter>
+    );
+    const { rerender } = render(view("approved"));
+
+    const approving = screen.getByRole("button", { name: "Approving…" }) as HTMLButtonElement;
+    const denyWhileApproving = screen.getByRole("button", { name: "Deny" }) as HTMLButtonElement;
+    expect(approving.disabled).toBe(true);
+    expect(denyWhileApproving.disabled).toBe(true);
+
+    rerender(view("denied"));
+    const denying = screen.getByRole("button", { name: "Denying…" }) as HTMLButtonElement;
+    const approveWhileDenying = screen.getByRole("button", {
+      name: "Approve",
+    }) as HTMLButtonElement;
+    expect(denying.disabled).toBe(true);
+    expect(approveWhileDenying.disabled).toBe(true);
+  });
+
+  it("the A and D hints stay hidden below sm and absent when showKeys is false", () => {
+    const view = (showKeys: boolean) => (
+      <MemoryRouter>
+        <ApprovalCard
+          approval={pending}
+          showKeys={showKeys}
+          busy={null}
+          onApprove={() => {}}
+          onDeny={() => {}}
+        />
+      </MemoryRouter>
+    );
+    const { rerender } = render(view(true));
+
+    // The facade is Astryx's button inside, so find the hint by its text
+    // rather than assuming it is the first span.
+    const hint = (button: HTMLElement, letter: string) =>
+      Array.from(button.querySelectorAll("span")).find((span) => span.textContent === letter);
+
+    const approve = screen.getByRole("button", { name: "Approve" });
+    const deny = screen.getByRole("button", { name: "Deny" });
+    const approveHint = hint(approve, "A");
+    const denyHint = hint(deny, "D");
+    expect(approveHint?.className).toContain("hidden");
+    expect(approveHint?.className).toContain("sm:inline");
+    expect(denyHint?.className).toContain("hidden");
+    expect(denyHint?.className).toContain("sm:inline");
+
+    // A card floating over another screen advertises no key at all.
+    rerender(view(false));
+    expect(hint(screen.getByRole("button", { name: "Approve" }), "A")).toBeUndefined();
+    expect(hint(screen.getByRole("button", { name: "Deny" }), "D")).toBeUndefined();
+  });
+
+  it("the file path is a quiet facade control that calls onOpenPath", async () => {
+    const onOpenPath = vi.fn();
+    const withPath: Approval = {
+      ...pending,
+      payload: { tool: "write_file", input: { path: "/repo/src/app.tsx" } },
+    };
+    render(
+      <MemoryRouter>
+        <ApprovalCard
+          approval={withPath}
+          busy={null}
+          onApprove={() => {}}
+          onDeny={() => {}}
+          onOpenPath={onOpenPath}
+        />
+      </MemoryRouter>,
+    );
+
+    const path = screen.getByRole("button", { name: "/repo/src/app.tsx" });
+    expect(path.tagName).toBe("BUTTON");
+    expect(path.className).toContain("kin-btn");
+    expect(path.className).toContain("hover:underline");
+
+    await userEvent.click(path);
+    expect(onOpenPath).toHaveBeenCalledWith("/repo/src/app.tsx");
+  });
+
   it("says the run stopped when the engine denied what was pending", () => {
     render(
       <MemoryRouter>
