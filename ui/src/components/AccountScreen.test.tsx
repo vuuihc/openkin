@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { claimOwner } from "../api/account";
 import { setLocale } from "../i18n";
 import { NO_ACCOUNT, useAppStore, type AccountProvider } from "../store/appStore";
 import AccountScreen from "./AccountScreen";
@@ -192,5 +193,90 @@ describe("an auth error carried by the URL", () => {
     expect(screen.getByRole("alert").textContent).toContain(
       "This sign-in link is not valid or has expired",
     );
+  });
+});
+
+/**
+ * E6: the gate's controls are the console's shared button.
+ *
+ * The migration is a surface change, so these tests name controls the way a
+ * person does — role and accessible name — and read the facade's variant from
+ * the class list. The call behind the form is asserted separately: a facade
+ * that quietly defaulted to `type="button"` would still look right and submit
+ * nothing.
+ */
+describe("the account screen's actions", () => {
+  beforeEach(() => {
+    setLocale("en");
+    window.history.replaceState({}, "", "/");
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("puts the account screen's actions on the shared button facade", () => {
+    useAppStore.setState({
+      account: {
+        ...NO_ACCOUNT,
+        enabled: true,
+        authenticated: false,
+        providers: [password, oidc],
+      },
+    });
+
+    const { unmount } = render(<AccountScreen mode="login" />);
+
+    const submit = screen.getByRole("button", { name: "Sign in" });
+    expect(submit.className.split(/\s+/)).toContain("kin-btn");
+    expect(submit.className.split(/\s+/)).toContain("kin-btn-primary");
+
+    const federated = screen.getByRole("button", { name: "Continue with GitHub / Google" });
+    expect(federated.className.split(/\s+/)).toContain("kin-btn");
+    expect(federated.className.split(/\s+/)).toContain("kin-btn-secondary");
+    expect(federated.className.split(/\s+/)).not.toContain("kin-btn-primary");
+
+    unmount();
+
+    // The invitation's escape hatch is a quiet inline action, not a second
+    // filled or bordered button competing with "Join and sign in".
+    render(<AccountScreen mode="join" />);
+
+    const escape = screen.getByRole("button", { name: "Sign in" });
+    expect(escape.className.split(/\s+/)).toContain("kin-btn");
+    expect(escape.className.split(/\s+/)).not.toContain("kin-btn-primary");
+    expect(escape.className.split(/\s+/)).not.toContain("kin-btn-secondary");
+  });
+
+  it("still submits the same claim call", async () => {
+    useAppStore.setState({
+      account: {
+        ...NO_ACCOUNT,
+        enabled: true,
+        needsBootstrap: true,
+        claimable: true,
+        providers: [password],
+      },
+    });
+
+    render(<AccountScreen mode="claim" />);
+
+    fireEvent.change(screen.getByLabelText("Claim code"), { target: { value: "abcde23456" } });
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "owner@example.com" } });
+    fireEvent.change(screen.getByLabelText(/^Password/), {
+      target: { value: "secret123" },
+    });
+    fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Owner" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Claim and sign in" }));
+
+    await waitFor(() => expect(claimOwner).toHaveBeenCalledTimes(1));
+    expect(claimOwner).toHaveBeenCalledWith({
+      code: "ABCDE-23456",
+      email: "owner@example.com",
+      password: "secret123",
+      displayName: "Owner",
+    });
   });
 });

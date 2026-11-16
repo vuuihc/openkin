@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { Routine } from "../../api/client";
+import Button from "../ui/Button";
 import { describeRoutineRule, parseRoutineRule } from "../../lib/routineRecurrence";
 import { formatInterval, formatWhen } from "../../lib/routineTime";
 
@@ -74,15 +75,15 @@ export default function RoutineList({
       {routines.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-[var(--kin-hairline-strong)] px-6 py-10 text-center">
           <p className="text-strong text-kin-secondary">{tr("routines.emptyList")}</p>
-          {/* eslint-disable-next-line kin/no-raw-button -- moved unchanged from RoutinesPage. */}
-          <button
-            type="button"
+          {/* The one filled action on the page: a machine with no routines. */}
+          <Button
+            variant="default"
             disabled={machineOffline}
             onClick={() => onCreate()}
-            className="mt-4 min-h-11 rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand disabled:opacity-50"
+            className="mt-4"
           >
             {tr("routines.createEntry")}
-          </button>
+          </Button>
         </div>
       ) : (
         <ul className="space-y-2.5">
@@ -98,7 +99,10 @@ export default function RoutineList({
                 ].join(" ")}
               >
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
-                  {/* eslint-disable-next-line kin/no-raw-button -- moved unchanged from RoutinesPage. */}
+                  {/* A bare full-row hit area with aria-pressed, not a facade
+                      control: no Button variant is a text hit area. It is
+                      deliberately never disabled by busy/creating/offline. */}
+                  {/* eslint-disable-next-line kin/no-raw-button -- the row select is a bare text hit area with aria-pressed. */}
                   <button
                     type="button"
                     onClick={() => onSelect(r)}
@@ -148,45 +152,38 @@ export default function RoutineList({
                     </span>
                   </button>
                   <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-                    {/* eslint-disable-next-line kin/no-raw-button -- moved unchanged from RoutinesPage. */}
-                    <button
-                      type="button"
+                    <Button
+                      variant="secondary"
                       disabled={!!busy[r.id] || creating || machineOffline}
                       onClick={() => onRunNow(r)}
-                      className="min-h-11 rounded-lg bg-kin-blue px-3 py-1 text-body font-medium text-kin-on-brand disabled:opacity-50 sm:min-h-8 sm:px-2.5"
                     >
                       {tr("routines.runNow")}
-                    </button>
-                    {/* eslint-disable-next-line kin/no-raw-button -- moved unchanged from RoutinesPage. */}
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
+                      variant="secondary"
                       disabled={!!busy[r.id] || creating || machineOffline}
                       onClick={() => onEdit(r)}
                       aria-label={tr("routines.editRoutine", {
                         title: r.title || r.prompt.slice(0, 48),
                       })}
-                      className="min-h-11 rounded-lg border border-[var(--kin-hairline)] px-3 py-1 text-body text-kin-secondary disabled:opacity-50 sm:min-h-8 sm:px-2.5"
                     >
                       {tr("routines.edit")}
-                    </button>
-                    {/* eslint-disable-next-line kin/no-raw-button -- moved unchanged from RoutinesPage. */}
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
+                      variant="secondary"
                       disabled={!!busy[r.id] || creating || machineOffline}
                       onClick={() => onToggle(r)}
-                      className="min-h-11 rounded-lg border border-[var(--kin-hairline)] px-3 py-1 text-body text-kin-secondary disabled:opacity-50 sm:min-h-8 sm:px-2.5"
                     >
                       {r.enabled ? tr("routines.pause") : tr("routines.resume")}
-                    </button>
-                    {/* eslint-disable-next-line kin/no-raw-button -- moved unchanged from RoutinesPage. */}
-                    <button
-                      type="button"
+                    </Button>
+                    {/* Quiet with red ink: destructive, not a peer of Run now. */}
+                    <Button
+                      variant="quiet-danger"
                       disabled={!!busy[r.id] || creating || machineOffline}
                       onClick={() => onDelete(r)}
-                      className="min-h-11 rounded-lg px-3 py-1 text-body text-kin-red-ink/90 disabled:opacity-50 sm:min-h-8 sm:px-2.5"
                     >
                       {tr("routines.delete")}
-                    </button>
+                    </Button>
                   </div>
                 </div>
                 {renderRowExtra?.(r)}
@@ -196,15 +193,14 @@ export default function RoutineList({
         </ul>
       )}
       {hasMore && (
-        // eslint-disable-next-line kin/no-raw-button -- moved unchanged from RoutinesPage.
-        <button
-          type="button"
+        <Button
+          variant="secondary"
           onClick={() => onLoadMore()}
           disabled={loadingMore}
-          className="mt-3 min-h-11 w-full rounded-lg border border-[var(--kin-hairline)] px-3 py-2 text-body text-kin-secondary hover:bg-[var(--kin-fill)]"
+          className="mt-3 w-full"
         >
           {loadingMore ? tr("tree.loadingMore") : tr("routines.loadMore")}
-        </button>
+        </Button>
       )}
     </section>
   );

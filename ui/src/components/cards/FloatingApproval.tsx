@@ -228,7 +228,7 @@ export default function FloatingApproval({
           title={tr("approval.openTask")}
           // The strip's task link, not a filled action: keep its compact pill
           // and blue ink instead of the facade's row geometry.
-          className="block max-w-[13rem] min-h-0! truncate rounded-full px-1 py-0.5 text-caption font-medium text-kin-blue-ink! hover:bg-transparent! hover:underline"
+          className="block max-w-approval-title min-h-0! truncate rounded-full px-1 py-0.5 text-caption font-medium text-kin-blue-ink! hover:bg-transparent! hover:underline"
         >
           {title || tr("approval.floatingFallback")}
         </Button>

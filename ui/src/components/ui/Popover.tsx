@@ -115,14 +115,31 @@ function reaches(layer: PopoverLayer, node: Node | null): boolean {
 }
 
 /**
- * The deepest open layer whose reach holds `node`. One Escape belongs to one
- * layer: the deepest one under focus, whatever order listeners run in.
+ * Whether the chain of layers `layer` belongs to holds `node` — its own reach
+ * or that of any layer it was opened from.
+ *
+ * Focus can sit on a parent panel's header while a nested layer is open. The
+ * nested layer is still the one the reader opened last, and it must take the
+ * first Escape even though the caret is in its parent: otherwise the parent's
+ * handler runs first and the nested panel is left floating over a layer that
+ * no longer exists.
+ */
+function chainReaches(layer: PopoverLayer, node: Node | null): boolean {
+  for (let cursor: PopoverLayer | null = layer; cursor; cursor = cursor.parent) {
+    if (reaches(cursor, node)) return true;
+  }
+  return false;
+}
+
+/**
+ * The deepest open layer in focus's chain. One Escape belongs to one layer:
+ * the deepest one, whatever order listeners run in.
  */
 function topLayerAt(node: Node | null): PopoverLayer | null {
   let top: PopoverLayer | null = null;
   let topDepth = -1;
   for (const layer of openLayers) {
-    if (!reaches(layer, node)) continue;
+    if (!chainReaches(layer, node)) continue;
     const depth = depthOf(layer);
     if (depth >= topDepth) {
       top = layer;
@@ -158,6 +175,23 @@ export type PopoverProps = {
   maxHeight?: number;
   /** Panel classes for the content's own density; shape stays the primitive's. */
   className?: string;
+  /**
+   * Whether the panel draws its own inner padding. A list that draws sheared
+   * header/footer rows of its own (`BranchPicker`, `PlacePicker`) passes false:
+   * the base `p-1.5` is emitted after the caller's `p-0` in the compiled
+   * stylesheet, so a caller cannot turn it off with a class.
+   */
+  padded?: boolean;
+  /**
+   * Extra DOM this layer treats as its own for the outside-pointer test: a
+   * selector matched against the target's ancestors. A caller whose content
+   * opens layers the primitive does not build (a picker in `extraRows`) passes
+   * their markers, so a press inside one is not read as "outside" and does not
+   * dismiss this panel — unmounting the picker — before its click lands.
+   * Pointer-only by design: Escape still answers to focus in this layer's
+   * chain, so a key pressed elsewhere does not close a panel here.
+   */
+  pointerReach?: string;
 };
 
 /**
@@ -180,8 +214,10 @@ export type PopoverProps = {
  *
  * Popovers nest (a picker opened from a panel opened from the composer). A
  * layer therefore counts a nested layer's portaled panel as its own reach, and
- * exactly one Escape dismisses exactly one layer: the deepest open one under
- * focus, independent of document-listener order.
+ * exactly one Escape dismisses exactly one layer: the deepest open one in
+ * focus's chain, independent of document-listener order. That holds even when
+ * focus is on the parent's own header — the nested layer was opened last, so
+ * it takes the first Escape.
  *
  * Deliberately not owned: domain options, data loading, model/agent/permission
  * selection, arrow-key item navigation (the menu built on top owns its own
@@ -201,6 +237,8 @@ export default function Popover({
   maxWidth,
   maxHeight,
   className,
+  padded = true,
+  pointerReach,
 }: PopoverProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const parentLayer = useContext(PopoverLayerContext);
@@ -234,13 +272,20 @@ export default function Popover({
       // A layer opened from inside this one is still this layer's reach: a
       // click in the nested panel must not dismiss the parent behind it.
       if (reaches(layer, event.target as Node)) return;
+      // A layer the caller owns (not a `Popover`) is opted in by its markers;
+      // see `pointerReach`. Pointer-only: Escape below stays scoped to focus in
+      // this layer's chain.
+      if (pointerReach && event.target instanceof Element && event.target.closest(pointerReach)) {
+        return;
+      }
       onOpenChange(false);
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || isImeKeyEvent(event)) return;
       // Only the layer the reader is in answers the key. A panel left open
-      // elsewhere must not swallow an Escape meant for the conversation.
-      if (!reaches(layer, document.activeElement)) return;
+      // elsewhere must not swallow an Escape meant for the conversation. A
+      // nested layer counts as "where the reader is" anywhere in its chain.
+      if (!chainReaches(layer, document.activeElement)) return;
       // Nested layers each install their own document listener, and React
       // gives no order guarantee across re-renders: the deepest layer under
       // focus claims the Escape, so one press dismisses one layer whether the
@@ -262,12 +307,16 @@ export default function Popover({
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [open, onOpenChange, triggerRef, layer]);
+  }, [open, onOpenChange, triggerRef, layer, pointerReach]);
 
   useEffect(() => {
     if (!open || !anchored) return;
     const panel = panelRef.current;
     if (!panel) return;
+    // Content that placed focus itself during the commit keeps it: a field
+    // with `autoFocus`, a list that opens on the current choice. The panel's
+    // fallback only fills an empty focus, it does not overrule the content.
+    if (panel.contains(document.activeElement)) return;
     // A dialog with no focusable content still takes focus itself, so Escape
     // and Tab do not belong to whatever was focused before it opened. Hidden
     // controls are skipped: focusing one would put focus somewhere the reader
@@ -317,7 +366,8 @@ export default function Popover({
           bottom: anchor.bottom,
         }}
         className={[
-          "fixed z-50 overflow-y-auto kin-scroll rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated p-1.5 shadow-e3 focus:outline-none",
+          "fixed z-50 overflow-y-auto kin-scroll rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated shadow-e3 focus:outline-none",
+          padded ? "p-1.5" : "",
           className,
         ]
           .filter(Boolean)

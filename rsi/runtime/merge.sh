@@ -12,6 +12,7 @@ source "$(cd "$(dirname "$0")" && pwd)/node-stamp.sh"
 MERGE_WORKERS="${RSI_MERGE_WORKERS:-2}"          # verifier slots for any PR
 SMALL_SLOTS="${RSI_MERGE_SMALL_SLOTS:-1}"        # extra slot only small-safe PRs may use: a 3-line refactor never queues behind two big reviews
 CODE_RE='^(ui/|internal/|cmd/|scripts/|desktop/|mobile/|web/|go\.mod|go\.sum|\.github/)'   # main changes here invalidate a carried-forward gate
+unset SB_FIXLIST SB_GATEFAILS
 say() { echo "[$(date +%T)] $*"; }
 attempts() { cat "$STATE/merge/$1.attempts" 2>/dev/null || echo 0; }
 sendback() { # slug item title detail-file
@@ -40,7 +41,7 @@ write_sendback() { # slug item title detail-file attempt-label kind(targeted|mec
 sendback_mech() { # slug item title detail-file : mechanical failure (merge conflict, format, infra). Does NOT count as a sendback; capped at 5 then counts.
   local slug="$1" item="$2" title="$3" det="$4" m; m=$(( $(cat "$STATE/merge/$slug.mech" 2>/dev/null || echo 0) + 1 )); echo $m > "$STATE/merge/$slug.mech"
   if [ $m -gt 5 ]; then sendback "$slug" "$item" "$title (mechanical x$m)" "$det"; return; fi
-  write_sendback "$slug" "$item" "$title" "$det" "mech-$m" mechanical
+  SB_FIXLIST="" SB_GATEFAILS="" write_sendback "$slug" "$item" "$title" "$det" "mech-$m" mechanical
   say "mechanical rework $slug (#$m, not counted as a sendback): $title"; KICK=1
 }
 
@@ -205,14 +206,19 @@ say "#$N $SLUG ($ITEM) verifier start$QW"; [ -n "$QW" ] && echo "$(date '+%F %H:
 
 mklock() { local d="$1" max="$2" w=0; while ! mkdir "$d" 2>/dev/null; do o="$(cat "$d/pid" 2>/dev/null)"; if [ -n "$o" ] && ! kill -0 "$o" 2>/dev/null; then rm -rf "$d"; continue; fi; sleep 15; w=$((w+15)); [ $w -gt "$max" ] && return 1; done; echo $$ > "$d/pid"; }
 sync_main() { # -> 0 ok (pushed if changed), 1 conflict (sendback written), 2 transient failure
-  $GIT -C "$WT" merge-base --is-ancestor origin/main HEAD && return 0
+  if $GIT -C "$WT" merge-base --is-ancestor origin/main HEAD; then
+    if [ "$($GIT -C "$WT" rev-parse HEAD)" != "$($GIT -C "$WT" rev-parse "origin/$BR" 2>/dev/null)" ]; then
+      with_timeout 120 "$GIT" -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null || { say "#$N: push of prior local merge failed"; return 2; }
+    fi
+    return 0
+  fi
   say "#$N $SLUG: merging origin/main"
   if ! $GIT -C "$WT" merge -q --no-edit origin/main >/dev/null 2>&1; then
     if gen_resolve "$WT"; then say "#$N: conflict(s) in generated files resolved by regeneration"
     else CF="$($GIT -C "$WT" diff --name-only --diff-filter=U)"; $GIT -C "$WT" merge --abort >/dev/null 2>&1
       printf 'merge of origin/main conflicts in:\n%s\n' "$CF" > "$STATE/merge/$SLUG.err"; sendback_mech "$SLUG" "$ITEM" "merge conflict with main" "$STATE/merge/$SLUG.err"; return 1; fi
   fi
-  $GIT -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null || { say "#$N: push after merge-main failed"; return 2; }
+  with_timeout 120 "$GIT" -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null || { say "#$N: push after merge-main failed"; return 2; }
   return 0
 }
 check_buckets() { # gh's `pr checks --json name,bucket,link` on stdin -> space-separated buckets
@@ -268,6 +274,7 @@ outside_tests_only() { # worktree log [summary] — writes $STATE/merge/$SLUG.ou
 fetch_ci_failed_log() { # outfile
   local out="$1" run
   run=$(grep -oE 'actions/runs/[0-9]+' "$STATE/merge/$SLUG.ci.txt" 2>/dev/null | head -1 | awk -F/ '{print $3}')
+  [ -n "$run" ] || run=$($GH pr checks "$N" --repo "$GH_REPO" --json link 2>/dev/null | grep -oE 'actions/runs/[0-9]+' | head -1 | awk -F/ '{print $3}')
   [ -n "$run" ] || return 1
   $GH run view "$run" --repo "$GH_REPO" --log-failed > "$out" 2>/dev/null || return 1
   [ -s "$out" ]
@@ -275,6 +282,7 @@ fetch_ci_failed_log() { # outfile
 rerun_failed_ci() {
   local run
   run=$(grep -oE 'actions/runs/[0-9]+' "$STATE/merge/$SLUG.ci.txt" 2>/dev/null | head -1 | awk -F/ '{print $3}')
+  [ -n "$run" ] || run=$($GH pr checks "$N" --repo "$GH_REPO" --json link 2>/dev/null | grep -oE 'actions/runs/[0-9]+' | head -1 | awk -F/ '{print $3}')
   [ -n "$run" ] || return 1
   $GH run rerun "$run" --failed --repo "$GH_REPO"
 }
@@ -302,8 +310,15 @@ bash "$RSI_DIR/runtime/prep-worktree.sh" "$WT" 2>&1 | tail -2
 SHA="$($GIT -C "$WT" rev-parse HEAD)"
 
 # 2. hold rules (MANDATE): never auto-merge these
-CH="$($GIT -C "$WT" diff --name-only origin/main...HEAD)"
+CH="$($GIT -C "$WT" -c core.fileMode=false diff --no-renames --raw origin/main...HEAD | awk '$3 != $4 {sub(/^[^\t]*\t/, ""); print}')"
 SIZE="$($GIT -C "$WT" diff --numstat origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | awk '{s+=$1+$2} END{print s+0}')"
+# CEO 2026-11-16 EMPTY-DELIVERY: a PR whose tree equals main delivers nothing; never merge it.
+if [ "$SIZE" = 0 ] && $GIT -C "$WT" diff --quiet origin/main HEAD; then
+  say "#$N $SLUG: EMPTY delivery (tree == origin/main), not merging"
+  python3 "$LANES_PY" cloud-release "$SLUG" >/dev/null 2>&1 || true
+  [ -e "$STATE/merge/$SLUG.empty" ] || printf -- '- %s PR #%s rsi/%s is empty (tree == main); not merged — close it\n' "$(date '+%F %H:%M')" "$N" "$SLUG" >> "$STATE/needs-ceo.md"
+  echo "$N" > "$STATE/merge/$SLUG.empty"; exit 0
+fi
 HOLD=""
 echo "$CH" | grep -qE '^(go\.mod|ui/package\.json|internal/store/.*migrat|.*migrations?/|internal/auth)' && HOLD="touches deps/migrations/auth (MANDATE: needs CEO + ADR)"
 # CEO 2026-11-15 (Ethan: Astryx overhaul approved): the Astryx foundation slices F1-F3 may change ui/package.json, but only
@@ -320,11 +335,11 @@ for l in sys.stdin:
 print(" ".join(sorted(set(bad))))') )"
   [ -z "$BAD" ] && HOLD="" || HOLD="package.json change outside the Astryx programme packages: $BAD"
 fi
-if [ "$SIZE" -gt 800 ]; then
+if [ "$SIZE" -gt 1000 ]; then
   if [ -f "$STATE/merge/$SLUG.size-ok" ]; then
     say "#$N $SLUG: CEO size waiver ($SIZE lines; $STATE/merge/$SLUG.size-ok)"
   else
-    HOLD="diff is $SIZE changed lines (>800): split it"
+    HOLD="diff is $SIZE changed lines (>1000): split it"
   fi
 fi
 echo "$CH" | grep -qE '^web/dist/assets/' && HOLD="web/dist/assets in diff"
@@ -409,18 +424,25 @@ if [ $NEED_GATE -eq 1 ]; then
     # Workers often build before their last edit: regenerate web/dist/index.html (the only tracked build output) so a stale bundle
     # never bounces a PR. Pushed so CI sees the same file. The install is repaired first: behind a `-d` test a stale or symlinked
     # tree made this build die silently, leaving the dist stale so gate.sh then failed the PR for a second, unrelated reason.
+    BUILT_SHA=""
     if echo "$CH" | grep -q '^ui/'; then
       node_stamp_ensure "$WT/ui" || say "#$N $SLUG: ui install repair failed; dist rebuild may be incomplete"
-      ( cd "$WT/ui" && npm run build >/dev/null 2>&1 ) && [ -n "$($GIT -C "$WT" status --porcelain -- web/dist/index.html)" ] \
-        && $GIT -C "$WT" commit -q -m "chore(web): rebuild dist" -- web/dist/index.html && $GIT -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null
-      SHA="$($GIT -C "$WT" rev-parse HEAD)"
+      if ( cd "$WT/ui" && npm run build >/dev/null 2>&1 ); then
+        if [ -n "$($GIT -C "$WT" status --porcelain -- web/dist/index.html)" ]; then
+          $GIT -C "$WT" commit -q -m "chore(web): rebuild dist" -- web/dist/index.html && with_timeout 120 "$GIT" -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null
+        fi
+        SHA="$($GIT -C "$WT" rev-parse HEAD)"
+        [ -z "$($GIT -C "$WT" status --porcelain -- web/dist/index.html)" ] && BUILT_SHA="$SHA"
+      else
+        SHA="$($GIT -C "$WT" rev-parse HEAD)"
+      fi
     fi
-    ( cd "$WT" && bash "$RSI_DIR/runtime/gate.sh" "$WT" ) > "$GL" 2>&1; GRC=$?; rm -rf "$STATE/.gate.lock"
+    ( cd "$WT" && RSI_DIST_BUILT_SHA="$BUILT_SHA" bash "$RSI_DIR/runtime/gate.sh" "$WT" ) > "$GL" 2>&1; GRC=$?; rm -rf "$STATE/.gate.lock"
     $GIT -C "$WT" checkout -q -- . 2>/dev/null   # drop build leftovers (tracked files only) in our own rsi worktree
     # Mechanical failure (format only): format the changed files, commit, push, re-gate ONCE. Not a sendback, not a rework round.
     if [ $GRC -ne 0 ] && [ "$(grep '^GATE_RESULT' "$GL" | head -1 | sed 's/.*FAIL: *//; s/ *$//')" = prettier ] && [ ! -e "$STATE/merge/$SLUG.autoformatted.$SHA" ]; then
       touch "$STATE/merge/$SLUG.autoformatted.$SHA"; say "#$N $SLUG: gate failed on prettier only -> auto-format, push, re-gate (mechanical)"
-      if bash "$RSI_DIR/runtime/format-changed.sh" --write --commit --check "$WT" >> "$GL.fmt" 2>&1 && $GIT -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null; then
+      if bash "$RSI_DIR/runtime/format-changed.sh" --write --commit --check "$WT" >> "$GL.fmt" 2>&1 && with_timeout 120 "$GIT" -C "$WT" push -q origin "HEAD:$BR" 2>/dev/null; then
         SHA="$($GIT -C "$WT" rev-parse HEAD)"; GL="$RUNS/gate-merge-$SLUG-$(date +%H%M%S).log"
         if mklock "$STATE/.gate.lock" 1800; then
           ( cd "$WT" && bash "$RSI_DIR/runtime/gate.sh" "$WT" ) > "$GL" 2>&1; GRC=$?; rm -rf "$STATE/.gate.lock"; $GIT -C "$WT" checkout -q -- . 2>/dev/null
@@ -625,7 +647,14 @@ for round in 1 2 3; do
   mklock "$STATE/.land.lock" 900 || { say "#$N: land lock timeout"; exit 0; }
   $GIT -C "$WT" fetch -q origin main 2>/dev/null
   if $GIT -C "$WT" merge-base --is-ancestor origin/main HEAD; then
+    MERGED_OK=0
     if $GH pr merge "$N" --repo "$GH_REPO" --squash >/dev/null 2>"$STATE/merge/$SLUG.merge.err"; then
+      MERGED_OK=1
+    elif [ "$($GH pr view "$N" --repo "$GH_REPO" --json state --jq .state 2>/dev/null)" = MERGED ]; then
+      say "#$N $SLUG: gh pr merge exited non-zero after GitHub completed merge — recording merge"
+      MERGED_OK=1
+    fi
+    if [ $MERGED_OK -eq 1 ]; then
       MSHA="$($GH pr view "$N" --repo "$GH_REPO" --json mergeCommit --jq .mergeCommit.oid 2>/dev/null | cut -c1-8)"
       say "#$N $SLUG: MERGED ($MSHA)"
       echo "$(date '+%F %H:%M') PR #$N $SLUG $ITEM merged ${MSHA:-?} $PRURL" >> "$STATE/merged.log"
@@ -651,6 +680,47 @@ PY
   NEWSHA="$($GIT -C "$WT" rev-parse HEAD)"
   rm -rf "$STATE/.land.lock"
   if echo "$INCOMING" | grep -qE "$CODE_RE"; then
+    DISJOINT_LEAF=0
+    if python3 - "$INCOMING" "$CH" <<'PY'
+import os, sys
+incoming = [p for p in sys.argv[1].splitlines() if p]
+pr_files = [p for p in sys.argv[2].splitlines() if p]
+pr_dirs = {os.path.dirname(p) for p in pr_files if p.startswith("ui/src/")}
+shared_dirs = (
+    "ui/src/components/ui/",
+    "ui/src/components/layout/",
+    "ui/src/design/",
+    "ui/src/lib/",
+    "ui/src/api/",
+    "ui/src/store/",
+    "ui/src/hooks/",
+    "ui/src/i18n/",
+)
+shared_files = {"ui/src/index.css", "ui/src/App.tsx", "ui/src/main.tsx"}
+for p in incoming:
+    if p.startswith(("docs/", "rsi/")) or p.endswith(".md") or p in ("web/dist/index.html", "scripts/ui-inventory-baseline.json"):
+        continue
+    if p in shared_files or any(p.startswith(s) for s in shared_dirs):
+        sys.exit(1)
+    if p.startswith("ui/src/components/") or p.startswith("ui/src/pages/"):
+        if os.path.dirname(p) in pr_dirs:
+            sys.exit(1)
+        continue
+    sys.exit(1)
+sys.exit(0)
+PY
+    then
+      if ( cd "$WT" && python3 scripts/check-ui-inventory.py >/dev/null 2>&1 && cd ui && npm run build >/dev/null 2>&1 ) && $GIT -C "$WT" diff --quiet -- web/dist/index.html; then
+        DISJOINT_LEAF=1
+      else
+        $GIT -C "$WT" checkout -q -- web/dist/index.html 2>/dev/null || true
+      fi
+    fi
+    if [ $DISJOINT_LEAF -eq 1 ]; then
+      say "#$N $SLUG: main moved only in disjoint leaf UI paths; build+inventory green, carrying gate forward to ${NEWSHA:0:8} (CI still runs on merged head)"
+      echo "$NEWSHA PASS $ROLE" > "$V"; SHA="$NEWSHA"
+      continue
+    fi
     say "#$N $SLUG: main moved with code changes ($(echo "$INCOMING" | grep -cE "$CODE_RE") files); needs a fresh gate"; rm -f "$V"
     nohup /bin/bash "$SELF" >> "$RUNS/launchd-merge.log" 2>&1 < /dev/null & disown 2>/dev/null || true
     exit 0

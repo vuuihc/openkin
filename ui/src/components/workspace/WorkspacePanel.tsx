@@ -30,6 +30,7 @@ import {
 import WorkspaceGenerationPicker from "./WorkspaceGenerationPicker";
 import { projectLabel, shortPath, toWorkspaceRelativePath } from "../../lib/paths";
 import { IconBack, IconPanel, IconSearch, IconSend, IconSpinner, IconX } from "../icons";
+import Button from "../ui/Button";
 import ChangedFilesList from "./ChangedFilesList";
 import FileTree from "./FileTree";
 
@@ -570,16 +571,16 @@ export default function WorkspacePanel({
         {/* The phone's way back to the list. md+ shows both panes at once, so
             there is nothing to go back to and the control is not drawn. */}
         {phoneView === "file" && (
-          <button
+          <Button
             ref={backRef}
-            type="button"
+            variant="quiet"
             onClick={goBackToFiles}
             title={tr("workspace.backToFiles")}
             aria-label={tr("workspace.backToFiles")}
-            className="flex-none -ml-1 rounded-md p-1 text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] transition-colors md:hidden"
+            className="flex-none -ml-1 h-11 w-11 items-center justify-center p-0 text-kin-muted md:hidden"
           >
             <IconBack size={16} />
-          </button>
+          </Button>
         )}
         <IconPanel size={14} className="text-kin-muted flex-none" />
         <div className="min-w-0 flex-1">
@@ -606,36 +607,37 @@ export default function WorkspacePanel({
           a person does about them when they are done reading.
         */}
         {onPublish && (
-          <button
-            type="button"
+          <Button
+            variant="secondary"
             onClick={onPublish}
             title={tr("publish.hint")}
-            className="flex-none inline-flex items-center gap-1.5 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-caption text-kin-text transition-colors hover:bg-[var(--kin-fill-strong)]"
+            aria-label={tr("publish.action")}
+            className="flex-none gap-1.5 px-2 py-1 text-caption"
           >
             <IconSend size={12} />
             {tr("publish.action")}
-          </button>
+          </Button>
         )}
         {workspaceView.editable && reviewActions && onDiscardAll && (
-          <button
-            type="button"
+          <Button
+            variant="secondary"
             disabled={actionsBusy || !hasChanges}
             onClick={() => void onDiscardAll()}
             title={tr("workspace.changed.discardAllHint")}
-            className="kin-btn-secondary md:min-h-0 md:py-1 md:px-2.5 text-caption disabled:opacity-50"
+            className="md:min-h-0 md:px-2.5 md:py-1 text-caption"
           >
             {tr("workspace.changed.discardAll")}
-          </button>
+          </Button>
         )}
         {onClose && (
-          <button
-            type="button"
+          <Button
+            variant="quiet"
             onClick={onClose}
-            className="flex-none rounded-md p-1.5 text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill)]"
+            className="flex-none h-11 w-11 items-center justify-center p-0 text-kin-muted sm:h-6 sm:w-6"
             aria-label={tr("workspace.close")}
           >
             <IconX size={14} />
-          </button>
+          </Button>
         )}
       </div>
 
@@ -692,15 +694,15 @@ export default function WorkspacePanel({
               />
             </div>
             {onFindFile && (
-              <button
-                type="button"
+              <Button
+                variant="quiet"
                 onClick={onFindFile}
                 title={tr("workspace.find.actionHint")}
                 aria-label={tr("workspace.find.action")}
-                className="flex-none rounded-md p-1 text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] transition-colors"
+                className="flex-none h-11 w-11 items-center justify-center p-0 text-kin-muted sm:h-6 sm:w-6"
               >
                 <IconSearch size={13} />
-              </button>
+              </Button>
             )}
           </div>
           {lens === "changes" &&
@@ -906,6 +908,9 @@ function normalizeFileResponse(
   };
 }
 
+// W1b owns this: the Changes/Files tab strip becomes ui/Tabs there, which
+// changes the panel's structure. W1 migrates controls only, so the tab roles
+// stay on a raw button until then.
 function TabButton({
   active,
   disabled,
