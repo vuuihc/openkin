@@ -105,11 +105,11 @@ type Props = {
    */
   footer?: ReactNode;
   /**
-   * Whether the footer survives the `md` breakpoint. Off by default: the
-   * session page keeps a separate desktop strip, and drawing both would offer
-   * the same settings twice in one row. The new-chat page has no second strip
-   * — its footer face and the settings surface behind it are the only entry at
-   * every width — so it turns this on.
+   * Whether the footer survives the `md` breakpoint. Off by default: a page
+   * that draws its own desktop run-settings strip would otherwise offer the
+   * same settings twice in one row. The new-chat page and the task dock have
+   * no second strip — their footer face and the settings surface behind it are
+   * the only entry at every width — so they turn this on.
    */
   footerWide?: boolean;
   /**

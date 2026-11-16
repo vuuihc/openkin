@@ -199,7 +199,7 @@ export default function RunConfigControl({
           </span>
           <span
             className={[
-              "whitespace-nowrap text-caption font-medium",
+              "flex-none whitespace-nowrap text-caption font-medium",
               mode === "yolo" ? "text-kin-orange-ink" : "text-kin-muted",
             ].join(" ")}
           >

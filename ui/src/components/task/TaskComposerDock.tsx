@@ -7,8 +7,8 @@ import RunConfigControl, { RunConfigSheetRow, type RunConfigAvatar } from "../ch
 import BranchPicker from "../chat/BranchPicker";
 import RepoChip from "../chat/RepoChip";
 import CwdPicker from "../chat/CwdPicker";
-import PermissionModePicker from "../chat/PermissionModePicker";
-import ModelPicker from "../chat/ModelPicker";
+import type PermissionModePicker from "../chat/PermissionModePicker";
+import type ModelPicker from "../chat/ModelPicker";
 import { IconAlert, IconMachine } from "../icons";
 import Button from "../ui/Button";
 import TaskUsageSummary from "../usage/TaskUsageSummary";
