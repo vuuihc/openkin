@@ -405,7 +405,6 @@
       "ownerPaths": [
         "ui/src/components/layout/AppShell.tsx",
         "ui/src/components/layout/PhoneFooter.tsx",
-        "ui/src/hooks/usePhoneTabSwipe.ts",
         "ui/src/components/mobile/SwipeReveal.tsx",
         "ui/src/components/layout/Sidebar.tsx",
         "ui/src/components/mobile/SessionsHeader.tsx",
