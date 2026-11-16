@@ -82,9 +82,22 @@ describe("the limit card", () => {
 
     // Each action reports its own busy key, and every action is disabled while
     // one is in flight.
-    for (const busy of ["wait", "continue", "switch:claude-code", "dismiss"]) {
-      rerender(view(openHit, busy, h));
+    const actions = [
+      { busy: "wait", label: t("limit.wait") },
+      { busy: "continue", label: t("limit.continueNow") },
+      { busy: "switch:claude-code", label: t("limit.switchTo", { agent: "Claude Code" }) },
+      { busy: "dismiss", label: t("limit.dismiss") },
+    ];
+    for (const action of actions) {
+      rerender(view(openHit, action.busy, h));
+      // The busy action reports progress in place; the other three keep their
+      // names, and all four must be disabled.
       expect(button(t("limit.working")).disabled).toBe(true);
+      for (const other of actions) {
+        if (other.label !== action.label) {
+          expect(button(other.label).disabled).toBe(true);
+        }
+      }
     }
   });
 

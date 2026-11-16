@@ -119,8 +119,12 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
                   variant="secondary"
                   disabled={Boolean(busy)}
                   // The tile holds a number, a label and a description; the
-                  // option's own label is the name a reader should hear.
+                  // option's own label is the name a reader should hear, and
+                  // the description stays reachable as its description.
                   aria-label={opt.label}
+                  aria-describedby={
+                    opt.description ? `${question.id}-option-${idx}-description` : undefined
+                  }
                   aria-pressed={on}
                   onClick={() => toggle(opt.label)}
                   className={[
@@ -139,7 +143,10 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
                     <span className="min-w-0">
                       <span className="block text-strong font-medium">{opt.label}</span>
                       {opt.description ? (
-                        <span className="mt-0.5 block text-caption text-kin-muted">
+                        <span
+                          id={`${question.id}-option-${idx}-description`}
+                          className="mt-0.5 block text-caption text-kin-muted"
+                        >
                           {opt.description}
                         </span>
                       ) : null}
@@ -173,12 +180,13 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
 
         <div className="mt-3 flex items-center justify-end gap-2">
           {/* The card's one filled action. `approve` is the console's orange
-              filled weight; the disabled treatment is the facade's. */}
+              filled weight; while it has nothing to send it keeps the old 15%
+              tint rather than a dimmed solid fill (TASTE 6). */}
           <Button
             variant="approve"
             disabled={!canSubmit}
             onClick={submit}
-            className="px-3.5 py-1.5 text-body"
+            className="px-3.5 py-1.5 text-body disabled:bg-kin-orange/15 disabled:text-kin-orange-ink/60"
           >
             {busy ? tr("question.submitting") : tr("question.submit")}
           </Button>

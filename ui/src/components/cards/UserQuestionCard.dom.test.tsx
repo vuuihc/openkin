@@ -57,6 +57,9 @@ describe("the question card", () => {
     expect(alpha.className).toContain("kin-btn");
     expect(beta.className).toContain("kin-btn");
     expect(alpha.getAttribute("aria-pressed")).toBe("false");
+    // The concise name does not drop the visible description from the
+    // accessibility tree; it is the option's description.
+    expect(screen.getByRole("button", { name: "Alpha", description: "The first way" })).toBe(alpha);
 
     await user.click(alpha);
     expect(alpha.getAttribute("aria-pressed")).toBe("true");
@@ -113,6 +116,20 @@ describe("the question card", () => {
     // Enter activated the button it was standing on; it did not answer for it.
     expect(onAnswer).not.toHaveBeenCalled();
     expect(alpha.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("a digit typed into the Other input stays text instead of toggling an option", async () => {
+    const user = userEvent.setup();
+    const { onAnswer } = renderCard({ focused: true });
+
+    const other = screen.getByPlaceholderText(t("question.otherPlaceholder")) as HTMLInputElement;
+    await user.click(other);
+    await user.keyboard("1");
+
+    expect(other.value).toBe("1");
+    expect(button("Alpha").getAttribute("aria-pressed")).toBe("false");
+    expect(button("Beta").getAttribute("aria-pressed")).toBe("false");
+    expect(onAnswer).not.toHaveBeenCalled();
   });
 
   it("submit is the only filled primary and stays disabled until an option or text exists", async () => {
