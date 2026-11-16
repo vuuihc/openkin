@@ -275,11 +275,7 @@ export default function Popover({
       // A layer the caller owns (not a `Popover`) is opted in by its markers;
       // see `pointerReach`. Pointer-only: Escape below stays scoped to focus in
       // this layer's chain.
-      if (
-        pointerReach &&
-        event.target instanceof Element &&
-        event.target.closest(pointerReach)
-      ) {
+      if (pointerReach && event.target instanceof Element && event.target.closest(pointerReach)) {
         return;
       }
       onOpenChange(false);
