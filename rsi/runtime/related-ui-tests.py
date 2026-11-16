@@ -27,8 +27,14 @@ SHARED_FILES = {
     "ui/src/App.tsx",
     "ui/src/main.tsx",
     "ui/src/i18n/index.ts",
-    "ui/src/i18n/react.tsx",
+    "ui/src/i18n/react.ts",
 }
+ALWAYS_TESTS = (
+    "src/design/tokens.test.ts",
+    "src/components/layout/PanelSurface.test.ts",
+    "src/components/layout/zen.test.ts",
+    "src/design/mobileLayout.test.ts",
+)
 TEST_RE = re.compile(r"\.(test|spec)\.(ts|tsx|js|jsx)$")
 IMP_RE = re.compile(
     r"""(?:from\s+|import\s*\(\s*|vi\.mock\s*\(\s*|require\s*\(\s*)["']([^"']+)["']"""
@@ -173,8 +179,9 @@ def main() -> int:
                 seen.add(tf)
 
     tests = sorted(f for f in seen if TEST_RE.search(f) and f in file_set)
-    if "src/design/tokens.test.ts" in file_set and "src/design/tokens.test.ts" not in tests:
-        tests.append("src/design/tokens.test.ts")
+    for at in ALWAYS_TESTS:
+        if at in file_set and at not in tests:
+            tests.append(at)
     if locales_touched:
         for lt in ("src/i18n/locales.test.ts", "src/i18n/documentLang.dom.test.ts"):
             if lt in file_set and lt not in tests:

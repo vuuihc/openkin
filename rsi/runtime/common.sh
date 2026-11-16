@@ -168,7 +168,6 @@ import json, os, sys
 try:
     prs = json.load(sys.stdin)
 except Exception:
-    print("-1 -1")
     sys.exit(1)
 st = os.environ["STATE"]
 active = 0
@@ -186,13 +185,13 @@ print("%d %d" % (active, len(prs)))
 }
 rsi_open_pr_backpressure() {
   RSI_OPEN_RSI_PRS=-1; RSI_OPEN_TOTAL_PRS=-1
-  local counts
-  counts="$(rsi_open_pr_counts 2>/dev/null || echo "-1 -1")"
-  RSI_OPEN_RSI_PRS="${counts%% *}"; RSI_OPEN_TOTAL_PRS="${counts##* }"
   case "${RSI_MAX_OPEN_PRS:-10}" in
     ""|0|off|OFF|false|FALSE|*[!0-9]*) return 1 ;;
   esac
   [ "$RSI_MAX_OPEN_PRS" -ge 1 ] 2>/dev/null || return 1
+  local counts
+  counts="$(rsi_open_pr_counts 2>/dev/null || echo "-1 -1")"
+  RSI_OPEN_RSI_PRS="${counts%% *}"; RSI_OPEN_TOTAL_PRS="${counts##* }"
   [ "${RSI_OPEN_RSI_PRS:--1}" -ge 0 ] 2>/dev/null || return 1
   [ "$RSI_OPEN_RSI_PRS" -ge "$RSI_MAX_OPEN_PRS" ] 2>/dev/null
 }
