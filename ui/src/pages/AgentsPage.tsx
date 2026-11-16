@@ -1121,72 +1121,81 @@ export default function AgentsPage({ embedded = false }: { embedded?: boolean } 
               </div>
             ) : (
               <>
-            <div
-              className={`grid grid-cols-2 gap-3 sm:grid-cols-4 ${updating ? "opacity-60" : ""}`}
-            >
-              {[
-                { label: tr("usage.spend"), value: totals.empty ? "—" : formatCost(totals.cost) },
-                {
-                  label: tr("usage.tokens"),
-                  value: totals.empty ? "—" : formatTokenCount(totals.tokens),
-                },
-                {
-                  label: tr("usage.cacheHitRate"),
-                  value: totals.empty
-                    ? "—"
-                    : cacheRateLabel(
-                        totals.cacheStatus,
-                        totals.cacheEligible > 0 ? totals.cacheRead / totals.cacheEligible : null,
-                      ),
-                },
-                {
-                  label: tr("usage.tasks"),
-                  value: totals.empty ? "—" : String(totals.tasks),
-                },
-              ].map((c) => (
-                <div key={c.label} className="rounded-xl bg-kin-elevated px-4 py-3">
-                  <div className="text-caption text-kin-muted font-semibold uppercase tracking-label">
-                    {c.label}
+                <div
+                  className={`grid grid-cols-2 gap-3 sm:grid-cols-4 ${updating ? "opacity-60" : ""}`}
+                >
+                  {[
+                    {
+                      label: tr("usage.spend"),
+                      value: totals.empty ? "—" : formatCost(totals.cost),
+                    },
+                    {
+                      label: tr("usage.tokens"),
+                      value: totals.empty ? "—" : formatTokenCount(totals.tokens),
+                    },
+                    {
+                      label: tr("usage.cacheHitRate"),
+                      value: totals.empty
+                        ? "—"
+                        : cacheRateLabel(
+                            totals.cacheStatus,
+                            totals.cacheEligible > 0
+                              ? totals.cacheRead / totals.cacheEligible
+                              : null,
+                          ),
+                    },
+                    {
+                      label: tr("usage.tasks"),
+                      value: totals.empty ? "—" : String(totals.tasks),
+                    },
+                  ].map((c) => (
+                    <div key={c.label} className="rounded-xl bg-kin-elevated px-4 py-3">
+                      <div className="text-caption text-kin-muted font-semibold uppercase tracking-label">
+                        {c.label}
+                      </div>
+                      <div className="mt-1 text-hero font-semibold tabular-nums tracking-tight">
+                        {c.value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div>
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <span className="text-strong font-medium text-kin-muted">
+                      {tr("usage.dailySpend")}
+                    </span>
+                    {updating && (
+                      <span className="text-caption text-kin-muted" role="status">
+                        {tr("agents.intervalUpdating")}
+                      </span>
+                    )}
                   </div>
-                  <div className="mt-1 text-hero font-semibold tabular-nums tracking-tight">
-                    {c.value}
+                  <div
+                    className={`flex items-stretch gap-1.5 h-28 ${updating ? "opacity-60" : ""}`}
+                  >
+                    {totals.byDay.length === 0 && (
+                      <p className="text-strong leading-5 text-kin-muted">
+                        {tr("agents.emptyUsage")}
+                      </p>
+                    )}
+                    {totals.byDay.map(([date, cost]) => (
+                      <div key={date} className="flex-1 flex flex-col items-center gap-1 min-w-0">
+                        {/* Bar track: definite height so the bar's % resolves against it. */}
+                        <div className="flex-1 w-full flex items-end justify-center min-h-0">
+                          <div
+                            className="w-full max-w-[28px] rounded-t bg-kin-blue/80"
+                            style={{ height: `${Math.max(2, (cost / maxDay) * 100)}%` }}
+                            title={`${date}: ${formatCost(cost)}`}
+                          />
+                        </div>
+                        <span className="text-micro text-kin-muted truncate w-full text-center">
+                          {date.slice(5)}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              ))}
-            </div>
-
-            <div>
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <span className="text-strong font-medium text-kin-muted">
-                  {tr("usage.dailySpend")}
-                </span>
-                {updating && (
-                  <span className="text-caption text-kin-muted" role="status">
-                    {tr("agents.intervalUpdating")}
-                  </span>
-                )}
-              </div>
-              <div className={`flex items-stretch gap-1.5 h-28 ${updating ? "opacity-60" : ""}`}>
-                {totals.byDay.length === 0 && (
-                  <p className="text-strong leading-5 text-kin-muted">{tr("agents.emptyUsage")}</p>
-                )}
-                {totals.byDay.map(([date, cost]) => (
-                  <div key={date} className="flex-1 flex flex-col items-center gap-1 min-w-0">
-                    {/* Bar track: definite height so the bar's % resolves against it. */}
-                    <div className="flex-1 w-full flex items-end justify-center min-h-0">
-                      <div
-                        className="w-full max-w-[28px] rounded-t bg-kin-blue/80"
-                        style={{ height: `${Math.max(2, (cost / maxDay) * 100)}%` }}
-                        title={`${date}: ${formatCost(cost)}`}
-                      />
-                    </div>
-                    <span className="text-micro text-kin-muted truncate w-full text-center">
-                      {date.slice(5)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
               </>
             )}
           </div>

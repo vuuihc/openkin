@@ -320,8 +320,7 @@ describe("the Operations settings tab", () => {
       within(opPanel).getByText("What this machine has, whether it works, and what it cost"),
     ).toBeTruthy();
     // One description of the screen: the Settings tagline would be a second.
-    const layoutHeader = screen
-      .getByRole("tablist", { name: "Settings" })
+    const layoutHeader = screen.getByRole("tablist", { name: "Settings" })
       .previousElementSibling as HTMLElement;
     expect(layoutHeader.querySelector("p")).toBeNull();
   });
@@ -331,9 +330,7 @@ describe("the Operations settings tab", () => {
 
     await screen.findByRole("tab", { name: "Operations" });
     const opPanel = panel("operations");
-    await waitFor(() =>
-      expect(within(opPanel).getByText("No usage in this range")).toBeTruthy(),
-    );
+    await waitFor(() => expect(within(opPanel).getByText("No usage in this range")).toBeTruthy());
     // An empty range is a state, not four em-dash metric tiles.
     expect(within(opPanel).queryByText("Cache hit rate")).toBeNull();
     expect(within(opPanel).queryByText("—")).toBeNull();
@@ -348,9 +345,7 @@ describe("the Operations settings tab", () => {
     await screen.findByRole("tab", { name: "Operations" });
     await waitFor(() => expect(getUsageSummary).toHaveBeenCalled());
     const opPanel = panel("operations");
-    expect(
-      within(opPanel).getByText("Reading this machine's agents and usage…"),
-    ).toBeTruthy();
+    expect(within(opPanel).getByText("Reading this machine's agents and usage…")).toBeTruthy();
     expect(within(opPanel).queryByText("Cache hit rate")).toBeNull();
     expect(within(opPanel).queryByText("No usage in this range")).toBeNull();
   });
