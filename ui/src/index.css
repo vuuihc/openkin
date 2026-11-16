@@ -15,7 +15,73 @@
 @import "./design/theme.css";
 @import "./design/syntax.css";
 @import "tailwindcss";
+/*
+  Astryx's stylesheets, after Tailwind's.
+
+  Each one declares the same layer order this file declares at the top, so the
+  load order between them does not decide the cascade. `reset` lands in the
+  first layer — below Tailwind's preflight, which is in `base` — so Astryx's
+  reset cannot undo Kin's baseline; `astryx-base` and `astryx-theme` sit above
+  the component layer's neighbours, below `utilities`. The theme's own generated
+  CSS (token values, component overrides) is injected at runtime by
+  `AstryxProvider`; only the reset and the component styles are files.
+*/
+@import "@astryxdesign/core/reset.css";
+@import "@astryxdesign/core/astryx.css";
 @config "../tailwind.config.ts";
+
+/*
+  Astryx's prose defaults must not reach Kin's existing markup.
+
+  Mounting Astryx's `Theme` injects a `@layer reset` block that styles bare
+  `h1`–`h6`, `p`, `small`, `code`/`pre` and `hr` (14px Figtree body text,
+  primary ink, and so on). Layer order alone does not make that harmless: a
+  declaration that targets the element beats the value it would otherwise
+  *inherit* from an ancestor, whatever the layer. So
+  `<div class="text-kin-red-ink"><p>{error}</p></div>` would paint the error in
+  primary ink, and a `<div class="text-body text-kin-secondary">` would stop
+  reaching a 13px paragraph. That is invisible on a screen whose paragraphs sit
+  under no parent utility, which is why the fix is one block here rather than
+  168 edits at the `<p>` call sites.
+
+  These rules sit in `base` — above Astryx's `reset`, below every Kin and
+  Astryx component layer — and restore what Tailwind preflight left to
+  inheritance. `font-family` and `font-size` on `code`/`pre` are deliberately
+  not restated: preflight's mono rule is in this same layer with element
+  specificity, so it already beats Astryx's reset-layer `:where` rule. Any
+  Astryx component still styles its own text through classes in a later layer;
+  this block only removes a default that was never Kin's. `astryxTheme.test.ts`
+  holds it to Astryx's generated prose, so a new prose property or selector
+  fails the test until it is neutralised here.
+*/
+@layer base {
+  :where(h1, h2, h3, h4, h5, h6) {
+    font-family: inherit;
+    font-size: inherit;
+    font-weight: inherit;
+    line-height: inherit;
+    color: inherit;
+  }
+
+  :where(p) {
+    font-family: inherit;
+    font-size: inherit;
+    font-weight: inherit;
+    line-height: inherit;
+    color: inherit;
+  }
+
+  :where(small) {
+    font-size: inherit;
+    font-weight: inherit;
+    line-height: inherit;
+    color: inherit;
+  }
+
+  :where(code, pre) {
+    line-height: inherit;
+  }
+}
 
 /*
   Tailwind 4 split v3's `outline-none` in two: today the name only clears
@@ -401,18 +467,36 @@
 }
 
 /*
-  A route change is a surface arriving, not a slide: opacity only.
+  A route change is a surface arriving, not a slide. Every arrival keeps the
+  opacity fade; the direction — area, push, pop — is a few pixels of travel
+  chosen by `areaTransition`, applied to the page root inside `.kin-route`.
 
-  Transform is deliberately not used. A transform on an ancestor makes it the
-  containing block for every `position: fixed` descendant, and this tree has
-  several (the new-chat control sheet, the folder popover, the command palette),
-  so a "small rise" on the page would move them relative to the page instead of
-  the viewport. Opacity creates a stacking context and nothing else.
+  Transform on `.kin-main` (or on the keep-alive host beside the routes) is
+  still forbidden, for the original reason: a transform on an ancestor makes it
+  the containing block for every `position: fixed` descendant, so a "small
+  rise" on the page would move the shell's fixed panels relative to the page
+  instead of the viewport. The wrapper is exempt because no route page renders
+  an un-portaled fixed overlay today. Verified across the tree: `FileQuickOpen`
+  is rendered by `TaskDetailPage` inside `TaskSessionHost` (outside the
+  wrapper); `MachineBrowser` by `CwdPicker`; `CommandPalette`,
+  `FloatingApproval` and `TerminalPanel` are `AppShell` siblings; and
+  `ShareDialog`, `Sheet`, `SheetSelect`, `RunConfigSheet`, `CwdPicker`,
+  `PermissionModePicker`, `DispatchSelector` and `PlacePicker` all
+  `createPortal`. A route page that adds one must portal it, or the animation
+  will re-anchor it.
 
-  The children of <main> are what mount and unmount on navigation; the session
-  host beside them stays mounted, which is exactly why it is not the animated
-  element. 140ms is short enough to read as the new screen settling rather than
-  as an animation to wait out.
+  The one exception to "no transform on the page" is the phone's edge-back
+  gesture below: the wrapper carries a translate read from `--page-swipe-x`
+  only while a finger is dragging it right, and `useEdgeSwipeBack` zeroes the
+  offset on release, cancel, disable and unmount. That rule keeps targeting
+  `.kin-main > *` — now the wrapper — so main's shape does not change and the
+  gesture moves the same content it always did.
+
+  The children of the wrapper are what mount and unmount on navigation; the
+  session host beside it stays mounted, which is exactly why it is outside.
+  140ms is short enough to read as the new screen settling rather than as an
+  animation to wait out; the directional arrivals add a little travel and a
+  little time, and a reduced-motion reader gets the fade alone.
 */
 @keyframes kin-page-in {
   from {
@@ -422,8 +506,74 @@
     opacity: 1;
   }
 }
-.kin-main > * {
+@keyframes kin-area-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes kin-push-in {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes kin-pop-in {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* `/tasks/:id` renders `null` inside `<Routes>`: `TaskSessionHost` draws the
+   live chat beside this wrapper. An empty flex-1 box would still claim half of
+   `main.kin-main`'s height, so collapse it (the Tailwind `empty:hidden` class on
+   the wrapper says the same thing). This also keeps the swipe lift below from
+   raising a box with nothing in it. */
+.kin-route:empty {
+  display: none;
+}
+/* The page-scoped arrival. `data-motion="fade"` falls through to this rule. */
+.kin-route > * {
   animation: kin-page-in 140ms ease-out;
+}
+[data-motion="area"] > * {
+  animation: kin-area-in 160ms ease-out;
+}
+[data-motion="push"] > * {
+  animation: kin-push-in 180ms ease-out;
+}
+[data-motion="pop"] > * {
+  animation: kin-pop-in 160ms ease-out;
+}
+/* A detail-to-detail swap and an in-place change are content changing, not a
+   screen arriving: nothing re-enters, so nothing animates (TASTE 15). */
+[data-motion="swap"] > *,
+[data-motion="none"] > * {
+  animation: none;
+}
+
+/*
+  The finger, not a route change, moves the page: `AppShell` sets
+  `data-kin-swiping` and `--page-swipe-x` on <main> only while a phone edge drag
+  is active, and clears both at rest. The lift is `shadow-e2` as a class would
+  be, so the moving surface uses the same elevation token as any other raised
+  panel.
+*/
+.kin-main[data-kin-swiping] > * {
+  @apply shadow-e2;
+  transform: translate3d(var(--page-swipe-x, 0px), 0, 0);
 }
 
 /*
@@ -474,7 +624,19 @@
   animation: kin-brand-in 180ms ease-out;
 }
 @media (prefers-reduced-motion: reduce) {
-  .kin-main > *,
+  /* The JS normally sends `data-motion="fade"` already. This block is the belt
+     and braces for a reader whose preference the component could not read: no
+     directional travel, just the opacity fade every arrival has always had. */
+  [data-motion="area"] > *,
+  [data-motion="push"] > *,
+  [data-motion="pop"] > *,
+  [data-motion="fade"] > * {
+    animation: kin-page-in 140ms ease-out;
+  }
+  [data-motion="swap"] > *,
+  [data-motion="none"] > * {
+    animation: none;
+  }
   .kin-brand-enter,
   .kin-sheet-enter,
   .kin-scrim-enter {

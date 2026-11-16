@@ -2,12 +2,22 @@
 # gate.sh <worktree>  — the merge gate. Prints GATE_RESULT=PASS|FAIL with the reasons.
 set -u
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
+source "$(cd "$(dirname "$0")" && pwd)/node-stamp.sh"
 WT="$1"; cd "$WT" || { echo "GATE_RESULT=FAIL no worktree"; exit 1; }
 fail=0; why=""
 step() { # name cmd...
   local n="$1"; shift
   echo "--- $n"
-  if "$@" > "$RUNS/gate-$$-$n.log" 2>&1; then echo "ok: $n"; else echo "FAIL: $n (see $RUNS/gate-$$-$n.log)"; tail -25 "$RUNS/gate-$$-$n.log"; fail=1; why="$why $n"; fi
+  if "$@" > "$RUNS/gate-$$-$n.log" 2>&1; then echo "ok: $n"; else
+    echo "FAIL: $n (see $RUNS/gate-$$-$n.log)"
+    # Keep the failing-test identifiers in the gate log itself. merge.sh classifies
+    # out-of-footprint / known-flaky failures from THIS file (outside-tests.py), and the
+    # per-step log is otherwise invisible to it: Vitest prints its "FAIL  src/… > name"
+    # header far above the last 25 lines, so a flaky DOM test read as a quality failure.
+    grep -aE '(FAIL|✗|×).*\.(test|spec)\.(tsx|ts|jsx|js)|^--- FAIL:|Failed Tests|Test Files|^FAIL[[:space:]]' "$RUNS/gate-$$-$n.log" 2>/dev/null | head -20
+    tail -25 "$RUNS/gate-$$-$n.log"
+    fail=1; why="$why $n"
+  fi
 }
 # Changed-file Prettier, not a repo-wide check: 55 historical UI files fail
 # `prettier --check`, so a grep over the whole tree would be permanently red
@@ -57,7 +67,32 @@ prettier_ui_changed() {
   ( cd ui && npx prettier --check --ignore-unknown "${files[@]}" )
 }
 
+ui_vitest_gate() {
+  local rel_out rel_rc rel_files=() f
+  rel_out="$(python3 "$RSI_DIR/runtime/related-ui-tests.py" --worktree "$WT" 2>"$RUNS/gate-$$-related.err")"
+  rel_rc=$?
+  if [ $rel_rc -eq 0 ] && [ -n "$rel_out" ]; then
+    while IFS= read -r f; do
+      [ -n "$f" ] && rel_files+=("$f")
+    done <<< "$rel_out"
+  fi
+  if [ ${#rel_files[@]} -gt 0 ]; then
+    echo "leaf UI slice: running ${#rel_files[@]} related test file(s) incl. tokens.test.ts (full suite on GitHub CI; set RSI_GATE_VITEST=full for full local run)"
+    printf '  %s\n' "${rel_files[@]}"
+    ( cd ui && npx vitest run --maxWorkers="${VITEST_MAX_WORKERS:-2}" "${rel_files[@]}" )
+  else
+    echo "shared/full UI test run ($(tr '\n' ' ' < "$RUNS/gate-$$-related.err" 2>/dev/null || echo full))"
+    ( cd ui && npm test -- --maxWorkers="${VITEST_MAX_WORKERS:-2}" )
+  fi
+}
+
 mkdir -p "$RUNS"
+trap 'for kid in $(pgrep -P $$ 2>/dev/null || true); do rsi_kill_tree "$kid"; done' EXIT
+export GOMAXPROCS="${GOMAXPROCS:-2}" GO_TEST_P="${GO_TEST_P:-2}" VITEST_MAX_WORKERS="${VITEST_MAX_WORKERS:-2}"
+# Repair ui/node_modules before the first console compile, not after it. A bare directory-existence
+# test was true for a symlink into another worktree and for an install older than its own lockfile,
+# so the repair never ran and tsc/vitest/build failed on a tree that was not the PR's fault.
+ui_node_stamp() { node_stamp_ensure ui; }
 $GIT fetch -q origin main 2>/dev/null
 changed="$($GIT diff --name-only origin/main...HEAD)"
 echo "changed files: $(echo "$changed" | grep -c .)"
@@ -65,13 +100,17 @@ lines="$($GIT diff --shortstat origin/main...HEAD -- . ':!web/dist/index.html' '
 echo "diff size: $lines"
 echo "$changed" | grep -qE '^(web/dist/assets/|\.env|.*secret)' && { echo "FAIL: forbidden path in diff"; fail=1; why="$why forbidden-path"; }
 [ -n "$($GIT status --porcelain)" ] && { echo "FAIL: working tree not clean (commit or discard)"; $GIT status --short | head; fail=1; why="$why dirty-tree"; }
+echo "$changed" | grep -q '^ui/' && step node-stamp ui_node_stamp
 [ -x scripts/check.sh ] && step check ./scripts/check.sh
 if echo "$changed" | grep -q '^ui/'; then
-  [ -d ui/node_modules ] || step npm-ci bash -c 'cd ui && npm ci'
-  step typecheck bash -c 'cd ui && npm run typecheck'
   step lint bash -c 'cd ui && npm run lint'
-  step test bash -c 'cd ui && npm test'
-  step build bash -c 'cd ui && npm run build'
+  step test ui_vitest_gate
+  if [ "${RSI_DIST_BUILT_SHA:-}" = "$($GIT rev-parse HEAD 2>/dev/null)" ] && [ -d web/dist/assets ]; then
+    echo "--- build"
+    echo "ok: build (verified at HEAD by merge lane; tsc --noEmit + vite build)"
+  else
+    step build bash -c 'cd ui && npm run build'
+  fi
   [ -n "$($GIT status --porcelain -- . ':!web/dist/index.html')" ] && { echo "FAIL: build left uncommitted changes"; fail=1; why="$why dirty-after-build"; }
   $GIT diff --quiet -- web/dist/index.html || { echo "FAIL: web/dist/index.html stale — commit the rebuilt file"; fail=1; why="$why stale-dist"; }
 fi

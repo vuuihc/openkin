@@ -21,6 +21,7 @@ import { filterRoles, insertRole, type AgentRole } from "../../lib/agentRoles";
 import { agentDisplayName } from "../../lib/agentMention";
 import { agentCatalogState } from "../../lib/agentCatalog";
 import { useAppStore } from "../../store/appStore";
+import Button from "../ui/Button";
 import {
   IconAlert,
   IconFile,
@@ -94,21 +95,21 @@ type Props = {
   fileSearch?: (query: string) => Promise<string[]>;
   /**
    * The phone's run-config face, rendered between the attach control and the
-   * send control on the composer's own footer row. It is hidden from `md` up,
-   * where the strip under the composer names the model, the mode and the
-   * project — a second copy of the same two controls would be one too many
-   * ways to change them. Between `sm` and `md` the card is already the flat
+   * send control on the composer's own footer row. By default it is hidden
+   * from `md` up, where the strip under the composer names the model, the mode
+   * and the project — a second copy of the same two controls would be one too
+   * many ways to change them. Between `sm` and `md` the card is already the flat
    * desktop shape and the face rides along in that row: the strip does not
    * exist yet at that width, and a control nobody can see is worse than one
    * whose form does not quite match the row it sits in.
    */
   footer?: ReactNode;
   /**
-   * Whether the footer survives the `md` breakpoint. Off by default: the
-   * session page keeps a separate desktop strip, and drawing both would offer
-   * the same settings twice in one row. The new-chat page has no second strip
-   * — its footer face and the settings surface behind it are the only entry at
-   * every width — so it turns this on.
+   * Whether the footer survives the `md` breakpoint. Off by default: a page
+   * that draws its own desktop run-settings strip would otherwise offer the
+   * same settings twice in one row. The new-chat page and the task dock have
+   * no second strip — their footer face and the settings surface behind it are
+   * the only entry at every width — so they turn this on.
    */
   footerWide?: boolean;
   /**
@@ -517,7 +518,14 @@ export default function Composer({
     // Allow send while running: a running task queues the message and answers it
     // when the round ends. Only hard-disable when parent says so.
     // Sending is allowed with only attachments (no text), but never mid-upload.
-    if ((!text && attachments.length === 0) || disabled || blockSend || busy || stopping || uploading)
+    if (
+      (!text && attachments.length === 0) ||
+      disabled ||
+      blockSend ||
+      busy ||
+      stopping ||
+      uploading
+    )
       return;
     const payload = withAttachments(text);
     // Snapshot so a failed send can restore the composer + draft persistence.
@@ -735,6 +743,20 @@ export default function Composer({
   }
 
   const expanded = Boolean(value.trim()) || attachments.length > 0 || focused || uploading;
+  /**
+   * There is something to send and the composer can send it now. The send
+   * control carries the accent only then; an empty box shows the same control
+   * quiet, because a filled primary button over an empty draft says "press me"
+   * about nothing. This is the same expression `submit` refuses on, kept here
+   * so the control's weight and its disabled state cannot drift apart.
+   */
+  const canSend =
+    !disabled &&
+    !blockSend &&
+    !busy &&
+    !stopping &&
+    !uploading &&
+    (value.trim().length > 0 || attachments.length > 0);
   // "agents & files" only when a file row is on screen or on its way. A search
   // that failed leaves an agent menu, and a title promising files would name a
   // section that is not there.
@@ -767,6 +789,7 @@ export default function Composer({
             /* The rows scroll; the header and the hint below stay put. */
             <div
               ref={slashListRef}
+              // eslint-disable-next-line kin/no-raw-overlay-role -- the slash menu owns its option navigation and active-descendant wiring
               role="listbox"
               aria-label={tr("composer.slashActions")}
               className="max-h-[min(40vh,18rem)] overflow-y-auto kin-scroll"
@@ -807,6 +830,7 @@ export default function Composer({
       {menu === "mention" && (mentionOptions.length > 0 || fileSearching) && (
         <div
           className="absolute bottom-full left-0 right-0 mb-2 rounded-xl bg-kin-elevated shadow-e2 overflow-hidden z-20"
+          // eslint-disable-next-line kin/no-raw-overlay-role -- the mention menu owns its option navigation and active-descendant wiring
           role="listbox"
           aria-label={tr(menuTitle)}
         >
@@ -1019,14 +1043,21 @@ export default function Composer({
                 : "kin-composer-input w-full min-w-0 min-h-11 flex-none py-[11px] leading-ui sm:flex-1 sm:min-h-7 sm:py-0",
             ].join(" ")}
           />
+          {/* One row, and it never wraps: the card keeps one height whether a
+              phone is showing its run-config chip or a Mac is showing the
+              strip inside it. What can be wider than the row is the slot's
+              content, and that scrolls inside its own wrapper — a wrapped row
+              would move the send control off the line the thumb learned. */}
           <div
+            data-kin-composer-row
             className={[
-              "flex min-w-0 items-center gap-1.5",
+              "flex min-w-0 flex-nowrap items-center gap-1.5",
               expanded ? "mt-2" : "mt-1.5 sm:mt-0",
             ].join(" ")}
           >
-            <button
+            <Button
               type="button"
+              variant="quiet"
               onClick={() => fileRef.current?.click()}
               disabled={disabled || busy || stopping || uploading}
               className={[
@@ -1034,7 +1065,7 @@ export default function Composer({
                 // up. A 24px target is not hittable with a thumb. (`sm:w-6` alone
                 // would not restore the desktop size: the floor is a two-class
                 // selector and outranks it.)
-                "rounded-lg text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] flex items-center justify-center disabled:opacity-40",
+                "rounded-lg p-0 text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] flex items-center justify-center",
                 expanded ? "w-11 h-11 sm:w-7 sm:h-7 sm:-ml-1" : "w-11 h-11 sm:w-6 sm:h-6",
               ].join(" ")}
               aria-label={tr("composer.attachFile")}
@@ -1048,9 +1079,21 @@ export default function Composer({
                   which the picture mark fits again. */}
               <IconPlus size={expanded ? 18 : 17} className="sm:hidden" strokeWidth={2} />
               <IconImage size={expanded ? 15 : 14} className="hidden sm:block" />
-            </button>
+            </Button>
             {footer ? (
-              <div className={["min-w-0 flex-1", footerWide ? "" : "md:hidden"].join(" ")}>
+              <div
+                className={[
+                  "min-w-0 flex-1",
+                  // The slot is the one thing allowed to exceed the row: on a
+                  // Mac the run strip can be wider than the card, and it
+                  // scrolls inside this wrapper instead of pushing the send
+                  // control off the line. By default the same slot is hidden
+                  // from `md` up, where a separate strip owns those settings;
+                  // `footerWide` keeps it at every width.
+                  footerWide ? "overflow-x-auto" : "",
+                  footerWide ? "" : "md:hidden",
+                ].join(" ")}
+              >
                 {footer}
               </div>
             ) : null}
@@ -1059,7 +1102,11 @@ export default function Composer({
             )}
             <span
               className={[
-                "text-caption text-kin-muted items-center gap-1",
+                // The hints keep their intrinsic width: the only thing that may
+                // give way is the run-config slot, which scrolls inside its own
+                // wrapper. A shrinkable hint would collapse and let the slot,
+                // settings and send paint past the card's edge instead.
+                "flex-none text-caption text-kin-muted items-center gap-1",
                 // `@` is not a desktop key: a phone keyboard has one, and this
                 // is the only place the delegation feature is named. The ⌘↵
                 // legend below it is the one that gets the `sm` gate.
@@ -1073,7 +1120,7 @@ export default function Composer({
             </span>
             <span
               className={[
-                "text-caption text-kin-muted items-center gap-1",
+                "flex-none text-caption text-kin-muted items-center gap-1",
                 expanded ? "hidden sm:inline-flex" : "hidden",
               ].join(" ")}
             >
@@ -1083,37 +1130,35 @@ export default function Composer({
               {sendLabel ?? tr("composer.send")}
             </span>
             {running && onStop ? (
-              <button
+              <Button
                 type="button"
+                variant="secondary"
                 onClick={() => void onStop()}
                 disabled={stopping || busy}
-                className="ml-auto h-11 w-11 rounded-full border border-kin-red/35 bg-kin-red/15 text-kin-red-ink flex items-center justify-center disabled:opacity-40 sm:h-7 sm:w-7 sm:rounded-lg"
+                className="ml-auto h-11 w-11 rounded-full border-kin-red/35 bg-kin-red/15 p-0 text-kin-red-ink sm:h-7 sm:w-7 sm:rounded-lg"
                 aria-label={tr("composer.stop")}
                 title={tr("composer.stop")}
               >
                 <IconStop size={13} strokeWidth={2} />
-              </button>
+              </Button>
             ) : (
-              <button
+              <Button
                 type="submit"
-                disabled={
-                  disabled ||
-                  blockSend ||
-                  busy ||
-                  stopping ||
-                  uploading ||
-                  (!value.trim() && attachments.length === 0)
-                }
+                variant={canSend ? "default" : "quiet"}
+                disabled={!canSend}
                 // The phone's primary action is the reference's ink disc with
                 // an up arrow — the strongest thing in the card, and the one
                 // control the thumb goes to without reading. A page that names
                 // the action (the draft's "Start") gets a labelled pill instead;
                 // the label is the whole point there, so it survives the width.
+                // The accent arrives with `canSend`: an empty box shows the
+                // same shape, quiet.
                 className={[
-                  "ml-auto bg-kin-text text-kin-bg flex items-center justify-center disabled:opacity-40 sm:bg-kin-blue sm:text-kin-on-brand",
+                  "ml-auto flex items-center justify-center",
+                  canSend ? "bg-kin-text text-kin-bg sm:bg-kin-blue sm:text-kin-on-brand" : "",
                   sendLabel
                     ? "h-11 rounded-full px-4 text-body font-semibold sm:h-8"
-                    : "h-11 w-11 rounded-full sm:h-7 sm:w-7 sm:rounded-lg",
+                    : "h-11 w-11 rounded-full p-0 sm:h-7 sm:w-7 sm:rounded-lg",
                 ].join(" ")}
                 aria-label={busy ? tr("composer.sending") : (sendLabel ?? tr("composer.send"))}
               >
@@ -1124,15 +1169,16 @@ export default function Composer({
                 ) : (
                   <IconSend size={15} strokeWidth={2} />
                 )}
-              </button>
+              </Button>
             )}
             {running && value.trim() ? (
               <>
                 {/* Explicit, and second: cutting the round short also denies the
                     approvals it is waiting on, so it is never the easy accident
                     next to the default send. */}
-                <button
+                <Button
                   type="submit"
+                  variant="secondary"
                   onClick={() => {
                     submitIntent.current = "interrupt";
                   }}
@@ -1140,21 +1186,25 @@ export default function Composer({
                   // above: a send that cannot happen yet must not be armable, or the
                   // intent outlives the click that set it.
                   disabled={disabled || blockSend || busy || stopping || uploading}
-                  className="h-11 w-11 rounded-full border border-kin-orange/40 bg-kin-orange/15 text-kin-orange-ink flex items-center justify-center disabled:opacity-40 sm:h-7 sm:w-7 sm:rounded-lg"
+                  className="h-11 w-11 rounded-full border-kin-orange/40 bg-kin-orange/15 p-0 text-kin-orange-ink sm:h-7 sm:w-7 sm:rounded-lg"
                   aria-label={tr("composer.interruptSend")}
                   title={tr("composer.interruptSend")}
                 >
                   <IconAlert size={13} strokeWidth={2} />
-                </button>
-                <button
+                </Button>
+                <Button
                   type="submit"
+                  variant={canSend ? "default" : "quiet"}
                   onClick={() => {
                     submitIntent.current = "queue";
                   }}
                   // uploading is in here for the same reason as on the two buttons
                   // above: a send that cannot happen yet must not be armable.
                   disabled={disabled || blockSend || busy || stopping || uploading}
-                  className="h-11 w-11 rounded-full bg-kin-text text-kin-bg flex items-center justify-center disabled:opacity-40 sm:h-7 sm:w-7 sm:rounded-lg sm:bg-kin-blue sm:text-kin-on-brand"
+                  className={[
+                    "h-11 w-11 rounded-full p-0 flex items-center justify-center sm:h-7 sm:w-7 sm:rounded-lg",
+                    canSend ? "bg-kin-text text-kin-bg sm:bg-kin-blue sm:text-kin-on-brand" : "",
+                  ].join(" ")}
                   aria-label={tr("composer.send")}
                   title={tr("composer.sendQueuedHint")}
                 >
@@ -1163,7 +1213,7 @@ export default function Composer({
                   ) : (
                     <IconSend size={15} strokeWidth={2} />
                   )}
-                </button>
+                </Button>
               </>
             ) : null}
           </div>

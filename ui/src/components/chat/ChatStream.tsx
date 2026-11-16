@@ -29,6 +29,7 @@ import {
 } from "../../lib/mobileMessageActions";
 import { useAppStore } from "../../store/appStore";
 import { IconChevron, IconCopy, IconDownload, IconSearch, IconShare, IconX } from "../icons";
+import Button from "../ui/Button";
 import Markdown from "../Markdown";
 import RoundEvidenceCard from "./RoundEvidenceCard";
 import ToolStepRow from "./ToolStepRow";
@@ -183,7 +184,12 @@ export default function ChatStream({
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
   // Rebuild when locale changes (tool summaries use t()).
   const items = useMemo(() => {
-    const built = mergeProcessRuns(buildChatItems(events, hostSpeaker, hostModel, !loading));
+    // While the turn runs, the projection keeps its notes as body text and its
+    // tools in a card; a settled turn folds into one row as it always has.
+    const built = mergeProcessRuns(
+      buildChatItems(events, hostSpeaker, hostModel, !loading),
+      loading,
+    );
     if (!pendingUserMessages || pendingUserMessages.length === 0) return built;
     // Appended after the projection rather than passed into it: these messages
     // have no event, so they start no round and carry no seq. What they do have
@@ -562,35 +568,46 @@ export default function ChatStream({
           >
             {findStatus}
           </span>
-          <button
-            type="button"
+          {/* Icon affordances on the console's facade. The quiet variant inks
+              its own label, so the muted-at-rest ink sits on the content and
+              follows the button's hover; the round hit area the facade draws the
+              focus ring around stays the same 32px box, floored to 44 on a
+              phone by the same rule that floored the bare button. */}
+          <Button
+            variant="quiet"
             onClick={() => stepFind(-1)}
             disabled={findHits.length === 0}
             aria-label={tr("chat.find.prev")}
             title={tr("chat.find.prev")}
-            className="flex h-8 w-8 flex-none items-center justify-center rounded-full text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text disabled:opacity-40"
+            className="h-8 w-8 flex-none rounded-full p-0"
           >
-            <IconChevron size={15} className="-rotate-90" />
-          </button>
-          <button
-            type="button"
+            <span className="flex h-8 w-8 items-center justify-center text-kin-muted transition-colors hover:text-kin-text">
+              <IconChevron size={15} className="-rotate-90" />
+            </span>
+          </Button>
+          <Button
+            variant="quiet"
             onClick={() => stepFind(1)}
             disabled={findHits.length === 0}
             aria-label={tr("chat.find.next")}
             title={tr("chat.find.next")}
-            className="flex h-8 w-8 flex-none items-center justify-center rounded-full text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text disabled:opacity-40"
+            className="h-8 w-8 flex-none rounded-full p-0"
           >
-            <IconChevron size={15} className="rotate-90" />
-          </button>
-          <button
-            type="button"
+            <span className="flex h-8 w-8 items-center justify-center text-kin-muted transition-colors hover:text-kin-text">
+              <IconChevron size={15} className="rotate-90" />
+            </span>
+          </Button>
+          <Button
+            variant="quiet"
             onClick={() => setFindOpen(false)}
             aria-label={tr("chat.find.close")}
             title={tr("chat.find.close")}
-            className="flex h-8 w-8 flex-none items-center justify-center rounded-full text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text"
+            className="h-8 w-8 flex-none rounded-full p-0"
           >
-            <IconX size={15} />
-          </button>
+            <span className="flex h-8 w-8 items-center justify-center text-kin-muted transition-colors hover:text-kin-text">
+              <IconX size={15} />
+            </span>
+          </Button>
         </div>
       )}
       {sharing && (
@@ -726,12 +743,49 @@ function AgentTurn({
                 />
               );
             case "progress": {
+              // A live turn's notes are body text: the reader is following what
+              // the agent thinks and says, not reading a summary of work already
+              // done. The tools keep their card. Only the run still in progress
+              // is split, and only its notes carry `prose`; an earlier round's
+              // notes stay folded in that round's card. A subagent's note is a
+              // top-level step, not a child of the tool row that spawned it, so
+              // it arrives here too — rendered as body prose with attribution.
+              // Nothing here can pull a nested row out: only ToolSteps nest.
+              // Settled turns keep their card even when it held only notes: the
+              // split is the running presentation, not a new settled shape.
+              if (
+                item.prose === true &&
+                item.steps.length > 0 &&
+                item.steps.every((step) => step.kind === "note")
+              ) {
+                return (
+                  <Fragment key={item.key}>
+                    {item.steps.map((step) => (
+                      <NoteStepRow
+                        key={step.key}
+                        note={step}
+                        index={1}
+                        hostSpeaker={hostSpeaker}
+                        findActive={step.key === activeFindKey}
+                        showIndex={false}
+                      />
+                    ))}
+                  </Fragment>
+                );
+              }
               return (
                 <ProgressCard
                   key={item.key}
                   item={item}
                   hostSpeaker={hostSpeaker}
-                  running={isProgressCardRunning(allItems, item, loading)}
+                  // Only the live run's card can be followed by notes; an
+                  // earlier round's unresolved call must not breathe through
+                  // the rest of the task.
+                  running={
+                    isProgressCardRunning(allItems, item, loading) ||
+                    (item.live === true &&
+                      item.steps.some((step) => step.kind === "tool" && step.status === "running"))
+                  }
                   onOpenPath={onOpenPath}
                   activeFindKey={activeFindKey}
                 />
@@ -862,48 +916,59 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
         >
           {canRetryFork && (
             <>
-              <button
-                type="button"
+              {/* The row's affordances are muted until hovered; the quiet
+                  variant inks its own label, so the ink sits on the content and
+                  follows the button's hover through the group mark. */}
+              <Button
+                variant="quiet"
                 disabled={actionsBusy}
                 title={tr("task.retryTitle")}
                 onClick={() => onRetry?.(item.seq!)}
-                className="px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill disabled:opacity-40"
+                className="group rounded-md px-2 py-0.5 text-caption font-medium"
               >
-                {tr("task.retry")}
-              </button>
-              <button
-                type="button"
+                <span className="text-kin-muted transition-colors group-hover:text-kin-text">
+                  {tr("task.retry")}
+                </span>
+              </Button>
+              <Button
+                variant="quiet"
                 disabled={actionsBusy}
                 title={tr("task.forkTitle")}
                 onClick={() => onFork?.(item.seq!)}
-                className="px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill disabled:opacity-40"
+                className="group rounded-md px-2 py-0.5 text-caption font-medium"
               >
-                {tr("task.fork")}
-              </button>
+                <span className="text-kin-muted transition-colors group-hover:text-kin-text">
+                  {tr("task.fork")}
+                </span>
+              </Button>
             </>
           )}
           {canCopy && (
             <>
-              <button
-                type="button"
+              <Button
+                variant="quiet"
                 title={tr("chat.message.copyTitle")}
                 aria-label={tr("chat.message.copyTitle")}
                 onClick={() => onCopyMessage(item.text)}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill"
+                className="group rounded-md px-2 py-0.5 text-caption font-medium"
               >
-                <IconCopy size={13} />
-                {tr("chat.message.copy")}
-              </button>
-              <button
-                type="button"
+                <span className="inline-flex items-center gap-1 text-kin-muted transition-colors group-hover:text-kin-text">
+                  <IconCopy size={13} />
+                  {tr("chat.message.copy")}
+                </span>
+              </Button>
+              <Button
+                variant="quiet"
                 title={tr("chat.message.shareTitle")}
                 aria-label={tr("chat.message.shareTitle")}
                 onClick={() => onShareMessage(item.key)}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill"
+                className="group rounded-md px-2 py-0.5 text-caption font-medium"
               >
-                <IconShare size={13} />
-                {tr("chat.message.share")}
-              </button>
+                <span className="inline-flex items-center gap-1 text-kin-muted transition-colors group-hover:text-kin-text">
+                  <IconShare size={13} />
+                  {tr("chat.message.share")}
+                </span>
+              </Button>
             </>
           )}
         </div>
@@ -1115,8 +1180,11 @@ function ProgressCard({
 
   return (
     <div className={`rounded-xl border ${statusTone} overflow-hidden`}>
-      <button
-        type="button"
+      {/* The card's header is a full-width disclosure on the console's facade;
+          the row's own geometry stays on the content span, which is where Astryx
+          puts a button's children. */}
+      <Button
+        variant="quiet"
         onClick={() => {
           // Folding a card that a hit forced open dismisses the reveal for that
           // hit; the next hit opens it again.
@@ -1124,51 +1192,53 @@ function ProgressCard({
           else setCollapsed((v) => !v);
         }}
         aria-expanded={expanded}
-        className="flex items-center gap-2 w-full px-3 py-2 text-body text-left cursor-pointer hover:bg-[var(--kin-fill-strong)] transition-colors"
+        className="flex w-full justify-start rounded-sm p-0 text-left text-body font-normal cursor-pointer hover:bg-transparent"
       >
-        <span
-          className={[
-            "flex-none text-micro font-semibold uppercase tracking-label px-1.5 py-0.5 rounded",
-            badgeTone,
-          ].join(" ")}
-        >
-          {status.state === "running" ? (
-            <span className="inline-flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-kin-blue animate-breathe" />
-              {badgeLabel}
-            </span>
-          ) : (
-            badgeLabel
-          )}
-        </span>
-        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          {/* One line, cut with an ellipsis. The summary is a list of counts
-              ("list 1 × · read 1 × · edit 1 ×"); letting it wrap on a phone
-              broke between a tool name and its count and made the row two
-              ragged lines tall while the fold label beside it stayed put. The
-              full text is the tooltip and the steps are one tap away. */}
-          <span className="truncate font-medium text-kin-text" title={summary}>
-            {summary}
+        <span className="flex w-full items-center gap-2 px-3 py-2 transition-colors hover:bg-[var(--kin-fill-strong)]">
+          <span
+            className={[
+              "flex-none text-micro font-semibold uppercase tracking-label px-1.5 py-0.5 rounded",
+              badgeTone,
+            ].join(" ")}
+          >
+            {status.state === "running" ? (
+              <span className="inline-flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-kin-blue animate-breathe" />
+                {badgeLabel}
+              </span>
+            ) : (
+              badgeLabel
+            )}
           </span>
-          {!expanded && details.latestNote && (
-            <span
-              className="truncate text-caption font-normal text-kin-muted"
-              title={details.latestNote}
-            >
-              {details.latestNote}
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            {/* One line, cut with an ellipsis. The summary is a list of counts
+                ("list 1 × · read 1 × · edit 1 ×"); letting it wrap on a phone
+                broke between a tool name and its count and made the row two
+                ragged lines tall while the fold label beside it stayed put. The
+                full text is the tooltip and the steps are one tap away. */}
+            <span className="truncate font-medium text-kin-text" title={summary}>
+              {summary}
             </span>
-          )}
+            {!expanded && details.latestNote && (
+              <span
+                className="truncate text-caption font-normal text-kin-muted"
+                title={details.latestNote}
+              >
+                {details.latestNote}
+              </span>
+            )}
+          </span>
+          <span className="flex-none text-caption font-normal text-kin-muted">
+            {/* What is behind the fold and how much of it, rather than the bare
+                word "expand": the button already says it is a toggle. */}
+            {expanded
+              ? tr("chat.progress.hide")
+              : steps.length > 0
+                ? tr("chat.progress.collapsed", { count: steps.length })
+                : tr("chat.progress.expand")}
+          </span>
         </span>
-        <span className="flex-none text-caption font-normal text-kin-muted">
-          {/* What is behind the fold and how much of it, rather than the bare
-              word "expand": the button already says it is a toggle. */}
-          {expanded
-            ? tr("chat.progress.hide")
-            : steps.length > 0
-              ? tr("chat.progress.collapsed", { count: steps.length })
-              : tr("chat.progress.expand")}
-        </span>
-      </button>
+      </Button>
       {expanded && (
         // `divide-y` separates the rows from each other, and this line separates
         // the first of them from the summary above — the two faces are the same
@@ -1215,6 +1285,7 @@ function NoteStepRow({
   index,
   hostSpeaker,
   findActive = false,
+  showIndex = true,
 }: {
   note: NoteStep;
   index: number;
@@ -1222,6 +1293,8 @@ function NoteStepRow({
   hostSpeaker: string;
   /** The note the find bar is pointing at. */
   findActive?: boolean;
+  /** A step of a numbered card; body prose has no step list to number. */
+  showIndex?: boolean;
 }) {
   const tr = useT();
   const statusDot =
@@ -1248,13 +1321,17 @@ function NoteStepRow({
         findActive ? "ring-2 ring-kin-blue/45" : "",
       ].join(" ")}
     >
-      <span
-        aria-hidden="true"
-        className="flex-none w-5 text-caption tabular-nums text-kin-muted pt-0.5"
-      >
-        {index}
-      </span>
-      <span className="sr-only">{tr("chat.progress.step", { n: index })}</span>
+      {showIndex && (
+        <>
+          <span
+            aria-hidden="true"
+            className="flex-none w-5 text-caption tabular-nums text-kin-muted pt-0.5"
+          >
+            {index}
+          </span>
+          <span className="sr-only">{tr("chat.progress.step", { n: index })}</span>
+        </>
+      )}
       <span className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-none ${statusDot}`} />
       <span className="font-mono text-caption text-kin-muted flex-none pt-px">{label}</span>
       {attribution && (
@@ -1526,31 +1603,36 @@ function ShareSelectionBar({
       <span className="mr-auto text-body font-medium text-kin-text">
         {tr("chat.message.selected", { count })}
       </span>
-      <button
-        type="button"
+      <Button
         onClick={onCopy}
         disabled={disabled}
-        className="inline-flex min-h-8 items-center gap-1 rounded-md bg-kin-blue px-2.5 py-1 text-body font-medium text-kin-on-brand hover:bg-kin-blue/90 disabled:cursor-not-allowed disabled:opacity-40"
+        className="h-8 rounded-md px-2.5 py-1 text-body font-medium"
       >
-        <IconCopy size={14} />
-        {tr("chat.message.copyText")}
-      </button>
-      <button
-        type="button"
+        <span className="inline-flex items-center gap-1">
+          <IconCopy size={14} />
+          {tr("chat.message.copyText")}
+        </span>
+      </Button>
+      <Button
+        variant="secondary"
         onClick={onDownload}
         disabled={disabled}
-        className="inline-flex min-h-8 items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] px-2.5 py-1 text-body font-medium text-kin-text hover:bg-[var(--kin-fill)] disabled:cursor-not-allowed disabled:opacity-40"
+        className="h-8 rounded-md px-2.5 py-1 text-body font-medium hover:bg-[var(--kin-fill)]"
       >
-        <IconDownload size={14} />
-        {tr("chat.message.downloadHTML")}
-      </button>
-      <button
-        type="button"
+        <span className="inline-flex items-center gap-1">
+          <IconDownload size={14} />
+          {tr("chat.message.downloadHTML")}
+        </span>
+      </Button>
+      <Button
+        variant="quiet"
         onClick={onCancel}
-        className="min-h-8 rounded-md px-2 py-1 text-body font-medium text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text"
+        className="group h-8 rounded-md px-2 py-1 text-body font-medium"
       >
-        {tr("chat.message.cancel")}
-      </button>
+        <span className="text-kin-muted transition-colors group-hover:text-kin-text">
+          {tr("chat.message.cancel")}
+        </span>
+      </Button>
     </div>
   );
 }

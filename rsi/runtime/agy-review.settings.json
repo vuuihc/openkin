@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "read_file(*)",
+      "Read",
+      "Glob",
+      "Grep"
+    ]
+  }
+}

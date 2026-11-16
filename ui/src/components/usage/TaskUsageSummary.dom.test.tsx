@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { TaskUsage } from "../../api/client";
 import { t } from "../../i18n";
@@ -174,5 +175,80 @@ describe("TaskUsageSummary context meter", () => {
     expect(meter()).toBeTruthy();
     expect(container.textContent).not.toContain(t("usage.contextNearFull"));
     expect(container.textContent).not.toContain(t("usage.contextFull"));
+  });
+});
+
+/** A control the shared facade owns: a real <button> carrying the facade surface. */
+function expectFacade(el: HTMLElement) {
+  expect(el.tagName).toBe("BUTTON");
+  expect(el.className).toContain("kin-btn");
+  expect(el.className).toContain("focus-visible:outline-kin-focus-ring");
+}
+
+describe("TaskUsageSummary controls on the facade (E4c)", () => {
+  it("both disclosure toggles and the phone trigger are facade buttons", async () => {
+    const user = userEvent.setup();
+
+    // The desktop strip: the whole row is the disclosure.
+    const strip = render(<TaskUsageSummary usage={usage()} loading={false} variant="strip" />);
+    const stripToggle = screen.getByRole("button", {
+      name: (name) => name.includes(t("usage.showDetails")),
+    });
+    expectFacade(stripToggle);
+    expect(stripToggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(stripToggle);
+    expect(stripToggle.getAttribute("aria-expanded")).toBe("true");
+    const detailsID = stripToggle.getAttribute("aria-controls");
+    expect(detailsID).toBeTruthy();
+    expect(document.getElementById(detailsID!)).toBeTruthy();
+    strip.unmount();
+
+    // The side-rail card's small toggle.
+    const card = render(<TaskUsageSummary usage={usage()} loading={false} variant="card" />);
+    const cardToggle = screen.getByRole("button", { name: t("usage.showDetails") });
+    expectFacade(cardToggle);
+    expect(cardToggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(cardToggle);
+    expect(cardToggle.getAttribute("aria-expanded")).toBe("true");
+    card.unmount();
+
+    // The phone trigger rides the composer row: same 44px face, same name,
+    // and it still opens the sheet.
+    const phone = render(<TaskUsageSummary usage={usage()} loading={false} variant="phone" />);
+    const opener = screen.getByRole("button", {
+      name: (name) => name.includes(t("usage.taskSummary")),
+    });
+    expectFacade(opener);
+    expect(opener.className).toContain("h-11");
+    expect(opener.className).toContain("min-w-11");
+    expect(opener.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(opener.getAttribute("aria-label")).toBe(
+      `${t("usage.taskSummary")}${t("common.labelSeparator")}1.4k`,
+    );
+    await user.click(opener);
+    expect(await screen.findByRole("dialog", { name: t("usage.taskSummary") })).toBeTruthy();
+    phone.unmount();
+  });
+
+  it("the strip keeps its title, totals and toggle on one flex row", () => {
+    // The facade wraps every child in a single label span, so loose spans
+    // would render inline there and lose the gap, the truncation and the
+    // right edge. One child of our own has to own the row.
+    render(<TaskUsageSummary usage={usage()} loading={false} variant="strip" />);
+    const title = screen.getByText(t("usage.taskSummary"));
+    const row = title.parentElement as HTMLElement;
+    expect(row.className).toContain("flex");
+    expect(row.className).toContain("w-full");
+    expect(row.className).toContain("gap-2");
+    expect(row.className).toContain("min-w-0");
+    // The facade's label span is content-sized; without these the row is only
+    // as wide as its text and the toggle never reaches the right edge.
+    expect(title.closest("button")?.className).toContain("[&>span>span]:w-full");
+    expect(row.children).toHaveLength(3);
+    // …and it is the only child of the facade's label span, so the three
+    // controls are flex items of `row` rather than inline runs inside it.
+    expect(row.parentElement?.children).toHaveLength(1);
+    expect(title.nextElementSibling?.className).toContain("truncate");
+    expect(row.lastElementChild?.textContent).toBe(t("usage.showDetails"));
   });
 });

@@ -1,6 +1,6 @@
 /**
- * Two project rules, and the reason they are ESLint rules rather than more
- * cases in `src/design/tokens.test.ts`.
+ * The project's design-vocabulary rules, and the reason they are ESLint rules
+ * rather than more cases in `src/design/tokens.test.ts`.
  *
  * The design guards and these rules say the same things about the same
  * vocabulary — they are not a second opinion, they are the same opinion at a
@@ -295,6 +295,84 @@ const noArbitraryLiteral = {
 };
 
 /**
+ * The legacy button vocabulary: `kin-btn` and every `kin-btn-<variant>`.
+ *
+ * On in the ordinary config, unlike the three added-file bans below, because
+ * the tree has a handful of deliberate keepers (a link that borrows the button
+ * geometry, a DOM selector, the phone sheet) and each one carries a reasoned
+ * disable. That is the difference: the button migration is finished enough to
+ * hold the line at every call site, while raw `<button>` has 85 legitimate
+ * legacy sites and stays an added-file ban.
+ */
+const LEGACY_BUTTON = /(?<![\w-])kin-btn(?:-[a-z0-9-]+)?(?![\w-])/g;
+
+const noLegacyClass = {
+  meta: {
+    type: "problem",
+    docs: {
+      description:
+        "a hand-written `.kin-btn-*` class bypasses the shared Button, which owns the variant → class mapping",
+    },
+    schema: [],
+    messages: {
+      legacy:
+        "`{{name}}` is a hand-written `.kin-btn-*` class — use the shared `Button` from `src/components/ui/`, which owns the variant → class mapping, so the two cannot drift",
+    },
+  },
+  create(context) {
+    return {
+      Program() {
+        for (const segment of classSegments(context)) {
+          for (const [value] of segment.value.matchAll(LEGACY_BUTTON)) {
+            context.report({ node: segment.node, messageId: "legacy", data: { name: value } });
+          }
+        }
+      },
+    };
+  },
+};
+
+// The roles a shared overlay primitive owns. `status`, `alert`, `button`,
+// `radiogroup` and `alertdialog` are deliberately absent: those are states and
+// controls the tree spells directly, not a second `Menu`/`Dialog`/`Tabs`.
+const OVERLAY_ROLES = new Set(["dialog", "listbox", "menu", "tab"]);
+
+const noRawOverlayRole = {
+  meta: {
+    type: "problem",
+    docs: {
+      description:
+        'a raw `role="dialog" | "menu" | "tab" | "listbox"` starts a second overlay implementation instead of using the shared primitive',
+    },
+    schema: [],
+    messages: {
+      raw: '`role="{{role}}"` starts a second overlay implementation — use the shared `Menu` / `Dialog` / `Tabs` / `Popover` primitive, which owns the role, focus and Escape behaviour',
+    },
+  },
+  create(context) {
+    const report = (node, value) => {
+      if (typeof value !== "string" || !OVERLAY_ROLES.has(value)) return;
+      context.report({ node, messageId: "raw", data: { role: value } });
+    };
+    return {
+      JSXAttribute(node) {
+        if (node.name.type !== "JSXIdentifier" || node.name.name !== "role") return;
+        const value = node.value;
+        if (!value) return;
+        // `role="dialog"` is a `Literal`; `role={"dialog"}` is the same literal
+        // one node deeper. `role={role}` stays out of scope — a computed value
+        // is not the raw spelling this rule is about.
+        if (value.type === "Literal") {
+          report(node, value.value);
+        } else if (value.type === "JSXExpressionContainer" && value.expression.type === "Literal") {
+          report(node, value.expression.value);
+        }
+      },
+    };
+  },
+};
+
+/**
  * The three added-file bans, off in `eslint.config.js` because the tree still
  * has legacy controls and z-index values; only `eslint.guard.config.js` runs
  * them, and it resolves `createPortal` through module scope.
@@ -429,7 +507,9 @@ export default {
     "no-arbitrary-literal": noArbitraryLiteral,
     "no-arbitrary-z-index": noArbitraryZIndex,
     "no-create-portal": noCreatePortal,
+    "no-legacy-class": noLegacyClass,
     "no-raw-button": noRawButton,
+    "no-raw-overlay-role": noRawOverlayRole,
     "no-undefined-token": noUndefinedToken,
   },
 };

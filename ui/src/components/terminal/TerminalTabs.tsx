@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { type TerminalSession } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { IconX } from "../icons";
+import Button from "../ui/Button";
 
 type TabSession = TerminalSession & {
   connectionStatus?: "connecting" | "connected" | "disconnected";
@@ -86,13 +87,21 @@ export default function TerminalTabs({
               }
             `}
           >
-            <button
-              type="button"
+            {/* A tab keeps its own square, left-aligned shape and the row's
+                ink; the facade supplies the focus ring and the disabled
+                treatment. `text-inherit!` is what keeps an inactive tab muted:
+                the quiet variant would otherwise ink every tab like the active
+                one, and its `text-kin-text` is emitted after `text-inherit`.
+                `min-h-0!` keeps the dense strip from growing on a phone —
+                the row is the touch target, and the tab already fills it. */}
+            <Button
+              variant="quiet"
               ref={(element) => {
                 if (element) tabRefs.current.set(session.id, element);
                 else tabRefs.current.delete(session.id);
               }}
-              className="flex items-center gap-1 px-3 py-2 text-left"
+              className="min-h-0! gap-1 rounded-sm px-3 py-2 text-left text-inherit!"
+              // eslint-disable-next-line kin/no-raw-overlay-role -- the terminal tab strip owns its own roving focus and keyboard handling
               role="tab"
               aria-selected={isActive}
               tabIndex={isActive ? 0 : -1}
@@ -111,19 +120,21 @@ export default function TerminalTabs({
                   {tr("terminal.disconnected")}
                 </span>
               ) : null}
-            </button>
+            </Button>
 
-            <button
-              type="button"
-              className="mr-1 flex-shrink-0 rounded p-1 text-kin-muted transition-colors hover:bg-[var(--kin-fill)] hover:text-kin-text"
+            <Button
+              variant="quiet"
+              className="group mr-1 min-h-0! flex-shrink-0 rounded p-1"
               aria-label={tr("terminal.closeSession")}
               onClick={(e) => {
                 e.stopPropagation();
                 onCloseSession(session.id);
               }}
             >
-              <IconX size={12} />
-            </button>
+              <span className="text-kin-muted transition-colors group-hover:text-kin-text">
+                <IconX size={12} />
+              </span>
+            </Button>
           </div>
         );
       })}

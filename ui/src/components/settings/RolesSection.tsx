@@ -64,6 +64,7 @@ export function RolesSection({
             type="button"
             onClick={onSave}
             disabled={disabled || saving}
+            // eslint-disable-next-line kin/no-legacy-class -- the roles editor's save control has not migrated to `Button` yet
             className="kin-btn-primary disabled:opacity-50"
           >
             {saving ? tr("settings.saving") : tr("settings.localAgents.save")}

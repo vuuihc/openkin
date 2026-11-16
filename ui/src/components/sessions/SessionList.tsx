@@ -68,7 +68,6 @@ import {
   touchProject,
   touchSession,
   unarchiveProject,
-  type ProjectSortMode,
 } from "../../lib/projectSidebar";
 import { consumeRowReturn, rememberRowReturn, takeRowReturn } from "../../lib/rowReturn";
 import { sortSessionBuckets } from "../../lib/sessionBucketOrder";
@@ -84,6 +83,7 @@ import {
 import { getPinnedTaskIds, setTaskPinned } from "../../lib/taskPins";
 import { mergeTaskTail } from "../../lib/taskTail";
 import ActionSheet from "../ui/ActionSheet";
+import Button from "../ui/Button";
 import HighlightedText from "../HighlightedText";
 import {
   IconAlert,
@@ -98,13 +98,10 @@ import {
   IconPin,
   IconPlus,
   IconRefresh,
-  IconRestore,
-  IconSearch,
   IconSessions,
-  IconTrash,
 } from "../icons";
 import { MobileEmpty, MobileScreen } from "../mobile/MobileList";
-import SessionFilters, {
+import {
   normalizeScopeFilter,
   normalizeStatusFilter,
   type SessionScopeFilter,
@@ -112,6 +109,7 @@ import SessionFilters, {
 } from "../ui/SessionFilters";
 import { useAppStore } from "../../store/appStore";
 import SessionRow from "./SessionRow";
+import SessionToolbar, { SessionSelectionBar } from "./SessionToolbar";
 
 /**
  * The one conversation list.
@@ -232,6 +230,14 @@ export default function SessionList({
   const archivingSelectionRef = useRef(false);
   const selectionBusy = deletingSelection || archivingSelection;
   const selectionEpoch = useRef(0);
+  // The row that started multi-select. An explicit Escape or Cancel hands the
+  // keyboard back to it; every other way out (a batch, a filter change, a row
+  // that was deleted) must leave focus where it is.
+  const selectionOriginId = useRef<string | null>(null);
+  // A row to focus on the next commit. Entering and leaving the mode both
+  // replace the row element, so the browser drops focus to <body> unless it is
+  // put back; Escape would then have no row in the list to travel through.
+  const focusRowAfterCommit = useRef<string | null>(null);
   const [swipeOpen, setSwipeOpen] = useState<string | null>(null);
   const [prefsTick, setPrefsTick] = useState(0);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -245,9 +251,24 @@ export default function SessionList({
   useEffect(() => subscribeProjectSidebar(() => setPrefsTick((n) => n + 1)), []);
   useEffect(() => {
     selectionEpoch.current += 1;
+    selectionOriginId.current = null;
     setSelectionMode(false);
     setSelectedIds(new Set());
   }, [query, status, scope]);
+
+  // A focused move is one-shot and belongs to the mode change itself: the ref
+  // is consumed in the commit that flips `selectionMode`, so a later list
+  // update cannot pull focus back — and a commit that lands between the key
+  // press and that flip cannot spend the ref on a row the flip will replace.
+  useEffect(() => {
+    const id = focusRowAfterCommit.current;
+    if (!id) return;
+    focusRowAfterCommit.current = null;
+    Array.from(listRef.current?.querySelectorAll<HTMLElement>("[data-session-row]") ?? [])
+      .find((row) => row.dataset.sessionRow === id)
+      ?.focus();
+    // Only the mode flip consumes the ref; `selectionMode` is the whole input.
+  }, [selectionMode]);
 
   const draftPrompt = useSyncExternalStore(subscribeDraft, getDraftPrompt, () => "");
   const draftCwd = useSyncExternalStore(subscribeDraft, getDraftCwd, () => "");
@@ -534,7 +555,6 @@ export default function SessionList({
   };
   const selectionAllPinned =
     selectedIds.size > 0 && Array.from(selectedIds).every((id) => pinnedIds.has(id));
-  const pinLabel = selectionAllPinned ? tr("sessions.unpin") : tr("sessions.pin");
   const emptyView = searching
     ? {
         icon: <IconSessions size={30} />,
@@ -625,6 +645,7 @@ export default function SessionList({
         selectionLocked={selectionBusy}
         selectedIds={selectedIds}
         onToggleSelect={toggleSelected}
+        onStartSelection={enterSelection}
         onLongPress={enterSelection}
         swipeOpen={swipeOpen}
         onSwipeOpenChange={setSwipeOpen}
@@ -673,6 +694,8 @@ export default function SessionList({
 
   function enterSelection(row: PhoneSessionRow) {
     if (!rowSelectable(row, scope)) return;
+    selectionOriginId.current = row.task!.id;
+    focusRowAfterCommit.current = row.task!.id;
     setSelectionMode(true);
     setSelectedIds(new Set([row.task!.id]));
     setSwipeOpen(null);
@@ -694,10 +717,15 @@ export default function SessionList({
     });
   }
 
-  function exitSelection() {
+  /** `restoreFocus` is for a person leaving on purpose (Escape, Cancel). Batch
+   *  work and automatic cleanup leave the keyboard alone. */
+  function exitSelection(restoreFocus = false) {
+    const origin = selectionOriginId.current;
+    selectionOriginId.current = null;
     selectionEpoch.current += 1;
     setSelectionMode(false);
     setSelectedIds(new Set());
+    if (restoreFocus) focusRowAfterCommit.current = origin;
   }
 
   function pinSelected() {
@@ -968,6 +996,15 @@ export default function SessionList({
 
   function onListKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (event.defaultPrevented || isImeKeyEvent(event.nativeEvent)) return;
+    if (event.key === "Escape") {
+      // Escape belongs to the field a person is typing in; only an active
+      // selection claims it here, and it leaves through the same path as the
+      // toolbar's Cancel so focus returns to the row that started it.
+      if (!selectionMode) return;
+      event.preventDefault();
+      exitSelection(true);
+      return;
+    }
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     const rows = sessionRows();
     const at = rows.indexOf(document.activeElement as HTMLElement);
@@ -978,37 +1015,19 @@ export default function SessionList({
     rows[next]?.focus();
   }
 
-  const searchField = (
-    <div className="px-3 pb-2">
-      <label className="relative flex items-center">
-        <IconSearch size={13} className="pointer-events-none absolute left-2.5 text-kin-muted" />
-        <input
-          ref={searchRef}
-          data-session-search
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={onSearchKeyDown}
-          placeholder={tr("nav.searchSessions")}
-          aria-label={tr("nav.searchSessions")}
-          className="h-8 w-full rounded-lg border border-transparent bg-[var(--kin-fill)] pl-8 pr-2 text-body text-kin-text outline-none transition-colors placeholder:text-kin-muted focus:border-kin-blue/40 focus:bg-[var(--kin-fill-strong)]"
-        />
-      </label>
-      {query.trim() ? (
-        <div className="mt-1 px-0.5 text-caption text-kin-muted">
-          {pendingQuery ? tr("common.loading") : tr("nav.searchHint")}
-        </div>
-      ) : null}
-    </div>
-  );
-
-  const filters = (
-    <SessionFilters
+  const toolbar = (
+    <SessionToolbar
+      search={shell === "sidebar"}
+      query={query}
+      pendingQuery={pendingQuery}
+      searchRef={searchRef}
+      onQueryChange={setQuery}
+      onSearchKeyDown={onSearchKeyDown}
       status={status}
       scope={scope}
-      onChange={changeFilter}
       sortMode={sortMode}
-      onSortChange={(mode: ProjectSortMode) => {
+      onFilterChange={changeFilter}
+      onSortChange={(mode) => {
         setProjectSortMode(mode);
         setPrefsTick((n) => n + 1);
       }}
@@ -1034,15 +1053,7 @@ export default function SessionList({
           icon={<IconAlert size={30} />}
           title={tr("sessions.loadError")}
           hint={tr("sessions.loadErrorHint")}
-          action={
-            <button
-              type="button"
-              onClick={retryList}
-              className="rounded-lg bg-kin-text px-4 py-2 text-strong font-medium text-kin-bg"
-            >
-              {tr("common.retry")}
-            </button>
-          }
+          action={<Button onClick={retryList}>{tr("common.retry")}</Button>}
         />
       )}
 
@@ -1051,15 +1062,7 @@ export default function SessionList({
           icon={<IconAlert size={30} />}
           title={tr("sessions.agentSessionsLoadError")}
           hint={tr("sessions.agentSessionsLoadErrorHint")}
-          action={
-            <button
-              type="button"
-              onClick={retryList}
-              className="rounded-lg bg-kin-text px-4 py-2 text-strong font-medium text-kin-bg"
-            >
-              {tr("common.retry")}
-            </button>
-          }
+          action={<Button onClick={retryList}>{tr("common.retry")}</Button>}
         />
       )}
 
@@ -1072,68 +1075,19 @@ export default function SessionList({
         )}
 
       {selectionMode && (
-        <div className="sticky top-0 z-[3] flex min-h-12 items-center gap-2 border-b border-[var(--kin-hairline)] bg-[var(--kin-page)] px-3 kin-glass">
-          <label className="flex min-h-11 items-center gap-2 text-strong font-medium text-kin-text">
-            <SelectAllCheckbox
-              checked={selectedIds.size > 0 && selectedIds.size === selectableCount}
-              partial={selectedIds.size > 0 && selectedIds.size < selectableCount}
-              onChange={selectAll}
-              label={tr("sessions.selectAll")}
-            />
-            {tr("sessions.selectedCount", { count: String(selectedIds.size) })}
-          </label>
-          <div className="ml-auto flex items-center gap-1.5">
-            {scope !== "archived" && (
-              <button
-                type="button"
-                onClick={pinSelected}
-                disabled={selectedIds.size === 0 || selectionBusy}
-                aria-label={pinLabel}
-                title={pinLabel}
-                className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-[var(--kin-fill)] px-2.5 text-body font-medium text-kin-text disabled:opacity-40 sm:px-3"
-              >
-                <IconPin size={14} />
-                <span className="hidden sm:inline">{pinLabel}</span>
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={scope === "archived" ? restoreSelected : archiveSelected}
-              disabled={selectedIds.size === 0 || selectionBusy}
-              aria-label={tr(scope === "archived" ? "sessions.restore" : "sessions.archive")}
-              title={tr(scope === "archived" ? "sessions.restore" : "sessions.archive")}
-              className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-[var(--kin-fill)] px-2.5 text-body font-medium text-kin-text disabled:opacity-40 sm:px-3"
-            >
-              {scope === "archived" ? <IconRestore size={14} /> : <IconArchive size={14} />}
-              <span className="hidden sm:inline">
-                {tr(scope === "archived" ? "sessions.restore" : "sessions.archive")}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={deleteSelected}
-              disabled={selectedIds.size === 0 || selectionBusy}
-              aria-label={
-                deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")
-              }
-              title={deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")}
-              aria-busy={deletingSelection || undefined}
-              className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-kin-red/15 px-2.5 text-body font-medium text-kin-red-ink disabled:opacity-40 sm:px-3"
-            >
-              <IconTrash size={14} />
-              <span className="hidden sm:inline">
-                {deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={exitSelection}
-              className="flex min-h-11 min-w-11 items-center justify-center rounded-lg px-2.5 text-body font-medium text-kin-muted hover:text-kin-text sm:px-3"
-            >
-              {tr("common.cancel")}
-            </button>
-          </div>
-        </div>
+        <SessionSelectionBar
+          selectedCount={selectedIds.size}
+          selectableCount={selectableCount}
+          selectionBusy={selectionBusy}
+          deletingSelection={deletingSelection}
+          scope={scope}
+          allPinned={selectionAllPinned}
+          onSelectAll={selectAll}
+          onPin={pinSelected}
+          onArchiveOrRestore={scope === "archived" ? restoreSelected : archiveSelected}
+          onDelete={deleteSelected}
+          onExit={() => exitSelection(true)}
+        />
       )}
 
       {!loading && hasDraft && (
@@ -1165,14 +1119,14 @@ export default function SessionList({
         ))}
 
       {!loading && (hasMoreTasks || hasMoreArchive || hasMoreSessions) && (
-        <button
-          type="button"
+        <Button
+          variant="quiet"
           onClick={loadOlder}
           disabled={loadingOlder || refreshing}
-          className="kin-row-press flex min-h-11 w-full items-center justify-center px-4 py-2 text-body font-medium text-kin-muted disabled:opacity-60"
+          className="kin-row-press flex w-full items-center justify-center px-4 py-2 text-body font-medium text-kin-muted!"
         >
           {loadingOlder ? tr("sessions.loadingOlder") : tr("sessions.loadOlder")}
-        </button>
+        </Button>
       )}
 
       {!loading && (archiveFailed || archiveProjectsFailed) && listed.length > 0 && (
@@ -1184,13 +1138,9 @@ export default function SessionList({
       {!loading && importsFailed && listed.length > 0 && (
         <div className="flex flex-col items-center gap-2 px-4 py-6 text-center">
           <p className="text-body text-kin-muted">{tr("sessions.agentSessionsFailed")}</p>
-          <button
-            type="button"
-            onClick={retryList}
-            className="min-h-11 rounded-lg bg-[var(--kin-fill)] px-4 text-body font-medium text-kin-text"
-          >
+          <Button variant="secondary" onClick={retryList}>
             {tr("common.retry")}
-          </button>
+          </Button>
         </div>
       )}
     </div>
@@ -1260,8 +1210,7 @@ export default function SessionList({
   if (shell === "sidebar") {
     return (
       <>
-        {searchField}
-        {filters}
+        {toolbar}
         <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">{body}</div>
         {projectSheet}
       </>
@@ -1279,7 +1228,7 @@ export default function SessionList({
       scrollWhen={loading ? -1 : listed.reduce((n, bucket) => n + bucket.rows.length, 0)}
       className="mx-auto w-full max-w-2xl"
     >
-      {filters}
+      {toolbar}
       {body}
       {/* Room under the last row for the floating new-chat button, so the
           end of the list can scroll clear of it. */}
@@ -1400,6 +1349,9 @@ function DraftRow({
   onClick: () => void;
 }) {
   return (
+    /* eslint-disable-next-line kin/no-raw-button --
+       The draft is a full-width navigation row, not a button-shaped action:
+       it is the list's first row and the design system has no row primitive. */
     <button
       type="button"
       onClick={onClick}
@@ -1423,33 +1375,6 @@ function DraftRow({
   );
 }
 
-function SelectAllCheckbox({
-  checked,
-  partial,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  partial: boolean;
-  onChange: () => void;
-  label: string;
-}) {
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (ref.current) ref.current.indeterminate = partial;
-  }, [partial]);
-  return (
-    <input
-      ref={ref}
-      type="checkbox"
-      checked={checked}
-      onChange={onChange}
-      className="h-5 w-5 accent-kin-blue"
-      aria-label={label}
-    />
-  );
-}
-
 function ProjectBucket({
   bucket,
   machines,
@@ -1469,6 +1394,7 @@ function ProjectBucket({
   selectionLocked,
   selectedIds,
   onToggleSelect,
+  onStartSelection,
   onLongPress,
   swipeOpen,
   onSwipeOpenChange,
@@ -1507,6 +1433,7 @@ function ProjectBucket({
   selectionLocked: boolean;
   selectedIds: ReadonlySet<string>;
   onToggleSelect: (id: string) => void;
+  onStartSelection: (row: PhoneSessionRow) => void;
   onLongPress: (row: PhoneSessionRow) => void;
   swipeOpen: string | null;
   onSwipeOpenChange: (open: string | null) => void;
@@ -1530,6 +1457,10 @@ function ProjectBucket({
   const tr = useT();
   const rows = showAll ? bucket.rows : bucket.rows.slice(0, ROWS_BEFORE_SHOW_ALL);
   const hidden = bucket.rows.length - rows.length;
+  const showAllLabel =
+    hidden > 0
+      ? tr("sessions.showAll", { count: String(bucket.rows.length) })
+      : tr("sessions.showLess");
   const imported = isImportedBucket(bucket.key);
   const realProject = Boolean(bucket.cwd) && !imported;
   // A remote copy of a path has no Hub-side cover on this machine, so its
@@ -1543,9 +1474,9 @@ function ProjectBucket({
 
   return (
     <section className="pb-1">
-      <div className={`group/proj flex items-center gap-0.5 ${gutter} pb-1 pt-4`}>
-        <button
-          type="button"
+      <div className={`group/proj relative flex items-center gap-0.5 ${gutter} pb-1 pt-4`}>
+        <Button
+          variant="quiet"
           onClick={() => {
             if (canToggle) onToggle();
           }}
@@ -1554,8 +1485,8 @@ function ProjectBucket({
           tabIndex={canToggle ? undefined : -1}
           aria-label={`${tr(collapsed ? "nav.expandProject" : "nav.collapseProject")} ${heading}`}
           className={[
-            "kin-row-press flex flex-none items-center justify-center rounded-lg text-kin-muted",
-            coarse ? "min-h-11 w-11" : "min-h-9 w-7",
+            "kin-row-press flex flex-none items-center justify-center rounded-lg p-0 text-kin-muted!",
+            coarse ? "h-11 min-h-11 w-11" : "h-9 w-7",
             canToggle ? "" : "opacity-40",
           ].join(" ")}
         >
@@ -1566,7 +1497,11 @@ function ProjectBucket({
               " ",
             )}
           />
-        </button>
+        </Button>
+        {/* eslint-disable-next-line kin/no-raw-button --
+            The heading is the project's own navigation row, not an action:
+            opening its cover and folding its rows are its two tap targets,
+            and the design system has no row primitive. */}
         <button
           type="button"
           onClick={openable ? onOpenProject : onToggle}
@@ -1598,18 +1533,34 @@ function ProjectBucket({
           ) : null}
         </button>
         {onRestoreProject ? (
-          <button
-            type="button"
+          <Button
+            variant="secondary"
             onClick={onRestoreProject}
             aria-label={`${tr("sessions.restore")} ${bucket.label}`}
-            className="flex min-h-11 flex-none items-center gap-1.5 rounded-lg bg-[var(--kin-fill)] px-2.5 text-caption font-medium text-kin-text"
+            className="h-11 flex-none items-center gap-1.5 rounded-lg px-2.5 text-caption font-medium"
           >
             <IconRefresh size={13} />
             {tr("sessions.restore")}
-          </button>
+          </Button>
         ) : null}
         {realProject && !onRestoreProject && !coarse ? (
-          <div className="flex flex-none items-center">
+          /*
+            The hover actions float over the row's tail instead of holding a
+            column of their own. In layout they reserved four 24px boxes even at
+            rest, so a 304px sidebar truncated “[seed] Project Alpha”, “Beta”
+            and “Gamma” to the same “[seed] Projec… 0” while empty space sat to
+            the right of the count. They stay in the tab order, and focus (or
+            hover) reveals them over a background so the title under them is
+            covered, not mixed with.
+          */
+          <div
+            className={[
+              "pointer-events-none absolute bottom-1 top-4 z-10 flex items-center rounded-md opacity-0 transition-opacity",
+              gutter === "px-2" ? "right-2" : "right-4",
+              gutter === "px-2" ? "bg-[var(--kin-sidebar)]" : "bg-[var(--kin-page)]",
+              "focus-within:pointer-events-auto focus-within:opacity-100 group-hover/proj:pointer-events-auto group-hover/proj:opacity-100",
+            ].join(" ")}
+          >
             <ProjectIconButton
               label={tr("nav.newSessionIn", { project: bucket.label })}
               onClick={onNewSession}
@@ -1642,16 +1593,16 @@ function ProjectBucket({
           </div>
         ) : null}
         {realProject && coarse ? (
-          <button
-            type="button"
+          <Button
+            variant="quiet"
             title={tr("nav.projectActions")}
             aria-label={tr("nav.projectActions")}
             aria-haspopup="dialog"
             onClick={onProjectMenu}
-            className="flex h-11 w-11 flex-none items-center justify-center rounded-full text-kin-muted active:bg-[var(--kin-fill)]"
+            className="h-11 w-11 flex-none items-center justify-center rounded-full p-0 text-kin-muted!"
           >
             <IconMore size={18} />
-          </button>
+          </Button>
         ) : null}
       </div>
 
@@ -1678,6 +1629,7 @@ function ProjectBucket({
               onToggleSelect={() => {
                 if (row.task) onToggleSelect(row.task.id);
               }}
+              onStartSelection={() => onStartSelection(row)}
               onLongPress={() => onLongPress(row)}
               swipeOpen={swipeOpen === row.key}
               onSwipeOpenChange={(open) => onSwipeOpenChange(open ? row.key : null)}
@@ -1691,19 +1643,16 @@ function ProjectBucket({
             />
           ))}
           {canToggle && (hidden > 0 || bucket.rows.length > ROWS_BEFORE_SHOW_ALL) ? (
-            <button
-              type="button"
+            <Button
+              variant="quiet"
               onClick={onToggleShowAll}
               aria-expanded={showAll}
-              className="kin-row-press flex min-h-11 w-full items-center gap-2.5 px-4 text-left text-body font-medium text-kin-muted"
+              aria-label={showAllLabel}
+              className="kin-row-press flex w-full items-center gap-2.5 px-4 text-left text-body font-medium text-kin-muted!"
             >
               <span className="w-2 flex-none" aria-hidden />
-              <span className="min-w-0 truncate">
-                {hidden > 0
-                  ? tr("sessions.showAll", { count: String(bucket.rows.length) })
-                  : tr("sessions.showLess")}
-              </span>
-            </button>
+              <span className="min-w-0 truncate">{showAllLabel}</span>
+            </Button>
           ) : null}
         </div>
       )}
@@ -1725,6 +1674,10 @@ function ProjectIconButton({
   children: ReactNode;
 }) {
   return (
+    /* eslint-disable-next-line kin/no-raw-button --
+       A 24px hover-revealed project icon is a desktop density affordance
+       inside the heading line; the shared Button's touch floor and padding
+       would break that line. Its touch counterpart is the project menu. */
     <button
       type="button"
       title={label}
@@ -1737,7 +1690,7 @@ function ProjectIconButton({
           ? "cursor-not-allowed text-kin-muted opacity-50"
           : active
             ? "text-kin-blue-ink opacity-100"
-            : "text-kin-muted opacity-0 hover:bg-[var(--kin-fill-strong)] hover:text-kin-text focus:opacity-100 group-hover/proj:opacity-100",
+            : "text-kin-muted hover:bg-[var(--kin-fill-strong)] hover:text-kin-text",
       ].join(" ")}
     >
       {children}

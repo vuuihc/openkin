@@ -15,11 +15,14 @@ launch() { # n
 
 if [ "$CMD" = start-claimed ]; then
   [ -e "$STATE/PAUSE" ] && { echo paused; exit 0; }
+  rsi_allow_workers || { echo "volc budget: not starting new worker lanes until next Asia/Singapore day (¥${RSI_VOLC_CNY:-?} >= ¥${RSI_VOLC_STOP_WORKERS:-560}; $STATE/volc-budget.log)"; exit 0; }
+  if ! python3 "$LANES_PY" host-ok; then echo "host pressure: not starting claimed local workers"; exit 0; fi
   for n in $(python3 "$LANES_PY" claimed); do launch "$n"; sleep 2; done; exit 0
 fi
 
 if [ "$CMD" = autofill ]; then
   [ -e "$STATE/PAUSE" ] && exit 0
+  rsi_allow_workers || { echo "volc budget: not filling rework lanes until next Asia/Singapore day"; exit 0; }
   # Astryx programme first: `autofill astryx` takes only sendbacks whose item is a slice id (or Q3a); `autofill rest` the others.
   SCOPE="${2:-all}"
   for sb in "$STATE"/sendback/*.md; do
@@ -31,21 +34,29 @@ if [ "$CMD" = autofill ]; then
     [ "$SCOPE" = rest ] && [ "$is_astryx" = 1 ] && continue
     # skip if some lane already works on it
     python3 "$LANES_PY" slugs | grep -qx "$slug" && continue
-    idle="$(python3 "$LANES_PY" idle | head -1)"; [ -z "$idle" ] && { echo "no idle lane for rework $slug"; break; }
+    idle="$(python3 "$LANES_PY" idle --ignore-pressure | head -1)"; [ -z "$idle" ] && { echo "no idle lane for rework $slug"; break; }
     br="rsi/$slug"; $GIT -C "$RSI_CTRL" fetch -q origin "$br" 2>/dev/null
-    paths="$($GIT -C "$RSI_CTRL" diff --name-only "origin/main...origin/$br" 2>/dev/null | grep -vx "web/dist/index.html" | head -40)"
+    paths="$($GIT -C "$RSI_CTRL" -c core.fileMode=false diff --no-renames --raw "origin/main...origin/$br" 2>/dev/null | awk '$3 != $4 {sub(/^[^\t]*\t/, ""); print}' | grep -vx "web/dist/index.html" | head -40)"
     [ -z "$paths" ] && { echo "rework $slug: no diff vs main, skipping"; continue; }
+    paths_arr=()
+    while IFS= read -r _p; do
+      [ -n "$_p" ] && paths_arr+=("$_p")
+    done <<< "$paths"
+    [ "${#paths_arr[@]}" -gt 0 ] || { echo "rework $slug: no paths, skipping"; continue; }
     item="$(sed -n 's/^item: *//p' "$sb" | head -1)"; item="${item:-R-$slug}"
-    # shellcheck disable=SC2086
-    python3 "$LANES_PY" claim "$idle" --slug "$slug" --item "$item" --brief "$sb" --mode rework --paths $paths && launch "$idle"
+    python3 "$LANES_PY" claim "$idle" --slug "$slug" --item "$item" --brief "$sb" --mode rework --paths "${paths_arr[@]}" && launch "$idle"
   done
   exit 0
 fi
 
 [ "$CMD" = run ] && [ -n "$N" ] || { echo "usage: lane.sh run <n> | start-claimed | autofill"; exit 2; }
+rsi_allow_workers || { echo "volc budget: deferring lane $N until next Asia/Singapore day"; exit 0; }
 eval "$(python3 "$LANES_PY" get "$N")"
 [ "$L_STATUS" = claimed ] || { echo "lane $N not in claimed state ($L_STATUS)"; exit 0; }
 SLUG="$L_SLUG"; ITEM="$L_ITEM"; BRIEF="$L_BRIEF"; MODE="$L_MODE"
+# Host pressure defers NEW work only: a targeted rework runs 2-11 minutes and swap-free never recovers
+# on its own (macOS keeps swapped pages), so gating reworks starves the queue forever (2026-11-16).
+if [ "$MODE" != rework ] && ! python3 "$LANES_PY" host-ok; then echo "host pressure: deferring lane $N"; exit 0; fi
 LK="$STATE/lanes/$N.lock"
 if ! mkdir "$LK" 2>/dev/null; then
   old="$(cat "$LK/pid" 2>/dev/null || true)"
@@ -54,7 +65,21 @@ if ! mkdir "$LK" 2>/dev/null; then
 fi
 echo $$ > "$LK/pid"; python3 "$LANES_PY" start "$N" $$
 FINISHED=0
-cleanup() { [ $FINISHED -eq 0 ] && python3 "$LANES_PY" finish "$N" --status crashed --note "lane.sh exited early"; rm -rf "$LK"; }
+WORKER_PID=""
+cleanup() {
+  # Reap the worker process group and any test/build descendants left behind.
+  if [ -n "${WORKER_PID:-}" ]; then
+    rsi_kill_tree "$WORKER_PID"
+    kill -TERM -"$WORKER_PID" 2>/dev/null || true
+    sleep 0.4
+    kill -KILL -"$WORKER_PID" 2>/dev/null || true
+  fi
+  for kid in $(pgrep -P $$ 2>/dev/null || true); do
+    rsi_kill_tree "$kid"
+  done
+  [ $FINISHED -eq 0 ] && python3 "$LANES_PY" finish "$N" --status crashed --note "lane.sh exited early"
+  rm -rf "$LK"
+}
 trap cleanup EXIT
 finish() { FINISHED=1; python3 "$LANES_PY" finish "$N" --status "$1" --pr "${2:-}" --note "${3:-}"; }
 
@@ -92,6 +117,7 @@ You are the WORKER for RSI item $ITEM in worktree \`$WT\` on branch \`$BR\`. Mod
 HD
 if [ "$MODE" = rework ]; then
   echo; echo "## This is a REWORK: the merge lane sent the branch back. Fix exactly the findings below (all at once), then re-run the focused checks."
+  echo "REWORK RULES (targeted, not a rewrite): make MINIMAL edits. Work through the 'Fix list' table row by row (file:line, issue, required change); edit only the lines/files a row names (plus the test that proves it). Do NOT regenerate, reformat or restructure files, do NOT re-implement the slice. If a row is wrong, say so with evidence in the PR body instead of changing code. If the brief says 'MECHANICAL', fix only that (conflict/format) and change nothing else."
   [ -n "${CONFLICT:-}" ] && echo "Merging origin/main into the branch left conflicts in: $CONFLICT. Resolve them (keep both sides' intent; \`web/dist/index.html\` is regenerated by \`npm run build\`), \`git add\`, commit."
   echo; cat "$BRIEF"
 else
@@ -101,7 +127,12 @@ fi
 
 export BUDGET_GUARD="$LANE_BUDGET_USD" DISPATCH_MAX_SECS="$LANE_WORKER_SECS"
 W_START=$(date +%s)
-"$RSI_DIR/runtime/dispatch.sh" worker "$WT" "$HDR" "$TAG-worker" > "$STATE/lanes/$N.worker.txt" 2>&1; WRC=$?
+# Run the worker in its own process group so timeout/exit can reap vitest/go/node/agy.
+python3 -c 'import os,sys; os.setpgrp(); os.execvp(sys.argv[1], sys.argv[1:])' \
+  /bin/bash "$RSI_DIR/runtime/dispatch.sh" worker "$WT" "$HDR" "$TAG-worker" \
+  > "$STATE/lanes/$N.worker.txt" 2>&1 &
+WORKER_PID=$!
+wait "$WORKER_PID"; WRC=$?
 W_MIN=$(( ($(date +%s) - W_START) / 60 ))
 LASTLOG="$(ls -t "$RUNS"/*-dispatch-$TAG-worker.jsonl 2>/dev/null | head -1)"
 COST="$(tail -c 400 "$STATE/lanes/$N.worker.txt" | sed -n 's/.*cost_usd=\([0-9.]*\).*/\1/p' | tail -1)"
@@ -117,12 +148,30 @@ if [ "$MODE" != rework ] && [ "$AHEAD" -eq 0 ]; then
   finish failed "" "worker produced no commits rc=$WRC after ${W_MIN}m"; exit 1
 fi
 
+# A new PR takes its title — and therefore the squash-merge subject on main —
+# from the tip commit. Capture the worker's subject before the format commit
+# moves the tip, or every lane that needed formatting lands as "style: format
+# changed UI and Go files". Skip the loop's own housekeeping commits.
+WORKER_TITLE="$($GIT -C "$WT" log --format=%s origin/main..HEAD 2>/dev/null \
+  | awk '!/^style: format changed UI and Go files$/ && !/^chore\(rsi\): commit remaining tracked edits/ { print; exit }')"
+
+count_format_fail() { # not a runner failure: after --write this is a parse/env problem (missing ui/node_modules, npx/gofmt), so count it apart
+  local n=$(( $(cat "$STATE/consec_format" 2>/dev/null || echo 0) + 1 )); echo $n > "$STATE/consec_format"
+  notify "Kin RSI: $1 failed ($n in a row)" "${2:-}"
+  [ $n -ge 6 ] && echo "6 consecutive format-check failures $(date) — check worker env (ui/node_modules, npx/gofmt)" > "$STATE/PAUSE"
+  return 0
+}
+
 # Format changed UI/Go files the way CI checks them; commit; refuse to push on failure.
-if ! bash "$RSI_DIR/runtime/format-changed.sh" --write --commit --check "$WT"; then
-  count_fail "lane $N format" "changed-files prettier/gofmt check failed"
-  finish failed "" "format check failed; not pushing"
+FMT_ERR="$STATE/lanes/$N.format.err"
+if ! bash "$RSI_DIR/runtime/format-changed.sh" --write --commit --check "$WT" >"$FMT_ERR" 2>&1; then
+  FMT_DETAIL="$(tail -c 300 "$FMT_ERR" 2>/dev/null | tr '\n' ' ')"
+  count_format_fail "lane $N format" "${FMT_DETAIL:-no output}"
+  finish failed "" "format check failed: ${FMT_DETAIL:-see $FMT_ERR}; not pushing"
   exit 1
 fi
+echo 0 > "$STATE/consec_format"
+[ -s "$FMT_ERR" ] && tail -3 "$FMT_ERR"
 
 # push + PR (normal push only)
 if ! $GIT -C "$WT" push -q -u origin "$BR" 2>"$STATE/lanes/$N.push.err"; then
@@ -130,7 +179,7 @@ if ! $GIT -C "$WT" push -q -u origin "$BR" 2>"$STATE/lanes/$N.push.err"; then
 fi
 PRN="$($GH pr list --repo "$GH_REPO" --head "$BR" --state open --json number --jq '.[0].number' 2>/dev/null)"
 if [ -z "$PRN" ]; then
-  TITLE="$($GIT -C "$WT" log -1 --format=%s origin/main..HEAD 2>/dev/null | head -1)"; TITLE="${TITLE:-chore(rsi): $ITEM $SLUG}"
+  TITLE="$WORKER_TITLE"; [ -n "$TITLE" ] || TITLE="$($GIT -C "$WT" log -1 --format=%s origin/main..HEAD 2>/dev/null | head -1)"; TITLE="${TITLE:-chore(rsi): $ITEM $SLUG}"
   BODY="$STATUS_NOTE_FILE"; [ -s "$BODY" ] || { BODY="$STATE/lanes/$N.pr-body.fallback.md"; printf 'RSI lane %s, item %s.\n\nWorker summary:\n\n%s\n\nRSI item: %s\n' "$N" "$ITEM" "$(tail -c 3000 "$STATE/lanes/$N.worker.txt")" "$ITEM" > "$BODY"; }
   PRURL="$($GH pr create --repo "$GH_REPO" --base main --head "$BR" --title "$TITLE" --body-file "$BODY" 2>&1 | tail -1)"
   PRN="$(echo "$PRURL" | sed -n 's#.*/pull/\([0-9]*\).*#\1#p')"

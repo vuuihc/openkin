@@ -8,6 +8,7 @@ import {
   type SessionShareState,
 } from "../../api/client";
 import { useT } from "../../i18n/react";
+import Button from "../ui/Button";
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -217,6 +218,7 @@ export default function ShareDialog({
           and a 1px edge would be the same box drawn twice. */}
       <div
         ref={panelRef}
+        // eslint-disable-next-line kin/no-raw-overlay-role -- the share sheet owns its focus trap, Escape and scrim
         role="dialog"
         aria-modal="true"
         aria-label={tr("task.shareTitle")}
@@ -242,13 +244,9 @@ export default function ShareDialog({
               />
             </label>
             <p className="text-caption text-kin-muted">{tr("task.shareOnlyOnce")}</p>
-            <button
-              type="button"
-              onClick={() => void copy()}
-              className="kin-btn-secondary min-h-11 w-full"
-            >
+            <Button variant="secondary" onClick={() => void copy()} className="min-h-11 w-full">
               {copied ? tr("task.shareCopied") : tr("task.shareCopy")}
-            </button>
+            </Button>
           </div>
         ) : (
           status && (
@@ -262,27 +260,30 @@ export default function ShareDialog({
 
         <div className="mt-4 flex flex-wrap gap-2">
           {!active ? (
-            <button
-              type="button"
+            <Button
+              variant="default"
               onClick={() => void create()}
               disabled={busy}
-              className="kin-btn-primary min-h-11 flex-1 disabled:opacity-50"
+              className="min-h-11 flex-1"
             >
               {busy ? tr("task.shareCreating") : tr("task.shareCreate")}
-            </button>
+            </Button>
           ) : (
-            <button
-              type="button"
+            /* Revoke keeps its red border and hollow fill: it is a peer of
+               Close in weight, not the sheet's filled action, and the facade's
+               border/fill tokens are overridden here rather than invented. */
+            <Button
+              variant="secondary"
               onClick={() => void revoke()}
               disabled={busy}
-              className="min-h-11 flex-1 rounded-xl border border-kin-red/35 px-4 text-strong font-medium text-kin-red-ink hover:bg-kin-red/10 disabled:opacity-50"
+              className="min-h-11 flex-1 rounded-xl border-kin-red/35 bg-transparent font-medium text-kin-red-ink hover:bg-kin-red/10"
             >
               {busy ? tr("task.shareRevoking") : tr("task.shareRevoke")}
-            </button>
+            </Button>
           )}
-          <button type="button" onClick={onClose} className="kin-btn-secondary min-h-11">
+          <Button variant="secondary" onClick={onClose} className="min-h-11">
             {tr("common.close")}
-          </button>
+          </Button>
         </div>
       </div>
     </div>,

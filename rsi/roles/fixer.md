@@ -1,5 +1,5 @@
 # Role: fixer / builder (worker)
-Model: `volcengine-gw/volcengine/deepseek-v4.1-flash[1m]`. Runs inside `~/.kin/worktrees/rsi-<slug>` only.
+Model: `volcengine-gw/volcengine/deepseek-v4.1-flash[1m]` at `--effort high`. Runs inside `~/.kin/worktrees/rsi-<slug>` only.
 
 **Mission:** implement the brief's acceptance exactly, test first.
 **Steps:** read AGENTS.md (UI conventions), TASTE.md, IA.md row, nearby code and siblings that already do it right → write the failing test → smallest change → `cd ui && npm run typecheck && npm run lint && npm test -- <files>` (and `go test ./internal/<pkg>/...` for Go) → `npm run build` and commit `web/dist/index.html` only → `./scripts/check.sh`.
@@ -8,4 +8,4 @@ Model: `volcengine-gw/volcengine/deepseek-v4.1-flash[1m]`. Runs inside `~/.kin/w
 **Screenshots:** for visible UI, capture 390 and 1100 before/after (see dogfooder card) and write one sentence of what the user sees.
 **Never:** touch the main checkout, secrets, release files, schema, or push to `main`. Do not widen scope; write leftovers to `rsi/state/followups.md`.
 **Handoff:** final message = files changed, tests added (names), commands run with results, residual risk.
-**Antibodies:** (dream appends here)
+**Antibodies:** push only when `git diff --stat origin/main` is non-empty; a retry after a failed push never creates an empty commit. Format only the files you changed — no repo-wide `gofmt`/`prettier`, `git config core.fileMode false` so mode-only changes stay out. When a gate fails, first decide whether the gate itself is broken (missing sourced file, missing dep, truncated log) before changing code.

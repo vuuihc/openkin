@@ -21,6 +21,9 @@ import { describe, expect, it } from "vitest";
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 const SOURCE = readFileSync(join(UI, "src/components/sessions/SessionList.tsx"), "utf8");
+// The batch bar moved to SessionToolbar with the toolbar extraction; the list
+// still decides what its one archive/restore action does.
+const TOOLBAR = readFileSync(join(UI, "src/components/sessions/SessionToolbar.tsx"), "utf8");
 const ROW = readFileSync(join(UI, "src/components/sessions/SessionRow.tsx"), "utf8");
 const TASK_DETAIL = readFileSync(join(UI, "src/pages/TaskDetailPage.tsx"), "utf8");
 
@@ -70,8 +73,14 @@ describe("the phone list's archive wiring", () => {
   it("gives an archived conversation its restore strip, not the list's", () => {
     // The strip is chosen from the row's own flag first: a conversation put
     // away on its own uncovers restore + delete even when its project is
-    // still filed.
-    expect(ROW).toContain("const mode: SessionRowActionMode | null = row.task.archived_at");
+    // still filed. The row's mode is resolved before the action surface is
+    // built, so the guard is precedence rather than one exact expression.
+    const archivedFlag = ROW.indexOf("row.task.archived_at");
+    const scopeFallback = ROW.indexOf('scope === "archived"');
+    expect(archivedFlag).toBeGreaterThan(-1);
+    expect(scopeFallback).toBeGreaterThan(archivedFlag);
+    // The scope branch is the "no actions" answer, not the list's.
+    expect(ROW).toMatch(/scope === "archived"\s*\?\s*null/);
   });
 
   it("pages each feed from its own tail", () => {
@@ -152,15 +161,18 @@ describe("the phone list's archive wiring", () => {
     // be enterable at all; which rows it may hold is `sessionSelection`'s
     // rule, and the row's checkbox, tap, keyboard and select-all all read it.
     expect(SOURCE).toContain("if (!rowSelectable(row, scope)) return;");
-    expect(SOURCE).toContain('onClick={scope === "archived" ? restoreSelected : archiveSelected}');
+    expect(TOOLBAR).toContain("onClick={onArchiveOrRestore}");
+    expect(SOURCE).toContain(
+      'onArchiveOrRestore={scope === "archived" ? restoreSelected : archiveSelected}',
+    );
     expect(ROW).toContain("selectionMode && rowSelectable(row, scope) ? (");
     expect(SOURCE).toContain("new Set(selectableTaskIds(listed, scope))");
     expect(SOURCE).toContain("const present = new Set(selectableTaskIds(listed, scope));");
     expect(SOURCE).toContain("const selectableCount = selectableTaskIds(listed, scope).length;");
     // Pin orders the live list; the archive view never shows a pinned bucket,
     // so the chip would be a button with no visible effect.
-    expect(SOURCE).toContain(
-      '{scope !== "archived" && (\n              <button\n                type="button"\n                onClick={pinSelected}',
+    expect(TOOLBAR).toContain(
+      '{scope !== "archived" && (\n          <Button\n            variant="secondary"\n            onClick={onPin}',
     );
   });
 
@@ -168,7 +180,10 @@ describe("the phone list's archive wiring", () => {
     // Every row there is archived already; Archive would re-stamp the date and
     // move nothing, leaving the person with a batch that "worked" and a
     // selection that did not change.
-    expect(SOURCE).toContain('onClick={scope === "archived" ? restoreSelected : archiveSelected}');
+    expect(TOOLBAR).toContain("onClick={onArchiveOrRestore}");
+    expect(SOURCE).toContain(
+      'onArchiveOrRestore={scope === "archived" ? restoreSelected : archiveSelected}',
+    );
     expect(SOURCE).toContain("settleArchiveBatch(ids, results)");
     expect(SOURCE).toContain(
       'tr(archived ? "sessions.archiveFailedCount" : "sessions.restoreFailedCount", {',

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   ApiError,
   activateProvider,
@@ -36,17 +37,20 @@ import {
 } from "../components/settings/RoutingSettings";
 import {
   SettingsLayout,
+  SettingsRow,
   SettingsSection,
   SettingsTabPanel,
-  settingsTabFromSearch,
-  type SettingsTabId,
   type SettingsTabItem,
 } from "../components/settings/SettingsPrimitives";
+import Button from "../components/ui/Button";
+import { normalizeSettingsTab, type SettingsTabId } from "../lib/areaNavigation";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useLeaveGuard } from "../hooks/useLeaveGuard";
+import { runGuardedNavigation } from "../lib/leaveGuard";
 import { applyTheme, getThemeMode, setThemeMode, type ThemeMode } from "../lib/theme";
 import { useAppStore } from "../store/appStore";
 import { useT } from "../i18n/react";
+import AgentsPage from "./AgentsPage";
 
 type SettingsDraft = {
   priceTable: string;
@@ -63,6 +67,21 @@ function prettyJSON(raw: string | undefined, fallback: string): string {
   } catch {
     return raw ?? fallback;
   }
+}
+
+/**
+ * The URL that names a panel.
+ *
+ * Selecting a tab is a same-screen state change, so it rewrites the current
+ * entry instead of stacking one per tab. Unrelated parameters are preserved:
+ * only the one this page owns is written.
+ */
+function settingsTabPath(tab: SettingsTabId, pathname: string, search: string): string {
+  const params = new URLSearchParams(search);
+  if (tab === "general") params.delete("tab");
+  else params.set("tab", tab);
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
 }
 
 // Compare the role rows that are visible, not the serializer's output. A
@@ -153,11 +172,47 @@ export default function SettingsPage() {
   const [agentList, setAgentList] = useState<AgentInfo[]>([]);
   const [agentProviders, setAgentProviders] = useState<AgentProvider[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // One error line per general-tab group. A failure belongs under the Save
+  // button whose group caused it, not on every group and the page banner at
+  // once; the shared `error` above stays for the page-level failures (load,
+  // import, provider) that are not tied to one group.
+  const [priceError, setPriceError] = useState<string | null>(null);
+  const [agentLimitsError, setAgentLimitsError] = useState<string | null>(null);
+  const [limitPolicyError, setLimitPolicyError] = useState<string | null>(null);
   const [reveal, setReveal] = useState(false);
   const [busy, setBusy] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => getThemeMode());
+  // The panel follows the router, not a one-time read of `window.location`: a
+  // notification tap can name `?tab=` while this page is already mounted, and
+  // React Router keeps the component rather than remounting it. Choosing a tab
+  // writes the URL too, so the page and `NotificationTaps` agree on what is on
+  // screen (it compares a tap with the current URL).
+  //
+  // A tab switch does not discard drafts, so it does not ask the leave guard:
+  // every panel stays mounted (`hidden` in `SettingsTabPanel`) and its local
+  // state survives. Leaving Settings still asks through `useLeaveGuard`.
+  const location = useLocation();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<SettingsTabId>(() =>
-    typeof window === "undefined" ? "general" : settingsTabFromSearch(window.location.search),
+    normalizeSettingsTab(new URLSearchParams(location.search).get("tab")),
+  );
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    // Absent `tab` is General (the settings root). A General notification is
+    // canonicalized to `/settings`, and a sidebar or palette trip to the
+    // root must show that panel. Drafts survive because every panel stays
+    // mounted (`hidden` in `SettingsTabPanel`).
+    setActiveTab(normalizeSettingsTab(params.get("tab")));
+  }, [location.search]);
+  const selectTab = useCallback(
+    (tab: SettingsTabId) => {
+      const path = settingsTabPath(tab, location.pathname, location.search);
+      // Pop an armed leave-guard sentinel before the same-pathname replace so
+      // a dirty tab switch does not bury a Settings entry under a new sentinel.
+      if (!runGuardedNavigation(() => navigate(path, { replace: true }), true)) return;
+      setActiveTab(tab);
+    },
+    [navigate, location.pathname, location.search],
   );
   const reconnectGen = useAppStore((s) => s.reconnectGen);
   const pushToast = useAppStore((s) => s.pushToast);
@@ -303,14 +358,23 @@ export default function SettingsPage() {
     void load(true);
   }, [reconnectGen, load]);
 
-  const save = async () => {
+  /**
+   * Save the shared settings form. `scope` is the group whose Save button was
+   * pressed: a request failure is rendered under that button. Validation
+   * failures are routed by the field that failed instead — bad price JSON is a
+   * price-table problem even when Save was pressed in the limits group.
+   */
+  const save = async (scope?: "price" | "agentLimits" | "limitPolicy") => {
     setBusy(true);
     setError(null);
+    setPriceError(null);
+    setAgentLimitsError(null);
+    setLimitPolicyError(null);
     // Validate price table JSON client-side for faster feedback.
     try {
       JSON.parse(priceTable);
     } catch {
-      setError(tr("settings.price.invalidJson"));
+      setPriceError(tr("settings.price.invalidJson"));
       setBusy(false);
       return;
     }
@@ -318,7 +382,7 @@ export default function SettingsPage() {
     try {
       JSON.parse(agentLimitsText);
     } catch {
-      setError(tr("settings.agentLimits.invalidJson"));
+      setAgentLimitsError(tr("settings.agentLimits.invalidJson"));
       setBusy(false);
       return;
     }
@@ -351,7 +415,11 @@ export default function SettingsPage() {
         .then(setAgentProviders)
         .catch(() => undefined);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      const message = e instanceof ApiError ? e.message : String(e);
+      if (scope === "price") setPriceError(message);
+      else if (scope === "agentLimits") setAgentLimitsError(message);
+      else if (scope === "limitPolicy") setLimitPolicyError(message);
+      else setError(message);
     } finally {
       setBusy(false);
     }
@@ -648,6 +716,11 @@ export default function SettingsPage() {
       description: tr("settings.tabs.agentsDesc"),
     },
     {
+      id: "operations",
+      label: tr("settings.tabs.operations"),
+      description: tr("settings.tabs.operationsDesc"),
+    },
+    {
       id: "providers",
       label: tr("settings.tabs.providers"),
       description: tr("settings.tabs.providersDesc"),
@@ -667,10 +740,14 @@ export default function SettingsPage() {
   return (
     <SettingsLayout
       title={tr("settings.title")}
+      /* The same header block on every tab. Dropping the tagline for one tab
+         changed the header's height and moved the section list under it; and
+         Operations gives that column up for its wide table anyway, so the
+         tagline never appears beside the console. */
       subtitle={tr("settings.subtitle")}
       tabs={settingsTabs}
       activeTab={activeTab}
-      onTabChange={setActiveTab}
+      onTabChange={selectTab}
     >
       {error ? (
         <p
@@ -737,28 +814,37 @@ export default function SettingsPage() {
         onRolesChange={setRoles}
       />
 
+      {/* Operations hosts the agent console itself. The panel stays mounted so
+          a tab switch is never a departure, but the page inside is rendered
+          only while its tab is open: opening Settings must not start the
+          console's reads (AGENTS.md, passive views). E4a moves the body. */}
+      <SettingsTabPanel id="operations" active={activeTab === "operations"}>
+        {activeTab === "operations" ? <AgentsPage embedded /> : null}
+      </SettingsTabPanel>
+
       {/* Appearance (design 3c / 3e) */}
       <SettingsTabPanel id="general" active={activeTab === "general"}>
         <SettingsSection title={tr("settings.appearance.heading")}>
           <div className="flex flex-wrap gap-2">
             {(["system", "light", "dark"] as const).map((value) => (
-              <button
+              <Button
                 key={value}
-                type="button"
+                variant="secondary"
+                aria-pressed={theme === value}
                 onClick={() => {
                   setTheme(value);
                   setThemeMode(value);
                   applyTheme(value);
                 }}
                 className={[
-                  "px-3 py-2 rounded-lg text-strong font-medium min-h-11 sm:min-h-10 border",
+                  "px-3 text-strong font-medium",
                   theme === value
                     ? "border-kin-blue bg-kin-blue/15 text-kin-blue-ink"
                     : "border-[var(--kin-hairline)] text-kin-secondary hover:bg-[var(--kin-fill)]",
                 ].join(" ")}
               >
                 {tr(`settings.appearance.${value}`)}
-              </button>
+              </Button>
             ))}
           </div>
         </SettingsSection>
@@ -771,11 +857,10 @@ export default function SettingsPage() {
 
       {/* Price table (M4) — defaults from open LiteLLM price list */}
       <SettingsTabPanel id="advanced" active={activeTab === "advanced"}>
-        <section className="rounded-xl bg-kin-elevated/60 p-4 space-y-4">
-          <div className="flex items-start justify-between gap-3">
-            <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
-              {tr("settings.price.heading")}
-            </h2>
+        <SettingsSection
+          title={tr("settings.price.heading")}
+          titleId="settings-price-heading"
+          action={
             <a
               href="https://github.com/BerriAI/litellm"
               target="_blank"
@@ -785,8 +870,9 @@ export default function SettingsPage() {
             >
               {tr("settings.price.sourceName")} ↗
             </a>
-          </div>
-          <p className="text-body text-kin-muted leading-prose">
+          }
+        >
+          <p id="settings-price-description" className="text-body text-kin-muted leading-prose">
             {tr("settings.price.descA")}
             <code className="text-kin-secondary">total_cost_usd</code>
             {tr("settings.price.descB")}
@@ -814,24 +900,25 @@ export default function SettingsPage() {
             onChange={(e) => setPriceTable(e.target.value)}
             rows={10}
             spellCheck={false}
+            aria-labelledby="settings-price-heading"
+            aria-describedby={
+              priceError
+                ? "settings-price-description settings-price-error"
+                : "settings-price-description"
+            }
             className="kin-input font-mono text-body leading-4 resize-y min-h-40"
           />
           <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void save()}
-              className="kin-btn-primary disabled:opacity-50"
-            >
+            <Button disabled={busy} onClick={() => void save("price")}>
               {busy ? tr("settings.saving") : tr("settings.price.save")}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="secondary"
               disabled={busy}
               onClick={() =>
                 void (async () => {
                   setBusy(true);
-                  setError(null);
+                  setPriceError(null);
                   try {
                     // Clear override → server returns embedded LiteLLM defaults.
                     const s = await updateSettings({ price_table: "" });
@@ -843,26 +930,34 @@ export default function SettingsPage() {
                     }
                     pushToast(tr("settings.saved"), "info");
                   } catch (e) {
-                    setError(e instanceof ApiError ? e.message : String(e));
+                    setPriceError(e instanceof ApiError ? e.message : String(e));
                   } finally {
                     setBusy(false);
                   }
                 })()
               }
-              className="kin-btn-secondary disabled:opacity-50"
               title={tr("settings.price.sourceHint")}
             >
               {tr("settings.price.resetDefaults")}
-            </button>
+            </Button>
           </div>
-        </section>
+          {priceError ? (
+            <p
+              id="settings-price-error"
+              aria-live="assertive"
+              className="text-body leading-4 text-kin-red-ink"
+            >
+              {priceError}
+            </p>
+          ) : null}
+        </SettingsSection>
 
         {/* Agent usage limits */}
-        <section className="rounded-xl bg-kin-elevated/60 p-4 space-y-4">
-          <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
-            {tr("settings.agentLimits.heading")}
-          </h2>
-          <p className="text-body leading-4 text-kin-muted">
+        <SettingsSection
+          title={tr("settings.agentLimits.heading")}
+          titleId="settings-agent-limits-heading"
+        >
+          <p id="settings-agent-limits-description" className="text-body leading-4 text-kin-muted">
             {tr("settings.agentLimits.desc")}
             <code className="text-kin-secondary">{tr("settings.agentLimits.shape")}</code>
           </p>
@@ -871,28 +966,34 @@ export default function SettingsPage() {
             onChange={(e) => setAgentLimitsText(e.target.value)}
             rows={6}
             spellCheck={false}
+            aria-labelledby="settings-agent-limits-heading"
+            aria-describedby={
+              agentLimitsError
+                ? "settings-agent-limits-description settings-agent-limits-error"
+                : "settings-agent-limits-description"
+            }
             className="kin-input font-mono text-body leading-4 resize-y min-h-24"
           />
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void save()}
-              className="kin-btn-primary disabled:opacity-50"
-            >
+            <Button disabled={busy} onClick={() => void save("agentLimits")}>
               {busy ? tr("settings.saving") : tr("settings.agentLimits.save")}
-            </button>
-            {error && <span className="text-body leading-4 text-kin-red-ink">{error}</span>}
+            </Button>
           </div>
-        </section>
+          {agentLimitsError ? (
+            <p
+              id="settings-agent-limits-error"
+              aria-live="assertive"
+              className="text-body leading-4 text-kin-red-ink"
+            >
+              {agentLimitsError}
+            </p>
+          ) : null}
+        </SettingsSection>
       </SettingsTabPanel>
 
       {/* Rate-limit policy */}
       <SettingsTabPanel id="routing" active={activeTab === "routing"}>
-        <section className="rounded-xl bg-kin-elevated/60 p-4 space-y-4">
-          <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
-            {tr("settings.limitPolicy.heading")}
-          </h2>
+        <SettingsSection title={tr("settings.limitPolicy.heading")}>
           <p className="text-body leading-4 text-kin-muted">{tr("settings.limitPolicy.desc")}</p>
           <div className="flex flex-col gap-2">
             {(
@@ -918,30 +1019,35 @@ export default function SettingsPage() {
             ))}
           </div>
           {limitPolicy === "switch" ? (
-            <label className="flex flex-col gap-1.5">
-              <span className="text-caption text-kin-muted">
-                {tr("settings.limitPolicy.fallback")}
-              </span>
+            <SettingsRow
+              label={tr("settings.limitPolicy.fallback")}
+              description={tr("settings.limitPolicy.fallbackHint")}
+              labelId="limit-policy-fallback-label"
+              descriptionId="limit-policy-fallback-hint"
+            >
               <input
                 value={limitFallbackText}
                 onChange={(e) => setLimitFallbackText(e.target.value)}
                 className="kin-input font-mono text-body leading-4"
                 spellCheck={false}
+                aria-labelledby="limit-policy-fallback-label"
+                aria-describedby="limit-policy-fallback-hint"
               />
-              <span className="text-caption text-kin-muted">
-                {tr("settings.limitPolicy.fallbackHint")}
-              </span>
-            </label>
+            </SettingsRow>
           ) : null}
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void save()}
-            className="kin-btn-primary disabled:opacity-50"
-          >
+          <Button disabled={busy} onClick={() => void save("limitPolicy")}>
             {busy ? tr("settings.saving") : tr("settings.limitPolicy.save")}
-          </button>
-        </section>
+          </Button>
+          {limitPolicyError ? (
+            <p
+              id="settings-limit-policy-error"
+              aria-live="assertive"
+              className="text-body leading-4 text-kin-red-ink"
+            >
+              {limitPolicyError}
+            </p>
+          ) : null}
+        </SettingsSection>
 
         {/* Auto Model Routing — defaults */}
         <RoutingDefaultsSection onDirtyChange={onRoutingDefaultsDirty} />

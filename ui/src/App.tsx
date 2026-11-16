@@ -7,15 +7,17 @@ import { usePendingResources } from "./api/useLiveResources";
 import ConnectScreen from "./components/ConnectScreen";
 import NotificationTaps from "./components/NotificationTaps";
 import AppShell from "./components/layout/AppShell";
+import AreaRoute from "./components/layout/AreaRoute";
 import ToastHost from "./components/ToastHost";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
+import ProjectsCollectionPage from "./pages/ProjectsCollectionPage";
+import { designSystemRoute } from "./pages/DesignSystemPage";
 import NewChatPage from "./pages/NewChatPage";
 import SessionsRoute from "./pages/SessionsRoute";
 import StartRoute from "./pages/StartRoute";
 import SettingsPage from "./pages/SettingsPage";
 import TaskSessionHost from "./pages/TaskSessionHost";
 import TrayPage from "./pages/TrayPage";
-import AgentsPage from "./pages/AgentsPage";
 import RoutinesPage from "./pages/RoutinesPage";
 import MachineTaskPage from "./pages/MachineTaskPage";
 import AgentSessionDetailPage from "./pages/AgentSessionDetailPage";
@@ -174,37 +176,45 @@ export default function App() {
 
   return (
     <>
-      <AppShell
-        pendingApprovals={pending.data.approvals}
-        routineUnreadCount={routineUnreadCount}
-      >
+      <AppShell pendingApprovals={pending.data.approvals} routineUnreadCount={routineUnreadCount}>
         <ErrorBoundary>
           {/*
             Session keep-alive lives outside <Routes> so /tasks/:id → /new
             does not unmount the chat DOM (Chrome-tab style scroll retention).
           */}
           <TaskSessionHost />
-          <Routes>
-            <Route path="/" element={<StartRoute />} />
-            <Route path="/new" element={<NewChatPage />} />
-            <Route path="/sessions" element={<SessionsRoute />} />
-            {/* Banners and bookmarks delivered before R0b-2a still name the
-                inbox. The list is its replacement, and every row there says
-                what is waiting. */}
-            <Route path="/inbox" element={<Navigate to="/sessions" replace />} />
-            <Route path="/approvals" element={<Navigate to="/sessions" replace />} />
-            {/* Task detail UI is rendered by TaskSessionHost above. */}
-            <Route path="/tasks/:id" element={null} />
-            <Route path="/projects/:id" element={<ProjectDetailPage />} />
-            <Route path="/agents" element={<AgentsPage />} />
-            <Route path="/routines" element={<RoutinesPage />} />
-            {/* A remote run lives in that machine's task store. */}
-            <Route path="/machines/:device/tasks/:id" element={<MachineTaskPage />} />
-            <Route path="/usage" element={<Navigate to="/agents" replace />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/agent-sessions/:id" element={<AgentSessionDetailPage />} />
-            <Route path="*" element={<Navigate to="/new" replace />} />
-          </Routes>
+          {/* Only the route page animates. The host above stays mounted, so a
+              push/pop moves the arriving page and never the live chat. */}
+          <AreaRoute>
+            <Routes>
+              <Route path="/" element={<StartRoute />} />
+              <Route path="/new" element={<NewChatPage />} />
+              <Route path="/sessions" element={<SessionsRoute />} />
+              {/* Banners and bookmarks delivered before R0b-2a still name the
+                  inbox. The list is its replacement, and every row there says
+                  what is waiting. */}
+              <Route path="/inbox" element={<Navigate to="/sessions" replace />} />
+              <Route path="/approvals" element={<Navigate to="/sessions" replace />} />
+              {/* Task detail UI is rendered by TaskSessionHost above. */}
+              <Route path="/tasks/:id" element={null} />
+              {/* The Projects area root. Agent operations live in Settings →
+                  Operations, so the old full-page destinations redirect there:
+                  a bookmark, banner or notification from before E4a still lands
+                  on the panel. `App.areaRoutes.test.ts` pins the target. */}
+              <Route path="/projects" element={<ProjectsCollectionPage />} />
+              <Route path="/projects/:id" element={<ProjectDetailPage />} />
+              <Route path="/agents" element={<Navigate to="/settings?tab=operations" replace />} />
+              <Route path="/routines" element={<RoutinesPage />} />
+              {/* A remote run lives in that machine's task store. */}
+              <Route path="/machines/:device/tasks/:id" element={<MachineTaskPage />} />
+              <Route path="/usage" element={<Navigate to="/settings?tab=operations" replace />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/agent-sessions/:id" element={<AgentSessionDetailPage />} />
+              {/* Developer-only; a production build produces no route here. */}
+              {designSystemRoute()}
+              <Route path="*" element={<Navigate to="/new" replace />} />
+            </Routes>
+          </AreaRoute>
         </ErrorBoundary>
       </AppShell>
       <NotificationTaps />

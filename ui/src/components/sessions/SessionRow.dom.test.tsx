@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AgentSession, Task } from "../../api/client";
 import type { PhoneSessionRow } from "../../lib/phoneSessionBuckets";
@@ -9,10 +9,12 @@ import SessionRow, { type SessionRowProps } from "./SessionRow";
 
 /**
  * The conversation row is the one renderer both the phone page and the Mac
- * sidebar use. It moved out of `SessionList` unchanged, so these tests pin the
- * contract at the new boundary: the accessible name it announces, what a click
- * does in each mode, which actions each container uncovers, and that selection
- * and imported rows expose no swipe strip.
+ * sidebar use. These tests pin the contract at its boundary: the accessible
+ * name it announces, what a click does in each mode, that a row's actions are
+ * one discoverable trigger (the shared menu on the Mac, the console sheet on a
+ * touch page) rather than a row of hover-only icons, that the phone's swipe
+ * strip stays a second path to the same handlers, and that selection and
+ * imported rows expose neither.
  */
 
 const NOW = new Date("2026-11-15T12:00:00Z").getTime();
@@ -85,6 +87,7 @@ function props(overrides: Partial<SessionRowProps> = {}): SessionRowProps {
     selectionLocked: false,
     selected: false,
     onToggleSelect: vi.fn(),
+    onStartSelection: vi.fn(),
     onLongPress: vi.fn(),
     swipeOpen: false,
     onSwipeOpenChange: vi.fn(),
@@ -98,8 +101,22 @@ function props(overrides: Partial<SessionRowProps> = {}): SessionRowProps {
   };
 }
 
-function rowButton(name: RegExp | string): HTMLElement {
-  return screen.getByRole("button", { name });
+/**
+ * The row's own button, found by its data attribute rather than by name: the
+ * click and selection contract below belongs to this element, not to whichever
+ * other control in the row happens to carry the conversation's title.
+ */
+function rowButton(): HTMLElement {
+  const node = document.querySelector<HTMLElement>("[data-session-row]");
+  if (!node) throw new Error("the session row button did not render");
+  return node;
+}
+
+/** The one control that opens a row's actions, whichever surface it lives on. */
+function rowActionsTrigger(container: HTMLElement): HTMLElement {
+  const triggers = container.querySelectorAll<HTMLElement>("[data-row-actions]");
+  expect(triggers).toHaveLength(1);
+  return triggers[0]!;
 }
 
 /** SwipeReveal reports drags through native pointer events; jsdom has no
@@ -121,6 +138,8 @@ beforeEach(() => {
   setLocale("en");
   localStorage.clear();
   sessionStorage.clear();
+  // The action sheet owns one history entry; start each test from a clean one.
+  window.history.replaceState({ idx: 0 }, "", "/sessions");
 });
 
 describe("SessionRow", () => {
@@ -146,13 +165,13 @@ describe("SessionRow", () => {
     const base = props({ onOpen, onSwipeOpenChange, coarse: true, shell: "page" });
     const { rerender } = render(<SessionRow {...base} />);
 
-    await userEvent.click(rowButton(/Fix the build/));
+    await userEvent.click(rowButton());
     expect(onOpen).toHaveBeenCalledTimes(1);
     expect(onSwipeOpenChange).not.toHaveBeenCalled();
 
     // While the row is swiped open, the next tap closes it instead of leaving.
     rerender(<SessionRow {...base} swipeOpen />);
-    await userEvent.click(rowButton(/Fix the build/));
+    await userEvent.click(rowButton());
     expect(onSwipeOpenChange).toHaveBeenCalledWith(false);
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
@@ -163,86 +182,220 @@ describe("SessionRow", () => {
     const base = props({ selectionMode: true, onToggleSelect, onOpen });
     const { rerender } = render(<SessionRow {...base} />);
 
-    const row = rowButton(/Fix the build/);
+    const row = rowButton();
     expect(row.getAttribute("aria-pressed")).toBe("false");
     await userEvent.click(row);
     expect(onToggleSelect).toHaveBeenCalledTimes(1);
     expect(onOpen).not.toHaveBeenCalled();
 
     rerender(<SessionRow {...base} selected />);
-    expect(rowButton(/Fix the build/).getAttribute("aria-pressed")).toBe("true");
+    expect(rowButton().getAttribute("aria-pressed")).toBe("true");
 
     // A locked selection (a batch write in flight) accepts no more toggles.
     rerender(<SessionRow {...base} selectionLocked />);
-    const locked = rowButton(/Fix the build/);
+    const locked = rowButton();
     expect(locked.getAttribute("aria-disabled")).toBe("true");
     await userEvent.click(locked);
     expect(onToggleSelect).toHaveBeenCalledTimes(1);
 
     // An imported row has no task, so the toolbar can never act on it.
     rerender(<SessionRow {...base} row={importedRow()} />);
-    await userEvent.click(rowButton(/Imported chat/));
+    await userEvent.click(rowButton());
     expect(onToggleSelect).toHaveBeenCalledTimes(1);
     expect(onOpen).not.toHaveBeenCalled();
   });
 
-  it("Shift Enter enters selection through onToggleSelect and never opens the thread", () => {
+  it("Shift Enter enters selection through onStartSelection and never opens the thread", () => {
     const onToggleSelect = vi.fn();
+    const onStartSelection = vi.fn();
     const onOpen = vi.fn();
-    const { rerender } = render(<SessionRow {...props({ onToggleSelect, onOpen })} />);
+    const { rerender } = render(
+      <SessionRow {...props({ onToggleSelect, onStartSelection, onOpen })} />,
+    );
 
-    fireEvent.keyDown(rowButton(/Fix the build/), { key: "Enter", shiftKey: true });
+    fireEvent.keyDown(rowButton(), { key: "Enter", shiftKey: true });
 
+    expect(onStartSelection).toHaveBeenCalledTimes(1);
+    expect(onToggleSelect).not.toHaveBeenCalled();
+    expect(onOpen).not.toHaveBeenCalled();
+
+    // Already in the mode, the same shortcut toggles this row.
+    rerender(
+      <SessionRow {...props({ onToggleSelect, onStartSelection, onOpen, selectionMode: true })} />,
+    );
+    fireEvent.keyDown(rowButton(), { key: "Enter", shiftKey: true });
     expect(onToggleSelect).toHaveBeenCalledTimes(1);
+    expect(onStartSelection).toHaveBeenCalledTimes(1);
     expect(onOpen).not.toHaveBeenCalled();
 
     // A locked selection refuses the shortcut for the same reason a click is refused.
-    rerender(<SessionRow {...props({ onToggleSelect, onOpen, selectionLocked: true })} />);
-    fireEvent.keyDown(rowButton(/Fix the build/), { key: "Enter", shiftKey: true });
+    rerender(
+      <SessionRow
+        {...props({ onToggleSelect, onStartSelection, onOpen, selectionLocked: true })}
+      />,
+    );
+    fireEvent.keyDown(rowButton(), { key: "Enter", shiftKey: true });
+    expect(onStartSelection).toHaveBeenCalledTimes(1);
     expect(onToggleSelect).toHaveBeenCalledTimes(1);
     expect(onOpen).not.toHaveBeenCalled();
   });
 
-  it("desktop sidebar shows pin archive and delete actions and forwards each callback", async () => {
+  it("opens the shared menu from one trigger on a sidebar row and forwards pin archive delete", async () => {
     const onPin = vi.fn();
     const onArchive = vi.fn();
     const onDelete = vi.fn();
-    render(
+    const { container } = render(
       <SessionRow {...props({ shell: "sidebar", coarse: false, onPin, onArchive, onDelete })} />,
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "Pin" }));
-    await userEvent.click(screen.getByRole("button", { name: "Archive" }));
-    await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+    // One discoverable control for the row's actions, not three hover-only ones.
+    const trigger = rowActionsTrigger(container);
+    expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    // "More" is the name every row's trigger shares; the conversation it acts
+    // on is the description, so the control is still identifiable by voice.
+    expect(trigger.getAttribute("aria-label")).toBe("More");
+    const describedBy = trigger.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy!)?.textContent).toBe("Fix the build");
 
+    const openMenu = async () => {
+      await userEvent.click(trigger);
+      expect(trigger.getAttribute("aria-expanded")).toBe("true");
+      return screen.getByRole("menu");
+    };
+
+    const first = await openMenu();
+    expect(
+      within(first)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Pin", "Archive", "Delete"]);
+    await userEvent.click(within(first).getByRole("menuitem", { name: "Pin" }));
+    expect(onPin).toHaveBeenCalledTimes(1);
+    // Choosing a row runs it once and puts the menu away again.
+    expect(screen.queryByRole("menu")).toBeNull();
+
+    const second = await openMenu();
+    await userEvent.click(within(second).getByRole("menuitem", { name: "Archive" }));
+    expect(onArchive).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("menu")).toBeNull();
+
+    const third = await openMenu();
+    await userEvent.click(within(third).getByRole("menuitem", { name: "Delete" }));
+    expect(onDelete).toHaveBeenCalledTimes(1);
     expect(onPin).toHaveBeenCalledTimes(1);
     expect(onArchive).toHaveBeenCalledTimes(1);
-    expect(onDelete).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
-  it("archived rows show restore and delete rather than pin and archive", async () => {
+  it("offers restore and delete, not pin and archive, in the archived menu", async () => {
+    const onPin = vi.fn();
+    const onArchive = vi.fn();
     const onRestore = vi.fn();
     const onDelete = vi.fn();
-    render(
+    const { container } = render(
       <SessionRow
         {...props({
           shell: "sidebar",
           coarse: false,
           row: taskRow({ task: task("row-1", 99) }),
           scope: "archived",
+          onPin,
+          onArchive,
           onRestore,
           onDelete,
         })}
       />,
     );
 
-    expect(screen.queryByRole("button", { name: "Pin" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Restore" }));
-    await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+    const trigger = rowActionsTrigger(container);
+    await userEvent.click(trigger);
+    const menu = screen.getByRole("menu");
+    expect(
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Restore", "Delete"]);
 
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Restore" }));
     expect(onRestore).toHaveBeenCalledTimes(1);
+    expect(onPin).not.toHaveBeenCalled();
+    expect(onArchive).not.toHaveBeenCalled();
+
+    await userEvent.click(trigger);
+    await userEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
     expect(onDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes the menu on Escape and returns focus to the trigger", async () => {
+    const { container } = render(<SessionRow {...props({ shell: "sidebar", coarse: false })} />);
+    const trigger = rowActionsTrigger(container);
+
+    await userEvent.click(trigger);
+    const menu = screen.getByRole("menu");
+    await waitFor(() => expect(menu.contains(document.activeElement)).toBe(true));
+
+    await userEvent.keyboard("{Escape}");
+
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("opens the console action sheet from the row trigger on a touch page", async () => {
+    const onArchive = vi.fn();
+    const onDelete = vi.fn();
+    render(<SessionRow {...props({ shell: "page", coarse: true, onArchive, onDelete })} />);
+
+    const trigger = document.querySelector<HTMLElement>("[data-row-actions]");
+    if (!trigger) throw new Error("the touch row did not render an actions trigger");
+    expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
+
+    await userEvent.click(trigger);
+
+    // The sheet is the console's own list, titled with the conversation it acts on.
+    const sheet = screen.getByRole("dialog", { name: "Fix the build" });
+    await userEvent.click(within(sheet).getByRole("button", { name: "Archive" }));
+    expect(onArchive).toHaveBeenCalledTimes(1);
+    expect(onDelete).not.toHaveBeenCalled();
+    // The row runs from the sheet's close, so wait for the teardown rather than
+    // assuming the sheet is gone the instant its row was tapped.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("keeps the trigger out of selection mode and off imported rows", () => {
+    const { container, rerender } = render(
+      <SessionRow {...props({ shell: "sidebar", coarse: false, selectionMode: true })} />,
+    );
+    expect(container.querySelector("[data-row-actions]")).toBeNull();
+
+    rerender(<SessionRow {...props({ shell: "sidebar", coarse: false, row: importedRow() })} />);
+    expect(container.querySelector("[data-row-actions]")).toBeNull();
+
+    rerender(<SessionRow {...props({ shell: "page", coarse: true, selectionMode: true })} />);
+    expect(container.querySelector("[data-row-actions]")).toBeNull();
+
+    // A live chat listed under an archived project is put back by the
+    // project's own Restore, so its row carries no actions at all.
+    rerender(<SessionRow {...props({ shell: "sidebar", coarse: false, scope: "archived" })} />);
+    expect(container.querySelector("[data-row-actions]")).toBeNull();
+  });
+
+  it("does not bring back a surface that was open when the row lost its actions", async () => {
+    const base = props({ shell: "sidebar", coarse: false });
+    const { container, rerender } = render(<SessionRow {...base} />);
+
+    await userEvent.click(rowActionsTrigger(container));
+    expect(screen.getByRole("menu")).toBeTruthy();
+
+    // Multi-select replaces the action surface; the menu goes with the trigger
+    // and its open state must not survive to pop the menu back open later.
+    rerender(<SessionRow {...base} selectionMode />);
+    expect(screen.queryByRole("menu")).toBeNull();
+
+    rerender(<SessionRow {...base} />);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(rowActionsTrigger(container).getAttribute("aria-expanded")).toBe("false");
   });
 
   it("touch rows use SessionRowActions with the existing active or archived width and forward swipe open and long-press callbacks", async () => {
@@ -251,6 +404,9 @@ describe("SessionRow", () => {
     const pin = screen.getByRole("button", { name: "Pin" });
     // Three 76px chips: the strip the row slides over in the list.
     expect(pin.parentElement!.style.width).toBe("228px");
+    // While the strip is in front, the trailing trigger steps out of the way
+    // instead of sliding along beside the chips as a fourth one.
+    expect(document.querySelector("[data-row-actions]")!.className).toContain("invisible");
     expect(screen.getByRole("button", { name: "Archive" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
 
@@ -272,7 +428,7 @@ describe("SessionRow", () => {
           swipeOpen={false}
         />,
       );
-      const row = rowButton(/Fix the build/);
+      const row = rowButton();
       // Past half of the 228px active strip, so the drag commits it open.
       pointer(row, "pointerdown", 200);
       pointer(row, "pointermove", 40);
@@ -284,6 +440,17 @@ describe("SessionRow", () => {
       act(() => {
         vi.advanceTimersByTime(600);
       });
+      expect(onLongPress).toHaveBeenCalledTimes(1);
+
+      // A press that starts on the trailing trigger is a press on that control,
+      // not the row's long press: holding "More" must open the sheet, not
+      // silently enter selection and swallow the tap.
+      const trigger = document.querySelector("[data-row-actions]")!;
+      pointer(trigger, "pointerdown", 200);
+      act(() => {
+        vi.advanceTimersByTime(600);
+      });
+      pointer(trigger, "pointerup", 200);
       expect(onLongPress).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();

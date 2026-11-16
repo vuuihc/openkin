@@ -6,6 +6,7 @@ import { cwdPickerMode } from "../../lib/devices";
 import { isKinDesktop, pickDirectory } from "../../lib/desktop";
 import { projectLabel, shortPath } from "../../lib/paths";
 import { useAppStore } from "../../store/appStore";
+import Button from "../ui/Button";
 import MachineBrowser from "./MachineBrowser";
 
 function sameDirs(a: string[], b: string[]): boolean {
@@ -62,6 +63,9 @@ export default function CwdPicker({
   const [draft, setDraft] = useState(cwd);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // The chip is what the browser hangs from at Mac widths; the panel measures
+  // this element and returns focus here when it dismisses.
+  const chipRef = useRef<HTMLButtonElement>(null);
   const desktop = isKinDesktop();
   // A native dialog answers about this machine's filesystem and no other, so a
   // form aimed at a remote machine browses even on the desktop.
@@ -166,30 +170,36 @@ export default function CwdPicker({
           ))}
         </datalist>
         {native ? (
-          <button
-            type="button"
+          <Button
+            variant="quiet"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => void openNativePicker()}
-            className="flex-none text-caption font-medium text-kin-blue-ink px-1.5 py-1"
+            className="flex-none px-1.5 py-1 text-caption font-medium text-kin-blue-ink!"
           >
             {tr("cwd.browseEllipsis")}
-          </button>
+          </Button>
         ) : (
-          <button
-            type="button"
+          <Button
+            variant="quiet"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
               setEditing(false);
               setBrowsing(true);
             }}
-            className="flex-none text-caption font-medium text-kin-blue-ink px-1.5 py-1"
+            className="flex-none px-1.5 py-1 text-caption font-medium text-kin-blue-ink!"
           >
             {tr("cwd.browseEllipsis")}
-          </button>
+          </Button>
         )}
       </div>
     );
   }
+
+  const chipTitle = cwd
+    ? tr("cwd.workingDir", { path: cwd })
+    : native
+      ? tr("cwd.browseForFolder")
+      : tr("cwd.setCwd");
 
   return (
     <div
@@ -199,89 +209,74 @@ export default function CwdPicker({
         className,
       ].join(" ")}
     >
-      {browsing && (
-        <MachineBrowser
-          device={device}
-          initialPath={cwd}
-          onClose={() => setBrowsing(false)}
-          onTypePath={() => {
-            setBrowsing(false);
-            setEditing(true);
-          }}
-          onPick={(path) => {
-            setBrowsing(false);
-            onChange(path);
-          }}
-        />
-      )}
-      <button
-        type="button"
+      {/* Mounted while closed so the shared layer can return focus to the chip
+          when it dismisses. The body itself only mounts while open. */}
+      <MachineBrowser
+        open={browsing}
+        device={device}
+        initialPath={cwd}
+        anchorRef={chipRef}
+        onClose={() => setBrowsing(false)}
+        onTypePath={() => {
+          setBrowsing(false);
+          setEditing(true);
+        }}
+        onPick={(path) => {
+          setBrowsing(false);
+          onChange(path);
+        }}
+      />
+      <Button
+        ref={chipRef}
+        variant="quiet"
         disabled={busy}
         onClick={() => {
           if (native) void openNativePicker();
           else setBrowsing(true);
         }}
+        aria-label={chipTitle}
+        aria-haspopup={native ? undefined : "dialog"}
+        aria-expanded={native ? undefined : browsing}
+        title={chipTitle}
         className={[
-          "min-w-0 flex items-center text-left rounded-md hover:text-kin-secondary hover:bg-[var(--kin-fill)] transition-colors disabled:opacity-50",
-          compact ? "gap-1.5 py-0.5 px-1 flex-none" : "gap-2 py-1 flex-none",
+          "min-w-0 flex-none justify-start rounded-md text-left font-normal [&>span]:min-w-0 [&>span>span]:min-w-0",
+          compact ? "px-1 py-0.5" : "px-1 py-1",
         ].join(" ")}
-        title={
-          cwd
-            ? tr("cwd.workingDir", { path: cwd })
-            : native
-              ? tr("cwd.browseForFolder")
-              : tr("cwd.setCwd")
-        }
       >
-        <FolderIcon />
-        {cwd ? (
-          <span className="font-medium text-kin-secondary">{projectLabel(cwd)}</span>
-        ) : (
-          <span className="text-kin-orange-ink">
-            {native ? tr("cwd.chooseFolder") : tr("cwd.chooseCwd")}
-          </span>
-        )}
-      </button>
+        <span
+          className={["inline-flex min-w-0 items-center", compact ? "gap-1.5" : "gap-2"].join(" ")}
+        >
+          <FolderIcon />
+          {cwd ? (
+            <span className="truncate font-medium text-kin-secondary">{projectLabel(cwd)}</span>
+          ) : (
+            <span className="truncate text-kin-orange-ink">
+              {native ? tr("cwd.chooseFolder") : tr("cwd.chooseCwd")}
+            </span>
+          )}
+        </span>
+      </Button>
       {cwd && <PathHoverTag cwd={cwd} compact={compact} />}
 
-      {native ? (
-        <>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void openNativePicker()}
-            className="flex-none text-caption font-medium text-kin-blue-ink hover:underline disabled:opacity-50"
-          >
-            {busy ? "…" : tr("cwd.browse")}
-          </button>
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="flex-none text-caption text-kin-muted hover:text-kin-secondary"
-            title={tr("cwd.typePath")}
-          >
-            {tr("cwd.edit")}
-          </button>
-        </>
-      ) : (
-        <>
-          <button
-            type="button"
-            onClick={() => setBrowsing(true)}
-            className="flex-none text-caption font-medium text-kin-blue-ink hover:underline"
-          >
-            {tr("cwd.browse")}
-          </button>
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="flex-none text-caption text-kin-muted hover:text-kin-secondary"
-            title={tr("cwd.typePath")}
-          >
-            {tr("cwd.edit")}
-          </button>
-        </>
-      )}
+      <Button
+        variant="quiet"
+        disabled={busy}
+        onClick={() => {
+          if (native) void openNativePicker();
+          else setBrowsing(true);
+        }}
+        className="flex-none px-1.5 text-caption font-medium text-kin-blue-ink!"
+      >
+        {busy ? "…" : tr("cwd.browse")}
+      </Button>
+      <Button
+        variant="quiet"
+        onClick={() => setEditing(true)}
+        className="flex-none px-1.5 text-caption text-kin-muted! hover:text-kin-secondary!"
+        title={tr("cwd.typePath")}
+      >
+        {tr("cwd.edit")}
+      </Button>
 
       {dirs.length > 0 && !cwd && <div className="hidden" />}
     </div>
@@ -300,6 +295,12 @@ function processPlaceholder(): string {
  * Portaled to <body> — the footer row scrolls horizontally
  * (overflow-x-auto), which would otherwise clip an absolutely-positioned
  * child on the vertical axis too.
+ *
+ * This portal is the slice's one documented exception to "put panels on the
+ * shared layers": a hover card must not take focus when it opens, and the
+ * console's `Popover`/`Tooltip` move focus into the panel on open by contract.
+ * Migrating it would trade a counter for the wrong interaction, so only its
+ * copy action moves onto `Button`.
  */
 function PathHoverTag({ cwd, compact }: { cwd: string; compact?: boolean }) {
   const tr = useT();
@@ -351,7 +352,7 @@ function PathHoverTag({ cwd, compact }: { cwd: string; compact?: boolean }) {
   return (
     <span
       ref={anchorRef}
-      className="relative min-w-0 flex-1 truncate rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-kin-focus-ring"
+      className="relative flex min-h-11 min-w-0 flex-1 items-center rounded-sm sm:min-h-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-kin-focus-ring"
       role="button"
       tabIndex={0}
       aria-label={`${tr("cwd.workingDir", { path: cwd })}. ${tr("cwd.copy")}`}
@@ -371,7 +372,7 @@ function PathHoverTag({ cwd, compact }: { cwd: string; compact?: boolean }) {
         }
       }}
     >
-      <span className="truncate font-mono opacity-80 text-caption">
+      <span className="min-w-0 truncate font-mono opacity-80 text-caption">
         {shortPath(cwd, compact ? 18 : 48)}
       </span>
       {rect &&
@@ -387,16 +388,16 @@ function PathHoverTag({ cwd, compact }: { cwd: string; compact?: boolean }) {
             <span className="max-w-path truncate font-mono text-caption text-kin-secondary">
               {cwd}
             </span>
-            <button
-              type="button"
+            <Button
+              variant="quiet"
               onClick={(event) => {
                 event.stopPropagation();
                 void copy();
               }}
-              className="flex-none text-caption font-medium text-kin-blue-ink hover:underline"
+              className="flex-none px-1.5 py-0.5 text-caption font-medium text-kin-blue-ink!"
             >
               {tr("cwd.copy")}
-            </button>
+            </Button>
           </span>,
           document.body,
         )}

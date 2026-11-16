@@ -843,6 +843,124 @@ describe("transcriptProjection", () => {
     });
   });
 
+  it("keeps reasoning and narration in the body while the turn is live, and tools in a card", () => {
+    const events = [
+      ev(1, "message", {
+        role: "reasoning",
+        phase: "progress",
+        speaker: "kin",
+        text: "Inspecting the repository.",
+        partial: false,
+        visibility: { user: true, task: true },
+      }),
+      ev(2, "tool_use", {
+        speaker: "kin",
+        tool_use_id: "call-1",
+        name: "glob",
+        input: { pattern: "**/*.tsx" },
+        visibility: { user: true, task: true },
+      }),
+      ev(3, "tool_result", {
+        speaker: "kin",
+        tool_use_id: "call-1",
+        name: "glob",
+        output: "ChatStream.tsx",
+        ok: true,
+        visibility: { user: true, task: true },
+      }),
+      ev(4, "message", {
+        role: "assistant",
+        phase: "progress",
+        speaker: "kin",
+        text: "Located the rendering path.",
+        partial: false,
+        visibility: { user: true, task: true },
+      }),
+      ev(5, "tool_use", {
+        speaker: "kin",
+        tool_use_id: "call-2",
+        name: "read",
+        input: { path: "ChatStream.tsx" },
+        visibility: { user: true, task: true },
+      }),
+      ev(6, "tool_result", {
+        speaker: "kin",
+        tool_use_id: "call-2",
+        name: "read",
+        output: "export default function ChatStream() {}",
+        ok: true,
+        visibility: { user: true, task: true },
+      }),
+      ev(7, "message", {
+        role: "assistant",
+        phase: "summary",
+        speaker: "kin",
+        text: "Fixed the rendering path.",
+        partial: false,
+        visibility: { user: true, task: true },
+      }),
+    ];
+
+    // Live: every note is its own body item, in the order it happened; the
+    // tools between them keep a card. The projection's own items are folded by
+    // `mergeProcessRuns` in the stream, which is what the reader sees.
+    const live = mergeProcessRuns(buildChatItems(events, "kin", undefined, false), true);
+
+    expect(live.map((item) => item.kind)).toEqual([
+      "progress",
+      "progress",
+      "progress",
+      "progress",
+      "message",
+    ]);
+    expect(live[0]).toMatchObject({
+      kind: "progress",
+      steps: [{ kind: "note", source: "reasoning", text: "Inspecting the repository." }],
+    });
+    expect(live[1]).toMatchObject({
+      kind: "progress",
+      steps: [{ kind: "tool", name: "glob", status: "done" }],
+    });
+    expect(live[2]).toMatchObject({
+      kind: "progress",
+      steps: [{ kind: "note", source: "note", text: "Located the rendering path." }],
+    });
+    expect(live[3]).toMatchObject({
+      kind: "progress",
+      steps: [{ kind: "tool", name: "read", status: "done" }],
+    });
+    expect(live[4]).toMatchObject({
+      kind: "message",
+      text: "Fixed the rendering path.",
+    });
+
+    // A note item is keyed by the note itself: the key survives stream updates
+    // and is what the find bar points at.
+    for (const item of live.slice(0, 4)) {
+      const progress = item as ProgressItem;
+      expect(progress.steps).toHaveLength(1);
+      expect(progress.key).toBe(progress.steps[0].key);
+    }
+
+    // Settled: the same turn is one process card plus the final answer, exactly
+    // as it was before the live split.
+    const settled = mergeProcessRuns(buildChatItems(events, "kin", undefined, true));
+    expect(settled).toHaveLength(2);
+    expect(settled[0]).toMatchObject({
+      kind: "progress",
+      steps: [
+        { kind: "note", text: "Inspecting the repository." },
+        { kind: "tool", name: "glob", status: "done" },
+        { kind: "note", text: "Located the rendering path." },
+        { kind: "tool", name: "read", status: "done" },
+      ],
+    });
+    expect(settled[1]).toMatchObject({
+      kind: "message",
+      text: "Fixed the rendering path.",
+    });
+  });
+
   it("converts legacy tool dump messages into progress tool steps", () => {
     const items = buildChatItems(
       [
@@ -1709,6 +1827,47 @@ describe("mergeProcessRuns", () => {
       key: "final",
       phase: "summary",
     });
+  });
+
+  it("splits only the trailing run, so a finished round keeps its card", () => {
+    // A follow-up posts into the same task: it is still non-terminal, but the
+    // first round already ended at the user message and must not re-open.
+    const items: ChatItem[] = [
+      progressWithNotes("p1", ["First round note."]),
+      message("final", "First round answer."),
+      { kind: "message", key: "u2", speaker: "user", text: "follow up" },
+      progressWithNotes("p2", ["Second round note."]),
+      message("live", "still working", true),
+    ];
+
+    const merged = mergeProcessRuns(items, true);
+
+    // Round one keeps the exact card it had while it was the live round.
+    expect(merged[0]).toMatchObject({
+      kind: "progress",
+      key: "p1",
+      steps: [
+        { kind: "tool", name: "bash" },
+        { kind: "note", text: "First round note." },
+        { kind: "tool", name: "read" },
+      ],
+    });
+    expect((merged[0] as ProgressItem).prose).toBeUndefined();
+    expect((merged[0] as ProgressItem).live).toBeUndefined();
+
+    // Round two is the live one: its note is body prose, its tools a card.
+    const liveNote = merged.find(
+      (item): item is ProgressItem =>
+        item.kind === "progress" &&
+        item.steps.some((step) => step.kind === "note" && step.text === "Second round note."),
+    );
+    expect(liveNote?.prose).toBe(true);
+    const liveTool = merged.find(
+      (item): item is ProgressItem =>
+        item.kind === "progress" &&
+        item.steps.some((step) => step.kind === "tool" && step.key === "p2-t1"),
+    );
+    expect(liveTool?.live).toBe(true);
   });
 
   it("merges consecutive progress cards without splitting notes", () => {

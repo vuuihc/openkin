@@ -9,7 +9,7 @@ import {
   type NavigateFunction,
 } from "react-router-dom";
 import { useEffect } from "react";
-import { notePhoneLocation, phonePush, resetPhoneNavigation } from "./phoneNavigation";
+import { notePhoneLocation, phonePush, phoneTabUrl, resetPhoneNavigation } from "./phoneNavigation";
 import { synthesizePhoneParent } from "./phoneDeepLinkParent";
 
 /**
@@ -284,6 +284,52 @@ describe("root peers on a deeper history entry", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
     expect(window.history.state.idx).toBe(1);
     mounted.unmount();
+  });
+});
+
+describe("each phone tab's last view", () => {
+  it("remembers each phone root's last URL, params included", () => {
+    notePhoneLocation({ pathname: "/routines", search: "?device=m2" });
+    notePhoneLocation({ pathname: "/settings", search: "?tab=providers" });
+    notePhoneLocation({ pathname: "/settings", search: "?tab=operations" });
+
+    expect(phoneTabUrl("routines")).toBe("/routines?device=m2");
+    // Agent Ops is its own footer entry even though it lives on Settings: the
+    // operations URL belongs to that entry, and Settings keeps its own view.
+    expect(phoneTabUrl("agents")).toBe("/settings?tab=operations");
+    expect(phoneTabUrl("settings")).toBe("/settings?tab=providers");
+    // A root the reader has not visited opens at its own root.
+    expect(phoneTabUrl("sessions")).toBe("/sessions");
+  });
+
+  it("refuses an operations URL remembered under Settings", () => {
+    // A value written before Agent Ops got its own entry must not make the
+    // Settings tab reopen the operations panel.
+    sessionStorage.setItem(
+      "kin.phoneTabUrls",
+      JSON.stringify({ settings: "/settings?tab=operations", agents: "/settings?tab=operations" }),
+    );
+
+    expect(phoneTabUrl("settings")).toBe("/settings");
+    // The same URL is still Agent Ops' own destination.
+    expect(phoneTabUrl("agents")).toBe("/settings?tab=operations");
+  });
+
+  it("refuses a remembered URL that is not that root", () => {
+    // A stale or foreign value — a detail path, another root's URL, or an
+    // absolute URL — must not become a footer destination.
+    sessionStorage.setItem(
+      "kin.phoneTabUrls",
+      JSON.stringify({
+        routines: "/routines/today?device=m2",
+        agents: "/settings#x",
+        settings: "https://evil.example",
+      }),
+    );
+
+    expect(phoneTabUrl("routines")).toBe("/routines");
+    expect(phoneTabUrl("agents")).toBe("/agents");
+    expect(phoneTabUrl("settings")).toBe("/settings");
   });
 });
 

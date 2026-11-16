@@ -274,6 +274,7 @@ export default function CommandPalette({
   return (
     <div
       className="fixed inset-0 z-[100] flex items-start justify-center pt-[12vh] px-4 bg-black/55 backdrop-blur-[2px]"
+      // eslint-disable-next-line kin/no-raw-overlay-role -- the command palette owns its focus trap, Escape and stacking
       role="dialog"
       aria-modal="true"
       aria-label={tr("palette.title")}

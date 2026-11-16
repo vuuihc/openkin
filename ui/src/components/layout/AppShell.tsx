@@ -5,10 +5,11 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { getUsageSummary, type AgentSessionImportResult, type Approval } from "../../api/client";
+import type { AgentSessionImportResult, Approval } from "../../api/client";
 import { useTaskList, useTaskResource } from "../../api/useLiveResources";
 import { isImeKeyEvent } from "../../lib/ime";
 import { DRAFT_PATH, draftSurfaceActive, getDraftCwd, subscribeDraft } from "../../lib/draftChat";
@@ -17,9 +18,11 @@ import { importToast } from "../../lib/agentSessionImport";
 import { useAgentSessionImport } from "../../hooks/useAgentSessionImport";
 import { useAgentCatalog } from "../../hooks/useAgentCatalog";
 import { useT } from "../../i18n/react";
+import { resolveArea } from "../../lib/areaNavigation";
 import CommandPalette from "../CommandPalette";
 import { useAppStore } from "../../store/appStore";
 import Sidebar from "./Sidebar";
+import AreaNav, { areaShortcutRoot, railCompact } from "./AreaNav";
 import MobileHeader, { MobileHeaderButton } from "../mobile/MobileHeader";
 import SessionsHeader from "../mobile/SessionsHeader";
 import { IconBack, IconSearch, IconX } from "../icons";
@@ -39,7 +42,7 @@ import {
 import { useMachines } from "../../hooks/useMachines";
 import { remoteMachine } from "../../lib/devices";
 import { placeById } from "../../lib/places";
-import { focusPlaceReturn, rememberPlaceReturn, takePlaceReturn } from "../../lib/placeReturn";
+import { focusPlaceReturn, takePlaceReturn } from "../../lib/placeReturn";
 import { taskDisplayTitle } from "../../lib/taskTitle";
 import { floatingApprovals } from "../../lib/floatingApprovals";
 import { useApprovalDecision } from "../../hooks/useApprovalDecision";
@@ -57,7 +60,6 @@ import {
 } from "../../lib/phoneNavigation";
 import FloatingApproval from "../cards/FloatingApproval";
 import PhoneFooter from "./PhoneFooter";
-import { usePhoneTabSwipe } from "../../hooks/usePhoneTabSwipe";
 import ErrorBoundary from "../ErrorBoundary";
 
 type Props = {
@@ -82,6 +84,43 @@ function publishAgentSessionSync(result: AgentSessionImportResult): void {
 
 const SHELL_TITLE_TASKS = { limit: 200 } as const;
 
+/**
+ * The Mac shell's column widths, as the classes spell them.
+ *
+ * `Sidebar` is `w-list` (304px), `AreaNav` compacts to `w-rail-compact` (64px),
+ * and `PanelSurface`'s column skin is `lg:w-[380px]`. They live here as numbers
+ * only so the width floor can be arithmetic instead of a screenshot: jsdom has
+ * no layout, and "the conversation never drops below 420px" is the one promise
+ * of this layout that a DOM test cannot measure.
+ */
+export const LIST_COLUMN = 304;
+export const PANEL_COLUMN = 380;
+export const CONVERSATION_MIN = 420;
+
+/**
+ * What is left for the conversation, in CSS pixels.
+ *
+ * The rail is always spent on a Mac; the list only while it is drawn; the
+ * panel only while it is a column. The test in `AppShell.dom.test.tsx` pins
+ * the arrangement the shell actually renders — list hidden, panel as a column
+ * — above `CONVERSATION_MIN`, and the list-drawn variant below it, which is
+ * *why* the list yields.
+ */
+export function conversationWidth({
+  window: windowWidth,
+  rail,
+  listShown,
+  panel,
+}: {
+  window: number;
+  rail: number;
+  listShown: boolean;
+  /** The panel's column width, or null while no panel is a column. */
+  panel: number | null;
+}): number {
+  return windowWidth - rail - (listShown ? LIST_COLUMN : 0) - (panel ?? 0);
+}
+
 function taskIdFromPath(pathname: string): string | null {
   const m = pathname.match(/^\/tasks\/([^/]+)\/?$/);
   return m?.[1] ?? null;
@@ -101,6 +140,10 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
   // list on a phone; the shell's draft state has to agree with what is drawn,
   // not just with `/new`.
   const wide = useMinWidth(768);
+  // The rail's compact width is a 1280 decision, separate from the phone/desktop
+  // one: an iPad at 1100 is wide enough for the shell but not for a labelled
+  // rail beside a conversation and an open panel.
+  const wide1280 = useMinWidth(1280);
   const draftActive = draftSurfaceActive(location.pathname, wide);
   const desktop = isKinDesktop();
   // On the phone there is no sidebar to say where you are, so the header has to.
@@ -134,6 +177,12 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
         ? tr("nav.settings")
         : listTitle || tr("app.name");
   const onSessionsTab = location.pathname === "/sessions";
+  // The conversation list column belongs to Conversations and nowhere else.
+  // Beside Projects, Routines or Settings it repeats that area's own navigation
+  // in a second column and takes 304px from the pane a table or a form needs
+  // (the agent-operations table lost its last columns to it). The rail already
+  // says which area is open, so the area table is the one answer here too.
+  const onConversationsArea = resolveArea(location) === "conversations";
   const onPhoneTab = PHONE_TAB_IDS.some((id) => pathname === placeById(id).path);
 
   /**
@@ -215,29 +264,20 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
     if (draftActive) closeDraft();
     else leaveScreen();
   });
+  // Only the offset is visual; the handlers stay on the fixed edge strip so
+  // `touch-action: pan-y` is decided where the finger lands.
+  const { offset: edgeOffset, handlers: edgeHandlers } = edgeBack;
 
-  // Equal roots replace one another. A detail / draft still pushes and returns.
+  // The tab bar is the one way between areas. A sideways drag on a root has
+  // nothing to switch to; a deliberate tap on an entry is the whole gesture.
   // Feedback stays in gesture thresholds: never put a transform on `.kin-main`,
   // where fixed panels and sheets would lose the viewport as their container.
-  const tabSwipe = usePhoneTabSwipe(!wide && onPhoneTab, (direction) => {
-    const index = PHONE_TAB_IDS.findIndex((id) => placeById(id).path === pathname);
-    const next = PHONE_TAB_IDS[index + direction];
-    if (!next) return;
-    const place = placeById(next);
-    const target = next === "sessions" ? returnListUrl(location) : place.path;
-    if (target === `${location.pathname}${location.search}`) return;
-    runGuardedNavigation(() => {
-      rememberPlaceReturn(next);
-      phonePush(navigate, location, target);
-    });
-  });
 
   // The shell still needs task titles for the floating approval card. The
   // list itself owns its own feed now, including search, so this read is only
   // a name lookup — not the sidebar's data.
   const taskList = useTaskList(SHELL_TITLE_TASKS);
   const tasks = taskList.data;
-  const [weekCost, setWeekCost] = useState<number | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   // Zen: chrome out of the way, session untouched. State, not a preference —
   // nothing writes it anywhere, so a reload is always back to the shell (P3 plan
@@ -364,20 +404,6 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
     toggleShellPanel("terminal");
   }, [toggleShellPanel]);
 
-  const loadUsage = useCallback(async () => {
-    try {
-      const rows = await getUsageSummary(7);
-      const cost = rows.reduce((s, r) => s + (r.cost_usd ?? 0), 0);
-      setWeekCost(cost);
-    } catch {
-      setWeekCost(null);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadUsage();
-  }, [loadUsage]);
-
   // Subscribe to draft cwd changes
   useEffect(() => {
     // Get initial cwd
@@ -413,10 +439,27 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
         e.stopPropagation();
         toggleTerminal();
       }
+      // ⌘1–⌘4 are the four areas. Same guards as ⌘F: a held key, an IME
+      // composition, a chord with another modifier, a floating layer, the
+      // palette, or a page that already answered the key is not this shortcut.
+      // The departure runs through the leave guard like every other one.
+      // `areaShortcutRoot` is asked first: the overlay walk below is a document
+      // query, and it must not run for every keystroke in a text field.
+      const root = areaShortcutRoot(e);
+      if (
+        root &&
+        !paletteOpen &&
+        !e.defaultPrevented &&
+        !isImeKeyEvent(e) &&
+        !overlayOwnsKeyboard()
+      ) {
+        e.preventDefault();
+        runGuardedNavigation(() => navigate(root));
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [terminalAvailable, openNewChat, toggleTerminal, paletteOpen]);
+  }, [terminalAvailable, openNewChat, toggleTerminal, paletteOpen, navigate]);
 
   // ⌘F is the list's search (step 2). The transcript's own find bar keeps the
   // key while the caret is inside the conversation, where it is the closer
@@ -458,6 +501,45 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
       })
     : null;
 
+  /**
+   * The session panel `TaskDetailPage` will actually draw, resolved with the
+   * same facts the page builds its context from.
+   *
+   * Availability is the part that must not be skipped: `shownPanel` can name a
+   * panel this session does not offer (publish on a local session, a task
+   * whose machine just went away), and the page then renders no panel at all.
+   * A shell that only asked "is a panel named?" would hide the list for a
+   * surface that never appears — no panel and no `Show list` button to bring
+   * the list back.
+   */
+  const openTaskPanel =
+    selectedTaskId !== null
+      ? resolvePanel(panelForView(shownPanel, selectedTaskId), {
+          taskId: selectedTaskId,
+          remote: remoteTask !== null,
+          desktop,
+        })
+      : null;
+  // Whether a panel is covering the conversation right now. The rail compacts
+  // on it: at 1100 or with the panel open, labels cost the conversation width
+  // the review loop needs (TASTE 17). The shell's panel counts too — the
+  // terminal opens over a conversation while `shownPanel` names the shell's
+  // view, not the conversation's, and the rail must compact underneath it.
+  const panelOpen = terminalPanel !== null || openTaskPanel !== null;
+  /**
+   * One surface at a time: while a panel is open for the conversation in
+   * front, the list column yields to it, at every width the shell is wide.
+   *
+   * `panelForView` is what keeps this honest in both directions. A panel
+   * opened in another conversation is not this one's to hide the list for,
+   * and the terminal's view is the shell's, so it leaves the list alone.
+   * `resolvePanel` keeps the other direction honest: a panel that is named but
+   * not offered here is not drawn by the page either, so it must not hide the
+   * list. Derived rather than stored: "the list is hidden" is not a second
+   * fact about the panel, and a store field could disagree with it.
+   */
+  const listYielded = openTaskPanel !== null;
+
   // Tray "New Chat" deep-link: /?new=1 or /new
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -480,17 +562,25 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
       }`}
     >
       {wide && (
-        <Sidebar
-          selectedTaskId={selectedTaskId}
-          draftActive={draftActive}
-          pendingCount={pendingApprovals.length}
-          routineUnreadCount={routineUnreadCount}
-          weekCost={weekCost}
-          onNewChat={openNewChat}
-          agentCatalog={agentCatalog}
-          importingExternalSessions={importingExternalSessions}
-          onImportExternalSessions={(agents) => void importExternalSessions(agents)}
-        />
+        <>
+          <AreaNav
+            compact={railCompact(panelOpen, wide1280)}
+            pendingCount={pendingApprovals.length}
+            routineUnreadCount={routineUnreadCount}
+            onOpenPalette={() => setPaletteOpen(true)}
+          />
+          {onConversationsArea && !listYielded && (
+            <Sidebar
+              selectedTaskId={selectedTaskId}
+              draftActive={draftActive}
+              pendingCount={pendingApprovals.length}
+              onNewChat={openNewChat}
+              agentCatalog={agentCatalog}
+              importingExternalSessions={importingExternalSessions}
+              onImportExternalSessions={(agents) => void importExternalSessions(agents)}
+            />
+          )}
+        </>
       )}
 
       {/*
@@ -507,7 +597,7 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
           data-kin-edge-back
           className="fixed inset-y-0 left-0 z-30 w-5 md:hidden"
           style={{ touchAction: "pan-y" }}
-          {...edgeBack}
+          {...edgeHandlers}
         />
       )}
 
@@ -598,10 +688,23 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
         <main
           className="kin-main flex-1 min-h-0 overflow-hidden flex flex-col"
           data-phone-tab={onPhoneTab ? pathname : undefined}
-          // Single-finger pans belong to the tab swipe; pinch-zoom stays with
-          // the browser. The hook ignores multi-touch, so zoom never switches.
-          style={!wide && onPhoneTab ? { touchAction: "pan-y pinch-zoom" } : undefined}
-          {...tabSwipe}
+          // A sideways drag on a root now belongs to the page (and to whatever
+          // wide card or chart sits under the finger). The browser keeps its
+          // vertical pan and pinch-zoom, but horizontal overscroll stays out.
+          //
+          // The edge-back offset is a custom property, not an inline transform:
+          // `index.css` moves `.kin-main > *`, so every page root stays a
+          // direct child of <main> and `.kin-main` itself never becomes the
+          // containing block for a fixed panel. The property and the attribute
+          // exist only while a phone drag is active — `useEdgeSwipeBack` zeroes
+          // them on release, cancel, disable and unmount.
+          style={
+            {
+              ...(!wide && onPhoneTab ? { touchAction: "pan-y pinch-zoom" } : null),
+              ...(edgeOffset > 0 ? { "--page-swipe-x": `${edgeOffset}px` } : null),
+            } as CSSProperties
+          }
+          data-kin-swiping={edgeOffset > 0 ? "true" : undefined}
         >
           {children}
         </main>

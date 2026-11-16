@@ -339,7 +339,7 @@
         "internal/adapter/detect/skills_catalog.go"
       ],
       "tests": [
-        "ui/src/pages/AgentsPage.dom.test.tsx",
+        "ui/src/components/settings/AgentOperationsSection.dom.test.tsx",
         "ui/src/lib/agentCatalog.test.ts",
         "ui/src/lib/agentLimits.test.ts",
         "ui/src/lib/agentPageState.test.ts",
@@ -405,7 +405,6 @@
       "ownerPaths": [
         "ui/src/components/layout/AppShell.tsx",
         "ui/src/components/layout/PhoneFooter.tsx",
-        "ui/src/hooks/usePhoneTabSwipe.ts",
         "ui/src/components/mobile/SwipeReveal.tsx",
         "ui/src/components/layout/Sidebar.tsx",
         "ui/src/components/mobile/SessionsHeader.tsx",

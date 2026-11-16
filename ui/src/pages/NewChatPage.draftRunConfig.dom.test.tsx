@@ -138,7 +138,7 @@ async function chooseModel(label: string) {
   await user.click(screen.getByRole("button", { name: /^Run settings/ }));
   const sheet = await screen.findByRole("dialog", { name: "Run settings" });
   await user.click(within(sheet).getByRole("button", { name: /^Model:/ }));
-  await user.click(await screen.findByRole("option", { name: label }));
+  await user.click(await screen.findByRole("menuitemradio", { name: label }));
 }
 
 beforeEach(() => {
@@ -177,7 +177,7 @@ describe("the draft's run face", () => {
     await user.click(screen.getByRole("button", { name: /^Run settings/ }));
     const sheet = await screen.findByRole("dialog", { name: "Run settings" });
     await user.click(within(sheet).getByRole("button", { name: /^Agent:/ }));
-    await user.click(await screen.findByRole("option", { name: /Claude Code/ }));
+    await user.click(await screen.findByRole("menuitemradio", { name: /Claude Code/ }));
     first.unmount();
 
     open();

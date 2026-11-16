@@ -3,15 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import type { AgentInfo, AgentLimitStatus, AgentManagement, UsageRow } from "../api/client";
-import { setLocale } from "../i18n";
-import { useAppStore } from "../store/appStore";
+import type { AgentInfo, AgentLimitStatus, AgentManagement, UsageRow } from "../../api/client";
+import { setLocale } from "../../i18n";
+import { useAppStore } from "../../store/appStore";
 import {
   readConnectedFamilies,
   readQuotaWaitSince,
   writeConnectedFamilies,
   writeQuotaWaitSince,
-} from "../lib/agentPageState";
+} from "../../lib/agentPageState";
 
 /**
  * KIN-AGENTS-001: the agents console is a curated room, not a firehose.
@@ -32,8 +32,8 @@ const client = vi.hoisted(() => ({
   importAgentSessions: vi.fn(),
 }));
 
-vi.mock("../api/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../api/client")>();
+vi.mock("../../api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/client")>();
   return {
     ...actual,
     isAuthenticated: () => true,
@@ -47,7 +47,7 @@ vi.mock("../api/client", async (importOriginal) => {
   };
 });
 
-import AgentsPage from "./AgentsPage";
+import AgentsPage from "./AgentOperationsSection";
 
 function product(partial: Partial<AgentInfo> & Pick<AgentInfo, "id" | "name">): AgentInfo {
   return {
@@ -391,7 +391,9 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
     const table = screen.getByRole("table");
     fireEvent.click(within(table).getByRole("button", { name: "Actions — Codex" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Remove from catalog" }));
+    // The shared menu row's accessible name is its label plus the consequence
+    // line the old `title` tooltip never exposed; match on the label prefix.
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Remove from catalog/ }));
 
     await waitFor(() => expect(screen.queryAllByText("Codex")).toHaveLength(0));
     expect(readConnectedFamilies()).not.toContain("codex");
@@ -877,10 +879,11 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     expect(within(row!).getByText("Default")).toBeTruthy();
 
     fireEvent.click(within(row!).getByRole("button", { name: "Actions — Claude Code" }));
-    // Removing the family would remove the agent the setting names.
+    // Removing the family would remove the agent the setting names. A menu row
+    // is a `menuitem` div in the shared facade, so "disabled" is aria-disabled.
     expect(
-      (screen.getByRole("menuitem", { name: "Remove from catalog" }) as HTMLButtonElement).disabled,
-    ).toBe(true);
+      screen.getByRole("menuitem", { name: /^Remove from catalog/ }).getAttribute("aria-disabled"),
+    ).toBe("true");
   });
 
   it("stops presenting the last auth state when the probe fails", async () => {

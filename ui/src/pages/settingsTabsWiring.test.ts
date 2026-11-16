@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { normalizeSettingsTab } from "../lib/areaNavigation";
 
 /**
  * The settings page's tab set, checked at the seam a panel test cannot see.
@@ -27,14 +28,43 @@ function declaredTabIds(): string[] {
 }
 
 describe("the settings page tabs", () => {
-  it("offers exactly the five settings that are still used", () => {
+  it("offers exactly the six settings that are still used", () => {
+    // N4 hosts the agent console as `operations`, right after the local
+    // `agents` section. The order is the strip order on a desktop and the
+    // "more sections" order on a phone, so it is asserted, not just the set.
     expect(declaredTabIds()).toEqual([
       "general",
       "agents",
+      "operations",
       "providers",
       "routing",
       "advanced",
     ]);
+  });
+
+  // N4 hosts the page; it does not move the route. `/agents` keeps working
+  // exactly as today until E4a removes it, so a deep link, a bookmark or a
+  // notification that names it still lands.
+  it("still routes /agents on its own", () => {
+    const app = readFileSync(join(UI, "src/App.tsx"), "utf8");
+    expect(app).toContain('<Route path="/agents"');
+  });
+
+  // N2: the tab ids come from the area table now, so this is the one parse the
+  // page and a notification link share. A retired id can only ever be General.
+  it("normalizes an unknown tab to general", () => {
+    for (const retired of ["remote", "notifications", "nope", "", null]) {
+      expect(normalizeSettingsTab(retired)).toBe("general");
+    }
+    expect(normalizeSettingsTab("operations")).toBe("operations");
+    expect(normalizeSettingsTab("routing")).toBe("routing");
+  });
+
+  // The page reads its tab through that one function now; a second parse is how
+  // the page and a notification link could disagree about what `?tab=` means.
+  it("reads the initial tab through the area table", () => {
+    expect(SOURCE).toContain("normalizeSettingsTab");
+    expect(SOURCE).not.toContain("settingsTabFromSearch");
   });
 
   it("renders no retired panel", () => {

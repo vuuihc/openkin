@@ -351,6 +351,125 @@ tester.run("no-arbitrary-z-index", kin.rules["no-arbitrary-z-index"], {
   ],
 });
 
+// The legacy vocabulary the Astryx migration left behind. Both rules run in
+// the ordinary config as well, so an existing file cannot quietly re-spell a
+// primitive; these cases prove the rules can say no.
+tester.run("no-legacy-class", kin.rules["no-legacy-class"], {
+  valid: [
+    { name: "a colour class is not a component class", code: 'const c = "bg-kin-blue";' },
+    { name: "kin-input is a different legacy vocabulary", code: 'const c = "kin-input";' },
+    { name: "a longer word is not kin-btn", code: 'const c = "kin-btns";' },
+    { name: "a prefixed word is not kin-btn", code: 'const c = "my-kin-btn";' },
+    { name: "prose without the class", code: 'const c = "the shared button vocabulary";' },
+  ],
+  invalid: [
+    {
+      name: "a variant class",
+      code: 'const c = "kin-btn-primary";',
+      errors: [{ messageId: "legacy", data: { name: "kin-btn-primary" } }],
+    },
+    {
+      name: "the base class",
+      code: 'const c = "kin-btn";',
+      errors: [{ messageId: "legacy", data: { name: "kin-btn" } }],
+    },
+    {
+      name: "the class inside a longer class list",
+      code: 'const c = "inline-flex kin-btn-deny items-center";',
+      errors: [{ messageId: "legacy", data: { name: "kin-btn-deny" } }],
+    },
+    {
+      name: "the class in a JSX attribute",
+      code: 'const C = () => <button className="kin-btn-approve" />;',
+      errors: [{ messageId: "legacy", data: { name: "kin-btn-approve" } }],
+    },
+    {
+      name: "the class in a template quasi",
+      code: "const c = `kin-btn-secondary ${x}`;",
+      errors: [{ messageId: "legacy", data: { name: "kin-btn-secondary" } }],
+    },
+  ],
+});
+
+tester.run("no-raw-overlay-role", kin.rules["no-raw-overlay-role"], {
+  valid: [
+    { name: "status is not an overlay role", code: 'const C = () => <div role="status" />;' },
+    { name: "alert is not an overlay role", code: 'const C = () => <div role="alert" />;' },
+    { name: "button is a control role", code: 'const C = () => <div role="button" />;' },
+    {
+      name: "radiogroup is a grouped control role",
+      code: 'const C = () => <div role="radiogroup" />;',
+    },
+    {
+      name: "alertdialog is deliberately not in scope",
+      code: 'const C = () => <div role="alertdialog" />;',
+    },
+    {
+      name: "aria-haspopup names the popup, not the role",
+      code: 'const C = () => <div aria-haspopup="dialog" />;',
+    },
+    { name: "a computed role is out of scope", code: "const C = () => <div role={role} />;" },
+  ],
+  invalid: [
+    {
+      name: "dialog",
+      code: 'const C = () => <div role="dialog" />;',
+      errors: [{ messageId: "raw", data: { role: "dialog" } }],
+    },
+    {
+      name: "menu",
+      code: 'const C = () => <div role="menu" />;',
+      errors: [{ messageId: "raw", data: { role: "menu" } }],
+    },
+    {
+      name: "tab",
+      code: 'const C = () => <div role="tab" />;',
+      errors: [{ messageId: "raw", data: { role: "tab" } }],
+    },
+    {
+      name: "listbox",
+      code: 'const C = () => <div role="listbox" />;',
+      errors: [{ messageId: "raw", data: { role: "listbox" } }],
+    },
+    {
+      name: "a literal in an expression container is still a literal",
+      code: 'const C = () => <div role={"dialog"} />;',
+      errors: [{ messageId: "raw", data: { role: "dialog" } }],
+    },
+  ],
+});
+
+/** The ordinary config through ESLint itself: the two new bans apply to
+ * existing product files, and the same facade/test exemptions the guard uses
+ * keep the shared primitives and their cases outside them. */
+describe("eslint.config.js", () => {
+  const source = 'export const Fixture = () => <div className="kin-btn-primary" role="dialog" />;';
+
+  it("bans a kin-btn class and a raw overlay role in an ordinary component", async () => {
+    const ui = fileURLToPath(new URL("../", import.meta.url));
+    const eslint = new ESLint({ cwd: ui });
+    const [result] = await eslint.lintText(source, {
+      filePath: `${ui}src/components/Fixture.tsx`,
+    });
+    expect(result.messages.map((m) => m.ruleId).sort()).toEqual([
+      "kin/no-legacy-class",
+      "kin/no-raw-overlay-role",
+    ]);
+  });
+
+  it("exempts the facade and test sources from the new bans", async () => {
+    const ui = fileURLToPath(new URL("../", import.meta.url));
+    const eslint = new ESLint({ cwd: ui });
+    for (const filePath of ["src/components/ui/Fixture.tsx", "src/Fixture.test.tsx"]) {
+      const [result] = await eslint.lintText(source, { filePath: `${ui}${filePath}` });
+      expect({
+        filePath,
+        findings: result.messages.filter((m) => m.ruleId !== null).map((m) => m.ruleId),
+      }).toEqual({ filePath, findings: [] });
+    }
+  });
+});
+
 /** The guard config through ESLint itself: a disable directive ordinary lint
  * supports must not read as "rule not found", and an unused one must not fail
  * the scoped run under `--max-warnings 0`. */

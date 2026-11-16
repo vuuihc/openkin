@@ -5,7 +5,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
@@ -57,7 +56,7 @@ import LimitCard from "../components/cards/LimitCard";
 import UserQuestionCard from "../components/cards/UserQuestionCard";
 import ChatStream from "../components/chat/ChatStream";
 import { findSpeakerModel, pendingRefSeqs } from "../components/chat/transcriptProjection";
-import Composer, { type SubmitFailure } from "../components/chat/Composer";
+import type { SubmitFailure } from "../components/chat/Composer";
 import {
   forgetPendingSend,
   peekPendingSend,
@@ -65,34 +64,17 @@ import {
   settlePendingSendList,
   type PendingSend,
 } from "../lib/pendingSend";
-import RunConfigControl from "../components/chat/RunConfigSheet";
-import BranchPicker from "../components/chat/BranchPicker";
-import RepoChip from "../components/chat/RepoChip";
-import CwdPicker from "../components/chat/CwdPicker";
-import PermissionModePicker from "../components/chat/PermissionModePicker";
-import ModelPicker from "../components/chat/ModelPicker";
-import {
-  IconAlert,
-  IconArchive,
-  IconBack,
-  IconKin,
-  IconMachine,
-  IconMore,
-  IconPanel,
-  IconRestore,
-  IconShare,
-  IconTrash,
-} from "../components/icons";
+import { IconChevronDown, IconKin } from "../components/icons";
 import { SlowConnectHint } from "../components/Skeleton";
-import PanelSurface from "../components/layout/PanelSurface";
-import MobileHeader, { MobileHeaderButton } from "../components/mobile/MobileHeader";
 import ActionSheet, { type ActionSheetRow } from "../components/ui/ActionSheet";
-import PublishPanel from "../components/pr/PublishPanel";
+import Button from "../components/ui/Button";
 import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
 import FileQuickOpen from "../components/workspace/FileQuickOpen";
-import WorkspacePanel from "../components/workspace/WorkspacePanel";
 import TaskUsageSummary from "../components/usage/TaskUsageSummary";
+import TaskComposerDock from "../components/task/TaskComposerDock";
+import TaskPanels from "../components/task/TaskPanels";
 import WorkerTimeline from "../components/task/WorkerTimeline";
+import TaskHeader from "../components/task/TaskHeader";
 import ShareDialog from "../components/task/ShareDialog";
 import { workerActivity, type WorkerRow } from "../components/task/workerActivity";
 import { extractChangedFiles } from "../lib/changedFiles";
@@ -127,7 +109,7 @@ import {
 import { clearFollowUpDraft, getFollowUpDraft, setFollowUpDraft } from "../lib/followUpDraft";
 import { clearSessionScroll, getSessionScroll, setSessionScroll } from "../lib/sessionScroll";
 import { modelPickerLabel, modelsForAgent } from "../lib/agentModels";
-import { isPanelAvailable, panelForView, resolvePanel, type PanelContext } from "../lib/panels";
+import { panelForView, resolvePanel, type PanelContext } from "../lib/panels";
 import { useAppStore } from "../store/appStore";
 import { displayUserPrompt } from "../lib/attachments";
 
@@ -415,6 +397,20 @@ export default function TaskDetailPage({
   const scrollRef = useRef<HTMLDivElement>(null);
   /** User is near the bottom → stick to new content. */
   const stickToBottomRef = useRef(true);
+  /**
+   * New output that arrived while the reader was reading above the fold.
+   *
+   * A running agent appends below the viewport; saying nothing is how a live
+   * session looks stopped, and pinning anyway is how reading becomes
+   * impossible. The count is only ever "is it nonzero" on screen, but it is
+   * kept as a count so the pill's appearance is one comparison, not a second
+   * boolean to keep in step with this one.
+   */
+  const [unseen, setUnseen] = useState(0);
+  /** `events.length` as of the last render that followed or reported. */
+  const seenEventCountRef = useRef(events.length);
+  /** The task whose events `seenEventCountRef` counts. */
+  const followedTaskIdRef = useRef(id);
   /** First paint of this mounted instance: jump to bottom once (no animation). */
   const didInitialScrollRef = useRef(false);
   /**
@@ -644,6 +640,9 @@ export default function TaskDetailPage({
     const el = scrollRef.current;
     if (!el) return;
     stickToBottomRef.current = isNearBottom(el);
+    // Reading at the end is what "caught up" means: drop the offer to go
+    // there, whether the reader scrolled down or the content shrank to fit.
+    if (stickToBottomRef.current) setUnseen(0);
     // Only record while laid out — hidden (display:none) panes report 0.
     if (active && el.clientHeight > 0) {
       savedScrollTopRef.current = el.scrollTop;
@@ -808,6 +807,42 @@ export default function TaskDetailPage({
     savedScrollTopRef.current = el.scrollTop;
     if (id) setSessionScroll(id, el.scrollTop);
   }, [events, approvals, userQuestions, sending, id]);
+
+  // New output that arrived while the reader was above the fold is reported
+  // once, quietly, instead of merely landing out of sight. The pill is an
+  // affordance, not a loading state: it is raised on growth and drops as soon
+  // as the reader is back at the end, sends a follow-up, or changes session.
+  useEffect(() => {
+    const previous = seenEventCountRef.current;
+    seenEventCountRef.current = events.length;
+    if (events.length <= previous) return;
+    // The opening layout already lands at the end (or is still on its way); a
+    // keep-alive-hidden pane is not being read; a send is about to pin.
+    if (!didInitialScrollRef.current || !active || sending) return;
+    if (stickToBottomRef.current) return;
+    setUnseen((count) => count + (events.length - previous));
+  }, [events.length, active, sending]);
+
+  // The counter belongs to the conversation it was raised for: another task
+  // has its own transcript, its own place and its own unread output.
+  useEffect(() => {
+    if (followedTaskIdRef.current === id) return;
+    followedTaskIdRef.current = id;
+    seenEventCountRef.current = events.length;
+    setUnseen(0);
+  }, [id, events.length]);
+
+  const showNewest = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // Instant, like every other transcript position: the reader asked for the
+    // end, not for a ride through the lines in between.
+    el.scrollTop = el.scrollHeight;
+    stickToBottomRef.current = true;
+    savedScrollTopRef.current = el.scrollTop;
+    if (id) setSessionScroll(id, el.scrollTop);
+    setUnseen(0);
+  }, [id]);
 
   const latestLimitHit = useMemo(() => {
     let lastUserSeq = 0;
@@ -1252,6 +1287,9 @@ export default function TaskDetailPage({
     if (!task) return;
     const sent = pendingSend(text, events);
     setPendingSends((current) => [...current, sent]);
+    // Sending is choosing the end of the conversation; the pill has nothing
+    // left to offer, and the follow effect below pins the new bubble.
+    setUnseen(0);
     setSending(true);
     setAwaitingReply(true);
     // The draft as the composer left it when it submitted — normally empty,
@@ -1686,7 +1724,6 @@ export default function TaskDetailPage({
   };
   const panel = resolvePanel(panelForView(shownPanel, id), panelCtx);
   const filesOpen = panel === "files";
-  const publishOpen = panel === "publish";
   const project = projectLabel(task.cwd);
   const degraded = wsStatus !== "connected" && !terminal;
   // The session's agent belongs to the machine that runs it, not to this one.
@@ -1813,152 +1850,40 @@ export default function TaskDetailPage({
   ];
 
   return (
-    <div className="flex-1 min-w-0 min-h-0 flex relative">
+    /*
+      The row an open panel becomes a column in. Below `lg` it stays the
+      single conversation column it was — the panel is `absolute` there and
+      takes itself out of this flex line — and from `lg` up the panel is a
+      sibling with its own width (`PanelSurface` `shape="column"`), so the
+      diff and the chat are readable at the same time.
+    */
+    <div className="flex-1 min-w-0 min-h-0 flex flex-col lg:flex-row relative">
       <div className="flex-1 min-w-0 min-h-0 flex flex-col kin-surface-chat">
-        {/*
-          The phone's one bar: back, the session's title, and the ⋯ that opens
-          the same action sheet the chip row used to. The chip row was a second
-          44px line holding a host badge, a project link, a status word and the
-          overflow trigger — on a 390px screen it took two rows and its own
-          horizontal scroll, and the title above it was truncated to make room.
-          The status survives as the subtitle; everything else is one tap away.
-        */}
-        <MobileHeader
-          title={task.title || displayUserPrompt(task.prompt || "")}
-          subtitle={
-            // The project is what the session belongs to; the round's state is
-            // appended while it is live rather than replacing the project, so
-            // the second line still answers "which session is this" when a run
-            // is in flight.
-            [
-              task.cwd ? project : undefined,
-              !terminal ? (degraded ? tr("task.reconnect") : tr("task.running")) : undefined,
-            ]
-              .filter(Boolean)
-              .join(" · ") || undefined
-          }
-          leading={
-            <MobileHeaderButton label={tr("app.back")} onClick={goBack}>
-              <IconBack size={20} strokeWidth={2} />
-            </MobileHeaderButton>
-          }
-          trailing={
-            <MobileHeaderButton
-              label={tr("task.sessionActions")}
-              onClick={() => setActionsOpen(true)}
-              tone="muted"
-            >
-              <IconMore size={19} />
-            </MobileHeaderButton>
-          }
+        <TaskHeader
+          task={task}
+          hostAgentName={hostAgentName}
+          hostAgentAvatar={hostAgentAvatar}
+          project={project}
+          terminal={terminal}
+          degraded={degraded}
+          filesOpen={filesOpen}
+          panelOpen={panel !== null}
+          archiving={archiving}
+          deleting={deleting}
+          stopping={stopping}
+          onToggleWorkspace={() => {
+            togglePanel(id, "files");
+          }}
+          onShare={() => setShareOpen(true)}
+          onToggleArchive={onToggleArchive}
+          onDelete={onDelete}
+          onStop={onStop}
+          onBack={goBack}
+          onOpenActions={() => setActionsOpen(true)}
+          // One surface at a time: bringing the list back closes the panel
+          // rather than leaving both columns to squeeze the conversation.
+          onShowList={() => hidePanel(id)}
         />
-
-        {/* Desktop's bar. Same content as before; the phone branch above owns
-            the small widths now, so the mobile-only controls are gone. */}
-        <div
-          className="hidden md:flex min-h-11 flex-none items-center px-5 border-b border-[var(--kin-hairline)]"
-          style={{ WebkitAppRegion: "drag" } as CSSProperties}
-        >
-          <div className="min-w-0 flex-1">
-            <div className="text-strong font-semibold text-kin-text truncate">
-              {task.title || displayUserPrompt(task.prompt || "")}
-            </div>
-          </div>
-          <div
-            /* `min-w-0`, not `flex-none`: the row is desktop-only now, and a
-               non-shrinking cluster whose natural width passes the window edge
-               was clipped there instead of scrolling inside its own box. */
-            className="ml-2 flex min-w-0 items-center gap-2 overflow-x-auto kin-scroll whitespace-nowrap text-body text-kin-muted"
-            style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
-          >
-            <span
-              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1"
-              title={tr("newChat.hostAgent", { name: hostAgentName })}
-            >
-              <span
-                className={`w-4 h-4 rounded-md inline-flex items-center justify-center text-micro font-semibold ${hostAgentAvatar.className}`}
-              >
-                {hostAgentAvatar.initials}
-              </span>
-              <span>{tr("newChat.hostAgent", { name: hostAgentName })}</span>
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                togglePanel(id, "files");
-              }}
-              className={[
-                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-body transition-colors",
-                filesOpen
-                  ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
-                  : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary hover:text-kin-text",
-              ].join(" ")}
-              title={tr("workspace.toggle")}
-            >
-              <IconPanel size={13} />
-              <span>{tr("workspace.title")}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setShareOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-secondary transition-colors hover:text-kin-text"
-              title={tr("task.shareTitle")}
-            >
-              <IconShare size={13} />
-              <span>{tr("task.share")}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => void onToggleArchive()}
-              disabled={archiving}
-              className="inline-flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-secondary transition-colors hover:text-kin-text disabled:opacity-40"
-              title={task?.archived_at ? tr("task.unarchiveSession") : tr("task.archiveSession")}
-              aria-label={
-                task?.archived_at ? tr("task.unarchiveSession") : tr("task.archiveSession")
-              }
-            >
-              {task?.archived_at ? <IconRestore size={13} /> : <IconArchive size={13} />}
-            </button>
-            <button
-              type="button"
-              onClick={() => void onDelete()}
-              disabled={deleting}
-              className="inline-flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-secondary hover:text-kin-red-ink hover:border-kin-red/35 disabled:opacity-40"
-              title={tr("task.deleteSession")}
-              aria-label={tr("task.deleteSession")}
-            >
-              <IconTrash size={13} />
-            </button>
-            {task.project_id ? (
-              <Link
-                to={`/projects/${encodeURIComponent(task.project_id)}`}
-                title={project}
-                className="max-w-[10rem] md:max-w-none truncate text-kin-secondary hover:text-kin-text hover:underline"
-              >
-                {project}
-              </Link>
-            ) : (
-              <span className="max-w-[10rem] md:max-w-none truncate" title={project}>
-                {project}
-              </span>
-            )}
-            {!terminal && (
-              <>
-                <span className="text-kin-blue-ink tabular-nums">
-                  {degraded ? tr("task.reconnect") : tr("task.running")}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => void onStop()}
-                  disabled={stopping}
-                  className="text-body font-semibold text-kin-red-ink hover:bg-kin-red/15 disabled:opacity-40 px-1.5 py-0.5 rounded-md border border-kin-red/30 bg-kin-red/10"
-                >
-                  {stopping ? tr("task.stopping") : tr("composer.stop")}
-                </button>
-              </>
-            )}
-          </div>
-        </div>
 
         {!wide && (
           <ActionSheet
@@ -2009,350 +1934,203 @@ export default function TaskDetailPage({
           />
         </div>
 
-        <div
-          ref={scrollRef}
-          onScroll={onChatScroll}
-          // The focus sink the approval panel hands the keyboard back to on
-          // Esc; `-1` keeps a large scroll area out of the tab order.
-          role="region"
-          aria-label={tr("task.transcript")}
-          tabIndex={-1}
-          className={
-            scrollReady
-              ? "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 outline-none"
-              : "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 invisible outline-none"
-          }
-        >
-          <WorkerTimeline
-            rows={workerRows}
-            onOpenPath={onOpenWorkspacePath}
-            // A settled task has nothing left to stop; a stale running row is
-            // the poll's problem, not a button the reader can use.
-            onStop={isTerminal(task.status) ? undefined : onStopWorker}
-            stoppingKey={workerStoppingKey}
-          />
-          <ChatStream
-            events={events}
-            onOpenPath={onOpenWorkspacePath}
-            fallbackUserPrompt={displayUserPrompt(task.prompt || "")}
-            messageScope={task.id}
-            loading={!detail.loaded || !terminal || sending || awaitingReply}
-            loadingSpeaker={task.agent || "kin"}
-            hostSpeaker={task.agent || "kin"}
-            hostModel={task.model}
-            queuedSeqs={queuedSeqs}
-            onUnqueue={onWithdrawQueued}
-            onEditQueued={onEditQueued}
-            pendingSlots={pendingSlots}
-            showMessageActions={terminal}
-            actionsBusy={actionBusy}
-            onRetry={(seq) => void onRetry(seq)}
-            onFork={(seq) => void onFork(seq)}
-            findOpen={findOpen}
-            onFindOpenChange={setFindOpen}
-            findShortcut={active && panel === null && !fileFinderOpen}
-            findSeed={findSeed}
-            pendingUserMessages={pendingUserMessages}
-            trailing={
-              <>
-                {unanchored.map((entry) => (
-                  <div key={`${entry.kind}-${entry.id}`} className="mt-1">
-                    {renderPendingCard(entry)}
-                  </div>
-                ))}
-                {latestLimitHit && task && (
-                  <div className="mt-2" key={`limit-${latestLimitHit.seq}`}>
-                    <LimitCard
-                      hit={latestLimitHit.payload}
-                      wait={limitWait}
-                      hostAgentId={task.agent || ""}
-                      active={active}
-                      agents={agents}
-                      busy={limitBusy}
-                      onWait={() => void onLimitAction("wait")}
-                      onContinue={() => void onLimitAction("continue")}
-                      onSwitch={(agentId) => void onLimitAction("switch", agentId)}
-                      onDismiss={() => void onLimitAction("dismiss")}
-                    />
-                  </div>
-                )}
-                {needsYou.length > 0 && (
-                  /*
+        {/* The transcript and the offer to return to its end. The wrapper is
+            what the pill floats in: the scroller keeps its own classes and
+            refs, and the pill sits over the last lines rather than taking a
+            row of its own — a new row would move the reading it interrupts. */}
+        <div className="relative flex-1 min-h-0 flex flex-col">
+          <div
+            ref={scrollRef}
+            onScroll={onChatScroll}
+            // The focus sink the approval panel hands the keyboard back to on
+            // Esc; `-1` keeps a large scroll area out of the tab order.
+            role="region"
+            aria-label={tr("task.transcript")}
+            tabIndex={-1}
+            className={
+              scrollReady
+                ? "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 outline-none"
+                : "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 invisible outline-none"
+            }
+          >
+            <WorkerTimeline
+              rows={workerRows}
+              onOpenPath={onOpenWorkspacePath}
+              // A settled task has nothing left to stop; a stale running row is
+              // the poll's problem, not a button the reader can use.
+              onStop={isTerminal(task.status) ? undefined : onStopWorker}
+              stoppingKey={workerStoppingKey}
+            />
+            <ChatStream
+              events={events}
+              onOpenPath={onOpenWorkspacePath}
+              fallbackUserPrompt={displayUserPrompt(task.prompt || "")}
+              messageScope={task.id}
+              loading={!detail.loaded || !terminal || sending || awaitingReply}
+              loadingSpeaker={task.agent || "kin"}
+              hostSpeaker={task.agent || "kin"}
+              hostModel={task.model}
+              queuedSeqs={queuedSeqs}
+              onUnqueue={onWithdrawQueued}
+              onEditQueued={onEditQueued}
+              pendingSlots={pendingSlots}
+              showMessageActions={terminal}
+              actionsBusy={actionBusy}
+              onRetry={(seq) => void onRetry(seq)}
+              onFork={(seq) => void onFork(seq)}
+              findOpen={findOpen}
+              onFindOpenChange={setFindOpen}
+              findShortcut={active && panel === null && !fileFinderOpen}
+              findSeed={findSeed}
+              pendingUserMessages={pendingUserMessages}
+              trailing={
+                <>
+                  {unanchored.map((entry) => (
+                    <div key={`${entry.kind}-${entry.id}`} className="mt-1">
+                      {renderPendingCard(entry)}
+                    </div>
+                  ))}
+                  {latestLimitHit && task && (
+                    <div className="mt-2" key={`limit-${latestLimitHit.seq}`}>
+                      <LimitCard
+                        hit={latestLimitHit.payload}
+                        wait={limitWait}
+                        hostAgentId={task.agent || ""}
+                        active={active}
+                        agents={agents}
+                        busy={limitBusy}
+                        onWait={() => void onLimitAction("wait")}
+                        onContinue={() => void onLimitAction("continue")}
+                        onSwitch={(agentId) => void onLimitAction("switch", agentId)}
+                        onDismiss={() => void onLimitAction("dismiss")}
+                      />
+                    </div>
+                  )}
+                  {needsYou.length > 0 && (
+                    /*
                     A phone does not have these keys, and the line reads as an
                     instruction to press something that is not there. `sm` is
                     the same gate the composer's ⌘↵ hint uses (Composer.tsx)
                     rather than a pointer media query, so one codebase has one
                     answer to "the keyboard hint does not apply here".
                   */
-                  <p className="hidden sm:block text-center text-caption text-kin-muted mt-2">
-                    <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">A</kbd>{" "}
-                    {tr("chat.approve")} ·{" "}
-                    <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">D</kbd>{" "}
-                    {tr("chat.deny")}
-                    {" · "}
-                    {tr("question.hintKeys")}
-                  </p>
-                )}
-                <div ref={bottomRef} />
-              </>
-            }
-          />
-        </div>
-
-        {/* `data-kin-bottom-chrome` is a contract with the shell's floating
-            surfaces: this band is everything the page pins to the bottom
-            (the waiting strip and the composer), so an overlay that has to
-            stay clear of it measures this instead of guessing a height. Only
-            the pane on screen marks itself — the session host keeps cached
-            conversations mounted but hidden, and their bands have no box to
-            measure. See FloatingApproval. */}
-        <div
-          data-kin-bottom-chrome={active ? "" : undefined}
-          className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5"
-        >
-          <div className="max-w-conversation mx-auto space-y-1.5">
-            {needsYou.length > 0 && (
-              <button
-                type="button"
-                onClick={revealFirstPending}
-                className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-kin-orange/40 bg-kin-orange/15 px-3 py-2 text-subtitle font-medium text-kin-orange-ink outline-none focus-visible:ring-2 focus-visible:ring-kin-focus-ring"
-              >
-                <IconAlert className="w-4 h-4 flex-none" />
-                {tr("task.waitingOnYou", { count: String(needsYou.length) })}
-              </button>
-            )}
-            <Composer
-              key={task.id}
-              agents={agents}
-              roles={agentRoles}
-              hostAgentId={task.agent || ""}
-              fileSearch={searchSourceFiles}
-              busy={sending}
-              running={!terminal}
-              stopping={stopping}
-              disabled={sending || stopping || !detail.loaded}
-              initialValue={followUpDraft.prompt}
-              initialAttachments={followUpDraft.attachments}
-              focusSignal={refill.taskID === task.id ? refill.n : 0}
-              placeholder={
-                !terminal
-                  ? tr("composer.queuedWhileRunning")
-                  : tr("composer.followUpPlaceholder", { name: hostAgentName })
-              }
-              onValueChange={(v) => persistFollowUpDraft(v)}
-              onAttachmentsChange={(atts) => persistFollowUpDraft(draftPromptRef.current, atts)}
-              onSubmit={onComposer}
-              onStop={onStop}
-              footer={
-                // One control instead of a strip of chips: the face names the
-                // agent, the model and the mode, and the sheet behind it owns
-                // the two that can change. Desktop keeps the strip below. The
-                // usage trigger rides beside it — the reference keeps usage at
-                // the input, and the phone has no usage bar above the
-                // transcript to read it from.
-                <div className="flex min-w-0 flex-1 items-center gap-1">
-                  <RunConfigControl
-                    agentName={hostAgentName}
-                    agentId={task.agent || ""}
-                    agentAvatar={hostAgentAvatar}
-                    model={composerModel}
-                    models={taskAgentModels}
-                    onModelChange={setComposerModel}
-                    permission={composerPermissionMode}
-                    permissionModes={taskPermissionModes}
-                    onPermissionChange={setComposerPermission}
-                    disabled={sending || stopping}
-                    fallbackModelLabel={transcriptModel}
-                  />
-                  {!usageLoading && usage ? (
-                    <TaskUsageSummary
-                      usage={usage}
-                      loading={usageLoading}
-                      variant="phone"
-                      className="flex-none"
-                    />
-                  ) : null}
-                </div>
+                    <p className="hidden sm:block text-center text-caption text-kin-muted mt-2">
+                      <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">
+                        A
+                      </kbd>{" "}
+                      {tr("chat.approve")} ·{" "}
+                      <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">
+                        D
+                      </kbd>{" "}
+                      {tr("chat.deny")}
+                      {" · "}
+                      {tr("question.hintKeys")}
+                    </p>
+                  )}
+                  <div ref={bottomRef} />
+                </>
               }
             />
-            {/* The desktop counterpart of the composer's run-config face: from
-                `md` up this strip carries what the face carries (and the
-                project, branch and machine beside it), and the face is hidden
-                so the same two settings are not offered twice on one screen.
-                One row, scrolled sideways when it does not fit — it has to
-                overflow for that: an item allowed to shrink is squeezed to
-                nothing first and paints its text over the chip next to it,
-                which is what a long path next to a repository name did on a
-                phone. */}
-            <div className="hidden md:flex items-center gap-x-2 gap-y-1 px-0.5 min-w-0 overflow-x-auto kin-scroll whitespace-nowrap">
-              {/* The host agent is this session's identity: the daemon has no
-                  protocol to swap it, so it is named as a fact rather than a
-                  disabled button. The phone's run sheet shows the same value
-                  the same way. */}
-              <span
-                className="inline-flex flex-none items-center gap-1.5 text-caption font-medium text-kin-secondary"
-                title={tr("runConfig.agentLocked")}
+          </div>
+
+          {/* Kept mounted while empty: a live region announces what is added
+              to it, and a region that arrives with its content already inside
+              is the case screen readers most often miss. */}
+          <div className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2" aria-live="polite">
+            {unseen > 0 && (
+              /*
+                New output below the fold, offered rather than announced by
+                movement. It floats over the last lines so the reading does not
+                shift, and it is a real button with a name: the phone taps it,
+                the keyboard tabs to it, and it goes away by itself once the
+                reader is back at the end.
+              */
+              <Button
+                variant="secondary"
+                onClick={showNewest}
+                className="rounded-full bg-kin-elevated px-3.5 shadow-e2"
               >
-                <span
-                  className={`flex h-5 w-5 flex-none items-center justify-center rounded-md text-micro font-semibold ${hostAgentAvatar.className}`}
-                >
-                  {hostAgentAvatar.initials}
+                {/* One nowrap row: as bare children of the button's label span
+                    the chevron and the text stack, because Tailwind preflight
+                    makes the icon's svg a block. */}
+                <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                  <IconChevronDown className="w-4 h-4 flex-none" />
+                  {tr("task.newActivity")}
                 </span>
-                <span className="max-w-[8rem] truncate">{hostAgentName}</span>
-              </span>
-              <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
-                ·
-              </span>
-              <PermissionModePicker
-                value={composerPermissionMode}
-                modes={taskPermissionModes}
-                disabled={sending || stopping}
-                compact
-                active={active}
-                onChange={setComposerPermission}
-              />
-              <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
-                ·
-              </span>
-              <ModelPicker
-                value={composerModel}
-                models={taskAgentModels}
-                source={taskAgentModelSource}
-                status={taskAgentModelStatus}
-                disabled={sending || stopping}
-                compact
-                fallbackDisplay={transcriptModel}
-                onChange={setComposerModel}
-              />
-              {/* Where the work is — directory, repository, branch, machine —
-                  describes the session rather than changing the next message,
-                  and on a phone the four chips plus the two controls above do
-                  not fit one line. They stay on `md` up, where the row has the
-                  width; the project is named in the header and the machine in
-                  the session-actions sheet. A div, not a span: CwdPicker renders
-                  one, and a span may not contain it. */}
-              <div className="hidden md:contents">
-                <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
-                  ·
-                </span>
-                <CwdPicker
-                  // The one item allowed to give way, because a path can be
-                  // arbitrarily long: it shrinks to a readable floor and its path
-                  // tag truncates inside that, rather than the row overflowing on
-                  // a desktop window or the chip collapsing on a phone.
-                  className="min-w-[6rem] max-w-inspector"
-                  cwd={task.cwd}
-                  locked
-                  compact
-                  onChange={() => undefined}
-                />
-                {/* Which repository the work is in. A session on this machine has
-                  no recorded one and shows nothing here — its repository is the
-                  one the pull-request panel looked up. A session on another
-                  machine has one, because the Hub asked that machine when the
-                  session started. */}
-                <RepoChip repo={task.workspace_repo} />
-                <BranchPicker
-                  cwd={task.cwd}
-                  // The task's cwd is on the machine that runs it, so the branches
-                  // in the strip below are that machine's — not this one's, which
-                  // for the same repository would read plausibly and be wrong.
-                  device={task.executing_device_id}
-                  locked
-                  compact
-                  className="flex-none"
-                />
-                {machine ? (
-                  <>
-                    <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
-                      ·
-                    </span>
-                    {/* Which machine the cwd above lives on. Without it the path in
-                      this strip reads as a directory on the machine showing it. */}
-                    <span
-                      className="flex-none inline-flex items-center gap-1 text-caption text-kin-secondary"
-                      title={tr("machine.remoteHint", { name: machine.text })}
-                    >
-                      <IconMachine size={12} />
-                      {machine.known
-                        ? tr("machine.runsOn", { name: machine.text })
-                        : tr("machine.runsOnUnknown", { name: machine.text })}
-                    </span>
-                  </>
-                ) : null}
-              </div>
-            </div>
+              </Button>
+            )}
           </div>
         </div>
+
+        <TaskComposerDock
+          active={active}
+          task={task}
+          terminal={terminal}
+          detailLoaded={detail.loaded}
+          agents={agents}
+          agentRoles={agentRoles}
+          hostAgentName={hostAgentName}
+          hostAgentAvatar={hostAgentAvatar}
+          sending={sending}
+          stopping={stopping}
+          initialValue={followUpDraft.prompt}
+          initialAttachments={followUpDraft.attachments}
+          focusSignal={refill.taskID === task.id ? refill.n : 0}
+          fileSearch={searchSourceFiles}
+          onValueChange={(v) => persistFollowUpDraft(v)}
+          onAttachmentsChange={(atts) => persistFollowUpDraft(draftPromptRef.current, atts)}
+          onSubmit={onComposer}
+          onStop={onStop}
+          composerModel={composerModel}
+          onComposerModelChange={setComposerModel}
+          composerPermissionMode={composerPermissionMode}
+          onComposerPermissionChange={setComposerPermission}
+          taskAgentModels={taskAgentModels}
+          taskAgentModelSource={taskAgentModelSource}
+          taskAgentModelStatus={taskAgentModelStatus}
+          taskPermissionModes={taskPermissionModes}
+          transcriptModel={transcriptModel}
+          usage={usage}
+          usageLoading={usageLoading}
+          machine={machine}
+          waitingCount={needsYou.length}
+          pendingIsApproval={needsYou[0]?.kind === "approval"}
+          pendingApprovalBusy={needsYou[0] ? Boolean(busy[needsYou[0].id]) : false}
+          onRevealFirstPending={revealFirstPending}
+          // The oldest waiting decision, through the same path the inline card
+          // uses: one decision implementation, two places to reach it.
+          onApproveFirstPending={() => {
+            const first = needsYou[0];
+            if (first) void decideAndKeep(first.id, "approved");
+          }}
+        />
       </div>
 
-      {/* Session side rail — usage + diffs, floats over the chat instead of squeezing its width (Codex-style). */}
-      <aside
-        className="hidden min-[1600px]:flex absolute top-14 right-3 bottom-3 z-10 w-rail flex-col gap-2.5 rounded-xl bg-[var(--kin-inspector)] backdrop-blur-md shadow-e2 px-3 py-3 min-h-0 overflow-y-auto kin-scroll"
-        aria-label={tr("task.sessionRail")}
-      >
-        <TaskUsageSummary usage={usage} loading={usageLoading} variant="card" />
-        <ChangedFilesBar
-          files={changedFiles}
-          onOpenPath={onOpenWorkspacePath}
-          onOpenPanel={openFilesPanel}
-          reviewActions={terminal}
-          onKeepAll={onKeepAllChanges}
-          onDiscardAll={onDiscardAllChanges}
-          actionsBusy={reviewBusy}
-          variant="card"
-        />
-      </aside>
-
-      {filesOpen && (
-        <PanelSurface label={tr("workspace.title")}>
-          <div className="h-full w-full">
-            <WorkspacePanel
-              taskId={task.id}
-              cwd={task.cwd}
-              openPath={workspaceOpenPath}
-              openNonce={workspaceOpenNonce}
-              events={events}
-              changedFiles={changedFiles}
-              selectedWorkspaceId={selectedWorkspaceId}
-              currentWorkspaceId={task.current_workspace_id}
-              onSelectWorkspace={setSelectedWorkspaceId}
-              reviewActions={terminal}
-              onDiscardAll={onDiscardAllChanges}
-              actionsBusy={reviewBusy}
-              // Publishing is offered for a session on another machine and no
-              // other: the Hub refuses the write for a checkout it holds, and a
-              // button that could only ever be refused is worse than no button.
-              // Asked of the registry rather than of `machine`, so the rule has
-              // one home — the same one `resolvePanel` just consulted.
-              onPublish={isPanelAvailable("publish", panelCtx) ? openPublishPanel : undefined}
-              onFindFile={() => setFileFinderOpen(true)}
-              onClose={() => hidePanel(id)}
-            />
-          </div>
-        </PanelSurface>
-      )}
-
-      {publishOpen && machine && (
-        <PublishPanel
-          taskId={task.id}
-          machine={machine}
-          // Where the Hub remembers the work being. It is what the machine
-          // recorded when the session started (or the last publish corrected),
-          // and the sheet says "unknown" rather than guessing when there is
-          // nothing: only that machine can answer, and it answers when asked.
-          repo={task.workspace_repo ?? undefined}
-          branch={task.workspace_branch ?? undefined}
-          draft={publishDraft}
-          // Both answers that change the Hub's row — a publish, and the escape
-          // that moves the checkout — land here, so the row under this page is
-          // read again. The row is what the sheet opens with and what the
-          // repository chip draws; the branch strip beside it asks the machine
-          // on its own and is not this.
-          onRowChanged={() => void liveResources.refreshTask(task.id, true)}
-          onClose={() => hidePanel(id)}
-        />
-      )}
+      <TaskPanels
+        task={task}
+        machine={machine}
+        panel={panel}
+        panelCtx={panelCtx}
+        usage={usage}
+        usageLoading={usageLoading}
+        events={events}
+        changedFiles={changedFiles}
+        reviewBusy={reviewBusy}
+        terminal={terminal}
+        workspaceOpenPath={workspaceOpenPath}
+        workspaceOpenNonce={workspaceOpenNonce}
+        selectedWorkspaceId={selectedWorkspaceId}
+        onSelectWorkspace={setSelectedWorkspaceId}
+        onOpenPath={onOpenWorkspacePath}
+        onOpenFilesPanel={openFilesPanel}
+        onKeepAll={onKeepAllChanges}
+        onDiscardAll={onDiscardAllChanges}
+        onPublish={openPublishPanel}
+        onFindFile={() => setFileFinderOpen(true)}
+        onClosePanel={() => hidePanel(id)}
+        publishDraft={publishDraft}
+        onPublishRowChanged={() => void liveResources.refreshTask(task.id, true)}
+      />
 
       {/*
         Last, so it is painted over the panels and sheets it can be opened

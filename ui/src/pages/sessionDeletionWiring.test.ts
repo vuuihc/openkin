@@ -19,6 +19,9 @@ import { describe, expect, it } from "vitest";
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 const SOURCE = readFileSync(join(UI, "src/components/sessions/SessionList.tsx"), "utf8");
+// The delete chip moved to SessionToolbar with the toolbar extraction; the list
+// still owns the in-flight guard and the selection it acts on.
+const TOOLBAR = readFileSync(join(UI, "src/components/sessions/SessionToolbar.tsx"), "utf8");
 const ROW = readFileSync(join(UI, "src/components/sessions/SessionRow.tsx"), "utf8");
 
 describe("the phone list's delete wiring", () => {
@@ -62,11 +65,11 @@ describe("the phone list's delete wiring", () => {
     // shared with the archive batch, so neither can start during the other —
     // both write the selection, and the second would act on rows the first is
     // already changing.
-    expect(SOURCE).toContain(
-      "onClick={deleteSelected}\n              disabled={selectedIds.size === 0 || selectionBusy}",
+    expect(TOOLBAR).toContain(
+      "onClick={onDelete}\n          disabled={selectedCount === 0 || selectionBusy}",
     );
-    expect(SOURCE).toContain(
-      'onClick={scope === "archived" ? restoreSelected : archiveSelected}\n              disabled={selectedIds.size === 0 || selectionBusy}',
+    expect(TOOLBAR).toContain(
+      "onClick={onArchiveOrRestore}\n          disabled={selectedCount === 0 || selectionBusy}",
     );
     // Row taps would change the selection the batch captured while it runs.
     expect(SOURCE).toContain("selectionLocked={selectionBusy}");

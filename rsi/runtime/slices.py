@@ -58,6 +58,16 @@ def gate_open(s):
     g = s.get("gate")
     return (not g) or os.path.exists(os.path.join(STATE, GATES.get(g, "no-such-gate")))
 
+REMOTE_NO_TRACKS = {"S", "G", "V"}   # visible shell / lint+docs+journeys / fixtures stay on the Mac lanes
+def remote_ok(s):  # may a not-cloud-marked ready slice overflow to the box / NAS when the local lanes are full?
+    return not s.get("gate") and s.get("track") not in REMOTE_NO_TRACKS
+
+def idle_local_lanes():
+    try:
+        out = subprocess.run([sys.executable, os.path.join(HERE, "lanes.py"), "idle"], capture_output=True, text=True, timeout=40).stdout
+        return len([l for l in out.split() if l.strip().isdigit()])
+    except Exception: return 0
+
 def executor(s):  # cloud only while the programme says so and an earlier hand-off was not left unlaunched
     return "cloud" if s.get("executor") == "cloud" and s["id"] not in cloud_expired() else "local"
 
@@ -134,9 +144,17 @@ def main():
         for s, ov in out:
             print("%-5s %s size=%s deps=%s%s\n       paths: %s" % (s["id"], s["title"], s["size"], ",".join(s["deps"]) or "-", ("  ** OVERLAPS " + ov) if ov else "", ", ".join(s["paths"])))
         return
-    if cmd == "cloud-pending":  # ready cloud slices still without a hand-off (capped by RSI_CLOUD_MAX outstanding)
+    if cmd == "cloud-pending":  # ready cloud slices still without a hand-off (capped by RSI_CLOUD_MAX outstanding = box 3 + NAS 2)
         cap = int(os.environ.get("RSI_CLOUD_MAX", "5")) - len(cloud_claims())
-        out = [s for s, st, ov in rows if st == "ready" and executor(s) == "cloud" and not ov][:max(cap, 0)]
+        ready = [s for s, st, ov in rows if st == "ready" and not ov]
+        out = [s for s in ready if executor(s) == "cloud"]
+        # REMOTE OVERFLOW (CEO 2026-11-15): the box/NAS only ever took slices pre-marked executor=cloud, so once those 10 were used they
+        # sat idle while ready slices waited for a Mac lane. Ready local slices beyond what the idle Mac lanes will take (table order)
+        # now overflow to the remote lanes. Off: touch state/NO_REMOTE_OVERFLOW.
+        if not os.path.exists(os.path.join(STATE, "NO_REMOTE_OVERFLOW")):
+            loc = [s for s in ready if executor(s) == "local" and remote_ok(s)]
+            out += loc[idle_local_lanes():]
+        out = out[:max(cap, 0)]
         if "--json" in sys.argv: print(json.dumps([dict(id=s["id"], title=s["title"], size=s["size"], deps=s["deps"], paths=s["paths"]) for s in out], ensure_ascii=False, indent=1)); return
         for s in out: print("%-5s %s | paths: %s" % (s["id"], s["title"], ", ".join(s["paths"])))
         return

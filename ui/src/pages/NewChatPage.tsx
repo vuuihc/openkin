@@ -76,6 +76,7 @@ import type { NewChatControlId } from "../lib/newChatWorkbench";
 import { appliedRole, selectRole } from "../lib/agentRoles";
 import { useAgentRoles } from "../hooks/useAgentRoles";
 import SheetSelect from "../components/ui/SheetSelect";
+import Button from "../components/ui/Button";
 import { useAppStore } from "../store/appStore";
 
 /** One empty transcript, shared: the pending send has no events yet. */
@@ -632,23 +633,29 @@ export default function NewChatPage() {
         );
       case "routine":
         return (
-          <button
+          // A pressed toggle, not a filled action. It only ever renders in the
+          // run-settings sheet's row, where every control is a 44px phone tap
+          // target: the circle is 44px there, and from `sm` up it drops back to
+          // the 26px face the row was designed around. The facade's line box is
+          // neutralized and the state inks are stated with `!` over quiet's own
+          // fill/ink.
+          <Button
             key={control}
-            type="button"
+            variant="quiet"
             disabled={sending}
             onClick={() => setAsRoutine((v) => !v)}
             aria-pressed={asRoutine}
             aria-label={tr("routines.asRoutine")}
             title={`${tr("routines.asRoutine")} — ${tr("routines.asRoutineHint")}`}
             className={[
-              "inline-flex items-center justify-center rounded-full border w-[26px] h-[26px] flex-none transition-colors disabled:opacity-50",
+              "inline-flex h-11 w-11 min-h-11! min-w-11 flex-none items-center justify-center rounded-full border px-0 py-0 transition-colors sm:h-[26px] sm:w-[26px] sm:min-h-0! sm:min-w-0",
               asRoutine
-                ? "border-kin-blue/50 bg-kin-blue/15 text-kin-blue-ink"
-                : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary hover:text-kin-text",
+                ? "border-kin-blue/50 bg-kin-blue/15! text-kin-blue-ink!"
+                : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)]! text-kin-secondary! hover:text-kin-text!",
             ].join(" ")}
           >
             <IconRoutines size={13} />
-          </button>
+          </Button>
         );
       case "dispatch":
         return (
@@ -730,13 +737,13 @@ export default function NewChatPage() {
           </div>
         ) : null}
         {remote ? (
-          <button
-            type="button"
+          <Button
+            variant="quiet"
             onClick={refreshMachines}
-            className="text-caption text-kin-blue-ink hover:underline"
+            className="min-h-0! px-0 py-0 text-caption font-normal text-kin-blue-ink! hover:bg-transparent! hover:underline"
           >
             {tr("machine.refresh")}
-          </button>
+          </Button>
         ) : null}
       </div>
 
@@ -779,13 +786,13 @@ export default function NewChatPage() {
                   )}
                   {(agents.some((a) => !a.available) || available.length === 0) && !remote && (
                     <div className="mt-2 flex justify-center">
-                      <button
-                        type="button"
-                        className="min-h-11 px-3 text-body text-kin-blue-ink hover:underline sm:min-h-0 sm:px-0"
+                      <Button
+                        variant="quiet"
+                        className="px-3 py-0 text-body font-normal text-kin-blue-ink! hover:bg-transparent! hover:underline sm:px-0"
                         onClick={() => navigate("/agents", { replace: !wide })}
                       >
                         {tr("agents.manageLink")}
-                      </button>
+                      </Button>
                     </div>
                   )}
                 </div>
@@ -919,13 +926,13 @@ export default function NewChatPage() {
                         <p className="text-body text-kin-red-ink">
                           {projectLookupError || tr("newChat.projectSummaryError")}
                         </p>
-                        <button
-                          type="button"
-                          className="mt-2 text-body text-kin-blue-ink hover:underline"
+                        <Button
+                          variant="quiet"
+                          className="mt-2 px-0 py-0 text-body font-normal text-kin-blue-ink! hover:bg-transparent! hover:underline"
                           onClick={() => setProjectLookupKey((k) => k + 1)}
                         >
                           {tr("common.retry")}
-                        </button>
+                        </Button>
                       </div>
                     ) : project ? (
                       <ProjectSummaryCard project={project} summary={projectSummary} />

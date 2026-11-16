@@ -5,23 +5,24 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
-import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
-import { formatCost, type AgentInfo } from "../../api/client";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { type AgentInfo } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { onGuardedLinkClick } from "../../lib/phoneNavigation";
-import { PLACES } from "../../lib/places";
-import { PLACE_ICONS } from "../placeIcons";
 import { IconArchive, IconDownload, IconInbox, IconPlus } from "../icons";
 import SessionList from "../sessions/SessionList";
 
 /**
- * The Mac sidebar: identity, new chat, the conversation list, and the way out.
+ * The Mac list column: new chat, the conversation list, and the list's own
+ * utilities.
  *
- * The list is the shared `SessionList`, the same component the phone page
- * draws. Width decides the column, not the feature set: search, filters, the
- * project order, folds, pins and row actions are one implementation, so the
- * two surfaces cannot drift apart again. What stays here is the chrome around
- * the list — the brand header, the import menu, and the footer's destinations.
+ * The brand and the four destinations are the area rail's job now
+ * (`AreaNav`), so this column starts at the action that serves the list and
+ * ends at the filters and imports that belong to it. The list is the shared
+ * `SessionList`, the same component the phone page draws. Width decides the
+ * column, not the feature set: search, filters, the project order, folds, pins
+ * and row actions are one implementation, so the two surfaces cannot drift
+ * apart again.
  *
  * The phone has no version of this column: since KIN-CONTINUE-002 the list page
  * itself is the phone's only navigation surface, and its footer carries the
@@ -35,8 +36,6 @@ type Props = {
   /** Waiting approvals, shown on the Inbox destination so they are findable
    *  without opening the page. */
   pendingCount?: number;
-  routineUnreadCount?: number;
-  weekCost?: number | null;
   onNewChat: () => void;
   agentCatalog?: AgentInfo[];
   importingExternalSessions?: boolean;
@@ -47,8 +46,6 @@ export default function Sidebar({
   selectedTaskId,
   draftActive,
   pendingCount = 0,
-  routineUnreadCount = 0,
-  weekCost,
   onNewChat,
   agentCatalog = [],
   importingExternalSessions = false,
@@ -56,7 +53,6 @@ export default function Sidebar({
 }: Props) {
   const tr = useT();
   const location = useLocation();
-  const navigate = useNavigate();
   const [importMenuOpen, setImportMenuOpen] = useState(false);
   const importMenuRef = useRef<HTMLDivElement>(null);
   const sessionProviders = agentCatalog.filter((agent) =>
@@ -132,20 +128,10 @@ export default function Sidebar({
     </>
   );
 
-  const header = (
-    <div className="px-3 pt-3 pb-2 flex items-center gap-2">
-      <div className="w-7 h-7 rounded-lg bg-kin-blue flex items-center justify-center text-kin-on-brand text-strong font-semibold shadow-e1">
-        K
-      </div>
-      <span className="text-strong font-semibold tracking-tight">{tr("app.name")}</span>
-    </div>
-  );
-
-  // On a Mac the import entry is one of the footer icons: the left column is
-  // one piece — the list, then one row of destinations — and a full-width
-  // import button above it was a second navigation block with the same weight
-  // as the list it was supposed to serve. The phone's import lives in Agent
-  // Ops (KIN-CONTINUE-002), not here.
+  // On a Mac the import entry lives with the list it serves. The area rail
+  // owns the destinations; this row is the list's own foot — where its
+  // attention queue (Inbox) and its archive filter sit, and where an import
+  // starts. The phone's import lives in Agent Ops (KIN-CONTINUE-002), not here.
   const importIcon = onImportExternalSessions ? (
     <div className="relative" ref={importMenuRef}>
       <button
@@ -164,14 +150,19 @@ export default function Sidebar({
         }
         onClick={() => setImportMenuOpen((open) => !open)}
         className={[
-          "relative inline-flex h-8 w-8 flex-none items-center justify-center rounded-lg transition-colors",
+          "flex h-8 w-full items-center justify-center gap-1.5 rounded-lg px-2 text-caption font-medium transition-colors",
           importMenuOpen
             ? "bg-[var(--kin-fill-strong)] text-kin-text"
             : "text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text",
           importingExternalSessions ? "opacity-50" : "",
         ].join(" ")}
       >
-        <IconDownload size={16} />
+        <IconDownload size={14} className="flex-none" />
+        <span className="truncate">
+          {importingExternalSessions
+            ? tr("nav.importingAgentSessions")
+            : tr("nav.importAgentSessions")}
+        </span>
       </button>
       {importMenuOpen && (
         <div
@@ -186,92 +177,78 @@ export default function Sidebar({
     </div>
   ) : null;
 
+  // The prototype's column header: the list's name on the left, the action
+  // that starts a chat on the right. The four areas are the rail's job, so
+  // this names the column itself — the same word the rail gives the area, and
+  // the one thing the 304px column is for.
   const newChatBlock = (
-    <div className="px-2.5 pb-2">
+    <div className="flex items-center gap-2 px-3 pb-2 pt-3">
+      <h2 className="min-w-0 flex-1 truncate text-subtitle font-semibold text-kin-text">
+        {tr("nav.sessions")}
+      </h2>
       <button
         type="button"
         // Not `onClick={onNewChat}`: the shell's entry point reads its first
         // argument as "already asked", and a click event would pass as truthy.
         onClick={() => onNewChat()}
         className={[
-          "w-full flex items-center gap-2 px-2.5 h-9 rounded-lg text-strong font-medium border transition-colors",
+          "flex h-8 flex-none items-center gap-1.5 rounded-lg border px-2.5 text-caption font-medium transition-colors",
           draftActive
             ? "border-kin-blue/40 bg-kin-blue/15 text-kin-text"
             : "border-[var(--kin-hairline-strong)] bg-kin-fill text-kin-text hover:bg-[var(--kin-fill-strong)]",
         ].join(" ")}
       >
-        <IconPlus size={15} strokeWidth={1.9} />
+        <IconPlus size={14} strokeWidth={1.9} className="flex-none" />
         {tr("nav.newChat")}
-        <span className="ml-auto text-caption text-kin-muted font-medium hidden sm:inline">⌘N</span>
+        <span className="text-micro font-medium text-kin-muted">⌘N</span>
       </button>
     </div>
   );
 
   // The archive is a filter of the one list (`?scope=archived`), not a second
-  // list in the main area. The icon is always present: an empty archive still
+  // list in the main area. The link is always present: an empty archive still
   // has a view that says so, and a control that appears only after the first
   // archive is a destination people never learn.
-  const footerIcons = (
-    <div data-sidebar-footer className="border-t border-kin-hairline px-1.5 py-2">
-      <div className="flex items-center justify-between gap-0.5">
+  //
+  // Inbox stays here rather than moving to the rail: it is the list's own
+  // attention queue, not one of the four areas, and its count is the number of
+  // conversations in this list that wait on a person.
+  //
+  // Every entry is labelled and the two halves share the column's width: three
+  // unlabelled icons bunched at the left of 304px read as decoration and left
+  // the rest of the bar empty (S1 review).
+  const listFooter = (
+    <div data-sidebar-footer className="border-t border-kin-hairline px-2 py-2">
+      <div className="grid grid-cols-2 gap-1">
         <FooterIcon
           to="/inbox"
           label={tr("nav.inbox")}
-          icon={<IconInbox size={16} />}
+          icon={<IconInbox size={15} />}
+          active={location.pathname === "/inbox"}
           badge={pendingCount > 0 ? (pendingCount > 99 ? "99+" : String(pendingCount)) : undefined}
         />
-        <Link
+        <FooterIcon
           to="/sessions?scope=archived"
-          onClick={(event) =>
-            onGuardedLinkClick(event, navigate, location, "/sessions?scope=archived")
-          }
-          aria-label={tr("nav.archivedProjects")}
-          aria-current={archivedScope ? "page" : undefined}
-          title={tr("nav.archivedProjects")}
-          className={[
-            "inline-flex h-8 w-8 flex-none items-center justify-center rounded-lg transition-colors",
-            archivedScope
-              ? "bg-[var(--kin-fill-strong)] text-kin-text"
-              : "text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text",
-          ].join(" ")}
-        >
-          <IconArchive size={16} />
-        </Link>
-        {importIcon}
-        {PLACES.filter((place) => place.section !== "work").map((place) => {
-          const Icon = PLACE_ICONS[place.id];
-          return (
-            <FooterIcon
-              key={place.id}
-              to={place.path}
-              label={tr(place.labelKey)}
-              icon={<Icon size={16} />}
-              badge={
-                place.id === "routines" && routineUnreadCount > 0
-                  ? routineUnreadCount > 99
-                    ? "99+"
-                    : String(routineUnreadCount)
-                  : undefined
-              }
-              title={
-                place.id === "agents" && weekCost != null && weekCost > 0
-                  ? `${tr(place.labelKey)} · ${formatCost(weekCost)}`
-                  : undefined
-              }
-            />
-          );
-        })}
+          label={tr("nav.archivedProjects")}
+          icon={<IconArchive size={15} />}
+          active={archivedScope}
+        />
       </div>
+      {importIcon ? <div className="mt-1">{importIcon}</div> : null}
     </div>
   );
 
   return (
-    <div className="hidden md:flex h-full shrink-0 kin-zen-hide">
-      <aside className="w-sidebar h-full flex flex-col bg-kin-sidebar shrink-0">
-        {header}
+    /*
+      The marker is the column's identity, not decoration: the shell asks for it
+      when a panel takes the list's place, and the DOM tests read it so "the
+      list yielded" is asserted against the element that really is the list.
+    */
+    <div data-kin-list-column className="hidden md:flex h-full shrink-0 kin-zen-hide">
+      <aside className="w-list h-full flex flex-col bg-kin-sidebar shrink-0">
         {newChatBlock}
         <SessionList shell="sidebar" activeTaskId={selectedTaskId ?? null} />
-        {footerIcons}
+        {listFooter}
       </aside>
     </div>
   );
@@ -282,40 +259,42 @@ function FooterIcon({
   label,
   icon,
   badge,
-  title,
+  active = false,
 }: {
   to: string;
   label: string;
   icon: ReactNode;
   badge?: string;
-  title?: string;
+  /** A filter of this list (`?scope=archived`) is not a path `NavLink` can
+   *  tell apart, so the current view is passed in rather than inferred. */
+  active?: boolean;
 }) {
   const tr = useT();
   const navigate = useNavigate();
   const location = useLocation();
   return (
-    <NavLink
+    <Link
       to={to}
       onClick={(event) => onGuardedLinkClick(event, navigate, location, to)}
       // The badge is a number next to an icon; a name that leaves it out tells
       // a screen reader there is nothing waiting when the dot says otherwise.
       aria-label={badge ? tr("nav.withCount", { label, count: badge }) : label}
-      title={title ?? label}
-      className={({ isActive }) =>
-        [
-          "relative inline-flex h-8 w-8 flex-none items-center justify-center rounded-lg transition-colors",
-          isActive
-            ? "bg-[var(--kin-fill-strong)] text-kin-text"
-            : "text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text",
-        ].join(" ")
-      }
+      aria-current={active ? "page" : undefined}
+      title={label}
+      className={[
+        "flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 text-caption font-medium transition-colors",
+        active
+          ? "bg-[var(--kin-fill-strong)] text-kin-text"
+          : "text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text",
+      ].join(" ")}
     >
-      {icon}
+      <span className="flex-none">{icon}</span>
+      <span className="truncate">{label}</span>
       {badge ? (
-        <span className="absolute -right-0.5 -top-0.5 min-w-[15px] h-[15px] px-0.5 rounded-full bg-kin-orange text-kin-on-status text-micro font-bold inline-flex items-center justify-center tabular-nums">
+        <span className="inline-flex h-[17px] min-w-[17px] flex-none items-center justify-center rounded-full bg-kin-orange px-1 text-micro font-bold tabular-nums text-kin-on-status">
           {badge}
         </span>
       ) : null}
-    </NavLink>
+    </Link>
   );
 }

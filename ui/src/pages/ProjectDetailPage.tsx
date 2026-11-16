@@ -1,12 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { goBackToList } from "../lib/phoneBack";
 import { useLeaveGuard } from "../hooks/useLeaveGuard";
@@ -38,8 +30,10 @@ import {
   type Routine,
 } from "../api/client";
 import { IconBack, IconMachine, IconRoutines } from "../components/icons";
+import Button from "../components/ui/Button";
 import SearchSelect from "../components/ui/SearchSelect";
 import Heatmap from "../components/project/Heatmap";
+import ProjectOnePager from "../components/project/ProjectOnePager";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import { useMinWidth } from "../hooks/useMinWidth";
 import { useSlowHint } from "../hooks/useSlowHint";
@@ -126,7 +120,8 @@ export default function ProjectDetailPage() {
   const [activityPartial, setActivityPartial] = useState(false);
 
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
+  /** The One-Pager section owns the draft; the page owns the leave guard. */
+  const [dirty, setDirty] = useState(false);
   /** The version the editor started from; a reconnect must not move it. */
   const [editBase, setEditBase] = useState({ markdown: "", updatedAt: 0 });
   const [saving, setSaving] = useState(false);
@@ -135,14 +130,11 @@ export default function ProjectDetailPage() {
 
   const [params, setParams] = useSearchParams();
   const projectRef = useRef<Project | null>(null);
-  const editingRef = useRef(false);
   const coverRequest = useRef(0);
   const onePagerRequest = useRef(0);
   const routinesRequest = useRef(0);
   const activityRequest = useRef(0);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const summaryFieldRef = useRef<HTMLTextAreaElement | null>(null);
-  const editButtonRef = useRef<HTMLButtonElement | null>(null);
   const openerRef = useRef<HTMLElement | null>(null);
   const scrollTopRef = useRef(0);
   const restoredFor = useRef<string | null>(null);
@@ -176,10 +168,6 @@ export default function ProjectDetailPage() {
     projectRef.current = project;
   }, [project]);
 
-  useEffect(() => {
-    editingRef.current = editing;
-  }, [editing]);
-
   // Whatever opened the cover — the sidebar project title, usually — gets
   // focus back when the reader leaves (contract step 6). The element may not
   // exist after a route unmount, so `goBack` also falls back to the project's
@@ -211,7 +199,6 @@ export default function ProjectDetailPage() {
     setMarkdown("");
     setUpdatedAt(0);
     setSummary(null);
-    setDraft("");
     setOnePagerLoaded(false);
     setOnePagerLoading(true);
     setOnePagerError(null);
@@ -297,10 +284,6 @@ export default function ProjectDetailPage() {
       setMarkdown(op.markdown);
       setUpdatedAt(op.updated_at);
       setSummary(op.one_pager_summary ?? null);
-      // A reconnect must not throw away a line the reader is still typing.
-      if (!editingRef.current) {
-        setDraft(op.one_pager_summary?.focus ?? onePagerFocus(op.markdown));
-      }
       setOnePagerLoaded(true);
     } catch (e) {
       if (gen !== onePagerRequest.current) return;
@@ -310,7 +293,6 @@ export default function ProjectDetailPage() {
         setMarkdown("");
         setUpdatedAt(0);
         setSummary(null);
-        if (!editingRef.current) setDraft("");
         setOnePagerLoaded(true);
         return;
       }
@@ -531,7 +513,6 @@ export default function ProjectDetailPage() {
       ? (summary.focus ?? "")
       : onePagerFocus(markdown)
     : "";
-  const dirty = editing && draft.trim() !== summaryText.trim();
 
   useEffect(() => {
     if (!dirty) return;
@@ -580,26 +561,17 @@ export default function ProjectDetailPage() {
     setMarkdown(op.markdown);
     setUpdatedAt(op.updated_at);
     setSummary(op.one_pager_summary ?? null);
-    setDraft(op.one_pager_summary?.focus ?? onePagerFocus(op.markdown));
   };
 
-  const focusEditButton = () => {
-    const focus = () => editButtonRef.current?.focus();
-    if (typeof requestAnimationFrame === "function") requestAnimationFrame(focus);
-    else focus();
-  };
-
-  const saveSummary = async (base: string, baseUpdatedAt: number) => {
+  const saveSummary = async (base: string, baseUpdatedAt: number, body: string) => {
     if (!id) return;
     setSaving(true);
     setSaved(false);
     try {
-      const op = await putOnePager(id, setOnePagerFocus(base, draft), baseUpdatedAt || undefined);
+      const op = await putOnePager(id, setOnePagerFocus(base, body), baseUpdatedAt || undefined);
       applyOnePager(op);
-      setEditing(false);
       setConflict(null);
       setSaved(true);
-      focusEditButton();
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
         try {
@@ -619,65 +591,33 @@ export default function ProjectDetailPage() {
   // The base is the version the editor opened, not whatever a reconnect has
   // since read. Saving against the newer version would overwrite another
   // device's line without the conflict the contract promises.
-  const onSave = () => void saveSummary(editBase.markdown, editBase.updatedAt);
+  const onSave = (body: string) => void saveSummary(editBase.markdown, editBase.updatedAt, body);
 
   const onTakeTheirs = () => {
     if (!conflict) return;
     applyOnePager(conflict);
-    setEditing(false);
     setConflict(null);
     setSaved(false);
-    focusEditButton();
   };
 
-  const onKeepMine = () => {
+  const onKeepMine = (body: string) => {
     if (!conflict) return;
     // Compose on their document, not the stale one, so choosing "overwrite"
     // overwrites the focus line and leaves their other edits intact.
-    void saveSummary(conflict.markdown, conflict.updated_at);
+    void saveSummary(conflict.markdown, conflict.updated_at, body);
   };
 
-  const beginEdit = () => {
-    setDraft(summaryText);
+  const onBeginEdit = useCallback(() => {
     setEditBase({ markdown, updatedAt });
-    setEditing(true);
     setSaved(false);
     setConflict(null);
-  };
+  }, [markdown, updatedAt]);
 
-  const cancelEdit = () => {
-    setDraft(summaryText);
-    setEditing(false);
+  const onEditingChange = useCallback((next: boolean) => setEditing(next), []);
+  const onDirtyChange = useCallback((next: boolean) => setDirty(next), []);
+  const onDismissConflict = () => {
     setConflict(null);
     setSaved(false);
-    focusEditButton();
-  };
-
-  useEffect(() => {
-    if (!editing) return;
-    const field = summaryFieldRef.current;
-    if (!field) return;
-    field.focus();
-    const end = field.value.length;
-    try {
-      field.setSelectionRange(end, end);
-    } catch {
-      // Some browsers refuse selection on a hidden field; focus is enough.
-    }
-  }, [editing]);
-
-  const onSummaryKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-      event.preventDefault();
-      event.stopPropagation();
-      if (!saving && !offline) onSave();
-      return;
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      cancelEdit();
-    }
   };
 
   const onModeChange = async (mode: ProjectMode) => {
@@ -704,7 +644,6 @@ export default function ProjectDetailPage() {
       setMarkdown(res.markdown);
       setUpdatedAt(res.updated_at);
       setSummary((prev) => (prev ? { ...prev, focus: onePagerFocus(res.markdown) } : prev));
-      if (!editingRef.current) setDraft(onePagerFocus(res.markdown));
       pushToast(tr("projects.refreshed"));
     } catch (e) {
       pushToast(e instanceof Error ? e.message : tr("projects.refreshFailed"), "error");
@@ -782,14 +721,17 @@ export default function ProjectDetailPage() {
       return (
         <div className="flex-1 min-h-0 overflow-y-auto kin-scroll">
           <div className="mx-auto max-w-5xl px-4 py-6">
-            <button
-              type="button"
-              className="mb-4 inline-flex items-center gap-1 text-strong text-kin-secondary hover:text-kin-text"
+            <Button
+              variant="quiet"
+              aria-label={tr("projects.back")}
+              className="mb-4 text-strong"
               onClick={goBack}
             >
-              <IconBack size={14} />
-              {tr("projects.back")}
-            </button>
+              <span className="inline-flex items-center gap-1">
+                <IconBack size={14} />
+                {tr("projects.back")}
+              </span>
+            </Button>
             <div
               role="alert"
               className="rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-strong text-kin-red-ink"
@@ -797,13 +739,13 @@ export default function ProjectDetailPage() {
               {error.message}
             </div>
             {!error.notFound && (
-              <button
-                type="button"
+              <Button
+                variant="default"
+                className="mt-3 text-strong"
                 onClick={() => void loadProject()}
-                className="mt-3 min-h-11 rounded-lg border border-kin-hairline px-3 text-strong text-kin-text hover:bg-[var(--kin-fill-strong)]"
               >
                 {tr("common.retry")}
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -857,14 +799,17 @@ export default function ProjectDetailPage() {
       }}
     >
       <div className="mx-auto max-w-5xl px-4 py-6 pb-24">
-        <button
-          type="button"
-          className="mb-3 inline-flex items-center gap-1 text-strong text-kin-secondary hover:text-kin-text"
+        <Button
+          variant="quiet"
+          aria-label={tr("projects.back")}
+          className="mb-3 text-strong"
           onClick={goBack}
         >
-          <IconBack size={14} />
-          {tr("projects.back")}
-        </button>
+          <span className="inline-flex items-center gap-1">
+            <IconBack size={14} />
+            {tr("projects.back")}
+          </span>
+        </Button>
 
         <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
@@ -903,149 +848,26 @@ export default function ProjectDetailPage() {
 
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="space-y-4">
-            <section aria-labelledby={`${cardIds}-summary`} className="rounded-xl bg-kin-panel p-4">
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <h2
-                  id={`${cardIds}-summary`}
-                  className="text-body font-medium uppercase tracking-label text-kin-secondary"
-                >
-                  {tr("projects.summaryTitle")}
-                </h2>
-                {!editing && onePagerLoaded && (
-                  <button
-                    ref={editButtonRef}
-                    type="button"
-                    disabled={offline}
-                    className="rounded-lg border border-kin-hairline px-3 py-1.5 text-strong text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
-                    onClick={beginEdit}
-                  >
-                    {tr("projects.summaryEdit")}
-                  </button>
-                )}
-              </div>
-
-              {onePagerError && (
-                <div
-                  role="alert"
-                  className="mb-3 rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-body text-kin-red-ink"
-                >
-                  <p>{onePagerError}</p>
-                  <button
-                    type="button"
-                    onClick={() => void loadOnePager()}
-                    className="mt-2 min-h-11 rounded-lg border border-kin-red/40 px-3 text-strong text-kin-red-ink"
-                  >
-                    {tr("common.retry")}
-                  </button>
-                </div>
-              )}
-
-              {!onePagerLoaded ? (
-                onePagerLoading ? (
-                  <div className="space-y-3 py-2">
-                    <SkeletonLine />
-                    <SkeletonLine />
-                  </div>
-                ) : null
-              ) : editing ? (
-                <>
-                  <textarea
-                    ref={summaryFieldRef}
-                    aria-label={tr("projects.summaryTitle")}
-                    className="min-h-16 w-full resize-y rounded-lg border border-kin-hairline bg-transparent p-3 text-strong leading-prose text-kin-text outline-none focus:border-kin-blue/40"
-                    value={draft}
-                    maxLength={300}
-                    placeholder={tr("projects.summaryPlaceholder")}
-                    disabled={offline || saving}
-                    onChange={(event) => setDraft(event.target.value)}
-                    onKeyDown={onSummaryKeyDown}
-                  />
-                  {offline ? (
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <p className="text-caption text-kin-muted">{tr("projects.summaryOffline")}</p>
-                      <button
-                        type="button"
-                        className="min-h-11 rounded-lg px-3 text-strong text-kin-secondary"
-                        onClick={cancelEdit}
-                      >
-                        {tr("common.cancel")}
-                      </button>
-                    </div>
-                  ) : conflict ? (
-                    <div
-                      role="alert"
-                      className="mt-3 rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-body text-kin-red-ink"
-                    >
-                      <p className="font-medium">{tr("projects.conflictTitle")}</p>
-                      <p className="mt-1 whitespace-pre-wrap text-strong">
-                        {conflict.one_pager_summary?.focus ||
-                          onePagerFocus(conflict.markdown) ||
-                          tr("projects.summaryEmpty")}
-                      </p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          disabled={saving}
-                          className="min-h-11 rounded-lg bg-kin-blue px-3 text-strong font-medium text-kin-on-brand disabled:opacity-50"
-                          onClick={onKeepMine}
-                        >
-                          {tr("projects.conflictKeepMine")}
-                        </button>
-                        <button
-                          type="button"
-                          className="min-h-11 rounded-lg border border-kin-hairline px-3 text-strong text-kin-text"
-                          onClick={onTakeTheirs}
-                        >
-                          {tr("projects.conflictTakeTheirs")}
-                        </button>
-                        <button
-                          type="button"
-                          className="min-h-11 rounded-lg px-3 text-strong text-kin-secondary"
-                          // Dismissing keeps the old base on purpose: the next
-                          // save meets the same 409 instead of silently
-                          // overwriting the version this editor has not read.
-                          onClick={() => setConflict(null)}
-                        >
-                          {tr("projects.conflictDismiss")}
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        disabled={saving}
-                        className="min-h-11 rounded-lg bg-kin-blue px-3 text-strong font-medium text-kin-on-brand disabled:opacity-50"
-                        onClick={onSave}
-                      >
-                        {saving ? tr("projects.summarySaving") : tr("common.save")}
-                      </button>
-                      <button
-                        type="button"
-                        className="min-h-11 rounded-lg px-3 text-strong text-kin-secondary"
-                        onClick={cancelEdit}
-                      >
-                        {tr("common.cancel")}
-                      </button>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <p
-                  className={[
-                    "text-strong leading-prose",
-                    summaryText ? "text-kin-text" : "text-kin-secondary",
-                  ].join(" ")}
-                >
-                  {summaryText || tr("projects.summaryEmpty")}
-                </p>
-              )}
-              {!editing && onePagerLoaded && saved && (
-                <p role="status" className="mt-2 text-caption text-kin-muted">
-                  {tr("projects.summarySaved")}
-                </p>
-              )}
-            </section>
+            <ProjectOnePager
+              key={currentProject.id}
+              titleId={`${cardIds}-summary`}
+              loaded={onePagerLoaded}
+              loading={onePagerLoading}
+              loadError={onePagerError}
+              summaryText={summaryText}
+              saving={saving}
+              saved={saved}
+              conflict={conflict}
+              offline={offline}
+              onRetry={() => void loadOnePager()}
+              onSave={onSave}
+              onBeginEdit={onBeginEdit}
+              onKeepMine={onKeepMine}
+              onTakeTheirs={onTakeTheirs}
+              onDismissConflict={onDismissConflict}
+              onEditingChange={onEditingChange}
+              onDirtyChange={onDirtyChange}
+            />
 
             <section aria-labelledby={`${cardIds}-recent`} className="rounded-xl bg-kin-panel p-4">
               <h2
@@ -1061,13 +883,13 @@ export default function ProjectDetailPage() {
                   className="rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-strong text-kin-red-ink"
                 >
                   <p>{activityError}</p>
-                  <button
-                    type="button"
+                  <Button
+                    variant="secondary"
                     onClick={() => void loadActivity(currentProject)}
-                    className="mt-2 min-h-11 rounded-lg border border-kin-red/40 px-3 text-strong text-kin-red-ink"
+                    className="mt-2 text-strong"
                   >
                     {tr("common.retry")}
-                  </button>
+                  </Button>
                 </div>
               )}
 
@@ -1119,7 +941,7 @@ export default function ProjectDetailPage() {
 
               <p className="mt-2 text-caption text-kin-muted">{tr("projects.recentOnlyLatest")}</p>
 
-              {wide && <div className="mt-3">{newChatControl}</div>}
+              {wide && !editing && <div className="mt-3">{newChatControl}</div>}
             </section>
           </div>
 
@@ -1132,14 +954,14 @@ export default function ProjectDetailPage() {
                 >
                   {tr("projects.overviewWindow")}
                 </h2>
-                <button
-                  type="button"
+                <Button
+                  variant="secondary"
                   disabled={refreshing || offline}
-                  className="rounded-lg border border-kin-hairline px-2.5 py-1 text-body text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
+                  className="text-body"
                   onClick={() => void onRefreshPulse()}
                 >
                   {refreshing ? tr("projects.refreshing") : tr("projects.refresh")}
-                </button>
+                </Button>
               </div>
 
               {pulseError && (
@@ -1155,14 +977,14 @@ export default function ProjectDetailPage() {
                       })}
                     </p>
                   )}
-                  <button
-                    type="button"
+                  <Button
+                    variant="secondary"
                     disabled={refreshing || offline}
+                    className="mt-2 text-strong"
                     onClick={() => void onRefreshPulse()}
-                    className="mt-2 min-h-11 rounded-lg border border-kin-red/40 px-3 text-strong text-kin-red-ink disabled:opacity-50"
                   >
                     {tr("projects.refresh")}
-                  </button>
+                  </Button>
                 </div>
               )}
 
@@ -1235,13 +1057,13 @@ export default function ProjectDetailPage() {
                   className="mb-3 rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-body text-kin-red-ink"
                 >
                   <p>{routinesError}</p>
-                  <button
-                    type="button"
+                  <Button
+                    variant="secondary"
                     onClick={() => void loadRoutines()}
-                    className="mt-2 min-h-11 rounded-lg border border-kin-red/40 px-3 text-strong text-kin-red-ink"
+                    className="mt-2 text-strong"
                   >
                     {tr("common.retry")}
-                  </button>
+                  </Button>
                 </div>
               )}
 
@@ -1278,9 +1100,19 @@ export default function ProjectDetailPage() {
             </section>
           </div>
         </div>
-
-        {!wide && <div className="mt-4">{newChatControl}</div>}
       </div>
+
+      {/* On a phone the one filled action follows the page instead of ending
+          it: pinned above the tab bar, it is reachable without scrolling past
+          the pulse, routines and the activity list. */}
+      {!wide && !editing && (
+        <div
+          data-project-cta="bar"
+          className="sticky bottom-0 z-10 border-t border-kin-hairline bg-kin-panel px-4 py-3"
+        >
+          <div className="mx-auto max-w-5xl">{newChatControl}</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1298,22 +1130,23 @@ function NewChatControl({
   const navigate = useNavigate();
   const location = useLocation();
   const reasonId = useId();
-  const className = [
-    "inline-flex min-h-11 items-center justify-center rounded-lg bg-kin-blue px-3 text-strong font-medium text-kin-on-brand",
-    fullWidth ? "w-full" : "",
-  ].join(" ");
+  // The call to action navigates, so it stays a link; `.kin-btn-primary`
+  // supplies the shared geometry, fill, 44px touch floor and focus outline
+  // without introducing a standalone class outside the Button facade.
+  // eslint-disable-next-line kin/no-legacy-class -- a navigating link borrows the button geometry on purpose; Button renders a native button
+  const className = ["kin-btn-primary", fullWidth ? "w-full" : ""].join(" ");
 
   if (href === null || disabledReason) {
     return (
       <div className={fullWidth ? "w-full" : ""}>
-        <button
-          type="button"
+        <Button
+          variant="default"
           disabled
           aria-describedby={disabledReason ? reasonId : undefined}
-          className={`${className} opacity-50`}
+          className={fullWidth ? "w-full" : ""}
         >
           {tr("projects.newChat")}
-        </button>
+        </Button>
         {disabledReason && (
           <p id={reasonId} className="mt-1 text-caption text-kin-muted">
             {disabledReason}

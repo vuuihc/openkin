@@ -105,7 +105,7 @@ vi.mock("../components/chat/Composer", () => ({
         void Promise.resolve(onSubmit("hello")).catch(() => {});
       }}
     >
-      send
+      Start
     </button>
   ),
 }));
@@ -232,6 +232,25 @@ describe("starting a conversation", () => {
     // Not the whole-page skeleton: that branch is the one with a "Loading"
     // status where the header and composer should be.
     expect(screen.queryByRole("status", { name: "Loading" })).toBeNull();
+  });
+
+  it("keeps the composer mounted while the create request is in flight", async () => {
+    open();
+    await act(async () => {
+      screen.getByTestId("send").click();
+    });
+    expect(api.createTask).toHaveBeenCalledTimes(1);
+    // The draft's body becomes the conversation about to happen, and the
+    // composer stays under it — not a skeleton, not an empty column.
+    expect(screen.getByTestId("pending-user").textContent).toBe("hello");
+    expect(screen.getByTestId("loading").textContent).toBe("true");
+    expect(screen.getByTestId("send").textContent).toBe("Start");
+    expect(screen.queryByRole("status", { name: "Loading" })).toBeNull();
+
+    await act(async () => {
+      api.resolveCreate(created);
+    });
+    expect(screen.getByText("conversation page")).toBeTruthy();
   });
 
   it("goes back to the draft when the create request is refused", async () => {
