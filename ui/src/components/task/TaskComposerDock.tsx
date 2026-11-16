@@ -24,8 +24,8 @@ type ModelPickerProps = ComponentProps<typeof ModelPicker>;
  *
  * Extracted from `TaskDetailPage` unchanged so the page's state, handlers and
  * lifecycle logic can be read — and later edited — without scrolling past the
- * markup of a band that only draws what the page tells it. It reads no store
- * and fetches nothing: every value and callback below is the page's.
+ * markup of a band that only draws what the page tells it. It owns no state
+ * and fetches nothing itself: every value and callback below is the page's.
  *
  * The outer div keeps `data-kin-bottom-chrome`, a contract with the shell's
  * floating surfaces: this band is everything the page pins to the bottom, so
