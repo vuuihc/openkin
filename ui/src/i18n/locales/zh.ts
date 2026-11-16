@@ -1021,6 +1021,8 @@ const zh = {
       generalDesc: "外观与基础应用偏好。",
       agents: "Agents",
       agentsDesc: "本机 Agent 检测、会话导入和同步策略。",
+      operations: "运维",
+      operationsDesc: "用量、限额、已连接的 Agent 和健康检查。",
       providers: "Providers",
       providersDesc: "认知 Provider、模型和默认主持 agent。",
       routing: "路由",

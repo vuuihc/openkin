@@ -84,7 +84,12 @@ type RowStatus = { label: string; tone: StatusTone; title?: string };
 
 const EMPTY_FAMILIES: string[] = [];
 
-export default function AgentsPage() {
+/**
+ * `embedded` omits the page's own `h1` when Settings hosts this console in a
+ * tab: the settings screen already draws the one heading for that page.
+ * Temporary for N4 — E4a finishes the move and removes it.
+ */
+export default function AgentsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const tr = useT();
   const navigate = useNavigate();
   const location = useLocation();
@@ -940,9 +945,11 @@ export default function AgentsPage() {
       <div className="max-w-page-wide mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="hidden text-hero font-bold tracking-tight md:block">
-              {tr("agents.title")}
-            </h1>
+            {embedded ? null : (
+              <h1 className="hidden text-hero font-bold tracking-tight md:block">
+                {tr("agents.title")}
+              </h1>
+            )}
             <p className="text-body text-kin-muted">{tr("agents.subtitle")}</p>
             {agents !== null && (
               <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-caption text-kin-muted">

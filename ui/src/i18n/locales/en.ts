@@ -1048,6 +1048,8 @@ const en: MessageTree = {
       generalDesc: "Appearance and baseline app preferences.",
       agents: "Agents",
       agentsDesc: "Local agent detection, session import, and sync policy.",
+      operations: "Operations",
+      operationsDesc: "Usage, limits, connected agents, and health checks.",
       providers: "Providers",
       providersDesc: "Cognition providers, models, and default host agent.",
       routing: "Routing",
