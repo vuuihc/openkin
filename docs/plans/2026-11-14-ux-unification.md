@@ -13,14 +13,117 @@
 | 人工节点：总设计签字 + 整体交付验收 | 🟢 已与用户确定 | 两个 Goal 而不是八次逐区确认 |
 | Goal 0 · 总设计 | 🟡 已制作，待签字 | [审阅页](../product/stories/KIN-CONTINUE-003.review.html) + [合同](../product/stories/KIN-CONTINUE-003.md)；通知生命周期 / 项目刷新等复审问题已修正，独立复审无 blocker/major，尚无人为签字 |
 | 手机文件修复（RESULT-002） | 🟡 独立小设计已复审，无 blocker/major；待人为签字，产品未改 | [审阅页](../product/stories/KIN-RESULT-002.review.html)：3 帧 / 3 套流程；390/1100 真浏览器通过。历史/OIDC/HTML 合同两轮修正后窄复审通过；范围仅文件/diff 返回、自包含 HTML 预览、source 深链；**不是 Goal 1 开工** |
-| Astryx 固定接入成本 | 🟢 已实测 | [spike](2026-11-09-astryx-spike.md)：React 19 可构建，主题可映射，+83.9 kB raw / +25.1 kB gzip |
-| Tailwind 4 兼容 | 🟡 已验证路径，未落地主线 | 现有 spike：6 个失败用例、4 个测试类型错误、无层级 CSS 要审计 |
-| 当前故事与导航合同 | 🟡 存在明确冲突 | `NAVIGATION.md` D8 的旧四入口/推出模型；`KIN-PROJECT-001` 陈述的项目无独立列表 |
-| 当前实现与规模 | 🟢 已测量 | 95 个非测试 TSX；5 个共享控件；298 个裸 `<button>` / 68 文件；页面 17,540 行 |
-| Goal 1 整体重构 | ⚪ 等总设计签字 | 五批内部落地，无需逐批找人确认 |
-| Goal 2 整体回归收口 | ⚪ 未开始 | 双端旅程、状态、视觉、性能与文档的最后验收 |
+| Astryx 固定接入成本 | 🟢 已实测并落地 | [spike](2026-11-09-astryx-spike.md) 的 +83.9 kB raw / +25.1 kB gzip 只是 Button/TextInput/Theme 三个入口的 spike 成本；F3 #80 `8fbe3fa3` 已接入主线，最终包体差值与测量方法见下方《验收说明（2026-11-17）》§4 |
+| Tailwind 4 兼容 | 🟢 已落地主线 | F1 #67 `37f63772`：`tailwindcss@4` + `@tailwindcss/postcss` 替换 v3 管线，layer / 对比度 / 焦点环回归测试随迁移通过 |
+| 当前故事与导航合同 | 🟢 已统一 | G2 #149 `49ddf5a0` 把 `NAVIGATION.md` 与 `IA.md` 改成四区 / 四入口合同；G2b #154 `2ea8e07b` 补齐组件契约。旧的「项目无独立列表」不再成立 |
+| 当前实现与规模 | 🟢 已复测 | `fb0dd3eb`：116 个非测试 TSX；12 个共享控件；85 个裸 `<button>` / 42 文件（开工基线 299 / 69）；页面 18,490 行（同口径基线 17,540） |
+| Goal 1 整体重构 | 🟢 五批已落地 | PR #59–#160；G1（lint 收口）#161 在 `fb0dd3eb` 测量之后以 `3ecae5d9` 落地，其 lint 禁令已在 `main`，但该次走查未复验，见验收说明「未验证项」 |
+| Goal 2 整体回归收口 | 🟢 验收说明已填 | 见下方《验收说明（2026-11-17）》：J1–J7、红项、未验证项、包体与手写控件、UX 分数、证据 |
 
 本计划以 `main` 起始提交 `c7c12cc6` 的实测为基线；实际开工先重新测量。该基线不是对未开始工作的完成声明。
+
+## 验收说明（2026-11-17）
+
+测量于 `fb0dd3eb0eb33417219186d3bcc805f9da570893`（`origin/main`，2026-11-17 05:53；C3b #158 合并后的树）。下面每个数字都来自这棵树上的命令或本地 walk 输出；不能测的单独列出，不猜。本页是这次切片唯一改动的文件。
+
+### 1. 先说哪些旅程已可用
+
+`scripts/journeys-smoke.sh --out rsi/state/ux/final-acceptance` 在一次性 state 目录里启动真实 daemon，用公开 HTTP API 种子，再按 `rsi/runtime/ux/journeys.json` 走 J1–J7：14 个「旅程 × 视口」组合、89 张截图、0 横向溢出、0 原生 `<select>`。J7 的 4 个硬失败全部来自 `demo-task` 种子缺口（见红项），不是页面回归。
+
+| 旅程 | 今天能做什么（一句话） | 证据（PR / SHA） | 最终截图 | 原型帧 | 判定 |
+|---|---|---|---|---|---|
+| J1 手机继续 + 批准 | 打开对话列表、按项目折叠、搜「week」、筛选；点进对话继续与批准需要一条真实会话 | #142 `0a33d2f5`、#120 `c762a2b9`、#136 `fe4b18a5`、#158 `fb0dd3eb` | `rsi/state/ux/final-acceptance/J1-phone-05-search.png`、`J1-phone-06-filters.png` | `rsi/state/ux-proto/final/p01-J1-chats.png`、`p03-J1-conversation-approval.png` | 有差距：列表 / 搜索 / 筛选与原型一致；继续与批准未验证（种子无会话） |
+| J2 Mac 继续 | 搜索、筛选、新建、运行设置的权限 / 模型 / Agent 三层都能用键盘走通（Enter / ArrowDown / Escape 实走）；对话正文与变更面板需真实会话 | #127 `6b4325b8`、#152 `4c8a21e9`、#129 `23567013`、#150 `b7037feb`、#158 `fb0dd3eb` | `rsi/state/ux/final-acceptance/J2-mac-02-search.png`、`J2-mac-09-model-picker.png` | `rsi/state/ux-proto/final/m03-J2-search.png`、`m04-J2-permission-popover-anchored.png` | 有差距：新建与选择器一致；对话 / 变更面板未验证 |
+| J3 新建（双端） | 选工作目录、输入草稿、开始按钮可用、权限 / 模型 / Agent 选择器可开可关、关闭后焦点回到触发按钮 | #159 `e8ac61fe`、#126 `bb38d5ef`、#140 `82dfb6d6`、#148 `9a5d7674` | `rsi/state/ux/final-acceptance/J3-phone-06-started.png`、`J3-mac-06-started.png` | `rsi/state/ux-proto/final/m10-J3-new-chat.png`、`p12-J3-new-chat.png` | 有差距：流程与原型一致；手机每屏最多 3 个 <44px 可点目标（汇总 18，见红项） |
+| J4 项目 + 例行任务 | 三宽度完整走通：项目集合 → 项目封面；例行任务 → 新建例行任务 → 工作目录浏览器（打开、Tab、改手动输入、选定） | #147 `b282ee4b`、#138 `0737b79e`、#137 `cf4a252a`、#140 `82dfb6d6` | `rsi/state/ux/final-acceptance/J4-phone-02-project-cover.png`、`J4-mac-04-routine-editor.png` | `rsi/state/ux-proto/final/m12-J4-projects-cover.png`、`m13-J4-routines.png` | 一致（3 视口 21 屏 0 失败） |
+| J5 行操作 | 未验证：种子没有会话行，hover / ⋯ 菜单步骤全部 skip | #131 `ca6afee0`、#62 `695d053e` | `rsi/state/ux/final-acceptance/J5-phone-02-row-actions.png`（实际是列表） | `rsi/state/ux-proto/final/m19-J5-row-actions.png` | 未验证（无会话行） |
+| J6 设置 + Agent 运维 | 双端设置根、`?tab=operations`、旧 `/agents` 落到同一运维分区；打开设置不隐式读取 Agent | #157 `110b05b0`、#156 `037ab687`、#123 `ac6b0b80` | `rsi/state/ux/final-acceptance/J6-phone-02-operations.png`、`J6-mac-03-legacy-agents-redirect.png` | `rsi/state/ux-proto/final/m14-J6-settings.png`、`m15-J6-agent-operations.png` | 一致（双端 6 屏 0 失败） |
+| J7 通知深链 | 硬失败：`404 /api/tasks/demo-task`，landing 空白；通知落点与卡片高亮本身未验证 | #76 `3206755c`、#149 `49ddf5a0` | `rsi/state/ux/final-acceptance/J7-phone-01-landing.png`（空白） | `rsi/state/ux-proto/final/m18-J7-deeplink-highlights-card.png` | 有差距 / 未验证（已知 fixture 404） |
+
+### 2. 红项
+
+以下都是在本 SHA 上重新核对过的「还没做完」，不是历史摘抄。
+
+- **高 · 思考与过程叙述仍被收进卡片**（gap-log 2026-11-14）。验证：`ui/src/components/chat/ChatStream.tsx:187` 仍调用 `mergeProcessRuns`，折叠逻辑在 `ui/src/components/chat/transcriptProjection.ts:1013`。后果：agent 工作时用户看到的是一张「执行中 · N 个工具」摘要卡，读不到正在进行的思考与过程。修复在 PR #60（`rsi/live-process-notes`），尚未合并。
+- **中 · 长按对话行不能拖动排序**（gap-log 2026-11-15）。验证：`ui/src/lib/phoneSessionBuckets.ts:379-382` 仍按 `b.at - a.at` 排序，没有手动顺序存储；`ui/src/components/mobile/SwipeReveal.tsx:22` 的 500ms 长按仍归多选。后果：列表顺序只能跟最近活动走。
+- **中 · 手机新建页仍有 <44px 触控目标**（walk 实测，不在 gap-log）。验证：`walk.json` 的 J3/phone 每屏 `smallTapTargets` 最多 3、12 屏汇总 18；`rsi/state/followups.md` 已记 `分发` 42×28 与 `保存为例行任务` 26×26。后果：违反 TASTE 11 的 44px 承诺。
+- **硬失败 · J7 walk `404 /api/tasks/demo-task`**。验证：`rsi/state/ux/final-acceptance/seed.log` 明确 `skip conversation-created`（没有 agent-free 的建会话路由），J7 因此拿到 404 与空白 landing。后果：通知落点 / 卡片高亮未在本次验收中证明；这是 harness 缺口，不是页面回归。
+- 已修（#61 `cf7ba2bd`）新建对话发送后整页骨架屏 —— gap-log 待随之移入「已修」。验证：`ui/src/pages/TaskDetailPage.tsx:1556-1575` 冷启动改为品牌等待块，`ui/src/pages/TaskSessionHost.tsx:104-125` 以种子行 / handoff 判定就绪；#61 的提交信息与测试正是这条。
+- 已修（#62 `695d053e`）iPad 多选无法退出 —— gap-log 待移。验证：`ui/src/components/sessions/SessionToolbar.tsx:132` 工具栏 `flex-wrap` + `min-h-12`、`:182` 显式退出；`ui/src/components/sessions/SessionList.tsx:997-1007` 的 Escape 走同一路径。
+- 已修（#63 `1c572b20`）手机边缘返回不跟手 —— gap-log 待移。验证：`ui/src/hooks/useEdgeSwipeBack.ts:70-71` 暴露 `dragging` 与位移，`ui/src/components/layout/AppShell.tsx:704-707` 渲染 `--page-swipe-x` / `data-kin-swiping`；行左划部分此前 #50 已修。
+- 已修（#52）例行任务 655361 bytes —— `## 已修` 已有记录；`## Open` 里同标题是重复旧条目，应删除。
+- 已修（#164 `91929db1`）`main.kin-main` 双 route slot（`rsi/state/followups.md` 观察项）—— `ui/src/App.tsx:185` 的 `<TaskSessionHost />` 与 `:188` 的 `<AreaRoute>` 仍是 `.kin-main` 的直接子级、各自 `flex-1`（`ui/src/pages/TaskSessionHost.tsx:221`、`ui/src/components/layout/AreaRoute.tsx:39`），但在 `/tasks/:id` 上空路由不再占位：`AreaRoute.tsx:39` 的 `empty:hidden` 与 `ui/src/index.css:544` 的 `.kin-route:empty { display: none; }` 会把 wrapper 折叠。该缺陷在 C3b 截图时观察到，且在 C3b 之前就存在。
+
+### 3. 未验证项
+
+- **G1 #161 在测量之后落地**（`feat(lint): ban legacy kin-btn classes and raw overlay roles`）：#161 于 2026-11-17 06:09 以 `3ecae5d9` 合并，晚于 `fb0dd3eb` 的测量（05:53），其 lint 禁令已在 `main`；但 `fb0dd3eb` 的走查没有复验这些禁令与棘轮收紧，故本页不把它算作已验证。<https://github.com/vuuihc/openkin/pull/161>
+- **对话正文 / 继续 / 批准（J1、J2）与行操作（J5）**：一次性 daemon 不能在没有真实 agent 的情况下创建 task；`seed.log` 的 5 个 skip 是 `conversation-created` / `conversation-archived` / `conversation-failed` / `waiting-approval` / `routine-failed`。walk 把这些步骤记为 skipped，不是通过。
+- **通知深链落点与卡片高亮（J7）**：同上，`/tasks/demo-task` 404，landing 空白；已知 fixture artifact（`rsi/DECISIONS.md` 2026-11-16 J7 条）。
+- **手机手势**（左缘返回跟手、行左划、拖动排序）：walk 不模拟指针手势；本轮只做代码核对，没有真机 / 浏览器手势录像。
+- **Electron 桌面外壳**：本轮只走浏览器 console（headless Chrome），没有重建或操作 Electron 壳。
+- **包体基线口径**：基线是 pre-F1 `162fdf74`（`37f63772^`），不是程序开始前的 `c7c12cc6`；F1 之前已合并的 N1 / R1 / Q3a 等也在这条基线里。因此 §4 的差值是「新栈引入的成本」，不是整个程序相对开工日的总成本。
+
+### 4. 包体与手写控件
+
+| 指标 | 基线（pre-F1 `162fdf74`） | 现在（`fb0dd3eb`） | 差值 |
+|---|---:|---:|---:|
+| 入口 JS raw | 1,360.9 kB | 1,802.9 kB | +442.0 kB |
+| 入口 JS gzip | 385.7 kB | 529.2 kB | +143.5 kB |
+| 全部 JS raw | 17,141.6 kB | 17,584.9 kB | +443.2 kB |
+| 全部 JS gzip | 4,388.2 kB | 4,532.4 kB | +144.2 kB |
+| CSS raw | 207.8 kB | 517.9 kB | +310.1 kB |
+| CSS gzip | 35.2 kB | 81.7 kB | +46.6 kB |
+
+方法：基线在 `git worktree add /tmp/kin-acceptance-base 162fdf74` 的独立树里 `rm -rf node_modules && npm ci && npm run build`（用它自己的 lockfile；Node v22.23.4）；现在树在 `fb0dd3eb` 上 `cd ui && npm run build`。入口 = `web/dist/index.html` 指名的 `index-*.js`；全部 = `web/dist/assets/*.js` / `*.css` 求和；gzip = `gzip -9 -c`；kB = 1,000 bytes。`docs/plans/2026-11-09-astryx-spike.md` §3.5 的 +83.9 kB raw / +25.1 kB gzip 只覆盖 Button / TextInput / Theme 三个入口，且是 2026-11-09 的另一棵树；今天全量采用（React 19、Tailwind 4、Astryx primitives 与全部入口样式）后的入口增量约为该 spike 估算的 5.7 倍（gzip +143.5 kB），CSS 的 +310.1 kB raw / +46.6 kB gzip 主要是 Astryx / StyleX 生成的样式。
+
+`python3 scripts/ui_inventory.py` 的 18 项与 `scripts/ui-inventory-baseline.json` 逐项一致：
+
+| 指标 | 出现次数 | 文件数 | 基线文件 | 变化 |
+|---|---:|---:|---:|---:|
+| 裸 `<button` | 85 | 42 | 85 / 42 | 0 |
+| `kin-btn` 类 | 1 | 1 | 1 / 1 | 0 |
+| `<input` | 53 | 26 | 53 / 26 | 0 |
+| `kin-input` 类 | 20 | 6 | 20 / 6 | 0 |
+| `<textarea` | 7 | 6 | 7 / 6 | 0 |
+| 原生 `<select` | 0 | 0 | 0 / 0 | 0 |
+| `<label` | 40 | 15 | 40 / 15 | 0 |
+| `role="menu"` | 2 | 2 | 2 / 2 | 0 |
+| `role="listbox"` | 9 | 6 | 9 / 6 | 0 |
+| `role="dialog"` | 13 | 8 | 13 / 8 | 0 |
+| `role="tab"` | 4 | 4 | 4 / 4 | 0 |
+| `role="status"` | 32 | 20 | 32 / 20 | 0 |
+| `role="alert"` | 26 | 12 | 26 / 12 | 0 |
+| `useAnchoredPanel` | 5 | 2 | 5 / 2 | 0 |
+| `createPortal` | 8 | 4 | 8 / 4 | 0 |
+| `pushToast` | 134 | 17 | 134 / 17 | 0 |
+| `rounded-* + border` 表面 | 120 | 50 | 120 / 50 | 0 |
+| `z-[n]` 数字层级 | 4 | 4 | 4 / 4 | 0 |
+
+基线文件在程序中被逐步下调，而不是停在开工值：裸 `<button>` 299 / 69 → 85 / 42，`role="menu"` 7 / 6 → 2 / 2，`role="listbox"` 12 / 7 → 9 / 6，`role="dialog"` 16 / 10 → 13 / 8，`useAnchoredPanel` 22 / 6 → 5 / 2，`createPortal` 17 / 8 → 8 / 4，`rounded-* + border` 154 / 52 → 120 / 50，`z-[n]` 5 / 5 → 4 / 4。少数指标上调且有记录：`<input` 文件 25 → 26（C1c2b 把搜索框移进 Menu）、`role="status"` 31 / 18 → 32 / 20、`role="alert"` 文件 11 → 12、`pushToast` 132 → 134、独立 `kin-btn` 0 → 1（受控适配层）、`rounded-* + border` 在 #158 由 119 / 49 调到 120 / 50（C3b 的新活动 pill / 审批 dock，随 PR 记录）。所以这张表的正确读法是「实测等于已随迁移下调的棘轮」，不是「低于开工基线」；进一步收紧由 G1 的 lint 收口（#161）承接，它已在 `fb0dd3eb` 测量之后以 `3ecae5d9` 落地、禁令在 `main`，但该次走查未复验。
+
+### 5. 各区最后一次 UX gate 分数
+
+分数取自 `rsi/state/ux/<slug>/scores.json` 的 clarity / density / consistency / feedback / keyboard 五个键（各 1–5），mean 为五项均值；PR 号由 `rsi/state/merged.log` 解析。六个区的最后合并 PR 都落在程序内，没有停留在程序前。
+
+| 区 | 最后合并 PR | clarity（清晰） | density（密度） | consistency（一致） | feedback（反馈） | keyboard（键盘） | mean | 判定 |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| 对话（sessions / conversation） | #158 `fb0dd3eb` | 4 | 4 | 4 | 3 | 4 | 3.8 | PASS |
+| 项目 | #147 `b282ee4b` | 4 | 4 | 4 | 4 | 4 | 4.0 | PASS |
+| 例行任务 | #137 `cf4a252a` | 4 | 4 | 4 | 4 | 4 | 4.0 | PASS |
+| Agent 运维 | #157 `110b05b0` | 4 | 4 | 4 | 4 | 4 | 4.0 | PASS |
+| 设置 | #156 `037ab687` | 4 | 4 | 4 | 4 | 3 | 3.8 | PASS |
+| 外壳 / 导航 | #146 `47ddcbde` | 3 | 4 | 4 | 4 | 4 | 3.8 | PASS |
+
+六个区的 clarity 都 ≥3；唯一 clarity = 3 的是外壳 / 导航（#146），与区域转场首帧的判断一致。
+
+### 6. 截图与证据
+
+- 走查输出：`rsi/state/ux/final-acceptance/` —— 89 张 PNG、同名 `.aria.txt`、`walk.json`、`seed.log`；汇总命令 `python3 scripts/journeys_smoke.py --walk-json rsi/state/ux/final-acceptance/walk.json --proto rsi/state/ux-proto/final`。
+- PR 范围：<https://github.com/vuuihc/openkin/pull/59> … <https://github.com/vuuihc/openkin/pull/160>；G1 仍是 <https://github.com/vuuihc/openkin/pull/161>。
+- 原型：`rsi/ux-proto/index.html`（tracked）；已签字的帧在 `rsi/state/ux-proto/final/`（APPROVED 2026-11-15 12:27 SGT）。
+- 程序前基线截图：`rsi/state/shots/baseline/`。
+- UX 分数：`rsi/state/ux/<slug>/scores.json`；合并映射：`rsi/state/merged.log`。
+- 本计划：`docs/plans/2026-11-14-ux-unification.md`；包体方法先例：`docs/plans/2026-11-09-astryx-spike.md` §3.5。
 
 ---
 
@@ -298,14 +401,16 @@
 | 阶段 | 文件数 / 源码行 / 测试行 | 测试变化 | 包体变化 | 决策 / 阻塞 | 结果 |
 |---|---|---|---|---|---|
 | Goal 0 | 26 文件；3 份文字合同合计 324 行；20 SVG；共 +392 / -9 | `stories.py` 通过；`check.sh` 14 项通过；20 SVG / 22 六拍流程 / 390+1100px 实际浏览器通过；并非产品覆盖 | 无 | 独立复审两项 major 已修、窄复审无 blocker/major；仍待总设计签字 | 文档已生成，产品实现未开始 |
-| Batch A | 待实际 | 6 个已知失败用例 + Provider / CSS | 以实测为准 | 上游版本复核 | 未开始 |
-| Batch B | 待实际 | 导航 / deep-link / history | 待测 | 项目集合 URL | 未开始 |
-| Batch C | 待实际 | 列表 / 对话 / 新建 | 待测 | 无新增功能 | 未开始 |
-| Batch D | 待实际 | 项目 / 例程 | 待测 | 不复制合同 | 未开始 |
-| Batch E | 待实际 | 设置 / Agent / primitive | 待测 | 秘密不被隐式读取 | 未开始 |
-| Goal 2 | 待实际 | 全旅程 / smoke / full suite | 最终差值 | 总体验收 | 未开始 |
+| Batch A | 47 个不同文件（71 次改动）；源码 +3,948 / −1,247；测试 +2,803 / −64 | 14 个测试文件；兼容层 / Provider / token / gallery 套件；最终套件见 Goal 2 行 | 见验收说明 §4 | Astryx 优先与 F1–F3 依赖白名单（`rsi/DECISIONS.md` 2026-11-15）；上游版本安装时复核 | 兼容底座与 facade 落地；PR #59–#117；2026-11-15 15:10 → 2026-11-16 14:40（23 小时 30 分） |
+| Batch B | 62 个不同文件（85 次改动）；源码 +1,842 / −565；测试 +2,651 / −279 | 28 个测试文件；导航 / deep-link / history / 手势；最终套件见 Goal 2 行 | 见验收说明 §4 | N3 退役、S2 吸收每区返回（`rsi/DECISIONS.md` 2026-11-15）；手机无项目入口（`NAVIGATION.md` §5） | 四区外壳与手机四入口落地；PR #68–#146；2026-11-15 13:34 → 2026-11-17 00:34（35 小时 0 分） |
+| Batch C | 96 个不同文件（160 次改动）；源码 +4,357 / −3,526；测试 +6,353 / −269 | 49 个测试文件；列表 / 对话 / 新建 / 选择器；C3b 由 #158 `fb0dd3eb` 落地；最终套件见 Goal 2 行 | 见验收说明 §4 | C5b 拆 C5b/C5d、T3 拆 T3a–c、L2 只交工具栏（`rsi/state/decisions-pending.md`） | 对话与新建路径收口；PR #66–#159；2026-11-15 15:50 → 2026-11-17 05:53（38 小时 3 分） |
+| Batch D | 25 个不同文件（44 次改动）；源码 +1,176 / −878；测试 +1,329 / −86 | 12 个测试文件；项目 / 例程；最终套件见 Goal 2 行 | 见验收说明 §4 | P1 只交 One-Pager、P1b/P3 拆出（`rsi/DECISIONS.md` 2026-11-16） | 项目集合与例行任务落位；PR #69–#147；2026-11-15 13:55 → 2026-11-17 02:34（36 小时 39 分） |
+| Batch E | 46 个不同文件（57 次改动）；源码 +2,835 / −2,740；测试 +2,336 / −94 | 21 个测试文件；设置 / Agent / primitive；最终套件见 Goal 2 行 | 见验收说明 §4 | 打开设置不隐式读 Agent（N4 决策，`rsi/state/decisions-pending.md` 2026-11-16 14:38）；E4 拆 a/b/c | 设置与 Agent 运维收敛；PR #132–#157；2026-11-16 20:32 → 2026-11-17 05:30（8 小时 58 分） |
+| Goal 2 | 11 个不同文件（11 次改动）；源码 +819 / −78；测试 +303 / −0 | 2 个测试文件（`navigationContract.test.ts` 与 G3 的 smoke 测试）；最终套件 `./scripts/check.sh` 16 项通过、退出 0 | 入口 gzip +143.5 kB、CSS gzip +46.6 kB（pre-F1 → 现在，见验收说明 §4） | G1 #161（`3ecae5d9`）在 `fb0dd3eb` 测量之后落地、其 lint 禁令未被该次走查复验；本行只覆盖 G2 / G2b / G3 / G4 | 旅程脚本、导航与组件合同、验收说明落地；PR #149–#160；2026-11-17 02:00 → 2026-11-17 05:12（3 小时 12 分） |
 
-**规模陈述：** 已知范围是 95 个非测试 TSX、17,540 行页面、37,797 行 components（含测试）、四个一级区域、五个内部批次。没有足够依据将它写成具体完工天数；实施者每轮回填文件、行数、测试和阻塞，而不是预测“几个小时”。
+统计口径：按 `rsi/state/merged.log` 的 item 列归批；不含循环基础设施行（`R-*`）与未列入五批的一次性行（G1b `cf7ba2bd`、G2a `695d053e`、G3a `1c572b20`、V1 `d6e9ba70`、UX-GATE `5c515262`、CI-FORMAT `35755618`）。N3 已退役（`rsi/DECISIONS.md` 2026-11-15），不再单列。
+
+**规模陈述：** 开工范围是 95 个非测试 TSX、17,540 行页面、37,797 行 components（含测试）；收口时 `fb0dd3eb` 是 116 个非测试 TSX、18,490 行页面（同口径含测试）、55,087 行 components（含测试，其中非测试 30,934 行）——增量主要是新测试与提取拆分的文件。四个一级区域、五个内部批次不变。没有足够依据将它写成具体完工天数；实施者每轮回填文件、行数、测试和阻塞，而不是预测“几个小时”。
 
 ## 4. 唯一的常规暂停条件
 
