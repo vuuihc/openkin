@@ -197,7 +197,9 @@ export function clearDeliveredNotification(kind: "approval" | "question", id: st
  * malformed is dropped here rather than trusted, because it is native state
  * crossing into the page.
  */
-export async function deliveredNotificationTargets(): Promise<Array<{ kind: string; id: string }>> {
+export async function deliveredNotificationTargets(): Promise<
+  Array<{ kind: string; id: string }>
+> {
   const plugin = nativePushPlugin();
   if (!plugin?.deliveredTargets) return [];
   let raw: unknown;

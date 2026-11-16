@@ -197,7 +197,7 @@ describe("resolvePanel", () => {
 
   it("keeps an open panel that is still offered", () => {
     expect(resolvePanel("files", ctx())).toBe("files");
-    expect(resolvePanel("publish", ctx({ remote: true }))).toBe("publish");
+        expect(resolvePanel("publish", ctx({ remote: true }))).toBe("publish");
     expect(resolvePanel("terminal", ctx())).toBe("terminal");
   });
 

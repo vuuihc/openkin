@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { PhoneProjectBucket } from "./phoneSessionBuckets";
 import { sortSessionBuckets } from "./sessionBucketOrder";
 
-function bucket(key: string, options: Partial<PhoneProjectBucket> = {}): PhoneProjectBucket {
+function bucket(
+  key: string,
+  options: Partial<PhoneProjectBucket> = {},
+): PhoneProjectBucket {
   return {
     key,
     label: key,

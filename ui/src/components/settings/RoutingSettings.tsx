@@ -87,7 +87,9 @@ export function RoutingDefaultsSection({
   // holds; a save blesses only the values the request carried, so an edit made
   // while that request was out stays dirty. A failed load leaves the empty
   // baseline in place, so the first edit is still a change.
-  const [baseline, setBaseline] = useState<string | null>(() => defaultsKey(EMPTY_DEFAULTS));
+  const [baseline, setBaseline] = useState<string | null>(() =>
+    defaultsKey(EMPTY_DEFAULTS),
+  );
   const draft: RoutingDefaults = {
     enabled,
     defaultTeam,

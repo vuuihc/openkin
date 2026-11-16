@@ -141,7 +141,9 @@ export default function WorkerTimeline({
                         disabled={stoppingKey !== null}
                         className="min-h-11 rounded-lg border border-[var(--kin-hairline)] px-2.5 text-strong text-kin-secondary outline-none hover:bg-[var(--kin-fill-strong)] hover:text-kin-text focus-visible:ring-2 focus-visible:ring-kin-focus-ring disabled:opacity-50"
                       >
-                        {stoppingKey === key ? tr("task.workerStopping") : tr("task.workerStop")}
+                        {stoppingKey === key
+                          ? tr("task.workerStopping")
+                          : tr("task.workerStop")}
                       </button>
                     )}
                   </span>

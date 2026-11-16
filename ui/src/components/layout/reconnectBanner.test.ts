@@ -11,7 +11,9 @@ import { describe, expect, it } from "vitest";
  * connection. This is a source assertion because the shell is too large to
  * mount for one boolean, and the mistake is a comparison, not a rendering.
  */
-const SHELL = fileURLToPath(new URL("./AppShell.tsx", import.meta.url));
+const SHELL = fileURLToPath(
+  new URL("./AppShell.tsx", import.meta.url),
+);
 
 describe("reconnect strip", () => {
   it("is shown for a disconnected channel, not a connecting one", () => {

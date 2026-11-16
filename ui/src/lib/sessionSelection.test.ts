@@ -68,7 +68,10 @@ describe("rowSelectable", () => {
 
 describe("selectableTaskIds", () => {
   it("answers every selectable id across buckets, in list order", () => {
-    const buckets = [bucket([row("a"), row("b", true), imported("s")]), bucket([row("c")])];
+    const buckets = [
+      bucket([row("a"), row("b", true), imported("s")]),
+      bucket([row("c")]),
+    ];
     expect(selectableTaskIds(buckets, "active")).toEqual(["a", "b", "c"]);
   });
 

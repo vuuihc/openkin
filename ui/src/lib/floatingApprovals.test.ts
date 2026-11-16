@@ -25,9 +25,9 @@ describe("floatingApprovals", () => {
   });
 
   it("drops the task on screen, whose transcript renders its own card", () => {
-    expect(floatingApprovals(waiting, { visibleTaskId: "task-1" }).map((a) => a.id)).toEqual([
-      "a2",
-    ]);
+    expect(
+      floatingApprovals(waiting, { visibleTaskId: "task-1" }).map((a) => a.id),
+    ).toEqual(["a2"]);
   });
 
   it("keeps the other tasks' approvals while one conversation is open", () => {

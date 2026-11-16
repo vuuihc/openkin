@@ -5,7 +5,11 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import AgentsPage from "./AgentsPage";
 import { setLocale } from "../i18n";
-import { importAgentSessions, listAgents, type AgentSessionImportResult } from "../api/client";
+import {
+  importAgentSessions,
+  listAgents,
+  type AgentSessionImportResult,
+} from "../api/client";
 import { refreshMachines } from "../hooks/useMachines";
 
 /**
@@ -48,9 +52,7 @@ beforeEach(() => {
   localStorage.clear();
   vi.mocked(refreshMachines).mockReset().mockResolvedValue([here]);
   vi.mocked(listAgents).mockReset().mockResolvedValue([]);
-  vi.mocked(importAgentSessions)
-    .mockReset()
-    .mockResolvedValue({ imported: 2, providers: { codex: 2 } });
+  vi.mocked(importAgentSessions).mockReset().mockResolvedValue({ imported: 2, providers: { codex: 2 } });
 });
 
 function page() {

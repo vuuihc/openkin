@@ -110,7 +110,10 @@ export function catalogProducts(agents: AgentInfo[]): AgentInfo[] {
  * Order is the catalog's own (runnable, installed, name), so the cap keeps the
  * agents that work when more than ten products are registered.
  */
-export function seedCatalogFamilies(agents: AgentInfo[], limit = CATALOG_LIMIT): string[] {
+export function seedCatalogFamilies(
+  agents: AgentInfo[],
+  limit = CATALOG_LIMIT,
+): string[] {
   // Collapse before the slice: two transports of one product are one slot, and
   // a cap that counted them twice would evict a different product instead.
   return sortAgentCatalog(collapseAgentVariants(catalogProducts(agents)))
@@ -198,6 +201,7 @@ export function planAgentCatalog(
 
   return { connected, discovered, full: requested.length >= limit, missing };
 }
+
 
 /** Open an external install URL in a new browser tab. */
 export function openInstallURL(url: string | undefined): void {
