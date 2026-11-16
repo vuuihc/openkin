@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { setLocale } from "../../i18n";
+import { setLocale, t } from "../../i18n";
 import type { AgentInfo } from "../../api/client";
 import RunConfigControl, { type RunConfigControlProps } from "./RunConfigSheet";
 
@@ -105,6 +105,20 @@ describe("RunConfigControl", () => {
     expect(face.textContent).toContain("Ask");
   });
 
+  it("puts the run-config face on the shared Button", async () => {
+    setup();
+    const face = screen.getByRole("button", { name: /^Run settings/ });
+    // Quiet weight: the face sits on the composer's surface and takes a fill
+    // only on hover, the same as every other quiet affordance there.
+    expect(face.className).toContain("kin-btn");
+    expect(face.className).not.toContain("kin-btn-primary");
+    expect(face.getAttribute("aria-haspopup")).toBe("dialog");
+
+    await userEvent.click(face);
+    expect(face.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("dialog", { name: "Run settings" })).toBeTruthy();
+  });
+
   it("reads a long agent and model in full instead of trimming them to an ellipsis", () => {
     // The phone face used to be one line: a long agent or model name lost its
     // tail to `truncate`, and a phone has no hover for the `title` that held
@@ -155,8 +169,11 @@ describe("RunConfigControl", () => {
     assertWraps(modelValue);
 
     await userEvent.click(within(dialog).getByRole("button", { name: /^Agent/ }));
-    const option = await screen.findByRole("option", { name: new RegExp(otherName) });
-    assertWraps(within(option).getByText(otherName));
+    const option = await screen.findByRole("menuitemradio", { name: new RegExp(otherName) });
+    // The row trigger above wraps; the shared menu's rows are one line by
+    // contract, so what this holds is that the full name reaches the row the
+    // reader hears, not that the row grows to fit it.
+    expect(option.textContent).toContain(otherName);
   });
 
   it("opens the sheet with the agent read-only and the two pickers", async () => {
@@ -168,6 +185,71 @@ describe("RunConfigControl", () => {
     expect(within(dialog).queryByRole("button", { name: "Agent" })).toBeNull();
     expect(within(dialog).getByRole("button", { name: /^Model/ })).toBeTruthy();
     expect(within(dialog).getByRole("button", { name: /^Permissions/ })).toBeTruthy();
+  });
+
+  it("keeps every row trigger on the 44px touch floor", async () => {
+    // More than six models is what makes the list long enough to grow a field.
+    const many = Array.from({ length: 8 }, (_, index) => ({
+      id: `m${index}`,
+      label: `Model ${index}`,
+    }));
+    setup({
+      models: many,
+      model: "m0",
+      agentId: "claude-code",
+      agents: [
+        { id: "claude-code", name: "Claude Code", available: true },
+        { id: "codex", name: "Codex", available: true },
+      ] as never,
+      onAgentChange: vi.fn(),
+    });
+    const dialog = await openSheet();
+    // jsdom has no layout, so the floor is asserted where it is declared:
+    // the shared button ships `min-h-11`, and a row that overrides it with a
+    // smaller floor is a tap target a thumb on a 390px phone can miss.
+    for (const trigger of dialog.querySelectorAll<HTMLElement>("[data-run-config-trigger]")) {
+      expect(trigger.className).toContain("min-h-11");
+      expect(trigger.className).not.toContain("min-h-10");
+    }
+
+    // The search field's clear is the other thumb-sized control in the sheet:
+    // it appears only once a query is typed (and the field only when the
+    // catalog is longer than six), so it is asserted here.
+    await userEvent.click(within(dialog).getByRole("button", { name: /^Model/ }));
+    await userEvent.type(screen.getByLabelText("Search models"), "model");
+    const clear = screen.getByRole("button", { name: "Clear" });
+    expect(clear.className).toContain("max-sm:min-w-11");
+  });
+
+  it("opens the agent list as a radio menu and marks the current agent", async () => {
+    const onAgentChange = vi.fn();
+    setup({
+      agentId: "claude-code",
+      agents: [
+        { id: "claude-code", name: "Claude Code", available: true },
+        { id: "codex", name: "Codex", available: true },
+      ] as never,
+      onAgentChange,
+    });
+    await openSheet();
+    await userEvent.click(screen.getByRole("button", { name: /^Agent/ }));
+
+    const menu = screen.getByRole("menu", { name: "Agent" });
+    // A radio row, not a highlighted one: the reader hears which agent is set
+    // while arrowing, the same way the composer's permission chip reads.
+    expect(
+      within(menu)
+        .getByRole("menuitemradio", { name: /Claude Code/ })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(
+      within(menu).getByRole("menuitemradio", { name: /Codex/ }).getAttribute("aria-checked"),
+    ).toBe("false");
+
+    await userEvent.click(within(menu).getByRole("menuitemradio", { name: /Codex/ }));
+    expect(onAgentChange).toHaveBeenCalledTimes(1);
+    expect(onAgentChange).toHaveBeenCalledWith("codex");
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
   it("marks the current model and picks a new one from the inline list", async () => {
@@ -342,21 +424,73 @@ describe("RunConfigControl", () => {
     expect(screen.queryByRole("listbox", { name: "Model" })).toBeNull();
   });
 
+  it("opens the permission list as a menu with each mode's consequence", async () => {
+    const { onPermissionChange } = setup();
+    await openSheet();
+    const trigger = screen.getByRole("button", { name: /^Permissions/ });
+    expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
+    await userEvent.click(trigger);
+
+    const menu = screen.getByRole("menu", { name: "Permissions" });
+    const rows = within(menu).getAllByRole("menuitemradio");
+    expect(rows).toHaveLength(3);
+    // Each row carries what the mode does, not only its name: choosing YOLO
+    // should not be possible without having read what it skips.
+    expect(rows[0]!.textContent).toContain(t("permission.defaultHint"));
+    expect(rows[1]!.textContent).toContain(t("permission.acceptEditsHint"));
+    expect(rows[2]!.textContent).toContain(t("permission.yoloHint"));
+    expect(rows[0]!.getAttribute("aria-checked")).toBe("true");
+    expect(rows[2]!.getAttribute("aria-checked")).toBe("false");
+
+    await userEvent.click(rows[2]!);
+    expect(onPermissionChange).toHaveBeenCalledWith("yolo");
+  });
+
+  it("returns focus to the row trigger after a menu choice", async () => {
+    setup();
+    await openSheet();
+    await userEvent.click(screen.getByRole("button", { name: /^Permissions/ }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: /Auto-edit/ }));
+
+    // The menu is portaled and unmounts on the choice; the keyboard has to
+    // land back on the row it was changing, not at the top of the page.
+    const trigger = screen.getByRole("button", { name: /^Permissions/ });
+    expect(trigger.hasAttribute("data-run-config-trigger")).toBe(true);
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("gives the menu the first Escape and the sheet the next", async () => {
+    setup();
+    await openSheet();
+    const trigger = screen.getByRole("button", { name: /^Permissions/ });
+    await userEvent.click(trigger);
+    expect(screen.getByRole("menu", { name: "Permissions" })).toBeTruthy();
+
+    await userEvent.keyboard("{Escape}");
+    // One Escape, one layer: the menu goes and the sheet behind it stays.
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Run settings" })).toBeTruthy();
+    expect(document.activeElement).toBe(trigger);
+
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Run settings" })).toBeNull();
+  });
+
   it("changes the permission mode", async () => {
     const { onPermissionChange } = setup();
     await openSheet();
     await userEvent.click(screen.getByRole("button", { name: /^Permissions/ }));
-    await userEvent.click(screen.getByRole("option", { name: /YOLO/ }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: /YOLO/ }));
     expect(onPermissionChange).toHaveBeenCalledWith("yolo");
-    expect(screen.queryByRole("listbox", { name: "Permissions" })).toBeNull();
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
   it("only offers the modes the machine actually runs", async () => {
     setup({ permissionModes: ["default"] });
     await openSheet();
     await userEvent.click(screen.getByRole("button", { name: /^Permissions/ }));
-    expect(screen.getAllByRole("option")).toHaveLength(1);
-    expect(screen.queryByRole("option", { name: /YOLO/ })).toBeNull();
+    expect(screen.getAllByRole("menuitemradio")).toHaveLength(1);
+    expect(screen.queryByRole("menuitemradio", { name: /YOLO/ })).toBeNull();
   });
 
   // KIN-CONTINUE-001, step 5: the phone's pickers are a second layer over the
@@ -399,11 +533,14 @@ describe("RunConfigControl", () => {
     await openSheet();
     await userEvent.click(screen.getByRole("button", { name: /^Agent/ }));
 
-    const layer = screen.getByRole("listbox", { name: "Agent" }).closest("[data-run-config-layer]");
-    expect(layer).toBeTruthy();
-    const panel = layer!.closest('[role="dialog"]');
+    // The agent row opens the shared `Menu`: a second layer portaled to
+    // <body> and measured from the row trigger, so the sheet behind it keeps
+    // its height and the rows below keep their places.
+    const menu = screen.getByRole("menu", { name: "Agent" });
+    const panel = menu.closest('[role="dialog"]');
     expect(panel).toBeTruthy();
     expect(panel!.parentElement).toBe(document.body);
+    expect(screen.getByRole("dialog", { name: "Run settings" })).toBeTruthy();
   });
 
   it("closes the layer on a tap outside it, leaving the sheet open", async () => {
@@ -459,9 +596,16 @@ describe("RunConfigControl", () => {
     await openSheet();
     stubRows();
 
-    for (const name of [/^Agent/, /^Model/, /^Permissions/]) {
+    // Agent and permission are the shared `Menu`; the model row is still the
+    // searchable `Expansion` until a primitive grows a search slot.
+    const rows: Array<[RegExp, string]> = [
+      [/^Agent/, '[role="menu"]'],
+      [/^Model/, "[data-run-config-layer]"],
+      [/^Permissions/, '[role="menu"]'],
+    ];
+    for (const [name, selector] of rows) {
       await userEvent.click(screen.getByRole("button", { name }));
-      const layer = document.querySelector<HTMLElement>("[data-run-config-layer]");
+      const layer = document.querySelector<HTMLElement>(selector);
       expect(layer).toBeTruthy();
       // Upward: measured from the bottom, and no `top` on the same element.
       const panel = layer!.closest<HTMLElement>('[role="dialog"]');
@@ -523,6 +667,15 @@ describe("RunConfigControl on a wide screen", () => {
     expect(within(panel).getByText("Claude Code")).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Model/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Permissions/ })).toBeTruthy();
+  });
+
+  it("keeps the close control a quiet Button with the close name", async () => {
+    setup();
+    const panel = await openSheet();
+    const close = within(panel).getByRole("button", { name: "Close" });
+    expect(close.className).toContain("kin-btn");
+    expect(close.className).not.toContain("kin-btn-primary");
+    expect(close.getAttribute("aria-label")).toBe("Close");
   });
 
   it("picks a model and keeps the panel open behind the choice", async () => {
