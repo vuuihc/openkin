@@ -174,7 +174,7 @@ export default function Sidebar({
   ) : null;
 
   const newChatBlock = (
-    <div className="px-2.5 pb-2">
+    <div className="px-2.5 pt-3 pb-2">
       <button
         type="button"
         // Not `onClick={onNewChat}`: the shell's entry point reads its first

@@ -9,6 +9,8 @@ import { AREAS, areaById } from "../../lib/areas";
 import { resolveArea } from "../../lib/areaNavigation";
 import { useAppStore } from "../../store/appStore";
 import { refreshMachines } from "../../hooks/useMachines";
+import { isKinDesktop } from "../../lib/desktop";
+import { SHELL_VIEW } from "../../lib/panels";
 
 /**
  * S1: the Mac four-area rail.
@@ -66,7 +68,7 @@ vi.mock("../../hooks/useMinWidth", () => ({ useMinWidth: () => true }));
 vi.mock("../../hooks/useApprovalDecision", () => ({
   useApprovalDecision: () => ({ busy: {}, decide: vi.fn() }),
 }));
-vi.mock("../../lib/desktop", () => ({ isKinDesktop: () => false }));
+vi.mock("../../lib/desktop", () => ({ isKinDesktop: vi.fn(() => false) }));
 vi.mock("../terminal/TerminalPanel", () => ({ default: () => null }));
 
 function viewport() {
@@ -121,6 +123,8 @@ beforeEach(() => {
   sessionStorage.clear();
   localStorage.clear();
   useAppStore.getState().setWSStatus("connected");
+  useAppStore.setState({ shownPanel: null });
+  vi.mocked(isKinDesktop).mockReturnValue(false);
   viewport();
   vi.mocked(refreshMachines).mockReset().mockResolvedValue([]);
 });
@@ -172,6 +176,20 @@ describe("the Mac area rail", () => {
       const label = link.querySelector("[data-area-label]");
       expect(label?.className).toContain("hidden");
     }
+  });
+
+  it("compacts the rail under the shell's terminal, even over an open conversation", () => {
+    // The terminal belongs to no conversation: `shownPanel` names the shell's
+    // view, not `/tasks/:id`'s. It still covers the conversation, so a rail
+    // that only asked the conversation's view would stay 208px wide beneath a
+    // full-bleed terminal.
+    vi.mocked(isKinDesktop).mockReturnValue(true);
+    useAppStore.setState({ shownPanel: { view: SHELL_VIEW, id: "terminal" } });
+    shell("/tasks/t-1");
+
+    const rail = screen.getByRole("navigation", { name: t("nav.areas") });
+    expect(rail.getAttribute("data-compact")).toBe("true");
+    expect(rail.className).toContain("w-rail-compact");
   });
 
   it("keeps the needs-you badge on Chats in both rail widths", () => {

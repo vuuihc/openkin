@@ -178,16 +178,23 @@ export default function AreaNav({
         aria-label={tr("nav.paletteHint")}
         title={`${tr("nav.paletteHint")} ⌘K`}
         className={[
-          "mt-auto flex items-center rounded-lg text-kin-muted hover:text-kin-text",
-          compact ? "h-11 w-11 justify-center" : "h-9 w-full justify-start gap-2 px-2.5 text-body",
+          "mt-auto flex items-center rounded-lg py-0 font-normal text-kin-muted hover:text-kin-text",
+          compact
+            ? "h-11 w-11 justify-center px-0"
+            : "h-9 w-full justify-start gap-2 px-2.5 text-body [&>span]:w-full [&>span>span]:w-full",
         ].join(" ")}
       >
-        <IconSearch size={16} />
-        {compact ? null : (
-          <>
+        {compact ? (
+          <IconSearch size={16} className="shrink-0" />
+        ) : (
+          // Astryx wraps the children in two spans (content wrapper, then the
+          // label span); the caller's own layout has to live inside both, which
+          // is what the `[&>span]` widths above open up.
+          <span className="flex w-full min-w-0 items-center gap-2">
+            <IconSearch size={16} className="shrink-0" />
             <span className="truncate">{tr("nav.paletteHint")}</span>
             <span className="ml-auto text-caption font-medium">⌘K</span>
-          </>
+          </span>
         )}
       </Button>
     </nav>

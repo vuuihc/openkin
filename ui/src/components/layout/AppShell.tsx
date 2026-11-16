@@ -331,11 +331,6 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
   // workspace panel replaces it instead of painting on top of it.
   const shownPanel = useAppStore((s) => s.shownPanel);
   const togglePanel = useAppStore((s) => s.togglePanel);
-  // Whether a panel is covering the conversation right now. The rail compacts
-  // on it: at 1100 or with the panel open, labels cost the conversation width
-  // the review loop needs (TASTE 17). S1 only compacts the rail — making the
-  // panel a column and yielding the list is S1b.
-  const panelOpen = panelForView(shownPanel, selectedTaskId ?? SHELL_VIEW) !== null;
   // The terminal belongs to no session, so its view key is the shell's. It is
   // still rendered unconditionally on desktop and told whether to be open, even
   // though a closed panel is invisible: `TerminalPanel` mounts its PTY on first
@@ -352,6 +347,16 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
   // disagree about it.
   const terminalAvailable = isPanelAvailable("terminal", shellCtx);
   const terminalPanel = resolvePanel(panelForView(shownPanel, SHELL_VIEW), shellCtx);
+  // Whether a panel is covering the conversation right now. The rail compacts
+  // on it: at 1100 or with the panel open, labels cost the conversation width
+  // the review loop needs (TASTE 17). The shell's panel counts too — the
+  // terminal opens over a conversation while `shownPanel` names the shell's
+  // view, not the conversation's, and the rail must compact underneath it.
+  // S1 only compacts the rail — making the panel a column and yielding the
+  // list is S1b.
+  const panelOpen =
+    terminalPanel !== null ||
+    (selectedTaskId !== null && panelForView(shownPanel, selectedTaskId) !== null);
   // The shell's way to open any of its panels, by id. The palette asks for one by
   // the id its table names rather than for a specific panel, so a panel added to
   // the table needs no second entry point here.
