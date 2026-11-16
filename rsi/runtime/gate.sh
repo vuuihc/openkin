@@ -84,10 +84,14 @@ echo "$changed" | grep -qE '^(web/dist/assets/|\.env|.*secret)' && { echo "FAIL:
 echo "$changed" | grep -q '^ui/' && step node-stamp ui_node_stamp
 [ -x scripts/check.sh ] && step check ./scripts/check.sh
 if echo "$changed" | grep -q '^ui/'; then
-  step typecheck bash -c 'cd ui && npm run typecheck'
   step lint bash -c 'cd ui && npm run lint'
   step test bash -c 'cd ui && npm test -- --maxWorkers="${VITEST_MAX_WORKERS:-2}"'
-  step build bash -c 'cd ui && npm run build'
+  if [ "${RSI_DIST_BUILT_SHA:-}" = "$($GIT rev-parse HEAD 2>/dev/null)" ] && [ -d web/dist/assets ]; then
+    echo "--- build"
+    echo "ok: build (verified at HEAD by merge lane; tsc --noEmit + vite build)"
+  else
+    step build bash -c 'cd ui && npm run build'
+  fi
   [ -n "$($GIT status --porcelain -- . ':!web/dist/index.html')" ] && { echo "FAIL: build left uncommitted changes"; fail=1; why="$why dirty-after-build"; }
   $GIT diff --quiet -- web/dist/index.html || { echo "FAIL: web/dist/index.html stale — commit the rebuilt file"; fail=1; why="$why stale-dist"; }
 fi

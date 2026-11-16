@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   ApiError,
   activateProvider,
@@ -42,13 +42,13 @@ import {
   type SettingsTabItem,
 } from "../components/settings/SettingsPrimitives";
 import { normalizeSettingsTab, type SettingsTabId } from "../lib/areaNavigation";
-import { onGuardedLinkClick } from "../lib/phoneNavigation";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { runGuardedNavigation } from "../lib/leaveGuard";
 import { applyTheme, getThemeMode, setThemeMode, type ThemeMode } from "../lib/theme";
 import { useAppStore } from "../store/appStore";
 import { useT } from "../i18n/react";
+import AgentsPage from "./AgentsPage";
 
 type SettingsDraft = {
   priceTable: string;
@@ -65,21 +65,6 @@ function prettyJSON(raw: string | undefined, fallback: string): string {
   } catch {
     return raw ?? fallback;
   }
-}
-
-/**
- * The panels this page can draw today.
- *
- * `operations` is a real settings destination — the area table owns it, a
- * notification link can name it, and the palette can offer it — but its body
- * arrives with N4, together with the Agent-operations move. Drawing the tab
- * now would show a blank page, so the page renders General for it; the URL
- * keeps the section, and N4 removes this narrowing when the panel lands.
- */
-type RenderedSettingsTab = Exclude<SettingsTabId, "operations">;
-
-function renderedSettingsTab(tab: SettingsTabId): RenderedSettingsTab {
-  return tab === "operations" ? "general" : tab;
 }
 
 /**
@@ -199,8 +184,8 @@ export default function SettingsPage() {
   // state survives. Leaving Settings still asks through `useLeaveGuard`.
   const location = useLocation();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<RenderedSettingsTab>(() =>
-    renderedSettingsTab(normalizeSettingsTab(new URLSearchParams(location.search).get("tab"))),
+  const [activeTab, setActiveTab] = useState<SettingsTabId>(() =>
+    normalizeSettingsTab(new URLSearchParams(location.search).get("tab")),
   );
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -208,7 +193,7 @@ export default function SettingsPage() {
     // canonicalized to `/settings`, and a sidebar or palette trip to the
     // root must show that panel. Drafts survive because every panel stays
     // mounted (`hidden` in `SettingsTabPanel`).
-    setActiveTab(renderedSettingsTab(normalizeSettingsTab(params.get("tab"))));
+    setActiveTab(normalizeSettingsTab(params.get("tab")));
   }, [location.search]);
   const selectTab = useCallback(
     (tab: SettingsTabId) => {
@@ -216,7 +201,7 @@ export default function SettingsPage() {
       // Pop an armed leave-guard sentinel before the same-pathname replace so
       // a dirty tab switch does not bury a Settings entry under a new sentinel.
       if (!runGuardedNavigation(() => navigate(path, { replace: true }), true)) return;
-      setActiveTab(renderedSettingsTab(tab));
+      setActiveTab(tab);
     },
     [navigate, location.pathname, location.search],
   );
@@ -697,11 +682,6 @@ export default function SettingsPage() {
     );
   }
 
-  // The URL is also the source of the notice below: `operations` is a known
-  // destination, but its panel arrives with N4, so the page draws General plus
-  // one explicit pointer instead of silently pretending the tab never existed.
-  const requestedTab = normalizeSettingsTab(new URLSearchParams(location.search).get("tab"));
-
   const settingsTabs: SettingsTabItem[] = [
     {
       id: "general",
@@ -712,6 +692,11 @@ export default function SettingsPage() {
       id: "agents",
       label: tr("settings.tabs.agents"),
       description: tr("settings.tabs.agentsDesc"),
+    },
+    {
+      id: "operations",
+      label: tr("settings.tabs.operations"),
+      description: tr("settings.tabs.operationsDesc"),
     },
     {
       id: "providers",
@@ -733,25 +718,14 @@ export default function SettingsPage() {
   return (
     <SettingsLayout
       title={tr("settings.title")}
-      subtitle={tr("settings.subtitle")}
+      /* Operations is the hosted agent console: it carries its own subtitle,
+         so the Settings-level tagline would be a second description of the
+         same screen. */
+      subtitle={activeTab === "operations" ? undefined : tr("settings.subtitle")}
       tabs={settingsTabs}
       activeTab={activeTab}
       onTabChange={selectTab}
     >
-      {requestedTab === "operations" ? (
-        <div className="kin-card rounded-xl bg-kin-elevated/60 px-4 py-3">
-          <p className="text-body leading-5 text-kin-secondary">
-            {tr("settings.operationsMoved")}{" "}
-            <Link
-              to="/agents"
-              onClick={(event) => onGuardedLinkClick(event, navigate, location, "/agents")}
-              className="inline-flex min-h-11 items-center text-kin-blue-ink hover:underline sm:min-h-0"
-            >
-              {tr("settings.operationsOpen")}
-            </Link>
-          </p>
-        </div>
-      ) : null}
       {error ? (
         <p
           className="rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-body leading-4 text-kin-red-ink"
@@ -816,6 +790,14 @@ export default function SettingsPage() {
         roles={roles}
         onRolesChange={setRoles}
       />
+
+      {/* Operations hosts the agent console itself. The panel stays mounted so
+          a tab switch is never a departure, but the page inside is rendered
+          only while its tab is open: opening Settings must not start the
+          console's reads (AGENTS.md, passive views). E4a moves the body. */}
+      <SettingsTabPanel id="operations" active={activeTab === "operations"}>
+        {activeTab === "operations" ? <AgentsPage embedded /> : null}
+      </SettingsTabPanel>
 
       {/* Appearance (design 3c / 3e) */}
       <SettingsTabPanel id="general" active={activeTab === "general"}>
