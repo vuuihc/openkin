@@ -2,6 +2,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import type { OnePagerSummary, Project } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { onGuardedLinkClick } from "../../lib/phoneNavigation";
+import Button from "../ui/Button";
 
 type Props = {
   project: Project;
@@ -68,13 +69,9 @@ export default function ProjectSummaryCard({
         <div className="mt-3 flex items-center justify-between gap-2">
           <p className="text-body text-kin-red-ink">{error}</p>
           {onRetry && (
-            <button
-              type="button"
-              onClick={onRetry}
-              className="text-body text-kin-blue-ink hover:underline"
-            >
+            <Button variant="quiet" className="text-strong" onClick={onRetry}>
               {tr("common.retry")}
-            </button>
+            </Button>
           )}
         </div>
       ) : empty ? (
