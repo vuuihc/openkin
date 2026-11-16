@@ -264,4 +264,31 @@ describe("the menu facade", () => {
     expect(spies.archive).not.toHaveBeenCalled();
     expect(screen.getByRole("menu", { name: "Actions" })).toBeTruthy();
   });
+
+  it("keeps roving focus and tabIndex on an item whose id is empty string", async () => {
+    const onSelect = vi.fn();
+    const items: MenuItem[] = [
+      { id: "reviewer", label: "Reviewer", onSelect: vi.fn() },
+      { id: "", label: "No role", onSelect },
+      { id: "writer", label: "Writer", onSelect: vi.fn() },
+    ];
+    render(<Host items={items} startOpen />);
+    const reviewer = screen.getByRole("menuitem", { name: "Reviewer" });
+    const noRole = screen.getByRole("menuitem", { name: "No role" });
+    await waitFor(() => expect(document.activeElement).toBe(reviewer));
+
+    await userEvent.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(noRole);
+    expect(noRole.tabIndex).toBe(0);
+    expect(reviewer.tabIndex).toBe(-1);
+
+    await userEvent.keyboard("{ArrowDown}");
+    expect(focusedText()).toBe("Writer");
+
+    await userEvent.keyboard("{ArrowUp}");
+    expect(document.activeElement).toBe(noRole);
+
+    await userEvent.keyboard("{Enter}");
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
 });

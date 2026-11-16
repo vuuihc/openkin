@@ -111,6 +111,85 @@ describe("phoneProjectBuckets", () => {
     expect(rows[2]!.label).toBe("No project");
   });
 
+  // The question a project group answers first is "what needs me?", not "what
+  // did I last touch?". A row that stops work outranks a row that merely
+  // finished later; inside each rank the list stays newest-first.
+  it("puts a conversation that needs you above a newer finished one in the same project", () => {
+    const rows = buckets([
+      task({ id: "needs", cwd: "/work/alpha", created_at: 10, status: "waiting_approval" }),
+      task({ id: "done", cwd: "/work/alpha", created_at: 50, status: "succeeded" }),
+    ]);
+    expect(rows[0]!.rows.map((row) => row.key)).toEqual(["needs", "done"]);
+  });
+
+  it("orders needs-you first, then running, then the rest, newest first within a rank", () => {
+    const rows = buckets([
+      task({ id: "done", cwd: "/work/alpha", created_at: 90, status: "succeeded" }),
+      task({ id: "run-60", cwd: "/work/alpha", created_at: 60, status: "running" }),
+      task({ id: "run-80", cwd: "/work/alpha", created_at: 80, status: "running" }),
+      task({ id: "wait", cwd: "/work/alpha", created_at: 20, status: "waiting_input" }),
+    ]);
+    expect(rows[0]!.rows.map((row) => row.key)).toEqual(["wait", "run-80", "run-60", "done"]);
+  });
+
+  it("treats waiting_approval and waiting_input as the same rank", () => {
+    const rows = buckets([
+      task({ id: "approve", cwd: "/work/alpha", created_at: 10, status: "waiting_approval" }),
+      task({ id: "input", cwd: "/work/alpha", created_at: 40, status: "waiting_input" }),
+      task({ id: "busy", cwd: "/work/alpha", created_at: 90, status: "running" }),
+    ]);
+    // Both waiting rows sit above a newer running one, newest-first among them.
+    expect(rows[0]!.rows.map((row) => row.key)).toEqual(["input", "approve", "busy"]);
+  });
+
+  it("treats queued and retrying as running", () => {
+    const rows = buckets([
+      task({ id: "queued", cwd: "/work/alpha", created_at: 10, status: "queued" }),
+      task({ id: "retrying", cwd: "/work/alpha", created_at: 30, status: "retrying" }),
+      task({ id: "wait", cwd: "/work/alpha", created_at: 5, status: "waiting_approval" }),
+      task({ id: "done", cwd: "/work/alpha", created_at: 90, status: "succeeded" }),
+    ]);
+    expect(rows[0]!.rows.map((row) => row.key)).toEqual(["wait", "retrying", "queued", "done"]);
+  });
+
+  it("keeps newest-first order inside a project when nothing is running or waiting", () => {
+    const rows = buckets([
+      task({ id: "old", cwd: "/work/alpha", created_at: 10, status: "succeeded" }),
+      task({ id: "new", cwd: "/work/alpha", created_at: 30, status: "failed" }),
+      task({ id: "middle", cwd: "/work/alpha", created_at: 20, status: "canceled" }),
+    ]);
+    expect(rows[0]!.rows.map((row) => row.key)).toEqual(["new", "middle", "old"]);
+  });
+
+  it("lifts pinned rows in the same attention order", () => {
+    // A pin is not a place, but the attention rule still applies: the pinned
+    // section inherits the group's order on purpose.
+    const out = withPinnedBucket(
+      buckets([
+        task({ id: "finished", cwd: "/work/alpha", created_at: 90, status: "succeeded" }),
+        task({ id: "waiting", cwd: "/work/alpha", created_at: 10, status: "waiting_input" }),
+      ]),
+      new Set(["finished", "waiting"]),
+      "Pinned",
+    );
+    expect(out[0]!.key).toBe(PINNED_BUCKET);
+    expect(out[0]!.rows.map((row) => row.key)).toEqual(["waiting", "finished"]);
+  });
+
+  it("applies the same rule in the archived scope", () => {
+    const rows = buckets(
+      [
+        task({ id: "waiting", cwd: "/work/alpha", created_at: 10, status: "waiting_input" }),
+        task({ id: "finished", cwd: "/work/alpha", created_at: 90, status: "succeeded" }),
+      ],
+      [],
+      "self",
+      ["/work/alpha"],
+      "archived",
+    );
+    expect(rows[0]!.rows.map((row) => row.key)).toEqual(["waiting", "finished"]);
+  });
+
   // The task feed and the imported feed describe the same provider sessions
   // from two sides: a task that ran on a machine and the catalog row that
   // machine imported for it. Matching them here is what keeps one real
