@@ -76,8 +76,7 @@ describe("the sheet select on a Mac", () => {
     expect(document.body.contains(menu)).toBe(true);
     expect(menu.parentElement?.parentElement).toBe(document.body);
     expect(document.querySelector("[data-kin-sheet]")).toBeNull();
-    // The current value is checked, and opening lands on it so the next arrow
-    // is relative to what is set.
+    // The current value is checked, and opening lands on the first enabled row.
     const current = screen.getByRole("menuitemradio", { name: "No role" });
     expect(current.getAttribute("aria-checked")).toBe("true");
     expect(document.activeElement).toBe(current);
@@ -130,6 +129,24 @@ describe("the sheet select on a Mac", () => {
     expect(onChange).not.toHaveBeenCalled();
     expect(screen.queryByRole("menu")).toBeNull();
     expect(document.activeElement).toBe(chip);
+  });
+
+  it("moves keyboard focus back to an empty-id default option", async () => {
+    const { chip } = setup(true);
+    await userEvent.click(chip);
+
+    const noRole = screen.getByRole("menuitemradio", { name: "No role" });
+    await userEvent.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(screen.getByRole("menuitemradio", { name: "Reviewer" }));
+
+    await userEvent.keyboard("{ArrowUp}");
+    expect(document.activeElement).toBe(noRole);
+
+    await userEvent.keyboard("{End}");
+    expect(document.activeElement).toBe(screen.getByRole("menuitemradio", { name: "Writer" }));
+
+    await userEvent.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(noRole);
   });
 });
 
