@@ -279,6 +279,11 @@ describe("the Operations settings tab", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    // Two page-level `h1`s exist by design and jsdom cannot see their CSS:
+    // `MobileHeader`'s title (`md:hidden`) and Settings' own (`hidden md:block`),
+    // so exactly one is visible at any width. What this test holds is that the
+    // hosted console adds no third: `AgentsPage` drops its heading when
+    // `embedded`.
+    expect(within(panel("operations")).queryAllByRole("heading", { level: 1 })).toHaveLength(0);
   });
 });
