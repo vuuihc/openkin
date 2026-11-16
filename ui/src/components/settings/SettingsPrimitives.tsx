@@ -82,7 +82,8 @@ export function SettingsLayout({
   children,
 }: {
   title: string;
-  /** Omitted when the active tab's panel carries its own subtitle. */
+  /** The page's tagline. Every tab renders it: an absent one changes the
+   *  header's height and moves the section list under it. */
   subtitle?: string;
   tabs: readonly SettingsTabItem[];
   activeTab: SettingsTabId;
@@ -135,21 +136,29 @@ export function SettingsLayout({
     window.requestAnimationFrame(() => tabRefs.current[next]?.focus());
   };
 
+  // Operations is the hosted agent console. Its 980px usage table cannot share
+  // the page with the section column: at a 1100px window the 224px column and
+  // its gap left ~708px, and the table lost its last four columns off-screen.
+  // The table needs the width more than the page needs a second navigation, so
+  // Operations drops the column and keeps the quiet back row (the phone's
+  // shape) as the way to the section list.
+  const operations = activeTab === "operations";
+
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden kin-scroll">
       <div
         className={classes(
-          "mx-auto w-full px-4 py-6 sm:px-6 sm:py-8 md:px-10 md:py-7",
-          activeTab === "operations" ? "max-w-page-wide" : "max-w-page",
+          "mx-auto w-full px-4 py-6 sm:px-6 sm:py-8 md:py-7",
+          operations ? "max-w-page-wide md:px-6" : "max-w-page md:px-10",
         )}
       >
         {/* A Mac gets the shell's two-column shape: the section list is a fixed
             224px column and the form is a 620px reading column beside it. A
-            phone keeps the directory-then-page shape below `md`. Operations is
-            the exception: its usage table needs the page-wide column, so the
-            reading cap applies to every other tab only. */}
-        <div className="flex flex-col gap-5 md:flex-row md:gap-10">
-          <div className="md:w-56 md:shrink-0">
+            phone keeps the directory-then-page shape below `md`. */}
+        <div
+          className={classes("flex flex-col gap-5", operations ? null : "md:flex-row md:gap-10")}
+        >
+          <div className={classes(operations ? "hidden" : "md:w-56 md:shrink-0")}>
             <div className="space-y-1">
               {/* The shell's header already names this screen on the phone, and the
                   prototype gives every phone screen one nav bar — so the section
@@ -199,7 +208,7 @@ export function SettingsLayout({
           <div
             className={classes(
               "flex min-w-0 flex-1 flex-col gap-5",
-              activeTab === "operations" ? null : "md:max-w-[620px]",
+              operations ? null : "md:max-w-[620px]",
             )}
           >
             {/* A phone does not get a section column: the first screen keeps
@@ -211,7 +220,7 @@ export function SettingsLayout({
                 variant="quiet"
                 aria-label={title}
                 onClick={() => selectTab("general")}
-                className="md:hidden -mt-2 self-start text-body"
+                className={classes("-mt-2 self-start text-body", operations ? null : "md:hidden")}
               >
                 <span className="inline-flex items-center gap-1">
                   <MobileChevron />

@@ -120,6 +120,41 @@ describe("SettingsLayout content column", () => {
 
     expect(contentColumn("advanced").className).toContain("md:max-w-[620px]");
   });
+
+  it("gives Operations the whole page and the back row instead of the section column", () => {
+    // The 980px usage table cannot share the 1100px page with the 224px
+    // section column: at a 1100px window that left ~708px and pushed the last
+    // four columns off-screen. Operations gives the column up, and the quiet
+    // back row — the shape the phone already uses — is the way to the list.
+    const laidOut: SettingsTabItem[] = [
+      ...tabs,
+      { id: "operations", label: "Operations", description: "Operations settings" },
+      { id: "advanced", label: "Advanced", description: "Advanced settings" },
+    ];
+    const layout = (activeTab: "operations" | "advanced") =>
+      render(
+        createElement(SettingsLayout, {
+          title: "Settings",
+          tabs: laidOut,
+          activeTab,
+          onTabChange: () => undefined,
+          children: createElement("div", null, "panel"),
+        }),
+      );
+
+    const operations = layout("operations");
+    expect(
+      (screen.getByRole("tablist", { name: "Settings" }).parentElement as HTMLElement).className,
+    ).toContain("hidden");
+    expect(screen.getByRole("button", { name: "Settings" }).className).not.toContain("md:hidden");
+    operations.unmount();
+
+    layout("advanced");
+    expect(
+      (screen.getByRole("tablist", { name: "Settings" }).parentElement as HTMLElement).className,
+    ).toContain("md:w-56");
+    expect(screen.getByRole("button", { name: "Settings" }).className).toContain("md:hidden");
+  });
 });
 
 describe("offscreenEdges", () => {

@@ -740,10 +740,11 @@ export default function SettingsPage() {
   return (
     <SettingsLayout
       title={tr("settings.title")}
-      /* Operations is the hosted agent console: it carries its own subtitle,
-         so the Settings-level tagline would be a second description of the
-         same screen. */
-      subtitle={activeTab === "operations" ? undefined : tr("settings.subtitle")}
+      /* The same header block on every tab. Dropping the tagline for one tab
+         changed the header's height and moved the section list under it; and
+         Operations gives that column up for its wide table anyway, so the
+         tagline never appears beside the console. */
+      subtitle={tr("settings.subtitle")}
       tabs={settingsTabs}
       activeTab={activeTab}
       onTabChange={selectTab}
