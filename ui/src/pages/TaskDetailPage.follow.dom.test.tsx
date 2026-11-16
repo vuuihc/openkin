@@ -261,6 +261,26 @@ describe("following a running conversation", () => {
     expect(newActivity()).toBeNull();
   });
 
+  it("the pill keeps its chevron and label on one row", () => {
+    const { scroller } = open();
+    scrollTop = 100;
+    fireEvent.scroll(scroller);
+    contentHeight = 1400;
+    appendMessage();
+
+    const pill = newActivity();
+    expect(pill).toBeTruthy();
+    // The chevron and the label share one nowrap inline-flex row: as bare
+    // siblings inside the button's label span they would stack, because
+    // Tailwind's preflight makes the icon's svg a block.
+    const row = pill!.querySelector("span.inline-flex");
+    expect(row).not.toBeNull();
+    expect(row!.className).toContain("items-center");
+    expect(row!.className).toContain("whitespace-nowrap");
+    expect(row!.querySelector("svg")).not.toBeNull();
+    expect(row!.textContent).toBe(t("task.newActivity"));
+  });
+
   it("a follow-up send clears the pill and re-pins", async () => {
     const { scroller } = open();
     scrollTop = 100;

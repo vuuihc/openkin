@@ -2048,10 +2048,15 @@ export default function TaskDetailPage({
               <Button
                 variant="secondary"
                 onClick={showNewest}
-                className="gap-1.5 rounded-full bg-kin-elevated px-3.5 shadow-e2"
+                className="rounded-full bg-kin-elevated px-3.5 shadow-e2"
               >
-                <IconChevronDown className="w-4 h-4 flex-none" />
-                {tr("task.newActivity")}
+                {/* One nowrap row: as bare children of the button's label span
+                    the chevron and the text stack, because Tailwind preflight
+                    makes the icon's svg a block. */}
+                <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                  <IconChevronDown className="w-4 h-4 flex-none" />
+                  {tr("task.newActivity")}
+                </span>
               </Button>
             )}
           </div>
