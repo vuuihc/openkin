@@ -14,12 +14,12 @@ import (
 // ManagementInfo is best-effort install/auth/version metadata for the Agents tab.
 // It is display-only and never used for dispatch / Registry decisions.
 type ManagementInfo struct {
-	ID         string `json:"id"`
-	Version    string `json:"version,omitempty"`
-	AuthStatus string `json:"auth_status"` // signed_in | not_signed_in | unknown
-	AuthDetail string `json:"auth_detail,omitempty"`
-	InstallCmd string `json:"install_cmd,omitempty"`
-	UpdateCmd  string `json:"update_cmd,omitempty"`
+	ID          string `json:"id"`
+	Version     string `json:"version,omitempty"`
+	AuthStatus  string `json:"auth_status"` // signed_in | not_signed_in | unknown
+	AuthDetail  string `json:"auth_detail,omitempty"`
+	InstallCmd  string `json:"install_cmd,omitempty"`
+	UpdateCmd   string `json:"update_cmd,omitempty"`
 }
 
 // VersionFlag is overridable in tests. Defaults to --version when unset per agent.

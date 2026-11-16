@@ -77,9 +77,10 @@ describe("permissionModesForAgent", () => {
       "default",
       "yolo",
     ]);
-    expect(permissionModesForAgent({ permissionModes: ["default", "accept_edits"] }, true)).toEqual(
-      ["default", "accept_edits"],
-    );
+    expect(permissionModesForAgent({ permissionModes: ["default", "accept_edits"] }, true)).toEqual([
+      "default",
+      "accept_edits",
+    ]);
   });
 
   it("offers only what a remote node says it will run", () => {

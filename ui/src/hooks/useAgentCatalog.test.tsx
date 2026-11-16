@@ -120,7 +120,9 @@ describe("the agent catalog and automatic import", () => {
     act(() => {
       window.dispatchEvent(new CustomEvent("kin:agent-sessions-changed"));
     });
-    await waitFor(() => expect(vi.mocked(listAgents).mock.calls.length).toBe(readsBefore + 1));
+    await waitFor(() =>
+      expect(vi.mocked(listAgents).mock.calls.length).toBe(readsBefore + 1),
+    );
   });
 
   it("keeps the catalog it already showed when a refresh fails", async () => {

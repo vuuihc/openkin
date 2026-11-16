@@ -5,7 +5,12 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import AppShell from "./AppShell";
 import { setLocale } from "../../i18n";
-import { getSettings, importAgentSessions, listAgents, type Settings } from "../../api/client";
+import {
+  getSettings,
+  importAgentSessions,
+  listAgents,
+  type Settings,
+} from "../../api/client";
 import { refreshMachines } from "../../hooks/useMachines";
 import { useAppStore } from "../../store/appStore";
 
@@ -115,12 +120,10 @@ beforeEach(() => {
   viewport();
   vi.mocked(refreshMachines).mockReset().mockResolvedValue([here]);
   vi.mocked(listAgents).mockReset().mockResolvedValue([]);
-  vi.mocked(importAgentSessions)
-    .mockReset()
-    .mockResolvedValue({
-      imported: 1,
-      providers: { codex: 1 },
-    });
+  vi.mocked(importAgentSessions).mockReset().mockResolvedValue({
+    imported: 1,
+    providers: { codex: 1 },
+  });
   vi.mocked(getSettings).mockReset().mockResolvedValue(legacyEnabled);
 });
 

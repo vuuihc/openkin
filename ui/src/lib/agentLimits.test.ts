@@ -97,7 +97,11 @@ describe("agentLimits helpers (KIN-AGENTS-001)", () => {
     const now = new Date(2026, 10, 11, 10, 12, 0).getTime();
 
     it("counts how long this console has watched an over-limit agent wait", () => {
-      const wait = quotaWait({ status: "over", period_start: periodStart }, now - 12 * 60_000, now);
+      const wait = quotaWait(
+        { status: "over", period_start: periodStart },
+        now - 12 * 60_000,
+        now,
+      );
       expect(wait.waiting).toBe(true);
       expect(wait.elapsedMs).toBe(12 * 60_000);
       // Recovery is the next turn of the daily period.

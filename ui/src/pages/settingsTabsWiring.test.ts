@@ -28,7 +28,13 @@ function declaredTabIds(): string[] {
 
 describe("the settings page tabs", () => {
   it("offers exactly the five settings that are still used", () => {
-    expect(declaredTabIds()).toEqual(["general", "agents", "providers", "routing", "advanced"]);
+    expect(declaredTabIds()).toEqual([
+      "general",
+      "agents",
+      "providers",
+      "routing",
+      "advanced",
+    ]);
   });
 
   it("renders no retired panel", () => {

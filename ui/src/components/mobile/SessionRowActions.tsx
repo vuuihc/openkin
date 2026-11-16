@@ -58,7 +58,8 @@ export default function SessionRowActions({
   onDelete: () => void;
 }) {
   const tr = useT();
-  const chip = "flex flex-none flex-col items-center justify-center gap-1 text-caption font-medium";
+  const chip =
+    "flex flex-none flex-col items-center justify-center gap-1 text-caption font-medium";
   if (mode === "archived") {
     return (
       <>

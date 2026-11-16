@@ -11,7 +11,10 @@ import { TextArea as AstryxTextArea } from "@astryxdesign/core";
 import { isImeKeyEvent } from "../../lib/ime";
 import type { TextInputProps } from "./TextInput";
 
-export type TextareaProps = Omit<TextInputProps, "type" | "ref" | "onChange" | "onKeyDown"> & {
+export type TextareaProps = Omit<
+  TextInputProps,
+  "type" | "ref" | "onChange" | "onKeyDown"
+> & {
   onChange: (value: string, event: ChangeEvent<HTMLTextAreaElement>) => void;
   /** The caller's own key handling; the Shift+Enter guard runs after it. */
   onKeyDown?: KeyboardEventHandler<HTMLTextAreaElement>;

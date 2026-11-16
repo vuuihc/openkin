@@ -517,14 +517,7 @@ export default function Composer({
     // Allow send while running: a running task queues the message and answers it
     // when the round ends. Only hard-disable when parent says so.
     // Sending is allowed with only attachments (no text), but never mid-upload.
-    if (
-      (!text && attachments.length === 0) ||
-      disabled ||
-      blockSend ||
-      busy ||
-      stopping ||
-      uploading
-    )
+    if ((!text && attachments.length === 0) || disabled || blockSend || busy || stopping || uploading)
       return;
     const payload = withAttachments(text);
     // Snapshot so a failed send can restore the composer + draft persistence.

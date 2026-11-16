@@ -19,7 +19,10 @@ export default function HighlightedText({ text, query }: { text: string; query: 
     <>
       {parts.map((part, index) =>
         part.match ? (
-          <mark key={index} className="rounded-sm bg-kin-blue/25 px-0 text-inherit">
+          <mark
+            key={index}
+            className="rounded-sm bg-kin-blue/25 px-0 text-inherit"
+          >
             {part.text}
           </mark>
         ) : (
