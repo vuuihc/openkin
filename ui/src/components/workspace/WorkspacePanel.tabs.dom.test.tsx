@@ -302,6 +302,38 @@ describe("the scope control", () => {
     expect(screen.getByRole("button", { name: t("chat.evidence.title") })).toBeTruthy();
   });
 
+  it("closes a file the round scope leaves out and returns to the list", async () => {
+    renderPanel({ events: currentRound(["src/f1.ts", "src/f2.ts", "src/f3.ts"]) });
+
+    // Open the newest file, which this round did not touch.
+    fireEvent.click(screen.getByTitle(SEVEN[6]!.path));
+    await waitFor(() => expect(screen.getByTestId("code-viewer").textContent).toBe(SEVEN[6]!.path));
+
+    fireEvent.click(screen.getByRole("button", { name: t("chat.evidence.title") }));
+
+    // The list is the answer to the press: a file outside the scope has no row,
+    // so it must not keep its viewer (or its keep/discard controls) either.
+    await waitFor(() => expect(screen.queryByTestId("code-viewer")).toBeNull());
+    expect(screen.getByText(t("workspace.viewer.empty"))).toBeTruthy();
+    expect(screen.getByTitle(SEVEN[0]!.path)).toBeTruthy();
+    expect(screen.queryByTitle(SEVEN[6]!.path)).toBeNull();
+    // Focus is inside the list, not on the <body> the closed pane left behind:
+    // the back control was the focused element on a phone.
+    await waitFor(() => expect(document.activeElement).toBe(tabs()[0]));
+  });
+
+  it("keeps the open file when the round includes it", async () => {
+    renderPanel({ events: currentRound(["src/f1.ts", "src/f2.ts", "src/f3.ts"]) });
+
+    fireEvent.click(screen.getByTitle(SEVEN[0]!.path));
+    await waitFor(() => expect(screen.getByTestId("code-viewer").textContent).toBe(SEVEN[0]!.path));
+
+    fireEvent.click(screen.getByRole("button", { name: t("chat.evidence.title") }));
+
+    await waitFor(() => expect(screen.queryByTitle(SEVEN[6]!.path)).toBeNull());
+    expect(screen.getByTestId("code-viewer").textContent).toBe(SEVEN[0]!.path);
+  });
+
   it("offers no scope when the round covers the whole list", () => {
     // Two scopes that show the same list are one control too many.
     const every = SEVEN.map((file) => file.path.replace(`${CWD}/`, ""));

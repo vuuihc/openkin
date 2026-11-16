@@ -626,24 +626,50 @@ export default function WorkspacePanel({
     return diff;
   }, [diff, file]);
 
-  // Back to the list. The button that had focus leaves the screen with the
-  // pane, so focus goes to the row that opened the file — the place the reader
-  // left off — and that row is scrolled back into view, because hiding the pane
-  // also reset the list's scroll.
-  const goBackToFiles = () => {
-    setPhoneView("list");
+  // Focus after the file pane yields to the list: the row that opened the file
+  // when the list still knows it, otherwise the lens tab, so focus lands inside
+  // the list rather than on <body>.
+  const focusFileList = useCallback(() => {
     requestAnimationFrame(() => {
       const aside = asideRef.current;
       if (!aside) return;
-      // The row that opened the file when the list still knows it; otherwise
-      // the lens tab, so focus lands inside the list rather than on <body>.
       const target =
         aside.querySelector<HTMLElement>('[data-selected="true"]') ??
         aside.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
       target?.focus();
       target?.scrollIntoView({ block: "nearest" });
     });
+  }, []);
+
+  // Back to the list. The button that had focus leaves the screen with the
+  // pane, so focus goes to the row that opened the file — the place the reader
+  // left off — and that row is scrolled back into view, because hiding the pane
+  // also reset the list's scroll.
+  const goBackToFiles = () => {
+    setPhoneView("list");
+    focusFileList();
   };
+
+  // A scope that leaves the open file out is a contradiction: the list says
+  // the file is not part of what this round changed, while its viewer and its
+  // keep/discard controls stay live. Close it and go back to the list the
+  // scope just narrowed — on a phone that is the whole visible answer to the
+  // press. Focus is only rescued when the close took it with it (the back
+  // control unmounted, or the file was opened by a pulse); a press on the
+  // scope control keeps focus where the reader put it.
+  useEffect(() => {
+    if (!showingTurn || !selectedPath || !turnFiles) return;
+    if (turnFiles.some((file) => file.path === selectedPath)) return;
+    requestRef.current += 1;
+    setSelectedPath(null);
+    setFile(null);
+    setLoading(false);
+    setError(null);
+    setTableAsCode(false);
+    const focusLost = !document.activeElement || document.activeElement === document.body;
+    setPhoneView("list");
+    if (focusLost) focusFileList();
+  }, [showingTurn, turnFiles, selectedPath, focusFileList]);
 
   return (
     <div className="h-full min-h-0 flex flex-col bg-[var(--kin-inspector)]">
@@ -796,7 +822,7 @@ export default function WorkspacePanel({
           {lens === "changes" && hasChanges && (
             <div
               data-testid="workspace-turn-summary"
-              className="flex-none flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1 border-b border-[var(--kin-hairline)] text-caption"
+              className="flex-none flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1 border-b border-[var(--kin-hairline)] text-body md:text-caption"
             >
               <span className="flex-none font-mono tabular-nums text-kin-text">
                 {summaryStats.hasStats ? (
@@ -820,13 +846,17 @@ export default function WorkspacePanel({
                 // changed"), so the control names exactly the two things it
                 // switches between — and does not invent a second word for
                 // "changes" on the same line.
-                <span className="ml-auto flex flex-none items-center gap-0.5">
+                // A segmented pair on a phone — the prototype's larger scope
+                // presentation, with the 44px floor intact — and the compact
+                // pair on a wide container, where the line is one row beside
+                // the list it filters.
+                <span className="ml-auto flex flex-none items-center gap-0.5 rounded-lg bg-kin-elevated/50 p-0.5 md:rounded-md md:bg-transparent md:p-0">
                   <Button
                     variant="quiet"
                     aria-pressed={!showingTurn}
                     onClick={() => setTurnOnly(false)}
                     className={[
-                      "rounded-md px-2 py-0.5 text-caption",
+                      "rounded-md px-3 py-1.5 text-body md:px-2 md:py-0.5 md:text-caption",
                       showingTurn ? "text-kin-muted!" : "bg-kin-elevated! shadow-e1",
                     ].join(" ")}
                   >
@@ -840,7 +870,7 @@ export default function WorkspacePanel({
                     // same source and the same caveat the round card states.
                     title={tr("chat.evidence.scope")}
                     className={[
-                      "rounded-md px-2 py-0.5 text-caption",
+                      "rounded-md px-3 py-1.5 text-body md:px-2 md:py-0.5 md:text-caption",
                       showingTurn ? "bg-kin-elevated! shadow-e1" : "text-kin-muted!",
                     ].join(" ")}
                   >
