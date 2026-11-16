@@ -6,7 +6,7 @@ declares**, so a pair that produced no screens is a red row instead of a blank.
 Reads `walk.json` and the spec only; stdlib only; no network.
 
 Usage:
-    python3 scripts/journeys_smoke.py --walk-json out/walk.json [--proto DIR] [--json] [--spec PATH]
+    python3 scripts/journeys_smoke.py --walk-json out/walk.json [--journeys J1,J2] [--proto DIR] [--json] [--spec PATH]
 
 `--proto DIR` compares the walked journeys with mockup sheets named
 `m<nn>-J<n>-*.png` (informational; a missing directory is a note, not a
@@ -43,14 +43,27 @@ def load_json(path: str) -> object:
         return json.load(fh)
 
 
-def declared_pairs(spec: dict) -> list[tuple[str, str]]:
+def declared_pairs(spec: dict, journeys_arg: str | None = None) -> list[tuple[str, str]]:
     """Every (journey, viewport) pair the spec declares, in spec order."""
     viewports = spec.get("viewports")
     journeys = spec.get("journeys")
     if not isinstance(viewports, dict) or not isinstance(journeys, dict):
         raise SpecError("spec needs a `viewports` and a `journeys` object")
+    selected: set[str] | None = None
+    if journeys_arg is not None:
+        picked = unique([j.strip() for j in journeys_arg.split(",") if j.strip()])
+        if not picked:
+            raise SpecError("--journeys needs at least one journey id")
+        unknown = [j for j in picked if j not in journeys]
+        if unknown:
+            raise SpecError(
+                "unknown journey id: " + ", ".join(unknown) + " (known: " + ", ".join(journeys.keys()) + ")"
+            )
+        selected = set(picked)
     pairs: list[tuple[str, str]] = []
     for journey, body in journeys.items():
+        if selected is not None and journey not in selected:
+            continue
         names = (body or {}).get("viewports") or []
         if not names:
             raise SpecError(f"{journey} declares no viewports")
@@ -75,12 +88,12 @@ def pair_fail_lines(hard_fail: list[str], journey: str, viewport: str) -> list[s
     return [line for line in hard_fail if line.startswith(direct) or screen.match(line)]
 
 
-def build_rows(spec: dict, walk: dict) -> list[dict]:
+def build_rows(spec: dict, walk: dict, journeys_arg: str | None = None) -> list[dict]:
     screens = walk.get("screens")
     screens = [s for s in screens if isinstance(s, dict)] if isinstance(screens, list) else []
     hard = [str(f) for f in walk.get("hardFail") or []]
     rows = []
-    for journey, viewport in declared_pairs(spec):
+    for journey, viewport in declared_pairs(spec, journeys_arg):
         mine = [s for s in screens
                 if s.get("journey") == journey and s.get("viewport") == viewport]
         lints = [s.get("lint") if isinstance(s.get("lint"), dict) else {} for s in mine]
@@ -152,6 +165,7 @@ def proto_lines(proto_dir: str, declared: list[str], walked: list[str]) -> list[
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Summarize a journey walk as one table.")
     parser.add_argument("--walk-json", help="path to walk.mjs's walk.json")
+    parser.add_argument("--journeys", metavar="LIST", help="comma-separated journey ids to check")
     parser.add_argument("--spec", default=DEFAULT_SPEC, help="journeys.json to read the matrix from")
     parser.add_argument("--proto", metavar="DIR", help="prototype sheet directory (informational)")
     parser.add_argument("--json", action="store_true", help="print the machine summary instead of the table")
@@ -164,7 +178,7 @@ def main(argv: list[str] | None = None) -> int:
         spec = load_json(args.spec)
         if not isinstance(spec, dict):
             raise SpecError("spec is not a JSON object")
-        pairs = declared_pairs(spec)
+        pairs = declared_pairs(spec, args.journeys)
     except (OSError, ValueError, SpecError) as exc:
         print(f"unavailable: cannot read spec {args.spec}: {exc}", file=sys.stderr)
         return 2
@@ -177,7 +191,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"unavailable: {args.walk_json} is not a walk.mjs summary", file=sys.stderr)
         return 2
 
-    rows = build_rows(spec, walk)
+    rows = build_rows(spec, walk, args.journeys)
     hard = [str(f) for f in walk.get("hardFail") or []]
     ok = not hard and all(row["ok"] for row in rows)
     declared = unique([j for j, _ in pairs])

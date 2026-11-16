@@ -61,6 +61,7 @@ cleanup() {
   if [ -n "$PID" ]; then
     kill -KILL "$PID" 2>/dev/null
     wait "$PID" 2>/dev/null
+    PID=""
   fi
   [ -n "$TMP" ] && rm -rf "$TMP"
   true
@@ -185,7 +186,9 @@ if [ "$DRY" = 1 ]; then
   WALK_CMD="node rsi/runtime/ux/walk.mjs --base http://127.0.0.1:<port> --token <token> --out <out>"
   [ -n "$JOURNEYS" ] && WALK_CMD="$WALK_CMD --journeys $JOURNEYS"
   echo "walk: $WALK_CMD"
-  echo "summarize: python3 scripts/journeys_smoke.py --walk-json <out>/walk.json"
+  SUM_CMD="python3 scripts/journeys_smoke.py --walk-json <out>/walk.json"
+  [ -n "$JOURNEYS" ] && SUM_CMD="$SUM_CMD --journeys $JOURNEYS"
+  echo "summarize: $SUM_CMD"
   exit 0
 fi
 
@@ -253,7 +256,9 @@ case "$WALK_RC" in
 esac
 [ -f "$OUT/walk.json" ] || unavail "walker wrote no walk.json (see $OUT/walk.log)"
 
-SUMMARY_OUT="$(python3 "$SUMMARY" --walk-json "$OUT/walk.json" 2>&1)"
+SUMMARY_ARGS=(--walk-json "$OUT/walk.json")
+[ -n "$JOURNEYS" ] && SUMMARY_ARGS+=(--journeys "$JOURNEYS")
+SUMMARY_OUT="$(python3 "$SUMMARY" "${SUMMARY_ARGS[@]}" 2>&1)"
 SUMMARY_RC=$?
 printf '%s\n' "$SUMMARY_OUT"
 if [ "$SUMMARY_RC" -eq 2 ]; then

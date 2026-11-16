@@ -154,6 +154,22 @@ class SummarizerTest(unittest.TestCase):
             {("J1", "phone"): 1, ("J2", "mac"): 1, ("J2", "mac-wide"): 0},
         )
 
+    def test_journeys_subset_checks_only_requested_journeys(self) -> None:
+        self.write_walk(screens=[screen("J1", "phone")])
+        code, out, _ = self.run_main("--walk-json", self.walk, "--spec", self.spec, "--journeys", "J1")
+        rows = self.rows(out)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(list(rows.keys()), ["J1/phone"])
+        self.assertNotIn("J2/mac", rows)
+        self.assertNotIn("J2/mac-wide", rows)
+
+        bad_code, bad_out, bad_err = self.run_main(
+            "--walk-json", self.walk, "--spec", self.spec, "--journeys", "J9"
+        )
+        self.assertEqual(bad_code, 2, bad_out + bad_err)
+        self.assertIn("unavailable:", bad_out + bad_err)
+        self.assertIn("J9", bad_out + bad_err)
+
 
 class ShellTest(unittest.TestCase):
     """The shell is exercised only in --dry-run: no Chrome, daemon or build."""
@@ -191,6 +207,15 @@ class ShellTest(unittest.TestCase):
         # No token is read in a dry run, and none may be printed.
         self.assertIsNone(re.search(r"\b[0-9a-fA-F]{32,}\b", combined), combined)
         self.assertIsNone(re.search(r"(?i)(?:token|bearer)[=: ]+[A-Za-z0-9._~+/-]{16,}", combined), combined)
+
+    def test_dry_run_forwards_journeys_to_summarizer(self) -> None:
+        result = self.run_shell("--journeys", "J1", "--dry-run")
+        combined = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, combined)
+        self.assertIn(
+            "summarize: python3 scripts/journeys_smoke.py --walk-json <out>/walk.json --journeys J1",
+            result.stdout,
+        )
 
 
 if __name__ == "__main__":
