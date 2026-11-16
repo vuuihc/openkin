@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { type UserQuestion, parseUserQuestionPayload } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { IconAlert } from "../icons";
+import Button from "../ui/Button";
 
 type Props = {
   question: UserQuestion;
@@ -40,11 +41,9 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
     function onKey(e: KeyboardEvent) {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) {
-        // Still allow Enter-to-submit from the Other input.
-        if (e.key === "Enter" && t.tagName === "INPUT") {
-          e.preventDefault();
-          submit();
-        }
+        // A form control owns its own keys. The Other input's `onKeyDown`
+        // already submits on Enter; answering here as well would send the same
+        // answer twice whenever this card is the focused one.
         return;
       }
       if (e.key >= "1" && e.key <= "9") {
@@ -116,32 +115,44 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
             const on = selected.includes(opt.label);
             return (
               <li key={`${opt.label}-${idx}`}>
-                <button
-                  type="button"
+                <Button
+                  variant="secondary"
                   disabled={Boolean(busy)}
+                  // The tile holds a number, a label and a description; the
+                  // option's own label is the name a reader should hear, and
+                  // the description stays reachable as its description.
+                  aria-label={opt.label}
+                  aria-describedby={
+                    opt.description ? `${question.id}-option-${idx}-description` : undefined
+                  }
+                  aria-pressed={on}
                   onClick={() => toggle(opt.label)}
                   className={[
-                    "w-full rounded-lg border px-3 py-2 text-left transition-colors",
+                    // The tile keeps its own edge, fill and left alignment;
+                    // `secondary` supplies only the bordered peer's layer.
+                    "w-full justify-start px-3 py-2 text-left text-body font-normal",
                     on
                       ? "border-kin-orange bg-kin-orange/15 text-kin-orange-ink"
                       : "border-[var(--kin-hairline)] bg-kin-fill text-kin-secondary hover:border-kin-orange/50 hover:text-kin-orange-ink",
-                    busy ? "opacity-60 cursor-not-allowed" : "",
                   ].join(" ")}
                 >
-                  <div className="flex items-start gap-2">
+                  <div className="flex w-full items-start gap-2">
                     <span className="mt-0.5 inline-flex h-5 w-5 flex-none items-center justify-center rounded border border-kin-orange/40 text-caption text-kin-orange-ink">
                       {idx + 1}
                     </span>
                     <span className="min-w-0">
                       <span className="block text-strong font-medium">{opt.label}</span>
                       {opt.description ? (
-                        <span className="mt-0.5 block text-caption text-kin-muted">
+                        <span
+                          id={`${question.id}-option-${idx}-description`}
+                          className="mt-0.5 block text-caption text-kin-muted"
+                        >
                           {opt.description}
                         </span>
                       ) : null}
                     </span>
                   </div>
-                </button>
+                </Button>
               </li>
             );
           })}
@@ -168,19 +179,17 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
         </div>
 
         <div className="mt-3 flex items-center justify-end gap-2">
-          <button
-            type="button"
+          {/* The card's one filled action. `approve` is the console's orange
+              filled weight; while it has nothing to send it keeps the old 15%
+              tint rather than a dimmed solid fill (TASTE 6). */}
+          <Button
+            variant="approve"
             disabled={!canSubmit}
             onClick={submit}
-            className={[
-              "rounded-lg px-3.5 py-1.5 text-body font-semibold transition-colors",
-              canSubmit
-                ? "bg-kin-orange text-kin-on-status hover:brightness-110"
-                : "bg-kin-orange/15 text-kin-orange-ink/60 cursor-not-allowed",
-            ].join(" ")}
+            className="px-3.5 py-1.5 text-body disabled:bg-kin-orange/15 disabled:text-kin-orange-ink/60"
           >
             {busy ? tr("question.submitting") : tr("question.submit")}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
