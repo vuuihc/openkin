@@ -1009,13 +1009,19 @@ export function buildChatItems(
  * Collapse each contiguous agent process run into one card. Explicit summaries
  * stay outside; phase-less history keeps its last complete assistant message
  * as the final answer.
+ *
+ * A turn that is still running is read differently: its notes are body text the
+ * reader is following, not a summary of work already done. `splitNotes` gives
+ * each note its own item and keeps only the tools in the card, which is how the
+ * live transcript shows thinking and narration in the conversation column while
+ * a finished turn still folds into one row.
  */
-export function mergeProcessRuns(items: ChatItem[]): ChatItem[] {
+export function mergeProcessRuns(items: ChatItem[], splitNotes = false): ChatItem[] {
   const out: ChatItem[] = [];
   let run: ProcessRunItem[] = [];
   const flushRun = () => {
     if (run.length === 0) return;
-    out.push(...mergeProcessRun(run));
+    out.push(...mergeProcessRun(run, splitNotes));
     run = [];
   };
   for (const item of items) {
@@ -1030,7 +1036,7 @@ export function mergeProcessRuns(items: ChatItem[]): ChatItem[] {
   return out;
 }
 
-function mergeProcessRun(run: ProcessRunItem[]): ChatItem[] {
+function mergeProcessRun(run: ProcessRunItem[], splitNotes: boolean): ChatItem[] {
   if (!run.some((item) => item.kind === "progress")) return run;
 
   let finalMessageIdx = -1;
@@ -1056,6 +1062,89 @@ function mergeProcessRun(run: ProcessRunItem[]): ChatItem[] {
     }
   }
 
+  return splitNotes
+    ? splitProcessRun(run, finalMessageIdx)
+    : collapseProcessRun(run, finalMessageIdx);
+}
+
+/**
+ * A live run, in reading order: contiguous tool calls across adjacent groups
+ * are one card, every note is its own body item, and the final answer stays
+ * outside exactly as the settled collapse selects it.
+ */
+function splitProcessRun(run: ProcessRunItem[], finalMessageIdx: number): ChatItem[] {
+  const out: ChatItem[] = [];
+  let tools: ProgressItem | null = null;
+  const flushTools = () => {
+    if (tools && tools.steps.length > 0) out.push(tools);
+    tools = null;
+  };
+
+  for (let index = 0; index < run.length; index += 1) {
+    const item = run[index];
+    if (item.kind === "message") {
+      const foldIntoProcess = !item.partial && item.phase !== "summary" && index !== finalMessageIdx;
+      if (!foldIntoProcess) {
+        flushTools();
+        out.push(item);
+        continue;
+      }
+      flushTools();
+      out.push(noteItemOf(item.key, item.speaker, item.model, noteStepOfMessage(item)));
+      continue;
+    }
+    for (const step of item.steps) {
+      if (step.kind === "tool") {
+        if (!tools) {
+          tools = {
+            kind: "progress",
+            key: step.key,
+            speaker: item.speaker,
+            model: item.model,
+            steps: [],
+          };
+        }
+        tools.steps.push(step);
+        continue;
+      }
+      flushTools();
+      // The step's own key is what find points at, and it survives stream
+      // updates: the item a note is drawn in must not outlive it.
+      out.push(noteItemOf(step.key, step.speaker || item.speaker, step.model ?? item.model, step));
+    }
+  }
+  flushTools();
+  return out;
+}
+
+function noteItemOf(
+  key: string,
+  speaker: string,
+  model: string | undefined,
+  step: NoteStep,
+): ProgressItem {
+  return { kind: "progress", key, speaker, model, steps: [step] };
+}
+
+/** A message folded into a process item says the same thing a note says. */
+function noteStepOfMessage(item: Extract<ChatItem, { kind: "message" }>): NoteStep {
+  return {
+    kind: "note",
+    key: item.key,
+    speaker: item.speaker,
+    model: item.model,
+    text: item.text,
+    status: "done",
+    // A message only lands here when it was not a progress message to begin
+    // with, which leaves the plan phase as the one source a still-visible
+    // message can carry into the item.
+    source: noteSourceOf({ phase: item.phase }),
+    seq: item.seq,
+  };
+}
+
+/** The settled run: every step of every group in one card. */
+function collapseProcessRun(run: ProcessRunItem[], finalMessageIdx: number): ChatItem[] {
   const merged: ChatItem[] = [];
   let segment: ProcessRunItem[] = [];
   const flushSegment = () => {
@@ -1071,19 +1160,7 @@ function mergeProcessRun(run: ProcessRunItem[]): ChatItem[] {
       if (item.kind === "progress") {
         steps.push(...item.steps);
       } else {
-        steps.push({
-          kind: "note",
-          key: item.key,
-          speaker: item.speaker,
-          model: item.model,
-          text: item.text,
-          status: "done",
-          // A message only lands here when it was not a progress message to
-          // begin with, which leaves the plan phase as the one source a
-          // still-visible message can carry into the card.
-          source: noteSourceOf({ phase: item.phase }),
-          seq: item.seq,
-        });
+        steps.push(noteStepOfMessage(item));
       }
     }
     merged.push({
