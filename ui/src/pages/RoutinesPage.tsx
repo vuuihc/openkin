@@ -33,6 +33,7 @@ import {
   ROUTINE_HISTORY_PAGE,
 } from "../lib/routineHistory";
 import { SlowConnectHint } from "../components/Skeleton";
+import Button from "../components/ui/Button";
 import SheetSelect from "../components/ui/SheetSelect";
 import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { useMachines } from "../hooks/useMachines";
@@ -1181,30 +1182,27 @@ export default function RoutinesPage() {
             <p className="mt-1 text-strong text-kin-secondary">{tr("routines.subtitle")}</p>
           </div>
           <div className="flex w-full items-center gap-2 md:w-auto md:shrink-0">
-            <button
+            {/* Secondary in both states: the list header's create is a peer
+                control, not the page's one filled action. */}
+            <Button
               ref={toggleRef}
-              type="button"
+              variant="secondary"
               aria-expanded={showCreate}
               aria-controls={showCreate ? "routine-form" : undefined}
               disabled={creating || (machineOffline && !showCreate)}
               onClick={() => (showCreate ? closeForm() : openCreate())}
-              className={[
-                "min-h-11 flex-1 rounded-lg px-3 text-body font-medium md:flex-none",
-                showCreate
-                  ? "border border-[var(--kin-hairline)] text-kin-secondary"
-                  : "bg-kin-blue text-kin-on-brand",
-              ].join(" ")}
+              className="flex-1 md:flex-none"
             >
               {showCreate ? tr("routines.cancel") : tr("routines.createEntry")}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="secondary"
               disabled={machineOffline}
               onClick={() => void onMarkAllRead()}
-              className="min-h-11 flex-1 rounded-lg border border-[var(--kin-hairline)] px-3 text-body text-kin-secondary hover:bg-[var(--kin-fill)] disabled:opacity-50 md:flex-none"
+              className="flex-1 md:flex-none"
             >
               {tr("routines.markAllRead")}
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -1250,6 +1248,7 @@ export default function RoutinesPage() {
                 ? `${ownMachineRoutines.count}+`
                 : ownMachineRoutines.count,
             })}{" "}
+            {/* eslint-disable-next-line kin/no-raw-button -- an inline sentence link; it reads as prose, not a control. */}
             <button
               type="button"
               onClick={() => chooseMachine(THIS_MACHINE)}
@@ -1291,16 +1290,16 @@ export default function RoutinesPage() {
         {!loading && error && (
           <div className="mt-6 rounded-xl border border-kin-red/40 bg-kin-red/10 px-4 py-3 text-strong leading-5 text-kin-red-ink">
             <p>{error}</p>
-            <button
-              type="button"
+            <Button
+              variant="secondary"
+              className="mt-2 text-kin-red-ink"
               onClick={() => {
                 setLoading(true);
                 void load();
               }}
-              className="mt-2 min-h-11 rounded-lg border border-kin-red/40 px-3 py-1 text-body text-kin-red-ink md:min-h-8"
             >
               {tr("routines.retry")}
-            </button>
+            </Button>
           </div>
         )}
 
@@ -1319,14 +1318,16 @@ export default function RoutinesPage() {
                     {tr("routines.emptyFeedHint")}
                   </p>
                   {!showCreate && (
-                    <button
-                      type="button"
+                    // Secondary: the routine list's own empty state owns the
+                    // page's one filled create.
+                    <Button
+                      variant="secondary"
                       disabled={machineOffline || creating}
-                      className="mt-4 rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand disabled:opacity-50"
+                      className="mt-4"
                       onClick={() => openCreate()}
                     >
                       {tr("routines.createEntry")}
-                    </button>
+                    </Button>
                   )}
                 </div>
               ) : (
@@ -1346,15 +1347,11 @@ export default function RoutinesPage() {
                   )}
                   {silent.length > 0 && (
                     <div className={noteworthy.length > 0 ? "mt-3" : undefined}>
-                      <button
-                        type="button"
-                        className="text-body text-kin-secondary hover:text-kin-text"
-                        onClick={() => setShowSilent((v) => !v)}
-                      >
+                      <Button variant="quiet" onClick={() => setShowSilent((v) => !v)}>
                         {showSilent
                           ? tr("routines.hideSilent", { count: silent.length })
                           : tr("routines.showSilent", { count: silent.length })}
-                      </button>
+                      </Button>
                       {showSilent && (
                         <ul className="mt-3 space-y-2 opacity-80">
                           {silent.map((run) => (
@@ -1372,14 +1369,14 @@ export default function RoutinesPage() {
                     </div>
                   )}
                   {runsHasMore && runs.length < ROUTINE_HISTORY_MAX && (
-                    <button
-                      type="button"
+                    <Button
+                      variant="secondary"
                       disabled={loadingMoreRuns}
                       onClick={() => void loadMoreRuns()}
-                      className="mt-2 min-h-11 w-full rounded-lg text-body text-kin-secondary hover:bg-kin-panel"
+                      className="mt-2 w-full"
                     >
                       {loadingMoreRuns ? tr("tree.loadingMore") : tr("routines.historyLoadOlder")}
-                    </button>
+                    </Button>
                   )}
                 </div>
               )}
@@ -1506,6 +1503,7 @@ function RunHistoryPanel({
       ) : error ? (
         <div className="mt-2">
           <p className="text-body text-kin-red-ink">{error}</p>
+          {/* eslint-disable-next-line kin/no-raw-button -- a retry link inside the panel's prose, not a control. */}
           <button
             type="button"
             onClick={onRetry}
@@ -1535,16 +1533,11 @@ function RunHistoryPanel({
               rows it fetches appear just above the button, in view. */}
           {hasMore && runs.length < ROUTINE_HISTORY_MAX && (
             <li>
-              <button
-                type="button"
-                disabled={loadingOlder}
-                onClick={onLoadOlder}
-                className="min-h-11 text-body text-kin-secondary hover:text-kin-text disabled:opacity-50 sm:min-h-8"
-              >
+              <Button variant="quiet" disabled={loadingOlder} onClick={onLoadOlder}>
                 {loadingOlder
                   ? tr("routines.historyLoadingOlder")
                   : tr("routines.historyLoadOlder")}
-              </button>
+              </Button>
             </li>
           )}
         </ul>
@@ -1632,6 +1625,7 @@ function RunCard({
           </Link>
         </div>
         {run.routine_unread && (
+          // eslint-disable-next-line kin/no-raw-button -- a per-run sentence link; it reads as prose, not a control.
           <button
             type="button"
             onClick={() => onMarkRead(run.id)}

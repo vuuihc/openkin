@@ -1,6 +1,7 @@
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ApiError, isTerminal } from "../api/client";
 import ChatStream from "../components/chat/ChatStream";
+import Button from "../components/ui/Button";
 import { useMachines } from "../hooks/useMachines";
 import { useRemoteTaskRun } from "../hooks/useRemoteTaskRun";
 import { useT } from "../i18n/react";
@@ -89,13 +90,9 @@ export default function MachineTaskPage() {
             role="alert"
           >
             <span>{error}</span>
-            <button
-              type="button"
-              onClick={run.retry}
-              className="min-h-9 rounded-md border border-kin-red/40 px-2 text-body font-medium hover:bg-kin-red/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kin-focus-ring"
-            >
+            <Button variant="secondary" className="text-kin-red-ink" onClick={run.retry}>
               {tr("runDetail.retry")}
-            </button>
+            </Button>
           </div>
         </div>
       )}
