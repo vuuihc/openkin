@@ -106,7 +106,10 @@ function setup(overrides: Partial<TaskComposerDockProps> = {}) {
     usageLoading: false,
     machine: null,
     waitingCount: 0,
+    pendingIsApproval: false,
+    pendingApprovalBusy: false,
     onRevealFirstPending: vi.fn(),
+    onApproveFirstPending: vi.fn(),
     ...overrides,
   };
   return { props, ...render(<TaskComposerDock {...props} />) };
@@ -130,6 +133,55 @@ describe("TaskComposerDock", () => {
     expect(
       screen.queryByRole("button", { name: t("task.waitingOnYou", { count: "0" }) }),
     ).toBeNull();
+  });
+
+  it("docks the oldest pending approval with View and Approve", () => {
+    // A pending approval is one decision, and it belongs within reach of the
+    // composer: a long conversation must not make the reader hunt above the
+    // fold to unblock the agent. The row names the decision, says how many
+    // more are queued behind it, and offers the same words as the inline card.
+    const onRevealFirstPending = vi.fn();
+    const onApproveFirstPending = vi.fn();
+    const { props, rerender } = setup({
+      waitingCount: 2,
+      pendingIsApproval: true,
+      pendingApprovalBusy: true,
+      onRevealFirstPending,
+      onApproveFirstPending,
+    });
+
+    expect(screen.getByText(`${t("approval.cardTitle")} · +1`)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: t("task.viewPending") }));
+    expect(onRevealFirstPending).toHaveBeenCalledTimes(1);
+
+    // The same decision path as the inline card, and not while it is already
+    // being answered.
+    const approve = screen.getByRole("button", { name: t("chat.approve") });
+    expect((approve as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(approve);
+    expect(onApproveFirstPending).not.toHaveBeenCalled();
+
+    rerender(<TaskComposerDock {...props} pendingApprovalBusy={false} />);
+    fireEvent.click(screen.getByRole("button", { name: t("chat.approve") }));
+    expect(onApproveFirstPending).toHaveBeenCalledTimes(1);
+  });
+
+  it("a pending question keeps the view-only strip", () => {
+    // A question needs the card's own form; there is no one-tap answer to
+    // offer, so the band keeps the strip that takes the reader to it.
+    const onRevealFirstPending = vi.fn();
+    const onApproveFirstPending = vi.fn();
+    setup({
+      waitingCount: 1,
+      pendingIsApproval: false,
+      onRevealFirstPending,
+      onApproveFirstPending,
+    });
+
+    expect(screen.queryByRole("button", { name: t("chat.approve") })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: t("task.waitingOnYou", { count: "1" }) }));
+    expect(onRevealFirstPending).toHaveBeenCalledTimes(1);
   });
 
   it("composer: a running session asks for a queued message; a settled one names the host agent", () => {

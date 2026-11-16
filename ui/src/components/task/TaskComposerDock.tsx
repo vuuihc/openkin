@@ -76,7 +76,13 @@ export type TaskComposerDockProps = {
   machine: { text: string; known: boolean } | null;
   /** How many approvals or questions are waiting on the person. */
   waitingCount: number;
+  /** The oldest waiting entry is an approval, so the band can offer the decision. */
+  pendingIsApproval: boolean;
+  /** That approval is already being answered; the dock's Approve waits with it. */
+  pendingApprovalBusy: boolean;
   onRevealFirstPending: () => void;
+  /** The page's one decision path, called with the oldest pending approval. */
+  onApproveFirstPending?: () => void;
 };
 
 export default function TaskComposerDock({
@@ -112,7 +118,10 @@ export default function TaskComposerDock({
   usageLoading,
   machine,
   waitingCount,
+  pendingIsApproval,
+  pendingApprovalBusy,
   onRevealFirstPending,
+  onApproveFirstPending,
 }: TaskComposerDockProps) {
   const tr = useT();
   // The phone usage trigger opens a bottom sheet, so it must not exist at all
@@ -127,7 +136,36 @@ export default function TaskComposerDock({
       className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5"
     >
       <div className="max-w-conversation mx-auto space-y-1.5">
-        {waitingCount > 0 && (
+        {waitingCount > 0 && pendingIsApproval ? (
+          /*
+            A decision, within reach of the composer. In a long conversation
+            the inline card can be a screen or two above the fold, and the
+            strip that only scrolled to it still made the reader leave the
+            message they were writing. The row names the decision, says how
+            many more are queued behind it, and carries the same Approve the
+            card does — the page decides through the same path either way.
+          */
+          <div className="flex items-center gap-2 rounded-xl border border-kin-orange/40 bg-kin-orange/15 px-3 py-2">
+            <IconAlert className="w-4 h-4 flex-none text-kin-orange-ink" />
+            <span className="min-w-0 flex-1 truncate text-subtitle font-medium text-kin-orange-ink">
+              {tr("approval.cardTitle")}
+              {waitingCount > 1 ? ` · +${waitingCount - 1}` : ""}
+            </span>
+            <Button variant="secondary" onClick={onRevealFirstPending} className="flex-none px-3">
+              {tr("task.viewPending")}
+            </Button>
+            <Button
+              variant="approve"
+              disabled={pendingApprovalBusy}
+              onClick={onApproveFirstPending}
+              className="flex-none px-3"
+            >
+              {tr("chat.approve")}
+            </Button>
+          </div>
+        ) : waitingCount > 0 ? (
+          // A question needs its card's own form; the band can only take the
+          // reader to it.
           <Button
             variant="secondary"
             aria-label={tr("task.waitingOnYou", { count: String(waitingCount) })}
@@ -137,7 +175,7 @@ export default function TaskComposerDock({
             <IconAlert className="w-4 h-4 flex-none" />
             {tr("task.waitingOnYou", { count: String(waitingCount) })}
           </Button>
-        )}
+        ) : null}
         <Composer
           key={task.id}
           agents={agents}

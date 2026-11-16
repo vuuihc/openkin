@@ -461,6 +461,8 @@ const zh = {
     statusLastSeen: "上次可见",
     interruptedGuide: "已打断当前轮次，这条现在就发",
     waitingOnYou: "{count} 项在等你处理 · 点这里回答",
+    newActivity: "有新进展",
+    viewPending: "查看",
     queuedGuide: "已排队：本轮结束后回答",
     stopped: "已停止当前轮次",
     stopping: "停止中…",
