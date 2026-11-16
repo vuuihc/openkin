@@ -176,7 +176,9 @@ describe("the file finder", () => {
       timeout: 2000,
     });
     // The one state with an action to take has to reach a screen reader too.
-    expect(screen.getByRole("status").textContent).toContain("not a git repository");
+    expect(
+      screen.getAllByRole("status").some((el) => el.textContent?.includes("not a git repository")),
+    ).toBe(true);
 
     // The name is the contract; the element behind it is now the shared Button.
     fireEvent.click(screen.getByRole("button", { name: t("workspace.find.retry") }));
