@@ -197,11 +197,13 @@ export default function PublishPanel({
           <Button
             variant="quiet"
             onClick={onClose}
-            className="min-h-0 flex-none rounded-md p-1.5 text-kin-muted hover:text-kin-text"
+            className="group min-h-0! flex-none rounded-md p-1.5"
             aria-label={tr("publish.close")}
             title={tr("publish.close")}
           >
-            <IconX size={14} />
+            <span className="text-kin-muted transition-colors group-hover:text-kin-text">
+              <IconX size={14} />
+            </span>
           </Button>
         )}
       </div>

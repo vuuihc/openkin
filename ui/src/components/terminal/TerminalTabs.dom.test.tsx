@@ -44,10 +44,42 @@ describe("TerminalTabs", () => {
     const tabs = screen.getAllByRole("tab");
     expect(tabs).toHaveLength(2);
     for (const tab of tabs) expect(tab.className).toContain("kin-btn");
+    // The quiet variant inks the control and restores the 44px floor; the
+    // important utilities are the contract that keeps the row's own ink
+    // (active vs inactive) and its dense height.
+    for (const tab of tabs) {
+      expect(tab.className).toContain("text-inherit!");
+      expect(tab.className).toContain("min-h-0!");
+    }
     expect(tabs[0]!.getAttribute("aria-selected")).toBe("true");
     expect(tabs[0]!.getAttribute("tabindex")).toBe("0");
     expect(tabs[1]!.getAttribute("aria-selected")).toBe("false");
     expect(tabs[1]!.getAttribute("tabindex")).toBe("-1");
+  });
+
+  it("names each tab from its session and keeps the close glyph muted until hover", () => {
+    render(
+      <TerminalTabs
+        sessions={sessions}
+        activeSessionId="s1"
+        onSelectSession={vi.fn()}
+        onCloseSession={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("tab", { name: "bash" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "zsh" })).toBeTruthy();
+
+    const closes = screen.getAllByRole("button", { name: t("terminal.closeSession") });
+    for (const close of closes) {
+      // The quiet variant's ink would otherwise win over the caller's; the
+      // glyph carries its own muted colour and brightens with the control.
+      expect(close.className).toContain("group");
+      expect(close.className).toContain("min-h-0!");
+      const glyph = close.querySelector("svg")?.parentElement;
+      expect(glyph?.className).toContain("text-kin-muted");
+      expect(glyph?.className).toContain("group-hover:text-kin-text");
+    }
   });
 
   it("closes a session from its own control without selecting the tab", () => {

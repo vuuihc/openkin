@@ -264,7 +264,7 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
             <div className="flex items-center overflow-hidden rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)]">
               <Button
                 variant="quiet"
-                className="min-h-0 gap-1 px-2 py-1 text-body hover:bg-[var(--kin-fill-strong)]"
+                className="min-h-0! px-2 py-1 text-body font-normal hover:bg-[var(--kin-fill-strong)]"
                 onClick={() => {
                   setMenuOpen(false);
                   void handleCreateSession(defaultCreateId);
@@ -273,14 +273,16 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
                 aria-label={tr("terminal.new")}
                 title={tr("terminal.new")}
               >
-                <IconPlus size={13} strokeWidth={1.9} />
-                <span className="hidden sm:inline">{tr("terminal.new")}</span>
+                <span className="inline-flex items-center gap-1">
+                  <IconPlus size={13} strokeWidth={1.9} />
+                  <span className="hidden sm:inline">{tr("terminal.new")}</span>
+                </span>
               </Button>
               {profiles.length > 1 && (
                 <Button
                   variant="quiet"
                   ref={profileTriggerRef}
-                  className="min-h-0 border-l border-[var(--kin-hairline-strong)] px-1.5 py-1 text-kin-muted hover:text-kin-text"
+                  className="group min-h-0! border-l border-[var(--kin-hairline-strong)] px-1.5 py-1"
                   onClick={() => {
                     if (!canCreate) return;
                     setMenuOpen((value) => !value);
@@ -291,7 +293,12 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
                   aria-expanded={menuOpen}
                   title={tr("terminal.chooseProfile")}
                 >
-                  <IconChevron size={12} className={menuOpen ? "rotate-[-90deg]" : "rotate-90"} />
+                  <span className="text-kin-muted transition-colors group-hover:text-kin-text">
+                    <IconChevron
+                      size={12}
+                      className={menuOpen ? "rotate-[-90deg]" : "rotate-90"}
+                    />
+                  </span>
                 </Button>
               )}
             </div>
@@ -310,11 +317,13 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
           <Button
             variant="quiet"
             onClick={onClose}
-            className="min-h-0 flex-none rounded-md p-1.5 text-kin-muted hover:text-kin-text"
+            className="group min-h-0! flex-none rounded-md p-1.5"
             aria-label={tr("terminal.closePanel")}
             title={tr("terminal.closePanel")}
           >
-            <IconX size={14} />
+            <span className="text-kin-muted transition-colors group-hover:text-kin-text">
+              <IconX size={14} />
+            </span>
           </Button>
         </div>
 

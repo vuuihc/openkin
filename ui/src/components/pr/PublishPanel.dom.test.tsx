@@ -96,7 +96,14 @@ describe("PublishPanel", () => {
   it("closes on Escape through the close control", () => {
     const { onClose } = setup();
 
-    expect(screen.getByRole("button", { name: t("publish.close") })).toBeTruthy();
+    const close = screen.getByRole("button", { name: t("publish.close") });
+    // The quiet variant's ink would otherwise win over the caller's; the glyph
+    // carries its own muted colour and brightens with the control.
+    expect(close.className).toContain("group");
+    expect(close.className).toContain("min-h-0!");
+    const glyph = close.querySelector("svg")?.parentElement;
+    expect(glyph?.className).toContain("text-kin-muted");
+    expect(glyph?.className).toContain("group-hover:text-kin-text");
     fireEvent.keyDown(window, { key: "Escape" });
 
     expect(onClose).toHaveBeenCalledTimes(1);
