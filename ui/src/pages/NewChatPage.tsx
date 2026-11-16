@@ -737,7 +737,7 @@ export default function NewChatPage() {
           <Button
             variant="quiet"
             onClick={refreshMachines}
-            className="min-h-0! px-0 py-0 text-caption text-kin-blue-ink! hover:bg-transparent! hover:underline"
+            className="min-h-0! px-0 py-0 text-caption font-normal text-kin-blue-ink! hover:bg-transparent! hover:underline"
           >
             {tr("machine.refresh")}
           </Button>
@@ -785,7 +785,7 @@ export default function NewChatPage() {
                     <div className="mt-2 flex justify-center">
                       <Button
                         variant="quiet"
-                        className="px-3 py-0 text-body text-kin-blue-ink! hover:bg-transparent! hover:underline sm:px-0"
+                        className="px-3 py-0 text-body font-normal text-kin-blue-ink! hover:bg-transparent! hover:underline sm:px-0"
                         onClick={() => navigate("/agents", { replace: !wide })}
                       >
                         {tr("agents.manageLink")}
@@ -925,7 +925,7 @@ export default function NewChatPage() {
                         </p>
                         <Button
                           variant="quiet"
-                          className="mt-2 px-0 py-0 text-body text-kin-blue-ink! hover:bg-transparent! hover:underline"
+                          className="mt-2 px-0 py-0 text-body font-normal text-kin-blue-ink! hover:bg-transparent! hover:underline"
                           onClick={() => setProjectLookupKey((k) => k + 1)}
                         >
                           {tr("common.retry")}

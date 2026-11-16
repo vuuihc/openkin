@@ -158,6 +158,7 @@ function placeRow() {
 /** The link weight ApprovalCard established on the facade. */
 function expectLinkWeight(button: HTMLElement) {
   expect(button.classList.contains("kin-btn")).toBe(true);
+  expect(button.classList.contains("font-normal")).toBe(true);
   expect(button.classList.contains("text-kin-blue-ink!")).toBe(true);
   expect(button.classList.contains("hover:underline")).toBe(true);
   expect(button.classList.contains("hover:bg-transparent!")).toBe(true);
