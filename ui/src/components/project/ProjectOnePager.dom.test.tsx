@@ -102,6 +102,89 @@ describe("the project one-pager section", () => {
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Edit" }));
   });
 
+  it("moves edit save cancel and the conflict choices onto the facade", async () => {
+    const user = userEvent.setup();
+    const view = renderOnePager();
+
+    const edit = screen.getByRole("button", { name: "Edit" });
+    expect(edit.className).toContain("kin-btn");
+    await user.click(edit);
+    expect(view.props.onBeginEdit).toHaveBeenCalledTimes(1);
+
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.className).toContain("kin-btn");
+    await user.click(save);
+    expect(view.props.onSave).toHaveBeenCalledTimes(1);
+
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(cancel.className).toContain("kin-btn");
+    await user.click(cancel);
+    expect(view.props.onDismissConflict).toHaveBeenCalledTimes(1);
+
+    view.unmount();
+
+    // The conflict choices sit in the same editor, once the page reports a 409.
+    const keepView = renderOnePager({ conflict, summaryText: "their line" });
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const keep = screen.getByRole("button", { name: "Keep mine and overwrite" });
+    expect(keep.className).toContain("kin-btn");
+    await user.click(keep);
+    expect(keepView.props.onKeepMine).toHaveBeenCalledTimes(1);
+
+    const take = screen.getByRole("button", { name: "Use their version" });
+    expect(take.className).toContain("kin-btn");
+    await user.click(take);
+    expect(keepView.props.onTakeTheirs).toHaveBeenCalledTimes(1);
+
+    keepView.unmount();
+
+    const dismissView = renderOnePager({ conflict, summaryText: "their line" });
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const dismiss = screen.getByRole("button", { name: "Keep editing" });
+    expect(dismiss.className).toContain("kin-btn");
+    await user.click(dismiss);
+    expect(dismissView.props.onDismissConflict).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives the section exactly one filled action per state", async () => {
+    const user = userEvent.setup();
+    const view = renderOnePager();
+    const section = screen.getByRole("heading", { name: "One-line summary" }).closest("section")!;
+
+    // Reading: Edit is a bordered peer, so the section holds no filled action.
+    const edit = screen.getByRole("button", { name: "Edit" });
+    expect(edit.className).toContain("kin-btn-secondary");
+    expect(section.querySelectorAll(".kin-btn-primary").length).toBe(0);
+
+    // Editing a clean draft: Save is the one filled action.
+    await user.click(edit);
+    expect(section.querySelectorAll(".kin-btn-primary").length).toBe(1);
+    expect(screen.getByRole("button", { name: "Save" }).className).toContain("kin-btn-primary");
+
+    // A conflict: exactly one filled choice, and it is Keep mine.
+    view.rerender(<ProjectOnePager {...view.props} conflict={conflict} summaryText="their line" />);
+    const choices = section.querySelectorAll(".kin-btn-primary");
+    expect(choices.length).toBe(1);
+    expect(choices[0].textContent).toBe("Keep mine and overwrite");
+  });
+
+  it("keeps the 44px touch floor on a phone", async () => {
+    const user = userEvent.setup();
+    const view = renderOnePager();
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+
+    for (const control of view.container.querySelectorAll("button")) {
+      // The facade always carries `min-h-11`; the page must not override it to
+      // zero, which would drop the control under the 44px floor on touch.
+      expect(control.className).toContain("min-h-11");
+      expect(control.className).not.toMatch(/(^|\s)min-h-0(\s|$)/);
+    }
+
+    const section = screen.getByRole("heading", { name: "One-line summary" }).closest("section")!;
+    // No arbitrary pixel width that could overflow a 390px viewport.
+    expect(section.innerHTML).not.toContain("w-[");
+  });
+
   it("keeps focus in the editor while a save is in flight", async () => {
     const user = userEvent.setup();
     const view = renderOnePager();
