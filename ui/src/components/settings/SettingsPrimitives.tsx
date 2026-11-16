@@ -161,7 +161,12 @@ export function SettingsLayout({
 
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden kin-scroll">
-      <div className="mx-auto flex w-full max-w-page flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8">
+      <div
+        className={classes(
+          "mx-auto flex w-full flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8",
+          activeTab === "operations" ? "max-w-page-wide" : "max-w-page",
+        )}
+      >
         <div className="space-y-1">
           {/* The shell's header already names this screen on the phone, and the
               prototype gives every phone screen one nav bar — so the grid of

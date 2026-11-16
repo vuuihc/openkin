@@ -286,4 +286,19 @@ describe("the Operations settings tab", () => {
     // `embedded`.
     expect(within(panel("operations")).queryAllByRole("heading", { level: 1 })).toHaveLength(0);
   });
+
+  it("widens the settings layout for operations, drops nested padding, and adds a phone section heading", async () => {
+    shell("/settings?tab=operations");
+
+    await screen.findByRole("tab", { name: "Operations" });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const opPanel = panel("operations");
+    expect(opPanel.closest(".max-w-page-wide")).not.toBeNull();
+    expect(opPanel.querySelector(".py-6")).toBeNull();
+    expect(within(opPanel).getByRole("heading", { level: 2, name: "Operations" })).toBeTruthy();
+    expect(within(opPanel).queryAllByRole("heading", { level: 1 })).toHaveLength(0);
+  });
 });

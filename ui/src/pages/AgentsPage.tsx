@@ -941,11 +941,15 @@ export default function AgentsPage({ embedded = false }: { embedded?: boolean } 
     : null;
 
   return (
-    <div className="flex-1 overflow-y-auto overflow-x-hidden kin-scroll">
-      <div className="max-w-page-wide mx-auto px-4 sm:px-6 py-6 sm:py-8">
+    <div className={embedded ? "min-w-0" : "flex-1 overflow-y-auto overflow-x-hidden kin-scroll"}>
+      <div className={embedded ? "min-w-0" : "max-w-page-wide mx-auto px-4 sm:px-6 py-6 sm:py-8"}>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-0">
-            {embedded ? null : (
+            {embedded ? (
+              <h2 className="text-subtitle font-semibold text-kin-text md:hidden">
+                {tr("settings.tabs.operations")}
+              </h2>
+            ) : (
               <h1 className="hidden text-hero font-bold tracking-tight md:block">
                 {tr("agents.title")}
               </h1>
