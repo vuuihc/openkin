@@ -21,15 +21,16 @@ function setup(
   rule: RoutineRule | null = null,
   ruleZone?: string | null,
   nextRunPreview?: number | null,
+  nextRunLocal = "2026-03-02T15:00",
 ) {
   const onRuleChange = vi.fn();
   const onIntervalChange = vi.fn();
   const onNextRunLocalChange = vi.fn();
-  render(
+  const { unmount } = render(
     <RoutineScheduleFields
       intervalSecs={86400}
       onIntervalChange={onIntervalChange}
-      nextRunLocal="2026-03-02T15:00"
+      nextRunLocal={nextRunLocal}
       onNextRunLocalChange={onNextRunLocalChange}
       rule={rule}
       onRuleChange={onRuleChange}
@@ -37,7 +38,7 @@ function setup(
       nextRunPreview={nextRunPreview}
     />,
   );
-  return { onRuleChange, onIntervalChange, onNextRunLocalChange };
+  return { onRuleChange, onIntervalChange, onNextRunLocalChange, unmount };
 }
 
 /** The console picker puts one trigger per surface in the DOM; the desktop one
@@ -233,6 +234,37 @@ describe("RoutineScheduleFields", () => {
     setup({ kind: "once" }, undefined, 1_800_000_000_000);
     const prefix = t("routines.nextRunPreview", { when: "" }).trim();
     expect(document.body.textContent).not.toContain(prefix);
+  });
+
+  it("puts clear-first-run on the quiet shared Button", () => {
+    const { onNextRunLocalChange, unmount } = setup();
+    // Clearing the first run is an affordance inside the field row, not an
+    // action of its own weight: quiet carries the hover wash and the touch
+    // floor without borrowing either of the two action weights.
+    const clear = screen.getByRole("button", { name: t("routines.clearFirstRun") });
+    expect(clear.className).toContain("kin-btn");
+    expect(clear.className).not.toContain("kin-btn-primary");
+    expect(clear.className).not.toContain("kin-btn-secondary");
+    fireEvent.click(clear);
+    expect(onNextRunLocalChange).toHaveBeenCalledWith("");
+    unmount();
+
+    // With no first run there is nothing to clear, so the control is absent
+    // rather than a dead affordance beside an empty field.
+    setup(null, undefined, null, "");
+    expect(screen.queryByRole("button", { name: t("routines.clearFirstRun") })).toBeNull();
+  });
+
+  it("keeps the weekday chips as a pressed segmented control, not action buttons", () => {
+    // Seven weekdays are a multi-select, not seven actions: they stay pressed
+    // chips with `aria-pressed` and never pick up the action-button weight, so
+    // a later migration cannot turn the row into seven primaries.
+    setup({ kind: "weekly", hour: 9, minute: 0, weekdays: [1, 5] });
+    for (const d of [0, 1, 2, 3, 4, 5, 6] as const) {
+      const chip = screen.getByRole("button", { name: t(`routines.weekday${d}`) });
+      expect(chip.getAttribute("aria-pressed")).toBe(String(d === 1 || d === 5));
+      expect(chip.className).not.toContain("kin-btn");
+    }
   });
 
   it("picks a rule from the phone's sheet", async () => {

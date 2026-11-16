@@ -1474,7 +1474,7 @@ function ProjectBucket({
 
   return (
     <section className="pb-1">
-      <div className={`group/proj flex items-center gap-0.5 ${gutter} pb-1 pt-4`}>
+      <div className={`group/proj relative flex items-center gap-0.5 ${gutter} pb-1 pt-4`}>
         <Button
           variant="quiet"
           onClick={() => {
@@ -1486,7 +1486,7 @@ function ProjectBucket({
           aria-label={`${tr(collapsed ? "nav.expandProject" : "nav.collapseProject")} ${heading}`}
           className={[
             "kin-row-press flex flex-none items-center justify-center rounded-lg p-0 text-kin-muted",
-            coarse ? "h-11 w-11" : "h-9 w-7",
+            coarse ? "h-11 min-h-11 w-11" : "h-9 w-7",
             canToggle ? "" : "opacity-40",
           ].join(" ")}
         >
@@ -1544,7 +1544,23 @@ function ProjectBucket({
           </Button>
         ) : null}
         {realProject && !onRestoreProject && !coarse ? (
-          <div className="flex flex-none items-center">
+          /*
+            The hover actions float over the row's tail instead of holding a
+            column of their own. In layout they reserved four 24px boxes even at
+            rest, so a 304px sidebar truncated “[seed] Project Alpha”, “Beta”
+            and “Gamma” to the same “[seed] Projec… 0” while empty space sat to
+            the right of the count. They stay in the tab order, and focus (or
+            hover) reveals them over a background so the title under them is
+            covered, not mixed with.
+          */
+          <div
+            className={[
+              "pointer-events-none absolute bottom-1 top-4 z-10 flex items-center rounded-md opacity-0 transition-opacity",
+              gutter === "px-2" ? "right-2" : "right-4",
+              gutter === "px-2" ? "bg-[var(--kin-sidebar)]" : "bg-[var(--kin-page)]",
+              "focus-within:pointer-events-auto focus-within:opacity-100 group-hover/proj:pointer-events-auto group-hover/proj:opacity-100",
+            ].join(" ")}
+          >
             <ProjectIconButton
               label={tr("nav.newSessionIn", { project: bucket.label })}
               onClick={onNewSession}
@@ -1674,7 +1690,7 @@ function ProjectIconButton({
           ? "cursor-not-allowed text-kin-muted opacity-50"
           : active
             ? "text-kin-blue-ink opacity-100"
-            : "text-kin-muted opacity-0 hover:bg-[var(--kin-fill-strong)] hover:text-kin-text focus:opacity-100 group-hover/proj:opacity-100",
+            : "text-kin-muted hover:bg-[var(--kin-fill-strong)] hover:text-kin-text",
       ].join(" ")}
     >
       {children}
