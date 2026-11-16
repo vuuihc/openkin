@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { formatCost, formatElapsed, isTerminal, parseApprovalPayload } from "../api/client";
+import {
+  formatCost,
+  formatElapsed,
+  isTerminal,
+  parseApprovalPayload,
+} from "../api/client";
 import { usePendingResources, useTaskList } from "../api/useLiveResources";
 import { useApprovalDecision } from "../hooks/useApprovalDecision";
 import { shortPath } from "../lib/paths";

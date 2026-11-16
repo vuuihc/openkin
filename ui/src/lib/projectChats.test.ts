@@ -217,7 +217,9 @@ describe("loadProjectChats", () => {
       roots: ["/work/a", "/work/b"],
       feed: {
         tasks: async () => [task({ id: "t1", created_at: 10 })],
-        sessions: async (root) => [session({ id: `s-${root}`, cwd: root, updated_at: 20 })],
+        sessions: async (root) => [
+          session({ id: `s-${root}`, cwd: root, updated_at: 20 }),
+        ],
       },
       copy,
       selfDeviceId: "self",
@@ -237,7 +239,9 @@ describe("loadProjectChats", () => {
       roots: ["/work/a"],
       feed: {
         tasks: async () => [task({ id: "t1", created_at: 50 })],
-        sessions: async () => [session({ id: "s1", updated_at: 10, first_seen_at: 40 })],
+        sessions: async () => [
+          session({ id: "s1", updated_at: 10, first_seen_at: 40 }),
+        ],
       },
       copy,
       selfDeviceId: "self",
