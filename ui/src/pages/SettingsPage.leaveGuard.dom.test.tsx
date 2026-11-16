@@ -142,25 +142,6 @@ function viewport() {
   }));
 }
 
-function pointer(node: Element, type: string, clientX: number) {
-  const event = new MouseEvent(type, {
-    bubbles: true,
-    cancelable: true,
-    clientX,
-    clientY: 20,
-    button: 0,
-  });
-  Object.assign(event, { pointerId: 1, pointerType: "touch", isPrimary: true });
-  fireEvent(node, event);
-}
-
-function tabSwipe(target = document.querySelector("main") as Element) {
-  expect(target).toBeTruthy();
-  pointer(target, "pointerdown", 100);
-  pointer(target, "pointermove", 220);
-  pointer(target, "pointerup", 220);
-}
-
 function shell(settingsURL = "/settings") {
   window.history.replaceState({}, "", settingsURL);
   return render(
@@ -250,7 +231,9 @@ describe("settings forms ask before a phone departure", () => {
     await user.click(screen.getByRole("link", { name: "Routines" }));
     expect(confirm).toHaveBeenCalledWith("Discard unsaved settings changes?");
     expectOnSettings();
-    tabSwipe();
+    // The tab bar is the only way between areas on a phone; the guard answers
+    // the tap just as it answered the old sideways drag.
+    await user.click(screen.getByRole("link", { name: "Agent Ops" }));
     expect(confirm).toHaveBeenCalledTimes(2);
 
     const section = price.closest("section") as HTMLElement;

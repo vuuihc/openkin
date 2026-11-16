@@ -204,6 +204,20 @@ describe("desktop surface", () => {
     expect(document.activeElement).toBe(desktopTrigger());
   });
 
+  it("draws its panel through the shared popover layer", async () => {
+    setup();
+    await userEvent.click(desktopTrigger());
+
+    // The hand-rolled panel is gone: what carries the listbox is the shared
+    // `Popover` layer — a viewport-fixed dialog named by the control's label,
+    // portaled to <body>.
+    const panel = screen.getByRole("dialog", { name: "Model" });
+    expect(panel.className).toContain("fixed");
+    expect(panel.parentElement).toBe(document.body);
+    expect(document.body.contains(panel)).toBe(true);
+    expect(screen.getByRole("listbox", { name: "Model" }).closest('[role="dialog"]')).toBe(panel);
+  });
+
   it("closes when Tab leaves the panel", async () => {
     setup();
     await userEvent.click(desktopTrigger());
@@ -242,11 +256,13 @@ describe("desktop surface", () => {
   });
 });
 
-// #3: the panel is placed by the same `useAnchoredPanel` as the dispatch and
-// permission panels, so it clamps to the same 8px edge and flips on the same
-// rule at a phone and a desktop width. jsdom reports a zero rect, so the
-// stable contract here is the width, the viewport clamp and "one side, not
-// both" — the same limit the dispatch panel's test states.
+// #3: the panel is the shared `Popover` layer, placed by the same
+// `useAnchoredPanel` as the dispatch and permission panels, so it clamps to
+// the same 8px edge and flips on the same rule at a phone and a desktop width.
+// jsdom reports a zero rect, so the stable contract here is the width, the
+// viewport clamp and "one side, not both" — the same limit the dispatch
+// panel's test states. `data-search-panel` still marks the content wrapper
+// inside that layer (other layers use it to recognise an open picker).
 describe("the panel's placement", () => {
   it.each([
     ["390px", 390],
@@ -256,14 +272,14 @@ describe("the panel's placement", () => {
     setup();
     await userEvent.click(desktopTrigger());
 
-    const panel = document.querySelector<HTMLElement>("[data-search-panel]");
-    expect(panel).toBeTruthy();
-    expect(panel!.style.width).toBe("288px");
-    const left = Number.parseFloat(panel!.style.left);
+    const panel = screen.getByRole("dialog", { name: "Model" });
+    expect(panel.querySelector("[data-search-panel]")).toBeTruthy();
+    expect(panel.style.width).toBe("288px");
+    const left = Number.parseFloat(panel.style.left);
     expect(left).toBeGreaterThanOrEqual(8);
     expect(left + 288).toBeLessThanOrEqual(width - 8);
-    expect(Boolean(panel!.style.top) !== Boolean(panel!.style.bottom)).toBe(true);
-    expect(Number.parseFloat(panel!.style.maxHeight)).toBeGreaterThan(0);
+    expect(Boolean(panel.style.top) !== Boolean(panel.style.bottom)).toBe(true);
+    expect(Number.parseFloat(panel.style.maxHeight)).toBeGreaterThan(0);
   });
 });
 
