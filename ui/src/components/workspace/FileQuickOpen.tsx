@@ -21,6 +21,7 @@ import { searchTaskSourceFiles } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { isImeKeyEvent } from "../../lib/ime";
 import { IconSearch, IconSpinner } from "../icons";
+import Button from "../ui/Button";
 
 /**
  * Long enough that a typed word is one question, short enough that the list
@@ -340,13 +341,13 @@ export default function FileQuickOpen({ taskId, open, onClose, onOpenPath }: Pro
           ) : currentFailure ? (
             <div className="px-3 py-8 text-center">
               <p className="text-strong leading-5 text-kin-muted">{currentFailure.message}</p>
-              <button
-                type="button"
+              <Button
+                variant="secondary"
                 onClick={() => setRetry((n) => n + 1)}
-                className="mt-3 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2.5 py-1 text-caption text-kin-text hover:bg-[var(--kin-fill-strong)]"
+                className="mt-3 px-2.5 py-1 text-caption"
               >
                 {tr("workspace.find.retry")}
-              </button>
+              </Button>
             </div>
           ) : trimmed === "" ? (
             <p className="px-3 py-8 text-center text-strong leading-5 text-kin-muted">
