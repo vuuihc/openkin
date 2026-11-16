@@ -950,6 +950,17 @@ const en: MessageTree = {
     execution: "execution {id}",
     step: "step {n}",
   },
+  tray: {
+    connected: "connected",
+    connecting: "connecting",
+    offline: "offline",
+    needsYou: "Needs you · {count}",
+    running: "Running · {count}",
+    doneToday: "Done today",
+    noActiveConversations: "No active conversations",
+    openKin: "Open Kin",
+    newChat: "New Chat",
+  },
   tasks: {
     title: "Tasks",
     today: "today · {cost}",

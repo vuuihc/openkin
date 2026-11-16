@@ -925,6 +925,17 @@ const zh = {
     execution: "执行 {id}",
     step: "步骤 {n}",
   },
+  tray: {
+    connected: "已连接",
+    connecting: "连接中",
+    offline: "离线",
+    needsYou: "需要你 · {count}",
+    running: "进行中 · {count}",
+    doneToday: "今天完成",
+    noActiveConversations: "没有进行中的对话",
+    openKin: "打开 Kin",
+    newChat: "新对话",
+  },
   tasks: {
     title: "任务",
     today: "今日 · {cost}",
