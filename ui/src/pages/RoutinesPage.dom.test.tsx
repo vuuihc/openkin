@@ -1505,7 +1505,7 @@ describe("RoutinesPage actions on the shared facade", () => {
     expect(primaries).toHaveLength(1);
     expect(primaries[0].textContent).toBe("routines.createEntry");
     fireEvent.click(primaries[0]);
-    expect(await screen.findByRole("button", { name: "routines.save" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "routines.createAndOpen" })).toBeTruthy();
   });
 
   it("keeps mark-all-read, page retry, silent toggle and history pagination on the facade", async () => {
@@ -1539,23 +1539,22 @@ describe("RoutinesPage actions on the shared facade", () => {
     cleanup();
 
     // The global feed's load older still asks with the feed's own cursor.
-    vi.mocked(listRoutineRuns).mockImplementation(
-      async (_limit, _device, cursor = "") =>
-        cursor
-          ? {
-              routines: [],
-              runs: [run("f0", "routine-1", "Older run")],
-              has_more: false,
-              runs_next_cursor: "",
-              runs_has_more: false,
-            }
-          : {
-              routines: [],
-              runs: [run("f1", "routine-1", "New run")],
-              has_more: false,
-              runs_next_cursor: "feed-1",
-              runs_has_more: true,
-            },
+    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, _device, cursor = "") =>
+      cursor
+        ? {
+            routines: [],
+            runs: [run("f0", "routine-1", "Older run")],
+            has_more: false,
+            runs_next_cursor: "",
+            runs_has_more: false,
+          }
+        : {
+            routines: [],
+            runs: [run("f1", "routine-1", "New run")],
+            has_more: false,
+            runs_next_cursor: "feed-1",
+            runs_has_more: true,
+          },
     );
     renderApp("/routines?device=dev-a");
     await screen.findByText("New run");
@@ -1596,39 +1595,37 @@ describe("RoutinesPage actions on the shared facade", () => {
       next_cursor: "",
       has_more: false,
     });
-    vi.mocked(listRoutineRuns).mockImplementation(
-      async (_limit, _device, before = "", id = "") => {
-        if (id !== "r1")
-          return {
+    vi.mocked(listRoutineRuns).mockImplementation(async (_limit, _device, before = "", id = "") => {
+      if (id !== "r1")
+        return {
+          routines: [],
+          runs: [],
+          has_more: false,
+          runs_next_cursor: "",
+          runs_has_more: false,
+        };
+      return before
+        ? {
             routines: [],
-            runs: [],
+            runs: [run("h0", "r1", "Older history")],
             has_more: false,
             runs_next_cursor: "",
             runs_has_more: false,
+          }
+        : {
+            routines: [],
+            runs: [run("h1", "r1", "First history")],
+            has_more: false,
+            runs_next_cursor: "history-1",
+            runs_has_more: true,
           };
-        return before
-          ? {
-              routines: [],
-              runs: [run("h0", "r1", "Older history")],
-              has_more: false,
-              runs_next_cursor: "",
-              runs_has_more: false,
-            }
-          : {
-              routines: [],
-              runs: [run("h1", "r1", "First history")],
-              has_more: false,
-              runs_next_cursor: "history-1",
-              runs_has_more: true,
-            };
-      },
-    );
+    });
     renderApp("/routines?device=dev-a");
     await screen.findByText("Selected routine");
     fireEvent.click(await screen.findByRole("button", { name: "routines.showRuns" }));
-    const panel = (
-      await screen.findAllByRole("region", { name: /routines\.runsPanelTitle/ })
-    ).find((region) => region.parentElement?.className.includes("md:hidden"))!;
+    const panel = (await screen.findAllByRole("region", { name: /routines\.runsPanelTitle/ })).find(
+      (region) => region.parentElement?.className.includes("md:hidden"),
+    )!;
     await within(panel).findByRole("link", { name: "First history" });
     const panelOlder = within(panel).getByRole("button", { name: "routines.historyLoadOlder" });
     expect(panelOlder.classList.contains("kin-btn")).toBe(true);
