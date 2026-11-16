@@ -229,4 +229,26 @@ describe("TaskUsageSummary controls on the facade (E4c)", () => {
     expect(await screen.findByRole("dialog", { name: t("usage.taskSummary") })).toBeTruthy();
     phone.unmount();
   });
+
+  it("the strip keeps its title, totals and toggle on one flex row", () => {
+    // The facade wraps every child in a single label span, so loose spans
+    // would render inline there and lose the gap, the truncation and the
+    // right edge. One child of our own has to own the row.
+    render(<TaskUsageSummary usage={usage()} loading={false} variant="strip" />);
+    const title = screen.getByText(t("usage.taskSummary"));
+    const row = title.parentElement as HTMLElement;
+    expect(row.className).toContain("flex");
+    expect(row.className).toContain("w-full");
+    expect(row.className).toContain("gap-2");
+    expect(row.className).toContain("min-w-0");
+    // The facade's label span is content-sized; without these the row is only
+    // as wide as its text and the toggle never reaches the right edge.
+    expect(title.closest("button")?.className).toContain("[&>span>span]:w-full");
+    expect(row.children).toHaveLength(3);
+    // …and it is the only child of the facade's label span, so the three
+    // controls are flex items of `row` rather than inline runs inside it.
+    expect(row.parentElement?.children).toHaveLength(1);
+    expect(title.nextElementSibling?.className).toContain("truncate");
+    expect(row.lastElementChild?.textContent).toBe(t("usage.showDetails"));
+  });
 });

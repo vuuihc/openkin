@@ -1784,7 +1784,9 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                 {/* A disabled action's `title` is unreachable on a phone; the
                     reason has to be on the surface the person is touching. */}
                 {action.disabled && action.hint ? (
-                  <span className="text-caption text-kin-muted">{action.hint}</span>
+                  <span className="whitespace-normal text-caption text-kin-muted">
+                    {action.hint}
+                  </span>
                 ) : null}
               </span>
             </Button>

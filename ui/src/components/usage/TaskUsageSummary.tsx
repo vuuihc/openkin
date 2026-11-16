@@ -274,39 +274,49 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
           aria-controls={detailsID}
           aria-label={disclosureName}
           onClick={() => setOpen((value) => !value)}
-          className="flex w-full items-center justify-start gap-2 rounded-xl px-3 py-1.5 text-left"
+          // Astryx wraps every child in its own label span, and that span is a
+          // content-sized flex item, so `w-full` alone would resolve to the
+          // text's own width and leave the toggle beside the totals. The
+          // descendant widths are the same idiom MachineBrowser and AreaNav
+          // use to open the facade's wrappers up to the row.
+          className="flex w-full items-center justify-start gap-2 rounded-xl px-3 py-1.5 text-left [&>span]:w-full [&>span>span]:w-full"
         >
-          <span className="text-caption font-semibold uppercase tracking-label text-kin-muted shrink-0">
-            {tr("usage.taskSummary")}
-          </span>
-          <span className="flex-1 min-w-0 truncate text-body tabular-nums text-kin-secondary">
-            <span className="text-kin-text font-medium">{totalTokens}</span>
-            {usage.cost_usd != null ? (
-              <>
-                <span className="text-kin-muted"> · </span>
-                <span>{spend}</span>
-              </>
-            ) : null}
-            {costBadge ? (
-              <span
-                className="ml-1 align-middle text-micro font-semibold uppercase tracking-label text-kin-muted"
-                title={costBadge.title}
-              >
-                ({costBadge.label})
-              </span>
-            ) : null}
-            {cacheHit && cacheHit !== "—" ? (
-              <>
-                <span className="text-kin-muted"> · </span>
-                <span>
-                  {tr("usage.cacheHitRate")}
-                  {tr("common.labelSeparator")}
-                  {cacheHit}
+          {/* One child owns the flex line: loose spans would render inline in
+              the facade's label span and lose the gap, the truncation and the
+              right edge. */}
+          <span className="flex w-full min-w-0 items-center gap-2">
+            <span className="text-caption font-semibold uppercase tracking-label text-kin-muted shrink-0">
+              {tr("usage.taskSummary")}
+            </span>
+            <span className="flex-1 min-w-0 truncate text-body tabular-nums text-kin-secondary">
+              <span className="text-kin-text font-medium">{totalTokens}</span>
+              {usage.cost_usd != null ? (
+                <>
+                  <span className="text-kin-muted"> · </span>
+                  <span>{spend}</span>
+                </>
+              ) : null}
+              {costBadge ? (
+                <span
+                  className="ml-1 align-middle text-micro font-semibold uppercase tracking-label text-kin-muted"
+                  title={costBadge.title}
+                >
+                  ({costBadge.label})
                 </span>
-              </>
-            ) : null}
+              ) : null}
+              {cacheHit && cacheHit !== "—" ? (
+                <>
+                  <span className="text-kin-muted"> · </span>
+                  <span>
+                    {tr("usage.cacheHitRate")}
+                    {tr("common.labelSeparator")}
+                    {cacheHit}
+                  </span>
+                </>
+              ) : null}
+            </span>
+            <span className="shrink-0 text-caption font-medium text-kin-muted">{toggleText}</span>
           </span>
-          <span className="shrink-0 text-caption font-medium text-kin-muted">{toggleText}</span>
         </Button>
 
         {open && (

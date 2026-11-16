@@ -422,12 +422,13 @@ describe("the Operations section's remaining controls on the facade (E4c)", () =
     }) as HTMLButtonElement;
     expectFacade(remove);
     expect(remove.disabled).toBe(true);
-    // A disabled action's reason stays on the surface the person is touching.
-    expect(
-      within(sheet).getByText(
-        "The default agent stays in the catalog. Set another agent as default first.",
-      ),
-    ).toBeTruthy();
+    // A disabled action's reason stays on the surface the person is touching,
+    // and wraps: Astryx's button base sets `white-space: nowrap`, which the
+    // facade's clipped label span would otherwise inherit and clip.
+    const reason = within(sheet).getByText(
+      "The default agent stays in the catalog. Set another agent as default first.",
+    );
+    expect(reason.className).toContain("whitespace-normal");
 
     const smoke = within(sheet).getByRole("button", { name: /^Smoke test/ });
     expectFacade(smoke);
