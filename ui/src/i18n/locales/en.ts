@@ -1020,8 +1020,8 @@ const en: MessageTree = {
   },
   settings: {
     moreSections: "More settings",
-    operationsMoved: "Agent operations now live in the Agents page.",
-    operationsOpen: "Open Agents",
+    operationsMoved: "Agent operations still live on the Agent Ops page.",
+    operationsOpen: "Open Agent Ops",
     title: "Settings",
     saved: "Settings saved",
     discardConfirm: "Discard unsaved settings changes?",

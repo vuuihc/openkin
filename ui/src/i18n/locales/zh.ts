@@ -994,8 +994,8 @@ const zh = {
   },
   settings: {
     moreSections: "更多设置",
-    operationsMoved: "Agent 运维已移到 Agents 页面。",
-    operationsOpen: "打开 Agents",
+    operationsMoved: "Agent 运维目前仍在「Agent 运维」页面。",
+    operationsOpen: "打开 Agent 运维",
     title: "设置",
     saved: "设置已保存",
     discardConfirm: "放弃未保存的设置更改？",

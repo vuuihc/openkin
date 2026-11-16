@@ -5,6 +5,14 @@ import { MobileCard } from "../components/mobile/MobileList";
 import { MobileChevron } from "../components/mobile/MobileHeader";
 import { useT } from "../i18n/react";
 
+/** The API's four modes, labelled the way the cover labels them. */
+const MODE_LABEL_KEY: Record<string, string> = {
+  ship: "projects.modeShip",
+  learn: "projects.modeLearn",
+  explore: "projects.modeExplore",
+  maintain: "projects.modeMaintain",
+};
+
 /**
  * `/projects` is the Projects area root: the collection the area table names.
  *
@@ -39,21 +47,29 @@ export default function ProjectsCollectionPage() {
 
   return (
     <div className="flex-1 overflow-y-auto kin-scroll">
-      <div className="mx-auto flex w-full max-w-page flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8">
-        <h1 className="text-hero font-bold">{tr("nav.projects")}</h1>
+      <div className="mx-auto flex w-full max-w-page flex-col gap-5 py-6 sm:py-8">
+        <h1 className="px-4 text-hero font-bold sm:px-6">{tr("nav.projects")}</h1>
         {failed ? (
           // Visible text without a new live region: the inventory ratchet is flat
           // for this slice, and the real collection page (P2) owns the shared
           // error surface. The failure is still distinct from the empty state.
-          <p className="text-body leading-5 text-kin-red-ink">{tr("projects.loadFailed")}</p>
+          <p className="px-4 text-body leading-5 text-kin-red-ink sm:px-6">
+            {tr("projects.loadFailed")}
+          </p>
         ) : projects === null ? (
-          <p className="text-body leading-5 text-kin-muted">{tr("common.loading")}</p>
+          <p className="px-4 text-body leading-5 text-kin-muted sm:px-6">{tr("common.loading")}</p>
         ) : projects.length === 0 ? (
-          <p className="text-body leading-5 text-kin-muted">{tr("projects.empty")}</p>
+          <p className="px-4 text-body leading-5 text-kin-muted sm:px-6">{tr("projects.empty")}</p>
         ) : (
-          <MobileCard>
+          // `sm:mx-6`: the card's own `mx-4` is the phone gutter, which matches
+          // the heading's `px-4`; at the wider breakpoint both move to 24px.
+          // (`mx-0` would lose to `mx-4` in the generated stylesheet.)
+          <MobileCard className="sm:mx-6">
             {projects.map((project) => {
-              const detail = [project.mode, project.roots?.[0]].filter(Boolean).join(" · ");
+              const modeLabel = MODE_LABEL_KEY[project.mode]
+                ? tr(MODE_LABEL_KEY[project.mode])
+                : project.mode;
+              const detail = [modeLabel, project.roots?.[0]].filter(Boolean).join(" · ");
               return (
                 <Link
                   key={project.id}

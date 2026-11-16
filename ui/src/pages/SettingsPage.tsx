@@ -739,16 +739,18 @@ export default function SettingsPage() {
       onTabChange={selectTab}
     >
       {requestedTab === "operations" ? (
-        <p className="text-body leading-5 text-kin-secondary">
-          {tr("settings.operationsMoved")}{" "}
-          <Link
-            to="/agents"
-            onClick={(event) => onGuardedLinkClick(event, navigate, location, "/agents")}
-            className="inline-flex min-h-11 items-center text-kin-blue-ink hover:underline sm:min-h-0"
-          >
-            {tr("settings.operationsOpen")}
-          </Link>
-        </p>
+        <div className="kin-card rounded-xl bg-kin-elevated/60 px-4 py-3">
+          <p className="text-body leading-5 text-kin-secondary">
+            {tr("settings.operationsMoved")}{" "}
+            <Link
+              to="/agents"
+              onClick={(event) => onGuardedLinkClick(event, navigate, location, "/agents")}
+              className="inline-flex min-h-11 items-center text-kin-blue-ink hover:underline sm:min-h-0"
+            >
+              {tr("settings.operationsOpen")}
+            </Link>
+          </p>
+        </div>
       ) : null}
       {error ? (
         <p

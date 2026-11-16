@@ -54,8 +54,43 @@ describe("the projects collection", () => {
 
     const link = await screen.findByRole("link", { name: /alpha/ });
     expect(link.getAttribute("href")).toBe("/projects/p1");
-    expect(link.textContent).toContain("ship");
+    expect(link.textContent).toContain("Ship");
     expect(link.textContent).toContain("/work/alpha");
     expect(link.querySelector("svg")).not.toBeNull();
+  });
+
+  it("gives the card and the heading one gutter instead of stacking two", async () => {
+    fixtures.projects = [PROJECT];
+    render(
+      <MemoryRouter>
+        <ProjectsCollectionPage />
+      </MemoryRouter>,
+    );
+
+    const heading = await screen.findByRole("heading", { level: 1, name: "Projects" });
+    // The heading owns the page gutter; the column around it must not add a
+    // second one, or the card would be inset twice (the N2 review finding).
+    expect(heading.className).toContain("px-4");
+    expect(heading.className).toContain("sm:px-6");
+    expect(heading.parentElement?.className ?? "").not.toContain("px-4");
+
+    const link = await screen.findByRole("link", { name: /alpha/ });
+    const card = link.closest(".kin-card");
+    expect(card?.className).toContain("mx-4");
+    expect(card?.className).toContain("sm:mx-6");
+  });
+
+  it("labels the mode in the reader's language, not the raw enum", async () => {
+    setLocale("zh");
+    fixtures.projects = [PROJECT];
+    render(
+      <MemoryRouter>
+        <ProjectsCollectionPage />
+      </MemoryRouter>,
+    );
+
+    const link = await screen.findByRole("link", { name: /alpha/ });
+    expect(link.textContent).toContain("交付");
+    expect(link.textContent).not.toContain("ship");
   });
 });
