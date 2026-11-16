@@ -633,9 +633,12 @@ export default function NewChatPage() {
         );
       case "routine":
         return (
-          // A pressed toggle, not a filled action: the 26px circle keeps the
-          // composer row's height, so the facade's line box is neutralized and
-          // the state inks are stated with `!` over quiet's own fill/ink.
+          // A pressed toggle, not a filled action. It only ever renders in the
+          // run-settings sheet's row, where every control is a 44px phone tap
+          // target: the circle is 44px there, and from `sm` up it drops back to
+          // the 26px face the row was designed around. The facade's line box is
+          // neutralized and the state inks are stated with `!` over quiet's own
+          // fill/ink.
           <Button
             key={control}
             variant="quiet"
@@ -645,7 +648,7 @@ export default function NewChatPage() {
             aria-label={tr("routines.asRoutine")}
             title={`${tr("routines.asRoutine")} — ${tr("routines.asRoutineHint")}`}
             className={[
-              "inline-flex h-[26px] w-[26px] min-h-0! flex-none items-center justify-center rounded-full border px-0 py-0 transition-colors",
+              "inline-flex h-11 w-11 min-h-11! min-w-11 flex-none items-center justify-center rounded-full border px-0 py-0 transition-colors sm:h-[26px] sm:w-[26px] sm:min-h-0! sm:min-w-0",
               asRoutine
                 ? "border-kin-blue/50 bg-kin-blue/15! text-kin-blue-ink!"
                 : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)]! text-kin-secondary! hover:text-kin-text!",

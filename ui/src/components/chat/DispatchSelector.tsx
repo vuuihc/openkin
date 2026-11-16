@@ -269,7 +269,12 @@ export function DispatchSelector({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? popoverId : undefined}
-        className={`text-caption font-medium px-2 py-1 rounded min-h-7 border truncate max-w-[220px] ${
+        // The trigger is the phone's tap target for this whole panel, so its
+        // own box holds the 44px floor (`min-h-11 min-w-11`) rather than a
+        // wrapper or a pseudo-element the journey walk cannot measure. From
+        // `sm` up the compact 28px chip returns so the Mac row heights do not
+        // move.
+        className={`text-caption font-medium px-2 py-1 rounded min-h-11 min-w-11 sm:min-h-7 sm:min-w-0 border truncate max-w-[220px] ${
           open
             ? "border-kin-blue bg-kin-blue/10 text-kin-blue-ink"
             : "border-[var(--kin-hairline)] text-kin-secondary hover:bg-[var(--kin-fill)]"

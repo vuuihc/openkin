@@ -80,6 +80,28 @@ async function openDispatchInSheet() {
   return screen.findByRole("dialog", { name: "Dispatch settings" });
 }
 
+describe("the dispatch trigger", () => {
+  it("gives the dispatch trigger a 44px phone tap target", async () => {
+    // The journey walk measures the button's own box at 390px, so the floor has
+    // to live on the button: `min-h-11 min-w-11` are the 44px, and `sm:` puts
+    // back the 28px chip the Mac panel's row heights were built around. jsdom
+    // has no layout, so this pins the class contract; the walk proves the
+    // geometry.
+    const { trigger } = setup();
+    expect(trigger.classList.contains("min-h-11")).toBe(true);
+    expect(trigger.classList.contains("min-w-11")).toBe(true);
+    expect(trigger.classList.contains("sm:min-h-7")).toBe(true);
+    expect(trigger.classList.contains("sm:min-w-0")).toBe(true);
+    // The chip is the same layer's trigger: label, popup role and open state
+    // must not move with the size.
+    expect(trigger.textContent).toBe("Dispatch");
+    expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
+    await userEvent.click(trigger);
+    expect(await screen.findByRole("dialog", { name: "Dispatch settings" })).toBeTruthy();
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  });
+});
+
 describe("the dispatch panel", () => {
   it("is portaled out of the composer strip and measured from the viewport", async () => {
     const { trigger } = setup();
