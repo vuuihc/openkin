@@ -82,6 +82,28 @@ describe("a tool step row", () => {
     expect(onToggle).not.toHaveBeenCalled();
   });
 
+  it("shows a finished call's duration", () => {
+    const view = render(
+      <ToolStepRow tool={step({ durationMs: 12_000 })} index={1} open={false} onToggle={vi.fn()} />,
+    );
+
+    expect(view.container.querySelector("[data-tool-duration]")?.textContent).toBe("12s");
+  });
+
+  it("omits the duration while the call is running", () => {
+    // A number that does not tick would be a lie, even if a stale one arrived.
+    const view = render(
+      <ToolStepRow
+        tool={step({ status: "running", durationMs: 12_000 })}
+        index={1}
+        open={false}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(view.container.querySelector("[data-tool-duration]")).toBeNull();
+  });
+
   it("the detail block's open-file control passes the same path", () => {
     const onOpenPath = vi.fn();
     render(<ToolStepRow tool={step()} index={1} open onToggle={vi.fn()} onOpenPath={onOpenPath} />);

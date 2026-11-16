@@ -3192,3 +3192,57 @@ describe("nameless tool updates", () => {
     ]);
   });
 });
+
+describe("process timing", () => {
+  const at = (seq: number, ts: number, type: string, payload: TaskEvent["payload"]): TaskEvent => ({
+    task_id: "task-1",
+    event_epoch: 0,
+    seq,
+    ts,
+    type,
+    payload,
+  });
+
+  const toolsOf = (events: TaskEvent[]) =>
+    buildChatItems(events, "kin")
+      .filter((item): item is ProgressItem => item.kind === "progress")
+      .flatMap((item) => item.steps.filter((step): step is ToolStep => step.kind === "tool"));
+
+  const call = (seq: number, ts: number) =>
+    at(seq, ts, "tool_use", { speaker: "kin", tool_use_id: "call-1", name: "bash" });
+  const result = (seq: number, ts: number) =>
+    at(seq, ts, "tool_result", {
+      speaker: "kin",
+      tool_use_id: "call-1",
+      name: "bash",
+      output: "ok",
+      ok: true,
+    });
+
+  it("carries a tool call's elapsed time from use to result", () => {
+    const [tool] = toolsOf([call(1, 1_000_000), result(2, 1_002_500)]);
+
+    expect(tool.durationMs).toBe(2500);
+  });
+
+  it("leaves a running tool without a duration", () => {
+    const [tool] = toolsOf([call(1, 1_000_000)]);
+
+    expect(tool.status).toBe("running");
+    expect(tool.durationMs).toBeUndefined();
+  });
+
+  it("measures a progress run from its first to its last stamped event", () => {
+    const items = buildChatItems([call(1, 1_000), result(2, 4_000)], "kin");
+    const progress = items.find((item): item is ProgressItem => item.kind === "progress");
+
+    expect(progress?.durationMs).toBe(3000);
+  });
+
+  it("leaves an unstamped run without a duration", () => {
+    const items = buildChatItems([call(1, 0), result(2, 0)], "kin");
+    const progress = items.find((item): item is ProgressItem => item.kind === "progress");
+
+    expect(progress?.durationMs).toBeUndefined();
+  });
+});

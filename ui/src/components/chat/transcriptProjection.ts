@@ -24,6 +24,12 @@ export type ToolStep = {
   name: string;
   summary: string;
   status: "running" | "done" | "error";
+  /**
+   * How long the call itself took: its result event's timestamp minus its use
+   * event's. Absent while it runs, when either event carried no timestamp, or
+   * when the two disagree about which came first.
+   */
+  durationMs?: number;
   input?: unknown;
   output?: string;
   /**
@@ -114,6 +120,12 @@ export type ProgressItem = {
   model?: string;
   steps: ProgressStep[];
   /**
+   * Wall time from the run's first stamped event to its last. Absent when
+   * fewer than two stamped events contributed, which is why a settled card
+   * draws no chip rather than "0s".
+   */
+  durationMs?: number;
+  /**
    * A note of the run still in progress, drawn as body prose. Only a live
    * split sets it; every earlier run belongs to a finished round and folds
    * back into its card even while a later round runs.
@@ -126,6 +138,59 @@ export type ProgressItem = {
    */
   live?: true;
 };
+
+/**
+ * The events that stamped a progress item, kept off the public shape: the card
+ * reads `durationMs`, but a settled run is assembled from several groups, and
+ * merging their durations needs the bounds and which events contributed them.
+ */
+const PROGRESS_SPAN = Symbol("kin.progressSpan");
+type ProgressSpan = { first: number; last: number; seqs: Set<number> };
+type ProgressItemWithSpan = ProgressItem & { [PROGRESS_SPAN]?: ProgressSpan };
+
+/** Epoch milliseconds, with 0 and non-finite values read as "not stamped". */
+function isStampedTs(ts: unknown): ts is number {
+  return typeof ts === "number" && Number.isFinite(ts) && ts > 0;
+}
+
+function elapsedBetween(from: unknown, to: unknown): number | undefined {
+  if (!isStampedTs(from) || !isStampedTs(to)) return undefined;
+  const ms = to - from;
+  return Number.isFinite(ms) && ms >= 0 ? ms : undefined;
+}
+
+function progressSpan(item: ProgressItem): ProgressSpan | undefined {
+  return (item as ProgressItemWithSpan)[PROGRESS_SPAN];
+}
+
+/** Fold one event's timestamp into an item's run. A seq counts once. */
+function stampProgress(
+  item: ProgressItem | null | undefined,
+  ts: unknown,
+  seq: number,
+): void {
+  if (!item || !isStampedTs(ts)) return;
+  const holder = item as ProgressItemWithSpan;
+  const span = holder[PROGRESS_SPAN] ?? { first: ts, last: ts, seqs: new Set<number>() };
+  span.first = Math.min(span.first, ts);
+  span.last = Math.max(span.last, ts);
+  span.seqs.add(seq);
+  holder[PROGRESS_SPAN] = span;
+  item.durationMs = span.seqs.size >= 2 ? span.last - span.first : undefined;
+}
+
+/** Combine the spans of the groups a settled card is made from. */
+function mergeProgressSpans(
+  into: ProgressSpan | undefined,
+  from: ProgressSpan | undefined,
+): ProgressSpan | undefined {
+  if (!from) return into;
+  if (!into) return { first: from.first, last: from.last, seqs: new Set(from.seqs) };
+  into.first = Math.min(into.first, from.first);
+  into.last = Math.max(into.last, from.last);
+  for (const seq of from.seqs) into.seqs.add(seq);
+  return into;
+}
 
 export type ChatItem =
   | {
@@ -288,9 +353,18 @@ export function buildChatItems(
 
   // Merge tool_use -> tool_result by tool_use_id so UI shows one step.
   const toolById = new Map<string, ToolStep>();
+  // When each call opened, so its result can say how long it took.
+  const toolStartedAt = new Map<string, number>();
+  // The progress group a tool landed in, so a later result stamps that group's
+  // run even after another group opened.
+  const toolProgress = new WeakMap<ToolStep, ProgressItem>();
   // Active open progress group (tools + intermediate notes between user-facing msgs).
   // Box avoids TS CFA treating nested-function writes as unreachable.
   const progressRef: { current: ProgressItem | null } = { current: null };
+  // The event being folded in, read by the step helpers below to stamp the
+  // group's run without threading two more arguments through every caller.
+  let currentTs = 0;
+  let currentSeq = 0;
   // Streaming note step key inside the progress box.
   let streamNoteKey: string | null = null;
 
@@ -405,6 +479,7 @@ export function buildChatItems(
       existing.model = model;
       existing.text = text;
       existing.status = "running";
+      stampProgress(progressRef.current, currentTs, currentSeq);
       return;
     }
     const note: NoteStep = {
@@ -419,6 +494,7 @@ export function buildChatItems(
     };
     ensureProgress(hostSpeaker).steps.push(note);
     planNotes.set(speaker, note);
+    stampProgress(progressRef.current, currentTs, currentSeq);
   };
 
   const pushNote = (
@@ -447,6 +523,7 @@ export function buildChatItems(
       ) {
         last.text = text;
         last.status = status;
+        stampProgress(prog, currentTs, currentSeq);
         return;
       }
       if (
@@ -459,6 +536,7 @@ export function buildChatItems(
       ) {
         last.text = text;
         last.key = key;
+        stampProgress(prog, currentTs, currentSeq);
         return;
       }
     }
@@ -472,6 +550,7 @@ export function buildChatItems(
       source,
       seq,
     });
+    stampProgress(prog, currentTs, currentSeq);
   };
 
   const replaceProgressNote = (
@@ -490,6 +569,7 @@ export function buildChatItems(
       note.model = model;
       note.text = text;
       note.status = "done";
+      stampProgress(item, currentTs, currentSeq);
       return true;
     }
     return false;
@@ -509,6 +589,7 @@ export function buildChatItems(
       const { seq, ...rest } = fields;
       Object.assign(existing, rest);
       if (existing.seq === undefined) existing.seq = seq;
+      stampProgress(toolProgress.get(existing), currentTs, currentSeq);
       return;
     }
     const name = fields.name ?? "tool";
@@ -520,6 +601,7 @@ export function buildChatItems(
       name,
       summary: fields.summary ?? name,
       status: fields.status ?? "running",
+      durationMs: fields.durationMs,
       input: fields.input,
       output: fields.output,
       sidechain: fields.sidechain,
@@ -538,9 +620,16 @@ export function buildChatItems(
     const parent = parentId ? toolById.get(parentId) : undefined;
     if (parent && parent !== item) {
       (parent.children ??= []).push(item);
+      // A subagent's call belongs to the group that holds the call it spawned.
+      const owner = toolProgress.get(parent) ?? ensureProgress(hostSpeaker);
+      toolProgress.set(item, owner);
+      stampProgress(owner, currentTs, currentSeq);
       return;
     }
-    ensureProgress(hostSpeaker).steps.push(item);
+    const prog = ensureProgress(hostSpeaker);
+    prog.steps.push(item);
+    toolProgress.set(item, prog);
+    stampProgress(prog, currentTs, currentSeq);
   };
 
   // One status for everything still open, at every depth: a turn that ends
@@ -568,6 +657,8 @@ export function buildChatItems(
   };
 
   for (const ev of events) {
+    currentTs = ev.ts;
+    currentSeq = ev.seq;
     const p = (ev.payload ?? {}) as Record<string, unknown>;
     const speaker = resolveSpeaker(p, hostSpeaker);
     const reportedModel = normalizeModel(p.model);
@@ -619,7 +710,10 @@ export function buildChatItems(
           const legacy = parseLegacyToolDump(text, sp, model, `legacy-${ev.seq}`);
           if (legacy) {
             legacy.seq = ev.seq;
-            ensureProgress(hostSpeaker).steps.push(legacy);
+            const prog = ensureProgress(hostSpeaker);
+            prog.steps.push(legacy);
+            toolProgress.set(legacy, prog);
+            stampProgress(prog, currentTs, currentSeq);
             toolById.set(legacy.key, legacy);
           }
           break;
@@ -780,6 +874,9 @@ export function buildChatItems(
         // which is the whole reason the adapter leaves the field out.
         const nameHint = typeof hinted === "string" && hinted.trim() ? hinted : undefined;
         const id = String(p.tool_use_id ?? p.id ?? `seq-${ev.seq}`);
+        // The first sighting of a call is when it started; a later status-only
+        // update must not move the start it was given.
+        if (isStampedTs(ev.ts) && !toolStartedAt.has(id)) toolStartedAt.set(id, ev.ts);
         const parentId = parentToolUseIdOf(p);
         const explicitSummary = typeof p.summary === "string" && p.summary ? p.summary : undefined;
         const patch: Partial<ToolStep> & { speaker: string; parentId?: string } = {
@@ -814,6 +911,7 @@ export function buildChatItems(
         flushStream();
         streamNoteKey = null;
         const id = String(p.tool_use_id ?? p.id ?? `seq-${ev.seq}`);
+        const durationMs = elapsedBetween(toolStartedAt.get(id), ev.ts);
         // The result need not repeat the mark the call carried, and a result
         // that repeats nothing must not erase it: only add what is here.
         const parentId = parentToolUseIdOf(p);
@@ -829,6 +927,7 @@ export function buildChatItems(
           model,
           summary,
           status: ok ? "done" : "error",
+          ...(durationMs !== undefined ? { durationMs } : {}),
           ...(p.input !== undefined ? { input: p.input } : {}),
           output: typeof p.output === "string" ? p.output : undefined,
           seq: ev.seq,
@@ -1175,20 +1274,27 @@ function collapseProcessRun(run: ProcessRunItem[], finalMessageIdx: number): Cha
       return;
     }
     const steps: ProgressStep[] = [];
+    let span: ProgressSpan | undefined;
     for (const item of segment) {
       if (item.kind === "progress") {
         steps.push(...item.steps);
+        span = mergeProgressSpans(span, progressSpan(item));
       } else {
         steps.push(noteStepOfMessage(item));
       }
     }
-    merged.push({
+    const mergedItem: ProgressItem = {
       kind: "progress",
       key: anchor.key,
       speaker: anchor.speaker,
       model: anchor.model,
       steps,
-    });
+    };
+    if (span) {
+      (mergedItem as ProgressItemWithSpan)[PROGRESS_SPAN] = span;
+      mergedItem.durationMs = span.seqs.size >= 2 ? span.last - span.first : undefined;
+    }
+    merged.push(mergedItem);
     segment = [];
   };
 
