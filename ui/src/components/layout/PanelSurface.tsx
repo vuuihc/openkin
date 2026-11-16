@@ -1,7 +1,18 @@
 import type { ReactNode } from "react";
 
 /**
- * The one full-bleed session surface.
+ * How a panel takes its space. See the component below.
+ *
+ * - `overlay` — full-bleed over the conversation area, for widths where a
+ *   column would push the conversation under its floor (below `lg`).
+ * - `column` — the review column beside the conversation from `lg` up, and the
+ *   overlay below it, because 768px minus the rail, the list and 380px leaves
+ *   a conversation narrower than it can read.
+ */
+export type PanelShape = "overlay" | "column";
+
+/**
+ * The one session surface.
  *
  * Every panel used to carry its own copy of this markup — the same
  * `absolute inset-0 z-40`, the same background, the same `safe-pad` — which is
@@ -16,11 +27,19 @@ export default function PanelSurface({
   label,
   className,
   hidden = false,
+  shape = "overlay",
   children,
 }: {
   /** Accessible name — the panel's own title, already translated. */
   label: string;
   className?: string;
+  /**
+   * The width the panel takes, not the panel's own business: a panel that
+   * painted itself beside the conversation would be the second skin this
+   * container exists to prevent. Defaults to the overlay, so a panel says
+   * nothing until it asks.
+   */
+  shape?: PanelShape;
   /**
    * Mounted, but not shown.
    *
@@ -36,6 +55,14 @@ export default function PanelSurface({
     <div
       className={[
         "absolute inset-0 z-40 bg-[var(--kin-inspector)] safe-pad kin-zen-hide",
+        // `lg:` overrides, not a second base skin: below the breakpoint the
+        // panel stays the full-bleed overlay it has always been. `relative` in
+        // a flex row is what puts it beside the conversation instead of over
+        // it; `inset-auto` and `z-auto` undo the overlay's anchoring and its
+        // z-index so it is an ordinary in-flow column.
+        shape === "column"
+          ? "lg:relative lg:inset-auto lg:z-auto lg:flex-none lg:w-[380px] lg:border-l lg:border-[var(--kin-hairline)]"
+          : "",
         hidden ? "hidden" : "",
         className ?? "",
       ]
