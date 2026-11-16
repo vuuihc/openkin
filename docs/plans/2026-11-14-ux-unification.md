@@ -47,12 +47,12 @@
 - **高 · 思考与过程叙述仍被收进卡片**（gap-log 2026-11-14）。验证：`ui/src/components/chat/ChatStream.tsx:187` 仍调用 `mergeProcessRuns`，折叠逻辑在 `ui/src/components/chat/transcriptProjection.ts:1013`。后果：agent 工作时用户看到的是一张「执行中 · N 个工具」摘要卡，读不到正在进行的思考与过程。修复在 PR #60（`rsi/live-process-notes`），尚未合并。
 - **中 · 长按对话行不能拖动排序**（gap-log 2026-11-15）。验证：`ui/src/lib/phoneSessionBuckets.ts:379-382` 仍按 `b.at - a.at` 排序，没有手动顺序存储；`ui/src/components/mobile/SwipeReveal.tsx:22` 的 500ms 长按仍归多选。后果：列表顺序只能跟最近活动走。
 - **中 · 手机新建页仍有 <44px 触控目标**（walk 实测，不在 gap-log）。验证：`walk.json` 的 J3/phone 每屏 `smallTapTargets` 最多 3、12 屏汇总 18；`rsi/state/followups.md` 已记 `分发` 42×28 与 `保存为例行任务` 26×26。后果：违反 TASTE 11 的 44px 承诺。
-- **高 · `main.kin-main` 双 route slot**（`rsi/state/followups.md` 观察项）。验证：`ui/src/App.tsx:188` 的 `<TaskSessionHost />` 与 `:192` 的 `<AreaRoute>` 都是 `.kin-main` 的直接子级，且各自 `flex-1`（`ui/src/pages/TaskSessionHost.tsx:221`、`ui/src/components/layout/AreaRoute.tsx:39`）；在 `/tasks/:id` 上 `AreaRoute` 是空路由仍占一半高度。后果：对话内容只拿到一半视口（1100×760 与 390×844 都受影响）。该缺陷在 C3b 截图时观察到，且在 C3b 之前就存在。
 - **硬失败 · J7 walk `404 /api/tasks/demo-task`**。验证：`rsi/state/ux/final-acceptance/seed.log` 明确 `skip conversation-created`（没有 agent-free 的建会话路由），J7 因此拿到 404 与空白 landing。后果：通知落点 / 卡片高亮未在本次验收中证明；这是 harness 缺口，不是页面回归。
 - 已修（#61 `cf7ba2bd`）新建对话发送后整页骨架屏 —— gap-log 待随之移入「已修」。验证：`ui/src/pages/TaskDetailPage.tsx:1556-1575` 冷启动改为品牌等待块，`ui/src/pages/TaskSessionHost.tsx:104-125` 以种子行 / handoff 判定就绪；#61 的提交信息与测试正是这条。
 - 已修（#62 `695d053e`）iPad 多选无法退出 —— gap-log 待移。验证：`ui/src/components/sessions/SessionToolbar.tsx:132` 工具栏 `flex-wrap` + `min-h-12`、`:182` 显式退出；`ui/src/components/sessions/SessionList.tsx:997-1007` 的 Escape 走同一路径。
 - 已修（#63 `1c572b20`）手机边缘返回不跟手 —— gap-log 待移。验证：`ui/src/hooks/useEdgeSwipeBack.ts:70-71` 暴露 `dragging` 与位移，`ui/src/components/layout/AppShell.tsx:704-707` 渲染 `--page-swipe-x` / `data-kin-swiping`；行左划部分此前 #50 已修。
 - 已修（#52）例行任务 655361 bytes —— `## 已修` 已有记录；`## Open` 里同标题是重复旧条目，应删除。
+- 已修（#164 `91929db1`）`main.kin-main` 双 route slot（`rsi/state/followups.md` 观察项）—— `ui/src/App.tsx:185` 的 `<TaskSessionHost />` 与 `:188` 的 `<AreaRoute>` 仍是 `.kin-main` 的直接子级、各自 `flex-1`（`ui/src/pages/TaskSessionHost.tsx:221`、`ui/src/components/layout/AreaRoute.tsx:39`），但在 `/tasks/:id` 上空路由不再占位：`AreaRoute.tsx:39` 的 `empty:hidden` 与 `ui/src/index.css:544` 的 `.kin-route:empty { display: none; }` 会把 wrapper 折叠。该缺陷在 C3b 截图时观察到，且在 C3b 之前就存在。
 
 ### 3. 未验证项
 
