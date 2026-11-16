@@ -88,7 +88,9 @@ function trigger() {
 
 async function open(user: ReturnType<typeof userEvent.setup>) {
   await user.click(trigger());
-  return screen.getByRole("dialog", { name: "Device & project" });
+  // The shared layer portals a render after `open`, once its anchor is
+  // measured, so the panel is found rather than read synchronously.
+  return screen.findByRole("dialog", { name: "Device & project" });
 }
 
 beforeEach(() => {
@@ -263,5 +265,65 @@ describe("the place row (KIN-START-001)", () => {
     const panel = await open(user);
     fireEvent.keyDown(panel, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "Device & project" })).toBeNull();
+  });
+
+  it("at 1100 the place panel is the shared layer, portaled out of the new-chat card", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    const panel = await open(user);
+
+    // One body portal, measured from the viewport — the same layer every other
+    // popover in the console uses, not a panel positioned inside this card.
+    expect(panel.parentElement).toBe(document.body);
+    expect(panel.className).toContain("fixed");
+    expect(panel.className).toContain("rounded-xl");
+  });
+
+  it("at 390 the phone sheet is still the surface", async () => {
+    setWideScreen(false);
+    const user = userEvent.setup();
+    render(<Harness />);
+    const panel = await open(user);
+
+    expect(document.querySelector("[data-kin-sheet]")).toBeTruthy();
+    // The dialog is the sheet's own panel, not a popover portaled to <body>.
+    expect(panel.parentElement?.hasAttribute("data-kin-sheet")).toBe(true);
+    expect(panel.parentElement).not.toBe(document.body);
+  });
+
+  it("moves with the arrows, picks with Enter, and returns focus on Escape", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Harness onChange={onChange} />);
+    let panel = await open(user);
+    const search = () =>
+      within(panel).getByRole("searchbox", { name: "Search machines or projects…" });
+    await waitFor(() => expect(document.activeElement).toBe(search()));
+
+    await user.keyboard("{ArrowDown}{ArrowDown}");
+    const options = within(panel).getAllByRole("option");
+    expect(document.activeElement).toBe(options[1]);
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Device & project" })).toBeNull();
+    expect(document.activeElement).toBe(trigger());
+
+    panel = await open(user);
+    await waitFor(() => expect(document.activeElement).toBe(search()));
+    await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+    expect(onChange).toHaveBeenCalledWith({ machineId: "", cwd: "/work/beta" });
+  });
+
+  it("does not make the panel a child of the trigger's own row", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    const row = trigger().parentElement as HTMLElement;
+    const panel = await open(user);
+
+    // TASTE 14, machine-checkable proxy: the panel is a layer over the page,
+    // so opening it cannot push the row it hangs from (jsdom has no heights;
+    // the 1100 screenshot is the visual proof).
+    expect(row.contains(panel)).toBe(false);
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
   });
 });

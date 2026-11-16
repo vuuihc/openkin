@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { createPortal } from "react-dom";
 import { useT } from "../../i18n/react";
 import { cwdSuggestions, findMachine, type Machine } from "../../lib/devices";
 import { projectLabel } from "../../lib/paths";
-import { useAnchoredPanel } from "../../hooks/useAnchoredPanel";
 import { useMinWidth } from "../../hooks/useMinWidth";
 import Sheet, { SheetSecondaryButton } from "../mobile/Sheet";
 import { IconCheck, IconChevronDown, IconFolder } from "../icons";
+import Popover from "../ui/Popover";
 
 export type Place = {
   /** "" names this machine, the same spelling the draft and the machine API use. */
@@ -60,14 +59,6 @@ export default function PlacePicker({
   const wide = useMinWidth(768);
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const anchor = useAnchoredPanel(open && wide, triggerRef, {
-    placement: "below",
-    align: "left",
-    width: 480,
-    maxWidth: 520,
-    maxHeight: 460,
-  });
 
   // The empty id names this machine — `findMachine` maps only real ids — so the
   // row can say "This machine" instead of leaving the name blank.
@@ -102,37 +93,6 @@ export default function PlacePicker({
     onChange(place);
     close();
   }
-
-  // The desktop panel is a layer over the page: Escape, an outside press or
-  // tabbing out closes it, and only while it is the layer the reader is in.
-  useEffect(() => {
-    if (!open || !wide) return;
-    const inside = (node: Node | null) =>
-      Boolean(node && (triggerRef.current?.contains(node) || panelRef.current?.contains(node)));
-    const onPointerDown = (event: MouseEvent) => {
-      if (inside(event.target as Node)) return;
-      setOpen(false);
-    };
-    const onFocus = (event: FocusEvent) => {
-      if (inside(event.target as Node)) return;
-      setOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (!inside(event.target as Node) && !inside(document.activeElement)) return;
-      event.preventDefault();
-      setOpen(false);
-      triggerRef.current?.focus({ preventScroll: true });
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("focus", onFocus, true);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("focus", onFocus, true);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open, wide]);
 
   const panel = (
     <PlacePanel
@@ -182,26 +142,29 @@ export default function PlacePicker({
         </p>
       ) : null}
 
-      {open && wide && anchor
-        ? createPortal(
-            <div
-              ref={panelRef}
-              role="dialog"
-              aria-label={tr("newChat.placeTitle")}
-              style={{
-                left: anchor.left,
-                width: anchor.width,
-                top: anchor.top,
-                bottom: anchor.bottom,
-                maxHeight: anchor.maxHeight,
-              }}
-              className="fixed z-50 flex flex-col overflow-hidden rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated shadow-e3"
-            >
-              {panel}
-            </div>,
-            document.body,
-          )
-        : null}
+      {/*
+        The desktop surface is the shared layer: one body portal, one viewport
+        measurement, one Escape and one focus contract with every other
+        popover. The panel draws no inner padding of its own, so `p-0` keeps
+        today's geometry. The phone keeps its `Sheet` below.
+      */}
+      <Popover
+        open={open && wide}
+        // `Popover` only asks to close. Focus follows an outside press on its
+        // own, and the layer restores it to the trigger on Escape, so this must
+        // not pull it back to the trigger as well.
+        onOpenChange={() => close(false)}
+        triggerRef={triggerRef}
+        label={tr("newChat.placeTitle")}
+        placement="below"
+        align="left"
+        width={480}
+        maxWidth={520}
+        maxHeight={460}
+        className="flex flex-col overflow-hidden p-0"
+      >
+        {panel}
+      </Popover>
 
       {!wide ? (
         <Sheet
