@@ -50,9 +50,7 @@ export default function TerminalProfileMenu({
       align="right"
       items={profiles.map((profile) => ({
         id: profile.id,
-        label: profile.default
-          ? `${profile.name} ${tr("terminal.defaultProfile")}`
-          : profile.name,
+        label: profile.default ? `${profile.name} ${tr("terminal.defaultProfile")}` : profile.name,
         onSelect: () => onSelectProfile(profile.id),
       }))}
     />
