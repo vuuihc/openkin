@@ -90,7 +90,9 @@ export default function Menu({
   // reorder rows while the menu is open, and a remembered id that no longer
   // resolves falls back to the first row that can take focus.
   const active =
-    activeId && enabled.some((item) => item.id === activeId) ? activeId : (enabled[0]?.id ?? null);
+    activeId !== null && enabled.some((item) => item.id === activeId)
+      ? activeId
+      : (enabled[0]?.id ?? null);
 
   useEffect(() => {
     if (open) return;
@@ -118,7 +120,7 @@ export default function Menu({
   };
 
   const focusItem = (id: string | null | undefined) => {
-    if (!id) return;
+    if (id == null) return;
     setActiveId(id);
     rowRefs.current.get(id)?.focus({ preventScroll: true });
   };
