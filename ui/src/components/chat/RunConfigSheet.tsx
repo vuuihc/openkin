@@ -27,6 +27,8 @@ import {
 } from "../../lib/permissionMode";
 import { IconCheck, IconSearch, IconX } from "../icons";
 import Sheet, { useSheetLayer } from "../mobile/Sheet";
+import Button from "../ui/Button";
+import Menu from "../ui/Menu";
 import Popover from "../ui/Popover";
 
 /**
@@ -151,16 +153,22 @@ export default function RunConfigControl({
 
   return (
     <>
-      <button
+      <Button
         ref={triggerRef}
-        type="button"
+        variant="quiet"
         onClick={() => setOpen((value) => !value)}
         disabled={disabled}
         aria-label={`${tr("runConfig.open")}${tr("common.labelSeparator")}${agentName} · ${modelLabel} · ${permissionLabel}`}
         aria-haspopup="dialog"
         aria-expanded={open}
+        // The shared button is a one-line box by construction, and this face
+        // stays one line at every width: it rides the composer's control row,
+        // whose height and the send control's place must not move with a model
+        // id. Astryx wraps the children in its own label span, which sizes to
+        // content; the last selector makes that span fill the face so the
+        // model ellipsizes instead of pushing the row wider than the composer.
         className={[
-          "flex min-h-11 min-w-0 max-w-full items-center gap-1.5 overflow-hidden rounded-lg px-1.5 py-1 text-left transition-colors active:bg-[var(--kin-fill)] disabled:opacity-50 sm:min-h-7",
+          "flex h-auto min-h-11 min-w-0 max-w-full items-center justify-start gap-1.5 overflow-hidden rounded-lg px-1.5 py-1 text-left font-normal transition-colors active:bg-[var(--kin-fill)] disabled:opacity-50 sm:min-h-7 [&>span>span]:w-full",
           className,
         ].join(" ")}
       >
@@ -198,7 +206,7 @@ export default function RunConfigControl({
             {permissionLabel}
           </span>
         </span>
-      </button>
+      </Button>
       {wide ? <RunConfigPanel triggerRef={triggerRef} {...body} /> : <RunConfigSheet {...body} />}
     </>
   );
@@ -279,17 +287,20 @@ function RunConfigPanel({
           the box. */}
       <div className="sticky top-0 z-10 -mx-1.5 -mt-1.5 flex items-center justify-between border-b border-[var(--kin-hairline)] bg-kin-elevated px-3 py-1.5">
         <h2 className="text-caption font-semibold text-kin-secondary">{tr("runConfig.title")}</h2>
-        <button
-          type="button"
+        <Button
+          variant="quiet"
           onClick={() => {
             onClose();
             triggerRef.current?.focus({ preventScroll: true });
           }}
           aria-label={tr("common.close")}
-          className="flex h-7 w-7 items-center justify-center rounded-lg text-kin-muted hover:bg-[var(--kin-fill-strong)] hover:text-kin-text"
+          className="h-7 w-7 flex-none p-0"
         >
-          <IconX size={14} />
-        </button>
+          {/* The muted ink sits on the glyph: the quiet weight's own text
+              colour is a utility emitted after this call site's, so it would
+              win over a `text-kin-muted` on the button. */}
+          <IconX size={14} className="text-kin-muted" />
+        </Button>
       </div>
       <div className="-mx-1.5 -mb-1.5 px-3 pb-3 pt-2">
         <RunConfigBody {...body} />
@@ -411,7 +422,7 @@ function RunConfigBody({
               label={tr("runConfig.agent")}
               value={agentName}
               expanded={openRow === "agent"}
-              controls={`${listId}-agent`}
+              hasPopup="menu"
               disabled={disabled}
               onClick={() => toggleRow("agent")}
             >
@@ -424,50 +435,35 @@ function RunConfigBody({
             </PickerTrigger>
           }
         >
-          {openRow === "agent" ? (
-            <Expansion
-              id={`${listId}-agent`}
-              label={tr("runConfig.agent")}
-              triggerRef={rowRefs.current.agent}
-              onDismiss={() => setOpenRow(null)}
-            >
-              <div
-                role="listbox"
-                aria-label={tr("runConfig.agent")}
-                onKeyDown={moveListFocus}
-                className="max-h-[40dvh] overflow-y-auto py-1 kin-scroll"
-              >
-                {agentPicker.map((agent) => {
-                  const selected = agent.id === agentId;
-                  const meta = agentAvatarMeta(agent.id);
-                  return (
-                    <button
-                      key={agent.id}
-                      type="button"
-                      role="option"
-                      aria-selected={selected}
-                      onClick={() => pickAgent(agent.id)}
-                      className={[
-                        "flex min-h-11 w-full items-center gap-2 px-3 py-1.5 text-left text-strong transition-colors",
-                        selected ? "font-medium text-kin-text" : "text-kin-secondary",
-                        "hover:bg-[var(--kin-fill)] focus:bg-[var(--kin-fill)] focus:outline-none",
-                      ].join(" ")}
-                    >
-                      <span
-                        className={`flex h-5 w-5 flex-none items-center justify-center rounded-md text-micro font-semibold ${meta.className}`}
-                      >
-                        {meta.initials}
-                      </span>
-                      <span className="min-w-0 flex-1 break-words">{agent.name}</span>
-                      {selected ? (
-                        <IconCheck size={16} className="flex-none text-kin-blue-ink" />
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
-            </Expansion>
-          ) : null}
+          <Menu
+            open={openRow === "agent"}
+            onOpenChange={(next) => {
+              if (!next) setOpenRow(null);
+            }}
+            triggerRef={rowRefs.current.agent}
+            label={tr("runConfig.agent")}
+            items={agentPicker.map((agent) => {
+              const meta = agentAvatarMeta(agent.id);
+              return {
+                id: agent.id,
+                label: agent.name,
+                icon: (
+                  <span
+                    className={`flex h-5 w-5 items-center justify-center rounded-md text-micro font-semibold ${meta.className}`}
+                  >
+                    {meta.initials}
+                  </span>
+                ),
+                checked: agent.id === agentId,
+                onSelect: () => pickAgent(agent.id),
+              };
+            })}
+            // A session that already has a host opens on it, so the next
+            // arrow key moves from the current agent instead of the top.
+            initialFocusId={agentId}
+            placement="above"
+            width={240}
+          />
         </RunConfigSheetRow>
       ) : (
         <RunConfigSheetRow
@@ -547,30 +543,41 @@ function RunConfigBody({
                 filtered.map((option) => {
                   const selected = option.id === selection;
                   return (
-                    <button
+                    <Button
                       key={option.id || "default"}
-                      type="button"
+                      variant="quiet"
                       role="option"
                       aria-selected={selected}
                       onClick={() => pickModel(option.id)}
+                      // The list's rows sit edge-to-edge rather than floating
+                      // as separate buttons, so they take the smallest step on
+                      // the radius ladder (`none` is not one of its words); the
+                      // ink and the weight stay on the inner span so the quiet
+                      // weight's own text utilities cannot win the cascade.
                       className={[
-                        "flex min-h-11 w-full items-center gap-2 px-3 py-1.5 text-left text-strong transition-colors",
-                        selected ? "font-medium text-kin-text" : "text-kin-secondary",
-                        "hover:bg-[var(--kin-fill)] focus:bg-[var(--kin-fill)] focus:outline-none",
+                        "flex h-auto min-h-11 w-full items-center justify-start gap-2 rounded-sm px-3 py-1.5 text-left text-strong font-normal whitespace-normal [&>span>span]:w-full",
+                        "hover:bg-[var(--kin-fill)] focus:bg-[var(--kin-fill)]",
                       ].join(" ")}
                     >
-                      <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="break-words">{option.label}</span>
-                        {option.detail ? (
-                          <span className="break-words text-caption text-kin-muted">
-                            {option.detail}
-                          </span>
+                      <span className="flex w-full min-w-0 items-center gap-2">
+                        <span
+                          className={[
+                            "flex min-w-0 flex-1 flex-col",
+                            selected ? "font-medium text-kin-text" : "text-kin-secondary",
+                          ].join(" ")}
+                        >
+                          <span className="break-words">{option.label}</span>
+                          {option.detail ? (
+                            <span className="break-words text-caption text-kin-muted">
+                              {option.detail}
+                            </span>
+                          ) : null}
+                        </span>
+                        {selected ? (
+                          <IconCheck size={16} className="flex-none text-kin-blue-ink" />
                         ) : null}
                       </span>
-                      {selected ? (
-                        <IconCheck size={16} className="flex-none text-kin-blue-ink" />
-                      ) : null}
-                    </button>
+                    </Button>
                   );
                 })
               )}
@@ -606,7 +613,7 @@ function RunConfigBody({
               label={tr("permission.label")}
               value={tr(PERMISSION_MODE_LABEL_KEY[mode])}
               expanded={openRow === "permission"}
-              controls={`${listId}-permission`}
+              hasPopup="menu"
               disabled={disabled}
               onClick={() => toggleRow("permission")}
               tone={mode === "yolo" ? "warning" : undefined}
@@ -615,49 +622,27 @@ function RunConfigBody({
             </PickerTrigger>
           }
         >
-          {openRow === "permission" ? (
-            <Expansion
-              id={`${listId}-permission`}
-              label={tr("permission.label")}
-              triggerRef={rowRefs.current.permission}
-              onDismiss={() => setOpenRow(null)}
-            >
-              <div
-                role="listbox"
-                aria-label={tr("permission.label")}
-                onKeyDown={moveListFocus}
-                className="py-1"
-              >
-                {permissionModes.map((option) => {
-                  const selected = option === mode;
-                  return (
-                    <button
-                      key={option}
-                      type="button"
-                      role="option"
-                      aria-selected={selected}
-                      onClick={() => pickPermission(option)}
-                      className={[
-                        "flex min-h-11 w-full items-start gap-2 px-3 py-2 text-left text-strong transition-colors",
-                        selected ? "font-medium text-kin-text" : "text-kin-secondary",
-                        "hover:bg-[var(--kin-fill)] focus:bg-[var(--kin-fill)] focus:outline-none",
-                      ].join(" ")}
-                    >
-                      <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="break-words">{tr(PERMISSION_MODE_LABEL_KEY[option])}</span>
-                        <span className="text-caption text-kin-muted">
-                          {tr(PERMISSION_HINT_KEY[option])}
-                        </span>
-                      </span>
-                      {selected ? (
-                        <IconCheck size={16} className="mt-0.5 flex-none text-kin-blue-ink" />
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
-            </Expansion>
-          ) : null}
+          <Menu
+            open={openRow === "permission"}
+            onOpenChange={(next) => {
+              if (!next) setOpenRow(null);
+            }}
+            triggerRef={rowRefs.current.permission}
+            label={tr("permission.label")}
+            // The consequence stays inside the row, so it is read as part of
+            // the mode's name rather than hidden in a tooltip — the same
+            // contract as the composer's permission chip.
+            items={permissionModes.map((option) => ({
+              id: option,
+              label: tr(PERMISSION_MODE_LABEL_KEY[option]),
+              description: tr(PERMISSION_HINT_KEY[option]),
+              checked: option === mode,
+              onSelect: () => pickPermission(option),
+            }))}
+            initialFocusId={mode}
+            placement="above"
+            width={288}
+          />
         </RunConfigSheetRow>
       ) : null}
 
@@ -669,7 +654,7 @@ function RunConfigBody({
   );
 }
 
-/** Arrow keys walk the option buttons; Tab already reaches them. */
+/** Arrow keys walk the model option buttons; Tab already reaches them. */
 function moveListFocus(event: ReactKeyboardEvent<HTMLDivElement>) {
   // An IME candidate list owns the arrow keys until the composition ends;
   // moving focus mid-composition would abort the word being typed. Same guard
@@ -698,8 +683,7 @@ function moveListFocus(event: ReactKeyboardEvent<HTMLDivElement>) {
   }
   const index = items.indexOf(document.activeElement as HTMLButtonElement);
   // Up from the first option walks back out to the search field that ArrowDown
-  // left, so the pair is reversible rather than one-way. The permission list
-  // has no field above it, and there the old clamp still applies.
+  // left, so the pair is reversible rather than one-way.
   if (event.key === "ArrowUp" && index <= 0) {
     const search =
       event.currentTarget.parentElement?.querySelector<HTMLInputElement>("[data-picker-search]");
@@ -754,9 +738,9 @@ export function RunConfigSheetRow({
  * The filled control that names a row's current value.
  *
  * No chevron: the reference's trigger is a value on a filled surface, and the
- * open state is a ring plus the darker fill — the expansion opening directly
- * under the card is the other half of the signal, so a glyph pointing at it
- * would be saying the same thing twice.
+ * open state is a ring plus the darker fill — the layer opening over the card
+ * is the other half of the signal, so a glyph pointing at it would be saying
+ * the same thing twice.
  */
 function PickerTrigger({
   triggerRef,
@@ -764,6 +748,7 @@ function PickerTrigger({
   value,
   expanded,
   controls,
+  hasPopup = "listbox",
   disabled,
   onClick,
   tone,
@@ -776,7 +761,11 @@ function PickerTrigger({
    *  model currently is. */
   value: string;
   expanded: boolean;
-  controls: string;
+  /** The panel id a listbox expansion owns; menus have none to name. */
+  controls?: string;
+  /** What the trigger opens: the model row's listbox expansion, or one of the
+   *  two radio menus the shared `Menu` draws. */
+  hasPopup?: "listbox" | "menu";
   disabled?: boolean;
   onClick: () => void;
   tone?: "warning";
@@ -784,32 +773,52 @@ function PickerTrigger({
 }) {
   const tr = useT();
   return (
-    <button
+    <Button
       ref={triggerRef}
-      type="button"
+      // The row is a filled surface, and the quiet weight's `bg-transparent`
+      // utility is emitted after arbitrary background utilities, so it would
+      // erase the fill. The secondary weight keeps its shape in the component
+      // layer, which this call site's utilities do override: the border is
+      // turned off and the row draws its own fill. (A `plain` weight with no
+      // background at all is the cleaner long-term home; see C1c2b.)
+      variant="secondary"
       onClick={onClick}
       disabled={disabled}
       data-run-config-trigger
       aria-label={`${label}${tr("common.labelSeparator")}${value}`}
-      aria-haspopup="listbox"
+      aria-haspopup={hasPopup}
       aria-expanded={expanded}
-      aria-controls={expanded ? controls : undefined}
+      // A menu names no panel id of its own, so only the model row — still a
+      // listbox expansion — can point `aria-controls` at its layer.
+      aria-controls={hasPopup === "listbox" && expanded ? controls : undefined}
+      // The shared button is a one-line box; this row's value wraps, so its
+      // height stays content-driven. Astryx wraps the children in a label span
+      // that sizes to content, and the last selector makes that span fill the
+      // row so a long value wraps at the row's edge rather than its own.
+      // `min-h-11` is the touch floor (44px), not decoration: on a phone this
+      // row is the tap target that opens the options, and the previous
+      // `min-h-10` left it 4px under the floor the shared button ships with.
       className={[
-        "flex min-h-10 w-full items-center rounded-lg px-3 py-1.5 text-left text-strong font-medium transition-colors",
+        "flex h-auto min-h-11 w-full items-center justify-start rounded-lg border-0 px-3 py-1.5 text-left text-strong font-medium whitespace-normal [&>span>span]:w-full",
         expanded
           ? "bg-[var(--kin-fill-strong)] text-kin-text ring-2 ring-kin-blue/30"
           : "bg-[var(--kin-fill)] text-kin-text hover:bg-[var(--kin-fill-strong)]",
-        tone === "warning" && !expanded ? "text-kin-orange-ink" : "",
         disabled ? "opacity-60" : "",
       ].join(" ")}
     >
       {/* Wraps rather than ellipsizes: this row is the one place the sheet
           states the current value, and a name that only fits behind a `title`
-          is a name a phone cannot read. */}
-      <span className="flex min-w-0 flex-1 items-center gap-2 whitespace-normal break-words">
+          is a name a phone cannot read. The ink stays on the inner span so the
+          shared weight's own text utility cannot win the cascade. */}
+      <span
+        className={[
+          "flex w-full min-w-0 items-center gap-2 whitespace-normal break-words",
+          tone === "warning" && !expanded ? "text-kin-orange-ink" : "",
+        ].join(" ")}
+      >
         {children}
       </span>
-    </button>
+    </Button>
   );
 }
 
@@ -937,15 +946,18 @@ function SearchField({
         className="min-h-11 min-w-0 flex-1 bg-transparent text-strong text-kin-text outline-none placeholder:text-kin-muted"
       />
       {value ? (
-        <button
-          type="button"
+        <Button
+          variant="quiet"
           onClick={() => onChange("")}
           aria-label={clearLabel}
           title={clearLabel}
-          className="flex h-7 w-7 flex-none items-center justify-center rounded-full text-kin-muted hover:text-kin-text"
+          // The icon stays compact, but the tap area does not: on a phone the
+          // clear sits in a 44px field and a 28px-wide target beside the
+          // search text is the one control a thumb misses.
+          className="h-7 w-7 flex-none rounded-full p-0 max-sm:min-w-11"
         >
-          <IconX size={13} />
-        </button>
+          <IconX size={13} className="text-kin-muted" />
+        </Button>
       ) : null}
     </div>
   );
