@@ -415,6 +415,21 @@ describe("each tab returns to its own last view", () => {
 });
 
 describe("list roots and destinations", () => {
+  it("keeps New chat in the list header as a secondary action", () => {
+    shell(["/sessions"]);
+
+    const button = screen.getByRole("button", { name: "New chat" });
+    expect(button.closest("header")).toBeTruthy();
+    expect(button.getAttribute("data-phone-return")).toBe("new");
+    expect(button.className).toContain("kin-btn-secondary");
+    expect(button.className).not.toContain("kin-btn-primary");
+    expect(button.className).not.toContain("bg-kin-text");
+    expect(button.className).not.toContain("bg-kin-blue");
+
+    // One entry only: the list no longer floats a second copy over the footer.
+    expect(document.querySelectorAll("[data-phone-return='new']")).toHaveLength(1);
+  });
+
   it("is the list page: search, four entries, new chat; no drawer or dock", () => {
     shell(["/sessions"]);
 
