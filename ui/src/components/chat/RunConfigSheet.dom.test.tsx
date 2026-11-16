@@ -293,7 +293,9 @@ describe("RunConfigControl", () => {
 
     const menu = screen.getByRole("menu", { name: "Model" });
     expect(
-      within(menu).getByRole("menuitemradio", { name: /Sonnet/ }).getAttribute("aria-checked"),
+      within(menu)
+        .getByRole("menuitemradio", { name: /Sonnet/ })
+        .getAttribute("aria-checked"),
     ).toBe("true");
 
     await userEvent.click(within(menu).getByRole("menuitemradio", { name: /Opus/ }));
@@ -355,9 +357,7 @@ describe("RunConfigControl", () => {
     await userEvent.click(screen.getByRole("button", { name: /^Model/ }));
     // A short catalog has nothing to narrow, so the reader starts on the
     // choice that is set and the next arrow moves relative to it.
-    expect(document.activeElement).toBe(
-      screen.getByRole("menuitemradio", { name: /Sonnet/ }),
-    );
+    expect(document.activeElement).toBe(screen.getByRole("menuitemradio", { name: /Sonnet/ }));
   });
 
   it("closes the expansion on Escape, and the sheet on the next one", async () => {
@@ -469,16 +469,12 @@ describe("RunConfigControl", () => {
     await userEvent.click(search);
     await userEvent.keyboard("{ArrowDown}");
     // Down lands on the row that is set, not the top of the catalog.
-    expect(document.activeElement).toBe(
-      screen.getByRole("menuitemradio", { name: "Model 0" }),
-    );
+    expect(document.activeElement).toBe(screen.getByRole("menuitemradio", { name: "Model 0" }));
 
     // Up from the first row is the way back to the field ArrowDown left —
     // otherwise the pair is a one-way trip and the field keeps the caret.
     await userEvent.keyboard("{ArrowUp}");
-    expect(document.activeElement).toBe(
-      screen.getByRole("menuitemradio", { name: "Default" }),
-    );
+    expect(document.activeElement).toBe(screen.getByRole("menuitemradio", { name: "Default" }));
     await userEvent.keyboard("{ArrowUp}");
     expect(document.activeElement).toBe(search);
   });

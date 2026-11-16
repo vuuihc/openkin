@@ -347,10 +347,7 @@ export default function Menu({
         // it. The negative top margin and matching padding put the field flush
         // with the panel's inner edge and keep the band above it covered while
         // it sticks.
-        <div
-          data-menu-search
-          className="sticky top-0 z-10 -mx-1.5 -mt-1.5 bg-kin-elevated pt-1.5"
-        >
+        <div data-menu-search className="sticky top-0 z-10 -mx-1.5 -mt-1.5 bg-kin-elevated pt-1.5">
           <div className="flex min-h-11 items-center gap-2 border-b border-[var(--kin-hairline)] px-3 focus-within:bg-[var(--kin-fill)] focus-within:outline focus-within:outline-2 focus-within:-outline-offset-2 focus-within:outline-kin-focus-ring">
             <IconSearch size={14} className="flex-none text-kin-muted" />
             <input

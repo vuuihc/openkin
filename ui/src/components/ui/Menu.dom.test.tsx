@@ -549,9 +549,7 @@ describe("the menu's search slot", () => {
     // Below the rows, outside the menu role, inside the same panel: the footer
     // is a row's editor, not another command in the list.
     expect(menu.contains(footer)).toBe(false);
-    expect(
-      lastRow.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(lastRow.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const panel = footer.closest('[role="dialog"]');
     expect(panel).toBeTruthy();
     expect(panel!.contains(menu)).toBe(true);

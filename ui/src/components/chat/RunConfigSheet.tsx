@@ -1,10 +1,4 @@
-import {
-  useId,
-  useRef,
-  useState,
-  type ReactNode,
-  type RefObject,
-} from "react";
+import { useId, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { AgentInfo } from "../../api/client";
 import { useMinWidth } from "../../hooks/useMinWidth";
 import { useT } from "../../i18n/react";
@@ -538,10 +532,7 @@ function RunConfigBody({
           footer={
             custom ? (
               <div className="border-t border-[var(--kin-hairline)] px-3 py-2">
-                <label
-                  className="text-caption font-medium text-kin-muted"
-                  htmlFor={customFieldId}
-                >
+                <label className="text-caption font-medium text-kin-muted" htmlFor={customFieldId}>
                   {tr("modelPicker.customLabel")}
                 </label>
                 <input
