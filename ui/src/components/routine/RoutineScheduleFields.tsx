@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useT } from "../../i18n/react";
+import Button from "../ui/Button";
 import SearchSelect, { type SearchSelectOption } from "../ui/SearchSelect";
 import {
   localTimeZone,
@@ -360,14 +361,19 @@ export default function RoutineScheduleFields({
       )}
 
       {!rule && nextRunLocal && (
-        <button
-          type="button"
+        <Button
+          variant="quiet"
           disabled={disabled}
           onClick={() => onNextRunLocalChange("")}
-          className="self-end text-body text-kin-secondary hover:text-kin-text disabled:opacity-50"
+          className="group h-8 self-end px-2 py-1 text-body"
         >
-          {tr("routines.clearFirstRun")}
-        </button>
+          {/* Quiet inks its label at full strength at rest; this affordance is
+              muted until it is hovered, the same idiom the chat selection bar
+              uses for its inline text actions. */}
+          <span className="text-kin-muted transition-colors group-hover:text-kin-text">
+            {tr("routines.clearFirstRun")}
+          </span>
+        </Button>
       )}
     </div>
   );
