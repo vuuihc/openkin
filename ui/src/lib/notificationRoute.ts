@@ -2,12 +2,16 @@
  * Where a tapped notification lands.
  *
  * A notification carries a URL written by the node. Treat it as untrusted: keep
- * only a path this console knows, and fall back to the inbox for anything else.
+ * only a path the area table owns, and fall back to the inbox for anything else.
  * Opening an arbitrary URL — or honouring `javascript:` — from a message is not
  * a navigation, it is running someone else's code. The host is therefore
  * discarded rather than compared: the node may write its Hub URL while this
  * console is open on a LAN or localhost origin, and the path is the only part
  * that names a route here.
+ *
+ * Knownness is asked of `resolveAreaRoute`, not kept as a second path list: the
+ * router, this module and the palette all read the same table, so a destination
+ * cannot be reachable in one place and unknown in another.
  *
  * The shell can hand the same tap over twice — a cold-start link and the event
  * that accompanies it. Whether that should move the reader is decided where the
@@ -15,6 +19,8 @@
  * known: the same link is a replay while its target is on screen, and a real
  * tap again after the reader leaves.
  */
+
+import { resolveAreaRoute } from "./areaNavigation";
 
 export type NotificationRoute = {
   /** A same-origin console path, always known. */
@@ -26,23 +32,6 @@ export type NotificationRoute = {
 };
 
 const FALLBACK_PATH = "/inbox";
-
-const TASK_PATH = /^\/tasks\/[A-Za-z0-9_-]+$/;
-// A routine run on a paired Node is opened through the machine that owns it, so
-// a routine report links to /machines/<device>/tasks/<id>. The device segment
-// is the Hub's own device id (URL-escaped), which is one path segment.
-const MACHINE_TASK_PATH = /^\/machines\/[^/]+\/tasks\/[A-Za-z0-9_-]+$/;
-
-function knownPath(path: string): boolean {
-  return (
-    path === "/" ||
-    path === "/inbox" ||
-    path === "/routines" ||
-    path === "/settings" ||
-    TASK_PATH.test(path) ||
-    MACHINE_TASK_PATH.test(path)
-  );
-}
 
 /**
  * Parse a notification link into a console route.
@@ -73,19 +62,32 @@ export function parseNotificationRoute(
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     return { path: FALLBACK_PATH, focus: null, fallback: true };
   }
-  if (!knownPath(url.pathname)) {
+  const resolved = resolveAreaRoute({ pathname: url.pathname, search: url.search });
+  if (!resolved) {
     return { path: FALLBACK_PATH, focus: null, fallback: true };
   }
-  const focus = url.pathname === "/inbox" ? url.searchParams.get("focus") : null;
+  // Only the query parameters a route owns survive. The pathname is kept as
+  // written: `/agents` and `/usage` are classified as settings/operations by
+  // the area table, but they still render the Agents page until N4 hosts that
+  // tab, and a tap must land on the page the reader would have reached by
+  // typing the URL.
+  const focus = resolved.name === "conversations.inbox" ? resolved.focus : null;
   let query = "";
   if (focus) {
     query = `?focus=${encodeURIComponent(focus)}`;
-  } else if (url.pathname === "/routines") {
+  } else if (resolved.name === "routines.root" && resolved.device) {
     // A disabled-routine alert names which machine owns the routine, so the
     // Routines page opens on it. Any other query is dropped, exactly as an
     // unrecognized query on any other route is.
-    const device = url.searchParams.get("device");
-    if (device) query = `?device=${encodeURIComponent(device)}`;
+    query = `?device=${encodeURIComponent(resolved.device)}`;
+  } else if (
+    (resolved.name === "settings.root" || resolved.name === "settings.section") &&
+    resolved.tab &&
+    resolved.tab !== "general"
+  ) {
+    // A section link keeps its normalized tab; retired ids have already become
+    // general, which is the settings root.
+    query = `?tab=${encodeURIComponent(resolved.tab)}`;
   }
   return { path: url.pathname + query, focus, fallback: false };
 }
