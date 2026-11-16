@@ -36,7 +36,7 @@ export default function AreaRoute({ children }: { children: ReactNode }) {
 
   return (
     <div
-      className="kin-route flex min-h-0 min-w-0 flex-1 flex-col"
+      className="kin-route flex min-h-0 min-w-0 flex-1 flex-col empty:hidden"
       data-motion={transitionMotion(kind, reducedMotion)}
     >
       {children}
