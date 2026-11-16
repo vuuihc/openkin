@@ -40,7 +40,7 @@ import {
 import { useMachines } from "../../hooks/useMachines";
 import { remoteMachine } from "../../lib/devices";
 import { placeById } from "../../lib/places";
-import { focusPlaceReturn, rememberPlaceReturn, takePlaceReturn } from "../../lib/placeReturn";
+import { focusPlaceReturn, takePlaceReturn } from "../../lib/placeReturn";
 import { taskDisplayTitle } from "../../lib/taskTitle";
 import { floatingApprovals } from "../../lib/floatingApprovals";
 import { useApprovalDecision } from "../../hooks/useApprovalDecision";
@@ -58,7 +58,6 @@ import {
 } from "../../lib/phoneNavigation";
 import FloatingApproval from "../cards/FloatingApproval";
 import PhoneFooter from "./PhoneFooter";
-import { usePhoneTabSwipe } from "../../hooks/usePhoneTabSwipe";
 import ErrorBoundary from "../ErrorBoundary";
 
 type Props = {
@@ -220,21 +219,10 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
   // `touch-action: pan-y` is decided where the finger lands.
   const { offset: edgeOffset, handlers: edgeHandlers } = edgeBack;
 
-  // Equal roots replace one another. A detail / draft still pushes and returns.
+  // The tab bar is the one way between areas. A sideways drag on a root has
+  // nothing to switch to; a deliberate tap on an entry is the whole gesture.
   // Feedback stays in gesture thresholds: never put a transform on `.kin-main`,
   // where fixed panels and sheets would lose the viewport as their container.
-  const tabSwipe = usePhoneTabSwipe(!wide && onPhoneTab, (direction) => {
-    const index = PHONE_TAB_IDS.findIndex((id) => placeById(id).path === pathname);
-    const next = PHONE_TAB_IDS[index + direction];
-    if (!next) return;
-    const place = placeById(next);
-    const target = next === "sessions" ? returnListUrl(location) : place.path;
-    if (target === `${location.pathname}${location.search}`) return;
-    runGuardedNavigation(() => {
-      rememberPlaceReturn(next);
-      phonePush(navigate, location, target);
-    });
-  });
 
   // The shell still needs task titles for the floating approval card. The
   // list itself owns its own feed now, including search, so this read is only
@@ -602,8 +590,9 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
         <main
           className="kin-main flex-1 min-h-0 overflow-hidden flex flex-col"
           data-phone-tab={onPhoneTab ? pathname : undefined}
-          // Single-finger pans belong to the tab swipe; pinch-zoom stays with
-          // the browser. The hook ignores multi-touch, so zoom never switches.
+          // A sideways drag on a root now belongs to the page (and to whatever
+          // wide card or chart sits under the finger). The browser keeps its
+          // vertical pan and pinch-zoom, but horizontal overscroll stays out.
           //
           // The edge-back offset is a custom property, not an inline transform:
           // `index.css` moves `.kin-main > *`, so every page root stays a
@@ -618,7 +607,6 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
             } as CSSProperties
           }
           data-kin-swiping={edgeOffset > 0 ? "true" : undefined}
-          {...tabSwipe}
         >
           {children}
         </main>
