@@ -181,7 +181,7 @@ describe("the list's recovery and paging controls", () => {
     await userEvent.click(control);
     await waitFor(() => expect(vi.mocked(listTasks)).toHaveBeenCalledTimes(1));
 
-    const busy = screen.getByRole("button", { name: "Loading older chats…" });
+    const busy = screen.getByRole<HTMLButtonElement>("button", { name: "Loading older chats…" });
     expect(busy.disabled).toBe(true);
     expect(busy.className).toContain("kin-btn");
 
