@@ -92,6 +92,24 @@ describe("the shared tab strip", () => {
     expect(stops).toHaveLength(1);
     expect(stops[0]).toBe(rows[0]);
   });
+  it("a closeable tab's close button is not a second tab stop", async () => {
+    const user = userEvent.setup();
+    renderUI(
+      <Host initialItems={BASE.map((item) => ({ ...item, closeable: true }))} onClose={() => {}} />,
+    );
+    const closeButtons = screen.getAllByRole("button", { name: /^Close / });
+    expect(closeButtons).toHaveLength(3);
+    for (const button of closeButtons) expect(button.tabIndex).toBe(-1);
+    // The strip still has exactly one stop, and Tab leaves it in one press.
+    const stops = screen
+      .getByRole("tablist", { name: "Open sessions" })
+      .querySelectorAll<HTMLElement>('[tabindex="0"]');
+    expect(stops).toHaveLength(1);
+    expect(stops[0]?.getAttribute("role")).toBe("tab");
+    tab("One").focus();
+    await user.tab();
+    expect(document.activeElement?.getAttribute("role")).not.toBe("tab");
+  });
   it("arrow keys move selection and wrap; Home and End jump to the ends", async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();

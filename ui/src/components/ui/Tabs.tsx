@@ -251,6 +251,8 @@ export default function Tabs({
                     {item.closeable && onClose ? (
                       <Button
                         variant="quiet"
+                        // Not a tab stop: the strip has one, and Delete closes (docs/product/components/tabs.md).
+                        tabIndex={-1}
                         className="-my-1 flex h-11 w-11 items-center justify-center rounded p-0 text-kin-muted hover:text-kin-text sm:h-6 sm:w-6"
                         aria-label={tr("tabs.close", { name: item.label })}
                         onClick={(event) => {
