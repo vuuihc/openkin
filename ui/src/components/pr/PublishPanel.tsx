@@ -12,6 +12,7 @@ import type { PublishDraft } from "../../lib/publishDraft";
 import { MAX_TITLE_CHARS, publishWordsRefusal } from "../../lib/publishWords";
 import { IconAlert, IconExternal, IconPullRequest, IconSend, IconSpinner, IconX } from "../icons";
 import PanelSurface from "../layout/PanelSurface";
+import Button from "../ui/Button";
 
 type Props = {
   taskId: string;
@@ -193,15 +194,15 @@ export default function PublishPanel({
           </div>
         </div>
         {onClose && (
-          <button
-            type="button"
+          <Button
+            variant="quiet"
             onClick={onClose}
-            className="flex-none rounded-md p-1.5 text-kin-muted transition-colors hover:bg-[var(--kin-fill)] hover:text-kin-text"
+            className="min-h-0 flex-none rounded-md p-1.5 text-kin-muted hover:text-kin-text"
             aria-label={tr("publish.close")}
             title={tr("publish.close")}
           >
             <IconX size={14} />
-          </button>
+          </Button>
         )}
       </div>
 
@@ -306,15 +307,18 @@ export default function PublishPanel({
                 </span>
               </p>
               {blocked === "default_branch" && (
-                <button
-                  type="button"
+                /* The way out is the next action while it is on screen, so it
+                   is the one filled primary; the publish below steps back to a
+                   bordered peer (TASTE 6). Both are the same tap otherwise. */
+                <Button
+                  variant="default"
                   onClick={() => void escape()}
                   disabled={!canPublish}
-                  className="kin-btn-primary mt-2 md:min-h-0 md:py-1.5 md:px-3 text-body disabled:opacity-50"
+                  className="mt-2 text-body md:min-h-0 md:px-3 md:py-1.5"
                 >
                   {escaping && <IconSpinner size={13} strokeWidth={2} />}
                   {tr("publish.escape")}
-                </button>
+                </Button>
               )}
             </div>
           )}
@@ -327,15 +331,15 @@ export default function PublishPanel({
           )}
 
           <div className="flex items-center gap-2 pt-0.5">
-            <button
-              type="button"
+            <Button
+              variant={blocked === "default_branch" ? "secondary" : "default"}
               onClick={() => void publish({ title: title.trim(), body })}
               disabled={!canPublish}
-              className="kin-btn-primary md:min-h-0 md:py-1.5 md:px-3.5 text-body disabled:opacity-50"
+              className="text-body md:min-h-0 md:px-3.5 md:py-1.5"
             >
               {busy && <IconSpinner size={13} strokeWidth={2} />}
               {busy ? tr("publish.publishing") : tr("publish.action")}
-            </button>
+            </Button>
             {wordsRefusal && (
               <span className="text-caption text-kin-muted">{tr(wordsRefusal)}</span>
             )}

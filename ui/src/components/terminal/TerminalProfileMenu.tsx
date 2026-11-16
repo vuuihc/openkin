@@ -1,19 +1,28 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useRef, type RefObject } from "react";
 import { type TerminalProfile } from "../../api/client";
 import { useT } from "../../i18n/react";
+import Menu from "../ui/Menu";
 
 type Props = {
   profiles: TerminalProfile[];
   open: boolean;
   onClose: () => void;
   onSelectProfile: (profileId: string) => void;
-  /** Optional root that counts as "inside" for outside-click dismissal (e.g. the + / chevron control). */
+  /** The trigger the menu anchors to and returns focus to (the + / chevron control). */
   anchorRef?: RefObject<HTMLElement | null>;
 };
 
 /**
- * Profile picker for "New terminal". Styled like OpenInMenu / Sidebar menus so
- * it matches the rest of the desktop chrome (opens downward under the + control).
+ * Profile picker for "New terminal".
+ *
+ * The picker is the console's shared `Menu`: the same rows, arrows, Home/End,
+ * typeahead, one layer per Escape and focus back on the trigger as every other
+ * picker. This module stays the seam the terminal knows — it names the profiles
+ * in the terminal's own vocabulary (including which one is the default) — while
+ * the layer behavior lives in the facade instead of a private copy of it.
+ *
+ * The trigger is the chevron, not the group around it: the group is a box, and
+ * focus returning to a box is focus going nowhere.
  */
 export default function TerminalProfileMenu({
   profiles,
@@ -23,107 +32,29 @@ export default function TerminalProfileMenu({
   anchorRef,
 }: Props) {
   const tr = useT();
-  const menuRef = useRef<HTMLDivElement>(null);
-  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const [focusedIdx, setFocusedIdx] = useState(0);
+  // A caller that passes no trigger still gets a valid (never-focused) anchor;
+  // the menu only needs one element to measure against.
+  const untetheredRef = useRef<HTMLElement | null>(null);
 
-  useEffect(() => {
-    if (!open || profiles.length === 0) return;
-    setFocusedIdx(0);
-    const frame = requestAnimationFrame(() => itemRefs.current[0]?.focus());
-    return () => cancelAnimationFrame(frame);
-  }, [open, profiles.length]);
-
-  useEffect(() => {
-    if (!open) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-        return;
-      }
-      if (profiles.length === 0) return;
-
-      if (e.key === "ArrowDown") {
-        const next = (focusedIdx + 1) % profiles.length;
-        setFocusedIdx(next);
-        itemRefs.current[next]?.focus();
-        e.preventDefault();
-      } else if (e.key === "ArrowUp") {
-        const next = (focusedIdx - 1 + profiles.length) % profiles.length;
-        setFocusedIdx(next);
-        itemRefs.current[next]?.focus();
-        e.preventDefault();
-      } else if (e.key === "Enter" || e.key === " ") {
-        const profile = profiles[focusedIdx];
-        if (profile) {
-          onSelectProfile(profile.id);
-          onClose();
-        }
-        e.preventDefault();
-      }
-    };
-
-    // mousedown (not click) so React state updates from the toggle don't race
-    // with a bubble-phase click listener on document.
-    const handlePointerOutside = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (menuRef.current?.contains(target)) return;
-      if (anchorRef?.current?.contains(target)) return;
-      onClose();
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    document.addEventListener("mousedown", handlePointerOutside);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      document.removeEventListener("mousedown", handlePointerOutside);
-    };
-  }, [open, profiles, focusedIdx, onClose, onSelectProfile, anchorRef]);
-
-  if (!open || profiles.length === 0) {
-    return null;
-  }
+  if (profiles.length === 0) return null;
 
   return (
-    <div
-      ref={menuRef}
-      role="menu"
-      aria-label={tr("terminal.new")}
-      className="absolute right-0 top-full mt-1 z-50 min-w-menu max-w-menu rounded-lg bg-kin-elevated shadow-e3 py-1"
-    >
-      {profiles.map((profile, idx) => {
-        const focused = idx === focusedIdx;
-        return (
-          <button
-            key={profile.id}
-            ref={(element) => {
-              itemRefs.current[idx] = element;
-            }}
-            type="button"
-            role="menuitem"
-            className={[
-              "w-full text-left px-3 py-1.5 text-body transition-colors",
-              focused
-                ? "text-kin-text bg-[var(--kin-fill-strong)]"
-                : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
-            ].join(" ")}
-            onMouseEnter={() => setFocusedIdx(idx)}
-            onClick={() => {
-              onSelectProfile(profile.id);
-              onClose();
-            }}
-          >
-            <span className="truncate">{profile.name}</span>
-            {profile.default && (
-              <span className="ml-2 text-caption text-kin-muted">
-                {tr("terminal.defaultProfile")}
-              </span>
-            )}
-          </button>
-        );
-      })}
-    </div>
+    <Menu
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+      triggerRef={anchorRef ?? untetheredRef}
+      label={tr("terminal.new")}
+      placement="below"
+      align="right"
+      items={profiles.map((profile) => ({
+        id: profile.id,
+        label: profile.default
+          ? `${profile.name} ${tr("terminal.defaultProfile")}`
+          : profile.name,
+        onSelect: () => onSelectProfile(profile.id),
+      }))}
+    />
   );
 }

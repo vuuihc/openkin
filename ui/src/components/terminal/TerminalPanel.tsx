@@ -13,6 +13,7 @@ import { projectLabel, shortPath } from "../../lib/paths";
 import { effectiveTerminalCwd } from "../../lib/terminal";
 import { IconChevron, IconPlus, IconTerminal, IconX } from "../icons";
 import PanelSurface from "../layout/PanelSurface";
+import Button from "../ui/Button";
 import TerminalProfileMenu from "./TerminalProfileMenu";
 import TerminalTabs from "./TerminalTabs";
 import TerminalView from "./TerminalView";
@@ -43,7 +44,7 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
   const [hasOpened, setHasOpened] = useState(false);
   const loadStartedRef = useRef(false);
   const autoCreateAttemptedRef = useRef(false);
-  const newSessionRef = useRef<HTMLDivElement>(null);
+  const profileTriggerRef = useRef<HTMLButtonElement>(null);
 
   const [profiles, setProfiles] = useState<TerminalProfile[]>([]);
   const [defaultProfileId, setDefaultProfileId] = useState("");
@@ -259,11 +260,11 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
             )}
           </div>
 
-          <div className="relative flex flex-none items-center" ref={newSessionRef}>
+          <div className="flex flex-none items-center">
             <div className="flex items-center overflow-hidden rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)]">
-              <button
-                type="button"
-                className="flex items-center gap-1 px-2 py-1 text-body text-kin-text transition-colors hover:bg-[var(--kin-fill-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+              <Button
+                variant="quiet"
+                className="min-h-0 gap-1 px-2 py-1 text-body hover:bg-[var(--kin-fill-strong)]"
                 onClick={() => {
                   setMenuOpen(false);
                   void handleCreateSession(defaultCreateId);
@@ -274,11 +275,12 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
               >
                 <IconPlus size={13} strokeWidth={1.9} />
                 <span className="hidden sm:inline">{tr("terminal.new")}</span>
-              </button>
+              </Button>
               {profiles.length > 1 && (
-                <button
-                  type="button"
-                  className="flex items-center border-l border-[var(--kin-hairline-strong)] px-1.5 py-1 text-kin-muted transition-colors hover:bg-[var(--kin-fill-strong)] hover:text-kin-text disabled:cursor-not-allowed disabled:opacity-50"
+                <Button
+                  variant="quiet"
+                  ref={profileTriggerRef}
+                  className="min-h-0 border-l border-[var(--kin-hairline-strong)] px-1.5 py-1 text-kin-muted hover:text-kin-text"
                   onClick={() => {
                     if (!canCreate) return;
                     setMenuOpen((value) => !value);
@@ -290,7 +292,7 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
                   title={tr("terminal.chooseProfile")}
                 >
                   <IconChevron size={12} className={menuOpen ? "rotate-[-90deg]" : "rotate-90"} />
-                </button>
+                </Button>
               )}
             </div>
             <TerminalProfileMenu
@@ -301,19 +303,19 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
                 setMenuOpen(false);
                 void handleCreateSession(profileId);
               }}
-              anchorRef={newSessionRef}
+              anchorRef={profileTriggerRef}
             />
           </div>
 
-          <button
-            type="button"
+          <Button
+            variant="quiet"
             onClick={onClose}
-            className="flex-none rounded-md p-1.5 text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text"
+            className="min-h-0 flex-none rounded-md p-1.5 text-kin-muted hover:text-kin-text"
             aria-label={tr("terminal.closePanel")}
             title={tr("terminal.closePanel")}
           >
             <IconX size={14} />
-          </button>
+          </Button>
         </div>
 
         {notice ? (
@@ -361,9 +363,9 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
           ) : !effectiveCwd ? (
             <div className="flex h-full flex-col items-center justify-center gap-3">
               <span className="text-strong text-kin-secondary">{tr("terminal.noSessions")}</span>
-              <button
-                type="button"
-                className="rounded-md bg-kin-blue px-3 py-1.5 text-body text-kin-on-brand transition-all hover:brightness-110"
+              <Button
+                variant="default"
+                className="rounded-md px-3 py-1.5 text-body"
                 onClick={async () => {
                   try {
                     const chosen = await pickDirectory();
@@ -374,7 +376,7 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
                 }}
               >
                 {tr("terminal.chooseFolder")}
-              </button>
+              </Button>
             </div>
           ) : (
             <div className="flex h-full items-center justify-center text-kin-muted">
