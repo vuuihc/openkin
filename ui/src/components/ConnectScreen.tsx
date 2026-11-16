@@ -9,6 +9,7 @@ import {
 } from "../lib/hubConfig";
 import { useT } from "../i18n/react";
 import { useAppStore } from "../store/appStore";
+import Button from "./ui/Button";
 
 /**
  * Full-screen recovery when the session has no token or the API returns 401.
@@ -158,7 +159,10 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
         </div>
 
         {showHubForm && (
-          <form onSubmit={submitHubUrl} className="rounded-2xl bg-kin-elevated p-5 space-y-4 shadow-e3">
+          <form
+            onSubmit={submitHubUrl}
+            className="rounded-2xl bg-kin-elevated p-5 space-y-4 shadow-e3"
+          >
             <label className="block space-y-1.5">
               <span className="text-body leading-4 font-medium text-kin-muted">
                 {tr("connect.hubLabel")}
@@ -195,12 +199,9 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
                 <p className="text-body leading-prose text-kin-muted">
                   {tr("connect.hubInsecureBody")}
                 </p>
-                <button
-                  type="submit"
-                  className="w-full min-h-11 rounded-xl border border-kin-hairline-strong px-4 py-2.5 text-strong font-medium text-kin-text hover:bg-kin-elevated active:scale-[0.99] transition"
-                >
+                <Button type="submit" variant="secondary" className="w-full">
                   {tr("connect.hubInsecureConfirm")}
-                </button>
+                </Button>
               </div>
             )}
 
@@ -210,13 +211,9 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
               </p>
             )}
 
-            <button
-              type="submit"
-              disabled={busy}
-              className="w-full min-h-12 rounded-xl bg-kin-blue px-4 py-3 text-strong leading-5 font-semibold text-kin-on-brand hover:bg-kin-blue/90 active:scale-[0.99] transition disabled:opacity-60"
-            >
+            <Button type="submit" variant="default" disabled={busy} className="w-full">
               {busy ? tr("connect.hubChanged") : tr("connect.hubConnect")}
-            </button>
+            </Button>
           </form>
         )}
 
@@ -247,12 +244,9 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
               </p>
             )}
 
-            <button
-              type="submit"
-              className="w-full min-h-12 rounded-xl bg-kin-blue px-4 py-3 text-strong leading-5 font-semibold text-kin-on-brand hover:bg-kin-blue/90 active:scale-[0.99] transition"
-            >
+            <Button type="submit" variant="default" className="w-full">
               {tr("connect.connect")}
-            </button>
+            </Button>
           </form>
         )}
 

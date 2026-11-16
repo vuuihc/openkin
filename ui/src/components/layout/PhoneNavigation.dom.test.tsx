@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import AppShell from "./AppShell";
 import Sheet from "../mobile/Sheet";
 import SessionsPage from "../../pages/SessionsPage";
@@ -178,20 +178,29 @@ function GuardedPage({ label = "guarded page" }: { label?: string }) {
 
 /** The conversation's own link to another destination, which has no footer. */
 
+/** The route's own address, so a tab return can be asserted with its params. */
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="phone-location">{`${location.pathname}${location.search}`}</div>;
+}
+
 function routes() {
   return (
-    <Routes>
-      <Route path="/sessions" element={<SessionsPage />} />
-      <Route path="/new" element={<div>draft page</div>} />
-      <Route path="/routines" element={<GuardedPage label="routines page" />} />
-      <Route path="/guarded-tab" element={<GuardedPage />} />
-      <Route path="/agents" element={<div>agents page</div>} />
-      <Route path="/settings" element={<div>settings page</div>} />
-      <Route path="/inbox" element={<div>inbox page</div>} />
-      <Route path="/tasks/:id" element={<div>conversation page</div>} />
-      <Route path="/projects/:id" element={<ProjectDetailPage />} />
-      <Route path="/guarded" element={<GuardedPage />} />
-    </Routes>
+    <>
+      <Routes>
+        <Route path="/sessions" element={<SessionsPage />} />
+        <Route path="/new" element={<div>draft page</div>} />
+        <Route path="/routines" element={<GuardedPage label="routines page" />} />
+        <Route path="/guarded-tab" element={<GuardedPage />} />
+        <Route path="/agents" element={<div>agents page</div>} />
+        <Route path="/settings" element={<div>settings page</div>} />
+        <Route path="/inbox" element={<div>inbox page</div>} />
+        <Route path="/tasks/:id" element={<div>conversation page</div>} />
+        <Route path="/projects/:id" element={<ProjectDetailPage />} />
+        <Route path="/guarded" element={<GuardedPage />} />
+      </Routes>
+      <LocationProbe />
+    </>
   );
 }
 
@@ -357,7 +366,70 @@ describe("the four equal phone tabs", () => {
     });
   }
 });
+describe("each tab returns to its own last view", () => {
+  it("returns each tab to where the reader last was in that area", async () => {
+    const user = userEvent.setup();
+    shell(["/settings?tab=operations"]);
+    expect(screen.getByTestId("phone-location").textContent).toBe("/settings?tab=operations");
+
+    await user.click(screen.getByRole("link", { name: "Routines" }));
+    await waitFor(() => expect(screen.getByText("routines page")).toBeTruthy());
+
+    await user.click(screen.getByRole("link", { name: "Settings" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("phone-location").textContent).toBe("/settings?tab=operations"),
+    );
+
+    // The same journey from the other direction: the machine selected on
+    // Routines survives a trip through Settings.
+    cleanup();
+    sessionStorage.clear();
+    const second = userEvent.setup();
+    shell(["/routines?device=m2"]);
+    expect(screen.getByTestId("phone-location").textContent).toBe("/routines?device=m2");
+
+    await second.click(screen.getByRole("link", { name: "Settings" }));
+    await waitFor(() => expect(screen.getByText("settings page")).toBeTruthy());
+
+    await second.click(screen.getByRole("link", { name: "Routines" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("phone-location").textContent).toBe("/routines?device=m2"),
+    );
+  });
+
+  it("draws one heading per phone root", () => {
+    for (const [path, name] of [
+      ["/sessions", "Chats"],
+      ["/routines", "Routines"],
+      ["/agents", "Agent Ops"],
+      ["/settings", "Settings"],
+    ] as const) {
+      cleanup();
+      shell([path]);
+      const headings = screen.getAllByRole("heading", { level: 1 });
+      expect(headings).toHaveLength(1);
+      expect(headings[0].textContent).toBe(name);
+    }
+    cleanup();
+  });
+});
+
 describe("list roots and destinations", () => {
+  it("keeps New chat in the list header as a secondary action", () => {
+    shell(["/sessions"]);
+
+    const button = screen.getByRole("button", { name: "New chat" });
+    expect(button.closest("header")).toBeTruthy();
+    expect(button.getAttribute("data-phone-return")).toBe("new");
+    expect(button.className).toContain("kin-btn-secondary");
+    expect(button.className).not.toContain("kin-btn-primary");
+    expect(button.className).not.toContain("bg-kin-text");
+    expect(button.className).not.toContain("bg-kin-blue");
+
+    // One entry only: the list no longer floats a second copy over the footer.
+    expect(document.querySelectorAll("[data-phone-return='new']")).toHaveLength(1);
+  });
+
   it("is the list page: search, four entries, new chat; no drawer or dock", () => {
     shell(["/sessions"]);
 

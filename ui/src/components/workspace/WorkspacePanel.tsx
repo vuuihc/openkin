@@ -3,6 +3,7 @@ import {
   lazy,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -101,6 +102,16 @@ const SIDEBAR_WIDTH_KEY = "kin.workspace.sidebarWidth";
 const DEFAULT_SIDEBAR_WIDTH = 320;
 const MIN_SIDEBAR_WIDTH = 200;
 const MAX_SIDEBAR_WIDTH = 560;
+/**
+ * The narrowest container that can hold both panes.
+ *
+ * The split is asked of the panel's own width, not the viewport's: the same
+ * component is a 380px column beside the conversation on a wide screen and the
+ * whole screen on a phone, so `md:` is the wrong question — a 380px column at
+ * a 1280px viewport would take a 320px sidebar and leave the viewer 54px.
+ * Below this the two panes stack and the back button returns.
+ */
+const SPLIT_MIN_WIDTH = 640;
 /**
  * How long a burst of file-touching events is allowed to settle before the
  * source view asks the machine for git's answer. Long enough that one turn's
@@ -257,6 +268,27 @@ export default function WorkspacePanel({
   const sidebarWidthRef = useRef(sidebarWidth);
   const dragRef = useRef<DragState | null>(null);
   const panesRef = useRef<HTMLDivElement>(null);
+  // Whether this panel's container is wide enough for both panes. Measured on
+  // the element rather than read from the viewport: inside `PanelSurface`'s
+  // 380px column the viewport is wide while the panel is not. The initial
+  // answer is "wide" — the no-layout fallback `useMinWidth` also uses — and the
+  // layout effect corrects it before the first paint.
+  const [panesWide, setPanesWide] = useState(true);
+  useLayoutEffect(() => {
+    const el = panesRef.current;
+    if (!el) return;
+    const apply = () => {
+      const width = el.clientWidth;
+      // Zero means nothing has been laid out (or the platform cannot
+      // measure); keep the wide answer instead of flashing the phone shape.
+      setPanesWide(width === 0 || width >= SPLIT_MIN_WIDTH);
+    };
+    apply();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(apply);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   sidebarWidthRef.current = sidebarWidth;
 
@@ -618,16 +650,17 @@ export default function WorkspacePanel({
   return (
     <div className="h-full min-h-0 flex flex-col bg-[var(--kin-inspector)]">
       <div className="flex-none flex items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2">
-        {/* The phone's way back to the list. md+ shows both panes at once, so
-            there is nothing to go back to and the control is not drawn. */}
-        {phoneView === "file" && (
+        {/* The narrow container's way back to the list. A wide container shows
+            both panes at once, so there is nothing to go back to and the
+            control is not drawn. */}
+        {phoneView === "file" && !panesWide && (
           <Button
             ref={backRef}
             variant="quiet"
             onClick={goBackToFiles}
             title={tr("workspace.backToFiles")}
             aria-label={tr("workspace.backToFiles")}
-            className="flex-none -ml-1 h-11 w-11 items-center justify-center p-0 text-kin-muted md:hidden"
+            className="flex-none -ml-1 h-11 w-11 items-center justify-center p-0 text-kin-muted"
           >
             <IconBack size={16} />
           </Button>
@@ -691,21 +724,26 @@ export default function WorkspacePanel({
         )}
       </div>
 
-      {/* Dual pane: sidebar (list/tree) | resizer | viewer. Always side-by-side on md+. */}
+      {/* Dual pane: sidebar (list/tree) | resizer | viewer. Side-by-side while
+          this container is wide enough for both; stacked, one pane at a time,
+          when it is not — the container, not the viewport, because the panel
+          is a 380px column on a wide screen. */}
       <div
         ref={panesRef}
         data-phone-view={phoneView}
-        className="flex-1 min-h-0 flex flex-col md:flex-row"
+        data-panes={panesWide ? "split" : "stacked"}
+        className={`flex-1 min-h-0 flex ${panesWide ? "flex-row" : "flex-col"}`}
       >
         <aside
           ref={asideRef}
           className={[
-            // One pane at a time under md: the list gets the whole height until
-            // a file is opened, then it steps aside. `hidden md:flex` is the
-            // usual idiom — the responsive rule wins at md and up.
-            phoneView === "file" ? "hidden md:flex" : "flex",
-            "flex-col min-h-0 border-b border-[var(--kin-hairline)] h-full w-full",
-            "md:h-auto md:max-h-none md:w-[var(--ws-sidebar)] md:border-b-0 md:shrink-0 bg-[var(--kin-fill)]",
+            // One pane at a time while stacked: the list gets the whole height
+            // until a file is opened, then it steps aside.
+            phoneView === "file" && !panesWide ? "hidden" : "flex",
+            "flex-col min-h-0 border-[var(--kin-hairline)] bg-[var(--kin-fill)]",
+            panesWide
+              ? "h-auto max-h-none w-[var(--ws-sidebar)] border-b-0 shrink-0"
+              : "h-full w-full border-b",
           ].join(" ")}
           style={
             {
@@ -845,7 +883,7 @@ export default function WorkspacePanel({
           </div>
         </aside>
 
-        {/* Horizontal resize handle — desktop md+ only. */}
+        {/* Horizontal resize handle — only while the two panes are side by side. */}
         <div
           role="separator"
           aria-orientation="vertical"
@@ -854,7 +892,7 @@ export default function WorkspacePanel({
           aria-valuemin={MIN_SIDEBAR_WIDTH}
           aria-valuemax={MAX_SIDEBAR_WIDTH}
           tabIndex={0}
-          className="hidden md:block flex-none w-1.5 cursor-col-resize border-r border-[var(--kin-hairline)] hover:bg-[var(--kin-fill-strong)] active:bg-kin-blue/15 transition-colors"
+          className={`${panesWide ? "block" : "hidden"} flex-none w-1.5 cursor-col-resize border-r border-[var(--kin-hairline)] hover:bg-[var(--kin-fill-strong)] active:bg-kin-blue/15 transition-colors`}
           onPointerDown={(event) => {
             if (event.button !== 0) return;
             event.preventDefault();
@@ -908,7 +946,7 @@ export default function WorkspacePanel({
         <div
           data-pane="viewer"
           className={[
-            phoneView === "file" ? "flex" : "hidden md:flex",
+            panesWide || phoneView === "file" ? "flex" : "hidden",
             "flex-1 min-w-0 min-h-0 bg-[var(--kin-bg)] flex-col",
           ].join(" ")}
         >

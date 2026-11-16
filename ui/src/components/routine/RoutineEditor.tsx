@@ -3,6 +3,7 @@ import type { AgentInfo, AgentModelOption, Routine } from "../../api/client";
 import CwdPicker from "../chat/CwdPicker";
 import ModelPicker from "../chat/ModelPicker";
 import PermissionModePicker from "../chat/PermissionModePicker";
+import Button from "../ui/Button";
 import SheetSelect from "../ui/SheetSelect";
 import type { ConversationMode } from "../../lib/routineConversation";
 import type { PermissionMode } from "../../lib/permissionMode";
@@ -246,31 +247,18 @@ export default function RoutineEditor({
       </fieldset>
 
       <div className="mt-4 flex justify-end gap-2">
-        {/* eslint-disable-next-line kin/no-raw-button -- moved unchanged from
-            RoutinesPage; this slice adds no shared button primitive. */}
-        <button
-          type="button"
-          // Only a save in flight blocks closing; an offline machine is
-          // a reason to disable writes, not the way out of the form.
-          disabled={creating}
-          className="rounded-lg px-3 py-1.5 text-strong text-kin-secondary disabled:opacity-50"
-          onClick={onCancel}
-        >
+        {/* Only a save in flight blocks closing; an offline machine is
+            a reason to disable writes, not the way out of the form. */}
+        <Button variant="secondary" disabled={creating} onClick={onCancel}>
           {tr("routines.cancel")}
-        </button>
-        {/* eslint-disable-next-line kin/no-raw-button -- same control, moved. */}
-        <button
-          type="button"
-          // A one-off with no date-time is refused on submit with a
-          // message, not by a disabled button: the schedule field beside
-          // it still says "runs on the next tick", so a dead Save would
-          // be the only thing telling the reader otherwise.
-          disabled={formLocked || !prompt.trim() || !cwd.trim()}
-          className="rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand disabled:opacity-50"
-          onClick={onSubmit}
-        >
+        </Button>
+        {/* A one-off with no date-time is refused on submit with a
+            message, not by a disabled button: the schedule field beside
+            it still says "runs on the next tick", so a dead Save would
+            be the only thing telling the reader otherwise. */}
+        <Button disabled={formLocked || !prompt.trim() || !cwd.trim()} onClick={onSubmit}>
           {editing ? tr("routines.save") : tr("routines.createAndOpen")}
-        </button>
+        </Button>
       </div>
     </section>
   );

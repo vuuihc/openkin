@@ -67,6 +67,25 @@ prettier_ui_changed() {
   ( cd ui && npx prettier --check --ignore-unknown "${files[@]}" )
 }
 
+ui_vitest_gate() {
+  local rel_out rel_rc rel_files=() f
+  rel_out="$(python3 "$RSI_DIR/runtime/related-ui-tests.py" --worktree "$WT" 2>"$RUNS/gate-$$-related.err")"
+  rel_rc=$?
+  if [ $rel_rc -eq 0 ] && [ -n "$rel_out" ]; then
+    while IFS= read -r f; do
+      [ -n "$f" ] && rel_files+=("$f")
+    done <<< "$rel_out"
+  fi
+  if [ ${#rel_files[@]} -gt 0 ]; then
+    echo "leaf UI slice: running ${#rel_files[@]} related test file(s) incl. tokens.test.ts (full suite on GitHub CI; set RSI_GATE_VITEST=full for full local run)"
+    printf '  %s\n' "${rel_files[@]}"
+    ( cd ui && npx vitest run --maxWorkers="${VITEST_MAX_WORKERS:-2}" "${rel_files[@]}" )
+  else
+    echo "shared/full UI test run ($(tr '\n' ' ' < "$RUNS/gate-$$-related.err" 2>/dev/null || echo full))"
+    ( cd ui && npm test -- --maxWorkers="${VITEST_MAX_WORKERS:-2}" )
+  fi
+}
+
 mkdir -p "$RUNS"
 trap 'for kid in $(pgrep -P $$ 2>/dev/null || true); do rsi_kill_tree "$kid"; done' EXIT
 export GOMAXPROCS="${GOMAXPROCS:-2}" GO_TEST_P="${GO_TEST_P:-2}" VITEST_MAX_WORKERS="${VITEST_MAX_WORKERS:-2}"
@@ -85,7 +104,7 @@ echo "$changed" | grep -q '^ui/' && step node-stamp ui_node_stamp
 [ -x scripts/check.sh ] && step check ./scripts/check.sh
 if echo "$changed" | grep -q '^ui/'; then
   step lint bash -c 'cd ui && npm run lint'
-  step test bash -c 'cd ui && npm test -- --maxWorkers="${VITEST_MAX_WORKERS:-2}"'
+  step test ui_vitest_gate
   if [ "${RSI_DIST_BUILT_SHA:-}" = "$($GIT rev-parse HEAD 2>/dev/null)" ] && [ -d web/dist/assets ]; then
     echo "--- build"
     echo "ok: build (verified at HEAD by merge lane; tsc --noEmit + vite build)"
