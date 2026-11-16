@@ -214,8 +214,9 @@ export function resolveAreaRoute(location: LocationLike): AreaRoute | null {
           tab,
         };
       }
-      // Legacy Agent-operations destinations. The redirect is N2's; here they
-      // name settings/operations so the shell can describe the target first.
+      // Legacy Agent-operations destinations. E4a redirects both to
+      // `/settings?tab=operations`; naming the settings tab here lets the
+      // shell describe the destination before the redirect lands.
       case "agents":
       case "usage":
         return { ...base("settings", "settings.operations"), tab: "operations" };

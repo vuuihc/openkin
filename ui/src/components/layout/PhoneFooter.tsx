@@ -40,6 +40,11 @@ export default function PhoneFooter() {
     for (const count of pendingCountsByTask(pending.data).values()) total += count;
     return total;
   }, [pending.data]);
+  // Agent Ops lives on the settings page as a tab, so the pathname alone cannot
+  // tell the two tabs apart: the `tab` param is what makes it Agent Ops.
+  const onOperations =
+    location.pathname === "/settings" &&
+    new URLSearchParams(location.search).get("tab") === "operations";
 
   return (
     <nav
@@ -51,8 +56,17 @@ export default function PhoneFooter() {
       <div className="grid grid-cols-4">
         {TABS.map((place) => {
           const Icon = PLACE_ICONS[place.id];
-          const to = place.id === "sessions" ? returnListUrl(location) : phoneTabUrl(place.id);
-          const active = location.pathname === place.path;
+          // Each entry asks for its own remembered URL. Agent Ops and Settings
+          // share a pathname but not a memory key (see `phoneTabPath`), so
+          // Settings never reopens the operations tab.
+          const to =
+            place.id === "sessions" ? returnListUrl(location) : phoneTabUrl(place.id, place.path);
+          const active =
+            place.id === "agents"
+              ? onOperations
+              : place.id === "settings"
+                ? location.pathname === "/settings" && !onOperations
+                : location.pathname === place.path;
           return (
             <Link
               key={place.id}

@@ -3,14 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import AgentsPage from "./AgentsPage";
-import { setLocale } from "../i18n";
-import {
-  importAgentSessions,
-  listAgents,
-  type AgentSessionImportResult,
-} from "../api/client";
-import { refreshMachines } from "../hooks/useMachines";
+import AgentsPage from "./AgentOperationsSection";
+import { setLocale } from "../../i18n";
+import { importAgentSessions, listAgents, type AgentSessionImportResult } from "../../api/client";
+import { refreshMachines } from "../../hooks/useMachines";
 
 /**
  * KIN-AGENTS-001: Agent Ops is where a person imports Agent history.
@@ -21,8 +17,8 @@ import { refreshMachines } from "../hooks/useMachines";
  * page imports by itself.
  */
 
-vi.mock("../api/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../api/client")>();
+vi.mock("../../api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/client")>();
   return {
     ...actual,
     isAuthenticated: vi.fn(() => true),
@@ -34,7 +30,7 @@ vi.mock("../api/client", async (importOriginal) => {
   };
 });
 
-vi.mock("../hooks/useMachines", () => ({
+vi.mock("../../hooks/useMachines", () => ({
   refreshMachines: vi.fn(),
 }));
 
@@ -52,7 +48,9 @@ beforeEach(() => {
   localStorage.clear();
   vi.mocked(refreshMachines).mockReset().mockResolvedValue([here]);
   vi.mocked(listAgents).mockReset().mockResolvedValue([]);
-  vi.mocked(importAgentSessions).mockReset().mockResolvedValue({ imported: 2, providers: { codex: 2 } });
+  vi.mocked(importAgentSessions)
+    .mockReset()
+    .mockResolvedValue({ imported: 2, providers: { codex: 2 } });
 });
 
 function page() {

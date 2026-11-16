@@ -290,14 +290,29 @@ describe("root peers on a deeper history entry", () => {
 describe("each phone tab's last view", () => {
   it("remembers each phone root's last URL, params included", () => {
     notePhoneLocation({ pathname: "/routines", search: "?device=m2" });
+    notePhoneLocation({ pathname: "/settings", search: "?tab=providers" });
     notePhoneLocation({ pathname: "/settings", search: "?tab=operations" });
-    notePhoneLocation({ pathname: "/agents", search: "?machine=alpha" });
 
     expect(phoneTabUrl("routines")).toBe("/routines?device=m2");
-    expect(phoneTabUrl("settings")).toBe("/settings?tab=operations");
-    expect(phoneTabUrl("agents")).toBe("/agents?machine=alpha");
+    // Agent Ops is its own footer entry even though it lives on Settings: the
+    // operations URL belongs to that entry, and Settings keeps its own view.
+    expect(phoneTabUrl("agents")).toBe("/settings?tab=operations");
+    expect(phoneTabUrl("settings")).toBe("/settings?tab=providers");
     // A root the reader has not visited opens at its own root.
     expect(phoneTabUrl("sessions")).toBe("/sessions");
+  });
+
+  it("refuses an operations URL remembered under Settings", () => {
+    // A value written before Agent Ops got its own entry must not make the
+    // Settings tab reopen the operations panel.
+    sessionStorage.setItem(
+      "kin.phoneTabUrls",
+      JSON.stringify({ settings: "/settings?tab=operations", agents: "/settings?tab=operations" }),
+    );
+
+    expect(phoneTabUrl("settings")).toBe("/settings");
+    // The same URL is still Agent Ops' own destination.
+    expect(phoneTabUrl("agents")).toBe("/settings?tab=operations");
   });
 
   it("refuses a remembered URL that is not that root", () => {

@@ -273,10 +273,21 @@ function isListPath(pathname: string): boolean {
 export const PHONE_TAB_IDS = ["sessions", "routines", "agents", "settings"] as const;
 export type PhoneTabId = (typeof PHONE_TAB_IDS)[number];
 
-/** A root URL may carry its own device / filter state, but not a detail path. */
+/**
+ * The tab a URL belongs to, as that tab's root path; null for anything else.
+ *
+ * A root URL may carry its own device / filter state, but not a detail path.
+ * Agent Ops is a tab of the settings page, not a page of its own, yet the phone
+ * footer shows it as a peer entry: a URL that names that tab belongs to the
+ * Agent Ops entry, not Settings, or the Settings tab would reopen Operations.
+ */
 export function phoneTabPath(to: string): string | null {
   if (/^(?:[a-z][a-z\d+.-]*:)?\/\//i.test(to) || !to.startsWith("/")) return null;
-  const [pathname] = to.split(/[?#]/, 1);
+  const [pathAndQuery] = to.split("#", 1);
+  const [pathname, query = ""] = pathAndQuery.split("?", 2);
+  if (pathname === "/settings" && new URLSearchParams(query).get("tab") === "operations") {
+    return "/agents";
+  }
   return PHONE_TAB_IDS.some((id) => pathname === `/${id}`) ? pathname : null;
 }
 export function isPhoneTabPath(to: string): boolean {
@@ -318,7 +329,9 @@ function rememberPhoneTabUrl(url: string): void {
  * The four tabs are peers, not a hierarchy: leaving Settings must not forget
  * which settings tab was open, and leaving Routines must not forget which
  * machine was selected. Each root's last exact URL is remembered whenever the
- * shell shows that root (`notePhoneLocation`), params included.
+ * shell shows that root (`notePhoneLocation`), params included. Agent Ops is a
+ * settings tab but its own footer entry, so its URL is remembered under its
+ * own id instead of under Settings (`phoneTabPath`).
  *
  * A remembered URL is returned only while it still names the same root. A
  * detail path (`/routines/today`), another root's URL, or an absolute URL is

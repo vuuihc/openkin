@@ -39,6 +39,7 @@ function setup(overrides: Partial<TaskHeaderProps> = {}) {
     terminal: false,
     degraded: false,
     filesOpen: false,
+    panelOpen: false,
     archiving: false,
     deleting: false,
     stopping: false,
@@ -49,6 +50,7 @@ function setup(overrides: Partial<TaskHeaderProps> = {}) {
     onStop: vi.fn(),
     onBack: vi.fn(),
     onOpenActions: vi.fn(),
+    onShowList: vi.fn(),
     ...overrides,
   };
   const view: ReactElement = (
@@ -225,6 +227,28 @@ describe("TaskHeader", () => {
     expect(props.onToggleArchive).toHaveBeenCalledTimes(1);
     expect(props.onDelete).toHaveBeenCalledTimes(1);
     expect(props.onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers Show list only while a panel is open", () => {
+    // The list column yields to the open panel (S1b), so this is the one
+    // control that brings it back — by closing the panel, because both at once
+    // is the squeeze TASTE 17 forbids.
+    const { props, utils } = setup({ panelOpen: true });
+    const show = within(desktopBar(utils)).getByRole("button", { name: t("nav.showList") });
+    fireEvent.click(show);
+    expect(props.onShowList).toHaveBeenCalledTimes(1);
+    utils.unmount();
+
+    setup({ panelOpen: false });
+    expect(screen.queryByRole("button", { name: t("nav.showList") })).toBeNull();
+  });
+
+  it("keeps the phone bar unchanged", () => {
+    // The phone has no list column: its list is the page, and a control that
+    // reveals a column it does not have is the phone control TASTE 3 forbids
+    // on the Mac surface (and vice versa).
+    const { utils } = setup({ panelOpen: true });
+    expect(within(phoneBarEl(utils)).queryByRole("button", { name: t("nav.showList") })).toBeNull();
   });
 
   it("desktop: keeps archive and delete disabled while their action is in flight", () => {
