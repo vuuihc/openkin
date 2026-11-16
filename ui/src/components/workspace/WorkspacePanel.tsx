@@ -454,9 +454,7 @@ export default function WorkspacePanel({
     const paths = currentRoundPaths(events);
     if (!paths) return null;
     const wanted = new Set(
-      paths
-        .map((path) => workspacePathKey(cwd, path))
-        .filter((key): key is string => key !== null),
+      paths.map((path) => workspacePathKey(cwd, path)).filter((key): key is string => key !== null),
     );
     if (wanted.size === 0) return null;
     return visibleChangedFiles.filter((file) => {
@@ -1098,6 +1096,7 @@ function currentRoundPaths(events: TaskEvent[] | undefined): string[] | null {
     if (event.type === "round_changed" && typeof toSeq === "number") consider(toSeq);
   }
   if (boundary === null) return null;
-  const files = extractChangedFiles(events.filter((event) => event.seq > boundary));
+  const afterSeq = boundary;
+  const files = extractChangedFiles(events.filter((event) => event.seq > afterSeq));
   return files.length > 0 ? files.map((file) => file.path) : null;
 }

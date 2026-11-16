@@ -218,9 +218,7 @@ describe("the turn summary", () => {
     expect(line?.closest('[role="tablist"]')).toBeNull();
     // Above the list it summarizes.
     const firstRow = screen.getByTitle(SEVEN[0]!.path);
-    expect(
-      line!.compareDocumentPosition(firstRow) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(line!.compareDocumentPosition(firstRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // The tab counts what the list holds.
     expect(tabs()[0]?.textContent).toContain("7");
   });
