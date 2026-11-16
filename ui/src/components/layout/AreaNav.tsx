@@ -92,9 +92,7 @@ export default function AreaNav({
   // already the answer, which is also what keeps clicking Chats while in Chats
   // from resetting the page.
   const chatsTarget =
-    location.pathname === "/sessions"
-      ? `${location.pathname}${location.search}`
-      : lastListUrl();
+    location.pathname === "/sessions" ? `${location.pathname}${location.search}` : lastListUrl();
 
   return (
     <nav
@@ -154,10 +152,7 @@ export default function AreaNav({
             ].join(" ")}
           >
             <Icon size={compact ? 18 : 16} strokeWidth={1.7} />
-            <span
-              data-area-label
-              className={compact ? "hidden" : "truncate text-body"}
-            >
+            <span data-area-label className={compact ? "hidden" : "truncate text-body"}>
               {label}
             </span>
             {badge ? (

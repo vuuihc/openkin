@@ -136,9 +136,7 @@ describe("the Mac area rail", () => {
     expect(links.map((link) => link.getAttribute("aria-label"))).toEqual(
       AREAS.map((area) => t(area.labelKey)),
     );
-    expect(links.map((link) => link.getAttribute("href"))).toEqual(
-      AREAS.map((area) => area.root),
-    );
+    expect(links.map((link) => link.getAttribute("href"))).toEqual(AREAS.map((area) => area.root));
 
     const current = links.filter((link) => link.getAttribute("aria-current") === "page");
     expect(current).toHaveLength(1);
@@ -178,7 +176,9 @@ describe("the Mac area rail", () => {
 
   it("keeps the needs-you badge on Chats in both rail widths", () => {
     const { rerender } = nav(false, 3);
-    let chats = screen.getByRole("link", { name: t("nav.withCount", { label: t("nav.sessions"), count: "3" }) });
+    let chats = screen.getByRole("link", {
+      name: t("nav.withCount", { label: t("nav.sessions"), count: "3" }),
+    });
     expect(chats.textContent).toContain("3");
     expect(chats.textContent).not.toContain("⌘1");
 
