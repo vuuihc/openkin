@@ -29,6 +29,7 @@ import {
 } from "../../lib/mobileMessageActions";
 import { useAppStore } from "../../store/appStore";
 import { IconChevron, IconCopy, IconDownload, IconSearch, IconShare, IconX } from "../icons";
+import Button from "../ui/Button";
 import Markdown from "../Markdown";
 import RoundEvidenceCard from "./RoundEvidenceCard";
 import ToolStepRow from "./ToolStepRow";
@@ -562,35 +563,46 @@ export default function ChatStream({
           >
             {findStatus}
           </span>
-          <button
-            type="button"
+          {/* Icon affordances on the console's facade. The quiet variant inks
+              its own label, so the muted-at-rest ink sits on the content and
+              follows the button's hover; the round hit area the facade draws the
+              focus ring around stays the same 32px box, floored to 44 on a
+              phone by the same rule that floored the bare button. */}
+          <Button
+            variant="quiet"
             onClick={() => stepFind(-1)}
             disabled={findHits.length === 0}
             aria-label={tr("chat.find.prev")}
             title={tr("chat.find.prev")}
-            className="flex h-8 w-8 flex-none items-center justify-center rounded-full text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text disabled:opacity-40"
+            className="h-8 w-8 flex-none rounded-full p-0"
           >
-            <IconChevron size={15} className="-rotate-90" />
-          </button>
-          <button
-            type="button"
+            <span className="flex h-8 w-8 items-center justify-center text-kin-muted transition-colors hover:text-kin-text">
+              <IconChevron size={15} className="-rotate-90" />
+            </span>
+          </Button>
+          <Button
+            variant="quiet"
             onClick={() => stepFind(1)}
             disabled={findHits.length === 0}
             aria-label={tr("chat.find.next")}
             title={tr("chat.find.next")}
-            className="flex h-8 w-8 flex-none items-center justify-center rounded-full text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text disabled:opacity-40"
+            className="h-8 w-8 flex-none rounded-full p-0"
           >
-            <IconChevron size={15} className="rotate-90" />
-          </button>
-          <button
-            type="button"
+            <span className="flex h-8 w-8 items-center justify-center text-kin-muted transition-colors hover:text-kin-text">
+              <IconChevron size={15} className="rotate-90" />
+            </span>
+          </Button>
+          <Button
+            variant="quiet"
             onClick={() => setFindOpen(false)}
             aria-label={tr("chat.find.close")}
             title={tr("chat.find.close")}
-            className="flex h-8 w-8 flex-none items-center justify-center rounded-full text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text"
+            className="h-8 w-8 flex-none rounded-full p-0"
           >
-            <IconX size={15} />
-          </button>
+            <span className="flex h-8 w-8 items-center justify-center text-kin-muted transition-colors hover:text-kin-text">
+              <IconX size={15} />
+            </span>
+          </Button>
         </div>
       )}
       {sharing && (
@@ -862,48 +874,59 @@ const AssistantMessageItem = memo(function AssistantMessageItem({
         >
           {canRetryFork && (
             <>
-              <button
-                type="button"
+              {/* The row's affordances are muted until hovered; the quiet
+                  variant inks its own label, so the ink sits on the content and
+                  follows the button's hover through the group mark. */}
+              <Button
+                variant="quiet"
                 disabled={actionsBusy}
                 title={tr("task.retryTitle")}
                 onClick={() => onRetry?.(item.seq!)}
-                className="px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill disabled:opacity-40"
+                className="group rounded-md px-2 py-0.5 text-caption font-medium"
               >
-                {tr("task.retry")}
-              </button>
-              <button
-                type="button"
+                <span className="text-kin-muted transition-colors group-hover:text-kin-text">
+                  {tr("task.retry")}
+                </span>
+              </Button>
+              <Button
+                variant="quiet"
                 disabled={actionsBusy}
                 title={tr("task.forkTitle")}
                 onClick={() => onFork?.(item.seq!)}
-                className="px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill disabled:opacity-40"
+                className="group rounded-md px-2 py-0.5 text-caption font-medium"
               >
-                {tr("task.fork")}
-              </button>
+                <span className="text-kin-muted transition-colors group-hover:text-kin-text">
+                  {tr("task.fork")}
+                </span>
+              </Button>
             </>
           )}
           {canCopy && (
             <>
-              <button
-                type="button"
+              <Button
+                variant="quiet"
                 title={tr("chat.message.copyTitle")}
                 aria-label={tr("chat.message.copyTitle")}
                 onClick={() => onCopyMessage(item.text)}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill"
+                className="group rounded-md px-2 py-0.5 text-caption font-medium"
               >
-                <IconCopy size={13} />
-                {tr("chat.message.copy")}
-              </button>
-              <button
-                type="button"
+                <span className="inline-flex items-center gap-1 text-kin-muted transition-colors group-hover:text-kin-text">
+                  <IconCopy size={13} />
+                  {tr("chat.message.copy")}
+                </span>
+              </Button>
+              <Button
+                variant="quiet"
                 title={tr("chat.message.shareTitle")}
                 aria-label={tr("chat.message.shareTitle")}
                 onClick={() => onShareMessage(item.key)}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill"
+                className="group rounded-md px-2 py-0.5 text-caption font-medium"
               >
-                <IconShare size={13} />
-                {tr("chat.message.share")}
-              </button>
+                <span className="inline-flex items-center gap-1 text-kin-muted transition-colors group-hover:text-kin-text">
+                  <IconShare size={13} />
+                  {tr("chat.message.share")}
+                </span>
+              </Button>
             </>
           )}
         </div>
@@ -1115,8 +1138,11 @@ function ProgressCard({
 
   return (
     <div className={`rounded-xl border ${statusTone} overflow-hidden`}>
-      <button
-        type="button"
+      {/* The card's header is a full-width disclosure on the console's facade;
+          the row's own geometry stays on the content span, which is where Astryx
+          puts a button's children. */}
+      <Button
+        variant="quiet"
         onClick={() => {
           // Folding a card that a hit forced open dismisses the reveal for that
           // hit; the next hit opens it again.
@@ -1124,51 +1150,53 @@ function ProgressCard({
           else setCollapsed((v) => !v);
         }}
         aria-expanded={expanded}
-        className="flex items-center gap-2 w-full px-3 py-2 text-body text-left cursor-pointer hover:bg-[var(--kin-fill-strong)] transition-colors"
+        className="flex w-full justify-start rounded-sm p-0 text-left text-body font-normal cursor-pointer hover:bg-transparent"
       >
-        <span
-          className={[
-            "flex-none text-micro font-semibold uppercase tracking-label px-1.5 py-0.5 rounded",
-            badgeTone,
-          ].join(" ")}
-        >
-          {status.state === "running" ? (
-            <span className="inline-flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-kin-blue animate-breathe" />
-              {badgeLabel}
-            </span>
-          ) : (
-            badgeLabel
-          )}
-        </span>
-        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          {/* One line, cut with an ellipsis. The summary is a list of counts
-              ("list 1 × · read 1 × · edit 1 ×"); letting it wrap on a phone
-              broke between a tool name and its count and made the row two
-              ragged lines tall while the fold label beside it stayed put. The
-              full text is the tooltip and the steps are one tap away. */}
-          <span className="truncate font-medium text-kin-text" title={summary}>
-            {summary}
+        <span className="flex w-full items-center gap-2 px-3 py-2 transition-colors hover:bg-[var(--kin-fill-strong)]">
+          <span
+            className={[
+              "flex-none text-micro font-semibold uppercase tracking-label px-1.5 py-0.5 rounded",
+              badgeTone,
+            ].join(" ")}
+          >
+            {status.state === "running" ? (
+              <span className="inline-flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-kin-blue animate-breathe" />
+                {badgeLabel}
+              </span>
+            ) : (
+              badgeLabel
+            )}
           </span>
-          {!expanded && details.latestNote && (
-            <span
-              className="truncate text-caption font-normal text-kin-muted"
-              title={details.latestNote}
-            >
-              {details.latestNote}
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            {/* One line, cut with an ellipsis. The summary is a list of counts
+                ("list 1 × · read 1 × · edit 1 ×"); letting it wrap on a phone
+                broke between a tool name and its count and made the row two
+                ragged lines tall while the fold label beside it stayed put. The
+                full text is the tooltip and the steps are one tap away. */}
+            <span className="truncate font-medium text-kin-text" title={summary}>
+              {summary}
             </span>
-          )}
+            {!expanded && details.latestNote && (
+              <span
+                className="truncate text-caption font-normal text-kin-muted"
+                title={details.latestNote}
+              >
+                {details.latestNote}
+              </span>
+            )}
+          </span>
+          <span className="flex-none text-caption font-normal text-kin-muted">
+            {/* What is behind the fold and how much of it, rather than the bare
+                word "expand": the button already says it is a toggle. */}
+            {expanded
+              ? tr("chat.progress.hide")
+              : steps.length > 0
+                ? tr("chat.progress.collapsed", { count: steps.length })
+                : tr("chat.progress.expand")}
+          </span>
         </span>
-        <span className="flex-none text-caption font-normal text-kin-muted">
-          {/* What is behind the fold and how much of it, rather than the bare
-              word "expand": the button already says it is a toggle. */}
-          {expanded
-            ? tr("chat.progress.hide")
-            : steps.length > 0
-              ? tr("chat.progress.collapsed", { count: steps.length })
-              : tr("chat.progress.expand")}
-        </span>
-      </button>
+      </Button>
       {expanded && (
         // `divide-y` separates the rows from each other, and this line separates
         // the first of them from the summary above — the two faces are the same
@@ -1526,31 +1554,36 @@ function ShareSelectionBar({
       <span className="mr-auto text-body font-medium text-kin-text">
         {tr("chat.message.selected", { count })}
       </span>
-      <button
-        type="button"
+      <Button
         onClick={onCopy}
         disabled={disabled}
-        className="inline-flex min-h-8 items-center gap-1 rounded-md bg-kin-blue px-2.5 py-1 text-body font-medium text-kin-on-brand hover:bg-kin-blue/90 disabled:cursor-not-allowed disabled:opacity-40"
+        className="h-8 rounded-md px-2.5 py-1 text-body font-medium"
       >
-        <IconCopy size={14} />
-        {tr("chat.message.copyText")}
-      </button>
-      <button
-        type="button"
+        <span className="inline-flex items-center gap-1">
+          <IconCopy size={14} />
+          {tr("chat.message.copyText")}
+        </span>
+      </Button>
+      <Button
+        variant="secondary"
         onClick={onDownload}
         disabled={disabled}
-        className="inline-flex min-h-8 items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] px-2.5 py-1 text-body font-medium text-kin-text hover:bg-[var(--kin-fill)] disabled:cursor-not-allowed disabled:opacity-40"
+        className="h-8 rounded-md px-2.5 py-1 text-body font-medium hover:bg-[var(--kin-fill)]"
       >
-        <IconDownload size={14} />
-        {tr("chat.message.downloadHTML")}
-      </button>
-      <button
-        type="button"
+        <span className="inline-flex items-center gap-1">
+          <IconDownload size={14} />
+          {tr("chat.message.downloadHTML")}
+        </span>
+      </Button>
+      <Button
+        variant="quiet"
         onClick={onCancel}
-        className="min-h-8 rounded-md px-2 py-1 text-body font-medium text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text"
+        className="group h-8 rounded-md px-2 py-1 text-body font-medium"
       >
-        {tr("chat.message.cancel")}
-      </button>
+        <span className="text-kin-muted transition-colors group-hover:text-kin-text">
+          {tr("chat.message.cancel")}
+        </span>
+      </Button>
     </div>
   );
 }
