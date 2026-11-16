@@ -1,7 +1,5 @@
 import {
-  createContext,
-  useContext,
-  useEffect,
+  useCallback,
   useId,
   useRef,
   useState,
@@ -9,9 +7,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { createPortal } from "react-dom";
 import type { AgentInfo } from "../../api/client";
-import { useAnchoredPanel } from "../../hooks/useAnchoredPanel";
 import { useMinWidth } from "../../hooks/useMinWidth";
 import { useT } from "../../i18n/react";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -31,6 +27,7 @@ import {
 } from "../../lib/permissionMode";
 import { IconCheck, IconSearch, IconX } from "../icons";
 import Sheet, { useSheetLayer } from "../mobile/Sheet";
+import Popover from "../ui/Popover";
 
 /**
  * The phone's run settings, behind one ghost face in the composer.
@@ -232,16 +229,13 @@ function RunConfigSheet({ open, onClose, ...body }: SheetProps) {
  * a reader moving between a Mac and a phone finds the settings where they
  * left them; only the container changes.
  *
- * Dismissal is the anchored-menu contract every other desktop picker uses
- * (outside tap, focus leaving, Escape), with one addition: a row's own picker
- * opens a second layer — an anchored menu, the dispatch panel, the model's
- * option list — and those are portaled out of this panel. A click inside one
- * must not read as "outside" and close the panel underneath it, so the
- * outside test also accepts the markers those layers already carry.
+ * The container is the shared `Popover`: it owns viewport anchoring, the
+ * outside pointer, Escape, Tab containment and returning focus to the face.
+ * A row's own picker opens a second `Popover` from inside this panel's React
+ * tree, so the primitive counts it as this layer's reach: a click on an option
+ * keeps the panel open, one Escape dismisses the option layer and the next the
+ * panel — including when focus is on this header.
  */
-const SECOND_LAYER_SELECTOR =
-  '[data-run-config-panel], [data-run-config-layer], [role="menu"], [role="dialog"], [data-search-panel]';
-
 function RunConfigPanel({
   open,
   onClose,
@@ -249,87 +243,26 @@ function RunConfigPanel({
   ...body
 }: SheetProps & { triggerRef: RefObject<HTMLButtonElement | null> }) {
   const tr = useT();
-  const panelRef = useRef<HTMLDivElement>(null);
-  const anchor = useAnchoredPanel(open, triggerRef, {
-    placement: "above",
-    align: "left",
-    width: 400,
-    maxWidth: 520,
-    maxHeight: 560,
-  });
-  const anchored = Boolean(anchor);
-
-  useEffect(() => {
-    if (!open) return;
-    const inside = (node: Node | null) =>
-      Boolean(
-        node &&
-        (triggerRef.current?.contains(node) ||
-          panelRef.current?.contains(node) ||
-          (node instanceof Element && node.closest(SECOND_LAYER_SELECTOR))),
-      );
-    const onPointerDown = (event: MouseEvent) => {
-      if (inside(event.target as Node)) return;
-      onClose();
-    };
-    const onFocus = (event: FocusEvent) => {
-      if (inside(event.target as Node)) return;
-      onClose();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (!inside(event.target as Node) && !inside(document.activeElement)) return;
-      // A row's own layer takes the first Escape and closes itself; the
-      // panel takes the next one. Closing both at once would skip the layer
-      // the reader is actually in.
-      if (
-        document.querySelector(
-          '[data-run-config-layer], [role="menu"], [data-search-panel], ' +
-            '[role="dialog"]:not([data-run-config-panel])',
-        )
-      ) {
-        return;
-      }
-      event.stopPropagation();
-      onClose();
-      triggerRef.current?.focus({ preventScroll: true });
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("focus", onFocus, true);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("focus", onFocus, true);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open, onClose, triggerRef]);
-
-  useEffect(() => {
-    if (!open || !anchored) return;
-    // A layer the keyboard cannot enter is a layer a hardware keyboard cannot
-    // use. Focus moves in after the anchor has been measured, because the
-    // panel does not exist on the render `open` first turns true.
-    panelRef.current?.focus({ preventScroll: true });
-  }, [open, anchored]);
-
-  if (!open || !anchor) return null;
-  return createPortal(
-    <div
-      ref={panelRef}
-      role="dialog"
-      aria-label={tr("runConfig.title")}
-      tabIndex={-1}
-      data-run-config-panel=""
-      style={{
-        left: anchor.left,
-        width: anchor.width,
-        maxHeight: anchor.maxHeight,
-        top: anchor.top,
-        bottom: anchor.bottom,
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
       }}
-      className="fixed z-50 flex flex-col overflow-hidden rounded-2xl border border-[var(--kin-hairline)] bg-kin-elevated shadow-e3 outline-none"
+      triggerRef={triggerRef}
+      label={tr("runConfig.title")}
+      placement="above"
+      align="left"
+      width={400}
+      maxWidth={520}
+      maxHeight={560}
     >
-      <div className="flex flex-none items-center justify-between border-b border-[var(--kin-hairline)] px-3 py-1.5">
+      {/* The panel is the scrollport (`overflow-y-auto`, `p-1.5`), so the
+          header sticks to its top edge while the rows scroll under it. The
+          negative margins take back the panel's own padding, so the header
+          and body keep the geometry they had before the shared layer owned
+          the box. */}
+      <div className="sticky top-0 z-10 -mx-1.5 -mt-1.5 flex items-center justify-between border-b border-[var(--kin-hairline)] bg-kin-elevated px-3 py-1.5">
         <h2 className="text-caption font-semibold text-kin-secondary">{tr("runConfig.title")}</h2>
         <button
           type="button"
@@ -343,11 +276,10 @@ function RunConfigPanel({
           <IconX size={14} />
         </button>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto kin-scroll px-3 pb-3 pt-2">
+      <div className="-mx-1.5 -mb-1.5 px-3 pb-3 pt-2">
         <RunConfigBody {...body} />
       </div>
-    </div>,
-    document.body,
+    </Popover>
   );
 }
 
@@ -384,10 +316,12 @@ function RunConfigBody({
   const [query, setQuery] = useState("");
   const [customPicked, setCustomPicked] = useState(false);
   const [modelList, setModelList] = useState<HTMLDivElement | null>(null);
-  const rowRefs = useRef<Record<RowId, HTMLButtonElement | null>>({
-    agent: null,
-    model: null,
-    permission: null,
+  // The control that opened each row, not the card: the shared popover hangs
+  // the layer from the trigger and returns focus there when it closes.
+  const rowRefs = useRef<Record<RowId, RefObject<HTMLButtonElement | null>>>({
+    agent: { current: null },
+    model: { current: null },
+    permission: { current: null },
   });
   const listId = useId();
 
@@ -415,23 +349,6 @@ function RunConfigBody({
   const agentPicker = agents && onAgentChange ? agents.filter((a) => a.available) : [];
   const modelFallback = fallbackModelLabel ?? tr("modelPicker.default");
 
-  useEffect(() => {
-    if (!openRow) return;
-    // A layer floats over the rows now, so tapping anything that is not it or
-    // the control that opened it puts it away. Tapping another row is not an
-    // "outside" tap: its trigger opens that row, and closing here first would
-    // make the tap only dismiss.
-    const onPointerDown = (event: MouseEvent) => {
-      const target = event.target as Element | null;
-      if (target?.closest("[data-run-config-layer], [data-run-config-trigger]")) return;
-      setOpenRow(null);
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-    };
-  }, [openRow]);
-
   /** First/last option in the model list, for the search field's arrow keys. */
   function focusOption(which: "first" | "last") {
     const items = modelList?.querySelectorAll<HTMLButtonElement>('[role="option"]');
@@ -446,15 +363,10 @@ function RunConfigBody({
     setQuery("");
   }
 
-  function closeRow(row: RowId) {
-    setOpenRow(null);
-    rowRefs.current[row]?.focus();
-  }
-
   function pickAgent(agentId: string) {
     onAgentChange?.(agentId);
     setOpenRow(null);
-    rowRefs.current.agent?.focus();
+    rowRefs.current.agent.current?.focus();
   }
 
   function pickModel(id: string) {
@@ -463,39 +375,24 @@ function RunConfigBody({
     onModelChange(target.value);
     if (!target.custom) {
       setOpenRow(null);
-      rowRefs.current.model?.focus();
+      rowRefs.current.model.current?.focus();
     }
   }
 
   function pickPermission(mode: PermissionMode) {
     onPermissionChange(mode);
     setOpenRow(null);
-    rowRefs.current.permission?.focus();
+    rowRefs.current.permission.current?.focus();
   }
 
   return (
-    <div
-      className="flex flex-col gap-1"
-      onKeyDown={(event) => {
-        // The sheet's own Escape trap declines to close while a listbox is
-        // open inside it (see Sheet.tsx), which leaves this layer to close the
-        // expansion first. The second Escape then closes the sheet. The layer
-        // is portaled out of this div, but React still bubbles its events
-        // through the tree, so a key pressed on an option lands here.
-        if (event.key === "Escape" && openRow) {
-          event.stopPropagation();
-          closeRow(openRow);
-        }
-      }}
-    >
+    <div className="flex flex-col gap-1">
       {agentPicker.length > 0 ? (
         <RunConfigSheetRow
           label={tr("runConfig.agent")}
           control={
             <PickerTrigger
-              triggerRef={(node) => {
-                rowRefs.current.agent = node;
-              }}
+              triggerRef={rowRefs.current.agent}
               label={tr("runConfig.agent")}
               value={agentName}
               expanded={openRow === "agent"}
@@ -513,7 +410,12 @@ function RunConfigBody({
           }
         >
           {openRow === "agent" ? (
-            <Expansion id={`${listId}-agent`}>
+            <Expansion
+              id={`${listId}-agent`}
+              label={tr("runConfig.agent")}
+              triggerRef={rowRefs.current.agent}
+              onDismiss={() => setOpenRow(null)}
+            >
               <div
                 role="listbox"
                 aria-label={tr("runConfig.agent")}
@@ -579,9 +481,7 @@ function RunConfigBody({
         label={tr("modelPicker.label")}
         control={
           <PickerTrigger
-            triggerRef={(node) => {
-              rowRefs.current.model = node;
-            }}
+            triggerRef={rowRefs.current.model}
             label={tr("modelPicker.label")}
             value={faceModelLabel(model, models, modelFallback)}
             expanded={openRow === "model"}
@@ -594,7 +494,12 @@ function RunConfigBody({
         }
       >
         {openRow === "model" ? (
-          <Expansion id={listId}>
+          <Expansion
+            id={listId}
+            label={tr("modelPicker.label")}
+            triggerRef={rowRefs.current.model}
+            onDismiss={() => setOpenRow(null)}
+          >
             {searchable ? (
               <SearchField
                 value={query}
@@ -682,9 +587,7 @@ function RunConfigBody({
           label={tr("permission.label")}
           control={
             <PickerTrigger
-              triggerRef={(node) => {
-                rowRefs.current.permission = node;
-              }}
+              triggerRef={rowRefs.current.permission}
               label={tr("permission.label")}
               value={tr(PERMISSION_MODE_LABEL_KEY[mode])}
               expanded={openRow === "permission"}
@@ -698,7 +601,12 @@ function RunConfigBody({
           }
         >
           {openRow === "permission" ? (
-            <Expansion id={`${listId}-permission`}>
+            <Expansion
+              id={`${listId}-permission`}
+              label={tr("permission.label")}
+              triggerRef={rowRefs.current.permission}
+              onDismiss={() => setOpenRow(null)}
+            >
               <div
                 role="listbox"
                 aria-label={tr("permission.label")}
@@ -802,11 +710,6 @@ function moveListFocus(event: ReactKeyboardEvent<HTMLDivElement>) {
  *  Exported so the new-chat page can build its location rows (machine,
  *  workspace, branch, dispatch, routine) with the same card chrome.
  */
-/** The card an open row's layer is measured against. A context rather than a
- *  prop: the rows are built by this module and their children are JSX written
- *  by the caller, so the ref has to travel without every row restating it. */
-const RowAnchorContext = createContext<RefObject<HTMLDivElement | null> | null>(null);
-
 export function RunConfigSheetRow({
   label,
   control,
@@ -816,19 +719,18 @@ export function RunConfigSheetRow({
   control: ReactNode;
   children?: ReactNode;
 }) {
-  const anchorRef = useRef<HTMLDivElement>(null);
   return (
     // A row's options are a layer over this card, not a block that grows it.
-    // The sheet keeps its height and the rows below keep their places while a
-    // picker is open.
-    <div ref={anchorRef} data-run-config-row>
+    // The layer hangs from the trigger inside `control`, and the sheet keeps
+    // its height and the rows below keep their places while a picker is open.
+    <div data-run-config-row>
       <div className="flex items-center gap-3 rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated px-3 py-2">
         <span className="w-20 flex-none text-caption font-semibold text-kin-secondary">
           {label}
         </span>
         <div className="min-w-0 flex-1">{control}</div>
       </div>
-      <RowAnchorContext.Provider value={anchorRef}>{children}</RowAnchorContext.Provider>
+      {children}
     </div>
   );
 }
@@ -852,7 +754,7 @@ function PickerTrigger({
   tone,
   children,
 }: {
-  triggerRef: (node: HTMLButtonElement | null) => void;
+  triggerRef: RefObject<HTMLButtonElement | null>;
   label: string;
   /** Named for assistive tech as well: the trigger hides its text behind an
    *  `aria-label`, and a row that announces only "Model" does not say what the
@@ -909,32 +811,31 @@ function PickerTrigger({
  * screen, so upward is the side with room — including for the first row, whose
  * space above is the page behind the sheet rather than the rows below it. The
  * three selectors used to disagree (the first opened downward, the other two
- * upward), which is the inconsistency issue #3 reported. `useAnchoredPanel`
+ * upward), which is the inconsistency issue #3 reported. The shared popover
  * still flips a row to the other side when the space above is genuinely gone
  * (a short window, the keyboard up), so the rule is one preference plus the
  * viewport, not a fixed side per control.
  */
-function Expansion({ id, children }: { id: string; children: ReactNode }) {
-  const anchorRef = useContext(RowAnchorContext);
-  // Viewport coordinates, and portaled out of the sheet: the sheet's body is
-  // the scrollport (`overflow-y: auto`), and an `absolute` layer opening
-  // upward lands in its unscrollable top overflow — the search field and first
-  // options were painted outside the box and could never be scrolled to. A
-  // portal also survives the sheet's slide-in transform.
-  const anchor = useAnchoredPanel(Boolean(anchorRef), anchorRef, {
-    placement: "above",
-    maxWidth: 480,
-    maxHeight: 360,
-  });
-  const layerRef = useRef<HTMLDivElement>(null);
-  const anchored = Boolean(anchor);
-  // A layer the keyboard cannot enter is a layer a hardware keyboard or
-  // VoiceOver cannot use. The focus move lives here, not on the row's state,
-  // because the layer mounts one render after the row opens — the anchor has
-  // to be measured first — and an effect keyed on `openRow` would run while
-  // there was nothing to focus.
-  useEffect(() => {
-    const layer = layerRef.current;
+function Expansion({
+  id,
+  label,
+  triggerRef,
+  onDismiss,
+  children,
+}: {
+  /** Points the row trigger's `aria-controls` at the options it opens. */
+  id: string;
+  label: string;
+  triggerRef: RefObject<HTMLButtonElement | null>;
+  onDismiss: () => void;
+  children: ReactNode;
+}) {
+  // The row's contract is that the keyboard starts on the current choice, not
+  // on the first row: the reader opened the list to change what is already
+  // selected. This ref callback runs during the commit that mounts the panel,
+  // before the shared popover's focus step, and that step leaves a panel alone
+  // when its content has already placed focus inside it.
+  const placeFocus = useCallback((layer: HTMLDivElement | null) => {
     if (!layer) return;
     const search = layer.querySelector<HTMLInputElement>("input");
     const checked = layer.querySelector<HTMLElement>(
@@ -943,26 +844,30 @@ function Expansion({ id, children }: { id: string; children: ReactNode }) {
     (search ?? checked ?? layer.querySelector<HTMLElement>('[role="option"]'))?.focus({
       preventScroll: true,
     });
-  }, [id, anchored]);
-  if (!anchor) return null;
-  return createPortal(
-    <div
-      ref={layerRef}
-      id={id}
-      data-run-config-layer
-      data-sheet-layer
-      style={{
-        left: anchor.left,
-        width: anchor.width,
-        maxHeight: anchor.maxHeight,
-        top: anchor.top,
-        bottom: anchor.bottom,
+  }, []);
+  return (
+    // The shared popover owns the viewport anchoring, the portal out of the
+    // sheet's scrollport, the outside tap, Escape and focus return. The marker
+    // wrapper stays inside the panel: `closest()` in the tests and
+    // `Sheet.tsx`'s `[data-sheet-layer]` scan both still find it.
+    <Popover
+      open
+      onOpenChange={(next) => {
+        if (!next) onDismiss();
       }}
-      className="fixed z-[60] overflow-y-auto kin-scroll rounded-lg border border-[var(--kin-hairline)] bg-kin-elevated shadow-e3"
+      triggerRef={triggerRef}
+      label={label}
+      placement="above"
+      maxWidth={480}
+      maxHeight={360}
     >
-      {children}
-    </div>,
-    document.body,
+      {/* The negative margin takes back the shared panel's own padding, so
+          the list and search field keep the edge-to-edge geometry they had
+          as their own layer. */}
+      <div ref={placeFocus} id={id} data-run-config-layer data-sheet-layer className="-m-1.5">
+        {children}
+      </div>
+    </Popover>
   );
 }
 

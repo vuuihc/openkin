@@ -3,7 +3,7 @@
 // rows stay inside the one settings surface.
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { setLocale } from "../../i18n";
 import type { AgentInfo } from "../../api/client";
@@ -374,9 +374,11 @@ describe("RunConfigControl", () => {
     // Measured from the viewport and portaled out of the sheet: an `absolute`
     // layer inside the sheet's scrollport was clipped at its top edge, where
     // no scroll could reach it, so the search field and first options painted
-    // nowhere.
-    expect(layer!.className).toContain("fixed");
-    expect(layer!.parentElement).toBe(document.body);
+    // nowhere. The positioned element is now the shared popover's dialog; the
+    // row's own marker rides inside it.
+    const panel = layer!.closest('[role="dialog"]');
+    expect(panel).toBeTruthy();
+    expect(panel!.parentElement).toBe(document.body);
     expect(dialog.contains(layer)).toBe(false);
     expect(screen.getByRole("dialog", { name: "Run settings" })).toBe(dialog);
     // The row below is the same node in the same sheet, not a re-render moved
@@ -398,8 +400,9 @@ describe("RunConfigControl", () => {
 
     const layer = screen.getByRole("listbox", { name: "Agent" }).closest("[data-run-config-layer]");
     expect(layer).toBeTruthy();
-    expect(layer!.className).toContain("fixed");
-    expect(layer!.parentElement).toBe(document.body);
+    const panel = layer!.closest('[role="dialog"]');
+    expect(panel).toBeTruthy();
+    expect(panel!.parentElement).toBe(document.body);
   });
 
   it("closes the layer on a tap outside it, leaving the sheet open", async () => {
@@ -434,8 +437,13 @@ describe("RunConfigControl", () => {
       y: 300,
       toJSON: () => ({}),
     } as DOMRect;
+    // The shared popover anchors to the control that opened the layer, so the
+    // trigger's measurement is what decides the side. The row is stubbed too:
+    // the three rows are still the cards the layer is about.
     const stubRows = () => {
-      for (const row of document.querySelectorAll<HTMLElement>("[data-run-config-row]")) {
+      for (const row of document.querySelectorAll<HTMLElement>(
+        "[data-run-config-row], [data-run-config-trigger]",
+      )) {
         row.getBoundingClientRect = () => rect;
       }
     };
@@ -455,10 +463,12 @@ describe("RunConfigControl", () => {
       const layer = document.querySelector<HTMLElement>("[data-run-config-layer]");
       expect(layer).toBeTruthy();
       // Upward: measured from the bottom, and no `top` on the same element.
-      expect(layer!.style.bottom).not.toBe("");
-      expect(layer!.style.top).toBe("");
-      const left = Number.parseFloat(layer!.style.left);
-      const width = Number.parseFloat(layer!.style.width);
+      const panel = layer!.closest<HTMLElement>('[role="dialog"]');
+      expect(panel).toBeTruthy();
+      expect(panel!.style.bottom).not.toBe("");
+      expect(panel!.style.top).toBe("");
+      const left = Number.parseFloat(panel!.style.left);
+      const width = Number.parseFloat(panel!.style.width);
       expect(left).toBeGreaterThanOrEqual(8);
       expect(left + width).toBeLessThanOrEqual(390 - 8);
     }
@@ -481,7 +491,9 @@ describe("RunConfigControl on a wide screen", () => {
     const panel = await openSheet();
     // The scrim is the sheet's own shape; the panel has none.
     expect(document.querySelector(".kin-scrim-enter")).toBeNull();
-    expect(document.querySelector("[data-run-config-panel]")).toBeTruthy();
+    // The panel is the shared popover's dialog, and it is the only one.
+    expect(panel.getAttribute("aria-label")).toBe("Run settings");
+    expect(panel.parentElement).toBe(document.body);
     // Scoped to the panel: the face behind it now names the same agent.
     expect(within(panel).getByText("Claude Code")).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Model/ })).toBeTruthy();
@@ -520,5 +532,50 @@ describe("RunConfigControl on a wide screen", () => {
 
     expect(screen.queryByRole("dialog", { name: "Run settings" })).toBeNull();
     expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Run settings/ }));
+  });
+
+  it("gives Escape to an open row layer even when focus is on the panel header", async () => {
+    setup();
+    const panel = await openSheet();
+    const trigger = screen.getByRole("button", { name: /^Model/ });
+    await userEvent.click(trigger);
+    expect(screen.getByRole("listbox", { name: "Model" })).toBeTruthy();
+
+    // The layer the reader opened last is the one Escape belongs to, wherever
+    // the caret sits. Focus moved to the header, whose handler is outside the
+    // option panel's subtree; the shared layer registry still sees the option
+    // panel as the topmost one open.
+    within(panel).getByRole("button", { name: "Close" }).focus();
+    await userEvent.keyboard("{Escape}");
+
+    expect(screen.queryByRole("listbox", { name: "Model" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Run settings" })).toBe(panel);
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("ignores an Escape that belongs to an IME composition", async () => {
+    setup();
+    const panel = await openSheet();
+
+    // No preventDefault: the key belongs to the composition the reader is in
+    // the middle of typing, so the layer must not read it as a dismissal.
+    const notPrevented = fireEvent.keyDown(panel, { key: "Escape", isComposing: true });
+
+    expect(notPrevented).toBe(true);
+    expect(screen.getByRole("dialog", { name: "Run settings" })).toBe(panel);
+  });
+
+  it("keeps Tab inside the panel instead of closing it when focus leaves the last control", async () => {
+    setup();
+    const panel = await openSheet();
+    const last = within(panel).getByRole("button", { name: /^Permissions/ });
+    last.focus();
+
+    await userEvent.tab();
+
+    // Wraps to the panel's first control instead of walking out to the page,
+    // which the old focus-left-the-panel rule read as "close".
+    expect(panel.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).toBe(within(panel).getByRole("button", { name: "Close" }));
   });
 });
