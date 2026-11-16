@@ -184,7 +184,12 @@ export default function ChatStream({
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
   // Rebuild when locale changes (tool summaries use t()).
   const items = useMemo(() => {
-    const built = mergeProcessRuns(buildChatItems(events, hostSpeaker, hostModel, !loading));
+    // While the turn runs, the projection keeps its notes as body text and its
+    // tools in a card; a settled turn folds into one row as it always has.
+    const built = mergeProcessRuns(
+      buildChatItems(events, hostSpeaker, hostModel, !loading),
+      loading,
+    );
     if (!pendingUserMessages || pendingUserMessages.length === 0) return built;
     // Appended after the projection rather than passed into it: these messages
     // have no event, so they start no round and carry no seq. What they do have
@@ -738,12 +743,49 @@ function AgentTurn({
                 />
               );
             case "progress": {
+              // A live turn's notes are body text: the reader is following what
+              // the agent thinks and says, not reading a summary of work already
+              // done. The tools keep their card. Only the run still in progress
+              // is split, and only its notes carry `prose`; an earlier round's
+              // notes stay folded in that round's card. A subagent's note is a
+              // top-level step, not a child of the tool row that spawned it, so
+              // it arrives here too — rendered as body prose with attribution.
+              // Nothing here can pull a nested row out: only ToolSteps nest.
+              // Settled turns keep their card even when it held only notes: the
+              // split is the running presentation, not a new settled shape.
+              if (
+                item.prose === true &&
+                item.steps.length > 0 &&
+                item.steps.every((step) => step.kind === "note")
+              ) {
+                return (
+                  <Fragment key={item.key}>
+                    {item.steps.map((step) => (
+                      <NoteStepRow
+                        key={step.key}
+                        note={step}
+                        index={1}
+                        hostSpeaker={hostSpeaker}
+                        findActive={step.key === activeFindKey}
+                        showIndex={false}
+                      />
+                    ))}
+                  </Fragment>
+                );
+              }
               return (
                 <ProgressCard
                   key={item.key}
                   item={item}
                   hostSpeaker={hostSpeaker}
-                  running={isProgressCardRunning(allItems, item, loading)}
+                  // Only the live run's card can be followed by notes; an
+                  // earlier round's unresolved call must not breathe through
+                  // the rest of the task.
+                  running={
+                    isProgressCardRunning(allItems, item, loading) ||
+                    (item.live === true &&
+                      item.steps.some((step) => step.kind === "tool" && step.status === "running"))
+                  }
                   onOpenPath={onOpenPath}
                   activeFindKey={activeFindKey}
                 />
@@ -1243,6 +1285,7 @@ function NoteStepRow({
   index,
   hostSpeaker,
   findActive = false,
+  showIndex = true,
 }: {
   note: NoteStep;
   index: number;
@@ -1250,6 +1293,8 @@ function NoteStepRow({
   hostSpeaker: string;
   /** The note the find bar is pointing at. */
   findActive?: boolean;
+  /** A step of a numbered card; body prose has no step list to number. */
+  showIndex?: boolean;
 }) {
   const tr = useT();
   const statusDot =
@@ -1276,13 +1321,17 @@ function NoteStepRow({
         findActive ? "ring-2 ring-kin-blue/45" : "",
       ].join(" ")}
     >
-      <span
-        aria-hidden="true"
-        className="flex-none w-5 text-caption tabular-nums text-kin-muted pt-0.5"
-      >
-        {index}
-      </span>
-      <span className="sr-only">{tr("chat.progress.step", { n: index })}</span>
+      {showIndex && (
+        <>
+          <span
+            aria-hidden="true"
+            className="flex-none w-5 text-caption tabular-nums text-kin-muted pt-0.5"
+          >
+            {index}
+          </span>
+          <span className="sr-only">{tr("chat.progress.step", { n: index })}</span>
+        </>
+      )}
       <span className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-none ${statusDot}`} />
       <span className="font-mono text-caption text-kin-muted flex-none pt-px">{label}</span>
       {attribution && (
