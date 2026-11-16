@@ -23,10 +23,11 @@ const MODE_LABEL_KEY: Record<string, string> = {
  * everything about a project.
  *
  * The frame is the one Routines and Chats use: the page is the only scroll
- * body, the title sits in its own `hidden md:block` block, and the rows are
+ * body, the title is the page's own `h1` at every width, and the rows are
  * full-width drill-in links on the page surface — not a phone card stranded in
- * a desktop column. The phone needs no second title because the shell's
- * `MobileHeader` already names the area at that width.
+ * a desktop column. The shell bar carries an area title only for `/agents` and
+ * `/routines`; on `/projects` it names the app, so this heading has to stay
+ * visible at phone width instead of hiding below `md`.
  *
  * Empty, loading and failed are three different answers and are drawn as such.
  * "No projects yet" over a failed read would be a lie about the reader's data.
@@ -53,11 +54,9 @@ export default function ProjectsCollectionPage() {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden kin-scroll">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-3 px-4 py-6 md:px-6">
-        {/* The shell's `MobileHeader` names the area at phone width; this block
-            is the desktop page heading, and the only `h1` either way. */}
-        <div className="hidden md:block">
-          <h1 className="text-hero font-bold tracking-tight text-kin-text">{tr("nav.projects")}</h1>
-        </div>
+        {/* The only `h1`, and visible at every width: the shell bar says "Kin"
+            on `/projects`, so hiding this below `md` would leave no title. */}
+        <h1 className="text-hero font-bold tracking-tight text-kin-text">{tr("nav.projects")}</h1>
         {failed ? (
           // Visible text without a new live region: the inventory ratchet is flat
           // for this slice. The failure is still distinct from the empty state.

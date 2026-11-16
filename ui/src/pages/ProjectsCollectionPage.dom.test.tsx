@@ -11,8 +11,10 @@ import ProjectsCollectionPage from "./ProjectsCollectionPage";
  * one page frame, one title, full-width drill-in rows, and the same three
  * answers (loading / empty / failed) in the same place.
  *
- * jsdom cannot see a media query, so "the shell bar owns the title at 390" is
- * held by the header block's `hidden md:block` contract rather than by a width.
+ * Unlike those two roots, the shell bar does not carry an area title on
+ * `/projects` (it says only "Kin"), so the page's `h1` is the screen's title at
+ * every width. jsdom cannot see a media query, so that is held by asserting the
+ * heading carries no `hidden` class rather than by a viewport width.
  */
 
 const fixtures = vi.hoisted(() => ({
@@ -67,18 +69,15 @@ beforeEach(() => {
 });
 
 describe("the projects collection", () => {
-  it("names the area once at phone width", async () => {
+  it("names the area once at every width", async () => {
     fixtures.projects = [PROJECT];
     renderPage();
 
     const heading = await screen.findByRole("heading", { level: 1, name: "Projects" });
-    // One `h1` in the page. At 390 the shell's `MobileHeader` already names the
-    // area, so this one lives in the header block the phone hides; at 1100 the
-    // block is what the page shows.
+    // One `h1`, and it is not hidden at phone width: the shell bar says only
+    // "Kin" on `/projects`, so this heading is the screen's only title.
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
-    const header = heading.parentElement;
-    expect(header?.className).toContain("hidden");
-    expect(header?.className).toContain("md:block");
+    expect(heading.closest(".hidden")).toBeNull();
     expect(heading.className).toContain("text-hero");
   });
 
