@@ -53,7 +53,7 @@ describe("the composer's run-config face", () => {
 
   it("keeps the session page's desktop strip opposite the phone face", () => {
     const classes = classesBefore(
-      read("src/pages/TaskDetailPage.tsx"),
+      read("src/components/task/TaskComposerDock.tsx"),
       "<PermissionModePicker",
       "div",
     );
