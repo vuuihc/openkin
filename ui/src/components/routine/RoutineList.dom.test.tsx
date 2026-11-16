@@ -145,4 +145,87 @@ describe("RoutineList", () => {
     fireEvent.click(screen.getByRole("button", { name: t("routines.loadMore") }));
     expect(onLoadMore).toHaveBeenCalledTimes(1);
   });
+
+  it("puts every routine list action on the shared button facade", () => {
+    const actions = setup({ routines: [morning], hasMore: true });
+    const facade = (name: string, variant: string) => {
+      const el = screen.getByRole("button", { name }) as HTMLButtonElement;
+      expect(el.classList.contains("kin-btn")).toBe(true);
+      expect(el.classList.contains(variant)).toBe(true);
+      return el;
+    };
+    facade(t("routines.runNow"), "kin-btn-secondary");
+    facade(t("routines.editRoutine", { title: morning.title }), "kin-btn-secondary");
+    facade(t("routines.pause"), "kin-btn-secondary");
+    facade(t("routines.loadMore"), "kin-btn-secondary");
+    // Delete is quiet with red ink: no fill, no border weight of its own.
+    // It must not also carry the quiet variant's `text-kin-text`: both are
+    // utilities, and the one emitted later in the shipped CSS wins, so the
+    // presence of both would render the destructive action in body colour.
+    const del = screen.getByRole("button", { name: t("routines.delete") });
+    expect(del.classList.contains("kin-btn")).toBe(true);
+    expect(del.classList.contains("text-kin-red-ink")).toBe(true);
+    expect(del.classList.contains("text-kin-text")).toBe(false);
+    expect(del.classList.contains("kin-btn-primary")).toBe(false);
+    expect(del.classList.contains("kin-btn-secondary")).toBe(false);
+    actions.unmount();
+
+    // With no routines, the empty state's create is the one filled action.
+    setup({ routines: [] });
+    const create = screen.getByRole("button", { name: t("routines.createEntry") });
+    expect(create.classList.contains("kin-btn")).toBe(true);
+    expect(create.classList.contains("kin-btn-primary")).toBe(true);
+  });
+
+  it("keeps the row select a labelled pressed control", () => {
+    // The full-row select is a bare hit area, not a facade control. It is never
+    // disabled by busy/creating/offline state; only a click on a routine.
+    const { onSelect } = setup({
+      selectedId: morning.id,
+      busy: { [morning.id]: true },
+      creating: true,
+      machineOffline: true,
+    });
+    const name = t("routines.showRuns", { title: morning.title });
+    const select = screen.getByRole("button", { name }) as HTMLButtonElement;
+    expect(select.getAttribute("aria-pressed")).toBe("true");
+    expect(select.getAttribute("aria-label")).toBe(name);
+    expect(select.disabled).toBe(false);
+    fireEvent.click(select);
+    expect(onSelect).toHaveBeenCalledWith(morning);
+  });
+
+  it("keeps busy, creating and offline disabling every row action", () => {
+    const rowActions = () => [
+      t("routines.runNow"),
+      t("routines.editRoutine", { title: morning.title }),
+      t("routines.pause"),
+      t("routines.delete"),
+    ];
+    const matrix = (
+      props: Partial<RoutineListProps>,
+      rowsDisabled: boolean,
+      loadMoreDisabled: boolean,
+    ) => {
+      const view = setup({ routines: [morning], hasMore: true, ...props });
+      for (const name of rowActions()) {
+        expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(
+          rowsDisabled,
+        );
+      }
+      // The label flips while the next page is loading, so match the one on
+      // screen for this state.
+      const loadMore = screen.getByRole("button", {
+        name: props.loadingMore ? t("tree.loadingMore") : t("routines.loadMore"),
+      }) as HTMLButtonElement;
+      expect(loadMore.disabled).toBe(loadMoreDisabled);
+      view.unmount();
+    };
+    matrix({}, false, false);
+    matrix({ busy: { [morning.id]: true } }, true, false);
+    matrix({ creating: true }, true, false);
+    matrix({ machineOffline: true }, true, false);
+    // Load more answers only to its own loading state.
+    matrix({ loadingMore: true }, false, true);
+  });
 });
