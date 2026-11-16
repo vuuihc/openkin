@@ -34,23 +34,29 @@ if [ "$CMD" = autofill ]; then
     [ "$SCOPE" = rest ] && [ "$is_astryx" = 1 ] && continue
     # skip if some lane already works on it
     python3 "$LANES_PY" slugs | grep -qx "$slug" && continue
-    idle="$(python3 "$LANES_PY" idle | head -1)"; [ -z "$idle" ] && { echo "no idle lane for rework $slug"; break; }
+    idle="$(python3 "$LANES_PY" idle --ignore-pressure | head -1)"; [ -z "$idle" ] && { echo "no idle lane for rework $slug"; break; }
     br="rsi/$slug"; $GIT -C "$RSI_CTRL" fetch -q origin "$br" 2>/dev/null
-    paths="$($GIT -C "$RSI_CTRL" diff --name-only "origin/main...origin/$br" 2>/dev/null | grep -vx "web/dist/index.html" | head -40)"
+    paths="$($GIT -C "$RSI_CTRL" -c core.fileMode=false diff --no-renames --raw "origin/main...origin/$br" 2>/dev/null | awk '$3 != $4 {sub(/^[^\t]*\t/, ""); print}' | grep -vx "web/dist/index.html" | head -40)"
     [ -z "$paths" ] && { echo "rework $slug: no diff vs main, skipping"; continue; }
+    paths_arr=()
+    while IFS= read -r _p; do
+      [ -n "$_p" ] && paths_arr+=("$_p")
+    done <<< "$paths"
+    [ "${#paths_arr[@]}" -gt 0 ] || { echo "rework $slug: no paths, skipping"; continue; }
     item="$(sed -n 's/^item: *//p' "$sb" | head -1)"; item="${item:-R-$slug}"
-    # shellcheck disable=SC2086
-    python3 "$LANES_PY" claim "$idle" --slug "$slug" --item "$item" --brief "$sb" --mode rework --paths $paths && launch "$idle"
+    python3 "$LANES_PY" claim "$idle" --slug "$slug" --item "$item" --brief "$sb" --mode rework --paths "${paths_arr[@]}" && launch "$idle"
   done
   exit 0
 fi
 
 [ "$CMD" = run ] && [ -n "$N" ] || { echo "usage: lane.sh run <n> | start-claimed | autofill"; exit 2; }
 rsi_allow_workers || { echo "volc budget: deferring lane $N until next Asia/Singapore day"; exit 0; }
-if ! python3 "$LANES_PY" host-ok; then echo "host pressure: deferring lane $N"; exit 0; fi
 eval "$(python3 "$LANES_PY" get "$N")"
 [ "$L_STATUS" = claimed ] || { echo "lane $N not in claimed state ($L_STATUS)"; exit 0; }
 SLUG="$L_SLUG"; ITEM="$L_ITEM"; BRIEF="$L_BRIEF"; MODE="$L_MODE"
+# Host pressure defers NEW work only: a targeted rework runs 2-11 minutes and swap-free never recovers
+# on its own (macOS keeps swapped pages), so gating reworks starves the queue forever (2026-11-16).
+if [ "$MODE" != rework ] && ! python3 "$LANES_PY" host-ok; then echo "host pressure: deferring lane $N"; exit 0; fi
 LK="$STATE/lanes/$N.lock"
 if ! mkdir "$LK" 2>/dev/null; then
   old="$(cat "$LK/pid" 2>/dev/null || true)"

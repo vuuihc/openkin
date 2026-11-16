@@ -183,13 +183,18 @@ export default {
       // the table scrolls instead of crushing its columns, and it is spent on a
       // wrapper rather than on the column itself.
       width: {
-        sidebar: "248px",
+        // The Mac shell's left edge: the four-area rail, its icon width, and
+        // the conversation list column beside it. The rail is labelled where
+        // there is room and compact otherwise (see `AreaNav.railCompact`).
+        rail: "208px",
+        "rail-compact": "64px",
+        list: "304px",
         // The task page's session rail: usage and diffs, floating over the chat
         // rather than squeezing it, and only where there is room for it
         // (≥1600px). It is not `max-w-inspector`, which reads like the same
         // thing and is not — that step caps the cwd tag in the composer strip,
         // a path that gives way rather than a rail.
-        rail: "300px",
+        "inspector-rail": "300px",
         // A floating panel on a phone: 20rem of content, never wider than the
         // screen inside the margins it is anchored by.
         popover: "min(20rem, calc(100vw - 2rem))",
@@ -214,6 +219,11 @@ export default {
         // rather than tuned. The one-off caps — a chip's 220, a label's 160, a
         // select's 260 — stay literals, because nothing else has to match them.
         path: "280px",
+        // The floating approval's task-title cap. A text cap, not a column —
+        // but 13rem is also the rail's width, and a value the ladder names may
+        // only be spelled as its name. Naming it says *why* it is a step; the
+        // alternative the guard leaves is changing the label's geometry.
+        "approval-title": "13rem",
       },
       minWidth: {
         // A page's data table, a table inside a prose body, and one cell. The
