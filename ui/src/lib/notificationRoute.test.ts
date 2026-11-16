@@ -90,6 +90,42 @@ describe("parseNotificationRoute", () => {
   });
 });
 
+describe("notification destinations and the area table", () => {
+  // N2: the area table, not a second hand-kept path list, decides what the
+  // console knows. A settings section is a destination it owns, so a link that
+  // names one is a route rather than an unknown path.
+  it("resolves a settings tab link through the area table", () => {
+    expect(parseNotificationRoute("/settings?tab=operations", ORIGIN)).toEqual({
+      path: "/settings?tab=operations",
+      focus: null,
+      fallback: false,
+    });
+    expect(parseNotificationRoute("/settings?tab=routing", ORIGIN).path).toBe(
+      "/settings?tab=routing",
+    );
+    // General is the settings root, and a retired section cannot reappear: the
+    // tab is normalized by the same function the settings page uses.
+    expect(parseNotificationRoute("/settings?tab=general", ORIGIN).path).toBe("/settings");
+    expect(parseNotificationRoute("/settings?tab=remote", ORIGIN).path).toBe("/settings");
+  });
+
+  // The header rule still holds: a path is parsed and checked, never trusted.
+  it("still refuses a path the area table does not own", () => {
+    for (const href of [
+      "/admin/delete?focus=a1",
+      "/projectss",
+      "/settings/operations",
+      "https://evil.example/admin/delete",
+    ]) {
+      expect(parseNotificationRoute(href, ORIGIN)).toEqual({
+        path: "/inbox",
+        focus: null,
+        fallback: true,
+      });
+    }
+  });
+});
+
 describe("consumeNotificationRoute", () => {
   it("consumes a cold-start link exactly once", () => {
     queueNotificationRoute("/inbox?focus=a1");

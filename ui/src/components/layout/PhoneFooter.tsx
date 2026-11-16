@@ -1,20 +1,35 @@
+import { useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { usePendingResources } from "../../api/useLiveResources";
 import { placeById } from "../../lib/places";
 import { useT } from "../../i18n/react";
 import { rememberPlaceReturn } from "../../lib/placeReturn";
 import { onGuardedLinkClick, PHONE_TAB_IDS, returnListUrl } from "../../lib/phoneNavigation";
+import { pendingCountsByTask } from "../../lib/pendingCounts";
 import { PLACE_ICONS } from "../placeIcons";
+import PendingBadge from "../ui/PendingBadge";
 
 const TABS = PHONE_TAB_IDS.map((id) => placeById(id));
 
 /**
  * Shared phone navigation, on all four roots and through all their states.
  * Archive remains a filter under Chats, rather than taking its place.
+ *
+ * Chats carries how many things wait on the reader, summed over conversations:
+ * the tab is the one entry to the list, and "3 waiting" is the fact a person
+ * would otherwise have to open the list to learn. The count is a mark inside
+ * the link, never a second control, and the tap target stays the whole row.
  */
 export default function PhoneFooter() {
   const tr = useT();
   const location = useLocation();
   const navigate = useNavigate();
+  const pending = usePendingResources();
+  const waiting = useMemo(() => {
+    let total = 0;
+    for (const count of pendingCountsByTask(pending.data).values()) total += count;
+    return total;
+  }, [pending.data]);
 
   return (
     <nav
@@ -46,7 +61,12 @@ export default function PhoneFooter() {
                   : "text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text",
               ].join(" ")}
             >
-              <Icon size={20} />
+              <span className="relative inline-flex">
+                <Icon size={20} />
+                {place.id === "sessions" && (
+                  <PendingBadge count={waiting} className="absolute -right-1 -top-0.5" />
+                )}
+              </span>
               <span className="max-w-full truncate">{tr(place.labelKey)}</span>
             </Link>
           );
