@@ -178,8 +178,7 @@ export default function RoutineList({
                     </Button>
                     {/* Quiet with red ink: destructive, not a peer of Run now. */}
                     <Button
-                      variant="quiet"
-                      className="text-kin-red-ink"
+                      variant="quiet-danger"
                       disabled={!!busy[r.id] || creating || machineOffline}
                       onClick={() => onDelete(r)}
                     >

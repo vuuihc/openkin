@@ -159,9 +159,13 @@ describe("RoutineList", () => {
     facade(t("routines.pause"), "kin-btn-secondary");
     facade(t("routines.loadMore"), "kin-btn-secondary");
     // Delete is quiet with red ink: no fill, no border weight of its own.
+    // It must not also carry the quiet variant's `text-kin-text`: both are
+    // utilities, and the one emitted later in the shipped CSS wins, so the
+    // presence of both would render the destructive action in body colour.
     const del = screen.getByRole("button", { name: t("routines.delete") });
     expect(del.classList.contains("kin-btn")).toBe(true);
     expect(del.classList.contains("text-kin-red-ink")).toBe(true);
+    expect(del.classList.contains("text-kin-text")).toBe(false);
     expect(del.classList.contains("kin-btn-primary")).toBe(false);
     expect(del.classList.contains("kin-btn-secondary")).toBe(false);
     actions.unmount();
