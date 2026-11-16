@@ -524,7 +524,36 @@ describe("the draft (KIN-START-001)", () => {
     expect(toggle.getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("the routine toggle stays a 26px pressed toggle", async () => {
+  it("gives the routine toggle a 44px phone tap target", async () => {
+    setWideScreen(false);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("button", { name: "Device & project: This machine · alpha" });
+    await user.click(screen.getByRole("button", { name: /^Run settings/ }));
+
+    // The walk measures the button's own box at 390px: the 44px floor has to
+    // be on the control, not a wrapper or a pseudo-element. jsdom has no
+    // layout, so the class contract is pinned here and the geometry by the
+    // journey walk; from `sm` up the 26px face comes back.
+    const sheet = await screen.findByRole("dialog", { name: "Run settings" });
+    const toggle = within(sheet).getByRole<HTMLButtonElement>("button", {
+      name: "Save as routine",
+    });
+    expect(toggle.classList.contains("h-11")).toBe(true);
+    expect(toggle.classList.contains("w-11")).toBe(true);
+    expect(toggle.classList.contains("min-h-11!")).toBe(true);
+    expect(toggle.classList.contains("min-w-11")).toBe(true);
+    expect(toggle.classList.contains("sm:h-[26px]")).toBe(true);
+    expect(toggle.classList.contains("sm:w-[26px]")).toBe(true);
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+
+    // Still a toggle on the same sheet, not a navigation or a second layer.
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("dialog", { name: "Run settings" })).toBe(sheet);
+  });
+
+  it("keeps the routine toggle's compact face from sm up", async () => {
     client.createTask.mockImplementation(() => new Promise<Task>(() => {}));
     const user = userEvent.setup();
     renderPage();
@@ -538,9 +567,12 @@ describe("the draft (KIN-START-001)", () => {
       name: "Save as routine",
     });
     expect(toggle.getAttribute("aria-pressed")).toBe("false");
-    expect(toggle.classList.contains("h-[26px]")).toBe(true);
-    expect(toggle.classList.contains("w-[26px]")).toBe(true);
-    expect(toggle.classList.contains("min-h-0!")).toBe(true);
+    // Phone grows to the sheet's 44px touch floor; `sm:` restores the 26px
+    // face the composer row was built around.
+    expect(toggle.classList.contains("sm:h-[26px]")).toBe(true);
+    expect(toggle.classList.contains("sm:w-[26px]")).toBe(true);
+    expect(toggle.classList.contains("sm:min-h-0!")).toBe(true);
+    expect(toggle.classList.contains("sm:min-w-0")).toBe(true);
     expect(toggle.classList.contains("rounded-full")).toBe(true);
 
     await user.click(toggle);
