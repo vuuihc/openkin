@@ -86,6 +86,42 @@ describe("SettingsLayout", () => {
   });
 });
 
+describe("SettingsLayout content column", () => {
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  function contentColumn(activeTab: "operations" | "advanced") {
+    const laidOut: SettingsTabItem[] = [
+      ...tabs,
+      { id: "operations", label: "Operations", description: "Operations settings" },
+      { id: "advanced", label: "Advanced", description: "Advanced settings" },
+    ];
+    const { unmount } = render(
+      createElement(SettingsLayout, {
+        title: "Settings",
+        tabs: laidOut,
+        activeTab,
+        onTabChange: () => undefined,
+        children: createElement("div", { id: "content-probe" }, "panel"),
+      }),
+    );
+    const column = document.getElementById("content-probe")?.parentElement as HTMLElement;
+    unmount();
+    return column;
+  }
+
+  it("keeps Operations on the wide column and caps every other tab", () => {
+    // Operations carries a 980px usage table; capping its column at the 620px
+    // reading width made that table scroll sideways at 1100px.
+    const operations = contentColumn("operations");
+    expect(operations.className).not.toContain("md:max-w-[620px]");
+    expect(operations.className).toContain("flex-1");
+
+    expect(contentColumn("advanced").className).toContain("md:max-w-[620px]");
+  });
+});
+
 describe("offscreenEdges", () => {
   it("fades nothing when every tab fits", () => {
     expect(offscreenEdges(0, 700, 700)).toEqual({ start: false, end: false });

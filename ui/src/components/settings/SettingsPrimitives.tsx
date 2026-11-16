@@ -145,7 +145,9 @@ export function SettingsLayout({
       >
         {/* A Mac gets the shell's two-column shape: the section list is a fixed
             224px column and the form is a 620px reading column beside it. A
-            phone keeps the directory-then-page shape below `md`. */}
+            phone keeps the directory-then-page shape below `md`. Operations is
+            the exception: its usage table needs the page-wide column, so the
+            reading cap applies to every other tab only. */}
         <div className="flex flex-col gap-5 md:flex-row md:gap-10">
           <div className="md:w-56 md:shrink-0">
             <div className="space-y-1">
@@ -194,7 +196,12 @@ export function SettingsLayout({
               })}
             </div>
           </div>
-          <div className="flex min-w-0 flex-1 flex-col gap-5 md:max-w-[620px]">
+          <div
+            className={classes(
+              "flex min-w-0 flex-1 flex-col gap-5",
+              activeTab === "operations" ? null : "md:max-w-[620px]",
+            )}
+          >
             {/* A phone does not get a section column: the first screen keeps
                 General, and the rest is a list under it — the iOS settings
                 shape, where the home screen is a directory and each entry is a
@@ -267,22 +274,34 @@ export function SettingsSection({
   title,
   description,
   action,
+  titleId,
+  descriptionId,
   children,
 }: {
   title: string;
   description?: ReactNode;
   action?: ReactNode;
+  /** Id the heading carries, so a field in this group can point at it with
+   *  `aria-labelledby` and be named by the group it belongs to. */
+  titleId?: string;
+  /** Id the description carries, for the same reason with `aria-describedby`. */
+  descriptionId?: string;
   children: ReactNode;
 }) {
   return (
     <section className="rounded-xl bg-kin-elevated/60 p-4 space-y-4 max-md:kin-card max-md:rounded-2xl max-md:bg-kin-panel">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 space-y-1">
-          <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted max-md:text-subtitle max-md:font-semibold max-md:normal-case max-md:tracking-normal max-md:text-kin-text">
+          <h2
+            id={titleId}
+            className="text-caption font-semibold uppercase tracking-label text-kin-muted max-md:text-subtitle max-md:font-semibold max-md:normal-case max-md:tracking-normal max-md:text-kin-text"
+          >
             {title}
           </h2>
           {description ? (
-            <p className="text-body leading-prose text-kin-secondary">{description}</p>
+            <p id={descriptionId} className="text-body leading-prose text-kin-secondary">
+              {description}
+            </p>
           ) : null}
         </div>
         {action ? <div className="shrink-0">{action}</div> : null}

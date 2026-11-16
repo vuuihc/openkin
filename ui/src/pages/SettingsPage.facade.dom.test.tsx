@@ -12,8 +12,9 @@ import SettingsPage from "./SettingsPage";
 
 /**
  * E1: the general tab's actions belong to the shared `Button` facade, its
- * groups to `SettingsSection` / `SettingsRow`, and each group owns a
- * `role="alert"` error line.
+ * groups to `SettingsSection` / `SettingsRow`, and each group owns its own
+ * error line (an assertive live region, so the page banner is not repeated in
+ * every group).
  *
  * The facade is a behaviour contract as much as a class contract: the click,
  * the disabled state and the accessible name have to survive the migration. A
@@ -273,10 +274,46 @@ describe("the general tab on the button facade", () => {
     vi.mocked(updateSettings).mockRejectedValueOnce(new Error("boom"));
     await user.click(screen.getByRole("button", { name: "Save rate-limit policy" }));
 
-    const routing = panel("routing");
-    await waitFor(() => {
-      const alerts = Array.from(routing.querySelectorAll('[role="alert"]'));
-      expect(alerts.some((node) => node.textContent?.includes("boom"))).toBe(true);
-    });
+    await waitFor(() =>
+      expect(document.getElementById("settings-limit-policy-error")?.textContent).toContain("boom"),
+    );
+  });
+
+  it("names both JSON fields and keeps a validation error in its own group", async () => {
+    const user = userEvent.setup();
+    pageOnly("/settings?tab=advanced");
+    await screen.findByRole("tab", { name: "Advanced" });
+
+    for (const name of ["Price table", "Agent usage limits"]) {
+      const field = screen.getByRole("textbox", { name });
+      const describedBy = field.getAttribute("aria-describedby");
+      expect(describedBy).toBeTruthy();
+      expect(
+        document.getElementById((describedBy as string).split(" ")[0])?.textContent,
+      ).toBeTruthy();
+    }
+
+    const price = screen.getByRole("textbox", { name: "Price table" });
+    fireEvent.change(price, { target: { value: "{not json" } });
+    await user.click(screen.getByRole("button", { name: "Save price table" }));
+
+    // The failure lands in the price group only: the limits group keeps its
+    // own line empty and the shared page banner does not repeat it.
+    await waitFor(() =>
+      expect(group("Price table").textContent).toContain("price_table must be valid JSON"),
+    );
+    expect(group("Agent usage limits").textContent).not.toContain("must be valid JSON");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(vi.mocked(updateSettings)).not.toHaveBeenCalled();
+
+    // A request failure is reported under the button that was pressed, not in
+    // the sibling group that shares the save.
+    fireEvent.change(price, { target: { value: "{}" } });
+    vi.mocked(updateSettings).mockRejectedValueOnce(new Error("boom"));
+    await user.click(screen.getByRole("button", { name: "Save limits" }));
+
+    await waitFor(() => expect(group("Agent usage limits").textContent).toContain("boom"));
+    expect(group("Price table").textContent).not.toContain("boom");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

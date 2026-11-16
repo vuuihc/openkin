@@ -172,6 +172,13 @@ export default function SettingsPage() {
   const [agentList, setAgentList] = useState<AgentInfo[]>([]);
   const [agentProviders, setAgentProviders] = useState<AgentProvider[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // One error line per general-tab group. A failure belongs under the Save
+  // button whose group caused it, not on every group and the page banner at
+  // once; the shared `error` above stays for the page-level failures (load,
+  // import, provider) that are not tied to one group.
+  const [priceError, setPriceError] = useState<string | null>(null);
+  const [agentLimitsError, setAgentLimitsError] = useState<string | null>(null);
+  const [limitPolicyError, setLimitPolicyError] = useState<string | null>(null);
   const [reveal, setReveal] = useState(false);
   const [busy, setBusy] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => getThemeMode());
@@ -351,14 +358,23 @@ export default function SettingsPage() {
     void load(true);
   }, [reconnectGen, load]);
 
-  const save = async () => {
+  /**
+   * Save the shared settings form. `scope` is the group whose Save button was
+   * pressed: a request failure is rendered under that button. Validation
+   * failures are routed by the field that failed instead — bad price JSON is a
+   * price-table problem even when Save was pressed in the limits group.
+   */
+  const save = async (scope?: "price" | "agentLimits" | "limitPolicy") => {
     setBusy(true);
     setError(null);
+    setPriceError(null);
+    setAgentLimitsError(null);
+    setLimitPolicyError(null);
     // Validate price table JSON client-side for faster feedback.
     try {
       JSON.parse(priceTable);
     } catch {
-      setError(tr("settings.price.invalidJson"));
+      setPriceError(tr("settings.price.invalidJson"));
       setBusy(false);
       return;
     }
@@ -366,7 +382,7 @@ export default function SettingsPage() {
     try {
       JSON.parse(agentLimitsText);
     } catch {
-      setError(tr("settings.agentLimits.invalidJson"));
+      setAgentLimitsError(tr("settings.agentLimits.invalidJson"));
       setBusy(false);
       return;
     }
@@ -399,7 +415,11 @@ export default function SettingsPage() {
         .then(setAgentProviders)
         .catch(() => undefined);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      const message = e instanceof ApiError ? e.message : String(e);
+      if (scope === "price") setPriceError(message);
+      else if (scope === "agentLimits") setAgentLimitsError(message);
+      else if (scope === "limitPolicy") setLimitPolicyError(message);
+      else setError(message);
     } finally {
       setBusy(false);
     }
@@ -838,6 +858,7 @@ export default function SettingsPage() {
       <SettingsTabPanel id="advanced" active={activeTab === "advanced"}>
         <SettingsSection
           title={tr("settings.price.heading")}
+          titleId="settings-price-heading"
           action={
             <a
               href="https://github.com/BerriAI/litellm"
@@ -850,7 +871,7 @@ export default function SettingsPage() {
             </a>
           }
         >
-          <p className="text-body text-kin-muted leading-prose">
+          <p id="settings-price-description" className="text-body text-kin-muted leading-prose">
             {tr("settings.price.descA")}
             <code className="text-kin-secondary">total_cost_usd</code>
             {tr("settings.price.descB")}
@@ -878,10 +899,16 @@ export default function SettingsPage() {
             onChange={(e) => setPriceTable(e.target.value)}
             rows={10}
             spellCheck={false}
+            aria-labelledby="settings-price-heading"
+            aria-describedby={
+              priceError
+                ? "settings-price-description settings-price-error"
+                : "settings-price-description"
+            }
             className="kin-input font-mono text-body leading-4 resize-y min-h-40"
           />
           <div className="flex flex-wrap items-center gap-3">
-            <Button disabled={busy} onClick={() => void save()}>
+            <Button disabled={busy} onClick={() => void save("price")}>
               {busy ? tr("settings.saving") : tr("settings.price.save")}
             </Button>
             <Button
@@ -890,7 +917,7 @@ export default function SettingsPage() {
               onClick={() =>
                 void (async () => {
                   setBusy(true);
-                  setError(null);
+                  setPriceError(null);
                   try {
                     // Clear override → server returns embedded LiteLLM defaults.
                     const s = await updateSettings({ price_table: "" });
@@ -902,7 +929,7 @@ export default function SettingsPage() {
                     }
                     pushToast(tr("settings.saved"), "info");
                   } catch (e) {
-                    setError(e instanceof ApiError ? e.message : String(e));
+                    setPriceError(e instanceof ApiError ? e.message : String(e));
                   } finally {
                     setBusy(false);
                   }
@@ -913,16 +940,23 @@ export default function SettingsPage() {
               {tr("settings.price.resetDefaults")}
             </Button>
           </div>
-          {error ? (
-            <p role="alert" className="text-body leading-4 text-kin-red-ink">
-              {error}
+          {priceError ? (
+            <p
+              id="settings-price-error"
+              aria-live="assertive"
+              className="text-body leading-4 text-kin-red-ink"
+            >
+              {priceError}
             </p>
           ) : null}
         </SettingsSection>
 
         {/* Agent usage limits */}
-        <SettingsSection title={tr("settings.agentLimits.heading")}>
-          <p className="text-body leading-4 text-kin-muted">
+        <SettingsSection
+          title={tr("settings.agentLimits.heading")}
+          titleId="settings-agent-limits-heading"
+        >
+          <p id="settings-agent-limits-description" className="text-body leading-4 text-kin-muted">
             {tr("settings.agentLimits.desc")}
             <code className="text-kin-secondary">{tr("settings.agentLimits.shape")}</code>
           </p>
@@ -931,16 +965,26 @@ export default function SettingsPage() {
             onChange={(e) => setAgentLimitsText(e.target.value)}
             rows={6}
             spellCheck={false}
+            aria-labelledby="settings-agent-limits-heading"
+            aria-describedby={
+              agentLimitsError
+                ? "settings-agent-limits-description settings-agent-limits-error"
+                : "settings-agent-limits-description"
+            }
             className="kin-input font-mono text-body leading-4 resize-y min-h-24"
           />
           <div className="flex items-center gap-3">
-            <Button disabled={busy} onClick={() => void save()}>
+            <Button disabled={busy} onClick={() => void save("agentLimits")}>
               {busy ? tr("settings.saving") : tr("settings.agentLimits.save")}
             </Button>
           </div>
-          {error ? (
-            <p role="alert" className="text-body leading-4 text-kin-red-ink">
-              {error}
+          {agentLimitsError ? (
+            <p
+              id="settings-agent-limits-error"
+              aria-live="assertive"
+              className="text-body leading-4 text-kin-red-ink"
+            >
+              {agentLimitsError}
             </p>
           ) : null}
         </SettingsSection>
@@ -990,12 +1034,16 @@ export default function SettingsPage() {
               />
             </SettingsRow>
           ) : null}
-          <Button disabled={busy} onClick={() => void save()}>
+          <Button disabled={busy} onClick={() => void save("limitPolicy")}>
             {busy ? tr("settings.saving") : tr("settings.limitPolicy.save")}
           </Button>
-          {error ? (
-            <p role="alert" className="text-body leading-4 text-kin-red-ink">
-              {error}
+          {limitPolicyError ? (
+            <p
+              id="settings-limit-policy-error"
+              aria-live="assertive"
+              className="text-body leading-4 text-kin-red-ink"
+            >
+              {limitPolicyError}
             </p>
           ) : null}
         </SettingsSection>
