@@ -59,6 +59,10 @@ describe("the phone search pill", () => {
     const clear = screen.getByRole("button", { name: "Clear" });
     expect(clear.className).toContain("kin-btn");
     expect(clear.className).not.toContain("kin-btn-primary");
+    // Phone clear targets stay >= 44x44px (no data-touch-mini opt-out) while desktop keeps 28px.
+    expect(clear.hasAttribute("data-touch-mini")).toBe(false);
+    expect(clear.className).toContain("h-11 w-11");
+    expect(clear.className).toContain("md:h-7 md:w-7");
     // Quiet's `text-kin-text` is emitted after `text-kin-muted`; the clear is a
     // glyph, not query text, so the muted weight needs the important marker.
     expect(clear.className).toContain("text-kin-muted!");
