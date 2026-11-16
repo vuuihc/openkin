@@ -1,5 +1,4 @@
-/* eslint-disable kin/no-raw-button -- the whole console moved unchanged from pages/AgentsPage (E4a); E4b/E4c replace these with shared primitives. */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   ApiError,
@@ -20,6 +19,8 @@ import {
 import { SkeletonLine, SlowConnectHint } from "../../components/Skeleton";
 import { MobileCard, MobileRow, MobileSection } from "../../components/mobile/MobileList";
 import Sheet, { SheetPrimaryButton, SheetSecondaryButton } from "../../components/mobile/Sheet";
+import Button from "../../components/ui/Button";
+import Menu from "../../components/ui/Menu";
 import { useAgentSessionImport } from "../../hooks/useAgentSessionImport";
 import { useSlowHint } from "../../hooks/useSlowHint";
 import { useAppStore } from "../../store/appStore";
@@ -973,47 +974,57 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                   <>
                     <span aria-hidden>·</span>
                     <span>{tr("agents.discoveredCount", { count: plan.discovered.length })}</span>
-                    <button
-                      type="button"
-                      className="inline-flex items-center text-kin-blue-ink hover:underline max-md:min-h-11 md:min-h-6"
+                    {/* Not `quiet`: its `text-kin-text` is a utility emitted
+                        after `text-kin-blue-ink`, so the caller's ink would
+                        lose the cascade. `default` keeps its surface in the
+                        components layer, which utilities always override —
+                        the same mechanism SessionRow's row trigger uses. */}
+                    <Button
+                      variant="default"
+                      className="inline-flex items-center bg-transparent px-1 text-kin-blue-ink hover:bg-[var(--kin-fill)] hover:underline max-md:min-h-11 md:min-h-6"
                       aria-expanded={showDiscovered}
                       onClick={() => setShowDiscovered((open) => !open)}
                     >
                       {showDiscovered ? tr("agents.hideDiscovered") : tr("agents.viewDiscovered")}
-                    </button>
+                    </Button>
                   </>
                 )}
               </p>
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className="kin-btn-secondary min-h-11 px-3 text-strong"
+            <Button
+              variant="secondary"
+              className="min-h-11 px-3 text-strong"
               disabled={checkingAll || smokingAll || offline}
+              isLoading={checkingAll}
               title={offline ? tr("agents.offlineAction") : undefined}
               onClick={() => void onRecheck()}
             >
-              {checkingAll ? tr("common.loading") : tr("agents.recheckAll")}
-            </button>
-            <button
-              type="button"
-              className="kin-btn-secondary min-h-11 px-3 text-strong"
+              {tr("agents.recheckAll")}
+            </Button>
+            <Button
+              variant="secondary"
+              className="min-h-11 px-3 text-strong"
               disabled={smokingAll || checkingAll || offline}
+              isLoading={smokingAll}
               title={offline ? tr("agents.offlineAction") : tr("agents.smokeHint")}
               onClick={() => void runSmoke()}
             >
-              {smokingAll ? tr("agents.smoking") : tr("agents.smokeAll")}
-            </button>
-            <button
-              type="button"
-              className="kin-btn-secondary min-h-11 px-3 text-strong"
+              {tr("agents.smokeAll")}
+            </Button>
+            <Button
+              variant="secondary"
+              className="min-h-11 px-3 text-strong"
               disabled={importing || offline || agents === null}
+              // The action keeps its name while the fan-out runs (TASTE 18):
+              // the busy state is `aria-busy`, not a label swap to "Loading…".
+              isLoading={importing}
               title={tr("agents.importHint")}
               onClick={() => void onImport()}
             >
-              {importing ? tr("common.loading") : tr("agents.importSessions")}
-            </button>
+              {tr("agents.importSessions")}
+            </Button>
             <RangePicker value={days} onChange={setDays} />
           </div>
         </div>
@@ -1035,13 +1046,9 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
             role="alert"
           >
             <span>{actionError}</span>
-            <button
-              type="button"
-              className="shrink-0 hover:underline"
-              onClick={() => setActionError(null)}
-            >
+            <Button variant="quiet" className="shrink-0" onClick={() => setActionError(null)}>
               {tr("agents.dismiss")}
-            </button>
+            </Button>
           </div>
         )}
 
@@ -1073,13 +1080,13 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
             role="alert"
           >
             <span>{usageError}</span>
-            <button
-              type="button"
-              className="shrink-0 hover:underline"
+            <Button
+              variant="quiet"
+              className="shrink-0"
               onClick={() => void loadUsage(daysRef.current)}
             >
               {tr("common.retry")}
-            </button>
+            </Button>
           </div>
         )}
 
@@ -1089,9 +1096,9 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
             role="alert"
           >
             <span>{error}</span>
-            <button
-              type="button"
-              className="shrink-0 hover:underline"
+            <Button
+              variant="quiet"
+              className="shrink-0"
               onClick={() => {
                 setError(null);
                 void loadAgents();
@@ -1099,7 +1106,7 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
               }}
             >
               {tr("common.retry")}
-            </button>
+            </Button>
           </div>
         )}
 
@@ -1207,25 +1214,25 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
             <p className="text-strong font-medium text-kin-text">{tr("agents.emptyAgents")}</p>
             <p className="mt-1 text-body text-kin-muted">{tr("agents.emptyAgentsHint")}</p>
             {plan.discovered.length > 0 && (
-              <button
-                type="button"
-                className="kin-btn-secondary mt-3 min-h-11 px-3 text-strong"
+              <Button
+                variant="secondary"
+                className="mt-3 min-h-11 px-3 text-strong"
                 onClick={() => setShowDiscovered(true)}
               >
                 {tr("agents.installEntry")}
-              </button>
+              </Button>
             )}
             {plan.discovered.length === 0 && installSuggestions.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-2">
                 {installSuggestions.map((a) => (
-                  <button
+                  <Button
                     key={a.id}
-                    type="button"
-                    className="kin-btn-secondary min-h-11 px-3 text-strong"
+                    variant="secondary"
+                    className="min-h-11 px-3 text-strong"
                     onClick={() => openInstallURL(a.install_url)}
                   >
                     {tr("agents.installNamed", { name: a.name })}
-                  </button>
+                  </Button>
                 ))}
               </div>
             )}
@@ -1250,13 +1257,9 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                   <SmokeLines report={smokeReport.results} />
                 ) : null}
               </div>
-              <button
-                type="button"
-                className="shrink-0 hover:underline"
-                onClick={() => setSmokeReport(null)}
-              >
+              <Button variant="quiet" className="shrink-0" onClick={() => setSmokeReport(null)}>
                 {tr("agents.dismiss")}
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -1564,16 +1567,16 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                           </span>
                         }
                         trailing={
-                          <button
-                            type="button"
+                          <Button
+                            variant="quiet"
                             aria-label={`${tr("agents.actions")} — ${a.name}`}
                             aria-haspopup="dialog"
                             aria-expanded={actionsFor === a.id}
                             onClick={() => setActionsFor(a.id)}
-                            className="flex h-11 w-11 items-center justify-center rounded-full text-subtitle text-kin-secondary active:bg-[var(--kin-fill)]"
+                            className="flex h-11 w-11 items-center justify-center rounded-full p-0 text-subtitle"
                           >
                             …
-                          </button>
+                          </Button>
                         }
                         className={actions.length === 0 ? "opacity-50" : undefined}
                       />
@@ -1604,14 +1607,14 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                   className="flex items-center gap-2 rounded-full bg-[var(--kin-fill)] px-3 py-1 text-caption text-kin-secondary"
                 >
                   <span className="font-mono">{family}</span>
-                  <button
-                    type="button"
-                    className="inline-flex items-center text-kin-blue-ink hover:underline max-md:min-h-11 md:min-h-6"
+                  <Button
+                    variant="quiet"
+                    className="inline-flex items-center px-1 text-caption text-kin-blue-ink! hover:underline max-md:min-h-11 md:min-h-6"
                     aria-label={tr("agents.removeNamed", { name: family })}
                     onClick={() => removeFamily(family)}
                   >
                     {tr("agents.remove")}
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>
@@ -1630,13 +1633,14 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                 </h2>
                 <p className="mt-1 text-body text-kin-muted">{tr("agents.discoveredHint")}</p>
               </div>
-              <button
-                type="button"
-                className="inline-flex min-h-11 shrink-0 items-center px-1 text-body text-kin-blue-ink hover:underline"
+              <Button
+                // `default` + utilities, for the cascade reason above.
+                variant="default"
+                className="inline-flex min-h-11 shrink-0 items-center bg-transparent px-1 text-body text-kin-blue-ink hover:bg-[var(--kin-fill)] hover:underline"
                 onClick={() => setShowDiscovered(false)}
               >
                 {tr("agents.hideDiscovered")}
-              </button>
+              </Button>
             </div>
             <ul className="mt-2 divide-y divide-[var(--kin-hairline)]">
               {plan.discovered.map((a) => (
@@ -1647,15 +1651,15 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                       {a.reason || tr("agents.notConnected")}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    className="kin-btn-secondary min-h-11 shrink-0 px-3 text-strong"
+                  <Button
+                    variant="secondary"
+                    className="min-h-11 shrink-0 px-3 text-strong"
                     disabled={offline || full}
                     title={full ? tr("agents.connectFull") : undefined}
                     onClick={() => beginConnect(a)}
                   >
                     {tr("agents.connect")}
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>
@@ -1757,26 +1761,35 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
           }
         >
           {actionItems.map((action) => (
-            <button
+            <Button
               key={action.key}
-              type="button"
+              variant="quiet"
               disabled={action.disabled}
               title={action.hint}
+              // The visible text is two lines (label, then a disabled reason).
+              // The facade derives its accessible name from string children
+              // only, so the name is spelled here — and it keeps both lines,
+              // which is what a screen reader heard before (TASTE 18).
+              aria-label={
+                action.disabled && action.hint ? `${action.label} ${action.hint}` : action.label
+              }
               onClick={() => {
                 sheetAction.current = action.run;
                 setActionsFor(null);
               }}
-              className="kin-row-press flex min-h-12 w-full items-center rounded-xl px-3 text-left text-subtitle text-kin-text disabled:text-kin-muted disabled:opacity-60"
+              className="kin-row-press flex min-h-12 w-full items-center justify-start rounded-xl px-3 text-left text-subtitle text-kin-text disabled:text-kin-muted disabled:opacity-60"
             >
               <span className="flex min-w-0 flex-col items-start">
                 <span>{action.label}</span>
                 {/* A disabled action's `title` is unreachable on a phone; the
                     reason has to be on the surface the person is touching. */}
                 {action.disabled && action.hint ? (
-                  <span className="text-caption text-kin-muted">{action.hint}</span>
+                  <span className="whitespace-normal text-caption text-kin-muted">
+                    {action.hint}
+                  </span>
                 ) : null}
               </span>
-            </button>
+            </Button>
           ))}
         </Sheet>
       </div>
@@ -1805,10 +1818,12 @@ function SortTh({
   active: boolean;
   dir: AgentSortDir;
   onSort: (key: AgentSortKey) => void;
-  children: ReactNode;
+  /** A string, not a node: the facade derives the button's name from it. */
+  children: string;
   className?: string;
   align?: "left" | "right";
 }) {
+  const marker = active ? (dir === "asc" ? " ↑" : " ↓") : "";
   return (
     <th
       aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}
@@ -1816,18 +1831,21 @@ function SortTh({
         align === "right" ? "text-right" : "text-left"
       } ${className}`}
     >
-      <button
-        type="button"
+      <Button
+        // `default` + utilities: a `quiet` variant would emit `text-kin-text`
+        // after the muted ink and win the cascade (see the discovery toggle).
+        variant="default"
         onClick={() => onSort(colKey)}
-        className={`inline-flex items-center gap-0.5 hover:text-kin-text ${
+        // The visible marker is part of the name a screen reader already had;
+        // `aria-sort` on the `<th>` stays the canonical state.
+        aria-label={`${children}${marker}`}
+        className={`inline-flex items-center gap-0.5 bg-transparent px-0 py-0 text-caption hover:bg-[var(--kin-fill)] hover:text-kin-text ${
           active ? "text-kin-text" : "text-kin-muted"
         }`}
       >
         {children}
-        <span className="tabular-nums text-micro w-3">
-          {active ? (dir === "asc" ? " ↑" : " ↓") : ""}
-        </span>
-      </button>
+        <span className="tabular-nums text-micro w-3">{marker}</span>
+      </Button>
     </th>
   );
 }
@@ -1869,6 +1887,10 @@ function RangePicker({
       }}
     >
       {RANGES.map((d) => (
+        // E4c: no Segmented/RadioGroup facade exists for the range picker's
+        // roving radiogroup (arrow keys, one tab stop); a tab strip cannot
+        // carry radio semantics. Tracked in rsi/state/followups.md.
+        // eslint-disable-next-line kin/no-raw-button
         <button
           key={d}
           ref={(el) => {
@@ -1915,104 +1937,46 @@ function RowMenu({
 }) {
   const tr = useT();
   const buttonRef = useRef<HTMLButtonElement | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const changeRef = useRef(onOpenChange);
-  changeRef.current = onOpenChange;
-
-  useEffect(() => {
-    if (!open) return;
-    const menu = menuRef.current;
-    const items = () => [
-      ...(menu?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? []),
-    ];
-
-    items()[0]?.focus();
-
-    function close() {
-      changeRef.current(false);
-      buttonRef.current?.focus();
-    }
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        close();
-        return;
-      }
-      const list = items();
-      if (list.length === 0) return;
-      const index = list.indexOf(document.activeElement as HTMLElement);
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        list[(index + 1 + list.length) % list.length]?.focus();
-      } else if (event.key === "ArrowUp") {
-        event.preventDefault();
-        list[(index - 1 + list.length) % list.length]?.focus();
-      } else if (event.key === "Home") {
-        event.preventDefault();
-        list[0]?.focus();
-      } else if (event.key === "End") {
-        event.preventDefault();
-        list[list.length - 1]?.focus();
-      }
-    }
-    function onPointer(event: PointerEvent) {
-      const target = event.target as Node | null;
-      if (!target) return;
-      if (menuRef.current?.contains(target) || buttonRef.current?.contains(target)) return;
-      changeRef.current(false);
-    }
-
-    document.addEventListener("keydown", onKey, true);
-    document.addEventListener("pointerdown", onPointer);
-    return () => {
-      document.removeEventListener("keydown", onKey, true);
-      document.removeEventListener("pointerdown", onPointer);
-    };
-  }, [open]);
+  const label = `${tr("agents.actions")} — ${name}`;
 
   return (
     <div className="relative inline-block text-left">
-      <button
+      <Button
         ref={buttonRef}
-        type="button"
+        variant="quiet"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`${tr("agents.actions")} — ${name}`}
+        aria-label={label}
         onClick={() => onOpenChange(!open)}
-        className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--kin-hairline-strong)] bg-kin-elevated text-strong text-kin-secondary hover:text-kin-text"
+        // A menu button opens on ArrowDown as well as Enter/Space. The layer
+        // below takes the focus once the panel is measured; this only asks the
+        // caller to open it.
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowDown") return;
+          event.preventDefault();
+          onOpenChange(true);
+        }}
+        className="h-8 w-8 flex-none rounded-lg border border-[var(--kin-hairline-strong)] p-0"
       >
         ⋯
-      </button>
-      {open && (
-        <div
-          ref={menuRef}
-          role="menu"
-          aria-label={`${tr("agents.actions")} — ${name}`}
-          className="absolute right-0 z-30 mt-1 w-64 rounded-xl border border-[var(--kin-hairline-strong)] bg-kin-elevated py-1 text-left shadow-e3"
-        >
-          {actions.map((action) => (
-            <button
-              key={action.key}
-              type="button"
-              role="menuitem"
-              disabled={action.disabled}
-              title={action.hint}
-              onClick={() => {
-                onOpenChange(false);
-                action.run();
-                buttonRef.current?.focus();
-              }}
-              className={[
-                "flex min-h-9 w-full items-center px-3 text-left text-body hover:bg-[var(--kin-fill)] disabled:text-kin-muted disabled:opacity-60",
-                action.primary ? "text-kin-blue-ink" : "text-kin-text",
-              ].join(" ")}
-            >
-              {action.label}
-            </button>
-          ))}
-        </div>
-      )}
+      </Button>
+      <Menu
+        open={open}
+        onOpenChange={onOpenChange}
+        triggerRef={buttonRef}
+        label={label}
+        items={actions.map((action) => ({
+          id: action.key,
+          label: action.label,
+          // The old menu carried the hint in a `title`, which is unreachable
+          // by keyboard and on touch; the shared row has a second line for it.
+          description: action.hint,
+          disabled: action.disabled,
+          onSelect: action.run,
+        }))}
+        align="right"
+        width={256}
+      />
     </div>
   );
 }

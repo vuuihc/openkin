@@ -1,18 +1,10 @@
-import {
-  useCallback,
-  useId,
-  useRef,
-  useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type ReactNode,
-  type RefObject,
-} from "react";
+import { useId, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { AgentInfo } from "../../api/client";
 import { useMinWidth } from "../../hooks/useMinWidth";
 import { useT } from "../../i18n/react";
-import { isImeKeyEvent } from "../../lib/ime";
 import { agentAvatarMeta } from "../../lib/agentMention";
 import {
+  CUSTOM_MODEL_ID,
   isListedModel,
   modelPickTarget,
   modelPickerLabel,
@@ -25,7 +17,7 @@ import {
   PERMISSION_MODE_LABEL_KEY,
   type PermissionMode,
 } from "../../lib/permissionMode";
-import { IconCheck, IconSearch, IconX } from "../icons";
+import { IconX } from "../icons";
 import Sheet, { useSheetLayer } from "../mobile/Sheet";
 import Button from "../ui/Button";
 import Menu from "../ui/Menu";
@@ -161,46 +153,54 @@ export default function RunConfigControl({
         aria-label={`${tr("runConfig.open")}${tr("common.labelSeparator")}${agentName} · ${modelLabel} · ${permissionLabel}`}
         aria-haspopup="dialog"
         aria-expanded={open}
-        // The shared button is a one-line box by construction. This face is
-        // two lines and lets a long agent or model name wrap, so the height is
-        // content-driven again. Astryx wraps the children in its own label
-        // span, which sizes to content; the last selector makes that span fill
-        // the face so the two lines get the full width before they wrap.
+        // The shared button is a one-line box by construction, and this face
+        // stays one line at every width: it rides the composer's control row,
+        // whose height and the send control's place must not move with a model
+        // id. Astryx wraps the children in its own label span, which sizes to
+        // content; the last selector makes that span fill the face so the
+        // model ellipsizes instead of pushing the row wider than the composer.
         className={[
-          "flex h-auto min-h-11 min-w-0 max-w-full items-center justify-start gap-1.5 rounded-lg px-1.5 py-1 text-left font-normal whitespace-normal [&>span>span]:w-full",
+          "flex h-auto min-h-11 min-w-0 max-w-full items-center justify-start gap-1.5 overflow-hidden rounded-lg px-1.5 py-1 text-left font-normal transition-colors active:bg-[var(--kin-fill)] disabled:opacity-50 sm:min-h-7 [&>span>span]:w-full",
           className,
         ].join(" ")}
       >
-        <span className="flex w-full min-w-0 items-center gap-1.5">
+        {/* Astryx wraps the button's children in a plain label span, so two
+            sibling spans there would stack onto two lines. One wrapper of our
+            own keeps the avatar and the text row in a single flex row at every
+            width. */}
+        <span className="flex w-full min-w-0 items-center gap-1.5 overflow-hidden">
           <span
             className={`flex h-5 w-5 flex-none items-center justify-center rounded-md text-micro font-semibold ${agentAvatar.className}`}
           >
             {agentAvatar.initials}
           </span>
-          {/* Two lines, not one: the face has to name the agent, the model and
-              the mode, and on a 320px phone one line left the first two as
-              ellipses. The agent owns the first line and the model hangs under
-              it — the model belongs to that agent — with the mode beside the
-              model. Neither value truncates; a long name wraps, because a phone
-              has no hover to reveal a `title` and the choice has to be readable
-              before it is changed. */}
-          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="min-w-0 break-words text-caption font-semibold text-kin-secondary">
+          {/* One line, always: the face rides the composer's control row, whose
+              height and the send control's place must not move with a model id.
+              On a phone the row has room for one name, and the model is the one
+              that changes — the agent is the avatar here and a full row in the
+              sheet. From `sm` up there is room for both. The model ellipsizes;
+              every full value stays in this button's accessible name and in the
+              sheet or panel behind it. (The earlier two-line face wrapped to
+              four lines inside a phone composer, making the settings taller
+              than the message it configures.) */}
+          <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+            <span className="hidden min-w-0 max-w-[10rem] flex-none truncate text-caption font-semibold text-kin-secondary sm:block">
               {agentName}
             </span>
-            <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0">
-              <span className="min-w-0 break-words text-strong text-kin-text">{modelLabel}</span>
-              <span aria-hidden className="flex-none select-none text-kin-muted/60">
-                ·
-              </span>
-              <span
-                className={[
-                  "whitespace-nowrap text-caption font-medium",
-                  mode === "yolo" ? "text-kin-orange-ink" : "text-kin-muted",
-                ].join(" ")}
-              >
-                {permissionLabel}
-              </span>
+            <span aria-hidden className="hidden flex-none select-none text-kin-muted/60 sm:block">
+              ·
+            </span>
+            <span className="min-w-0 flex-1 truncate text-strong text-kin-text">{modelLabel}</span>
+            <span aria-hidden className="flex-none select-none text-kin-muted/60">
+              ·
+            </span>
+            <span
+              className={[
+                "flex-none whitespace-nowrap text-caption font-medium",
+                mode === "yolo" ? "text-kin-orange-ink" : "text-kin-muted",
+              ].join(" ")}
+            >
+              {permissionLabel}
             </span>
           </span>
         </span>
@@ -301,7 +301,11 @@ function RunConfigPanel({
         </Button>
       </div>
       <div className="-mx-1.5 -mb-1.5 px-3 pb-3 pt-2">
-        <RunConfigBody {...body} />
+        {/* This panel is anchored near the top of a Mac window, so the room
+            above a row is a strip narrower than the model catalog. The model
+            row opens downward here, where the page is; the phone sheet, which
+            rises from the bottom, keeps it opening upward. */}
+        <RunConfigBody {...body} optionPlacement="below" />
       </div>
     </Popover>
   );
@@ -330,7 +334,13 @@ function RunConfigBody({
   agents,
   onAgentChange,
   extraRows,
-}: Omit<SheetProps, "open" | "onClose">) {
+  optionPlacement = "above",
+}: Omit<SheetProps, "open" | "onClose"> & {
+  /** Which side of its trigger the model row opens its catalog on. The phone
+   *  sheet rises from the bottom, so upward is the room; the Mac panel hangs
+   *  near the top, where only the page below the row fits a long list. */
+  optionPlacement?: "above" | "below";
+}) {
   const tr = useT();
   const [openRow, setOpenRow] = useState<RowId | null>(null);
   // The option layer is part of this sheet's modal even though it is portaled
@@ -339,7 +349,6 @@ function RunConfigBody({
   useSheetLayer(Boolean(openRow), () => setOpenRow(null));
   const [query, setQuery] = useState("");
   const [customPicked, setCustomPicked] = useState(false);
-  const [modelList, setModelList] = useState<HTMLDivElement | null>(null);
   // The control that opened each row, not the card: the shared popover hangs
   // the layer from the trigger and returns focus there when it closes.
   const rowRefs = useRef<Record<RowId, RefObject<HTMLButtonElement | null>>>({
@@ -347,7 +356,9 @@ function RunConfigBody({
     model: { current: null },
     permission: { current: null },
   });
-  const listId = useId();
+  // Names the free-text field's label; the field is a footer of the model
+  // layer, so nothing outside it points at an id.
+  const customFieldId = useId();
 
   const mode = normalizePermissionMode(permission);
   const modelOptions = modelPickerOptions(models, {
@@ -370,16 +381,15 @@ function RunConfigBody({
           ),
         )
       : modelOptions;
+  // A query is a hunt through the catalog, and Enter takes the first row it
+  // kept. The Custom sentinel is not a model: if it survived the filter,
+  // typing "cus" would put it first and Enter would open the free-text editor
+  // instead of choosing something. With an empty query it stays last.
+  const modelRows = normalizedQuery
+    ? filtered.filter((option) => option.id !== CUSTOM_MODEL_ID)
+    : filtered;
   const agentPicker = agents && onAgentChange ? agents.filter((a) => a.available) : [];
   const modelFallback = fallbackModelLabel ?? tr("modelPicker.default");
-
-  /** First/last option in the model list, for the search field's arrow keys. */
-  function focusOption(which: "first" | "last") {
-    const items = modelList?.querySelectorAll<HTMLButtonElement>('[role="option"]');
-    if (!items?.length) return;
-    const target = which === "first" ? items[0] : items[items.length - 1];
-    target?.focus();
-  }
 
   // One row at a time; switching rows clears the previous query.
   function toggleRow(row: RowId) {
@@ -397,10 +407,8 @@ function RunConfigBody({
     const target = modelPickTarget(id);
     setCustomPicked(target.custom);
     onModelChange(target.value);
-    if (!target.custom) {
-      setOpenRow(null);
-      rowRefs.current.model.current?.focus();
-    }
+    // The layer closes for a real model and stays up for Custom, whose footer
+    // is the editor the reader is about to type in; `Menu` owns both moves.
   }
 
   function pickPermission(mode: PermissionMode) {
@@ -420,7 +428,6 @@ function RunConfigBody({
               label={tr("runConfig.agent")}
               value={agentName}
               expanded={openRow === "agent"}
-              hasPopup="menu"
               disabled={disabled}
               onClick={() => toggleRow("agent")}
             >
@@ -494,7 +501,6 @@ function RunConfigBody({
             label={tr("modelPicker.label")}
             value={faceModelLabel(model, models, modelFallback)}
             expanded={openRow === "model"}
-            controls={listId}
             disabled={disabled}
             onClick={() => toggleRow("model")}
           >
@@ -502,94 +508,55 @@ function RunConfigBody({
           </PickerTrigger>
         }
       >
-        {openRow === "model" ? (
-          <Expansion
-            id={listId}
-            label={tr("modelPicker.label")}
-            triggerRef={rowRefs.current.model}
-            onDismiss={() => setOpenRow(null)}
-          >
-            {searchable ? (
-              <SearchField
-                value={query}
-                onChange={setQuery}
-                placeholder={tr("modelPicker.searchPlaceholder")}
-                label={tr("modelPicker.searchPlaceholder")}
-                clearLabel={tr("common.clear")}
-                onArrowDown={() => focusOption("first")}
-                onArrowUp={() => focusOption("last")}
-                // Filtering down to the row you want and pressing Enter should
-                // take it, rather than requiring an ArrowDown first.
-                onSubmitFirst={() => {
-                  const first = filtered[0];
-                  if (first) pickModel(first.id);
-                }}
-              />
-            ) : null}
-            <div
-              ref={setModelList}
-              role="listbox"
-              aria-label={tr("modelPicker.label")}
-              onKeyDown={moveListFocus}
-              className="max-h-[200px] overflow-y-auto kin-scroll py-1"
-            >
-              {filtered.length === 0 ? (
-                <p className="px-3 py-2 text-body text-kin-muted">
-                  {tr("modelPicker.searchEmpty")}
-                </p>
-              ) : (
-                filtered.map((option) => {
-                  const selected = option.id === selection;
-                  return (
-                    <Button
-                      key={option.id || "default"}
-                      variant="quiet"
-                      role="option"
-                      aria-selected={selected}
-                      onClick={() => pickModel(option.id)}
-                      // The list's rows sit edge-to-edge rather than floating
-                      // as separate buttons, so they take the smallest step on
-                      // the radius ladder (`none` is not one of its words); the
-                      // ink and the weight stay on the inner span so the quiet
-                      // weight's own text utilities cannot win the cascade.
-                      className={[
-                        "flex h-auto min-h-11 w-full items-center justify-start gap-2 rounded-sm px-3 py-1.5 text-left text-strong font-normal whitespace-normal [&>span>span]:w-full",
-                        "hover:bg-[var(--kin-fill)] focus:bg-[var(--kin-fill)]",
-                      ].join(" ")}
-                    >
-                      <span className="flex w-full min-w-0 items-center gap-2">
-                        <span
-                          className={[
-                            "flex min-w-0 flex-1 flex-col",
-                            selected ? "font-medium text-kin-text" : "text-kin-secondary",
-                          ].join(" ")}
-                        >
-                          <span className="break-words">{option.label}</span>
-                          {option.detail ? (
-                            <span className="break-words text-caption text-kin-muted">
-                              {option.detail}
-                            </span>
-                          ) : null}
-                        </span>
-                        {selected ? (
-                          <IconCheck size={16} className="flex-none text-kin-blue-ink" />
-                        ) : null}
-                      </span>
-                    </Button>
-                  );
-                })
-              )}
-            </div>
-            {custom ? (
+        {/* The menu portals its panel out of the sheet, so the sheet's own
+            Escape check cannot find it inside the panel. This marker is how an
+            open row tells the sheet a layer above it is open; `useSheetLayer`
+            already gives Back the same answer. */}
+        {openRow === "model" ? <div data-sheet-layer /> : null}
+        <Menu
+          open={openRow === "model"}
+          onOpenChange={(next) => {
+            if (!next) setOpenRow(null);
+          }}
+          triggerRef={rowRefs.current.model}
+          label={tr("modelPicker.label")}
+          items={modelRows.map((option) => ({
+            id: option.id,
+            label: option.label,
+            description: option.detail,
+            checked: option.id === selection,
+            // Custom configures the footer instead of choosing a value, so the
+            // field it reveals is not unmounted by its own choice.
+            keepOpen: option.id === CUSTOM_MODEL_ID,
+            onSelect: () => pickModel(option.id),
+          }))}
+          // A short catalog opens on the choice that is set; a long one opens
+          // in the field, where the reader has to narrow it first.
+          initialFocusId={selection}
+          // The one row whose list outgrows the space above it on a Mac: its
+          // placement follows the container instead of always opening upward.
+          placement={optionPlacement}
+          width={320}
+          emptyLabel={tr("modelPicker.searchEmpty")}
+          search={
+            searchable
+              ? {
+                  value: query,
+                  onChange: setQuery,
+                  label: tr("modelPicker.searchPlaceholder"),
+                  placeholder: tr("modelPicker.searchPlaceholder"),
+                  clearLabel: tr("common.clear"),
+                }
+              : undefined
+          }
+          footer={
+            custom ? (
               <div className="border-t border-[var(--kin-hairline)] px-3 py-2">
-                <label
-                  className="text-caption font-medium text-kin-muted"
-                  htmlFor={`${listId}-custom`}
-                >
+                <label className="text-caption font-medium text-kin-muted" htmlFor={customFieldId}>
                   {tr("modelPicker.customLabel")}
                 </label>
                 <input
-                  id={`${listId}-custom`}
+                  id={customFieldId}
                   autoFocus={customPicked}
                   value={model}
                   onChange={(event) => onModelChange(event.target.value)}
@@ -597,9 +564,9 @@ function RunConfigBody({
                   className="mt-1 min-h-10 w-full rounded-lg border border-[var(--kin-hairline-strong)] bg-kin-elevated px-2.5 text-strong text-kin-text outline-none placeholder:text-kin-muted focus:ring-1 focus:ring-kin-focus-ring"
                 />
               </div>
-            ) : null}
-          </Expansion>
-        ) : null}
+            ) : undefined
+          }
+        />
       </RunConfigSheetRow>
 
       {permissionModes.length > 0 ? (
@@ -611,7 +578,6 @@ function RunConfigBody({
               label={tr("permission.label")}
               value={tr(PERMISSION_MODE_LABEL_KEY[mode])}
               expanded={openRow === "permission"}
-              hasPopup="menu"
               disabled={disabled}
               onClick={() => toggleRow("permission")}
               tone={mode === "yolo" ? "warning" : undefined}
@@ -650,51 +616,6 @@ function RunConfigBody({
       {extraRows}
     </div>
   );
-}
-
-/** Arrow keys walk the model option buttons; Tab already reaches them. */
-function moveListFocus(event: ReactKeyboardEvent<HTMLDivElement>) {
-  // An IME candidate list owns the arrow keys until the composition ends;
-  // moving focus mid-composition would abort the word being typed. Same guard
-  // as `SearchSelect`, which is where this keyboard contract is written down.
-  if (isImeKeyEvent(event.nativeEvent)) return;
-  if (
-    event.key !== "ArrowDown" &&
-    event.key !== "ArrowUp" &&
-    event.key !== "Home" &&
-    event.key !== "End"
-  ) {
-    return;
-  }
-  const items = Array.from(
-    event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="option"]'),
-  );
-  if (items.length === 0) return;
-  event.preventDefault();
-  if (event.key === "Home") {
-    items[0]?.focus();
-    return;
-  }
-  if (event.key === "End") {
-    items[items.length - 1]?.focus();
-    return;
-  }
-  const index = items.indexOf(document.activeElement as HTMLButtonElement);
-  // Up from the first option walks back out to the search field that ArrowDown
-  // left, so the pair is reversible rather than one-way.
-  if (event.key === "ArrowUp" && index <= 0) {
-    const search =
-      event.currentTarget.parentElement?.querySelector<HTMLInputElement>("[data-picker-search]");
-    if (search) {
-      search.focus();
-      return;
-    }
-  }
-  const next =
-    event.key === "ArrowDown"
-      ? Math.min(index + 1, items.length - 1)
-      : Math.max(index <= 0 ? 0 : index - 1, 0);
-  items[next]?.focus();
 }
 
 /** One labelled card, plus the row's expansion underneath it.
@@ -745,8 +666,6 @@ function PickerTrigger({
   label,
   value,
   expanded,
-  controls,
-  hasPopup = "listbox",
   disabled,
   onClick,
   tone,
@@ -759,11 +678,6 @@ function PickerTrigger({
    *  model currently is. */
   value: string;
   expanded: boolean;
-  /** The panel id a listbox expansion owns; menus have none to name. */
-  controls?: string;
-  /** What the trigger opens: the model row's listbox expansion, or one of the
-   *  two radio menus the shared `Menu` draws. */
-  hasPopup?: "listbox" | "menu";
   disabled?: boolean;
   onClick: () => void;
   tone?: "warning";
@@ -784,11 +698,10 @@ function PickerTrigger({
       disabled={disabled}
       data-run-config-trigger
       aria-label={`${label}${tr("common.labelSeparator")}${value}`}
-      aria-haspopup={hasPopup}
+      aria-haspopup="menu"
       aria-expanded={expanded}
-      // A menu names no panel id of its own, so only the model row — still a
-      // listbox expansion — can point `aria-controls` at its layer.
-      aria-controls={hasPopup === "listbox" && expanded ? controls : undefined}
+      // A menu names no panel id of its own, so no row points
+      // `aria-controls` at a layer.
       // The shared button is a one-line box; this row's value wraps, so its
       // height stays content-driven. Astryx wraps the children in a label span
       // that sizes to content, and the last selector makes that span fill the
@@ -817,146 +730,5 @@ function PickerTrigger({
         {children}
       </span>
     </Button>
-  );
-}
-
-/**
- * The second layer: the options for one run-config row, floating over the
- * sheet rather than unfolding inside it.
- *
- * The rows are a fixed list of three; growing the sheet to fit a model catalog
- * pushed the permission row out from under the thumb that was about to use
- * it, and on a phone the sheet was tall enough to lose the row being edited.
- * As a layer the sheet's height never changes.
- *
- * Every row uses the same placement. The sheet sits at the bottom of the
- * screen, so upward is the side with room — including for the first row, whose
- * space above is the page behind the sheet rather than the rows below it. The
- * three selectors used to disagree (the first opened downward, the other two
- * upward), which is the inconsistency issue #3 reported. The shared popover
- * still flips a row to the other side when the space above is genuinely gone
- * (a short window, the keyboard up), so the rule is one preference plus the
- * viewport, not a fixed side per control.
- */
-function Expansion({
-  id,
-  label,
-  triggerRef,
-  onDismiss,
-  children,
-}: {
-  /** Points the row trigger's `aria-controls` at the options it opens. */
-  id: string;
-  label: string;
-  triggerRef: RefObject<HTMLButtonElement | null>;
-  onDismiss: () => void;
-  children: ReactNode;
-}) {
-  // The row's contract is that the keyboard starts on the current choice, not
-  // on the first row: the reader opened the list to change what is already
-  // selected. This ref callback runs during the commit that mounts the panel,
-  // before the shared popover's focus step, and that step leaves a panel alone
-  // when its content has already placed focus inside it.
-  const placeFocus = useCallback((layer: HTMLDivElement | null) => {
-    if (!layer) return;
-    const search = layer.querySelector<HTMLInputElement>("input");
-    const checked = layer.querySelector<HTMLElement>(
-      '[role="option"][aria-selected="true"], [role="option"][aria-checked="true"]',
-    );
-    (search ?? checked ?? layer.querySelector<HTMLElement>('[role="option"]'))?.focus({
-      preventScroll: true,
-    });
-  }, []);
-  return (
-    // The shared popover owns the viewport anchoring, the portal out of the
-    // sheet's scrollport, the outside tap, Escape and focus return. The marker
-    // wrapper stays inside the panel: `closest()` in the tests and
-    // `Sheet.tsx`'s `[data-sheet-layer]` scan both still find it.
-    <Popover
-      open
-      onOpenChange={(next) => {
-        if (!next) onDismiss();
-      }}
-      triggerRef={triggerRef}
-      label={label}
-      placement="above"
-      maxWidth={480}
-      maxHeight={360}
-    >
-      {/* The negative margin takes back the shared panel's own padding, so
-          the list and search field keep the edge-to-edge geometry they had
-          as their own layer. */}
-      <div ref={placeFocus} id={id} data-run-config-layer data-sheet-layer className="-m-1.5">
-        {children}
-      </div>
-    </Popover>
-  );
-}
-
-function SearchField({
-  value,
-  onChange,
-  placeholder,
-  label,
-  clearLabel,
-  onArrowDown,
-  onArrowUp,
-  onSubmitFirst,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-  label: string;
-  clearLabel: string;
-  onArrowDown: () => void;
-  onArrowUp: () => void;
-  onSubmitFirst: () => void;
-}) {
-  return (
-    // The field draws no outline of its own, so the row is the focus
-    // indicator. An inset `outline` rather than a ring: the expansion clips
-    // its children, and the focus-ring token is the only colour the design
-    // test lets a focus indicator use.
-    <div className="flex min-h-11 items-center gap-2 border-b border-[var(--kin-hairline)] px-3 focus-within:bg-[var(--kin-fill)] focus-within:outline focus-within:outline-2 focus-within:-outline-offset-2 focus-within:outline-kin-focus-ring">
-      <IconSearch size={14} className="flex-none text-kin-muted" />
-      <input
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        onKeyDown={(event) => {
-          // The IME guard is the load-bearing line for a Chinese model name:
-          // the candidate list owns the arrows and Enter until it closes.
-          if (isImeKeyEvent(event.nativeEvent)) return;
-          if (event.key === "ArrowDown") {
-            event.preventDefault();
-            onArrowDown();
-          } else if (event.key === "ArrowUp") {
-            event.preventDefault();
-            onArrowUp();
-          } else if (event.key === "Enter") {
-            event.preventDefault();
-            onSubmitFirst();
-          }
-        }}
-        // How ArrowUp gets back out of the option list (see `moveListFocus`).
-        data-picker-search
-        placeholder={placeholder}
-        aria-label={label}
-        className="min-h-11 min-w-0 flex-1 bg-transparent text-strong text-kin-text outline-none placeholder:text-kin-muted"
-      />
-      {value ? (
-        <Button
-          variant="quiet"
-          onClick={() => onChange("")}
-          aria-label={clearLabel}
-          title={clearLabel}
-          // The icon stays compact, but the tap area does not: on a phone the
-          // clear sits in a 44px field and a 28px-wide target beside the
-          // search text is the one control a thumb misses.
-          className="h-7 w-7 flex-none rounded-full p-0 max-sm:min-w-11"
-        >
-          <IconX size={13} className="text-kin-muted" />
-        </Button>
-      ) : null}
-    </div>
   );
 }

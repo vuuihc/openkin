@@ -15,6 +15,12 @@ const MODELS = [
   { id: "sonnet", label: "Sonnet" },
 ];
 
+/** A catalog longer than six rows is what makes the model layer grow a field. */
+const MANY_MODELS = Array.from({ length: 8 }, (_, index) => ({
+  id: `m${index}`,
+  label: `Model ${index}`,
+}));
+
 function setup(overrides: Partial<RunConfigControlProps> = {}) {
   const onModelChange = vi.fn();
   const onPermissionChange = vi.fn();
@@ -51,8 +57,8 @@ function setup(overrides: Partial<RunConfigControlProps> = {}) {
       />
     );
   }
-  render(<Harness />);
-  return { onModelChange, onPermissionChange };
+  const view = render(<Harness />);
+  return { onModelChange, onPermissionChange, unmount: view.unmount };
 }
 
 async function openSheet() {
@@ -119,10 +125,12 @@ describe("RunConfigControl", () => {
     expect(screen.getByRole("dialog", { name: "Run settings" })).toBeTruthy();
   });
 
-  it("reads a long agent and model in full instead of trimming them to an ellipsis", () => {
-    // The phone face used to be one line: a long agent or model name lost its
-    // tail to `truncate`, and a phone has no hover for the `title` that held
-    // the rest. Both values now wrap on their own lines.
+  it("keeps the face on one line, ellipsizing the model but never its name", () => {
+    // The face rides the composer's control row, whose height is fixed: a
+    // long model id wrapped to four lines and made the settings the tallest
+    // part of a phone composer. It now ellipsizes, and the full value is
+    // still announced (the accessible name) and still readable in full in
+    // the sheet — see "shows the full current values ... inside the sheet".
     const agentName = "An agent name that has no business fitting on one line";
     const modelLabel = "A-model-label-long-enough-that-it-cannot-fit-on-one-line";
     setup({
@@ -131,15 +139,33 @@ describe("RunConfigControl", () => {
       models: [{ id: "custom-model", label: modelLabel }],
     });
     const face = screen.getByRole("button", { name: /^Run settings/ });
-    const agent = within(face).getByText(agentName);
     const model = within(face).getByText(modelLabel);
-    expect(agent.className).not.toContain("truncate");
-    expect(model.className).not.toContain("truncate");
-    expect(agent.className).toContain("break-words");
-    expect(model.className).toContain("break-words");
-    // The two values are stacked, not squeezed side by side.
-    expect(agent.parentElement).not.toBe(model.parentElement);
-    expect(face.textContent).toContain("Ask");
+    expect(model.className).toContain("truncate");
+    expect(model.className).not.toContain("break-words");
+    expect(model.className).not.toContain("hidden");
+    // The avatar and the text row must share one flex row. Astryx wraps the
+    // button's children in a plain label span, so two sibling spans there
+    // are block-level and stack onto two lines; the face wraps both in one
+    // row of its own, and that row is the one both children name as parent.
+    const avatar = within(face).getByText("C");
+    const faceRow = avatar.parentElement;
+    expect(faceRow).toBe(model.parentElement!.parentElement);
+    expect(faceRow!.className).toContain("flex");
+    expect(faceRow!.className).not.toContain("flex-col");
+    // On the phone's narrow row the one visible name is the model; the
+    // agent's name returns from `sm` up, where there is room for both.
+    const agent = within(face).getByText(agentName);
+    expect(agent.className).toContain("hidden");
+    expect(agent.className).toContain("sm:block");
+    // One line: neither the values nor the row that holds them may wrap.
+    expect(model.parentElement!.className).not.toContain("flex-wrap");
+    expect(face.className).toContain("overflow-hidden");
+    // The full values survive where a phone can still reach them: the
+    // button's accessible name, and the sheet behind it.
+    const name = face.getAttribute("aria-label") ?? "";
+    expect(name).toContain(agentName);
+    expect(name).toContain(modelLabel);
+    expect(name).toContain("Ask");
   });
 
   it("shows the full current values and options inside the sheet", async () => {
@@ -252,37 +278,106 @@ describe("RunConfigControl", () => {
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
-  it("marks the current model and picks a new one from the inline list", async () => {
+  it("opens the model row as a menu with the search field on top", async () => {
+    // More than six models is what makes the layer grow a search field.
+    setup({ models: MANY_MODELS, model: "m0" });
+    await openSheet();
+    const trigger = screen.getByRole("button", { name: /^Model/ });
+    expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
+    await userEvent.click(trigger);
+
+    const menu = screen.getByRole("menu", { name: "Model" });
+    // The current choice is a radio row, the same shape the agent and
+    // permission rows already use.
+    expect(
+      within(menu).getByRole("menuitemradio", { name: "Model 0" }).getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(
+      within(menu).getByRole("menuitemradio", { name: "Model 1" }).getAttribute("aria-checked"),
+    ).toBe("false");
+
+    // The field is above every row and inside the same layer.
+    const search = screen.getByLabelText("Search models");
+    expect(menu.contains(search)).toBe(false);
+    expect(search.closest('[role="dialog"]')!.contains(menu)).toBe(true);
+    const firstRow = within(menu).getAllByRole("menuitemradio")[0]!;
+    expect(
+      search.compareDocumentPosition(firstRow) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("marks the current model and picks a new one from the menu", async () => {
     const { onModelChange } = setup();
     await openSheet();
     await userEvent.click(screen.getByRole("button", { name: /^Model/ }));
 
-    const list = screen.getByRole("listbox", { name: "Model" });
-    expect(list).toBeTruthy();
-    expect(screen.getByRole("option", { name: /Sonnet/ }).getAttribute("aria-selected")).toBe(
-      "true",
-    );
+    const menu = screen.getByRole("menu", { name: "Model" });
+    expect(
+      within(menu)
+        .getByRole("menuitemradio", { name: /Sonnet/ })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
 
-    await userEvent.click(screen.getByRole("option", { name: /Opus/ }));
+    await userEvent.click(within(menu).getByRole("menuitemradio", { name: /Opus/ }));
     expect(onModelChange).toHaveBeenCalledWith("opus");
-    // Choosing a value closes the expansion; the sheet stays.
-    expect(screen.queryByRole("listbox", { name: "Model" })).toBeNull();
+    // Choosing a value closes the layer; the sheet stays.
+    expect(screen.queryByRole("menu", { name: "Model" })).toBeNull();
     expect(screen.getByRole("dialog", { name: "Run settings" })).toBeTruthy();
+  });
+
+  it("typing in the model search never opens the custom-model editor", async () => {
+    const { onModelChange } = setup({ models: MANY_MODELS, model: "m0" });
+    await openSheet();
+    await userEvent.click(screen.getByRole("button", { name: /^Model/ }));
+
+    // "cus" is a prefix of the Custom row's label. A filter that let the
+    // sentinel through would leave Enter pointing at it and open the editor.
+    const search = screen.getByLabelText("Search models");
+    await userEvent.type(search, "cus");
+    expect(screen.queryByLabelText("Custom model ID")).toBeNull();
+    expect(onModelChange).not.toHaveBeenCalled();
+    expect(screen.getByText("No matching models")).toBeTruthy();
+
+    await userEvent.clear(search);
+    await userEvent.type(search, "Model 5");
+    await userEvent.keyboard("{Enter}");
+    expect(onModelChange).toHaveBeenCalledWith("m5");
+    expect(screen.queryByRole("menu", { name: "Model" })).toBeNull();
+    expect(screen.queryByLabelText("Custom model ID")).toBeNull();
   });
 
   it("keeps a custom model id reachable behind the custom row", async () => {
     const { onModelChange } = setup();
     await openSheet();
     await userEvent.click(screen.getByRole("button", { name: /^Model/ }));
-    await userEvent.click(screen.getByRole("option", { name: "Custom model…" }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Custom model…" }));
 
     expect(onModelChange).toHaveBeenCalledWith("");
     const field = screen.getByLabelText("Custom model ID");
+    // The layer stays open and the caret is already in the field, so the
+    // choice that revealed it did not pull it out from under the reader.
+    expect(screen.getByRole("menu", { name: "Model" })).toBeTruthy();
+    expect(document.activeElement).toBe(field);
     await userEvent.type(field, "my-model");
     expect(onModelChange).toHaveBeenLastCalledWith("my-model");
-    // The expansion stays open so the field is not pulled out from under the
-    // caret while it is being typed into.
-    expect(screen.getByRole("listbox", { name: "Model" })).toBeTruthy();
+    expect(screen.getByRole("menu", { name: "Model" })).toBeTruthy();
+  });
+
+  it("puts focus on the search field when the catalog is long, and on the current row when it is short", async () => {
+    const long = setup({ models: MANY_MODELS, model: "m0" });
+    await openSheet();
+    await userEvent.click(screen.getByRole("button", { name: /^Model/ }));
+    // A long catalog opens ready to be narrowed: the field has the caret and
+    // Down walks into the rows from there.
+    expect(document.activeElement).toBe(screen.getByLabelText("Search models"));
+    long.unmount();
+
+    setup();
+    await openSheet();
+    await userEvent.click(screen.getByRole("button", { name: /^Model/ }));
+    // A short catalog has nothing to narrow, so the reader starts on the
+    // choice that is set and the next arrow moves relative to it.
+    expect(document.activeElement).toBe(screen.getByRole("menuitemradio", { name: /Sonnet/ }));
   });
 
   it("closes the expansion on Escape, and the sheet on the next one", async () => {
@@ -290,10 +385,10 @@ describe("RunConfigControl", () => {
     await openSheet();
     const trigger = screen.getByRole("button", { name: /^Model/ });
     await userEvent.click(trigger);
-    expect(screen.getByRole("listbox", { name: "Model" })).toBeTruthy();
+    expect(screen.getByRole("menu", { name: "Model" })).toBeTruthy();
 
     await userEvent.keyboard("{Escape}");
-    expect(screen.queryByRole("listbox", { name: "Model" })).toBeNull();
+    expect(screen.queryByRole("menu", { name: "Model" })).toBeNull();
     expect(screen.getByRole("dialog", { name: "Run settings" })).toBeTruthy();
     // Focus goes back to the row that closed, so the keyboard stays where the
     // change was about to be made.
@@ -308,7 +403,7 @@ describe("RunConfigControl", () => {
     await openSheet();
     const trigger = screen.getByRole("button", { name: /^Model/ });
     await userEvent.click(trigger);
-    expect(screen.getByRole("listbox", { name: "Model" })).toBeTruthy();
+    expect(screen.getByRole("menu", { name: "Model" })).toBeTruthy();
 
     // The layer is portaled out of the sheet, and opening it need not move
     // focus. The sheet's capture-phase listener runs before the layer's own
@@ -317,7 +412,7 @@ describe("RunConfigControl", () => {
     trigger.focus();
     await userEvent.keyboard("{Escape}");
 
-    expect(screen.queryByRole("listbox", { name: "Model" })).toBeNull();
+    expect(screen.queryByRole("menu", { name: "Model" })).toBeNull();
     expect(screen.getByRole("dialog", { name: "Run settings" })).toBeTruthy();
   });
 
@@ -329,9 +424,8 @@ describe("RunConfigControl", () => {
     await openSheet();
     await userEvent.click(screen.getByRole("button", { name: /^Model/ }));
 
-    const layer = document.querySelector("[data-run-config-layer]");
-    expect(layer).toBeTruthy();
-    expect(layer!.contains(document.activeElement)).toBe(true);
+    const layer = screen.getByRole("menu", { name: "Model" });
+    expect(layer.contains(document.activeElement)).toBe(true);
     // And it is the current choice that has it, so the next arrow is relative.
     expect(document.activeElement?.textContent).toContain("Sonnet");
   });
@@ -340,7 +434,7 @@ describe("RunConfigControl", () => {
     setup();
     await openSheet();
     await userEvent.click(screen.getByRole("button", { name: /^Model/ }));
-    expect(screen.getByRole("listbox", { name: "Model" })).toBeTruthy();
+    expect(screen.getByRole("menu", { name: "Model" })).toBeTruthy();
 
     // The system Back gesture, as the browser delivers it: the current entry
     // has already become the one below the sheet when `popstate` arrives.
@@ -348,7 +442,7 @@ describe("RunConfigControl", () => {
       window.history.replaceState({}, "");
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
-    expect(screen.queryByRole("listbox", { name: "Model" })).toBeNull();
+    expect(screen.queryByRole("menu", { name: "Model" })).toBeNull();
     expect(screen.getByRole("dialog", { name: "Run settings" })).toBeTruthy();
 
     act(() => {
@@ -378,31 +472,29 @@ describe("RunConfigControl", () => {
     // A portal is not a DOM child, so the rows' own key handler never sees an
     // Escape pressed on an option. The document listener is what puts the
     // layer away and returns focus to its row.
-    screen.getByRole("option", { name: /Sonnet/ }).focus();
+    screen.getByRole("menuitemradio", { name: /Sonnet/ }).focus();
     await userEvent.keyboard("{Escape}");
 
-    expect(screen.queryByRole("listbox", { name: "Model" })).toBeNull();
+    expect(screen.queryByRole("menu", { name: "Model" })).toBeNull();
     expect(screen.getByRole("dialog", { name: "Run settings" })).toBeTruthy();
     expect(document.activeElement).toBe(trigger);
   });
 
   it("walks out of the option list and back into the search field", async () => {
-    // More than six models is what makes the list long enough to grow a field.
-    const many = Array.from({ length: 8 }, (_, index) => ({
-      id: `m${index}`,
-      label: `Model ${index}`,
-    }));
-    setup({ models: many, model: "m0" });
+    setup({ models: MANY_MODELS, model: "m0" });
     await openSheet();
     await userEvent.click(screen.getByRole("button", { name: /^Model/ }));
 
     const search = screen.getByLabelText("Search models");
     await userEvent.click(search);
     await userEvent.keyboard("{ArrowDown}");
-    expect(document.activeElement).toBe(screen.getAllByRole("option")[0]);
+    // Down lands on the row that is set, not the top of the catalog.
+    expect(document.activeElement).toBe(screen.getByRole("menuitemradio", { name: "Model 0" }));
 
-    // Up from the first option is the way back to the field ArrowDown left —
+    // Up from the first row is the way back to the field ArrowDown left —
     // otherwise the pair is a one-way trip and the field keeps the caret.
+    await userEvent.keyboard("{ArrowUp}");
+    expect(document.activeElement).toBe(screen.getByRole("menuitemradio", { name: "Default" }));
     await userEvent.keyboard("{ArrowUp}");
     expect(document.activeElement).toBe(search);
   });
@@ -421,7 +513,7 @@ describe("RunConfigControl", () => {
     // Filtering down to the row you want and pressing Enter takes it, the way
     // the desktop `SearchSelect` behaves.
     expect(onModelChange).toHaveBeenCalledWith("m5");
-    expect(screen.queryByRole("listbox", { name: "Model" })).toBeNull();
+    expect(screen.queryByRole("menu", { name: "Model" })).toBeNull();
   });
 
   it("opens the permission list as a menu with each mode's consequence", async () => {
@@ -504,14 +596,13 @@ describe("RunConfigControl", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /^Model/ }));
 
-    const layer = screen.getByRole("listbox", { name: "Model" }).closest("[data-run-config-layer]");
-    expect(layer).toBeTruthy();
+    const layer = screen.getByRole("menu", { name: "Model" });
     // Measured from the viewport and portaled out of the sheet: an `absolute`
     // layer inside the sheet's scrollport was clipped at its top edge, where
     // no scroll could reach it, so the search field and first options painted
     // nowhere. The positioned element is now the shared popover's dialog; the
-    // row's own marker rides inside it.
-    const panel = layer!.closest('[role="dialog"]');
+    // menu rides inside it.
+    const panel = layer.closest('[role="dialog"]');
     expect(panel).toBeTruthy();
     expect(panel!.parentElement).toBe(document.body);
     expect(dialog.contains(layer)).toBe(false);
@@ -547,12 +638,12 @@ describe("RunConfigControl", () => {
     setup();
     const dialog = await openSheet();
     await userEvent.click(screen.getByRole("button", { name: /^Model/ }));
-    expect(screen.getByRole("listbox", { name: "Model" })).toBeTruthy();
+    expect(screen.getByRole("menu", { name: "Model" })).toBeTruthy();
 
     // The sheet's own body, not a row and not the layer.
     await userEvent.click(dialog);
 
-    expect(screen.queryByRole("listbox", { name: "Model" })).toBeNull();
+    expect(screen.queryByRole("menu", { name: "Model" })).toBeNull();
     expect(screen.getByRole("dialog", { name: "Run settings" })).toBe(dialog);
   });
 
@@ -596,19 +687,18 @@ describe("RunConfigControl", () => {
     await openSheet();
     stubRows();
 
-    // Agent and permission are the shared `Menu`; the model row is still the
-    // searchable `Expansion` until a primitive grows a search slot.
+    // All three rows are the shared `Menu` now, so the same rule has to hold
+    // for the model row too.
     const rows: Array<[RegExp, string]> = [
-      [/^Agent/, '[role="menu"]'],
-      [/^Model/, "[data-run-config-layer]"],
-      [/^Permissions/, '[role="menu"]'],
+      [/^Agent/, "Agent"],
+      [/^Model/, "Model"],
+      [/^Permissions/, "Permissions"],
     ];
-    for (const [name, selector] of rows) {
+    for (const [name, menuName] of rows) {
       await userEvent.click(screen.getByRole("button", { name }));
-      const layer = document.querySelector<HTMLElement>(selector);
-      expect(layer).toBeTruthy();
+      const layer = screen.getByRole("menu", { name: menuName });
       // Upward: measured from the bottom, and no `top` on the same element.
-      const panel = layer!.closest<HTMLElement>('[role="dialog"]');
+      const panel = layer.closest<HTMLElement>('[role="dialog"]');
       expect(panel).toBeTruthy();
       expect(panel!.style.bottom).not.toBe("");
       expect(panel!.style.top).toBe("");
@@ -682,10 +772,44 @@ describe("RunConfigControl on a wide screen", () => {
     const { onModelChange } = setup();
     await openSheet();
     await userEvent.click(screen.getByRole("button", { name: /^Model/ }));
-    await userEvent.click(screen.getByRole("option", { name: /Opus/ }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: /Opus/ }));
 
     expect(onModelChange).toHaveBeenCalledWith("opus");
     expect(screen.getByRole("dialog", { name: "Run settings" })).toBeTruthy();
+  });
+
+  it("opens the model catalog downward, where the panel has room for it", async () => {
+    // The Mac panel hangs near the top of the window: the row sits ~170px
+    // from the top edge, less than half the 360px band the catalog needs.
+    // The menu follows the container, so it uses the page below the row
+    // instead of squeezing a hundred models into the strip above it.
+    setup({ models: MANY_MODELS, model: "m0" });
+    await openSheet();
+    const trigger = screen.getByRole("button", { name: /^Model/ });
+    const rect = {
+      top: 171,
+      bottom: 196,
+      left: 700,
+      right: 1060,
+      width: 360,
+      height: 25,
+      x: 700,
+      y: 171,
+      toJSON: () => ({}),
+    } as DOMRect;
+    trigger.getBoundingClientRect = () => rect;
+
+    await userEvent.click(trigger);
+
+    const panel = screen
+      .getByRole("menu", { name: "Model" })
+      .closest<HTMLElement>('[role="dialog"]');
+    expect(panel).toBeTruthy();
+    // Downward: measured from the top, and no `bottom` on the same element.
+    expect(panel!.style.top).not.toBe("");
+    expect(panel!.style.bottom).toBe("");
+    // The whole 360px band, not the ~150px the top edge would have left.
+    expect(Number.parseFloat(panel!.style.maxHeight)).toBe(360);
   });
 
   it("keeps the panel open when a non-popover extra row layer takes the pointer", async () => {
@@ -734,7 +858,7 @@ describe("RunConfigControl on a wide screen", () => {
     const panel = await openSheet();
     const trigger = screen.getByRole("button", { name: /^Model/ });
     await userEvent.click(trigger);
-    expect(screen.getByRole("listbox", { name: "Model" })).toBeTruthy();
+    expect(screen.getByRole("menu", { name: "Model" })).toBeTruthy();
 
     // The layer the reader opened last is the one Escape belongs to, wherever
     // the caret sits. Focus moved to the header, whose handler is outside the
@@ -743,7 +867,7 @@ describe("RunConfigControl on a wide screen", () => {
     within(panel).getByRole("button", { name: "Close" }).focus();
     await userEvent.keyboard("{Escape}");
 
-    expect(screen.queryByRole("listbox", { name: "Model" })).toBeNull();
+    expect(screen.queryByRole("menu", { name: "Model" })).toBeNull();
     expect(screen.getByRole("dialog", { name: "Run settings" })).toBe(panel);
     expect(document.activeElement).toBe(trigger);
   });

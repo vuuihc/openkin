@@ -7,7 +7,8 @@ import {
   type RefObject,
 } from "react";
 import { isImeKeyEvent } from "../../lib/ime";
-import { IconCheck } from "../icons";
+import { IconCheck, IconSearch, IconX } from "../icons";
+import Button from "./Button";
 import Popover from "./Popover";
 
 /**
@@ -30,7 +31,29 @@ export type MenuItem = {
   description?: string;
   /** Renders role="menuitemradio" with aria-checked when defined. */
   checked?: boolean;
+  /**
+   * A row that configures the menu's `footer` rather than choosing a value:
+   * the menu stays open and focus stays where it is, so the editor the row
+   * just revealed is not pulled out from under the reader. The caller closes
+   * the menu afterwards (Escape, an outside press, or another row).
+   */
+  keepOpen?: boolean;
   onSelect: () => void;
+};
+
+/**
+ * A field the caller owns, pinned above the rows. Menu draws it and owns the
+ * keyboard contract between the two; the caller owns the query and the
+ * filtering, because what a row matches on is domain knowledge.
+ */
+export type MenuSearch = {
+  value: string;
+  onChange: (value: string) => void;
+  /** Accessible name of the field. */
+  label: string;
+  placeholder: string;
+  /** Accessible name of the clear control. */
+  clearLabel: string;
 };
 
 export type MenuProps = {
@@ -60,6 +83,24 @@ export type MenuProps = {
    * lines need instead of re-deriving the panel's shape.
    */
   width?: number;
+  /**
+   * A field above the rows that narrows them. The caller hands the already
+   * filtered `items`; the menu adds focus into the field on open, Down into
+   * the rows, Up from the first row back out, Enter taking the first enabled
+   * row, and letters staying in the field instead of running the typeahead.
+   */
+  search?: MenuSearch;
+  /**
+   * Content inside the panel, below the rows: the editor a `keepOpen` row
+   * reveals. It is part of this layer, so the panel's Tab containment and
+   * Escape reach it, and it is not a command in the menu role.
+   */
+  footer?: ReactNode;
+  /**
+   * Shown under the rows when the caller's filter kept none of them. Menu does
+   * not filter, so it cannot write this copy itself.
+   */
+  emptyLabel?: string;
 };
 
 /** How long a typeahead buffer survives between keystrokes. */
@@ -100,8 +141,12 @@ export default function Menu({
   placement = "below",
   align = "left",
   width = 240,
+  search,
+  footer,
+  emptyLabel,
 }: MenuProps) {
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  const searchRef = useRef<HTMLInputElement>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   // `window.setTimeout` rather than the bare global: the DOM one returns a
   // number, so the handle stays a number even in a tree that also loads
@@ -189,10 +234,45 @@ export default function Menu({
   const choose = (item: MenuItem) => {
     if (item.disabled) return;
     item.onSelect();
+    // A row that configures the footer leaves the layer up: closing here would
+    // unmount the editor it just revealed.
+    if (item.keepOpen) return;
     onOpenChange(false);
     // The row that had focus is about to unmount; without this the next Tab
     // starts at the top of the page.
     triggerRef.current?.focus({ preventScroll: true });
+  };
+
+  /**
+   * The search field's keys. Letters are never intercepted: they belong to the
+   * field, and stopping here is what keeps them out of the rows' typeahead.
+   */
+  const onSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (isImeKeyEvent(event.nativeEvent)) return;
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+
+    switch (event.key) {
+      case "ArrowDown":
+        event.preventDefault();
+        // Into the list where the reader already is, not at its top.
+        focusItem(preferred ?? enabled[0]?.id);
+        return;
+      case "ArrowUp":
+        event.preventDefault();
+        // Up from the field wraps to the last row, the mirror of Down.
+        focusItem(enabled[enabled.length - 1]?.id);
+        return;
+      case "Enter": {
+        event.preventDefault();
+        // The caller filtered the rows to what the query kept; Enter takes the
+        // first one it can, so typing a name and pressing Enter is enough.
+        const first = enabled[0];
+        if (first) choose(first);
+        return;
+      }
+      default:
+        return;
+    }
   };
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -206,6 +286,12 @@ export default function Menu({
         return;
       case "ArrowUp":
         event.preventDefault();
+        // Out of the top of the list and back into the field that sent the
+        // reader down, when there is one; otherwise wrap as usual.
+        if (search && focusedId() === enabled[0]?.id) {
+          searchRef.current?.focus({ preventScroll: true });
+          return;
+        }
         move(-1);
         return;
       case "Home":
@@ -254,6 +340,42 @@ export default function Menu({
       width={width}
       maxHeight={360}
     >
+      {search ? (
+        // Above the rows and outside the menu role: a text field is not a
+        // command, and its keystrokes must not bubble into the rows' typeahead.
+        // Pinned, because a long catalog scrolls under the field that filters
+        // it. The negative top margin and matching padding put the field flush
+        // with the panel's inner edge and keep the band above it covered while
+        // it sticks.
+        <div data-menu-search className="sticky top-0 z-10 -mx-1.5 -mt-1.5 bg-kin-elevated pt-1.5">
+          <div className="flex min-h-11 items-center gap-2 border-b border-[var(--kin-hairline)] px-3 focus-within:bg-[var(--kin-fill)] focus-within:outline focus-within:outline-2 focus-within:-outline-offset-2 focus-within:outline-kin-focus-ring">
+            <IconSearch size={14} className="flex-none text-kin-muted" />
+            <input
+              ref={searchRef}
+              value={search.value}
+              onChange={(event) => search.onChange(event.target.value)}
+              onKeyDown={onSearchKeyDown}
+              placeholder={search.placeholder}
+              aria-label={search.label}
+              className="min-h-11 min-w-0 flex-1 bg-transparent text-strong text-kin-text outline-none placeholder:text-kin-muted"
+            />
+            {search.value ? (
+              <Button
+                variant="quiet"
+                onClick={() => search.onChange("")}
+                aria-label={search.clearLabel}
+                title={search.clearLabel}
+                // The icon stays compact, but the tap area does not: on a
+                // phone the clear sits in a 44px field and a 28px-wide target
+                // beside the search text is the one a thumb misses.
+                className="h-7 w-7 flex-none rounded-full p-0 max-sm:min-w-11"
+              >
+                <IconX size={13} className="text-kin-muted" />
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       <div role="menu" aria-label={label} onKeyDown={onKeyDown}>
         {items.map((item) => (
           <div
@@ -293,6 +415,17 @@ export default function Menu({
           </div>
         ))}
       </div>
+      {items.length === 0 && emptyLabel ? (
+        // Outside the menu role: a menu holds commands, and a sentence is not
+        // one. It still sits where the rows would have been, under the field
+        // whose query emptied them.
+        <p className="px-2 py-2 text-body text-kin-muted">{emptyLabel}</p>
+      ) : null}
+      {footer ? (
+        // The negative margins take back the panel's own padding so the footer
+        // keeps the edge-to-edge geometry of the surface that owns it.
+        <div className="-mx-1.5 -mb-1.5">{footer}</div>
+      ) : null}
     </Popover>
   );
 }
