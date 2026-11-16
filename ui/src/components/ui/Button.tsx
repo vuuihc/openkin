@@ -59,6 +59,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
     disabled,
     isLoading,
     "aria-label": ariaLabel,
+    "aria-busy": ariaBusy,
     ...rest
   },
   ref,
@@ -82,7 +83,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
       aria-label={ariaLabel}
       isDisabled={disabled}
       isLoading={isLoading}
-      aria-busy={isLoading ? true : undefined}
+      aria-busy={isLoading ? true : ariaBusy}
       className={[
         "kin-btn",
         // The floor the stylesheet already draws; stated here too so the touch
