@@ -265,9 +265,9 @@ describe("the Operations settings tab", () => {
     await user.click(screen.getByRole("tab", { name: "General" }));
     expect(panel("general").hasAttribute("hidden")).toBe(false);
 
-    expect(
-      (screen.getAllByDisplayValue('{"mine":true}')[0] as HTMLTextAreaElement).value,
-    ).toBe('{"mine":true}');
+    expect((screen.getAllByDisplayValue('{"mine":true}')[0] as HTMLTextAreaElement).value).toBe(
+      '{"mine":true}',
+    );
     // An in-page tab change is not leaving Settings, so it never asks.
     expect(confirm).not.toHaveBeenCalled();
   });

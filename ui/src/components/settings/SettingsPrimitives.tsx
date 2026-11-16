@@ -4,12 +4,7 @@ import { MobileCard, MobileRow } from "../mobile/MobileList";
 import { MobileChevron } from "../mobile/MobileHeader";
 
 export type SettingsTabId =
-  | "general"
-  | "agents"
-  | "operations"
-  | "providers"
-  | "routing"
-  | "advanced";
+  "general" | "agents" | "operations" | "providers" | "routing" | "advanced";
 
 export type SettingsTabItem = {
   id: SettingsTabId;
