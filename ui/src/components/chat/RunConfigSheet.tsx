@@ -793,8 +793,11 @@ function PickerTrigger({
       // height stays content-driven. Astryx wraps the children in a label span
       // that sizes to content, and the last selector makes that span fill the
       // row so a long value wraps at the row's edge rather than its own.
+      // `min-h-11` is the touch floor (44px), not decoration: on a phone this
+      // row is the tap target that opens the options, and the previous
+      // `min-h-10` left it 4px under the floor the shared button ships with.
       className={[
-        "flex h-auto min-h-10 w-full items-center justify-start rounded-lg border-0 px-3 py-1.5 text-left text-strong font-medium whitespace-normal [&>span>span]:w-full",
+        "flex h-auto min-h-11 w-full items-center justify-start rounded-lg border-0 px-3 py-1.5 text-left text-strong font-medium whitespace-normal [&>span>span]:w-full",
         expanded
           ? "bg-[var(--kin-fill-strong)] text-kin-text ring-2 ring-kin-blue/30"
           : "bg-[var(--kin-fill)] text-kin-text hover:bg-[var(--kin-fill-strong)]",
@@ -946,7 +949,10 @@ function SearchField({
           onClick={() => onChange("")}
           aria-label={clearLabel}
           title={clearLabel}
-          className="h-7 w-7 flex-none rounded-full p-0"
+          // The icon stays compact, but the tap area does not: on a phone the
+          // clear sits in a 44px field and a 28px-wide target beside the
+          // search text is the one control a thumb misses.
+          className="h-7 w-7 flex-none rounded-full p-0 max-sm:min-w-11"
         >
           <IconX size={13} className="text-kin-muted" />
         </Button>

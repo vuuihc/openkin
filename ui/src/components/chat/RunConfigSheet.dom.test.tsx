@@ -187,6 +187,40 @@ describe("RunConfigControl", () => {
     expect(within(dialog).getByRole("button", { name: /^Permissions/ })).toBeTruthy();
   });
 
+  it("keeps every row trigger on the 44px touch floor", async () => {
+    // More than six models is what makes the list long enough to grow a field.
+    const many = Array.from({ length: 8 }, (_, index) => ({
+      id: `m${index}`,
+      label: `Model ${index}`,
+    }));
+    setup({
+      models: many,
+      model: "m0",
+      agentId: "claude-code",
+      agents: [
+        { id: "claude-code", name: "Claude Code", available: true },
+        { id: "codex", name: "Codex", available: true },
+      ] as never,
+      onAgentChange: vi.fn(),
+    });
+    const dialog = await openSheet();
+    // jsdom has no layout, so the floor is asserted where it is declared:
+    // the shared button ships `min-h-11`, and a row that overrides it with a
+    // smaller floor is a tap target a thumb on a 390px phone can miss.
+    for (const trigger of dialog.querySelectorAll<HTMLElement>("[data-run-config-trigger]")) {
+      expect(trigger.className).toContain("min-h-11");
+      expect(trigger.className).not.toContain("min-h-10");
+    }
+
+    // The search field's clear is the other thumb-sized control in the sheet:
+    // it appears only once a query is typed (and the field only when the
+    // catalog is longer than six), so it is asserted here.
+    await userEvent.click(within(dialog).getByRole("button", { name: /^Model/ }));
+    await userEvent.type(screen.getByLabelText("Search models"), "model");
+    const clear = screen.getByRole("button", { name: "Clear" });
+    expect(clear.className).toContain("max-sm:min-w-11");
+  });
+
   it("opens the agent list as a radio menu and marks the current agent", async () => {
     const onAgentChange = vi.fn();
     setup({
