@@ -915,9 +915,7 @@ describe("transcriptProjection", () => {
     ]);
     expect(live[0]).toMatchObject({
       kind: "progress",
-      steps: [
-        { kind: "note", source: "reasoning", text: "Inspecting the repository." },
-      ],
+      steps: [{ kind: "note", source: "reasoning", text: "Inspecting the repository." }],
     });
     expect(live[1]).toMatchObject({
       kind: "progress",

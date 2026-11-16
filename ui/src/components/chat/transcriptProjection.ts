@@ -1083,7 +1083,8 @@ function splitProcessRun(run: ProcessRunItem[], finalMessageIdx: number): ChatIt
   for (let index = 0; index < run.length; index += 1) {
     const item = run[index];
     if (item.kind === "message") {
-      const foldIntoProcess = !item.partial && item.phase !== "summary" && index !== finalMessageIdx;
+      const foldIntoProcess =
+        !item.partial && item.phase !== "summary" && index !== finalMessageIdx;
       if (!foldIntoProcess) {
         flushTools();
         out.push(item);
