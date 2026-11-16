@@ -132,11 +132,7 @@ export default function SessionFilters({
       <p id={chipsLabelId} className="sr-only">
         {tr("sessions.scopeGroup")}
       </p>
-      <div
-        role="group"
-        aria-labelledby={chipsLabelId}
-        className="flex flex-wrap gap-1.5"
-      >
+      <div role="group" aria-labelledby={chipsLabelId} className="flex flex-wrap gap-1.5">
         <ScopeChip
           label={tr("sessions.scopeAll")}
           selected={!archived && !attention}
@@ -329,9 +325,7 @@ function ScopeChip({
       onClick={onClick}
       className={[
         "inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 text-body font-medium",
-        selected
-          ? "bg-kin-blue/10 text-kin-blue-ink"
-          : "text-kin-muted hover:text-kin-text",
+        selected ? "bg-kin-blue/10 text-kin-blue-ink" : "text-kin-muted hover:text-kin-text",
       ].join(" ")}
     >
       <span>{label}</span>
@@ -364,9 +358,7 @@ function Option({
       onClick={onClick}
       className={[
         "inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 text-body font-medium",
-        selected
-          ? "bg-kin-blue text-kin-on-brand"
-          : "bg-[var(--kin-fill-strong)] text-kin-text",
+        selected ? "bg-kin-blue text-kin-on-brand" : "bg-[var(--kin-fill-strong)] text-kin-text",
       ].join(" ")}
     >
       {/* Same inline-flex row as the trigger: a selected option's check mark is

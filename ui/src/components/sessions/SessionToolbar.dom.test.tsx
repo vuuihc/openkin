@@ -103,9 +103,7 @@ describe("SessionToolbar", () => {
     const needs = within(chips).getByRole("button", { name: "Needs you" });
     expect(needs.getAttribute("aria-pressed")).toBe("true");
     expect(needs.textContent).toContain("3");
-    expect(
-      within(chips).getByRole("button", { name: "Running" }).textContent,
-    ).toContain("2");
+    expect(within(chips).getByRole("button", { name: "Running" }).textContent).toContain("2");
   });
 });
 

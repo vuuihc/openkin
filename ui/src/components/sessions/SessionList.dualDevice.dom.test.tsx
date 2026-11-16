@@ -43,7 +43,10 @@ vi.mock("../../api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../api/client")>();
   return {
     ...actual,
-    listAgentSessionsPage: vi.fn(async () => ({ items: [] as AgentSession[], next_cursor: undefined })),
+    listAgentSessionsPage: vi.fn(async () => ({
+      items: [] as AgentSession[],
+      next_cursor: undefined,
+    })),
     listProjects: vi.fn(async () => fixtures.projects),
     listTasks: vi.fn(async () => []),
     ensureProject: vi.fn(async () => ({ id: "p", name: "shared" })),
@@ -212,9 +215,7 @@ describe("a project menu on a path two machines share", () => {
     // project. They share a path but not an identity, so the remote row has
     // no Restore and the empty local heading still does.
     const remote = section(/Studio/);
-    expect(
-      await within(remote).findByRole("button", { name: /remote-put-away/ }),
-    ).toBeTruthy();
+    expect(await within(remote).findByRole("button", { name: /remote-put-away/ })).toBeTruthy();
     expect(within(remote).queryByRole("button", { name: /Restore/ })).toBeNull();
 
     const local = section(/This machine/);
@@ -279,9 +280,7 @@ describe("the conversation attention view", () => {
       const { unmount } =
         shell === "page" ? page("/sessions?attention=needs") : sidebar("/sessions?attention=needs");
 
-      expect(
-        await screen.findByRole("button", { name: /waiting-approval/ }),
-      ).toBeTruthy();
+      expect(await screen.findByRole("button", { name: /waiting-approval/ })).toBeTruthy();
       expect(screen.getByRole("button", { name: /waiting-input/ })).toBeTruthy();
       expect(screen.queryByRole("button", { name: /still-running/ })).toBeNull();
       expect(screen.queryByRole("button", { name: /finished/ })).toBeNull();
@@ -339,8 +338,9 @@ describe("the conversation attention view", () => {
     expect(screen.getByRole("button", { name: /live-two/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /finished-three/ })).toBeTruthy();
     expect(
-      (await screen.findByRole("group", { name: "Conversation view" }))
-        .querySelector('[aria-pressed="true"]')?.textContent,
+      (await screen.findByRole("group", { name: "Conversation view" })).querySelector(
+        '[aria-pressed="true"]',
+      )?.textContent,
     ).toBe("All");
   });
 });

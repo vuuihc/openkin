@@ -179,8 +179,7 @@ export default function SessionList({
   const scope = normalizeScopeFilter(params.get("scope"));
   // Archived is its own side of the list, so an attention value is ignored
   // there rather than narrowing the archive to a view it does not have.
-  const attention =
-    scope === "archived" ? "" : normalizeAttentionFilter(params.get("attention"));
+  const attention = scope === "archived" ? "" : normalizeAttentionFilter(params.get("attention"));
 
   const [searchTerm, setSearchTerm] = useState(() => query.trim());
   const [returnRow, setReturnRow] = useState<string | null>(() => takeRowReturn());
@@ -597,16 +596,16 @@ export default function SessionList({
             hint: tr("sessions.attentionEmptyHint"),
           }
         : filtering
-        ? {
-            icon: <IconFilter size={30} />,
-            title: tr("sessions.filterEmpty"),
-            hint: tr("sessions.filterEmptyHint"),
-          }
-        : {
-            icon: <IconSessions size={30} />,
-            title: tr("sessions.empty"),
-            hint: tr("sessions.emptyHint"),
-          };
+          ? {
+              icon: <IconFilter size={30} />,
+              title: tr("sessions.filterEmpty"),
+              hint: tr("sessions.filterEmptyHint"),
+            }
+          : {
+              icon: <IconSessions size={30} />,
+              title: tr("sessions.empty"),
+              hint: tr("sessions.emptyHint"),
+            };
 
   function setQuery(next: string) {
     const following = new URLSearchParams(params);

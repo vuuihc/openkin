@@ -25,8 +25,7 @@ import type { SessionAttentionFilter } from "../../lib/sessionAttention";
 
 const chipGroup = () => screen.getByRole("group", { name: "Conversation view" });
 const chip = (name: string) => within(chipGroup()).getByRole("button", { name });
-const chipButtons = () =>
-  within(chipGroup()).getAllByRole("button") as HTMLButtonElement[];
+const chipButtons = () => within(chipGroup()).getAllByRole("button") as HTMLButtonElement[];
 const pressedChips = () =>
   chipButtons().filter((button) => button.getAttribute("aria-pressed") === "true");
 // The chip row and the panel options also carry aria-pressed, so the trigger
@@ -67,8 +66,7 @@ function setup(overrides: Partial<Props> = {}) {
   const { rerender } = render(view({ ...overrides, onChange }));
   return {
     onChange,
-    rerender: (next: Partial<Props> = {}) =>
-      rerender(view({ ...overrides, ...next, onChange })),
+    rerender: (next: Partial<Props> = {}) => rerender(view({ ...overrides, ...next, onChange })),
   };
 }
 
@@ -111,17 +109,13 @@ describe("SessionFilters", () => {
     const needs = chip("Needs you");
     const needsNumber = within(needs).getByText("3");
     expect(needsNumber.getAttribute("aria-hidden")).toBe("true");
-    const needsSentence = document.getElementById(
-      needs.getAttribute("aria-describedby")!,
-    );
+    const needsSentence = document.getElementById(needs.getAttribute("aria-describedby")!);
     expect(needsSentence?.textContent).toBe("3 conversations need you");
 
     const running = chip("Running");
     const runningNumber = within(running).getByText("2");
     expect(runningNumber.getAttribute("aria-hidden")).toBe("true");
-    const runningSentence = document.getElementById(
-      running.getAttribute("aria-describedby")!,
-    );
+    const runningSentence = document.getElementById(running.getAttribute("aria-describedby")!);
     expect(runningSentence?.textContent).toBe("2 conversations running");
   });
 

@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Task } from "../api/client";
-import {
-  attentionCounts,
-  matchesAttention,
-  normalizeAttentionFilter,
-} from "./sessionAttention";
+import { attentionCounts, matchesAttention, normalizeAttentionFilter } from "./sessionAttention";
 
 /**
  * The list's attention view: needs-you and running.
@@ -82,10 +78,7 @@ describe("matchesAttention", () => {
 
 describe("attentionCounts", () => {
   it("counts a conversation once when both a pending item and a waiting status point at it", () => {
-    const counts = attentionCounts(
-      [row("both", "waiting_approval")],
-      new Map([["both", 3]]),
-    );
+    const counts = attentionCounts([row("both", "waiting_approval")], new Map([["both", 3]]));
     expect(counts).toEqual({ needsYou: 1, running: 0 });
   });
 
