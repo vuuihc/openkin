@@ -30,6 +30,7 @@ import {
   type Routine,
 } from "../api/client";
 import { IconBack, IconMachine, IconRoutines } from "../components/icons";
+import Button from "../components/ui/Button";
 import SearchSelect from "../components/ui/SearchSelect";
 import Heatmap from "../components/project/Heatmap";
 import ProjectOnePager from "../components/project/ProjectOnePager";
@@ -720,14 +721,17 @@ export default function ProjectDetailPage() {
       return (
         <div className="flex-1 min-h-0 overflow-y-auto kin-scroll">
           <div className="mx-auto max-w-5xl px-4 py-6">
-            <button
-              type="button"
-              className="mb-4 inline-flex items-center gap-1 text-strong text-kin-secondary hover:text-kin-text"
+            <Button
+              variant="quiet"
+              aria-label={tr("projects.back")}
+              className="mb-4 text-strong"
               onClick={goBack}
             >
-              <IconBack size={14} />
-              {tr("projects.back")}
-            </button>
+              <span className="inline-flex items-center gap-1">
+                <IconBack size={14} />
+                {tr("projects.back")}
+              </span>
+            </Button>
             <div
               role="alert"
               className="rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-strong text-kin-red-ink"
@@ -735,13 +739,13 @@ export default function ProjectDetailPage() {
               {error.message}
             </div>
             {!error.notFound && (
-              <button
-                type="button"
+              <Button
+                variant="default"
+                className="mt-3 text-strong"
                 onClick={() => void loadProject()}
-                className="mt-3 min-h-11 rounded-lg border border-kin-hairline px-3 text-strong text-kin-text hover:bg-[var(--kin-fill-strong)]"
               >
                 {tr("common.retry")}
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -795,14 +799,17 @@ export default function ProjectDetailPage() {
       }}
     >
       <div className="mx-auto max-w-5xl px-4 py-6 pb-24">
-        <button
-          type="button"
-          className="mb-3 inline-flex items-center gap-1 text-strong text-kin-secondary hover:text-kin-text"
+        <Button
+          variant="quiet"
+          aria-label={tr("projects.back")}
+          className="mb-3 text-strong"
           onClick={goBack}
         >
-          <IconBack size={14} />
-          {tr("projects.back")}
-        </button>
+          <span className="inline-flex items-center gap-1">
+            <IconBack size={14} />
+            {tr("projects.back")}
+          </span>
+        </Button>
 
         <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
@@ -876,13 +883,13 @@ export default function ProjectDetailPage() {
                   className="rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-strong text-kin-red-ink"
                 >
                   <p>{activityError}</p>
-                  <button
-                    type="button"
+                  <Button
+                    variant="secondary"
                     onClick={() => void loadActivity(currentProject)}
-                    className="mt-2 min-h-11 rounded-lg border border-kin-red/40 px-3 text-strong text-kin-red-ink"
+                    className="mt-2 text-strong"
                   >
                     {tr("common.retry")}
-                  </button>
+                  </Button>
                 </div>
               )}
 
@@ -947,14 +954,14 @@ export default function ProjectDetailPage() {
                 >
                   {tr("projects.overviewWindow")}
                 </h2>
-                <button
-                  type="button"
+                <Button
+                  variant="secondary"
                   disabled={refreshing || offline}
-                  className="rounded-lg border border-kin-hairline px-2.5 py-1 text-body text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
+                  className="text-body"
                   onClick={() => void onRefreshPulse()}
                 >
                   {refreshing ? tr("projects.refreshing") : tr("projects.refresh")}
-                </button>
+                </Button>
               </div>
 
               {pulseError && (
@@ -970,14 +977,14 @@ export default function ProjectDetailPage() {
                       })}
                     </p>
                   )}
-                  <button
-                    type="button"
+                  <Button
+                    variant="secondary"
                     disabled={refreshing || offline}
+                    className="mt-2 text-strong"
                     onClick={() => void onRefreshPulse()}
-                    className="mt-2 min-h-11 rounded-lg border border-kin-red/40 px-3 text-strong text-kin-red-ink disabled:opacity-50"
                   >
                     {tr("projects.refresh")}
-                  </button>
+                  </Button>
                 </div>
               )}
 
@@ -1050,13 +1057,13 @@ export default function ProjectDetailPage() {
                   className="mb-3 rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-body text-kin-red-ink"
                 >
                   <p>{routinesError}</p>
-                  <button
-                    type="button"
+                  <Button
+                    variant="secondary"
                     onClick={() => void loadRoutines()}
-                    className="mt-2 min-h-11 rounded-lg border border-kin-red/40 px-3 text-strong text-kin-red-ink"
+                    className="mt-2 text-strong"
                   >
                     {tr("common.retry")}
-                  </button>
+                  </Button>
                 </div>
               )}
 
@@ -1093,9 +1100,19 @@ export default function ProjectDetailPage() {
             </section>
           </div>
         </div>
-
-        {!wide && <div className="mt-4">{newChatControl}</div>}
       </div>
+
+      {/* On a phone the one filled action follows the page instead of ending
+          it: pinned above the tab bar, it is reachable without scrolling past
+          the pulse, routines and the activity list. */}
+      {!wide && (
+        <div
+          data-project-cta="bar"
+          className="sticky bottom-0 z-10 border-t border-kin-hairline bg-kin-panel px-4 py-3"
+        >
+          <div className="mx-auto max-w-5xl">{newChatControl}</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1113,22 +1130,22 @@ function NewChatControl({
   const navigate = useNavigate();
   const location = useLocation();
   const reasonId = useId();
-  const className = [
-    "inline-flex min-h-11 items-center justify-center rounded-lg bg-kin-blue px-3 text-strong font-medium text-kin-on-brand",
-    fullWidth ? "w-full" : "",
-  ].join(" ");
+  // The call to action navigates, so it stays a link; it borrows the facade's
+  // own `kin-btn` vocabulary so its fill, touch floor and focus ring match the
+  // primary buttons drawn by `Button` elsewhere on the page.
+  const className = ["kin-btn kin-btn-primary", fullWidth ? "w-full" : ""].join(" ");
 
   if (href === null || disabledReason) {
     return (
       <div className={fullWidth ? "w-full" : ""}>
-        <button
-          type="button"
+        <Button
+          variant="default"
           disabled
           aria-describedby={disabledReason ? reasonId : undefined}
-          className={`${className} opacity-50`}
+          className={fullWidth ? "w-full" : ""}
         >
           {tr("projects.newChat")}
-        </button>
+        </Button>
         {disabledReason && (
           <p id={reasonId} className="mt-1 text-caption text-kin-muted">
             {disabledReason}
