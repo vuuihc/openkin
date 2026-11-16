@@ -160,4 +160,17 @@ mkdir -p "$T/agy_st"
   [ -s "$STATE/agy-limited-until" ] && [ "$(cat "$STATE/agy-limited-until")" -gt "$(date +%s)" ] || exit 1
 ) && ok agy-limit-stamps-real-quota-error || bad agy-limit-stamps-real-quota-error
 
+# Prose-free error field: the vendor CLI reports a bare "quota" with no long phrase to match.
+mkdir -p "$T/agy_st3"
+(
+  STATE="$T/agy_st3"
+  eval "$(sed -n '/^note_agy_limit()/,/^}/p' "$H/dispatch.sh")"
+  LOG="$T/agy_bare"
+  : > "$LOG"
+  echo '{"status":"ERROR","error":"quota"}' > "$LOG.agy.json"
+  [ ! -e "$STATE/agy-limited-until" ] || exit 1
+  note_agy_limit
+  [ -s "$STATE/agy-limited-until" ] && [ "$(cat "$STATE/agy-limited-until")" -gt "$(date +%s)" ] || exit 1
+) && ok agy-limit-stamps-bare-quota-error || bad agy-limit-stamps-bare-quota-error
+
 echo ALL-PASS

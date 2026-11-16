@@ -162,11 +162,15 @@ try:
     blob += open(log_path, errors="replace").read()[-12000:] + "\n"
 except Exception:
     pass
-blob += " " + str(d.get("error") or "") + " " + status
+err_status = str(d.get("error") or "") + " " + status
+blob += " " + err_status
 if status not in ("SUCCESS", "OK"):
     blob += " " + resp_text
 pat = re.compile(r"exceeded your current quota|quota exceeded|rate.?limit|usage limit|resource.?exhausted|RESOURCE_EXHAUSTED|not asked again before|\bstatus code 429\b|\bHTTP 429\b|allowance.*exhausted", re.I)
-if not pat.search(blob):
+# Prose-free fields keep the broad vocabulary: the vendor CLI itself reports limits as a bare
+# "quota", "429", or "exhausted your capacity" in error/status without the phrases above.
+broad = re.compile(r"quota|\b429\b|exhausted your capacity", re.I)
+if not (pat.search(blob) or broad.search(err_status)):
     sys.exit(0)
 m=re.search(r"not asked again before\s+(\d{1,2}):(\d{2})", blob)
 now=datetime.datetime.now()
