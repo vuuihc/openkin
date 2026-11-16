@@ -13,6 +13,30 @@ const MODE_LABEL_KEY: Record<string, string> = {
 };
 
 /**
+ * How much of a root the secondary line shows before the middle gives way.
+ *
+ * A phone row is ~330px wide, so a seed path (`/var/folders/…/…/alpha`) loses
+ * its ending to a plain ellipsis — and the ending is the part that tells two
+ * projects apart. Keeping the head and the last segments leaves the basename
+ * on screen; the full path stays in the link's accessible name.
+ */
+const PATH_BUDGET = 44;
+
+/** Middle-truncate a path, keeping its basename and parent directory visible. */
+export function middleTruncatePath(path: string, budget = PATH_BUDGET): string {
+  if (path.length <= budget) return path;
+  const basenameAt = path.lastIndexOf("/");
+  const parentAt = path.lastIndexOf("/", basenameAt - 1);
+  // The last two segments are what a reader scans; if they alone overrun the
+  // budget, keep their ending rather than starting mid-path.
+  const tailStart = budget - 12;
+  const twoSegments = parentAt > 0 ? path.slice(parentAt) : "";
+  const tail =
+    twoSegments && twoSegments.length <= tailStart ? twoSegments : path.slice(-tailStart);
+  return `${path.slice(0, Math.max(1, budget - tail.length - 1))}…${tail}`;
+}
+
+/**
  * `/projects` is the Projects area root: the collection the area table names.
  *
  * The area has owned a detail page (`/projects/:id`) all along, but its root
@@ -75,7 +99,8 @@ export default function ProjectsCollectionPage() {
               const modeLabel = MODE_LABEL_KEY[project.mode]
                 ? tr(MODE_LABEL_KEY[project.mode])
                 : project.mode;
-              const detail = [modeLabel, project.roots?.[0]].filter(Boolean).join(" · ");
+              const root = project.roots?.[0];
+              const detail = [modeLabel, root].filter(Boolean).join(" · ");
               return (
                 <Link
                   key={project.id}
@@ -88,7 +113,17 @@ export default function ProjectsCollectionPage() {
                     </span>
                     {detail ? (
                       <span className="mt-0.5 block truncate text-caption leading-ui text-kin-muted">
-                        {detail}
+                        {modeLabel}
+                        {root ? (
+                          <>
+                            {modeLabel ? " · " : null}
+                            {/* Visible: a middle truncation, so the basename
+                                survives a narrow row. Hidden: the whole path,
+                                so the link's name still says where it lives. */}
+                            <span aria-hidden="true">{middleTruncatePath(root)}</span>
+                            <span className="sr-only">{root}</span>
+                          </>
+                        ) : null}
                       </span>
                     ) : null}
                   </span>

@@ -4,7 +4,7 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { listProjects, type Project } from "../api/client";
 import { setLocale, t } from "../i18n";
-import ProjectsCollectionPage from "./ProjectsCollectionPage";
+import ProjectsCollectionPage, { middleTruncatePath } from "./ProjectsCollectionPage";
 
 /**
  * The `/projects` area root is the third area root beside Chats and Routines:
@@ -53,6 +53,17 @@ const ROOTLESS: Project = {
   id: "p3",
   name: "gamma",
   roots: [],
+};
+
+/** A seed-shaped root: long enough that a phone row cuts it with an ellipsis. */
+const LONG_ROOT =
+  "/var/folders/4_/1xshvyld5pb71vvb1zttgntm0000gp/T/kin-journeys-seed-7vosfu6f/alpha";
+
+const DEEP: Project = {
+  ...PROJECT,
+  id: "p4",
+  name: "deep",
+  roots: [LONG_ROOT],
 };
 
 function renderPage() {
@@ -114,6 +125,45 @@ describe("the projects collection", () => {
     expect(gamma.textContent).toContain(t("projects.modeShip"));
     expect(gamma.textContent).not.toContain("·");
     expect(gamma.querySelector("svg")).not.toBeNull();
+  });
+
+  it("middle-truncates a long root so its basename stays on screen", async () => {
+    fixtures.projects = [DEEP];
+    renderPage();
+
+    const link = await screen.findByRole("link", { name: /deep/ });
+    const visible = link.querySelector(".text-caption [aria-hidden='true']");
+    expect(visible).not.toBeNull();
+    // The distinguishing ending — parent directory and basename — survives.
+    expect(visible?.textContent).toContain("…");
+    expect(visible?.textContent).toContain("kin-journeys-seed-7vosfu6f/alpha");
+    expect(visible?.textContent?.endsWith("/alpha")).toBe(true);
+
+    // The full path is still the link's accessible name, not the short one.
+    const escaped = LONG_ROOT.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    expect(screen.getByRole("link", { name: new RegExp(escaped) })).toBe(link);
+    expect(link.textContent).toContain(LONG_ROOT);
+  });
+
+  it("leaves a root that already fits untouched", async () => {
+    fixtures.projects = [PROJECT];
+    renderPage();
+
+    const link = await screen.findByRole("link", { name: /alpha/ });
+    const visible = link.querySelector(".text-caption [aria-hidden='true']");
+    expect(visible?.textContent).toBe("/work/alpha");
+    expect(middleTruncatePath("/work/alpha")).toBe("/work/alpha");
+  });
+
+  it("keeps a truncated path bounded and ending in the basename", () => {
+    const short = middleTruncatePath(LONG_ROOT);
+    expect(short.length).toBe(44);
+    expect(short).toContain("…");
+    expect(short.endsWith("/alpha")).toBe(true);
+    // A path whose last two segments alone overrun the budget keeps the end.
+    const deep = middleTruncatePath(`/a/${"x".repeat(80)}/alpha`);
+    expect(deep.length).toBe(44);
+    expect(deep.endsWith("/alpha")).toBe(true);
   });
 
   it("keeps the three states apart", async () => {
