@@ -20,6 +20,14 @@ export type MenuItem = {
   label: string;
   icon?: ReactNode;
   disabled?: boolean;
+  /**
+   * A second line inside the same row: the consequence of a choice ("YOLO —
+   * trusted / sandboxed envs only"), drawn under the label in the muted
+   * caption ink. It stays in the row's text content on purpose — a menu row's
+   * accessible name is what a reader hears as they move through it, and
+   * `aria-describedby` is not announced consistently in menu navigation.
+   */
+  description?: string;
   /** Renders role="menuitemradio" with aria-checked when defined. */
   checked?: boolean;
   onSelect: () => void;
@@ -39,6 +47,12 @@ export type MenuProps = {
   placement?: "above" | "below";
   /** Edge of the trigger the panel lines up with. */
   align?: "left" | "right";
+  /**
+   * Panel width in px. A menu is a column of labels, so 240 is the default;
+   * a caller whose rows carry a consequence line asks for the width those
+   * lines need instead of re-deriving the panel's shape.
+   */
+  width?: number;
 };
 
 /** How long a typeahead buffer survives between keystrokes. */
@@ -77,6 +91,7 @@ export default function Menu({
   items,
   placement = "below",
   align = "left",
+  width = 240,
 }: MenuProps) {
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -220,7 +235,7 @@ export default function Menu({
       align={align}
       // A menu is a column of labels: narrower than a chip's trigger would
       // truncate every row, and wider than this overhangs the page edge.
-      width={240}
+      width={width}
       maxHeight={360}
     >
       <div role="menu" aria-label={label} onKeyDown={onKeyDown}>
@@ -248,7 +263,12 @@ export default function Menu({
                 {item.icon}
               </span>
             ) : null}
-            <span className="min-w-0 flex-1 truncate">{item.label}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate">{item.label}</span>
+              {item.description ? (
+                <span className="block text-caption text-kin-muted">{item.description}</span>
+              ) : null}
+            </span>
             {item.checked ? (
               <span className="flex-none" aria-hidden="true">
                 <IconCheck size={12} />
