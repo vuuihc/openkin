@@ -220,6 +220,7 @@ def classify(
                 return False, f"failed check {name!r} is not a test job"
 
     go_scope_all = any(p == "go.mod" or p == "go.sum" or p.endswith("/go.mod") or p.endswith("/go.sum") for p in changed)
+    ui_touched = any(p.startswith("ui/") for p in changed)
     failures, saw_non_test = parse_failures(log_text, mod)
     if saw_non_test:
         return False, "log contains a non-test failure (typecheck/lint/inventory/build)"
@@ -232,6 +233,8 @@ def classify(
         if name in known:
             reasons.append(f"{name} known-flaky")
             continue
+        if ui_touched and name == "ui/src/design/tokens.test.ts":
+            return False, f"{name} scans all ui/ files (ui/ changed)"
         if pkg is None:
             return False, f"{name} has no package and is not known-flaky"
         # A go.mod change makes every Go package in-scope; a known-flaky name
@@ -365,6 +368,12 @@ build	Run go test ./...	2026-11-15T11:49:13.4234567Z	FAIL	github.com/vuuihc/open
     assert ok and "outside" in reason, reason
     ok, reason = classify(vitest, ["ui/src/pages/Home.tsx"], set(), mod, None)
     assert not ok and "touched" in reason, reason
+
+    tokens_vitest = "FAIL  src/design/tokens.test.ts > colour classes\n"
+    ok, reason = classify(tokens_vitest, ui_only, set(), mod, None)
+    assert not ok and "scans all ui/ files" in reason, reason
+    ok, reason = classify(tokens_vitest, ["internal/node/approvals.go"], set(), mod, None)
+    assert ok and "outside" in reason, reason
 
     print("self-test: ALL-PASS")
     return 0
