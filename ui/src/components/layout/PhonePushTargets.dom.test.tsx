@@ -3,7 +3,14 @@ import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { BrowserRouter, Route, Routes, useNavigate } from "react-router-dom";
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 import AppShell from "./AppShell";
 import SessionsPage from "../../pages/SessionsPage";
 import NewChatPage from "../../pages/NewChatPage";
@@ -236,9 +243,9 @@ function browser(initial: string) {
         <Routes>
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/new" element={<NewChatPage />} />
-          <Route path="/agents" element={<AgentsPage />} />
+          <Route path="/agents" element={<Navigate to="/settings?tab=operations" replace />} />
           <Route path="/agent-sessions/:id" element={<AgentSessionDetailPage />} />
-          <Route path="/settings" element={<DirtySettings />} />
+          <Route path="/settings" element={<SettingsAtTab />} />
           <Route path="/tasks/:id" element={<div>conversation page</div>} />
         </Routes>
       </AppShell>
@@ -259,9 +266,9 @@ function browserAt(entries: string[]) {
         <Routes>
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/new" element={<NewChatPage />} />
-          <Route path="/agents" element={<AgentsPage />} />
+          <Route path="/agents" element={<Navigate to="/settings?tab=operations" replace />} />
           <Route path="/agent-sessions/:id" element={<AgentSessionDetailPage />} />
-          <Route path="/settings" element={<DirtySettings />} />
+          <Route path="/settings" element={<SettingsAtTab />} />
           <Route path="/tasks/:id" element={<div>conversation page</div>} />
         </Routes>
       </AppShell>
@@ -289,6 +296,24 @@ function DirtySettings() {
       value={text}
       onChange={(event) => setText(event.target.value)}
     />
+  );
+}
+
+/**
+ * E4a: Agent Ops is the operations tab of Settings. The harness serves the
+ * destination the way App.tsx does — `/agents` redirects, and the tab decides
+ * which body renders.
+ */
+function SettingsAtTab() {
+  const [params] = useSearchParams();
+  return params.get("tab") === "operations" ? <AgentsPage /> : <DirtySettings />;
+}
+
+/** Whether the current entry is the operations tab, wherever the step began. */
+function onOperationsTab(): boolean {
+  return (
+    window.location.pathname === "/settings" &&
+    new URLSearchParams(window.location.search).get("tab") === "operations"
   );
 }
 
@@ -326,7 +351,7 @@ describe("Agent Ops is a destination, so the draft it opens replaces it", () => 
     await screen.findByRole("heading", { name: "Chats" });
 
     await user.click(screen.getByRole("link", { name: "Agent Ops" }));
-    await waitFor(() => expect(window.location.pathname).toBe("/agents"));
+    await waitFor(() => expect(onOperationsTab()).toBe(true));
     expect(window.history.state.idx).toBe(0);
 
     const actionsButton = (
@@ -369,7 +394,7 @@ describe("Agent Ops is a destination, so the draft it opens replaces it", () => 
     expect(screen.getByTestId("composer-value").textContent).toBe("unsent words");
 
     await user.click(screen.getByRole("button", { name: "Manage agents →" }));
-    await waitFor(() => expect(window.location.pathname).toBe("/agents"));
+    await waitFor(() => expect(onOperationsTab()).toBe(true));
 
     // Agent Ops is a peer of the list, not a detail over the draft.
     expect(window.history.state.idx).toBe(1);
@@ -391,7 +416,7 @@ describe("Agent Ops is a destination, so the draft it opens replaces it", () => 
     await openDraftFromTheList(user);
 
     await user.click(screen.getByRole("button", { name: "Manage agents →" }));
-    await waitFor(() => expect(window.location.pathname).toBe("/agents"));
+    await waitFor(() => expect(onOperationsTab()).toBe(true));
 
     // The Mac keeps ordinary nested history: the draft is still one Back away.
     expect(window.history.state.idx).toBe(2);

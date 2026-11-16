@@ -17,7 +17,6 @@ import StartRoute from "./pages/StartRoute";
 import SettingsPage from "./pages/SettingsPage";
 import TaskSessionHost from "./pages/TaskSessionHost";
 import TrayPage from "./pages/TrayPage";
-import AgentsPage from "./pages/AgentsPage";
 import RoutinesPage from "./pages/RoutinesPage";
 import MachineTaskPage from "./pages/MachineTaskPage";
 import AgentSessionDetailPage from "./pages/AgentSessionDetailPage";
@@ -194,17 +193,17 @@ export default function App() {
             <Route path="/approvals" element={<Navigate to="/sessions" replace />} />
             {/* Task detail UI is rendered by TaskSessionHost above. */}
             <Route path="/tasks/:id" element={null} />
-            {/* The Projects area root. `/agents` and `/usage` still render the
-                Agents page: their settings/operations destination has no panel
-                content until N4 hosts the tab, so redirecting now would be a
-                blank tab. `App.areaRoutes.test.ts` pins that deferral. */}
+            {/* The Projects area root. Agent operations live in Settings →
+                Operations, so the old full-page destinations redirect there:
+                a bookmark, banner or notification from before E4a still lands
+                on the panel. `App.areaRoutes.test.ts` pins the target. */}
             <Route path="/projects" element={<ProjectsCollectionPage />} />
             <Route path="/projects/:id" element={<ProjectDetailPage />} />
-            <Route path="/agents" element={<AgentsPage />} />
+            <Route path="/agents" element={<Navigate to="/settings?tab=operations" replace />} />
             <Route path="/routines" element={<RoutinesPage />} />
             {/* A remote run lives in that machine's task store. */}
             <Route path="/machines/:device/tasks/:id" element={<MachineTaskPage />} />
-            <Route path="/usage" element={<Navigate to="/agents" replace />} />
+            <Route path="/usage" element={<Navigate to="/settings?tab=operations" replace />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/agent-sessions/:id" element={<AgentSessionDetailPage />} />
             {/* Developer-only; a production build produces no route here. */}

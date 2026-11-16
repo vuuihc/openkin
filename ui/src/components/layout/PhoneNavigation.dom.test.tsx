@@ -347,7 +347,8 @@ describe("the four equal phone tabs", () => {
   });
 
   for (const [path, text] of [
-    ["/agents", "agents page"],
+    // E4a: Agent Ops is a tab of Settings now, not a root of its own.
+    ["/settings?tab=operations", "settings page"],
     ["/settings", "settings page"],
   ] as const) {
     it(`keeps the tabs on ${path}`, () => {
@@ -397,7 +398,8 @@ describe("list roots and destinations", () => {
 describe("destinations and back", () => {
   for (const [label, text] of [
     ["Routines", "routines page"],
-    ["Agent Ops", "agents page"],
+    // Agent Ops opens the operations tab inside Settings (E4a).
+    ["Agent Ops", "settings page"],
     ["Settings", "settings page"],
   ] as const) {
     it(`returns from ${label} to the list with focus on its entry`, async () => {
@@ -434,7 +436,7 @@ describe("destinations and back", () => {
 
   for (const [path, text] of [
     ["/routines", "routines page"],
-    ["/agents", "agents page"],
+    ["/settings?tab=operations", "settings page"],
     ["/settings", "settings page"],
   ] as const) {
     it(`opens a cold ${path} with a direct way to the list`, async () => {
