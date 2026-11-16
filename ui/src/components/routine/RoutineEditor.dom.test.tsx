@@ -107,6 +107,8 @@ function setup(value: Partial<FormDraft> = {}, props: Partial<RoutineEditorProps
 const form = () => screen.getByRole("region", { name: t("routines.createPanelTitle") });
 const saveButton = () =>
   screen.getByRole("button", { name: t("routines.createAndOpen") }) as HTMLButtonElement;
+const cancelButton = () =>
+  screen.getByRole("button", { name: t("routines.cancel") }) as HTMLButtonElement;
 
 describe("RoutineEditor", () => {
   it("renders the form's fields as labelled controls", () => {
@@ -174,6 +176,59 @@ describe("RoutineEditor", () => {
     const saving = setup({}, { creating: true });
     fireEvent.keyDown(form(), { key: "Escape" });
     expect(saving.onCancel).not.toHaveBeenCalled();
+  });
+
+  it("puts cancel and create/save on the shared Button and keeps the disabled rules", () => {
+    const ready = setup();
+    const cancel = cancelButton();
+    // The console's secondary weight, not a hand-styled text rectangle: the
+    // border, ink, hover and 44px floor come from the facade.
+    expect(cancel.tagName).toBe("BUTTON");
+    expect(cancel.getAttribute("type")).toBe("button");
+    expect(cancel.className).toContain("kin-btn");
+    expect(cancel.className).toContain("kin-btn-secondary");
+    expect(cancel.className).not.toContain("kin-btn-primary");
+    expect(cancel.disabled).toBe(false);
+    fireEvent.click(cancel);
+    expect(ready.onCancel).toHaveBeenCalledTimes(1);
+
+    const save = saveButton();
+    expect(save.getAttribute("type")).toBe("button");
+    expect(save.className).toContain("kin-btn");
+    expect(save.className).toContain("kin-btn-primary");
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    expect(ready.onSubmit).toHaveBeenCalledTimes(1);
+    ready.unmount();
+
+    // Cancel is the way out even when the machine is offline (offline locks
+    // writes, not closing), but a save already in flight holds it.
+    const saving = setup({}, { creating: true });
+    expect(cancelButton().disabled).toBe(true);
+    saving.unmount();
+
+    // Save (and the ⌘Enter shortcut) refuse exactly these three states.
+    const cases: Array<[Partial<FormDraft>, Partial<RoutineEditorProps>, boolean]> = [
+      [{}, {}, false],
+      [{ prompt: "" }, {}, true],
+      [{ cwd: "" }, {}, true],
+      [{}, { formLocked: true }, true],
+    ];
+    for (const [value, props, disabled] of cases) {
+      const view = setup(value, props);
+      expect(saveButton().disabled).toBe(disabled);
+      view.unmount();
+    }
+  });
+
+  it("keeps exactly one filled primary in the editor", () => {
+    // TASTE 6 at the DOM level: the save/create action is the surface's one
+    // filled button. Cancel is the outlined peer next to it, not a second
+    // primary competing for the reader's next step.
+    setup();
+    const primaries = form().querySelectorAll(".kin-btn-primary");
+    expect(primaries).toHaveLength(1);
+    expect(primaries[0]).toBe(saveButton());
   });
 
   it("reports schedule edits through onChange", () => {
