@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import AreaNav, { railCompact } from "./AreaNav";
 import AppShell from "./AppShell";
@@ -190,6 +190,38 @@ describe("the Mac area rail", () => {
     const rail = screen.getByRole("navigation", { name: t("nav.areas") });
     expect(rail.getAttribute("data-compact")).toBe("true");
     expect(rail.className).toContain("w-rail-compact");
+  });
+
+  it("mounts the conversation list only in the Conversations area", () => {
+    // Beside Projects, Routines or Settings the 304px list is a second
+    // navigation surface for an area the rail already names, and it takes the
+    // width the area's own pane needs (the agent-operations table lost its
+    // trailing columns to it). The sidebar's search field is the list column's
+    // own marker: it exists there and nowhere else.
+    // `SessionsHeader` is `md:hidden` in CSS, which jsdom does not apply, so
+    // the phone page's field is on screen here too. The sidebar column is the
+    // `<aside>`; its own search field is the marker, not "any searchbox".
+    const listSearchFields = () =>
+      screen
+        .queryAllByRole("complementary")
+        .flatMap((column) => within(column).queryAllByRole("searchbox"));
+
+    const { unmount } = shell("/sessions");
+    expect(listSearchFields()).toHaveLength(1);
+    unmount();
+
+    for (const path of ["/projects", "/routines", "/settings"]) {
+      const { unmount: unmountArea } = shell(path);
+      expect(listSearchFields()).toHaveLength(0);
+      expect(screen.queryByRole("button", { name: /New chat/ })).toBeNull();
+      unmountArea();
+    }
+
+    for (const path of ["/", "/new", "/tasks/t-1", "/inbox"]) {
+      const { unmount: unmountArea } = shell(path);
+      expect(listSearchFields()).toHaveLength(1);
+      unmountArea();
+    }
   });
 
   it("keeps the needs-you badge on Chats in both rail widths", () => {

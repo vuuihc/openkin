@@ -1486,7 +1486,7 @@ function ProjectBucket({
 
   return (
     <section className="pb-1">
-      <div className={`group/proj flex items-center gap-0.5 ${gutter} pb-1 pt-4`}>
+      <div className={`group/proj relative flex items-center gap-0.5 ${gutter} pb-1 pt-4`}>
         <button
           type="button"
           onClick={() => {
@@ -1552,7 +1552,23 @@ function ProjectBucket({
           </button>
         ) : null}
         {realProject && !onRestoreProject && !coarse ? (
-          <div className="flex flex-none items-center">
+          /*
+            The hover actions float over the row's tail instead of holding a
+            column of their own. In layout they reserved four 24px boxes even at
+            rest, so a 304px sidebar truncated “[seed] Project Alpha”, “Beta”
+            and “Gamma” to the same “[seed] Projec… 0” while empty space sat to
+            the right of the count. They stay in the tab order, and focus (or
+            hover) reveals them over a background so the title under them is
+            covered, not mixed with.
+          */
+          <div
+            className={[
+              "pointer-events-none absolute bottom-1 top-4 z-10 flex items-center rounded-md opacity-0 transition-opacity",
+              gutter === "px-2" ? "right-2" : "right-4",
+              gutter === "px-2" ? "bg-[var(--kin-sidebar)]" : "bg-[var(--kin-page)]",
+              "group-focus-within/proj:pointer-events-auto group-focus-within/proj:opacity-100 group-hover/proj:pointer-events-auto group-hover/proj:opacity-100",
+            ].join(" ")}
+          >
             <ProjectIconButton
               label={tr("nav.newSessionIn", { project: bucket.label })}
               onClick={onNewSession}

@@ -48,7 +48,7 @@ const zh = {
     openCoverLocalOnly: "项目封面（仅本机）",
     openCover: "项目封面（One-Pager）",
     projectActions: "项目操作",
-    searchSessions: "搜索会话…",
+    searchSessions: "搜索对话",
     searchEmpty: "没有匹配「{query}」的会话",
     searchHint: "搜索全部会话",
     archiveConfirm: "将「{project}」从侧栏移除？任务不会删除，可随时恢复。",

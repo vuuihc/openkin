@@ -18,6 +18,7 @@ import { importToast } from "../../lib/agentSessionImport";
 import { useAgentSessionImport } from "../../hooks/useAgentSessionImport";
 import { useAgentCatalog } from "../../hooks/useAgentCatalog";
 import { useT } from "../../i18n/react";
+import { resolveArea } from "../../lib/areaNavigation";
 import CommandPalette from "../CommandPalette";
 import { useAppStore } from "../../store/appStore";
 import Sidebar from "./Sidebar";
@@ -139,6 +140,12 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
         ? tr("nav.settings")
         : listTitle || tr("app.name");
   const onSessionsTab = location.pathname === "/sessions";
+  // The conversation list column belongs to Conversations and nowhere else.
+  // Beside Projects, Routines or Settings it repeats that area's own navigation
+  // in a second column and takes 304px from the pane a table or a form needs
+  // (the agent-operations table lost its last columns to it). The rail already
+  // says which area is open, so the area table is the one answer here too.
+  const onConversationsArea = resolveArea(location) === "conversations";
   const onPhoneTab = PHONE_TAB_IDS.some((id) => pathname === placeById(id).path);
 
   /**
@@ -496,15 +503,17 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
             routineUnreadCount={routineUnreadCount}
             onOpenPalette={() => setPaletteOpen(true)}
           />
-          <Sidebar
-            selectedTaskId={selectedTaskId}
-            draftActive={draftActive}
-            pendingCount={pendingApprovals.length}
-            onNewChat={openNewChat}
-            agentCatalog={agentCatalog}
-            importingExternalSessions={importingExternalSessions}
-            onImportExternalSessions={(agents) => void importExternalSessions(agents)}
-          />
+          {onConversationsArea && (
+            <Sidebar
+              selectedTaskId={selectedTaskId}
+              draftActive={draftActive}
+              pendingCount={pendingApprovals.length}
+              onNewChat={openNewChat}
+              agentCatalog={agentCatalog}
+              importingExternalSessions={importingExternalSessions}
+              onImportExternalSessions={(agents) => void importExternalSessions(agents)}
+            />
+          )}
         </>
       )}
 

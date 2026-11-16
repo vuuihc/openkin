@@ -484,6 +484,45 @@ describe("the Mac sidebar list", () => {
     expect(await screen.findByRole("button", { name: /Old Claude chat/ })).toBeTruthy();
   });
 
+  it("names the column and keeps new chat in its header", () => {
+    // The prototype's column starts with 对话 beside 新建, not with a
+    // full-width button. The heading is what tells the 304px column what it is
+    // in an area whose name already sits on the rail.
+    render(sidebar());
+
+    const heading = screen.getByRole("heading", { name: "Chats" });
+    const newChat = screen.getByRole("button", { name: /New chat/ });
+    expect(heading.parentElement).toBe(newChat.parentElement);
+    expect(newChat.textContent).toContain("⌘N");
+  });
+
+  it("labels the footer's list utilities instead of leaving icons alone", () => {
+    render(sidebar(["/"], () => {}, 3));
+
+    for (const name of ["Inbox (3)", "Archived"]) {
+      const link = screen.getByRole("link", { name });
+      expect(link.textContent).toContain(name.replace(" (3)", ""));
+    }
+    const importButton = screen.getByRole("button", { name: /Import Agent sessions/i });
+    expect(importButton.textContent).toContain("Import Agent sessions");
+  });
+
+  it("floats a project's hover actions so the title keeps the row's width", () => {
+    // Four 24px buttons held a column of their own at rest, so every 304px
+    // sidebar row truncated to the same “[seed] Projec… 0”. Out of the flow,
+    // the title and its count get the width; hover or focus brings them back
+    // over the row's tail.
+    fixtures.tasks = [task("one", "/work/alpha")];
+    render(sidebar());
+
+    const pin = screen.getByRole("button", { name: "Pin project" });
+    const actions = pin.parentElement as HTMLElement;
+    expect(actions.className).toContain("absolute");
+    expect(actions.className).toContain("opacity-0");
+    expect(actions.className).toContain("group-hover/proj:opacity-100");
+    expect(actions.className).toContain("group-focus-within/proj:opacity-100");
+  });
+
   it("keeps the phone's drawer and dock off the Mac column", () => {
     // KIN-CONTINUE-002: one navigation surface per width. The Mac column has
     // its list and footer; a menu trigger or the phone's footer would be a
