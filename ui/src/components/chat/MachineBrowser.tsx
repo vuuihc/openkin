@@ -495,9 +495,9 @@ function Row({
       aria-label={hint ? `${label}, ${hint}` : label}
       aria-current={current ? "true" : undefined}
       className={[
-        "w-full justify-start rounded-none px-3 py-2 text-left font-normal transition-colors [&>span]:w-full [&>span>span]:w-full",
+        "w-full justify-start rounded-sm px-3 py-2 text-left font-normal transition-colors [&>span]:w-full [&>span>span]:w-full",
         current
-          ? "bg-kin-blue/15! hover:bg-kin-blue/20! text-kin-blue-ink!"
+          ? "bg-kin-blue/15! hover:bg-kin-blue/15! text-kin-blue-ink!"
           : "hover:bg-[var(--kin-fill)]",
       ].join(" ")}
     >
