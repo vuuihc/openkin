@@ -83,6 +83,7 @@ import {
 import { getPinnedTaskIds, setTaskPinned } from "../../lib/taskPins";
 import { mergeTaskTail } from "../../lib/taskTail";
 import ActionSheet from "../ui/ActionSheet";
+import Button from "../ui/Button";
 import HighlightedText from "../HighlightedText";
 import {
   IconAlert,
@@ -1052,15 +1053,7 @@ export default function SessionList({
           icon={<IconAlert size={30} />}
           title={tr("sessions.loadError")}
           hint={tr("sessions.loadErrorHint")}
-          action={
-            <button
-              type="button"
-              onClick={retryList}
-              className="rounded-lg bg-kin-text px-4 py-2 text-strong font-medium text-kin-bg"
-            >
-              {tr("common.retry")}
-            </button>
-          }
+          action={<Button onClick={retryList}>{tr("common.retry")}</Button>}
         />
       )}
 
@@ -1069,15 +1062,7 @@ export default function SessionList({
           icon={<IconAlert size={30} />}
           title={tr("sessions.agentSessionsLoadError")}
           hint={tr("sessions.agentSessionsLoadErrorHint")}
-          action={
-            <button
-              type="button"
-              onClick={retryList}
-              className="rounded-lg bg-kin-text px-4 py-2 text-strong font-medium text-kin-bg"
-            >
-              {tr("common.retry")}
-            </button>
-          }
+          action={<Button onClick={retryList}>{tr("common.retry")}</Button>}
         />
       )}
 
@@ -1134,14 +1119,14 @@ export default function SessionList({
         ))}
 
       {!loading && (hasMoreTasks || hasMoreArchive || hasMoreSessions) && (
-        <button
-          type="button"
+        <Button
+          variant="quiet"
           onClick={loadOlder}
           disabled={loadingOlder || refreshing}
-          className="kin-row-press flex min-h-11 w-full items-center justify-center px-4 py-2 text-body font-medium text-kin-muted disabled:opacity-60"
+          className="kin-row-press flex w-full items-center justify-center px-4 py-2 text-body font-medium"
         >
           {loadingOlder ? tr("sessions.loadingOlder") : tr("sessions.loadOlder")}
-        </button>
+        </Button>
       )}
 
       {!loading && (archiveFailed || archiveProjectsFailed) && listed.length > 0 && (
@@ -1153,13 +1138,9 @@ export default function SessionList({
       {!loading && importsFailed && listed.length > 0 && (
         <div className="flex flex-col items-center gap-2 px-4 py-6 text-center">
           <p className="text-body text-kin-muted">{tr("sessions.agentSessionsFailed")}</p>
-          <button
-            type="button"
-            onClick={retryList}
-            className="min-h-11 rounded-lg bg-[var(--kin-fill)] px-4 text-body font-medium text-kin-text"
-          >
+          <Button variant="secondary" onClick={retryList}>
             {tr("common.retry")}
-          </button>
+          </Button>
         </div>
       )}
     </div>
@@ -1368,6 +1349,9 @@ function DraftRow({
   onClick: () => void;
 }) {
   return (
+    /* eslint-disable-next-line kin/no-raw-button --
+       The draft is a full-width navigation row, not a button-shaped action:
+       it is the list's first row and the design system has no row primitive. */
     <button
       type="button"
       onClick={onClick}
@@ -1473,6 +1457,10 @@ function ProjectBucket({
   const tr = useT();
   const rows = showAll ? bucket.rows : bucket.rows.slice(0, ROWS_BEFORE_SHOW_ALL);
   const hidden = bucket.rows.length - rows.length;
+  const showAllLabel =
+    hidden > 0
+      ? tr("sessions.showAll", { count: String(bucket.rows.length) })
+      : tr("sessions.showLess");
   const imported = isImportedBucket(bucket.key);
   const realProject = Boolean(bucket.cwd) && !imported;
   // A remote copy of a path has no Hub-side cover on this machine, so its
@@ -1487,8 +1475,8 @@ function ProjectBucket({
   return (
     <section className="pb-1">
       <div className={`group/proj flex items-center gap-0.5 ${gutter} pb-1 pt-4`}>
-        <button
-          type="button"
+        <Button
+          variant="quiet"
           onClick={() => {
             if (canToggle) onToggle();
           }}
@@ -1497,8 +1485,8 @@ function ProjectBucket({
           tabIndex={canToggle ? undefined : -1}
           aria-label={`${tr(collapsed ? "nav.expandProject" : "nav.collapseProject")} ${heading}`}
           className={[
-            "kin-row-press flex flex-none items-center justify-center rounded-lg text-kin-muted",
-            coarse ? "min-h-11 w-11" : "min-h-9 w-7",
+            "kin-row-press flex flex-none items-center justify-center rounded-lg p-0 text-kin-muted",
+            coarse ? "h-11 w-11" : "h-9 w-7",
             canToggle ? "" : "opacity-40",
           ].join(" ")}
         >
@@ -1509,7 +1497,11 @@ function ProjectBucket({
               " ",
             )}
           />
-        </button>
+        </Button>
+        {/* eslint-disable-next-line kin/no-raw-button --
+            The heading is the project's own navigation row, not an action:
+            opening its cover and folding its rows are its two tap targets,
+            and the design system has no row primitive. */}
         <button
           type="button"
           onClick={openable ? onOpenProject : onToggle}
@@ -1541,15 +1533,15 @@ function ProjectBucket({
           ) : null}
         </button>
         {onRestoreProject ? (
-          <button
-            type="button"
+          <Button
+            variant="secondary"
             onClick={onRestoreProject}
             aria-label={`${tr("sessions.restore")} ${bucket.label}`}
-            className="flex min-h-11 flex-none items-center gap-1.5 rounded-lg bg-[var(--kin-fill)] px-2.5 text-caption font-medium text-kin-text"
+            className="h-11 flex-none items-center gap-1.5 rounded-lg px-2.5 text-caption font-medium"
           >
             <IconRefresh size={13} />
             {tr("sessions.restore")}
-          </button>
+          </Button>
         ) : null}
         {realProject && !onRestoreProject && !coarse ? (
           <div className="flex flex-none items-center">
@@ -1585,16 +1577,16 @@ function ProjectBucket({
           </div>
         ) : null}
         {realProject && coarse ? (
-          <button
-            type="button"
+          <Button
+            variant="quiet"
             title={tr("nav.projectActions")}
             aria-label={tr("nav.projectActions")}
             aria-haspopup="dialog"
             onClick={onProjectMenu}
-            className="flex h-11 w-11 flex-none items-center justify-center rounded-full text-kin-muted active:bg-[var(--kin-fill)]"
+            className="h-11 w-11 flex-none items-center justify-center rounded-full p-0 text-kin-muted"
           >
             <IconMore size={18} />
-          </button>
+          </Button>
         ) : null}
       </div>
 
@@ -1635,19 +1627,16 @@ function ProjectBucket({
             />
           ))}
           {canToggle && (hidden > 0 || bucket.rows.length > ROWS_BEFORE_SHOW_ALL) ? (
-            <button
-              type="button"
+            <Button
+              variant="quiet"
               onClick={onToggleShowAll}
               aria-expanded={showAll}
-              className="kin-row-press flex min-h-11 w-full items-center gap-2.5 px-4 text-left text-body font-medium text-kin-muted"
+              aria-label={showAllLabel}
+              className="kin-row-press flex w-full items-center gap-2.5 px-4 text-left text-body font-medium text-kin-muted"
             >
               <span className="w-2 flex-none" aria-hidden />
-              <span className="min-w-0 truncate">
-                {hidden > 0
-                  ? tr("sessions.showAll", { count: String(bucket.rows.length) })
-                  : tr("sessions.showLess")}
-              </span>
-            </button>
+              <span className="min-w-0 truncate">{showAllLabel}</span>
+            </Button>
           ) : null}
         </div>
       )}
@@ -1669,6 +1658,10 @@ function ProjectIconButton({
   children: ReactNode;
 }) {
   return (
+    /* eslint-disable-next-line kin/no-raw-button --
+       A 24px hover-revealed project icon is a desktop density affordance
+       inside the heading line; the shared Button's touch floor and padding
+       would break that line. Its touch counterpart is the project menu. */
     <button
       type="button"
       title={label}

@@ -56,11 +56,18 @@ describe("the phone search pill", () => {
     await userEvent.type(screen.getByRole("searchbox"), "alpha");
     await waitFor(() => expect(locationText()).toContain("search=alpha"));
 
-    await userEvent.click(screen.getByRole("button", { name: "Clear" }));
+    const clear = screen.getByRole("button", { name: "Clear" });
+    expect(clear.className).toContain("kin-btn");
+    expect(clear.className).not.toContain("kin-btn-primary");
+
+    await userEvent.click(clear);
 
     await waitFor(() => expect(locationText()).not.toContain("search="));
     expect(locationText()).toContain("q=draft");
     expect(locationText()).toContain("find=seed");
-    expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe("");
+    const field = screen.getByRole("searchbox") as HTMLInputElement;
+    expect(field.value).toBe("");
+    // The control unmounts with the query; the field keeps the keyboard.
+    expect(document.activeElement).toBe(field);
   });
 });
