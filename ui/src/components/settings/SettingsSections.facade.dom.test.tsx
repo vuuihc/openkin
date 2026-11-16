@@ -63,9 +63,7 @@ function buttonNamed(name: string): HTMLButtonElement {
  * slice; the assertion here is about the facade class, not the name.
  */
 function buttonShowing(text: string): HTMLButtonElement {
-  const button = screen
-    .getAllByRole("button")
-    .find((candidate) => candidate.textContent === text);
+  const button = screen.getAllByRole("button").find((candidate) => candidate.textContent === text);
   if (!button) throw new Error(`no button showing ${text}`);
   return button as HTMLButtonElement;
 }
