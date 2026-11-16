@@ -1,4 +1,4 @@
-import { forwardRef, type ButtonHTMLAttributes } from "react";
+import { forwardRef, type ButtonHTMLAttributes, type ComponentProps } from "react";
 import { Button as AstryxButton } from "@astryxdesign/core";
 
 export type ButtonVariant = "default" | "secondary" | "quiet";
@@ -65,16 +65,23 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
 ) {
   const label =
     typeof ariaLabel === "string" ? ariaLabel : typeof children === "string" ? children : "";
+  // Astryx uses `isDisabled` (aria-disabled), while its underlying <button>
+  // spreads ...props; forward native `disabled` alongside `isDisabled` so form
+  // semantics and native disabled expectations stay intact.
+  const passthrough = {
+    ...rest,
+    ...(disabled !== undefined ? { disabled } : {}),
+  } as Omit<ComponentProps<typeof AstryxButton>, "label" | "className" | "type" | "children">;
 
   return (
     <AstryxButton
+      {...passthrough}
       ref={ref}
       type={type}
       label={label}
       aria-label={ariaLabel}
       isDisabled={disabled}
       isLoading={isLoading}
-      disabled={disabled}
       aria-busy={isLoading ? true : undefined}
       className={[
         "kin-btn",
@@ -90,7 +97,6 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
       ]
         .filter(Boolean)
         .join(" ")}
-      {...rest}
     >
       {children}
     </AstryxButton>
