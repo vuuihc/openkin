@@ -294,10 +294,7 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
                   title={tr("terminal.chooseProfile")}
                 >
                   <span className="text-kin-muted transition-colors group-hover:text-kin-text">
-                    <IconChevron
-                      size={12}
-                      className={menuOpen ? "rotate-[-90deg]" : "rotate-90"}
-                    />
+                    <IconChevron size={12} className={menuOpen ? "rotate-[-90deg]" : "rotate-90"} />
                   </span>
                 </Button>
               )}
