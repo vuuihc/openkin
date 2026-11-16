@@ -462,11 +462,7 @@ function RepoTab({ device, onPick }: { device?: string; onPick: (path: string) =
       </div>
 
       <div className="flex-none border-t border-[var(--kin-hairline)] px-3 py-2">
-        <Button
-          disabled={busy || !named}
-          onClick={() => void fetchIt()}
-          className="w-full"
-        >
+        <Button disabled={busy || !named} onClick={() => void fetchIt()} className="w-full">
           {fetching ? tr("browse.fetching") : tr("browse.fetch")}
         </Button>
       </div>
