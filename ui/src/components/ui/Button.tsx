@@ -1,13 +1,7 @@
 import { forwardRef, type ButtonHTMLAttributes, type ComponentProps } from "react";
 import { Button as AstryxButton } from "@astryxdesign/core";
 
-export type ButtonVariant =
-  | "default"
-  | "secondary"
-  | "quiet"
-  | "quiet-danger"
-  | "approve"
-  | "deny";
+export type ButtonVariant = "default" | "secondary" | "quiet" | "quiet-danger" | "approve" | "deny";
 
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   /**
