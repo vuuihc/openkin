@@ -135,8 +135,8 @@ function BrowserBody({
             className={[
               "rounded-t-lg px-3 py-1.5 text-body font-medium transition-colors",
               tab === id
-                ? "text-kin-blue-ink border-b-2 border-kin-blue"
-                : "text-kin-muted border-b-2 border-transparent hover:text-kin-secondary",
+                ? "text-kin-blue-ink! border-b-2 border-kin-blue"
+                : "text-kin-muted! border-b-2 border-transparent hover:text-kin-secondary!",
             ].join(" ")}
           >
             {tr(id === "folders" ? "browse.folders" : "browse.repo")}
@@ -153,7 +153,7 @@ function BrowserBody({
           <Button
             variant="quiet"
             onClick={onTypePath}
-            className="px-1 text-caption font-medium text-kin-blue-ink"
+            className="px-1 text-caption font-medium text-kin-blue-ink!"
           >
             {tr("browse.typePath")}
           </Button>
@@ -424,7 +424,7 @@ function RepoTab({ device, onPick }: { device?: string; onPick: (path: string) =
               variant="quiet"
               disabled={busy || !named}
               onClick={() => void find()}
-              className="flex-none px-2 text-body font-medium text-kin-blue-ink"
+              className="flex-none px-2 text-body font-medium text-kin-blue-ink!"
             >
               {finding ? tr("browse.finding") : tr("browse.findBranches")}
             </Button>
@@ -495,15 +495,24 @@ function Row({
       aria-label={hint ? `${label}, ${hint}` : label}
       aria-current={current ? "true" : undefined}
       className={[
-        "w-full justify-start gap-2 rounded-none px-3 py-2 text-left font-normal transition-colors",
-        current ? "bg-kin-blue/15 text-kin-blue-ink" : "hover:bg-[var(--kin-fill)]",
+        "w-full justify-start rounded-none px-3 py-2 text-left font-normal transition-colors [&>span]:w-full [&>span>span]:w-full",
+        current
+          ? "bg-kin-blue/15! hover:bg-kin-blue/20! text-kin-blue-ink!"
+          : "hover:bg-[var(--kin-fill)]",
       ].join(" ")}
     >
-      {folder && <FolderIcon />}
-      <span className="min-w-0 flex-1 truncate font-mono text-body text-kin-secondary">
-        {label}
+      <span className="flex w-full min-w-0 items-center gap-2">
+        {folder && <FolderIcon />}
+        <span
+          className={[
+            "min-w-0 flex-1 truncate font-mono text-body",
+            current ? "text-kin-blue-ink" : "text-kin-secondary",
+          ].join(" ")}
+        >
+          {label}
+        </span>
+        {hint && <span className="flex-none text-caption text-kin-muted">{hint}</span>}
       </span>
-      {hint && <span className="flex-none text-caption text-kin-muted">{hint}</span>}
     </Button>
   );
 }

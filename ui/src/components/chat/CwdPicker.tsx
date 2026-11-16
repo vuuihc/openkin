@@ -171,7 +171,7 @@ export default function CwdPicker({
             variant="quiet"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => void openNativePicker()}
-            className="flex-none px-1.5 py-1 text-caption font-medium text-kin-blue-ink"
+            className="flex-none px-1.5 py-1 text-caption font-medium text-kin-blue-ink!"
           >
             {tr("cwd.browseEllipsis")}
           </Button>
@@ -183,7 +183,7 @@ export default function CwdPicker({
               setEditing(false);
               setBrowsing(true);
             }}
-            className="flex-none px-1.5 py-1 text-caption font-medium text-kin-blue-ink"
+            className="flex-none px-1.5 py-1 text-caption font-medium text-kin-blue-ink!"
           >
             {tr("cwd.browseEllipsis")}
           </Button>
@@ -232,18 +232,25 @@ export default function CwdPicker({
         aria-label={chipTitle}
         title={chipTitle}
         className={[
-          "min-w-0 flex-none justify-start rounded-md text-left font-normal",
-          compact ? "gap-1.5 px-1 py-0.5" : "gap-2 px-1 py-1",
+          "min-w-0 flex-none justify-start rounded-md text-left font-normal [&>span]:min-w-0 [&>span>span]:min-w-0",
+          compact ? "px-1 py-0.5" : "px-1 py-1",
         ].join(" ")}
       >
-        <FolderIcon />
-        {cwd ? (
-          <span className="font-medium text-kin-secondary">{projectLabel(cwd)}</span>
-        ) : (
-          <span className="text-kin-orange-ink">
-            {native ? tr("cwd.chooseFolder") : tr("cwd.chooseCwd")}
-          </span>
-        )}
+        <span
+          className={[
+            "inline-flex min-w-0 items-center",
+            compact ? "gap-1.5" : "gap-2",
+          ].join(" ")}
+        >
+          <FolderIcon />
+          {cwd ? (
+            <span className="truncate font-medium text-kin-secondary">{projectLabel(cwd)}</span>
+          ) : (
+            <span className="truncate text-kin-orange-ink">
+              {native ? tr("cwd.chooseFolder") : tr("cwd.chooseCwd")}
+            </span>
+          )}
+        </span>
       </Button>
       {cwd && <PathHoverTag cwd={cwd} compact={compact} />}
 
@@ -254,14 +261,14 @@ export default function CwdPicker({
           if (native) void openNativePicker();
           else setBrowsing(true);
         }}
-        className="flex-none px-1.5 text-caption font-medium text-kin-blue-ink"
+        className="flex-none px-1.5 text-caption font-medium text-kin-blue-ink!"
       >
         {busy ? "…" : tr("cwd.browse")}
       </Button>
       <Button
         variant="quiet"
         onClick={() => setEditing(true)}
-        className="flex-none px-1.5 text-caption text-kin-muted hover:text-kin-secondary"
+        className="flex-none px-1.5 text-caption text-kin-muted! hover:text-kin-secondary!"
         title={tr("cwd.typePath")}
       >
         {tr("cwd.edit")}
@@ -383,7 +390,7 @@ function PathHoverTag({ cwd, compact }: { cwd: string; compact?: boolean }) {
                 event.stopPropagation();
                 void copy();
               }}
-              className="flex-none px-1.5 py-0.5 text-caption font-medium text-kin-blue-ink"
+              className="flex-none px-1.5 py-0.5 text-caption font-medium text-kin-blue-ink!"
             >
               {tr("cwd.copy")}
             </Button>
