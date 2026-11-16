@@ -298,7 +298,10 @@ async function browserBack(): Promise<void> {
 
 async function openDraftFromTheList(user: ReturnType<typeof userEvent.setup>) {
   browser("/sessions");
-  await screen.findByRole("heading", { name: "Chats" });
+  // `level: 1` is the page's own title. On a Mac the shell also mounts the
+  // conversation column, whose header names the same area — jsdom applies no
+  // `md:hidden`, so the phone bar's heading is still in the tree beside it.
+  await screen.findByRole("heading", { name: "Chats", level: 1 });
   await user.click(document.querySelector("[data-phone-return='new']") as HTMLElement);
   await waitFor(() => expect(window.location.pathname).toBe("/new"));
 }
