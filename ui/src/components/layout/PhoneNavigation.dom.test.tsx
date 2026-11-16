@@ -346,15 +346,19 @@ describe("the four equal phone tabs", () => {
     expect(document.querySelector("[data-kin-edge-back]")).toBeNull();
   });
 
-  for (const [path, text] of [
+  for (const [path, text, current] of [
     // E4a: Agent Ops is a tab of Settings now, not a root of its own.
-    ["/settings?tab=operations", "settings page"],
-    ["/settings", "settings page"],
+    ["/settings?tab=operations", "settings page", "Agent Ops"],
+    ["/settings", "settings page", "Settings"],
   ] as const) {
     it(`keeps the tabs on ${path}`, () => {
       shell([path]);
       expect(screen.getByText(text)).toBeTruthy();
       expect(document.querySelector("[data-phone-footer]")?.querySelectorAll("a")).toHaveLength(4);
+      // The highlighted tab follows the tab= param, not only the pathname.
+      const marked = document.querySelectorAll("[data-phone-footer] a[aria-current='page']");
+      expect(marked).toHaveLength(1);
+      expect(marked[0].textContent).toContain(current);
     });
   }
 });
