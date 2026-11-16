@@ -105,7 +105,11 @@ describe("previewing a file the editor cannot show", () => {
     fetchFileBytes.mockReturnValue(new Promise<Blob>(() => {}));
     openFile("shot.png");
 
-    expect(screen.getByRole("status").textContent).toContain(t("workspace.viewer.loading"));
+    expect(
+      screen
+        .getAllByRole("status")
+        .some((el) => el.textContent?.includes(t("workspace.viewer.loading"))),
+    ).toBe(true);
   });
 
   it("shows why an image failed, and the download still tries a different route", async () => {
@@ -253,7 +257,11 @@ describe("previewing a file the editor cannot show", () => {
       />,
     );
     fireEvent.click(screen.getByTitle(`${CWD}/slow.csv`));
-    expect(screen.getByRole("status").textContent).toContain(t("workspace.viewer.loading"));
+    expect(
+      screen
+        .getAllByRole("status")
+        .some((el) => el.textContent?.includes(t("workspace.viewer.loading"))),
+    ).toBe(true);
   });
 
   it("says a table is empty when the file has no rows", async () => {
