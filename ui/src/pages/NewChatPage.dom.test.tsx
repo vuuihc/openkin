@@ -428,10 +428,16 @@ describe("the draft (KIN-START-001)", () => {
     localStorage.setItem("kin_draft_prompt", "keep me");
     renderPage();
 
-    expect(await screen.findByRole("status")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toMatch(
-      /machine list could not be read, so only this machine can run work/i,
-    );
+    // The shared buttons each carry an (empty) live region, so the page can
+    // have more than one status; the message is what this is about.
+    const statuses = await screen.findAllByRole("status");
+    expect(
+      statuses.some((node) =>
+        /machine list could not be read, so only this machine can run work/i.test(
+          node.textContent ?? "",
+        ),
+      ),
+    ).toBe(true);
     expect(screen.queryByText(/machine you last used is gone/)).toBeNull();
     await waitFor(() => expect(startButton().disabled).toBe(true));
     expect(promptBox().value).toBe("keep me");
