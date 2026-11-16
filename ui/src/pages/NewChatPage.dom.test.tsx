@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BrowserRouter, MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import type { AgentInfo, MachineInfo, Task } from "../api/client";
@@ -153,6 +153,15 @@ function promptBox() {
 
 function placeRow() {
   return screen.getByRole("button", { name: /^Device & project/ });
+}
+
+/** The link weight ApprovalCard established on the facade. */
+function expectLinkWeight(button: HTMLElement) {
+  expect(button.classList.contains("kin-btn")).toBe(true);
+  expect(button.classList.contains("font-normal")).toBe(true);
+  expect(button.classList.contains("text-kin-blue-ink!")).toBe(true);
+  expect(button.classList.contains("hover:underline")).toBe(true);
+  expect(button.classList.contains("hover:bg-transparent!")).toBe(true);
 }
 
 beforeEach(() => {
@@ -491,5 +500,118 @@ describe("the draft (KIN-START-001)", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Run settings" })).toBeNull());
     expect(promptBox().value).toBe("keep the draft");
     expect(screen.getByRole("button", { name: /^Run settings/ }).textContent).toContain("Opus");
+  });
+
+  it("the draft has no hand-built buttons", async () => {
+    // Every control this page writes itself is a facade button. Shared
+    // widgets (the place picker, branch and dispatch triggers) still own their
+    // own triggers, so the guard is on the two hand-built recipes this page
+    // used: a bare link-weight button and a bare pressed toggle.
+    client.listAgents.mockResolvedValue([]);
+    client.findProjectByRoot.mockRejectedValue(new ApiError(500, "lookup failed"));
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByRole("button", { name: /Manage agents/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry" }).classList.contains("kin-btn")).toBe(true);
+    expect(document.querySelectorAll("button.text-kin-blue-ink:not(.kin-btn)")).toHaveLength(0);
+    expect(document.querySelectorAll("button[aria-pressed]:not(.kin-btn)")).toHaveLength(0);
+
+    // The routine toggle only exists behind the run settings face.
+    await user.click(screen.getByRole("button", { name: /^Run settings/ }));
+    const toggle = await screen.findByRole("button", { name: "Save as routine" });
+    expect(toggle.classList.contains("kin-btn")).toBe(true);
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("the routine toggle stays a 26px pressed toggle", async () => {
+    client.createTask.mockImplementation(() => new Promise<Task>(() => {}));
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("button", { name: "Device & project: This machine · alpha" });
+    // Written before the panel opens: focusing the textarea later would take
+    // focus out of the anchored layer and dismiss it.
+    await user.type(promptBox(), "hold it");
+    await user.click(screen.getByRole("button", { name: /^Run settings/ }));
+
+    const toggle = await screen.findByRole<HTMLButtonElement>("button", {
+      name: "Save as routine",
+    });
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(toggle.classList.contains("h-[26px]")).toBe(true);
+    expect(toggle.classList.contains("w-[26px]")).toBe(true);
+    expect(toggle.classList.contains("min-h-0!")).toBe(true);
+    expect(toggle.classList.contains("rounded-full")).toBe(true);
+
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(toggle.classList.contains("bg-kin-blue/15!")).toBe(true);
+    expect(toggle.disabled).toBe(false);
+    // Back to a one-off chat: routine mode has its own create call.
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+
+    // Sending turns the toggle off but leaves the panel (and the toggle) on
+    // screen, so the same draft cannot be re-armed mid-flight.
+    await act(async () => {
+      fireEvent.keyDown(promptBox(), { key: "Enter", metaKey: true });
+    });
+    await waitFor(() => expect(client.createTask).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(
+        screen.getByRole<HTMLButtonElement>("button", { name: "Save as routine" }).disabled,
+      ).toBe(true),
+    );
+  });
+
+  it("the retry, refresh and manage-agents links keep their link weight", async () => {
+    const user = userEvent.setup();
+    client.listAgents.mockResolvedValue([]);
+    client.findProjectByRoot.mockRejectedValue(new ApiError(500, "lookup failed"));
+    const local = renderDraftRootNavigation();
+
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    const manage = await screen.findByRole("button", { name: /Manage agents/ });
+    expectLinkWeight(retry);
+    expectLinkWeight(manage);
+
+    // Retry re-runs the project lookup the card is about.
+    const lookups = client.findProjectByRoot.mock.calls.length;
+    await user.click(retry);
+    await waitFor(() =>
+      expect(client.findProjectByRoot.mock.calls.length).toBeGreaterThan(lookups),
+    );
+
+    // Manage agents is still the root peer that keeps the draft.
+    await user.click(manage);
+    await screen.findByText("agent management");
+    expect(window.location.pathname).toBe("/agents");
+    local.unmount();
+
+    // Refresh only exists when the run is on another machine.
+    resetMachinesCache();
+    client.listMachines.mockResolvedValue([STUDIO_LIVE]);
+    localStorage.setItem("kin_draft_machine", "device-studio");
+    localStorage.setItem("kin_draft_cwd", "/srv/gamma");
+    localStorage.setItem("kin_draft_prompt", "keep me");
+    renderPage();
+
+    // `machine.refresh` reads “Check again” in English.
+    const refresh = await screen.findByRole("button", { name: "Check again" });
+    expectLinkWeight(refresh);
+    const reads = client.listMachines.mock.calls.length;
+    await user.click(refresh);
+    await waitFor(() => expect(client.listMachines.mock.calls.length).toBeGreaterThan(reads));
+  });
+
+  it("Start is the draft's only primary action", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("button", { name: "Device & project: This machine · alpha" });
+
+    expect(document.querySelectorAll(".kin-btn-primary")).toHaveLength(0);
+    await user.type(promptBox(), "tidy the notes");
+    await waitFor(() => expect(startButton().classList.contains("kin-btn-primary")).toBe(true));
+    expect(document.querySelectorAll(".kin-btn-primary")).toHaveLength(1);
   });
 });
