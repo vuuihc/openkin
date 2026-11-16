@@ -81,6 +81,30 @@ describe("SessionRowActions", () => {
     expect(onArchive).not.toHaveBeenCalled();
   });
 
+  it("renders every chip through the facade Button and keeps its width", () => {
+    // The strip is a second, faster path to the same actions the row's "More"
+    // trigger offers, but it is still drawn by the console's one button
+    // facade: same press feedback, same focus ring, same touch floor.
+    const { container, rerender } = render(
+      <SessionRowActions onPin={vi.fn()} onArchive={vi.fn()} onDelete={vi.fn()} />,
+    );
+    const chips = Array.from(container.querySelectorAll("button"));
+    expect(chips).toHaveLength(3);
+    for (const chip of chips) {
+      expect(chip.className).toContain("kin-btn");
+      expect(chip.style.width).toBe(`${SESSION_ROW_ACTION_CHIP_WIDTH}px`);
+    }
+
+    // The archive view keeps the same chip geometry with one fewer action.
+    rerender(<SessionRowActions mode="archived" onRestore={vi.fn()} onDelete={vi.fn()} />);
+    const archivedChips = Array.from(container.querySelectorAll("button"));
+    expect(archivedChips).toHaveLength(2);
+    for (const chip of archivedChips) {
+      expect(chip.className).toContain("kin-btn");
+      expect(chip.style.width).toBe(`${SESSION_ROW_ACTION_CHIP_WIDTH}px`);
+    }
+  });
+
   it("reports a slide width that covers exactly the chips it renders", () => {
     // The chips and the slide are one measurement: a strip wider than the
     // slide leaves its last chip under the row's opaque cover — mounted,

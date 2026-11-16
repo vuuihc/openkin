@@ -1,12 +1,17 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { createPortal } from "react-dom";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { useT } from "../../i18n/react";
 import { cwdSuggestions, findMachine, type Machine } from "../../lib/devices";
 import { projectLabel } from "../../lib/paths";
-import { useAnchoredPanel } from "../../hooks/useAnchoredPanel";
 import { useMinWidth } from "../../hooks/useMinWidth";
 import Sheet, { SheetSecondaryButton } from "../mobile/Sheet";
 import { IconCheck, IconChevronDown, IconFolder } from "../icons";
+import Popover from "../ui/Popover";
 
 export type Place = {
   /** "" names this machine, the same spelling the draft and the machine API use. */
@@ -60,14 +65,6 @@ export default function PlacePicker({
   const wide = useMinWidth(768);
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const anchor = useAnchoredPanel(open && wide, triggerRef, {
-    placement: "below",
-    align: "left",
-    width: 480,
-    maxWidth: 520,
-    maxHeight: 460,
-  });
 
   // The empty id names this machine — `findMachine` maps only real ids — so the
   // row can say "This machine" instead of leaving the name blank.
@@ -102,37 +99,6 @@ export default function PlacePicker({
     onChange(place);
     close();
   }
-
-  // The desktop panel is a layer over the page: Escape, an outside press or
-  // tabbing out closes it, and only while it is the layer the reader is in.
-  useEffect(() => {
-    if (!open || !wide) return;
-    const inside = (node: Node | null) =>
-      Boolean(node && (triggerRef.current?.contains(node) || panelRef.current?.contains(node)));
-    const onPointerDown = (event: MouseEvent) => {
-      if (inside(event.target as Node)) return;
-      setOpen(false);
-    };
-    const onFocus = (event: FocusEvent) => {
-      if (inside(event.target as Node)) return;
-      setOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (!inside(event.target as Node) && !inside(document.activeElement)) return;
-      event.preventDefault();
-      setOpen(false);
-      triggerRef.current?.focus({ preventScroll: true });
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("focus", onFocus, true);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("focus", onFocus, true);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open, wide]);
 
   const panel = (
     <PlacePanel
@@ -182,26 +148,30 @@ export default function PlacePicker({
         </p>
       ) : null}
 
-      {open && wide && anchor
-        ? createPortal(
-            <div
-              ref={panelRef}
-              role="dialog"
-              aria-label={tr("newChat.placeTitle")}
-              style={{
-                left: anchor.left,
-                width: anchor.width,
-                top: anchor.top,
-                bottom: anchor.bottom,
-                maxHeight: anchor.maxHeight,
-              }}
-              className="fixed z-50 flex flex-col overflow-hidden rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated shadow-e3"
-            >
-              {panel}
-            </div>,
-            document.body,
-          )
-        : null}
+      {/*
+        The desktop surface is the shared layer: one body portal, one viewport
+        measurement, one Escape and one focus contract with every other
+        popover. The panel draws no inner padding of its own, so `padded={false}`
+        keeps today's geometry. The phone keeps its `Sheet` below.
+      */}
+      <Popover
+        open={open && wide}
+        // `Popover` only asks to close. Focus follows an outside press on its
+        // own, and the layer restores it to the trigger on Escape, so this must
+        // not pull it back to the trigger as well.
+        onOpenChange={() => close(false)}
+        triggerRef={triggerRef}
+        label={tr("newChat.placeTitle")}
+        placement="below"
+        align="left"
+        width={480}
+        maxWidth={520}
+        maxHeight={460}
+        padded={false}
+        className="flex flex-col overflow-hidden"
+      >
+        {panel}
+      </Popover>
 
       {!wide ? (
         <Sheet
@@ -209,7 +179,9 @@ export default function PlacePicker({
           onClose={() => close(false)}
           title={tr("newChat.placeTitle")}
           footer={
-            <SheetSecondaryButton onClick={() => close()}>{tr("common.cancel")}</SheetSecondaryButton>
+            <SheetSecondaryButton onClick={() => close()}>
+              {tr("common.cancel")}
+            </SheetSecondaryButton>
           }
         >
           {panel}
@@ -244,12 +216,18 @@ function PlacePanel({
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // After the Sheet's own open-focus timer: the sheet focuses its panel at
-    // 0 ms, and a synchronous focus here loses the field to it. The folder
-    // browser waits on the same beat for the same reason.
-    const timer = window.setTimeout(() => searchRef.current?.focus({ preventScroll: true }), 20);
+    // On desktop (`wide`), `Popover` already focuses the first focusable
+    // element (`searchRef`) once anchored; a delayed focus there races
+    // immediate ArrowDown navigation. Keep the 20 ms beat only for the
+    // phone `Sheet` (whose 0 ms panel focus would otherwise win), and do
+    // not pull focus back if the user already moved into the option list.
+    if (wide) return;
+    const timer = window.setTimeout(() => {
+      if (listRef.current?.contains(document.activeElement)) return;
+      searchRef.current?.focus({ preventScroll: true });
+    }, 20);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [wide]);
 
   const q = query.trim().toLowerCase();
   const directory = directoryCandidate(query);
@@ -265,8 +243,7 @@ function PlacePanel({
             .map((path) => ({ path, name: projectLabel(path) }))
             .filter(
               (project) =>
-                machineMatches ||
-                `${project.name} ${project.path}`.toLowerCase().includes(q),
+                machineMatches || `${project.name} ${project.path}`.toLowerCase().includes(q),
             );
           return { machine, name, projects, machineMatches };
         })
@@ -360,7 +337,9 @@ function PlacePanel({
             className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-body text-kin-text hover:bg-[var(--kin-fill-strong)] focus:bg-[var(--kin-fill-strong)] focus:outline-none"
           >
             <IconFolder size={14} className="flex-none text-kin-secondary" />
-            <span className="min-w-0 flex-1 truncate">{tr("newChat.placeUse", { path: directory })}</span>
+            <span className="min-w-0 flex-1 truncate">
+              {tr("newChat.placeUse", { path: directory })}
+            </span>
           </button>
         ) : null}
 
@@ -369,12 +348,7 @@ function PlacePanel({
             machine.online ? tr("newChat.placeOnline") : tr("machine.offline")
           }`;
           return (
-            <div
-              key={machine.id || "__self"}
-              role="group"
-              aria-label={header}
-              className="mb-1"
-            >
+            <div key={machine.id || "__self"} role="group" aria-label={header} className="mb-1">
               <div
                 className={[
                   "px-2 pb-1 pt-1.5 text-caption font-medium",
@@ -401,7 +375,9 @@ function PlacePanel({
                       aria-selected={wide ? selected : undefined}
                       aria-current={!wide && selected ? "true" : undefined}
                       disabled={disabled}
-                      onClick={() => onPick({ machineId: machine.isSelf ? "" : machine.id, cwd: project.path })}
+                      onClick={() =>
+                        onPick({ machineId: machine.isSelf ? "" : machine.id, cwd: project.path })
+                      }
                       className={[
                         "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors",
                         "hover:bg-[var(--kin-fill-strong)] focus:bg-[var(--kin-fill-strong)] focus:outline-none",
@@ -409,10 +385,16 @@ function PlacePanel({
                       ].join(" ")}
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-body text-kin-text">{project.name}</span>
-                        <span className="block truncate text-caption text-kin-muted">{project.path}</span>
+                        <span className="block truncate text-body text-kin-text">
+                          {project.name}
+                        </span>
+                        <span className="block truncate text-caption text-kin-muted">
+                          {project.path}
+                        </span>
                       </span>
-                      {selected ? <IconCheck size={13} className="flex-none text-kin-blue-ink" /> : null}
+                      {selected ? (
+                        <IconCheck size={13} className="flex-none text-kin-blue-ink" />
+                      ) : null}
                     </button>
                   );
                 })

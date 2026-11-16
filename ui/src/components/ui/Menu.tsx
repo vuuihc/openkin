@@ -20,6 +20,14 @@ export type MenuItem = {
   label: string;
   icon?: ReactNode;
   disabled?: boolean;
+  /**
+   * A second line inside the same row: the consequence of a choice ("YOLO —
+   * trusted / sandboxed envs only"), drawn under the label in the muted
+   * caption ink. It stays in the row's text content on purpose — a menu row's
+   * accessible name is what a reader hears as they move through it, and
+   * `aria-describedby` is not announced consistently in menu navigation.
+   */
+  description?: string;
   /** Renders role="menuitemradio" with aria-checked when defined. */
   checked?: boolean;
   onSelect: () => void;
@@ -35,10 +43,23 @@ export type MenuProps = {
   /** Accessible name of the menu. The caller's visible label, not new text. */
   label: string;
   items: MenuItem[];
+  /**
+   * The row that takes focus when the menu opens. Defaults to the first
+   * enabled row. A radio menu passes its checked row, so opening starts on
+   * the current choice and the next arrow key moves relative to it; an id
+   * that is disabled or not offered falls back to the first enabled row.
+   */
+  initialFocusId?: string;
   /** Preferred side; the underlying layer flips it when that side has no room. */
   placement?: "above" | "below";
   /** Edge of the trigger the panel lines up with. */
   align?: "left" | "right";
+  /**
+   * Panel width in px. A menu is a column of labels, so 240 is the default;
+   * a caller whose rows carry a consequence line asks for the width those
+   * lines need instead of re-deriving the panel's shape.
+   */
+  width?: number;
 };
 
 /** How long a typeahead buffer survives between keystrokes. */
@@ -75,8 +96,10 @@ export default function Menu({
   triggerRef,
   label,
   items,
+  initialFocusId,
   placement = "below",
   align = "left",
+  width = 240,
 }: MenuProps) {
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -86,13 +109,21 @@ export default function Menu({
   const typed = useRef({ text: "", timer: undefined as number | undefined });
 
   const enabled = items.filter((item) => !item.disabled);
+  // A radio menu opens on the row that is set, not on the top of the list:
+  // the next arrow key then moves from where the reader already is. The
+  // caller names that row; a plain action menu names none and starts at the
+  // top, which is also the fallback when the preferred row cannot take focus.
+  const preferred =
+    initialFocusId != null && enabled.some((item) => item.id === initialFocusId)
+      ? initialFocusId
+      : null;
   // Roving focus is derived, not stored twice: a caller may add, disable or
   // reorder rows while the menu is open, and a remembered id that no longer
   // resolves falls back to the first row that can take focus.
   const active =
     activeId !== null && enabled.some((item) => item.id === activeId)
       ? activeId
-      : (enabled[0]?.id ?? null);
+      : (preferred ?? enabled[0]?.id ?? null);
 
   useEffect(() => {
     if (open) return;
@@ -220,7 +251,7 @@ export default function Menu({
       align={align}
       // A menu is a column of labels: narrower than a chip's trigger would
       // truncate every row, and wider than this overhangs the page edge.
-      width={240}
+      width={width}
       maxHeight={360}
     >
       <div role="menu" aria-label={label} onKeyDown={onKeyDown}>
@@ -248,7 +279,12 @@ export default function Menu({
                 {item.icon}
               </span>
             ) : null}
-            <span className="min-w-0 flex-1 truncate">{item.label}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate">{item.label}</span>
+              {item.description ? (
+                <span className="block text-caption text-kin-muted">{item.description}</span>
+              ) : null}
+            </span>
             {item.checked ? (
               <span className="flex-none" aria-hidden="true">
                 <IconCheck size={12} />

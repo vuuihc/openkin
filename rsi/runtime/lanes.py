@@ -38,12 +38,49 @@ def load_max():
     return v
 
 LOAD_MAX = load_max()
-SWAP_FREE_MIN_MB = float(os.environ.get("RSI_SWAP_FREE_MIN_MB", "2048"))
+MEM_AVAIL_MIN_MB = float(os.environ.get("RSI_MEM_AVAIL_MIN_MB", "2048"))
+SWAP_USED_MAX_MB = float(os.environ.get("RSI_SWAP_USED_MAX_MB", "12288"))
 
-def swap_free_mb():
+def swap_usage_mb():
+    """Return (used_mb, free_mb) from sysctl vm.swapusage, or (None, None)."""
     try:
         sw = subprocess.run(["sysctl", "-n", "vm.swapusage"], capture_output=True, text=True, timeout=5).stdout
-        return float(sw.split("free =")[1].split("M")[0].strip())
+        used = float(sw.split("used =")[1].split("M")[0].strip())
+        free = float(sw.split("free =")[1].split("M")[0].strip())
+        return used, free
+    except Exception:
+        return None, None
+
+def swap_free_mb():
+    return swap_usage_mb()[1]
+
+def swap_used_mb():
+    return swap_usage_mb()[0]
+
+def avail_mem_mb():
+    """Estimate reclaimable+free memory from macOS vm_stat (pages free+inactive+speculative+purgeable)."""
+    try:
+        out = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=5).stdout
+        page_sz = 16384
+        first = out.splitlines()[0] if out else ""
+        if "page size of" in first:
+            page_sz = int(first.split("page size of")[1].split("bytes")[0].strip())
+        pages = 0.0
+        for line in out.splitlines()[1:]:
+            if ":" not in line:
+                continue
+            k, v = line.split(":", 1)
+            k = k.strip().lower()
+            if k in ("pages free", "pages inactive", "pages speculative", "pages purgeable"):
+                pages += float(v.strip().rstrip("."))
+        return (pages * page_sz) / (1024 * 1024)
+    except Exception:
+        return None
+
+def vm_pressure_level():
+    try:
+        out = subprocess.run(["sysctl", "-n", "kern.memorystatus_vm_pressure_level"], capture_output=True, text=True, timeout=5).stdout.strip()
+        return int(out)
     except Exception:
         return None
 
@@ -56,9 +93,15 @@ def host_pressure():
             return "load %.1f > %.0f (%d cores × 2)" % (load, lim, ncpu())
     except Exception:
         pass
-    free = swap_free_mb()
-    if free is not None and free < SWAP_FREE_MIN_MB:
-        return "swap free %.0fMB < %.0fMB" % (free, SWAP_FREE_MIN_MB)
+    lvl = vm_pressure_level()
+    if lvl is not None and lvl >= 4:
+        return "vm_pressure_level %d >= 4" % lvl
+    avail = avail_mem_mb()
+    if avail is not None and avail < MEM_AVAIL_MIN_MB:
+        return "avail mem %.0fMB < %.0fMB" % (avail, MEM_AVAIL_MIN_MB)
+    used = swap_used_mb()
+    if used is not None and used > SWAP_USED_MAX_MB:
+        return "swap used %.0fMB > %.0fMB" % (used, SWAP_USED_MAX_MB)
     return ""
 # Generated/derived files every UI lane touches; the merge lane rebuilds/merges them, so they never count as a claim.
 IGNORED = {"web/dist/index.html"}
@@ -139,9 +182,12 @@ def cmd_status(a):
         print(f"lane {n}: {fmt(load(n))}")
     try:
         press = host_pressure()
-        print("loadavg1=%.1f max=%.0f swap_free_mb=%s%s" % (
+        avail = avail_mem_mb()
+        used = swap_used_mb()
+        print("loadavg1=%.1f max=%.0f mem_avail_mb=%s swap_used_mb=%s%s" % (
             os.getloadavg()[0], load_max(),
-            ("%.0f" % (swap_free_mb() or -1)),
+            ("%.0f" % avail) if avail is not None else "-1",
+            ("%.0f" % used) if used is not None else "-1",
             (" PRESSURE: " + press if press else "")))
     except Exception: pass
 
@@ -155,7 +201,9 @@ def cmd_idle(a):
     with Lock():
         reap()
         press = host_pressure()
-        if press:
+        # --ignore-pressure: the rework dispatcher needs the free slot even while host pressure defers NEW
+        # slices; the claim itself re-checks and admits rework only (see cmd_claim).
+        if press and not getattr(a, "ignore_pressure", False):
             print(f"host pressure ({press}); not filling local workers", file=sys.stderr); return
         cap = MAX_LANES
         for n in range(1, cap + 1):
@@ -170,16 +218,27 @@ def ux_gate_refuse(item):
     if sl.get(item, {}).get("gate") == "ux-approved" and not os.path.exists(os.path.join(STATE, "ux-proto", "APPROVED")):
         print(f"REFUSED: {item} is gated on state/ux-proto/APPROVED (UX prototype approval)"); sys.exit(7)
 
+def is_valid_path(p):
+    if p in TOO_BROAD:
+        return False
+    if "/" in p or "." in p:
+        return True
+    return os.path.isfile(os.path.join(HERE, "..", "..", p))
+
 def cmd_claim(a):
     paths = [norm(p) for p in a.paths if norm(p) not in IGNORED]
-    bad = [p for p in paths if p in TOO_BROAD or len(p.split("/")) < 2 and "." not in p]
+    bad = [p for p in paths if not is_valid_path(p)]
     if not paths or bad:
         print(f"REFUSED: declare specific files/dirs (too broad or empty: {bad or 'none given'})"); sys.exit(5)
     if not os.path.isfile(a.brief): print(f"REFUSED: brief {a.brief} missing"); sys.exit(6)
     ux_gate_refuse(a.item)
     press = host_pressure()
-    if press:
+    # A targeted rework is measured in minutes (2-11 min tonight) and fixes a PR that is already in
+    # review; only severe load or critical memory pressure defers reworks. New slices stay gated.
+    if press and (a.mode != "rework" or press.startswith("load") or press.startswith("vm_pressure")):
         print(f"REFUSED: host pressure ({press}); no new local worker"); sys.exit(8)
+    if press:
+        print(f"host pressure ({press}); allowing a short rework", file=sys.stderr)
     with Lock():
         reap()
         if not 1 <= a.lane <= MAX_LANES: print("REFUSED: no such lane"); sys.exit(4)
@@ -206,10 +265,19 @@ def cmd_claim(a):
 
 def cloud_claims(reap_expired=True):
     out = []
+    now = time.time()
     for f in sorted(glob.glob(os.path.join(CDIR, "*.json"))):
         try: d = json.load(open(f))
         except Exception: continue
-        if reap_expired and time.time() - d.get("claimed_at", 0) > CLOUD_TTL:
+        raw_claimed = float(d.get("claimed_at") or 0)
+        base = float(d.get("launched_at") or min(raw_claimed, now))
+        exp = d.get("expires_at")
+        if exp is not None:
+            expired = now > float(exp)
+        else:
+            ttl = 5 * 3600 if d.get("taker") == "nas" else CLOUD_TTL
+            expired = (now - base) > ttl
+        if reap_expired and expired:
             os.replace(f, os.path.join(CDIR, "expired", os.path.basename(f))); continue
         out.append(d)
     return out
@@ -241,8 +309,10 @@ def cmd_cloud_release(a):
     if os.path.exists(f): os.replace(f, os.path.join(CDIR, "expired", f"done-{a.slug}.json")); print("released", a.slug)
 
 def cmd_cloud_list(a):
+    now = time.time()
     for c in cloud_claims():
-        print("%-6s %-28s age=%dm brief=%s paths=%s" % (c["item"], c["slug"], (time.time() - c["claimed_at"]) / 60, c["brief"], ",".join(c["paths"])))
+        ref_t = float(c.get("launched_at") or min(float(c.get("claimed_at") or now), now))
+        print("%-6s %-28s age=%dm brief=%s paths=%s" % (c["item"], c["slug"], max(0.0, (now - ref_t) / 60), c["brief"], ",".join(c["paths"])))
 
 def cmd_get(a):
     d = load(a.lane) or {}
@@ -275,7 +345,7 @@ def cmd_slugs(a):  # slugs of active lanes (merge lane must not touch their work
 
 p = argparse.ArgumentParser(); sub = p.add_subparsers(dest="c", required=True)
 sub.add_parser("status").set_defaults(f=cmd_status)
-sub.add_parser("idle").set_defaults(f=cmd_idle)
+i = sub.add_parser("idle"); i.add_argument("--ignore-pressure", action="store_true"); i.set_defaults(f=cmd_idle)
 sub.add_parser("claimed").set_defaults(f=cmd_claimed)
 sub.add_parser("host-ok").set_defaults(f=cmd_host_ok)
 

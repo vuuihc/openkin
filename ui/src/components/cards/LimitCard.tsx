@@ -3,6 +3,7 @@ import type { AgentInfo, LimitHit, TaskLimitWait } from "../../api/client";
 import { agentDisplayName } from "../../lib/agentMention";
 import { useT } from "../../i18n/react";
 import { IconAlert } from "../icons";
+import Button from "../ui/Button";
 
 type Props = {
   hit: LimitHit;
@@ -130,62 +131,64 @@ export default function LimitCard({
         ) : (
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {waiting ? (
-              <button
-                type="button"
+              // Exactly one filled action at a time: while waiting it is
+              // continue, otherwise it is wait (TASTE 6).
+              <Button
+                variant="approve"
                 disabled={Boolean(busy)}
                 onClick={onContinue}
-                className="rounded-lg bg-kin-orange/90 px-3 py-1.5 text-body font-medium text-kin-on-status hover:bg-kin-orange disabled:opacity-50"
+                className="bg-kin-orange/90 px-3 py-1.5 text-body font-medium hover:bg-kin-orange"
               >
                 {busy === "continue"
                   ? tr("limit.working")
                   : remain != null && remain <= 0
                     ? tr("limit.continueNow")
                     : tr("limit.continueEarly")}
-              </button>
+              </Button>
             ) : (
-              <button
-                type="button"
+              <Button
+                variant="approve"
                 disabled={Boolean(busy)}
                 onClick={onWait}
-                className="rounded-lg bg-kin-orange/90 px-3 py-1.5 text-body font-medium text-kin-on-status hover:bg-kin-orange disabled:opacity-50"
+                className="bg-kin-orange/90 px-3 py-1.5 text-body font-medium hover:bg-kin-orange"
               >
                 {busy === "wait" ? tr("limit.working") : tr("limit.wait")}
-              </button>
+              </Button>
             )}
 
             {!waiting && (
-              <button
-                type="button"
+              <Button
+                variant="secondary"
                 disabled={Boolean(busy)}
                 onClick={onContinue}
-                className="rounded-lg border border-kin-orange/40 bg-kin-orange/10 px-3 py-1.5 text-body text-kin-orange-ink hover:bg-kin-orange/15 disabled:opacity-50"
+                className="border-kin-orange/40 bg-kin-orange/10 px-3 py-1.5 text-body font-normal text-kin-orange-ink hover:bg-kin-orange/15"
               >
                 {busy === "continue" ? tr("limit.working") : tr("limit.continueNow")}
-              </button>
+              </Button>
             )}
 
             {fallbacks.slice(0, 3).map((a) => (
-              <button
+              <Button
                 key={a.id}
-                type="button"
+                variant="secondary"
                 disabled={Boolean(busy)}
                 onClick={() => onSwitch(a.id)}
-                className="rounded-lg border border-[var(--kin-hairline-strong)] bg-kin-panel px-3 py-1.5 text-body text-kin-secondary hover:text-kin-orange-ink disabled:opacity-50"
+                className="border-[var(--kin-hairline-strong)] bg-kin-panel px-3 py-1.5 text-body font-normal text-kin-secondary hover:bg-kin-panel hover:text-kin-orange-ink"
               >
                 {busy === `switch:${a.id}`
                   ? tr("limit.working")
                   : tr("limit.switchTo", { agent: agentDisplayName(a.id) })}
-              </button>
+              </Button>
             ))}
 
-            <button
-              type="button"
+            <Button
+              variant="quiet"
               disabled={Boolean(busy)}
               onClick={onDismiss}
-              className="ml-auto rounded-lg px-2 py-1.5 text-body text-kin-muted hover:text-kin-secondary disabled:opacity-50"
+              className="ml-auto px-2 py-1.5 text-body font-normal text-kin-muted! hover:bg-transparent! hover:text-kin-secondary"
             >
               {busy === "dismiss" ? tr("limit.working") : tr("limit.dismiss")}
-            </button>
+            </Button>
           </div>
         )}
       </div>

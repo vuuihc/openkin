@@ -292,6 +292,25 @@ describe("focus containment with controls nobody can see", () => {
     expect(document.activeElement).not.toBe(hiddenFirst);
     expect(document.activeElement).not.toBe(document.body);
   });
+
+  it("leaves focus alone when the content placed it itself", async () => {
+    render(
+      <Host startOpen>
+        <button type="button">First</button>
+        {/* A list that opens on its current choice, or a field with
+            `autoFocus`, has already put focus where the reader needs it
+            during the commit. The panel's fallback must not overrule it. */}
+        <button type="button" autoFocus>
+          Chosen
+        </button>
+      </Host>,
+    );
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Chosen" })),
+    );
+    expect(document.activeElement).not.toBe(screen.getByRole("button", { name: "First" }));
+  });
 });
 
 describe("nested layers", () => {
@@ -320,6 +339,24 @@ describe("nested layers", () => {
 
     await userEvent.keyboard("{Escape}");
 
+    expect(dialogNames()).toEqual([]);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Outer trigger" }));
+  });
+
+  it("dismisses the deepest open layer even when focus stays in the parent", async () => {
+    await openBoth();
+
+    // The caret moved back to the parent's own content. The nested layer is
+    // still the one opened last, so the first Escape belongs to it: closing
+    // the parent here would leave the nested panel floating over a layer that
+    // no longer exists.
+    screen.getByRole("button", { name: "Inner trigger" }).focus();
+    await userEvent.keyboard("{Escape}");
+
+    expect(dialogNames()).toEqual(["Outer"]);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Inner trigger" }));
+
+    await userEvent.keyboard("{Escape}");
     expect(dialogNames()).toEqual([]);
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Outer trigger" }));
   });
