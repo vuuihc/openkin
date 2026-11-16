@@ -215,12 +215,18 @@ function PlacePanel({
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // After the Sheet's own open-focus timer: the sheet focuses its panel at
-    // 0 ms, and a synchronous focus here loses the field to it. The folder
-    // browser waits on the same beat for the same reason.
-    const timer = window.setTimeout(() => searchRef.current?.focus({ preventScroll: true }), 20);
+    // On desktop (`wide`), `Popover` already focuses the first focusable
+    // element (`searchRef`) once anchored; a delayed focus there races
+    // immediate ArrowDown navigation. Keep the 20 ms beat only for the
+    // phone `Sheet` (whose 0 ms panel focus would otherwise win), and do
+    // not pull focus back if the user already moved into the option list.
+    if (wide) return;
+    const timer = window.setTimeout(() => {
+      if (listRef.current?.contains(document.activeElement)) return;
+      searchRef.current?.focus({ preventScroll: true });
+    }, 20);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [wide]);
 
   const q = query.trim().toLowerCase();
   const directory = directoryCandidate(query);
