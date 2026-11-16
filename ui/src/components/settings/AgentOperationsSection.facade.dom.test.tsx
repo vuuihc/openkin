@@ -426,6 +426,7 @@ describe("the Operations section's remaining controls on the facade (E4c)", () =
     // the surface the person is touching. It wraps: Astryx's button base sets
     // `white-space: nowrap`, which would otherwise clip the line.
     expect(remove.disabled).toBe(true);
+    expect(remove.className).toContain("min-h-11");
     const reason = within(sheet).getByText(
       "The default agent stays in the catalog. Set another agent as default first.",
     );
