@@ -115,6 +115,12 @@ if [ "$MODE" = pulse ] && [ $DRY -eq 0 ]; then
   if rsi_allow_workers; then
     bash "$RSI_DIR/runtime/lane.sh" start-claimed
     bash "$RSI_DIR/runtime/lane.sh" autofill rest   # non-Astryx reworks only take leftover lanes
+    # Pack untaken cloud claims for the box first (marks taker=box). CopyToBox is
+    # done by an agent with Mac+box tools; the box has no inbound route.
+    if [ -x "$RSI_DIR/runtime/box/box-pack.sh" ]; then
+      /bin/bash "$RSI_DIR/runtime/box/box-pack.sh" >> "$RUNS/launchd-box.log" 2>&1 || true
+    fi
+    [ -x "$RSI_DIR/runtime/nas/pulse-nas.sh" ] && nohup /bin/bash "$RSI_DIR/runtime/nas/pulse-nas.sh" >> "$RUNS/launchd-nas.log" 2>&1 < /dev/null & disown 2>/dev/null || true
   else
     echo "volc budget: not starting new worker lanes until next Asia/Singapore day (¥${RSI_VOLC_CNY:-?} >= ¥${RSI_VOLC_STOP_WORKERS:-560})"
   fi
