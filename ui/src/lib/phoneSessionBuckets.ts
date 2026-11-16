@@ -141,6 +141,24 @@ function isActiveStatus(status: string | undefined): boolean {
   return Boolean(status) && !TERMINAL_STATUSES.has(status!);
 }
 
+/** The two statuses that mean a task is waiting on the person. */
+const NEEDS_YOU_STATUSES = new Set(["waiting_approval", "waiting_input"]);
+
+/**
+ * How much a row wants the reader, low first: needs you, still running, settled.
+ *
+ * A row that stops work outranks a row that merely finished later, which is the
+ * order the reference groups by (rsi/UX-AUDIT.md risk 3). Imported sessions
+ * carry no status and read as settled. This is the task-status vocabulary the
+ * rest of this module already uses, not a second one: `taskCardStatus` is about
+ * how a status is drawn, so it stays out of an ordering rule.
+ */
+function attentionRank(status: string | undefined): number {
+  if (status && NEEDS_YOU_STATUSES.has(status)) return 0;
+  if (isActiveStatus(status)) return 1;
+  return 2;
+}
+
 /** Take the earliest non-zero timestamp, so a bucket remembers when its project
  *  was first seen, not when its newest chat ran. */
 function rememberCreated(bucket: PhoneProjectBucket, at: number | undefined): void {
@@ -353,8 +371,17 @@ export function phoneProjectBuckets(
     }
   }
 
+  // Inside a project the order answers "what needs me?" before "what did I last
+  // touch?": a row that stops work (waiting for an approval or an answer) goes
+  // above a row still running, which goes above one that merely finished later.
+  // Recency and then key keep the order deterministic inside a rank.
   for (const bucket of byKey.values()) {
-    bucket.rows.sort((a, b) => b.at - a.at || a.key.localeCompare(b.key));
+    bucket.rows.sort(
+      (a, b) =>
+        attentionRank(a.status) - attentionRank(b.status) ||
+        b.at - a.at ||
+        a.key.localeCompare(b.key),
+    );
   }
 
   return (
