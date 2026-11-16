@@ -347,15 +347,16 @@ while IFS=, read -r SLUG ST <&3; do
   [ -n "$SLUG" ] || continue
   case "$SLUG" in *[!a-z0-9._-]*|"") echo "skip bad slug $SLUG"; continue;; esac
   J="$X/$SLUG"; mkdir -p "$J"
-  with_timeout "$SSH_T" "$SCP_BIN" -q "$NAS_HOST:$REMOTE/work/jobs/$SLUG/status.json" "$J/status.json" 2>/dev/null || { echo "no status $SLUG"; continue; }
+  # Use -O (legacy scp protocol): UGOS Pro's SFTP subsystem cannot resolve ssh paths (see pulse-nas.sh).
+  with_timeout "$SSH_T" "$SCP_BIN" -O -q "$NAS_HOST:$REMOTE/work/jobs/$SLUG/status.json" "$J/status.json" 2>/dev/null || { echo "no status $SLUG"; continue; }
   IDENT="$(python3 -c "import json;d=json.load(open('$J/status.json'));print(int(float(d.get('started_at') or d.get('updated_at') or 0)))" 2>/dev/null || echo 0)"
   ACK_KEY="$SLUG:$ST:$IDENT"
   if acked "$ACK_KEY"; then
     mark_remote "$SLUG" "$IDENT" ingested      # repair a half-finished previous pass
     continue
   fi
-  with_timeout "$SSH_T" "$SCP_BIN" -q "$NAS_HOST:$REMOTE/work/jobs/$SLUG/job.json" "$J/job.json" 2>/dev/null || true
-  with_timeout "$SSH_T" "$SCP_BIN" -q "$NAS_HOST:$REMOTE/work/jobs/$SLUG/pr-body.md" "$J/pr-body.md" 2>/dev/null || true
+  with_timeout "$SSH_T" "$SCP_BIN" -O -q "$NAS_HOST:$REMOTE/work/jobs/$SLUG/job.json" "$J/job.json" 2>/dev/null || true
+  with_timeout "$SSH_T" "$SCP_BIN" -O -q "$NAS_HOST:$REMOTE/work/jobs/$SLUG/pr-body.md" "$J/pr-body.md" 2>/dev/null || true
   ITEM="$(python3 -c "import json,os;print(json.load(open('$J/job.json')).get('item','') if os.path.exists('$J/job.json') else '')")"
   JOB_LAUNCH="$([ -s "$J/job.json" ] && run_ident "$J/job.json" launched_at || true)"
   if [ "$ST" = failed ]; then
@@ -378,7 +379,7 @@ while IFS=, read -r SLUG ST <&3; do
     echo "no valid run identity for $SLUG (job.json missing or malformed); leaving the finished result alone"
     continue
   fi
-  with_timeout "$XFER_T" "$SCP_BIN" -q "$NAS_HOST:$REMOTE/work/jobs/$SLUG/bundle" "$J/bundle" || { echo "no bundle $SLUG"; continue; }
+  with_timeout "$XFER_T" "$SCP_BIN" -O -q "$NAS_HOST:$REMOTE/work/jobs/$SLUG/bundle" "$J/bundle" || { echo "no bundle $SLUG"; continue; }
   BR="rsi/$SLUG"; REF="refs/nas/$SLUG"
   with_timeout "$XFER_T" "$GIT" -C "$CTRL" fetch -q origin 2>/dev/null || true
   with_timeout 120 "$GIT" -C "$CTRL" bundle verify "$J/bundle" >/dev/null 2>&1 || { echo "bundle for $SLUG does not verify"; continue; }

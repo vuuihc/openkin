@@ -1,7 +1,7 @@
 import { forwardRef, type ButtonHTMLAttributes, type ComponentProps } from "react";
 import { Button as AstryxButton } from "@astryxdesign/core";
 
-export type ButtonVariant = "default" | "secondary" | "quiet" | "approve" | "deny";
+export type ButtonVariant = "default" | "secondary" | "quiet" | "quiet-danger" | "approve" | "deny";
 
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   /**
@@ -11,6 +11,10 @@ export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
    *  - `secondary` is a bordered peer (cancel, stop);
    *  - `quiet` is an icon-or-text affordance that sits inside a row or field
    *    (attach, filter) and takes a fill only on hover;
+   *  - `quiet-danger` is its destructive peer: the same weight, red ink. It is
+   *    a separate variant because two utilities (`text-kin-text` from `quiet`
+   *    and `text-kin-red-ink` from a caller's className) would compete in the
+   *    cascade, and the winner is whichever the stylesheet emits last;
    *  - `approve` is the orange filled decision ("allow", "submit"), the same
    *    class the approval cards already used;
    *  - `deny` is its bordered peer.
@@ -32,6 +36,7 @@ const VARIANT: Record<ButtonVariant, string> = {
   default: "kin-btn-primary",
   secondary: "kin-btn-secondary",
   quiet: "bg-transparent text-kin-text hover:bg-[var(--kin-fill)]",
+  "quiet-danger": "bg-transparent text-kin-red-ink hover:bg-[var(--kin-fill)]",
   approve: "kin-btn-approve",
   deny: "kin-btn-deny",
 };

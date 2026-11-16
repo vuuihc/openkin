@@ -70,11 +70,19 @@ case "$MODE" in
     MAXSECS="$FILL_SECS"; PROMPT_FILE="$RSI_DIR/runtime/prompts/fill.md"
     # debounce: lane-finish / merge triggers + the 20-min tick must not stack director runs
     if [ $FORCE -eq 0 ] && [ -e "$STATE/last_fill" ] && [ $(( $(date +%s) - $(cat "$STATE/last_fill") )) -lt 480 ]; then echo "skip: fill ran <8 min ago"; exit 0; fi
-    [ $DRY -eq 0 ] && rsi_allow_workers && bash "$RSI_DIR/runtime/lane.sh" autofill astryx   # Astryx sendbacks -> rework lanes first, no LLM
+    if [ $DRY -eq 0 ] && rsi_allow_workers; then
+      bash "$RSI_DIR/runtime/lane.sh" autofill astryx   # Astryx sendbacks -> rework lanes first, no LLM
+      bash "$RSI_DIR/runtime/lane.sh" autofill rest     # non-Astryx reworks take remaining idle slots before exit
+    fi
     IDLE="$(python3 "$LANES_PY" idle | tr '\n' ' ')"
     LANES_TXT="$(python3 "$LANES_PY" status)"
     CLOUD_PENDING="$(python3 "$RSI_DIR/runtime/slices.py" cloud-pending 2>/dev/null | wc -l | tr -d ' ')"
-    [ -z "${IDLE// }" ] && [ "${CLOUD_PENDING:-0}" -eq 0 ] && { echo "no idle lane and no cloud brief pending. $LANES_TXT"; exit 0; }
+    if [ -z "${IDLE// }" ] && [ "${CLOUD_PENDING:-0}" -eq 0 ]; then
+      if [ $DRY -eq 0 ] && rsi_allow_workers && [ -x "$RSI_DIR/runtime/nas/pulse-nas.sh" ]; then
+        nohup /bin/bash "$RSI_DIR/runtime/nas/pulse-nas.sh" >> "$RUNS/launchd-nas.log" 2>&1 < /dev/null & disown 2>/dev/null || true
+      fi
+      echo "no idle lane and no cloud brief pending. $LANES_TXT"; exit 0
+    fi
     date +%s > "$STATE/last_fill";;
   daily) [ $FORCE -eq 0 ] && ls "$RUNS"/${TODAY}*-daily.jsonl >/dev/null 2>&1 && { echo "skip: daily already ran today"; exit 0; }; MAXSECS=5400; PROMPT_FILE="$RSI_DIR/runtime/prompts/daily.md";;
   dream) [ $FORCE -eq 0 ] && [ -s "$STATE/reports/$TODAY-morning.md" ] && { echo "skip: report exists"; exit 0; }; MAXSECS=5400; PROMPT_FILE="$RSI_DIR/runtime/prompts/dream.md";;
@@ -117,7 +125,8 @@ if [ "$MODE" = pulse ] && [ $DRY -eq 0 ]; then
     bash "$RSI_DIR/runtime/lane.sh" autofill rest   # non-Astryx reworks only take leftover lanes
     # Pack untaken cloud claims for the box first (marks taker=box). CopyToBox is
     # done by an agent with Mac+box tools; the box has no inbound route.
-    if [ -x "$RSI_DIR/runtime/box/box-pack.sh" ]; then
+    # CEO 2026-11-16: state/BOX_OFF stops packing for the box while the box sync routine is paused (claims went zombie).
+    if [ -x "$RSI_DIR/runtime/box/box-pack.sh" ] && [ ! -e "$STATE/BOX_OFF" ]; then
       /bin/bash "$RSI_DIR/runtime/box/box-pack.sh" >> "$RUNS/launchd-box.log" 2>&1 || true
     fi
     [ -x "$RSI_DIR/runtime/nas/pulse-nas.sh" ] && nohup /bin/bash "$RSI_DIR/runtime/nas/pulse-nas.sh" >> "$RUNS/launchd-nas.log" 2>&1 < /dev/null & disown 2>/dev/null || true

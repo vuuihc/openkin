@@ -221,6 +221,17 @@ function RunConfigSheet({ open, onClose, ...body }: SheetProps) {
 }
 
 /**
+ * The layers `extraRows` open that are not `Popover`s: `DispatchSelector` and
+ * its neighbours portal a `role="dialog"` to `<body>` themselves, so the
+ * shared layer registry cannot see them. A press inside one must not read as
+ * "outside" and close this panel — that unmounts the picker before its click
+ * lands — so the panel opts their markers into its pointer reach. Escape is
+ * not widened: it still belongs to the layer holding focus.
+ */
+const EXTRA_ROW_POINTER_REACH =
+  '[data-search-panel], [data-kin-sheet], [role="menu"], [role="dialog"]';
+
+/**
  * The desktop shape of the run settings: the sheet's rows in an anchored panel.
  *
  * A Mac is not a phone, and `Sheet` is deliberately phone-only — a bottom
@@ -256,6 +267,7 @@ function RunConfigPanel({
       width={400}
       maxWidth={520}
       maxHeight={560}
+      pointerReach={EXTRA_ROW_POINTER_REACH}
     >
       {/* The panel is the scrollport (`overflow-y-auto`, `p-1.5`), so the
           header sticks to its top edge while the rows scroll under it. The

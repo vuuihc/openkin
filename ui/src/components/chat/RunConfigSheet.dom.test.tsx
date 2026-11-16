@@ -2,6 +2,7 @@
 // KIN-START-001: the run card names host, model and permission while its extra
 // rows stay inside the one settings surface.
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -476,6 +477,30 @@ describe("RunConfigControl", () => {
 });
 
 /**
+ * The shape of an `extraRows` control the shared layer registry cannot see:
+ * `DispatchSelector` and its neighbours portal their own `role="dialog"` to
+ * `<body>` instead of building on `Popover`.
+ */
+function PortaledExtraRow() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>
+        Dispatch
+      </button>
+      {open
+        ? createPortal(
+            <div role="dialog" aria-label="Dispatch">
+              <button type="button">Inside dispatch</button>
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
+  );
+}
+
+/**
  * The Mac shape: the same rows in an anchored panel instead of the phone's
  * bottom sheet. A panel is a layer over the page, not a navigation entry, so
  * the history contract that belongs to the sheet must not leak into it.
@@ -508,6 +533,23 @@ describe("RunConfigControl on a wide screen", () => {
 
     expect(onModelChange).toHaveBeenCalledWith("opus");
     expect(screen.getByRole("dialog", { name: "Run settings" })).toBeTruthy();
+  });
+
+  it("keeps the panel open when a non-popover extra row layer takes the pointer", async () => {
+    setup({ extraRows: <PortaledExtraRow /> });
+    const panel = await openSheet();
+    await userEvent.click(screen.getByRole("button", { name: "Dispatch" }));
+
+    const layer = screen.getByRole("dialog", { name: "Dispatch" });
+    // Portaled out of the panel and not built on `Popover`, so the layer
+    // registry cannot see it. Without the panel's pointer reach this press
+    // reads as "outside" and unmounts the picker before its click lands.
+    expect(panel.contains(layer)).toBe(false);
+
+    fireEvent.pointerDown(within(layer).getByRole("button", { name: "Inside dispatch" }));
+
+    expect(screen.getByRole("dialog", { name: "Run settings" })).toBe(panel);
+    expect(screen.getByRole("dialog", { name: "Dispatch" })).toBe(layer);
   });
 
   it("closes on an outside click without claiming a history entry", async () => {
