@@ -380,4 +380,3 @@ func TestBuildWorkerBriefIncludesReplyLanguage(t *testing.T) {
 		t.Fatalf("worker brief missing findings rule:\n%s", got)
 	}
 }
-

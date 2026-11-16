@@ -56,9 +56,7 @@ describe("FloatingApproval containment", () => {
 
   it("renders the next approval after a bad one", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const { rerender } = render(
-      <FloatingApproval {...base} approvals={[approval("bad", 100)]} />,
-    );
+    const { rerender } = render(<FloatingApproval {...base} approvals={[approval("bad", 100)]} />);
     // The bad one is answered elsewhere or expires; the queue moves on.
     rerender(<FloatingApproval {...base} approvals={[approval("good", 200)]} />);
     expect(screen.getByText("card good")).toBeTruthy();

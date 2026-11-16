@@ -132,9 +132,9 @@ describe("dispatchBlocksSend", () => {
 
   it("does not block a complete local send", () => {
     expect(dispatchBlocksSend({ mode: "auto", team: "t1" })).toBe(false);
-    expect(
-      dispatchBlocksSend({ mode: "manual", agent: "a", provider: "p", model: "m" }),
-    ).toBe(false);
+    expect(dispatchBlocksSend({ mode: "manual", agent: "a", provider: "p", model: "m" })).toBe(
+      false,
+    );
   });
 
   // The regression this helper exists for: a default team from settings keeps

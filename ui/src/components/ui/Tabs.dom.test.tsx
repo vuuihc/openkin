@@ -68,7 +68,7 @@ function Host({
                 const moved = current[index];
                 if (index < 0 || !moved) return current;
                 const next = current.filter((item) => item.id !== id);
-                const target = ((index + delta) % next.length + next.length) % next.length;
+                const target = (((index + delta) % next.length) + next.length) % next.length;
                 next.splice(target, 0, moved);
                 return next;
               });

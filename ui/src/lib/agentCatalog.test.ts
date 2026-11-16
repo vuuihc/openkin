@@ -80,7 +80,12 @@ describe("catalog products and the ten-product cap (KIN-AGENTS-001)", () => {
       product({ id: "claude-code", name: "Claude Code", available: true }),
       // A presence-only row: installed, but no permission ladder, because Kin
       // has no adapter to run a turn in.
-      agent({ id: "cursor", name: "Cursor", installed: true, reason: "installed; no known headless CLI mode" }),
+      agent({
+        id: "cursor",
+        name: "Cursor",
+        installed: true,
+        reason: "installed; no known headless CLI mode",
+      }),
     ];
     expect(catalogProducts(list).map((a) => a.id)).toEqual(["claude-code"]);
   });
@@ -171,11 +176,7 @@ describe("catalog products and the ten-product cap (KIN-AGENTS-001)", () => {
       agent({ id: "gemini", name: "Gemini" }),
       agent({ id: "claude-code", name: "Claude Code", default: true }),
     ];
-    expect(sortAgentCatalog(list).map((a) => a.id)).toEqual([
-      "claude-code",
-      "codex",
-      "gemini",
-    ]);
+    expect(sortAgentCatalog(list).map((a) => a.id)).toEqual(["claude-code", "codex", "gemini"]);
   });
 });
 

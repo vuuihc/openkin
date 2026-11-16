@@ -162,7 +162,9 @@ describe("the imported index and the older-page cursor", () => {
       loadOlder.click();
     });
     expect(
-      vi.mocked(listAgentSessionsPage).mock.calls.filter(([params]) => params?.before === "cursor-1"),
+      vi
+        .mocked(listAgentSessionsPage)
+        .mock.calls.filter(([params]) => params?.before === "cursor-1"),
     ).toHaveLength(0);
 
     await act(async () => {
@@ -252,7 +254,9 @@ describe("a first-page refresh and the rows already on screen", () => {
     expect(screen.getByRole("button", { name: /Load older/ })).toBeTruthy();
     screen.getByRole("button", { name: /Load older/ }).click();
     expect(
-      vi.mocked(listAgentSessionsPage).mock.calls.filter(([params]) => params?.before === "cursor-1"),
+      vi
+        .mocked(listAgentSessionsPage)
+        .mock.calls.filter(([params]) => params?.before === "cursor-1"),
     ).toHaveLength(0);
 
     await act(async () => {
@@ -290,7 +294,11 @@ describe("a first-page refresh and the rows already on screen", () => {
     // The failure is still surfaced — the soft notice keeps the rows visible
     // instead of replacing them with the hard empty state.
     await waitFor(() =>
-      expect(screen.getByText("Local agent sessions could not be read right now. Kin's own sessions are still listed above.")).toBeTruthy(),
+      expect(
+        screen.getByText(
+          "Local agent sessions could not be read right now. Kin's own sessions are still listed above.",
+        ),
+      ).toBeTruthy(),
     );
     expect(screen.queryByText("Could not load imported sessions")).toBeNull();
 

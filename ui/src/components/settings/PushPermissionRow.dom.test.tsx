@@ -96,7 +96,9 @@ describe("PushPermissionRow", () => {
       ),
     );
     // Granted means the row has nothing left to say.
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Enable notifications" })).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Enable notifications" })).toBeNull(),
+    );
   });
 
   it("does not prompt a denied phone and points at system settings", async () => {
@@ -119,7 +121,10 @@ describe("PushPermissionRow", () => {
       .fn()
       .mockRejectedValueOnce(new Error("offline"))
       .mockResolvedValue({ id: "device-1" });
-    const api: NativePushApi = { registerPushDevice, deletePushDevice: vi.fn(async () => undefined) };
+    const api: NativePushApi = {
+      registerPushDevice,
+      deletePushDevice: vi.fn(async () => undefined),
+    };
     const plugin = pluginWith("prompt", { permission });
     render(<PushPermissionRow plugin={plugin} api={api} />);
 
@@ -144,9 +149,10 @@ describe("PushPermissionRow", () => {
     const plugin = pluginWith("prompt", {
       permission,
       register: vi.fn(
-        () => new Promise<never>((_, reject) => {
-          rejectRegister = reject;
-        }),
+        () =>
+          new Promise<never>((_, reject) => {
+            rejectRegister = reject;
+          }),
       ),
     });
     render(<PushPermissionRow plugin={plugin} api={apiWith()} />);

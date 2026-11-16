@@ -288,16 +288,13 @@ describe("signOut", () => {
       await api.deletePushDevice("row-1");
     });
     const fetchMock = vi.fn(
-      async (_input: RequestInfo | URL, _init?: RequestInit) =>
-        new Response(null, { status: 204 }),
+      async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 204 }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
     await signOut();
 
-    const call = fetchMock.mock.calls.find((c) =>
-      String(c[0]).includes("/api/push/devices/row-1"),
-    );
+    const call = fetchMock.mock.calls.find((c) => String(c[0]).includes("/api/push/devices/row-1"));
     expect(call).toBeTruthy();
     const init = call?.[1] as RequestInit | undefined;
     expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer t-1");
@@ -459,9 +456,7 @@ describe("unlinkIdentity", () => {
       "/api/auth/identities/id-linked",
       expect.objectContaining({ method: "DELETE" }),
     );
-    expect(useAppStore.getState().account.linked).toEqual([
-      { id: "id-pw", provider: "password" },
-    ]);
+    expect(useAppStore.getState().account.linked).toEqual([{ id: "id-pw", provider: "password" }]);
   });
 
   it("maps the Hub's 409 to the last_credential code", async () => {

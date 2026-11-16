@@ -187,7 +187,7 @@ export default function Tabs({
       const direction = key === "ArrowRight" ? 1 : -1;
       for (let step = 1; step <= items.length; step += 1) {
         const index =
-          ((currentIndex + direction * step) % items.length + items.length) % items.length;
+          (((currentIndex + direction * step) % items.length) + items.length) % items.length;
         if (items[index] && !items[index].disabled) {
           nextIndex = index;
           break;

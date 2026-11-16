@@ -23,23 +23,21 @@ vi.mock("../api/client", async (importOriginal) => {
     ...actual,
     isAuthenticated: () => true,
     getAgentSession: vi.fn(async () => session),
-    getAgentSessionHistory: vi.fn(
-      async (): Promise<AgentSessionHistoryPage> => ({
-        items: [
-          {
-            agent_id: "claude-code",
-            external_ref: "ref-1",
-            message_id: "m1",
-            kind: "message",
-            role: "assistant",
-            text: "the newest message",
-            occurred_at: 2,
-            source_rev: "rev-1",
-          },
-        ],
-        prev_cursor: "",
-      }),
-    ),
+    getAgentSessionHistory: vi.fn(async (): Promise<AgentSessionHistoryPage> => ({
+      items: [
+        {
+          agent_id: "claude-code",
+          external_ref: "ref-1",
+          message_id: "m1",
+          kind: "message",
+          role: "assistant",
+          text: "the newest message",
+          occurred_at: 2,
+          source_rev: "rev-1",
+        },
+      ],
+      prev_cursor: "",
+    })),
     attachAgentSession: vi.fn(),
   };
 });
