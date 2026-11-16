@@ -260,6 +260,10 @@ export function MobileRow({
   ].join(" ");
   if (!onClick) return <div className={shared}>{body}</div>;
   return (
+    /* eslint-disable-next-line kin/no-raw-button --
+       A row is a full-width navigation target, not a button-shaped control;
+       the card's dividers and the 52px row rhythm are the design here, and
+       the design system has no row primitive. */
     <button type="button" onClick={onClick} disabled={disabled} className={shared}>
       {body}
     </button>
