@@ -313,9 +313,7 @@ describe("the Operations section's remaining controls on the facade (E4c)", () =
     // A full catalog disables Connect and keeps the reason in its `title`.
     localStorage.clear();
     const ten = Array.from({ length: 10 }, (_, i) =>
-      i === 0
-        ? claude
-        : product({ id: `agent-${i}`, name: `Agent ${String(i).padStart(2, "0")}` }),
+      i === 0 ? claude : product({ id: `agent-${i}`, name: `Agent ${String(i).padStart(2, "0")}` }),
     );
     writeConnectedFamilies(ten.map((a) => a.id));
     client.listAgents.mockResolvedValue([...ten, codex]);
@@ -386,9 +384,7 @@ describe("the Operations section's remaining controls on the facade (E4c)", () =
     expectFacade(retry);
     const before = client.getUsageSummary.mock.calls.length;
     fireEvent.click(retry);
-    await waitFor(() =>
-      expect(client.getUsageSummary.mock.calls.length).toBeGreaterThan(before),
-    );
+    await waitFor(() => expect(client.getUsageSummary.mock.calls.length).toBeGreaterThan(before));
     first.unmount();
 
     // The smoke report's dismiss clears the report.

@@ -1771,9 +1771,7 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
               // only, so the name is spelled here — and it keeps both lines,
               // which is what a screen reader heard before (TASTE 18).
               aria-label={
-                action.disabled && action.hint
-                  ? `${action.label} ${action.hint}`
-                  : action.label
+                action.disabled && action.hint ? `${action.label} ${action.hint}` : action.label
               }
               onClick={() => {
                 sheetAction.current = action.run;
