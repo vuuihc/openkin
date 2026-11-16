@@ -1793,7 +1793,14 @@ export default function TaskDetailPage({
   ];
 
   return (
-    <div className="flex-1 min-w-0 min-h-0 flex relative">
+    /*
+      The row an open panel becomes a column in. Below `lg` it stays the
+      single conversation column it was — the panel is `absolute` there and
+      takes itself out of this flex line — and from `lg` up the panel is a
+      sibling with its own width (`PanelSurface` `shape="column"`), so the
+      diff and the chat are readable at the same time.
+    */
+    <div className="flex-1 min-w-0 min-h-0 flex flex-col lg:flex-row relative">
       <div className="flex-1 min-w-0 min-h-0 flex flex-col kin-surface-chat">
         <TaskHeader
           task={task}
@@ -1803,6 +1810,7 @@ export default function TaskDetailPage({
           terminal={terminal}
           degraded={degraded}
           filesOpen={filesOpen}
+          panelOpen={panel !== null}
           archiving={archiving}
           deleting={deleting}
           stopping={stopping}
@@ -1815,6 +1823,9 @@ export default function TaskDetailPage({
           onStop={onStop}
           onBack={goBack}
           onOpenActions={() => setActionsOpen(true)}
+          // One surface at a time: bringing the list back closes the panel
+          // rather than leaving both columns to squeeze the conversation.
+          onShowList={() => hidePanel(id)}
         />
 
         {!wide && (
