@@ -18,10 +18,18 @@
 
 ## 现有
 
-- [SearchSelect](search-select.md) —— 可搜索的单选，长列表
+- [Button](button.md) —— 一个动作，页面上所有按钮的唯一起点
+- [Tabs](tabs.md) —— 同一层里并列内容的切换，含三到五选一的分段按钮
+- [Dialog](dialog-sheet.md) —— 桌面上打断当前任务的模态，退路按用途分级
+- [Popover](popover.md) —— 受控、按视口定位的通用浮层，菜单和选择器长在它上面
+- [Menu](menu.md) —— 贴着触发点的动词列表或一小组单选
 - [SheetSelect](sheet-select.md) —— 不可搜索的单选，短列表
+- [SearchSelect](search-select.md) —— 可搜索的单选，长列表
 - [ActionSheet](action-sheet.md) —— 手机上的动作列表 / 单选面板
 - [SessionFilters](session-filters.md) —— 对话列表的状态 / 范围过滤
+- [Toast](toast.md) —— 浮在页面底部的一行即时结果
+- [Tooltip](tooltip.md) —— 贴着触发点、只读的一句说明
+- [PendingBadge](pending-badge.md) —— 行尾“等你处理”的计数标记，不是按钮
 
 ## 新增一条的门槛
 

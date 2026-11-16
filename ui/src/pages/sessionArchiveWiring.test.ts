@@ -172,7 +172,7 @@ describe("the phone list's archive wiring", () => {
     // Pin orders the live list; the archive view never shows a pinned bucket,
     // so the chip would be a button with no visible effect.
     expect(TOOLBAR).toContain(
-      '{scope !== "archived" && (\n          <button\n            type="button"\n            onClick={onPin}',
+      '{scope !== "archived" && (\n          <Button\n            variant="secondary"\n            onClick={onPin}',
     );
   });
 
