@@ -3,7 +3,7 @@ import { createRef, type FormEvent } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import Button from "./Button";
+import Button, { type ButtonVariant } from "./Button";
 
 /**
  * Q3a: the shared action button the Composer migration will consume.
@@ -68,6 +68,50 @@ describe("the shared button", () => {
 
     const button = screen.getByRole("button", { name: "Saving changes…" });
     expect(button.getAttribute("aria-busy")).toBe("true");
+  });
+
+  it("the approve and deny variants keep the kin-btn-approve and kin-btn-deny classes", () => {
+    // `FloatingApproval` finds the button that should take focus after a
+    // decision with these exact selectors, so the class is part of the
+    // variant's contract, not a styling detail.
+    render(
+      <>
+        <Button variant="approve">Approve</Button>
+        <Button variant="deny">Deny</Button>
+      </>,
+    );
+
+    const approve = screen.getByRole("button", { name: "Approve" });
+    const deny = screen.getByRole("button", { name: "Deny" });
+    expect(approve.className).toContain("kin-btn-approve");
+    expect(deny.className).toContain("kin-btn-deny");
+    expect(approve.className).toContain("kin-btn");
+    expect(deny.className).toContain("kin-btn");
+  });
+
+  it("every variant keeps one accessible name, type=button and the disabled attribute", () => {
+    const variants: ButtonVariant[] = ["default", "secondary", "quiet", "approve", "deny"];
+    render(
+      <>
+        {variants.map((variant) => (
+          <Button key={variant} variant={variant} disabled aria-label={`${variant} action`}>
+            {variant}
+          </Button>
+        ))}
+      </>,
+    );
+
+    expect(screen.getAllByRole("button")).toHaveLength(variants.length);
+    for (const variant of variants) {
+      // getByRole throws when a name matches more than one control, so this is
+      // also the assertion that each variant has exactly one accessible name.
+      const button = screen.getByRole("button", {
+        name: `${variant} action`,
+      }) as HTMLButtonElement;
+      expect(button.getAttribute("type")).toBe("button");
+      expect(button.hasAttribute("disabled")).toBe(true);
+      expect(button.getAttribute("aria-label")).toBe(`${variant} action`);
+    }
   });
 
   it("does not submit a surrounding form unless type is explicitly submit", async () => {
