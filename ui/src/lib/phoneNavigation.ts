@@ -38,6 +38,8 @@ const LIST_PATH = "/sessions";
 const LIST_URL_KEY = "kin.listUrl";
 const LIST_TOKEN_KEY = "kin.listToken";
 const LIST_PARENTS_KEY = "kin.listParents";
+/** Each phone root's last URL, so a tab reopens where the reader left it. */
+const PHONE_TAB_URLS_KEY = "kin.phoneTabUrls";
 const PHONE_QUERY = "(min-width: 768px)";
 const LIST_STATE_KEYS = ["search", "status", "scope"] as const;
 
@@ -281,6 +283,54 @@ export function isPhoneTabPath(to: string): boolean {
   return phoneTabPath(to) !== null;
 }
 
+function readTabUrls(): Record<string, string> {
+  try {
+    const raw = window.sessionStorage.getItem(PHONE_TAB_URLS_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
+    const urls: Record<string, string> = {};
+    for (const [id, url] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof url === "string") urls[id] = url;
+    }
+    return urls;
+  } catch {
+    return {};
+  }
+}
+
+/** Remember a root's exact URL (params included); detail paths are ignored. */
+function rememberPhoneTabUrl(url: string): void {
+  const root = phoneTabPath(url);
+  if (root === null) return;
+  const urls = readTabUrls();
+  urls[root.slice(1)] = url;
+  try {
+    window.sessionStorage.setItem(PHONE_TAB_URLS_KEY, JSON.stringify(urls));
+  } catch {
+    // No storage: the tab still opens at its own root.
+  }
+}
+
+/**
+ * The URL a phone tab should reopen, or its own root.
+ *
+ * The four tabs are peers, not a hierarchy: leaving Settings must not forget
+ * which settings tab was open, and leaving Routines must not forget which
+ * machine was selected. Each root's last exact URL is remembered whenever the
+ * shell shows that root (`notePhoneLocation`), params included.
+ *
+ * A remembered URL is returned only while it still names the same root. A
+ * detail path (`/routines/today`), another root's URL, or an absolute URL is
+ * refused and the tab opens at `fallback`. The value rides sessionStorage, so
+ * a reload keeps it and a new tab starts clean.
+ */
+export function phoneTabUrl(id: PhoneTabId, fallback = `/${id}`): string {
+  const stored = readTabUrls()[id];
+  if (!stored || phoneTabPath(stored) !== `/${id}`) return fallback;
+  return stored;
+}
+
 /** A destination URL that is the list itself, with or without its params. */
 function isListTarget(to: string): boolean {
   return to === LIST_PATH || to.startsWith(`${LIST_PATH}?`) || to.startsWith(`${LIST_PATH}#`);
@@ -326,8 +376,12 @@ export function notePhoneLocation(location: TrackedRoute): void {
     key: location.key,
     visit: routeVisit,
   };
+  const url = `${location.pathname}${location.search}`;
+  // A root keeps its own last view, so the footer can come back to it with
+  // its `?device=` / `?tab=` / filter state intact.
+  rememberPhoneTabUrl(url);
   if (location.pathname === LIST_PATH) {
-    rememberListUrl(`${location.pathname}${location.search}`);
+    rememberListUrl(url);
     return;
   }
   const idx = routeIndex(location);
@@ -520,6 +574,7 @@ export function resetPhoneNavigation(options?: { keepStorage?: boolean }): void 
     window.sessionStorage.removeItem(LIST_URL_KEY);
     window.sessionStorage.removeItem(LIST_TOKEN_KEY);
     window.sessionStorage.removeItem(LIST_PARENTS_KEY);
+    window.sessionStorage.removeItem(PHONE_TAB_URLS_KEY);
   } catch {
     // No storage to clear.
   }
