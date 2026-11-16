@@ -35,18 +35,20 @@ describe("sessionFeedTasks", () => {
     // the archive feed.
     const live = [task({ id: "project-chat" })];
     const feed = [task({ id: "put-away", archived_at: 99 })];
-    expect(ids(sessionFeedTasks(live, feed, "archived"))).toEqual(["project-chat", "put-away"]);
+    expect(ids(sessionFeedTasks(live, feed, "archived"))).toEqual([
+      "project-chat",
+      "put-away",
+    ]);
   });
 
   it("shows a row once when both feeds carry it", () => {
     // A conversation archived from this screen is in the loaded live page and
     // in the archive feed; a flat merge would show it twice under one heading.
     const putAway = task({ id: "put-away", archived_at: 99 });
-    expect(
-      ids(
-        sessionFeedTasks([putAway], [putAway, task({ id: "older", archived_at: 1 })], "archived"),
-      ),
-    ).toEqual(["put-away", "older"]);
+    expect(ids(sessionFeedTasks([putAway], [putAway, task({ id: "older", archived_at: 1 })], "archived"))).toEqual([
+      "put-away",
+      "older",
+    ]);
   });
 
   it("narrows by status on both feeds while the server catches up", () => {

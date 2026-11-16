@@ -15,7 +15,10 @@
  */
 import type { PatchRoutineBody, Routine } from "../api/client";
 import { normalizePermissionMode } from "./permissionMode";
-import { conversationModeOf, type ConversationMode } from "./routineConversation";
+import {
+  conversationModeOf,
+  type ConversationMode,
+} from "./routineConversation";
 import {
   localTimeZone,
   parseRoutineRule,

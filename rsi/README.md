@@ -33,6 +33,7 @@ Operate:
 ## Merge pipeline and cloud lane (2026-11-15)
 - `runtime/merge.sh` = dispatcher (every 10 min and after lane/merge events) → up to 2 per-PR verifiers (`merge.sh --one`): sync main → hold rules → screenshots → **review ∥ gate** → CI → land under a lock. `state/merge/cycles.log` has verify/open-to-merge times.
 - Cloud slices (`executor: cloud` in `astryx-slices.json`): `slices.py cloud-pending`, briefs in `state/cloud-briefs/` (+ `INDEX.md`), `lanes.py cloud-list|cloud-release`.
+- Throughput knobs (2026-11-15, see DECISIONS): tiered review `runtime/review-tier.py` (`state/merge/<slug>.tier`), verifier slots `RSI_MERGE_WORKERS=2` + `RSI_MERGE_SMALL_SLOTS=1`, remote overflow off with `touch state/NO_REMOTE_OVERFLOW`, `RSI_BOX_MAX=3`, `RSI_CARBON_ENABLED=0`, sol quota marker `state/sol-limited-until`. Queue wait is logged in `state/merge/cycles.log` (`verifier_started queue_wait=Nm`).
 
 ## NAS lanes (2026-11-15)
 

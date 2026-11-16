@@ -222,12 +222,7 @@ describe("the project cover (KIN-PROJECT-001)", () => {
     renderPage();
     await screen.findByText("alpha");
 
-    for (const name of [
-      "One-line summary",
-      "Recent activity",
-      "Last two weeks",
-      "Routines in this project",
-    ]) {
+    for (const name of ["One-line summary", "Recent activity", "Last two weeks", "Routines in this project"]) {
       expect(screen.getByRole("heading", { level: 2, name })).toBeTruthy();
     }
   });
@@ -273,8 +268,13 @@ describe("the project cover (KIN-PROJECT-001)", () => {
     renderPage();
 
     expect(await screen.findByText("alpha")).toBeTruthy();
-    await waitFor(() => expect(client.listRoutines).toHaveBeenCalledWith({ limit: 100 }, "node-1"));
-    expect(client.listRoutines).not.toHaveBeenCalledWith(expect.anything(), undefined);
+    await waitFor(() =>
+      expect(client.listRoutines).toHaveBeenCalledWith({ limit: 100 }, "node-1"),
+    );
+    expect(client.listRoutines).not.toHaveBeenCalledWith(
+      expect.anything(),
+      undefined,
+    );
     expect(screen.getByRole("link", { name: /Go to routines/ }).getAttribute("href")).toBe(
       "/routines?device=node-1",
     );
@@ -318,9 +318,7 @@ describe("the project cover (KIN-PROJECT-001)", () => {
     renderPage();
 
     expect(await screen.findByRole("heading", { level: 1, name: "alpha" })).toBeTruthy();
-    expect(
-      await screen.findByText("Nothing yet — say in one line what this project is doing."),
-    ).toBeTruthy();
+    expect(await screen.findByText("Nothing yet — say in one line what this project is doing.")).toBeTruthy();
     expect(screen.queryByText("Project not found")).toBeNull();
   });
 
@@ -409,7 +407,9 @@ describe("the project cover (KIN-PROJECT-001)", () => {
       updated_at: 200,
       one_pager_summary: { focus: "their line" },
     };
-    client.getOnePager.mockResolvedValueOnce(onePager).mockResolvedValueOnce(theirs);
+    client.getOnePager
+      .mockResolvedValueOnce(onePager)
+      .mockResolvedValueOnce(theirs);
     client.putOnePager
       .mockRejectedValueOnce(new ApiError(409, "conflict"))
       .mockImplementation(async (_id: string, markdown: string) => ({

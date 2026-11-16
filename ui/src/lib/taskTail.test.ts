@@ -71,7 +71,11 @@ describe("mergeTaskTail", () => {
   });
 
   it("keeps the live page's own order", () => {
-    const merged = mergeTaskTail([task("c"), task("b")], [task("a")], () => undefined);
+    const merged = mergeTaskTail(
+      [task("c"), task("b")],
+      [task("a")],
+      () => undefined,
+    );
     expect(merged.map((item) => item.id)).toEqual(["c", "b", "a"]);
   });
 });

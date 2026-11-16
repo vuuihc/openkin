@@ -54,9 +54,7 @@ describe("setOnePagerFocus (KIN-PROJECT-001)", () => {
     expect(onePagerFocus(next)).toBe("ship the second slice");
     expect(next).toContain("## North Star\nwhy it exists");
     expect(next).toContain("## 下一步（你写的）\n1. write the test");
-    expect(next).toContain(
-      "<!-- kin:auto:start -->\n## Pulse（自动）\n_stats_\n<!-- kin:auto:end -->",
-    );
+    expect(next).toContain("<!-- kin:auto:start -->\n## Pulse（自动）\n_stats_\n<!-- kin:auto:end -->");
     expect(next.startsWith("# alpha\n\n## 项目描述\na small project")).toBe(true);
   });
 
@@ -75,12 +73,9 @@ describe("setOnePagerFocus (KIN-PROJECT-001)", () => {
   });
 
   it("adds the section before the managed block when the document has none", () => {
-    const bare =
-      "# alpha\n\n## North Star\nwhy\n\n<!-- kin:auto:start -->\n## Pulse\n<!-- kin:auto:end -->\n";
+    const bare = "# alpha\n\n## North Star\nwhy\n\n<!-- kin:auto:start -->\n## Pulse\n<!-- kin:auto:end -->\n";
     const next = setOnePagerFocus(bare, "one line");
-    expect(next).toContain(
-      "## North Star\nwhy\n\n## Current Focus\none line\n\n<!-- kin:auto:start -->",
-    );
+    expect(next).toContain("## North Star\nwhy\n\n## Current Focus\none line\n\n<!-- kin:auto:start -->");
     expect(onePagerFocus(next)).toBe("one line");
   });
 

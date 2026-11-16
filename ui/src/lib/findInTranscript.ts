@@ -14,7 +14,9 @@ export type FindableMessage = { key: string; text: string };
 export function findMatches(items: readonly FindableMessage[], query: string): string[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return [];
-  return items.filter((item) => item.text.toLowerCase().includes(needle)).map((item) => item.key);
+  return items
+    .filter((item) => item.text.toLowerCase().includes(needle))
+    .map((item) => item.key);
 }
 
 /**

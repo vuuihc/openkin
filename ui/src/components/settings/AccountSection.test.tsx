@@ -40,7 +40,10 @@ const oidc = {
   start_url: "/api/auth/oidc/start",
 };
 
-function setAccount(identities: string[], linked?: { id: string; provider: string }[]): void {
+function setAccount(
+  identities: string[],
+  linked?: { id: string; provider: string }[],
+): void {
   useAppStore.setState({
     account: {
       ...NO_ACCOUNT,

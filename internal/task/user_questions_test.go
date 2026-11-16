@@ -271,6 +271,7 @@ func TestFollowUpInterruptResolvesUserQuestion(t *testing.T) {
 	}
 }
 
+
 func TestCancelResolvesUserQuestion(t *testing.T) {
 	ctx := context.Background()
 	e, _ := testEngine(t, 4, longRunningAdapter())
