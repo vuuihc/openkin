@@ -677,6 +677,7 @@ describe("the project cover (KIN-PROJECT-001)", () => {
     expect(view.container.querySelectorAll(".kin-btn-primary").length).toBe(1);
 
     view.unmount();
+    sessionStorage.clear();
 
     // The error state answers with one action too: a retry, never a second
     // filled control competing with it.

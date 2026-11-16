@@ -1130,10 +1130,10 @@ function NewChatControl({
   const navigate = useNavigate();
   const location = useLocation();
   const reasonId = useId();
-  // The call to action navigates, so it stays a link; it borrows the facade's
-  // own `kin-btn` vocabulary so its fill, touch floor and focus ring match the
-  // primary buttons drawn by `Button` elsewhere on the page.
-  const className = ["kin-btn kin-btn-primary", fullWidth ? "w-full" : ""].join(" ");
+  // The call to action navigates, so it stays a link; `.kin-btn-primary`
+  // supplies the shared geometry, fill, 44px touch floor and focus outline
+  // without introducing a standalone class outside the Button facade.
+  const className = ["kin-btn-primary", fullWidth ? "w-full" : ""].join(" ");
 
   if (href === null || disabledReason) {
     return (
