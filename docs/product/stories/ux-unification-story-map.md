@@ -2,6 +2,12 @@
 
 状态：草案，与 `KIN-CONTINUE-003` 一并审阅；不替代已有功能合同。
 
+## 交付状态（2026-11-17，G2）
+
+- **已交付**：N1/N2 区域表与路由（#68 `8137ba28`、#76 `3206755c`）；S1 Mac 区域栏（#128 `0c2ec124`）；S1b 面板打开时列表让位（#144 `5576e938`）；S2 手机底部入口（#118 `0a6c7a17`）；S2b 列表头新建与返回（#136 `fe4b18a5`）；S3 到达动效（#146 `47ddcbde`）。
+- **已托管、未收尾**：Agent 运维本体已由 N4 托管在 `/settings?tab=operations`；E4a（`/agents`、`/usage` 重定向）未合并，`/agents` 仍是独立路由，`/usage` 先跳 `/agents`。
+- **未交付**：C*（余下的共享外壳与 primitives 切片）、G1（禁用旧 primitives 的 lint 门）、G3（J1–J7 冒烟走查）、G4（bundle / inventory 验收）。
+
 | 新面 | 主合同 | 变化 | 必须保留的测试 / 面 |
 |---|---|---|---|
 | 对话根、集合、归档范围 | KIN-CONTINUE-003 + CONTINUE-001 | CONTINUE-002 的列表唯一导航根作废 | PhoneNavigation、Sidebar、SessionsPage、sessionSearch、archive/deletion/pin、原有完整 status 筛选 |
@@ -48,7 +54,7 @@
 5. **浮层先退，dirty guard 再问，最后才回栈。** 页头、系统 Back、浏览器 Back、左缘右滑走同一 resolver；鉴权门是特殊面，进入前保留通知落点，通过后只消费一次。
 6. **Mac 保留自己的正常历史。** 四区侧栏始终可见，不是假手机栈；覆盖右侧内容时仍恢复触发器/选中项和列表滚动。手机 attach 导入会话的 replace 语义不套用到 Mac。
 
-未来验收路径：`ui/src/components/layout/AreaNavigation.dom.test.tsx`、`ui/src/lib/areaNavigation.test.ts`（均为拟建，当前未存在），以及 `ui/src/lib/phoneBack.test.ts`、`phoneDeepLinkParent.test.ts`、`PhoneNavigation.dom.test.tsx`、`notificationRoute.test.ts`、`NotificationTaps.dom.test.tsx`、`TaskDetailPage.dom.test.tsx`、`ProjectDetailPage.dom.test.tsx`、`RoutinesPage.dom.test.tsx`、`AgentSessionDetailPage.dom.test.tsx`、设置相关现有测试。`registry.json` 的测试数为 0 只表示它仍在草案阶段，不代表覆盖。
+验收路径：`ui/src/components/layout/AreaNavigation.dom.test.tsx`、`ui/src/lib/areaNavigation.test.ts`、`ui/src/lib/areas.test.ts`、`ui/src/lib/areaTransition.test.ts`、`ui/src/components/layout/AreaRoute.dom.test.tsx`、`ui/src/components/layout/PhoneNavigation.dom.test.tsx`、`ui/src/lib/phoneBack.test.ts`、`phoneDeepLinkParent.test.ts`、`notificationRoute.test.ts`、`NotificationTaps.dom.test.tsx`、`TaskDetailPage.dom.test.tsx`、`ProjectDetailPage.dom.test.tsx`、`RoutinesPage.dom.test.tsx`、`AgentSessionDetailPage.dom.test.tsx`、设置相关现有测试。`registry.json` 的测试数为 0 只表示它仍在草案阶段，不代表覆盖。
 
 ## 设置分区：改位置，不丢字段
 
