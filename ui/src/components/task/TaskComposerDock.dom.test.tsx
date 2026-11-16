@@ -130,4 +130,49 @@ describe("TaskComposerDock", () => {
     const hidden = setup({ active: false });
     expect(hidden.container.querySelector("[data-kin-bottom-chrome]")).toBeNull();
   });
+
+  it("keeps the desktop run strip inside the composer card", () => {
+    const { container } = setup();
+    const form = container.querySelector("form");
+    expect(form).not.toBeNull();
+
+    // Both desktop controls — the mode and the model — are on the composer's
+    // own card, not on a second row below it. Containment is the assertion,
+    // not visibility: jsdom ignores the media query that hides one face or the
+    // other, and both faces have to exist for either width to work.
+    const permissions = screen.getAllByRole("button", {
+      name: new RegExp(`^${t("permission.label")}${t("common.labelSeparator")}`),
+    });
+    const models = screen.getAllByRole("button", {
+      name: new RegExp(`^${t("modelPicker.label")}${t("common.labelSeparator")}`),
+    });
+    expect(permissions.length).toBeGreaterThan(0);
+    expect(models.length).toBeGreaterThan(0);
+    for (const control of [...permissions, ...models]) {
+      expect(form!.contains(control)).toBe(true);
+    }
+
+    // The strip's `hidden md:flex` wrapper is the shape that used to float
+    // under the card. Exactly one exists, and it is inside the form.
+    const strips = Array.from(form!.querySelectorAll("div")).filter(
+      (el) => el.classList.contains("hidden") && el.classList.contains("md:flex"),
+    );
+    expect(strips).toHaveLength(1);
+    expect(form!.contains(strips[0])).toBe(true);
+  });
+
+  it("offers one run-config entry on the phone", () => {
+    const { container } = setup();
+    const form = container.querySelector("form");
+    expect(form).not.toBeNull();
+
+    // The phone's single settings entry is the run-config face. The strip is
+    // the same settings at another width; a second button named after the run
+    // settings would be two entries for one choice in the same card.
+    const prefix = `${t("runConfig.open")}${t("common.labelSeparator")}`;
+    const entries = Array.from(form!.querySelectorAll("[aria-label]")).filter((el) =>
+      (el.getAttribute("aria-label") ?? "").startsWith(prefix),
+    );
+    expect(entries).toHaveLength(1);
+  });
 });

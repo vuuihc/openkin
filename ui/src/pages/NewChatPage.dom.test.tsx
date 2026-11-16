@@ -428,10 +428,14 @@ describe("the draft (KIN-START-001)", () => {
     localStorage.setItem("kin_draft_prompt", "keep me");
     renderPage();
 
-    expect(await screen.findByRole("status")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toMatch(
+    // Find the sentence first, then check how it is announced: more than one
+    // status can be on the page (every facade Button carries its own polite
+    // live region), so "the only status" is no longer the contract — the read's
+    // own reason being announced as a status is.
+    const reasons = await screen.findAllByText(
       /machine list could not be read, so only this machine can run work/i,
     );
+    expect(reasons.some((el) => el.getAttribute("role") === "status")).toBe(true);
     expect(screen.queryByText(/machine you last used is gone/)).toBeNull();
     await waitFor(() => expect(startButton().disabled).toBe(true));
     expect(promptBox().value).toBe("keep me");
