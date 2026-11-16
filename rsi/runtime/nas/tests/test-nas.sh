@@ -45,7 +45,7 @@ EOS
   cat > "$T/bin/scp" <<'EOS'
 #!/bin/bash
 [ "${FAKE_SCP_FAIL:-0}" = 1 ] && exit 1
-a=(); for x in "$@"; do [ "$x" = "-q" ] || a+=("$x"); done
+a=(); for x in "$@"; do case "$x" in -q|-O) ;; *) a+=("$x");; esac; done
 n=${#a[@]}; dst="${a[$((n-1))]}"
 case "$dst" in *:*) dst="${dst#*:}";; esac
 for i in $(seq 0 $((n-2))); do
