@@ -158,6 +158,13 @@ export type PopoverProps = {
   maxHeight?: number;
   /** Panel classes for the content's own density; shape stays the primitive's. */
   className?: string;
+  /**
+   * Whether the panel draws its own inner padding. A list that draws sheared
+   * header/footer rows of its own (`BranchPicker`, `PlacePicker`) passes false:
+   * the base `p-1.5` is emitted after the caller's `p-0` in the compiled
+   * stylesheet, so a caller cannot turn it off with a class.
+   */
+  padded?: boolean;
 };
 
 /**
@@ -201,6 +208,7 @@ export default function Popover({
   maxWidth,
   maxHeight,
   className,
+  padded = true,
 }: PopoverProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const parentLayer = useContext(PopoverLayerContext);
@@ -317,7 +325,8 @@ export default function Popover({
           bottom: anchor.bottom,
         }}
         className={[
-          "fixed z-50 overflow-y-auto kin-scroll rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated p-1.5 shadow-e3 focus:outline-none",
+          "fixed z-50 overflow-y-auto kin-scroll rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated shadow-e3 focus:outline-none",
+          padded ? "p-1.5" : "",
           className,
         ]
           .filter(Boolean)

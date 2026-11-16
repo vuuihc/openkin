@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   checkoutGitBranch,
@@ -8,25 +8,7 @@ import {
 import { useT } from "../../i18n/react";
 import { branchAnswerApplies, isDirtyRefusal } from "../../lib/devices";
 import { useAppStore } from "../../store/appStore";
-
-/**
- * Viewport coordinates for the branch list.
- *
- * The list cannot be laid out relative to its trigger: the trigger lives in the
- * composer's `overflow-x-auto` strip, and in CSS an `overflow-x` other than
- * `visible` forces `overflow-y` to compute to `auto` too — so a ~44px-tall strip
- * clipped the 313px panel away entirely, and tapping the branch chip on a phone
- * opened a list that painted nowhere (measured: the panel's rect was
- * [342,531,288,313] while `elementFromPoint` inside it hit the chat behind).
- * Fixed positioning is measured from the viewport and escapes that clipping;
- * nothing between here and <body> sets a transform, filter or `contain`, so
- * `fixed` really does mean the viewport.
- */
-type Anchor = { left: number; bottom: number; width: number; maxHeight: number };
-
-/** The panel's design width, and the least gutter we will leave at a screen edge. */
-const PANEL_WIDTH = 288;
-const EDGE = 8;
+import Popover from "../ui/Popover";
 
 type Props = {
   cwd: string;
@@ -62,10 +44,7 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState("");
-  const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const filterRef = useRef<HTMLInputElement>(null);
-  const [anchor, setAnchor] = useState<Anchor | null>(null);
   /**
    * Which question is the current one.
    *
@@ -118,81 +97,6 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
   const live = answered && branchAnswerApplies(answered, { cwd, device }) ? answered : null;
   const status = live?.status ?? null;
   const unreadable = live?.unreadable ?? "";
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) {
-        setOpen(false);
-        setFilter("");
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setOpen(false);
-        setFilter("");
-      }
-    };
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    const t = window.setTimeout(() => filterRef.current?.focus(), 20);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-      window.clearTimeout(t);
-    };
-  }, [open]);
-
-  /**
-   * Where to put the list, in viewport coordinates.
-   *
-   * Measured in a layout effect so the first painted frame is already in place
-   * — a `useEffect` would show one frame of the panel at 0,0. Re-measured on
-   * resize and on scroll *in the capture phase*, because the strip the trigger
-   * sits in scrolls independently of the window.
-   */
-  useLayoutEffect(() => {
-    if (!open) {
-      setAnchor(null);
-      return;
-    }
-    const place = () => {
-      const trigger = triggerRef.current?.getBoundingClientRect();
-      if (!trigger) return;
-      const vw = window.innerWidth;
-      const width = Math.min(PANEL_WIDTH, vw - EDGE * 2);
-      const next = {
-        width,
-        left: Math.min(Math.max(EDGE, trigger.left), Math.max(EDGE, vw - width - EDGE)),
-        // `bottom` rather than `top`: the list opens upward from a footer, and
-        // anchoring the far edge keeps it attached when it has to shrink.
-        bottom: window.innerHeight - trigger.top + 6,
-        // The room above the trigger, so the list is wholly on screen; it
-        // scrolls inside whatever height is left. The 120px floor wins only in
-        // a window under ~270px tall, where the panel can overhang the top
-        // edge — a two-row list is worse than an overhang at that size.
-        maxHeight: Math.max(120, trigger.top - 14),
-      };
-      // `scroll` fires per frame while a finger is moving; returning the same
-      // object lets React skip the re-render when the anchor has not moved.
-      setAnchor((prev) =>
-        prev &&
-        prev.left === next.left &&
-        prev.bottom === next.bottom &&
-        prev.width === next.width &&
-        prev.maxHeight === next.maxHeight
-          ? prev
-          : next,
-      );
-    };
-    place();
-    window.addEventListener("resize", place);
-    window.addEventListener("scroll", place, true);
-    return () => {
-      window.removeEventListener("resize", place);
-      window.removeEventListener("scroll", place, true);
-    };
-  }, [open]);
 
   if (!cwd.trim()) {
     return null;
@@ -270,7 +174,6 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
 
   return (
     <div
-      ref={rootRef}
       className={[
         "relative flex items-center min-w-0",
         compact ? "gap-1" : "gap-1.5",
@@ -321,25 +224,35 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
         <ChevronIcon open={open} />
       </button>
 
-      {open && anchor && (
+      {/*
+        The composer's control row is an `overflow-x-auto` strip, which in CSS
+        also clips the vertical axis. The shared layer portals to <body> and
+        measures from the viewport, so the list escapes that strip; it also owns
+        outside press, one-layer Escape, focus into the filter and Tab
+        containment, so this file no longer carries any of them.
+      */}
+      <Popover
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setFilter("");
+        }}
+        triggerRef={triggerRef}
+        label={tr("branch.listLabel")}
+        placement="above"
+        align="right"
+        width={288}
+        maxHeight={360}
+        padded={false}
+        className="flex flex-col overflow-hidden"
+      >
         <div
-          style={{
-            left: anchor.left,
-            bottom: anchor.bottom,
-            width: anchor.width,
-            maxHeight: anchor.maxHeight,
-          }}
-          className={[
-            "fixed z-50 flex flex-col",
-            "rounded-xl border border-[var(--kin-hairline-strong)]",
-            "bg-kin-elevated shadow-e2 overflow-hidden",
-          ].join(" ")}
           role="listbox"
           aria-label={tr("branch.listLabel")}
+          className="flex min-h-0 flex-1 flex-col"
         >
           <div className="flex-none p-1.5 border-b border-[var(--kin-hairline)]">
             <input
-              ref={filterRef}
               type="text"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
@@ -399,7 +312,7 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
             </div>
           )}
         </div>
-      )}
+      </Popover>
     </div>
   );
 }
