@@ -3,6 +3,7 @@ import { summarizeChangedFiles, type ChangedFile } from "../../lib/changedFiles"
 import { useT } from "../../i18n/react";
 import DeltaInline, { FileSize } from "../changedFileFace";
 import { IconCheck, IconChevron, IconX } from "../icons";
+import Button from "../ui/Button";
 import { fileBaseName } from "./workspacePreview";
 
 type Props = {
@@ -123,6 +124,8 @@ export default function ChangedFilesBar({
           <span className="hidden sm:inline text-caption text-kin-muted mr-0.5">
             {t("workspace.changed.discardConfirmShort")}
           </span>
+          {/* Stays raw until the facade grows a deny/danger variant; inventing
+              one here would fork the action vocabulary. */}
           <button
             type="button"
             disabled={actionsBusy}
@@ -131,37 +134,39 @@ export default function ChangedFilesBar({
           >
             {t("workspace.changed.discardConfirm")}
           </button>
-          <button
-            type="button"
+          <Button
+            variant="secondary"
             disabled={actionsBusy}
             onClick={() => setConfirmDiscard(false)}
-            className="kin-btn-secondary md:min-h-0 md:py-1 md:px-2.5 text-caption disabled:opacity-50"
+            className="md:min-h-0 md:px-2.5 md:py-1 text-caption"
           >
             {t("workspace.changed.discardCancel")}
-          </button>
+          </Button>
         </>
       ) : (
         <>
-          <button
-            type="button"
+          <Button
+            variant="secondary"
             disabled={actionsBusy}
             onClick={() => void handleDiscardAll()}
             title={t("workspace.changed.discardAllHint")}
-            className="kin-btn-secondary md:min-h-0 md:py-1 md:px-2.5 text-caption disabled:opacity-50"
+            aria-label={t("workspace.changed.discardAll")}
+            className="md:min-h-0 md:px-2.5 md:py-1 text-caption"
           >
             <IconX size={12} className="opacity-80" />
             {t("workspace.changed.discardAll")}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="default"
             disabled={actionsBusy}
             onClick={() => void handleKeepAll()}
             title={t("workspace.changed.keepAllHint")}
-            className="kin-btn-primary md:min-h-0 md:py-1 md:px-2.5 text-caption disabled:opacity-50"
+            aria-label={t("workspace.changed.keepAll")}
+            className="md:min-h-0 md:px-2.5 md:py-1 text-caption"
           >
             <IconCheck size={12} />
             {t("workspace.changed.keepAll")}
-          </button>
+          </Button>
         </>
       )}
     </div>
@@ -202,14 +207,14 @@ export default function ChangedFilesBar({
             </div>
           </button>
           {!showBulk && (
-            <button
-              type="button"
+            <Button
+              variant="quiet"
               onClick={() => setDismissed(true)}
               aria-label={t("workspace.changed.dismiss")}
-              className="flex-none p-1 rounded-md text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill)]"
+              className="flex-none h-11 w-11 items-center justify-center p-0 text-kin-muted sm:h-6 sm:w-6"
             >
               <IconX size={13} />
-            </button>
+            </Button>
           )}
         </div>
 
@@ -292,14 +297,14 @@ export default function ChangedFilesBar({
         {bulkActions}
 
         {!showBulk && (
-          <button
-            type="button"
+          <Button
+            variant="quiet"
             onClick={() => setDismissed(true)}
             aria-label={t("workspace.changed.dismiss")}
-            className="flex-none p-1 rounded-md text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill)]"
+            className="flex-none h-11 w-11 items-center justify-center p-0 text-kin-muted sm:h-6 sm:w-6"
           >
             <IconX size={13} />
-          </button>
+          </Button>
         )}
       </div>
     </div>

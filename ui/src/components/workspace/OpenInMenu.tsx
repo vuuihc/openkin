@@ -8,6 +8,8 @@ import {
 } from "../../lib/desktop";
 import { toAbsoluteWorkspacePath } from "../../lib/paths";
 import { IconChevron, IconExternal } from "../icons";
+import Button from "../ui/Button";
+import Menu, { type MenuItem } from "../ui/Menu";
 
 type Props = {
   /** Task workspace root (absolute). Prefer file.root when available. */
@@ -16,9 +18,19 @@ type Props = {
   relativePath: string | null;
 };
 
+/** A row that exists only to say something; the menu will not let it be chosen. */
+function note(id: string, label: string): MenuItem {
+  return { id, label, disabled: true, onSelect: () => {} };
+}
+
 /**
  * Desktop-only "Open in…" menu. Detects installed editors / Finder and opens
  * the absolute file path. Hidden in the browser SPA.
+ *
+ * The layer is the console's shared `Menu`, so Escape, outside pointers,
+ * viewport flipping and focus return are the same as every other picker —
+ * this component keeps only the desktop knowledge: which apps exist, which
+ * one the reader chose, and what to do when the bridge refuses.
  */
 export default function OpenInMenu({ root, relativePath }: Props) {
   const t = useT();
@@ -26,7 +38,7 @@ export default function OpenInMenu({ root, relativePath }: Props) {
   const [apps, setApps] = useState<ExternalApp[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const desktop = isKinDesktop();
   const absPath = relativePath && root ? toAbsoluteWorkspacePath(root, relativePath) : null;
@@ -42,24 +54,6 @@ export default function OpenInMenu({ root, relativePath }: Props) {
     if (!open) return;
     void ensureApps();
   }, [open, ensureApps]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
 
   if (!desktop || !absPath) return null;
 
@@ -84,53 +78,45 @@ export default function OpenInMenu({ root, relativePath }: Props) {
     setOpen(false);
   };
 
+  const items: MenuItem[] =
+    error !== null
+      ? [note("error", error)]
+      : apps === null
+        ? [note("detecting", t("workspace.openWith.detecting"))]
+        : apps.length === 0
+          ? [note("none", t("workspace.openWith.none"))]
+          : apps.map((app) => ({
+              id: app.id,
+              label: labelFor(app),
+              disabled: busy,
+              onSelect: () => void handleOpen(app),
+            }));
+
   return (
-    <div className="relative flex-none" ref={rootRef}>
-      <button
-        type="button"
+    <>
+      <Button
+        ref={triggerRef}
+        variant="secondary"
         onClick={() => setOpen((v) => !v)}
         disabled={!absPath}
-        className="inline-flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-caption text-kin-secondary hover:text-kin-text hover:bg-[var(--kin-fill-strong)] transition-colors disabled:opacity-40"
         title={t("workspace.openWith.title")}
+        aria-label={t("workspace.openWith.button")}
         aria-haspopup="menu"
         aria-expanded={open}
+        className="flex-none gap-1 px-2 py-1 text-caption"
       >
         <IconExternal size={12} />
         <span className="hidden sm:inline">{t("workspace.openWith.button")}</span>
         <IconChevron size={12} className={open ? "rotate-[-90deg]" : "rotate-90"} />
-      </button>
-      {open && (
-        <div
-          role="menu"
-          className="absolute right-0 top-full mt-1 z-30 min-w-menu max-w-menu rounded-lg bg-kin-elevated shadow-e3 py-1"
-        >
-          {apps === null && (
-            <div className="px-3 py-2 text-body text-kin-muted">
-              {t("workspace.openWith.detecting")}
-            </div>
-          )}
-          {apps && apps.length === 0 && (
-            <div className="px-3 py-2 text-body text-kin-muted">{t("workspace.openWith.none")}</div>
-          )}
-          {apps?.map((app) => (
-            <button
-              key={app.id}
-              type="button"
-              role="menuitem"
-              disabled={busy}
-              onClick={() => void handleOpen(app)}
-              className="w-full text-left px-3 py-1.5 text-body text-kin-text hover:bg-[var(--kin-fill-strong)] transition-colors disabled:opacity-50"
-            >
-              {labelFor(app)}
-            </button>
-          ))}
-          {error && (
-            <div className="px-3 py-1.5 text-caption text-kin-red-ink border-t border-[var(--kin-hairline)]">
-              {error}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+      </Button>
+      <Menu
+        open={open}
+        onOpenChange={setOpen}
+        triggerRef={triggerRef}
+        label={t("workspace.openWith.button")}
+        items={items}
+        align="right"
+      />
+    </>
   );
 }

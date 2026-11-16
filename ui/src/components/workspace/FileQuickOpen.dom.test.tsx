@@ -119,7 +119,7 @@ describe("the file finder", () => {
     searchTaskSourceFiles.mockRejectedValue(new ApiError(400, "not a git repository"));
     renderFinder();
     fireEvent.change(input(), { target: { value: "a" } });
-    const retry = await screen.findByText(t("workspace.find.retry"));
+    const retry = await screen.findByRole("button", { name: t("workspace.find.retry") });
 
     // Nothing in the dialog holds focus. Tab must land in the dialog, not walk
     // into the page behind it, which answers single letters.
@@ -178,7 +178,8 @@ describe("the file finder", () => {
     // The one state with an action to take has to reach a screen reader too.
     expect(screen.getByRole("status").textContent).toContain("not a git repository");
 
-    fireEvent.click(screen.getByText(t("workspace.find.retry")));
+    // The name is the contract; the element behind it is now the shared Button.
+    fireEvent.click(screen.getByRole("button", { name: t("workspace.find.retry") }));
     await waitFor(() => expect(searchTaskSourceFiles).toHaveBeenCalledTimes(2), { timeout: 2000 });
   });
 
