@@ -63,6 +63,13 @@ describe("the shared button", () => {
     expect(quiet.className).not.toContain("kin-btn-primary");
   });
 
+  it("loading marks the button busy and keeps its accessible name", () => {
+    render(<Button isLoading>Saving changes…</Button>);
+
+    const button = screen.getByRole("button", { name: "Saving changes…" });
+    expect(button.getAttribute("aria-busy")).toBe("true");
+  });
+
   it("does not submit a surrounding form unless type is explicitly submit", async () => {
     const submit = vi.fn((event: FormEvent<HTMLFormElement>) => event.preventDefault());
     const { rerender } = render(
