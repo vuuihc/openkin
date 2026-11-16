@@ -1,6 +1,7 @@
 import type { ComponentProps } from "react";
 import type { AgentInfo, Task, TaskUsage, Upload } from "../../api/client";
 import type { AgentRole } from "../../lib/agentRoles";
+import { useMinWidth } from "../../hooks/useMinWidth";
 import { useT } from "../../i18n/react";
 import Composer from "../chat/Composer";
 import RunConfigControl, { RunConfigSheetRow, type RunConfigAvatar } from "../chat/RunConfigSheet";
@@ -114,6 +115,11 @@ export default function TaskComposerDock({
   onRevealFirstPending,
 }: TaskComposerDockProps) {
   const tr = useT();
+  // The phone usage trigger opens a bottom sheet, so it must not exist at all
+  // from `md` up: on a Mac the page's own usage bar already carries these
+  // numbers, and a `md:hidden` class only hides the trigger while its sheet
+  // stays in the tree. Unmount it instead.
+  const wide = useMinWidth(768);
 
   return (
     <div
@@ -233,7 +239,7 @@ export default function TaskComposerDock({
                     </>
                   }
                 />
-                {!usageLoading && usage ? (
+                {!wide && !usageLoading && usage ? (
                   // The reference keeps usage at the input, and the phone has
                   // no usage bar above the transcript to read it from. The Mac
                   // reads the same numbers from the page's own usage bar.

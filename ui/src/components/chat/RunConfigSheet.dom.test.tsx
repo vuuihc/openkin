@@ -137,6 +137,15 @@ describe("RunConfigControl", () => {
     expect(model.className).toContain("truncate");
     expect(model.className).not.toContain("break-words");
     expect(model.className).not.toContain("hidden");
+    // The avatar and the text row must share one flex row. Astryx wraps the
+    // button's children in a plain label span, so two sibling spans there
+    // are block-level and stack onto two lines; the face wraps both in one
+    // row of its own, and that row is the one both children name as parent.
+    const avatar = within(face).getByText("C");
+    const faceRow = avatar.parentElement;
+    expect(faceRow).toBe(model.parentElement!.parentElement);
+    expect(faceRow!.className).toContain("flex");
+    expect(faceRow!.className).not.toContain("flex-col");
     // On the phone's narrow row the one visible name is the model; the
     // agent's name returns from `sm` up, where there is room for both.
     const agent = within(face).getByText(agentName);

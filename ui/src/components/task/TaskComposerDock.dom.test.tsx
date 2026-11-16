@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Task, TaskUsage, Upload } from "../../api/client";
 import type { AgentRole } from "../../lib/agentRoles";
 import { t } from "../../i18n";
@@ -41,6 +41,37 @@ const task: Task = {
   created_at: 1_700_000_000_000,
   event_epoch: 0,
 };
+
+const usage: TaskUsage = {
+  task_id: "task-1",
+  tokens_in: 1_200_000,
+  tokens_out: 680_000,
+  cost_usd: 1.25,
+  request_count: 12,
+  reasoning_output_tokens: 0,
+  cache_read_tokens: 0,
+  cache_write_tokens: 0,
+  cache_eligible_input_tokens: 0,
+  cache_hit_rate: null,
+  cache_coverage: null,
+  cache_status: "unknown",
+  model_subtotals: [],
+  cost_source_subtotals: [],
+};
+
+/** jsdom has no `matchMedia`; `useMinWidth`'s fallback is the desktop shape. */
+function setWideScreen(wide: boolean) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: wide && query.includes("min-width: 768px"),
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
+}
 
 function setup(overrides: Partial<TaskComposerDockProps> = {}) {
   const props: TaskComposerDockProps = {
@@ -165,7 +196,7 @@ describe("TaskComposerDock", () => {
   });
 
   it("offers one compact run-settings entry on the composer card at every width", () => {
-    const { container } = setup();
+    const { container } = setup({ usage });
     const form = container.querySelector("form");
     expect(form).not.toBeNull();
 
@@ -184,6 +215,34 @@ describe("TaskComposerDock", () => {
       (el) => el.classList.contains("hidden") && el.classList.contains("md:flex"),
     );
     expect(strips).toHaveLength(0);
+
+    // The phone's usage trigger opens a bottom sheet, so at desktop width it
+    // is absent from the tree, not merely hidden: the Mac reads the same
+    // numbers from the page's own usage bar above the transcript.
+    const usagePrefix = `${t("usage.taskSummary")}${t("common.labelSeparator")}`;
+    const usageTriggers = Array.from(form!.querySelectorAll("[aria-label]")).filter((el) =>
+      (el.getAttribute("aria-label") ?? "").startsWith(usagePrefix),
+    );
+    expect(usageTriggers).toHaveLength(0);
+  });
+
+  it("keeps the phone usage chip below the desktop breakpoint", () => {
+    // Below 768 the chip is the only way to read usage, so the gate that
+    // removes it on a Mac must leave it exactly as it was on a phone: the
+    // same 44px trigger with its sheet behind it, inside the composer form.
+    setWideScreen(false);
+    const { container } = setup({ usage });
+
+    const trigger = screen.getByRole("button", {
+      name: new RegExp(`^${t("usage.taskSummary")}${t("common.labelSeparator")}`),
+    });
+    expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(trigger.className).toContain("h-11");
+    expect(container.querySelector("form")!.contains(trigger)).toBe(true);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("drops the run settings when the pane is not the one on screen", () => {

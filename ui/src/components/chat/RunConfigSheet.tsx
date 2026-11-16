@@ -172,38 +172,44 @@ export default function RunConfigControl({
           className,
         ].join(" ")}
       >
-        <span
-          className={`flex h-5 w-5 flex-none items-center justify-center rounded-md text-micro font-semibold ${agentAvatar.className}`}
-        >
-          {agentAvatar.initials}
-        </span>
-        {/* One line, always: the face rides the composer's control row, whose
-            height and the send control's place must not move with a model id.
-            On a phone the row has room for one name, and the model is the one
-            that changes — the agent is the avatar here and a full row in the
-            sheet. From `sm` up there is room for both. The model ellipsizes;
-            every full value stays in this button's accessible name and in the
-            sheet or panel behind it. (The earlier two-line face wrapped to
-            four lines inside a phone composer, making the settings taller
-            than the message it configures.) */}
-        <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-          <span className="hidden min-w-0 max-w-[10rem] flex-none truncate text-caption font-semibold text-kin-secondary sm:block">
-            {agentName}
-          </span>
-          <span aria-hidden className="hidden flex-none select-none text-kin-muted/60 sm:block">
-            ·
-          </span>
-          <span className="min-w-0 flex-1 truncate text-strong text-kin-text">{modelLabel}</span>
-          <span aria-hidden className="flex-none select-none text-kin-muted/60">
-            ·
-          </span>
+        {/* Astryx wraps the button's children in a plain label span, so two
+            sibling spans there would stack onto two lines. One wrapper of our
+            own keeps the avatar and the text row in a single flex row at every
+            width. */}
+        <span className="flex w-full min-w-0 items-center gap-1.5 overflow-hidden">
           <span
-            className={[
-              "flex-none whitespace-nowrap text-caption font-medium",
-              mode === "yolo" ? "text-kin-orange-ink" : "text-kin-muted",
-            ].join(" ")}
+            className={`flex h-5 w-5 flex-none items-center justify-center rounded-md text-micro font-semibold ${agentAvatar.className}`}
           >
-            {permissionLabel}
+            {agentAvatar.initials}
+          </span>
+          {/* One line, always: the face rides the composer's control row, whose
+              height and the send control's place must not move with a model id.
+              On a phone the row has room for one name, and the model is the one
+              that changes — the agent is the avatar here and a full row in the
+              sheet. From `sm` up there is room for both. The model ellipsizes;
+              every full value stays in this button's accessible name and in the
+              sheet or panel behind it. (The earlier two-line face wrapped to
+              four lines inside a phone composer, making the settings taller
+              than the message it configures.) */}
+          <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+            <span className="hidden min-w-0 max-w-[10rem] flex-none truncate text-caption font-semibold text-kin-secondary sm:block">
+              {agentName}
+            </span>
+            <span aria-hidden className="hidden flex-none select-none text-kin-muted/60 sm:block">
+              ·
+            </span>
+            <span className="min-w-0 flex-1 truncate text-strong text-kin-text">{modelLabel}</span>
+            <span aria-hidden className="flex-none select-none text-kin-muted/60">
+              ·
+            </span>
+            <span
+              className={[
+                "flex-none whitespace-nowrap text-caption font-medium",
+                mode === "yolo" ? "text-kin-orange-ink" : "text-kin-muted",
+              ].join(" ")}
+            >
+              {permissionLabel}
+            </span>
           </span>
         </span>
       </Button>
