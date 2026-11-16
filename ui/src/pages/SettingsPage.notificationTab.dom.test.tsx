@@ -104,6 +104,11 @@ vi.mock("../api/client", async (importOriginal) => {
       desktop_name: "hub",
     }),
     listMachines: vi.fn(async () => []),
+    // The Operations tab hosts the agent console (N4), which reads these on
+    // mount. Mocked so a jsdom render does not attempt a real request.
+    listAgentManagement: vi.fn(async () => []),
+    getUsageSummary: vi.fn(async () => []),
+    getUsageLimits: vi.fn(async () => []),
   };
 });
 
@@ -248,18 +253,14 @@ describe("a settings notification tap while the page is mounted", () => {
     expect(screen.getByTestId("url").textContent).toBe("/settings");
   });
 
-  // The area table accepts `/settings?tab=operations`, but its panel arrives
-  // with N4. General alone would read as "the link was wrong"; the notice names
-  // where Agent operations lives now and gives the reader the way there.
-  it("explains an operations tab and links to Agents until N4 hosts the panel", async () => {
+  // N4 hosts the agent console in this tab, so the URL and the panel agree on
+  // arrival and General is no longer drawn in its place.
+  it("opens the hosted operations panel from ?tab=operations", async () => {
     renderSettings("/settings?tab=operations");
     await screen.findByRole("tablist");
 
-    expect(panel("general").hidden).toBe(false);
-    expect(screen.getByText(/Agent operations still live on the Agent Ops page/)).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Open Agent Ops" }).getAttribute("href")).toBe(
-      "/agents",
-    );
+    expect(panel("operations").hidden).toBe(false);
+    expect(panel("general").hidden).toBe(true);
     expect(screen.getByTestId("url").textContent).toBe("/settings?tab=operations");
   });
 });
