@@ -71,6 +71,35 @@ function renderShell(initialEntry = "/sessions") {
   );
 }
 
+/**
+ * The shape `App` renders today: the live chat (`TaskSessionHost`) is the
+ * sibling that owns `/tasks/:id`, so the route inside the wrapper is `null`.
+ * The wrapper must not hold open a flex-1 slot for a page that does not exist.
+ */
+function LiveChatShell() {
+  const location = useLocation();
+  return (
+    <div data-pathname={location.pathname}>
+      <div data-testid="live-chat" />
+      <Nav />
+      <AreaRoute>
+        <Routes>
+          <Route path="/sessions" element={<Page name="sessions" />} />
+          <Route path="/tasks/:id" element={null} />
+        </Routes>
+      </AreaRoute>
+    </div>
+  );
+}
+
+function renderLiveChatShell(initialEntry: string) {
+  return render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <LiveChatShell />
+    </MemoryRouter>,
+  );
+}
+
 function wrapper(): HTMLElement {
   const element = document.querySelector<HTMLElement>(".kin-route");
   if (!element) throw new Error("no .kin-route wrapper");
@@ -174,5 +203,28 @@ describe("AreaRoute", () => {
     expect(wrapper().getAttribute("data-motion")).toBe("none");
     // The page did not remount, so there is no arrival to animate at all.
     expect(commits).toEqual([]);
+  });
+
+  it("collapses the wrapper when the route renders no page", () => {
+    renderLiveChatShell("/sessions");
+
+    // `App` renders `/tasks/:id` as `null` because TaskSessionHost beside the
+    // wrapper owns the live chat. A `flex-1` box with nothing in it would take
+    // half of `main.kin-main`'s height from that chat.
+    fireEvent.click(screen.getByRole("button", { name: "open-task-1" }));
+    expect(screen.getByTestId("live-chat")).toBeTruthy();
+    expect(wrapper().childNodes).toHaveLength(0);
+    expect(wrapper().matches(":empty")).toBe(true);
+    expect(wrapper().classList.contains("empty:hidden")).toBe(true);
+    expect(wrapper().getAttribute("data-motion")).toBe("push");
+
+    commits = [];
+    fireEvent.click(screen.getByRole("button", { name: "go-back" }));
+
+    // Leaving `/tasks/:id` animates the arriving page in the same commit that
+    // makes the wrapper non-empty again.
+    expect(wrapper().childNodes.length).toBeGreaterThan(0);
+    expect(wrapper().getAttribute("data-motion")).toBe("pop");
+    expect(commits).toEqual([{ page: "sessions", motion: "pop" }]);
   });
 });
