@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { setLocale } from "../../i18n";
 import PermissionModePicker from "./PermissionModePicker";
@@ -79,6 +79,24 @@ describe("the permission picker", () => {
     // first arrow key has nothing to move from.
     expect(document.activeElement?.getAttribute("role")).toBe("menuitemradio");
     expect(document.activeElement?.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("opens on the current mode, not the first one", async () => {
+    viewport(true);
+    setViewport(1280);
+    const onChange = vi.fn();
+    render(<PermissionModePicker value="yolo" compact onChange={onChange} />);
+    const chip = screen.getByRole("button", { name: /^Permission/ });
+    await userEvent.click(chip);
+
+    // A session already in YOLO opens on YOLO — the row that is set — so the
+    // next arrow key moves from the current mode (the ring wraps to Ask)
+    // instead of starting at the top of the list and reporting a mode the
+    // session is not in.
+    await waitFor(() => expect(document.activeElement).toBe(row(/^YOLO/)));
+    expect(document.activeElement?.getAttribute("aria-checked")).toBe("true");
+    await userEvent.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(row(/^Ask/));
   });
 
   it("answers once, closes, and returns focus to the chip", async () => {

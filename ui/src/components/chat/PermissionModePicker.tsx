@@ -206,6 +206,10 @@ function PermissionMenu({
         onOpenChange={setOpen}
         triggerRef={triggerRef}
         label={tr("permission.label")}
+        // A session already in YOLO opens on YOLO: focus starts on what is
+        // set, so the next arrow key moves from the current mode instead of
+        // from the top of the list.
+        initialFocusId={mode}
         items={options.map((option) => ({
           id: option,
           label: tr(labelKey[option]),
