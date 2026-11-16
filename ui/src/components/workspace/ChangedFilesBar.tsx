@@ -124,16 +124,14 @@ export default function ChangedFilesBar({
           <span className="hidden sm:inline text-caption text-kin-muted mr-0.5">
             {t("workspace.changed.discardConfirmShort")}
           </span>
-          {/* Stays raw until the facade grows a deny/danger variant; inventing
-              one here would fork the action vocabulary. */}
-          <button
-            type="button"
+          <Button
+            variant="deny"
             disabled={actionsBusy}
             onClick={() => void handleDiscardAll()}
-            className="kin-btn-deny md:min-h-0 md:py-1 md:px-2.5 text-caption disabled:opacity-50"
+            className="md:min-h-0 md:px-2.5 md:py-1 text-caption"
           >
             {t("workspace.changed.discardConfirm")}
-          </button>
+          </Button>
           <Button
             variant="secondary"
             disabled={actionsBusy}

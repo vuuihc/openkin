@@ -55,7 +55,12 @@ describe("the open-in menu", () => {
     expect(menu).toBeTruthy();
     const finder = await screen.findByRole("menuitem", { name: "Finder" });
 
-    await userEvent.click(finder);
+    // Rows that arrive after the panel opened still take focus: the menu is
+    // keyboard-operable from the first real row, not only after a Tab.
+    await waitFor(() => expect(document.activeElement).toBe(finder));
+    await userEvent.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(finder);
+    await userEvent.keyboard("{Enter}");
 
     expect(desktop.openInExternalApp).toHaveBeenCalledTimes(1);
     expect(desktop.openInExternalApp).toHaveBeenCalledWith("/tmp/ws/src/a.ts", "finder");
@@ -85,9 +90,35 @@ describe("the open-in menu", () => {
     expect(none.getAttribute("aria-disabled")).toBe("true");
     expect(screen.queryByRole("menuitem", { name: t("workspace.openWith.detecting") })).toBeNull();
 
-    // The shared layer owns the dismissal: one Escape closes it, and there is
-    // no second document listener left behind to need a second press.
+    // The shared layer owns the dismissal: one Escape closes it.
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  });
+
+  it("keeps the application rows after a failed open and reaches the bridge again", async () => {
+    desktop.listExternalApps.mockResolvedValue([
+      { id: "finder", label: "Finder", labelKey: "finder" } satisfies ExternalApp,
+    ]);
+    desktop.openInExternalApp
+      .mockResolvedValueOnce({ ok: false, error: "bridge-unavailable" })
+      .mockResolvedValueOnce({ ok: true });
+
+    render(<OpenInMenu root={ROOT} relativePath="src/a.ts" />);
+    await userEvent.click(trigger());
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Finder" }));
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+
+    // Reopening after the refusal still offers the apps: the error is a note
+    // above the rows, not a replacement for them.
+    await userEvent.click(trigger());
+    const error = await screen.findByRole("menuitem", { name: "bridge-unavailable" });
+    expect(error.getAttribute("aria-disabled")).toBe("true");
+    const finder = screen.getByRole("menuitem", { name: "Finder" });
+    expect(finder.getAttribute("aria-disabled")).not.toBe("true");
+
+    await userEvent.click(finder);
+
+    await waitFor(() => expect(desktop.openInExternalApp).toHaveBeenCalledTimes(2));
+    expect(desktop.openInExternalApp).toHaveBeenLastCalledWith("/tmp/ws/src/a.ts", "finder");
   });
 });

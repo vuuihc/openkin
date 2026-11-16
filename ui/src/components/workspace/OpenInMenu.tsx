@@ -78,19 +78,21 @@ export default function OpenInMenu({ root, relativePath }: Props) {
     setOpen(false);
   };
 
-  const items: MenuItem[] =
-    error !== null
-      ? [note("error", error)]
-      : apps === null
-        ? [note("detecting", t("workspace.openWith.detecting"))]
-        : apps.length === 0
-          ? [note("none", t("workspace.openWith.none"))]
-          : apps.map((app) => ({
-              id: app.id,
-              label: labelFor(app),
-              disabled: busy,
-              onSelect: () => void handleOpen(app),
-            }));
+  const appRows: MenuItem[] =
+    apps === null
+      ? [note("detecting", t("workspace.openWith.detecting"))]
+      : apps.length === 0
+        ? [note("none", t("workspace.openWith.none"))]
+        : apps.map((app) => ({
+            id: app.id,
+            label: labelFor(app),
+            disabled: busy,
+            onSelect: () => void handleOpen(app),
+          }));
+
+  // The failure note sits above the rows rather than replacing them: a bridge
+  // that refused once must not cost the reader the rest of the menu session.
+  const items: MenuItem[] = error !== null ? [note("error", error), ...appRows] : appRows;
 
   return (
     <>
@@ -110,6 +112,12 @@ export default function OpenInMenu({ root, relativePath }: Props) {
         <IconChevron size={12} className={open ? "rotate-[-90deg]" : "rotate-90"} />
       </Button>
       <Menu
+        // Keyed on "the list is still loading": the layer moves focus only
+        // when the panel first appears, and on the first open it appears with
+        // nothing but the inert detecting row. Remounting when the rows land
+        // lets the layer put focus on the first real row, so arrows, Home/End,
+        // Enter and typeahead work immediately instead of after a Tab.
+        key={apps === null ? "detecting" : "ready"}
         open={open}
         onOpenChange={setOpen}
         triggerRef={triggerRef}
