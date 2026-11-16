@@ -14,6 +14,13 @@ import {
   LayoutFooter,
 } from "@astryxdesign/core";
 
+// @astryxdesign/core's Dialog calls CSS.escape(titleId) inside a mount effect
+// even when closed, and jsdom omits globalThis.CSS.
+if (typeof globalThis.CSS?.escape !== "function") {
+  const escape = (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+  globalThis.CSS = Object.assign(globalThis.CSS ?? {}, { escape }) as typeof CSS;
+}
+
 /** Astryx's dismissal policies: `info` (Escape + backdrop), `form` (Escape), `required` (neither). */
 export type DialogPurpose = "info" | "form" | "required";
 
