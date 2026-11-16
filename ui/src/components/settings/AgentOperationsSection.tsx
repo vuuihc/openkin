@@ -20,6 +20,7 @@ import { SkeletonLine, SlowConnectHint } from "../../components/Skeleton";
 import { MobileCard, MobileRow, MobileSection } from "../../components/mobile/MobileList";
 import Sheet, { SheetPrimaryButton, SheetSecondaryButton } from "../../components/mobile/Sheet";
 import Button from "../../components/ui/Button";
+import ActionSheet from "../../components/ui/ActionSheet";
 import Menu from "../../components/ui/Menu";
 import { useAgentSessionImport } from "../../hooks/useAgentSessionImport";
 import { useSlowHint } from "../../hooks/useSlowHint";
@@ -70,7 +71,7 @@ import { cacheRateLabel, formatTokenCount, summarizeUsage } from "../../lib/usag
 type AgentAction = {
   key: string;
   label: string;
-  /** The hover explanation the desktop menu shows; the phone sheet has room for the label alone. */
+  /** The second line both shapes show: a consequence, or why a row cannot run. */
   hint?: string;
   /** The one or two actions a row leads with; the rest are quiet. */
   primary?: boolean;
@@ -122,12 +123,6 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [actionsFor, setActionsFor] = useState<string | null>(null);
-  /**
-   * A sheet row that navigates runs after the sheet's own history entry is
-   * gone. Running it in the click handler would leave Agent Ops beneath the
-   * destination instead of the list (KIN-CONTINUE-002).
-   */
-  const sheetAction = useRef<(() => void) | null>(null);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<AgentSortKey>(prefs.sortKey ?? "cost");
   const [sortDir, setSortDir] = useState<AgentSortDir>(prefs.sortDir ?? "desc");
@@ -1742,56 +1737,21 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
           )}
         </Sheet>
 
-        <Sheet
+        <ActionSheet
           open={actionAgent !== null}
           onClose={() => setActionsFor(null)}
-          onCloseComplete={() => {
-            const action = sheetAction.current;
-            sheetAction.current = null;
-            action?.();
-          }}
           title={actionAgent?.name}
           subtitle={
             actionAgent ? rowStatus(actionAgent, checkingFor(actionAgent)).label : undefined
           }
-          footer={
-            <SheetSecondaryButton onClick={() => setActionsFor(null)}>
-              {tr("common.cancel")}
-            </SheetSecondaryButton>
-          }
-        >
-          {actionItems.map((action) => (
-            <Button
-              key={action.key}
-              variant="quiet"
-              disabled={action.disabled}
-              title={action.hint}
-              // The visible text is two lines (label, then a disabled reason).
-              // The facade derives its accessible name from string children
-              // only, so the name is spelled here — and it keeps both lines,
-              // which is what a screen reader heard before (TASTE 18).
-              aria-label={
-                action.disabled && action.hint ? `${action.label} ${action.hint}` : action.label
-              }
-              onClick={() => {
-                sheetAction.current = action.run;
-                setActionsFor(null);
-              }}
-              className="kin-row-press flex min-h-12 w-full items-center justify-start rounded-xl px-3 text-left text-subtitle text-kin-text disabled:text-kin-muted disabled:opacity-60"
-            >
-              <span className="flex min-w-0 flex-col items-start">
-                <span>{action.label}</span>
-                {/* A disabled action's `title` is unreachable on a phone; the
-                    reason has to be on the surface the person is touching. */}
-                {action.disabled && action.hint ? (
-                  <span className="whitespace-normal text-caption text-kin-muted">
-                    {action.hint}
-                  </span>
-                ) : null}
-              </span>
-            </Button>
-          ))}
-        </Sheet>
+          rows={actionItems.map((action) => ({
+            id: action.key,
+            label: action.label,
+            hint: action.hint,
+            disabled: action.disabled,
+            onSelect: action.run,
+          }))}
+        />
       </div>
     </div>
   );

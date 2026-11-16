@@ -24,6 +24,12 @@ export type ActionSheetRow = {
   /** A row that stops, deletes or otherwise cannot be undone. */
   destructive?: boolean;
   disabled?: boolean;
+  /**
+   * A second line under the label: the consequence of a row, or why a disabled
+   * row cannot run. Shown for every row that sets it, and part of the row's
+   * accessible name because it sits inside the button.
+   */
+  hint?: string;
   onSelect: () => void;
 };
 
@@ -62,9 +68,7 @@ export default function ActionSheet({
       subtitle={subtitle}
       anyWidth={anyWidth}
       bodyClassName="pb-2"
-      footer={
-        <SheetSecondaryButton onClick={onClose}>{tr("common.cancel")}</SheetSecondaryButton>
-      }
+      footer={<SheetSecondaryButton onClick={onClose}>{tr("common.cancel")}</SheetSecondaryButton>}
     >
       <ul className="flex flex-col gap-0.5">
         {rows.map((row) => (
@@ -90,7 +94,12 @@ export default function ActionSheet({
                   : "hover:bg-[var(--kin-fill)] active:bg-[var(--kin-fill)]",
               ].join(" ")}
             >
-              <span className="min-w-0 flex-1 truncate">{row.label}</span>
+              <span className="flex min-w-0 flex-1 flex-col items-start">
+                <span className="w-full truncate">{row.label}</span>
+                {row.hint ? (
+                  <span className="whitespace-normal text-caption text-kin-muted">{row.hint}</span>
+                ) : null}
+              </span>
               {row.selected ? (
                 <IconCheck size={14} className="flex-none text-kin-blue-ink" />
               ) : null}
