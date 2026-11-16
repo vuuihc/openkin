@@ -25,7 +25,7 @@ function source(rel: string): string {
 }
 
 const shell = source("src/components/layout/AppShell.tsx");
-const transcript = source("src/pages/TaskDetailPage.tsx");
+const dock = source("src/components/task/TaskComposerDock.tsx");
 const draft = source("src/pages/NewChatPage.tsx");
 const agentSession = source("src/pages/AgentSessionDetailPage.tsx");
 const tray = source("src/pages/TrayPage.tsx");
@@ -84,6 +84,6 @@ describe("the floating approval's wiring", () => {
     // `TaskSessionHost` keeps visited conversations mounted and hides them with
     // `display:none`. An unconditional marker lets the card measure a hidden
     // pane's zero-size box and put itself off the top of the screen.
-    expect(transcript).toMatch(/data-kin-bottom-chrome=\{active \? "" : undefined\}/);
+    expect(dock).toMatch(/data-kin-bottom-chrome=\{active \? "" : undefined\}/);
   });
 });
