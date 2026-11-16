@@ -56,7 +56,7 @@ import LimitCard from "../components/cards/LimitCard";
 import UserQuestionCard from "../components/cards/UserQuestionCard";
 import ChatStream from "../components/chat/ChatStream";
 import { findSpeakerModel, pendingRefSeqs } from "../components/chat/transcriptProjection";
-import Composer, { type SubmitFailure } from "../components/chat/Composer";
+import type { SubmitFailure } from "../components/chat/Composer";
 import {
   forgetPendingSend,
   peekPendingSend,
@@ -64,18 +64,13 @@ import {
   settlePendingSendList,
   type PendingSend,
 } from "../lib/pendingSend";
-import RunConfigControl from "../components/chat/RunConfigSheet";
-import BranchPicker from "../components/chat/BranchPicker";
-import RepoChip from "../components/chat/RepoChip";
-import CwdPicker from "../components/chat/CwdPicker";
-import PermissionModePicker from "../components/chat/PermissionModePicker";
-import ModelPicker from "../components/chat/ModelPicker";
-import { IconAlert, IconKin, IconMachine } from "../components/icons";
+import { IconKin } from "../components/icons";
 import { SlowConnectHint } from "../components/Skeleton";
 import ActionSheet, { type ActionSheetRow } from "../components/ui/ActionSheet";
 import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
 import FileQuickOpen from "../components/workspace/FileQuickOpen";
 import TaskUsageSummary from "../components/usage/TaskUsageSummary";
+import TaskComposerDock from "../components/task/TaskComposerDock";
 import TaskPanels from "../components/task/TaskPanels";
 import WorkerTimeline from "../components/task/WorkerTimeline";
 import TaskHeader from "../components/task/TaskHeader";
@@ -1961,191 +1956,40 @@ export default function TaskDetailPage({
           />
         </div>
 
-        {/* `data-kin-bottom-chrome` is a contract with the shell's floating
-            surfaces: this band is everything the page pins to the bottom
-            (the waiting strip and the composer), so an overlay that has to
-            stay clear of it measures this instead of guessing a height. Only
-            the pane on screen marks itself — the session host keeps cached
-            conversations mounted but hidden, and their bands have no box to
-            measure. See FloatingApproval. */}
-        <div
-          data-kin-bottom-chrome={active ? "" : undefined}
-          className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5"
-        >
-          <div className="max-w-conversation mx-auto space-y-1.5">
-            {needsYou.length > 0 && (
-              <button
-                type="button"
-                onClick={revealFirstPending}
-                className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-kin-orange/40 bg-kin-orange/15 px-3 py-2 text-subtitle font-medium text-kin-orange-ink outline-none focus-visible:ring-2 focus-visible:ring-kin-focus-ring"
-              >
-                <IconAlert className="w-4 h-4 flex-none" />
-                {tr("task.waitingOnYou", { count: String(needsYou.length) })}
-              </button>
-            )}
-            <Composer
-              key={task.id}
-              agents={agents}
-              roles={agentRoles}
-              hostAgentId={task.agent || ""}
-              fileSearch={searchSourceFiles}
-              busy={sending}
-              running={!terminal}
-              stopping={stopping}
-              disabled={sending || stopping || !detail.loaded}
-              initialValue={followUpDraft.prompt}
-              initialAttachments={followUpDraft.attachments}
-              focusSignal={refill.taskID === task.id ? refill.n : 0}
-              placeholder={
-                !terminal
-                  ? tr("composer.queuedWhileRunning")
-                  : tr("composer.followUpPlaceholder", { name: hostAgentName })
-              }
-              onValueChange={(v) => persistFollowUpDraft(v)}
-              onAttachmentsChange={(atts) => persistFollowUpDraft(draftPromptRef.current, atts)}
-              onSubmit={onComposer}
-              onStop={onStop}
-              footer={
-                // One control instead of a strip of chips: the face names the
-                // agent, the model and the mode, and the sheet behind it owns
-                // the two that can change. Desktop keeps the strip below. The
-                // usage trigger rides beside it — the reference keeps usage at
-                // the input, and the phone has no usage bar above the
-                // transcript to read it from.
-                <div className="flex min-w-0 flex-1 items-center gap-1">
-                  <RunConfigControl
-                    agentName={hostAgentName}
-                    agentId={task.agent || ""}
-                    agentAvatar={hostAgentAvatar}
-                    model={composerModel}
-                    models={taskAgentModels}
-                    onModelChange={setComposerModel}
-                    permission={composerPermissionMode}
-                    permissionModes={taskPermissionModes}
-                    onPermissionChange={setComposerPermission}
-                    disabled={sending || stopping}
-                    fallbackModelLabel={transcriptModel}
-                  />
-                  {!usageLoading && usage ? (
-                    <TaskUsageSummary
-                      usage={usage}
-                      loading={usageLoading}
-                      variant="phone"
-                      className="flex-none"
-                    />
-                  ) : null}
-                </div>
-              }
-            />
-            {/* The desktop counterpart of the composer's run-config face: from
-                `md` up this strip carries what the face carries (and the
-                project, branch and machine beside it), and the face is hidden
-                so the same two settings are not offered twice on one screen.
-                One row, scrolled sideways when it does not fit — it has to
-                overflow for that: an item allowed to shrink is squeezed to
-                nothing first and paints its text over the chip next to it,
-                which is what a long path next to a repository name did on a
-                phone. */}
-            <div className="hidden md:flex items-center gap-x-2 gap-y-1 px-0.5 min-w-0 overflow-x-auto kin-scroll whitespace-nowrap">
-              {/* The host agent is this session's identity: the daemon has no
-                  protocol to swap it, so it is named as a fact rather than a
-                  disabled button. The phone's run sheet shows the same value
-                  the same way. */}
-              <span
-                className="inline-flex flex-none items-center gap-1.5 text-caption font-medium text-kin-secondary"
-                title={tr("runConfig.agentLocked")}
-              >
-                <span
-                  className={`flex h-5 w-5 flex-none items-center justify-center rounded-md text-micro font-semibold ${hostAgentAvatar.className}`}
-                >
-                  {hostAgentAvatar.initials}
-                </span>
-                <span className="max-w-[8rem] truncate">{hostAgentName}</span>
-              </span>
-              <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
-                ·
-              </span>
-              <PermissionModePicker
-                value={composerPermissionMode}
-                modes={taskPermissionModes}
-                disabled={sending || stopping}
-                compact
-                active={active}
-                onChange={setComposerPermission}
-              />
-              <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
-                ·
-              </span>
-              <ModelPicker
-                value={composerModel}
-                models={taskAgentModels}
-                source={taskAgentModelSource}
-                status={taskAgentModelStatus}
-                disabled={sending || stopping}
-                compact
-                fallbackDisplay={transcriptModel}
-                onChange={setComposerModel}
-              />
-              {/* Where the work is — directory, repository, branch, machine —
-                  describes the session rather than changing the next message,
-                  and on a phone the four chips plus the two controls above do
-                  not fit one line. They stay on `md` up, where the row has the
-                  width; the project is named in the header and the machine in
-                  the session-actions sheet. A div, not a span: CwdPicker renders
-                  one, and a span may not contain it. */}
-              <div className="hidden md:contents">
-                <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
-                  ·
-                </span>
-                <CwdPicker
-                  // The one item allowed to give way, because a path can be
-                  // arbitrarily long: it shrinks to a readable floor and its path
-                  // tag truncates inside that, rather than the row overflowing on
-                  // a desktop window or the chip collapsing on a phone.
-                  className="min-w-[6rem] max-w-inspector"
-                  cwd={task.cwd}
-                  locked
-                  compact
-                  onChange={() => undefined}
-                />
-                {/* Which repository the work is in. A session on this machine has
-                  no recorded one and shows nothing here — its repository is the
-                  one the pull-request panel looked up. A session on another
-                  machine has one, because the Hub asked that machine when the
-                  session started. */}
-                <RepoChip repo={task.workspace_repo} />
-                <BranchPicker
-                  cwd={task.cwd}
-                  // The task's cwd is on the machine that runs it, so the branches
-                  // in the strip below are that machine's — not this one's, which
-                  // for the same repository would read plausibly and be wrong.
-                  device={task.executing_device_id}
-                  locked
-                  compact
-                  className="flex-none"
-                />
-                {machine ? (
-                  <>
-                    <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
-                      ·
-                    </span>
-                    {/* Which machine the cwd above lives on. Without it the path in
-                      this strip reads as a directory on the machine showing it. */}
-                    <span
-                      className="flex-none inline-flex items-center gap-1 text-caption text-kin-secondary"
-                      title={tr("machine.remoteHint", { name: machine.text })}
-                    >
-                      <IconMachine size={12} />
-                      {machine.known
-                        ? tr("machine.runsOn", { name: machine.text })
-                        : tr("machine.runsOnUnknown", { name: machine.text })}
-                    </span>
-                  </>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        </div>
+        <TaskComposerDock
+          active={active}
+          task={task}
+          terminal={terminal}
+          detailLoaded={detail.loaded}
+          agents={agents}
+          agentRoles={agentRoles}
+          hostAgentName={hostAgentName}
+          hostAgentAvatar={hostAgentAvatar}
+          sending={sending}
+          stopping={stopping}
+          initialValue={followUpDraft.prompt}
+          initialAttachments={followUpDraft.attachments}
+          focusSignal={refill.taskID === task.id ? refill.n : 0}
+          fileSearch={searchSourceFiles}
+          onValueChange={(v) => persistFollowUpDraft(v)}
+          onAttachmentsChange={(atts) => persistFollowUpDraft(draftPromptRef.current, atts)}
+          onSubmit={onComposer}
+          onStop={onStop}
+          composerModel={composerModel}
+          onComposerModelChange={setComposerModel}
+          composerPermissionMode={composerPermissionMode}
+          onComposerPermissionChange={setComposerPermission}
+          taskAgentModels={taskAgentModels}
+          taskAgentModelSource={taskAgentModelSource}
+          taskAgentModelStatus={taskAgentModelStatus}
+          taskPermissionModes={taskPermissionModes}
+          transcriptModel={transcriptModel}
+          usage={usage}
+          usageLoading={usageLoading}
+          machine={machine}
+          waitingCount={needsYou.length}
+          onRevealFirstPending={revealFirstPending}
+        />
       </div>
 
       <TaskPanels
