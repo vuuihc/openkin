@@ -946,7 +946,9 @@ export default function AgentsPage({ embedded = false }: { embedded?: boolean } 
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-0">
             {embedded ? (
-              <h2 className="text-subtitle font-semibold text-kin-text md:hidden">
+              // The panel always names itself, at every width: the tab strip
+              // shows which tab is open, not what the page below it is.
+              <h2 className="text-subtitle font-semibold text-kin-text">
                 {tr("settings.tabs.operations")}
               </h2>
             ) : (
@@ -1045,6 +1047,11 @@ export default function AgentsPage({ embedded = false }: { embedded?: boolean } 
         {(rows === null || agents === null) && !error && !usageError && (
           <div className="mt-6 space-y-3">
             <SlowConnectHint show={slow} />
+            {/* Named, not just shaped: placeholder boxes with no label read as
+                broken cards in a still and to a screen reader. */}
+            <p className="text-body text-kin-muted" aria-live="polite">
+              {tr("agents.loadingMachine")}
+            </p>
             {/* The same shape the page arrives in — four stat tiles and the
                 chart — rather than one grey block. A placeholder that is not
                 the layout is a second layout: everything below it moves when
@@ -1095,7 +1102,7 @@ export default function AgentsPage({ embedded = false }: { embedded?: boolean } 
           </div>
         )}
 
-        {rows !== null && (
+        {rows !== null && agents !== null && (
           <div className="mt-6 space-y-6" aria-busy={updating}>
             {usageError && (
               <div
@@ -1105,6 +1112,15 @@ export default function AgentsPage({ embedded = false }: { embedded?: boolean } 
                 {usageError}
               </div>
             )}
+            {totals.empty && !usageError ? (
+              // An empty range is a state, not four em-dash tiles: on a phone
+              // the tiles filled the first screen and read as broken data.
+              <div className="rounded-xl bg-kin-elevated px-4 py-5">
+                <p className="text-strong font-medium text-kin-text">{tr("agents.emptyUsage")}</p>
+                <p className="mt-1 text-body text-kin-muted">{tr("agents.emptyUsageHint")}</p>
+              </div>
+            ) : (
+              <>
             <div
               className={`grid grid-cols-2 gap-3 sm:grid-cols-4 ${updating ? "opacity-60" : ""}`}
             >
@@ -1171,6 +1187,8 @@ export default function AgentsPage({ embedded = false }: { embedded?: boolean } 
                 ))}
               </div>
             </div>
+              </>
+            )}
           </div>
         )}
 

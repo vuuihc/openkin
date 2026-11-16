@@ -301,4 +301,57 @@ describe("the Operations settings tab", () => {
     expect(within(opPanel).getByRole("heading", { level: 2, name: "Operations" })).toBeTruthy();
     expect(within(opPanel).queryAllByRole("heading", { level: 1 })).toHaveLength(0);
   });
+
+  it("lets the operations panel own the heading and the one subtitle", async () => {
+    shell("/settings?tab=operations");
+
+    await screen.findByRole("tab", { name: "Operations" });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const opPanel = panel("operations");
+    const heading = within(opPanel).getByRole("heading", { level: 2, name: "Operations" });
+    // The panel names itself at every width. Only the tab strip is
+    // width-dependent, and a selected tab says which tab is open, not what the
+    // page below it is.
+    expect(heading.className).not.toContain("md:hidden");
+    expect(
+      within(opPanel).getByText("What this machine has, whether it works, and what it cost"),
+    ).toBeTruthy();
+    // One description of the screen: the Settings tagline would be a second.
+    const layoutHeader = screen
+      .getByRole("tablist", { name: "Settings" })
+      .previousElementSibling as HTMLElement;
+    expect(layoutHeader.querySelector("p")).toBeNull();
+  });
+
+  it("shows an empty state instead of dash tiles when this machine has no usage", async () => {
+    shell("/settings?tab=operations");
+
+    await screen.findByRole("tab", { name: "Operations" });
+    const opPanel = panel("operations");
+    await waitFor(() =>
+      expect(within(opPanel).getByText("No usage in this range")).toBeTruthy(),
+    );
+    // An empty range is a state, not four em-dash metric tiles.
+    expect(within(opPanel).queryByText("Cache hit rate")).toBeNull();
+    expect(within(opPanel).queryByText("—")).toBeNull();
+  });
+
+  it("does not render usage tiles until the agent list has arrived", async () => {
+    // The two reads race: usage can land first. Rendering its tiles while the
+    // agent list is still loading put live cards below the loading skeleton.
+    vi.mocked(listAgentManagement).mockImplementationOnce(() => new Promise(() => {}));
+    shell("/settings?tab=operations");
+
+    await screen.findByRole("tab", { name: "Operations" });
+    await waitFor(() => expect(getUsageSummary).toHaveBeenCalled());
+    const opPanel = panel("operations");
+    expect(
+      within(opPanel).getByText("Reading this machine's agents and usage…"),
+    ).toBeTruthy();
+    expect(within(opPanel).queryByText("Cache hit rate")).toBeNull();
+    expect(within(opPanel).queryByText("No usage in this range")).toBeNull();
+  });
 });

@@ -81,7 +81,8 @@ export function SettingsLayout({
   children,
 }: {
   title: string;
-  subtitle: string;
+  /** Omitted when the active tab's panel carries its own subtitle. */
+  subtitle?: string;
   tabs: readonly SettingsTabItem[];
   activeTab: SettingsTabId;
   onTabChange: (tab: SettingsTabId) => void;
@@ -172,7 +173,7 @@ export function SettingsLayout({
               prototype gives every phone screen one nav bar — so the grid of
               tabs starts where the h1 was, not 30px lower. */}
           <h1 className="hidden text-hero font-bold tracking-tight md:block">{title}</h1>
-          <p className="text-strong leading-5 text-kin-secondary">{subtitle}</p>
+          {subtitle ? <p className="text-strong leading-5 text-kin-secondary">{subtitle}</p> : null}
         </div>
         <div
           role="tablist"

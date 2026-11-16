@@ -718,7 +718,10 @@ export default function SettingsPage() {
   return (
     <SettingsLayout
       title={tr("settings.title")}
-      subtitle={tr("settings.subtitle")}
+      /* Operations is the hosted agent console: it carries its own subtitle,
+         so the Settings-level tagline would be a second description of the
+         same screen. */
+      subtitle={activeTab === "operations" ? undefined : tr("settings.subtitle")}
       tabs={settingsTabs}
       activeTab={activeTab}
       onTabChange={selectTab}
