@@ -115,9 +115,7 @@ describe("the cwd row", () => {
     expect(chip.getAttribute("aria-expanded")).toBe("true");
 
     await userEvent.keyboard("{Escape}");
-    await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "Where to work" })).toBeNull(),
-    );
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Where to work" })).toBeNull());
     expect(document.activeElement).toBe(chip);
   });
 
