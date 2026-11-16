@@ -164,11 +164,7 @@ function progressSpan(item: ProgressItem): ProgressSpan | undefined {
 }
 
 /** Fold one event's timestamp into an item's run. A seq counts once. */
-function stampProgress(
-  item: ProgressItem | null | undefined,
-  ts: unknown,
-  seq: number,
-): void {
+function stampProgress(item: ProgressItem | null | undefined, ts: unknown, seq: number): void {
   if (!item || !isStampedTs(ts)) return;
   const holder = item as ProgressItemWithSpan;
   const span = holder[PROGRESS_SPAN] ?? { first: ts, last: ts, seqs: new Set<number>() };
