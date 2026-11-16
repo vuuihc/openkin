@@ -352,7 +352,7 @@ function PathHoverTag({ cwd, compact }: { cwd: string; compact?: boolean }) {
   return (
     <span
       ref={anchorRef}
-      className="relative min-w-0 flex-1 truncate rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-kin-focus-ring"
+      className="relative flex min-h-11 min-w-0 flex-1 items-center rounded-sm sm:min-h-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-kin-focus-ring"
       role="button"
       tabIndex={0}
       aria-label={`${tr("cwd.workingDir", { path: cwd })}. ${tr("cwd.copy")}`}
@@ -372,7 +372,7 @@ function PathHoverTag({ cwd, compact }: { cwd: string; compact?: boolean }) {
         }
       }}
     >
-      <span className="truncate font-mono opacity-80 text-caption">
+      <span className="min-w-0 truncate font-mono opacity-80 text-caption">
         {shortPath(cwd, compact ? 18 : 48)}
       </span>
       {rect &&

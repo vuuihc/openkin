@@ -174,6 +174,10 @@ describe("the cwd row", () => {
     const tag = screen.getByRole("button", {
       name: "Working directory: /Users/me/proj. Copy",
     });
+    // The one control in this row that is not a `Button`, so it states its own
+    // touch floor: 44px on a phone, the desktop row's own height at `sm` up.
+    expect(tag.className).toContain("min-h-11");
+    expect(tag.className).toContain("sm:min-h-0");
     await userEvent.hover(tag);
 
     const copy = await screen.findByRole("button", { name: "Copy" });
