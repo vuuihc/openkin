@@ -67,3 +67,6 @@ sed -n '/^check_buckets()/,/^}/p;/^ci_state()/,/^}/p;/^fetch_ci_failed_log()/,/^
   fetch_ci_failed_log "$T/merge/ci-log.txt" || exit 1
   grep -q 'failed-job log' "$T/merge/ci-log.txt" ) && ok ci-link || bad ci-link
 echo ALL-PASS
+# root-file claim (e.g. Makefile) must succeed, while broad dir 'ui' is refused
+RSI_STATE="$T/st" python3 "$H/lanes.py" claim 2 --slug mk --item X2 --brief "$T/brief.md" --paths Makefile | grep -q "CLAIMED lane 2" && ok root-file-claim || bad root-file-claim
+! RSI_STATE="$T/st" python3 "$H/lanes.py" claim 2 --slug bad --item X3 --brief "$T/brief.md" --paths ui >/dev/null 2>&1 && ok broad-dir-refused || bad broad-dir-refused

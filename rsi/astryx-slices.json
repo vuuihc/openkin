@@ -88,10 +88,11 @@
    ],
    "size": "M",
    "paths": [
+    "ui/src/App.tsx",
     "ui/src/pages/DesignSystemPage.tsx",
     "ui/src/pages/DesignSystemPage.dom.test.tsx"
    ],
-   "brief": "Extend the existing dev-only /dev/components gallery (verify path) to show every adopted facade control in default/hover/pressed/focus/disabled/loading/error/IME states and phone vs desktop forms. Not exposed in production build (test). Later slices append their controls.",
+   "brief": "There is no existing gallery on main (path corrected 2026-11-16): create the dev-only /dev/components page plus a route in App.tsx gated on import.meta.env.DEV through a pure helper so a test can prove the production build registers no route. Part 1 shows the primitives that already exist (ActionSheet, PendingBadge, SearchSelect, SessionFilters, SheetSelect) in default/hover/pressed/focus/disabled/loading/error/IME states and phone vs desktop forms; later facade slices (F5a/F5b/F5c/F5e) append their own controls to the same page. Not exposed in production build (test).",
    "executor": "cloud"
   },
   {
@@ -168,7 +169,8 @@
     "ui/src/components/ui/SearchSelect.dom.test.tsx",
     "docs/product/components/select.md"
    ],
-   "brief": "Re-base the three pickers (SearchSelect 648 lines, SheetSelect 334) on facade Menu/Popover/Sheet; one open/close/keyboard/IME behaviour on both platforms; existing tests unchanged. Public props stay."
+   "brief": "Re-base the three pickers (SearchSelect 648 lines, SheetSelect 334) on facade Menu/Popover/Sheet; one open/close/keyboard/IME behaviour on both platforms; existing tests unchanged. Public props stay.",
+   "executor": "cloud"
   },
   {
    "id": "F5e",
@@ -180,12 +182,13 @@
    "size": "M",
    "paths": [
     "ui/src/components/ui/Tabs.tsx",
+    "ui/src/components/ui/Tabs.dom.test.tsx",
     "ui/src/components/ui/Tooltip.tsx",
+    "ui/src/components/ui/Tooltip.dom.test.tsx",
     "ui/src/components/ui/Toast.tsx",
-    "ui/src/components/ui/Tabs.dom.test.tsx"
+    "ui/src/components/ui/Toast.dom.test.tsx"
    ],
-   "brief": "Kin-API facades for the four hand-written tab implementations, tooltip and toast; no call sites migrated yet.",
-   "executor": "cloud"
+   "brief": "Kin-API facades for the four hand-written tab implementations, tooltip and toast; no call sites migrated yet."
   },
   {
    "id": "N1",
@@ -221,6 +224,7 @@
   },
   {
    "id": "N3",
+   "existing": true,
    "track": "N",
    "title": "Phone per-area back stacks, deep-link parents, edge swipe, leave guard",
    "deps": [
@@ -394,17 +398,37 @@
     "ui/src/components/layout/AppShell.tsx",
     "ui/src/components/layout/Sidebar.tsx",
     "ui/src/components/layout/AreaNav.tsx",
+    "ui/src/components/layout/AreaNavigation.dom.test.tsx",
+    "ui/src/components/layout/Sidebar.dom.test.tsx",
+    "ui/tailwind.config.ts",
+    "ui/src/design/tailwind.test.ts",
+    "ui/src/i18n/locales/en.ts",
+    "ui/src/i18n/locales/zh.ts"
+   ],
+   "brief": "Replace the hand-written Sidebar (22 raw buttons) with a four-area nav (conversations/projects/routines/settings) from the area table, selected state, stable header/panel geometry; Mac list+detail two-column; keep TaskSessionHost cache, terminal, approvals, connection gate, tray exceptions. Astryx SideNav behind a Kin AreaNav facade. 1100x760 + 1280x800 screenshots. UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): Mac rail 208px with labels, auto-compact to a 64px icon rail when the review panel is open or the window is <1280 (tooltips; the needs-you badge on Conversations MUST survive compact); list column ~304px; the list column hides (with a show-list button in the header) when the review panel is expanded or the window <1280 so the chat keeps >=420px; per-area search/scope/selection/scroll preserved across area switches; shortcuts Cmd+1..4 areas, Cmd+N new chat, Cmd+K palette; one primary button per screen ('New' in the list header is secondary). Target look: rsi/ux-proto (clickable prototype; run `python3 -m http.server -d rsi/ux-proto 8765`).  | Paths corrected against main 2026-11-16: the rail needs the width tokens (tailwind.config.ts + its design test), the sidebar's own dom suite (the footer-destinations test moves) and both locale files.",
+   "gate": "ux-approved"
+  },
+  {
+   "id": "S1b",
+   "track": "S",
+   "size": "M",
+   "title": "Mac list column yields to the review panel",
+   "deps": [
+    "S1"
+   ],
+   "paths": [
+    "ui/src/components/layout/AppShell.tsx",
+    "ui/src/components/layout/PanelSurface.tsx",
+    "ui/src/components/layout/Sidebar.tsx",
     "ui/src/components/layout/AreaNavigation.dom.test.tsx"
    ],
-   "brief": "Replace the hand-written Sidebar (22 raw buttons) with a four-area nav (conversations/projects/routines/settings) from the area table, selected state, stable header/panel geometry; Mac list+detail two-column; keep TaskSessionHost cache, terminal, approvals, connection gate, tray exceptions. Astryx SideNav behind a Kin AreaNav facade. 1100x760 + 1280x800 screenshots. UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): Mac rail 208px with labels, auto-compact to a 64px icon rail when the review panel is open or the window is <1280 (tooltips; the needs-you badge on Conversations MUST survive compact); list column ~304px; the list column hides (with a show-list button in the header) when the review panel is expanded or the window <1280 so the chat keeps >=420px; per-area search/scope/selection/scroll preserved across area switches; shortcuts Cmd+1..4 areas, Cmd+N new chat, Cmd+K palette; one primary button per screen ('New' in the list header is secondary). Target look: rsi/ux-proto (clickable prototype; run `python3 -m http.server -d rsi/ux-proto 8765`). ",
-   "gate": "ux-approved"
+   "brief": "TASTE 17's other half, split out of S1 because the review panel is a full-bleed `absolute inset-0` overlay today: make it a column beside the conversation, hide the list column (with a show-list control in the conversation header) while the panel is open and the window is narrow, and keep the chat >=420px at 1100x760 and 1280x800. The shell rule and the show-list state live in AppShell; `PanelSurface` gains the column shape. Lands after W1's panel family so the two do not fight over the panel's layout."
   },
   {
    "id": "S2",
    "track": "S",
    "title": "Phone four tabs with per-area page stacks",
    "deps": [
-    "N3",
     "F5c"
    ],
    "size": "L",
@@ -415,7 +439,25 @@
     "ui/src/pages/SessionsRoute.tsx",
     "ui/src/pages/StartRoute.tsx"
    ],
-   "brief": "Four real tabs at area roots only (hidden on detail/new/non-general settings), each tab keeps its own stack, filters, scroll, unsaved edit; no horizontal tab swipe; left-edge swipe = back. 390x844 screenshots; update PhoneNavigation/PhonePushTargets tests. UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): tab bar only at area roots with a needs-you badge on Conversations; 'New' in the list header is secondary; every tap target >=44px; no duplicated screen titles; the project cover's primary CTA is a bottom bar, not crammed in the header; section pages (settings) hide the tab bar. Target look: rsi/ux-proto (clickable prototype; run `python3 -m http.server -d rsi/ux-proto 8765`). ",
+   "brief": "Four real tabs at area roots only (hidden on detail/new/non-general settings), each tab keeps its own stack, filters, scroll, unsaved edit; no horizontal tab swipe; left-edge swipe = back. 390x844 screenshots; update PhoneNavigation/PhonePushTargets tests. UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): tab bar only at area roots with a needs-you badge on Conversations; 'New' in the list header is secondary; every tap target >=44px; no duplicated screen titles; the project cover's primary CTA is a bottom bar, not crammed in the header; section pages (settings) hide the tab bar. Target look: rsi/ux-proto (clickable prototype; run `python3 -m http.server -d rsi/ux-proto 8765`). N3 is retired (existing): this slice owns the per-area Back model itself (resolver order overlay -> dirty guard -> stack pop -> area) and the deliberate PhonePushContract/PhonePushTargets update, under its ux-approved gate.",
+   "gate": "ux-approved"
+  },
+  {
+   "id": "S2b",
+   "track": "S",
+   "title": "Phone per-area tab return and one title per screen",
+   "deps": [
+    "S2"
+   ],
+   "size": "L",
+   "paths": [
+    "ui/src/components/layout/PhoneFooter.tsx",
+    "ui/src/components/layout/AppShell.tsx",
+    "ui/src/pages/SessionsPage.tsx",
+    "ui/src/components/sessions/SessionsHeader.tsx",
+    "ui/src/components/layout/PhoneNavigation.dom.test.tsx"
+   ],
+   "brief": "Each tab returns to where the reader last was in that area (list search/filters/scope, routines scroll), not to a bare root, and Back still pops one step. One visible page title per screen at 390 (no duplicate heading between the shell bar and the page). The list header's New is secondary to the first row's own continue affordance. 390x844 shots; PhoneNavigation tests updated. UX ACCEPTANCE (rsi/UX-AUDIT.md): tab bar only at area roots with a needs-you badge on Conversations; every tap target >=44px; no duplicated screen titles. The phone project-cover CTA bottom bar is P3's (ProjectDetailPage), not this slice.",
    "gate": "ux-approved"
   },
   {
@@ -454,7 +496,7 @@
   {
    "id": "C1b",
    "track": "C",
-   "title": "Composer pickers II: branch, cwd, place, machine browser",
+   "title": "Location pickers I: branch list and place panel on the shared layer",
    "deps": [
     "F5b",
     "F5d"
@@ -462,25 +504,60 @@
    "size": "L",
    "paths": [
     "ui/src/components/chat/BranchPicker.tsx",
-    "ui/src/components/chat/CwdPicker.tsx",
     "ui/src/components/newchat/PlacePicker.tsx",
-    "ui/src/components/chat/MachineBrowser.tsx"
+    "ui/src/components/chat/BranchPicker.dom.test.tsx",
+    "ui/src/components/newchat/PlacePicker.dom.test.tsx"
    ],
-   "brief": "Same migration for the location pickers; keep multi-root selection rule (never guess the first root)."
+   "brief": "Part 1 (cloud, location-pickers-facade): move the BranchPicker listbox and the Mac PlacePicker panel onto the shared Popover; phone PlacePicker keeps its Sheet. Part 2 = C1b2 (CwdPicker hover card/actions + MachineBrowser dialog)."
+  },
+  {
+   "id": "C1b2",
+   "track": "C",
+   "title": "Location pickers II: cwd hover card/actions and machine browser dialog",
+   "deps": [
+    "C1b"
+   ],
+   "size": "M",
+   "paths": [
+    "ui/src/components/chat/CwdPicker.tsx",
+    "ui/src/components/chat/MachineBrowser.tsx",
+    "ui/src/components/chat/CwdPicker.dom.test.tsx"
+   ],
+   "brief": "Part 2 of C1b: CwdPicker action links on Button and its hover card on a shared surface (or a documented exception if Popover focus is wrong for a hover card); MachineBrowser modal on the Dialog facade. Keep the multi-root rule: never guess the first root."
   },
   {
    "id": "C1c",
    "track": "C",
    "title": "RunConfigSheet on facade",
    "deps": [
+    "F5b",
     "F5c",
     "F5d"
    ],
    "size": "L",
    "paths": [
-    "ui/src/components/chat/RunConfigSheet.tsx"
+    "ui/src/components/chat/RunConfigSheet.tsx",
+    "ui/src/components/chat/RunConfigSheet.dom.test.tsx",
+    "ui/src/components/ui/Popover.tsx",
+    "ui/src/components/ui/Popover.dom.test.tsx"
    ],
-   "brief": "Migrate the 1032-line RunConfigSheet controls to Button/Field/Select/Sheet facades; behaviour unchanged; split out sub-sections if it exceeds 800 changed lines."
+   "brief": "Part 1 (cloud, run-config-layers): move the two private floating containers in RunConfigSheet — the Mac anchored panel (own outside/Escape/focus listeners + portal) and the row option layer (own anchoring/focus/portal) — onto the shared Popover. Keep every control's markup and the phone Sheet. Part 2 = C1c2 (triggers/option rows on Button/Menu, search + custom model on TextInput)."
+  },
+  {
+   "id": "C1c2",
+   "track": "C",
+   "size": "M",
+   "title": "RunConfigSheet controls on Button/Menu/TextInput",
+   "deps": [
+    "C1c",
+    "C1a",
+    "C4b"
+   ],
+   "paths": [
+    "ui/src/components/chat/RunConfigSheet.tsx",
+    "ui/src/components/chat/RunConfigSheet.dom.test.tsx"
+   ],
+   "brief": "Part 2 of C1c: face/close/row triggers on Button (add a layout-neutral variant if .kin-btn geometry cannot carry the face), the three option lists on Menu (uses C1a's description for the permission hints), the model search field and custom-model input on TextInput, and delete the hand-rolled listbox/arrow-key/search code. Keep TASTE 14/19: options stay a second layer over the sheet, never a second sheet."
   },
   {
    "id": "C1d",
@@ -604,10 +681,15 @@
    "size": "L",
    "paths": [
     "ui/src/components/ui/SessionFilters.tsx",
-    "ui/src/components/sessions/ConversationScopeFilter.tsx",
-    "ui/src/components/sessions/SessionToolbar.tsx"
+    "ui/src/components/ui/SessionFilters.dom.test.tsx",
+    "ui/src/components/sessions/SessionList.tsx",
+    "ui/src/components/sessions/SessionList.dualDevice.dom.test.tsx",
+    "ui/src/components/sessions/SessionList.importFeed.dom.test.tsx",
+    "ui/src/i18n/locales/en.ts",
+    "ui/src/i18n/locales/zh.ts",
+    "docs/product/components/session-filters.md"
    ],
-   "brief": "All/Pending/Archived as scope of the single collection; filters/search in the URL; keep exact status filters; red tests first (docs/product/components/session-filters.md). UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): scope chips All / Needs you N / Running N / Archived with live counts; needs-you then running sort first inside each project group."
+   "brief": "All/Pending/Archived as scope of the single collection; filters/search in the URL; keep exact status filters; red tests first (docs/product/components/session-filters.md). UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): scope chips All / Needs you N / Running N / Archived with live counts. Paths corrected 2026-11-16: ConversationScopeFilter.tsx and SessionToolbar.tsx do not exist; the owner of ?scope= is SessionList.tsx and the labels live in the two locale files (claimed by another lane until N2 lands, so this slice waits for a lane that can take all three). The ordering clause moved to C5d."
   },
   {
    "id": "C5c",
@@ -626,6 +708,18 @@
     "ui/src/components/sessions/SessionGroups.tsx"
    ],
    "brief": "Restore filters/scroll when returning from detail; Mac uses detail region; single list, single search."
+  },
+  {
+   "id": "C5d",
+   "track": "C",
+   "title": "Order a project's conversations by attention",
+   "deps": [],
+   "size": "M",
+   "paths": [
+    "ui/src/lib/phoneSessionBuckets.ts",
+    "ui/src/lib/phoneSessionBuckets.test.ts"
+   ],
+   "brief": "Split out of C5b 2026-11-16 so the ordering half could ship while the locale files were claimed by another lane. Inside each project group: needs-you (waiting_approval/waiting_input), then running (running/queued/retrying), then terminal or status-less rows, each rank newest-first. Pure function change plus tests; no call site, no i18n, no chips. UX ACCEPTANCE: needs-you then running sort first inside each project group (rsi/UX-AUDIT.md risk 3)."
   },
   {
    "id": "W1",

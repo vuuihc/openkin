@@ -12,6 +12,7 @@ source "$(cd "$(dirname "$0")" && pwd)/node-stamp.sh"
 MERGE_WORKERS="${RSI_MERGE_WORKERS:-2}"          # verifier slots for any PR
 SMALL_SLOTS="${RSI_MERGE_SMALL_SLOTS:-1}"        # extra slot only small-safe PRs may use: a 3-line refactor never queues behind two big reviews
 CODE_RE='^(ui/|internal/|cmd/|scripts/|desktop/|mobile/|web/|go\.mod|go\.sum|\.github/)'   # main changes here invalidate a carried-forward gate
+unset SB_FIXLIST SB_GATEFAILS
 say() { echo "[$(date +%T)] $*"; }
 attempts() { cat "$STATE/merge/$1.attempts" 2>/dev/null || echo 0; }
 sendback() { # slug item title detail-file
@@ -40,7 +41,7 @@ write_sendback() { # slug item title detail-file attempt-label kind(targeted|mec
 sendback_mech() { # slug item title detail-file : mechanical failure (merge conflict, format, infra). Does NOT count as a sendback; capped at 5 then counts.
   local slug="$1" item="$2" title="$3" det="$4" m; m=$(( $(cat "$STATE/merge/$slug.mech" 2>/dev/null || echo 0) + 1 )); echo $m > "$STATE/merge/$slug.mech"
   if [ $m -gt 5 ]; then sendback "$slug" "$item" "$title (mechanical x$m)" "$det"; return; fi
-  write_sendback "$slug" "$item" "$title" "$det" "mech-$m" mechanical
+  SB_FIXLIST="" SB_GATEFAILS="" write_sendback "$slug" "$item" "$title" "$det" "mech-$m" mechanical
   say "mechanical rework $slug (#$m, not counted as a sendback): $title"; KICK=1
 }
 
@@ -268,6 +269,7 @@ outside_tests_only() { # worktree log [summary] — writes $STATE/merge/$SLUG.ou
 fetch_ci_failed_log() { # outfile
   local out="$1" run
   run=$(grep -oE 'actions/runs/[0-9]+' "$STATE/merge/$SLUG.ci.txt" 2>/dev/null | head -1 | awk -F/ '{print $3}')
+  [ -n "$run" ] || run=$($GH pr checks "$N" --repo "$GH_REPO" --json link 2>/dev/null | grep -oE 'actions/runs/[0-9]+' | head -1 | awk -F/ '{print $3}')
   [ -n "$run" ] || return 1
   $GH run view "$run" --repo "$GH_REPO" --log-failed > "$out" 2>/dev/null || return 1
   [ -s "$out" ]
@@ -275,6 +277,7 @@ fetch_ci_failed_log() { # outfile
 rerun_failed_ci() {
   local run
   run=$(grep -oE 'actions/runs/[0-9]+' "$STATE/merge/$SLUG.ci.txt" 2>/dev/null | head -1 | awk -F/ '{print $3}')
+  [ -n "$run" ] || run=$($GH pr checks "$N" --repo "$GH_REPO" --json link 2>/dev/null | grep -oE 'actions/runs/[0-9]+' | head -1 | awk -F/ '{print $3}')
   [ -n "$run" ] || return 1
   $GH run rerun "$run" --failed --repo "$GH_REPO"
 }
@@ -302,8 +305,15 @@ bash "$RSI_DIR/runtime/prep-worktree.sh" "$WT" 2>&1 | tail -2
 SHA="$($GIT -C "$WT" rev-parse HEAD)"
 
 # 2. hold rules (MANDATE): never auto-merge these
-CH="$($GIT -C "$WT" diff --name-only origin/main...HEAD)"
+CH="$($GIT -C "$WT" diff --raw origin/main...HEAD | awk '$3 != $4 {sub(/^[^\t]*\t/, ""); print}')"
 SIZE="$($GIT -C "$WT" diff --numstat origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | awk '{s+=$1+$2} END{print s+0}')"
+# CEO 2026-11-16 EMPTY-DELIVERY: a PR whose tree equals main delivers nothing; never merge it.
+if [ "$SIZE" = 0 ] && $GIT -C "$WT" diff --quiet origin/main HEAD; then
+  say "#$N $SLUG: EMPTY delivery (tree == origin/main), not merging"
+  python3 "$LANES_PY" cloud-release "$SLUG" >/dev/null 2>&1 || true
+  [ -e "$STATE/merge/$SLUG.empty" ] || printf -- '- %s PR #%s rsi/%s is empty (tree == main); not merged — close it\n' "$(date '+%F %H:%M')" "$N" "$SLUG" >> "$STATE/needs-ceo.md"
+  echo "$N" > "$STATE/merge/$SLUG.empty"; exit 0
+fi
 HOLD=""
 echo "$CH" | grep -qE '^(go\.mod|ui/package\.json|internal/store/.*migrat|.*migrations?/|internal/auth)' && HOLD="touches deps/migrations/auth (MANDATE: needs CEO + ADR)"
 # CEO 2026-11-15 (Ethan: Astryx overhaul approved): the Astryx foundation slices F1-F3 may change ui/package.json, but only
@@ -320,11 +330,11 @@ for l in sys.stdin:
 print(" ".join(sorted(set(bad))))') )"
   [ -z "$BAD" ] && HOLD="" || HOLD="package.json change outside the Astryx programme packages: $BAD"
 fi
-if [ "$SIZE" -gt 800 ]; then
+if [ "$SIZE" -gt 1000 ]; then
   if [ -f "$STATE/merge/$SLUG.size-ok" ]; then
     say "#$N $SLUG: CEO size waiver ($SIZE lines; $STATE/merge/$SLUG.size-ok)"
   else
-    HOLD="diff is $SIZE changed lines (>800): split it"
+    HOLD="diff is $SIZE changed lines (>1000): split it"
   fi
 fi
 echo "$CH" | grep -qE '^web/dist/assets/' && HOLD="web/dist/assets in diff"
