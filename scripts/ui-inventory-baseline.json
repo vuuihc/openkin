@@ -1,23 +1,23 @@
 {
   "note": "Console UI inventory ratchet. Counts come from scripts/ui_inventory.py and may only go down. Update deliberately with `python3 scripts/check-ui-inventory.py --update` after a migration round; an increase belongs in a reviewed PR with its reason.",
   "metrics": {
-    "raw_button": {"label": "裸 <button", "occurrences": 301, "files": 76},
+    "raw_button": {"label": "裸 <button", "occurrences": 238, "files": 63},
     "kin_btn_class": {"label": "kin-btn 类", "occurrences": 1, "files": 1},
     "raw_input": {"label": "<input", "occurrences": 53, "files": 25},
     "kin_input_class": {"label": "kin-input 类", "occurrences": 20, "files": 6},
     "raw_textarea": {"label": "<textarea", "occurrences": 7, "files": 6},
     "native_select": {"label": "原生 <select", "occurrences": 0, "files": 0},
     "raw_label": {"label": "<label", "occurrences": 41, "files": 15},
-    "role_menu": {"label": "role=\"menu\"", "occurrences": 7, "files": 6},
+    "role_menu": {"label": "role=\"menu\"", "occurrences": 6, "files": 5},
     "role_listbox": {"label": "role=\"listbox\"", "occurrences": 12, "files": 7},
-    "role_dialog": {"label": "role=\"dialog\"", "occurrences": 17, "files": 11},
+    "role_dialog": {"label": "role=\"dialog\"", "occurrences": 15, "files": 9},
     "role_tab": {"label": "role=\"tab\"", "occurrences": 5, "files": 4},
     "role_status": {"label": "role=\"status\"", "occurrences": 32, "files": 20},
     "role_alert": {"label": "role=\"alert\"", "occurrences": 26, "files": 12},
-    "use_anchored_panel": {"label": "useAnchoredPanel", "occurrences": 19, "files": 6},
-    "create_portal": {"label": "createPortal", "occurrences": 17, "files": 8},
+    "use_anchored_panel": {"label": "useAnchoredPanel", "occurrences": 16, "files": 5},
+    "create_portal": {"label": "createPortal", "occurrences": 15, "files": 7},
     "push_toast": {"label": "pushToast", "occurrences": 134, "files": 17},
-    "rounded_border_surface": {"label": "rounded-* + border 表面", "occurrences": 154, "files": 55},
+    "rounded_border_surface": {"label": "rounded-* + border 表面", "occurrences": 146, "files": 52},
     "magic_z": {"label": "z-[n] 数字层级", "occurrences": 5, "files": 5}
   }
 }

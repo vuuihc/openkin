@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ApiError,
   machineDirs,
@@ -6,6 +6,7 @@ import {
   prepareMachineRepo,
   type MachineRepoBranches,
 } from "../../api/client";
+import { useMinWidth } from "../../hooks/useMinWidth";
 import { useT } from "../../i18n/react";
 import {
   emptyFolderNotice,
@@ -14,11 +15,16 @@ import {
   rootRowsVisible,
 } from "../../lib/devices";
 import { shortPath } from "../../lib/paths";
+import Sheet from "../mobile/Sheet";
+import Button from "../ui/Button";
+import Dialog from "../ui/Dialog";
 import SearchSelect from "../ui/SearchSelect";
 
 type Tab = "folders" | "repo";
 
 type Props = {
+  /** Controlled by the row that owns the browser, so focus can return to it. */
+  open: boolean;
   /**
    * The machine this is browsing. Empty or "self" is the daemon serving this
    * console; anything else is a machine the Hub has a channel to, and every
@@ -49,11 +55,13 @@ type Props = {
  * directory to start a session in — and a person starting from a phone knows
  * which of the two they mean before they know the path.
  *
- * A modal rather than a popover: it is used on a phone, where it wants the whole
- * width, and it escapes the composer's `overflow-x-auto` strip by being fixed to
- * the viewport rather than laid out beside its trigger.
+ * The surface is not this component's own: a Mac gets the shared `Dialog`, a
+ * phone gets the phone's `Sheet`, and both render the same body. That is what
+ * gives the browser the console's Escape, focus and touch-floor contract
+ * instead of the hand-rolled overlay it used to carry.
  */
 export default function MachineBrowser({
+  open,
   device,
   initialPath,
   onPick,
@@ -61,95 +69,96 @@ export default function MachineBrowser({
   onTypePath,
 }: Props) {
   const tr = useT();
-  const [tab, setTab] = useState<Tab>("folders");
-  const panelRef = useRef<HTMLDivElement>(null);
+  const wide = useMinWidth(768);
 
-  // Escape and the opening focus belong to the panel being open, not to every
-  // render. `onClose` is a fresh closure each time the parent renders — a
-  // keystroke in the repo box is one — so an effect keyed on it re-arms the
-  // focus timer on every keystroke and takes focus out of the input the person
-  // is typing in. Holding the newest closure in a ref lets the effect run once.
-  const closeRef = useRef(onClose);
-  useEffect(() => {
-    closeRef.current = onClose;
-  });
+  const body = open ? (
+    <BrowserBody
+      device={device}
+      initialPath={initialPath}
+      onPick={onPick}
+      onTypePath={onTypePath}
+    />
+  ) : null;
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeRef.current();
-    };
-    document.addEventListener("keydown", onKey);
-    const t = window.setTimeout(() => panelRef.current?.focus(), 20);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      window.clearTimeout(t);
-    };
-  }, []);
+  if (!wide) {
+    return (
+      <Sheet open={open} onClose={onClose} title={tr("browse.title")}>
+        {body}
+      </Sheet>
+    );
+  }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center"
-      role="dialog"
-      aria-modal="true"
-      aria-label={tr("browse.title")}
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        // The dialog only asks to close. The row that opened it owns the state
+        // and the focus return, so this never pulls focus by itself.
+        if (!next) onClose();
+      }}
+      label={tr("browse.title")}
+      width={480}
     >
-      <button
-        type="button"
-        aria-label={tr("browse.close")}
-        onClick={onClose}
-        className="absolute inset-0 bg-black/40"
-      />
-      <div
-        ref={panelRef}
-        tabIndex={-1}
-        className={[
-          "relative flex flex-col w-full sm:max-w-md max-h-[80vh] outline-none",
-          "rounded-t-2xl sm:rounded-2xl border border-[var(--kin-hairline-strong)]",
-          "bg-kin-elevated shadow-e3 overflow-hidden",
-        ].join(" ")}
-      >
-        <div className="flex-none flex items-center gap-1 border-b border-[var(--kin-hairline)] px-2 pt-2">
-          {(["folders", "repo"] as const).map((id) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setTab(id)}
-              aria-current={tab === id}
-              className={[
-                "rounded-t-lg px-3 py-1.5 text-body font-medium transition-colors",
-                tab === id
-                  ? "text-kin-blue-ink border-b-2 border-kin-blue"
-                  : "text-kin-muted border-b-2 border-transparent hover:text-kin-secondary",
-              ].join(" ")}
-            >
-              {tr(id === "folders" ? "browse.folders" : "browse.repo")}
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={onClose}
-            className="ml-auto flex-none px-2 py-1.5 text-body text-kin-muted hover:text-kin-secondary"
+      {body}
+    </Dialog>
+  );
+}
+
+/**
+ * The browser's body, shared by both surfaces so their shapes cannot drift.
+ * Close is the surface's own (dialog header, sheet scrim and Escape), not a
+ * third control inside the content.
+ */
+function BrowserBody({
+  device,
+  initialPath,
+  onPick,
+  onTypePath,
+}: {
+  device?: string;
+  initialPath?: string;
+  onPick: (path: string) => void;
+  onTypePath?: () => void;
+}) {
+  const tr = useT();
+  const [tab, setTab] = useState<Tab>("folders");
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col sm:max-h-[70vh]">
+      <div className="flex-none flex items-center gap-1 border-b border-[var(--kin-hairline)] px-2 pt-2">
+        {(["folders", "repo"] as const).map((id) => (
+          <Button
+            key={id}
+            variant="quiet"
+            onClick={() => setTab(id)}
+            aria-current={tab === id}
+            className={[
+              "rounded-t-lg px-3 py-1.5 text-body font-medium transition-colors",
+              tab === id
+                ? "text-kin-blue-ink border-b-2 border-kin-blue"
+                : "text-kin-muted border-b-2 border-transparent hover:text-kin-secondary",
+            ].join(" ")}
           >
-            {tr("browse.close")}
-          </button>
-        </div>
-        {tab === "folders" ? (
-          <FolderTab device={device} initialPath={initialPath} onPick={onPick} />
-        ) : (
-          <RepoTab device={device} onPick={onPick} />
-        )}
-        {onTypePath && (
-          <div className="flex-none border-t border-[var(--kin-hairline)] px-3 py-2">
-            <button
-              type="button"
-              onClick={onTypePath}
-              className="text-caption font-medium text-kin-blue-ink hover:underline"
-            >
-              {tr("browse.typePath")}
-            </button>
-          </div>
-        )}
+            {tr(id === "folders" ? "browse.folders" : "browse.repo")}
+          </Button>
+        ))}
       </div>
+      {tab === "folders" ? (
+        <FolderTab device={device} initialPath={initialPath} onPick={onPick} />
+      ) : (
+        <RepoTab device={device} onPick={onPick} />
+      )}
+      {onTypePath && (
+        <div className="flex-none border-t border-[var(--kin-hairline)] px-3 py-2">
+          <Button
+            variant="quiet"
+            onClick={onTypePath}
+            className="px-1 text-caption font-medium text-kin-blue-ink"
+          >
+            {tr("browse.typePath")}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -303,8 +312,7 @@ function FolderTab({
       </ul>
 
       <div className="flex-none border-t border-[var(--kin-hairline)] px-3 py-2">
-        <button
-          type="button"
+        <Button
           // Not pickable while the listing is in doubt: `path` is where the
           // person walked to, and it is only known to be a directory on that
           // machine because that machine listed it. A failed listing is exactly
@@ -312,13 +320,10 @@ function FolderTab({
           // session somewhere that does not exist.
           disabled={!folderPickable({ path, loading, failed: Boolean(error) })}
           onClick={() => onPick(path)}
-          className={[
-            "w-full rounded-lg px-3 py-2 text-strong font-medium transition-colors",
-            "bg-kin-blue text-kin-on-brand disabled:opacity-40",
-          ].join(" ")}
+          className="w-full"
         >
           {tr("browse.use")}
-        </button>
+        </Button>
       </div>
     </>
   );
@@ -415,14 +420,14 @@ function RepoTab({ device, onPick }: { device?: string; onPick: (path: string) =
                 "text-kin-text outline-none focus:border-kin-blue/50",
               ].join(" ")}
             />
-            <button
-              type="button"
+            <Button
+              variant="quiet"
               disabled={busy || !named}
               onClick={() => void find()}
-              className="flex-none text-body font-medium text-kin-blue-ink disabled:opacity-40"
+              className="flex-none px-2 text-body font-medium text-kin-blue-ink"
             >
               {finding ? tr("browse.finding") : tr("browse.findBranches")}
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -457,19 +462,23 @@ function RepoTab({ device, onPick }: { device?: string; onPick: (path: string) =
       </div>
 
       <div className="flex-none border-t border-[var(--kin-hairline)] px-3 py-2">
-        <button
-          type="button"
+        <Button
           disabled={busy || !named}
           onClick={() => void fetchIt()}
-          className="w-full rounded-lg px-3 py-2 text-strong font-medium bg-kin-blue text-kin-on-brand disabled:opacity-40"
+          className="w-full"
         >
           {fetching ? tr("browse.fetching") : tr("browse.fetch")}
-        </button>
+        </Button>
       </div>
     </>
   );
 }
 
+/**
+ * One directory row on the shared button facade. Its `min-h-11 sm:min-h-0` is
+ * the phone's 44px floor; the row keeps its own ink, hint and current tint, and
+ * states its accessible name because its children are JSX.
+ */
 function Row({
   label,
   hint,
@@ -484,11 +493,13 @@ function Row({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
+    <Button
+      variant="quiet"
       onClick={onClick}
+      aria-label={hint ? `${label}, ${hint}` : label}
+      aria-current={current ? "true" : undefined}
       className={[
-        "w-full flex items-center gap-2 px-3 py-2 text-left transition-colors",
+        "w-full justify-start gap-2 rounded-none px-3 py-2 text-left font-normal transition-colors",
         current ? "bg-kin-blue/15 text-kin-blue-ink" : "hover:bg-[var(--kin-fill)]",
       ].join(" ")}
     >
@@ -497,7 +508,7 @@ function Row({
         {label}
       </span>
       {hint && <span className="flex-none text-caption text-kin-muted">{hint}</span>}
-    </button>
+    </Button>
   );
 }
 
