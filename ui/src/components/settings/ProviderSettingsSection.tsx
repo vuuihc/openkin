@@ -3,6 +3,7 @@ import type { AgentInfo, ModelSpec, ProviderEntry } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { agentCatalogState, runnableAgents, sortAgentCatalog } from "../../lib/agentCatalog";
 import { onGuardedLinkClick } from "../../lib/phoneNavigation";
+import Button from "../ui/Button";
 import SearchSelect from "../ui/SearchSelect";
 import { SettingsTabPanel } from "./SettingsPrimitives";
 
@@ -119,14 +120,14 @@ export function ProviderSettingsSection({
               {tr("settings.provider.descB")}
             </p>
           </div>
-          <button
-            type="button"
+          <Button
+            variant="secondary"
             disabled={providerBusy}
             onClick={onAddProvider}
-            className="kin-btn-secondary w-full shrink-0 disabled:opacity-50 sm:w-auto"
+            className="w-full shrink-0 sm:w-auto"
           >
             {tr("settings.provider.add")}
-          </button>
+          </Button>
         </div>
 
         {providers.length === 0 ? (
@@ -162,31 +163,31 @@ export function ProviderSettingsSection({
                   </div>
                   <div className="flex flex-wrap gap-2 shrink-0">
                     {!isActive ? (
-                      <button
-                        type="button"
+                      <Button
+                        variant="secondary"
                         disabled={providerBusy}
                         onClick={() => onActivateProvider(provider.id)}
-                        className="kin-btn-secondary text-body min-h-9 disabled:opacity-50"
+                        className="text-body"
                       >
                         {tr("settings.provider.use")}
-                      </button>
+                      </Button>
                     ) : null}
-                    <button
-                      type="button"
+                    <Button
+                      variant="secondary"
                       disabled={providerBusy}
                       onClick={() => onEditProvider(provider)}
-                      className="kin-btn-secondary text-body min-h-9 disabled:opacity-50"
+                      className="text-body"
                     >
                       {tr("settings.provider.edit")}
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
+                      variant="secondary"
                       disabled={providerBusy}
                       onClick={() => onDeleteProvider(provider.id)}
-                      className="kin-btn-secondary text-body min-h-9 text-kin-red-ink disabled:opacity-50"
+                      className="text-body text-kin-red-ink"
                     >
                       {tr("settings.provider.delete")}
-                    </button>
+                    </Button>
                   </div>
                 </li>
               );
@@ -244,13 +245,9 @@ export function ProviderSettingsSection({
                   className="kin-input min-h-11 font-mono text-body leading-4 flex-1"
                   autoComplete="off"
                 />
-                <button
-                  type="button"
-                  className="kin-btn-secondary shrink-0"
-                  onClick={onToggleApiKeyReveal}
-                >
+                <Button variant="secondary" className="shrink-0" onClick={onToggleApiKeyReveal}>
                   {revealApiKey ? tr("settings.hide") : tr("settings.reveal")}
-                </button>
+                </Button>
               </div>
               <span className="text-caption text-kin-muted">
                 {tr("settings.provider.apiKeyHint")}
@@ -261,16 +258,16 @@ export function ProviderSettingsSection({
                 <span className="text-body leading-4 font-medium text-kin-secondary">
                   {tr("settings.provider.model")}
                 </span>
-                <button
-                  type="button"
+                <Button
+                  variant="quiet"
                   disabled={providerModelLoading}
                   onClick={onFetchProviderModels}
-                  className="text-caption text-kin-blue-ink hover:underline disabled:opacity-50 shrink-0"
+                  className="shrink-0 text-caption text-kin-blue-ink!"
                 >
                   {providerModelLoading
                     ? tr("settings.provider.modelsFetching")
                     : tr("settings.provider.modelsFetch")}
-                </button>
+                </Button>
               </div>
               <input
                 type="text"
@@ -323,6 +320,7 @@ export function ProviderSettingsSection({
             <div className="border-t border-[var(--kin-hairline)] pt-2">
               <button
                 type="button"
+                aria-expanded={showRouting}
                 onClick={onToggleRouting}
                 className="flex items-center gap-1 text-body leading-4 font-medium text-kin-secondary hover:text-kin-blue-ink"
               >
@@ -351,18 +349,18 @@ export function ProviderSettingsSection({
                       <span className="text-body leading-4 font-medium text-kin-secondary">
                         {tr("settings.routing.models")}
                       </span>
-                      <button
-                        type="button"
+                      <Button
+                        variant="quiet"
                         onClick={() =>
                           onProviderModelsChange([
                             ...providerModels,
                             { id: "", tier: "balanced", cost_label: "unknown" },
                           ])
                         }
-                        className="text-caption text-kin-blue-ink hover:underline"
+                        className="text-caption text-kin-blue-ink!"
                       >
                         {tr("settings.routing.addModel")}
-                      </button>
+                      </Button>
                     </div>
                     {providerModels.map((model, index) => (
                       <div
@@ -373,17 +371,17 @@ export function ProviderSettingsSection({
                           <span className="text-micro font-mono text-kin-muted">
                             {tr("settings.provider.modelLabel", { index: index + 1 })}
                           </span>
-                          <button
-                            type="button"
+                          <Button
+                            variant="quiet-danger"
                             onClick={() =>
                               onProviderModelsChange(
                                 providerModels.filter((_, modelIndex) => modelIndex !== index),
                               )
                             }
-                            className="text-micro text-kin-red-ink hover:underline"
+                            className="text-micro"
                           >
                             {tr("settings.provider.removeModel")}
-                          </button>
+                          </Button>
                         </div>
                         <input
                           type="text"
@@ -427,22 +425,12 @@ export function ProviderSettingsSection({
               )}
             </div>
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={providerBusy}
-                onClick={onSaveProvider}
-                className="kin-btn-primary disabled:opacity-50"
-              >
+              <Button disabled={providerBusy} onClick={onSaveProvider}>
                 {providerBusy ? tr("settings.saving") : tr("settings.provider.saveEntry")}
-              </button>
-              <button
-                type="button"
-                disabled={providerBusy}
-                onClick={onCloseProviderForm}
-                className="kin-btn-secondary disabled:opacity-50"
-              >
+              </Button>
+              <Button variant="secondary" disabled={providerBusy} onClick={onCloseProviderForm}>
                 {tr("settings.provider.cancel")}
-              </button>
+              </Button>
             </div>
           </div>
         ) : null}
@@ -490,14 +478,9 @@ export function ProviderSettingsSection({
             </Link>
           ) : null}
         </div>
-        <button
-          type="button"
-          disabled={settingsBusy}
-          onClick={onSaveSettings}
-          className="kin-btn-primary disabled:opacity-50"
-        >
+        <Button disabled={settingsBusy} onClick={onSaveSettings}>
           {settingsBusy ? tr("settings.saving") : tr("settings.provider.save")}
-        </button>
+        </Button>
       </section>
     </SettingsTabPanel>
   );

@@ -1,6 +1,7 @@
 import type { AgentProvider, AgentProviderState } from "../../api/client";
 import { useT } from "../../i18n/react";
 import type { AgentRole } from "../../lib/agentRoles";
+import Button from "../ui/Button";
 import { RolesSection } from "./RolesSection";
 import { SettingsSection, SettingsTabPanel } from "./SettingsPrimitives";
 
@@ -52,16 +53,16 @@ export function LocalAgentSettingsSection({
         title={tr("settings.localAgents.heading")}
         description={tr("settings.localAgents.desc")}
         action={
-          <button
-            type="button"
+          <Button
+            variant="secondary"
             disabled={refreshingAgentCatalog}
             onClick={onRefreshAgentCatalog}
-            className="kin-btn-secondary text-caption min-h-11 sm:min-h-8 disabled:opacity-50"
+            className="text-caption"
           >
             {refreshingAgentCatalog
               ? tr("settings.localAgents.refreshing")
               : tr("settings.localAgents.refresh")}
-          </button>
+          </Button>
         }
       >
         <div className="space-y-1.5">
@@ -120,14 +121,14 @@ export function LocalAgentSettingsSection({
                     </div>
                   </div>
                   {canImport && (
-                    <button
-                      type="button"
+                    <Button
+                      variant="secondary"
                       disabled={importingSessions}
                       onClick={() => onImportProviderSessions(agent.id)}
-                      className="kin-btn-secondary px-2.5 py-1 text-caption min-h-9 max-md:min-h-11 disabled:opacity-50"
+                      className="px-2.5 py-1 text-caption"
                     >
                       {tr("settings.localAgents.importProvider")}
-                    </button>
+                    </Button>
                   )}
                   {/* The capability chips are reference detail; on a phone they
                       used to share the row with the name and the import button,
@@ -164,24 +165,14 @@ export function LocalAgentSettingsSection({
             save its settings without an error, but no surface reads it to
             start an import. */}
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={importingSessions}
-            onClick={onImportSessions}
-            className="kin-btn-secondary disabled:opacity-50"
-          >
+          <Button variant="secondary" disabled={importingSessions} onClick={onImportSessions}>
             {importingSessions
               ? tr("settings.localAgents.importing")
               : tr("settings.localAgents.import")}
-          </button>
-          <button
-            type="button"
-            disabled={settingsBusy}
-            onClick={onSaveSettings}
-            className="kin-btn-primary disabled:opacity-50"
-          >
+          </Button>
+          <Button disabled={settingsBusy} onClick={onSaveSettings}>
             {settingsBusy ? tr("settings.saving") : tr("settings.localAgents.save")}
-          </button>
+          </Button>
         </div>
       </SettingsSection>
       {/* Roles sit beside the agents because they answer the same question —
