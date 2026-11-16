@@ -119,6 +119,11 @@ run_claude() { # model [effort]
   wait "$pid"; local rc=$?
   kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
   rsi_kill_tree "$pid"
+  # run_claude appends stream-json to $LOG; usable_result and emit_and_exit
+  # inspect $LOG.txt, so extract the final text for fallbacks that use it.
+  if [ ! -s "$LOG.txt" ]; then
+    python3 "$RSI_DIR/runtime/parse_result.py" "$LOG" > "$LOG.txt" 2>/dev/null || true
+  fi
   return $rc
 }
 
@@ -302,6 +307,7 @@ emit_and_exit() { # rc  [file]
 
 run_named() { # hydrogen|hydrogen-high|carbon|codex|kimi|or a raw model id. Returns 0 ok, 1 failed call, 3 skipped.
   local name="$1"
+  : > "$LOG.txt" # a failed candidate must not leave stale text for usable_result
   case "$name" in
     hydrogen|hydrogen-high|carbon)
       if ! agy_enabled_now; then echo "[skip $name: agy disabled]" >&2; return 3; fi

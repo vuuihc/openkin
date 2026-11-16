@@ -26,4 +26,44 @@ touch "$T/ov/NO_REMOTE_OVERFLOW"; RSI_STATE="$T/ov" python3 "$H/slices.py" cloud
 echo 'API Error 429 · Codex: The usage limit has been reached (out of its allowance: not asked again before 06:15 UTC+8)' > "$T/log"
 sed -n '/^note_sol_limit()/,/^}/p' "$H/dispatch.sh" > "$T/fn.sh"
 ( LOG="$T/log"; STATE="$T"; . "$T/fn.sh"; note_sol_limit; [ -s "$T/sol-limited-until" ] ) && ok sol-limit-marker || bad sol-limit-marker
+# run_claude appends stream-json to $LOG; usable_result/emit_and_exit read $LOG.txt,
+# so a claude run must extract its text there for kimi / codex fallbacks.
+cat > "$T/fake-claude" <<'EOF'
+#!/bin/bash
+echo '{"type":"result","result":"VERDICT: PASS","is_error":false}'
+EOF
+chmod +x "$T/fake-claude"
+sed -n '/^run_claude()/,/^}/p' "$H/dispatch.sh" > "$T/run-claude.sh"
+( LOG="$T/run"; TOOLS=(Read); PROMPT=x; CWD="$T"; WT_ROOT="$T"; RSI_CTRL="$T"; BUDGET_GUARD=1
+  CLAUDE="$T/fake-claude"; DISPATCH_MAX_SECS=20; RSI_DIR="$(dirname "$H")"
+  rsi_kill_tree() { :; }
+  . "$T/run-claude.sh"
+  run_claude test-model "" && grep -q 'VERDICT: PASS' "$LOG.txt" ) && ok dispatch-log-text || bad dispatch-log-text
+# A failed candidate must not leave stale text for usable_result.
+sed -n '/^run_named()/,/^}/p' "$H/dispatch.sh" > "$T/run-named.sh"
+( LOG="$T/stale"; echo 'VERDICT: PASS' > "$LOG.txt"; M_KIMI=x; M_DIRECTOR_EFFORT=
+  use_name() { :; }; record_model() { :; }; run_claude() { return 1; }
+  . "$T/run-named.sh"
+  run_named kimi; [ ! -s "$LOG.txt" ] ) && ok dispatch-clear-stale || bad dispatch-clear-stale
+# ci_state must ask for `link`, or fetch_ci_failed_log cannot find the run id and
+# the CI outside-tests path never runs.
+mkdir -p "$T/merge"
+cat > "$T/fake-gh" <<'EOF'
+#!/bin/bash
+fields=""; args=("$@")
+for ((i=0; i<${#args[@]}; i++)); do [ "${args[$i]}" = "--json" ] && fields="${args[$((i+1))]}"; done
+case "${args[0]}" in
+  pr) case "$fields" in *link*) ;; *) echo "pr checks --json missing link: $fields" >&2; exit 1;; esac
+      echo '[{"name":"build","bucket":"pass","link":"https://github.com/o/r/actions/runs/4242/job/7"}]';;
+  run) echo "failed-job log";;
+esac
+EOF
+chmod +x "$T/fake-gh"
+sed -n '/^check_buckets()/,/^}/p;/^ci_state()/,/^}/p;/^fetch_ci_failed_log()/,/^}/p' "$H/merge.sh" > "$T/ci-fns.sh"
+( GH="$T/fake-gh"; GH_REPO=o/r; N=7; SLUG=ci; STATE="$T"; say() { :; }; sleep() { :; }; with_timeout() { shift; "$@"; }
+  . "$T/ci-fns.sh"
+  [ "$(ci_state)" = green ] || exit 1
+  grep -q 'actions/runs/4242' "$T/merge/ci.ci.txt" || exit 1
+  fetch_ci_failed_log "$T/merge/ci-log.txt" || exit 1
+  grep -q 'failed-job log' "$T/merge/ci-log.txt" ) && ok ci-link || bad ci-link
 echo ALL-PASS

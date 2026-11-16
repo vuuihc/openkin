@@ -12,6 +12,7 @@ sendback.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -169,6 +170,23 @@ def parse_failures(log_text: str, mod: str) -> tuple[list[tuple[str, str | None]
 
 def parse_summary(text: str) -> list[tuple[str, str]]:
     """Parse `gh pr checks` rows: name, state."""
+    stripped = text.lstrip()
+    if stripped.startswith("["):
+        # ci_state passes `gh pr checks --json name,bucket,link`, so merge.sh
+        # hands classify() JSON rather than the tab-delimited table.
+        try:
+            data = json.loads(stripped)
+        except Exception:
+            return []
+        if not isinstance(data, list):
+            return []
+        return [
+            (str(item.get("name") or "").strip(), str(item.get("bucket") or "").strip().lower())
+            for item in data
+            if isinstance(item, dict)
+            and str(item.get("name") or "").strip()
+            and str(item.get("bucket") or "").strip()
+        ]
     rows = []
     for raw in text.splitlines():
         parts = re.split(r"\t+", raw.strip())
@@ -310,6 +328,20 @@ build	Run go test ./...	2026-11-15T11:49:13.4234567Z	FAIL	github.com/vuuihc/open
     assert ok, reason
     summary_bad = summary_ok + "desktop\tfail\t30s\thttps://example/4\n"
     ok, reason = classify(ci_log, ui_only, set(), mod, summary_bad)
+    assert not ok and "desktop" in reason, reason
+
+    # merge.sh passes ci_state's `gh pr checks --json name,bucket,link` output.
+    json_summary_ok = (
+        '[{"name":"build","bucket":"fail","link":"https://example/actions/runs/1/job/2"},'
+        '{"name":"smoke","bucket":"skipping","link":""}]\n'
+    )
+    ok, reason = classify(ci_log, ui_only, set(), mod, json_summary_ok)
+    assert ok, reason
+    json_summary_bad = (
+        '[{"name":"build","bucket":"fail","link":"https://example/actions/runs/1/job/2"},'
+        '{"name":"desktop","bucket":"fail","link":"https://example/actions/runs/3/job/4"}]\n'
+    )
+    ok, reason = classify(ci_log, ui_only, set(), mod, json_summary_bad)
     assert not ok and "desktop" in reason, reason
 
 
