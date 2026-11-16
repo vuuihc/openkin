@@ -69,7 +69,7 @@ export default function SessionsSearch({ className = "" }: { className?: string 
           aria-label={tr("common.clear")}
           title={tr("common.clear")}
           data-touch-mini
-          className="h-7 w-7 flex-none items-center justify-center rounded-full p-0 text-kin-muted"
+          className="h-7 w-7 flex-none items-center justify-center rounded-full p-0 text-kin-muted!"
         >
           <IconX size={13} />
         </Button>

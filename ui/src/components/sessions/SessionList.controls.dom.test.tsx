@@ -177,6 +177,9 @@ describe("the list's recovery and paging controls", () => {
     const control = screen.getByRole("button", { name: "Load older chats" });
     expect(control.className).toContain("kin-btn");
     expect(control.className).not.toContain("kin-btn-primary");
+    // The quiet variant emits `text-kin-text` after `text-kin-muted`, so the
+    // muted weight only survives the cascade with the important marker.
+    expect(control.className).toContain("text-kin-muted!");
 
     await userEvent.click(control);
     await waitFor(() => expect(vi.mocked(listTasks)).toHaveBeenCalledTimes(1));
@@ -249,7 +252,12 @@ describe("the list's recovery and paging controls", () => {
     const showAll = screen.getByRole("button", { name: "Show all (6)" });
     expect(showAll.className).toContain("kin-btn");
     expect(showAll.className).not.toContain("kin-btn-primary");
+    expect(showAll.className).toContain("text-kin-muted!");
     expect(showAll.getAttribute("aria-expanded")).toBe("false");
+
+    const chevron = screen.getByRole("button", { name: "Collapse project alpha" });
+    expect(chevron.className).toContain("kin-btn");
+    expect(chevron.className).toContain("text-kin-muted!");
 
     await userEvent.click(showAll);
     const showLess = screen.getByRole("button", { name: "Show less" });
@@ -263,6 +271,7 @@ describe("the list's recovery and paging controls", () => {
 
     const more = screen.getByRole("button", { name: "Project actions" });
     expect(more.className).toContain("kin-btn");
+    expect(more.className).toContain("text-kin-muted!");
     expect(more.getAttribute("aria-haspopup")).toBe("dialog");
 
     await userEvent.click(more);

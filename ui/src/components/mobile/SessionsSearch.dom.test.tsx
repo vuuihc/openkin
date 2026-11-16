@@ -59,6 +59,9 @@ describe("the phone search pill", () => {
     const clear = screen.getByRole("button", { name: "Clear" });
     expect(clear.className).toContain("kin-btn");
     expect(clear.className).not.toContain("kin-btn-primary");
+    // Quiet's `text-kin-text` is emitted after `text-kin-muted`; the clear is a
+    // glyph, not query text, so the muted weight needs the important marker.
+    expect(clear.className).toContain("text-kin-muted!");
 
     await userEvent.click(clear);
 

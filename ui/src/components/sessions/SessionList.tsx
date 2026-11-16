@@ -1123,7 +1123,7 @@ export default function SessionList({
           variant="quiet"
           onClick={loadOlder}
           disabled={loadingOlder || refreshing}
-          className="kin-row-press flex w-full items-center justify-center px-4 py-2 text-body font-medium"
+          className="kin-row-press flex w-full items-center justify-center px-4 py-2 text-body font-medium text-kin-muted!"
         >
           {loadingOlder ? tr("sessions.loadingOlder") : tr("sessions.loadOlder")}
         </Button>
@@ -1485,7 +1485,7 @@ function ProjectBucket({
           tabIndex={canToggle ? undefined : -1}
           aria-label={`${tr(collapsed ? "nav.expandProject" : "nav.collapseProject")} ${heading}`}
           className={[
-            "kin-row-press flex flex-none items-center justify-center rounded-lg p-0 text-kin-muted",
+            "kin-row-press flex flex-none items-center justify-center rounded-lg p-0 text-kin-muted!",
             coarse ? "h-11 min-h-11 w-11" : "h-9 w-7",
             canToggle ? "" : "opacity-40",
           ].join(" ")}
@@ -1599,7 +1599,7 @@ function ProjectBucket({
             aria-label={tr("nav.projectActions")}
             aria-haspopup="dialog"
             onClick={onProjectMenu}
-            className="h-11 w-11 flex-none items-center justify-center rounded-full p-0 text-kin-muted"
+            className="h-11 w-11 flex-none items-center justify-center rounded-full p-0 text-kin-muted!"
           >
             <IconMore size={18} />
           </Button>
@@ -1648,7 +1648,7 @@ function ProjectBucket({
               onClick={onToggleShowAll}
               aria-expanded={showAll}
               aria-label={showAllLabel}
-              className="kin-row-press flex w-full items-center gap-2.5 px-4 text-left text-body font-medium text-kin-muted"
+              className="kin-row-press flex w-full items-center gap-2.5 px-4 text-left text-body font-medium text-kin-muted!"
             >
               <span className="w-2 flex-none" aria-hidden />
               <span className="min-w-0 truncate">{showAllLabel}</span>
