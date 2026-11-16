@@ -73,8 +73,14 @@ describe("the phone list's archive wiring", () => {
   it("gives an archived conversation its restore strip, not the list's", () => {
     // The strip is chosen from the row's own flag first: a conversation put
     // away on its own uncovers restore + delete even when its project is
-    // still filed.
-    expect(ROW).toContain("const mode: SessionRowActionMode | null = row.task.archived_at");
+    // still filed. The row's mode is resolved before the action surface is
+    // built, so the guard is precedence rather than one exact expression.
+    const archivedFlag = ROW.indexOf("row.task.archived_at");
+    const scopeFallback = ROW.indexOf('scope === "archived"');
+    expect(archivedFlag).toBeGreaterThan(-1);
+    expect(scopeFallback).toBeGreaterThan(archivedFlag);
+    // The scope branch is the "no actions" answer, not the list's.
+    expect(ROW).toMatch(/scope === "archived"\s*\?\s*null/);
   });
 
   it("pages each feed from its own tail", () => {
