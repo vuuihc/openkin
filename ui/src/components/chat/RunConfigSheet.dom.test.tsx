@@ -105,10 +105,12 @@ describe("RunConfigControl", () => {
     expect(face.textContent).toContain("Ask");
   });
 
-  it("reads a long agent and model in full instead of trimming them to an ellipsis", () => {
-    // The phone face used to be one line: a long agent or model name lost its
-    // tail to `truncate`, and a phone has no hover for the `title` that held
-    // the rest. Both values now wrap on their own lines.
+  it("keeps the face on one line, ellipsizing the model but never its name", () => {
+    // The face rides the composer's control row, whose height is fixed: a
+    // long model id wrapped to four lines and made the settings the tallest
+    // part of a phone composer. It now ellipsizes, and the full value is
+    // still announced (the accessible name) and still readable in full in
+    // the sheet — see "shows the full current values ... inside the sheet".
     const agentName = "An agent name that has no business fitting on one line";
     const modelLabel = "A-model-label-long-enough-that-it-cannot-fit-on-one-line";
     setup({
@@ -117,15 +119,24 @@ describe("RunConfigControl", () => {
       models: [{ id: "custom-model", label: modelLabel }],
     });
     const face = screen.getByRole("button", { name: /^Run settings/ });
-    const agent = within(face).getByText(agentName);
     const model = within(face).getByText(modelLabel);
-    expect(agent.className).not.toContain("truncate");
-    expect(model.className).not.toContain("truncate");
-    expect(agent.className).toContain("break-words");
-    expect(model.className).toContain("break-words");
-    // The two values are stacked, not squeezed side by side.
-    expect(agent.parentElement).not.toBe(model.parentElement);
-    expect(face.textContent).toContain("Ask");
+    expect(model.className).toContain("truncate");
+    expect(model.className).not.toContain("break-words");
+    expect(model.className).not.toContain("hidden");
+    // On the phone's narrow row the one visible name is the model; the
+    // agent's name returns from `sm` up, where there is room for both.
+    const agent = within(face).getByText(agentName);
+    expect(agent.className).toContain("hidden");
+    expect(agent.className).toContain("sm:block");
+    // One line: neither the values nor the row that holds them may wrap.
+    expect(model.parentElement!.className).not.toContain("flex-wrap");
+    expect(face.className).toContain("overflow-hidden");
+    // The full values survive where a phone can still reach them: the
+    // button's accessible name, and the sheet behind it.
+    const name = face.getAttribute("aria-label") ?? "";
+    expect(name).toContain(agentName);
+    expect(name).toContain(modelLabel);
+    expect(name).toContain("Ask");
   });
 
   it("shows the full current values and options inside the sheet", async () => {

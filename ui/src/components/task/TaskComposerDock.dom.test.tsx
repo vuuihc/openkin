@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { Task, TaskUsage, Upload } from "../../api/client";
 import type { AgentRole } from "../../lib/agentRoles";
@@ -111,15 +112,47 @@ describe("TaskComposerDock", () => {
     ).toBeTruthy();
   });
 
-  it("desktop strip: names the host agent and shows the machine line only when a machine is passed", () => {
-    const withoutMachine = setup({ machine: null });
-    expect(screen.getAllByText("Kin").length).toBeGreaterThan(0);
-    expect(screen.queryByText(t("machine.runsOn", { name: "node-1" }))).toBeNull();
-    withoutMachine.unmount();
+  it("discloses what the session is — folder, repository, branch, machine — inside the run settings", async () => {
+    const user = userEvent.setup();
+    setup({
+      task: { ...task, workspace_repo: "owner/repo" },
+      machine: { text: "node-1", known: true },
+    });
 
-    setup({ machine: { text: "node-1", known: true } });
-    expect(screen.getAllByText("Kin").length).toBeGreaterThan(0);
-    expect(screen.getByText(t("machine.runsOn", { name: "node-1" }))).toBeTruthy();
+    await user.click(
+      screen.getByRole("button", {
+        name: new RegExp(`^${t("runConfig.open")}${t("common.labelSeparator")}`),
+      }),
+    );
+    const panel = await screen.findByRole("dialog", { name: t("runConfig.title") });
+
+    for (const label of [
+      t("runConfig.agent"),
+      t("newChat.rowCwd"),
+      t("pr.repoLabel"),
+      t("newChat.rowBranch"),
+      t("newChat.rowMachine"),
+    ]) {
+      // A label and the row's own control can name the same concept (the
+      // folder picker shows the folder); one or more is the row being there.
+      expect(within(panel).getAllByText(label).length).toBeGreaterThan(0);
+    }
+    // The machine row exists only when the session runs somewhere else.
+    expect(within(panel).getByText(t("machine.runsOn", { name: "node-1" }))).toBeTruthy();
+  });
+
+  it("draws no machine row for a session on this machine", async () => {
+    const user = userEvent.setup();
+    setup({ machine: null });
+
+    await user.click(
+      screen.getByRole("button", {
+        name: new RegExp(`^${t("runConfig.open")}${t("common.labelSeparator")}`),
+      }),
+    );
+    const panel = await screen.findByRole("dialog", { name: t("runConfig.title") });
+
+    expect(within(panel).queryByText(t("newChat.rowMachine"))).toBeNull();
   });
 
   it("contract: only the active pane marks the bottom chrome", () => {
@@ -131,48 +164,38 @@ describe("TaskComposerDock", () => {
     expect(hidden.container.querySelector("[data-kin-bottom-chrome]")).toBeNull();
   });
 
-  it("keeps the desktop run strip inside the composer card", () => {
+  it("offers one compact run-settings entry on the composer card at every width", () => {
     const { container } = setup();
     const form = container.querySelector("form");
     expect(form).not.toBeNull();
 
-    // Both desktop controls — the mode and the model — are on the composer's
-    // own card, not on a second row below it. Containment is the assertion,
-    // not visibility: jsdom ignores the media query that hides one face or the
-    // other, and both faces have to exist for either width to work.
-    const permissions = screen.getAllByRole("button", {
-      name: new RegExp(`^${t("permission.label")}${t("common.labelSeparator")}`),
-    });
-    const models = screen.getAllByRole("button", {
-      name: new RegExp(`^${t("modelPicker.label")}${t("common.labelSeparator")}`),
-    });
-    expect(permissions.length).toBeGreaterThan(0);
-    expect(models.length).toBeGreaterThan(0);
-    for (const control of [...permissions, ...models]) {
-      expect(form!.contains(control)).toBe(true);
-    }
-
-    // The strip's `hidden md:flex` wrapper is the shape that used to float
-    // under the card. Exactly one exists, and it is inside the form.
-    const strips = Array.from(form!.querySelectorAll("div")).filter(
-      (el) => el.classList.contains("hidden") && el.classList.contains("md:flex"),
-    );
-    expect(strips).toHaveLength(1);
-    expect(form!.contains(strips[0])).toBe(true);
-  });
-
-  it("offers one run-config entry on the phone", () => {
-    const { container } = setup();
-    const form = container.querySelector("form");
-    expect(form).not.toBeNull();
-
-    // The phone's single settings entry is the run-config face. The strip is
-    // the same settings at another width; a second button named after the run
-    // settings would be two entries for one choice in the same card.
+    // One entry is the whole run surface: the chip names the agent, model and
+    // mode, and the sheet or panel behind it owns every setting. The strip of
+    // chips that repeated the same settings at `md` up is gone, so nothing
+    // else on the card reads as a second way to change them.
     const prefix = `${t("runConfig.open")}${t("common.labelSeparator")}`;
     const entries = Array.from(form!.querySelectorAll("[aria-label]")).filter((el) =>
       (el.getAttribute("aria-label") ?? "").startsWith(prefix),
     );
     expect(entries).toHaveLength(1);
+    expect(form!.contains(entries[0])).toBe(true);
+
+    const strips = Array.from(form!.querySelectorAll("div")).filter(
+      (el) => el.classList.contains("hidden") && el.classList.contains("md:flex"),
+    );
+    expect(strips).toHaveLength(0);
+  });
+
+  it("drops the run settings when the pane is not the one on screen", () => {
+    // The panel is a layer over the page, not part of the pane. A closed door
+    // in a hidden pane could otherwise stay open over the visible one.
+    const { container } = setup({ active: false });
+    const form = container.querySelector("form");
+    expect(form).not.toBeNull();
+    const prefix = `${t("runConfig.open")}${t("common.labelSeparator")}`;
+    const entries = Array.from(form!.querySelectorAll("[aria-label]")).filter((el) =>
+      (el.getAttribute("aria-label") ?? "").startsWith(prefix),
+    );
+    expect(entries).toHaveLength(0);
   });
 });
