@@ -42,7 +42,6 @@ const CHROME = new Map([
   ["src/components/layout/PanelSurface.tsx", "the session panel"],
   ["src/components/layout/SessionTabs.tsx", "the open-conversation tab strip"],
   ["src/components/layout/PhoneFooter.tsx", "the phone list page's footer destinations"],
-  ["src/pages/SessionsPage.tsx", "the phone list page's new-chat button"],
 ]);
 
 function sourceFiles(): string[] {

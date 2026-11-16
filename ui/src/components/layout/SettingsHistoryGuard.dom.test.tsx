@@ -297,8 +297,16 @@ describe("navigating to the screen you are already on", () => {
     confirm.mockReturnValue(true);
     await user.click(screen.getByRole("button", { name: "go to settings" }));
     expect(window.location.pathname).toBe("/settings");
+    // The allowed departure's pop is asynchronous: the draft survives either
+    // way, but the panel may have followed the URL back to General and hidden
+    // the Routing panel by now, so the query must not require visibility.
     expect(
-      (screen.getByRole("checkbox", { name: /Enable auto routing/ }) as HTMLInputElement).checked,
+      (
+        screen.getByRole("checkbox", {
+          name: /Enable auto routing/,
+          hidden: true,
+        }) as HTMLInputElement
+      ).checked,
     ).toBe(false);
 
     // The same-address navigation released the entry; the next Back must ask
