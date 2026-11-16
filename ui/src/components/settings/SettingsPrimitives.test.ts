@@ -1,8 +1,12 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { createElement } from "react";
+import { render, screen, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   nextSettingsTabId,
   offscreenEdges,
   settingsTabFromSearch,
+  SettingsLayout,
   type SettingsTabItem,
 } from "./SettingsPrimitives";
 
@@ -48,6 +52,37 @@ describe("settingsTabFromSearch", () => {
     expect(settingsTabFromSearch("?tab=notifications")).toBe("general");
     expect(settingsTabFromSearch("?cloudflare=connected")).toBe("general");
     expect(settingsTabFromSearch("?relay=connected")).toBe("general");
+  });
+});
+
+describe("SettingsLayout", () => {
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it("renders the Mac section nav as a vertical tablist", () => {
+    const sixTabs: SettingsTabItem[] = [
+      { id: "general", label: "General", description: "General settings" },
+      { id: "agents", label: "Agents", description: "Agent settings" },
+      { id: "operations", label: "Operations", description: "Operations settings" },
+      { id: "providers", label: "Providers", description: "Provider settings" },
+      { id: "routing", label: "Routing", description: "Routing settings" },
+      { id: "advanced", label: "Advanced", description: "Advanced settings" },
+    ];
+
+    render(
+      createElement(SettingsLayout, {
+        title: "Settings",
+        tabs: sixTabs,
+        activeTab: "general" as const,
+        onTabChange: () => undefined,
+        children: createElement("div", null, "panel"),
+      }),
+    );
+
+    const tablist = screen.getByRole("tablist", { name: "Settings" });
+    expect(tablist.getAttribute("aria-orientation")).toBe("vertical");
+    expect(within(tablist).getAllByRole("tab")).toHaveLength(6);
   });
 });
 

@@ -1,7 +1,8 @@
-import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useRef } from "react";
 import { useT } from "../../i18n/react";
 import { MobileCard, MobileRow } from "../mobile/MobileList";
 import { MobileChevron } from "../mobile/MobileHeader";
+import Button from "../ui/Button";
 
 export type SettingsTabId =
   "general" | "agents" | "operations" | "providers" | "routing" | "advanced";
@@ -91,37 +92,11 @@ export function SettingsLayout({
   const tr = useT();
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const tabRefs = useRef<Partial<Record<SettingsTabId, HTMLButtonElement | null>>>({});
-  const stripRef = useRef<HTMLDivElement | null>(null);
-  const [edges, setEdges] = useState({ start: false, end: false });
-
-  // Measured, not assumed from a tab count: whether the strip overflows depends
-  // on the labels, the language and the width, and the answer changes when any
-  // of them does. The observer watches the strip *and* one tab — the strip's own
-  // box only moves with the window, while a relabelled tab moves the content
-  // (the tabs are `shrink-0`), which is what a language switch does.
-  useEffect(() => {
-    const el = stripRef.current;
-    if (!el) return;
-    const measure = () => {
-      const next = offscreenEdges(el.scrollLeft, el.clientWidth, el.scrollWidth);
-      setEdges((prev) => (prev.start === next.start && prev.end === next.end ? prev : next));
-    };
-    measure();
-    el.addEventListener("scroll", measure, { passive: true });
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    const firstTab = el.firstElementChild;
-    if (firstTab) observer.observe(firstTab);
-    return () => {
-      el.removeEventListener("scroll", measure);
-      observer.disconnect();
-    };
-  }, []);
 
   // A tab can become active without anyone clicking it: `?tab=` opens one
-  // directly. At a phone width that tab may be scrolled out of the strip, which
-  // then shows no selected tab at all. `nearest` moves the strip only when it
-  // has to, so a tab that is already visible stays exactly where it is.
+  // directly. If the section column is scrolled, that entry may be out of
+  // view. `nearest` moves the column only when it has to, so an entry that is
+  // already visible stays exactly where it is.
   // A *change* of tab, not "the effect ran": StrictMode runs a mount effect
   // twice, and a `mounted` flag reads true on the second pass and would put
   // focus on a tab nobody aimed at when settings opens.
@@ -164,92 +139,102 @@ export function SettingsLayout({
     <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden kin-scroll">
       <div
         className={classes(
-          "mx-auto flex w-full flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8",
+          "mx-auto w-full px-4 py-6 sm:px-6 sm:py-8 md:px-10 md:py-7",
           activeTab === "operations" ? "max-w-page-wide" : "max-w-page",
         )}
       >
-        <div className="space-y-1">
-          {/* The shell's header already names this screen on the phone, and the
-              prototype gives every phone screen one nav bar — so the grid of
-              tabs starts where the h1 was, not 30px lower. */}
-          <h1 className="hidden text-hero font-bold tracking-tight md:block">{title}</h1>
-          {subtitle ? <p className="text-strong leading-5 text-kin-secondary">{subtitle}</p> : null}
-        </div>
-        <div
-          role="tablist"
-          aria-label={title}
-          ref={stripRef}
-          data-more-start={edges.start ? "true" : "false"}
-          data-more-end={edges.end ? "true" : "false"}
-          onKeyDown={onKeyDown}
-          className="kin-tabs-fade hidden max-w-full gap-2 overflow-x-auto rounded-xl bg-kin-elevated/50 p-1 kin-scroll md:flex"
-        >
-          {tabs.map((tab) => {
-            const selected = tab.id === activeTab;
-            return (
-              <button
-                key={tab.id}
-                id={`settings-tab-${tab.id}`}
-                ref={(node) => {
-                  tabRefs.current[tab.id] = node;
-                }}
-                type="button"
-                role="tab"
-                aria-selected={selected}
-                aria-controls={`settings-panel-${tab.id}`}
-                tabIndex={selected ? 0 : -1}
-                title={tab.description}
-                onClick={() => onTabChange(tab.id)}
-                className={classes(
-                  // `scroll-margin-inline` keeps the fade (see `.kin-tabs-fade`)
-                  // from landing on top of the tab the strip just scrolled to.
-                  "min-h-11 shrink-0 rounded-lg px-3 text-strong font-medium outline-none transition sm:min-h-10 [scroll-margin-inline:var(--tabs-fade)]",
-                  "focus-visible:ring-2 focus-visible:ring-kin-focus-ring",
-                  selected
-                    ? "bg-kin-blue text-kin-on-brand"
-                    : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
-                )}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-        {/* A phone does not get a tab strip: the first screen keeps General,
-            and the rest is a list under it — the iOS settings shape, where the
-            home screen is a directory and each entry is a page with a back
-            row. */}
-        {activeTab !== "general" && (
-          <button
-            type="button"
-            onClick={() => selectTab("general")}
-            className="md:hidden -mt-2 flex min-h-11 items-center gap-1 self-start text-body text-kin-blue-ink"
-          >
-            <MobileChevron />
-            <span>{title}</span>
-          </button>
-        )}
-        {children}
-        {activeTab === "general" && (
-          <div className="md:hidden">
-            <div className="px-1 pb-1.5 text-strong font-medium text-kin-muted">
-              {tr("settings.moreSections")}
+        {/* A Mac gets the shell's two-column shape: the section list is a fixed
+            224px column and the form is a 620px reading column beside it. A
+            phone keeps the directory-then-page shape below `md`. */}
+        <div className="flex flex-col gap-5 md:flex-row md:gap-10">
+          <div className="md:w-56 md:shrink-0">
+            <div className="space-y-1">
+              {/* The shell's header already names this screen on the phone, and the
+                  prototype gives every phone screen one nav bar — so the section
+                  list starts where the h1 was, not 30px lower. */}
+              <h1 className="hidden text-hero font-bold tracking-tight md:block">{title}</h1>
+              {subtitle ? (
+                <p className="text-strong leading-5 text-kin-secondary">{subtitle}</p>
+              ) : null}
             </div>
-            <MobileCard>
-              {tabs
-                .filter((tab) => tab.id !== "general")
-                .map((tab) => (
-                  <MobileRow
+            <div
+              role="tablist"
+              aria-label={title}
+              aria-orientation="vertical"
+              onKeyDown={onKeyDown}
+              className="hidden md:mt-6 md:flex md:flex-col md:gap-1"
+            >
+              {tabs.map((tab) => {
+                const selected = tab.id === activeTab;
+                return (
+                  <button
                     key={tab.id}
-                    onClick={() => selectTab(tab.id)}
-                    title={tab.label}
-                    detail={tab.description}
-                    trailing={<MobileChevron />}
-                  />
-                ))}
-            </MobileCard>
+                    id={`settings-tab-${tab.id}`}
+                    ref={(node) => {
+                      tabRefs.current[tab.id] = node;
+                    }}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    aria-controls={`settings-panel-${tab.id}`}
+                    tabIndex={selected ? 0 : -1}
+                    title={tab.description}
+                    onClick={() => onTabChange(tab.id)}
+                    className={classes(
+                      "min-h-11 w-full shrink-0 rounded-lg px-3 text-left text-strong font-medium outline-none transition sm:min-h-10",
+                      "focus-visible:ring-2 focus-visible:ring-kin-focus-ring",
+                      selected
+                        ? "bg-kin-blue text-kin-on-brand"
+                        : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
+                    )}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        )}
+          <div className="flex min-w-0 flex-1 flex-col gap-5 md:max-w-[620px]">
+            {/* A phone does not get a section column: the first screen keeps
+                General, and the rest is a list under it — the iOS settings
+                shape, where the home screen is a directory and each entry is a
+                page with a back row. */}
+            {activeTab !== "general" && (
+              <Button
+                variant="quiet"
+                aria-label={title}
+                onClick={() => selectTab("general")}
+                className="md:hidden -mt-2 self-start text-body"
+              >
+                <span className="inline-flex items-center gap-1">
+                  <MobileChevron />
+                  <span>{title}</span>
+                </span>
+              </Button>
+            )}
+            {children}
+            {activeTab === "general" && (
+              <div className="md:hidden">
+                <div className="px-1 pb-1.5 text-strong font-medium text-kin-muted">
+                  {tr("settings.moreSections")}
+                </div>
+                <MobileCard>
+                  {tabs
+                    .filter((tab) => tab.id !== "general")
+                    .map((tab) => (
+                      <MobileRow
+                        key={tab.id}
+                        onClick={() => selectTab(tab.id)}
+                        title={tab.label}
+                        detail={tab.description}
+                        trailing={<MobileChevron />}
+                      />
+                    ))}
+                </MobileCard>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -310,18 +295,29 @@ export function SettingsSection({
 export function SettingsRow({
   label,
   description,
+  labelId,
+  descriptionId,
   children,
 }: {
   label: string;
   description?: ReactNode;
+  /** Id the field points at with `aria-labelledby`, so the label beside it is
+   *  also its accessible name. */
+  labelId?: string;
+  /** Id the field points at with `aria-describedby`, for the same reason. */
+  descriptionId?: string;
   children: ReactNode;
 }) {
   return (
     <div className="grid gap-2 border-t border-[var(--kin-hairline)] pt-4 sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)] sm:gap-4">
       <div className="space-y-1">
-        <div className="text-body leading-4 font-medium text-kin-secondary">{label}</div>
+        <div id={labelId} className="text-body leading-4 font-medium text-kin-secondary">
+          {label}
+        </div>
         {description ? (
-          <div className="text-caption leading-prose text-kin-muted">{description}</div>
+          <div id={descriptionId} className="text-caption leading-prose text-kin-muted">
+            {description}
+          </div>
         ) : null}
       </div>
       <div className="min-w-0">{children}</div>
