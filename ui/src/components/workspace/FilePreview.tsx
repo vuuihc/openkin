@@ -58,6 +58,7 @@ function DownloadButton({ name, downloadURL }: { name: string; downloadURL: stri
         type="button"
         onClick={() => void download()}
         disabled={busy}
+        // eslint-disable-next-line kin/no-legacy-class -- the viewer's download control has not migrated to `Button` yet
         className="kin-btn-secondary mt-2 inline-flex items-center px-3 py-1.5 text-caption disabled:opacity-60"
       >
         {busy ? t("workspace.viewer.downloading") : t("workspace.viewer.download")}

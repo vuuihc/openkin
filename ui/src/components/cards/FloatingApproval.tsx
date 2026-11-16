@@ -85,6 +85,7 @@ export default function FloatingApproval({
     // The same button the reader used, on the card that is now showing: a
     // keyboard user answering a queue keeps the key that answers it.
     const next = surfaceRef.current?.querySelector<HTMLElement>(
+      // eslint-disable-next-line kin/no-legacy-class -- a DOM selector for the button already on the card, not a class assignment
       decision === "approved" ? ".kin-btn-approve" : ".kin-btn-deny",
     );
     next?.focus({ preventScroll: true });

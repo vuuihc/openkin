@@ -1133,6 +1133,7 @@ function NewChatControl({
   // The call to action navigates, so it stays a link; `.kin-btn-primary`
   // supplies the shared geometry, fill, 44px touch floor and focus outline
   // without introducing a standalone class outside the Button facade.
+  // eslint-disable-next-line kin/no-legacy-class -- a navigating link borrows the button geometry on purpose; Button renders a native button
   const className = ["kin-btn-primary", fullWidth ? "w-full" : ""].join(" ");
 
   if (href === null || disabledReason) {

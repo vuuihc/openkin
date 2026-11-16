@@ -518,6 +518,7 @@ export default function Sheet({
       />
       <div
         ref={panelRef}
+        // eslint-disable-next-line kin/no-raw-overlay-role -- the phone sheet is itself the overlay primitive below `md`
         role="dialog"
         // A portaled layer is not in this subtree; claiming `aria-modal` while
         // it is up would tell a screen reader the layer does not exist.

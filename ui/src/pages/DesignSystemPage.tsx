@@ -325,7 +325,7 @@ export default function DesignSystemPage() {
       <Section
         id="button"
         title="Button"
-        note="The console's three action weights on the existing kin-btn-* vocabulary. The 44px touch floor and the focus outline travel with the class."
+        note="The console's three action weights on the shared button vocabulary. The 44px touch floor and the focus outline travel with the class."
       >
         <FormBlock
           form="both"
