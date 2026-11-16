@@ -1,9 +1,4 @@
-/* eslint-disable kin/no-raw-button -- The conversation row button and the
-   inline hover/focus action buttons are moved verbatim out of SessionList.
-   They are pre-existing controls, not a new surface, and restyling them onto
-   the shared Button here would be a visual change this extraction must not
-   make. */
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useT } from "../../i18n/react";
 import { agentAvatarMeta, agentDisplayName } from "../../lib/agentMention";
 import type { PhoneSessionRow } from "../../lib/phoneSessionBuckets";
@@ -12,12 +7,23 @@ import { rowSelectable } from "../../lib/sessionSelection";
 import { sessionStatusDotClass } from "../../lib/sessionViewed";
 import { taskCardStatusView } from "../../lib/taskCardStatus";
 import HighlightedText from "../HighlightedText";
-import { IconArchive, IconCheck, IconMachine, IconPin, IconRestore, IconTrash } from "../icons";
+import {
+  IconArchive,
+  IconCheck,
+  IconMachine,
+  IconMore,
+  IconPin,
+  IconRestore,
+  IconTrash,
+} from "../icons";
 import SessionRowActions, {
   sessionRowActionsWidth,
   type SessionRowActionMode,
 } from "../mobile/SessionRowActions";
 import SwipeReveal from "../mobile/SwipeReveal";
+import ActionSheet, { type ActionSheetRow } from "../ui/ActionSheet";
+import Button from "../ui/Button";
+import Menu, { type MenuItem } from "../ui/Menu";
 import PendingBadge from "../ui/PendingBadge";
 import type { SessionScopeFilter } from "../ui/SessionFilters";
 
@@ -27,8 +33,12 @@ import type { SessionScopeFilter } from "../ui/SessionFilters";
  * The row owns only presentation and gesture: which conversation it is, what
  * to announce, and which actions the current container uncovers. Opening,
  * selecting, pinning, archiving, restoring and deleting are the parent's
- * handlers — the same set either way, so only the shortcut changes: inline
- * hover/focus controls in the sidebar, swipe and long-press on the page.
+ * handlers — the same set either way. What changes is the surface those
+ * actions live on: one trailing "More" trigger opens the console's shared
+ * `Menu` on the Mac and its shared `ActionSheet` on a touch page, so managing
+ * a conversation is one discoverable control instead of a row of hover-only
+ * icons (or a gesture with no visible entry point). Swipe remains a second,
+ * faster path on touch.
  *
  * `selectionMode` replaces the whole action surface with the selection control;
  * an imported row has no task and likewise carries no list actions.
@@ -87,6 +97,9 @@ export default function SessionRow({
   query,
 }: SessionRowProps) {
   const tr = useT();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const dot = row.task ? sessionStatusDotClass(row.task.status, viewedIds.has(row.task.id)) : null;
   const avatar = agentAvatarMeta(row.agentId);
   const label = [
@@ -100,8 +113,37 @@ export default function SessionRow({
     .filter(Boolean)
     .join(" · ");
   const gutter = shell === "sidebar" ? "px-2" : "px-4";
+  // The row's title element is what the action trigger is described by, so a
+  // screen reader hears which conversation a "More" belongs to.
+  const titleId = `session-row-title-${row.task?.id ?? row.session?.id}`;
+
+  // A row uncovers the strip that describes where it is. In the archive view
+  // that is restore + delete, and only for a conversation that was archived on
+  // its own: a live chat listed under an archived project is put back by the
+  // project's own Restore, and a per-row "Restore" there would do nothing.
+  const mode: SessionRowActionMode | null = !row.task
+    ? null
+    : row.task.archived_at
+      ? "archived"
+      : scope === "archived"
+        ? null
+        : "active";
+  const showsActions = !selectionMode && mode !== null;
+  // A mode can end while its surface is open (the row is archived from
+  // elsewhere, multi-select starts): the surface is gone with the trigger, so
+  // the state must not be left waiting to reopen the next time it appears.
+  useEffect(() => {
+    if (showsActions) return;
+    setMenuOpen(false);
+    setSheetOpen(false);
+  }, [showsActions]);
 
   const rowButton = (
+    /* eslint-disable-next-line kin/no-raw-button --
+       The conversation row is a full-width navigation target, not a
+       button-shaped control: it is a list row that happens to be clickable,
+       and the design system has no row primitive. Its actions are drawn with
+       the shared Button, Menu and ActionSheet. */
     <button
       type="button"
       data-session-row={row.task?.id ?? row.session?.id}
@@ -160,6 +202,7 @@ export default function SessionRow({
         {avatar.initials}
       </span>
       <span
+        id={titleId}
         className={[
           "min-w-0 flex-1 truncate leading-ui text-kin-text",
           shell === "sidebar" ? "text-body font-normal" : "text-subtitle font-medium",
@@ -188,22 +231,99 @@ export default function SessionRow({
     </button>
   );
 
-  // A row uncovers the strip that describes where it is. In the archive view
-  // that is restore + delete, and only for a conversation that was archived on
-  // its own: a live chat listed under an archived project is put back by the
-  // project's own Restore, and a per-row "Restore" there would do nothing.
-  if (selectionMode || !row.task) return rowButton;
-  const mode: SessionRowActionMode | null = row.task.archived_at
-    ? "archived"
-    : scope === "archived"
-      ? null
-      : "active";
-  if (!mode) return rowButton;
+  if (!showsActions) return rowButton;
 
-  // The desktop's overflow is hover/focus-revealed inline controls; the phone's
-  // is the swipe strip. Both call the same handlers, so the feature set is the
-  // same and only the gesture that uncovers it differs.
-  if (shell === "sidebar" && !coarse) {
+  // The Mac sidebar is a pointer surface, so its actions open as the console's
+  // shared menu (TASTE 3: a Mac row gets a menu, not a phone sheet). A touch
+  // page gets the same list as the ActionSheet every other phone surface uses.
+  const desktop = shell === "sidebar" && !coarse;
+  const actionsLabel = `${tr("common.more")}: ${row.title}`;
+  const deleteIcon = <IconTrash size={12} className="text-kin-red-ink" />;
+  const menuItems: MenuItem[] =
+    mode === "archived"
+      ? [
+          {
+            id: "restore",
+            label: tr("sessions.restore"),
+            icon: <IconRestore size={12} />,
+            onSelect: onRestore,
+          },
+          { id: "delete", label: tr("sessions.delete"), icon: deleteIcon, onSelect: onDelete },
+        ]
+      : [
+          {
+            id: "pin",
+            label: pinned ? tr("sessions.unpin") : tr("sessions.pin"),
+            icon: <IconPin size={12} />,
+            onSelect: onPin,
+          },
+          {
+            id: "archive",
+            label: tr("sessions.archive"),
+            icon: <IconArchive size={12} />,
+            onSelect: onArchive,
+          },
+          { id: "delete", label: tr("sessions.delete"), icon: deleteIcon, onSelect: onDelete },
+        ];
+  const sheetRows: ActionSheetRow[] =
+    mode === "archived"
+      ? [
+          { id: "restore", label: tr("sessions.restore"), onSelect: onRestore },
+          { id: "delete", label: tr("sessions.delete"), destructive: true, onSelect: onDelete },
+        ]
+      : [
+          {
+            id: "pin",
+            label: pinned ? tr("sessions.unpin") : tr("sessions.pin"),
+            onSelect: onPin,
+          },
+          { id: "archive", label: tr("sessions.archive"), onSelect: onArchive },
+          { id: "delete", label: tr("sessions.delete"), destructive: true, onSelect: onDelete },
+        ];
+
+  // One trigger, whichever surface it opens. It sits in the row's tab order,
+  // and the row's title is its description, so a screen reader hears which
+  // conversation a "More" belongs to; the primitive owns the arrows, Escape
+  // and focus return.
+  const trigger = (
+    <Button
+      ref={triggerRef}
+      // Not `quiet`: that variant's own `bg-transparent text-kin-text` are
+      // utilities too, so a caller's `text-kin-muted` would race them in the
+      // sheet. `default` keeps its surface in the `components` layer, which
+      // every utility below overrides deterministically — the same mechanism
+      // the chips use.
+      variant="default"
+      data-row-actions=""
+      aria-label={tr("common.more")}
+      aria-describedby={titleId}
+      aria-haspopup={desktop ? "menu" : "dialog"}
+      aria-expanded={desktop ? menuOpen : undefined}
+      onClick={() => {
+        if (desktop) setMenuOpen((open) => !open);
+        else setSheetOpen(true);
+      }}
+      // The trigger is a button, not a drag surface: a press that starts on it
+      // must not also arm SwipeReveal's long press (which would enter selection
+      // and swallow the tap that was meant to open the sheet).
+      onPointerDown={desktop ? undefined : (event) => event.stopPropagation()}
+      className={[
+        "h-11 w-11 flex-none rounded-md bg-transparent p-0 text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text hover:brightness-100",
+        desktop
+          ? // Revealed on hover or focus like the icons it replaces; the 24px
+            // box is the desktop density and `touch-hide` keeps it off touch.
+            "touch-hide opacity-0 transition-opacity focus-visible:opacity-100 group-hover/session:opacity-100 sm:h-6 sm:w-6"
+          : // The swipe strip is the surface in front once it is open: the
+            // trigger would otherwise slide along with the row and sit beside
+            // the chips as a fourth, redundant one. It returns when the row does.
+            `mr-1${swipeOpen ? " invisible" : ""}`,
+      ].join(" ")}
+    >
+      <IconMore size={desktop ? 14 : 16} />
+    </Button>
+  );
+
+  if (desktop) {
     return (
       <div
         className={[
@@ -212,76 +332,49 @@ export default function SessionRow({
         ].join(" ")}
       >
         <div className="min-w-0 flex-1">{rowButton}</div>
-        <div className="flex flex-none items-center gap-0.5 pr-2">
-          {mode === "active" && (
-            <RowIconButton
-              label={pinned ? tr("sessions.unpin") : tr("sessions.pin")}
-              onClick={onPin}
-            >
-              <IconPin size={12} />
-            </RowIconButton>
-          )}
-          <RowIconButton
-            label={mode === "archived" ? tr("sessions.restore") : tr("sessions.archive")}
-            onClick={mode === "archived" ? onRestore : onArchive}
-          >
-            {mode === "archived" ? <IconRestore size={12} /> : <IconArchive size={12} />}
-          </RowIconButton>
-          <RowIconButton label={tr("sessions.delete")} onClick={onDelete} danger>
-            <IconTrash size={12} />
-          </RowIconButton>
-        </div>
+        <div className="flex flex-none items-center pr-2">{trigger}</div>
+        <Menu
+          open={menuOpen}
+          onOpenChange={setMenuOpen}
+          triggerRef={triggerRef}
+          label={actionsLabel}
+          items={menuItems}
+          align="right"
+        />
       </div>
     );
   }
 
   return (
-    <SwipeReveal
-      open={swipeOpen}
-      onOpenChange={onSwipeOpenChange}
-      onLongPress={onLongPress}
-      width={sessionRowActionsWidth(mode)}
-      actions={
-        <SessionRowActions
-          mode={mode}
-          pinned={pinned}
-          onPin={onPin}
-          onArchive={onArchive}
-          onRestore={onRestore}
-          onDelete={onDelete}
-        />
-      }
-    >
-      {rowButton}
-    </SwipeReveal>
-  );
-}
-
-function RowIconButton({
-  label,
-  onClick,
-  danger = false,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  danger?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      onClick={onClick}
-      className={[
-        "touch-hide inline-flex h-6 w-6 items-center justify-center rounded-md text-kin-muted opacity-0 transition-opacity focus:opacity-100 group-hover/session:opacity-100",
-        danger
-          ? "hover:bg-kin-red/10 hover:text-kin-red-ink"
-          : "hover:bg-[var(--kin-fill-strong)] hover:text-kin-text",
-      ].join(" ")}
-    >
-      {children}
-    </button>
+    <>
+      <SwipeReveal
+        open={swipeOpen}
+        onOpenChange={onSwipeOpenChange}
+        onLongPress={onLongPress}
+        width={sessionRowActionsWidth(mode)}
+        actions={
+          <SessionRowActions
+            mode={mode}
+            pinned={pinned}
+            onPin={onPin}
+            onArchive={onArchive}
+            onRestore={onRestore}
+            onDelete={onDelete}
+          />
+        }
+      >
+        <div className="flex items-stretch">
+          <div className="min-w-0 flex-1">{rowButton}</div>
+          <div className="flex flex-none items-center">{trigger}</div>
+        </div>
+      </SwipeReveal>
+      <ActionSheet
+        open={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        title={row.title}
+        anyWidth={coarse}
+        rows={sheetRows}
+      />
+    </>
   );
 }

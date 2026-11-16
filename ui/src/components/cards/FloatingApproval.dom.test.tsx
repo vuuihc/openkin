@@ -136,7 +136,11 @@ describe("FloatingApproval", () => {
 
     const next = screen.getByRole("button", { name: new RegExp(t("chat.approve")) });
     expect(document.activeElement).toBe(next);
+    // The hand-back is a class selector over the surface: the facade variant
+    // has to keep carrying the exact class the effect queries.
     expect(next.className).toContain("kin-btn-approve");
+    expect(next.className).toContain("kin-btn");
+    expect(document.querySelector("aside")?.querySelector(".kin-btn-approve")).toBe(next);
   });
 
   it("lands on the same choice after a deny", () => {
@@ -152,6 +156,8 @@ describe("FloatingApproval", () => {
     const next = screen.getByRole("button", { name: new RegExp(t("chat.deny")) });
     expect(document.activeElement).toBe(next);
     expect(next.className).toContain("kin-btn-deny");
+    expect(next.className).toContain("kin-btn");
+    expect(document.querySelector("aside")?.querySelector(".kin-btn-deny")).toBe(next);
   });
 
   it("does not pull focus later when the decision failed", () => {
@@ -313,7 +319,11 @@ describe("FloatingApproval", () => {
   });
 
   it("clears the dock when the page marks nothing", () => {
-    const { container } = setup({ screenKey: "/sessions", expectsBottomChrome: false, raised: true });
+    const { container } = setup({
+      screenKey: "/sessions",
+      expectsBottomChrome: false,
+      raised: true,
+    });
     const aside = container.querySelector("aside");
     expect(aside?.style.bottom).toBe("");
     expect(aside?.className).toContain("bottom-[calc(9.25rem");
