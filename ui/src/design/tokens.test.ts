@@ -1557,9 +1557,10 @@ describe("design tokens", () => {
         }
       }
       expect(wrong).toEqual([]);
-      // The tree has 40 of these today; a scan that stopped finding them would
-      // pass whatever the call sites did next.
-      expect(pairs).toBeGreaterThan(32);
+      // Raw button fills are moving onto the shared Button facade across Astryx
+      // slices, while agentMention.ts and status badges keep >8 permanent pairs
+      // in source so a scan that stopped finding them still fails loudly.
+      expect(pairs).toBeGreaterThan(8);
     });
 
     it("writes the theme-color meta from the token, not from a literal", () => {
