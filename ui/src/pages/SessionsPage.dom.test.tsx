@@ -165,13 +165,16 @@ describe("the phone page's states", () => {
     expect(document.querySelector("[data-phone-scroll]")?.className).toContain("overflow-x-hidden");
   });
 
-  it("floats new chat just above the footer, not a second footer-height higher", () => {
+  it("leaves New chat to the shell header, not a floating button", () => {
     render(phonePage());
-    const button = screen.getByRole("button", { name: "New chat" });
-    // The footer is <main>'s sibling, so its height is already outside this
-    // button's containing block. bottom-4 leaves the intended small gap.
-    expect(button.className).toContain("bottom-4");
-    expect(button.className).not.toContain("bottom-[4.5rem]");
+    const buttons = document.querySelectorAll("[data-phone-return='new']");
+    // The one on screen is the shell header's quiet action (S2b); the page
+    // itself draws only the list.
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].closest("header")).toBeTruthy();
+    expect(
+      document.querySelector("[data-phone-scroll]")?.querySelector("[data-phone-return='new']"),
+    ).toBeNull();
   });
 
   it("keeps the footer when the list read fails", async () => {

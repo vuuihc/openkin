@@ -4,16 +4,26 @@ import { usePendingResources } from "../../api/useLiveResources";
 import { placeById } from "../../lib/places";
 import { useT } from "../../i18n/react";
 import { rememberPlaceReturn } from "../../lib/placeReturn";
-import { onGuardedLinkClick, PHONE_TAB_IDS, returnListUrl } from "../../lib/phoneNavigation";
+import {
+  onGuardedLinkClick,
+  PHONE_TAB_IDS,
+  phoneTabUrl,
+  returnListUrl,
+} from "../../lib/phoneNavigation";
 import { pendingCountsByTask } from "../../lib/pendingCounts";
 import { PLACE_ICONS } from "../placeIcons";
 import PendingBadge from "../ui/PendingBadge";
 
-const TABS = PHONE_TAB_IDS.map((id) => placeById(id));
+const TABS = PHONE_TAB_IDS.map((id) => ({ ...placeById(id), id }));
 
 /**
  * Shared phone navigation, on all four roots and through all their states.
  * Archive remains a filter under Chats, rather than taking its place.
+ *
+ * Each tab comes back to where the reader last was in that area: the list with
+ * its search/status/scope, Routines with its machine, Settings with its tab.
+ * The footer only has to ask for the remembered URL; `phoneTabUrl` refuses a
+ * stale value that no longer names that root.
  *
  * Chats carries how many things wait on the reader, summed over conversations:
  * the tab is the one entry to the list, and "3 waiting" is the fact a person
@@ -41,7 +51,7 @@ export default function PhoneFooter() {
       <div className="grid grid-cols-4">
         {TABS.map((place) => {
           const Icon = PLACE_ICONS[place.id];
-          const to = place.id === "sessions" ? returnListUrl(location) : place.path;
+          const to = place.id === "sessions" ? returnListUrl(location) : phoneTabUrl(place.id);
           const active = location.pathname === place.path;
           return (
             <Link
