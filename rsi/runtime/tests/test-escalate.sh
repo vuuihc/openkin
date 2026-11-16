@@ -6,9 +6,10 @@ H="$(cd "$(dirname "$0")/.." && pwd)"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 ok() { echo "PASS $*"; }; bad() { echo "FAIL $*" >&2; exit 1; }
 PY="$H/escalate.py"
-export RSI_STATE="$T/st" RSI_AGY_ENABLED=0 RSI_CARBON_ENABLED=0
+export RSI_STATE="$T/st" RSI_AGY_ENABLED=0 RSI_CARBON_ENABLED=0 RSI_VOLC_KIMI_DAY_MAX=0 MAGPIE_USAGE_JSONL="$T/empty-usage.jsonl"
+: > "$MAGPIE_USAGE_JSONL"
 mkdir -p "$T/st/merge" "$T/st/sendback"
-check() { RSI_STATE="$T/st" RSI_AGY_ENABLED="${RSI_AGY_ENABLED:-0}" RSI_CARBON_ENABLED="${RSI_CARBON_ENABLED:-0}" python3 "$PY" --check --role "$1" --slug "$2" --item "$3" --sha "${4:-}"; }
+check() { RSI_STATE="$T/st" RSI_AGY_ENABLED="${RSI_AGY_ENABLED:-0}" RSI_CARBON_ENABLED="${RSI_CARBON_ENABLED:-0}" RSI_VOLC_KIMI_DAY_MAX="${RSI_VOLC_KIMI_DAY_MAX:-0}" MAGPIE_USAGE_JSONL="$MAGPIE_USAGE_JSONL" python3 "$PY" --check --role "$1" --slug "$2" --item "$3" --sha "${4:-}"; }
 
 # --- self-test ---
 python3 "$PY" --self-test >/dev/null && ok self-test || bad self-test

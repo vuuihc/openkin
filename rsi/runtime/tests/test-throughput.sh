@@ -4,6 +4,9 @@
 set -u
 H="$(cd "$(dirname "$0")/.." && pwd)"; T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 ok() { echo "PASS $*"; }; bad() { echo "FAIL $*" >&2; exit 1; }
+# Path-claim cases test path validation only, never the host-pressure guard: a loaded machine must not
+# turn them into exit-8 refusals.
+NOPRESS="RSI_MEM_AVAIL_MIN_MB=0 RSI_SWAP_USED_MAX_MB=999999999 RSI_LOAD_MAX=9999"
 tier() { printf '%b' "$3" | python3 "$H/review-tier.py" --title "$1" --item "$2" ${4:+--attempts "$4"} --numstat - | cut -d' ' -f1,2; }
 [ "$(tier 'refactor(x): extract row' L1 '300\t100\tui/src/a.tsx\n80\t0\tui/src/a.dom.test.tsx\n')" = "small reviewer" ] && ok small-extract || bad small-extract
 [ "$(tier 'feat(design): theme' F3 '100\t10\tui/src/x.tsx\n')" = "large reviewer-alt" ] && ok foundation-large || bad foundation-large
@@ -17,7 +20,7 @@ python3 "$H/fixlist.py" "$T/r.txt" | grep -q 'ui/src/a.tsx:42.*pass it through' 
 printf '1. **major** `ui/src/a.tsx:42` - drops the handler.\n\n2. nit: `ui/src/b.tsx:3` naming.\nVERDICT: FAIL\n' > "$T/r2.txt"
 out="$(python3 "$H/fixlist.py" "$T/r2.txt")"; echo "$out" | grep -q 'a.tsx:42' && ! echo "$out" | grep -q 'b.tsx' && ok fixlist-prose-skips-nits || bad fixlist-prose-skips-nits
 mkdir -p "$T/st/lanes" "$T/st/cloud"; echo x > "$T/brief.md"
-RSI_STATE="$T/st" python3 "$H/lanes.py" claim 1 --slug dot --item X --brief "$T/brief.md" --paths .gitignore ui/src/a.tsx | grep -q "CLAIMED lane 1.*'.gitignore'" && ok dotfile-claim || bad dotfile-claim
+RSI_STATE="$T/st" env $NOPRESS python3 "$H/lanes.py" claim 1 --slug dot --item X --brief "$T/brief.md" --paths .gitignore ui/src/a.tsx | grep -q "CLAIMED lane 1.*'.gitignore'" && ok dotfile-claim || bad dotfile-claim
 # remote overflow: with 3 idle local lanes and ready slices F4,F5a,F5b,F5c,F5e,N3,N4,T2,L2,R2 (F1,V1,F2,F3,N1,Q3a,T1,L1,R1,P1,N2 merged)
 mkdir -p "$T/ov/lanes" "$T/ov/cloud/expired"; for i in F1 V1 F2 F3 N1 Q3a T1 L1 R1 P1 N2; do echo "2026-11-15 10:00 PR #1 s-$i $i merged abc u" >> "$T/ov/merged.log"; done
 ids="$(RSI_STATE="$T/ov" python3 "$H/slices.py" cloud-pending --json | python3 -c 'import json,sys;print(" ".join(d["id"] for d in json.load(sys.stdin)))')"
@@ -66,4 +69,15 @@ sed -n '/^check_buckets()/,/^}/p;/^ci_state()/,/^}/p;/^fetch_ci_failed_log()/,/^
   grep -q 'actions/runs/4242' "$T/merge/ci.ci.txt" || exit 1
   fetch_ci_failed_log "$T/merge/ci-log.txt" || exit 1
   grep -q 'failed-job log' "$T/merge/ci-log.txt" ) && ok ci-link || bad ci-link
+# host-pressure guard (2026-11-16): memory pressure refuses NEW claims (exit 8) but admits a targeted
+# rework, and idle is gated unless the rework dispatcher explicitly asks with --ignore-pressure.
+PRESSURE="RSI_MEM_AVAIL_MIN_MB=999999999 RSI_LOAD_MAX=9999"   # force the avail-mem reason, not a load one
+mkdir -p "$T/pr/lanes" "$T/pr/cloud"
+RSI_STATE="$T/pr" env $PRESSURE python3 "$H/lanes.py" claim 1 --slug pnew --item PX1 --brief "$T/brief.md" --paths ui/src/a.tsx >/dev/null 2>&1; [ $? -eq 8 ] && ok pressure-refuses-new || bad pressure-refuses-new
+RSI_STATE="$T/pr" env $PRESSURE python3 "$H/lanes.py" claim 1 --slug prew --item PX1 --brief "$T/brief.md" --mode rework --paths ui/src/a.tsx 2>/dev/null | grep -q "CLAIMED lane 1" && ok pressure-admits-rework || bad pressure-admits-rework
+[ -z "$(RSI_STATE="$T/pr" env $PRESSURE python3 "$H/lanes.py" idle 2>/dev/null)" ] && ok pressure-gates-idle || bad pressure-gates-idle
+[ -n "$(RSI_STATE="$T/pr" env $PRESSURE python3 "$H/lanes.py" idle --ignore-pressure 2>/dev/null)" ] && ok pressure-ignore-idle || bad pressure-ignore-idle
+# root-file claim (e.g. Makefile) must succeed, while broad dir 'ui' is refused
+RSI_STATE="$T/st" env $NOPRESS python3 "$H/lanes.py" claim 2 --slug mk --item X2 --brief "$T/brief.md" --paths Makefile | grep -q "CLAIMED lane 2" && ok root-file-claim || bad root-file-claim
+! RSI_STATE="$T/st" env $NOPRESS python3 "$H/lanes.py" claim 2 --slug bad --item X3 --brief "$T/brief.md" --paths ui >/dev/null 2>&1 && ok broad-dir-refused || bad broad-dir-refused
 echo ALL-PASS
