@@ -318,7 +318,7 @@ describe("the draft (KIN-START-001)", () => {
     await screen.findByRole("button", { name: "Device & project: This machine · alpha" });
     await user.click(screen.getByRole("button", { name: /^Run settings/ }));
     await user.click(screen.getByRole("button", { name: /^Model/ }));
-    await user.click(screen.getByRole("option", { name: /Opus/ }));
+    await user.click(screen.getByRole("menuitemradio", { name: /Opus/ }));
     expect(screen.getByRole("button", { name: /^Run settings/ }).textContent).toContain("Opus");
 
     await user.click(placeRow());
@@ -377,7 +377,7 @@ describe("the draft (KIN-START-001)", () => {
     await screen.findByRole("button", { name: "Device & project: This machine · alpha" });
     await user.click(screen.getByRole("button", { name: /^Run settings/ }));
     await user.click(screen.getByRole("button", { name: /^Model/ }));
-    await user.click(screen.getByRole("option", { name: /Opus/ }));
+    await user.click(screen.getByRole("menuitemradio", { name: /Opus/ }));
     first.unmount();
 
     renderPage();
@@ -485,7 +485,7 @@ describe("the draft (KIN-START-001)", () => {
     await user.click(screen.getByRole("button", { name: /^Run settings/ }));
     const sheet = await screen.findByRole("dialog", { name: "Run settings" });
     await user.click(within(sheet).getByRole("button", { name: /^Model/ }));
-    await user.click(screen.getByRole("option", { name: /Opus/ }));
+    await user.click(screen.getByRole("menuitemradio", { name: /Opus/ }));
     await user.keyboard("{Escape}");
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Run settings" })).toBeNull());

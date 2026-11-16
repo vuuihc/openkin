@@ -1,14 +1,15 @@
 import type { ComponentProps } from "react";
 import type { AgentInfo, Task, TaskUsage, Upload } from "../../api/client";
 import type { AgentRole } from "../../lib/agentRoles";
+import { useMinWidth } from "../../hooks/useMinWidth";
 import { useT } from "../../i18n/react";
 import Composer from "../chat/Composer";
-import RunConfigControl, { type RunConfigAvatar } from "../chat/RunConfigSheet";
+import RunConfigControl, { RunConfigSheetRow, type RunConfigAvatar } from "../chat/RunConfigSheet";
 import BranchPicker from "../chat/BranchPicker";
 import RepoChip from "../chat/RepoChip";
 import CwdPicker from "../chat/CwdPicker";
-import PermissionModePicker from "../chat/PermissionModePicker";
-import ModelPicker from "../chat/ModelPicker";
+import type PermissionModePicker from "../chat/PermissionModePicker";
+import type ModelPicker from "../chat/ModelPicker";
 import { IconAlert, IconMachine } from "../icons";
 import Button from "../ui/Button";
 import TaskUsageSummary from "../usage/TaskUsageSummary";
@@ -18,10 +19,12 @@ type PermissionPickerProps = ComponentProps<typeof PermissionModePicker>;
 type ModelPickerProps = ComponentProps<typeof ModelPicker>;
 
 /**
- * The conversation's bottom band: the waiting-on-you strip, the composer with
- * its phone run-config face, and the `md`-up strip that names the agent, the
- * permission mode, the model, the directory, the repository, the branch and
- * the machine.
+ * The conversation's bottom band: the waiting-on-you strip and the composer.
+ * One run-config face — the chip that names the agent, the model and the
+ * permission mode — rides on the composer's own control row at every width.
+ * What the session is (folder, repository, branch, machine) is disclosed
+ * inside the sheet or panel the chip opens, not as a second strip beside the
+ * message.
  *
  * Extracted from `TaskDetailPage` unchanged so the page's state, handlers and
  * lifecycle logic can be read — and later edited — without scrolling past the
@@ -100,8 +103,9 @@ export default function TaskComposerDock({
   composerPermissionMode,
   onComposerPermissionChange,
   taskAgentModels,
-  taskAgentModelSource,
-  taskAgentModelStatus,
+  // `taskAgentModelSource` and `taskAgentModelStatus` stay on the props because
+  // the page still supplies them; the run sheet's model row reads the catalog
+  // itself and does not need the old strip's freshness hint.
   taskPermissionModes,
   transcriptModel,
   usage,
@@ -111,6 +115,11 @@ export default function TaskComposerDock({
   onRevealFirstPending,
 }: TaskComposerDockProps) {
   const tr = useT();
+  // The phone usage trigger opens a bottom sheet, so it must not exist at all
+  // from `md` up: on a Mac the page's own usage bar already carries these
+  // numbers, and a `md:hidden` class only hides the trigger while its sheet
+  // stays in the tree. Unmount it instead.
+  const wide = useMinWidth(768);
 
   return (
     <div
@@ -151,145 +160,100 @@ export default function TaskComposerDock({
           onAttachmentsChange={onAttachmentsChange}
           onSubmit={onSubmit}
           onStop={onStop}
+          // One run-config entry at every width, on the composer's own control
+          // row. The chip names the three settings that affect the next
+          // message; the sheet or panel it opens owns them and the facts that
+          // describe the session (folder, repository, branch, machine). A
+          // second strip of controls beside the message was the crowded edge
+          // of this card, and the door closes with the pane it belongs to.
+          footerWide
           footer={
-            // One control instead of a strip of chips: the face names the
-            // agent, the model and the mode, and the sheet behind it owns
-            // the two that can change. Desktop keeps the strip below. The
-            // usage trigger rides beside it — the reference keeps usage at
-            // the input, and the phone has no usage bar above the
-            // transcript to read it from.
-            <div className="flex min-w-0 flex-1 items-center gap-1">
-              <RunConfigControl
-                agentName={hostAgentName}
-                agentId={task.agent || ""}
-                agentAvatar={hostAgentAvatar}
-                model={composerModel}
-                models={taskAgentModels}
-                onModelChange={onComposerModelChange}
-                permission={composerPermissionMode}
-                permissionModes={taskPermissionModes}
-                onPermissionChange={onComposerPermissionChange}
-                disabled={sending || stopping}
-                fallbackModelLabel={transcriptModel}
-              />
-              {!usageLoading && usage ? (
-                <TaskUsageSummary
-                  usage={usage}
-                  loading={usageLoading}
-                  variant="phone"
-                  className="flex-none"
+            active ? (
+              <div className="flex min-w-0 flex-1 items-center gap-1">
+                <RunConfigControl
+                  agentName={hostAgentName}
+                  agentId={task.agent || ""}
+                  agentAvatar={hostAgentAvatar}
+                  model={composerModel}
+                  models={taskAgentModels}
+                  onModelChange={onComposerModelChange}
+                  permission={composerPermissionMode}
+                  permissionModes={taskPermissionModes}
+                  onPermissionChange={onComposerPermissionChange}
+                  disabled={sending || stopping}
+                  fallbackModelLabel={transcriptModel}
+                  extraRows={
+                    <>
+                      {/* The agent is the sheet's own locked row (no `agents`
+                          prop), so it is not repeated here. Where the work is:
+                          a session on this machine has no recorded repository
+                          and shows no row — its repository is the one the
+                          pull-request panel looked up. */}
+                      <RunConfigSheetRow
+                        label={tr("newChat.rowCwd")}
+                        control={
+                          <CwdPicker cwd={task.cwd} locked compact onChange={() => undefined} />
+                        }
+                      />
+                      {task.workspace_repo ? (
+                        <RunConfigSheetRow
+                          label={tr("pr.repoLabel")}
+                          control={<RepoChip repo={task.workspace_repo} />}
+                        />
+                      ) : null}
+                      <RunConfigSheetRow
+                        label={tr("newChat.rowBranch")}
+                        control={
+                          <BranchPicker
+                            cwd={task.cwd}
+                            // The task's cwd is on the machine that runs it, so
+                            // these branches are that machine's — not this
+                            // one's, which for the same repository would read
+                            // plausibly and be wrong.
+                            device={task.executing_device_id}
+                            locked
+                            compact
+                          />
+                        }
+                      />
+                      {machine ? (
+                        <RunConfigSheetRow
+                          label={tr("newChat.rowMachine")}
+                          control={
+                            // Without this row the path above reads as a
+                            // directory on the machine showing it.
+                            <span
+                              className="inline-flex min-w-0 items-center gap-1 text-caption text-kin-secondary"
+                              title={tr("machine.remoteHint", { name: machine.text })}
+                            >
+                              <IconMachine size={12} className="flex-none" />
+                              <span className="truncate">
+                                {machine.known
+                                  ? tr("machine.runsOn", { name: machine.text })
+                                  : tr("machine.runsOnUnknown", { name: machine.text })}
+                              </span>
+                            </span>
+                          }
+                        />
+                      ) : null}
+                    </>
+                  }
                 />
-              ) : null}
-            </div>
+                {!wide && !usageLoading && usage ? (
+                  // The reference keeps usage at the input, and the phone has
+                  // no usage bar above the transcript to read it from. The Mac
+                  // reads the same numbers from the page's own usage bar.
+                  <TaskUsageSummary
+                    usage={usage}
+                    loading={usageLoading}
+                    variant="phone"
+                    className="flex-none md:hidden"
+                  />
+                ) : null}
+              </div>
+            ) : null
           }
         />
-        {/* The desktop counterpart of the composer's run-config face: from
-            `md` up this strip carries what the face carries (and the
-            project, branch and machine beside it), and the face is hidden
-            so the same two settings are not offered twice on one screen.
-            One row, scrolled sideways when it does not fit — it has to
-            overflow for that: an item allowed to shrink is squeezed to
-            nothing first and paints its text over the chip next to it,
-            which is what a long path next to a repository name did on a
-            phone. */}
-        <div className="hidden md:flex items-center gap-x-2 gap-y-1 px-0.5 min-w-0 overflow-x-auto kin-scroll whitespace-nowrap">
-          {/* The host agent is this session's identity: the daemon has no
-              protocol to swap it, so it is named as a fact rather than a
-              disabled button. The phone's run sheet shows the same value
-              the same way. */}
-          <span
-            className="inline-flex flex-none items-center gap-1.5 text-caption font-medium text-kin-secondary"
-            title={tr("runConfig.agentLocked")}
-          >
-            <span
-              className={`flex h-5 w-5 flex-none items-center justify-center rounded-md text-micro font-semibold ${hostAgentAvatar.className}`}
-            >
-              {hostAgentAvatar.initials}
-            </span>
-            <span className="max-w-[8rem] truncate">{hostAgentName}</span>
-          </span>
-          <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
-            ·
-          </span>
-          <PermissionModePicker
-            value={composerPermissionMode}
-            modes={taskPermissionModes}
-            disabled={sending || stopping}
-            compact
-            active={active}
-            onChange={onComposerPermissionChange}
-          />
-          <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
-            ·
-          </span>
-          <ModelPicker
-            value={composerModel}
-            models={taskAgentModels}
-            source={taskAgentModelSource}
-            status={taskAgentModelStatus}
-            disabled={sending || stopping}
-            compact
-            fallbackDisplay={transcriptModel}
-            onChange={onComposerModelChange}
-          />
-          {/* Where the work is — directory, repository, branch, machine —
-              describes the session rather than changing the next message,
-              and on a phone the four chips plus the two controls above do
-              not fit one line. They stay on `md` up, where the row has the
-              width; the project is named in the header and the machine in
-              the session-actions sheet. A div, not a span: CwdPicker renders
-              one, and a span may not contain it. */}
-          <div className="hidden md:contents">
-            <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
-              ·
-            </span>
-            <CwdPicker
-              // The one item allowed to give way, because a path can be
-              // arbitrarily long: it shrinks to a readable floor and its path
-              // tag truncates inside that, rather than the row overflowing on
-              // a desktop window or the chip collapsing on a phone.
-              className="min-w-[6rem] max-w-inspector"
-              cwd={task.cwd}
-              locked
-              compact
-              onChange={() => undefined}
-            />
-            {/* Which repository the work is in. A session on this machine has
-              no recorded one and shows nothing here — its repository is the
-              one the pull-request panel looked up. A session on another
-              machine has one, because the Hub asked that machine when the
-              session started. */}
-            <RepoChip repo={task.workspace_repo} />
-            <BranchPicker
-              cwd={task.cwd}
-              // The task's cwd is on the machine that runs it, so the branches
-              // in the strip below are that machine's — not this one's, which
-              // for the same repository would read plausibly and be wrong.
-              device={task.executing_device_id}
-              locked
-              compact
-              className="flex-none"
-            />
-            {machine ? (
-              <>
-                <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
-                  ·
-                </span>
-                {/* Which machine the cwd above lives on. Without it the path in
-                  this strip reads as a directory on the machine showing it. */}
-                <span
-                  className="flex-none inline-flex items-center gap-1 text-caption text-kin-secondary"
-                  title={tr("machine.remoteHint", { name: machine.text })}
-                >
-                  <IconMachine size={12} />
-                  {machine.known
-                    ? tr("machine.runsOn", { name: machine.text })
-                    : tr("machine.runsOnUnknown", { name: machine.text })}
-                </span>
-              </>
-            ) : null}
-          </div>
-        </div>
       </div>
     </div>
   );
