@@ -35,8 +35,30 @@ function coarsePointer() {
     dispatchEvent: vi.fn(),
   }));
 }
-beforeEach(() => setLocale("en"));
-afterEach(() => vi.unstubAllGlobals());
+/**
+ * jsdom has no Popover API: Astryx asks `:popover-open` whether its layer is on
+ * screen, and jsdom answers false instead of throwing, so Escape would find no
+ * layer to dismiss. A browser answers true while the manual popover is shown.
+ */
+function popoverOpenSelector() {
+  const native = Element.prototype.matches;
+  Element.prototype.matches = function (this: Element, selector: string) {
+    if (selector === ":popover-open") return this.hasAttribute("popover");
+    return native.call(this, selector);
+  };
+  return () => {
+    Element.prototype.matches = native;
+  };
+}
+let restoreMatches: () => void;
+beforeEach(() => {
+  setLocale("en");
+  restoreMatches = popoverOpenSelector();
+});
+afterEach(() => {
+  restoreMatches();
+  vi.unstubAllGlobals();
+});
 describe("the shared tooltip", () => {
   it("shows after the delay on hover and hides on leave", async () => {
     const user = userEvent.setup();
@@ -84,23 +106,26 @@ describe("the shared tooltip", () => {
     expect(screen.queryByText(CONTENT)).toBeNull();
     expect(trigger().hasAttribute("aria-describedby")).toBe(false);
   });
-  it("a touch long-press opens it", async () => {
+  it("a tap opens it on a coarse pointer", async () => {
     coarsePointer();
     renderTooltip({ delay: 10 });
-    fireEvent.pointerDown(trigger(), {
+    const el = trigger();
+    fireEvent.pointerDown(el, {
       pointerType: "touch",
       pointerId: 1,
       isPrimary: true,
       bubbles: true,
     });
-    // Astryx's `touchTrigger` owns the long-press threshold.
+    fireEvent.pointerUp(el, {
+      pointerType: "touch",
+      pointerId: 1,
+      isPrimary: true,
+      bubbles: true,
+    });
+    // Astryx's `touchTrigger` opens on the tap's `click`, the verdict its
+    // recognizer delivers when the finger lifts, not on the press itself.
+    fireEvent.click(el);
     await waitFor(() => expect(tooltip()).not.toBeNull(), { timeout: 2000 });
     expect(tooltip()?.textContent).toContain(CONTENT);
-    fireEvent.pointerUp(trigger(), {
-      pointerType: "touch",
-      pointerId: 1,
-      isPrimary: true,
-      bubbles: true,
-    });
   });
 });

@@ -23,9 +23,10 @@ type AstryxTooltipProps = {
   placement?: "above" | "below";
   delay?: number;
   isEnabled?: boolean;
-  focusTrigger?: boolean;
-  /** Long-press on a coarse pointer opens the same tooltip. */
-  touchTrigger?: boolean;
+  /** Which focus opens it; `auto` accepts any focusable trigger. */
+  focusTrigger?: "auto" | "always" | "never";
+  /** What a tap does on a coarse pointer; `tap` opens it on any trigger. */
+  touchTrigger?: "auto" | "tap" | "none";
 };
 
 const TooltipSurface = AstryxTooltip as unknown as (props: AstryxTooltipProps) => ReactElement;
@@ -59,8 +60,8 @@ export default function Tooltip({
       placement={placement}
       delay={delay}
       isEnabled
-      focusTrigger
-      touchTrigger
+      focusTrigger="auto"
+      touchTrigger="tap"
     >
       {children}
     </TooltipSurface>
