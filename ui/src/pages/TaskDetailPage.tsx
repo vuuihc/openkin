@@ -64,9 +64,10 @@ import {
   settlePendingSendList,
   type PendingSend,
 } from "../lib/pendingSend";
-import { IconKin } from "../components/icons";
+import { IconChevronDown, IconKin } from "../components/icons";
 import { SlowConnectHint } from "../components/Skeleton";
 import ActionSheet, { type ActionSheetRow } from "../components/ui/ActionSheet";
+import Button from "../components/ui/Button";
 import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
 import FileQuickOpen from "../components/workspace/FileQuickOpen";
 import TaskUsageSummary from "../components/usage/TaskUsageSummary";
@@ -396,6 +397,20 @@ export default function TaskDetailPage({
   const scrollRef = useRef<HTMLDivElement>(null);
   /** User is near the bottom → stick to new content. */
   const stickToBottomRef = useRef(true);
+  /**
+   * New output that arrived while the reader was reading above the fold.
+   *
+   * A running agent appends below the viewport; saying nothing is how a live
+   * session looks stopped, and pinning anyway is how reading becomes
+   * impossible. The count is only ever "is it nonzero" on screen, but it is
+   * kept as a count so the pill's appearance is one comparison, not a second
+   * boolean to keep in step with this one.
+   */
+  const [unseen, setUnseen] = useState(0);
+  /** `events.length` as of the last render that followed or reported. */
+  const seenEventCountRef = useRef(events.length);
+  /** The task whose events `seenEventCountRef` counts. */
+  const followedTaskIdRef = useRef(id);
   /** First paint of this mounted instance: jump to bottom once (no animation). */
   const didInitialScrollRef = useRef(false);
   /**
@@ -625,6 +640,9 @@ export default function TaskDetailPage({
     const el = scrollRef.current;
     if (!el) return;
     stickToBottomRef.current = isNearBottom(el);
+    // Reading at the end is what "caught up" means: drop the offer to go
+    // there, whether the reader scrolled down or the content shrank to fit.
+    if (stickToBottomRef.current) setUnseen(0);
     // Only record while laid out — hidden (display:none) panes report 0.
     if (active && el.clientHeight > 0) {
       savedScrollTopRef.current = el.scrollTop;
@@ -789,6 +807,42 @@ export default function TaskDetailPage({
     savedScrollTopRef.current = el.scrollTop;
     if (id) setSessionScroll(id, el.scrollTop);
   }, [events, approvals, userQuestions, sending, id]);
+
+  // New output that arrived while the reader was above the fold is reported
+  // once, quietly, instead of merely landing out of sight. The pill is an
+  // affordance, not a loading state: it is raised on growth and drops as soon
+  // as the reader is back at the end, sends a follow-up, or changes session.
+  useEffect(() => {
+    const previous = seenEventCountRef.current;
+    seenEventCountRef.current = events.length;
+    if (events.length <= previous) return;
+    // The opening layout already lands at the end (or is still on its way); a
+    // keep-alive-hidden pane is not being read; a send is about to pin.
+    if (!didInitialScrollRef.current || !active || sending) return;
+    if (stickToBottomRef.current) return;
+    setUnseen((count) => count + (events.length - previous));
+  }, [events.length, active, sending]);
+
+  // The counter belongs to the conversation it was raised for: another task
+  // has its own transcript, its own place and its own unread output.
+  useEffect(() => {
+    if (followedTaskIdRef.current === id) return;
+    followedTaskIdRef.current = id;
+    seenEventCountRef.current = events.length;
+    setUnseen(0);
+  }, [id, events.length]);
+
+  const showNewest = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // Instant, like every other transcript position: the reader asked for the
+    // end, not for a ride through the lines in between.
+    el.scrollTop = el.scrollHeight;
+    stickToBottomRef.current = true;
+    savedScrollTopRef.current = el.scrollTop;
+    if (id) setSessionScroll(id, el.scrollTop);
+    setUnseen(0);
+  }, [id]);
 
   const latestLimitHit = useMemo(() => {
     let lastUserSeq = 0;
@@ -1233,6 +1287,9 @@ export default function TaskDetailPage({
     if (!task) return;
     const sent = pendingSend(text, events);
     setPendingSends((current) => [...current, sent]);
+    // Sending is choosing the end of the conversation; the pill has nothing
+    // left to offer, and the follow effect below pins the new bubble.
+    setUnseen(0);
     setSending(true);
     setAwaitingReply(true);
     // The draft as the composer left it when it submitted — normally empty,
@@ -1877,94 +1934,132 @@ export default function TaskDetailPage({
           />
         </div>
 
-        <div
-          ref={scrollRef}
-          onScroll={onChatScroll}
-          // The focus sink the approval panel hands the keyboard back to on
-          // Esc; `-1` keeps a large scroll area out of the tab order.
-          role="region"
-          aria-label={tr("task.transcript")}
-          tabIndex={-1}
-          className={
-            scrollReady
-              ? "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 outline-none"
-              : "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 invisible outline-none"
-          }
-        >
-          <WorkerTimeline
-            rows={workerRows}
-            onOpenPath={onOpenWorkspacePath}
-            // A settled task has nothing left to stop; a stale running row is
-            // the poll's problem, not a button the reader can use.
-            onStop={isTerminal(task.status) ? undefined : onStopWorker}
-            stoppingKey={workerStoppingKey}
-          />
-          <ChatStream
-            events={events}
-            onOpenPath={onOpenWorkspacePath}
-            fallbackUserPrompt={displayUserPrompt(task.prompt || "")}
-            messageScope={task.id}
-            loading={!detail.loaded || !terminal || sending || awaitingReply}
-            loadingSpeaker={task.agent || "kin"}
-            hostSpeaker={task.agent || "kin"}
-            hostModel={task.model}
-            queuedSeqs={queuedSeqs}
-            onUnqueue={onWithdrawQueued}
-            onEditQueued={onEditQueued}
-            pendingSlots={pendingSlots}
-            showMessageActions={terminal}
-            actionsBusy={actionBusy}
-            onRetry={(seq) => void onRetry(seq)}
-            onFork={(seq) => void onFork(seq)}
-            findOpen={findOpen}
-            onFindOpenChange={setFindOpen}
-            findShortcut={active && panel === null && !fileFinderOpen}
-            findSeed={findSeed}
-            pendingUserMessages={pendingUserMessages}
-            trailing={
-              <>
-                {unanchored.map((entry) => (
-                  <div key={`${entry.kind}-${entry.id}`} className="mt-1">
-                    {renderPendingCard(entry)}
-                  </div>
-                ))}
-                {latestLimitHit && task && (
-                  <div className="mt-2" key={`limit-${latestLimitHit.seq}`}>
-                    <LimitCard
-                      hit={latestLimitHit.payload}
-                      wait={limitWait}
-                      hostAgentId={task.agent || ""}
-                      active={active}
-                      agents={agents}
-                      busy={limitBusy}
-                      onWait={() => void onLimitAction("wait")}
-                      onContinue={() => void onLimitAction("continue")}
-                      onSwitch={(agentId) => void onLimitAction("switch", agentId)}
-                      onDismiss={() => void onLimitAction("dismiss")}
-                    />
-                  </div>
-                )}
-                {needsYou.length > 0 && (
-                  /*
+        {/* The transcript and the offer to return to its end. The wrapper is
+            what the pill floats in: the scroller keeps its own classes and
+            refs, and the pill sits over the last lines rather than taking a
+            row of its own — a new row would move the reading it interrupts. */}
+        <div className="relative flex-1 min-h-0 flex flex-col">
+          <div
+            ref={scrollRef}
+            onScroll={onChatScroll}
+            // The focus sink the approval panel hands the keyboard back to on
+            // Esc; `-1` keeps a large scroll area out of the tab order.
+            role="region"
+            aria-label={tr("task.transcript")}
+            tabIndex={-1}
+            className={
+              scrollReady
+                ? "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 outline-none"
+                : "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 invisible outline-none"
+            }
+          >
+            <WorkerTimeline
+              rows={workerRows}
+              onOpenPath={onOpenWorkspacePath}
+              // A settled task has nothing left to stop; a stale running row is
+              // the poll's problem, not a button the reader can use.
+              onStop={isTerminal(task.status) ? undefined : onStopWorker}
+              stoppingKey={workerStoppingKey}
+            />
+            <ChatStream
+              events={events}
+              onOpenPath={onOpenWorkspacePath}
+              fallbackUserPrompt={displayUserPrompt(task.prompt || "")}
+              messageScope={task.id}
+              loading={!detail.loaded || !terminal || sending || awaitingReply}
+              loadingSpeaker={task.agent || "kin"}
+              hostSpeaker={task.agent || "kin"}
+              hostModel={task.model}
+              queuedSeqs={queuedSeqs}
+              onUnqueue={onWithdrawQueued}
+              onEditQueued={onEditQueued}
+              pendingSlots={pendingSlots}
+              showMessageActions={terminal}
+              actionsBusy={actionBusy}
+              onRetry={(seq) => void onRetry(seq)}
+              onFork={(seq) => void onFork(seq)}
+              findOpen={findOpen}
+              onFindOpenChange={setFindOpen}
+              findShortcut={active && panel === null && !fileFinderOpen}
+              findSeed={findSeed}
+              pendingUserMessages={pendingUserMessages}
+              trailing={
+                <>
+                  {unanchored.map((entry) => (
+                    <div key={`${entry.kind}-${entry.id}`} className="mt-1">
+                      {renderPendingCard(entry)}
+                    </div>
+                  ))}
+                  {latestLimitHit && task && (
+                    <div className="mt-2" key={`limit-${latestLimitHit.seq}`}>
+                      <LimitCard
+                        hit={latestLimitHit.payload}
+                        wait={limitWait}
+                        hostAgentId={task.agent || ""}
+                        active={active}
+                        agents={agents}
+                        busy={limitBusy}
+                        onWait={() => void onLimitAction("wait")}
+                        onContinue={() => void onLimitAction("continue")}
+                        onSwitch={(agentId) => void onLimitAction("switch", agentId)}
+                        onDismiss={() => void onLimitAction("dismiss")}
+                      />
+                    </div>
+                  )}
+                  {needsYou.length > 0 && (
+                    /*
                     A phone does not have these keys, and the line reads as an
                     instruction to press something that is not there. `sm` is
                     the same gate the composer's ⌘↵ hint uses (Composer.tsx)
                     rather than a pointer media query, so one codebase has one
                     answer to "the keyboard hint does not apply here".
                   */
-                  <p className="hidden sm:block text-center text-caption text-kin-muted mt-2">
-                    <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">A</kbd>{" "}
-                    {tr("chat.approve")} ·{" "}
-                    <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">D</kbd>{" "}
-                    {tr("chat.deny")}
-                    {" · "}
-                    {tr("question.hintKeys")}
-                  </p>
-                )}
-                <div ref={bottomRef} />
-              </>
-            }
-          />
+                    <p className="hidden sm:block text-center text-caption text-kin-muted mt-2">
+                      <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">
+                        A
+                      </kbd>{" "}
+                      {tr("chat.approve")} ·{" "}
+                      <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">
+                        D
+                      </kbd>{" "}
+                      {tr("chat.deny")}
+                      {" · "}
+                      {tr("question.hintKeys")}
+                    </p>
+                  )}
+                  <div ref={bottomRef} />
+                </>
+              }
+            />
+          </div>
+
+          {/* Kept mounted while empty: a live region announces what is added
+              to it, and a region that arrives with its content already inside
+              is the case screen readers most often miss. */}
+          <div className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2" aria-live="polite">
+            {unseen > 0 && (
+              /*
+                New output below the fold, offered rather than announced by
+                movement. It floats over the last lines so the reading does not
+                shift, and it is a real button with a name: the phone taps it,
+                the keyboard tabs to it, and it goes away by itself once the
+                reader is back at the end.
+              */
+              <Button
+                variant="secondary"
+                onClick={showNewest}
+                className="rounded-full bg-kin-elevated px-3.5 shadow-e2"
+              >
+                {/* One nowrap row: as bare children of the button's label span
+                    the chevron and the text stack, because Tailwind preflight
+                    makes the icon's svg a block. */}
+                <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                  <IconChevronDown className="w-4 h-4 flex-none" />
+                  {tr("task.newActivity")}
+                </span>
+              </Button>
+            )}
+          </div>
         </div>
 
         <TaskComposerDock
@@ -1999,7 +2094,15 @@ export default function TaskDetailPage({
           usageLoading={usageLoading}
           machine={machine}
           waitingCount={needsYou.length}
+          pendingIsApproval={needsYou[0]?.kind === "approval"}
+          pendingApprovalBusy={needsYou[0] ? Boolean(busy[needsYou[0].id]) : false}
           onRevealFirstPending={revealFirstPending}
+          // The oldest waiting decision, through the same path the inline card
+          // uses: one decision implementation, two places to reach it.
+          onApproveFirstPending={() => {
+            const first = needsYou[0];
+            if (first) void decideAndKeep(first.id, "approved");
+          }}
         />
       </div>
 
