@@ -1,11 +1,26 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { AuthError, claimOwner, exchangeLoginCode, joinHub, signIn, signInWithLink, startOIDC } from "../api/account";
+import {
+  AuthError,
+  claimOwner,
+  exchangeLoginCode,
+  joinHub,
+  signIn,
+  signInWithLink,
+  startOIDC,
+} from "../api/account";
 import { authErrorText, CODE_FIELDS, prefilledCode } from "../lib/accountGate";
-import { hubConfigPlugin, newDeviceKey, parseAuthCallback, takeAuthCallback, type HubConfigPlugin } from "../lib/hubConfig";
+import {
+  hubConfigPlugin,
+  newDeviceKey,
+  parseAuthCallback,
+  takeAuthCallback,
+  type HubConfigPlugin,
+} from "../lib/hubConfig";
 import { withoutClaimHash } from "../lib/loginLink";
 import { hasFinePointer } from "../lib/pointer";
 import { useT } from "../i18n/react";
 import { useAppStore, type AccountMode, type AccountProvider } from "../store/appStore";
+import Button from "./ui/Button";
 
 /**
  * Account gate for a Hub.
@@ -273,13 +288,9 @@ export default function AccountScreen({ mode }: { mode: AccountMode }) {
             </p>
           )}
 
-          <button
-            type="submit"
-            disabled={busy}
-            className="w-full min-h-12 rounded-xl bg-kin-blue px-4 py-3 text-strong leading-5 font-semibold text-kin-on-brand hover:bg-kin-blue/90 active:scale-[0.99] transition disabled:opacity-60"
-          >
+          <Button type="submit" variant="default" disabled={busy} className="w-full">
             {busy ? tr("account.working") : tr(copy.action)}
-          </button>
+          </Button>
 
           {/* Federated sign-in is offered only when signing in. Claiming and
               joining both spend a code that the provider flow does not carry,
@@ -311,13 +322,18 @@ export default function AccountScreen({ mode }: { mode: AccountMode }) {
         {mode === "join" && (
           <p className="text-center text-body leading-5 text-kin-muted">
             {tr("account.haveAccount")}{" "}
-            <button
+            <Button
               type="button"
+              variant="quiet"
               onClick={switchToSignIn}
-              className="rounded font-medium text-kin-blue underline-offset-2 hover:underline focus:outline-none focus-visible:ring-1 focus-visible:ring-kin-focus-ring"
+              // The facade owns shape, focus and the touch floor; the underline
+              // stays the caller's because it is what makes this read as a link
+              // inside a sentence, and the quiet fill is suppressed so the
+              // button does not paint a block behind one word.
+              className="rounded underline-offset-2 hover:bg-transparent hover:underline"
             >
               {tr("account.signInInstead")}
-            </button>
+            </Button>
           </p>
         )}
 
@@ -376,8 +392,10 @@ function OIDCButton({
 }) {
   const setPending = useAppStore((s) => s.setPendingAppSignIn);
   return (
-    <button
+    <Button
       type="button"
+      variant="secondary"
+      className="w-full"
       onClick={() => {
         if (!plugin) {
           startOIDC(provider, window.location.pathname);
@@ -389,29 +407,26 @@ function OIDCButton({
         setPending({
           deviceKey: newDeviceKey(),
           open: (url) => {
-            plugin
-              .openSystemBrowser({ url })
-              .catch(() => {
-                // The shell refuses what it cannot carry — an https-only URL
-                // is a plain-HTTP Hub, a supported but untrusted-for-OAuth
-                // configuration. A silent rejection would leave this flow
-                // polling forever; the failure event lands in the same error
-                // line every other sign-in failure uses.
-                setPending(null);
-                window.dispatchEvent(
-                  new CustomEvent("kin:app-sign-in-failed", {
-                    detail: { code: "browser_unavailable", message: "" },
-                  }),
-                );
-              });
+            plugin.openSystemBrowser({ url }).catch(() => {
+              // The shell refuses what it cannot carry — an https-only URL
+              // is a plain-HTTP Hub, a supported but untrusted-for-OAuth
+              // configuration. A silent rejection would leave this flow
+              // polling forever; the failure event lands in the same error
+              // line every other sign-in failure uses.
+              setPending(null);
+              window.dispatchEvent(
+                new CustomEvent("kin:app-sign-in-failed", {
+                  detail: { code: "browser_unavailable", message: "" },
+                }),
+              );
+            });
           },
         });
         startOIDC(provider, window.location.pathname);
       }}
-      className="w-full min-h-12 rounded-xl border border-kin-hairline-strong bg-kin-bg px-4 py-3 text-strong leading-5 font-medium text-kin-text hover:bg-kin-elevated active:scale-[0.99] transition"
     >
       {label("account.continueWith", { provider: provider.label })}
-    </button>
+    </Button>
   );
 }
 
