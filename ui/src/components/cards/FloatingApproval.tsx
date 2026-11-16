@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Approval } from "../../api/client";
 import { useT } from "../../i18n/react";
 import ErrorBoundary from "../ErrorBoundary";
+import Button from "../ui/Button";
 import ApprovalCard from "./ApprovalCard";
 
 type Decision = "approved" | "denied";
@@ -221,14 +222,16 @@ export default function FloatingApproval({
         <span className="text-caption font-semibold uppercase tracking-label text-kin-muted">
           {tr("approval.floatingLabel")}
         </span>
-        <button
-          type="button"
+        <Button
+          variant="quiet"
           onClick={() => onOpenTask(current.task_id)}
           title={tr("approval.openTask")}
-          className="max-w-[13rem] truncate rounded-full px-1 py-0.5 text-caption font-medium text-kin-blue-ink hover:underline"
+          // The strip's task link, not a filled action: keep its compact pill
+          // and blue ink instead of the facade's row geometry.
+          className="block max-w-[13rem] min-h-0! truncate rounded-full px-1 py-0.5 text-caption font-medium text-kin-blue-ink! hover:bg-transparent! hover:underline"
         >
           {title || tr("approval.floatingFallback")}
-        </button>
+        </Button>
         {waiting > 0 && (
           <>
             {/* The visible `+1` is a count with no noun; the label is what a
