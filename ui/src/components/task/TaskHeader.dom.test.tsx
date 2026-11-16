@@ -75,6 +75,16 @@ function desktopBar(utils: ReturnType<typeof setup>["utils"]) {
   return (utils.container.querySelector("header") as HTMLElement).nextElementSibling as HTMLElement;
 }
 
+/** The phone bar's own element, for assertions the query helpers cannot scope. */
+function phoneBarEl(utils: ReturnType<typeof setup>["utils"]) {
+  return utils.container.querySelector("header") as HTMLElement;
+}
+
+/** The live-status pill, whichever row it is drawn in. */
+function statusPill(bar: HTMLElement) {
+  return bar.querySelector("[data-task-status]") as HTMLElement | null;
+}
+
 describe("TaskHeader", () => {
   it("keeps the phone and desktop bars on opposite sides of the md breakpoint", () => {
     const { utils } = setup();
@@ -97,14 +107,15 @@ describe("TaskHeader", () => {
   });
 
   it("renders the desktop header with the host chip, workspace, share, archive and delete buttons", () => {
-    const { props } = setup();
+    const { props, utils } = setup();
+    const desktop = within(desktopBar(utils));
 
-    expect(screen.getByText(t("newChat.hostAgent", { name: "Kin" }))).toBeTruthy();
+    expect(desktop.getByText(t("newChat.hostAgent", { name: "Kin" }))).toBeTruthy();
 
-    const workspace = screen.getByRole("button", { name: t("workspace.title") });
-    const share = screen.getByRole("button", { name: t("task.share") });
-    const archive = screen.getByRole("button", { name: t("task.archiveSession") });
-    const del = screen.getByRole("button", { name: t("task.deleteSession") });
+    const workspace = desktop.getByRole("button", { name: t("workspace.title") });
+    const share = desktop.getByRole("button", { name: t("task.share") });
+    const archive = desktop.getByRole("button", { name: t("task.archiveSession") });
+    const del = desktop.getByRole("button", { name: t("task.deleteSession") });
 
     fireEvent.click(workspace);
     fireEvent.click(share);
@@ -137,9 +148,11 @@ describe("TaskHeader", () => {
   });
 
   it("desktop: project name is plain text without a project_id", () => {
-    setup();
+    const { utils } = setup();
     expect(screen.queryByRole("link", { name: "openkin" })).toBeNull();
-    expect(screen.getByText("openkin")).toBeTruthy();
+    // The phone subtitle also says "openkin" now, so the row is read from the
+    // desktop bar rather than from the whole screen.
+    expect(within(desktopBar(utils)).getByText("openkin")).toBeTruthy();
   });
 
   it("phone: the trailing ⋯ button opens the action sheet via the passed-in onOpenActions callback", () => {
@@ -147,5 +160,81 @@ describe("TaskHeader", () => {
     const more = phoneBar(utils).getByRole("button", { name: t("task.sessionActions") });
     fireEvent.click(more);
     expect(props.onOpenActions).toHaveBeenCalledTimes(1);
+  });
+
+  it("phone: puts the live status in a non-wrapping pill on the subtitle row", () => {
+    const { utils } = setup();
+    const pill = statusPill(phoneBarEl(utils));
+
+    expect(pill).not.toBeNull();
+    expect(pill?.textContent).toBe(t("task.running"));
+    const classes = (pill as HTMLElement).className.split(/\s+/);
+    expect(classes).toContain("whitespace-nowrap");
+    expect(classes.includes("flex-none") || classes.includes("shrink-0")).toBe(true);
+  });
+
+  it("phone: the subtitle keeps the project and adds the branch", () => {
+    const { utils } = setup({ task: { ...task, workspace_branch: "rsi/header-pill" } });
+    const pill = statusPill(phoneBarEl(utils)) as HTMLElement;
+    const row = pill.parentElement as HTMLElement;
+
+    // The pill, project and branch share one row: the row is the pill's own
+    // parent, so a layout that pushed any of them elsewhere fails here.
+    expect(row.className.split(/\s+/)).toContain("flex");
+    expect(row.textContent).toContain("openkin");
+    expect(row.textContent).toContain("rsi/header-pill");
+    expect(row.textContent).toContain(t("task.running"));
+  });
+
+  it("phone: hides the status pill once the turn is terminal", () => {
+    const { utils } = setup({ terminal: true });
+    const phone = phoneBarEl(utils);
+
+    expect(statusPill(phone)).toBeNull();
+    expect(phoneBar(utils).queryByText(t("task.running"))).toBeNull();
+  });
+
+  it("phone: says reconnect in the pill while the live stream is degraded", () => {
+    const { utils } = setup({ degraded: true });
+
+    expect(statusPill(phoneBarEl(utils))?.textContent).toBe(t("task.reconnect"));
+  });
+
+  it("desktop: draws the status as a pill and keeps the panel toggle working", () => {
+    const { props, utils } = setup();
+    const desktop = desktopBar(utils);
+
+    expect(statusPill(desktop)?.textContent).toBe(t("task.running"));
+
+    fireEvent.click(within(desktop).getByRole("button", { name: t("workspace.title") }));
+    expect(props.onToggleWorkspace).toHaveBeenCalledTimes(1);
+  });
+
+  it("desktop: every verb still reaches its callback through the facade", () => {
+    const { props, utils } = setup();
+    const desktop = within(desktopBar(utils));
+
+    fireEvent.click(desktop.getByRole("button", { name: t("workspace.title") }));
+    fireEvent.click(desktop.getByRole("button", { name: t("task.share") }));
+    fireEvent.click(desktop.getByRole("button", { name: t("task.archiveSession") }));
+    fireEvent.click(desktop.getByRole("button", { name: t("task.deleteSession") }));
+    fireEvent.click(desktop.getByRole("button", { name: t("composer.stop") }));
+
+    expect(props.onToggleWorkspace).toHaveBeenCalledTimes(1);
+    expect(props.onShare).toHaveBeenCalledTimes(1);
+    expect(props.onToggleArchive).toHaveBeenCalledTimes(1);
+    expect(props.onDelete).toHaveBeenCalledTimes(1);
+    expect(props.onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it("desktop: keeps archive and delete disabled while their action is in flight", () => {
+    const { utils } = setup({ archiving: true, deleting: true });
+    const desktop = within(desktopBar(utils));
+
+    const archive = desktop.getByRole("button", { name: t("task.archiveSession") });
+    const del = desktop.getByRole("button", { name: t("task.deleteSession") });
+
+    expect((archive as HTMLButtonElement).disabled).toBe(true);
+    expect((del as HTMLButtonElement).disabled).toBe(true);
   });
 });

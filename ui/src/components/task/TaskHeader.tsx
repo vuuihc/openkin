@@ -13,14 +13,39 @@ import {
   IconTrash,
 } from "../icons";
 import MobileHeader, { MobileHeaderButton } from "../mobile/MobileHeader";
+import Button from "../ui/Button";
+
+/**
+ * The session's live state, as one fixed-size pill.
+ *
+ * Both bars draw the same pill: on the phone it leads the subtitle row beside
+ * the project and branch, and on the desktop it sits beside Stop. It never
+ * wraps and never shrinks, so a long project or branch truncates instead of
+ * pushing the state out of view — the state is the one thing on the row that
+ * has to stay readable at every width.
+ */
+function StatusPill({ degraded }: { degraded: boolean }) {
+  const tr = useT();
+  return (
+    <span
+      data-task-status={degraded ? "reconnect" : "running"}
+      className={[
+        "inline-flex flex-none items-center whitespace-nowrap rounded-full px-2 py-0.5",
+        "text-micro font-semibold leading-flush tabular-nums",
+        degraded ? "bg-kin-orange/10 text-kin-orange-ink" : "bg-kin-blue/10 text-kin-blue-ink",
+      ].join(" ")}
+    >
+      {degraded ? tr("task.reconnect") : tr("task.running")}
+    </span>
+  );
+}
 
 /*
- * The desktop bar's five controls are moved verbatim from `TaskDetailPage`,
- * not re-implemented: this slice is an extraction with zero behaviour change.
- * Migrating them to the shared `Button` is the facade work this extraction
- * unblocks, and belongs in its own reviewed change rather than here. The
- * suppression is per control, so a sixth raw button added here later is still
- * reported.
+ * The desktop bar's five verbs are the shared `Button` facade (Astryx behind
+ * `.kin-btn-*`), not hand-rolled `<button>`s. Every callback, accessible name
+ * and disabled state is the page's own and unchanged; the only thing that
+ * moved is the control surface. `MobileHeaderButton` stays the phone header's
+ * own primitive, because it is the 44pt square the bar is built around.
  */
 
 /**
@@ -95,16 +120,21 @@ export default function TaskHeader({
       <MobileHeader
         title={title}
         subtitle={
-          // The project is what the session belongs to; the round's state is
-          // appended while it is live rather than replacing the project, so
-          // the second line still answers "which session is this" when a run
-          // is in flight.
-          [
-            task.cwd ? project : undefined,
-            !terminal ? (degraded ? tr("task.reconnect") : tr("task.running")) : undefined,
-          ]
-            .filter(Boolean)
-            .join(" · ") || undefined
+          // The project and branch are what the session belongs to; the round's
+          // state is a pill that leads the row while it is live rather than
+          // replacing them, so the second line still answers "which session is
+          // this" when a run is in flight. The text truncates, the pill does
+          // not: a long project can no longer squeeze the state out of view.
+          task.cwd || !terminal ? (
+            <span className="flex min-w-0 items-center justify-center gap-1.5">
+              {!terminal && <StatusPill degraded={degraded} />}
+              {task.cwd && (
+                <span className="min-w-0 truncate">
+                  {[project, task.workspace_branch].filter(Boolean).join(" · ")}
+                </span>
+              )}
+            </span>
+          ) : undefined
         }
         leading={
           <MobileHeaderButton label={tr("app.back")} onClick={onBack}>
@@ -149,57 +179,52 @@ export default function TaskHeader({
             </span>
             <span>{tr("newChat.hostAgent", { name: hostAgentName })}</span>
           </span>
-          {/* eslint-disable-next-line kin/no-raw-button -- moved unchanged from
-              TaskDetailPage; the facade migration is the next slice. */}
-          <button
-            type="button"
+          <Button
+            variant="secondary"
             onClick={onToggleWorkspace}
+            aria-pressed={filesOpen}
+            aria-label={tr("workspace.title")}
             className={[
-              "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-body transition-colors",
+              "gap-1.5 rounded-md px-2 py-1 text-body font-normal",
               filesOpen
                 ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
-                : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary hover:text-kin-text",
+                : "text-kin-secondary hover:text-kin-text",
             ].join(" ")}
             title={tr("workspace.toggle")}
           >
             <IconPanel size={13} />
             <span>{tr("workspace.title")}</span>
-          </button>
-          {/* eslint-disable-next-line kin/no-raw-button -- moved unchanged from
-              TaskDetailPage; the facade migration is the next slice. */}
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="secondary"
             onClick={onShare}
-            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-secondary transition-colors hover:text-kin-text"
+            aria-label={tr("task.share")}
+            className="gap-1.5 rounded-md px-2 py-1 text-body font-normal text-kin-secondary hover:text-kin-text"
             title={tr("task.shareTitle")}
           >
             <IconShare size={13} />
             <span>{tr("task.share")}</span>
-          </button>
-          {/* eslint-disable-next-line kin/no-raw-button -- moved unchanged from
-              TaskDetailPage; the facade migration is the next slice. */}
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="secondary"
             onClick={() => void onToggleArchive()}
             disabled={archiving}
-            className="inline-flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-secondary transition-colors hover:text-kin-text disabled:opacity-40"
+            className="gap-1 rounded-md px-2 py-1 text-body font-normal text-kin-secondary hover:text-kin-text disabled:opacity-40"
             title={archiveLabel}
             aria-label={archiveLabel}
           >
             {task.archived_at ? <IconRestore size={13} /> : <IconArchive size={13} />}
-          </button>
-          {/* eslint-disable-next-line kin/no-raw-button -- moved unchanged from
-              TaskDetailPage; the facade migration is the next slice. */}
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="secondary"
             onClick={() => void onDelete()}
             disabled={deleting}
-            className="inline-flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-secondary hover:text-kin-red-ink hover:border-kin-red/35 disabled:opacity-40"
+            className="gap-1 rounded-md px-2 py-1 text-body font-normal text-kin-secondary hover:text-kin-red-ink hover:border-kin-red/35 disabled:opacity-40"
             title={tr("task.deleteSession")}
             aria-label={tr("task.deleteSession")}
           >
             <IconTrash size={13} />
-          </button>
+          </Button>
           {task.project_id ? (
             <Link
               to={`/projects/${encodeURIComponent(task.project_id)}`}
@@ -215,19 +240,15 @@ export default function TaskHeader({
           )}
           {!terminal && (
             <>
-              <span className="text-kin-blue-ink tabular-nums">
-                {degraded ? tr("task.reconnect") : tr("task.running")}
-              </span>
-              {/* eslint-disable-next-line kin/no-raw-button -- moved unchanged
-                  from TaskDetailPage; the facade migration is the next slice. */}
-              <button
-                type="button"
+              <StatusPill degraded={degraded} />
+              <Button
+                variant="secondary"
                 onClick={() => void onStop()}
                 disabled={stopping}
-                className="text-body font-semibold text-kin-red-ink hover:bg-kin-red/15 disabled:opacity-40 px-1.5 py-0.5 rounded-md border border-kin-red/30 bg-kin-red/10"
+                className="text-body font-semibold text-kin-red-ink hover:bg-kin-red/15 disabled:opacity-40 px-1.5 py-0.5 rounded-md border-kin-red/30 bg-kin-red/10"
               >
                 {stopping ? tr("task.stopping") : tr("composer.stop")}
-              </button>
+              </Button>
             </>
           )}
         </div>
