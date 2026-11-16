@@ -22,6 +22,7 @@ import BranchPicker from "../components/chat/BranchPicker";
 import Composer from "../components/chat/Composer";
 import CwdPicker from "../components/chat/CwdPicker";
 import { IconBack } from "../components/icons";
+import Button from "../components/ui/Button";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import { useAgentRoles } from "../hooks/useAgentRoles";
 import { useSlowHint } from "../hooks/useSlowHint";
@@ -398,17 +399,21 @@ export default function AgentSessionDetailPage() {
   return (
     <div className="flex-1 flex flex-col min-h-0 min-w-0">
       <header className="flex-none border-b border-[var(--kin-hairline)] px-3 sm:px-5 py-3 flex items-start gap-2">
-        <button
-          type="button"
+        <Button
+          variant="quiet"
           /* The list is this screen's parent whether the conversation was
              opened from a row or a cold deep link; `goBackToList` owns that
-             rule for every phone screen. */
+             rule for every phone screen. The quiet weight inks its own label,
+             so the muted-at-rest ink sits on the glyph the way ChatStream's
+             icon affordances do. */
           onClick={() => goBackToList(navigate)}
-          className="p-1.5 rounded-md text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill)]"
+          className="p-1.5 rounded-md"
           aria-label={tr("agentSession.backToChat")}
         >
-          <IconBack size={16} />
-        </button>
+          <span className="flex items-center justify-center text-kin-muted transition-colors hover:text-kin-text">
+            <IconBack size={16} />
+          </span>
+        </Button>
         <AgentAvatar agentID={session.agent_id} />
         <div className="min-w-0 flex-1">
           <h1 className="text-subtitle font-semibold truncate text-kin-text">{sessionTitle}</h1>
@@ -470,13 +475,9 @@ export default function AgentSessionDetailPage() {
             ) : historyError ? (
               <span className="inline-flex flex-wrap items-center justify-center gap-2">
                 <span>{historyError}</span>
-                <button
-                  type="button"
-                  onClick={() => void loadOlder()}
-                  className="kin-btn-secondary"
-                >
+                <Button variant="secondary" onClick={() => void loadOlder()}>
                   {tr("agentSession.historyRetry")}
-                </button>
+                </Button>
               </span>
             ) : prevCursor ? null : historyCut ? (
               tr("agentSession.historyTruncated")
@@ -489,13 +490,9 @@ export default function AgentSessionDetailPage() {
           <div className="max-w-conversation mx-auto px-4 sm:px-7">
             <div className="rounded-lg border border-kin-orange/30 bg-kin-orange/10 px-3 py-2 text-strong text-kin-orange-ink">
               <p>{historyError}</p>
-              <button
-                type="button"
-                onClick={() => void loadTail()}
-                className="kin-btn-secondary mt-2"
-              >
+              <Button variant="secondary" className="mt-2" onClick={() => void loadTail()}>
                 {tr("agentSession.historyRetry")}
-              </button>
+              </Button>
             </div>
           </div>
         )}

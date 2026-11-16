@@ -43,10 +43,11 @@ type HostProps = {
   items: MenuItem[];
   onOpenChange?: (open: boolean) => void;
   startOpen?: boolean;
+  width?: number;
 };
 
 /** A caller-owned trigger plus the controlled menu, as a call site will use it. */
-function Host({ items, onOpenChange = vi.fn(), startOpen = false }: HostProps) {
+function Host({ items, onOpenChange = vi.fn(), startOpen = false, width }: HostProps) {
   const [open, setOpen] = useState(startOpen);
   const triggerRef = useRef<HTMLButtonElement>(null);
   // Only a change the menu asks for is reported: the trigger's own click is
@@ -74,6 +75,7 @@ function Host({ items, onOpenChange = vi.fn(), startOpen = false }: HostProps) {
         triggerRef={triggerRef}
         label="Actions"
         items={items}
+        width={width}
       />
     </div>
   );
@@ -114,6 +116,39 @@ afterEach(() => {
 });
 
 describe("the menu facade", () => {
+  it("a described row draws the description under the label and keeps it in the accessible name", () => {
+    const choose = vi.fn();
+    const description = "Skip permission prompts — trusted envs only";
+    const items: MenuItem[] = [
+      { id: "yolo", label: "YOLO", description, checked: true, onSelect: choose },
+    ];
+    render(<Host items={items} startOpen />);
+
+    // The name a reader hears in a menu is the row's own text, not a tooltip:
+    // an `aria-describedby` would carry the consequence outside the name.
+    const row = screen.getByRole("menuitemradio", { name: /YOLO.*Skip permission prompts/ });
+    expect(row.getAttribute("aria-describedby")).toBeNull();
+
+    // Under the label, inside the same row, in the muted caption ink.
+    const line = screen.getByText(description);
+    expect(row.contains(line)).toBe(true);
+    expect(line.className).toContain("text-kin-muted");
+    expect(row.textContent?.indexOf("YOLO")).toBeLessThan(row.textContent!.indexOf(description));
+    expect(choose).not.toHaveBeenCalled();
+  });
+
+  it("width overrides the default panel width", () => {
+    const spies = onSelectSpies();
+    const { unmount } = render(<Host items={itemsFor(spies)} startOpen />);
+    expect(screen.getByRole("dialog", { name: "Actions" }).style.width).toBe("240px");
+    unmount();
+
+    // The permission menu's consequence lines need the wider panel; every
+    // other caller keeps the 240px default by saying nothing.
+    render(<Host items={itemsFor(spies)} startOpen width={288} />);
+    expect(screen.getByRole("dialog", { name: "Actions" }).style.width).toBe("288px");
+  });
+
   it("opens as a menu and moves focus to the first enabled item", async () => {
     const spies = onSelectSpies();
     render(<Host items={itemsFor(spies)} />);
