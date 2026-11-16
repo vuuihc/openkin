@@ -4,6 +4,7 @@ import { authErrorText } from "../../lib/accountGate";
 import { isHubShell } from "../../lib/hubConfig";
 import { useT } from "../../i18n/react";
 import { useAppStore, type AccountProvider } from "../../store/appStore";
+import Button from "../ui/Button";
 import { SettingsSection } from "./SettingsPrimitives";
 
 /**
@@ -99,8 +100,8 @@ export function AccountSection() {
             ) : null}
             <p className="text-caption text-kin-muted">{tr("settings.account.deviceCountNote")}</p>
           </div>
-          <button
-            type="button"
+          <Button
+            variant="secondary"
             disabled={busy}
             onClick={() => {
               setBusy(true);
@@ -111,10 +112,10 @@ export function AccountSection() {
                 window.location.assign("/");
               });
             }}
-            className="min-h-11 rounded-lg border border-[var(--kin-hairline)] px-3 py-2 text-strong font-medium text-kin-secondary hover:bg-[var(--kin-fill)] disabled:opacity-60 sm:min-h-10"
+            className="text-kin-secondary"
           >
             {busy ? tr("settings.account.signingOut") : tr("settings.account.signOut")}
-          </button>
+          </Button>
         </div>
 
         <div className="space-y-2 border-t border-kin-hairline pt-3">
@@ -134,8 +135,8 @@ export function AccountSection() {
                         credential rule; a refused removal comes back as a
                         toast, and refreshAccount has already re-read what the
                         Hub actually holds. */}
-                    <button
-                      type="button"
+                    <Button
+                      variant="quiet"
                       disabled={unlinking !== null}
                       aria-label={tr("settings.account.removeMethod", {
                         method: labelFor(linked.provider),
@@ -154,10 +155,10 @@ export function AccountSection() {
                           })
                           .finally(() => setUnlinking(null));
                       }}
-                      className="rounded px-0.5 text-kin-muted hover:text-kin-secondary disabled:opacity-60"
+                      className="h-5 min-h-0! rounded px-1 text-kin-muted!"
                     >
                       ×
-                    </button>
+                    </Button>
                   </span>
                 ))
               : account.identities.map((id, index) => (
@@ -179,16 +180,16 @@ export function AccountSection() {
                 flows). The identity chips above stay visible either way. */}
             {!isHubShell() &&
               oidcProviders.map((provider) => (
-                <button
+                <Button
                   key={provider.id}
-                  type="button"
+                  variant="secondary"
                   onClick={() => startOIDC(provider, "/settings")}
-                  className="rounded-lg border border-kin-hairline-strong px-2.5 py-1 text-body font-medium text-kin-blue hover:bg-[var(--kin-fill)]"
+                  className="px-2.5 py-1 text-body"
                 >
                   {hasLinkedOIDC
                     ? tr("settings.account.linkAnotherProvider")
                     : tr("settings.account.linkProvider", { provider: provider.label })}
-                </button>
+                </Button>
               ))}
           </div>
           <p className="text-caption text-kin-muted">
