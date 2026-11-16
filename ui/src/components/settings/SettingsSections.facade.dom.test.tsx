@@ -55,6 +55,21 @@ function buttonNamed(name: string): HTMLButtonElement {
   return screen.getByRole("button", { name }) as HTMLButtonElement;
 }
 
+/**
+ * A button found by the words it shows, for a control whose own `<label>` owns
+ * its accessible name. The model field's label names its first button and the
+ * accessible-name algorithm skips that control's own text, so role+name
+ * resolves the Fetch control to "Default model". The markup predates this
+ * slice; the assertion here is about the facade class, not the name.
+ */
+function buttonShowing(text: string): HTMLButtonElement {
+  const button = screen
+    .getAllByRole("button")
+    .find((candidate) => candidate.textContent === text);
+  if (!button) throw new Error(`no button showing ${text}`);
+  return button as HTMLButtonElement;
+}
+
 const inactiveProvider: ProviderEntry = {
   id: "openai",
   name: "OpenAI",
@@ -226,10 +241,11 @@ describe("the settings sections on the shared button", () => {
       expect(facadeWeight(buttonNamed(name))).toBe("kin-btn-secondary");
     }
     // Link-shaped inline actions: the facade's quiet weight, no kin-btn-* fill.
-    for (const name of ["Fetch models", "Add model"]) {
-      expect(facadeWeight(buttonNamed(name))).toBeNull();
-      expect(buttonNamed(name).className).toContain("text-kin-blue-ink!");
-    }
+    const fetchModels = buttonShowing("Fetch models");
+    expect(facadeWeight(fetchModels)).toBeNull();
+    expect(fetchModels.className).toContain("text-kin-blue-ink!");
+    expect(facadeWeight(buttonNamed("Add model"))).toBeNull();
+    expect(buttonNamed("Add model").className).toContain("text-kin-blue-ink!");
     // The destructive inline action is quiet too, in red ink.
     const remove = buttonNamed("Remove");
     expect(facadeWeight(remove)).toBeNull();
