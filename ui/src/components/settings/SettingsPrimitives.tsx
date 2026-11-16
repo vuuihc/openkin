@@ -191,6 +191,7 @@ export function SettingsLayout({
                       tabRefs.current[tab.id] = node;
                     }}
                     type="button"
+                    // eslint-disable-next-line kin/no-raw-overlay-role -- the settings tab strip owns its own roving focus and panels
                     role="tab"
                     aria-selected={selected}
                     aria-controls={`settings-panel-${tab.id}`}

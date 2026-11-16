@@ -33,6 +33,10 @@ export default tseslint.config(
       "kin/no-raw-button": "error",
       "kin/no-create-portal": "error",
       "kin/no-arbitrary-z-index": "error",
+      // Also on in the ordinary config; repeated here so an added file is
+      // banned by both configs rather than depending on which one ran.
+      "kin/no-legacy-class": "error",
+      "kin/no-raw-overlay-role": "error",
       // Registered and on, so a new file's existing suppression resolves.
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "warn",

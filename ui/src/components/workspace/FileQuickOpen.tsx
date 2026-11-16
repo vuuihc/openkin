@@ -276,6 +276,7 @@ export default function FileQuickOpen({ taskId, open, onClose, onOpenPath }: Pro
     <div
       ref={rootRef}
       className="fixed inset-0 z-[90] flex items-start justify-center pt-[10vh] px-4 bg-black/55 backdrop-blur-[2px]"
+      // eslint-disable-next-line kin/no-raw-overlay-role -- quick-open owns its focus trap, Escape and stacking
       role="dialog"
       aria-modal="true"
       aria-label={tr("workspace.find.title")}
@@ -358,6 +359,7 @@ export default function FileQuickOpen({ taskId, open, onClose, onOpenPath }: Pro
               {loading ? tr("workspace.find.searching") : tr("workspace.find.noMatches")}
             </p>
           ) : (
+            // eslint-disable-next-line kin/no-raw-overlay-role -- the results list owns its option navigation and active-descendant wiring
             <div role="listbox" id={LIST_ID} aria-label={tr("workspace.find.title")}>
               {rows.map((row, index) => (
                 <div

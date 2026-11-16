@@ -562,6 +562,22 @@
    "brief": "Part 2 of C1c: face/close/row triggers on Button (add a layout-neutral variant if .kin-btn geometry cannot carry the face), the three option lists on Menu (uses C1a's description for the permission hints), the model search field and custom-model input on TextInput, and delete the hand-rolled listbox/arrow-key/search code. Keep TASTE 14/19: options stay a second layer over the sheet, never a second sheet."
   },
   {
+   "id": "C1c2b",
+   "track": "C",
+   "size": "M",
+   "title": "Model row search layer on a shared primitive",
+   "deps": [
+    "C1c2"
+   ],
+   "paths": [
+    "ui/src/components/chat/RunConfigSheet.tsx",
+    "ui/src/components/chat/RunConfigSheet.dom.test.tsx",
+    "ui/src/components/ui/Menu.tsx",
+    "ui/src/components/ui/Menu.dom.test.tsx"
+   ],
+   "brief": "Remainder of the C1c2 split (premise checked 2026-11-17: ui/src/components/ui has Button/Menu/Popover/Dialog/Tabs/Toast/Tooltip and no field primitive). C1c2 leaves the model row's Expansion search/custom layer in place because Menu turns printable keys into typeahead and has no input slot. Give that layer a shared vehicle: either Menu grows a search slot (input row pinned above the option list, typeahead disabled while it is focused, same keys/IME semantics as SearchSelect) or the model layer moves onto a field primitive added by a facade slice. Acceptance (failing tests first): typing in the model search never opens the custom-model editor, arrow keys move from the field into the option list and back, Escape closes only the innermost layer, and `moveListFocus` has no remaining caller in RunConfigSheet. Do not fork a local button or a second listbox; the phone sheet keeps its current shape (TASTE 14/19)."
+  },
+  {
    "id": "C1d",
    "track": "C",
    "title": "Composer shell and bottom row",
@@ -980,7 +996,7 @@
   {
    "id": "G2",
    "track": "G",
-   "title": "Docs: NAVIGATION, IA, TASTE, component contracts, story map",
+   "title": "Docs: the four-area navigation contract (NAVIGATION, IA, story map)",
    "deps": [
     "S3"
    ],
@@ -989,9 +1005,23 @@
     "docs/product/NAVIGATION.md",
     "docs/product/IA.md",
     "docs/product/TASTE.md",
-    "docs/product/stories/ux-unification-story-map.md"
+    "docs/product/stories/ux-unification-story-map.md",
+    "ui/src/lib/navigationContract.test.ts"
    ],
-   "brief": "Replace the old four-entry/push model with the four-area contract; component docs for every facade primitive; update plan status tables."
+   "brief": "Part 1 of the G2 seed (split 2026-11-17; G2b owns the component contracts). Rewrite NAVIGATION.md from the superseded 2026-11-12 phone-only B-shape to the four-area contract as shipped: AREAS in ui/src/lib/areas.ts, Mac AreaNav 208/64px rail (compact when a panel is open or window < 1280), the phone footer's four D8 entries (Chats / Routines / Agent Ops / Settings), per-entry URL memory, one back path (phoneBack + phoneDeepLinkParent), per-area stacks, area switch fade+4px and reduced motion (areaTransition), and /agents + /usage redirecting to /settings?tab=operations after E4a. Update IA.md's Mac/phone target paragraphs and the D8 row to shipped reality plus a delivery-status section; correct the story map's 'future tests' sentence now that the tests exist; add TASTE's motion rule (area/push/pop/swap and reduced motion). The guard test is written first (ui/src/lib/navigationContract.test.ts) and fails until every area, phone entry, route URL and the motion rule is present and the old 'one list page, no tabs' model is gone. Do not edit the 9-changes table rows or IA's notification section: #60 holds an open IA.md hunk there."
+  },
+  {
+   "id": "G2b",
+   "track": "G",
+   "title": "Docs: component contracts for every facade primitive",
+   "deps": [
+    "G2"
+   ],
+   "size": "M",
+   "paths": [
+    "docs/product/components/"
+   ],
+   "brief": "Part 2 of the G2 seed. docs/product/components/README.md's index names four controls while the folder already documents Button, Menu, Dialog/Sheet, Tabs, Toast, Tooltip, ActionSheet, SheetSelect, SearchSelect and SessionFilters; Popover and PendingBadge have no doc at all. Add the missing docs in the existing seven-section format (一句话 / 用它、别用它 / 行为 / 键盘 / 无障碍 / 平台差异 / 契约), written from the component source, and rewrite the index so every primitive in ui/src/components/ui appears once with its doc link. Do not change component code."
   },
   {
    "id": "G3",
