@@ -667,9 +667,10 @@
    "paths": [
     "ui/src/components/sessions/SessionRow.tsx",
     "ui/src/components/mobile/SessionRowActions.tsx",
-    "ui/src/components/mobile/SwipeReveal.tsx"
+    "ui/src/components/sessions/SessionRow.dom.test.tsx",
+    "ui/src/components/mobile/SessionRowActions.dom.test.tsx"
    ],
-   "brief": "Row menu/actions/swipe-reveal on facade Menu/Button; pin/archive/delete unchanged. UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): Mac: a '...' button on hover/focus opens an anchored menu (pin/rename/archive/delete); phone: long-press opens a sheet; status is also in words (not colour dots only); needs-you count on the row."
+   "brief": "Row actions on the facade: one trailing trigger per row (aria-haspopup=menu on Mac, data-row-actions on both) opens ui/Menu on the Mac sidebar and ui/ActionSheet on the phone; the swipe strip stays and its chips move to Button. pin/unpin, archive/restore, delete unchanged; no rename (no capability exists). UX ACCEPTANCE (rsi/UX-AUDIT.md J5): hover/focus reveals the trigger on Mac; the menu/sheet names every action in words; delete keeps red ink; needs-you count stays on the row."
   },
   {
    "id": "C5b",
@@ -738,9 +739,28 @@
     "ui/src/components/workspace/ChangedFilesBar.tsx",
     "ui/src/components/workspace/FileTree.tsx",
     "ui/src/components/workspace/FileQuickOpen.tsx",
-    "ui/src/components/workspace/OpenInMenu.tsx"
+    "ui/src/components/workspace/OpenInMenu.tsx",
+    "ui/src/components/workspace/FileQuickOpen.dom.test.tsx",
+    "ui/src/components/workspace/WorkspacePanel.paths.dom.test.tsx",
+    "ui/src/components/workspace/WorkspacePanel.preview.dom.test.tsx"
    ],
-   "brief": "Migrate controls only; no data/diff logic changes. UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): right panel is ONE tab container (Changes / Files / Terminal / PR) with an expand toggle; changes shows a turn summary line and a scope control (this turn / branch / uncommitted, only the scopes that have data); long code lines scroll horizontally; opening/expanding it makes the list column yield (see S1) so the chat never drops under 420px; review comments stay one click from 'send to agent'."
+   "brief": "Facade migration of the panel family's controls only (19 raw <button> across the five files: panel header back/close/discard, expand/find, OpenInMenu's hand-rolled popover -> Popover/Menu, ChangedFilesBar keep/discard/expand, FileTree/FileQuickOpen rows). No data/diff logic, no tab-container redesign, no scope control, no list-yield: those are W1b/S1b. UX ACCEPTANCE for this part: every control keeps its name, handler and shortcut; one panel surface; OpenInMenu closes on one Escape and returns focus."
+  },
+  {
+   "id": "W1b",
+   "track": "C",
+   "size": "L",
+   "title": "Workspace panel container: one tab set, turn summary and scope",
+   "deps": [
+    "W1"
+   ],
+   "paths": [
+    "ui/src/components/workspace/WorkspacePanel.tsx",
+    "ui/src/components/workspace/ChangedFilesBar.tsx",
+    "ui/src/components/workspace/WorkspacePanel.paths.dom.test.tsx",
+    "ui/src/components/workspace/WorkspacePanel.preview.dom.test.tsx"
+   ],
+   "brief": "Split out of W1 because the controls migration already fills an L: one tab container (Changes / Files / Terminal / PR) with an expand toggle on ui/Tabs, a turn summary line and a scope control (this turn / branch / uncommitted, only scopes that have data) on ChangedFilesBar. The 420px chat floor / list-yield is S1b. Review comments stay one click from send-to-agent."
   },
   {
    "id": "W2",
@@ -791,10 +811,11 @@
    ],
    "size": "L",
    "paths": [
-    "ui/src/components/project/ProjectCover.tsx",
+    "ui/src/pages/ProjectDetailPage.tsx",
     "ui/src/components/project/ProjectOnePager.tsx",
-    "ui/src/components/project/ProjectActivity.tsx",
-    "ui/src/pages/ProjectDetailPage.tsx"
+    "ui/src/components/project/ProjectSummaryCard.tsx",
+    "ui/src/pages/ProjectDetailPage.dom.test.tsx",
+    "ui/src/components/project/ProjectOnePager.dom.test.tsx"
    ],
    "brief": "Facade controls; keep One-Pager, focus, heatmap, recent activity, per-section failure independence; return to origin. UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): project cover: Mac primary CTA in the header, phone CTA as a bottom bar; heat map and recent activity unchanged."
   },
