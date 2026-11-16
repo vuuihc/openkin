@@ -34,17 +34,17 @@ fi
 
 # Relative UI paths, same as CI (`working-directory: ui` + --relative -- .).
 ui_rel() { # git-diff extra args (e.g. origin/main...HEAD or origin/main)
-  ( cd "$WT/ui" && $GIT_BIN diff --relative --name-only --diff-filter=ACMR "$@" -- . )
+  ( cd "$WT/ui" && "$GIT_BIN" -c core.fileMode=false diff --relative --no-renames --numstat --diff-filter=ACMR "$@" -- . ) | awk -F'\t' '($1 != "0" || $2 != "0") && NF >= 3 {print $3}'
 }
 
 go_paths() {
-  $GIT_BIN -C "$WT" diff --name-only --diff-filter=ACMR "$@" -- '*.go' ':!**/vendor/**'
+  "$GIT_BIN" -C "$WT" -c core.fileMode=false diff --no-renames --numstat --diff-filter=ACMR "$@" -- '*.go' ':!**/vendor/**' | awk -F'\t' '($1 != "0" || $2 != "0") && NF >= 3 {print $3}'
 }
 
 uniq_lines() { awk 'NF && !seen[$0]++ {print}'; }
 
 TMPFILES=""
-cleanup_tmp() { [ -n "$TMPFILES" ] && rm -f $TMPFILES; }
+cleanup_tmp() { [ -n "$TMPFILES" ] && rm -f $TMPFILES; return 0; }
 trap cleanup_tmp EXIT
 
 # Run prettier on relative-to-ui paths listed on stdin (one file per line).
