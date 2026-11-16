@@ -1,4 +1,3 @@
-/* eslint-disable kin/no-raw-button -- the whole console moved unchanged from pages/AgentsPage (E4a); E4b/E4c replace these with shared primitives. */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -20,6 +19,8 @@ import {
 import { SkeletonLine, SlowConnectHint } from "../../components/Skeleton";
 import { MobileCard, MobileRow, MobileSection } from "../../components/mobile/MobileList";
 import Sheet, { SheetPrimaryButton, SheetSecondaryButton } from "../../components/mobile/Sheet";
+import Button from "../../components/ui/Button";
+import Menu from "../../components/ui/Menu";
 import { useAgentSessionImport } from "../../hooks/useAgentSessionImport";
 import { useSlowHint } from "../../hooks/useSlowHint";
 import { useAppStore } from "../../store/appStore";
@@ -973,6 +974,7 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                   <>
                     <span aria-hidden>·</span>
                     <span>{tr("agents.discoveredCount", { count: plan.discovered.length })}</span>
+                    {/* eslint-disable-next-line kin/no-raw-button -- discovery is part 2 (E4c). */}
                     <button
                       type="button"
                       className="inline-flex items-center text-kin-blue-ink hover:underline max-md:min-h-11 md:min-h-6"
@@ -987,24 +989,27 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className="kin-btn-secondary min-h-11 px-3 text-strong"
+            <Button
+              variant="secondary"
+              className="min-h-11 px-3 text-strong"
               disabled={checkingAll || smokingAll || offline}
+              isLoading={checkingAll}
               title={offline ? tr("agents.offlineAction") : undefined}
               onClick={() => void onRecheck()}
             >
-              {checkingAll ? tr("common.loading") : tr("agents.recheckAll")}
-            </button>
-            <button
-              type="button"
-              className="kin-btn-secondary min-h-11 px-3 text-strong"
+              {tr("agents.recheckAll")}
+            </Button>
+            <Button
+              variant="secondary"
+              className="min-h-11 px-3 text-strong"
               disabled={smokingAll || checkingAll || offline}
+              isLoading={smokingAll}
               title={offline ? tr("agents.offlineAction") : tr("agents.smokeHint")}
               onClick={() => void runSmoke()}
             >
-              {smokingAll ? tr("agents.smoking") : tr("agents.smokeAll")}
-            </button>
+              {tr("agents.smokeAll")}
+            </Button>
+            {/* eslint-disable-next-line kin/no-raw-button -- manual import flow is part 2 (E4c). */}
             <button
               type="button"
               className="kin-btn-secondary min-h-11 px-3 text-strong"
@@ -1035,13 +1040,9 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
             role="alert"
           >
             <span>{actionError}</span>
-            <button
-              type="button"
-              className="shrink-0 hover:underline"
-              onClick={() => setActionError(null)}
-            >
+            <Button variant="quiet" className="shrink-0" onClick={() => setActionError(null)}>
               {tr("agents.dismiss")}
-            </button>
+            </Button>
           </div>
         )}
 
@@ -1073,6 +1074,7 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
             role="alert"
           >
             <span>{usageError}</span>
+            {/* eslint-disable-next-line kin/no-raw-button -- the usage read's own banner is part 2 (E4c). */}
             <button
               type="button"
               className="shrink-0 hover:underline"
@@ -1089,9 +1091,9 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
             role="alert"
           >
             <span>{error}</span>
-            <button
-              type="button"
-              className="shrink-0 hover:underline"
+            <Button
+              variant="quiet"
+              className="shrink-0"
               onClick={() => {
                 setError(null);
                 void loadAgents();
@@ -1099,7 +1101,7 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
               }}
             >
               {tr("common.retry")}
-            </button>
+            </Button>
           </div>
         )}
 
@@ -1207,6 +1209,7 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
             <p className="text-strong font-medium text-kin-text">{tr("agents.emptyAgents")}</p>
             <p className="mt-1 text-body text-kin-muted">{tr("agents.emptyAgentsHint")}</p>
             {plan.discovered.length > 0 && (
+              /* eslint-disable-next-line kin/no-raw-button -- the discovery entry is part 2 (E4c). */
               <button
                 type="button"
                 className="kin-btn-secondary mt-3 min-h-11 px-3 text-strong"
@@ -1218,6 +1221,7 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
             {plan.discovered.length === 0 && installSuggestions.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-2">
                 {installSuggestions.map((a) => (
+                  // eslint-disable-next-line kin/no-raw-button -- install suggestions belong to discovery, part 2 (E4c).
                   <button
                     key={a.id}
                     type="button"
@@ -1250,6 +1254,7 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                   <SmokeLines report={smokeReport.results} />
                 ) : null}
               </div>
+              {/* eslint-disable-next-line kin/no-raw-button -- the smoke report banner is part 2 (E4c). */}
               <button
                 type="button"
                 className="shrink-0 hover:underline"
@@ -1564,16 +1569,16 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                           </span>
                         }
                         trailing={
-                          <button
-                            type="button"
+                          <Button
+                            variant="quiet"
                             aria-label={`${tr("agents.actions")} — ${a.name}`}
                             aria-haspopup="dialog"
                             aria-expanded={actionsFor === a.id}
                             onClick={() => setActionsFor(a.id)}
-                            className="flex h-11 w-11 items-center justify-center rounded-full text-subtitle text-kin-secondary active:bg-[var(--kin-fill)]"
+                            className="flex h-11 w-11 items-center justify-center rounded-full p-0 text-subtitle"
                           >
                             …
-                          </button>
+                          </Button>
                         }
                         className={actions.length === 0 ? "opacity-50" : undefined}
                       />
@@ -1604,14 +1609,14 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                   className="flex items-center gap-2 rounded-full bg-[var(--kin-fill)] px-3 py-1 text-caption text-kin-secondary"
                 >
                   <span className="font-mono">{family}</span>
-                  <button
-                    type="button"
-                    className="inline-flex items-center text-kin-blue-ink hover:underline max-md:min-h-11 md:min-h-6"
+                  <Button
+                    variant="quiet"
+                    className="inline-flex items-center px-1 text-caption text-kin-blue-ink! hover:underline max-md:min-h-11 md:min-h-6"
                     aria-label={tr("agents.removeNamed", { name: family })}
                     onClick={() => removeFamily(family)}
                   >
                     {tr("agents.remove")}
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>
@@ -1630,6 +1635,7 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                 </h2>
                 <p className="mt-1 text-body text-kin-muted">{tr("agents.discoveredHint")}</p>
               </div>
+              {/* eslint-disable-next-line kin/no-raw-button -- the discovered list is part 2 (E4c). */}
               <button
                 type="button"
                 className="inline-flex min-h-11 shrink-0 items-center px-1 text-body text-kin-blue-ink hover:underline"
@@ -1647,6 +1653,7 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                       {a.reason || tr("agents.notConnected")}
                     </div>
                   </div>
+                  {/* eslint-disable-next-line kin/no-raw-button -- the connect flow is part 2 (E4c). */}
                   <button
                     type="button"
                     className="kin-btn-secondary min-h-11 shrink-0 px-3 text-strong"
@@ -1757,6 +1764,7 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
           }
         >
           {actionItems.map((action) => (
+            // eslint-disable-next-line kin/no-raw-button -- the action sheet body is part 2 (E4c); its footer belongs to the Sheet primitive slice.
             <button
               key={action.key}
               type="button"
@@ -1816,6 +1824,7 @@ function SortTh({
         align === "right" ? "text-right" : "text-left"
       } ${className}`}
     >
+      {/* eslint-disable-next-line kin/no-raw-button -- the sortable header is part 2 (E4c). */}
       <button
         type="button"
         onClick={() => onSort(colKey)}
@@ -1869,6 +1878,7 @@ function RangePicker({
       }}
     >
       {RANGES.map((d) => (
+        // eslint-disable-next-line kin/no-raw-button -- the range picker's roving radio group is part 2 (E4c).
         <button
           key={d}
           ref={(el) => {
@@ -1915,104 +1925,46 @@ function RowMenu({
 }) {
   const tr = useT();
   const buttonRef = useRef<HTMLButtonElement | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const changeRef = useRef(onOpenChange);
-  changeRef.current = onOpenChange;
-
-  useEffect(() => {
-    if (!open) return;
-    const menu = menuRef.current;
-    const items = () => [
-      ...(menu?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? []),
-    ];
-
-    items()[0]?.focus();
-
-    function close() {
-      changeRef.current(false);
-      buttonRef.current?.focus();
-    }
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        close();
-        return;
-      }
-      const list = items();
-      if (list.length === 0) return;
-      const index = list.indexOf(document.activeElement as HTMLElement);
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        list[(index + 1 + list.length) % list.length]?.focus();
-      } else if (event.key === "ArrowUp") {
-        event.preventDefault();
-        list[(index - 1 + list.length) % list.length]?.focus();
-      } else if (event.key === "Home") {
-        event.preventDefault();
-        list[0]?.focus();
-      } else if (event.key === "End") {
-        event.preventDefault();
-        list[list.length - 1]?.focus();
-      }
-    }
-    function onPointer(event: PointerEvent) {
-      const target = event.target as Node | null;
-      if (!target) return;
-      if (menuRef.current?.contains(target) || buttonRef.current?.contains(target)) return;
-      changeRef.current(false);
-    }
-
-    document.addEventListener("keydown", onKey, true);
-    document.addEventListener("pointerdown", onPointer);
-    return () => {
-      document.removeEventListener("keydown", onKey, true);
-      document.removeEventListener("pointerdown", onPointer);
-    };
-  }, [open]);
+  const label = `${tr("agents.actions")} — ${name}`;
 
   return (
     <div className="relative inline-block text-left">
-      <button
+      <Button
         ref={buttonRef}
-        type="button"
+        variant="quiet"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`${tr("agents.actions")} — ${name}`}
+        aria-label={label}
         onClick={() => onOpenChange(!open)}
-        className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--kin-hairline-strong)] bg-kin-elevated text-strong text-kin-secondary hover:text-kin-text"
+        // A menu button opens on ArrowDown as well as Enter/Space. The layer
+        // below takes the focus once the panel is measured; this only asks the
+        // caller to open it.
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowDown") return;
+          event.preventDefault();
+          onOpenChange(true);
+        }}
+        className="h-8 w-8 flex-none rounded-lg border border-[var(--kin-hairline-strong)] p-0"
       >
         ⋯
-      </button>
-      {open && (
-        <div
-          ref={menuRef}
-          role="menu"
-          aria-label={`${tr("agents.actions")} — ${name}`}
-          className="absolute right-0 z-30 mt-1 w-64 rounded-xl border border-[var(--kin-hairline-strong)] bg-kin-elevated py-1 text-left shadow-e3"
-        >
-          {actions.map((action) => (
-            <button
-              key={action.key}
-              type="button"
-              role="menuitem"
-              disabled={action.disabled}
-              title={action.hint}
-              onClick={() => {
-                onOpenChange(false);
-                action.run();
-                buttonRef.current?.focus();
-              }}
-              className={[
-                "flex min-h-9 w-full items-center px-3 text-left text-body hover:bg-[var(--kin-fill)] disabled:text-kin-muted disabled:opacity-60",
-                action.primary ? "text-kin-blue-ink" : "text-kin-text",
-              ].join(" ")}
-            >
-              {action.label}
-            </button>
-          ))}
-        </div>
-      )}
+      </Button>
+      <Menu
+        open={open}
+        onOpenChange={onOpenChange}
+        triggerRef={buttonRef}
+        label={label}
+        items={actions.map((action) => ({
+          id: action.key,
+          label: action.label,
+          // The old menu carried the hint in a `title`, which is unreachable
+          // by keyboard and on touch; the shared row has a second line for it.
+          description: action.hint,
+          disabled: action.disabled,
+          onSelect: action.run,
+        }))}
+        align="right"
+        width={256}
+      />
     </div>
   );
 }
