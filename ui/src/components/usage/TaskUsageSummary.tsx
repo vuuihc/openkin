@@ -12,6 +12,7 @@ import {
   type ContextFill,
 } from "../../lib/usage";
 import Sheet from "../mobile/Sheet";
+import Button from "../ui/Button";
 
 type Props = {
   usage: TaskUsage | null;
@@ -90,6 +91,26 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
               : tr("usage.costProviderHint"),
         }
       : null;
+
+  const toggleText = open ? tr("usage.hideDetails") : tr("usage.showDetails");
+  /**
+   * The strip's whole row is one button whose visible text is several spans.
+   * The facade derives a name from string children only, so the name is
+   * spelled here from the same values the row draws — a screen reader must not
+   * lose the totals (TASTE 18) just because the layout needs spans.
+   */
+  const disclosureName = [
+    tr("usage.taskSummary"),
+    totalTokens,
+    usage.cost_usd != null ? spend : null,
+    costBadge ? `(${costBadge.label})` : null,
+    cacheHit && cacheHit !== "—"
+      ? `${tr("usage.cacheHitRate")}${tr("common.labelSeparator")}${cacheHit}`
+      : null,
+    toggleText,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   const details = (
     <div className="space-y-2.5">
@@ -174,15 +195,18 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
               ) : null}
             </div>
           </div>
-          <button
-            type="button"
+          <Button
+            // `default` keeps its surface in the components layer, so these
+            // utilities override it deterministically; a `quiet` variant's own
+            // `text-kin-text` is emitted after `text-kin-muted` and would win.
+            variant="default"
             aria-expanded={open}
             aria-controls={detailsID}
             onClick={() => setOpen((v) => !v)}
-            className="shrink-0 rounded-md px-1.5 py-1 text-caption font-medium text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-secondary transition-colors"
+            className="shrink-0 rounded-md bg-transparent px-1.5 py-1 text-caption font-medium text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-secondary"
           >
             {open ? tr("usage.hideDetails") : tr("usage.showDetails")}
-          </button>
+          </Button>
         </div>
         <div className="px-3 py-2.5">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-caption tabular-nums text-kin-secondary">
@@ -210,8 +234,12 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
     const total = formatTokenCount(usage.tokens_in + usage.tokens_out);
     return (
       <>
-        <button
-          type="button"
+        <Button
+          // `default` keeps its surface in the components layer, so the
+          // utilities below override it deterministically — the same reason
+          // SessionRow's icon trigger is not `quiet`. A `quiet` fill would race
+          // the open state's `--kin-fill-strong` in the utilities layer.
+          variant="default"
           onClick={() => setOpen(true)}
           aria-haspopup="dialog"
           aria-expanded={open}
@@ -220,12 +248,13 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
           className={[
             // 44pt like the face it rides beside: a smaller target in the
             // same row would be the one control a thumb keeps missing.
-            "flex h-11 min-w-11 flex-none items-center justify-center rounded-lg px-2 text-caption font-medium tabular-nums transition-colors active:bg-[var(--kin-fill)]",
-            open ? "bg-[var(--kin-fill-strong)] text-kin-text" : "text-kin-muted",
+            "flex h-11 min-w-11 flex-none items-center justify-center rounded-lg px-2 py-0 text-caption font-medium tabular-nums",
+            open ? "bg-[var(--kin-fill-strong)] text-kin-text" : "bg-transparent text-kin-muted",
+            "hover:brightness-100",
           ].join(" ")}
         >
           {total}
-        </button>
+        </Button>
         <Sheet open={open} onClose={() => setOpen(false)} title={tr("usage.taskSummary")}>
           {details}
         </Sheet>
@@ -239,12 +268,13 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
       aria-label={tr("usage.taskSummary")}
     >
       <div className="rounded-xl bg-kin-elevated overflow-hidden">
-        <button
-          type="button"
+        <Button
+          variant="quiet"
           aria-expanded={open}
           aria-controls={detailsID}
+          aria-label={disclosureName}
           onClick={() => setOpen((value) => !value)}
-          className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-[var(--kin-fill)] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-focus-ring"
+          className="flex w-full items-center justify-start gap-2 rounded-xl px-3 py-1.5 text-left"
         >
           <span className="text-caption font-semibold uppercase tracking-label text-kin-muted shrink-0">
             {tr("usage.taskSummary")}
@@ -276,10 +306,8 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
               </>
             ) : null}
           </span>
-          <span className="shrink-0 text-caption font-medium text-kin-muted">
-            {open ? tr("usage.hideDetails") : tr("usage.showDetails")}
-          </span>
-        </button>
+          <span className="shrink-0 text-caption font-medium text-kin-muted">{toggleText}</span>
+        </Button>
 
         {open && (
           <div id={detailsID} className="border-t border-[var(--kin-hairline)] px-3 py-3 space-y-3">

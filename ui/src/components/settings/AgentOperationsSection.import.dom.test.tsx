@@ -83,7 +83,7 @@ describe("manual import on Agent Ops", () => {
     }
   });
 
-  it("disables the control and says it is importing while the fan-out runs", async () => {
+  it("keeps its name and reports busy while the fan-out runs", async () => {
     const user = userEvent.setup();
     let resolveImport: ((value: AgentSessionImportResult) => void) | null = null;
     vi.mocked(importAgentSessions).mockImplementation(
@@ -95,8 +95,13 @@ describe("manual import on Agent Ops", () => {
     page();
     await user.click(await screen.findByRole("button", { name: "Import sessions" }));
 
-    const busy = await screen.findByRole("button", { name: "Loading…" });
-    expect((busy as HTMLButtonElement).disabled).toBe(true);
+    // TASTE 18: the button keeps the action's name while it works; the busy
+    // state is `aria-busy`, not a label swapped to "Loading…".
+    await waitFor(() => {
+      const busy = screen.getByRole("button", { name: "Import sessions" });
+      expect((busy as HTMLButtonElement).disabled).toBe(true);
+      expect(busy.getAttribute("aria-busy")).toBe("true");
+    });
 
     await act(async () => {
       resolveImport?.({ imported: 0, providers: {} });

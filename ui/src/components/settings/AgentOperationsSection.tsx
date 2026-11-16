@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   ApiError,
@@ -974,15 +974,19 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                   <>
                     <span aria-hidden>·</span>
                     <span>{tr("agents.discoveredCount", { count: plan.discovered.length })}</span>
-                    {/* eslint-disable-next-line kin/no-raw-button -- discovery is part 2 (E4c). */}
-                    <button
-                      type="button"
-                      className="inline-flex items-center text-kin-blue-ink hover:underline max-md:min-h-11 md:min-h-6"
+                    {/* Not `quiet`: its `text-kin-text` is a utility emitted
+                        after `text-kin-blue-ink`, so the caller's ink would
+                        lose the cascade. `default` keeps its surface in the
+                        components layer, which utilities always override —
+                        the same mechanism SessionRow's row trigger uses. */}
+                    <Button
+                      variant="default"
+                      className="inline-flex items-center bg-transparent px-1 text-kin-blue-ink hover:bg-[var(--kin-fill)] hover:underline max-md:min-h-11 md:min-h-6"
                       aria-expanded={showDiscovered}
                       onClick={() => setShowDiscovered((open) => !open)}
                     >
                       {showDiscovered ? tr("agents.hideDiscovered") : tr("agents.viewDiscovered")}
-                    </button>
+                    </Button>
                   </>
                 )}
               </p>
@@ -1009,16 +1013,18 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
             >
               {tr("agents.smokeAll")}
             </Button>
-            {/* eslint-disable-next-line kin/no-raw-button -- manual import flow is part 2 (E4c). */}
-            <button
-              type="button"
-              className="kin-btn-secondary min-h-11 px-3 text-strong"
+            <Button
+              variant="secondary"
+              className="min-h-11 px-3 text-strong"
               disabled={importing || offline || agents === null}
+              // The action keeps its name while the fan-out runs (TASTE 18):
+              // the busy state is `aria-busy`, not a label swap to "Loading…".
+              isLoading={importing}
               title={tr("agents.importHint")}
               onClick={() => void onImport()}
             >
-              {importing ? tr("common.loading") : tr("agents.importSessions")}
-            </button>
+              {tr("agents.importSessions")}
+            </Button>
             <RangePicker value={days} onChange={setDays} />
           </div>
         </div>
@@ -1074,14 +1080,13 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
             role="alert"
           >
             <span>{usageError}</span>
-            {/* eslint-disable-next-line kin/no-raw-button -- the usage read's own banner is part 2 (E4c). */}
-            <button
-              type="button"
-              className="shrink-0 hover:underline"
+            <Button
+              variant="quiet"
+              className="shrink-0"
               onClick={() => void loadUsage(daysRef.current)}
             >
               {tr("common.retry")}
-            </button>
+            </Button>
           </div>
         )}
 
@@ -1209,27 +1214,25 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
             <p className="text-strong font-medium text-kin-text">{tr("agents.emptyAgents")}</p>
             <p className="mt-1 text-body text-kin-muted">{tr("agents.emptyAgentsHint")}</p>
             {plan.discovered.length > 0 && (
-              /* eslint-disable-next-line kin/no-raw-button -- the discovery entry is part 2 (E4c). */
-              <button
-                type="button"
-                className="kin-btn-secondary mt-3 min-h-11 px-3 text-strong"
+              <Button
+                variant="secondary"
+                className="mt-3 min-h-11 px-3 text-strong"
                 onClick={() => setShowDiscovered(true)}
               >
                 {tr("agents.installEntry")}
-              </button>
+              </Button>
             )}
             {plan.discovered.length === 0 && installSuggestions.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-2">
                 {installSuggestions.map((a) => (
-                  // eslint-disable-next-line kin/no-raw-button -- install suggestions belong to discovery, part 2 (E4c).
-                  <button
+                  <Button
                     key={a.id}
-                    type="button"
-                    className="kin-btn-secondary min-h-11 px-3 text-strong"
+                    variant="secondary"
+                    className="min-h-11 px-3 text-strong"
                     onClick={() => openInstallURL(a.install_url)}
                   >
                     {tr("agents.installNamed", { name: a.name })}
-                  </button>
+                  </Button>
                 ))}
               </div>
             )}
@@ -1254,14 +1257,9 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                   <SmokeLines report={smokeReport.results} />
                 ) : null}
               </div>
-              {/* eslint-disable-next-line kin/no-raw-button -- the smoke report banner is part 2 (E4c). */}
-              <button
-                type="button"
-                className="shrink-0 hover:underline"
-                onClick={() => setSmokeReport(null)}
-              >
+              <Button variant="quiet" className="shrink-0" onClick={() => setSmokeReport(null)}>
                 {tr("agents.dismiss")}
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -1635,14 +1633,14 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                 </h2>
                 <p className="mt-1 text-body text-kin-muted">{tr("agents.discoveredHint")}</p>
               </div>
-              {/* eslint-disable-next-line kin/no-raw-button -- the discovered list is part 2 (E4c). */}
-              <button
-                type="button"
-                className="inline-flex min-h-11 shrink-0 items-center px-1 text-body text-kin-blue-ink hover:underline"
+              <Button
+                // `default` + utilities, for the cascade reason above.
+                variant="default"
+                className="inline-flex min-h-11 shrink-0 items-center bg-transparent px-1 text-body text-kin-blue-ink hover:bg-[var(--kin-fill)] hover:underline"
                 onClick={() => setShowDiscovered(false)}
               >
                 {tr("agents.hideDiscovered")}
-              </button>
+              </Button>
             </div>
             <ul className="mt-2 divide-y divide-[var(--kin-hairline)]">
               {plan.discovered.map((a) => (
@@ -1653,16 +1651,15 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                       {a.reason || tr("agents.notConnected")}
                     </div>
                   </div>
-                  {/* eslint-disable-next-line kin/no-raw-button -- the connect flow is part 2 (E4c). */}
-                  <button
-                    type="button"
-                    className="kin-btn-secondary min-h-11 shrink-0 px-3 text-strong"
+                  <Button
+                    variant="secondary"
+                    className="min-h-11 shrink-0 px-3 text-strong"
                     disabled={offline || full}
                     title={full ? tr("agents.connectFull") : undefined}
                     onClick={() => beginConnect(a)}
                   >
                     {tr("agents.connect")}
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>
@@ -1764,17 +1761,25 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
           }
         >
           {actionItems.map((action) => (
-            // eslint-disable-next-line kin/no-raw-button -- the action sheet body is part 2 (E4c); its footer belongs to the Sheet primitive slice.
-            <button
+            <Button
               key={action.key}
-              type="button"
+              variant="quiet"
               disabled={action.disabled}
               title={action.hint}
+              // The visible text is two lines (label, then a disabled reason).
+              // The facade derives its accessible name from string children
+              // only, so the name is spelled here — and it keeps both lines,
+              // which is what a screen reader heard before (TASTE 18).
+              aria-label={
+                action.disabled && action.hint
+                  ? `${action.label} ${action.hint}`
+                  : action.label
+              }
               onClick={() => {
                 sheetAction.current = action.run;
                 setActionsFor(null);
               }}
-              className="kin-row-press flex min-h-12 w-full items-center rounded-xl px-3 text-left text-subtitle text-kin-text disabled:text-kin-muted disabled:opacity-60"
+              className="kin-row-press flex min-h-12 w-full items-center justify-start rounded-xl px-3 text-left text-subtitle text-kin-text disabled:text-kin-muted disabled:opacity-60"
             >
               <span className="flex min-w-0 flex-col items-start">
                 <span>{action.label}</span>
@@ -1784,7 +1789,7 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                   <span className="text-caption text-kin-muted">{action.hint}</span>
                 ) : null}
               </span>
-            </button>
+            </Button>
           ))}
         </Sheet>
       </div>
@@ -1813,10 +1818,12 @@ function SortTh({
   active: boolean;
   dir: AgentSortDir;
   onSort: (key: AgentSortKey) => void;
-  children: ReactNode;
+  /** A string, not a node: the facade derives the button's name from it. */
+  children: string;
   className?: string;
   align?: "left" | "right";
 }) {
+  const marker = active ? (dir === "asc" ? " ↑" : " ↓") : "";
   return (
     <th
       aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}
@@ -1824,19 +1831,21 @@ function SortTh({
         align === "right" ? "text-right" : "text-left"
       } ${className}`}
     >
-      {/* eslint-disable-next-line kin/no-raw-button -- the sortable header is part 2 (E4c). */}
-      <button
-        type="button"
+      <Button
+        // `default` + utilities: a `quiet` variant would emit `text-kin-text`
+        // after the muted ink and win the cascade (see the discovery toggle).
+        variant="default"
         onClick={() => onSort(colKey)}
-        className={`inline-flex items-center gap-0.5 hover:text-kin-text ${
+        // The visible marker is part of the name a screen reader already had;
+        // `aria-sort` on the `<th>` stays the canonical state.
+        aria-label={`${children}${marker}`}
+        className={`inline-flex items-center gap-0.5 bg-transparent px-0 py-0 text-caption hover:bg-[var(--kin-fill)] hover:text-kin-text ${
           active ? "text-kin-text" : "text-kin-muted"
         }`}
       >
         {children}
-        <span className="tabular-nums text-micro w-3">
-          {active ? (dir === "asc" ? " ↑" : " ↓") : ""}
-        </span>
-      </button>
+        <span className="tabular-nums text-micro w-3">{marker}</span>
+      </Button>
     </th>
   );
 }
@@ -1878,7 +1887,10 @@ function RangePicker({
       }}
     >
       {RANGES.map((d) => (
-        // eslint-disable-next-line kin/no-raw-button -- the range picker's roving radio group is part 2 (E4c).
+        // E4c: no Segmented/RadioGroup facade exists for the range picker's
+        // roving radiogroup (arrow keys, one tab stop); a tab strip cannot
+        // carry radio semantics. Tracked in rsi/state/followups.md.
+        // eslint-disable-next-line kin/no-raw-button
         <button
           key={d}
           ref={(el) => {

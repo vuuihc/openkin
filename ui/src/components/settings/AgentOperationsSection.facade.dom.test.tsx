@@ -7,16 +7,20 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import type { AgentInfo, AgentManagement, UsageRow } from "../../api/client";
 import { setLocale } from "../../i18n";
+import { writeConnectedFamilies } from "../../lib/agentPageState";
 import { useAppStore } from "../../store/appStore";
 
 /**
- * E4b: the Operations section speaks the shared facade.
+ * E4b/E4c: the Operations section speaks the shared facade.
  *
- * The catalog rows are the first half of the section to leave hand-built
+ * The catalog rows were the first half of the section to leave hand-built
  * controls behind: the `⋯` trigger is a `Button` and its panel is `Menu`, so
  * the keyboard contract (arrows, Home/End, typeahead, Escape, focus return,
- * one layer) is the console's rather than this file's. These tests drive the
- * real section so a regression in either half shows up here.
+ * one layer) is the console's rather than this file's. E4c finished the rest —
+ * discovery, manual import, the two banners, the phone action sheet, the
+ * sortable headers — while the usage range picker keeps its raw roving
+ * radiogroup because no Segmented/RadioGroup facade exists yet. These tests
+ * drive the real section so a regression in either half shows up here.
  */
 
 const client = vi.hoisted(() => ({
@@ -86,6 +90,22 @@ function usageRow(partial: Partial<UsageRow> = {}): UsageRow {
 
 const claude = product({ id: "claude-code", name: "Claude Code", default: true });
 const codex = product({ id: "codex", name: "Codex" });
+const cursor = product({
+  id: "cursor",
+  name: "Cursor",
+  installed: false,
+  // A placeholder, never a real install endpoint.
+  install_url: "https://install.example.com/cursor",
+});
+
+/** A control the shared facade owns: a real <button> carrying the facade surface. */
+function expectFacade(el: HTMLElement, variant: "secondary" | "quiet" = "quiet") {
+  expect(el.tagName).toBe("BUTTON");
+  expect(el.className).toContain("kin-btn");
+  if (variant === "secondary") expect(el.className).toContain("kin-btn-secondary");
+  else expect(el.className).toContain("bg-transparent");
+  expect(el.className).toContain("focus-visible:outline-kin-focus-ring");
+}
 
 function renderPage() {
   return render(
@@ -264,5 +284,222 @@ describe("the Operations section on the shared facade (E4b)", () => {
         `raw <button at line ${index + 1} needs an eslint-disable-next-line kin/no-raw-button`,
       ).toContain("eslint-disable-next-line kin/no-raw-button");
     });
+  });
+});
+
+describe("the Operations section's remaining controls on the facade (E4c)", () => {
+  it("the discovered list and its connect action are facade buttons", async () => {
+    // One connected product leaves the other installed product discovered.
+    writeConnectedFamilies(["claude-code"]);
+    const first = await renderLoaded();
+
+    const view = screen.getByRole("button", { name: "View" });
+    expectFacade(view);
+    expect(view.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(view);
+    expect(view.getAttribute("aria-expanded")).toBe("true");
+
+    // The discovery section's own Hide, not the header toggle (both say Hide).
+    const discovery = screen.getByText("Discovered on this machine").closest("section")!;
+    const hide = within(discovery).getByRole("button", { name: "Hide" });
+    expectFacade(hide);
+    expect(hide.className).toContain("text-kin-blue-ink");
+
+    const connect = screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement;
+    expectFacade(connect, "secondary");
+    expect(connect.disabled).toBe(false);
+    first.unmount();
+
+    // A full catalog disables Connect and keeps the reason in its `title`.
+    localStorage.clear();
+    const ten = Array.from({ length: 10 }, (_, i) =>
+      i === 0
+        ? claude
+        : product({ id: `agent-${i}`, name: `Agent ${String(i).padStart(2, "0")}` }),
+    );
+    writeConnectedFamilies(ten.map((a) => a.id));
+    client.listAgents.mockResolvedValue([...ten, codex]);
+    const second = await renderLoaded();
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+    const full = screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement;
+    expectFacade(full, "secondary");
+    expect(full.disabled).toBe(true);
+    expect(full.getAttribute("title")).toBe(
+      "The catalog is full. Remove or merge one before connecting another.",
+    );
+    second.unmount();
+
+    // Offline is the other disabled reason; it carries no title.
+    localStorage.clear();
+    writeConnectedFamilies(["claude-code"]);
+    client.listAgents.mockResolvedValue([claude, codex]);
+    useAppStore.setState({ wsStatus: "disconnected", reconnectGen: 0, toasts: [] });
+    await renderLoaded();
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+    const offline = screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement;
+    expectFacade(offline, "secondary");
+    expect(offline.disabled).toBe(true);
+    expect(offline.getAttribute("title")).toBeNull();
+  });
+
+  it("install suggestions and the empty-state entry are facade buttons", async () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    try {
+      // A stored-empty catalog with only uninstalled products: no discovery,
+      // so the empty state offers install suggestions.
+      writeConnectedFamilies([]);
+      client.listAgents.mockResolvedValue([cursor]);
+      const first = renderPage();
+      expect(await screen.findByText("No agents yet")).toBeTruthy();
+      const suggestion = screen.getByRole("button", { name: "Install Cursor" });
+      expectFacade(suggestion, "secondary");
+      fireEvent.click(suggestion);
+      expect(open).toHaveBeenCalledWith(
+        "https://install.example.com/cursor",
+        "_blank",
+        "noopener,noreferrer",
+      );
+      first.unmount();
+
+      // An installed product is discovered instead, so the entry opens the
+      // discovery list rather than an install URL.
+      localStorage.clear();
+      writeConnectedFamilies([]);
+      client.listAgents.mockResolvedValue([codex, cursor]);
+      const second = renderPage();
+      expect(await screen.findByText("No agents yet")).toBeTruthy();
+      const entry = screen.getByRole("button", { name: "Install an agent" });
+      expectFacade(entry, "secondary");
+      fireEvent.click(entry);
+      expect(await screen.findByText("Discovered on this machine")).toBeTruthy();
+      second.unmount();
+    } finally {
+      open.mockRestore();
+    }
+  });
+
+  it("the smoke report dismiss and the usage-read banner are facade buttons", async () => {
+    // A failed usage read keeps a retry that refetches.
+    client.getUsageSummary.mockRejectedValue(new Error("usage down"));
+    const first = renderPage();
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    expectFacade(retry);
+    const before = client.getUsageSummary.mock.calls.length;
+    fireEvent.click(retry);
+    await waitFor(() =>
+      expect(client.getUsageSummary.mock.calls.length).toBeGreaterThan(before),
+    );
+    first.unmount();
+
+    // The smoke report's dismiss clears the report.
+    localStorage.clear();
+    client.getUsageSummary.mockResolvedValue([usageRow()]);
+    client.smokeAgents.mockResolvedValue({
+      results: [
+        {
+          id: "claude-code",
+          name: "Claude Code",
+          ok: true,
+          installed: true,
+          available: true,
+        },
+      ],
+    });
+    await renderLoaded();
+    fireEvent.click(screen.getByRole("button", { name: "Verify availability" }));
+    const dismiss = await screen.findByRole("button", { name: "Dismiss" });
+    expectFacade(dismiss);
+    fireEvent.click(dismiss);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull());
+  });
+
+  it("the row action sheet renders shared rows", async () => {
+    await renderLoaded();
+    const phone = screen
+      .getAllByRole("button", { name: "Actions — Claude Code" })
+      .find((button) => button.getAttribute("aria-haspopup") === "dialog") as HTMLButtonElement;
+    fireEvent.click(phone);
+
+    const sheet = await screen.findByRole("dialog", { name: "Claude Code" });
+    const remove = within(sheet).getByRole("button", {
+      name: /^Remove from catalog/,
+    }) as HTMLButtonElement;
+    expectFacade(remove);
+    expect(remove.disabled).toBe(true);
+    // A disabled action's reason stays on the surface the person is touching.
+    expect(
+      within(sheet).getByText(
+        "The default agent stays in the catalog. Set another agent as default first.",
+      ),
+    ).toBeTruthy();
+
+    const smoke = within(sheet).getByRole("button", { name: /^Smoke test/ });
+    expectFacade(smoke);
+    fireEvent.click(smoke);
+    // The row runs only once the sheet is gone (KIN-CONTINUE-002). The suite
+    // stubs `history.back`, so deliver the popstate the browser would send.
+    expect(client.smokeAgents).not.toHaveBeenCalled();
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    await waitFor(() => expect(client.smokeAgents).toHaveBeenCalledWith(["claude-code"]));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Claude Code" })).toBeNull());
+  });
+
+  it("sortable headers keep aria-sort and stay one focusable control per column", async () => {
+    await renderLoaded();
+    const table = screen.getByRole("table");
+    const headers = within(table).getAllByRole("columnheader");
+    const costTh = headers.find((th) => th.getAttribute("aria-sort") === "descending");
+    expect(costTh).toBeTruthy();
+    const nameTh = headers.find((th) => within(th).queryByRole("button", { name: /^Agent/ }));
+    expect(nameTh?.getAttribute("aria-sort")).toBe("none");
+
+    // One control per column, and it is the facade's.
+    expect(within(costTh!).getAllByRole("button")).toHaveLength(1);
+    const sortButton = within(costTh!).getByRole("button");
+    expectFacade(sortButton);
+    expect(sortButton.textContent).toContain("↓");
+
+    fireEvent.click(within(nameTh!).getByRole("button", { name: /^Agent/ }));
+    await waitFor(() => expect(nameTh?.getAttribute("aria-sort")).toBe("ascending"));
+    expect(costTh?.getAttribute("aria-sort")).toBe("none");
+    expect(within(nameTh!).getByRole("button").textContent).toContain("↑");
+  });
+
+  it("the usage range picker keeps one tab stop and moves with arrow keys", async () => {
+    const user = userEvent.setup();
+    await renderLoaded();
+    const group = screen.getByRole("radiogroup", { name: "Usage range" });
+    const week = within(group).getByRole("radio", { name: "This week" }) as HTMLButtonElement;
+    const thirty = within(group).getByRole("radio", { name: "30 days" }) as HTMLButtonElement;
+    const radios = within(group).getAllByRole("radio") as HTMLButtonElement[];
+
+    expect(week.getAttribute("aria-checked")).toBe("true");
+    expect(radios.filter((radio) => radio.tabIndex === 0)).toEqual([week]);
+
+    week.focus();
+    await user.keyboard("{ArrowRight}");
+    await waitFor(() => expect(thirty.getAttribute("aria-checked")).toBe("true"));
+    await waitFor(() => expect(document.activeElement).toBe(thirty));
+    expect(thirty.tabIndex).toBe(0);
+    expect(week.tabIndex).toBe(-1);
+
+    await user.keyboard("{ArrowLeft}");
+    await waitFor(() => expect(document.activeElement).toBe(week));
+    expect(week.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("leaves no E4c breadcrumb behind", () => {
+    // The range picker is the one deliberate exemption, and it names the
+    // primitive it is waiting for rather than an owner.
+    const source = readFileSync(
+      resolve(process.cwd(), "src/components/settings/AgentOperationsSection.tsx"),
+      "utf8",
+    );
+    const remaining = source
+      .split("\n")
+      .filter((line) => line.includes("E4c") || line.includes("(E4c)"));
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]).toContain("range picker");
+    expect(remaining[0]).toContain("RadioGroup");
   });
 });
