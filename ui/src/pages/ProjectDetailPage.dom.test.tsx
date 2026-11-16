@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -155,6 +155,19 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+function viewport(wide: boolean) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query === "(min-width: 1024px)" ? wide : false,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
+
 function renderPage(entry = "/projects/p1", withSwitch = false) {
   return render(
     <MemoryRouter initialEntries={[entry]}>
@@ -184,6 +197,10 @@ function happyPath() {
   client.listAgentSessions.mockResolvedValue([]);
   client.listRoutines.mockResolvedValue({ routines: [routine], has_more: false });
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 beforeEach(() => {
   setLocale("en");
@@ -222,7 +239,12 @@ describe("the project cover (KIN-PROJECT-001)", () => {
     renderPage();
     await screen.findByText("alpha");
 
-    for (const name of ["One-line summary", "Recent activity", "Last two weeks", "Routines in this project"]) {
+    for (const name of [
+      "One-line summary",
+      "Recent activity",
+      "Last two weeks",
+      "Routines in this project",
+    ]) {
       expect(screen.getByRole("heading", { level: 2, name })).toBeTruthy();
     }
   });
@@ -268,13 +290,8 @@ describe("the project cover (KIN-PROJECT-001)", () => {
     renderPage();
 
     expect(await screen.findByText("alpha")).toBeTruthy();
-    await waitFor(() =>
-      expect(client.listRoutines).toHaveBeenCalledWith({ limit: 100 }, "node-1"),
-    );
-    expect(client.listRoutines).not.toHaveBeenCalledWith(
-      expect.anything(),
-      undefined,
-    );
+    await waitFor(() => expect(client.listRoutines).toHaveBeenCalledWith({ limit: 100 }, "node-1"));
+    expect(client.listRoutines).not.toHaveBeenCalledWith(expect.anything(), undefined);
     expect(screen.getByRole("link", { name: /Go to routines/ }).getAttribute("href")).toBe(
       "/routines?device=node-1",
     );
@@ -318,7 +335,9 @@ describe("the project cover (KIN-PROJECT-001)", () => {
     renderPage();
 
     expect(await screen.findByRole("heading", { level: 1, name: "alpha" })).toBeTruthy();
-    expect(await screen.findByText("Nothing yet — say in one line what this project is doing.")).toBeTruthy();
+    expect(
+      await screen.findByText("Nothing yet — say in one line what this project is doing."),
+    ).toBeTruthy();
     expect(screen.queryByText("Project not found")).toBeNull();
   });
 
@@ -407,9 +426,7 @@ describe("the project cover (KIN-PROJECT-001)", () => {
       updated_at: 200,
       one_pager_summary: { focus: "their line" },
     };
-    client.getOnePager
-      .mockResolvedValueOnce(onePager)
-      .mockResolvedValueOnce(theirs);
+    client.getOnePager.mockResolvedValueOnce(onePager).mockResolvedValueOnce(theirs);
     client.putOnePager
       .mockRejectedValueOnce(new ApiError(409, "conflict"))
       .mockImplementation(async (_id: string, markdown: string) => ({
@@ -618,5 +635,107 @@ describe("the project cover (KIN-PROJECT-001)", () => {
 
     fireEvent.keyDown(window, { key: "Enter", metaKey: true });
     expect(await screen.findByText("new chat page")).toBeTruthy();
+  });
+
+  it("puts the page's actions on the facade without changing their names or handlers", async () => {
+    const user = userEvent.setup();
+    // The routines card only draws its refresh next to a failed read, so the
+    // error state is where all three of the page's own actions are on screen.
+    client.listRoutines.mockRejectedValue(new Error("routines down"));
+    client.refreshProjectPulse.mockResolvedValue({
+      pulse: pulse(),
+      markdown: onePager.markdown,
+      updated_at: onePager.updated_at,
+    });
+    renderPage();
+    await screen.findByText("alpha");
+
+    const back = screen.getByRole("button", { name: "Back" });
+    const refresh = screen.getByRole("button", { name: "Refresh" });
+    const routinesRefresh = await screen.findByRole("button", { name: "Retry" });
+
+    for (const control of [back, refresh, routinesRefresh]) {
+      expect(control.className).toContain("kin-btn");
+    }
+    // Same accessible names as before the facade: back, the pulse refresh and
+    // the routines refresh.
+    expect(back.textContent).toContain("Back");
+    expect(refresh.textContent).toContain("Refresh");
+
+    await user.click(refresh);
+    expect(client.refreshProjectPulse).toHaveBeenCalledTimes(1);
+
+    await user.click(routinesRefresh);
+    expect(client.listRoutines).toHaveBeenCalledTimes(2);
+  });
+
+  it("offers exactly one filled primary on the project page", async () => {
+    const user = userEvent.setup();
+    const view = renderPage();
+    await screen.findByText("alpha");
+    await screen.findByRole("button", { name: "Edit" });
+
+    expect(view.container.querySelectorAll(".kin-btn-primary").length).toBe(1);
+
+    view.unmount();
+    sessionStorage.clear();
+
+    // Editing the One-Pager makes Save the screen's one filled action: the
+    // New chat call to action (the phone bar at this width) steps aside
+    // rather than pairing with it.
+    viewport(false);
+    const phone = renderPage();
+    await screen.findByText("alpha");
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+    expect(phone.container.querySelector('[data-project-cta="bar"]')).toBeNull();
+    expect(phone.container.querySelectorAll(".kin-btn-primary").length).toBe(1);
+
+    phone.unmount();
+    sessionStorage.clear();
+
+    // The error state answers with one action too: a retry, never a second
+    // filled control competing with it.
+    client.getProject.mockRejectedValue(new Error("boom"));
+    const failed = renderPage();
+    await screen.findByRole("button", { name: "Retry" });
+    expect(failed.container.querySelectorAll(".kin-btn-primary").length).toBe(1);
+  });
+
+  it("keeps the new-chat call to action a link", async () => {
+    viewport(true);
+    const wide = renderPage();
+
+    const wideLink = await screen.findByRole("link", { name: "New chat" });
+    // A link, so middle-click and open-in-new-tab keep working.
+    expect(wideLink.tagName).toBe("A");
+    expect(wideLink.getAttribute("href")).toBe("/new?cwd=%2Fwork%2Falpha");
+    const recentSection = screen
+      .getByRole("heading", { name: "Recent activity" })
+      .closest("section")!;
+    expect(recentSection.contains(wideLink)).toBe(true);
+    expect(wide.container.querySelector('[data-project-cta="bar"]')).toBeNull();
+
+    wide.unmount();
+
+    // A phone gets the same link in a bottom bar instead of at the end of the
+    // scroll.
+    viewport(false);
+    const phone = renderPage();
+    const phoneLink = await screen.findByRole("link", { name: "New chat" });
+    expect(phoneLink.getAttribute("href")).toBe("/new?cwd=%2Fwork%2Falpha");
+    expect(
+      screen
+        .getByRole("heading", { name: "Recent activity" })
+        .closest("section")!
+        .contains(phoneLink),
+    ).toBe(false);
+
+    const bar = phone.container.querySelector<HTMLElement>('[data-project-cta="bar"]');
+    expect(bar).toBeTruthy();
+    expect(bar!.className).toContain("sticky");
+    expect(bar!.className).toContain("bottom-0");
+    expect(bar!.contains(phoneLink)).toBe(true);
+    expect(bar!.querySelectorAll(".kin-btn-primary").length).toBe(1);
   });
 });

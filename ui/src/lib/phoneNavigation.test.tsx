@@ -9,7 +9,7 @@ import {
   type NavigateFunction,
 } from "react-router-dom";
 import { useEffect } from "react";
-import { notePhoneLocation, phonePush, resetPhoneNavigation } from "./phoneNavigation";
+import { notePhoneLocation, phonePush, phoneTabUrl, resetPhoneNavigation } from "./phoneNavigation";
 import { synthesizePhoneParent } from "./phoneDeepLinkParent";
 
 /**
@@ -284,6 +284,37 @@ describe("root peers on a deeper history entry", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
     expect(window.history.state.idx).toBe(1);
     mounted.unmount();
+  });
+});
+
+describe("each phone tab's last view", () => {
+  it("remembers each phone root's last URL, params included", () => {
+    notePhoneLocation({ pathname: "/routines", search: "?device=m2" });
+    notePhoneLocation({ pathname: "/settings", search: "?tab=operations" });
+    notePhoneLocation({ pathname: "/agents", search: "?machine=alpha" });
+
+    expect(phoneTabUrl("routines")).toBe("/routines?device=m2");
+    expect(phoneTabUrl("settings")).toBe("/settings?tab=operations");
+    expect(phoneTabUrl("agents")).toBe("/agents?machine=alpha");
+    // A root the reader has not visited opens at its own root.
+    expect(phoneTabUrl("sessions")).toBe("/sessions");
+  });
+
+  it("refuses a remembered URL that is not that root", () => {
+    // A stale or foreign value — a detail path, another root's URL, or an
+    // absolute URL — must not become a footer destination.
+    sessionStorage.setItem(
+      "kin.phoneTabUrls",
+      JSON.stringify({
+        routines: "/routines/today?device=m2",
+        agents: "/settings#x",
+        settings: "https://evil.example",
+      }),
+    );
+
+    expect(phoneTabUrl("routines")).toBe("/routines");
+    expect(phoneTabUrl("agents")).toBe("/agents");
+    expect(phoneTabUrl("settings")).toBe("/settings");
   });
 });
 

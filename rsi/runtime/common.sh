@@ -148,3 +148,50 @@ rsi_budget_apply() {
 rsi_allow_kimi() { python3 "$RSI_DIR/runtime/volc-budget.py" --allow-kimi >/dev/null 2>&1; }
 rsi_allow_workers() { python3 "$RSI_DIR/runtime/volc-budget.py" --allow-workers >/dev/null 2>&1; }
 rsi_budget_apply
+
+# Open-PR backpressure (CEO 2026-11-16): pause NEW slice dispatch when >= RSI_MAX_OPEN_PRS active rsi/* PRs
+# are already open, letting rework + merge drain the queue. Set RSI_MAX_OPEN_PRS=0 (or off) to disable.
+export RSI_MAX_OPEN_PRS="${RSI_MAX_OPEN_PRS:-10}"
+rsi_open_pr_counts() {
+  if [ -n "${RSI_OPEN_PR_COUNT:-}" ]; then
+    printf '%s %s\n' "$RSI_OPEN_PR_COUNT" "$RSI_OPEN_PR_COUNT"
+    return 0
+  fi
+  local prj
+  prj="$($GH pr list --repo "$GH_REPO" --state open --limit 80 --json number,headRefName,isDraft,labels 2>/dev/null || true)"
+  if ! printf '%s' "$prj" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1; then
+    sleep 2
+    prj="$($GH pr list --repo "$GH_REPO" --state open --limit 80 --json number,headRefName,isDraft,labels 2>/dev/null || true)"
+  fi
+  printf '%s' "$prj" | STATE="$STATE" python3 -c '
+import json, os, sys
+try:
+    prs = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+st = os.environ["STATE"]
+active = 0
+for p in prs:
+    h = p.get("headRefName") or ""
+    ls = {l.get("name") for l in (p.get("labels") or [])}
+    if not h.startswith("rsi/") or h.startswith("rsi/dream-") or h.startswith("rsi/ceo-") or p.get("isDraft") or (ls & {"hold", "needs-ceo"}):
+        continue
+    slug = h[4:]
+    if os.path.exists(os.path.join(st, "merge", slug + ".blocked")):
+        continue
+    active += 1
+print("%d %d" % (active, len(prs)))
+' 2>/dev/null || { echo "-1 -1"; return 1; }
+}
+rsi_open_pr_backpressure() {
+  RSI_OPEN_RSI_PRS=-1; RSI_OPEN_TOTAL_PRS=-1
+  case "${RSI_MAX_OPEN_PRS:-10}" in
+    ""|0|off|OFF|false|FALSE|*[!0-9]*) return 1 ;;
+  esac
+  [ "$RSI_MAX_OPEN_PRS" -ge 1 ] 2>/dev/null || return 1
+  local counts
+  counts="$(rsi_open_pr_counts 2>/dev/null || echo "-1 -1")"
+  RSI_OPEN_RSI_PRS="${counts%% *}"; RSI_OPEN_TOTAL_PRS="${counts##* }"
+  [ "${RSI_OPEN_RSI_PRS:--1}" -ge 0 ] 2>/dev/null || return 1
+  [ "$RSI_OPEN_RSI_PRS" -ge "$RSI_MAX_OPEN_PRS" ] 2>/dev/null
+}

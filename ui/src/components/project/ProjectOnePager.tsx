@@ -1,8 +1,8 @@
-/* eslint-disable kin/no-raw-button -- markup moved unchanged from ProjectDetailPage; new controls should use a shared primitive. */
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { OnePager } from "../../api/client";
 import { onePagerFocus } from "../../lib/onePagerSummary";
 import { SkeletonLine } from "../Skeleton";
+import Button from "../ui/Button";
 import { useT } from "../../i18n/react";
 
 /**
@@ -151,15 +151,15 @@ export default function ProjectOnePager({
           {tr("projects.summaryTitle")}
         </h2>
         {!editing && loaded && (
-          <button
+          <Button
             ref={editButtonRef}
-            type="button"
+            variant="secondary"
             disabled={offline}
-            className="rounded-lg border border-kin-hairline px-3 py-1.5 text-strong text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
+            className="text-strong"
             onClick={beginEdit}
           >
             {tr("projects.summaryEdit")}
-          </button>
+          </Button>
         )}
       </div>
 
@@ -169,13 +169,9 @@ export default function ProjectOnePager({
           className="mb-3 rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-body text-kin-red-ink"
         >
           <p>{loadError}</p>
-          <button
-            type="button"
-            onClick={onRetry}
-            className="mt-2 min-h-11 rounded-lg border border-kin-red/40 px-3 text-strong text-kin-red-ink"
-          >
+          <Button variant="secondary" onClick={onRetry} className="mt-2 text-strong">
             {tr("common.retry")}
-          </button>
+          </Button>
         </div>
       )}
 
@@ -202,13 +198,9 @@ export default function ProjectOnePager({
           {offline ? (
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <p className="text-caption text-kin-muted">{tr("projects.summaryOffline")}</p>
-              <button
-                type="button"
-                className="min-h-11 rounded-lg px-3 text-strong text-kin-secondary"
-                onClick={cancelEdit}
-              >
+              <Button variant="quiet" className="text-strong" onClick={cancelEdit}>
                 {tr("common.cancel")}
-              </button>
+              </Button>
             </div>
           ) : conflict ? (
             <div
@@ -222,50 +214,42 @@ export default function ProjectOnePager({
                   tr("projects.summaryEmpty")}
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
-                <button
-                  type="button"
+                <Button
+                  variant="default"
                   disabled={saving}
-                  className="min-h-11 rounded-lg bg-kin-blue px-3 text-strong font-medium text-kin-on-brand disabled:opacity-50"
+                  className="text-strong"
                   onClick={() => onKeepMine(draft)}
                 >
                   {tr("projects.conflictKeepMine")}
-                </button>
-                <button
-                  type="button"
-                  className="min-h-11 rounded-lg border border-kin-hairline px-3 text-strong text-kin-text"
-                  onClick={takeTheirs}
-                >
+                </Button>
+                <Button variant="secondary" className="text-strong" onClick={takeTheirs}>
                   {tr("projects.conflictTakeTheirs")}
-                </button>
-                <button
-                  type="button"
-                  className="min-h-11 rounded-lg px-3 text-strong text-kin-secondary"
+                </Button>
+                <Button
+                  variant="quiet"
+                  className="text-strong"
                   // Dismissing keeps the old base on purpose: the next save
                   // meets the same 409 instead of silently overwriting the
                   // version this editor has not read.
                   onClick={onDismissConflict}
                 >
                   {tr("projects.conflictDismiss")}
-                </button>
+                </Button>
               </div>
             </div>
           ) : (
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
+              <Button
+                variant="default"
                 disabled={saving}
-                className="min-h-11 rounded-lg bg-kin-blue px-3 text-strong font-medium text-kin-on-brand disabled:opacity-50"
+                className="text-strong"
                 onClick={() => onSave(draft)}
               >
                 {saving ? tr("projects.summarySaving") : tr("common.save")}
-              </button>
-              <button
-                type="button"
-                className="min-h-11 rounded-lg px-3 text-strong text-kin-secondary"
-                onClick={cancelEdit}
-              >
+              </Button>
+              <Button variant="quiet" className="text-strong" onClick={cancelEdit}>
                 {tr("common.cancel")}
-              </button>
+              </Button>
             </div>
           )}
         </>
