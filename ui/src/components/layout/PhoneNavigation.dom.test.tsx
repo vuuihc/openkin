@@ -355,14 +355,19 @@ describe("the four equal phone tabs", () => {
     expect(document.querySelector("[data-kin-edge-back]")).toBeNull();
   });
 
-  for (const [path, text] of [
-    ["/agents", "agents page"],
-    ["/settings", "settings page"],
+  for (const [path, text, current] of [
+    // E4a: Agent Ops is a tab of Settings now, not a root of its own.
+    ["/settings?tab=operations", "settings page", "Agent Ops"],
+    ["/settings", "settings page", "Settings"],
   ] as const) {
     it(`keeps the tabs on ${path}`, () => {
       shell([path]);
       expect(screen.getByText(text)).toBeTruthy();
       expect(document.querySelector("[data-phone-footer]")?.querySelectorAll("a")).toHaveLength(4);
+      // The highlighted tab follows the tab= param, not only the pathname.
+      const marked = document.querySelectorAll("[data-phone-footer] a[aria-current='page']");
+      expect(marked).toHaveLength(1);
+      expect(marked[0].textContent).toContain(current);
     });
   }
 });
@@ -375,10 +380,23 @@ describe("each tab returns to its own last view", () => {
     await user.click(screen.getByRole("link", { name: "Routines" }));
     await waitFor(() => expect(screen.getByText("routines page")).toBeTruthy());
 
+    // Agent Ops is a peer entry, not a view of Settings: clicking Settings
+    // must land on Settings, not reopen the operations panel, and the clicked
+    // tab must be the only current one.
     await user.click(screen.getByRole("link", { name: "Settings" }));
+    await waitFor(() => expect(screen.getByTestId("phone-location").textContent).toBe("/settings"));
+    let current = document.querySelectorAll("[data-phone-footer] a[aria-current='page']");
+    expect(current).toHaveLength(1);
+    expect(current[0].textContent).toContain("Settings");
+
+    // The operations URL is still Agent Ops' own memory, not Settings'.
+    await user.click(screen.getByRole("link", { name: "Agent Ops" }));
     await waitFor(() =>
       expect(screen.getByTestId("phone-location").textContent).toBe("/settings?tab=operations"),
     );
+    current = document.querySelectorAll("[data-phone-footer] a[aria-current='page']");
+    expect(current).toHaveLength(1);
+    expect(current[0].textContent).toContain("Agent Ops");
 
     // The same journey from the other direction: the machine selected on
     // Routines survives a trip through Settings.
@@ -469,7 +487,8 @@ describe("list roots and destinations", () => {
 describe("destinations and back", () => {
   for (const [label, text] of [
     ["Routines", "routines page"],
-    ["Agent Ops", "agents page"],
+    // Agent Ops opens the operations tab inside Settings (E4a).
+    ["Agent Ops", "settings page"],
     ["Settings", "settings page"],
   ] as const) {
     it(`returns from ${label} to the list with focus on its entry`, async () => {
@@ -506,7 +525,7 @@ describe("destinations and back", () => {
 
   for (const [path, text] of [
     ["/routines", "routines page"],
-    ["/agents", "agents page"],
+    ["/settings?tab=operations", "settings page"],
     ["/settings", "settings page"],
   ] as const) {
     it(`opens a cold ${path} with a direct way to the list`, async () => {

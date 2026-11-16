@@ -3,15 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import type { AgentInfo, AgentLimitStatus, AgentManagement, UsageRow } from "../api/client";
-import { setLocale } from "../i18n";
-import { useAppStore } from "../store/appStore";
+import type { AgentInfo, AgentLimitStatus, AgentManagement, UsageRow } from "../../api/client";
+import { setLocale } from "../../i18n";
+import { useAppStore } from "../../store/appStore";
 import {
   readConnectedFamilies,
   readQuotaWaitSince,
   writeConnectedFamilies,
   writeQuotaWaitSince,
-} from "../lib/agentPageState";
+} from "../../lib/agentPageState";
 
 /**
  * KIN-AGENTS-001: the agents console is a curated room, not a firehose.
@@ -32,8 +32,8 @@ const client = vi.hoisted(() => ({
   importAgentSessions: vi.fn(),
 }));
 
-vi.mock("../api/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../api/client")>();
+vi.mock("../../api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/client")>();
   return {
     ...actual,
     isAuthenticated: () => true,
@@ -47,7 +47,7 @@ vi.mock("../api/client", async (importOriginal) => {
   };
 });
 
-import AgentsPage from "./AgentsPage";
+import AgentsPage from "./AgentOperationsSection";
 
 function product(partial: Partial<AgentInfo> & Pick<AgentInfo, "id" | "name">): AgentInfo {
   return {
