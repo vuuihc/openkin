@@ -252,7 +252,7 @@ beforeEach(() => {
 });
 
 describe("the four roots on real history", () => {
-  it("swipes back to the one real list beneath a peer root", async () => {
+  it("returns to the one real list beneath a peer root", async () => {
     const user = userEvent.setup();
     fixtures.tasks = [listTask()];
     browser("/sessions");
@@ -261,27 +261,13 @@ describe("the four roots on real history", () => {
     expect(window.history.state.idx).toBe(1);
 
     // Routines replaces the conversation at depth 1; the list is still its
-    // proven parent at depth 0. Swiping to Chats must pop rather than replace
-    // the root with a second list at depth 1.
+    // proven parent at depth 0. The Chats tab must pop rather than replace the
+    // root with a second list at depth 1. The tab bar is the only way between
+    // areas on a phone; a sideways drag no longer switches.
     await user.click(screen.getByRole("button", { name: "Open routines" }));
     await waitFor(() => expect(window.location.pathname).toBe("/routines"));
     expect(window.history.state.idx).toBe(1);
-    const main = document.querySelector("main") as HTMLElement;
-    for (const [type, x] of [
-      ["pointerdown", 90],
-      ["pointermove", 210],
-      ["pointerup", 210],
-    ] as const) {
-      const event = new MouseEvent(type, {
-        bubbles: true,
-        cancelable: true,
-        clientX: x,
-        clientY: 300,
-        button: 0,
-      });
-      Object.assign(event, { pointerId: 1, pointerType: "touch", isPrimary: true });
-      fireEvent(main, event);
-    }
+    await user.click(screen.getByRole("link", { name: "Chats" }));
     await waitFor(() => expect(window.location.pathname).toBe("/sessions"));
     expect(window.history.state.idx).toBe(0);
     await screen.findByRole("heading", { name: "Chats" });
