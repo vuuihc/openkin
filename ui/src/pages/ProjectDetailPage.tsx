@@ -941,7 +941,7 @@ export default function ProjectDetailPage() {
 
               <p className="mt-2 text-caption text-kin-muted">{tr("projects.recentOnlyLatest")}</p>
 
-              {wide && <div className="mt-3">{newChatControl}</div>}
+              {wide && !editing && <div className="mt-3">{newChatControl}</div>}
             </section>
           </div>
 
@@ -1105,7 +1105,7 @@ export default function ProjectDetailPage() {
       {/* On a phone the one filled action follows the page instead of ending
           it: pinned above the tab bar, it is reachable without scrolling past
           the pulse, routines and the activity list. */}
-      {!wide && (
+      {!wide && !editing && (
         <div
           data-project-cta="bar"
           className="sticky bottom-0 z-10 border-t border-kin-hairline bg-kin-panel px-4 py-3"

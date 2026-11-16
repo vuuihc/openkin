@@ -670,6 +670,7 @@ describe("the project cover (KIN-PROJECT-001)", () => {
   });
 
   it("offers exactly one filled primary on the project page", async () => {
+    const user = userEvent.setup();
     const view = renderPage();
     await screen.findByText("alpha");
     await screen.findByRole("button", { name: "Edit" });
@@ -677,6 +678,20 @@ describe("the project cover (KIN-PROJECT-001)", () => {
     expect(view.container.querySelectorAll(".kin-btn-primary").length).toBe(1);
 
     view.unmount();
+    sessionStorage.clear();
+
+    // Editing the One-Pager makes Save the screen's one filled action: the
+    // New chat call to action (the phone bar at this width) steps aside
+    // rather than pairing with it.
+    viewport(false);
+    const phone = renderPage();
+    await screen.findByText("alpha");
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+    expect(phone.container.querySelector('[data-project-cta="bar"]')).toBeNull();
+    expect(phone.container.querySelectorAll(".kin-btn-primary").length).toBe(1);
+
+    phone.unmount();
     sessionStorage.clear();
 
     // The error state answers with one action too: a retry, never a second
