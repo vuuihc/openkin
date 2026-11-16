@@ -7,12 +7,12 @@ import {
   type ReactNode,
   type Ref,
 } from "react";
-import { useAnchoredPanel } from "../../hooks/useAnchoredPanel";
 import { useT } from "../../i18n/react";
 import { isImeKeyEvent } from "../../lib/ime";
 import { hasFinePointer } from "../../lib/pointer";
 import Sheet from "../mobile/Sheet";
 import { IconCheck, IconChevronDown, IconSearch } from "../icons";
+import Popover from "./Popover";
 
 export type SearchSelectOption = {
   id: string;
@@ -68,19 +68,16 @@ type Props = {
 };
 
 /**
- * The desktop panel's own size and edge inset. Where it goes is
- * `useAnchoredPanel`'s job — the same measurement the dispatch and permission
- * panels use — because the trigger often sits inside an `overflow-*` strip
- * (the composer's control row is one), where an absolutely positioned panel is
- * clipped by the strip and a hand-rolled flip disagrees with its neighbours at
- * the same viewport height. Measured from the viewport, `fixed` escapes the
- * strip: nothing between here and <body> sets a transform, filter or
- * `contain`. The 288px width and 8px edge are this panel's shape, so they stay
- * here.
+ * The desktop panel's own size. Where it goes is the shared `Popover` layer's
+ * job — the same `useAnchoredPanel` measurement and edge inset the dispatch
+ * and permission panels use — because the trigger often sits inside an
+ * `overflow-*` strip (the composer's control row is one), where an absolutely
+ * positioned panel is clipped by the strip and a hand-rolled flip disagrees
+ * with its neighbours at the same viewport height. The 288px width and 360px
+ * ceiling are this panel's shape, so they stay here.
  */
 const PANEL_WIDTH = 288;
 const PANEL_MAX_HEIGHT = 360;
-const EDGE = 8;
 
 /** Case-insensitive match over everything the row shows, so a gateway name or
  *  a raw id finds a model whose label does not contain the word. */
@@ -229,6 +226,10 @@ function Chooser({
     if (isImeKeyEvent(event.nativeEvent)) return;
     if (event.key === "Tab") {
       // The panel would otherwise stay open behind a focus it no longer owns.
+      // Stop the shared layer from containing the Tab: the panel is closing,
+      // so the browser should move focus on rather than wrap inside it. The
+      // phone has no `onDismiss` — there the `Sheet` owns Tab.
+      if (onDismiss) event.stopPropagation();
       onDismiss?.();
       return;
     }
@@ -254,6 +255,8 @@ function Chooser({
   const onSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (isImeKeyEvent(event.nativeEvent)) return;
     if (event.key === "Tab") {
+      // Same as the list: close and let focus move on, not wrap in place.
+      if (onDismiss) event.stopPropagation();
       onDismiss?.();
       return;
     }
@@ -307,7 +310,12 @@ function Chooser({
         id={listId}
         role={listbox ? "listbox" : undefined}
         aria-label={listbox ? label : undefined}
-        tabIndex={!searchable && autoFocus ? -1 : undefined}
+        // The shared layer focuses the first focusable control in its panel
+        // once the anchor is measured. With no filter field, the list is that
+        // control, so the arrow keys reach it; `-1` would have left focus on
+        // the panel itself and the list deaf to them. The phone's surface has
+        // no auto-focus, and its rows are the tab stops.
+        tabIndex={!searchable && autoFocus ? 0 : undefined}
         onKeyDown={onListKeyDown}
         className={["mt-1", listClassName].filter(Boolean).join(" ")}
       >
@@ -414,11 +422,12 @@ function Chooser({
  * scrollable list — the shape the iOS run-configuration sheets use, and the
  * reason the model picker can show every model the CLI actually offers.
  *
- * The desktop surface is a fixed-positioned panel with listbox semantics,
- * placed by `useAnchoredPanel` so it flips and clamps exactly like the other
- * composer pickers; the phone surface is the console's own `Sheet`, which is
- * where the safe area, the scrim and Escape already live. Both read from one
- * list component, so the two surfaces cannot disagree about what is selected.
+ * The desktop surface is the shared `Popover` layer carrying a listbox: one
+ * portal, one anchoring measurement, one Escape and one focus contract with
+ * every other popover in the console. The phone surface is the console's own
+ * `Sheet`, which is where the safe area, the scrim and Escape already live.
+ * Both read from one list component, so the two surfaces cannot disagree about
+ * what is selected.
  */
 export default function SearchSelect({
   label,
@@ -439,55 +448,26 @@ export default function SearchSelect({
   const tr = useT();
   const [menuOpen, setMenuOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const rootRef = useRef<HTMLSpanElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listId = useId();
 
   const current = display ?? options.find((option) => option.id === value)?.label ?? value;
 
+  // Outside press, Escape, focus into the panel and back, and Tab containment
+  // belong to the `Popover` layer below. The one width change it does not own
+  // stays here: a
+  // panel measured for the desktop is not the phone's surface, and narrowing
+  // the window must not leave it open behind a trigger CSS has already hidden,
+  // only to reappear on widening.
   useEffect(() => {
     if (!menuOpen) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setMenuOpen(false);
-    };
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      setMenuOpen(false);
-      // The panel held focus; without this the next Tab starts from the top of
-      // the document instead of from the control that was just closed.
-      triggerRef.current?.focus({ preventScroll: true });
-    };
-    // Focus leaving the panel closes it: with the options out of the tab order,
-    // the next stop is behind the panel, and a list left open there no longer
-    // belongs to the focus. A `null` relatedTarget is not a focus move — WebKit
-    // reports it when a mouse click blurs the field, and the click that follows
-    // is the row selection itself. Closing on it made every mouse pick in
-    // Safari remove the row before `click` could land on it.
-    const onFocusOut = (event: FocusEvent) => {
-      const next = event.relatedTarget as Node | null;
-      if (next && !rootRef.current?.contains(next)) setMenuOpen(false);
-    };
-    // A panel measured for the desktop is not the phone's surface. Narrowing
-    // the window must not leave it open — and its document listeners attached
-    // — behind a trigger CSS has already hidden, only to reappear on widening.
-    let media: MediaQueryList | null = null;
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(min-width: 640px)");
     const onMediaChange = () => {
-      if (!media?.matches) setMenuOpen(false);
+      if (!media.matches) setMenuOpen(false);
     };
-    if (typeof window.matchMedia === "function") {
-      media = window.matchMedia("(min-width: 640px)");
-      media.addEventListener?.("change", onMediaChange);
-    }
-    const root = rootRef.current;
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    root?.addEventListener("focusout", onFocusOut);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-      root?.removeEventListener("focusout", onFocusOut);
-      media?.removeEventListener?.("change", onMediaChange);
-    };
+    media.addEventListener?.("change", onMediaChange);
+    return () => media.removeEventListener?.("change", onMediaChange);
   }, [menuOpen]);
 
   // The sheet is `md:hidden` in `Sheet`; past that width it is invisible but
@@ -503,24 +483,6 @@ export default function SearchSelect({
     media.addEventListener?.("change", onMediaChange);
     return () => media.removeEventListener?.("change", onMediaChange);
   }, [sheetOpen]);
-
-  /**
-   * Where to put the panel, in viewport coordinates.
-   *
-   * The shared hook measures on a layout effect and again on resize, on scroll
-   * in the capture phase (the strip the trigger sits in scrolls independently
-   * of the window), on the visual viewport (a phone keyboard moves the trigger
-   * without a window resize) and on the trigger's own resize. Keeping the flip
-   * here in one place is what makes this panel and the dispatch panel agree
-   * about which side has room.
-   */
-  const anchor = useAnchoredPanel(menuOpen, triggerRef, {
-    placement: placement === "top" ? "above" : "below",
-    align: "right",
-    width: PANEL_WIDTH,
-    maxHeight: PANEL_MAX_HEIGHT,
-    edge: EDGE,
-  });
 
   const choose = (id: string) => {
     onChange(id);
@@ -559,7 +521,6 @@ export default function SearchSelect({
   return (
     <>
       <span
-        ref={rootRef}
         className={
           variant === "field"
             ? "relative hidden w-full min-w-0 sm:block"
@@ -578,18 +539,21 @@ export default function SearchSelect({
           controls={menuOpen ? listId : undefined}
           onClick={() => setMenuOpen((open) => !open)}
         />
-        {menuOpen && anchor ? (
-          <div
-            data-search-panel
-            style={{
-              left: anchor.left,
-              width: anchor.width,
-              maxHeight: anchor.maxHeight,
-              top: anchor.top,
-              bottom: anchor.bottom,
-            }}
-            className="fixed z-50 flex flex-col overflow-hidden rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated p-1.5 shadow-e3"
-          >
+        <Popover
+          open={menuOpen}
+          onOpenChange={setMenuOpen}
+          triggerRef={triggerRef}
+          label={label}
+          placement={placement === "top" ? "above" : "below"}
+          align="right"
+          width={PANEL_WIDTH}
+          maxHeight={PANEL_MAX_HEIGHT}
+          className="flex flex-col"
+        >
+          {/* `data-search-panel` still marks this content for the other layers
+              that ask "is a picker open?" — it is inside the shared panel, not
+              the panel itself. */}
+          <div data-search-panel className="flex min-h-0 flex-1 flex-col">
             <Chooser
               label={label}
               options={options}
@@ -605,7 +569,7 @@ export default function SearchSelect({
               listClassName="min-h-0 flex-1 overflow-y-auto kin-scroll"
             />
           </div>
-        ) : null}
+        </Popover>
       </span>
 
       {/* The phone's trigger is separate, not a `sm:hidden` twin sharing one

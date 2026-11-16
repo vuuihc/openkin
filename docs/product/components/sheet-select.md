@@ -19,21 +19,27 @@
 
 - **形状跟着宽度走，不跟着平台走。** `useMinWidth(768)`：窄了是 action sheet，
   宽了是锚定菜单。触发按钮完全一致。
+- **宽屏菜单就是共享的 `Menu` / `Popover` 层。** 测量、portal 到 `<body>`、
+  外部按下、Escape、焦点进出、Tab 收束、输入法守卫都归那一层所有；这里只
+  决定“哪一项是当前值”和“选中意味着什么”。不要在本控件里再挂 document
+  监听。
 - **不用原生 `<select>`。** iOS 的滚轮属于系统，关闭态是一个不认 token 的灰盒子
   （TASTE 第 14 条）。
 - **`bordered` 在合并控件里关掉。** 容器已经画了边框，两条相隔 1px 的线读起来
   像渲染 bug。
-- **破坏性选项用危险色。** 传 `destructive`，不要自己塞 class。
+- **破坏性选项用危险色（仅手机）。** 传 `destructive`，不要自己塞 class。
+  宽屏走共享 `Menu`，它的行墨色是统一的；危险色留在 action sheet 上。
 
 ## 键盘
 
 | 键 | 归属 |
 |---|---|
-| ↑ / ↓ | 在菜单项间移动 |
+| ↑ / ↓ | 在菜单项间移动，到头回绕（`Menu` 的漫游焦点） |
 | Home / End | 首 / 末项 |
-| Enter / Space | 选中（行按钮的原生激活） |
-| Escape | 关闭并还焦点给触发按钮 |
-| 输入法组合中 | ↑ / ↓ / Home / End 不动——`lib/ime.ts` 拦在菜单容器上。Enter、Space、Escape 走原生路径，**没有守卫**：组合中的 Enter 会不会落下来自浏览器与输入法 |
+| Enter / Space | 选中（`Menu` 在菜单容器上处理） |
+| Escape | 关闭并还焦点给触发按钮（`Popover` 层；只在焦点位于该层时响应） |
+| Tab | 留在层内（`Popover` 的 Tab 收束）；Escape 是离开的路 |
+| 输入法组合中 | 全部按键不动——`lib/ime.ts` 拦在菜单容器上 |
 
 ## 无障碍
 
@@ -43,14 +49,16 @@
 | 弹出类型 | 4.1.2 | `aria-haspopup="menu"`（宽）/ `"dialog"`（窄） | 全部 |
 | 展开状态 | 4.1.2 | `aria-expanded` 跟随开合 | 打开 / 关闭 |
 | 菜单语义 | 4.1.2 | `role="menu"` + `menuitemradio` + `aria-checked` | 打开（宽） |
-| 当前项 | 4.1.2 | 打开时焦点落在 `aria-checked="true"` 的那一项 | 打开 |
+| 浮层名称 | 4.1.2 | 承载菜单的面板是 `role="dialog"`，名为 `label` | 打开（宽） |
+| 当前项 | 4.1.2 | `aria-checked="true"` 标记当前值；打开时焦点落在第一个可选项（`Menu` 的漫游焦点起点），不一定等于当前值 | 打开 |
 | 触控目标 | 2.5.8 Target Size | 手机走 Sheet 的 44px 行高 | 手机 |
 
 ## 平台差异
 
 | | 手机 | Mac |
 |---|---|---|
-| 表面 | 控制台 `Sheet`，带安全区 | 锚定菜单 |
+| 表面 | 控制台 `Sheet`，带安全区 | 锚定菜单（`Menu` + `Popover`） |
+| 层 | `ActionSheet` 自带 dialog 语义与焦点陷阱 | 共享 `Popover`：portal、测量、Escape、焦点 |
 | 位置 | 从底部升起，盖住当前面板 | 贴着 chip |
 | 主题 | 由控制台 token 着色 | 控制台自己的菜单样式 |
 

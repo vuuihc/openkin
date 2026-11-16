@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ApiError,
   activateProvider,
@@ -38,12 +39,13 @@ import {
   SettingsLayout,
   SettingsSection,
   SettingsTabPanel,
-  settingsTabFromSearch,
-  type SettingsTabId,
   type SettingsTabItem,
 } from "../components/settings/SettingsPrimitives";
+import { normalizeSettingsTab, type SettingsTabId } from "../lib/areaNavigation";
+import { onGuardedLinkClick } from "../lib/phoneNavigation";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useLeaveGuard } from "../hooks/useLeaveGuard";
+import { runGuardedNavigation } from "../lib/leaveGuard";
 import { applyTheme, getThemeMode, setThemeMode, type ThemeMode } from "../lib/theme";
 import { useAppStore } from "../store/appStore";
 import { useT } from "../i18n/react";
@@ -63,6 +65,36 @@ function prettyJSON(raw: string | undefined, fallback: string): string {
   } catch {
     return raw ?? fallback;
   }
+}
+
+/**
+ * The panels this page can draw today.
+ *
+ * `operations` is a real settings destination — the area table owns it, a
+ * notification link can name it, and the palette can offer it — but its body
+ * arrives with N4, together with the Agent-operations move. Drawing the tab
+ * now would show a blank page, so the page renders General for it; the URL
+ * keeps the section, and N4 removes this narrowing when the panel lands.
+ */
+type RenderedSettingsTab = Exclude<SettingsTabId, "operations">;
+
+function renderedSettingsTab(tab: SettingsTabId): RenderedSettingsTab {
+  return tab === "operations" ? "general" : tab;
+}
+
+/**
+ * The URL that names a panel.
+ *
+ * Selecting a tab is a same-screen state change, so it rewrites the current
+ * entry instead of stacking one per tab. Unrelated parameters are preserved:
+ * only the one this page owns is written.
+ */
+function settingsTabPath(tab: SettingsTabId, pathname: string, search: string): string {
+  const params = new URLSearchParams(search);
+  if (tab === "general") params.delete("tab");
+  else params.set("tab", tab);
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
 }
 
 // Compare the role rows that are visible, not the serializer's output. A
@@ -156,8 +188,37 @@ export default function SettingsPage() {
   const [reveal, setReveal] = useState(false);
   const [busy, setBusy] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => getThemeMode());
-  const [activeTab, setActiveTab] = useState<SettingsTabId>(() =>
-    typeof window === "undefined" ? "general" : settingsTabFromSearch(window.location.search),
+  // The panel follows the router, not a one-time read of `window.location`: a
+  // notification tap can name `?tab=` while this page is already mounted, and
+  // React Router keeps the component rather than remounting it. Choosing a tab
+  // writes the URL too, so the page and `NotificationTaps` agree on what is on
+  // screen (it compares a tap with the current URL).
+  //
+  // A tab switch does not discard drafts, so it does not ask the leave guard:
+  // every panel stays mounted (`hidden` in `SettingsTabPanel`) and its local
+  // state survives. Leaving Settings still asks through `useLeaveGuard`.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<RenderedSettingsTab>(() =>
+    renderedSettingsTab(normalizeSettingsTab(new URLSearchParams(location.search).get("tab"))),
+  );
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    // Absent `tab` is General (the settings root). A General notification is
+    // canonicalized to `/settings`, and a sidebar or palette trip to the
+    // root must show that panel. Drafts survive because every panel stays
+    // mounted (`hidden` in `SettingsTabPanel`).
+    setActiveTab(renderedSettingsTab(normalizeSettingsTab(params.get("tab"))));
+  }, [location.search]);
+  const selectTab = useCallback(
+    (tab: SettingsTabId) => {
+      const path = settingsTabPath(tab, location.pathname, location.search);
+      // Pop an armed leave-guard sentinel before the same-pathname replace so
+      // a dirty tab switch does not bury a Settings entry under a new sentinel.
+      if (!runGuardedNavigation(() => navigate(path, { replace: true }), true)) return;
+      setActiveTab(renderedSettingsTab(tab));
+    },
+    [navigate, location.pathname, location.search],
   );
   const reconnectGen = useAppStore((s) => s.reconnectGen);
   const pushToast = useAppStore((s) => s.pushToast);
@@ -636,6 +697,11 @@ export default function SettingsPage() {
     );
   }
 
+  // The URL is also the source of the notice below: `operations` is a known
+  // destination, but its panel arrives with N4, so the page draws General plus
+  // one explicit pointer instead of silently pretending the tab never existed.
+  const requestedTab = normalizeSettingsTab(new URLSearchParams(location.search).get("tab"));
+
   const settingsTabs: SettingsTabItem[] = [
     {
       id: "general",
@@ -670,8 +736,22 @@ export default function SettingsPage() {
       subtitle={tr("settings.subtitle")}
       tabs={settingsTabs}
       activeTab={activeTab}
-      onTabChange={setActiveTab}
+      onTabChange={selectTab}
     >
+      {requestedTab === "operations" ? (
+        <div className="kin-card rounded-xl bg-kin-elevated/60 px-4 py-3">
+          <p className="text-body leading-5 text-kin-secondary">
+            {tr("settings.operationsMoved")}{" "}
+            <Link
+              to="/agents"
+              onClick={(event) => onGuardedLinkClick(event, navigate, location, "/agents")}
+              className="inline-flex min-h-11 items-center text-kin-blue-ink hover:underline sm:min-h-0"
+            >
+              {tr("settings.operationsOpen")}
+            </Link>
+          </p>
+        </div>
+      ) : null}
       {error ? (
         <p
           className="rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-body leading-4 text-kin-red-ink"
