@@ -239,7 +239,12 @@ export default function Sidebar({
   );
 
   return (
-    <div className="hidden md:flex h-full shrink-0 kin-zen-hide">
+    /*
+      The marker is the column's identity, not decoration: the shell asks for it
+      when a panel takes the list's place, and the DOM tests read it so "the
+      list yielded" is asserted against the element that really is the list.
+    */
+    <div data-kin-list-column className="hidden md:flex h-full shrink-0 kin-zen-hide">
       <aside className="w-list h-full flex flex-col bg-kin-sidebar shrink-0">
         {newChatBlock}
         <SessionList shell="sidebar" activeTaskId={selectedTaskId ?? null} />
