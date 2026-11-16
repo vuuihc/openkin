@@ -2,7 +2,7 @@
 # ux-gate.sh <worktree> <slug> <item> <pr#> <diff-hash> [role]
 # The UX gate of the merge lane (CEO 2026-11-15, after Ethan: "don't ship something that is not even demo-quality"). For a PR that touches
 # UI source it (1) walks the affected journeys in the real console at 390/1100(/1280) on a throwaway daemon and saves screenshots,
-# (2) has a vision reviewer on a different model (Kimi k3.1 pro, or gpt-6.1-sol via claude -p for big diffs) score the five rubric
+# (2) has a vision reviewer (Hydrogen first — multimodal; gpt-6.1-sol fallback) score the five rubric
 # axes from rsi/roles/ux-reviewer.md, (3) decides. Threshold (recomputed here, the model's own verdict is not trusted): every axis >= 3
 # AND mean >= 3.5 AND no walk hard failure. Writes state/merge/<slug>.ux.txt (the sendback body) and state/ux/<slug>/ (scores.json).
 # exit 0 PASS | 1 FAIL (sendback body written) | 2 UNAVAILABLE (infra; the PR stays verified but is NOT merged, needs-ceo note)
@@ -47,6 +47,20 @@ else bash "$RSI_DIR/runtime/ux-walk.sh" "$WT" "$SHOTS" "@$UXD/changed.txt" > "$U
 if [ -e "$SHOTS/UNAVAILABLE" ]; then unavailable "ux walk unavailable: $(cat "$SHOTS/UNAVAILABLE")"; fi
 [ -s "$SHOTS/walk.json" ] || unavailable "walker wrote no walk.json"
 HARD="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("\n".join(d.get("hardFail",[])))' "$SHOTS/walk.json")"
+# Known walk artefacts (state/ux-known-artifacts.txt): exact hard-fail lines that are environment
+# defects, not this PR's. They are printed and saved, never silently swallowed; an empty or absent
+# file leaves the gate exactly as strict as before.
+KNOWN="$STATE/ux-known-artifacts.txt"
+UX_IGNORED=""
+if [ -n "$HARD" ] && [ -s "$KNOWN" ]; then
+  UX_IGNORED="$(printf '%s\n' "$HARD" | grep -F -f "$KNOWN" || true)"
+  if [ -n "$UX_IGNORED" ]; then
+    HARD="$(printf '%s\n' "$HARD" | grep -v -F -f "$KNOWN" || true)"
+    printf '%s\n' "$UX_IGNORED" > "$UXD/ignored.txt"
+    echo "ux-gate: ignored known walk artefacts ($KNOWN):"
+    printf '%s\n' "$UX_IGNORED" | sed 's/^/  - /'
+  fi
+fi
 NSHOT="$(ls "$SHOTS"/*.png 2>/dev/null | wc -l | tr -d ' ')"
 [ "$NSHOT" -gt 0 ] || unavailable "walk produced no screenshots"
 # 2. vision review
@@ -59,8 +73,9 @@ PF="$STATE/briefs/$SLUG-ux-review.md"; mkdir -p "$STATE/briefs"
   echo "Follow $RSI_DIR/roles/ux-reviewer.md and the rubric in $RSI_DIR/UX-RUBRIC.md EXACTLY. Do not run builds or tests."
   echo "Evidence you MUST open with the Read tool (images are viewable): the walk screenshots in $SHOTS (names are <journey>-<viewport>-<n>-<step>.png; the matching .aria.txt is the accessibility tree), and $SHOTS/walk.json (objective lint per screen: small tap targets, search boxes, overflow, console errors)."
   echo "Compare against: the BEFORE screenshots in $BASELINE (same names where they exist; the installed build before this programme) and the target prototype in $APPROVED_PROTO (the clickable shell Ethan approved; the product should converge on it, not on the old UI)."
-  echo "Look at the diff only to explain what you see: git diff origin/main...HEAD. What the PR claims: $BODY"
+  echo "Look at the attached diff only to explain what you see (do not run git/shell; the diff is provided). What the PR claims: $BODY"
   [ -n "$HARD" ] && { echo; echo "Walk hard failures (each is an automatic reject unless you can show it is a walker artefact):"; echo "$HARD"; }
+  [ -n "$UX_IGNORED" ] && { echo; echo "Known walk artefacts ignored for this run (pre-existing fixture gap, not a defect of this PR; still report it as 'not verifiable: needs seed data'):"; echo "$UX_IGNORED"; }
   echo "Note: a throwaway daemon may be EMPTY (see $SHOTS/seed.log); then judge empty/loading states and structure, and say 'not verifiable: needs seed data' for what you cannot see. Never invent what the screen shows."
   echo
   echo "Output format (last lines, exactly): "
@@ -69,10 +84,19 @@ PF="$STATE/briefs/$SLUG-ux-review.md"; mkdir -p "$STATE/briefs"
   echo "Before those lines list concrete findings: screen name, what is wrong, how it affects which journey, the fix. Quote screenshot names."
 } > "$PF"
 UXR="$UXD/review.txt"
+SHA="$(git -C "$WT" rev-parse HEAD 2>/dev/null || true)"
 if [ -n "${RSI_UX_REVIEW_CMD:-}" ]; then bash -c "$RSI_UX_REVIEW_CMD" _ "$PF" > "$UXR" 2>&1; DRC=$?
+elif [ -n "$SHA" ] && [ -s "$STATE/merge/$SLUG.strong-ux" ] && [ "$(awk '{print $1}' "$STATE/merge/$SLUG.strong-ux")" = "$SHA" ] && [ -s "$STATE/merge/$SLUG.strong-ux.txt" ]; then
+  echo "ux-gate: reuse strong UX review for ${SHA:0:8} (verdict=$(awk '{print $2}' "$STATE/merge/$SLUG.strong-ux"))"
+  cp "$STATE/merge/$SLUG.strong-ux.txt" "$UXR"; DRC=0
+elif python3 "$RSI_DIR/runtime/escalate.py" --no-strong-available >/dev/null 2>&1; then
+  unavailable "ux reviewer held: no strong reviewer available (Hydrogen/sol limited)"
 else
   UROLE="ux-reviewer"; [ "$ROLE" = "reviewer-alt" ] && UROLE="ux-reviewer-alt"
-  RSI_NO_HEAVY=1 BUDGET_GUARD=8 DISPATCH_MAX_SECS=1500 "$RSI_DIR/runtime/dispatch.sh" "$UROLE" "$WT" "$PF" "merge-$SLUG-ux" > "$UXR" 2>&1; DRC=$?
+  RSI_ITEM="$ITEM" RSI_NO_HEAVY=1 BUDGET_GUARD=8 DISPATCH_MAX_SECS=1500 "$RSI_DIR/runtime/dispatch.sh" "$UROLE" "$WT" "$PF" "merge-$SLUG-ux" > "$UXR" 2>&1; DRC=$?
+  if [ "${DRC:-0}" -eq 3 ]; then
+    unavailable "ux reviewer held: no strong reviewer available (dispatch hold)"
+  fi
 fi
 [ "${DRC:-0}" -ne 0 ] && ! grep -qE 'UX_SCORES:' "$UXR" 2>/dev/null && unavailable "ux reviewer unavailable: dispatch exit $DRC"
 # 3. decide (recomputed from the numbers; the model's own verdict only matters as a tie to the text)
