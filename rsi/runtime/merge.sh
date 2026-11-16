@@ -405,7 +405,9 @@ if [ $NEED_REV -eq 1 ]; then
       echo "The PR diff is attached for you (git diff origin/main...HEAD). Do not run shell/git commands if you are on agy — headless mode will deny them and return an empty review. Read the attached diff and call sites."
     fi
     echo "Behaviour claimed (PR body): $(echo "$BODY" | head -c 3500)"
+    SHOT_LIST="$(ls -1 "$STATE/shots/$SLUG" 2>/dev/null | tr '\n' ' ')"
     echo; echo "Checklist and grading: $RSI_DIR/roles/reviewer.md ; binding rules: $RSI_DIR/MANDATE.md ; screenshots (if any): $STATE/shots/$SLUG/ or links in the PR body."
+    [ -n "$SHOT_LIST" ] && echo "Existing files in $STATE/shots/$SLUG/: $SHOT_LIST"
     echo "The gate (tests, lint, build, ratchet) is running separately; its verdict is not your job."
     if [ "$TIER" = small ]; then echo; echo "This is a SMALL-SAFE slice (pure refactor/extract or tiny diff; tests added only). You are the only reviewer, so check hard that behaviour, props, handlers, keyboard, a11y names, i18n and test strength are preserved. If you genuinely cannot decide, say so instead of guessing: end with VERDICT: UNSURE and why."; fi
     echo; echo "Grade every finding blocker/major/nit. Before the verdict, if there is any blocker/major, print a block that starts with a line exactly 'FIXLIST:' and then one line per blocker/major: '- path:line | blocker or major | the issue | the smallest change that fixes it'. The worker applies that list as minimal edits, so be exact (real file and line in the PR head)."
