@@ -146,22 +146,31 @@ agy_cli_model() { # hydrogen|hydrogen-high|carbon -> gemini-4-...
 
 # Record Antigravity quota/limit like sol-limited-until. Default hold is 45 minutes if no clock is given.
 note_agy_limit() {
-  python3 - "$LOG" "$LOG.agy.json" "$LOG.txt" "$STATE/agy-limited-until" <<'PY'
+  python3 - "$LOG" "$LOG.agy.json" "$STATE/agy-limited-until" <<'PY'
 import json,re,sys,time,datetime
-paths, stamp = sys.argv[1:4], sys.argv[4]
-blob = ""
-for p in paths:
-    try:
-        blob += open(p, errors="replace").read()[-12000] + "\n"
-    except Exception:
-        pass
+log_path, agy_json, stamp = sys.argv[1:4]
 try:
-    d=json.load(open(sys.argv[2]))
-    blob += " " + str(d.get("error") or "") + " " + str(d.get("status") or "") + " " + str(d.get("response") or "")
+    d=json.load(open(agy_json))
 except Exception:
     d={}
-pat = re.compile(r"quota|rate.?limit|usage limit|resource.?exhausted|429|allowance|not asked again before|exceeded your current quota|RESOURCE_EXHAUSTED", re.I)
-if not pat.search(blob):
+status = str(d.get("status") or "").upper()
+resp_text = str(d.get("response") or d.get("text") or "")
+if status in ("SUCCESS", "OK") and resp_text.strip() and not d.get("error"):
+    sys.exit(0)
+blob = ""
+try:
+    blob += open(log_path, errors="replace").read()[-12000:] + "\n"
+except Exception:
+    pass
+err_status = str(d.get("error") or "") + " " + status
+blob += " " + err_status
+if status not in ("SUCCESS", "OK"):
+    blob += " " + resp_text
+pat = re.compile(r"exceeded your current quota|quota exceeded|rate.?limit|usage limit|resource.?exhausted|RESOURCE_EXHAUSTED|not asked again before|\bstatus code 429\b|\bHTTP 429\b|allowance.*exhausted", re.I)
+# Prose-free fields keep the broad vocabulary: the vendor CLI itself reports limits as a bare
+# "quota", "429", or "exhausted your capacity" in error/status without the phrases above.
+broad = re.compile(r"quota|\b429\b|exhausted your capacity", re.I)
+if not (pat.search(blob) or broad.search(err_status)):
     sys.exit(0)
 m=re.search(r"not asked again before\s+(\d{1,2}):(\d{2})", blob)
 now=datetime.datetime.now()
@@ -228,7 +237,6 @@ run_agy() { # hydrogen|hydrogen-high|carbon
     wait "$pid"; rc=$?
     kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
     rsi_kill_tree "$pid"
-    note_agy_limit
     python3 - "$LOG.agy.json" "$LOG.txt" <<'PY'
 import json,sys
 src, dst = sys.argv[1], sys.argv[2]
@@ -248,6 +256,7 @@ PY
     if [ $rc -eq 0 ] && [ $pr -eq 0 ]; then
       return 0
     fi
+    note_agy_limit
     # Transient Antigravity errors (F3 UX 20:33: Eligibility check failed / loadCodeAssist EOF)
     # must be retried, not immediately treated as "no verdict" and downgraded to medium.
     if [ $attempt -lt $tries ] && grep -qiE 'Eligibility check failed|loadCodeAssist|authentication failed or timed out|connection reset|i/o timeout|UNAVAILABLE|status code 50[023]|EOF' "$LOG" "$LOG.agy.json" 2>/dev/null; then

@@ -191,4 +191,14 @@ describe("the cwd row", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: "Copy" })).toBeNull());
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+
+  it("names an empty chip with the call to set a directory", () => {
+    setup({ cwd: "" });
+
+    // The routine walk focuses `button[aria-label='设置工作目录']` (or its English
+    // peer) on a fresh editor. With no path chosen the chip's name is the call to
+    // set one, stated as an attribute rather than only a title, so focus by name
+    // finds it.
+    expect(document.querySelector("button[aria-label='Set working directory']")).toBeTruthy();
+  });
 });

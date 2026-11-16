@@ -302,7 +302,7 @@ describe("the Operations settings tab", () => {
     expect(within(opPanel).queryAllByRole("heading", { level: 1 })).toHaveLength(0);
   });
 
-  it("lets the operations panel own the heading and the one subtitle", async () => {
+  it("lets the operations panel own the heading and keeps the settings header in place", async () => {
     shell("/settings?tab=operations");
 
     await screen.findByRole("tab", { name: "Operations" });
@@ -319,10 +319,16 @@ describe("the Operations settings tab", () => {
     expect(
       within(opPanel).getByText("What this machine has, whether it works, and what it cost"),
     ).toBeTruthy();
-    // One description of the screen: the Settings tagline would be a second.
-    const layoutHeader = screen.getByRole("tablist", { name: "Settings" })
-      .previousElementSibling as HTMLElement;
-    expect(layoutHeader.querySelector("p")).toBeNull();
+    // The header block is the same on every tab — dropping the tagline for one
+    // tab changed its height and moved the section list — and Operations hides
+    // that whole column for its wide table, so the tagline is never a second
+    // description on screen.
+    const sectionColumn = screen.getByRole("tablist", { name: "Settings" })
+      .parentElement as HTMLElement;
+    expect(sectionColumn.className).toContain("hidden");
+    expect(sectionColumn.querySelector("p")?.textContent).toBe(
+      "Cognition provider (Kin agent), agents, routing, and pricing.",
+    );
   });
 
   it("shows an empty state instead of dash tiles when this machine has no usage", async () => {
