@@ -782,7 +782,7 @@ export default function WorkspacePanel({
                 onClick={onFindFile}
                 title={tr("workspace.find.actionHint")}
                 aria-label={tr("workspace.find.action")}
-                className="flex-none h-11 w-11 items-center justify-center p-0 text-kin-muted sm:h-6 sm:w-6"
+                className="flex-none h-11 w-11 items-center justify-center p-0 text-kin-muted! sm:h-6 sm:w-6"
               >
                 <IconSearch size={13} />
               </Button>
@@ -827,7 +827,7 @@ export default function WorkspacePanel({
                     onClick={() => setTurnOnly(false)}
                     className={[
                       "rounded-md px-2 py-0.5 text-caption",
-                      showingTurn ? "" : "bg-kin-elevated shadow-e1",
+                      showingTurn ? "text-kin-muted!" : "bg-kin-elevated! shadow-e1",
                     ].join(" ")}
                   >
                     {tr("workspace.tabChanges")}
@@ -841,7 +841,7 @@ export default function WorkspacePanel({
                     title={tr("chat.evidence.scope")}
                     className={[
                       "rounded-md px-2 py-0.5 text-caption",
-                      showingTurn ? "bg-kin-elevated shadow-e1" : "",
+                      showingTurn ? "bg-kin-elevated! shadow-e1" : "text-kin-muted!",
                     ].join(" ")}
                   >
                     {tr("chat.evidence.title")}
