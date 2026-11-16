@@ -146,6 +146,30 @@ export default tseslint.config(
     },
   },
   {
+    /**
+     * The legacy-vocabulary bans, on for every existing file as well as new
+     * ones. They are a *narrow* pair: a `kin-btn-*` class and a raw overlay
+     * role, both of which the migration left only a handful of deliberate
+     * keepers for, each annotated at its line.
+     *
+     * The three added-file bans (`no-raw-button`, `no-create-portal`,
+     * `no-arbitrary-z-index`) deliberately stay out of this block. The tree
+     * still has 85 raw `<button>`s in 42 files; turning that ban on here would
+     * mean either 85 disables or a lint everyone turns off, and the inventory
+     * ratchet already holds that line while the guard keeps new files clean.
+     * The split is by subject: finished migrations are banned everywhere,
+     * in-progress ones only at the files a change adds.
+     *
+     * `ignores` inside a `files` object is a per-object filter, so the facade
+     * and tests stay exempt exactly as they are for the guard: the shared
+     * primitives spell their own role on purpose, and a test that asserts
+     * about the shape has to spell the shape.
+     */
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/components/ui/**", "src/**/*.test.{ts,tsx}"],
+    rules: { "kin/no-legacy-class": "error", "kin/no-raw-overlay-role": "error" },
+  },
+  {
     files: ["**/*.test.{ts,tsx}"],
     rules: { "kin/no-undefined-token": "off", "kin/no-arbitrary-literal": "off" },
   },

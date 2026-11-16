@@ -150,6 +150,28 @@ class GuardTest(unittest.TestCase):
         )
         self.assertNotEqual(guard.run_lint(self.root, base), 0)
 
+    def test_kin_btn_and_overlay_role_are_banned_in_added_files(self):
+        """The two ordinary-lint bans also hold for a newly added file."""
+        self.write("ui/src/Legacy.tsx", "export const L = () => <div />;\n")
+        base = self.commit()
+        source = (
+            "export const C = () => "
+            '<div className="kin-btn-primary" role="dialog" />;\n'
+        )
+        self.write("ui/src/components/New.tsx", source)
+        self.assertEqual(guard.selected_files(self.root, base), ["ui/src/components/New.tsx"])
+        self.assertNotEqual(guard.run_lint(self.root, base), 0)
+        (self.root / "ui/src/components/New.tsx").unlink()
+        # The facade, test files and generated types keep their exemptions.
+        for name in (
+            "ui/src/components/ui/Button.tsx",
+            "ui/src/Thing.test.tsx",
+            "ui/src/api/generated/api.ts",
+        ):
+            self.write(name, source)
+        self.assertEqual(guard.selected_files(self.root, base), [])
+        self.assertEqual(guard.run_lint(self.root, base), 0)
+
     def test_facade_generated_and_test_files_are_exempt(self):
         self.write("ui/src/Legacy.tsx", "export const L = () => <div />;\n")
         base = self.commit()

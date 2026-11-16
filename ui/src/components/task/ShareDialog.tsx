@@ -218,6 +218,7 @@ export default function ShareDialog({
           and a 1px edge would be the same box drawn twice. */}
       <div
         ref={panelRef}
+        // eslint-disable-next-line kin/no-raw-overlay-role -- the share sheet owns its focus trap, Escape and scrim
         role="dialog"
         aria-modal="true"
         aria-label={tr("task.shareTitle")}

@@ -101,6 +101,7 @@ export default function TerminalTabs({
                 else tabRefs.current.delete(session.id);
               }}
               className="min-h-0! gap-1 rounded-sm px-3 py-2 text-left text-inherit!"
+              // eslint-disable-next-line kin/no-raw-overlay-role -- the terminal tab strip owns its own roving focus and keyboard handling
               role="tab"
               aria-selected={isActive}
               tabIndex={isActive ? 0 : -1}
