@@ -136,6 +136,47 @@ describe("SessionSelectionBar", () => {
     expect(button("Pin")).toBeTruthy();
   });
 
+  it("puts the selection bar on the shared Button and keeps its rules", async () => {
+    const props = selectionProps({ selectedCount: 2, selectableCount: 5 });
+    const { rerender } = render(<SessionSelectionBar {...props} />);
+
+    // TASTE 6: a batch action row is never the screen's one filled primary.
+    for (const name of ["Pin", "Archive", "Delete", "Cancel"]) {
+      const control = button(name);
+      expect(control.className).toContain("kin-btn");
+      expect(control.className).not.toContain("kin-btn-primary");
+    }
+
+    await userEvent.click(button("Pin"));
+    await userEvent.click(button("Archive"));
+    await userEvent.click(button("Delete"));
+    await userEvent.click(button("Cancel"));
+    expect(props.onPin).toHaveBeenCalledTimes(1);
+    expect(props.onArchiveOrRestore).toHaveBeenCalledTimes(1);
+    expect(props.onDelete).toHaveBeenCalledTimes(1);
+    expect(props.onExit).toHaveBeenCalledTimes(1);
+
+    // `selectedCount === 0 || selectionBusy`, both directions.
+    rerender(<SessionSelectionBar {...props} selectedCount={0} />);
+    for (const name of ["Pin", "Archive", "Delete"]) {
+      expect(button(name).disabled).toBe(true);
+    }
+    expect(button("Cancel").disabled).toBe(false);
+
+    rerender(<SessionSelectionBar {...props} selectionBusy />);
+    for (const name of ["Pin", "Archive", "Delete"]) {
+      expect(button(name).disabled).toBe(true);
+    }
+    expect(button("Cancel").disabled).toBe(false);
+
+    // A delete in flight keeps the control's name honest and its state busy.
+    rerender(<SessionSelectionBar {...props} deletingSelection selectionBusy />);
+    const deleting = button("Deleting…");
+    expect(deleting.className).toContain("kin-btn");
+    expect(deleting.getAttribute("aria-busy")).toBe("true");
+    expect(deleting.disabled).toBe(true);
+  });
+
   it("selection actions keep 44px touch targets", () => {
     render(<SessionSelectionBar {...selectionProps({ selectedCount: 1, selectableCount: 3 })} />);
 
