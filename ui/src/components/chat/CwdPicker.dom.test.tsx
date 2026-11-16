@@ -103,7 +103,7 @@ describe("the cwd row", () => {
     expect(screen.getByRole("button", { name: "Edit" }).className).toContain("kin-btn");
 
     await userEvent.click(screen.getByRole("button", { name: "Edit" }));
-    const input = screen.getByRole("textbox");
+    const input = screen.getByRole("combobox");
     await userEvent.clear(input);
     await userEvent.type(input, "/typed/path{Enter}");
     expect(onChange).toHaveBeenCalledWith("/typed/path");
@@ -113,15 +113,15 @@ describe("the cwd row", () => {
     // Escape restores the previous path: nothing is committed and the field
     // closes with the current value back in the draft.
     await userEvent.click(screen.getByRole("button", { name: "Edit" }));
-    const again = screen.getByRole("textbox") as HTMLInputElement;
+    const again = screen.getByRole("combobox") as HTMLInputElement;
     expect(again.value).toBe("/typed/path");
     await userEvent.clear(again);
     await userEvent.type(again, "/discarded{Escape}");
     expect(onChange).not.toHaveBeenCalledWith("/discarded");
-    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("combobox")).toBeNull();
 
     await userEvent.click(screen.getByRole("button", { name: "Edit" }));
-    expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("/typed/path");
+    expect((screen.getByRole("combobox") as HTMLInputElement).value).toBe("/typed/path");
   });
 
   it("in native mode the browse action still calls the folder dialog", async () => {
