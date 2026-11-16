@@ -93,6 +93,9 @@ export function SettingsLayout({
   const tr = useT();
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const tabRefs = useRef<Partial<Record<SettingsTabId, HTMLButtonElement | null>>>({});
+  // Operations hides the section column, and the selected tab with it, so the
+  // quiet back row is the only visible control focus can recover onto.
+  const backRef = useRef<HTMLButtonElement | null>(null);
 
   // A tab can become active without anyone clicking it: `?tab=` opens one
   // directly. If the section column is scrolled, that entry may be out of
@@ -112,8 +115,9 @@ export function SettingsLayout({
     // actually lost, because on a click the tab already has it.
     const changed = prevTab.current !== null && prevTab.current !== activeTab;
     prevTab.current = activeTab;
-    if (changed && document.activeElement === document.body && tab) {
-      tab.focus({ preventScroll: true });
+    if (changed && document.activeElement === document.body) {
+      const target = activeTab === "operations" ? backRef.current : tab;
+      target?.focus({ preventScroll: true });
     }
   }, [activeTab]);
 
@@ -133,7 +137,9 @@ export function SettingsLayout({
     if (next === activeTab) return;
     event.preventDefault();
     onTabChange(next);
-    window.requestAnimationFrame(() => tabRefs.current[next]?.focus());
+    window.requestAnimationFrame(() =>
+      (next === "operations" ? backRef.current : tabRefs.current[next])?.focus(),
+    );
   };
 
   // Operations is the hosted agent console. Its 980px usage table cannot share
@@ -217,6 +223,7 @@ export function SettingsLayout({
                 page with a back row. */}
             {activeTab !== "general" && (
               <Button
+                ref={backRef}
                 variant="quiet"
                 aria-label={title}
                 onClick={() => selectTab("general")}

@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
-import { createElement } from "react";
-import { render, screen, within } from "@testing-library/react";
+import { createElement, useState } from "react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   nextSettingsTabId,
   offscreenEdges,
   settingsTabFromSearch,
   SettingsLayout,
+  type SettingsTabId,
   type SettingsTabItem,
 } from "./SettingsPrimitives";
 
@@ -15,6 +16,20 @@ const tabs: SettingsTabItem[] = [
   { id: "agents", label: "Agents", description: "Agent settings" },
   { id: "providers", label: "Providers", description: "Provider settings" },
 ];
+
+/** A stateful parent, the way the settings page owns the active tab. */
+function layoutHarness(initial: SettingsTabId, items: SettingsTabItem[]) {
+  return function Harness() {
+    const [active, setActive] = useState<SettingsTabId>(initial);
+    return createElement(SettingsLayout, {
+      title: "Settings",
+      tabs: items,
+      activeTab: active,
+      onTabChange: setActive,
+      children: createElement("div", null, "panel"),
+    });
+  };
+}
 
 describe("nextSettingsTabId", () => {
   it("moves forward and wraps for right/down arrows", () => {
@@ -154,6 +169,53 @@ describe("SettingsLayout content column", () => {
       (screen.getByRole("tablist", { name: "Settings" }).parentElement as HTMLElement).className,
     ).toContain("md:w-56");
     expect(screen.getByRole("button", { name: "Settings" }).className).toContain("md:hidden");
+  });
+});
+
+describe("SettingsLayout focus recovery", () => {
+  // Operations is last so ArrowRight from Advanced reaches it.
+  const laidOut: SettingsTabItem[] = [
+    ...tabs,
+    { id: "advanced", label: "Advanced", description: "Advanced settings" },
+    { id: "operations", label: "Operations", description: "Operations settings" },
+  ];
+
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it("moves focus to the visible back row when a selection hides the tab", () => {
+    // Selecting Operations hides the whole section column, so the tab that had
+    // focus is no longer rendered and the browser drops focus to <body>. The
+    // back row is the visible control that must receive it.
+    render(createElement(layoutHarness("advanced", laidOut)));
+    const operationsTab = screen.getByRole("tab", { name: "Operations" });
+    act(() => {
+      operationsTab.focus();
+      operationsTab.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      (document.activeElement as HTMLElement | null)?.blur();
+    });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Settings" }));
+  });
+
+  it("moves focus to the back row when arrow keys select Operations", () => {
+    const frames: FrameRequestCallback[] = [];
+    const raf = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback) => frames.push(callback));
+    try {
+      render(createElement(layoutHarness("advanced", laidOut)));
+      screen.getByRole("tab", { name: "Advanced" }).focus();
+      fireEvent.keyDown(screen.getByRole("tablist", { name: "Settings" }), {
+        key: "ArrowRight",
+      });
+      act(() => {
+        frames.forEach((callback) => callback(0));
+      });
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Settings" }));
+    } finally {
+      raf.mockRestore();
+    }
   });
 });
 
