@@ -59,12 +59,18 @@ vi.mock("./pages/TaskSessionHost", () => ({ default: () => null }));
 vi.mock("./pages/ProjectDetailPage", () => ({
   default: () => createElement("div", null, "project detail page"),
 }));
-vi.mock("./pages/AgentsPage", () => ({
-  default: () => createElement("div", null, "agents page"),
-}));
-vi.mock("./pages/SettingsPage", () => ({
-  default: () => createElement("div", null, "settings page"),
-}));
+// The settings host reads its location so the redirect's target is asserted
+// rather than assumed: landing on `/settings` without `?tab=operations` would
+// still render this marker.
+vi.mock("./pages/SettingsPage", async () => {
+  const { useLocation } = await import("react-router-dom");
+  return {
+    default: function SettingsPageMock() {
+      const location = useLocation();
+      return createElement("div", null, `settings page ${location.pathname}${location.search}`);
+    },
+  };
+});
 vi.mock("./pages/RoutinesPage", () => ({
   default: () => createElement("div", null, "routines page"),
 }));
@@ -115,13 +121,16 @@ describe("area routes", () => {
     expect(screen.queryByRole("heading", { name: "Projects" })).toBeNull();
   });
 
-  // CEO call for N2: `settings?tab=operations` has no panel body until N4 hosts
-  // it and E4a moves the Agent-operations content in. Redirecting now would turn
-  // `/agents` into a blank tab, so the redirect moves to N4 with the host. This
-  // test makes the deferral deliberate rather than forgotten.
-  it("keeps /agents on the agents page until the operations tab has content", () => {
+  // E4a: the operations tab now hosts the agent console, so the old
+  // full-page destinations land on the panel instead of a second copy.
+  it("sends /agents to the operations tab now that the panel has content", async () => {
     renderAt("/agents");
-    expect(screen.getByText("agents page")).toBeTruthy();
-    expect(screen.queryByText("settings page")).toBeNull();
+    expect(await screen.findByText("settings page /settings?tab=operations")).toBeTruthy();
+    expect(screen.queryByText("agents page")).toBeNull();
+  });
+
+  it("sends /usage to the operations tab too", async () => {
+    renderAt("/usage");
+    expect(await screen.findByText("settings page /settings?tab=operations")).toBeTruthy();
   });
 });

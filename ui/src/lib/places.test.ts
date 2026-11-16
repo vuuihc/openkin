@@ -54,8 +54,9 @@ const NOT_A_PLACE = new Map([
  * is worse than no guard.
  *
  * "Redirects" is read from the element: a `path` whose element is a `<Navigate>`
- * is a spelling of somewhere else (`/usage` → `/agents`), so it is not a page and
- * must not be a row — and a row pointing at one would be a place that bounces.
+ * is a spelling of somewhere else (`/usage` → `/settings?tab=operations`), so it
+ * is not a page and must not be a row — and a row pointing at one would be a
+ * place that bounces.
  */
 function routes(): Map<string, boolean> {
   const file = fileURLToPath(new URL("../App.tsx", import.meta.url));
@@ -142,9 +143,16 @@ describe("PLACES", () => {
     // Sanity: the scan found the router at all, so an empty answer is a broken
     // scan rather than a table that happens to be perfect.
     expect(served.size).toBeGreaterThan(5);
-    const missing = PLACES.filter((p) => !served.has(p.path)).map((p) => `${p.id} → ${p.path}`);
+    // A place may name a tab of a served page (`/settings?tab=operations`): the
+    // router serves the pathname, and the query picks the panel inside it.
+    const routePath = (path: string) => path.split("?")[0];
+    const missing = PLACES.filter((p) => !served.has(routePath(p.path))).map(
+      (p) => `${p.id} → ${p.path}`,
+    );
     expect(missing).toEqual([]);
-    const bounces = PLACES.filter((p) => served.get(p.path)).map((p) => `${p.id} → ${p.path}`);
+    const bounces = PLACES.filter((p) => served.get(routePath(p.path))).map(
+      (p) => `${p.id} → ${p.path}`,
+    );
     expect(bounces).toEqual([]);
   });
 

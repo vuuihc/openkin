@@ -132,11 +132,11 @@
 
 | 层级 | 位置 | Given / When / Then |
 |---|---|---|
-| 组件 | `ui/src/pages/AgentsPage.dom.test.tsx`（新建，文件含 `KIN-AGENTS-001`） | Given 两个 agent，一个未登录一个可用 When 打开页面 Then 两行状态文字不同且默认 agent 有标记；Given 没有 agent Then 显示安装入口；Given 发现一个未接入的 agent Then 不改变目录，点「接入」并确认后才出现这一行；Given 已接入 10 个 Then 「接入」禁用并说明 |
+| 组件 | `ui/src/components/settings/AgentOperationsSection.dom.test.tsx`（新建，文件含 `KIN-AGENTS-001`） | Given 两个 agent，一个未登录一个可用 When 打开页面 Then 两行状态文字不同且默认 agent 有标记；Given 没有 agent Then 显示安装入口；Given 发现一个未接入的 agent Then 不改变目录，点「接入」并确认后才出现这一行；Given 已接入 10 个 Then 「接入」禁用并说明 |
 | 单元 | `ui/src/lib/agentCatalog.test.ts`（已有，扩充） | Given 目录顺序与安装状态 When 排序 Then 可用的在前、默认的置顶；Given 超过 10 个产品 When 截取目录 Then 最多 10 个且同产品的传输变体只算一个 |
 | 单元 | `ui/src/lib/agentLimits.test.ts`（已有，扩充） | Given 额度等待中 When 读标签 Then 显示原因与等待时长 |
 | 单元 | `ui/src/lib/usage.test.ts`（已有，扩充） | Given 一个区间没有任务 When 汇总 Then 是「没有用量」而不是 0 花费 |
-| 组件 | `ui/src/pages/AgentsPage.dom.test.tsx`（新建，文件含 `KIN-AGENTS-001`） | Given 打开 agent 运维 When 没有点「导入」 Then 不发任何导入请求；Given 用户手动点「导入」 Then 才导入这一台机器的会话 |
+| 组件 | `ui/src/components/settings/AgentOperationsSection.dom.test.tsx`（新建，文件含 `KIN-AGENTS-001`） | Given 打开 agent 运维 When 没有点「导入」 Then 不发任何导入请求；Given 用户手动点「导入」 Then 才导入这一台机器的会话 |
 | 真浏览器 | 1100 / 390，`/browse` | 切区间 → 重检一个 agent → 设为默认 → 新建页的默认 agent 变了 |
 | 视觉 | 390 / 1100 截图 | 对照 `09-agents-1280.png`、`22-agents-390.png` |
 
@@ -144,7 +144,7 @@
 
 - 之前：`09-agents-1280.png`、`22-agents-390.png`
 - 之后：
-  - `AgentsPage.dom.test.tsx`（新，33 例）：状态与默认标记、空目录与安装入口、发现不自动入目录、确认后接入、接入失败回滚并保留重试、满 10 禁用接入、只在按钮上导入本机会话、区间加载保留旧数字并在失败时回退、空用量不是 $0、smoke 点名失败者、断线禁用、aria-sort 与区间/排序记忆、移除不卸载、额度等待时长、焦点进入确认框并可用 Esc 关闭；复审补测：首读失败后重试与直接切区间都只读控制台显示的区间、重连按所选区间重读、重检重读额度、按产品归并用量（ACP 传输记入 native 行）、空首读不落盘、机器不再报告的产品仍占名额且移除后释放；二审补测：取消接入回滚且迟到的回答不接入、慢重检不覆盖更新的读、smoke 结果不因随后刷新失败而丢失、默认变体被同产品另一传输承载时仍有标记且不可移除、管理探测失败时不再沿用上次登录态、首次看到额度等待会落盘、首读未回时不会把已保存产品报成「本机不再报告」、重连后新开页面不重复读；三审补测：接入读也参与代际（更新的读胜出）、机器已不报告的产品不接入、旧重检 / 旧 smoke 不清新行的忙碌态；四审补测：旧重检不清新 smoke 的忙碌态。
+  - `AgentOperationsSection.dom.test.tsx`（新，33 例）：状态与默认标记、空目录与安装入口、发现不自动入目录、确认后接入、接入失败回滚并保留重试、满 10 禁用接入、只在按钮上导入本机会话、区间加载保留旧数字并在失败时回退、空用量不是 $0、smoke 点名失败者、断线禁用、aria-sort 与区间/排序记忆、移除不卸载、额度等待时长、焦点进入确认框并可用 Esc 关闭；复审补测：首读失败后重试与直接切区间都只读控制台显示的区间、重连按所选区间重读、重检重读额度、按产品归并用量（ACP 传输记入 native 行）、空首读不落盘、机器不再报告的产品仍占名额且移除后释放；二审补测：取消接入回滚且迟到的回答不接入、慢重检不覆盖更新的读、smoke 结果不因随后刷新失败而丢失、默认变体被同产品另一传输承载时仍有标记且不可移除、管理探测失败时不再沿用上次登录态、首次看到额度等待会落盘、首读未回时不会把已保存产品报成「本机不再报告」、重连后新开页面不重复读；三审补测：接入读也参与代际（更新的读胜出）、机器已不报告的产品不接入、旧重检 / 旧 smoke 不清新行的忙碌态；四审补测：旧重检不清新 smoke 的忙碌态。
   - `agentPageState.test.ts`（新，8 例）：storage 缺失、抛错与 JSON 损坏、`[]` 与「从未保存」的分界、偏好校验、额度等待按周期记录并按时间戳裁剪。
   - `agentCatalog.test.ts`（扩充 8 例）、`agentFamilies.test.ts`（扩充 1 例）、`agentLimits.test.ts`（扩充 4 例）、`usage.test.ts`（扩充 3 例）：产品与 sighting 的分界、10 个上限与同产品变体合并（已安装优先）、默认产品置顶、机器不再报告的产品仍占名额、只把可托管且已安装的产品当作发现、额度等待与恢复、空区间为「没有用量」。
   - `./scripts/check.sh` 14 项全绿；`.tmp/agents.mutants.json` 38/38 mutant 红（上限、满员、sighting 过滤、seed、默认置顶、已安装偏好、空用量、额度恢复与取整、按时间戳裁剪、区间回退与「更新中」、首读失败不武装回退、重试/重连取区间、重检重读额度、慢重检覆盖、按产品归并用量、空首读不落盘、缺失产品释放名额、取消接入回滚与迟到提交、表头与名额计数一致、默认按产品标记、smoke 结果保留、探测失败不沿用旧登录态、首次等待落盘、接入读代际、消失产品不接入、旧重检不清新忙碌态、旧 smoke 不清新忙碌态、aria-sort、移除、接入回滚、空目录重播种）。
