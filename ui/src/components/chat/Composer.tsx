@@ -789,6 +789,7 @@ export default function Composer({
             /* The rows scroll; the header and the hint below stay put. */
             <div
               ref={slashListRef}
+              // eslint-disable-next-line kin/no-raw-overlay-role -- the slash menu owns its option navigation and active-descendant wiring
               role="listbox"
               aria-label={tr("composer.slashActions")}
               className="max-h-[min(40vh,18rem)] overflow-y-auto kin-scroll"
@@ -829,6 +830,7 @@ export default function Composer({
       {menu === "mention" && (mentionOptions.length > 0 || fileSearching) && (
         <div
           className="absolute bottom-full left-0 right-0 mb-2 rounded-xl bg-kin-elevated shadow-e2 overflow-hidden z-20"
+          // eslint-disable-next-line kin/no-raw-overlay-role -- the mention menu owns its option navigation and active-descendant wiring
           role="listbox"
           aria-label={tr(menuTitle)}
         >

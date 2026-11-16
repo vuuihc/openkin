@@ -335,6 +335,7 @@ export default function CodeViewer({
                 disabled={actionsBusy}
                 onClick={() => onDiscard?.()}
                 title={t("workspace.changed.discardHint")}
+                // eslint-disable-next-line kin/no-legacy-class -- the diff discard control has not migrated to `Button` yet
                 className="kin-btn-secondary md:min-h-0 md:py-1 md:px-2 text-caption disabled:opacity-50"
               >
                 <IconX size={12} />
@@ -345,6 +346,7 @@ export default function CodeViewer({
                 disabled={actionsBusy}
                 onClick={() => onKeep?.()}
                 title={t("workspace.changed.keepHint")}
+                // eslint-disable-next-line kin/no-legacy-class -- the diff keep control has not migrated to `Button` yet
                 className="kin-btn-primary md:min-h-0 md:py-1 md:px-2 text-caption disabled:opacity-50"
               >
                 <IconCheck size={12} />
@@ -375,6 +377,7 @@ export default function CodeViewer({
                 disabled={!dirty || saveState === "saving"}
                 onClick={() => void doSave()}
                 title={t("workspace.viewer.save")}
+                // eslint-disable-next-line kin/no-legacy-class -- the editor save control has not migrated to `Button` yet
                 className="kin-btn-primary md:min-h-0 md:py-1 md:px-2 text-caption disabled:opacity-50"
               >
                 <IconCheck size={12} />

@@ -247,6 +247,7 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
         className="flex flex-col overflow-hidden"
       >
         <div
+          // eslint-disable-next-line kin/no-raw-overlay-role -- the branch list owns its option navigation inside the anchored picker
           role="listbox"
           aria-label={tr("branch.listLabel")}
           className="flex min-h-0 flex-1 flex-col"

@@ -140,6 +140,7 @@ export default function SessionTabs({ tabs, activeId, onSelect, onClose, onMove 
               className={`flex min-w-0 items-center px-3 py-1.5 text-left text-strong ${
                 isActive ? "text-kin-text" : "text-kin-secondary"
               }`}
+              // eslint-disable-next-line kin/no-raw-overlay-role -- the session tab strip owns its own roving focus and keyboard handling
               role="tab"
               aria-selected={isActive}
               aria-label={
