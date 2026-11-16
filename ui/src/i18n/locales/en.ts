@@ -478,6 +478,8 @@ const en: MessageTree = {
     statusLastSeen: "last seen",
     interruptedGuide: "Interrupted the current round and sent this now",
     waitingOnYou: "{count} waiting on you · tap to answer",
+    newActivity: "New activity",
+    viewPending: "View",
     queuedGuide: "Queued — answered when the current round ends",
     stopped: "Stopped current round",
     stopping: "Stopping…",
