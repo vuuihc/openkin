@@ -153,9 +153,7 @@ describe("flushPendingNativeDelete", () => {
   it("treats a row that is already gone as finished", async () => {
     rememberPendingNativeDelete("row-1");
     const api = fakeApi();
-    api.deletePushDevice.mockRejectedValue(
-      Object.assign(new Error("not found"), { status: 404 }),
-    );
+    api.deletePushDevice.mockRejectedValue(Object.assign(new Error("not found"), { status: 404 }));
     expect(await flushPendingNativeDelete(api)).toBe(false);
     expect(pendingNativeDelete()).toBeNull();
   });
@@ -165,9 +163,7 @@ describe("flushPendingNativeDelete", () => {
     // every settings load would never succeed.
     rememberPendingNativeDelete("row-1");
     const api = fakeApi();
-    api.deletePushDevice.mockRejectedValue(
-      Object.assign(new Error("forbidden"), { status: 403 }),
-    );
+    api.deletePushDevice.mockRejectedValue(Object.assign(new Error("forbidden"), { status: 403 }));
     expect(await flushPendingNativeDelete(api)).toBe(false);
     expect(pendingNativeDelete()).toBeNull();
   });

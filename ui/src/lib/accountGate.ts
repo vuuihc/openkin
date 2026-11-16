@@ -206,7 +206,6 @@ export function claimFromHash(hash: string): string {
   return formatClaimCode(new URLSearchParams(bare).get("claim") ?? "");
 }
 
-
 /**
  * The code to open `mode`'s screen with, or "" when the URL's code is not that
  * screen's to take.

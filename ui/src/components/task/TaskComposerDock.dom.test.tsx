@@ -14,8 +14,7 @@ vi.mock("../../api/client", async () => {
   return {
     ...actual,
     recentCwds: () => Promise.resolve([]),
-    listGitBranches: () =>
-      Promise.resolve({ cwd: "/tmp/example", is_git: false, branches: [] }),
+    listGitBranches: () => Promise.resolve({ cwd: "/tmp/example", is_git: false, branches: [] }),
   };
 });
 
@@ -97,7 +96,7 @@ describe("TaskComposerDock", () => {
     setup({ waitingCount: 0 });
 
     expect(
-      screen.queryByRole("button", { name: t("task.waitingOnYou", { count: "0" }) })
+      screen.queryByRole("button", { name: t("task.waitingOnYou", { count: "0" }) }),
     ).toBeNull();
   });
 
@@ -108,7 +107,7 @@ describe("TaskComposerDock", () => {
 
     setup({ terminal: true });
     expect(
-      screen.getByPlaceholderText(t("composer.followUpPlaceholder", { name: "Kin" }))
+      screen.getByPlaceholderText(t("composer.followUpPlaceholder", { name: "Kin" })),
     ).toBeTruthy();
   });
 

@@ -49,9 +49,7 @@ const FINISHED_RUN_STATUSES = new Set(["succeeded", "failed", "canceled"]);
 export function previousConversation(
   runs: Task[],
   routine:
-    | (Pick<Routine, "id"> & Partial<Pick<Routine, "agent" | "cwd" | "model">>)
-    | null
-    | undefined,
+    (Pick<Routine, "id"> & Partial<Pick<Routine, "agent" | "cwd" | "model">>) | null | undefined,
 ): Task | undefined {
   if (!routine?.id) return undefined;
   const newest = runs.find((run) => run.routine_id === routine.id);

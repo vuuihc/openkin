@@ -1,11 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  consumeRowReturn,
-  focusRowFor,
-  rememberRowReturn,
-  takeRowReturn,
-} from "./rowReturn";
+import { consumeRowReturn, focusRowFor, rememberRowReturn, takeRowReturn } from "./rowReturn";
 
 /**
  * KIN-CONTINUE-001, step 7: coming back to the list lands on the row the

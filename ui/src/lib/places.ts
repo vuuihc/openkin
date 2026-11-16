@@ -28,13 +28,7 @@
  * unreachable. Here the only way to add an id is to add it to the list, and the
  * list is what the palette test walks.
  */
-export const PLACE_IDS = [
-  "new",
-  "sessions",
-  "routines",
-  "agents",
-  "settings",
-] as const;
+export const PLACE_IDS = ["new", "sessions", "routines", "agents", "settings"] as const;
 
 export type PlaceId = (typeof PLACE_IDS)[number];
 

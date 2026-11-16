@@ -142,8 +142,7 @@ function firstInt(...values: unknown[]): number | undefined {
  * value means the event said nothing about tokens, not that it used zero.
  */
 function usageTokens(p: Record<string, unknown>): { input: number; output: number } | undefined {
-  const nested =
-    p.usage && typeof p.usage === "object" ? (p.usage as Record<string, unknown>) : {};
+  const nested = p.usage && typeof p.usage === "object" ? (p.usage as Record<string, unknown>) : {};
   const input = firstInt(
     nested.input_tokens,
     nested.prompt_tokens,
@@ -191,7 +190,9 @@ function groupTokens(group: Group | undefined): {
       known = true;
     }
   }
-  return known ? { tokensIn, tokensOut, tokensKnown: true } : { tokensIn: 0, tokensOut: 0, tokensKnown: false };
+  return known
+    ? { tokensIn, tokensOut, tokensKnown: true }
+    : { tokensIn: 0, tokensOut: 0, tokensKnown: false };
 }
 
 /**

@@ -70,9 +70,7 @@ export function readProjectCover(
       routines,
       // Older payloads did not carry the flag; their data is the evidence.
       routinesLoaded:
-        typeof parsed.routinesLoaded === "boolean"
-          ? parsed.routinesLoaded
-          : routines.length > 0,
+        typeof parsed.routinesLoaded === "boolean" ? parsed.routinesLoaded : routines.length > 0,
       latest: parsed.latest ?? null,
       lastImportAt:
         typeof parsed.lastImportAt === "number" && parsed.lastImportAt > 0
