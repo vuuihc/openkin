@@ -151,8 +151,8 @@ export default function PlacePicker({
       {/*
         The desktop surface is the shared layer: one body portal, one viewport
         measurement, one Escape and one focus contract with every other
-        popover. The panel draws no inner padding of its own, so `p-0` keeps
-        today's geometry. The phone keeps its `Sheet` below.
+        popover. The panel draws no inner padding of its own, so `padded={false}`
+        keeps today's geometry. The phone keeps its `Sheet` below.
       */}
       <Popover
         open={open && wide}
@@ -167,7 +167,8 @@ export default function PlacePicker({
         width={480}
         maxWidth={520}
         maxHeight={460}
-        className="flex flex-col overflow-hidden p-0"
+        padded={false}
+        className="flex flex-col overflow-hidden"
       >
         {panel}
       </Popover>

@@ -275,6 +275,9 @@ describe("the place row (KIN-START-001)", () => {
     expect(panel.parentElement).toBe(document.body);
     expect(panel.className).toContain("fixed");
     expect(panel.className).toContain("rounded-xl");
+    // The panel's search header and rows draw their own padding; the base
+    // padding would inset its hairline dividers by 6px on each side.
+    expect(panel.className).not.toContain("p-1.5");
   });
 
   it("at 390 the phone sheet is still the surface", async () => {

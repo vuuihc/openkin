@@ -71,6 +71,9 @@ describe("the branch list on the shared popover layer (C1b)", () => {
     expect(panel).toBeTruthy();
     expect(panel?.parentElement).toBe(document.body);
     expect(panel?.className).toContain("fixed");
+    // The list draws its own sheared header and rows; the panel's base padding
+    // would inset the hairline divider by 6px on each side.
+    expect(panel?.className).not.toContain("p-1.5");
   });
 
   it("narrows the rows as the filter is typed", async () => {

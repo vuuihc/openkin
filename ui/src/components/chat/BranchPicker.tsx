@@ -243,7 +243,8 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
         align="right"
         width={288}
         maxHeight={360}
-        className="flex flex-col overflow-hidden p-0"
+        padded={false}
+        className="flex flex-col overflow-hidden"
       >
         <div
           role="listbox"
