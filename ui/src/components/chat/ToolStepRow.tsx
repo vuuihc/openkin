@@ -9,6 +9,7 @@
 import { extractPrimaryToolPath } from "../../lib/changedFiles";
 import { shortPath } from "../../lib/paths";
 import { useT } from "../../i18n/react";
+import Button from "../ui/Button";
 import { prettyToolName, type ToolStep } from "./transcriptProjection";
 
 export default function ToolStepRow({
@@ -51,68 +52,88 @@ export default function ToolStepRow({
 
   return (
     <div className="text-body">
-      <button
-        type="button"
+      {/* A full-width disclosure row on the console's facade: the button is the
+          hit area the facade draws its focus ring and phone floor around, and
+          the row's own geometry (padding, gap, alignment) sits on the content
+          span inside it, which is where Astryx puts a button's children. */}
+      <Button
+        variant="quiet"
         onClick={() => hasDetail && onToggle()}
         className={[
-          "w-full flex items-start gap-2 px-3 py-1.5 text-left",
-          hasDetail ? "cursor-pointer  hover:bg-kin-fill" : "cursor-default",
+          // `hover:bg-transparent` keeps the quiet variant from filling the
+          // whole button: the row's own fill belongs to the content span below,
+          // where the old button painted it, and a row with nothing behind it is
+          // not a control and gets none.
+          "flex w-full justify-start rounded-sm p-0 text-left font-normal hover:bg-transparent",
+          hasDetail ? "cursor-pointer" : "cursor-default",
         ].join(" ")}
         style={indent}
         aria-expanded={open}
       >
         <span
-          className="flex-none w-5 text-caption tabular-nums text-kin-muted pt-0.5"
-          aria-hidden={depth > 0 ? true : undefined}
+          className={[
+            "flex w-full items-start gap-2 px-3 py-1.5",
+            hasDetail ? "hover:bg-kin-fill" : "",
+          ].join(" ")}
         >
-          {depth > 0 ? "↳" : index}
-        </span>
-        <span
-          className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-none ${statusDot}`}
-          title={statusText}
-        />
-        <span className="font-mono text-caption text-kin-muted flex-none pt-px">
-          {prettyToolName(tool.name)}
-        </span>
-        {tool.sidechain && (
-          // Whose call it was, said once per row: a subagent's work is the same
-          // shape of row, and without the mark it would read as the main
-          // agent's own.
-          <span className="flex-none rounded bg-[var(--kin-fill-strong)] px-1 text-micro text-kin-muted">
-            {tr("chat.progress.subagent")}
-          </span>
-        )}
-        <span className="flex-1 min-w-0 break-words text-kin-secondary">{tool.summary}</span>
-        {filePath && onOpenPath && (
-          <button
-            type="button"
-            className="flex-none max-w-[40%] truncate font-mono text-caption text-kin-blue-ink hover:underline pt-0.5"
-            title={filePath}
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenPath(filePath);
-            }}
+          <span
+            className="flex-none w-5 text-caption tabular-nums text-kin-muted pt-0.5"
+            aria-hidden={depth > 0 ? true : undefined}
           >
-            {shortPath(filePath, 28)}
-          </button>
-        )}
-        {hasDetail && (
-          <span className="flex-none text-caption text-kin-muted pt-0.5">
-            {open ? tr("chat.progress.hide") : tr("chat.progress.details")}
+            {depth > 0 ? "↳" : index}
           </span>
-        )}
-      </button>
+          <span
+            className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-none ${statusDot}`}
+            title={statusText}
+          />
+          <span className="font-mono text-caption text-kin-muted flex-none pt-px">
+            {prettyToolName(tool.name)}
+          </span>
+          {tool.sidechain && (
+            // Whose call it was, said once per row: a subagent's work is the same
+            // shape of row, and without the mark it would read as the main
+            // agent's own.
+            <span className="flex-none rounded bg-[var(--kin-fill-strong)] px-1 text-micro text-kin-muted">
+              {tr("chat.progress.subagent")}
+            </span>
+          )}
+          <span className="flex-1 min-w-0 break-words text-kin-secondary">{tool.summary}</span>
+          {filePath && onOpenPath && (
+            // The chip shares the facade's focus ring and press treatment, but
+            // stays a link: no fill on hover, and the ink is the link blue rather
+            // than the quiet variant's text colour, so it sits on the content.
+            <Button
+              variant="quiet"
+              className="flex-none max-w-[40%] justify-start rounded-md p-0 pt-0.5 text-left font-mono text-caption font-normal hover:bg-transparent hover:underline"
+              title={filePath}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenPath(filePath);
+              }}
+            >
+              <span className="block truncate text-kin-blue-ink">{shortPath(filePath, 28)}</span>
+            </Button>
+          )}
+          {hasDetail && (
+            <span className="flex-none text-caption text-kin-muted pt-0.5">
+              {open ? tr("chat.progress.hide") : tr("chat.progress.details")}
+            </span>
+          )}
+        </span>
+      </Button>
       {open && hasDetail && (
         <div className="px-3 pb-2 pl-10 space-y-1.5" style={detailIndent}>
           {filePath && onOpenPath && (
-            <button
-              type="button"
+            <Button
+              variant="quiet"
               onClick={() => onOpenPath(filePath)}
-              className="text-caption text-kin-blue-ink hover:underline font-mono"
+              className="justify-start rounded-md p-0 text-left font-mono text-caption font-normal hover:bg-transparent hover:underline"
               title={filePath}
             >
-              {tr("workspace.openFile")} · {shortPath(filePath, 48)}
-            </button>
+              <span className="text-kin-blue-ink">
+                {tr("workspace.openFile")} · {shortPath(filePath, 48)}
+              </span>
+            </Button>
           )}
           {tool.input != null && (
             <div>
