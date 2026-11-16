@@ -12,6 +12,7 @@ import {
 } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { useAppStore } from "../../store/appStore";
+import Button from "../ui/Button";
 import SearchSelect from "../ui/SearchSelect";
 
 // ---------------------------------------------------------------------------
@@ -87,9 +88,7 @@ export function RoutingDefaultsSection({
   // holds; a save blesses only the values the request carried, so an edit made
   // while that request was out stays dirty. A failed load leaves the empty
   // baseline in place, so the first edit is still a change.
-  const [baseline, setBaseline] = useState<string | null>(() =>
-    defaultsKey(EMPTY_DEFAULTS),
-  );
+  const [baseline, setBaseline] = useState<string | null>(() => defaultsKey(EMPTY_DEFAULTS));
   const draft: RoutingDefaults = {
     enabled,
     defaultTeam,
@@ -374,14 +373,9 @@ export function RoutingDefaultsSection({
       )}
 
       <div className="flex items-center gap-3">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void save()}
-          className="kin-btn-primary disabled:opacity-50"
-        >
+        <Button disabled={busy} onClick={() => void save()}>
           {busy ? tr("settings.saving") : tr("settings.routing.save")}
-        </button>
+        </Button>
         {saved && (
           <span className="text-body leading-4 text-kin-green-ink">
             {tr("settings.savedShort")}
@@ -525,13 +519,9 @@ export function RoutingProfilesSection({
             {tr("settings.routing.profilesDesc")}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={addProfile}
-          className="kin-btn-secondary shrink-0 disabled:opacity-50"
-        >
+        <Button variant="secondary" className="shrink-0" onClick={addProfile}>
           {tr("settings.routing.addProfile")}
-        </button>
+        </Button>
       </div>
 
       {profiles.length === 0 && !editing ? (
@@ -561,20 +551,16 @@ export function RoutingProfilesSection({
                 </p>
               </div>
               <div className="flex flex-wrap gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => editProfile(p)}
-                  className="kin-btn-secondary text-body min-h-9"
-                >
+                <Button variant="secondary" className="text-body" onClick={() => editProfile(p)}>
                   {tr("settings.provider.edit")}
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="text-body text-kin-red-ink"
                   onClick={() => deleteProfile(p.id)}
-                  className="kin-btn-secondary text-body min-h-9 text-kin-red-ink"
                 >
                   {tr("settings.provider.delete")}
-                </button>
+                </Button>
               </div>
             </li>
           ))}
@@ -695,13 +681,13 @@ export function RoutingProfilesSection({
                   <span className="text-caption font-mono font-semibold text-kin-secondary">
                     {phase}
                   </span>
-                  <button
-                    type="button"
+                  <Button
+                    variant="quiet-danger"
+                    className="text-micro"
                     onClick={() => removePhase(phase)}
-                    className="text-micro text-kin-red-ink hover:underline"
                   >
                     remove
-                  </button>
+                  </Button>
                 </div>
                 <label className="block space-y-0.5">
                   <span className="text-micro text-kin-muted">{tr("settings.routing.agent")}</span>
@@ -775,8 +761,7 @@ export function RoutingProfilesSection({
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
+            <Button
               disabled={busy}
               onClick={() => {
                 const next = isNew
@@ -793,20 +778,18 @@ export function RoutingProfilesSection({
                   .catch((e) => setError(e instanceof ApiError ? e.message : String(e)))
                   .finally(() => setBusy(false));
               }}
-              className="kin-btn-primary disabled:opacity-50"
             >
               {busy ? tr("settings.saving") : tr("settings.routing.saveProfile")}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="secondary"
               onClick={() => {
                 setEditing(null);
                 setIsNew(false);
               }}
-              className="kin-btn-secondary"
             >
               {tr("settings.provider.cancel")}
-            </button>
+            </Button>
           </div>
         </div>
       )}

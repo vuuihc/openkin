@@ -56,11 +56,25 @@ describe("the phone search pill", () => {
     await userEvent.type(screen.getByRole("searchbox"), "alpha");
     await waitFor(() => expect(locationText()).toContain("search=alpha"));
 
-    await userEvent.click(screen.getByRole("button", { name: "Clear" }));
+    const clear = screen.getByRole("button", { name: "Clear" });
+    expect(clear.className).toContain("kin-btn");
+    expect(clear.className).not.toContain("kin-btn-primary");
+    // Phone clear targets stay >= 44x44px (no data-touch-mini opt-out) while desktop keeps 28px.
+    expect(clear.hasAttribute("data-touch-mini")).toBe(false);
+    expect(clear.className).toContain("h-11 w-11");
+    expect(clear.className).toContain("md:h-7 md:w-7");
+    // Quiet's `text-kin-text` is emitted after `text-kin-muted`; the clear is a
+    // glyph, not query text, so the muted weight needs the important marker.
+    expect(clear.className).toContain("text-kin-muted!");
+
+    await userEvent.click(clear);
 
     await waitFor(() => expect(locationText()).not.toContain("search="));
     expect(locationText()).toContain("q=draft");
     expect(locationText()).toContain("find=seed");
-    expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe("");
+    const field = screen.getByRole("searchbox") as HTMLInputElement;
+    expect(field.value).toBe("");
+    // The control unmounts with the query; the field keeps the keyboard.
+    expect(document.activeElement).toBe(field);
   });
 });
