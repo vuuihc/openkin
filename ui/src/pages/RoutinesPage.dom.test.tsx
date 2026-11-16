@@ -1476,3 +1476,164 @@ describe("RoutinesPage routines left on this machine", () => {
     expect(screen.queryByText("routines.ownMachineHasRoutines")).toBeNull();
   });
 });
+
+describe("RoutinesPage actions on the shared facade", () => {
+  it("shows one filled primary: only the empty-state create", async () => {
+    // A machine with routines has no filled action on the page, even though the
+    // run feed's empty state also offers create.
+    vi.mocked(listRoutines).mockResolvedValue({
+      routines: [routine("r1", "Only routine")],
+      next_cursor: "",
+      has_more: false,
+    });
+    const withRoutines = renderApp("/routines?device=dev-a");
+    await screen.findByText("Only routine");
+    await screen.findByText("routines.emptyFeed");
+    expect(withRoutines.container.querySelectorAll(".kin-btn-primary")).toHaveLength(0);
+    cleanup();
+
+    // A machine with none: exactly one, inside the list's empty state, and it
+    // opens the create form.
+    vi.mocked(listRoutines).mockResolvedValue({
+      routines: [],
+      next_cursor: "",
+      has_more: false,
+    });
+    const empty = renderApp("/routines?device=dev-a");
+    await screen.findByText("routines.emptyList");
+    const primaries = empty.container.querySelectorAll(".kin-btn-primary");
+    expect(primaries).toHaveLength(1);
+    expect(primaries[0].textContent).toBe("routines.createEntry");
+    fireEvent.click(primaries[0]);
+    expect(await screen.findByRole("button", { name: "routines.save" })).toBeTruthy();
+  });
+
+  it("keeps mark-all-read, page retry, silent toggle and history pagination on the facade", async () => {
+    // Mark all read.
+    vi.mocked(listRoutineRuns).mockResolvedValue({
+      routines: [],
+      runs: [run("m1", "routine-1", "Marked run")],
+      has_more: false,
+    });
+    renderApp("/routines?device=dev-a");
+    await screen.findByText("Marked run");
+    const markAll = screen.getByRole("button", { name: "routines.markAllRead" });
+    expect(markAll.classList.contains("kin-btn")).toBe(true);
+    expect(markAll.classList.contains("kin-btn-secondary")).toBe(true);
+    fireEvent.click(markAll);
+    await waitFor(() => expect(markAllRoutineRunsRead).toHaveBeenCalledWith("dev-a"));
+    cleanup();
+
+    // Show / hide silent runs.
+    vi.mocked(listRoutineRuns).mockResolvedValue({
+      routines: [],
+      runs: [{ ...run("s1", "routine-1", "Silent run"), routine_noteworthy: false }],
+      has_more: false,
+    });
+    renderApp("/routines?device=dev-a");
+    const showSilent = await screen.findByRole("button", { name: "routines.showSilent" });
+    expect(showSilent.classList.contains("kin-btn")).toBe(true);
+    fireEvent.click(showSilent);
+    expect(await screen.findByText("Silent run")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "routines.hideSilent" })).toBeTruthy();
+    cleanup();
+
+    // The global feed's load older still asks with the feed's own cursor.
+    vi.mocked(listRoutineRuns).mockImplementation(
+      async (_limit, _device, cursor = "") =>
+        cursor
+          ? {
+              routines: [],
+              runs: [run("f0", "routine-1", "Older run")],
+              has_more: false,
+              runs_next_cursor: "",
+              runs_has_more: false,
+            }
+          : {
+              routines: [],
+              runs: [run("f1", "routine-1", "New run")],
+              has_more: false,
+              runs_next_cursor: "feed-1",
+              runs_has_more: true,
+            },
+    );
+    renderApp("/routines?device=dev-a");
+    await screen.findByText("New run");
+    const feedOlder = screen.getByRole("button", { name: "routines.historyLoadOlder" });
+    expect(feedOlder.classList.contains("kin-btn")).toBe(true);
+    fireEvent.click(feedOlder);
+    await screen.findByText("Older run");
+    await waitFor(() => expect(listRoutineRuns).toHaveBeenLastCalledWith(10, "dev-a", "feed-1"));
+    cleanup();
+
+    // The page's load retry still re-runs the load.
+    let failing = true;
+    vi.mocked(listRoutines).mockClear();
+    vi.mocked(listRoutines).mockImplementation(async (_params, device) => {
+      if (device === "dev-a" && failing) {
+        failing = false;
+        throw new Error("boom");
+      }
+      return { routines: [], next_cursor: "", has_more: false };
+    });
+    renderApp("/routines?device=dev-a");
+    const retry = await screen.findByRole("button", { name: "routines.retry" });
+    expect(retry.classList.contains("kin-btn")).toBe(true);
+    fireEvent.click(retry);
+    await waitFor(() =>
+      expect(
+        vi.mocked(listRoutines).mock.calls.filter(([, device]) => device === "dev-a"),
+      ).toHaveLength(2),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "routines.retry" })).toBeNull(),
+    );
+    cleanup();
+
+    // One routine's own load older still asks with that routine's cursor.
+    vi.mocked(listRoutines).mockResolvedValue({
+      routines: [routine("r1", "Selected routine")],
+      next_cursor: "",
+      has_more: false,
+    });
+    vi.mocked(listRoutineRuns).mockImplementation(
+      async (_limit, _device, before = "", id = "") => {
+        if (id !== "r1")
+          return {
+            routines: [],
+            runs: [],
+            has_more: false,
+            runs_next_cursor: "",
+            runs_has_more: false,
+          };
+        return before
+          ? {
+              routines: [],
+              runs: [run("h0", "r1", "Older history")],
+              has_more: false,
+              runs_next_cursor: "",
+              runs_has_more: false,
+            }
+          : {
+              routines: [],
+              runs: [run("h1", "r1", "First history")],
+              has_more: false,
+              runs_next_cursor: "history-1",
+              runs_has_more: true,
+            };
+      },
+    );
+    renderApp("/routines?device=dev-a");
+    await screen.findByText("Selected routine");
+    fireEvent.click(await screen.findByRole("button", { name: "routines.showRuns" }));
+    const panel = (
+      await screen.findAllByRole("region", { name: /routines\.runsPanelTitle/ })
+    ).find((region) => region.parentElement?.className.includes("md:hidden"))!;
+    await within(panel).findByRole("link", { name: "First history" });
+    const panelOlder = within(panel).getByRole("button", { name: "routines.historyLoadOlder" });
+    expect(panelOlder.classList.contains("kin-btn")).toBe(true);
+    fireEvent.click(panelOlder);
+    await within(panel).findByRole("link", { name: "Older history" });
+    expect(listRoutineRuns).toHaveBeenLastCalledWith(10, "dev-a", "history-1", "r1");
+  });
+});
