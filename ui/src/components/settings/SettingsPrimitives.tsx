@@ -3,7 +3,8 @@ import { useT } from "../../i18n/react";
 import { MobileCard, MobileRow } from "../mobile/MobileList";
 import { MobileChevron } from "../mobile/MobileHeader";
 
-export type SettingsTabId = "general" | "agents" | "providers" | "routing" | "advanced";
+export type SettingsTabId =
+  "general" | "agents" | "operations" | "providers" | "routing" | "advanced";
 
 export type SettingsTabItem = {
   id: SettingsTabId;
@@ -61,6 +62,7 @@ export function settingsTabFromSearch(search: string): SettingsTabId {
   if (
     tab === "general" ||
     tab === "agents" ||
+    tab === "operations" ||
     tab === "providers" ||
     tab === "routing" ||
     tab === "advanced"
@@ -79,7 +81,8 @@ export function SettingsLayout({
   children,
 }: {
   title: string;
-  subtitle: string;
+  /** Omitted when the active tab's panel carries its own subtitle. */
+  subtitle?: string;
   tabs: readonly SettingsTabItem[];
   activeTab: SettingsTabId;
   onTabChange: (tab: SettingsTabId) => void;
@@ -159,13 +162,18 @@ export function SettingsLayout({
 
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden kin-scroll">
-      <div className="mx-auto flex w-full max-w-page flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8">
+      <div
+        className={classes(
+          "mx-auto flex w-full flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8",
+          activeTab === "operations" ? "max-w-page-wide" : "max-w-page",
+        )}
+      >
         <div className="space-y-1">
           {/* The shell's header already names this screen on the phone, and the
               prototype gives every phone screen one nav bar — so the grid of
               tabs starts where the h1 was, not 30px lower. */}
           <h1 className="hidden text-hero font-bold tracking-tight md:block">{title}</h1>
-          <p className="text-strong leading-5 text-kin-secondary">{subtitle}</p>
+          {subtitle ? <p className="text-strong leading-5 text-kin-secondary">{subtitle}</p> : null}
         </div>
         <div
           role="tablist"

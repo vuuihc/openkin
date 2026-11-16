@@ -18,6 +18,7 @@ import { describe, expect, it } from "vitest";
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 const HOST = readFileSync(join(UI, "src/pages/TaskSessionHost.tsx"), "utf8");
 const DETAIL = readFileSync(join(UI, "src/pages/TaskDetailPage.tsx"), "utf8");
+const DOCK = readFileSync(join(UI, "src/components/task/TaskComposerDock.tsx"), "utf8");
 const SESSION = readFileSync(join(UI, "src/pages/AgentSessionDetailPage.tsx"), "utf8");
 const NEW_CHAT = readFileSync(join(UI, "src/pages/NewChatPage.tsx"), "utf8");
 const SETTINGS = readFileSync(join(UI, "src/pages/SettingsPage.tsx"), "utf8");
@@ -36,7 +37,9 @@ describe("the composer's prompt shortcuts", () => {
     expect(DETAIL).toContain('import type { AgentRole } from "../lib/agentRoles";');
     expect(DETAIL).toContain("agentRoles?: AgentRole[] | null;");
     expect(DETAIL).toContain("agentRoles = [],");
-    expect(DETAIL).toContain("roles={agentRoles}");
+    // The page threads the list into the dock, and the dock into the composer.
+    expect(DETAIL).toContain("agentRoles={agentRoles}");
+    expect(DOCK).toContain("roles={agentRoles}");
   });
 
   it("gives the imported session's continue box the same list", () => {

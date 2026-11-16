@@ -63,7 +63,8 @@ BUDGET_GUARD="${BUDGET_GUARD:-15}"
 
 # --- Parallel lanes (CEO 2026-11-15) ---
 export RSI_STATE="$STATE"
-export RSI_MAX_LANES="${RSI_MAX_LANES:-3}"        # worker lanes; the merge lane is separate. 3 swamped this 16 GB Mac (swap 90%, load 100+) -> 2.
+[ -e "$STATE/BOX_OFF" ] && export RSI_CLOUD_MAX="${RSI_CLOUD_MAX:-2}"
+export RSI_MAX_LANES="${RSI_MAX_LANES:-2}"        # worker lanes; the merge lane is separate. 3 swamped this 16 GB Mac (swap 90%, load 100+) -> 2.
 # Do not default RSI_LOAD_MAX to 100000 (that disabled the guard). lanes.py
 # treats a missing or >=10000 value as 2× cores, and also refuses a new local
 # worker when free swap is below RSI_SWAP_FREE_MIN_MB (default 2048).
