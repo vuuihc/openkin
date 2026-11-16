@@ -119,9 +119,7 @@ export function AccountSection() {
         </div>
 
         <div className="space-y-2 border-t border-kin-hairline pt-3">
-          <p className="text-body font-medium text-kin-muted">
-            {tr("settings.account.methods")}
-          </p>
+          <p className="text-body font-medium text-kin-muted">{tr("settings.account.methods")}</p>
           <div className="flex flex-wrap items-center gap-2">
             {account.linked.length > 0
               ? account.linked.map((linked) => (
@@ -193,7 +191,9 @@ export function AccountSection() {
               ))}
           </div>
           <p className="text-caption text-kin-muted">
-            {isHubShell() ? tr("settings.account.methodsHintShell") : tr("settings.account.methodsHint")}
+            {isHubShell()
+              ? tr("settings.account.methodsHintShell")
+              : tr("settings.account.methodsHint")}
           </p>
         </div>
       </div>

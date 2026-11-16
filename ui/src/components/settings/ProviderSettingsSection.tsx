@@ -245,11 +245,7 @@ export function ProviderSettingsSection({
                   className="kin-input min-h-11 font-mono text-body leading-4 flex-1"
                   autoComplete="off"
                 />
-                <Button
-                  variant="secondary"
-                  className="shrink-0"
-                  onClick={onToggleApiKeyReveal}
-                >
+                <Button variant="secondary" className="shrink-0" onClick={onToggleApiKeyReveal}>
                   {revealApiKey ? tr("settings.hide") : tr("settings.reveal")}
                 </Button>
               </div>
