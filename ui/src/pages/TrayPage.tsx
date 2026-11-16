@@ -1,12 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  formatCost,
-  formatElapsed,
-  isTerminal,
-  parseApprovalPayload,
-} from "../api/client";
+import { formatCost, formatElapsed, isTerminal, parseApprovalPayload } from "../api/client";
 import { usePendingResources, useTaskList } from "../api/useLiveResources";
 import { useApprovalDecision } from "../hooks/useApprovalDecision";
+import Button from "../components/ui/Button";
+import { useT } from "../i18n/react";
 import { shortPath } from "../lib/paths";
 import { startOfDay } from "../lib/relativeTime";
 import { IconFile, IconKin } from "../components/icons";
@@ -18,6 +15,7 @@ import { displayUserPrompt } from "../lib/attachments";
  * Loaded by Electron as a frameless window; also works as /tray in the browser.
  */
 export default function TrayPage() {
+  const tr = useT();
   const pending = usePendingResources();
   const taskList = useTaskList({ limit: 40 });
   const approvals = pending.data.approvals;
@@ -71,7 +69,11 @@ export default function TrayPage() {
               connected ? "bg-kin-green" : "bg-kin-orange animate-pulse",
             ].join(" ")}
           />
-          {connected ? "connected" : wsStatus === "connecting" ? "connecting" : "offline"}
+          {connected
+            ? tr("tray.connected")
+            : wsStatus === "connecting"
+              ? tr("tray.connecting")
+              : tr("tray.offline")}
         </span>
       </div>
 
@@ -80,7 +82,7 @@ export default function TrayPage() {
         {approvals.length > 0 && (
           <>
             <div className="text-caption font-semibold uppercase tracking-label text-kin-orange-ink px-1 pt-2 pb-1.5">
-              Needs you · {approvals.length}
+              {tr("tray.needsYou", { count: approvals.length })}
             </div>
             <div className="space-y-2">
               {approvals.slice(0, 4).map((a) => {
@@ -116,21 +118,27 @@ export default function TrayPage() {
                       </div>
                     )}
                     <div className="flex gap-1.5 mt-2.5">
+                      {/* The approve/deny weights land on the facade with #122.
+                          Migrating this pair now would either duplicate that
+                          work or ship a second spelling of it; a later slice
+                          moves the tray pair and the approval cards together. */}
+                      {/* eslint-disable-next-line kin/no-raw-button -- approve/deny weights land with #122 */}
                       <button
                         type="button"
                         disabled={!!busy[a.id]}
                         onClick={() => void decide(a.id, "approved")}
                         className="flex-1 py-1.5 rounded-lg bg-kin-orange text-kin-on-status text-body font-semibold disabled:opacity-50"
                       >
-                        {busy[a.id] === "approved" ? "…" : "Approve"}
+                        {busy[a.id] === "approved" ? "…" : tr("chat.approve")}
                       </button>
+                      {/* eslint-disable-next-line kin/no-raw-button -- approve/deny weights land with #122 */}
                       <button
                         type="button"
                         disabled={!!busy[a.id]}
                         onClick={() => void decide(a.id, "denied")}
                         className="flex-1 py-1.5 rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-body font-semibold disabled:opacity-50"
                       >
-                        {busy[a.id] === "denied" ? "…" : "Deny"}
+                        {busy[a.id] === "denied" ? "…" : tr("chat.deny")}
                       </button>
                     </div>
                   </div>
@@ -142,13 +150,16 @@ export default function TrayPage() {
 
         {/* Running */}
         <div className="text-caption font-semibold uppercase tracking-label text-kin-muted px-1 pt-4 pb-1.5">
-          Running · {running.length}
+          {tr("tray.running", { count: running.length })}
         </div>
         {running.length === 0 ? (
-          <p className="px-1 text-body text-kin-muted">No active tasks</p>
+          <p className="px-1 text-body text-kin-muted">{tr("tray.noActiveConversations")}</p>
         ) : (
           <div className="space-y-1.5">
             {running.map((t) => (
+              // A full-row navigation target, not an action button: the whole
+              // card is the hit area the facade's control shape does not draw.
+              // eslint-disable-next-line kin/no-raw-button -- a full-row row hit area
               <button
                 key={t.id}
                 type="button"
@@ -184,10 +195,11 @@ export default function TrayPage() {
         {doneToday.length > 0 && (
           <>
             <div className="text-caption font-semibold uppercase tracking-label text-kin-muted px-1 pt-4 pb-1.5">
-              Done today
+              {tr("tray.doneToday")}
             </div>
             <div className="space-y-0.5">
               {doneToday.map((t) => (
+                // eslint-disable-next-line kin/no-raw-button -- a full-row row hit area
                 <button
                   key={t.id}
                   type="button"
@@ -209,20 +221,12 @@ export default function TrayPage() {
 
       {/* Footer */}
       <div className="flex-none border-t border-[var(--kin-hairline)] px-3 py-2.5 flex gap-2">
-        <button
-          type="button"
-          onClick={() => openMain("/")}
-          className="flex-1 py-2 rounded-lg bg-kin-blue text-kin-on-brand text-strong font-semibold"
-        >
-          Open Kin
-        </button>
-        <button
-          type="button"
-          onClick={() => openMain("/new")}
-          className="flex-1 py-2 rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-strong font-semibold"
-        >
-          New Chat
-        </button>
+        <Button onClick={() => openMain("/")} className="flex-1 py-2">
+          {tr("tray.openKin")}
+        </Button>
+        <Button variant="secondary" onClick={() => openMain("/new")} className="flex-1 py-2">
+          {tr("tray.newChat")}
+        </Button>
       </div>
     </div>
   );
