@@ -331,9 +331,15 @@ describe("navigating to the screen you are already on", () => {
     expect(window.location.pathname).toBe("/settings");
     expect(window.location.search).toBe("");
 
-    // Same route, so the page never unmounted and its draft is still there.
+    // Same route, so the page never unmounted. The panel follows the URL now
+    // (General), and the Routing draft is still mounted in its hidden panel.
     expect(
-      (screen.getByRole("checkbox", { name: /Enable auto routing/ }) as HTMLInputElement).checked,
+      (
+        screen.getByRole("checkbox", {
+          name: /Enable auto routing/,
+          hidden: true,
+        }) as HTMLInputElement
+      ).checked,
     ).toBe(false);
 
     // The entry that protected the draft was buried by the push; Back must
@@ -345,7 +351,12 @@ describe("navigating to the screen you are already on", () => {
     await waitFor(() => expect(confirm.mock.calls.length).toBe(asked + 1));
     expect(window.location.pathname).toBe("/settings");
     expect(
-      (screen.getByRole("checkbox", { name: /Enable auto routing/ }) as HTMLInputElement).checked,
+      (
+        screen.getByRole("checkbox", {
+          name: /Enable auto routing/,
+          hidden: true,
+        }) as HTMLInputElement
+      ).checked,
     ).toBe(false);
   });
 
@@ -362,7 +373,12 @@ describe("navigating to the screen you are already on", () => {
     expect(window.location.pathname).toBe("/settings");
     expect(window.location.search).toBe("");
     expect(
-      (screen.getByRole("checkbox", { name: /Enable auto routing/ }) as HTMLInputElement).checked,
+      (
+        screen.getByRole("checkbox", {
+          name: /Enable auto routing/,
+          hidden: true,
+        }) as HTMLInputElement
+      ).checked,
     ).toBe(false);
 
     // The rewrite dropped the sentinel's marker; a system Back must still ask
@@ -374,7 +390,12 @@ describe("navigating to the screen you are already on", () => {
     await waitFor(() => expect(confirm.mock.calls.length).toBe(asked + 1));
     expect(window.location.pathname).toBe("/settings");
     expect(
-      (screen.getByRole("checkbox", { name: /Enable auto routing/ }) as HTMLInputElement).checked,
+      (
+        screen.getByRole("checkbox", {
+          name: /Enable auto routing/,
+          hidden: true,
+        }) as HTMLInputElement
+      ).checked,
     ).toBe(false);
   });
 });
