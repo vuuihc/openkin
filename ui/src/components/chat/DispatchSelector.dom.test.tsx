@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { setLocale } from "../../i18n";
-import { DispatchSelector } from "./DispatchSelector";
+import { DispatchSelector, type DispatchSelection } from "./DispatchSelector";
 
 /**
  * #1: the composer's control row is an `overflow-x-auto` strip, and CSS makes
@@ -73,7 +74,7 @@ describe("the dispatch panel", () => {
     expect(left + width).toBeLessThanOrEqual(390 - 8);
   });
 
-  it("closes on Escape and returns focus to the trigger", async () => {
+  it("Escape closes the panel and returns focus to the trigger", async () => {
     const { trigger } = setup();
     await userEvent.click(trigger);
     await screen.findByRole("dialog", { name: "Dispatch settings" });
@@ -91,5 +92,46 @@ describe("the dispatch panel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Manual" }));
     expect(onChange).toHaveBeenCalledWith({ mode: "manual" });
     expect(screen.getByRole("dialog", { name: "Dispatch settings" })).toBe(panel);
+  });
+
+  it("Tab stays inside the panel while it is open", async () => {
+    const { trigger } = setup();
+    await userEvent.click(trigger);
+    const panel = await screen.findByRole("dialog", { name: "Dispatch settings" });
+
+    // The panel is portaled out of the strip, so it is not the next stop after
+    // the trigger: Tab has to be contained by the layer, not by document order.
+    for (let press = 0; press < 6; press += 1) {
+      await userEvent.tab();
+      expect(panel.contains(document.activeElement)).toBe(true);
+    }
+  });
+
+  it("the mode buttons report the chosen mode through aria-pressed", async () => {
+    function Stateful() {
+      const [value, setValue] = useState<DispatchSelection>({});
+      return <DispatchSelector value={value} onChange={setValue} />;
+    }
+    render(<Stateful />);
+    await userEvent.click(screen.getByRole("button", { name: "Dispatch" }));
+    const panel = await screen.findByRole("dialog", { name: "Dispatch settings" });
+
+    // The fill alone is a colour; `aria-pressed` is what says which of the two
+    // modes is on to a reader who cannot see it.
+    expect(within(panel).getByRole("button", { name: "Auto" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expect(within(panel).getByRole("button", { name: "Manual" }).getAttribute("aria-pressed")).toBe(
+      "false",
+    );
+
+    await userEvent.click(within(panel).getByRole("button", { name: "Manual" }));
+
+    expect(within(panel).getByRole("button", { name: "Manual" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expect(within(panel).getByRole("button", { name: "Auto" }).getAttribute("aria-pressed")).toBe(
+      "false",
+    );
   });
 });
