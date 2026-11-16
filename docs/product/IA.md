@@ -15,7 +15,7 @@
 
 **手机（390 宽）**
 现在：一页对话列表（"搜索对话"，只有项目 → 对话两层）；点左上角 K，又出来一份同样的列表（"搜索会话…"）。
-目标：对话列表保持**设备 → 项目 → 对话**三级；对话列表、例行任务、Agent 运维、设置四个同级入口共用底部导航，可在内容空白区左右滑动切换。每个入口回到自己那一片上次所在的位置——列表带搜索、状态与归档范围，例行任务带选中的机器（`?device=`），设置带打开的 tab（`?tab=`）；Agent 运维的目标落点是 `/settings?tab=operations`（E4a 合并前仍是 `/agents`）。归档是列表内的筛选，不是第五个入口。「新建对话」是列表头里与标题并排的次级按钮，不再是浮在列表上的实心圆。没有 K 抽屉，没有 dock。对话、新建、项目封面和导入会话都是推入的整页；返回只有一条路：页头返回、系统返回和左缘右滑都弹回上一层，推入的详情最终回到对话列表（带它上次的搜索 / 状态 / 归档范围），冷启动深链在路由挂载前补上列表父级。导入在 Agent 运维；详情保护不变。（2026-11-16，S2b；2026-11-17，G2）
+目标：对话列表保持**设备 → 项目 → 对话**三级；对话列表、例行任务、Agent 运维、设置四个同级入口共用底部导航，可在内容空白区左右滑动切换。每个入口回到自己那一片上次所在的位置——列表带搜索、状态与归档范围，例行任务带选中的机器（`?device=`），设置带打开的 tab（`?tab=`）；Agent 运维的目标落点是 `/settings?tab=operations`。归档是列表内的筛选，不是第五个入口。「新建对话」是列表头里与标题并排的次级按钮，不再是浮在列表上的实心圆。没有 K 抽屉，没有 dock。对话、新建、项目封面和导入会话都是推入的整页；返回只有一条路：页头返回、系统返回和左缘右滑都弹回上一层，推入的详情最终回到对话列表（带它上次的搜索 / 状态 / 归档范围），冷启动深链在路由挂载前补上列表父级。导入在 Agent 运维；详情保护不变。（2026-11-16，S2b；2026-11-17，G2）
 
 ## 列表层级
 
@@ -93,7 +93,7 @@
 
 | 面 | 归谁 | 内容 |
 |---|---|---|
-| 控制台设置 `/settings` | Hub | Agent、模型、权限等运行默认值（KIN-SETTINGS-001 的面）；远程 / 通知两个 tab 已于 2026-11-11（R0b-3）删除，relay / APNs 仍是 daemon API；通知只保留 iPhone 首次授权的一行；`?tab=operations` 托管 Agent 运维（原 `AgentsPage` 主体，N4 已接管），E4a 合并后 `/agents` 与 `/usage` 重定向到它；分区 ID 仍是 `general` / `agents` / `providers` / `routing` / `advanced` / `operations`，`?tab=agents` 永远是本地 Agent 与角色。E4a 合并前 `/agents` 仍是独立路由、`/usage` 先跳 `/agents` |
+| 控制台设置 `/settings` | Hub | Agent、模型、权限等运行默认值（KIN-SETTINGS-001 的面）；远程 / 通知两个 tab 已于 2026-11-11（R0b-3）删除，relay / APNs 仍是 daemon API；通知只保留 iPhone 首次授权的一行；`?tab=operations` 托管 Agent 运维（原 `AgentsPage` 主体，N4 已接管），E4a 已由 #141 `71402048` 交付、`/agents` 与 `/usage` 都 `replace` 到它；分区 ID 仍是 `general` / `agents` / `providers` / `routing` / `advanced` / `operations`，`?tab=agents` 永远是本地 Agent 与角色 |
 | 菜单栏托盘（Mac） | 桌面壳 | 常驻版本行「Kin X」；检查更新、下载（进度）、安装（open dmg + 确认退出）、删除已下载的安装包；只连 github.com 官方 Releases，不做后台轮询 |
 | 手机 | 无此面 | PWA 由 Hub 重新部署时自然更新；手机上没有桌面壳的升级问题 |
 
@@ -130,7 +130,7 @@
 | S2b | 列表头「新建对话」为次级动作，返回与记忆保持 | #136 `fe4b18a5` | `PhoneNavigation.dom.test.tsx`、`phoneNavigation.test.tsx` |
 | S3 | `area` / `push` / `pop` / `swap` 动效与减少动态 | #146 `47ddcbde` | `areaTransition.test.ts`、`AreaRoute.dom.test.tsx` |
 
-E4a（`/agents`、`/usage` 重定向到 `/settings?tab=operations`）**未合并**；合并前 `/agents` 仍是独立路由。
+E4a（`/agents`、`/usage` 重定向到 `/settings?tab=operations`）已由 #141 `71402048` 交付；两处旧 URL 都 `replace` 到 `/settings?tab=operations`，不再有独立的 `AgentsPage`。
 
 ## 一条用户路径（一条故事一条）
 

@@ -19,6 +19,7 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import type { TransitionKind } from "./areaTransition";
 import { AREAS } from "./areas";
 import { PHONE_TAB_IDS } from "./phoneNavigation";
 
@@ -28,36 +29,28 @@ function doc(name: string): string {
 
 const navigation = doc("NAVIGATION.md");
 const ia = doc("IA.md");
+const appSource = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
 
 describe("navigation contract", () => {
-  it("NAVIGATION.md names every area, its root and every phone entry", () => {
+  it("NAVIGATION.md has the area table row and the phone-entry line", () => {
+    // Shape, not substring: dropping a row from §1 must fail even though the id
+    // still appears somewhere else in the prose.
     for (const area of AREAS) {
-      expect(navigation).toContain(area.id);
-      expect(navigation).toContain(area.root);
+      expect(navigation).toMatch(
+        new RegExp("\\|\\s*`" + area.id + "`\\s*\\|\\s*`" + area.root + "`"),
+      );
     }
-    for (const id of PHONE_TAB_IDS) {
-      expect(navigation).toContain(id);
-    }
+    const entries = "`PHONE_TAB_IDS` = " + PHONE_TAB_IDS.map((id) => `\`${id}\``).join(" / ");
+    expect(navigation).toContain(entries);
   });
 
-  it("NAVIGATION.md lists every route App owns", () => {
-    const routes = [
-      "/sessions",
-      "/tasks/:id",
-      "/new",
-      "/projects",
-      "/projects/:id",
-      "/routines",
-      "/machines/:device/tasks/:id",
-      "/settings",
-      "/agent-sessions/:id",
-      "/agents",
-      "/usage",
-      "/inbox",
-      "/approvals",
-    ];
+  it("NAVIGATION.md has a table row for every route App owns", () => {
+    // Read the routes out of the router itself: a hand-copied array stays green
+    // when a route is added or removed, which is exactly the rot this guards.
+    const routes = [...appSource.matchAll(/<Route\s+path="([^"]+)"/g)].map((match) => match[1]);
+    expect(routes.length).toBeGreaterThan(0);
     for (const route of routes) {
-      expect(navigation).toContain(route);
+      expect(navigation).toContain(`\`${route}\``);
     }
   });
 
@@ -68,9 +61,12 @@ describe("navigation contract", () => {
     expect(navigation).toContain("Agent Ops");
   });
 
-  it("the motion contract names every arrival kind and reduced motion", () => {
-    for (const kind of ["area", "push", "pop", "swap"]) {
-      expect(navigation).toContain(kind);
+  it("the motion contract has a table row for every arrival kind and reduced motion", () => {
+    // Row shape again: deleting the whole §4 table used to leave every kind
+    // alive in the summary bullets below it.
+    const kinds: readonly TransitionKind[] = ["none", "area", "push", "pop", "swap"];
+    for (const kind of kinds) {
+      expect(navigation).toMatch(new RegExp("\\|\\s*`" + kind + "`\\s*\\|"));
     }
     expect(navigation).toContain("减少动态");
     // The reduced-motion sentence promises the fade alone, with no travel.
