@@ -28,13 +28,7 @@
  * unreachable. Here the only way to add an id is to add it to the list, and the
  * list is what the palette test walks.
  */
-export const PLACE_IDS = [
-  "new",
-  "sessions",
-  "routines",
-  "agents",
-  "settings",
-] as const;
+export const PLACE_IDS = ["new", "sessions", "routines", "agents", "settings"] as const;
 
 export type PlaceId = (typeof PLACE_IDS)[number];
 
@@ -61,7 +55,14 @@ export const PLACES: Place[] = [
   { id: "new", path: "/new", labelKey: "nav.newChat", section: "work", hint: "⌘N" },
   { id: "sessions", path: "/sessions", labelKey: "nav.sessions", section: "work" },
   { id: "routines", path: "/routines", labelKey: "nav.routines", section: "library" },
-  { id: "agents", path: "/agents", labelKey: "nav.agentOperations", section: "operations" },
+  // Agent operations is a tab of Settings now (E4a): the entry keeps its name
+  // and cost badge but opens the operations panel rather than a second page.
+  {
+    id: "agents",
+    path: "/settings?tab=operations",
+    labelKey: "nav.agentOperations",
+    section: "operations",
+  },
   { id: "settings", path: "/settings", labelKey: "nav.settings", section: "operations" },
 ];
 
