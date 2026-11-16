@@ -17,7 +17,7 @@
 | Tailwind 4 兼容 | 🟢 已落地主线 | F1 #67 `37f63772`：`tailwindcss@4` + `@tailwindcss/postcss` 替换 v3 管线，layer / 对比度 / 焦点环回归测试随迁移通过 |
 | 当前故事与导航合同 | 🟢 已统一 | G2 #149 `49ddf5a0` 把 `NAVIGATION.md` 与 `IA.md` 改成四区 / 四入口合同；G2b #154 `2ea8e07b` 补齐组件契约。旧的「项目无独立列表」不再成立 |
 | 当前实现与规模 | 🟢 已复测 | `fb0dd3eb`：116 个非测试 TSX；12 个共享控件；85 个裸 `<button>` / 42 文件（开工基线 299 / 69）；页面 18,490 行（同口径基线 17,540） |
-| Goal 1 整体重构 | 🟢 五批已落地 | PR #59–#160；G1（lint 收口）#161 仍开放，见验收说明「未验证项」 |
+| Goal 1 整体重构 | 🟢 五批已落地 | PR #59–#160；G1（lint 收口）#161 在 `fb0dd3eb` 测量之后以 `3ecae5d9` 落地，其 lint 禁令已在 `main`，但该次走查未复验，见验收说明「未验证项」 |
 | Goal 2 整体回归收口 | 🟢 验收说明已填 | 见下方《验收说明（2026-11-17）》：J1–J7、红项、未验证项、包体与手写控件、UX 分数、证据 |
 
 本计划以 `main` 起始提交 `c7c12cc6` 的实测为基线；实际开工先重新测量。该基线不是对未开始工作的完成声明。
@@ -56,7 +56,7 @@
 
 ### 3. 未验证项
 
-- **G1 #161 仍开放**（`feat(lint): ban legacy kin-btn classes and raw overlay roles`）：lint 禁止旧写法与棘轮进一步收紧未验证。<https://github.com/vuuihc/openkin/pull/161>
+- **G1 #161 在测量之后落地**（`feat(lint): ban legacy kin-btn classes and raw overlay roles`）：#161 于 2026-11-17 06:09 以 `3ecae5d9` 合并，晚于 `fb0dd3eb` 的测量（05:53），其 lint 禁令已在 `main`；但 `fb0dd3eb` 的走查没有复验这些禁令与棘轮收紧，故本页不把它算作已验证。<https://github.com/vuuihc/openkin/pull/161>
 - **对话正文 / 继续 / 批准（J1、J2）与行操作（J5）**：一次性 daemon 不能在没有真实 agent 的情况下创建 task；`seed.log` 的 5 个 skip 是 `conversation-created` / `conversation-archived` / `conversation-failed` / `waiting-approval` / `routine-failed`。walk 把这些步骤记为 skipped，不是通过。
 - **通知深链落点与卡片高亮（J7）**：同上，`/tasks/demo-task` 404，landing 空白；已知 fixture artifact（`rsi/DECISIONS.md` 2026-11-16 J7 条）。
 - **手机手势**（左缘返回跟手、行左划、拖动排序）：walk 不模拟指针手势；本轮只做代码核对，没有真机 / 浏览器手势录像。
@@ -99,7 +99,7 @@
 | `rounded-* + border` 表面 | 120 | 50 | 120 / 50 | 0 |
 | `z-[n]` 数字层级 | 4 | 4 | 4 / 4 | 0 |
 
-基线文件在程序中被逐步下调，而不是停在开工值：裸 `<button>` 299 / 69 → 85 / 42，`role="menu"` 7 / 6 → 2 / 2，`role="listbox"` 12 / 7 → 9 / 6，`role="dialog"` 16 / 10 → 13 / 8，`useAnchoredPanel` 22 / 6 → 5 / 2，`createPortal` 17 / 8 → 8 / 4，`rounded-* + border` 154 / 52 → 120 / 50，`z-[n]` 5 / 5 → 4 / 4。少数指标上调且有记录：`<input` 文件 25 → 26（C1c2b 把搜索框移进 Menu）、`role="status"` 31 / 18 → 32 / 20、`role="alert"` 文件 11 → 12、`pushToast` 132 → 134、独立 `kin-btn` 0 → 1（受控适配层）、`rounded-* + border` 在 #158 由 119 / 49 调到 120 / 50（C3b 的新活动 pill / 审批 dock，随 PR 记录）。所以这张表的正确读法是「实测等于已随迁移下调的棘轮」，不是「低于开工基线」；进一步收紧留给 G1 的 lint 收口（#161）。
+基线文件在程序中被逐步下调，而不是停在开工值：裸 `<button>` 299 / 69 → 85 / 42，`role="menu"` 7 / 6 → 2 / 2，`role="listbox"` 12 / 7 → 9 / 6，`role="dialog"` 16 / 10 → 13 / 8，`useAnchoredPanel` 22 / 6 → 5 / 2，`createPortal` 17 / 8 → 8 / 4，`rounded-* + border` 154 / 52 → 120 / 50，`z-[n]` 5 / 5 → 4 / 4。少数指标上调且有记录：`<input` 文件 25 → 26（C1c2b 把搜索框移进 Menu）、`role="status"` 31 / 18 → 32 / 20、`role="alert"` 文件 11 → 12、`pushToast` 132 → 134、独立 `kin-btn` 0 → 1（受控适配层）、`rounded-* + border` 在 #158 由 119 / 49 调到 120 / 50（C3b 的新活动 pill / 审批 dock，随 PR 记录）。所以这张表的正确读法是「实测等于已随迁移下调的棘轮」，不是「低于开工基线」；进一步收紧由 G1 的 lint 收口（#161）承接，它已在 `fb0dd3eb` 测量之后以 `3ecae5d9` 落地、禁令在 `main`，但该次走查未复验。
 
 ### 5. 各区最后一次 UX gate 分数
 
@@ -403,10 +403,10 @@
 | Goal 0 | 26 文件；3 份文字合同合计 324 行；20 SVG；共 +392 / -9 | `stories.py` 通过；`check.sh` 14 项通过；20 SVG / 22 六拍流程 / 390+1100px 实际浏览器通过；并非产品覆盖 | 无 | 独立复审两项 major 已修、窄复审无 blocker/major；仍待总设计签字 | 文档已生成，产品实现未开始 |
 | Batch A | 47 个不同文件（71 次改动）；源码 +3,948 / −1,247；测试 +2,803 / −64 | 14 个测试文件；兼容层 / Provider / token / gallery 套件；最终套件见 Goal 2 行 | 见验收说明 §4 | Astryx 优先与 F1–F3 依赖白名单（`rsi/DECISIONS.md` 2026-11-15）；上游版本安装时复核 | 兼容底座与 facade 落地；PR #59–#117；2026-11-15 15:10 → 2026-11-16 14:40（23 小时 30 分） |
 | Batch B | 62 个不同文件（85 次改动）；源码 +1,842 / −565；测试 +2,651 / −279 | 28 个测试文件；导航 / deep-link / history / 手势；最终套件见 Goal 2 行 | 见验收说明 §4 | N3 退役、S2 吸收每区返回（`rsi/DECISIONS.md` 2026-11-15）；手机无项目入口（`NAVIGATION.md` §5） | 四区外壳与手机四入口落地；PR #68–#146；2026-11-15 13:34 → 2026-11-17 00:34（35 小时 0 分） |
-| Batch C | 96 个不同文件（168 次改动）；源码 +4,589 / −3,613；测试 +6,708 / −269 | 49 个测试文件；列表 / 对话 / 新建 / 选择器；C3b 由 #158 `fb0dd3eb` 落地；最终套件见 Goal 2 行 | 见验收说明 §4 | C5b 拆 C5b/C5d、T3 拆 T3a–c、L2 只交工具栏（`rsi/state/decisions-pending.md`） | 对话与新建路径收口；PR #66–#159；2026-11-15 15:50 → 2026-11-17 05:53（38 小时 3 分） |
+| Batch C | 96 个不同文件（160 次改动）；源码 +4,357 / −3,526；测试 +6,353 / −269 | 49 个测试文件；列表 / 对话 / 新建 / 选择器；C3b 由 #158 `fb0dd3eb` 落地；最终套件见 Goal 2 行 | 见验收说明 §4 | C5b 拆 C5b/C5d、T3 拆 T3a–c、L2 只交工具栏（`rsi/state/decisions-pending.md`） | 对话与新建路径收口；PR #66–#159；2026-11-15 15:50 → 2026-11-17 05:53（38 小时 3 分） |
 | Batch D | 25 个不同文件（44 次改动）；源码 +1,176 / −878；测试 +1,329 / −86 | 12 个测试文件；项目 / 例程；最终套件见 Goal 2 行 | 见验收说明 §4 | P1 只交 One-Pager、P1b/P3 拆出（`rsi/DECISIONS.md` 2026-11-16） | 项目集合与例行任务落位；PR #69–#147；2026-11-15 13:55 → 2026-11-17 02:34（36 小时 39 分） |
 | Batch E | 46 个不同文件（57 次改动）；源码 +2,835 / −2,740；测试 +2,336 / −94 | 21 个测试文件；设置 / Agent / primitive；最终套件见 Goal 2 行 | 见验收说明 §4 | 打开设置不隐式读 Agent（N4 决策，`rsi/state/decisions-pending.md` 2026-11-16 14:38）；E4 拆 a/b/c | 设置与 Agent 运维收敛；PR #132–#157；2026-11-16 20:32 → 2026-11-17 05:30（8 小时 58 分） |
-| Goal 2 | 11 个不同文件（11 次改动，不含未合并的 G1 #161）；源码 +819 / −78；测试 +303 / −0 | 2 个测试文件（`navigationContract.test.ts` 与 G3 的 smoke 测试）；最终套件 `./scripts/check.sh` 16 项通过、退出 0 | 入口 gzip +143.5 kB、CSS gzip +46.6 kB（pre-F1 → 现在，见验收说明 §4） | G1 #161 未合并，本行只覆盖 G2 / G2b / G3 / G4 | 旅程脚本、导航与组件合同、验收说明落地；PR #149–#160；2026-11-17 02:00 → 2026-11-17 05:12（3 小时 12 分） |
+| Goal 2 | 11 个不同文件（11 次改动）；源码 +819 / −78；测试 +303 / −0 | 2 个测试文件（`navigationContract.test.ts` 与 G3 的 smoke 测试）；最终套件 `./scripts/check.sh` 16 项通过、退出 0 | 入口 gzip +143.5 kB、CSS gzip +46.6 kB（pre-F1 → 现在，见验收说明 §4） | G1 #161（`3ecae5d9`）在 `fb0dd3eb` 测量之后落地、其 lint 禁令未被该次走查复验；本行只覆盖 G2 / G2b / G3 / G4 | 旅程脚本、导航与组件合同、验收说明落地；PR #149–#160；2026-11-17 02:00 → 2026-11-17 05:12（3 小时 12 分） |
 
 统计口径：按 `rsi/state/merged.log` 的 item 列归批；不含循环基础设施行（`R-*`）与未列入五批的一次性行（G1b `cf7ba2bd`、G2a `695d053e`、G3a `1c572b20`、V1 `d6e9ba70`、UX-GATE `5c515262`、CI-FORMAT `35755618`）。N3 已退役（`rsi/DECISIONS.md` 2026-11-15），不再单列。
 
