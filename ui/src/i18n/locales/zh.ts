@@ -73,6 +73,8 @@ const zh = {
     archive: "归档",
     selectedCount: "已选 {count} 项",
     selectAll: "全选",
+    select: "多选",
+    exitSelection: "退出多选",
     loading: "正在载入对话…",
     searching: "正在搜索…",
     loadError: "对话列表读不出来",
