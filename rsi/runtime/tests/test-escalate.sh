@@ -138,4 +138,26 @@ grep -q "Found-what-DeepSeek-missed: 1" "$T/st2/escalations-weekly.md" || { cat 
 grep -q "Agreed: 1" "$T/st2/escalations-weekly.md" || { cat "$T/st2/escalations-weekly.md"; bad weekly-agreed; }
 ok weekly-daily-line
 
+# --- note_agy_limit ignores success prose containing "quota" and stamps real quota errors ---
+mkdir -p "$T/agy_st"
+(
+  STATE="$T/agy_st"
+  eval "$(sed -n '/^note_agy_limit()/,/^}/p' "$H/dispatch.sh")"
+  LOG="$T/agy_ok"
+  : > "$LOG"
+  echo '{"status":"SUCCESS","response":"populated usage tiles and quota-wait indicators\nUX_VERDICT: PASS"}' > "$LOG.agy.json"
+  note_agy_limit
+  [ ! -e "$STATE/agy-limited-until" ] || exit 1
+) && ok agy-limit-ignores-success-prose || bad agy-limit-ignores-success-prose
+
+(
+  STATE="$T/agy_st"
+  eval "$(sed -n '/^note_agy_limit()/,/^}/p' "$H/dispatch.sh")"
+  LOG="$T/agy_err"
+  : > "$LOG"
+  echo '{"status":"ERROR","error":"RESOURCE_EXHAUSTED: exceeded your current quota"}' > "$LOG.agy.json"
+  note_agy_limit
+  [ -s "$STATE/agy-limited-until" ] && [ "$(cat "$STATE/agy-limited-until")" -gt "$(date +%s)" ] || exit 1
+) && ok agy-limit-stamps-real-quota-error || bad agy-limit-stamps-real-quota-error
+
 echo ALL-PASS
