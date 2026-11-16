@@ -100,9 +100,7 @@ beforeEach(() => {
 describe("the place row (KIN-START-001)", () => {
   it("names the machine and the project on the row", () => {
     render(<Harness />);
-    expect(trigger().getAttribute("aria-label")).toBe(
-      "Device & project: This machine · alpha",
-    );
+    expect(trigger().getAttribute("aria-label")).toBe("Device & project: This machine · alpha");
   });
 
   it("groups projects by machine and marks the chosen one", async () => {
@@ -116,9 +114,9 @@ describe("the place row (KIN-START-001)", () => {
     expect(within(panel).getByRole("option", { name: /alpha/ }).getAttribute("aria-selected")).toBe(
       "true",
     );
-    expect(
-      within(panel).getByRole("option", { name: /gamma/ }).getAttribute("aria-selected"),
-    ).toBe("false");
+    expect(within(panel).getByRole("option", { name: /gamma/ }).getAttribute("aria-selected")).toBe(
+      "false",
+    );
   });
 
   it("reports both the machine and its directory when another machine's project is picked", async () => {

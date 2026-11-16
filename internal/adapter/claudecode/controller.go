@@ -122,11 +122,11 @@ func parseControlJSON(raw []byte) (string, agent.ControlUsage, error) {
 	// Try whole blob first.
 	if res, ok := adapter.ParseResult(json.RawMessage(raw)); ok && strings.TrimSpace(res.Text) != "" {
 		usage = agent.ControlUsage{
-			Model:    res.Usage.Model,
-			TokensIn: res.Usage.TokensIn,
-			TokensOut: res.Usage.TokensOut,
+			Model:        res.Usage.Model,
+			TokensIn:     res.Usage.TokensIn,
+			TokensOut:    res.Usage.TokensOut,
 			CachedTokens: res.Usage.CachedTokens,
-			CostUSD:  res.Usage.CostUSD,
+			CostUSD:      res.Usage.CostUSD,
 		}
 		return res.Text, usage, nil
 	}

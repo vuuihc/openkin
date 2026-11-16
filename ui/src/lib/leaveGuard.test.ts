@@ -179,11 +179,7 @@ describe("a same-pathname move while the page is dirty", () => {
     // with its draft, so the next Back must ask, not compare the whole URL.
     expect(
       runGuardedNavigation(() => {
-        window.history.replaceState(
-          { idx: window.history.state.idx },
-          "",
-          "/page?tab=kept",
-        );
+        window.history.replaceState({ idx: window.history.state.idx }, "", "/page?tab=kept");
       }),
     ).toBe(true);
     await until(() => window.location.search === "?tab=kept");

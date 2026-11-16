@@ -102,7 +102,6 @@ func TestHandoffClearsKinTranscript(t *testing.T) {
 	}
 }
 
-
 func TestFollowUpAfterOrchestrateResumesWithSeededTranscript(t *testing.T) {
 	ctx := context.Background()
 	var specs []adapter.TaskSpec

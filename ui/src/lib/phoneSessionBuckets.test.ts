@@ -77,11 +77,14 @@ describe("phoneProjectBuckets", () => {
   });
 
   it("gives each machine its own imported group", () => {
-    const rows = buckets([], [
-      session({ id: "s-here", cwd: "/work/a", updated_at: 1 }),
-      session({ id: "s-here-2", cwd: "/work/b", updated_at: 2 }),
-      session({ id: "s-there", cwd: "/work/c", updated_at: 3, device_id: "other" }),
-    ]);
+    const rows = buckets(
+      [],
+      [
+        session({ id: "s-here", cwd: "/work/a", updated_at: 1 }),
+        session({ id: "s-here-2", cwd: "/work/b", updated_at: 2 }),
+        session({ id: "s-there", cwd: "/work/c", updated_at: 3, device_id: "other" }),
+      ],
+    );
     const byKey = new Map(
       rows.filter((bucket) => isImportedBucket(bucket.key)).map((bucket) => [bucket.key, bucket]),
     );
@@ -336,7 +339,12 @@ describe("isBucketCollapsed", () => {
   const none = new Set<string>();
 
   it("folds an imported group until the reader opens it", () => {
-    const base = { imported: true, stateKey: "imported\u0000mac", searching: false, collapsed: none };
+    const base = {
+      imported: true,
+      stateKey: "imported\u0000mac",
+      searching: false,
+      collapsed: none,
+    };
     expect(isBucketCollapsed({ ...base, openImported: none })).toBe(true);
     expect(isBucketCollapsed({ ...base, openImported: new Set([base.stateKey]) })).toBe(false);
   });
@@ -347,7 +355,9 @@ describe("isBucketCollapsed", () => {
     expect(isBucketCollapsed({ ...base, collapsed: new Set([base.stateKey]) })).toBe(true);
     // The two sets mean opposite things; an imported key in the open set must
     // not make a project with the same key look folded or open.
-    expect(isBucketCollapsed({ ...base, collapsed: none, openImported: new Set([base.stateKey]) })).toBe(false);
+    expect(
+      isBucketCollapsed({ ...base, collapsed: none, openImported: new Set([base.stateKey]) }),
+    ).toBe(false);
   });
 
   it("opens every bucket while searching", () => {
@@ -725,7 +735,17 @@ describe("withPinnedBucket", () => {
       session: { id: "s1", cwd: "/x" } as AgentSession,
     };
     const out = withPinnedBucket(
-      [{ key: "b0", label: "B0", cwd: "/b", createdAt: 0, hasActiveTask: false, lastActivityAt: 0, rows: [sessionRow] }],
+      [
+        {
+          key: "b0",
+          label: "B0",
+          cwd: "/b",
+          createdAt: 0,
+          hasActiveTask: false,
+          lastActivityAt: 0,
+          rows: [sessionRow],
+        },
+      ],
       new Set(["s1"]),
       "置顶",
     );

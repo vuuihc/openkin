@@ -102,9 +102,7 @@ describe("agent roles", () => {
       { id: "blank-prompt", name: "Half", prompt: "   " },
       { id: "blank-name", name: " ", prompt: "Do the thing." },
     ]);
-    expect(JSON.parse(saved)).toEqual([
-      { id: "review", name: "Review", prompt: review.prompt },
-    ]);
+    expect(JSON.parse(saved)).toEqual([{ id: "review", name: "Review", prompt: review.prompt }]);
   });
 
   it("inserts above the draft with one blank line between", () => {

@@ -87,12 +87,36 @@ describe("routine conversation mode (KIN-ROUTINE-001)", () => {
     const older = task({ id: "older", routine_id: "r1", session_ref: "sess-older" });
     const routine = { id: "r1", agent: "claude-code", cwd: "/work/alpha", model: "m1" };
     const refused = [
-      task({ id: "foreign", routine_id: "r1", session_ref: "sess-foreign", session_ref_device_id: "node-a", model: "m1" }),
-      task({ id: "wrong-agent", routine_id: "r1", agent: "codex", session_ref: "sess-codex", model: "m1" }),
+      task({
+        id: "foreign",
+        routine_id: "r1",
+        session_ref: "sess-foreign",
+        session_ref_device_id: "node-a",
+        model: "m1",
+      }),
+      task({
+        id: "wrong-agent",
+        routine_id: "r1",
+        agent: "codex",
+        session_ref: "sess-codex",
+        model: "m1",
+      }),
       task({ id: "no-session", routine_id: "r1", model: "m1" }),
-      task({ id: "elsewhere", routine_id: "r1", cwd: "/work/beta", session_ref: "sess-beta", model: "m1" }),
+      task({
+        id: "elsewhere",
+        routine_id: "r1",
+        cwd: "/work/beta",
+        session_ref: "sess-beta",
+        model: "m1",
+      }),
       task({ id: "other-model", routine_id: "r1", session_ref: "sess-m2", model: "m2" }),
-      task({ id: "running", routine_id: "r1", session_ref: "sess-live", model: "m1", status: "running" }),
+      task({
+        id: "running",
+        routine_id: "r1",
+        session_ref: "sess-live",
+        model: "m1",
+        status: "running",
+      }),
     ];
     for (const newest of refused) {
       expect(previousConversation([newest, older], routine), newest.id).toBeUndefined();
@@ -113,7 +137,9 @@ describe("routine conversation mode (KIN-ROUTINE-001)", () => {
   });
 
   it("does not pick a run when the routine is not known yet", () => {
-    expect(previousConversation([task({ routine_id: "r1", session_ref: "s" })], undefined)).toBeUndefined();
+    expect(
+      previousConversation([task({ routine_id: "r1", session_ref: "s" })], undefined),
+    ).toBeUndefined();
     expect(
       previousConversation([task({ routine_id: "r1", session_ref: "s" })], {
         id: "",

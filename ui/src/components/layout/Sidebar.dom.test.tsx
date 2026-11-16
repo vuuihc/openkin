@@ -75,7 +75,11 @@ vi.mock("../../hooks/useMachines", () => ({
 function viewport(pointer: "fine" | "coarse" = "fine") {
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches:
-      query === "(min-width: 768px)" ? true : query === "(pointer: coarse)" ? pointer === "coarse" : false,
+      query === "(min-width: 768px)"
+        ? true
+        : query === "(pointer: coarse)"
+          ? pointer === "coarse"
+          : false,
     media: query,
     onchange: null,
     addEventListener: vi.fn(),
@@ -325,17 +329,21 @@ describe("the Mac sidebar list", () => {
           next_cursor: undefined,
         });
       });
-      expect(await screen.findAllByRole("button", { name: /Imported sessions \(2\)/ })).toHaveLength(2);
+      expect(
+        await screen.findAllByRole("button", { name: /Imported sessions \(2\)/ }),
+      ).toHaveLength(2);
 
       await act(async () => {
         pending[0]?.({ items: [session("old", "Old")], next_cursor: undefined });
       });
       expect(screen.getAllByRole("button", { name: /Imported sessions \(2\)/ })).toHaveLength(2);
     } finally {
-      vi.mocked(listAgentSessionsPage).mockReset().mockImplementation(async () => ({
-        items: fixtures.sessions,
-        next_cursor: undefined,
-      }));
+      vi.mocked(listAgentSessionsPage)
+        .mockReset()
+        .mockImplementation(async () => ({
+          items: fixtures.sessions,
+          next_cursor: undefined,
+        }));
     }
   });
 
@@ -381,12 +389,12 @@ describe("the Mac sidebar list", () => {
     render(sidebar());
 
     expect(screen.getAllByRole("button", { name: "shared" })).toHaveLength(2);
-    const self = screen.getByRole("heading", { name: /This machine/ }).closest(
-      "section",
-    ) as HTMLElement;
-    const remote = screen.getByRole("heading", { name: /Studio/ }).closest(
-      "section",
-    ) as HTMLElement;
+    const self = screen
+      .getByRole("heading", { name: /This machine/ })
+      .closest("section") as HTMLElement;
+    const remote = screen
+      .getByRole("heading", { name: /Studio/ })
+      .closest("section") as HTMLElement;
 
     expect(within(self).getByRole("button", { name: "One-Pager cover" })).toBeTruthy();
     expect(within(self).getByRole("button", { name: "Pin project" })).toBeTruthy();
@@ -404,23 +412,21 @@ describe("the Mac sidebar list", () => {
     await userEvent.click(within(remote).getByRole("button", { name: "shared" }));
     expect(screen.getByTestId("location").textContent).toBe("/");
 
-    await userEvent.click(
-      within(remote).getByRole("button", { name: "New session in shared" }),
-    );
+    await userEvent.click(within(remote).getByRole("button", { name: "New session in shared" }));
     await waitFor(() => expect(localStorage.getItem("kin_draft_cwd")).toBe("/work/shared"));
     expect(localStorage.getItem("kin_draft_machine")).toBe("nas-1");
 
     // The local copy is the same path with no machine: an empty value clears
     // whatever remote choice came before it.
-    const remoteSection = screen.getByRole("heading", { name: /Studio/ }).closest(
-      "section",
-    ) as HTMLElement;
+    const remoteSection = screen
+      .getByRole("heading", { name: /Studio/ })
+      .closest("section") as HTMLElement;
     await userEvent.click(
       within(remoteSection).getByRole("button", { name: /New session in shared/ }),
     );
-    const localSection = screen.getByRole("heading", { name: /This machine/ }).closest(
-      "section",
-    ) as HTMLElement;
+    const localSection = screen
+      .getByRole("heading", { name: /This machine/ })
+      .closest("section") as HTMLElement;
     await userEvent.click(
       within(localSection).getByRole("button", { name: "New session in shared" }),
     );

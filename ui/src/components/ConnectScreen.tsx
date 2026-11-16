@@ -158,7 +158,10 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
         </div>
 
         {showHubForm && (
-          <form onSubmit={submitHubUrl} className="rounded-2xl bg-kin-elevated p-5 space-y-4 shadow-e3">
+          <form
+            onSubmit={submitHubUrl}
+            className="rounded-2xl bg-kin-elevated p-5 space-y-4 shadow-e3"
+          >
             <label className="block space-y-1.5">
               <span className="text-body leading-4 font-medium text-kin-muted">
                 {tr("connect.hubLabel")}
