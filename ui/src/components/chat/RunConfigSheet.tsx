@@ -153,46 +153,54 @@ export default function RunConfigControl({
         aria-label={`${tr("runConfig.open")}${tr("common.labelSeparator")}${agentName} · ${modelLabel} · ${permissionLabel}`}
         aria-haspopup="dialog"
         aria-expanded={open}
-        // The shared button is a one-line box by construction. This face is
-        // two lines and lets a long agent or model name wrap, so the height is
-        // content-driven again. Astryx wraps the children in its own label
-        // span, which sizes to content; the last selector makes that span fill
-        // the face so the two lines get the full width before they wrap.
+        // The shared button is a one-line box by construction, and this face
+        // stays one line at every width: it rides the composer's control row,
+        // whose height and the send control's place must not move with a model
+        // id. Astryx wraps the children in its own label span, which sizes to
+        // content; the last selector makes that span fill the face so the
+        // model ellipsizes instead of pushing the row wider than the composer.
         className={[
-          "flex h-auto min-h-11 min-w-0 max-w-full items-center justify-start gap-1.5 rounded-lg px-1.5 py-1 text-left font-normal whitespace-normal [&>span>span]:w-full",
+          "flex h-auto min-h-11 min-w-0 max-w-full items-center justify-start gap-1.5 overflow-hidden rounded-lg px-1.5 py-1 text-left font-normal transition-colors active:bg-[var(--kin-fill)] disabled:opacity-50 sm:min-h-7 [&>span>span]:w-full",
           className,
         ].join(" ")}
       >
-        <span className="flex w-full min-w-0 items-center gap-1.5">
+        {/* Astryx wraps the button's children in a plain label span, so two
+            sibling spans there would stack onto two lines. One wrapper of our
+            own keeps the avatar and the text row in a single flex row at every
+            width. */}
+        <span className="flex w-full min-w-0 items-center gap-1.5 overflow-hidden">
           <span
             className={`flex h-5 w-5 flex-none items-center justify-center rounded-md text-micro font-semibold ${agentAvatar.className}`}
           >
             {agentAvatar.initials}
           </span>
-          {/* Two lines, not one: the face has to name the agent, the model and
-              the mode, and on a 320px phone one line left the first two as
-              ellipses. The agent owns the first line and the model hangs under
-              it — the model belongs to that agent — with the mode beside the
-              model. Neither value truncates; a long name wraps, because a phone
-              has no hover to reveal a `title` and the choice has to be readable
-              before it is changed. */}
-          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="min-w-0 break-words text-caption font-semibold text-kin-secondary">
+          {/* One line, always: the face rides the composer's control row, whose
+              height and the send control's place must not move with a model id.
+              On a phone the row has room for one name, and the model is the one
+              that changes — the agent is the avatar here and a full row in the
+              sheet. From `sm` up there is room for both. The model ellipsizes;
+              every full value stays in this button's accessible name and in the
+              sheet or panel behind it. (The earlier two-line face wrapped to
+              four lines inside a phone composer, making the settings taller
+              than the message it configures.) */}
+          <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+            <span className="hidden min-w-0 max-w-[10rem] flex-none truncate text-caption font-semibold text-kin-secondary sm:block">
               {agentName}
             </span>
-            <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0">
-              <span className="min-w-0 break-words text-strong text-kin-text">{modelLabel}</span>
-              <span aria-hidden className="flex-none select-none text-kin-muted/60">
-                ·
-              </span>
-              <span
-                className={[
-                  "whitespace-nowrap text-caption font-medium",
-                  mode === "yolo" ? "text-kin-orange-ink" : "text-kin-muted",
-                ].join(" ")}
-              >
-                {permissionLabel}
-              </span>
+            <span aria-hidden className="hidden flex-none select-none text-kin-muted/60 sm:block">
+              ·
+            </span>
+            <span className="min-w-0 flex-1 truncate text-strong text-kin-text">{modelLabel}</span>
+            <span aria-hidden className="flex-none select-none text-kin-muted/60">
+              ·
+            </span>
+            <span
+              className={[
+                "flex-none whitespace-nowrap text-caption font-medium",
+                mode === "yolo" ? "text-kin-orange-ink" : "text-kin-muted",
+              ].join(" ")}
+            >
+              {permissionLabel}
             </span>
           </span>
         </span>
