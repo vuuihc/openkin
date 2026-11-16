@@ -1611,7 +1611,7 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
                   <span className="font-mono">{family}</span>
                   <Button
                     variant="quiet"
-                    className="inline-flex items-center px-1 text-caption text-kin-blue-ink hover:underline max-md:min-h-11 md:min-h-6"
+                    className="inline-flex items-center px-1 text-caption text-kin-blue-ink! hover:underline max-md:min-h-11 md:min-h-6"
                     aria-label={tr("agents.removeNamed", { name: family })}
                     onClick={() => removeFamily(family)}
                   >
