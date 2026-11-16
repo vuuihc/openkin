@@ -36,8 +36,7 @@ if [ "$CMD" = autofill ]; then
     python3 "$LANES_PY" slugs | grep -qx "$slug" && continue
     idle="$(python3 "$LANES_PY" idle --ignore-pressure | head -1)"; [ -z "$idle" ] && { echo "no idle lane for rework $slug"; break; }
     br="rsi/$slug"; $GIT -C "$RSI_CTRL" fetch -q origin "$br" 2>/dev/null
-    paths="$($GIT -C "$RSI_CTRL" diff --raw "origin/main...origin/$br" 2>/dev/null | awk '$3 != $4 {sub(/^[^\t]*\t/, ""); print}' | grep -vx "web/dist/index.html" | head -40)"
-    [ -z "$paths" ] && paths="$($GIT -C "$RSI_CTRL" diff --name-only "origin/main...origin/$br" 2>/dev/null | grep -vx "web/dist/index.html" | head -40)"
+    paths="$($GIT -C "$RSI_CTRL" -c core.fileMode=false diff --no-renames --raw "origin/main...origin/$br" 2>/dev/null | awk '$3 != $4 {sub(/^[^\t]*\t/, ""); print}' | grep -vx "web/dist/index.html" | head -40)"
     [ -z "$paths" ] && { echo "rework $slug: no diff vs main, skipping"; continue; }
     paths_arr=()
     while IFS= read -r _p; do

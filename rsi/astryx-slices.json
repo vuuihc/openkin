@@ -454,7 +454,7 @@
     "ui/src/components/layout/PhoneFooter.tsx",
     "ui/src/components/layout/AppShell.tsx",
     "ui/src/pages/SessionsPage.tsx",
-    "ui/src/components/sessions/SessionsHeader.tsx",
+    "ui/src/components/mobile/SessionsHeader.tsx",
     "ui/src/components/layout/PhoneNavigation.dom.test.tsx"
    ],
    "brief": "Each tab returns to where the reader last was in that area (list search/filters/scope, routines scroll), not to a bare root, and Back still pops one step. One visible page title per screen at 390 (no duplicate heading between the shell bar and the page). The list header's New is secondary to the first row's own continue affordance. 390x844 shots; PhoneNavigation tests updated. UX ACCEPTANCE (rsi/UX-AUDIT.md): tab bar only at area roots with a needs-you badge on Conversations; every tap target >=44px; no duplicated screen titles. The phone project-cover CTA bottom bar is P3's (ProjectDetailPage), not this slice.",
@@ -508,7 +508,8 @@
     "ui/src/components/chat/BranchPicker.dom.test.tsx",
     "ui/src/components/newchat/PlacePicker.dom.test.tsx"
    ],
-   "brief": "Part 1 (cloud, location-pickers-facade): move the BranchPicker listbox and the Mac PlacePicker panel onto the shared Popover; phone PlacePicker keeps its Sheet. Part 2 = C1b2 (CwdPicker hover card/actions + MachineBrowser dialog)."
+   "brief": "Part 1 (cloud, location-pickers-facade): move the BranchPicker listbox and the Mac PlacePicker panel onto the shared Popover; phone PlacePicker keeps its Sheet. Part 2 = C1b2 (CwdPicker hover card/actions + MachineBrowser dialog).",
+   "executor": "cloud"
   },
   {
    "id": "C1b2",
@@ -541,7 +542,8 @@
     "ui/src/components/ui/Popover.tsx",
     "ui/src/components/ui/Popover.dom.test.tsx"
    ],
-   "brief": "Part 1 (cloud, run-config-layers): move the two private floating containers in RunConfigSheet — the Mac anchored panel (own outside/Escape/focus listeners + portal) and the row option layer (own anchoring/focus/portal) — onto the shared Popover. Keep every control's markup and the phone Sheet. Part 2 = C1c2 (triggers/option rows on Button/Menu, search + custom model on TextInput)."
+   "brief": "Part 1 (cloud, run-config-layers): move the two private floating containers in RunConfigSheet — the Mac anchored panel (own outside/Escape/focus listeners + portal) and the row option layer (own anchoring/focus/portal) — onto the shared Popover. Keep every control's markup and the phone Sheet. Part 2 = C1c2 (triggers/option rows on Button/Menu, search + custom model on TextInput).",
+   "executor": "cloud"
   },
   {
    "id": "C1c2",
@@ -685,11 +687,12 @@
     "ui/src/components/sessions/SessionList.tsx",
     "ui/src/components/sessions/SessionList.dualDevice.dom.test.tsx",
     "ui/src/components/sessions/SessionList.importFeed.dom.test.tsx",
+    "ui/src/components/sessions/SessionToolbar.tsx",
     "ui/src/i18n/locales/en.ts",
     "ui/src/i18n/locales/zh.ts",
     "docs/product/components/session-filters.md"
    ],
-   "brief": "All/Pending/Archived as scope of the single collection; filters/search in the URL; keep exact status filters; red tests first (docs/product/components/session-filters.md). UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): scope chips All / Needs you N / Running N / Archived with live counts. Paths corrected 2026-11-16: ConversationScopeFilter.tsx and SessionToolbar.tsx do not exist; the owner of ?scope= is SessionList.tsx and the labels live in the two locale files (claimed by another lane until N2 lands, so this slice waits for a lane that can take all three). The ordering clause moved to C5d."
+   "brief": "All/Pending/Archived as scope of the single collection; filters/search in the URL; keep exact status filters; red tests first (docs/product/components/session-filters.md). UX ACCEPTANCE (rsi/UX-AUDIT.md, scored by the merge lane's UX gate): scope chips All / Needs you N / Running N / Archived with live counts. Paths corrected 2026-11-16: ConversationScopeFilter.tsx does not exist; the owner of ?scope= is SessionList.tsx and the labels live in the two locale files (claimed by another lane until N2 lands, so this slice waits for a lane that can take all three). The ordering clause moved to C5d."
   },
   {
    "id": "C5c",

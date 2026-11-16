@@ -305,7 +305,7 @@ bash "$RSI_DIR/runtime/prep-worktree.sh" "$WT" 2>&1 | tail -2
 SHA="$($GIT -C "$WT" rev-parse HEAD)"
 
 # 2. hold rules (MANDATE): never auto-merge these
-CH="$($GIT -C "$WT" diff --raw origin/main...HEAD | awk '$3 != $4 {sub(/^[^\t]*\t/, ""); print}')"
+CH="$($GIT -C "$WT" -c core.fileMode=false diff --no-renames --raw origin/main...HEAD | awk '$3 != $4 {sub(/^[^\t]*\t/, ""); print}')"
 SIZE="$($GIT -C "$WT" diff --numstat origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | awk '{s+=$1+$2} END{print s+0}')"
 # CEO 2026-11-16 EMPTY-DELIVERY: a PR whose tree equals main delivers nothing; never merge it.
 if [ "$SIZE" = 0 ] && $GIT -C "$WT" diff --quiet origin/main HEAD; then
