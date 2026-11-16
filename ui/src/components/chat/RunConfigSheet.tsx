@@ -293,7 +293,11 @@ function RunConfigPanel({
         </Button>
       </div>
       <div className="-mx-1.5 -mb-1.5 px-3 pb-3 pt-2">
-        <RunConfigBody {...body} />
+        {/* This panel is anchored near the top of a Mac window, so the room
+            above a row is a strip narrower than the model catalog. The model
+            row opens downward here, where the page is; the phone sheet, which
+            rises from the bottom, keeps it opening upward. */}
+        <RunConfigBody {...body} optionPlacement="below" />
       </div>
     </Popover>
   );
@@ -322,7 +326,13 @@ function RunConfigBody({
   agents,
   onAgentChange,
   extraRows,
-}: Omit<SheetProps, "open" | "onClose">) {
+  optionPlacement = "above",
+}: Omit<SheetProps, "open" | "onClose"> & {
+  /** Which side of its trigger the model row opens its catalog on. The phone
+   *  sheet rises from the bottom, so upward is the room; the Mac panel hangs
+   *  near the top, where only the page below the row fits a long list. */
+  optionPlacement?: "above" | "below";
+}) {
   const tr = useT();
   const [openRow, setOpenRow] = useState<RowId | null>(null);
   // The option layer is part of this sheet's modal even though it is portaled
@@ -515,7 +525,9 @@ function RunConfigBody({
           // A short catalog opens on the choice that is set; a long one opens
           // in the field, where the reader has to narrow it first.
           initialFocusId={selection}
-          placement="above"
+          // The one row whose list outgrows the space above it on a Mac: its
+          // placement follows the container instead of always opening upward.
+          placement={optionPlacement}
           width={320}
           emptyLabel={tr("modelPicker.searchEmpty")}
           search={

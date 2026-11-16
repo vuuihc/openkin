@@ -758,6 +758,40 @@ describe("RunConfigControl on a wide screen", () => {
     expect(screen.getByRole("dialog", { name: "Run settings" })).toBeTruthy();
   });
 
+  it("opens the model catalog downward, where the panel has room for it", async () => {
+    // The Mac panel hangs near the top of the window: the row sits ~170px
+    // from the top edge, less than half the 360px band the catalog needs.
+    // The menu follows the container, so it uses the page below the row
+    // instead of squeezing a hundred models into the strip above it.
+    setup({ models: MANY_MODELS, model: "m0" });
+    await openSheet();
+    const trigger = screen.getByRole("button", { name: /^Model/ });
+    const rect = {
+      top: 171,
+      bottom: 196,
+      left: 700,
+      right: 1060,
+      width: 360,
+      height: 25,
+      x: 700,
+      y: 171,
+      toJSON: () => ({}),
+    } as DOMRect;
+    trigger.getBoundingClientRect = () => rect;
+
+    await userEvent.click(trigger);
+
+    const panel = screen
+      .getByRole("menu", { name: "Model" })
+      .closest<HTMLElement>('[role="dialog"]');
+    expect(panel).toBeTruthy();
+    // Downward: measured from the top, and no `bottom` on the same element.
+    expect(panel!.style.top).not.toBe("");
+    expect(panel!.style.bottom).toBe("");
+    // The whole 360px band, not the ~150px the top edge would have left.
+    expect(Number.parseFloat(panel!.style.maxHeight)).toBe(360);
+  });
+
   it("keeps the panel open when a non-popover extra row layer takes the pointer", async () => {
     setup({ extraRows: <PortaledExtraRow /> });
     const panel = await openSheet();
