@@ -9,6 +9,7 @@ import NotificationTaps from "./components/NotificationTaps";
 import AppShell from "./components/layout/AppShell";
 import ToastHost from "./components/ToastHost";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
+import { designSystemRoute } from "./pages/DesignSystemPage";
 import NewChatPage from "./pages/NewChatPage";
 import SessionsRoute from "./pages/SessionsRoute";
 import StartRoute from "./pages/StartRoute";
@@ -174,10 +175,7 @@ export default function App() {
 
   return (
     <>
-      <AppShell
-        pendingApprovals={pending.data.approvals}
-        routineUnreadCount={routineUnreadCount}
-      >
+      <AppShell pendingApprovals={pending.data.approvals} routineUnreadCount={routineUnreadCount}>
         <ErrorBoundary>
           {/*
             Session keep-alive lives outside <Routes> so /tasks/:id → /new
@@ -203,6 +201,8 @@ export default function App() {
             <Route path="/usage" element={<Navigate to="/agents" replace />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/agent-sessions/:id" element={<AgentSessionDetailPage />} />
+            {/* Developer-only; a production build produces no route here. */}
+            {designSystemRoute()}
             <Route path="*" element={<Navigate to="/new" replace />} />
           </Routes>
         </ErrorBoundary>
