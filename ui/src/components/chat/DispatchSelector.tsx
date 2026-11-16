@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import {
   getRoutingOptions,
   getRoutingPreview,
@@ -10,6 +10,7 @@ import { useT } from "../../i18n/react";
 import Button from "../ui/Button";
 import Popover from "../ui/Popover";
 import SearchSelect, { type SearchSelectOption } from "../ui/SearchSelect";
+import { sheetCount, subscribeSheets, useSheetLayer } from "../mobile/Sheet";
 
 type DispatchMode = "auto" | "manual" | "";
 
@@ -123,10 +124,57 @@ export function DispatchSelector({
   }, [loadOptions]);
 
   // Outside press, Escape, one layer at a time, focus into the panel and back,
-  // and Tab containment belong to the `Popover` layer below. The panel's
-  // pickers are `Popover`s opened from inside it, so a press in one of their
-  // portaled layers is this layer's reach, not an outside click — which is why
-  // the hand-rolled `[data-search-panel]` guards are gone.
+  // and Tab containment belong to the `Popover` layer below. A picker opened
+  // from inside this panel portals its surface out of this layer; the desktop
+  // list is a nested `Popover` and already inside this layer's reach, while
+  // the phone's option sheet is a `Sheet`, so it needs the explicit guards
+  // below.
+  //
+  // This panel is also opened from inside the phone run settings `Sheet`. Its
+  // option pickers then open a `Sheet` of their own, portaled out of this
+  // layer, and the sheet stack — not `Popover` — owns Escape and Back there.
+  // Registering this panel as a sheet layer, while no other sheet sits above
+  // it, is what makes one Escape/Back close the option sheet, the next this
+  // panel, and the next the run settings behind it.
+  const sheets = useSyncExternalStore(subscribeSheets, sheetCount, () => 0);
+  const overSheet = open && sheets === 1;
+  useSheetLayer(overSheet, () => setOpen(false));
+
+  // The phone's option sheet is not a popover, so a press on one of its rows
+  // reads as an outside press to the shared layer: it would close this panel
+  // — unmounting the option sheet — before the row's click landed. Keep this
+  // panel alive for that press. A vetoed close is cleared on release so the
+  // next Escape or outside press still closes the panel.
+  const pressInOptionLayer = useRef(false);
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Element | null;
+      pressInOptionLayer.current = Boolean(
+        target?.closest?.("[data-search-panel], [data-kin-sheet]"),
+      );
+    };
+    const release = () => {
+      pressInOptionLayer.current = false;
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("pointerup", release, true);
+    document.addEventListener("pointercancel", release, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("pointerup", release, true);
+      document.removeEventListener("pointercancel", release, true);
+      pressInOptionLayer.current = false;
+    };
+  }, [open]);
+
+  const handleOpenChange = useCallback((next: boolean) => {
+    if (!next && pressInOptionLayer.current) {
+      pressInOptionLayer.current = false;
+      return;
+    }
+    setOpen(next);
+  }, []);
 
   // Fetch preview when selection changes and popover is open.
   useEffect(() => {
@@ -233,7 +281,7 @@ export function DispatchSelector({
 
       <Popover
         open={open}
-        onOpenChange={setOpen}
+        onOpenChange={handleOpenChange}
         triggerRef={triggerRef}
         label={tr("dispatch.popoverLabel")}
         id={popoverId}
@@ -242,7 +290,15 @@ export function DispatchSelector({
         width={320}
         maxHeight={360}
       >
-        <div className="text-body leading-4 space-y-2">
+        {/* `data-sheet-layer` while this panel is the layer over the one open
+            sheet: the sheet's Escape/Tab handling finds it without a portal
+            walk, so it declines to close underneath this panel. It is off
+            when another sheet is above (the panel is below it) and when no
+            sheet is open (a desktop popover is nobody's sheet layer). */}
+        <div
+          data-sheet-layer={overSheet ? "" : undefined}
+          className="text-body leading-4 space-y-2"
+        >
           {/* Mode toggle */}
           <div className="flex items-center gap-1">
             <Button
