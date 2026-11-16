@@ -21,7 +21,45 @@ STATE = os.environ.get("RSI_STATE") or os.path.normpath(os.path.join(HERE, "..",
 LDIR = os.path.join(STATE, "lanes")
 MAX_LANES = int(os.environ.get("RSI_MAX_LANES", "3"))
 CLAIM_TTL = 25 * 60
-LOAD_MAX = float(os.environ.get("RSI_LOAD_MAX", "100000"))
+
+def ncpu():
+    return os.cpu_count() or 4
+
+def load_max():
+    # Default: 2× logical cores. Values >= 10000 (the old default 100000) are
+    # treated as unset so a leftover env cannot disable the guard.
+    raw = os.environ.get("RSI_LOAD_MAX")
+    try:
+        v = float(raw) if raw else 0
+    except ValueError:
+        v = 0
+    if v <= 0 or v >= 10000:
+        return float(2 * ncpu())
+    return v
+
+LOAD_MAX = load_max()
+SWAP_FREE_MIN_MB = float(os.environ.get("RSI_SWAP_FREE_MIN_MB", "2048"))
+
+def swap_free_mb():
+    try:
+        sw = subprocess.run(["sysctl", "-n", "vm.swapusage"], capture_output=True, text=True, timeout=5).stdout
+        return float(sw.split("free =")[1].split("M")[0].strip())
+    except Exception:
+        return None
+
+def host_pressure():
+    """Reason the Mac must not start a new local worker, or empty if it may."""
+    try:
+        load = os.getloadavg()[0]
+        lim = load_max()
+        if load > lim:
+            return "load %.1f > %.0f (%d cores × 2)" % (load, lim, ncpu())
+    except Exception:
+        pass
+    free = swap_free_mb()
+    if free is not None and free < SWAP_FREE_MIN_MB:
+        return "swap free %.0fMB < %.0fMB" % (free, SWAP_FREE_MIN_MB)
+    return ""
 # Generated/derived files every UI lane touches; the merge lane rebuilds/merges them, so they never count as a claim.
 IGNORED = {"web/dist/index.html"}
 TOO_BROAD = {".", "", "*", "**", "ui", "ui/src", "internal", "web", "docs", "scripts", "desktop", "mobile", "cmd"}
@@ -67,8 +105,11 @@ def is_active(d):
     return False
 
 def norm(p):
-    p = p.strip().lstrip("./").rstrip("/")
-    return p
+    # NOT lstrip("./"): that strips characters, so ".gitignore" became "gitignore" and the claim was REFUSED (too broad),
+    # which kept rework lanes idle for PRs that touch a dotfile (found 2026-11-15: #59/#63 waited >1h).
+    p = p.strip()
+    while p.startswith("./"): p = p[2:]
+    return p.rstrip("/")
 
 def overlap(a, b):
     a, b = norm(a), norm(b)
@@ -96,28 +137,27 @@ def cmd_status(a):
     reap()
     for n in range(1, ALL_LANES + 1):
         print(f"lane {n}: {fmt(load(n))}")
-    try: print("loadavg1=%.1f max=%.0f" % (os.getloadavg()[0], LOAD_MAX))
+    try:
+        press = host_pressure()
+        print("loadavg1=%.1f max=%.0f swap_free_mb=%s%s" % (
+            os.getloadavg()[0], load_max(),
+            ("%.0f" % (swap_free_mb() or -1)),
+            (" PRESSURE: " + press if press else "")))
     except Exception: pass
+
+def cmd_host_ok(a):
+    press = host_pressure()
+    if press:
+        print(press, file=sys.stderr); sys.exit(1)
+    sys.exit(0)
 
 def cmd_idle(a):
     with Lock():
         reap()
-        try:
-            if os.getloadavg()[0] > LOAD_MAX:
-                print(f"load too high ({os.getloadavg()[0]:.1f} > {LOAD_MAX:.0f}); not filling", file=sys.stderr); return
-        except Exception: pass
-        try:
-            out = subprocess.run(["memory_pressure"], capture_output=True, text=True, timeout=10).stdout
-            free = int(out.split("System-wide memory free percentage:")[1].split("%")[0])
-            if free < int(os.environ.get("RSI_MEM_FREE_MIN", "10")):
-                print(f"memory free {free}% too low; not filling", file=sys.stderr); return
-        except Exception: pass
+        press = host_pressure()
+        if press:
+            print(f"host pressure ({press}); not filling local workers", file=sys.stderr); return
         cap = MAX_LANES
-        try:  # the third lane only when swap has room (16 GB Mac): below 2.5 GB free swap, cap at 2 lanes
-            sw = subprocess.run(["sysctl", "-n", "vm.swapusage"], capture_output=True, text=True, timeout=5).stdout
-            free_mb = float(sw.split("free =")[1].split("M")[0])
-            if free_mb < float(os.environ.get("RSI_SWAP_FREE_MIN_MB", "1000")): cap = min(cap, 2)
-        except Exception: pass
         for n in range(1, cap + 1):
             if not is_active(load(n)): print(n)
 
@@ -137,6 +177,9 @@ def cmd_claim(a):
         print(f"REFUSED: declare specific files/dirs (too broad or empty: {bad or 'none given'})"); sys.exit(5)
     if not os.path.isfile(a.brief): print(f"REFUSED: brief {a.brief} missing"); sys.exit(6)
     ux_gate_refuse(a.item)
+    press = host_pressure()
+    if press:
+        print(f"REFUSED: host pressure ({press}); no new local worker"); sys.exit(8)
     with Lock():
         reap()
         if not 1 <= a.lane <= MAX_LANES: print("REFUSED: no such lane"); sys.exit(4)
@@ -234,6 +277,8 @@ p = argparse.ArgumentParser(); sub = p.add_subparsers(dest="c", required=True)
 sub.add_parser("status").set_defaults(f=cmd_status)
 sub.add_parser("idle").set_defaults(f=cmd_idle)
 sub.add_parser("claimed").set_defaults(f=cmd_claimed)
+sub.add_parser("host-ok").set_defaults(f=cmd_host_ok)
+
 sub.add_parser("slugs").set_defaults(f=cmd_slugs)
 c = sub.add_parser("claim"); c.add_argument("lane", type=int); c.add_argument("--slug", required=True); c.add_argument("--item", required=True)
 c.add_argument("--brief", required=True); c.add_argument("--mode", default="new", choices=["new", "rework"]); c.add_argument("--paths", nargs="+", default=[]); c.set_defaults(f=cmd_claim)

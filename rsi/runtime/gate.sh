@@ -8,7 +8,16 @@ fail=0; why=""
 step() { # name cmd...
   local n="$1"; shift
   echo "--- $n"
-  if "$@" > "$RUNS/gate-$$-$n.log" 2>&1; then echo "ok: $n"; else echo "FAIL: $n (see $RUNS/gate-$$-$n.log)"; tail -25 "$RUNS/gate-$$-$n.log"; fail=1; why="$why $n"; fi
+  if "$@" > "$RUNS/gate-$$-$n.log" 2>&1; then echo "ok: $n"; else
+    echo "FAIL: $n (see $RUNS/gate-$$-$n.log)"
+    # Keep the failing-test identifiers in the gate log itself. merge.sh classifies
+    # out-of-footprint / known-flaky failures from THIS file (outside-tests.py), and the
+    # per-step log is otherwise invisible to it: Vitest prints its "FAIL  src/… > name"
+    # header far above the last 25 lines, so a flaky DOM test read as a quality failure.
+    grep -aE '(FAIL|✗|×).*\.(test|spec)\.(tsx|ts|jsx|js)|^--- FAIL:|Failed Tests|Test Files|^FAIL[[:space:]]' "$RUNS/gate-$$-$n.log" 2>/dev/null | head -20
+    tail -25 "$RUNS/gate-$$-$n.log"
+    fail=1; why="$why $n"
+  fi
 }
 # Changed-file Prettier, not a repo-wide check: 55 historical UI files fail
 # `prettier --check`, so a grep over the whole tree would be permanently red
@@ -59,6 +68,8 @@ prettier_ui_changed() {
 }
 
 mkdir -p "$RUNS"
+trap 'for kid in $(pgrep -P $$ 2>/dev/null || true); do rsi_kill_tree "$kid"; done' EXIT
+export GOMAXPROCS="${GOMAXPROCS:-2}" GO_TEST_P="${GO_TEST_P:-2}" VITEST_MAX_WORKERS="${VITEST_MAX_WORKERS:-2}"
 # Repair ui/node_modules before the first console compile, not after it. A bare directory-existence
 # test was true for a symlink into another worktree and for an install older than its own lockfile,
 # so the repair never ran and tsc/vitest/build failed on a tree that was not the PR's fault.
@@ -75,7 +86,7 @@ echo "$changed" | grep -q '^ui/' && step node-stamp ui_node_stamp
 if echo "$changed" | grep -q '^ui/'; then
   step typecheck bash -c 'cd ui && npm run typecheck'
   step lint bash -c 'cd ui && npm run lint'
-  step test bash -c 'cd ui && npm test'
+  step test bash -c 'cd ui && npm test -- --maxWorkers="${VITEST_MAX_WORKERS:-2}"'
   step build bash -c 'cd ui && npm run build'
   [ -n "$($GIT status --porcelain -- . ':!web/dist/index.html')" ] && { echo "FAIL: build left uncommitted changes"; fail=1; why="$why dirty-after-build"; }
   $GIT diff --quiet -- web/dist/index.html || { echo "FAIL: web/dist/index.html stale — commit the rebuilt file"; fail=1; why="$why stale-dist"; }
