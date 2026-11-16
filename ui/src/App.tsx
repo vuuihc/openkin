@@ -10,6 +10,7 @@ import AppShell from "./components/layout/AppShell";
 import ToastHost from "./components/ToastHost";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
 import ProjectsCollectionPage from "./pages/ProjectsCollectionPage";
+import { designSystemRoute } from "./pages/DesignSystemPage";
 import NewChatPage from "./pages/NewChatPage";
 import SessionsRoute from "./pages/SessionsRoute";
 import StartRoute from "./pages/StartRoute";
@@ -206,6 +207,8 @@ export default function App() {
             <Route path="/usage" element={<Navigate to="/agents" replace />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/agent-sessions/:id" element={<AgentSessionDetailPage />} />
+            {/* Developer-only; a production build produces no route here. */}
+            {designSystemRoute()}
             <Route path="*" element={<Navigate to="/new" replace />} />
           </Routes>
         </ErrorBoundary>

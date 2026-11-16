@@ -565,6 +565,72 @@ seen: 1
 
 证据：`8a341cc9`（2026-11-14）、`987d5788`（2026-11-15）
 
+## 2026-11-16 · 合入必须改变树
+seen: 1
+
+发生了什么：01:59 到 07:39 之间，同一个 `rsi/design-system-gallery` 分支被反复投递，开了 13 个 PR（#96–#108）。只有 #96 有内容（4 个文件、+669/−6），#97–#108 每个都是 0 个文件、空提交，仍被合并进 `main`，一共 12 个空提交。`git show --stat 610f2e35` 无文件行，`git diff --stat 07e9b3b7 55d47074` 为空，`gh pr view 97 --json changedFiles` 为 0。
+
+为什么没拦住：合并门只看 gate / 独立 review / CI，没有断言“这个 PR 真的改了东西”。空 diff 的 PR 在所有检查上都必然通过，于是它比真交付更容易合入；对 `main` 来说这是纯噪声，对队列来说每个空 PR 还占约 10 分钟的合并周期。
+
+规则：合并前必须证明树会变——`gh pr view <n> --json changedFiles` > 0，或 `git diff --stat origin/main...HEAD` 非空；为空的 PR 直接关闭并在 `merged.log` 之外留一行原因，不 squash-merge。合并动作是唯一的收口，不能指望投递端永远不重复。
+
+证据：#96（`07e9b3b7`，669 行）对比 #97–#108（0 行），`rsi/state/merged.log` 02:34–07:39
+
+## 2026-11-16 · 同一份交付只投递一次，认领随落库一起释放
+seen: 1
+
+发生了什么：`state/cloud/design-system-gallery.json` 在 #96 合入后没有被释放，#97–#108 的重复投递就是这么来的。同一时期还有一类同源错误：`slices.py ready` 在 lane 退出后就把仍有开放 PR 的切片重新列为 ready（15:22 记录：N2/T1/L1/P1/Q3a 同时被列为 ready 而它们都有 live PR）。
+
+为什么没拦住：“已交付”只写在 `merged.log` 里，投递端（cloud/NAS ingest、scheduler）在决定要不要再干一次时不读它；认领的释放挂在合并流程之外，合入成功并不必然触发。
+
+规则：一个条目进 `merged.log` 的那一步同时释放它的 claim；任何 re-delivery 在推送前先比较自己与 `origin/main` 的树，树相同就不推、不开 PR（这不是靠人肉记得）。调度器把“有开放 PR 或有效 claim”当成 in-flight，而不是“lane 退出即 ready”。
+
+证据：`rsi/state/merged.log` 02:34–07:39；`rsi/state/cloud/`（`design-system-gallery.json` 缺失、其余 4 个 claim 的 `pr` 均为 null）
+
+## 2026-11-16 · 循环脚本安装要么整份要么不装
+seen: 1
+
+发生了什么：21:15 的安装把 `gate.sh` 换成了会 `source rsi/runtime/node-stamp.sh` 的版本，却没有把这个文件写进控制树（它在 `origin/main` 上，而控制树落后 27 个提交且带着刻意的本地改动，ff-only 永远不会触发）。后果是每个 gate 都在 `node-stamp` 上失败：#93 T2 因此被退回两次（两次 review 都已 PASS），#80 F3 被自动 block（review 在 `e4469b20` 上是 PASS），并把 `consec_blocked` 推到 NO_MERGE。
+
+为什么没拦住：安装脚本按“改了哪几个文件”复制，而不是按“运行需要哪些文件”校验；`bash -n` 只能证明语法，证明不了被 source 的文件存在；失败被当成 PR 的质量问题，没人先问“gate 自己是不是坏了”。
+
+规则：安装任何 live 循环脚本时，(1) 先列出它 source/调用到的全部目标并断言存在，(2) 跑 `bash -n` / `python -m py_compile`，(3) 用 temp + `mv` 原子替换（就地重写会让正在读它的 bash 报语法错），(4) 装完立刻在空 state 目录里跑一次最小路径。gate 失败时先分清“gate 坏了”和“代码坏了”，再决定是否计一次 sendback。
+
+证据：`rsi/state/needs-ceo.md` 00:20 / 00:26 / 00:29；`rsi/runtime/node-stamp.sh` 从 `origin/main` 恢复
+
+## 2026-11-16 · gate 日志要留下失败测试的名字
+seen: 1
+
+发生了什么：`gate.sh` 的 `step()` 只把每个步骤日志的最后 25 行写进 gate log，而 Vitest 把 `FAIL src/… > name` 打印在汇总上方几百行。于是 `outside-tests.py` 永远解析不到失败测试，F3 的 1 秒 DOM 超时（两个 verifier 并发、load ≈16，单跑 85 ms 通过）被算成一次质量 sendback，成为它的第 4 次 block。
+
+为什么没拦住：日志被当成“给人看的尾巴”，而它同时是分类器的输入；截断发生在其唯一消费者之前，且没有任何断言证明“解析器能在真实日志上工作”。
+
+规则：凡是会被机器再读一遍的日志，在截断之前先 grep 出机器需要的标识（失败测试全名、`Failed Tests` 头、`Test Files` 汇总），再附上 tail；分类器要在一条真实失败日志上验证过，而不是在合成样本上。
+
+证据：`rsi/runtime/gate.sh` `step()`（2026-11-16 00:28 修复）；验证输出 `MECHANICAL: … outside PR footprint`
+
+## 2026-11-16 · 判断证据缺失要列目录，不要猜文件名
+seen: 1
+
+发生了什么：#69 P1 的四张截图（`before-390x844.png`、`after-390x844.png`、`before-1100x760.png`、`after-1100x760.png`）就在 `state/shots/project-detail-sections/`，PR 正文也写了文件名，但 review 探了一个硬编码列表（`390.png`、`mobile-390.png`…），找不到就给出 `VERDICT: FAIL — major: screenshots could not be located`。#80 的走查图在 `shots/<slug>/journeys/`，同一漏洞会让它烧掉最后一次机会。
+
+为什么没拦住：review 侧把“我没找到”当成了“不存在”，而目录约定写在工具里、没写进评审规则；PR 正文在 3,500 字符处被截断，文件名恰好不在前段。
+
+规则：判断截图/证据缺失前先 `ls -R <state>/shots/<slug>/`，并按 `journeys/<journey>-<viewport>-<n>-<step>.png` 的命名去找；至少要打开一张 390 和一张 1100 再下结论。找不到目录才叫缺失。
+
+证据：`rsi/roles/reviewer.md`（2026-11-15 21:22 抗体）；#69 评论与 `state/shots/project-detail-sections/`
+
+## 2026-11-16 · 空转要留原因和解封条件
+seen: 1
+
+发生了什么：`rsi/state/last_fill` 停在 01:25:48，到 07:40 之间的 18 个 pulse 一个 worker 都没派。`runs/launchd-pulse.log` 每 20 分钟只重复三行：`no idle lane and no cloud brief pending`、`host pressure (swap free 1.5 GB)`、以及一条 `REFUSED: declare specific files/dirs (too broad or empty: ['Dockerfile','Kin','Main','Window','LICENSE','Makefile',…])`——最后这条说明还有一处把目录清单当成 claim 路径的解析错误。
+
+为什么没拦住：没有派工被当成“正常无事可做”，而不是一种需要计数、需要解释的状态；同一行日志重复 18 次没有任何升级机制，也没有人（或看门狗）注意到整整一夜没有新工作。
+
+规则：一次 pulse 没派工，必须在 STATUS 写一行“卡在哪个 guard + 下一个解封条件”；连续空转单独计数（像 watchdog timeout 一样），到阈值就升级成可见事件。每夜报告要把“pulse 数 / 实际派工数”并列，不能只报合并数。
+
+证据：`rsi/state/last_fill`（01:25:48）、`rsi/runtime/runs/launchd-pulse.log`
+
 ---
 
 ## 升级记录
@@ -602,6 +668,12 @@ seen: 1
 | CI 会跑的格式检查必须先出现在本地 gate | 1 | 未升级；`3f6fafee` 已补 changed-file Prettier |
 | 串行检查的退出码要逐个传递，不能由最后一条覆盖 | 1 | 未升级；`1f630884` 已执行生产 job 的失败组合 |
 | AST 与 ESLint 守卫要验证语言绑定和真实配置语义 | 1 | 未升级；`568d7117` 已补四条红测，下一次新规则先列旁路 |
+| 合入必须改变树 | 1 | 未升级；`merge.sh` 需补 changedFiles > 0 断言，空 PR 关闭不合 |
+| 同一份交付只投递一次，认领随落库一起释放 | 1 | 未升级；`merged.log` 落库同一步释放 claim，ingest 推前比树 |
+| 循环脚本安装要么整份要么不装 | 1 | 未升级；`node-stamp.sh` 已按整份恢复，安装脚本待补存在性断言 |
+| gate 日志要留下失败测试的名字 | 1 | 未升级；`gate.sh` `step()` 已保留 FAIL 标识，下一次改日志先验分类器 |
+| 判断证据缺失要列目录，不要猜文件名 | 1 | 未升级；`rsi/roles/reviewer.md` 已写抗体 |
+| 空转要留原因和解封条件 | 1 | 未升级；`launchd-pulse.log` 连续 18 次空转，待补计数与 STATUS 行 |
 | 以路径为键的界面状态必须带机器维度，归属未证实按远端处理 | 1 | 未升级；手机项目桶已带 deviceId，下一次新增按路径读写的状态先问“哪台机器”，并写同路径双机测试 |
 | 发布流水线在第一个真 tag 之前先整条跑通一次 | 1 | 未升级；下一次改 `.github/workflows/` 先用预发布 tag 或 `workflow_dispatch` 跑通，并核对 `--version` 与 tag 一致 |
 | 列表响应按列表要用的字段投影，并在真实数据量上对着链路上限断言 | 1 | 未升级；`987d5788` 已给 routines 分页读加 summary 投影，下一次新增列表先把同一实体的所有读路径列出来并对 relay 上限断言 |

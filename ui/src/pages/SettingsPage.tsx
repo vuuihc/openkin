@@ -42,6 +42,7 @@ import {
   type SettingsTabItem,
 } from "../components/settings/SettingsPrimitives";
 import { normalizeSettingsTab, type SettingsTabId } from "../lib/areaNavigation";
+import { onGuardedLinkClick } from "../lib/phoneNavigation";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { runGuardedNavigation } from "../lib/leaveGuard";
@@ -740,7 +741,11 @@ export default function SettingsPage() {
       {requestedTab === "operations" ? (
         <p className="text-body leading-5 text-kin-secondary">
           {tr("settings.operationsMoved")}{" "}
-          <Link to="/agents" className="text-kin-blue-ink hover:underline">
+          <Link
+            to="/agents"
+            onClick={(event) => onGuardedLinkClick(event, navigate, location, "/agents")}
+            className="inline-flex min-h-11 items-center text-kin-blue-ink hover:underline sm:min-h-0"
+          >
             {tr("settings.operationsOpen")}
           </Link>
         </p>
