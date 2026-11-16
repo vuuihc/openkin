@@ -1,5 +1,7 @@
+import type { ReactNode } from "react";
 import { useT } from "../../i18n/react";
 import { IconArchive, IconPin, IconRestore, IconTrash } from "../icons";
+import Button from "../ui/Button";
 
 /**
  * One action chip's width, in px.
@@ -23,6 +25,17 @@ export type SessionRowActionMode = "active" | "archived";
 export function sessionRowActionsWidth(mode: SessionRowActionMode): number {
   return mode === "archived" ? SESSION_ROW_RESTORE_ACTIONS_WIDTH : SESSION_ROW_ACTIONS_WIDTH;
 }
+
+/**
+ * A chip's own surface.
+ *
+ * The chip is a tinted strip, not one of the three standard action weights, so
+ * every surface token below is a utility: utilities sit above `components` in
+ * `index.css`, and that is what lets the chip keep its tint while the facade
+ * still supplies the geometry, press feedback and focus ring.
+ */
+const CHIP =
+  "flex h-full flex-none flex-col items-center justify-center gap-0 rounded-sm p-0 text-caption font-medium hover:brightness-100";
 
 /**
  * The actions a phone row uncovers when it slides.
@@ -58,72 +71,75 @@ export default function SessionRowActions({
   onDelete: () => void;
 }) {
   const tr = useT();
-  const chip =
-    "flex flex-none flex-col items-center justify-center gap-1 text-caption font-medium";
   if (mode === "archived") {
     return (
       <>
-        <button
-          type="button"
+        <Chip
+          label={tr("sessions.restore")}
           onClick={onRestore}
-          aria-label={tr("sessions.restore")}
-          title={tr("sessions.restore")}
-          style={{ width: SESSION_ROW_ACTION_CHIP_WIDTH }}
-          className={`${chip} bg-kin-blue/15 text-kin-blue-ink`}
+          className="bg-kin-blue/15 text-kin-blue-ink"
         >
           <IconRestore size={16} />
-          {tr("sessions.restore")}
-        </button>
-        <button
-          type="button"
+        </Chip>
+        <Chip
+          label={tr("sessions.delete")}
           onClick={onDelete}
-          aria-label={tr("sessions.delete")}
-          title={tr("sessions.delete")}
-          style={{ width: SESSION_ROW_ACTION_CHIP_WIDTH }}
-          className={`${chip} bg-kin-red/15 text-kin-red-ink`}
+          className="bg-kin-red/15 text-kin-red-ink"
         >
           <IconTrash size={16} />
-          {tr("sessions.delete")}
-        </button>
+        </Chip>
       </>
     );
   }
   const pinLabel = pinned ? tr("sessions.unpin") : tr("sessions.pin");
   return (
     <>
-      <button
-        type="button"
-        onClick={onPin}
-        aria-label={pinLabel}
-        title={pinLabel}
-        style={{ width: SESSION_ROW_ACTION_CHIP_WIDTH }}
-        className={`${chip} bg-[var(--kin-fill-strong)] text-kin-text`}
-      >
+      <Chip label={pinLabel} onClick={onPin} className="bg-[var(--kin-fill-strong)] text-kin-text">
         <IconPin size={16} />
-        {pinLabel}
-      </button>
-      <button
-        type="button"
+      </Chip>
+      <Chip
+        label={tr("sessions.archive")}
         onClick={onArchive}
-        aria-label={tr("sessions.archive")}
-        title={tr("sessions.archive")}
-        style={{ width: SESSION_ROW_ACTION_CHIP_WIDTH }}
-        className={`${chip} bg-kin-orange/15 text-kin-orange-ink`}
+        className="bg-kin-orange/15 text-kin-orange-ink"
       >
         <IconArchive size={16} />
-        {tr("sessions.archive")}
-      </button>
-      <button
-        type="button"
+      </Chip>
+      <Chip
+        label={tr("sessions.delete")}
         onClick={onDelete}
-        aria-label={tr("sessions.delete")}
-        title={tr("sessions.delete")}
-        style={{ width: SESSION_ROW_ACTION_CHIP_WIDTH }}
-        className={`${chip} bg-kin-red/15 text-kin-red-ink`}
+        className="bg-kin-red/15 text-kin-red-ink"
       >
         <IconTrash size={16} />
-        {tr("sessions.delete")}
-      </button>
+      </Chip>
     </>
+  );
+}
+
+function Chip({
+  label,
+  onClick,
+  className,
+  children,
+}: {
+  label: string;
+  onClick?: () => void;
+  className: string;
+  children: ReactNode;
+}) {
+  return (
+    <Button
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      style={{ width: SESSION_ROW_ACTION_CHIP_WIDTH }}
+      className={`${CHIP} ${className}`}
+    >
+      {/* The facade wraps its content in one inline row; the chip's own
+          column keeps the icon above the word that names the action. */}
+      <span className="flex flex-col items-center justify-center gap-1">
+        {children}
+        {label}
+      </span>
+    </Button>
   );
 }

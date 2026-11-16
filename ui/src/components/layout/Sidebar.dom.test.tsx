@@ -75,7 +75,11 @@ vi.mock("../../hooks/useMachines", () => ({
 function viewport(pointer: "fine" | "coarse" = "fine") {
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches:
-      query === "(min-width: 768px)" ? true : query === "(pointer: coarse)" ? pointer === "coarse" : false,
+      query === "(min-width: 768px)"
+        ? true
+        : query === "(pointer: coarse)"
+          ? pointer === "coarse"
+          : false,
     media: query,
     onchange: null,
     addEventListener: vi.fn(),
@@ -325,17 +329,21 @@ describe("the Mac sidebar list", () => {
           next_cursor: undefined,
         });
       });
-      expect(await screen.findAllByRole("button", { name: /Imported sessions \(2\)/ })).toHaveLength(2);
+      expect(
+        await screen.findAllByRole("button", { name: /Imported sessions \(2\)/ }),
+      ).toHaveLength(2);
 
       await act(async () => {
         pending[0]?.({ items: [session("old", "Old")], next_cursor: undefined });
       });
       expect(screen.getAllByRole("button", { name: /Imported sessions \(2\)/ })).toHaveLength(2);
     } finally {
-      vi.mocked(listAgentSessionsPage).mockReset().mockImplementation(async () => ({
-        items: fixtures.sessions,
-        next_cursor: undefined,
-      }));
+      vi.mocked(listAgentSessionsPage)
+        .mockReset()
+        .mockImplementation(async () => ({
+          items: fixtures.sessions,
+          next_cursor: undefined,
+        }));
     }
   });
 
@@ -381,12 +389,12 @@ describe("the Mac sidebar list", () => {
     render(sidebar());
 
     expect(screen.getAllByRole("button", { name: "shared" })).toHaveLength(2);
-    const self = screen.getByRole("heading", { name: /This machine/ }).closest(
-      "section",
-    ) as HTMLElement;
-    const remote = screen.getByRole("heading", { name: /Studio/ }).closest(
-      "section",
-    ) as HTMLElement;
+    const self = screen
+      .getByRole("heading", { name: /This machine/ })
+      .closest("section") as HTMLElement;
+    const remote = screen
+      .getByRole("heading", { name: /Studio/ })
+      .closest("section") as HTMLElement;
 
     expect(within(self).getByRole("button", { name: "One-Pager cover" })).toBeTruthy();
     expect(within(self).getByRole("button", { name: "Pin project" })).toBeTruthy();
@@ -404,23 +412,21 @@ describe("the Mac sidebar list", () => {
     await userEvent.click(within(remote).getByRole("button", { name: "shared" }));
     expect(screen.getByTestId("location").textContent).toBe("/");
 
-    await userEvent.click(
-      within(remote).getByRole("button", { name: "New session in shared" }),
-    );
+    await userEvent.click(within(remote).getByRole("button", { name: "New session in shared" }));
     await waitFor(() => expect(localStorage.getItem("kin_draft_cwd")).toBe("/work/shared"));
     expect(localStorage.getItem("kin_draft_machine")).toBe("nas-1");
 
     // The local copy is the same path with no machine: an empty value clears
     // whatever remote choice came before it.
-    const remoteSection = screen.getByRole("heading", { name: /Studio/ }).closest(
-      "section",
-    ) as HTMLElement;
+    const remoteSection = screen
+      .getByRole("heading", { name: /Studio/ })
+      .closest("section") as HTMLElement;
     await userEvent.click(
       within(remoteSection).getByRole("button", { name: /New session in shared/ }),
     );
-    const localSection = screen.getByRole("heading", { name: /This machine/ }).closest(
-      "section",
-    ) as HTMLElement;
+    const localSection = screen
+      .getByRole("heading", { name: /This machine/ })
+      .closest("section") as HTMLElement;
     await userEvent.click(
       within(localSection).getByRole("button", { name: "New session in shared" }),
     );
@@ -478,6 +484,51 @@ describe("the Mac sidebar list", () => {
     expect(await screen.findByRole("button", { name: /Old Claude chat/ })).toBeTruthy();
   });
 
+  it("names the column and keeps new chat in its header", () => {
+    // The prototype's column starts with 对话 beside 新建, not with a
+    // full-width button. The heading is what tells the 304px column what it is
+    // in an area whose name already sits on the rail.
+    render(sidebar());
+
+    const heading = screen.getByRole("heading", { name: "Chats" });
+    const newChat = screen.getByRole("button", { name: /New chat/ });
+    expect(heading.parentElement).toBe(newChat.parentElement);
+    expect(newChat.textContent).toContain("⌘N");
+  });
+
+  it("labels the footer's list utilities instead of leaving icons alone", () => {
+    render(sidebar(["/"], () => {}, 3));
+
+    for (const name of ["Inbox (3)", "Archived"]) {
+      const link = screen.getByRole("link", { name });
+      expect(link.textContent).toContain(name.replace(" (3)", ""));
+    }
+    const importButton = screen.getByRole("button", { name: /Import Agent sessions/i });
+    expect(importButton.textContent).toContain("Import Agent sessions");
+  });
+
+  it("floats a project's hover actions so the title keeps the row's width", () => {
+    // Four 24px buttons held a column of their own at rest, so every 304px
+    // sidebar row truncated to the same “[seed] Projec… 0”. Out of the flow,
+    // the title and its count get the width; hover or focus brings them back
+    // over the row's tail.
+    fixtures.tasks = [task("one", "/work/alpha")];
+    render(sidebar());
+
+    const pin = screen.getByRole("button", { name: "Pin project" });
+    const actions = pin.parentElement as HTMLElement;
+    expect(actions.className).toContain("absolute");
+    expect(actions.className).toContain("opacity-0");
+    expect(actions.className).toContain("group-hover/proj:opacity-100");
+    expect(actions.className).toContain("focus-within:opacity-100");
+    // The wrapper alone hides and reveals the bar. A button that also faded
+    // itself in on focus drew an opaque box over the count while its siblings
+    // stayed invisible; revealing the wrapper shows every action at once.
+    expect(pin.className).not.toContain("opacity-0");
+    expect(pin.className).not.toContain("focus:opacity-100");
+    expect(pin.className).not.toContain("group-hover/proj:opacity-100");
+  });
+
   it("keeps the phone's drawer and dock off the Mac column", () => {
     // KIN-CONTINUE-002: one navigation surface per width. The Mac column has
     // its list and footer; a menu trigger or the phone's footer would be a
@@ -490,7 +541,7 @@ describe("the Mac sidebar list", () => {
     expect(document.querySelector("[data-kin-edge-back]")).toBeNull();
   });
 
-  it("keeps import in the footer icon row and the archive in the same row", () => {
+  it("keeps import and the archive in one row under the list", () => {
     fixtures.tasks = [task("only", "/work/alpha")];
     render(sidebar());
 
@@ -499,7 +550,11 @@ describe("the Mac sidebar list", () => {
 
     const archived = screen.getByRole("link", { name: "Archived" });
     expect(archived.getAttribute("href")).toBe("/sessions?scope=archived");
-    expect(archived.closest("[data-sidebar-footer]")).not.toBeNull();
+    // The row is the list's own foot: the area destinations moved to the rail,
+    // and what stays here is what filters or feeds this list.
+    expect(archived.closest("[data-sidebar-footer]")).toBe(
+      importButton.closest("[data-sidebar-footer]"),
+    );
   });
 });
 

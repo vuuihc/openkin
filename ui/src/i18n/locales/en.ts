@@ -19,6 +19,9 @@ const en: MessageTree = {
     back: "Back",
   },
   nav: {
+    areas: "Areas",
+    showList: "Show list",
+    paletteHint: "Search and commands",
     newChat: "New chat",
     inbox: "Inbox",
     tasks: "Tasks",
@@ -47,7 +50,7 @@ const en: MessageTree = {
     openCoverLocalOnly: "One-Pager cover (this machine only)",
     openCover: "One-Pager cover",
     projectActions: "Project actions",
-    searchSessions: "Search sessions…",
+    searchSessions: "Search chats",
     searchEmpty: "No sessions match “{query}”",
     searchHint: "Searching all sessions",
     archiveConfirm:
@@ -946,6 +949,17 @@ const en: MessageTree = {
     focusShowAll: "Show everything",
     execution: "execution {id}",
     step: "step {n}",
+  },
+  tray: {
+    connected: "connected",
+    connecting: "connecting",
+    offline: "offline",
+    needsYou: "Needs you · {count}",
+    running: "Running · {count}",
+    doneToday: "Done today",
+    noActiveConversations: "No active conversations",
+    openKin: "Open Kin",
+    newChat: "New Chat",
   },
   tasks: {
     title: "Tasks",
