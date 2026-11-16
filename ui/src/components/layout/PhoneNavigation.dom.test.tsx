@@ -380,10 +380,23 @@ describe("each tab returns to its own last view", () => {
     await user.click(screen.getByRole("link", { name: "Routines" }));
     await waitFor(() => expect(screen.getByText("routines page")).toBeTruthy());
 
+    // Agent Ops is a peer entry, not a view of Settings: clicking Settings
+    // must land on Settings, not reopen the operations panel, and the clicked
+    // tab must be the only current one.
     await user.click(screen.getByRole("link", { name: "Settings" }));
+    await waitFor(() => expect(screen.getByTestId("phone-location").textContent).toBe("/settings"));
+    let current = document.querySelectorAll("[data-phone-footer] a[aria-current='page']");
+    expect(current).toHaveLength(1);
+    expect(current[0].textContent).toContain("Settings");
+
+    // The operations URL is still Agent Ops' own memory, not Settings'.
+    await user.click(screen.getByRole("link", { name: "Agent Ops" }));
     await waitFor(() =>
       expect(screen.getByTestId("phone-location").textContent).toBe("/settings?tab=operations"),
     );
+    current = document.querySelectorAll("[data-phone-footer] a[aria-current='page']");
+    expect(current).toHaveLength(1);
+    expect(current[0].textContent).toContain("Agent Ops");
 
     // The same journey from the other direction: the machine selected on
     // Routines survives a trip through Settings.

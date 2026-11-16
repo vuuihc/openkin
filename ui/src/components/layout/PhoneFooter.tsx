@@ -56,6 +56,9 @@ export default function PhoneFooter() {
       <div className="grid grid-cols-4">
         {TABS.map((place) => {
           const Icon = PLACE_ICONS[place.id];
+          // Each entry asks for its own remembered URL. Agent Ops and Settings
+          // share a pathname but not a memory key (see `phoneTabPath`), so
+          // Settings never reopens the operations tab.
           const to =
             place.id === "sessions" ? returnListUrl(location) : phoneTabUrl(place.id, place.path);
           const active =

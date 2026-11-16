@@ -266,8 +266,9 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
 
   /**
    * The generation this page has already reacted to. The reconnect counter is
-   * kept in the store, so returning to `/agents` after a reconnect would
-   * otherwise read everything twice: the mount effects and this one.
+   * kept in the store, so returning to `/settings?tab=operations` after a
+   * reconnect would otherwise read everything twice: the mount effects and
+   * this one.
    */
   const seenReconnect = useRef(reconnectGen);
   useEffect(() => {
