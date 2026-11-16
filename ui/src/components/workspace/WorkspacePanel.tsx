@@ -24,6 +24,7 @@ import {
   extractChangedFiles,
   extractFileDiff,
   sourceChangesFor,
+  summarizeChangedFiles,
   type ChangedFile,
   type FileDiffSnippet,
 } from "../../lib/changedFiles";
@@ -31,6 +32,8 @@ import WorkspaceGenerationPicker from "./WorkspaceGenerationPicker";
 import { projectLabel, shortPath, toWorkspaceRelativePath } from "../../lib/paths";
 import { IconBack, IconPanel, IconSearch, IconSend, IconSpinner, IconX } from "../icons";
 import Button from "../ui/Button";
+import Tabs from "../ui/Tabs";
+import DeltaInline from "../changedFileFace";
 import ChangedFilesList from "./ChangedFilesList";
 import FileTree from "./FileTree";
 
@@ -403,6 +406,50 @@ export default function WorkspacePanel({
   const viewKey = workspaceViewKey(workspaceView);
   const lens = lensForPick(lensPick, taskId, viewKey, hasChanges);
 
+  // A round begins at the user message that asked for it; the daemon's
+  // `round_changed` record names the same seq as `to_seq` on worktree tasks.
+  // What the current round touched is read from the file tools after that
+  // boundary — the same source the round card uses for the newest round,
+  // because no closing record exists for it yet (and shared checkouts write no
+  // record at all). See `currentRoundPaths`.
+  //
+  // The panel's list is the checkout's live answer, so a scope can only narrow
+  // it to paths the round names. "Branch" and "uncommitted" as further scopes
+  // would be this same list under another word, which is why they are not
+  // offered (the precedent is `RunConfigSheet`'s deliberately absent effort).
+  const [turnOnly, setTurnOnly] = useState(false);
+  const turnFiles = useMemo(() => {
+    const paths = currentRoundPaths(events);
+    if (!paths) return null;
+    const wanted = new Set(
+      paths
+        .map((path) => workspacePathKey(cwd, path))
+        .filter((key): key is string => key !== null),
+    );
+    if (wanted.size === 0) return null;
+    return visibleChangedFiles.filter((file) => {
+      const key = workspacePathKey(cwd, file.path);
+      return key !== null && wanted.has(key);
+    });
+  }, [cwd, events, visibleChangedFiles]);
+  // A scope that cannot change the list is worse than none: only offer the
+  // round when it covers some, but not all, of what the list shows. The
+  // snapshot view is excluded because a generation's diff is not this task's
+  // current round — "this round" is a fact about the checkout, not a snapshot.
+  const scopeAvailable =
+    !viewedWorkspaceId &&
+    turnFiles !== null &&
+    turnFiles.length > 0 &&
+    turnFiles.length < visibleChangedFiles.length;
+  // A scope that stopped being available must not re-apply itself when it
+  // comes back: only a press turns the round filter on.
+  useEffect(() => {
+    if (!scopeAvailable) setTurnOnly(false);
+  }, [scopeAvailable]);
+  const showingTurn = turnOnly && scopeAvailable && lens === "changes";
+  const summaryFiles = showingTurn && turnFiles ? turnFiles : visibleChangedFiles;
+  const summaryStats = summarizeChangedFiles(summaryFiles);
+
   const loadFile = useCallback(
     async (path: string) => {
       // Two things feed the viewer and they speak different dialects: the tree
@@ -477,6 +524,9 @@ export default function WorkspacePanel({
     setTableAsCode(false);
     setGenDiffFiles([]);
     setSourceChanges(null);
+    // A different place is a different list, and a scope over the old one says
+    // nothing about it.
+    setTurnOnly(false);
   }, [cwd, taskId, workspaceView.kind, workspaceView.workspaceId]);
 
   // The parent's "open this file" is a one-shot command, not a condition, and
@@ -668,31 +718,28 @@ export default function WorkspacePanel({
         >
           <div className="flex-none flex items-center gap-1 px-2 py-1.5 border-b border-[var(--kin-hairline)]">
             {/*
-              The tablist holds the two lenses and nothing else: an action
-              inside it would be announced as a third tab that selects nothing.
-              The finder is that action, so it sits beside the list.
+              The shared tab strip holds the two lenses and nothing else: an
+              action inside it would be announced as a third tab that selects
+              nothing. The finder is that action, so it sits beside the list.
             */}
-            <div
-              className="flex flex-1 min-w-0 items-center gap-1"
-              role="tablist"
-              aria-label={tr("workspace.sidebarTabs")}
-            >
-              <TabButton
-                active={lens === "changes"}
-                disabled={!hasChanges}
-                onClick={() => pickWorkspaceLens(taskId, viewKey, "changes")}
-                label={
-                  hasChanges
-                    ? tr("workspace.tabChangesCount", { count: visibleChangedFiles.length })
-                    : tr("workspace.tabChanges")
-                }
-              />
-              <TabButton
-                active={lens === "files"}
-                onClick={() => pickWorkspaceLens(taskId, viewKey, "files")}
-                label={tr("workspace.tabFiles")}
-              />
-            </div>
+            <Tabs
+              items={[
+                {
+                  id: "changes",
+                  label: hasChanges
+                    ? tr("workspace.tabChangesCount", { count: summaryFiles.length })
+                    : tr("workspace.tabChanges"),
+                  disabled: !hasChanges,
+                },
+                { id: "files", label: tr("workspace.tabFiles") },
+              ]}
+              value={lens}
+              onChange={(id) => {
+                if (id === "changes" || id === "files") pickWorkspaceLens(taskId, viewKey, id);
+              }}
+              ariaLabel={tr("workspace.sidebarTabs")}
+              className="flex-1"
+            />
             {onFindFile && (
               <Button
                 variant="quiet"
@@ -705,6 +752,68 @@ export default function WorkspacePanel({
               </Button>
             )}
           </div>
+          {/*
+            The answer to "what did this round do?", before any scrolling: how
+            much changed and how many files, then which changes are in front.
+            It belongs to the changes lens — the tree has nothing to summarize.
+          */}
+          {lens === "changes" && hasChanges && (
+            <div
+              data-testid="workspace-turn-summary"
+              className="flex-none flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1 border-b border-[var(--kin-hairline)] text-caption"
+            >
+              <span className="flex-none font-mono tabular-nums text-kin-text">
+                {summaryStats.hasStats ? (
+                  <DeltaInline
+                    additions={summaryStats.additions}
+                    deletions={summaryStats.deletions}
+                  />
+                ) : (
+                  <span className="font-sans text-kin-muted">
+                    {tr("workspace.changed.noLineDelta")}
+                  </span>
+                )}
+              </span>
+              <span className="flex-none text-kin-muted">
+                {tr("chat.evidence.files", { count: summaryFiles.length })}
+              </span>
+              {scopeAvailable && (
+                // Two scopes, one pressed: a switch, not a second strip. The
+                // words are the tab's own (`workspace.tabChanges`, "changes")
+                // and the round card's (`chat.evidence.title`, "what this round
+                // changed"), so the control names exactly the two things it
+                // switches between — and does not invent a second word for
+                // "changes" on the same line.
+                <span className="ml-auto flex flex-none items-center gap-0.5">
+                  <Button
+                    variant="quiet"
+                    aria-pressed={!showingTurn}
+                    onClick={() => setTurnOnly(false)}
+                    className={[
+                      "rounded-md px-2 py-0.5 text-caption",
+                      showingTurn ? "" : "bg-kin-elevated shadow-e1",
+                    ].join(" ")}
+                  >
+                    {tr("workspace.tabChanges")}
+                  </Button>
+                  <Button
+                    variant="quiet"
+                    aria-pressed={showingTurn}
+                    onClick={() => setTurnOnly(true)}
+                    // The round's files come from the file tools, which is the
+                    // same source and the same caveat the round card states.
+                    title={tr("chat.evidence.scope")}
+                    className={[
+                      "rounded-md px-2 py-0.5 text-caption",
+                      showingTurn ? "bg-kin-elevated shadow-e1" : "",
+                    ].join(" ")}
+                  >
+                    {tr("chat.evidence.title")}
+                  </Button>
+                </span>
+              )}
+            </div>
+          )}
           {lens === "changes" &&
             !viewedWorkspaceId &&
             sourceChangesFor(sourceChanges, taskId)?.truncated === true && (
@@ -719,7 +828,7 @@ export default function WorkspacePanel({
           <div className="flex-1 min-h-0">
             {lens === "changes" ? (
               <ChangedFilesList
-                files={visibleChangedFiles}
+                files={summaryFiles}
                 selectedPath={selectedPath}
                 onSelect={(path) => void loadFile(path)}
               />
@@ -908,36 +1017,49 @@ function normalizeFileResponse(
   };
 }
 
-// W1b owns this: the Changes/Files tab strip becomes ui/Tabs there, which
-// changes the panel's structure. W1 migrates controls only, so the tab roles
-// stay on a raw button until then.
-function TabButton({
-  active,
-  disabled,
-  onClick,
-  label,
-}: {
-  active: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      disabled={disabled}
-      onClick={onClick}
-      className={[
-        "flex-1 min-w-0 truncate rounded-md px-2 py-1 text-caption font-medium transition-colors",
-        disabled ? "opacity-40 cursor-not-allowed" : "",
-        active
-          ? "bg-kin-elevated text-kin-text shadow-e1"
-          : "text-kin-muted hover:text-kin-secondary  hover:bg-kin-fill",
-      ].join(" ")}
-    >
-      {label}
-    </button>
-  );
+/**
+ * One path as the checkout names it, or null when it is outside it.
+ *
+ * Tools report absolute paths and git reports workspace-relative ones; the
+ * panel holds both, so a scope compares them in the one form that is the same
+ * file either way. Suffix matching is deliberately not used: "README.md" would
+ * then also match "docs/README.md", which the round never touched.
+ */
+function workspacePathKey(cwd: string, path: string): string | null {
+  const relative = toWorkspaceRelativePath(cwd, path);
+  return relative && relative !== "." ? relative : null;
+}
+
+/**
+ * The paths the current round touched, or null when the stream carries no turn
+ * boundary to scope to.
+ *
+ * A round begins at the user message that asked for it. On an isolated worktree
+ * the daemon checkpoints at that same seq, and the record it writes names it as
+ * `to_seq` — but only for the round *before* the one now running, and only on a
+ * worktree task at all. So the boundary is whichever is newest: a user message
+ * of the round in front, or a record's `to_seq` (a shared checkout writes no
+ * record, and a worktree's first round has none yet). The round's own changes
+ * are then what the file tools reported after that seq; the record's file list
+ * is not read, because it describes the previous round — which is also why its
+ * 200-file cap cannot make this scope under-report.
+ */
+function currentRoundPaths(events: TaskEvent[] | undefined): string[] | null {
+  if (!events || events.length === 0) return null;
+  let boundary: number | null = null;
+  const consider = (seq: number) => {
+    if (boundary === null || seq > boundary) boundary = seq;
+  };
+  for (const event of events) {
+    const payload = (event.payload ?? {}) as Record<string, unknown>;
+    if (event.type === "message" && (payload.speaker === "user" || payload.role === "user")) {
+      consider(event.seq);
+      continue;
+    }
+    const toSeq = payload.to_seq;
+    if (event.type === "round_changed" && typeof toSeq === "number") consider(toSeq);
+  }
+  if (boundary === null) return null;
+  const files = extractChangedFiles(events.filter((event) => event.seq > boundary));
+  return files.length > 0 ? files.map((file) => file.path) : null;
 }
