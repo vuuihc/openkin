@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type RefObject } from "react";
 import {
   ApiError,
   machineDirs,
@@ -17,7 +17,7 @@ import {
 import { shortPath } from "../../lib/paths";
 import Sheet from "../mobile/Sheet";
 import Button from "../ui/Button";
-import Dialog from "../ui/Dialog";
+import Popover from "../ui/Popover";
 import SearchSelect from "../ui/SearchSelect";
 
 type Tab = "folders" | "repo";
@@ -33,6 +33,13 @@ type Props = {
   device?: string;
   /** Where to start, when the form already has a directory. */
   initialPath?: string;
+  /**
+   * The control the browser hangs from at Mac widths. The panel is anchored to
+   * the row that names the directory instead of centering, so the choice stays
+   * attached to the control that opened it and that control stays readable
+   * while the listing is open.
+   */
+  anchorRef: RefObject<HTMLElement | null>;
   /** Called with a directory that is known to exist on that machine. */
   onPick: (path: string) => void;
   onClose: () => void;
@@ -55,15 +62,17 @@ type Props = {
  * directory to start a session in — and a person starting from a phone knows
  * which of the two they mean before they know the path.
  *
- * The surface is not this component's own: a Mac gets the shared `Dialog`, a
- * phone gets the phone's `Sheet`, and both render the same body. That is what
- * gives the browser the console's Escape, focus and touch-floor contract
- * instead of the hand-rolled overlay it used to carry.
+ * The surface is not this component's own: a Mac gets the shared `Popover`
+ * anchored to the row that opened it, a phone gets the phone's `Sheet`, and
+ * both render the same body. That is what gives the browser the console's
+ * Escape, focus, outside-press and touch-floor contract instead of the
+ * hand-rolled overlay it used to carry.
  */
 export default function MachineBrowser({
   open,
   device,
   initialPath,
+  anchorRef,
   onPick,
   onClose,
   onTypePath,
@@ -89,18 +98,27 @@ export default function MachineBrowser({
   }
 
   return (
-    <Dialog
+    <Popover
       open={open}
       onOpenChange={(next) => {
-        // The dialog only asks to close. The row that opened it owns the state
+        // The panel only asks to close. The row that opened it owns the state
         // and the focus return, so this never pulls focus by itself.
         if (!next) onClose();
       }}
+      triggerRef={anchorRef}
       label={tr("browse.title")}
-      width={480}
+      placement="above"
+      align="left"
+      width={420}
+      maxHeight={440}
+      // The body draws its own sheared header/footer rows, so the panel adds no
+      // padding; the fixed height is what lets the listing, not the panel,
+      // scroll.
+      padded={false}
+      className="flex h-[min(70vh,440px)] flex-col"
     >
       {body}
-    </Dialog>
+    </Popover>
   );
 }
 
@@ -422,7 +440,10 @@ function RepoTab({ device, onPick }: { device?: string; onPick: (path: string) =
             />
             <Button
               variant="quiet"
-              disabled={busy || !named}
+              // `busy` is a guard in `find`, not a disabled state: disabling the
+              // control the reader just pressed drops focus to `<body>`, which
+              // takes Escape away from the panel for the rest of the wait.
+              disabled={!named}
               onClick={() => void find()}
               className="flex-none px-2 text-body font-medium text-kin-blue-ink!"
             >
@@ -462,7 +483,13 @@ function RepoTab({ device, onPick }: { device?: string; onPick: (path: string) =
       </div>
 
       <div className="flex-none border-t border-[var(--kin-hairline)] px-3 py-2">
-        <Button disabled={busy || !named} onClick={() => void fetchIt()} className="w-full">
+        <Button
+          // `busy` is a guard in `fetchIt`: see the Find button for why the
+          // pressed control is not disabled while its request is in flight.
+          disabled={!named}
+          onClick={() => void fetchIt()}
+          className="w-full"
+        >
           {fetching ? tr("browse.fetching") : tr("browse.fetch")}
         </Button>
       </div>

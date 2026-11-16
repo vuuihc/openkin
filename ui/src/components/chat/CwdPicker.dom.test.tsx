@@ -42,7 +42,8 @@ vi.mock("../../lib/desktop", () => ({
   pickDirectory: desktop.pickDirectory,
 }));
 
-/* The phone shape keeps these tests on the `Sheet`, so no `Dialog` stubs. */
+/* The phone shape keeps these tests on the `Sheet`; the wide test below pins
+ * the anchored `Popover`, which needs no platform stubs. */
 function viewport(wide: boolean) {
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: query === "(min-width: 768px)" ? wide : false,
@@ -58,8 +59,8 @@ function viewport(wide: boolean) {
 
 const CWD = "/Users/me/proj";
 
-function setup(props: Partial<ComponentProps<typeof CwdPicker>> = {}) {
-  viewport(false);
+function setup(props: Partial<ComponentProps<typeof CwdPicker>> = {}, wide = false) {
+  viewport(wide);
   const onChange = vi.fn();
   const view = render(<CwdPicker cwd={CWD} onChange={onChange} {...props} />);
   return { onChange, ...view };
@@ -94,6 +95,30 @@ describe("the cwd row", () => {
 
     await userEvent.click(chip);
     expect(await screen.findByRole("dialog", { name: "Where to work" })).toBeTruthy();
+  });
+
+  it("at Mac widths the browser hangs from the cwd chip", async () => {
+    setup({ device: "macbook" }, true);
+
+    const chip = screen.getByRole("button", {
+      name: "Working directory: /Users/me/proj",
+    });
+    expect(chip.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(chip.getAttribute("aria-expanded")).toBe("false");
+
+    await userEvent.click(chip);
+    const panel = await screen.findByRole("dialog", { name: "Where to work" });
+    // Anchored, not centered: the shared panel is portaled next to the chip,
+    // and the chip says so while it is open.
+    expect(panel.tagName).toBe("DIV");
+    expect(panel.className).toContain("fixed");
+    expect(chip.getAttribute("aria-expanded")).toBe("true");
+
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Where to work" })).toBeNull(),
+    );
+    expect(document.activeElement).toBe(chip);
   });
 
   it("browse and edit are facade buttons and still do their jobs", async () => {

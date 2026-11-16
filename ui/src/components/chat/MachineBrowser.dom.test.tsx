@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { useState, type ComponentProps } from "react";
+import { useRef, useState, type ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -8,9 +8,9 @@ import { setLocale } from "../../i18n";
 import MachineBrowser from "./MachineBrowser";
 
 /**
- * C1b2: the folder browser on the console's shared modal surfaces. The old
- * overlay owned its scrim, Escape listener, focus timer and `role="dialog"`;
- * this pins the contract it now shares — a named `Dialog` on a Mac, the phone
+ * C1b2: the folder browser on the console's shared surfaces. The old overlay
+ * owned its scrim, Escape listener, focus timer and `role="dialog"`; this pins
+ * the contract it now shares — an anchored `Popover` on a Mac, the phone
  * `Sheet` below it, one owner for Escape and focus return, and facade buttons
  * with their 44px phone floor.
  */
@@ -30,25 +30,6 @@ vi.mock("../../api/client", async (importOriginal) => {
     prepareMachineRepo: api.prepareMachineRepo,
   };
 });
-
-/* The same stubs the Dialog facade's harness uses: jsdom has no showModal()
- * and no top layer, and no `CSS` global for Astryx's title id. */
-if (!HTMLDialogElement.prototype.showModal) {
-  HTMLDialogElement.prototype.showModal = function showModal(this: HTMLDialogElement) {
-    this.setAttribute("open", "");
-  };
-}
-if (!HTMLDialogElement.prototype.close) {
-  HTMLDialogElement.prototype.close = function close(this: HTMLDialogElement) {
-    this.removeAttribute("open");
-    this.dispatchEvent(new Event("close"));
-  };
-}
-if (typeof globalThis.CSS === "undefined") {
-  (globalThis as { CSS?: Pick<typeof CSS, "escape"> }).CSS = {
-    escape: (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, "\\$&"),
-  };
-}
 
 const ROOTS = ["/work", "/other"];
 
@@ -86,13 +67,15 @@ function setup(wide: boolean, props: Partial<ComponentProps<typeof MachineBrowse
   const onClose = vi.fn();
   function Host() {
     const [open, setOpen] = useState(false);
+    const anchorRef = useRef<HTMLButtonElement>(null);
     return (
       <>
-        <button type="button" onClick={() => setOpen(true)}>
+        <button ref={anchorRef} type="button" onClick={() => setOpen(true)}>
           Open browser
         </button>
         <MachineBrowser
           open={open}
+          anchorRef={anchorRef}
           onPick={onPick}
           onClose={() => {
             onClose();
@@ -122,13 +105,25 @@ beforeEach(() => {
 });
 
 describe("the machine browser", () => {
-  it("at Mac widths the browser is a dialog named Browse", async () => {
-    setup(true, { initialPath: "/start" });
-    await openBrowser();
+  it("at Mac widths the browser hangs from the row it was opened from", async () => {
+    const { onClose } = setup(true, { initialPath: "/start" });
+    const opener = screen.getByRole("button", { name: "Open browser" });
+    await userEvent.click(opener);
 
-    const modal = screen.getByRole("dialog", { name: "Where to work" });
-    expect(modal.tagName).toBe("DIALOG");
-    expect(await within(modal).findByText("alpha")).toBeTruthy();
+    const panel = screen.getByRole("dialog", { name: "Where to work" });
+    // Not a centered modal: the shared anchored panel, portaled next to the
+    // trigger rather than a native <dialog> over the page.
+    expect(panel.tagName).toBe("DIV");
+    expect(document.querySelector("dialog")).toBeNull();
+    expect(panel.className).toContain("fixed");
+    expect(panel.style.width).toBe("420px");
+    await waitFor(() => expect(panel.contains(document.activeElement)).toBe(true));
+    expect(await within(panel).findByText("alpha")).toBeTruthy();
+
+    // An outside press only asks the owner to close; the panel never pulls
+    // focus anywhere by itself.
+    await userEvent.click(document.body);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("at phone widths the browser is the sheet", async () => {

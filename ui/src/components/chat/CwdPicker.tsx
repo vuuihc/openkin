@@ -63,6 +63,9 @@ export default function CwdPicker({
   const [draft, setDraft] = useState(cwd);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // The chip is what the browser hangs from at Mac widths; the panel measures
+  // this element and returns focus here when it dismisses.
+  const chipRef = useRef<HTMLButtonElement>(null);
   const desktop = isKinDesktop();
   // A native dialog answers about this machine's filesystem and no other, so a
   // form aimed at a remote machine browses even on the desktop.
@@ -212,6 +215,7 @@ export default function CwdPicker({
         open={browsing}
         device={device}
         initialPath={cwd}
+        anchorRef={chipRef}
         onClose={() => setBrowsing(false)}
         onTypePath={() => {
           setBrowsing(false);
@@ -223,6 +227,7 @@ export default function CwdPicker({
         }}
       />
       <Button
+        ref={chipRef}
         variant="quiet"
         disabled={busy}
         onClick={() => {
@@ -230,6 +235,8 @@ export default function CwdPicker({
           else setBrowsing(true);
         }}
         aria-label={chipTitle}
+        aria-haspopup={native ? undefined : "dialog"}
+        aria-expanded={native ? undefined : browsing}
         title={chipTitle}
         className={[
           "min-w-0 flex-none justify-start rounded-md text-left font-normal [&>span]:min-w-0 [&>span>span]:min-w-0",
