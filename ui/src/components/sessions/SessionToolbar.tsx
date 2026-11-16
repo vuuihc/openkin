@@ -1,13 +1,12 @@
-/* eslint-disable kin/no-raw-button, kin/no-arbitrary-z-index -- The search
-   field and the selection bar (including its action buttons and sticky
-   stacking layer) are moved verbatim out of SessionList. They are pre-existing
-   controls, not a new surface, and restyling them here would be a visual
-   change this extraction must not make. */
+/* eslint-disable kin/no-arbitrary-z-index -- The selection bar pins itself to
+   the top of the list's scroll body, which is a stacking layer rather than a
+   control. Every button in this file is the shared `Button`. */
 import { useEffect, useRef } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from "react";
 import { useT } from "../../i18n/react";
 import type { ProjectSortMode } from "../../lib/projectSidebar";
 import { IconArchive, IconPin, IconRestore, IconSearch, IconTrash } from "../icons";
+import Button from "../ui/Button";
 import SessionFilters, {
   type SessionScopeFilter,
   type SessionStatusFilter,
@@ -146,47 +145,47 @@ export function SessionSelectionBar({
           answered the window's width, not the sidebar's. */}
       <div className="ml-auto flex items-center gap-1.5">
         {scope !== "archived" && (
-          <button
-            type="button"
+          <Button
+            variant="secondary"
             onClick={onPin}
             disabled={selectedCount === 0 || selectionBusy}
             aria-label={pinLabel}
             title={pinLabel}
-            className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-[var(--kin-fill)] text-body font-medium text-kin-text disabled:opacity-40"
+            className="h-11 w-11 flex-none items-center justify-center rounded-lg p-0 text-body font-medium"
           >
             <IconPin size={14} />
-          </button>
+          </Button>
         )}
-        <button
-          type="button"
+        <Button
+          variant="secondary"
           onClick={onArchiveOrRestore}
           disabled={selectedCount === 0 || selectionBusy}
           aria-label={tr(scope === "archived" ? "sessions.restore" : "sessions.archive")}
           title={tr(scope === "archived" ? "sessions.restore" : "sessions.archive")}
-          className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-[var(--kin-fill)] text-body font-medium text-kin-text disabled:opacity-40"
+          className="h-11 w-11 flex-none items-center justify-center rounded-lg p-0 text-body font-medium"
         >
           {scope === "archived" ? <IconRestore size={14} /> : <IconArchive size={14} />}
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="quiet-danger"
           onClick={onDelete}
           disabled={selectedCount === 0 || selectionBusy}
           aria-label={deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")}
           title={deletingSelection ? tr("sessions.deletingSelected") : tr("sessions.delete")}
           aria-busy={deletingSelection || undefined}
-          className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-kin-red/15 text-body font-medium text-kin-red-ink disabled:opacity-40"
+          className="h-11 w-11 flex-none items-center justify-center rounded-lg p-0 text-body font-medium"
         >
           <IconTrash size={14} />
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="quiet"
           onClick={onExit}
           aria-label={tr("common.cancel")}
           title={tr("common.cancel")}
-          className="flex min-h-11 min-w-11 items-center justify-center rounded-lg px-2.5 text-body font-medium text-kin-muted hover:text-kin-text"
+          className="h-11 flex-none items-center justify-center rounded-lg px-2.5 text-body font-medium"
         >
           {tr("common.cancel")}
-        </button>
+        </Button>
       </div>
     </div>
   );

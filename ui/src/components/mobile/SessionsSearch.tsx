@@ -1,6 +1,8 @@
+import { useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useT } from "../../i18n/react";
 import { IconSearch, IconX } from "../icons";
+import Button from "../ui/Button";
 
 /**
  * The conversation search pill, bound to `?search=`.
@@ -22,6 +24,7 @@ import { IconSearch, IconX } from "../icons";
 export default function SessionsSearch({ className = "" }: { className?: string }) {
   const tr = useT();
   const [params, setParams] = useSearchParams();
+  const inputRef = useRef<HTMLInputElement>(null);
   const query = params.get("search") ?? "";
 
   function setQuery(next: string) {
@@ -29,6 +32,13 @@ export default function SessionsSearch({ className = "" }: { className?: string 
     if (next) following.set("search", next);
     else following.delete("search");
     setParams(following, { replace: true });
+  }
+
+  /** Clearing is not leaving: the clear control disappears with the query, so
+   *  hand the keyboard back to the field instead of dropping it to the body. */
+  function clear() {
+    setQuery("");
+    inputRef.current?.focus();
   }
 
   return (
@@ -43,6 +53,7 @@ export default function SessionsSearch({ className = "" }: { className?: string 
     >
       <IconSearch size={14} className="flex-none text-kin-muted" />
       <input
+        ref={inputRef}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         placeholder={tr("sessions.searchPlaceholder")}
@@ -52,16 +63,15 @@ export default function SessionsSearch({ className = "" }: { className?: string 
         className="min-h-9 min-w-0 flex-1 appearance-none bg-transparent text-body text-kin-text outline-none placeholder:text-kin-muted [&::-webkit-search-cancel-button]:hidden"
       />
       {query ? (
-        <button
-          type="button"
-          onClick={() => setQuery("")}
+        <Button
+          variant="quiet"
+          onClick={clear}
           aria-label={tr("common.clear")}
           title={tr("common.clear")}
-          data-touch-mini
-          className="flex h-7 w-7 flex-none items-center justify-center rounded-full text-kin-muted transition-colors hover:text-kin-text"
+          className="-my-1 -mr-1 h-11 w-11 flex-none items-center justify-center rounded-full p-0 text-kin-muted! md:my-0 md:mr-0 md:h-7 md:w-7"
         >
           <IconX size={13} />
-        </button>
+        </Button>
       ) : null}
     </div>
   );
