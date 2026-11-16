@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { t } from "../../i18n";
 import type { ChangedFile } from "../../lib/changedFiles";
@@ -36,6 +36,20 @@ const CWD = "/Users/owner/project";
 // jsdom has no layout, so the change list's auto-scroll into view has nothing
 // to call.
 Element.prototype.scrollIntoView = vi.fn();
+
+// jsdom has no layout, and the panel asks its own container how wide it is
+// rather than the viewport. `clientWidth` is 0 there, so a case that cares
+// says what its container measures.
+function stubContainerWidth(width: number) {
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+    configurable: true,
+    get: () => width,
+  });
+}
+
+function restoreContainerWidth() {
+  delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+}
 
 const changed: ChangedFile = {
   // What claude-code and the ACP adapters report: an absolute path. The file
@@ -103,18 +117,20 @@ describe("the file finder's way in", () => {
   });
 });
 
-// Below md the panel is one pane at a time. The stack of list and viewer left a
-// diff with about half a phone screen; opening a file now gives it the whole
-// one and the header carries the way back. jsdom has no viewport, so the layout
-// itself is CSS: the state assertions read `data-phone-view`, and one token
-// check per pane pins the class the CSS hangs on.
-describe("one pane at a time on a phone", () => {
+// Narrower than the split: the panel is one pane at a time. The stack of list
+// and viewer left a diff with about half a phone screen; opening a file now
+// gives it the whole one and the header carries the way back. jsdom has no
+// layout, so the container width the panel measures is stubbed, and the state
+// assertions read `data-panes` / `data-phone-view`.
+describe("one pane at a time in a narrow container", () => {
   beforeEach(() => {
+    stubContainerWidth(390);
     readTaskSourceFile.mockReset();
     readWorkspaceFile.mockReset();
     readTaskSourceFile.mockResolvedValue({ path: "src/a.ts", content: "hi", binary: false });
     readWorkspaceFile.mockResolvedValue({ path: "src/a.ts", content: "hi", binary: false });
   });
+  afterEach(() => restoreContainerWidth());
 
   const aside = (container: HTMLElement) => container.querySelector("aside");
   const viewer = (container: HTMLElement) => container.querySelector('[data-pane="viewer"]');
@@ -143,9 +159,7 @@ describe("one pane at a time on a phone", () => {
     await waitFor(() => expect(readTaskSourceFile).toHaveBeenCalled());
 
     expect(paneState(container)).toBe("file");
-    // `hidden md:flex` is the pair that keeps md+ two-pane.
     expect(hasClass(aside(container), "hidden")).toBe(true);
-    expect(hasClass(aside(container), "md:flex")).toBe(true);
     expect(hasClass(viewer(container), "flex")).toBe(true);
     expect(hasClass(viewer(container), "hidden")).toBe(false);
     expect(back()).not.toBeNull();
@@ -268,5 +282,61 @@ describe("one pane at a time on a phone", () => {
 
     fireEvent.click(back() as HTMLElement);
     await waitFor(() => expect(document.activeElement).toBe(screen.getByTitle(changed.path)));
+  });
+});
+
+// S1b review: the split belongs to the panel's container, not the viewport.
+// Inside `PanelSurface`'s 380px column on a wide screen, a viewport `md:`
+// handed the sidebar 320px and left the viewer 54px — or nothing — while
+// `md:hidden` took away the phone's back button at the same time.
+describe("the split follows the panel's own width", () => {
+  beforeEach(() => {
+    readTaskSourceFile.mockReset();
+    readWorkspaceFile.mockReset();
+    readTaskSourceFile.mockResolvedValue({ path: "src/a.ts", content: "hi", binary: false });
+    readWorkspaceFile.mockResolvedValue({ path: "src/a.ts", content: "hi", binary: false });
+  });
+  afterEach(() => restoreContainerWidth());
+
+  const panes = (container: HTMLElement) => container.querySelector("[data-panes]");
+  const aside = (container: HTMLElement) => container.querySelector("aside");
+  const viewer = (container: HTMLElement) => container.querySelector('[data-pane="viewer"]');
+  const back = () => screen.queryByRole("button", { name: t("workspace.backToFiles") });
+  const hasClass = (el: Element | null | undefined, token: string) =>
+    (el?.className ?? "").split(/\s+/).includes(token);
+
+  it("stacks in the 380px column even while the viewport is wide", () => {
+    stubContainerWidth(380);
+    const { container } = renderPanel();
+
+    expect(panes(container)?.getAttribute("data-panes")).toBe("stacked");
+    // The sidebar no longer takes its fixed width out of a container that
+    // cannot afford it: the list gets the column, the viewer waits its turn.
+    expect(hasClass(aside(container), "w-full")).toBe(true);
+    expect(hasClass(aside(container), "w-[var(--ws-sidebar)]")).toBe(false);
+    expect(hasClass(viewer(container), "hidden")).toBe(true);
+    expect(back()).toBeNull();
+  });
+
+  it("keeps the way back while the column is narrow", async () => {
+    stubContainerWidth(380);
+    renderPanel();
+
+    fireEvent.click(screen.getByTitle(changed.path));
+    await waitFor(() => expect(readTaskSourceFile).toHaveBeenCalled());
+
+    // The regression this pins: `md:hidden` used to remove this control at a
+    // wide viewport, trapping the reader on the file pane.
+    expect(back()).not.toBeNull();
+  });
+
+  it("shows both panes when the container is wide enough", () => {
+    stubContainerWidth(900);
+    const { container } = renderPanel();
+
+    expect(panes(container)?.getAttribute("data-panes")).toBe("split");
+    expect(hasClass(aside(container), "w-[var(--ws-sidebar)]")).toBe(true);
+    expect(hasClass(viewer(container), "hidden")).toBe(false);
+    expect(back()).toBeNull();
   });
 });

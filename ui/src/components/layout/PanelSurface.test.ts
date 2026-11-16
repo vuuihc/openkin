@@ -125,13 +125,25 @@ function isSurface(classes: string): boolean {
 }
 
 /**
- * Whether a file spells out a full-bleed surface, however it spells it.
+ * A panel that spells out the review column's width instead of asking for it.
  *
- * Both readings are kept: the whole-string one catches a surface written as a
+ * The column is `PanelSurface`'s second skin (`shape="column"`), and its width
+ * is the same decision as the overlay: one surface, one place that knows how
+ * wide it is. A panel writing `lg:w-[380px]` itself would drift the moment the
+ * column width changes.
+ */
+function isColumn(classes: string): boolean {
+  return /(^|\s)([a-z0-9-]+:)?w-\[380px\](\s|$)/.test(classes);
+}
+
+/**
+ * Whether a file spells out a shape, however it spells it.
+ *
+ * Both readings are kept: the whole-string one catches a shape written as a
  * constant anywhere in the file (not only in a `className`), and the class-list
  * one catches the split spellings it cannot see.
  */
-function spellsASurface(source: string, fileName: string): boolean {
+function spells(source: string, fileName: string, shape: (classes: string) => boolean): boolean {
   // Both visitors see the same syntax tree. Parsing the entire UI twice made a
   // synchronous source guard needlessly sensitive to gate CPU contention.
   const file = ts.createSourceFile(
@@ -141,7 +153,15 @@ function spellsASurface(source: string, fileName: string): boolean {
     true,
     ts.ScriptKind.TSX,
   );
-  return stringsIn(file).some(isSurface) || classListsIn(file).some(isSurface);
+  return stringsIn(file).some(shape) || classListsIn(file).some(shape);
+}
+
+function spellsASurface(source: string, fileName: string): boolean {
+  return spells(source, fileName, isSurface);
+}
+
+function spellsAColumn(source: string, fileName: string): boolean {
+  return spells(source, fileName, isColumn);
 }
 
 describe("PanelSurface", () => {
@@ -177,6 +197,39 @@ describe("PanelSurface", () => {
     expect(spellsASurface('const x = <div className={on ? "inset-0" : "z-40"} />;', "a.tsx")).toBe(
       false,
     );
+  });
+
+  it("is the only place a panel column's width is spelled out", () => {
+    // The column is the overlay's sibling skin, not a class list a panel may
+    // copy. A third panel that wants the review column passes
+    // `shape="column"`; a panel that writes the width itself would keep 380px
+    // after `PanelSurface` stopped meaning it.
+    const offenders: string[] = [];
+    for (const file of sourceFiles()) {
+      const rel = relative(UI, file);
+      if (ALLOWED.has(rel)) continue;
+      if (spellsAColumn(readFileSync(file, "utf8"), file)) offenders.push(rel);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("keeps the column where the surfaces are, so the guard cannot go vacuous", () => {
+    // Change the width in `PanelSurface` and nothing else spells 380px: the
+    // scan above would pass while every other panel still hard-coded the old
+    // number. The allowed file has to be the one that spells the column.
+    const spelling = [...ALLOWED.keys()].filter((rel) =>
+      spellsAColumn(readFileSync(join(UI, rel), "utf8"), rel),
+    );
+    expect(spelling).toEqual(["src/components/layout/PanelSurface.tsx"]);
+  });
+
+  it("reads a column out of split class lists too", () => {
+    expect(spellsAColumn('<div className="lg:w-[380px]" />', "a.tsx")).toBe(true);
+    expect(spellsAColumn('<div className="w-[380px]" />', "a.tsx")).toBe(true);
+    expect(spellsAColumn('const c = ["lg:flex-none", "lg:w-[380px]"].join(" ");', "a.tsx")).toBe(
+      true,
+    );
+    expect(spellsAColumn('<div className="w-64 lg:w-96" />', "a.tsx")).toBe(false);
   });
 
   it("still allows the ones it names, so the list cannot rot", () => {
