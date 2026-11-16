@@ -13,6 +13,7 @@ import {
   type NativePushPlugin,
 } from "../../lib/nativePush";
 import { useAppStore } from "../../store/appStore";
+import Button from "../ui/Button";
 
 /**
  * The one notification control the console keeps after R0b-3.
@@ -160,22 +161,17 @@ export function PushPermissionRow({
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-3">
         {permission === "denied" ? (
-          <button
-            type="button"
+          <Button
+            variant="secondary"
             onClick={() => void plugin.openSettings().catch(() => undefined)}
-            className="min-h-11 rounded-lg border border-[var(--kin-hairline)] px-3 text-strong font-medium text-kin-secondary hover:bg-[var(--kin-fill)]"
+            className="text-kin-secondary"
           >
             {tr("settings.push.openSettings")}
-          </button>
+          </Button>
         ) : (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void enable()}
-            className="min-h-11 rounded-lg bg-kin-blue px-3 text-strong font-medium text-kin-on-brand disabled:opacity-50"
-          >
+          <Button disabled={busy} onClick={() => void enable()}>
             {busy ? tr("settings.push.enabling") : tr("settings.push.enable")}
-          </button>
+          </Button>
         )}
         {failed ? (
           <span role="alert" className="text-caption text-kin-red-ink">
