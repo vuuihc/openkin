@@ -7,6 +7,7 @@ import { approvalViaLabel, formatApprovalAttribution } from "../../lib/approvalA
 import { formatRelativeTime } from "../../lib/relativeTime";
 import { useT } from "../../i18n/react";
 import PreviewLines from "../PreviewLines";
+import Button from "../ui/Button";
 import { IconAlert, IconCheck, IconFile, IconX } from "../icons";
 
 type Props = {
@@ -163,14 +164,17 @@ export default function ApprovalCard({
             {toolName}
           </span>
           {filePath ? (
-            <button
-              type="button"
+            // A quiet inline control, not a filled action: keep the link's
+            // mono/blue/underline and compact line box, and add only the
+            // shared focus ring.
+            <Button
+              variant="quiet"
               onClick={() => onOpenPath?.(filePath)}
-              className="font-mono text-kin-blue-ink truncate hover:underline text-left"
+              className="block max-w-full min-h-0! truncate px-0 py-0 text-left text-body font-mono font-normal text-kin-blue-ink! hover:bg-transparent! hover:underline"
               title={filePath}
             >
               {shortPath(filePath, 48)}
-            </button>
+            </Button>
           ) : (
             <span className="font-mono text-kin-secondary truncate">
               {command ? shortPath(command, 48) : ""}
@@ -220,14 +224,17 @@ export default function ApprovalCard({
           </div>
         ) : (
           <div className="mt-3 flex gap-2">
-            <button
-              type="button"
+            <Button
+              variant="approve"
               disabled={!!busy}
+              // The visible label carries the `A` hint, so the name is stated
+              // here; while busy it is the progress wording the reader sees.
+              aria-label={busy === "approved" ? tr("approval.approving") : tr("chat.approve")}
               onClick={() => {
                 answeredHere.current = true;
                 onApprove();
               }}
-              className="kin-btn-approve flex-1 disabled:opacity-60"
+              className="flex-1"
             >
               {busy === "approved" ? (
                 tr("approval.approving")
@@ -237,15 +244,16 @@ export default function ApprovalCard({
                   {showKeys && <span className="hidden sm:inline opacity-60 font-semibold">A</span>}
                 </>
               )}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="deny"
               disabled={!!busy}
+              aria-label={busy === "denied" ? tr("approval.denying") : tr("chat.deny")}
               onClick={() => {
                 answeredHere.current = true;
                 onDeny();
               }}
-              className="kin-btn-deny flex-1 disabled:opacity-60"
+              className="flex-1"
             >
               {busy === "denied" ? (
                 tr("approval.denying")
@@ -255,7 +263,7 @@ export default function ApprovalCard({
                   {showKeys && <span className="hidden sm:inline opacity-50">D</span>}
                 </>
               )}
-            </button>
+            </Button>
           </div>
         )}
       </div>

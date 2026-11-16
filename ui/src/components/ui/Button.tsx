@@ -1,16 +1,23 @@
 import { forwardRef, type ButtonHTMLAttributes, type ComponentProps } from "react";
 import { Button as AstryxButton } from "@astryxdesign/core";
 
-export type ButtonVariant = "default" | "secondary" | "quiet";
+export type ButtonVariant = "default" | "secondary" | "quiet" | "approve" | "deny";
 
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   /**
-   * The console's three action weights, all built on the existing `.kin-btn-*`
+   * The console's five action weights, all built on the existing `.kin-btn-*`
    * vocabulary:
    *  - `default` is the one filled action on a surface (send, publish);
    *  - `secondary` is a bordered peer (cancel, stop);
    *  - `quiet` is an icon-or-text affordance that sits inside a row or field
-   *    (attach, filter) and takes a fill only on hover.
+   *    (attach, filter) and takes a fill only on hover;
+   *  - `approve` is the orange filled decision ("allow", "submit"), the same
+   *    class the approval cards already used;
+   *  - `deny` is its bordered peer.
+   *
+   * `approve` and `deny` map straight onto `.kin-btn-approve` / `.kin-btn-deny`
+   * because those class names are the contract: `FloatingApproval` queries them
+   * to hand focus to the same choice on the next card after a decision.
    */
   variant?: ButtonVariant;
   /**
@@ -25,6 +32,8 @@ const VARIANT: Record<ButtonVariant, string> = {
   default: "kin-btn-primary",
   secondary: "kin-btn-secondary",
   quiet: "bg-transparent text-kin-text hover:bg-[var(--kin-fill)]",
+  approve: "kin-btn-approve",
+  deny: "kin-btn-deny",
 };
 
 /**
