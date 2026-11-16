@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -250,7 +250,7 @@ describe("the Operations section on the shared facade (E4b)", () => {
     // The ratchet: the file-wide disable is gone, and every raw button that is
     // still hand-built names itself and its follow-up in a line-level comment.
     const source = readFileSync(
-      fileURLToPath(new URL("./AgentOperationsSection.tsx", import.meta.url)),
+      resolve(process.cwd(), "src/components/settings/AgentOperationsSection.tsx"),
       "utf8",
     );
     expect(source).not.toContain("/* eslint-disable kin/no-raw-button");
