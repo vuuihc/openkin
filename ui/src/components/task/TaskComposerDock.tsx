@@ -10,6 +10,7 @@ import CwdPicker from "../chat/CwdPicker";
 import PermissionModePicker from "../chat/PermissionModePicker";
 import ModelPicker from "../chat/ModelPicker";
 import { IconAlert, IconMachine } from "../icons";
+import Button from "../ui/Button";
 import TaskUsageSummary from "../usage/TaskUsageSummary";
 
 type ComposerProps = ComponentProps<typeof Composer>;
@@ -118,15 +119,15 @@ export default function TaskComposerDock({
     >
       <div className="max-w-conversation mx-auto space-y-1.5">
         {waitingCount > 0 && (
-          /* eslint-disable-next-line kin/no-raw-button -- moved unchanged from TaskDetailPage; the full-width callout band is not one of the shared Button's three weights. */
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            aria-label={tr("task.waitingOnYou", { count: String(waitingCount) })}
             onClick={onRevealFirstPending}
-            className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-kin-orange/40 bg-kin-orange/15 px-3 py-2 text-subtitle font-medium text-kin-orange-ink outline-none focus-visible:ring-2 focus-visible:ring-kin-focus-ring"
+            className="w-full justify-center gap-1.5 rounded-xl border-kin-orange/40 bg-kin-orange/15 px-3 py-2 text-subtitle font-medium text-kin-orange-ink hover:bg-kin-orange/15"
           >
             <IconAlert className="w-4 h-4 flex-none" />
             {tr("task.waitingOnYou", { count: String(waitingCount) })}
-          </button>
+          </Button>
         )}
         <Composer
           key={task.id}
