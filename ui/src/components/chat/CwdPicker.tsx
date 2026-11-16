@@ -237,10 +237,7 @@ export default function CwdPicker({
         ].join(" ")}
       >
         <span
-          className={[
-            "inline-flex min-w-0 items-center",
-            compact ? "gap-1.5" : "gap-2",
-          ].join(" ")}
+          className={["inline-flex min-w-0 items-center", compact ? "gap-1.5" : "gap-2"].join(" ")}
         >
           <FolderIcon />
           {cwd ? (
