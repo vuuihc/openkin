@@ -18,9 +18,11 @@ import TaskUsageSummary from "../usage/TaskUsageSummary";
  * markup of three surfaces that only draw what the page tells them. It reads no
  * store and fetches nothing: every value and callback below is the page's.
  *
- * The component renders a fragment, never a wrapper. The rail is `absolute` and
- * `PanelSurface` is `absolute inset-0`, so both position against the page's
- * `relative` container; a positioned element here would move them.
+ * The component renders a fragment, never a wrapper. Both surfaces position
+ * against the page's `relative` container: the rail is `absolute` over the
+ * chat, and `PanelSurface` is the overlay below `lg` and an in-flow 380px
+ * column (the page's row is `lg:flex-row`) from `lg` up. A positioned wrapper
+ * here would move them.
  */
 export type TaskPanelsProps = {
   task: Task;
@@ -86,26 +88,33 @@ export default function TaskPanels({
 
   return (
     <>
-      {/* Session side rail — usage + diffs, floats over the chat instead of squeezing its width (Codex-style). */}
-      <aside
-        className="hidden min-[1600px]:flex absolute top-14 right-3 bottom-3 z-10 w-inspector-rail flex-col gap-2.5 rounded-xl bg-[var(--kin-inspector)] backdrop-blur-md shadow-e2 px-3 py-3 min-h-0 overflow-y-auto kin-scroll"
-        aria-label={tr("task.sessionRail")}
-      >
-        <TaskUsageSummary usage={usage} loading={usageLoading} variant="card" />
-        <ChangedFilesBar
-          files={changedFiles}
-          onOpenPath={onOpenPath}
-          onOpenPanel={onOpenFilesPanel}
-          reviewActions={terminal}
-          onKeepAll={onKeepAll}
-          onDiscardAll={onDiscardAll}
-          actionsBusy={reviewBusy}
-          variant="card"
-        />
-      </aside>
+      {/* Session side rail — usage + diffs, floats over the chat instead of squeezing its width (Codex-style).
+
+          It yields to an open panel. The rail is anchored to the page's right
+          edge, which from `lg` up is where the panel column now sits: leaving
+          both would float the rail over the panel's own close button, and the
+          panel already shows the changed files the rail repeats. */}
+      {panel === null && (
+        <aside
+          className="hidden min-[1600px]:flex absolute top-14 right-3 bottom-3 z-10 w-inspector-rail flex-col gap-2.5 rounded-xl bg-[var(--kin-inspector)] backdrop-blur-md shadow-e2 px-3 py-3 min-h-0 overflow-y-auto kin-scroll"
+          aria-label={tr("task.sessionRail")}
+        >
+          <TaskUsageSummary usage={usage} loading={usageLoading} variant="card" />
+          <ChangedFilesBar
+            files={changedFiles}
+            onOpenPath={onOpenPath}
+            onOpenPanel={onOpenFilesPanel}
+            reviewActions={terminal}
+            onKeepAll={onKeepAll}
+            onDiscardAll={onDiscardAll}
+            actionsBusy={reviewBusy}
+            variant="card"
+          />
+        </aside>
+      )}
 
       {filesOpen && (
-        <PanelSurface label={tr("workspace.title")}>
+        <PanelSurface label={tr("workspace.title")} shape="column">
           <div className="h-full w-full">
             <WorkspacePanel
               taskId={task.id}
@@ -151,6 +160,7 @@ export default function TaskPanels({
           // on its own and is not this.
           onRowChanged={onPublishRowChanged}
           onClose={onClosePanel}
+          shape="column"
         />
       )}
     </>
