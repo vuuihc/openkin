@@ -9,6 +9,7 @@ import {
   IconMore,
   IconPanel,
   IconRestore,
+  IconSessions,
   IconShare,
   IconTrash,
 } from "../icons";
@@ -72,6 +73,14 @@ export type TaskHeaderProps = {
   /** Connected to the daemon's live stream but not receiving it. */
   degraded: boolean;
   filesOpen: boolean;
+  /**
+   * A panel (files or publish) is open for this conversation.
+   *
+   * The shell hides the conversation list while that is true, so this is what
+   * draws the one control that brings it back. `filesOpen` is the workspace
+   * toggle's pressed state and cannot stand in: the publish sheet counts too.
+   */
+  panelOpen: boolean;
   archiving: boolean;
   deleting: boolean;
   stopping: boolean;
@@ -82,6 +91,12 @@ export type TaskHeaderProps = {
   onStop: () => void | Promise<void>;
   onBack: () => void;
   onOpenActions: () => void;
+  /**
+   * Bring the conversation list back. It closes the panel rather than
+   * revealing the list beside it: one surface at a time is the rule the
+   * widths are built on (TASTE 17).
+   */
+  onShowList: () => void;
 };
 
 export default function TaskHeader({
@@ -92,6 +107,7 @@ export default function TaskHeader({
   terminal,
   degraded,
   filesOpen,
+  panelOpen,
   archiving,
   deleting,
   stopping,
@@ -102,6 +118,7 @@ export default function TaskHeader({
   onStop,
   onBack,
   onOpenActions,
+  onShowList,
 }: TaskHeaderProps) {
   const tr = useT();
   const title = task.title || displayUserPrompt(task.prompt || "");
@@ -179,6 +196,21 @@ export default function TaskHeader({
             </span>
             <span>{tr("newChat.hostAgent", { name: hostAgentName })}</span>
           </span>
+          {/* The list column yielded to an open panel; this is its way back.
+              It is desktop-only because the phone has no list column to
+              reveal — its list is a page, not a column (TASTE 3). */}
+          {panelOpen && (
+            <Button
+              variant="secondary"
+              onClick={onShowList}
+              aria-label={tr("nav.showList")}
+              className="gap-1.5 rounded-md px-2 py-1 text-body font-normal text-kin-secondary hover:text-kin-text"
+              title={tr("nav.showList")}
+            >
+              <IconSessions size={13} />
+              <span>{tr("nav.showList")}</span>
+            </Button>
+          )}
           <Button
             variant="secondary"
             onClick={onToggleWorkspace}
