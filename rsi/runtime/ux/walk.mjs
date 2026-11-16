@@ -133,7 +133,7 @@ for (const j of want) {
           const l = await lint(page, phone); screens.push({ journey: j, viewport: vpName, name, url: new URL(page.url()).pathname + new URL(page.url()).search.replace(/token=[^&]+/g, 'token=<redacted>'), lint: l });
           if (l.bodyText < 20) hardFail.push(`${name}: blank page`);
           if (l.overflowX) hardFail.push(`${name}: horizontal page overflow`);
-        } else if (op === 'click' || op === 'hover' || op === 'fill' || op === 'enabled') {
+        } else if (op === 'click' || op === 'hover' || op === 'fill' || op === 'enabled' || op === 'focus') {
           const raw = String(a), optional = raw.startsWith('?'), sel = optional ? raw.slice(1) : raw;
           const loc = sel.startsWith('/') ? page.getByText(new RegExp(sel.slice(1, sel.lastIndexOf('/')), 'i')).first() : page.locator(sel).first();
           if (await loc.count() === 0) { if (optional) { log.push('skipped ' + op + ' ' + sel); continue; } hardFail.push(`${j}/${vpName}: missing required ${op} ${sel}`); continue; }
@@ -152,6 +152,14 @@ for (const j of want) {
               continue;
             }
             log.push('enabled ' + sel); await page.waitForTimeout(150); continue;
+          }
+          if (op === 'focus') {
+            // A trigger inside a composer re-lays-out when the field blurs, and
+            // the mouse-up then lands on the wrapper, swallowing the click
+            // (`choosePlace` documents the same defect on /new at 1100px).
+            // Focusing first, then pressing Enter, is the accessible path and
+            // the stable one: the layout settles before the layer opens.
+            await loc.focus({ timeout: 3000 }); await page.waitForTimeout(200); continue;
           }
           if (op === 'fill') await loc.fill(b, { timeout: 3000 }); else await (op === 'click' ? loc.click({ timeout: 3000 }) : loc.hover({ timeout: 3000 })); await page.waitForTimeout(400);
         } else if (op === 'place') {
