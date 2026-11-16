@@ -1,0 +1,7 @@
+# Known-flaky test names (exact `--- FAIL: Name` identifiers), one per line.
+# merge.sh treats a gate or CI failure as mechanical when every failing test
+# is listed here or lives in a package the PR did not touch: rerun once, do
+# not count it as a quality sendback.
+#
+# Keep this list empty unless a flake is still open. TestAQuestionWhoseRowIsGoneIsRefused
+# is fixed in rsi/approval-wait-wakes-on-drop; do not re-add it here.
