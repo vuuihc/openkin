@@ -25,6 +25,9 @@ if [ $CHECK -eq 1 ] || [ $STAT -eq 1 ]; then
   [ -s "$STATE/volc-budget.json" ] && python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print('volc list CNY today: ¥%.2f (%s); Kimi ¥%.2f / ¥%.0f'%(d['cny'],d['level'],d.get('kimi_cny') or 0,d.get('kimi_day_max') or 80))" "$STATE/volc-budget.json" 2>/dev/null
   echo "consec_fail=$(cat "$STATE/consec_fail" 2>/dev/null || echo 0) consec_timeout=$(cat "$STATE/consec_timeout" 2>/dev/null || echo 0)"
   echo "merge lane: $([ -d "$STATE/.merge.lock" ] && echo "running pid $(cat "$STATE/.merge.lock/pid")" || echo idle)"
+  BP_NOTE=""
+  if rsi_open_pr_backpressure; then BP_NOTE=" (BACKPRESSURE: pausing new slices; rework+merge only)"; fi
+  [ "${RSI_OPEN_RSI_PRS:--1}" -ge 0 ] && echo "open PRs: rsi_active=${RSI_OPEN_RSI_PRS}/${RSI_MAX_OPEN_PRS} total=${RSI_OPEN_TOTAL_PRS}${BP_NOTE}"
   [ -e "$STATE/merged.log" ] && { echo "--- merged.log (tail)"; tail -5 "$STATE/merged.log"; }
   exit 0
 fi
@@ -73,6 +76,13 @@ case "$MODE" in
     if [ $DRY -eq 0 ] && rsi_allow_workers; then
       bash "$RSI_DIR/runtime/lane.sh" autofill astryx   # Astryx sendbacks -> rework lanes first, no LLM
       bash "$RSI_DIR/runtime/lane.sh" autofill rest     # non-Astryx reworks take remaining idle slots before exit
+    fi
+    if [ $DRY -eq 0 ] && rsi_open_pr_backpressure; then
+      if rsi_allow_workers && [ -x "$RSI_DIR/runtime/nas/ingest-nas.sh" ]; then
+        nohup /bin/bash "$RSI_DIR/runtime/nas/ingest-nas.sh" >> "$RUNS/launchd-nas.log" 2>&1 < /dev/null & disown 2>/dev/null || true
+      fi
+      echo "open PR backpressure: ${RSI_OPEN_RSI_PRS} active rsi PRs >= ${RSI_MAX_OPEN_PRS} (total open ${RSI_OPEN_TOTAL_PRS}); skipping new slice fill (rework + merge only)."
+      exit 0
     fi
     IDLE="$(python3 "$LANES_PY" idle | tr '\n' ' ')"
     LANES_TXT="$(python3 "$LANES_PY" status)"
