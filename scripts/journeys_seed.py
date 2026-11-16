@@ -8,6 +8,14 @@ the token is never printed. A state the API cannot produce without launching a
 real agent CLI is reported as `skip <state>: <reason>` and does not fail the
 walk — ux-walk.sh only treats a non-zero exit as a seed failure.
 
+Conversations are seedable because the harness (rsi/runtime/ux-walk.sh and
+scripts/journeys-smoke.sh) puts scripts/journeys_fake_agent first on the
+throwaway daemon's PATH: the seed creates one succeeded, one failed and one
+archived conversation, and refuses to create any unless /api/agents names a
+`claude` inside that directory as the binary the daemon would launch. States
+the fake cannot produce — a permission request, a routine run — still print
+`skip`.
+
 Usage:
     KIN_BASE=http://127.0.0.1:<port> KIN_TOKEN=<token> \
         python3 scripts/journeys_seed.py [--dry-run]
@@ -26,6 +34,11 @@ import urllib.parse
 import urllib.request
 
 PREFIX = "[seed] "
+# The harness directory that holds the fake claude. The seed only creates
+# conversations when the daemon resolves its `claude` binary inside it.
+FAKE_AGENT_DIRNAME = "journeys_fake_agent"
+FAKE_AGENT_LABEL = f"scripts/{FAKE_AGENT_DIRNAME}/claude"
+TERMINAL_STATUSES = ("succeeded", "failed", "canceled")
 # The focus line doubles as the sentinel: a second run finds it in the
 # One-Pager and leaves the file alone, and nothing extra shows on the cover.
 FOCUS_SENTINEL = "Finish the journey walk with real projects, conversations and routines on screen."
@@ -65,6 +78,31 @@ ROUTINES = (
         "interval_secs": 7 * 86400,
         "due_in_secs": 7 * 86400,
         "prompt": "Review last week's work, then write the one thing worth continuing.",
+    },
+)
+
+CONVERSATIONS = (
+    {
+        "slug": "conversation-created",
+        "title": PREFIX + "Morning planning",
+        "prompt": PREFIX + "Summarise the three things worth doing today.",
+        "expect": ("succeeded",),
+        "archive": False,
+    },
+    {
+        "slug": "conversation-failed",
+        # The literal marker makes the fake agent emit an error result.
+        "title": PREFIX + "Failed migration",
+        "prompt": PREFIX + "fail: explain why the migration stopped.",
+        "expect": ("failed",),
+        "archive": False,
+    },
+    {
+        "slug": "conversation-archived",
+        "title": PREFIX + "Last week's review",
+        "prompt": PREFIX + "Review the notes from last week and list what to keep.",
+        "expect": ("succeeded",),
+        "archive": True,
     },
 )
 
@@ -302,36 +340,188 @@ def seed_routines(api: Api, report: Report) -> None:
             report.skip(spec["slug"], reason)
 
 
-def _runnable_agents(api: Api) -> list[str]:
+def _task_timeout() -> float:
+    """How long to wait for a seeded task to settle. Overridable for tests."""
+    try:
+        return max(0.2, float(os.environ.get("KIN_SEED_TASK_TIMEOUT_SECS", "15")))
+    except ValueError:
+        return 15.0
+
+
+def _fake_agent(api: Api) -> tuple[str | None, str]:
+    """(agent id, why) — the id only when the daemon would launch this repo's fake.
+
+    Every conversation route ends in a turn: POST /api/tasks starts the agent
+    CLI the daemon resolves. Starting a real claude would be a model run on the
+    seeding machine, which is the one thing the seed must not cause, so a
+    binary outside scripts/journeys_fake_agent means no conversations at all.
+    """
     try:
         rows = _list(api, "/api/agents", "agents")
     except SeedError:
-        return []
-    return [str(row.get("id")) for row in rows if row.get("available") and row.get("id")]
+        return None, "cannot list agents; refusing to guess which binary a turn would start"
+    for row in rows:
+        if row.get("id") != "claude-code":
+            continue
+        if not row.get("available"):
+            return None, "the daemon reports no runnable claude-code agent"
+        # The daemon's own resolution is the only proof: this process's PATH
+        # says nothing about which binary the daemon would start. A caller
+        # that does not hold the daemon gets a blanked binary, and that is a
+        # refusal, not a reason to guess.
+        binary = str(row.get("binary") or "")
+        if not binary:
+            return None, "the daemon does not say which claude it would start; refusing to guess"
+        if os.path.basename(os.path.dirname(os.path.realpath(binary))) != FAKE_AGENT_DIRNAME:
+            return None, "the daemon would start a real claude CLI; only the fake agent may answer"
+        return "claude-code", ""
+    return None, "no claude-code agent is installed on this daemon"
 
 
-def report_unproducible(api: Api, report: Report) -> None:
-    """Say out loud which journey states this daemon cannot be given safely.
+def _wait_terminal(api: Api, ident: str, timeout: float) -> tuple[str | None, str]:
+    """Poll one task until it settles. Returns (terminal status or None, last seen)."""
+    deadline = time.monotonic() + timeout
+    last = "unknown"
+    while time.monotonic() < deadline:
+        status, body = api.call("GET", f"/api/tasks/{ident}")
+        if status == 200 and isinstance(body, dict):
+            last = str(body.get("status") or "unknown")
+            if last in TERMINAL_STATUSES:
+                return last, last
+        else:
+            # Say what went wrong instead of reporting a task as merely slow.
+            last = _reason(status, body)
+        time.sleep(0.1)
+    return None, last
 
-    Every conversation route ends in a turn: POST /api/tasks starts the agent
-    CLI in the task cwd. The walk's daemon shares this machine's PATH, so on a
-    machine with claude or codex installed that is a real model run — the one
-    thing seeding must not cause. A fake agent binary in the daemon's PATH is a
-    harness change (rsi/runtime/ux-walk.sh), not something this script can do.
+
+def _fake_answered(api: Api, ident: str) -> tuple[bool, str]:
+    """Whether the task's events carry the fake agent's stderr marker, and why not."""
+    status, body = api.call("GET", f"/api/tasks/{ident}/events")
+    if status != 200:
+        return False, f"cannot read task {ident} events: {_reason(status, body)}"
+    if "fake-agent" not in json.dumps(body):
+        return False, f"task {ident} has no fake-agent marker in its events"
+    return True, ""
+
+
+def _set_archived(api: Api, report: Report, spec: dict, ident: str, already: bool) -> None:
+    title = spec["title"]
+    if already:
+        report.existing("archive", title, ident)
+        return
+    if report.dry_run:
+        report.plan("archive", title)
+        return
+    status, body = api.call("POST", f"/api/tasks/{ident}/archive")
+    if status in (200, 204):
+        report.create("archive", title)
+        return
+    reason = _reason(status, body)
+    if status in (401, 403):
+        raise AuthError(f"POST /api/tasks/{ident}/archive refused: {reason}; check KIN_TOKEN")
+    if status not in SKIPPABLE:
+        raise SeedError(f"POST /api/tasks/{ident}/archive: {reason}")
+    report.skip(spec["slug"], reason)
+
+
+def seed_conversations(api: Api, report: Report) -> None:
+    """Create one succeeded, one failed and one archived conversation.
+
+    The fake agent makes each turn terminal; nothing here waits longer than
+    KIN_SEED_TASK_TIMEOUT_SECS, and a turn that does not settle is reported as
+    a skip rather than hanging the walk.
     """
-    agents = _runnable_agents(api)
-    if agents:
-        why = (
-            "POST /api/tasks starts a real agent CLI "
-            f"({', '.join(agents)} runnable on this daemon); no agent-free conversation route exists"
+    agent, why = _fake_agent(api)
+    if agent is None:
+        for spec in CONVERSATIONS:
+            report.skip(spec["slug"], why)
+        return
+    print(f"fake agent: claude resolves to {FAKE_AGENT_LABEL}")
+
+    try:
+        # The archived conversation is not in the default list, so both sides
+        # are needed for a second run to find all three.
+        filed = _list(api, "/api/tasks", "tasks")
+        archived = _list(api, "/api/tasks?archived=1", "tasks")
+    except AuthError:
+        raise
+    except SeedError as exc:
+        for spec in CONVERSATIONS:
+            report.skip(spec["slug"], str(exc))
+        return
+
+    by_title: dict[str, dict] = {}
+    for row in filed + archived:
+        title = str(row.get("title") or "")
+        if title:
+            by_title.setdefault(title, row)
+
+    roots = ""
+    timeout = _task_timeout()
+    for index, spec in enumerate(CONVERSATIONS):
+        title = spec["title"]
+        row = by_title.get(title)
+        if row:
+            ident = str(row.get("id") or "")
+            report.existing("conversation", title, ident)
+            # An interrupted earlier run can leave a row in the wrong state.
+            # Say so instead of letting a later walk screenshot it as the
+            # fixture it was supposed to be.
+            state = str(row.get("status") or "unknown")
+            if state not in spec["expect"]:
+                report.skip(spec["slug"], f"existing task {ident} is {state}, wanted {'/'.join(spec['expect'])}")
+                continue
+            if spec["archive"]:
+                _set_archived(api, report, spec, ident, bool(row.get("archived_at")))
+            continue
+        if report.dry_run:
+            report.plan("conversation", title)
+            continue
+        if not roots:
+            roots = _seed_roots()
+        status, body = api.call(
+            "POST",
+            "/api/tasks",
+            {
+                "agent": agent,
+                "cwd": os.path.join(roots, ("alpha", "beta", "gamma")[index % 3]),
+                "prompt": spec["prompt"],
+                "title": title,
+                # YOLO: the fake is never asked for an approval card.
+                "permission_mode": "yolo",
+            },
         )
-    else:
-        why = "POST /api/tasks refuses every conversation: no runnable agent on this daemon"
-    report.skip("conversation-created", why)
-    report.skip("conversation-archived", "a task must exist before it can be archived, and creating one starts a turn")
-    report.skip("conversation-failed", "a failed task needs a real turn; nothing fails a task before the agent starts")
-    report.skip("waiting-approval", "approvals attach only to a running task, and reaching running starts an agent")
-    report.skip("routine-failed", "a failed last run needs a real task execution")
+        if not (status in (200, 201) and isinstance(body, dict) and body.get("id")):
+            reason = _reason(status, body)
+            if status in (401, 403):
+                raise AuthError(f"POST /api/tasks refused: {reason}; check KIN_TOKEN")
+            if status not in SKIPPABLE:
+                raise SeedError(f"POST /api/tasks: {reason}")
+            report.skip(spec["slug"], reason)
+            continue
+        ident = str(body["id"])
+        report.create("conversation", title, ident)
+
+        state, last = _wait_terminal(api, ident, timeout)
+        if state is None:
+            report.skip(spec["slug"], f"task {ident} still {last} after {timeout:g}s of polling; not waiting forever")
+            continue
+        if state not in spec["expect"]:
+            report.skip(spec["slug"], f"task {ident} ended {state}, wanted {'/'.join(spec['expect'])}")
+            continue
+        answered, why_not = _fake_answered(api, ident)
+        if not answered:
+            report.skip(spec["slug"], why_not)
+            continue
+        if spec["archive"]:
+            _set_archived(api, report, spec, ident, False)
+
+
+def report_unproducible(report: Report) -> None:
+    """Name the journey states the fake agent still cannot produce."""
+    report.skip("waiting-approval", "the fake agent never emits a permission request, so no approval card appears")
+    report.skip("routine-failed", "a failed last run needs a real task execution; the seeded routines have not run")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -359,10 +549,11 @@ def main(argv: list[str] | None = None) -> int:
         projects = seed_projects(api, report)
         seed_focus(api, report, projects)
         seed_routines(api, report)
+        seed_conversations(api, report)
     except SeedError as exc:
         print(f"journeys seed: {exc}", file=sys.stderr)
         return 1
-    report_unproducible(api, report)
+    report_unproducible(report)
     report.summary()
     return 0
 
