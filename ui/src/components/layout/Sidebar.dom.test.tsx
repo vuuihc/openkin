@@ -490,7 +490,7 @@ describe("the Mac sidebar list", () => {
     expect(document.querySelector("[data-kin-edge-back]")).toBeNull();
   });
 
-  it("keeps import in the footer icon row and the archive in the same row", () => {
+  it("keeps import and the archive in one row under the list", () => {
     fixtures.tasks = [task("only", "/work/alpha")];
     render(sidebar());
 
@@ -499,7 +499,11 @@ describe("the Mac sidebar list", () => {
 
     const archived = screen.getByRole("link", { name: "Archived" });
     expect(archived.getAttribute("href")).toBe("/sessions?scope=archived");
-    expect(archived.closest("[data-sidebar-footer]")).not.toBeNull();
+    // The row is the list's own foot: the area destinations moved to the rail,
+    // and what stays here is what filters or feeds this list.
+    expect(archived.closest("[data-sidebar-footer]")).toBe(
+      importButton.closest("[data-sidebar-footer]"),
+    );
   });
 });
 

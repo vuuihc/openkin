@@ -6,22 +6,23 @@ import {
   type ReactNode,
 } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
-import { formatCost, type AgentInfo } from "../../api/client";
+import { type AgentInfo } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { onGuardedLinkClick } from "../../lib/phoneNavigation";
-import { PLACES } from "../../lib/places";
-import { PLACE_ICONS } from "../placeIcons";
 import { IconArchive, IconDownload, IconInbox, IconPlus } from "../icons";
 import SessionList from "../sessions/SessionList";
 
 /**
- * The Mac sidebar: identity, new chat, the conversation list, and the way out.
+ * The Mac list column: new chat, the conversation list, and the list's own
+ * utilities.
  *
- * The list is the shared `SessionList`, the same component the phone page
- * draws. Width decides the column, not the feature set: search, filters, the
- * project order, folds, pins and row actions are one implementation, so the
- * two surfaces cannot drift apart again. What stays here is the chrome around
- * the list — the brand header, the import menu, and the footer's destinations.
+ * The brand and the four destinations are the area rail's job now
+ * (`AreaNav`), so this column starts at the action that serves the list and
+ * ends at the filters and imports that belong to it. The list is the shared
+ * `SessionList`, the same component the phone page draws. Width decides the
+ * column, not the feature set: search, filters, the project order, folds, pins
+ * and row actions are one implementation, so the two surfaces cannot drift
+ * apart again.
  *
  * The phone has no version of this column: since KIN-CONTINUE-002 the list page
  * itself is the phone's only navigation surface, and its footer carries the
@@ -35,8 +36,6 @@ type Props = {
   /** Waiting approvals, shown on the Inbox destination so they are findable
    *  without opening the page. */
   pendingCount?: number;
-  routineUnreadCount?: number;
-  weekCost?: number | null;
   onNewChat: () => void;
   agentCatalog?: AgentInfo[];
   importingExternalSessions?: boolean;
@@ -47,8 +46,6 @@ export default function Sidebar({
   selectedTaskId,
   draftActive,
   pendingCount = 0,
-  routineUnreadCount = 0,
-  weekCost,
   onNewChat,
   agentCatalog = [],
   importingExternalSessions = false,
@@ -132,20 +129,10 @@ export default function Sidebar({
     </>
   );
 
-  const header = (
-    <div className="px-3 pt-3 pb-2 flex items-center gap-2">
-      <div className="w-7 h-7 rounded-lg bg-kin-blue flex items-center justify-center text-kin-on-brand text-strong font-semibold shadow-e1">
-        K
-      </div>
-      <span className="text-strong font-semibold tracking-tight">{tr("app.name")}</span>
-    </div>
-  );
-
-  // On a Mac the import entry is one of the footer icons: the left column is
-  // one piece — the list, then one row of destinations — and a full-width
-  // import button above it was a second navigation block with the same weight
-  // as the list it was supposed to serve. The phone's import lives in Agent
-  // Ops (KIN-CONTINUE-002), not here.
+  // On a Mac the import entry lives with the list it serves. The area rail
+  // owns the destinations; this row is the list's own foot — where its
+  // attention queue (Inbox) and its archive filter sit, and where an import
+  // starts. The phone's import lives in Agent Ops (KIN-CONTINUE-002), not here.
   const importIcon = onImportExternalSessions ? (
     <div className="relative" ref={importMenuRef}>
       <button
@@ -211,9 +198,13 @@ export default function Sidebar({
   // list in the main area. The icon is always present: an empty archive still
   // has a view that says so, and a control that appears only after the first
   // archive is a destination people never learn.
-  const footerIcons = (
+  //
+  // Inbox stays here rather than moving to the rail: it is the list's own
+  // attention queue, not one of the four areas, and its count is the number of
+  // conversations in this list that wait on a person.
+  const listFooter = (
     <div data-sidebar-footer className="border-t border-kin-hairline px-1.5 py-2">
-      <div className="flex items-center justify-between gap-0.5">
+      <div className="flex items-center gap-1">
         <FooterIcon
           to="/inbox"
           label={tr("nav.inbox")}
@@ -238,40 +229,16 @@ export default function Sidebar({
           <IconArchive size={16} />
         </Link>
         {importIcon}
-        {PLACES.filter((place) => place.section !== "work").map((place) => {
-          const Icon = PLACE_ICONS[place.id];
-          return (
-            <FooterIcon
-              key={place.id}
-              to={place.path}
-              label={tr(place.labelKey)}
-              icon={<Icon size={16} />}
-              badge={
-                place.id === "routines" && routineUnreadCount > 0
-                  ? routineUnreadCount > 99
-                    ? "99+"
-                    : String(routineUnreadCount)
-                  : undefined
-              }
-              title={
-                place.id === "agents" && weekCost != null && weekCost > 0
-                  ? `${tr(place.labelKey)} · ${formatCost(weekCost)}`
-                  : undefined
-              }
-            />
-          );
-        })}
       </div>
     </div>
   );
 
   return (
     <div className="hidden md:flex h-full shrink-0 kin-zen-hide">
-      <aside className="w-sidebar h-full flex flex-col bg-kin-sidebar shrink-0">
-        {header}
+      <aside className="w-list h-full flex flex-col bg-kin-sidebar shrink-0">
         {newChatBlock}
         <SessionList shell="sidebar" activeTaskId={selectedTaskId ?? null} />
-        {footerIcons}
+        {listFooter}
       </aside>
     </div>
   );

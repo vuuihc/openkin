@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { getUsageSummary, type AgentSessionImportResult, type Approval } from "../../api/client";
+import type { AgentSessionImportResult, Approval } from "../../api/client";
 import { useTaskList, useTaskResource } from "../../api/useLiveResources";
 import { isImeKeyEvent } from "../../lib/ime";
 import { DRAFT_PATH, draftSurfaceActive, getDraftCwd, subscribeDraft } from "../../lib/draftChat";
@@ -21,6 +21,7 @@ import { useT } from "../../i18n/react";
 import CommandPalette from "../CommandPalette";
 import { useAppStore } from "../../store/appStore";
 import Sidebar from "./Sidebar";
+import AreaNav, { areaShortcutRoot, railCompact } from "./AreaNav";
 import MobileHeader, { MobileHeaderButton } from "../mobile/MobileHeader";
 import SessionsHeader from "../mobile/SessionsHeader";
 import { IconBack, IconSearch, IconX } from "../icons";
@@ -101,6 +102,10 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
   // list on a phone; the shell's draft state has to agree with what is drawn,
   // not just with `/new`.
   const wide = useMinWidth(768);
+  // The rail's compact width is a 1280 decision, separate from the phone/desktop
+  // one: an iPad at 1100 is wide enough for the shell but not for a labelled
+  // rail beside a conversation and an open panel.
+  const wide1280 = useMinWidth(1280);
   const draftActive = draftSurfaceActive(location.pathname, wide);
   const desktop = isKinDesktop();
   // On the phone there is no sidebar to say where you are, so the header has to.
@@ -229,7 +234,6 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
   // a name lookup — not the sidebar's data.
   const taskList = useTaskList(SHELL_TITLE_TASKS);
   const tasks = taskList.data;
-  const [weekCost, setWeekCost] = useState<number | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   // Zen: chrome out of the way, session untouched. State, not a preference —
   // nothing writes it anywhere, so a reload is always back to the shell (P3 plan
@@ -327,6 +331,11 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
   // workspace panel replaces it instead of painting on top of it.
   const shownPanel = useAppStore((s) => s.shownPanel);
   const togglePanel = useAppStore((s) => s.togglePanel);
+  // Whether a panel is covering the conversation right now. The rail compacts
+  // on it: at 1100 or with the panel open, labels cost the conversation width
+  // the review loop needs (TASTE 17). S1 only compacts the rail — making the
+  // panel a column and yielding the list is S1b.
+  const panelOpen = panelForView(shownPanel, selectedTaskId ?? SHELL_VIEW) !== null;
   // The terminal belongs to no session, so its view key is the shell's. It is
   // still rendered unconditionally on desktop and told whether to be open, even
   // though a closed panel is invisible: `TerminalPanel` mounts its PTY on first
@@ -355,20 +364,6 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
   const toggleTerminal = useCallback(() => {
     toggleShellPanel("terminal");
   }, [toggleShellPanel]);
-
-  const loadUsage = useCallback(async () => {
-    try {
-      const rows = await getUsageSummary(7);
-      const cost = rows.reduce((s, r) => s + (r.cost_usd ?? 0), 0);
-      setWeekCost(cost);
-    } catch {
-      setWeekCost(null);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadUsage();
-  }, [loadUsage]);
 
   // Subscribe to draft cwd changes
   useEffect(() => {
@@ -405,10 +400,27 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
         e.stopPropagation();
         toggleTerminal();
       }
+      // ⌘1–⌘4 are the four areas. Same guards as ⌘F: a held key, an IME
+      // composition, a chord with another modifier, a floating layer, the
+      // palette, or a page that already answered the key is not this shortcut.
+      // The departure runs through the leave guard like every other one.
+      // `areaShortcutRoot` is asked first: the overlay walk below is a document
+      // query, and it must not run for every keystroke in a text field.
+      const root = areaShortcutRoot(e);
+      if (
+        root &&
+        !paletteOpen &&
+        !e.defaultPrevented &&
+        !isImeKeyEvent(e) &&
+        !overlayOwnsKeyboard()
+      ) {
+        e.preventDefault();
+        runGuardedNavigation(() => navigate(root));
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [terminalAvailable, openNewChat, toggleTerminal, paletteOpen]);
+  }, [terminalAvailable, openNewChat, toggleTerminal, paletteOpen, navigate]);
 
   // ⌘F is the list's search (step 2). The transcript's own find bar keeps the
   // key while the caret is inside the conversation, where it is the closer
@@ -472,17 +484,23 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
       }`}
     >
       {wide && (
-        <Sidebar
-          selectedTaskId={selectedTaskId}
-          draftActive={draftActive}
-          pendingCount={pendingApprovals.length}
-          routineUnreadCount={routineUnreadCount}
-          weekCost={weekCost}
-          onNewChat={openNewChat}
-          agentCatalog={agentCatalog}
-          importingExternalSessions={importingExternalSessions}
-          onImportExternalSessions={(agents) => void importExternalSessions(agents)}
-        />
+        <>
+          <AreaNav
+            compact={railCompact(panelOpen, wide1280)}
+            pendingCount={pendingApprovals.length}
+            routineUnreadCount={routineUnreadCount}
+            onOpenPalette={() => setPaletteOpen(true)}
+          />
+          <Sidebar
+            selectedTaskId={selectedTaskId}
+            draftActive={draftActive}
+            pendingCount={pendingApprovals.length}
+            onNewChat={openNewChat}
+            agentCatalog={agentCatalog}
+            importingExternalSessions={importingExternalSessions}
+            onImportExternalSessions={(agents) => void importExternalSessions(agents)}
+          />
+        </>
       )}
 
       {/*

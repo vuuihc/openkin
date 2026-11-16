@@ -225,7 +225,7 @@ export default function FloatingApproval({
           type="button"
           onClick={() => onOpenTask(current.task_id)}
           title={tr("approval.openTask")}
-          className="max-w-[13rem] truncate rounded-full px-1 py-0.5 text-caption font-medium text-kin-blue-ink hover:underline"
+          className="max-w-approval-title truncate rounded-full px-1 py-0.5 text-caption font-medium text-kin-blue-ink hover:underline"
         >
           {title || tr("approval.floatingFallback")}
         </button>

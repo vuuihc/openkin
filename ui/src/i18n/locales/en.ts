@@ -19,6 +19,9 @@ const en: MessageTree = {
     back: "Back",
   },
   nav: {
+    areas: "Areas",
+    showList: "Show list",
+    paletteHint: "Search and commands",
     newChat: "New chat",
     inbox: "Inbox",
     tasks: "Tasks",

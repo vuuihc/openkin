@@ -17,6 +17,9 @@ const zh = {
     back: "返回",
   },
   nav: {
+    areas: "区域",
+    showList: "显示列表",
+    paletteHint: "搜索与命令",
     newChat: "新建对话",
     inbox: "收件箱",
     tasks: "任务",
