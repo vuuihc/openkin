@@ -84,7 +84,12 @@ type RowStatus = { label: string; tone: StatusTone; title?: string };
 
 const EMPTY_FAMILIES: string[] = [];
 
-export default function AgentsPage() {
+/**
+ * `embedded` omits the page's own `h1` when Settings hosts this console in a
+ * tab: the settings screen already draws the one heading for that page.
+ * Temporary for N4 — E4a finishes the move and removes it.
+ */
+export default function AgentsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const tr = useT();
   const navigate = useNavigate();
   const location = useLocation();
@@ -936,13 +941,21 @@ export default function AgentsPage() {
     : null;
 
   return (
-    <div className="flex-1 overflow-y-auto overflow-x-hidden kin-scroll">
-      <div className="max-w-page-wide mx-auto px-4 sm:px-6 py-6 sm:py-8">
+    <div className={embedded ? "min-w-0" : "flex-1 overflow-y-auto overflow-x-hidden kin-scroll"}>
+      <div className={embedded ? "min-w-0" : "max-w-page-wide mx-auto px-4 sm:px-6 py-6 sm:py-8"}>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="hidden text-hero font-bold tracking-tight md:block">
-              {tr("agents.title")}
-            </h1>
+            {embedded ? (
+              // The panel always names itself, at every width: the tab strip
+              // shows which tab is open, not what the page below it is.
+              <h2 className="text-subtitle font-semibold text-kin-text">
+                {tr("settings.tabs.operations")}
+              </h2>
+            ) : (
+              <h1 className="hidden text-hero font-bold tracking-tight md:block">
+                {tr("agents.title")}
+              </h1>
+            )}
             <p className="text-body text-kin-muted">{tr("agents.subtitle")}</p>
             {agents !== null && (
               <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-caption text-kin-muted">
@@ -1034,6 +1047,11 @@ export default function AgentsPage() {
         {(rows === null || agents === null) && !error && !usageError && (
           <div className="mt-6 space-y-3">
             <SlowConnectHint show={slow} />
+            {/* Named, not just shaped: placeholder boxes with no label read as
+                broken cards in a still and to a screen reader. */}
+            <p className="text-body text-kin-muted" aria-live="polite">
+              {tr("agents.loadingMachine")}
+            </p>
             {/* The same shape the page arrives in — four stat tiles and the
                 chart — rather than one grey block. A placeholder that is not
                 the layout is a second layout: everything below it moves when
@@ -1084,7 +1102,7 @@ export default function AgentsPage() {
           </div>
         )}
 
-        {rows !== null && (
+        {rows !== null && agents !== null && (
           <div className="mt-6 space-y-6" aria-busy={updating}>
             {usageError && (
               <div
@@ -1094,72 +1112,92 @@ export default function AgentsPage() {
                 {usageError}
               </div>
             )}
-            <div
-              className={`grid grid-cols-2 gap-3 sm:grid-cols-4 ${updating ? "opacity-60" : ""}`}
-            >
-              {[
-                { label: tr("usage.spend"), value: totals.empty ? "—" : formatCost(totals.cost) },
-                {
-                  label: tr("usage.tokens"),
-                  value: totals.empty ? "—" : formatTokenCount(totals.tokens),
-                },
-                {
-                  label: tr("usage.cacheHitRate"),
-                  value: totals.empty
-                    ? "—"
-                    : cacheRateLabel(
-                        totals.cacheStatus,
-                        totals.cacheEligible > 0 ? totals.cacheRead / totals.cacheEligible : null,
-                      ),
-                },
-                {
-                  label: tr("usage.tasks"),
-                  value: totals.empty ? "—" : String(totals.tasks),
-                },
-              ].map((c) => (
-                <div key={c.label} className="rounded-xl bg-kin-elevated px-4 py-3">
-                  <div className="text-caption text-kin-muted font-semibold uppercase tracking-label">
-                    {c.label}
+            {totals.empty && !usageError ? (
+              // An empty range is a state, not four em-dash tiles: on a phone
+              // the tiles filled the first screen and read as broken data.
+              <div className="rounded-xl bg-kin-elevated px-4 py-5">
+                <p className="text-strong font-medium text-kin-text">{tr("agents.emptyUsage")}</p>
+                <p className="mt-1 text-body text-kin-muted">{tr("agents.emptyUsageHint")}</p>
+              </div>
+            ) : (
+              <>
+                <div
+                  className={`grid grid-cols-2 gap-3 sm:grid-cols-4 ${updating ? "opacity-60" : ""}`}
+                >
+                  {[
+                    {
+                      label: tr("usage.spend"),
+                      value: totals.empty ? "—" : formatCost(totals.cost),
+                    },
+                    {
+                      label: tr("usage.tokens"),
+                      value: totals.empty ? "—" : formatTokenCount(totals.tokens),
+                    },
+                    {
+                      label: tr("usage.cacheHitRate"),
+                      value: totals.empty
+                        ? "—"
+                        : cacheRateLabel(
+                            totals.cacheStatus,
+                            totals.cacheEligible > 0
+                              ? totals.cacheRead / totals.cacheEligible
+                              : null,
+                          ),
+                    },
+                    {
+                      label: tr("usage.tasks"),
+                      value: totals.empty ? "—" : String(totals.tasks),
+                    },
+                  ].map((c) => (
+                    <div key={c.label} className="rounded-xl bg-kin-elevated px-4 py-3">
+                      <div className="text-caption text-kin-muted font-semibold uppercase tracking-label">
+                        {c.label}
+                      </div>
+                      <div className="mt-1 text-hero font-semibold tabular-nums tracking-tight">
+                        {c.value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div>
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <span className="text-strong font-medium text-kin-muted">
+                      {tr("usage.dailySpend")}
+                    </span>
+                    {updating && (
+                      <span className="text-caption text-kin-muted" role="status">
+                        {tr("agents.intervalUpdating")}
+                      </span>
+                    )}
                   </div>
-                  <div className="mt-1 text-hero font-semibold tabular-nums tracking-tight">
-                    {c.value}
+                  <div
+                    className={`flex items-stretch gap-1.5 h-28 ${updating ? "opacity-60" : ""}`}
+                  >
+                    {totals.byDay.length === 0 && (
+                      <p className="text-strong leading-5 text-kin-muted">
+                        {tr("agents.emptyUsage")}
+                      </p>
+                    )}
+                    {totals.byDay.map(([date, cost]) => (
+                      <div key={date} className="flex-1 flex flex-col items-center gap-1 min-w-0">
+                        {/* Bar track: definite height so the bar's % resolves against it. */}
+                        <div className="flex-1 w-full flex items-end justify-center min-h-0">
+                          <div
+                            className="w-full max-w-[28px] rounded-t bg-kin-blue/80"
+                            style={{ height: `${Math.max(2, (cost / maxDay) * 100)}%` }}
+                            title={`${date}: ${formatCost(cost)}`}
+                          />
+                        </div>
+                        <span className="text-micro text-kin-muted truncate w-full text-center">
+                          {date.slice(5)}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              ))}
-            </div>
-
-            <div>
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <span className="text-strong font-medium text-kin-muted">
-                  {tr("usage.dailySpend")}
-                </span>
-                {updating && (
-                  <span className="text-caption text-kin-muted" role="status">
-                    {tr("agents.intervalUpdating")}
-                  </span>
-                )}
-              </div>
-              <div className={`flex items-stretch gap-1.5 h-28 ${updating ? "opacity-60" : ""}`}>
-                {totals.byDay.length === 0 && (
-                  <p className="text-strong leading-5 text-kin-muted">{tr("agents.emptyUsage")}</p>
-                )}
-                {totals.byDay.map(([date, cost]) => (
-                  <div key={date} className="flex-1 flex flex-col items-center gap-1 min-w-0">
-                    {/* Bar track: definite height so the bar's % resolves against it. */}
-                    <div className="flex-1 w-full flex items-end justify-center min-h-0">
-                      <div
-                        className="w-full max-w-[28px] rounded-t bg-kin-blue/80"
-                        style={{ height: `${Math.max(2, (cost / maxDay) * 100)}%` }}
-                        title={`${date}: ${formatCost(cost)}`}
-                      />
-                    </div>
-                    <span className="text-micro text-kin-muted truncate w-full text-center">
-                      {date.slice(5)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
+              </>
+            )}
           </div>
         )}
 

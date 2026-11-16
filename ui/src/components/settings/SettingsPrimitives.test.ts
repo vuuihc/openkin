@@ -36,6 +36,11 @@ describe("settingsTabFromSearch", () => {
     expect(settingsTabFromSearch("?tab=unknown")).toBe("general");
   });
 
+  it("accepts operations as a tab and still falls back for retired ids", () => {
+    expect(settingsTabFromSearch("?tab=operations")).toBe("operations");
+    expect(settingsTabFromSearch("?tab=remote")).toBe("general");
+  });
+
   it("sends the retired tabs and their callback params to General", () => {
     // Remote and Notifications were removed in R0b-3. Old links and OAuth
     // callbacks must land on a tab that exists, not on a blank panel.
