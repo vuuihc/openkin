@@ -520,7 +520,13 @@ describe("the Mac sidebar list", () => {
     expect(actions.className).toContain("absolute");
     expect(actions.className).toContain("opacity-0");
     expect(actions.className).toContain("group-hover/proj:opacity-100");
-    expect(actions.className).toContain("group-focus-within/proj:opacity-100");
+    expect(actions.className).toContain("focus-within:opacity-100");
+    // The wrapper alone hides and reveals the bar. A button that also faded
+    // itself in on focus drew an opaque box over the count while its siblings
+    // stayed invisible; revealing the wrapper shows every action at once.
+    expect(pin.className).not.toContain("opacity-0");
+    expect(pin.className).not.toContain("focus:opacity-100");
+    expect(pin.className).not.toContain("group-hover/proj:opacity-100");
   });
 
   it("keeps the phone's drawer and dock off the Mac column", () => {

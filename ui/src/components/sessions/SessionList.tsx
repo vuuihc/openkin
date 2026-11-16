@@ -1566,7 +1566,7 @@ function ProjectBucket({
               "pointer-events-none absolute bottom-1 top-4 z-10 flex items-center rounded-md opacity-0 transition-opacity",
               gutter === "px-2" ? "right-2" : "right-4",
               gutter === "px-2" ? "bg-[var(--kin-sidebar)]" : "bg-[var(--kin-page)]",
-              "group-focus-within/proj:pointer-events-auto group-focus-within/proj:opacity-100 group-hover/proj:pointer-events-auto group-hover/proj:opacity-100",
+              "focus-within:pointer-events-auto focus-within:opacity-100 group-hover/proj:pointer-events-auto group-hover/proj:opacity-100",
             ].join(" ")}
           >
             <ProjectIconButton
@@ -1697,7 +1697,7 @@ function ProjectIconButton({
           ? "cursor-not-allowed text-kin-muted opacity-50"
           : active
             ? "text-kin-blue-ink opacity-100"
-            : "text-kin-muted opacity-0 hover:bg-[var(--kin-fill-strong)] hover:text-kin-text focus:opacity-100 group-hover/proj:opacity-100",
+            : "text-kin-muted hover:bg-[var(--kin-fill-strong)] hover:text-kin-text",
       ].join(" ")}
     >
       {children}
