@@ -7,8 +7,10 @@ import { useEffect, useRef } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from "react";
 import { useT } from "../../i18n/react";
 import type { ProjectSortMode } from "../../lib/projectSidebar";
+import type { SessionAttentionFilter } from "../../lib/sessionAttention";
 import { IconArchive, IconPin, IconRestore, IconSearch, IconTrash } from "../icons";
 import SessionFilters, {
+  type SessionFilterChange,
   type SessionScopeFilter,
   type SessionStatusFilter,
 } from "../ui/SessionFilters";
@@ -32,8 +34,13 @@ export type SessionToolbarProps = {
   onSearchKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
   status: SessionStatusFilter;
   scope: SessionScopeFilter;
+  /** Which chip is pressed; `""` is All. */
+  attention: SessionAttentionFilter;
+  /** The live counts on the Needs you and Running chips. */
+  needsYouCount: number;
+  runningCount: number;
   sortMode: ProjectSortMode;
-  onFilterChange: (next: { status: SessionStatusFilter; scope: SessionScopeFilter }) => void;
+  onFilterChange: (next: SessionFilterChange) => void;
   onSortChange: (mode: ProjectSortMode) => void;
 };
 
@@ -46,6 +53,9 @@ export default function SessionToolbar({
   onSearchKeyDown,
   status,
   scope,
+  attention,
+  needsYouCount,
+  runningCount,
   sortMode,
   onFilterChange,
   onSortChange,
@@ -82,6 +92,9 @@ export default function SessionToolbar({
       <SessionFilters
         status={status}
         scope={scope}
+        attention={attention}
+        needsYouCount={needsYouCount}
+        runningCount={runningCount}
         onChange={onFilterChange}
         sortMode={sortMode}
         onSortChange={onSortChange}

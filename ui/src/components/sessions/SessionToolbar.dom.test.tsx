@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { createRef } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { setLocale } from "../../i18n";
 import SessionToolbar, {
@@ -27,6 +27,9 @@ function toolbarProps(overrides: Partial<SessionToolbarProps> = {}): SessionTool
     onSearchKeyDown: vi.fn(),
     status: "",
     scope: "active",
+    attention: "",
+    needsYouCount: 0,
+    runningCount: 0,
     sortMode: "active",
     onFilterChange: vi.fn(),
     onSortChange: vi.fn(),
@@ -84,6 +87,25 @@ describe("SessionToolbar", () => {
 
     expect(screen.queryByRole("searchbox")).toBeNull();
     expect(button(/Filter/)).toBeTruthy();
+  });
+
+  it("passes the attention view and both live counts through to the filter control", () => {
+    // The toolbar draws the chips; the list owns the URL and the numbers. A
+    // prop that stops here would leave the pressed chip and its counts wrong
+    // without failing any pure rule.
+    render(
+      <SessionToolbar
+        {...toolbarProps({ attention: "needs", needsYouCount: 3, runningCount: 2 })}
+      />,
+    );
+
+    const chips = screen.getByRole("group", { name: "Conversation view" });
+    const needs = within(chips).getByRole("button", { name: "Needs you" });
+    expect(needs.getAttribute("aria-pressed")).toBe("true");
+    expect(needs.textContent).toContain("3");
+    expect(
+      within(chips).getByRole("button", { name: "Running" }).textContent,
+    ).toContain("2");
   });
 });
 

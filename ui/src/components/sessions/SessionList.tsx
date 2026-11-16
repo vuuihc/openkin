@@ -72,6 +72,11 @@ import {
 import { consumeRowReturn, rememberRowReturn, takeRowReturn } from "../../lib/rowReturn";
 import { sortSessionBuckets } from "../../lib/sessionBucketOrder";
 import { sessionFeedTasks } from "../../lib/sessionFeed";
+import {
+  attentionCounts,
+  matchesAttention,
+  normalizeAttentionFilter,
+} from "../../lib/sessionAttention";
 import { readSessionFolds, setSessionFold } from "../../lib/sessionFolds";
 import { sessionListParams } from "../../lib/sessionListParams";
 import { rowSelectable, selectableTaskIds } from "../../lib/sessionSelection";
@@ -103,8 +108,8 @@ import { MobileEmpty, MobileScreen } from "../mobile/MobileList";
 import {
   normalizeScopeFilter,
   normalizeStatusFilter,
+  type SessionFilterChange,
   type SessionScopeFilter,
-  type SessionStatusFilter,
 } from "../ui/SessionFilters";
 import { useAppStore } from "../../store/appStore";
 import SessionRow from "./SessionRow";
@@ -119,12 +124,13 @@ import SessionToolbar, { SessionSelectionBar } from "./SessionToolbar";
  * row's overflow — hover controls in the sidebar, swipe and long-press on the
  * page — never which features the list has.
  *
- * The query, status and scope live in the URL (`?search=`, `?status=`, `?scope=`),
- * so switching width cannot change what the list is showing: the route stays
- * put and both shells read the same parameters. Project order is the existing
- * sidebar preference, which is why it appears in both shells' filter panel.
+ * The query, attention view, status and scope live in the URL (`?search=`,
+ * `?attention=`, `?status=`, `?scope=`), so switching width cannot change what
+ * the list is showing: the route stays put and both shells read the same
+ * parameters. Project order is the existing sidebar preference, which is why
+ * it appears in both shells' filter panel.
  */
-const LIST_STATE_KEYS = ["search", "status", "scope"] as const;
+const LIST_STATE_KEYS = ["search", "attention", "status", "scope"] as const;
 
 /**
  * Carry the list's own params through a navigation.
@@ -171,6 +177,10 @@ export default function SessionList({
   const query = params.get("search") ?? "";
   const status = normalizeStatusFilter(params.get("status"));
   const scope = normalizeScopeFilter(params.get("scope"));
+  // Archived is its own side of the list, so an attention value is ignored
+  // there rather than narrowing the archive to a view it does not have.
+  const attention =
+    scope === "archived" ? "" : normalizeAttentionFilter(params.get("attention"));
 
   const [searchTerm, setSearchTerm] = useState(() => query.trim());
   const [returnRow, setReturnRow] = useState<string | null>(() => takeRowReturn());
@@ -187,6 +197,13 @@ export default function SessionList({
   const taskList = useTaskList(sessionListParams(searchTerm, status));
   const pending = usePendingResources();
   const pendingByTask = useMemo(() => pendingCountsByTask(pending.data), [pending.data]);
+  // The chip counts read the first live page, not the older pages a person
+  // loaded: a number that grows while scrolling is a number that cannot be
+  // trusted. The pending half is global because `pendingCountsByTask` is.
+  const { needsYou: needsYouCount, running: runningCount } = useMemo(
+    () => attentionCounts(taskList.data, pendingByTask),
+    [taskList.data, pendingByTask],
+  );
   const { machines, loading: machinesLoading } = useMachines();
   const [sessions, setSessions] = useState<AgentSession[]>([]);
   const [olderTasks, setOlderTasks] = useState<Task[]>([]);
@@ -402,8 +419,13 @@ export default function SessionList({
     [archivedTasks, olderArchivedTasks],
   );
   const tasks = useMemo(
-    () => sessionFeedTasks(liveRows, archivedRows, scope, status),
-    [liveRows, archivedRows, status, scope],
+    () =>
+      sessionFeedTasks(liveRows, archivedRows, scope, status).filter((task) =>
+        // The attention view narrows the same rows the list already selected;
+        // it never replaces the archive or status rules above.
+        matchesAttention(task, attention, pendingByTask),
+      ),
+    [liveRows, archivedRows, status, scope, attention, pendingByTask],
   );
   const allSessions = useMemo(() => {
     if (olderSessions.length === 0) return sessions;
@@ -416,7 +438,7 @@ export default function SessionList({
   const hasMoreArchive =
     scope === "archived" &&
     (archiveMore ?? (archivedList.pageFull || archivedTasks.length >= archiveLimit));
-  const hasMoreSessions = Boolean(sessionCursor) && !status;
+  const hasMoreSessions = Boolean(sessionCursor) && !status && !attention;
 
   // Opening a conversation from anywhere else in the shell still has to bump
   // its project and clear its completion dot; the list owns that bookkeeping
@@ -442,7 +464,7 @@ export default function SessionList({
     () =>
       phoneProjectBuckets(
         tasks,
-        status ? [] : allSessions,
+        status || attention ? [] : allSessions,
         selfDeviceId,
         {
           untitled: tr("sessions.untitled"),
@@ -452,7 +474,7 @@ export default function SessionList({
         archivedCwds,
         scope,
       ),
-    [tasks, allSessions, status, scope, selfDeviceId, locale, archivedCwds],
+    [tasks, allSessions, status, attention, scope, selfDeviceId, locale, archivedCwds],
   );
   // A project heading is where its cover lives, so a project with no row in the
   // loaded page is still drawn, with a count of 0 rather than omitted.
@@ -461,7 +483,7 @@ export default function SessionList({
   // has failed or has not answered, "no rows" is not evidence the project is
   // empty, and seeding would replace "nothing matches" or a load error with a
   // wall of zero-count headings.
-  const canSeed = scope === "active" && !status && taskList.loaded && !taskList.error;
+  const canSeed = scope === "active" && !status && !attention && taskList.loaded && !taskList.error;
   const seeded = useMemo(
     () => seedProjects(buckets, canSeed ? projects : [], archivedCwds, tr("sessions.noProject")),
     [buckets, projects, canSeed, archivedCwds, tr],
@@ -528,7 +550,7 @@ export default function SessionList({
   const now = Date.now();
   const viewedIds = useMemo(() => new Set(getViewedSessionIds()), [viewTick]);
   const searching = query.trim() !== "";
-  const filtering = Boolean(status) || scope === "archived";
+  const filtering = Boolean(status) || scope === "archived" || Boolean(attention);
   const pendingQuery = query.trim() !== searchTerm;
   const archiveFailed = scope === "archived" && Boolean(archivedList.error);
   const archiveProjectsFailed = scope === "archived" && !archiveFailed && Boolean(taskList.error);
@@ -536,7 +558,7 @@ export default function SessionList({
   // Imported sessions are a second index. Its failure is actionable on its own:
   // when it is the only feed with rows, the page must say what failed rather
   // than draw "no chats yet" over it.
-  const importsFailed = !status && sessionsFailed;
+  const importsFailed = !status && !attention && sessionsFailed;
   const importsFailedHard = importsFailed && !loading && listed.length === 0 && !loadFailed;
   // One retry for whatever this page is showing: the live list, and the archive
   // list when that scope is open. The button exists because the story promises
@@ -566,7 +588,15 @@ export default function SessionList({
           title: tr("sessions.archiveEmpty"),
           hint: tr("sessions.archiveEmptyHint"),
         }
-      : filtering
+      : attention && !status
+        ? {
+            // The panel's Clear only clears an exact status; with a chip as the
+            // only narrowing, the honest way out is the All chip.
+            icon: <IconFilter size={30} />,
+            title: tr("sessions.filterEmpty"),
+            hint: tr("sessions.attentionEmptyHint"),
+          }
+        : filtering
         ? {
             icon: <IconFilter size={30} />,
             title: tr("sessions.filterEmpty"),
@@ -590,12 +620,20 @@ export default function SessionList({
     setParams(following, { replace: true });
   }
 
-  function changeFilter(next: { status: SessionStatusFilter; scope: SessionScopeFilter }) {
+  function changeFilter(next: SessionFilterChange) {
     const nextParams = new URLSearchParams(params);
     if (next.status) nextParams.set("status", next.status);
     else nextParams.delete("status");
-    if (next.scope === "archived") nextParams.set("scope", "archived");
-    else nextParams.delete("scope");
+    if (next.scope === "archived") {
+      nextParams.set("scope", "archived");
+      // Archived is the whole archived side of the list; a stale attention
+      // value from the other side must not ride along with it.
+      nextParams.delete("attention");
+    } else {
+      nextParams.delete("scope");
+      if (next.attention) nextParams.set("attention", next.attention);
+      else nextParams.delete("attention");
+    }
     setParams(nextParams, { replace: true });
   }
 
@@ -893,7 +931,7 @@ export default function SessionList({
           setArchiveMore(false);
         }
       }
-      if (sessionCursorRef.current && !status) {
+      if (sessionCursorRef.current && !status && !attention) {
         const cursor = sessionCursorRef.current;
         const term = sessionListParams(searchTerm);
         const page = await listAgentSessionsPage({
@@ -1024,6 +1062,9 @@ export default function SessionList({
       onSearchKeyDown={onSearchKeyDown}
       status={status}
       scope={scope}
+      attention={attention}
+      needsYouCount={needsYouCount}
+      runningCount={runningCount}
       sortMode={sortMode}
       onFilterChange={changeFilter}
       onSortChange={(mode) => {
