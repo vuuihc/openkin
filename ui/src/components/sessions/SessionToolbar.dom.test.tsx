@@ -72,7 +72,7 @@ describe("SessionToolbar", () => {
       </>,
     );
 
-    const search = screen.getByRole("searchbox", { name: /Search sessions/ });
+    const search = screen.getByRole("searchbox", { name: /Search chats/ });
     expect((search as HTMLInputElement).value).toBe("build");
     expect(button(/Filter/)).toBeTruthy();
     expect(screen.getByText("2 selected")).toBeTruthy();

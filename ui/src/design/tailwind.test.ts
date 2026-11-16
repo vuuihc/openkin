@@ -213,7 +213,10 @@ describe("scale ladders through Tailwind", () => {
     // below reads `--spacing` out of the same build, so 0.25rem × 11 is still
     // measured as the 44px floor rather than trusted.
     ["min-h-11", "min-height: calc(var(--spacing) * 11)"],
-    ["w-sidebar", "width: 248px"],
+    ["w-rail", "width: 208px"],
+    ["w-rail-compact", "width: 64px"],
+    ["w-list", "width: 304px"],
+    ["w-inspector-rail", "width: 300px"],
     ["max-w-conversation", "max-width: 720px"],
     ["max-w-sheet", "max-width: min(100%, 420px)"],
     ["max-w-inspector", "max-width: min(40%, 18rem)"],
