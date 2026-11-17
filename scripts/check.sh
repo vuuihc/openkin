@@ -210,6 +210,7 @@ job_shell_test() {
   bash rsi/runtime/tests/test-runtime-modes.sh || return 1
   bash rsi/runtime/tests/test-merge-gen-resolve.sh || return 1
   bash rsi/runtime/tests/test-gate-carry.sh || return 1
+  bash rsi/runtime/tests/test-loop-sendback-stale.sh || return 1
   bash rsi/runtime/tests/test-release.sh || return 1
   bash rsi/runtime/tests/test-pace.sh || return 1
   bash rsi/runtime/tests/test-control-sync.sh || return 1
