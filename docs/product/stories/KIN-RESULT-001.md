@@ -14,7 +14,7 @@
 
 ## 现在
 
-改动在对话流里只是一张摘要卡（`ui/src/components/changedFileFace.tsx`），文件一多就要往上翻；点开 diff 会把对话推走。产物页已按 R0 删除；这条现在只做 diff。手机上看大 diff 整页重排，返回后位置丢失。
+改动在对话流里是「这一轮改了什么」证据卡（`ui/src/components/chat/RoundEvidenceCard.tsx`）和「已修改 · N / 查看差异」条（`ui/src/components/workspace/ChangedFilesBar.tsx`）。点对话头的「文件」（手机上 ⋯ → 文件）打开右侧文件面板（`TaskPanels.tsx`：≥lg 的 380px 同列，窄屏整页覆盖），面板里是「改动 · N / 目录树」和单个文件的 diff（`WorkspacePanel.tsx`）。380px 栏放不下列表和 diff 并排：打开文件时列表让位、顶部「返回文件」回来，Mac 和手机是同一套两级。产物页已按 R0 删除；这条现在只做 diff。手机返回时列表滚动会重置，只把刚才那一行滚回可见。
 
 截图：`08-session-1280.png`、`21-session-1100.png`、`15`（手机对话页）。
 
@@ -111,7 +111,7 @@
 
 ## 设计
 
-草图：`KIN-RESULT-001.review.html`（还没画；签字前按 `_REVIEW.html` 补，画 列表 → diff → 分享 三步和 390/1100 两个面）。
+草图：`KIN-RESULT-001.review.html`（Figma 优先：`KIN-RESULT-001.figma/frames/` 5 张帧——Mac 列表、Mac diff、手机列表、手机 diff、状态板；每屏六段用户流程）。
 
 必须画到的状态：默认、空（这次没有改动）、加载、失败、断线、大 diff 折叠。
 
