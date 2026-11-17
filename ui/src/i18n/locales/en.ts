@@ -811,6 +811,7 @@ const en: MessageTree = {
       prevHunk: "Previous change",
       nextHunk: "Next change",
       mdView: "Markdown view",
+      htmlView: "HTML view",
       preview: "Preview",
       code: "Code",
       save: "Save",
@@ -826,6 +827,9 @@ const en: MessageTree = {
       tableEmpty: "This table has no rows.",
       tableTruncated: "Showing up to the first {rows} rows and {columns} columns.",
       tableIncomplete: "The file was truncated while reading, so this table may be missing rows.",
+      htmlEmpty: "This HTML file has nothing to preview.",
+      htmlIncomplete:
+        "The file was truncated while reading, so its page is not shown. Open the source to read what was loaded.",
     },
     generation: {
       source: "Current project",

@@ -325,12 +325,12 @@ describe("returning after federated sign-in", () => {
     expect(vi.mocked(startOIDC).mock.calls[0][1]).toBe(deepLink);
   });
 
-  it("sends the app-flow sign-in back to the same full URL", () => {
+  it("hands the app-flow start URL the full address", () => {
     window.history.replaceState({}, "", deepLink);
     // A G8/G9 shell: the platform check plus every method the console calls
-    // (the same shape `AccountSection.test.tsx` builds). The flow hands the
-    // start URL to the system browser, so the return address has to survive
-    // the hop through the provider and the shell.
+    // (the same shape `AccountSection.test.tsx` builds). This asserts the
+    // address handed to the start call; the app flow itself ends on kin:// and
+    // reloads the webview in place, so it is not an end-to-end return test.
     const scope = globalThis as { Capacitor?: unknown };
     const previous = scope.Capacitor;
     scope.Capacitor = {

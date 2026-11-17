@@ -36,6 +36,11 @@ export function safeReturnTo(raw: string): string {
  * come back to an address that is merely equivalent, not the one they left.
  * `search` and `hash` carry their own leading `?`/`#`, and are empty when the
  * page has neither.
+ *
+ * A fragment travels inside the `return_to` query parameter, so it reaches the
+ * Hub's access logs rather than staying client-side. Credential-shaped
+ * fragments are not a live leak on this path: the known carriers (`#login`,
+ * claim links) are consumed and stripped before the sign-in button exists.
  */
 export function returnToFrom(loc: { pathname: string; search: string; hash: string }): string {
   return safeReturnTo(loc.pathname + loc.search + loc.hash);
