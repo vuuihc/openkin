@@ -54,6 +54,11 @@ fi
 ARGS=(--base "http://127.0.0.1:$PORT" --token "$TOKEN" --out "$OUT")
 [ -f "$WT/rsi/runtime/ux/journeys.json" ] && ARGS+=(--spec "$WT/rsi/runtime/ux/journeys.json")
 case "$SEL" in @*) ARGS+=(--files "${SEL#@}");; ?*) ARGS+=(--journeys "$SEL");; esac
-node "$RSI_DIR/runtime/ux/walk.mjs" "${ARGS[@]}" > "$OUT/walk.log" 2>&1; rc=$?
+# The walker must come from the same tree as the spec above: a branch that adds
+# a step op or a placeholder would otherwise feed its new spec to the control
+# tree's older walker ("unknown step op", unsubstituted URLs in goto).
+WALKER="$WT/rsi/runtime/ux/walk.mjs"
+[ -f "$WALKER" ] || WALKER="$RSI_DIR/runtime/ux/walk.mjs"
+node "$WALKER" "${ARGS[@]}" > "$OUT/walk.log" 2>&1; rc=$?
 [ $rc -eq 2 ] && unavail "walker could not run: $(tail -c 300 "$OUT/walk.log")"
 cat "$OUT/walk.log"; exit 0
