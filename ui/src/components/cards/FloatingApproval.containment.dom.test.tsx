@@ -13,8 +13,11 @@ import type { Approval } from "../../api/client";
  * on every screen until a reload, which is the failure the card exists to
  * prevent.
  */
+const { cardRenders } = vi.hoisted(() => ({ cardRenders: vi.fn() }));
+
 vi.mock("./ApprovalCard", () => ({
   default: ({ approval }: { approval: Approval }) => {
+    cardRenders(approval.id);
     if (approval.id === "bad") throw new Error("payload");
     return <div>card {approval.id}</div>;
   },
@@ -33,24 +36,38 @@ function approval(id: string, createdAt: number): Approval {
   };
 }
 
+// Containment is a property of the decision card, and the card lives on a
+// pushed conversation (and on Mac), never on the phone's tab roots.
 const base = {
   titleFor: () => "Fix the tests",
   busy: {},
   onDecide: () => {},
   onOpenTask: () => {},
-  raised: true,
-  screenKey: "/sessions",
+  raised: false,
+  screenKey: "/tasks/task-1",
   expectsBottomChrome: false,
 };
 
 describe("FloatingApproval containment", () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    cardRenders.mockClear();
+  });
 
   it("keeps the strip when the card cannot render", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     render(<FloatingApproval {...base} approvals={[approval("bad", 100)]} />);
     // The label and the task link still render; the card itself is gone.
     expect(screen.getByRole("button", { name: "Fix the tests" })).toBeTruthy();
+    expect(screen.queryByText(/card bad/)).toBeNull();
+  });
+
+  it("does not mount the card at all on a phone tab root", () => {
+    // The strip is the whole surface there: a payload that cannot render costs
+    // nothing, because nothing renders it. The strip still opens the task.
+    render(<FloatingApproval {...base} raised approvals={[approval("bad", 100)]} />);
+    expect(screen.getByRole("button", { name: /Fix the tests/ })).toBeTruthy();
+    expect(cardRenders).not.toHaveBeenCalled();
     expect(screen.queryByText(/card bad/)).toBeNull();
   });
 

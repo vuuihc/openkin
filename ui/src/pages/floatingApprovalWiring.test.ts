@@ -60,6 +60,31 @@ describe("the floating approval's wiring", () => {
     expect(shell).toMatch(/raised=\{!wide && onPhoneTab\}/);
   });
 
+  it("gives the phone tab roots a strip, never the decision card", () => {
+    // `raised` is exactly the four phone tab roots (`!wide && onPhoneTab`).
+    // The branch is the only thing standing between a waiting approval and
+    // the conversation list it used to cover, so it is pinned as structure:
+    // the strip opens the task and the card renders on the other branch.
+    const floating = source("src/components/cards/FloatingApproval.tsx");
+    // The card body is guarded by `!raised`, and the strip is the branch that
+    // renders instead.
+    const cardGuard = floating.indexOf("{!raised && (");
+    const cardAt = floating.indexOf("<ApprovalCard");
+    expect(cardGuard).toBeGreaterThan(-1);
+    expect(cardAt).toBeGreaterThan(cardGuard);
+    const raisedAt = floating.indexOf("{raised ? (");
+    const elseAt = floating.indexOf(") : (", raisedAt);
+    expect(raisedAt).toBeGreaterThan(-1);
+    expect(elseAt).toBeGreaterThan(raisedAt);
+    const strip = floating.slice(raisedAt, elseAt);
+    expect(strip).toMatch(/onOpenTask\(current\.task_id\)/);
+    expect(strip).toContain("aria-label={stripLabel}");
+    expect(strip).toContain("min-h-11");
+    // Its name carries the count, not only the visible `+N`.
+    expect(floating).toMatch(/waiting > 0 \? tr\("approval\.moreWaiting"/);
+    expect(cardAt).toBeGreaterThan(elseAt);
+  });
+
   it("answers through the one shared decision path", () => {
     expect(shell).toMatch(/useApprovalDecision\(\)/);
     expect(shell).toMatch(/busy=\{approvalDecision\.busy\}/);
