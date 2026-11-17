@@ -45,10 +45,7 @@ describe("applyTaskOrder", () => {
   });
 
   it("ignores stored ids that no longer exist", () => {
-    expect(applyTaskOrder(rows("a", "c"), ["c", "gone", "a"])).toEqual([
-      row("c", 1),
-      row("a", 0),
-    ]);
+    expect(applyTaskOrder(rows("a", "c"), ["c", "gone", "a"])).toEqual([row("c", 1), row("a", 0)]);
   });
 
   it("returns rows unchanged for a bucket with no stored order", () => {
