@@ -16,6 +16,7 @@ const fixtures = vi.hoisted(() => ({
   approvals: [] as unknown[],
   tasks: [] as unknown[],
   wsStatus: "connected",
+  busy: {} as Record<string, "approved" | "denied">,
 }));
 
 const decide = vi.hoisted(() => vi.fn(async () => null));
@@ -30,7 +31,7 @@ vi.mock("../api/useLiveResources", () => ({
 }));
 
 vi.mock("../hooks/useApprovalDecision", () => ({
-  useApprovalDecision: () => ({ busy: {}, decide }),
+  useApprovalDecision: () => ({ busy: fixtures.busy, decide }),
 }));
 
 vi.mock("../store/appStore", () => ({
@@ -64,6 +65,7 @@ beforeEach(() => {
   fixtures.approvals = [];
   fixtures.tasks = [];
   fixtures.wsStatus = "connected";
+  fixtures.busy = {};
   decide.mockClear();
 });
 
@@ -154,6 +156,30 @@ describe("the tray", () => {
 
     post.mockRestore();
     quietConsole.mockRestore();
+  });
+
+  it("puts approve and deny on the facade's decision weights", async () => {
+    setLocale("en");
+    fixtures.approvals = [approval()];
+    const idle = render(<TrayPage />);
+
+    const approve = screen.getByRole("button", { name: "Approve" }) as HTMLButtonElement;
+    const deny = screen.getByRole("button", { name: "Deny" }) as HTMLButtonElement;
+    expect(approve.className).toContain("kin-btn");
+    expect(approve.className).toContain("kin-btn-approve");
+    expect(deny.className).toContain("kin-btn");
+    expect(deny.className).toContain("kin-btn-deny");
+    // Both decisions stay the pair's two equal halves.
+    expect(approve.className).toContain("flex-1");
+    expect(deny.className).toContain("flex-1");
+
+    // The busy glyph still replaces the label while the decision is in flight.
+    idle.unmount();
+    fixtures.busy = { a1: "approved" };
+    render(<TrayPage />);
+    const busyApprove = screen.getByRole("button", { name: "…" }) as HTMLButtonElement;
+    expect(busyApprove.disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Deny" }).hasAttribute("disabled")).toBe(true);
   });
 
   it("puts the tray footer on the shared button facade", () => {
