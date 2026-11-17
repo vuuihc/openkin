@@ -7,6 +7,7 @@
  * the same stream; a second face for it would be a second thing to keep honest.
  */
 import { extractPrimaryToolPath } from "../../lib/changedFiles";
+import { formatDuration } from "../../lib/duration";
 import { shortPath } from "../../lib/paths";
 import { useT } from "../../i18n/react";
 import Button from "../ui/Button";
@@ -98,6 +99,16 @@ export default function ToolStepRow({
             </span>
           )}
           <span className="flex-1 min-w-0 break-words text-kin-secondary">{tool.summary}</span>
+          {tool.status !== "running" && tool.durationMs != null && (
+            // How long this one call took. A running call has no duration yet,
+            // and a number that does not tick would be a lie.
+            <span
+              className="flex-none text-caption tabular-nums text-kin-muted pt-0.5"
+              data-tool-duration={tool.durationMs}
+            >
+              {formatDuration(tool.durationMs)}
+            </span>
+          )}
           {filePath && onOpenPath && (
             // The chip shares the facade's focus ring and press treatment, but
             // stays a link: no fill on hover, and the ink is the link blue rather
