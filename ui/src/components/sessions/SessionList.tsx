@@ -81,7 +81,7 @@ import {
   subscribeSessionViewed,
 } from "../../lib/sessionViewed";
 import { getPinnedTaskIds, setTaskPinned } from "../../lib/taskPins";
-import { getLocalTaskTitles, setLocalTaskTitle, subscribeTaskTitles } from "../../lib/taskTitles";
+import { setLocalTaskTitle, useLocalTaskTitles } from "../../lib/taskTitles";
 import {
   clearBucketOrder,
   getTaskOrder,
@@ -239,13 +239,10 @@ export default function SessionList({
   const [pinnedIds, setPinnedIds] = useState<ReadonlySet<string>>(
     () => new Set(getPinnedTaskIds()),
   );
-  // This browser's renames, read once the way pins are. The row's title is
-  // composed during bucketing, so the list draws from this state rather than
-  // reading storage per row.
-  const [localTitles, setLocalTitles] = useState(() => getLocalTaskTitles());
-  // A title can be written from another mounted surface, so the list re-reads
-  // the map instead of trusting the copy it wrote.
-  useEffect(() => subscribeTaskTitles(() => setLocalTitles(getLocalTaskTitles())), []);
+  // This browser's renames. The row's title is composed during bucketing, so
+  // the list draws from this state rather than reading storage per row; the
+  // hook is also what re-reads a title written by another mounted surface.
+  const [localTitles, setLocalTitles] = useLocalTaskTitles();
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set());
   const [deletingSelection, setDeletingSelection] = useState(false);
