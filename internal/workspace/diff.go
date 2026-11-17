@@ -374,10 +374,12 @@ func (m *Manager) ListLiveChanges(ctx context.Context, meta Metadata) ([]Change,
 // HEAD and the branch the checkout is based on.
 //
 // The base is the current branch's upstream when it has one, else the remote's
-// default branch (origin/HEAD). A checkout sitting exactly on its base has HEAD
-// as the merge base, so the answer is ListLiveChanges' answer. Local commits
-// made on the base branch itself are intentionally in the list: they are
-// unreviewed work too.
+// default branch (origin/HEAD). An upstream that is the branch's own pushed
+// counterpart is ignored: Kin's Publish creates that shape, and measuring from
+// it would empty the list at the first push. A checkout sitting exactly on its
+// base has HEAD as the merge base, so the answer is ListLiveChanges' answer.
+// Local commits made on the base branch itself are intentionally in the list:
+// they are unreviewed work too.
 //
 // Every step falls back to HEAD, so a checkout with nothing recorded about its
 // base — and a directory git only half-knows — keeps the answer it has today
@@ -400,7 +402,9 @@ func (m *Manager) ListBranchChanges(ctx context.Context, meta Metadata) ([]Chang
 //
 // The order is most specific first. The current branch's upstream is what the
 // person configured this checkout to be based on; a feature branch tracking
-// origin/main is based on that, not on the remote's default. Without an
+// origin/main is based on that, not on the remote's default. An upstream that
+// names the branch's own remote counterpart (refs/remotes/<remote>/<current>)
+// is not a base — the branch tracks itself — so it is skipped. Without an
 // upstream, the remote's default branch (origin/HEAD) is the next best answer.
 // Every lookup and the merge-base itself fall back to HEAD rather than
 // returning an error, so a checkout with no recorded base, a repository with no
@@ -417,7 +421,20 @@ func (m *Manager) changeBase(ctx context.Context, meta Metadata) string {
 		return strings.TrimSpace(string(out))
 	}
 
-	base := run("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+	// The upstream is the most specific answer, except when it is the branch's
+	// own remote counterpart: Kin's Publish pushes with --set-upstream, so a
+	// published branch tracks itself, its merge base is HEAD, and the list
+	// would empty the moment the work was pushed — every later round showing
+	// only what is still unpushed. That upstream says nothing about where the
+	// branch forked, so it is skipped like a checkout with none.
+	base := run("rev-parse", "--symbolic-full-name", "@{upstream}")
+	if base != "" {
+		if cur := run("symbolic-ref", "--quiet", "HEAD"); cur != "" &&
+			strings.HasPrefix(base, "refs/remotes/") &&
+			strings.HasSuffix(base, "/"+strings.TrimPrefix(cur, "refs/heads/")) {
+			base = ""
+		}
+	}
 	if base == "" {
 		base = run("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
 	}
@@ -505,6 +522,7 @@ func (m *Manager) listChangesSince(ctx context.Context, meta Metadata, rev strin
 				if count, ok := counts[c.Path]; ok {
 					changes[i].Additions = count.Additions
 					changes[i].Deletions = count.Deletions
+					changes[i].Binary = count.Binary
 				}
 			}
 		}

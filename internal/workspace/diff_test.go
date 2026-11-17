@@ -1019,6 +1019,8 @@ func TestListBranchChangesIncludesCommittedWork(t *testing.T) {
 	gitCmd(t, src, "branch", "-m", "main")
 	gitCmd(t, src, "checkout", "-q", "-b", "feature")
 	commitFile(t, src, "feature.txt", "feature\n")
+	// A binary file carries the flag the console reads, with no line counts.
+	commitFile(t, src, "image.bin", "\x00\x01binary\n")
 	// The tracked base is the branch's own upstream, which is where the base
 	// ref comes from first.
 	gitCmd(t, src, "branch", "--set-upstream-to=main", "feature")
@@ -1066,12 +1068,17 @@ func TestListBranchChangesIncludesCommittedWork(t *testing.T) {
 			if change.Additions != 1 || change.Deletions != 1 {
 				t.Errorf("base.txt = %+v, want 1 addition and 1 deletion", change)
 			}
+		case "image.bin":
+			if !change.Binary || change.Additions != 0 || change.Deletions != 0 {
+				t.Errorf("image.bin = %+v, want a binary entry with no counts", change)
+			}
 		}
 	}
 }
 
 // pushedCheckout is a checkout whose main is pushed to a local origin, the way
-// a clone has one: refs/remotes/origin/main exists and main tracks it.
+// a clone has one: refs/remotes/origin/main exists, main tracks it, and
+// origin/HEAD names it.
 func pushedCheckout(t *testing.T) string {
 	t.Helper()
 	src := t.TempDir()
@@ -1082,6 +1089,7 @@ func pushedCheckout(t *testing.T) string {
 	gitCmd(t, src, "init", "--bare", remote)
 	gitCmd(t, src, "remote", "add", "origin", remote)
 	gitCmd(t, src, "push", "-q", "-u", "origin", "main")
+	gitCmd(t, src, "remote", "set-head", "origin", "main")
 	return src
 }
 
@@ -1225,5 +1233,62 @@ func TestListBranchChangesIncludesLocalCommitsOnTheBaseBranch(t *testing.T) {
 	}
 	if statusByPath(changes)["local.txt"] != "added" {
 		t.Fatalf("changes = %v, want the local commit on the base branch", changes)
+	}
+}
+
+// Kin's own Publish pushes with --set-upstream, so a published branch tracks its
+// own remote counterpart. Measured from there the merge base is HEAD: the panel
+// would empty the moment a round was pushed, and every later round would show
+// only what is still unpushed. The base stays the branch this one forked from.
+func TestListBranchChangesIgnoresUpstreamThatIsOwnRemoteCounterpart(t *testing.T) {
+	requireGit(t)
+	m := NewManager(t.TempDir())
+	src := pushedCheckout(t)
+	gitCmd(t, src, "checkout", "-q", "-b", "feature")
+	commitFile(t, src, "feature.txt", "feature\n")
+	// Publish, the way Kin's Publish does: feature now tracks origin/feature.
+	gitCmd(t, src, "push", "-q", "-u", "origin", "feature")
+	// A later round commits and pushes again, leaving HEAD == its upstream.
+	commitFile(t, src, "second.txt", "second\n")
+	gitCmd(t, src, "push", "-q", "origin", "feature")
+
+	changes, err := m.ListBranchChanges(context.Background(), SharedMetadata(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := statusByPath(changes)
+	if status["feature.txt"] != "added" || status["second.txt"] != "added" {
+		t.Fatalf("changes = %v, want the branch's committed work after publishing it", status)
+	}
+}
+
+// A base ref that shares no history with HEAD is not a base: merge-base fails,
+// and the answer falls back to HEAD rather than erroring or measuring from an
+// unrelated tip.
+func TestListBranchChangesUnrelatedBaseFallsBackToHEAD(t *testing.T) {
+	requireGit(t)
+	m := NewManager(t.TempDir())
+	src := t.TempDir()
+	initRepo(t, src)
+	commitFile(t, src, "tracked.txt", "one\n")
+	gitCmd(t, src, "branch", "-m", "main")
+	// An orphan branch has its own root commit and no common ancestor.
+	gitCmd(t, src, "checkout", "-q", "--orphan", "unrelated")
+	commitFile(t, src, "other.txt", "other\n")
+	gitCmd(t, src, "checkout", "-q", "main")
+	commitFile(t, src, "committed.txt", "work\n")
+	gitCmd(t, src, "branch", "--set-upstream-to=unrelated", "main")
+
+	meta := SharedMetadata(src)
+	live, err := m.ListLiveChanges(context.Background(), meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	branch, err := m.ListBranchChanges(context.Background(), meta)
+	if err != nil {
+		t.Fatalf("an unrelated base should fall back to HEAD, not fail: %v", err)
+	}
+	if !reflect.DeepEqual(live, branch) {
+		t.Fatalf("branch changes = %+v, want the live answer %+v", branch, live)
 	}
 }
