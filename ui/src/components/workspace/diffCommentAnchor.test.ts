@@ -281,11 +281,11 @@ describe("re-anchoring (KIN-RESULT-003 part 2)", () => {
     // Another file's comments are none of this diff's business.
     expect(reanchorComments([comment()], { ...input, path: "src/other.ts" })).toEqual([]);
     // No computed diff is not "everything is stale" — it is no answer at all.
-    expect(reanchorComments([comment()], { ...input, path: "src/settings.ts", lineChanges: null })).toEqual(
-      [],
-    );
-    expect(reanchorComments([comment()], { ...input, path: "src/settings.ts", lineChanges: [] })).toEqual(
-      [],
-    );
+    expect(
+      reanchorComments([comment()], { ...input, path: "src/settings.ts", lineChanges: null }),
+    ).toEqual([]);
+    expect(
+      reanchorComments([comment()], { ...input, path: "src/settings.ts", lineChanges: [] }),
+    ).toEqual([]);
   });
 });

@@ -211,7 +211,11 @@ describe("the diff comments tray", () => {
     const row = screen.getByRole("button", {
       name: t("workspace.comments.staleRow", { path: "src/settings.ts", line: 11 }),
     });
-    expect(screen.queryByRole("button", { name: t("workspace.comments.jumpToRow", { path: "src/settings.ts", line: 11 }) })).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: t("workspace.comments.jumpToRow", { path: "src/settings.ts", line: 11 }),
+      }),
+    ).toBeNull();
 
     // The badge, the original hunk header and the quote all survive: the row
     // still says where the comment was written.
