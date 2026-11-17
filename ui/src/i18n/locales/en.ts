@@ -1218,6 +1218,14 @@ const en: MessageTree = {
       light: "Light",
       dark: "Dark",
     },
+    // The directory's one-word answer for the rate-limit policy. Short on
+    // purpose: these sit beside a section name, not under a setting heading,
+    // so they must not repeat the long option sentences below.
+    summary: {
+      limitWait: "Wait",
+      limitAsk: "Ask",
+      limitSwitch: "Auto-switch",
+    },
     phone: {
       heading: "Phone",
       blurb:

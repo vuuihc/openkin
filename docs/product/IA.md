@@ -123,7 +123,7 @@
 | 对话区 | `/sessions` 集合；Mac 左栏列表，手机整页 | #68 `8137ba28`、#76 `3206755c` | `areaNavigation.test.ts`、`PhoneNavigation.dom.test.tsx` |
 | 项目区 | `/projects` 集合、`/projects/:id` 封面 | #76 `3206755c`（区域表与路由）；封面沿用 PROJECT-001 | `areaNavigation.test.ts`、`ProjectsCollectionPage.dom.test.tsx` |
 | 例行任务区 | `/routines`、`/machines/:device/tasks/:id` | #76 `3206755c`（区域表与路由）；例程本体 ROUTINE-001 | `areaNavigation.test.ts`、`RoutinesPage.dom.test.tsx` |
-| 设置区 | `/settings` 六个分区；Agent 运维 = `?tab=operations` | #76 `3206755c`（区域表与路由）；N4 托管该面板 | `settingsTabsWiring.test.ts`、`SettingsPage.operations.dom.test.tsx` |
+| 设置区 | `/settings` 六个分区；Agent 运维 = `?tab=operations`；目录里每个分区名旁写明当前生效的值（外观主题 / 当前 provider / 限流策略），值还没读到时保留原说明、不猜 | #76 `3206755c`（区域表与路由）；N4 托管该面板 | `settingsTabsWiring.test.ts`、`SettingsPage.operations.dom.test.tsx` |
 | S1 | Mac 208px / 64px 区域栏、⌘1–⌘4、角标 | #128 `0c2ec124` | `AreaNavigation.dom.test.tsx` |
 | S1b | 面板打开时列表让位，对话 ≥420px | #144 `5576e938` | `AppShell.dom.test.tsx`、`PanelSurface.test.ts` |
 | S2 | 手机底部入口是区域间唯一通道，每个入口记住自己的 URL | #118 `0a6c7a17` | `PhoneNavigation.dom.test.tsx`、`PhonePushContract.dom.test.tsx` |

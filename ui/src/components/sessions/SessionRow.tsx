@@ -186,6 +186,14 @@ export default function SessionRow({
   // the visible way out for anyone who entered by accident. A row that cannot
   // be selected has no batch action to offer and keeps no trigger.
   const showsActions = mode !== null && (selectionMode ? canSelect : true);
+  // The status's tone, said in words at the top of the menu: a conversation
+  // that is queued, running or retrying is still being worked on. It follows
+  // the tone alone, archived or not — archiving does not stop a run, so an
+  // archived conversation that is still going must warn before Delete too. It
+  // is information, not a lock: every edit below it stays available. It is only
+  // added in the non-selection branch — while selecting, the menu is the one
+  // way out.
+  const runningNow = row.task ? taskCardStatusView(row.task.status).tone === "running" : false;
   // A mode can end while its surface is open (the row is archived from
   // elsewhere, multi-select starts): the surface is gone with the trigger, or
   // its action set is about to change under the reader, so the state must not
@@ -478,6 +486,7 @@ export default function SessionRow({
     label: string;
     icon?: ReactNode;
     destructive?: boolean;
+    disabled?: boolean;
     onSelect: () => void;
   }[] = selectionMode
     ? [
@@ -491,6 +500,21 @@ export default function SessionRow({
         },
       ]
     : [
+        // A working conversation says so before anything else on the menu. It
+        // is a status line, not an action: no icon, no handler, and the
+        // primitive draws it dimmed and unreachable. The word is the one the
+        // row already announces for this state (TASTE 2), so the same state
+        // does not get a second name.
+        ...(runningNow
+          ? [
+              {
+                id: "running",
+                label: tr("sessions.statusRunning"),
+                disabled: true,
+                onSelect: () => {},
+              },
+            ]
+          : []),
         // Rename leads: it is the row's own name, and the edit a person
         // reaches for when a title is just the first line of a prompt. It is
         // offered only in the active scope — the archived menu is restore +
@@ -546,18 +570,22 @@ export default function SessionRow({
           onSelect: onDelete,
         },
       ];
-  const menuItems: MenuItem[] = rowActions.map(({ id, label, icon, onSelect }) => ({
+  const menuItems: MenuItem[] = rowActions.map(({ id, label, icon, onSelect, disabled }) => ({
     id,
     label,
     icon,
     onSelect,
+    disabled,
   }));
-  const sheetRows: ActionSheetRow[] = rowActions.map(({ id, label, destructive, onSelect }) => ({
-    id,
-    label,
-    destructive,
-    onSelect,
-  }));
+  const sheetRows: ActionSheetRow[] = rowActions.map(
+    ({ id, label, destructive, onSelect, disabled }) => ({
+      id,
+      label,
+      destructive,
+      onSelect,
+      disabled,
+    }),
+  );
 
   // One trigger, whichever surface it opens. It sits in the row's tab order,
   // and the row's title is its description, so a screen reader hears which

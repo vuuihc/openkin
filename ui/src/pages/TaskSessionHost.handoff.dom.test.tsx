@@ -6,6 +6,7 @@ import { MemoryRouter, useNavigate } from "react-router-dom";
 import { ApiError, type Task } from "../api/client";
 import { setLocale } from "../i18n";
 import { forgetPendingSend, handOffPendingSend, pendingSend } from "../lib/pendingSend";
+import { setLocalTaskTitle } from "../lib/taskTitles";
 import TaskSessionHost from "./TaskSessionHost";
 
 /**
@@ -18,6 +19,10 @@ import TaskSessionHost from "./TaskSessionHost";
  *
  * A genuinely cold entry has neither, and gets the branded wait rather than a
  * skeleton of a transcript nobody has seen.
+ *
+ * The same mounted host owns the tab strip, whose labels are names of the same
+ * conversations. A rename is a local preference the live feed never carries,
+ * so the strip has to repaint itself rather than wait for the next event.
  */
 
 type DetailState = {
@@ -277,6 +282,23 @@ describe("the keep-alive host and a just-created conversation", () => {
     expect(screen.queryByTestId("composer")).toBeNull();
     const status = screen.getByRole("status", { name: /Loading/ });
     expect(status.querySelector("svg")).toBeTruthy();
+  });
+
+  it("repaints the open tab when another surface renames the conversation", () => {
+    live.reset([oldTask]);
+    live.resolve("task-old", { task: oldTask, events: [], deleted: false });
+    open("/tasks/task-old");
+    expect(screen.getByRole("tab", { name: /Old conversation/ })).toBeTruthy();
+
+    // The sidebar's row menu writes the local title. The feed says nothing and
+    // this conversation is idle, so an unsubscribed strip would keep the old
+    // label above a header that already draws the new one.
+    act(() => {
+      setLocalTaskTitle("task-old", "Renamed in the sidebar");
+    });
+
+    expect(screen.getByRole("tab", { name: /Renamed in the sidebar/ })).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: /Old conversation/ })).toBeNull();
   });
 
   it("does not let a cached row override a known deleted conversation", () => {

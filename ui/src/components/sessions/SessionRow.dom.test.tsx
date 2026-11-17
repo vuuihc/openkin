@@ -23,14 +23,14 @@ import SessionRow, { type SessionRowProps } from "./SessionRow";
 
 const NOW = new Date("2026-11-15T12:00:00Z").getTime();
 
-function task(id: string, archivedAt?: number): Task {
+function task(id: string, archivedAt?: number, status = "succeeded"): Task {
   return {
     id,
     title: id,
     cwd: "/work/alpha",
     agent: "kin",
     prompt: "",
-    status: "succeeded",
+    status,
     tokens_in: 0,
     tokens_out: 0,
     event_epoch: 0,
@@ -547,6 +547,166 @@ describe("SessionRow", () => {
     await userEvent.click(within(menu).getByRole("menuitem", { name: "Select" }));
     expect(onStartSelection).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("a running conversation says Running in the Mac menu and still offers Archive and Delete", async () => {
+    const onArchive = vi.fn();
+    const onDelete = vi.fn();
+    const { container } = render(
+      <SessionRow
+        {...props({
+          shell: "sidebar",
+          coarse: false,
+          row: taskRow({ task: task("row-1", undefined, "running") }),
+          onArchive,
+          onDelete,
+        })}
+      />,
+    );
+
+    await userEvent.click(rowActionsTrigger(container));
+    const menu = screen.getByRole("menu");
+    // A status line leads, and it is part of the one list both surfaces share.
+    expect(
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Running", "Rename", "Select", "Pin", "Archive", "Delete"]);
+
+    const running = within(menu).getByRole("menuitem", { name: "Running" });
+    expect(running.getAttribute("aria-disabled")).toBe("true");
+    // Choosing it is not a choice: the menu stays up and nothing runs.
+    await userEvent.click(running);
+    expect(screen.getByRole("menu")).toBeTruthy();
+    expect(onArchive).not.toHaveBeenCalled();
+    expect(onDelete).not.toHaveBeenCalled();
+
+    // The row's real actions keep working exactly as they do on a settled row.
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Archive" }));
+    expect(onArchive).toHaveBeenCalledTimes(1);
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("a running conversation says Running in the phone action sheet without blocking its edits", async () => {
+    const onArchive = vi.fn();
+    render(
+      <SessionRow
+        {...props({
+          shell: "page",
+          coarse: true,
+          row: taskRow({ task: task("row-1", undefined, "running") }),
+          onArchive,
+        })}
+      />,
+    );
+
+    const trigger = document.querySelector<HTMLElement>("[data-row-actions]");
+    if (!trigger) throw new Error("the touch row did not render an actions trigger");
+    await userEvent.click(trigger);
+
+    const sheet = screen.getByRole("dialog", { name: "Fix the build" });
+    const running = within(sheet).getByRole("button", { name: "Running" });
+    // The sheet draws a native disabled button; the line reads as information,
+    // not as a control the person can choose.
+    expect(running.tagName).toBe("BUTTON");
+    expect((running as HTMLButtonElement).disabled).toBe(true);
+
+    for (const name of ["Rename", "Archive", "Delete"]) {
+      expect((within(sheet).getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(
+        false,
+      );
+    }
+
+    await userEvent.click(within(sheet).getByRole("button", { name: "Archive" }));
+    expect(onArchive).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("a conversation waiting on the person does not say Running", async () => {
+    // A chat that is waiting on the person is already asking for them, and the
+    // row's dot says so: it is not working on its own.
+    for (const status of ["waiting_approval", "waiting_input"]) {
+      const mac = render(
+        <SessionRow
+          {...props({
+            shell: "sidebar",
+            coarse: false,
+            row: taskRow({ task: task("row-1", undefined, status) }),
+          })}
+        />,
+      );
+      await userEvent.click(rowActionsTrigger(mac.container));
+      expect(
+        within(screen.getByRole("menu"))
+          .getAllByRole("menuitem")
+          .map((item) => item.textContent),
+      ).toEqual(["Rename", "Select", "Pin", "Archive", "Delete"]);
+      mac.unmount();
+
+      const phone = render(
+        <SessionRow
+          {...props({
+            shell: "page",
+            coarse: true,
+            row: taskRow({ task: task("row-1", undefined, status) }),
+          })}
+        />,
+      );
+      const trigger = document.querySelector<HTMLElement>("[data-row-actions]");
+      if (!trigger) throw new Error("the touch row did not render an actions trigger");
+      await userEvent.click(trigger);
+      const sheet = screen.getByRole("dialog", { name: "Fix the build" });
+      expect(
+        within(sheet)
+          .getAllByRole("button")
+          .map((item) => item.textContent),
+      ).toEqual(["Rename", "Select", "Pin", "Archive", "Delete", "Cancel"]);
+      phone.unmount();
+    }
+  });
+
+  it("a queued or retrying conversation says Running", async () => {
+    // The same tone the row's dot already draws: the conversation is still
+    // being worked on, however it is spelled internally.
+    for (const status of ["queued", "retrying"]) {
+      const view = render(
+        <SessionRow
+          {...props({
+            shell: "sidebar",
+            coarse: false,
+            row: taskRow({ task: task("row-1", undefined, status) }),
+          })}
+        />,
+      );
+      await userEvent.click(rowActionsTrigger(view.container));
+      expect(within(screen.getByRole("menu")).getAllByRole("menuitem")[0]?.textContent).toBe(
+        "Running",
+      );
+      view.unmount();
+    }
+  });
+
+  it("an archived conversation that is still running says Running", async () => {
+    // Archiving does not stop a run, so an archived conversation whose task is
+    // still going keeps the warning above the actions that follow it.
+    const { container } = render(
+      <SessionRow
+        {...props({
+          shell: "sidebar",
+          coarse: false,
+          row: taskRow({ task: task("row-1", 99, "running") }),
+          scope: "archived",
+        })}
+      />,
+    );
+
+    await userEvent.click(rowActionsTrigger(container));
+    expect(
+      within(screen.getByRole("menu"))
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Running", "Select", "Restore", "Delete"]);
   });
 
   it("while selecting, the row menu holds only Exit selection", async () => {
