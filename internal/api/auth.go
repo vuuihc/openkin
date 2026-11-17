@@ -567,9 +567,9 @@ func loginCodeDeviceKey(raw string) string {
 // attached to the URL. The code is what the console translates; the message is
 // a fallback, and is the only place a provider's own error text can appear.
 func (s *Server) redirectAuthError(w http.ResponseWriter, r *http.Request, returnTo, code, message string) {
-	target := withAuthNotice(safeReturnTo(returnTo), "")
-	http.Redirect(w, r, target+"auth_error="+url.QueryEscape(message)+
-		"&auth_error_code="+url.QueryEscape(code), http.StatusFound)
+	target := withAuthQuery(returnTo, "auth_error="+url.QueryEscape(message)+
+		"&auth_error_code="+url.QueryEscape(code))
+	http.Redirect(w, r, target, http.StatusFound)
 }
 
 func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, session auth.Session) {
@@ -689,16 +689,34 @@ func safeReturnTo(raw string) string {
 	return trimmed
 }
 
-func withAuthNotice(returnTo, notice string) string {
+// authReturnTarget splits a return path at its first "#" so auth parameters
+// can be appended before the fragment and the fragment re-appended untouched:
+// a deep link's anchor only resolves if the fragment comes back exactly as
+// the caller wrote it.
+func authReturnTarget(returnTo string) (path, fragment string) {
 	target := safeReturnTo(returnTo)
+	if i := strings.IndexByte(target, '#'); i >= 0 {
+		return target[:i], target[i:]
+	}
+	return target, ""
+}
+
+// withAuthQuery appends an already-encoded query (no leading "?" or "&") to a
+// return path, before any fragment, and re-appends the fragment.
+func withAuthQuery(returnTo, query string) string {
+	path, fragment := authReturnTarget(returnTo)
 	separator := "?"
-	if strings.Contains(target, "?") {
+	if strings.Contains(path, "?") {
 		separator = "&"
 	}
+	return path + separator + query + fragment
+}
+
+func withAuthNotice(returnTo, notice string) string {
 	if notice == "" {
-		return target + separator
+		return withAuthQuery(returnTo, "")
 	}
-	return target + separator + "auth_notice=" + url.QueryEscape(notice)
+	return withAuthQuery(returnTo, "auth_notice="+url.QueryEscape(notice))
 }
 
 // decodeJSONBody reads a JSON request body with a size cap and reports whether

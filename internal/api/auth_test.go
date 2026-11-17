@@ -549,6 +549,35 @@ func TestSafeReturnToRejectsOtherOrigins(t *testing.T) {
 	}
 }
 
+// Auth parameters belong in the query, never after a deep link's fragment: the
+// console reads window.location.search, and an anchor only resolves when the
+// fragment comes back byte for byte as the caller wrote it.
+func TestAuthParamsLandBeforeTheFragment(t *testing.T) {
+	cases := []struct{ name, returnTo, want string }{
+		{"plain path", "/sessions", "/sessions?auth_notice=signed-in"},
+		{"existing query", "/sessions?tab=active", "/sessions?tab=active&auth_notice=signed-in"},
+		{"fragment", "/tasks/t1#frag", "/tasks/t1?auth_notice=signed-in#frag"},
+		{"query and fragment", "/tasks/t1?panel=files&file=a%20b.html#frag",
+			"/tasks/t1?panel=files&file=a%20b.html&auth_notice=signed-in#frag"},
+	}
+	for _, tc := range cases {
+		if got := withAuthNotice(tc.returnTo, "signed-in"); got != tc.want {
+			t.Errorf("%s: withAuthNotice(%q) = %q, want %q", tc.name, tc.returnTo, got, tc.want)
+		}
+	}
+}
+
+func TestFailedSignInKeepsTheFragment(t *testing.T) {
+	s := &Server{}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/oidc/callback", nil)
+	s.redirectAuthError(rec, req, "/tasks/t1?panel=files&file=a%20b.html#frag", "provider_error", "try again")
+	want := "/tasks/t1?panel=files&file=a%20b.html&auth_error=try+again&auth_error_code=provider_error#frag"
+	if got := rec.Header().Get("Location"); got != want {
+		t.Fatalf("redirectAuthError = %q, want %q", got, want)
+	}
+}
+
 // claimOwner drives the console's first-run path and leaves c holding the
 // owner's session cookie.
 func claimOwner(t *testing.T, c *authClient, code string) {
