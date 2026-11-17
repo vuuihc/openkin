@@ -193,10 +193,11 @@ job_shell_syntax() {
 
 # The installer and the loop's own guard scripts are shell, so no Go or console job
 # sees them. Their contract tests use fake Docker, stubbed npm/launchctl, temp git
-# repos and no network, so the whole set stays cheap; every suite under
-# rsi/runtime/tests is wired here (test-wiring.sh enforces that), because a broken
-# claim, tier, sendback or backpressure guard otherwise lands on main unnoticed and
-# the next fill pulse stalls or refuses a valid claim.
+# repos and no network, so the whole set stays cheap; every hermetic suite under
+# rsi/runtime/tests, rsi/runtime/nas/tests and rsi/runtime/ux is wired here
+# (test-wiring.sh enforces that), because a broken claim, tier, sendback or
+# backpressure guard otherwise lands on main unnoticed and the next fill pulse
+# stalls or refuses a valid claim.
 job_shell_test() {
   ./scripts/install-hub.test.sh || return 1
   bash rsi/runtime/format-changed.test.sh || return 1
@@ -207,6 +208,8 @@ job_shell_test() {
   bash rsi/runtime/tests/test-throughput.sh || return 1
   bash rsi/runtime/tests/test-merge-gen-resolve.sh || return 1
   bash rsi/runtime/tests/test-install.sh || return 1
+  bash rsi/runtime/nas/tests/test-nas.sh || return 1
+  bash rsi/runtime/ux/retry-test.sh || return 1
   bash rsi/runtime/tests/test-wiring.sh
 }
 
