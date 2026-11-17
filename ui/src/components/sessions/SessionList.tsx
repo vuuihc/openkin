@@ -81,6 +81,7 @@ import {
   subscribeSessionViewed,
 } from "../../lib/sessionViewed";
 import { getPinnedTaskIds, setTaskPinned } from "../../lib/taskPins";
+import { getTaskOrder, setBucketOrder, type TaskOrder } from "../../lib/taskOrder";
 import { mergeTaskTail } from "../../lib/taskTail";
 import ActionSheet from "../ui/ActionSheet";
 import Button from "../ui/Button";
@@ -239,6 +240,9 @@ export default function SessionList({
   // put back; Escape would then have no row in the list to travel through.
   const focusRowAfterCommit = useRef<string | null>(null);
   const [swipeOpen, setSwipeOpen] = useState<string | null>(null);
+  // The manual order per bucket, read once the way pins are. A bucket without
+  // an entry keeps the attention + recency rule.
+  const [taskOrder, setTaskOrder] = useState<TaskOrder>(() => getTaskOrder());
   const [prefsTick, setPrefsTick] = useState(0);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectMenu, setProjectMenu] = useState<{
@@ -456,6 +460,10 @@ export default function SessionList({
     }
     return byKey;
   }, [projects]);
+  // Search and status views still display the stored order, but a reorder is
+  // offered only where the whole bucket is shown; the archive scope has no
+  // manual order at all.
+  const orders = useMemo(() => (scope === "active" ? taskOrder : undefined), [scope, taskOrder]);
   const buckets = useMemo(
     () =>
       phoneProjectBuckets(
@@ -472,8 +480,19 @@ export default function SessionList({
         // Asked about the cwd rather than the bucket key: an archived remote
         // copy's key carries a device suffix that is not part of the address.
         (cwd) => projectNameByCwd.get(bucketKeyFor(cwd)),
+        orders,
       ),
-    [tasks, allSessions, status, scope, selfDeviceId, locale, archivedCwds, projectNameByCwd],
+    [
+      tasks,
+      allSessions,
+      status,
+      scope,
+      selfDeviceId,
+      locale,
+      archivedCwds,
+      projectNameByCwd,
+      orders,
+    ],
   );
   // A project heading is where its cover lives, so a project with no row in the
   // loaded page is still drawn, with a count of 0 rather than omitted.
@@ -494,8 +513,9 @@ export default function SessionList({
         filtered,
         scope === "archived" ? EMPTY_IDS : pinnedIds,
         tr("sessions.pinned"),
+        orders,
       ),
-    [filtered, pinnedIds, scope, tr],
+    [filtered, pinnedIds, scope, tr, orders],
   );
   useEffect(() => {
     if (!returnRow) return;
@@ -549,6 +569,10 @@ export default function SessionList({
   const now = Date.now();
   const viewedIds = useMemo(() => new Set(getViewedSessionIds()), [viewTick]);
   const searching = query.trim() !== "";
+  // A reorder here would mean "reorder the current results", not the project:
+  // the order is stored per bucket, so it is offered only where the bucket is
+  // shown whole. The stored order still displays in the narrowed views.
+  const canReorder = scope === "active" && !searching && !status && !selectionMode;
   const filtering = Boolean(status) || scope === "archived";
   const pendingQuery = query.trim() !== searchTerm;
   const archiveFailed = scope === "archived" && Boolean(archivedList.error);
@@ -999,6 +1023,39 @@ export default function SessionList({
     return Array.from(listRef.current?.querySelectorAll<HTMLElement>("[data-session-row]") ?? []);
   }
 
+  /** Alt+↑/↓: the focused row changes places inside its own bucket. Only a
+   *  row that is a conversation (not a heading or the draft) takes part, and
+   *  the ends clamp instead of wrapping. */
+  function moveFocusedRow(step: -1 | 1) {
+    const key = (document.activeElement as HTMLElement | null)?.dataset.sessionRow;
+    if (!key) return;
+    const bucket = listed.find((candidate) => candidate.rows.some((row) => row.key === key));
+    if (!bucket) return;
+    const ids = bucket.rows.map((row) => row.key);
+    const from = ids.indexOf(key);
+    // The destination is the neighbour on screen, not the neighbour in the
+    // whole bucket: a truncated project draws only its first five rows, and a
+    // move past the last drawn one would take the row out of the slice and
+    // drop keyboard focus. A neighbour that belongs to another bucket has no
+    // index here, so the move clamps instead of crossing projects.
+    const rendered = sessionRows();
+    const at = rendered.indexOf(document.activeElement as HTMLElement);
+    const neighbour = at < 0 ? undefined : rendered[at + step];
+    const to = neighbour ? ids.indexOf(neighbour.dataset.sessionRow ?? "") : -1;
+    if (from < 0 || to < 0) return;
+    ids.splice(from, 1);
+    ids.splice(to, 0, key);
+    setBucketOrder(bucket.key, ids);
+    setTaskOrder(getTaskOrder());
+    // The row keeps the keyboard: the same conversation, one place over. The
+    // commit replaces the row element, so focus is restored after it paints.
+    requestAnimationFrame(() => {
+      sessionRows()
+        .find((row) => row.dataset.sessionRow === key)
+        ?.focus();
+    });
+  }
+
   function onSearchKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
     if (isImeKeyEvent(event.nativeEvent)) return;
     if (event.key === "Escape") {
@@ -1026,6 +1083,16 @@ export default function SessionList({
       return;
     }
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    // Alt turns the same keys into "move this row" — the same gesture (up and
+    // down) at a second scope (where it sits). Where a move is not offered,
+    // the keys keep their ordinary meaning instead of being swallowed.
+    if (event.altKey && canReorder) {
+      const rows = sessionRows();
+      if (rows.indexOf(document.activeElement as HTMLElement) === -1) return;
+      event.preventDefault();
+      moveFocusedRow(event.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
     const rows = sessionRows();
     const at = rows.indexOf(document.activeElement as HTMLElement);
     if (at === -1) return;
