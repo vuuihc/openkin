@@ -29,29 +29,52 @@ the five flows below closer to "passes without a human noticing".
 - Prefer deleting/merging UI over adding it (TASTE 7). Prompt before product machinery (PRINCIPLE 5.5).
 - Escaped defects → `docs/product/LESSONS.md` (see `LESSONS-HOOK.md`).
 
-## Current phase (P1) — make the walk real
-<!-- phase: P1-walk-real target=2026-11-18T20:00 -->
+## Current phase (P2) — mid-run control made real
+<!-- phase: P2-midrun-control target=2026-11-19T20:00 -->
 
-**Why this and not features.** The Astryx programme is done (62/62) and the console now passes a
-journey *walk*, but that walk never sends a message, never asserts an approve/deny result, and J7
-lands on a route nobody seeded. So the gate that is supposed to prove "a person can finish this"
-only proves "the page renders". Every visible defect caught this week (a centred row, two names for one
-conversation, a blank deep link) was caught by a human eye, not by the gate.
+**Why this and not features.** P1 closed the journeys that prove a person can start a chat, approve and
+come back (#245 real send, #249 approve/deny, #251 deep link, #254 mutant). The next most-used path has
+no such proof: F2 mid-run control. The composer already carries the queue-vs-interrupt rule
+(`TaskDetailPage.onComposer`, `interrupt: true`) and the fake agent can hold a turn open (`[seed] slow`,
+`RSI_FAKE_SLOW_SECS`), yet nothing asserts that a message sent while the agent runs appears at once, that
+the honest queued/interrupted copy is the one a person actually sees, or that an explicit stop really ends
+the run. A wrong answer here is the defect people notice first — a message that vanishes, or a node that
+keeps "running" after Stop.
 
-**Done means** (on a throwaway daemon with the fake agent from `scripts/journeys_seed.py`; the
-walker/seed PRs touch no `ui/` file, so `ux-gate.sh` does not run on them — item 4's mutant is their
-verification):
-1. J3 presses Send for real: the composer empties, the pending bubble + waiting row appear **and
-   stay** across `/new` → `/tasks/:id`, the fake agent's reply renders, and 390/1100 shots of the
-   before/after/reply frames are stored.
-2. J1 opens the seeded conversation that holds a real approval card, approves it, and the card is
-   gone while the run continues; denying is captured as well.
-3. J7 deep-links to a seeded item and lands on that card (no blank route), then Back returns to it.
-4. `ux-gate.sh` fails when any of the three paths regresses — proved by a mutant (remove the
-   pending-send handoff → the walk goes red), not by a green run alone.
+**Done means** (throwaway daemon with the fake agent; walker/seed PRs touch no `ui/` file, so `ux-gate.sh`
+does not run on them — item 3's mutant is their verification):
+1. A second message sent while the first turn is still open (`RSI_FAKE_SLOW_SECS=10`) renders in the
+transcript before the first answer, and the walk matches the honest copy the composer emits (queued vs
+interrupted+requeued) instead of trusting the source to contain it.
+2. Stop ends the run: the task leaves `running` (row and header agree), the transcript shows the end
+state, and a follow-up sent during the hold is either delivered or visibly cancelled — never dropped
+silently. 390/1100 shots of the queued and stopped frames are stored.
+3. `ux-gate.sh` fails when either path regresses — proved by a mutant (drop the follow-up dispatch, or the
+`interrupt` flag), not by a green run alone.
 
-**Cut rule.** If item 1 is not green by the target, land 1 alone (it is the F1 path and the one that
-catches the most), keep 2–4 queued, and say so in the weekly retro. Do not extend the date.
+**Cut rule.** If item 1 is not green by the target, land 1 alone (it is the lost-message path and the one
+that catches the most), keep 2–3 queued, and say so in the weekly retro. Do not extend the date.
+
+## Closed phase (P1) — make the walk real
+<!-- closed-phase: P1-walk-real target=2026-11-18T20:00 -->
+
+Closed 2026-11-18, all four items landed: #245 `89d9c656` (J3 sends for real), #249 `e64b43f0`
+(J1 approve + deny), #251 `77ff0b77` (J7 deep link + Back), #254 (the mutant that turns the gate red).
+
+**Why it was the phase and not features.** The Astryx programme was done (62/62) and the console passed a
+journey *walk*, but that walk never sent a message, never asserted an approve/deny result, and J7 landed
+on a route nobody seeded. So the gate that was supposed to prove "a person can finish this" only proved
+"the page renders". Every visible defect caught that week (a centred row, two names for one conversation,
+a blank deep link) was caught by a human eye, not by the gate.
+
+**Delivered** (throwaway daemon with the fake agent from `scripts/journeys_seed.py`; the walker/seed PRs
+touched no `ui/` file, so `ux-gate.sh` did not run on them — item 4's mutant was their verification):
+1. J3 pressed Send for real: the composer emptied, the pending bubble + waiting row appeared **and
+   stayed** across `/new` → `/tasks/:id`, the fake agent's reply rendered, 390/1100 shots stored (#245).
+2. J1 opened the seeded conversation holding a real approval card, approved it (`gone` asserted), and
+   denying was captured as well (#249).
+3. J7 deep-linked to a seeded item and landed on that card, then Back returned to it (#251).
+4. `ux-gate.sh` went red when the pending-send handoff was removed — the mutant proof (#254).
 
 ## Cadence and urgency (mechanism, not vibes)
 - **Every phase carries a date and a cut rule** in this file. No undated phase; if a phase has no
