@@ -815,3 +815,80 @@ func TestRoutineRunsFeedFitsTheRelayBound(t *testing.T) {
 		t.Fatalf("detail prompt=%d bytes, want the %d-byte brief", len(detail.Prompt), len(brief))
 	}
 }
+
+func TestListRoutinesFiltersByDirectoryAndOutcome(t *testing.T) {
+	s, st := newRoutinesTestServer(t)
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+	rows := []store.Routine{
+		{ID: "alpha-failed", Cwd: "/work/alpha", LastOutcome: "failed"},
+		{ID: "alpha-ok", Cwd: "/work/alpha", LastOutcome: "succeeded"},
+		{ID: "beta-failed", Cwd: "/work/beta", LastOutcome: "failed"},
+		{ID: "beta-never", Cwd: "/work/beta"},
+	}
+	for i, r := range rows {
+		r.Agent, r.Prompt, r.IntervalSecs = "kin", "sweep", 60
+		r.Enabled, r.NextDueAt = true, now
+		r.CreatedAt = now + int64(i)
+		if err := st.InsertRoutine(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	list := func(path string) []string {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer test-token")
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%s", path, rr.Code, rr.Body.String())
+		}
+		if strings.Contains(path, "page=1") {
+			var page store.RoutinePage
+			if err := json.Unmarshal(rr.Body.Bytes(), &page); err != nil {
+				t.Fatal(err)
+			}
+			ids := make([]string, 0, len(page.Routines))
+			for _, r := range page.Routines {
+				ids = append(ids, r.ID)
+			}
+			return ids
+		}
+		var routines []store.Routine
+		if err := json.Unmarshal(rr.Body.Bytes(), &routines); err != nil {
+			t.Fatal(err)
+		}
+		ids := make([]string, 0, len(routines))
+		for _, r := range routines {
+			ids = append(ids, r.ID)
+		}
+		return ids
+	}
+
+	if got := list("/api/routines?page=1&cwd=%2Fwork%2Falpha"); !equalIDs(got, []string{"alpha-ok", "alpha-failed"}) {
+		t.Fatalf("cwd filter = %v", got)
+	}
+	if got := list("/api/routines?page=1&outcome=failed"); !equalIDs(got, []string{"beta-failed", "alpha-failed"}) {
+		t.Fatalf("outcome=failed filter = %v", got)
+	}
+	// An outcome the API does not know is not a filter that matches nothing;
+	// it is no filter at all, so a client typo cannot empty the page.
+	if got := list("/api/routines?page=1&outcome=nonsense"); !equalIDs(got, []string{"beta-never", "beta-failed", "alpha-ok", "alpha-failed"}) {
+		t.Fatalf("outcome=nonsense filter = %v", got)
+	}
+	if got := list("/api/routines"); !equalIDs(got, []string{"beta-never", "beta-failed", "alpha-ok", "alpha-failed"}) {
+		t.Fatalf("no params = %v", got)
+	}
+}
+
+func equalIDs(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
