@@ -29,8 +29,41 @@ the five flows below closer to "passes without a human noticing".
 - Prefer deleting/merging UI over adding it (TASTE 7). Prompt before product machinery (PRINCIPLE 5.5).
 - Escaped defects → `docs/product/LESSONS.md` (see `LESSONS-HOOK.md`).
 
-## Current phase (P2) — mid-run control made real
-<!-- phase: P2-midrun-control target=2026-11-19T20:00 -->
+## Current phase (P3) — review → PR, proven
+<!-- phase: P3-review-pr target=2026-11-20T20:00 -->
+
+**Why this and not features.** P1 proved F1 by walking a real send; P2 proved F2 by walking mid-run control.
+F3 is the last of the three daily flows with parts but no proof: line comments, the tray, the send-back
+(#181, #261), the changed-files bar, and the read-only PR / publish panels all exist and have DOM suites, yet
+J2 stops the moment the diff opens. So a regression that drops the comment body or its file/hunk/quote from the
+sent message, that loses a comment when the agent reruns, or that leaves the tray stale is invisible to the gate
+and only a human eye catches it. Review is also the flow where T3 Code is strongest, so "feels as good" is
+decided here.
+
+**Done means** (throwaway daemon with the fake agent; walker/seed PRs touch no `ui/` file, so `ux-gate.sh`
+does not run on them — item 1's mutant is their verification):
+1. The Mac review loop is walked in J2: the seeded `[seed] Morning planning` conversation opens `notes.md`'s
+   diff, a changed line takes a comment (⌥C or the gutter glyph), Save puts one row in the tray, Send lands one
+   ordinary follow-up in the transcript naming the path, hunk and quoted line, and the tray is empty afterwards.
+   1100 shots of the box, the tray and the sent message are stored. A mutant that drops the anchor (or the body)
+   from the sent message turns the J2 walk red, and a `--check-spec` negative keeps the new steps from being
+   weakened without a browser.
+2. The phone review loop is walked at 390: tap a changed line → the comment sheet → Save → tray → Send, with the
+   same transcript assertion and shots of the sheet, the tray and the sent message.
+3. A rerun keeps the comment: a second round rewrites the commented line (`[seed] rewrite`), and the tray either
+   re-anchors the comment to the quoted line's new position (`[seed] shift`) or marks it 该行已变化 and keeps it —
+   never drops it silently. A mutant that deletes a comment when its line changes turns the proof red.
+4. The PR leg is honest in the walk: J2 opens the read-only PR panel on the seeded branch and asserts the state a
+   person meets (unobserved / last-read age, one explicit refresh), with no live GitHub call on open.
+
+**Cut rule.** If item 1 is not green by the target, land it alone (it is the lost-review path and the one that
+catches the most), keep 2–4 queued, and say so in the weekly retro. Do not extend the date.
+
+## Closing phase (P2) — mid-run control made real
+<!-- closing-phase: P2-midrun-control target=2026-11-19T20:00 -->
+
+Closed 2026-11-18, all three items landed: item 1 `7b0f6679` (#264), item 2 `305c5196` (#269, Stop ends the
+round and accounts for its queue), item 3 `2838fc82` (#270, the contract negatives now run in `check.sh`).
 
 **Why this and not features.** P1 closed the journeys that prove a person can start a chat, approve and
 come back (#245 real send, #249 approve/deny, #251 deep link, #254 the mutant). The next most-used path has
