@@ -11,6 +11,16 @@ export type SettingsTabItem = {
   id: SettingsTabId;
   label: string;
   description: string;
+  /**
+   * What the section is set to right now, when the page already knows it.
+   *
+   * The directory used to name six sections without saying anything about the
+   * state behind them, so learning the theme or the active provider meant
+   * opening each one. `undefined` is the honest answer for a value that has
+   * not loaded (or does not exist): the section keeps its description instead
+   * of showing a guess or an empty line.
+   */
+  summary?: string;
 };
 
 function classes(...values: Array<string | false | null | undefined>) {
@@ -105,6 +115,21 @@ export function SettingsLayout({
   // twice, and a `mounted` flag reads true on the second pass and would put
   // focus on a tab nobody aimed at when settings opens.
   const prevTab = useRef<SettingsTabId | null>(null);
+  /**
+   * A phone directory tap wants focus inside the panel it opens.
+   *
+   * TASTE 16: focus belongs to the layer that just appeared. On a phone the
+   * row that was tapped is unmounted with the directory, so the browser drops
+   * focus to `<body>` and the new page opens with no visible focus. The Mac
+   * tab strip is the opposite case — it stays on screen, and stealing focus
+   * from the tab would break the ARIA tablist's arrow-key pattern — so the
+   * intent is explicit and only the directory row asks for it.
+   *
+   * It is a ref, not a focus() in the click handler: at click time the panel
+   * is still `hidden`, and an element inside a hidden subtree cannot take
+   * focus. The effect below runs after the commit that flips it.
+   */
+  const focusPanelRef = useRef(false);
   useEffect(() => {
     const tab = tabRefs.current[activeTab];
     tab?.scrollIntoView({ inline: "nearest", block: "nearest" });
@@ -115,7 +140,19 @@ export function SettingsLayout({
     // actually lost, because on a click the tab already has it.
     const changed = prevTab.current !== null && prevTab.current !== activeTab;
     prevTab.current = activeTab;
-    if (changed && document.activeElement === document.body) {
+    // Read-and-clear even when nothing changed: a stale intent must not fire
+    // on the next unrelated selection.
+    const focusPanel = focusPanelRef.current;
+    focusPanelRef.current = false;
+    if (changed && focusPanel) {
+      const panel = document.getElementById(`settings-panel-${activeTab}`);
+      const first = panel?.querySelector<HTMLElement>(
+        'button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      // The panel itself is the fallback: it carries tabIndex={0} for exactly
+      // this, so a section that is still loading is not a dead end.
+      (first ?? panel)?.focus({ preventScroll: true });
+    } else if (changed && document.activeElement === document.body) {
       const target = activeTab === "operations" ? backRef.current : tab;
       target?.focus({ preventScroll: true });
     }
@@ -127,7 +164,8 @@ export function SettingsLayout({
    * opened halfway down with its heading off-screen — which on a phone looked
    * like the tap had done nothing.
    */
-  const selectTab = (id: SettingsTabId) => {
+  const selectTab = (id: SettingsTabId, options?: { focus?: "panel" }) => {
+    focusPanelRef.current = options?.focus === "panel";
     onTabChange(id);
     scrollRef.current?.scrollTo({ top: 0 });
   };
@@ -195,18 +233,41 @@ export function SettingsLayout({
                     role="tab"
                     aria-selected={selected}
                     aria-controls={`settings-panel-${tab.id}`}
+                    // The section name stays the tab's accessible name; the
+                    // summary is a glance aid for the visual scan, and the
+                    // same value is read out inside the panel it opens.
+                    aria-label={tab.label}
                     tabIndex={selected ? 0 : -1}
                     title={tab.description}
                     onClick={() => onTabChange(tab.id)}
                     className={classes(
-                      "min-h-11 w-full shrink-0 rounded-lg px-3 text-left text-strong font-medium outline-none transition sm:min-h-10",
+                      "min-h-11 w-full shrink-0 rounded-lg px-3 py-2 text-left text-strong font-medium outline-none transition sm:min-h-10",
                       "focus-visible:ring-2 focus-visible:ring-kin-focus-ring",
                       selected
                         ? "bg-kin-blue text-kin-on-brand"
                         : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
                     )}
                   >
-                    {tab.label}
+                    <span className="block truncate">{tab.label}</span>
+                    {/* The value in effect under the section it belongs to —
+                        one list, not a second index (TASTE 1). On the selected
+                        blue tab it keeps the on-brand ink rather than
+                        switching to a muted grey that would fight the fill. */}
+                    {tab.summary ? (
+                      <span
+                        className={classes(
+                          "mt-0.5 block truncate text-caption font-normal",
+                          // Caption size and the regular weight already make
+                          // the line secondary. The ink stays at full opacity:
+                          // dimming it drops the on-brand/blue pair under the
+                          // 3:1 floor recorded in design/colors.ts, and an
+                          // element opacity is invisible to the token guard.
+                          selected ? "text-kin-on-brand" : "text-kin-muted",
+                        )}
+                      >
+                        {tab.summary}
+                      </span>
+                    ) : null}
                   </button>
                 );
               })}
@@ -248,10 +309,18 @@ export function SettingsLayout({
                     .map((tab) => (
                       <MobileRow
                         key={tab.id}
-                        onClick={() => selectTab(tab.id)}
+                        onClick={() => selectTab(tab.id, { focus: "panel" })}
                         title={tab.label}
                         detail={tab.description}
-                        trailing={<MobileChevron />}
+                        // The row's trailing slot, before the chevron: the
+                        // phone's whole point is that the directory answers
+                        // "what is it set to" without opening the section.
+                        trailing={
+                          tab.summary ? (
+                            <span className="max-w-[9rem] truncate">{tab.summary}</span>
+                          ) : undefined
+                        }
+                        chevron
                       />
                     ))}
                 </MobileCard>
