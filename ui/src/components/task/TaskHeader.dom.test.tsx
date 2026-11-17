@@ -132,6 +132,31 @@ describe("TaskHeader", () => {
     expect(props.onDelete).toHaveBeenCalledTimes(1);
   });
 
+  it("desktop: keeps the conversation title readable when the row is crowded", () => {
+    const { utils } = setup();
+    const desktop = within(desktopBar(utils));
+
+    // A `flex-1` title with no floor collapsed to its first character once a
+    // right-side panel narrowed the row; the verbs are what give way instead.
+    const titleBlock = desktop.getByText("Fix the header").parentElement as HTMLElement;
+    expect(titleBlock.className.split(/\s+/)).toContain("min-w-cell");
+
+    // Secondary verbs keep their icon, name and tooltip but lose the word
+    // below `xl`, which is what makes room for the title at 1100px.
+    const compacted = [
+      within(desktop.getByRole("button", { name: t("workspace.title") })).getByText(
+        t("workspace.title"),
+      ),
+      within(desktop.getByRole("button", { name: t("task.share") })).getByText(t("task.share")),
+      desktop.getByText(t("newChat.hostAgent", { name: "Kin" })),
+    ];
+    for (const label of compacted) {
+      const classes = label.className.split(/\s+/);
+      expect(classes).toContain("hidden");
+      expect(classes).toContain("xl:inline");
+    }
+  });
+
   it("desktop: stop button appears only while the session is live", () => {
     const { props } = setup();
     const stop = screen.getByRole("button", { name: t("composer.stop") });

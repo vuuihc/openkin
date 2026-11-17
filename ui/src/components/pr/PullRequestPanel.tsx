@@ -255,7 +255,7 @@ export default function PullRequestPanel({
           <Button
             variant="quiet"
             onClick={onClose}
-            className="group min-h-0! flex-none rounded-md p-1.5"
+            className="group min-w-[44px] flex-none rounded-md p-1.5 sm:min-w-0"
             aria-label={tr("pr.close")}
             title={tr("pr.close")}
           >
@@ -388,20 +388,28 @@ function ObservationCard({ lead, busy }: { lead: PullRequestObservation; busy: b
                 href={lead.url}
                 target="_blank"
                 rel="noreferrer"
-                className="block truncate text-strong font-medium text-kin-text hover:underline"
+                className="flex items-start gap-1 text-strong font-medium text-kin-text hover:underline"
                 title={lead.title}
               >
-                <span className="text-kin-muted">#{lead.number}</span>{" "}
-                {lead.title || tr("pr.untitled")}
-                <IconExternal size={11} className="ml-1 inline-flex" />
+                {/* Two lines on a phone rather than one ellipsised line; the
+                    icon sits beside the text so the clamp never pushes it onto
+                    a line of its own. */}
+                <span className="line-clamp-2 min-w-0">
+                  <span className="text-kin-muted">#{lead.number}</span>{" "}
+                  {lead.title || tr("pr.untitled")}
+                </span>
+                <IconExternal size={11} className="mt-1 flex-none" />
               </a>
               <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption text-kin-muted">
                 <span>{stateLabel(tr, lead)}</span>
                 {lead.base_branch && lead.head_branch && (
-                  // Branch names are `kin/task/<id>/g<N>`, so this line can be
-                  // wider than a phone: truncate rather than escape the card.
-                  <span className="min-w-0 max-w-full truncate font-mono">
-                    {lead.head_branch} → {lead.base_branch}
+                  // Branch names are `kin/task/<id>/g<N>`, so the source branch
+                  // can be wider than a phone: truncate that side only. The
+                  // target starting with `→` is the smaller, more important
+                  // half — where the change lands — and never gets cut off.
+                  <span className="flex min-w-0 max-w-full items-baseline gap-1 font-mono">
+                    <span className="truncate">{lead.head_branch}</span>
+                    <span className="flex-none">→ {lead.base_branch}</span>
                   </span>
                 )}
               </div>

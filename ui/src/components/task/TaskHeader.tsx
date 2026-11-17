@@ -181,7 +181,11 @@ export default function TaskHeader({
         className="hidden md:flex min-h-11 flex-none items-center px-5 border-b border-[var(--kin-hairline)]"
         style={{ WebkitAppRegion: "drag" } as CSSProperties}
       >
-        <div className="min-w-0 flex-1">
+        {/* The title keeps a readable floor rather than yielding to the verbs:
+            with a panel open at 1100px the row is ~700px wide, and a `flex-1`
+            title with no floor collapsed to its first character. The action
+            cluster is the one that scrolls when space runs out. */}
+        <div className="min-w-cell flex-1">
           <div className="text-strong font-semibold text-kin-text truncate">{title}</div>
         </div>
         <div
@@ -200,7 +204,7 @@ export default function TaskHeader({
             >
               {hostAgentAvatar.initials}
             </span>
-            <span>{tr("newChat.hostAgent", { name: hostAgentName })}</span>
+            <span className="hidden xl:inline">{tr("newChat.hostAgent", { name: hostAgentName })}</span>
           </span>
           {/* The list column yielded to an open panel; this is its way back.
               It is desktop-only because the phone has no list column to
@@ -231,7 +235,10 @@ export default function TaskHeader({
             title={tr("workspace.toggle")}
           >
             <IconPanel size={13} />
-            <span>{tr("workspace.title")}</span>
+            {/* Below `xl` the verbs keep their icon, accessible name and
+                tooltip but give up the word, so the title and the primary
+                surfaces stay readable when a panel narrows the row. */}
+            <span className="hidden xl:inline">{tr("workspace.title")}</span>
           </Button>
           {/* The pull request is a sibling surface to the workspace, in the
               same right-side container (TASTE 17), so its toggle is that
@@ -260,7 +267,7 @@ export default function TaskHeader({
             title={tr("task.shareTitle")}
           >
             <IconShare size={13} />
-            <span>{tr("task.share")}</span>
+            <span className="hidden xl:inline">{tr("task.share")}</span>
           </Button>
           <Button
             variant="secondary"

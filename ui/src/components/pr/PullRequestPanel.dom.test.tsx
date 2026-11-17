@@ -97,6 +97,41 @@ describe("PullRequestPanel", () => {
     expect(screen.getByText(t("pr.ciSuccess", { total: "3" }))).toBeTruthy();
   });
 
+  it("the close button keeps a 44px touch target on the phone", () => {
+    mocked.getTaskPullRequest.mockResolvedValue(snapshot());
+    setup();
+
+    const close = screen.getByRole("button", { name: t("pr.close") });
+    const classes = close.className.split(/\s+/);
+    // `Button` supplies the mobile floor; the panel must not cancel it the way
+    // the old `min-h-0!` did, and the square needs a width to match.
+    expect(classes).toContain("min-h-11");
+    expect(classes).toContain("sm:min-h-0");
+    expect(classes).not.toContain("min-h-0!");
+    expect(classes).toContain("min-w-[44px]");
+    expect(classes).toContain("sm:min-w-0");
+  });
+
+  it("truncates the source branch but never the target", async () => {
+    mocked.getTaskPullRequest.mockResolvedValue(snapshot());
+    setup();
+    await screen.findByText(PR_NUMBER);
+
+    // Where the change lands is the half that has to stay visible; the long
+    // `kin/task/<id>/g<N>` source may be elided to make room for it.
+    expect(screen.getByText(branch).className).toContain("truncate");
+    expect(screen.getByText("→ main").className).toContain("flex-none");
+  });
+
+  it("lets the pull request title use two lines", async () => {
+    mocked.getTaskPullRequest.mockResolvedValue(snapshot());
+    setup();
+    await screen.findByText(PR_NUMBER);
+
+    const clamped = screen.getByRole("link").querySelector(".line-clamp-2");
+    expect(clamped?.textContent).toContain("Restore the pull request panel");
+  });
+
   it("a refresh replaces the card with the newer answer", async () => {
     mocked.getTaskPullRequest.mockResolvedValue(snapshot());
     mocked.refreshTaskPullRequest.mockResolvedValue(
