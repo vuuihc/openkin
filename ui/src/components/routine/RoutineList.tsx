@@ -1,31 +1,15 @@
 import type { ReactNode } from "react";
 import type { Routine } from "../../api/client";
 import Button from "../ui/Button";
-import SheetSelect, { type SheetOption } from "../ui/SheetSelect";
 import { describeRoutineRule, parseRoutineRule } from "../../lib/routineRecurrence";
-import { directoryLabel } from "../../lib/routineDirectories";
 import { formatInterval, formatWhen } from "../../lib/routineTime";
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
-
-/** The three states the list can be narrowed to; absent means every routine. */
-export const ROUTINE_STATUS_FILTERS = ["enabled", "paused", "failed"] as const;
-export type RoutineStatusFilter = "" | (typeof ROUTINE_STATUS_FILTERS)[number];
 
 export type RoutineListProps = {
   routines: Routine[];
   query: string;
   onQueryChange: (query: string) => void;
-  /** Active status filter; "" is every routine. */
-  status: RoutineStatusFilter;
-  onStatusChange: (status: RoutineStatusFilter) => void;
-  /** Active directory filter; "" is every directory. */
-  cwd: string;
-  /** Every directory on the selected machine, already labelled. */
-  directories: SheetOption[];
-  onCwdChange: (cwd: string) => void;
-  /** Drop both filters, keeping the search text untouched. */
-  onClearFilters: () => void;
   selectedId: string | null;
   unreadByRoutine: Record<string, number>;
   busy: Record<string, boolean>;
@@ -57,12 +41,6 @@ export default function RoutineList({
   routines,
   query,
   onQueryChange,
-  status,
-  onStatusChange,
-  cwd,
-  directories,
-  onCwdChange,
-  onClearFilters,
   selectedId,
   unreadByRoutine,
   busy,
@@ -80,47 +58,12 @@ export default function RoutineList({
   renderRowExtra,
   tr,
 }: RoutineListProps) {
-  const filterActive = status !== "" || cwd !== "";
-  const statusOptions: SheetOption[] = [
-    { id: "", label: tr("routines.filterAll") },
-    { id: "enabled", label: tr("routines.enabled") },
-    { id: "paused", label: tr("routines.paused") },
-    { id: "failed", label: tr("routines.filterFailed") },
-  ];
-  const directoryOptions: SheetOption[] = [
-    { id: "", label: tr("routines.filterAllDirs") },
-    ...directories,
-  ];
-  // A `?cwd=` that is no longer among this machine's routines still filters.
-  // Naming it beats showing the raw path as a "value" with no option behind
-  // it, and the empty result it produces is the honest answer.
-  const cwdInOptions = directories.some((option) => option.id === cwd);
   return (
     <section className="min-w-0">
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="mr-auto text-caption font-semibold uppercase tracking-label text-kin-muted">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-caption font-semibold uppercase tracking-label text-kin-muted">
           {tr("routines.listSection")}
         </div>
-        <SheetSelect
-          label={tr("routines.filterStatus")}
-          value={status}
-          options={statusOptions}
-          onChange={(id) => onStatusChange(id as RoutineStatusFilter)}
-          className="text-kin-text"
-        />
-        <SheetSelect
-          label={tr("routines.filterDirectory")}
-          value={cwd}
-          display={cwd && !cwdInOptions ? directoryLabel(cwd) : undefined}
-          options={directoryOptions}
-          onChange={onCwdChange}
-          className="text-kin-text"
-        />
-        {filterActive && (
-          <Button variant="quiet" onClick={() => onClearFilters()}>
-            {tr("routines.filterClear")}
-          </Button>
-        )}
         <input
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
@@ -130,34 +73,17 @@ export default function RoutineList({
         />
       </div>
       {routines.length === 0 ? (
-        // One surface, two answers: a machine with no routines at all invites
-        // creating one; a filtered list that matched nothing invites clearing
-        // the filter. An empty list no longer means there are no routines.
         <div className="rounded-2xl border border-dashed border-[var(--kin-hairline-strong)] px-6 py-10 text-center">
-          {filterActive ? (
-            <>
-              <p className="text-strong font-medium text-kin-text">{tr("routines.filterEmpty")}</p>
-              <p className="mt-1 text-strong text-kin-secondary">
-                {tr("routines.filterEmptyHint")}
-              </p>
-              <Button variant="secondary" onClick={() => onClearFilters()} className="mt-4">
-                {tr("routines.filterClear")}
-              </Button>
-            </>
-          ) : (
-            <>
-              <p className="text-strong text-kin-secondary">{tr("routines.emptyList")}</p>
-              {/* The one filled action on the page: a machine with no routines. */}
-              <Button
-                variant="default"
-                disabled={machineOffline}
-                onClick={() => onCreate()}
-                className="mt-4"
-              >
-                {tr("routines.createEntry")}
-              </Button>
-            </>
-          )}
+          <p className="text-strong text-kin-secondary">{tr("routines.emptyList")}</p>
+          {/* The one filled action on the page: a machine with no routines. */}
+          <Button
+            variant="default"
+            disabled={machineOffline}
+            onClick={() => onCreate()}
+            className="mt-4"
+          >
+            {tr("routines.createEntry")}
+          </Button>
         </div>
       ) : (
         <ul className="space-y-2.5">

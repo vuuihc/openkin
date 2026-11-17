@@ -117,8 +117,8 @@ import SessionToolbar, { SessionSelectionBar } from "./SessionToolbar";
  * R0b-2d merged the phone page and the Mac sidebar into this component: one
  * model (`phoneProjectBuckets`), one row, one set of search / filter / row
  * actions. `shell` decides only the container and which shortcut uncovers a
- * row's overflow — hover controls in the sidebar, swipe and long-press on the
- * page — never which features the list has.
+ * row's overflow — hover controls in the sidebar, swipe and a long press that
+ * open the same row menu on the page — never which features the list has.
  *
  * The query, status and scope live in the URL (`?search=`, `?status=`, `?scope=`),
  * so switching width cannot change what the list is showing: the route stays
@@ -667,7 +667,6 @@ export default function SessionList({
         onToggleSelect={toggleSelected}
         onStartSelection={enterSelection}
         onExitSelection={() => exitSelection(true)}
-        onLongPress={enterSelection}
         swipeOpen={swipeOpen}
         onSwipeOpenChange={setSwipeOpen}
         pinnedIds={pinnedIds}
@@ -1417,7 +1416,6 @@ function ProjectBucket({
   onToggleSelect,
   onStartSelection,
   onExitSelection,
-  onLongPress,
   swipeOpen,
   onSwipeOpenChange,
   pinnedIds,
@@ -1457,7 +1455,6 @@ function ProjectBucket({
   onToggleSelect: (id: string) => void;
   onStartSelection: (row: PhoneSessionRow) => void;
   onExitSelection: () => void;
-  onLongPress: (row: PhoneSessionRow) => void;
   swipeOpen: string | null;
   onSwipeOpenChange: (open: string | null) => void;
   pinnedIds: ReadonlySet<string>;
@@ -1654,7 +1651,6 @@ function ProjectBucket({
               }}
               onStartSelection={() => onStartSelection(row)}
               onExitSelection={onExitSelection}
-              onLongPress={() => onLongPress(row)}
               swipeOpen={swipeOpen === row.key}
               onSwipeOpenChange={(open) => onSwipeOpenChange(open ? row.key : null)}
               pinned={row.task ? pinnedIds.has(row.task.id) : false}

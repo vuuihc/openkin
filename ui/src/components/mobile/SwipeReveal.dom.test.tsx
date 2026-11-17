@@ -141,8 +141,9 @@ describe("SwipeReveal gestures", () => {
   });
 
   it("swallows the click that ends a long press", () => {
-    // The press already selected the row; the click that follows the lift
-    // would toggle that selection straight back off.
+    // The press opened the row's own sheet; the click that follows the lift
+    // would otherwise reach the row underneath the modal and open the
+    // conversation (or toggle a selection) the person never asked for.
     vi.useFakeTimers();
     try {
       const onLongPress = vi.fn();

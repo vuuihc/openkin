@@ -38,8 +38,8 @@ import type { SessionScopeFilter } from "../ui/SessionFilters";
  * actions live on: one trailing "More" trigger opens the console's shared
  * `Menu` on the Mac and its shared `ActionSheet` on a touch page, so managing
  * a conversation is one discoverable control instead of a row of hover-only
- * icons (or a gesture with no visible entry point). Swipe remains a second,
- * faster path on touch.
+ * icons. Swipe remains a second, faster path on touch, and a long press opens
+ * the very same sheet: three gestures, one list, no invisible mode change.
  *
  * `selectionMode` turns the row into a selection control. A row the toolbar
  * can act on keeps its trigger while selecting, holding the one way out; an
@@ -62,7 +62,6 @@ export type SessionRowProps = {
   onToggleSelect: () => void;
   onStartSelection: () => void;
   onExitSelection: () => void;
-  onLongPress: () => void;
   swipeOpen: boolean;
   onSwipeOpenChange: (open: boolean) => void;
   pinned: boolean;
@@ -89,7 +88,6 @@ export default function SessionRow({
   onToggleSelect,
   onStartSelection,
   onExitSelection,
-  onLongPress,
   swipeOpen,
   onSwipeOpenChange,
   pinned,
@@ -345,8 +343,8 @@ export default function SessionRow({
         else setSheetOpen(true);
       }}
       // The trigger is a button, not a drag surface: a press that starts on it
-      // must not also arm SwipeReveal's long press (which would enter selection
-      // and swallow the tap that was meant to open the sheet).
+      // must not also arm SwipeReveal's long press, which would open the row's
+      // sheet underneath the one this tap is already opening.
       onPointerDown={desktop ? undefined : (event) => event.stopPropagation()}
       className={[
         "h-11 w-11 flex-none rounded-md bg-transparent p-0 text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text hover:brightness-100",
@@ -402,7 +400,7 @@ export default function SessionRow({
     />
   );
 
-  // While selecting, the swipe strip and its long press belong to the
+  // While selecting, the swipe strip and the long press belong to the
   // out-of-mode row; the row's only gesture here is the toggle, and the
   // trigger is only the exit.
   if (selectionMode) {
@@ -419,7 +417,9 @@ export default function SessionRow({
       <SwipeReveal
         open={swipeOpen}
         onOpenChange={onSwipeOpenChange}
-        onLongPress={onLongPress}
+        // A completed hold opens this row's own actions: the same list as the
+        // trailing trigger, not an invisible step into multi-select.
+        onLongPress={() => setSheetOpen(true)}
         width={sessionRowActionsWidth(mode)}
         actions={
           <SessionRowActions

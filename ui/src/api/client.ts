@@ -1629,10 +1629,6 @@ export function listRoutines(
     limit?: number;
     cursor?: string;
     q?: string;
-    /** Exact working directory; absent means every directory. */
-    cwd?: string;
-    /** `failed` keeps routines whose most recent run failed. */
-    outcome?: "failed";
     runs?: boolean;
   },
   device?: string,
@@ -1644,8 +1640,6 @@ export function listRoutines(
   if (params?.limit) q.set("limit", String(params.limit));
   if (params?.cursor) q.set("cursor", params.cursor);
   if (params?.q) q.set("q", params.q);
-  if (params?.cwd) q.set("cwd", params.cwd);
-  if (params?.outcome === "failed") q.set("outcome", "failed");
   if (params?.runs) q.set("runs", "1");
   const qs = q.toString();
   return apiFetch<RoutinePage>(routinePath(`/api/routines${qs ? `?${qs}` : ""}`, device));

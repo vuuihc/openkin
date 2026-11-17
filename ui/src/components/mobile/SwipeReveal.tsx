@@ -5,8 +5,9 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
  *
  * A row slides left to uncover action chips pinned behind it. Touch has no
  * hover and no right-click, so this is how the reference exposes the same
- * row actions its long-press multi-select also carries — two gestures, one
- * set of actions, and the multi-select remains the keyboard-accessible path.
+ * row actions its trailing trigger and a completed hold open: three gestures,
+ * one set of actions, and the keyboard's Shift+Enter remains the accessible
+ * path into multi-select.
  *
  * The wrapper only claims horizontal drags (`touch-action: pan-y`): vertical
  * movement stays the list's own scroll. One row is open at a time, decided
@@ -35,8 +36,8 @@ export default function SwipeReveal({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Long-press on the row (multi-select entry). Optional: a row without
-   *  batch actions has nothing to enter. */
+  /** Completed hold on the row (opens the row's own action sheet). Optional:
+   *  a row without actions has nothing to open. */
   onLongPress?: () => void;
   /** Rendered behind the row, on the right, revealed by the swipe. */
   actions: ReactNode;
