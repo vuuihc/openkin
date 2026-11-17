@@ -27,14 +27,23 @@
 # conversation the phone journey opens: the console's changed-files bar reads
 # path-bearing tool_use events, and without one there is no bar to photograph.
 #
-# One prompt changes a file. A prompt containing "[seed] change" appends one
-# sentinel line to the tracked notes.md, and only when the process's real
-# working directory carries the `kin-journeys-seed-` prefix that
+# Three prompts change a file, and only when the process's real working
+# directory carries the `kin-journeys-seed-` prefix that
 # scripts/journeys_seed.py's _seed_roots() creates — this binary can be
-# selected by path, so it must never write into a real repository. The line is
-# appended only once, so a re-run leaves the same one-file diff and the journey
-# walk has a real workspace change to open. Every other prompt writes nothing:
-# the task cwd stays untouched.
+# selected by path, so it must never write into a real repository:
+#
+#   [seed] change   append one sentinel line to the tracked notes.md, at most
+#                   once, so the journey walk has a real workspace change and
+#                   a re-run leaves the same one-file diff.
+#   [seed] shift    insert one line immediately above that sentinel, so the
+#                   line a saved diff comment quotes moves down unchanged.
+#   [seed] rewrite  replace the sentinel with different text, so the quote a
+#                   saved comment holds is gone — the stale case the tray
+#                   shows as 该行已变化.
+#
+# shift and rewrite are no-ops when their line is already present, so a second
+# round is byte-identical, and no-ops when the sentinel is absent. Every other
+# prompt writes nothing: the task cwd stays untouched.
 #
 # Deliberately no `session_id`: a made-up ref sends the engine looking for it
 # in the real agent session catalog on every turn (~16 s per seeded
@@ -98,17 +107,51 @@ EOF
     ;;
 esac
 
-# The one workspace change this fake ever makes: a single line in the tracked
-# notes.md of a throwaway seed root, appended at most once.
-case "$prompt" in
-  *"[seed] change"*)
-    # pwd -P, not an inherited $PWD: the daemon passes its own environment
-    # through, so only the process's real directory proves where this writes.
-    case "$(pwd -P)" in
-      *kin-journeys-seed-*)
-        line='- [seed] change: the journey walk reads this line as a real diff.'
-        if [ -f notes.md ] && ! grep -qxF -e "$line" notes.md; then
-          printf '%s\n' "$line" >>notes.md
+# The workspace changes this fake ever makes: lines in the tracked notes.md of
+# a throwaway seed root. All three branches are idempotent, so a second round
+# of the same walk changes no bytes.
+#
+# pwd -P, not an inherited $PWD: the daemon passes its own environment through,
+# so only the process's real directory proves where this writes.
+case "$(pwd -P)" in
+  *kin-journeys-seed-*)
+    change_line='- [seed] change: the journey walk reads this line as a real diff.'
+    shift_line='- [seed] shift: a line added above the commented one.'
+    rewrite_line='- [seed] rewrite: this line changed after the comment was written.'
+    case "$prompt" in
+      *"[seed] change"*)
+        if [ -f notes.md ] && ! grep -qxF -e "$change_line" notes.md; then
+          printf '%s\n' "$change_line" >>notes.md
+        fi
+        ;;
+    esac
+    case "$prompt" in
+      *"[seed] shift"*)
+        # One line above the first sentinel, and only while the sentinel is
+        # there and the shift has not already run.
+        if [ -f notes.md ] && grep -qxF -e "$change_line" notes.md &&
+          ! grep -qxF -e "$shift_line" notes.md; then
+          awk -v line="$shift_line" -v target="$change_line" '
+            !inserted && $0 == target { print line; inserted = 1 }
+            { print }
+          ' notes.md >notes.md.seed-tmp &&
+            cat notes.md.seed-tmp >notes.md
+          rm -f notes.md.seed-tmp
+        fi
+        ;;
+    esac
+    case "$prompt" in
+      *"[seed] rewrite"*)
+        # The sentinel text becomes the rewrite line, once. A comment quoting
+        # the old text can no longer be re-anchored: that is the stale case.
+        if [ -f notes.md ] && grep -qxF -e "$change_line" notes.md &&
+          ! grep -qxF -e "$rewrite_line" notes.md; then
+          awk -v line="$rewrite_line" -v target="$change_line" '
+            !replaced && $0 == target { print line; replaced = 1; next }
+            { print }
+          ' notes.md >notes.md.seed-tmp &&
+            cat notes.md.seed-tmp >notes.md
+          rm -f notes.md.seed-tmp
         fi
         ;;
     esac
