@@ -1,0 +1,60 @@
+#!/bin/sh
+# A fake `claude` for the UX journey walk (rsi/runtime/ux-walk.sh and
+# scripts/journeys-smoke.sh). The harness puts this directory first on the
+# throwaway daemon's PATH, so every conversation the seed creates runs this
+# script instead of a real model turn.
+#
+# It speaks the same stream-json the Claude Code adapter already parses (see
+# internal/adapter/claudecode/integration_test.go's writeFakeClaude): an init
+# line, one assistant message, and a result line with cost and usage. The
+# adapter invokes:
+#
+#   claude -p <prompt> --output-format stream-json --verbose ...
+#
+# Extra flags after the prompt (--permission-mode, --mcp-config, …) are
+# ignored. A prompt containing the literal marker "[seed] fail" produces a
+# result with is_error true and a non-zero exit, which the engine maps to a
+# failed task. Nothing is written to disk: the task cwd stays untouched.
+#
+# Deliberately no `session_id`: a made-up ref sends the engine looking for it
+# in the real agent session catalog on every turn (~16 s per seeded
+# conversation on a machine with a large catalog), and a seeded conversation
+# has no real session behind it. Omitting the optional field leaves the task
+# succeeded in well under a second and touches no local session state.
+set -u
+
+prompt=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-p" ] && [ "$#" -ge 2 ]; then
+    prompt="$2"
+    break
+  fi
+  shift
+done
+if [ -z "$prompt" ]; then
+  # The adapter always passes -p; only a hand-run without it reads stdin.
+  prompt="$(cat)"
+fi
+
+# The seed looks for this marker in the task's events to prove which binary
+# answered — a real claude never writes it.
+printf 'fake-agent %s\n' "$prompt" >&2
+
+case "$prompt" in
+  *"[seed] fail"*)
+    cat <<'EOF'
+{"type":"system","subtype":"init","cwd":"."}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"The fake agent was asked to fail."}]}}
+{"type":"result","subtype":"error_during_execution","is_error":true,"result":"[seed] fail: the fake agent stopped on purpose","total_cost_usd":0.00042,"usage":{"input_tokens":42,"output_tokens":7}}
+EOF
+    exit 1
+    ;;
+esac
+
+cat <<'EOF'
+{"type":"system","subtype":"init","cwd":"."}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Fake reply"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Fake reply from the journey fake agent."}]}}
+{"type":"result","subtype":"success","is_error":false,"result":"Fake reply from the journey fake agent.","total_cost_usd":0.00042,"usage":{"input_tokens":42,"output_tokens":7}}
+EOF
+exit 0
