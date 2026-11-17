@@ -456,6 +456,52 @@ describe("SessionRow", () => {
     }
   });
 
+  it("a dragging row exposes data-dragging and its offset", () => {
+    const { container } = render(
+      <SessionRow
+        {...props({
+          shell: "page",
+          coarse: true,
+          reorder: { onStart: vi.fn(), onMove: vi.fn(), onEnd: vi.fn() },
+          dragging: true,
+          dragOffsetY: 36,
+        })}
+      />,
+    );
+
+    const lifted = container.querySelector<HTMLElement>("[data-dragging]");
+    if (!lifted) throw new Error("a dragging row did not mark itself");
+    // The row follows the finger as a lift, not a screen transition.
+    expect(lifted.style.transform).toBe("translateY(36px)");
+    expect(lifted.className).toContain("shadow-e2");
+    expect(lifted.contains(rowButton())).toBe(true);
+  });
+
+  it("the trailing trigger still opens the row actions", async () => {
+    // The hold belongs to the reorder now; the one visible way into the sheet
+    // is still the trailing trigger, unchanged.
+    const onArchive = vi.fn();
+    render(
+      <SessionRow
+        {...props({
+          shell: "page",
+          coarse: true,
+          onArchive,
+          reorder: { onStart: vi.fn(), onMove: vi.fn(), onEnd: vi.fn() },
+        })}
+      />,
+    );
+
+    const trigger = document.querySelector<HTMLElement>("[data-row-actions]");
+    if (!trigger) throw new Error("the touch row did not render an actions trigger");
+    await userEvent.click(trigger);
+
+    const sheet = screen.getByRole("dialog", { name: "Fix the build" });
+    await userEvent.click(within(sheet).getByRole("button", { name: "Archive" }));
+    expect(onArchive).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
   it("Escape closes a long-press sheet and returns focus to the row", () => {
     vi.useFakeTimers();
     try {
