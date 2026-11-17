@@ -224,6 +224,33 @@ describe("a notification that names a waiting card", () => {
     expect(older?.textContent).not.toContain("focused");
   });
 
+  it("keeps trying when the card cannot take focus on the first attempt", async () => {
+    // A real page calls focus() while the transcript scroller is still
+    // `visibility:hidden` (it positions its scroll after the first paint), and
+    // a node in a hidden subtree cannot take focus: focus() returns without
+    // firing focusin. The reveal must retry rather than consume the link on a
+    // landing that never happened.
+    const realFocus = HTMLElement.prototype.focus;
+    let refused = 0;
+    vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (
+      this: HTMLElement,
+      ...args: Parameters<HTMLElement["focus"]>
+    ) {
+      if (this.getAttribute("data-pending-id") === "ap-named" && refused === 0) {
+        refused += 1;
+        return;
+      }
+      realFocus.apply(this, args);
+    });
+
+    open("?focus=ap-named");
+
+    const named = document.querySelector('[data-pending-id="ap-named"]');
+    await waitFor(() => expect(document.activeElement).toBe(named));
+    expect(refused).toBe(1);
+    expect(screen.getByTestId("location").textContent).toBe("/tasks/task-1");
+  });
+
   it("drops the parameter so the link stops naming an item", async () => {
     open("?focus=ap-named");
     await waitFor(() =>

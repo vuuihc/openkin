@@ -48,7 +48,12 @@
     "J6": { "title": "Settings and agent operations", "viewports": ["phone", "mac"],
       "steps": [["goto", "/settings"], ["shot", "settings"], ["goto", "/settings?tab=operations"], ["shot", "operations"], ["goto", "/agents"], ["shot", "legacy-agents-redirect"]] },
     "J7": { "title": "Notification deep link lands on the exact card", "viewports": ["phone", "mac"],
-      "steps": [["goto", "/tasks/demo-task?focus=demo-item"], ["shot", "landing"], ["click", "?/返回|Back/"], ["shot", "back"]] }
+      "steps": [["goto", "/sessions"], ["goto", "/tasks/{conversation}?focus={focus}"],
+        ["wait", "css=[data-pending-id=\"{focus}\"]"], ["active", "css=[data-pending-id=\"{focus}\"]"],
+        ["search", "^$"], ["shot", "landing-card"],
+        ["back"], ["url", "^/sessions"], ["shot", "back-list"],
+        ["wait", "text={title}"], ["focus", "[data-session-row=\"{conversation}\"]"], ["key", "Enter"], ["url", "^/tasks/{conversation}"],
+        ["wait", "css=[data-pending-id=\"{focus}\"]"], ["shot", "back-card"]] }
   },
   "paths": [
     ["ui/src/components/layout/", ["J1", "J2", "J3", "J4", "J5", "J6", "J7"]],

@@ -2,7 +2,8 @@
 // Journey walk of the REAL console. Usage:
 //   node walk.mjs --base http://127.0.0.1:PORT --token T --out DIR [--journeys J1,J2] [--files changed-files.txt] [--spec path/to/journeys.json]
 //   node walk.mjs --resolve-j7 DIR/seed.log [--spec path/to/journeys.json]   (print the J7 URL or skip; no browser)
-//   node walk.mjs --check-spec [--spec path/to/journeys.json]                (J3's send contract; no browser)
+//   node walk.mjs --resolve-j7-plan DIR/seed.log [--spec path/to/journeys.json] (print the resolved J7 steps as JSON; no browser)
+//   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J3's send contract and J7's landing contract; no browser)
 // Needs playwright-core (PW_CORE or ~/.kin/ux-proto-tools) and Google Chrome. Writes DIR/<journey>-<vp>-<step>.png (+ .aria.txt) and DIR/walk.json.
 // Exit 0 always when the walk ran (verdicts are the reviewer's and walk.json's `hardFail`); exit 2 when it could not run (no chrome, daemon unreachable).
 import { createRequire } from 'node:module';
@@ -61,26 +62,85 @@ function checkJ3Contract(spec) {
   else if (repliedAt >= 0 && emptyAt < repliedAt) errs.push('the empty-composer check must follow the reply');
   return errs;
 }
+// J7's contract: a notification tap must prove it landed on the card the
+// notification named — not just photograph whatever loaded. Without these
+// rules a blank deep link, a landing on the wrong card, and a Back that
+// strands the reader are all green today:
+//   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json]
+function checkJ7Contract(spec) {
+  const steps = (((spec || {}).journeys || {}).J7 || {}).steps;
+  if (!Array.isArray(steps) || steps.length === 0) return ['J7 has no steps'];
+  const errs = [];
+  const required = (v) => typeof v === 'string' && !v.startsWith('?');
+  const bare = (v) => String(v).replace(/^\?/, '');
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
+  const gotoAt = idx(([op, u]) => op === 'goto' && required(u) && /\/tasks\//.test(bare(u)) && /focus=|\{focus\}/.test(bare(u)));
+  if (gotoAt < 0) errs.push('J7 has no required deep-link goto naming focus=');
+  // The landing assertion is the required wait for the named card, and it has
+  // to happen before Back: the post-Back wait proves something else.
+  const cardWait = ([op, needle]) => op === 'wait' && required(needle) && /^css=/.test(bare(needle)) && /\[data-pending-id=/.test(bare(needle)) && bare(needle).includes('{focus}');
+  const landingAt = idx(cardWait);
+  const backAt = idx(([op, sel]) => op === 'back' || (op === 'click' && required(sel) && /返回|Back/.test(bare(sel))));
+  if (landingAt < 0 || (backAt >= 0 && landingAt > backAt)) {
+    errs.push('J7 never waits for the named card before Back ([data-pending-id="{focus}"])');
+  }
+  if (idx(([op, sel]) => op === 'active' && required(sel) && /^css=/.test(bare(sel)) && bare(sel).includes('{focus}')) < 0) {
+    errs.push('J7 never asserts the named card holds DOM focus (active css=[data-pending-id="{focus}"])');
+  }
+  if (idx(([op, p]) => op === 'search' && required(p)) < 0) {
+    errs.push('J7 never proves the ?focus= link was consumed (search ^$)');
+  }
+  if (backAt < 0) {
+    errs.push('J7 has no required Back step (an optional `?` click is not a Back)');
+  } else {
+    if (idx(cardWait, backAt + 1) < 0) errs.push('J7 never asserts the named card again after Back');
+    if (idx(([op, p]) => op === 'url' && required(p) && /sessions/.test(bare(p)), backAt + 1) < 0) {
+      errs.push('J7 never proves Back returned to the conversation list (url ^/sessions)');
+    }
+  }
+  return errs;
+}
 if (process.argv.includes('--check-spec')) {
-  const errs = checkJ3Contract(spec);
-  if (errs.length) { console.log('spec red: J3'); errs.forEach((e) => console.log(' - ' + e)); process.exit(1); }
+  const j3 = checkJ3Contract(spec);
+  const j7 = checkJ7Contract(spec);
+  if (j3.length || j7.length) {
+    if (j3.length) { console.log('spec red: J3'); j3.forEach((e) => console.log(' - ' + e)); }
+    if (j7.length) { console.log('spec red: J7'); j7.forEach((e) => console.log(' - ' + e)); }
+    process.exit(1);
+  }
   console.log('spec ok: J3 sends a prompt and waits for the reply');
+  console.log('spec ok: J7 lands on the named card, proves focus, consumes ?focus=, and reopens it after Back');
+  // With a seed log the check also prints the assertion the walk will make,
+  // resolved through the same function the walker uses: the reviewer reads
+  // `[data-pending-id="appr-1"]`, not a placeholder.
+  const seedPath = arg('seed');
+  if (seedPath) {
+    const target = readJ7Target(fs.existsSync(seedPath) ? fs.readFileSync(seedPath, 'utf8') : '');
+    const gotoStep = ((spec.journeys.J7 || {}).steps || []).find((st) => st[0] === 'goto' && /\/tasks\//.test(String(st[1])));
+    if (target.skip || !gotoStep) console.log('J7 skip: ' + (target.skip || 'the spec has no J7 goto step'));
+    else {
+      console.log('J7 ' + applyJ7Target(gotoStep[1], target));
+      console.log('J7 assert ' + resolvedCardSelector(target));
+    }
+  }
   process.exit(0);
 }
 // J7 must land on the conversation and card a notification would name. The
-// seed prints one `j7 target conversation=<task> focus=<approval>` line when
-// (and only when) it really produced both; without that line J7 is a skip,
-// never a walk against an invented id. The spec itself keeps its literals
+// seed prints one `j7 target conversation=<task> focus=<approval> title=<title>`
+// line when (and only when) it really produced both; without that line J7 is a
+// skip, never a walk against an invented id. The title is the row a reader
+// clicks after Back; the older two-field line still resolves (title absent).
+// The spec itself keeps its placeholders and legacy literals
 // (rsi/runtime/ux/journeys.json is the merge-gate spec, DECISIONS 2026-11-17);
 // the walker substitutes here.
-const J7_TARGET = /^j7 target conversation=(\S+) focus=(\S+)$/m;
 function readJ7Target(seedText) {
+  const J7_TARGET = /^j7 target conversation=(\S+) focus=(\S+)(?: title=(.+))?$/m;
   const seed = typeof seedText === 'string' ? seedText : '';
   if (/no scripts\/journeys_seed|seed failed|empty daemon/i.test(seed)) return { skip: 'seed failed or empty daemon' };
   if (!seed.trim()) return { skip: 'no seeded notification target' };
   const match = J7_TARGET.exec(seed);
   if (!match) return { skip: 'no seeded notification target' };
-  return { conversation: match[1], focus: match[2] };
+  return { conversation: match[1], focus: match[2], title: (match[3] || '').trim() };
 }
 function applyJ7Target(goto, target) {
   return String(goto)
@@ -89,16 +149,41 @@ function applyJ7Target(goto, target) {
     .replace(/\{conversation\}/g, target.conversation)
     .replace(/\{focus\}/g, target.focus);
 }
+// Every J7 step argument, not only `goto`: a card wait, the focus assertion
+// and the row click all name the seeded ids. A step that does not name them
+// (a shot name, a regex like /返回|Back/) passes through unchanged. The title
+// is a literal, never a regex: `[seed]` as a regex is a character class.
+function applyJ7Fields(value, target) {
+  const out = applyJ7Target(value, target);
+  return target.title ? out.replace(/\{title\}/g, target.title) : out;
+}
+function applyJ7Step(step, target) {
+  return Array.isArray(step) ? step.map((part) => (typeof part === 'string' ? applyJ7Fields(part, target) : part)) : step;
+}
+// The selector the landing assertion resolves to, printed by --check-spec so
+// the red/green evidence names a real card rather than `{focus}`.
+function resolvedCardSelector(target) {
+  return `[data-pending-id="${target.focus}"]`;
+}
 // `--resolve-j7 <seed.log>` answers the same question without Chromium or a
 // daemon, so the resolution has a pure test: the target line, the skip, the
 // legacy literals and the placeholders all resolve through this one function.
+// `--resolve-j7-plan` prints the whole resolved step list the walk will run,
+// which is how the card/focus/title assertions are proved without a browser.
+const j7DeepLinkStep = () => (((spec.journeys.J7 || {}).steps || []).find((st) => st[0] === 'goto' && /\/tasks\//.test(String(st[1]))));
 const resolveJ7 = arg('resolve-j7');
-if (resolveJ7) {
-  const target = readJ7Target(fs.existsSync(resolveJ7) ? fs.readFileSync(resolveJ7, 'utf8') : '');
-  const gotoStep = ((spec.journeys.J7 || {}).steps || []).find((st) => st[0] === 'goto');
+const resolveJ7Plan = arg('resolve-j7-plan');
+if (resolveJ7 || resolveJ7Plan) {
+  const seedPath = resolveJ7 || resolveJ7Plan;
+  const target = readJ7Target(fs.existsSync(seedPath) ? fs.readFileSync(seedPath, 'utf8') : '');
+  const gotoStep = j7DeepLinkStep();
   if (target.skip) console.log('J7 skip: ' + target.skip);
   else if (!gotoStep) console.log('J7 skip: the spec has no J7 goto step');
-  else console.log('J7 ' + applyJ7Target(gotoStep[1], target));
+  else if (resolveJ7Plan) {
+    // Byte-for-byte the walk's own substitution, printed as data.
+    const steps = (spec.journeys.J7.steps || []).map((st) => applyJ7Step(st, target));
+    console.log(JSON.stringify({ journey: 'J7', steps, title: target.title }, null, 1));
+  } else console.log('J7 ' + applyJ7Target(gotoStep[1], target));
   process.exit(0);
 }
 let want = arg('journeys', '') ? arg('journeys').split(',') : null;
@@ -196,6 +281,14 @@ async function choosePlace(page, selector) {
 // to the collapsed usage note "此任务未返回缓存用量" and every optional step
 // would wait out a click timeout on it.
 async function stepLocator(page, sel) {
+  // `text=` is a literal the way `wait text=` is: the seeded title carries
+  // `[seed]`, which as a regex is a character class and matches nothing.
+  if (sel.startsWith('text=')) {
+    const text = page.getByText(sel.slice('text='.length));
+    const count = await text.count();
+    for (let i = 0; i < count; i++) if (await text.nth(i).isVisible().catch(() => false)) return text.nth(i);
+    return text.first();
+  }
   if (!sel.startsWith('/')) return page.locator(sel).first();
   const re = new RegExp(sel.slice(1, sel.lastIndexOf('/')), 'i');
   const text = page.getByText(re);
@@ -299,10 +392,11 @@ for (const j of want) {
       if (r.status() >= 400) bad.push(r.status() + ' ' + p);
     });
     const log = []; let n = 0;
-    for (const st of J.steps) {
+    for (const rawStep of J.steps) {
+      const st = j === 'J7' && j7 ? applyJ7Step(rawStep, j7) : rawStep;
       const [op, a, b] = st;
       try {
-        if (op === 'goto') { await page.goto(base + (j === 'J7' ? applyJ7Target(a, j7) : a), { waitUntil: 'domcontentloaded', timeout: 20000 }); await page.waitForTimeout(900); }
+        if (op === 'goto') { await page.goto(base + a, { waitUntil: 'domcontentloaded', timeout: 20000 }); await page.waitForTimeout(900); }
         else if (op === 'shot') {
           await page.waitForTimeout(250); const name = `${j}-${vpName}-${String(++n).padStart(2, '0')}-${a}`;
           await page.screenshot({ path: path.join(out, name + '.png') });
@@ -390,6 +484,59 @@ for (const j of want) {
           if (matched) log.push('url ' + pathNow() + ' matches ' + pattern);
           else if (optional) log.push('skipped url ' + pattern + ' (still at ' + pathNow() + ')');
           else hardFail.push(`${j}/${vpName}: url ${pathNow()} did not match ${pattern} within ${WAIT_MS}ms`);
+        } else if (op === 'search') {
+          // `location.search`, as a regex. J7 proves the `?focus=` link was
+          // consumed by asserting the parameter is gone (`^$`), not by
+          // photographing a page that may still carry it.
+          const { optional, value: pattern } = optionalOf(a);
+          let re; try { re = new RegExp(pattern); } catch (e) { hardFail.push(`${j}/${vpName}: search ${pattern} is not a regex: ${e.message}`); continue; }
+          const searchNow = () => new URL(page.url()).search;
+          const matched = await pollUntil(page, () => re.test(searchNow()), WAIT_MS);
+          if (matched) log.push('search ' + JSON.stringify(searchNow()) + ' matches ' + pattern);
+          else if (optional) log.push('skipped search ' + pattern + ' (is ' + JSON.stringify(searchNow()) + ')');
+          else hardFail.push(`${j}/${vpName}: search ${JSON.stringify(searchNow())} did not match ${pattern} within ${WAIT_MS}ms`);
+        } else if (op === 'active') {
+          // The landing inch: the deep link may *render* the named card and
+          // still leave the keyboard on the composer. `document.activeElement`
+          // is the honest test of "the reader is on that card".
+          const { optional, value } = optionalOf(a);
+          if (!value.startsWith('css=')) { hardFail.push(`${j}/${vpName}: active needs css=<selector>`); continue; }
+          const sel = value.slice('css='.length);
+          const isActive = () => page.evaluate((sel) => {
+            const el = document.activeElement;
+            try { return !!(el && el.matches && el.matches(sel)); } catch (_) { return false; }
+          }, sel).catch(() => false);
+          const hit = await pollUntil(page, isActive, WAIT_MS);
+          if (hit) { log.push('active ' + sel); continue; }
+          const who = await page.evaluate(() => {
+            const el = document.activeElement;
+            if (!el) return 'nothing';
+            const id = el.getAttribute('data-pending-id');
+            const label = el.getAttribute('aria-label');
+            return el.tagName.toLowerCase()
+              + (id ? `[data-pending-id="${id}"]` : '')
+              + (label ? `[aria-label="${label}"]` : '');
+          }).catch(() => 'unknown');
+          if (optional) log.push('skipped active ' + sel + ' (focus is on ' + who + ')');
+          else hardFail.push(`${j}/${vpName}: focus is on ${who}, not ${sel}`);
+        } else if (op === 'back') {
+          // The reader's Back. The phone has its own bar button (the
+          // accessible path and what `goBackToList` drives); a width without
+          // one (the desktop bar has no Back control) falls back to browser
+          // history, which is the same entry the app's own Back returns to.
+          let pressed = false;
+          const loc = await stepLocator(page, '/返回|Back/');
+          if ((await loc.count()) > 0 && (await loc.isVisible().catch(() => false))) {
+            await loc.click({ timeout: 3000 });
+            pressed = true;
+            log.push('pressed Back');
+          }
+          if (!pressed) {
+            const went = await page.goBack({ waitUntil: 'domcontentloaded', timeout: WAIT_MS }).catch(() => null);
+            if (!went) { hardFail.push(`${j}/${vpName}: Back left no history entry to return to`); continue; }
+            log.push('history back');
+          }
+          await page.waitForTimeout(400);
         } else if (op === 'value') {
           const { optional, value: sel } = optionalOf(a);
           const loc = page.locator(sel).first();
