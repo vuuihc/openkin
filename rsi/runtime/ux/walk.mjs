@@ -677,8 +677,8 @@ for (const j of want) {
     });
     const log = []; let n = 0;
     for (const rawStep of J.steps) {
-      const base = j === 'J7' && j7 ? applyJ7Step(rawStep, j7) : rawStep;
-      const st = applyVpStep(base, vpName);
+      const preStep = j === 'J7' && j7 ? applyJ7Step(rawStep, j7) : rawStep;
+      const st = applyVpStep(preStep, vpName);
       const [op, a, b] = st;
       try {
         if (op === 'goto') {
