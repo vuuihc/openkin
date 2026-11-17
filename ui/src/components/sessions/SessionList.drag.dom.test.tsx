@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import SessionList from "./SessionList";
@@ -16,7 +16,10 @@ import type { AgentSession, Project, Task } from "../../api/client";
  * the list, or in the archived scope: an order written there would be an
  * order for "the current results", not for the project.
  *
- * The hold-to-drag path lands separately and restores its own suite here.
+ * A completed hold is the touch equivalent: it lifts the row, the other rows
+ * make way, and release writes the order. jsdom has no layout, so
+ * `getBoundingClientRect` is modeled as a 40px row stack in DOM order — the
+ * drag reads the same midpoints a browser would.
  *
  * KIN-MANAGE-001, gap-log 2026-11-15: the list order used to follow only
  * attention and recency.
@@ -65,11 +68,13 @@ vi.mock("../../hooks/useMachines", () => ({
   }),
 }));
 
-function task(id: string, createdAt: number, archived = false): Task {
+const ROW_HEIGHT = 40;
+
+function task(id: string, createdAt: number, archived = false, cwd = "/work/alpha"): Task {
   return {
     id,
     title: id,
-    cwd: "/work/alpha",
+    cwd,
     agent: "kin",
     prompt: "",
     status: "succeeded",
@@ -113,6 +118,24 @@ function order(): string[] {
   );
 }
 
+/**
+ * A pointer event carrying the coordinates the drag reads. jsdom has no
+ * PointerEvent constructor; React listens for the native type either way, and
+ * `pointerType` stays undefined so the left-button guard passes.
+ */
+function pointer(node: Element, type: string, clientX: number, clientY: number) {
+  fireEvent(
+    node,
+    new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      clientX,
+      clientY,
+      button: 0,
+    }),
+  );
+}
+
 beforeEach(() => {
   setLocale("en");
   localStorage.clear();
@@ -131,6 +154,32 @@ beforeEach(() => {
     removeListener: vi.fn(),
     dispatchEvent: vi.fn(),
   }));
+  // A browser would lay the rows out in DOM order; the drag asks for those
+  // midpoints, so the model has to move when the rows do.
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-session-row]"));
+    const index = this.hasAttribute("data-session-row") ? rows.indexOf(this) : -1;
+    // The lifted row is translated inside its slot; a browser's rect includes
+    // that transform, and the drag subtracts it back out to find the slot.
+    const lift = index >= 0 ? this.closest<HTMLElement>("[data-dragging]") : null;
+    const shift = Number(
+      /translateY\((-?[\d.]+)px\)/.exec(lift?.getAttribute("style") ?? "")?.[1] ?? 0,
+    );
+    const top = index >= 0 ? index * ROW_HEIGHT + shift : 0;
+    return {
+      top,
+      bottom: top + ROW_HEIGHT,
+      height: ROW_HEIGHT,
+      left: 0,
+      right: 300,
+      width: 300,
+      x: 0,
+      y: top,
+      toJSON: () => ({}),
+    } as DOMRect;
+  });
 });
 
 afterEach(() => {
@@ -364,5 +413,161 @@ describe("order escape hatch", () => {
     await waitFor(() => expect(row("s1")).toBeTruthy());
     expect(row("s1").hasAttribute("title")).toBe(false);
     expect(row("s1").getAttribute("aria-label")).not.toContain("Alt");
+  });
+});
+
+/**
+ * The touch door into the same order: hold a row, drag it, release.
+ *
+ * The hold used to open the row's action sheet (#190). Where the list offers
+ * a reorder the drag wins that gesture; the sheet stays on the trailing
+ * trigger. The order is written once, on release, and a cancelled gesture
+ * writes nothing.
+ */
+describe("pointer reorder", () => {
+  it("a long press starts a drag instead of opening the action sheet", async () => {
+    mount();
+    await waitFor(() => expect(order()).toEqual(["a", "b", "c"]));
+    vi.useFakeTimers();
+
+    pointer(row("a"), "pointerdown", 200, 20);
+    act(() => vi.advanceTimersByTime(600));
+
+    // The hold has a job again: it lifts the row. The sheet is still one tap
+    // away on the row's trailing trigger, but the gesture no longer opens it.
+    expect(document.querySelector("[data-dragging]")).not.toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("a drag released over the next row persists the new order", async () => {
+    mount();
+    await waitFor(() => expect(order()).toEqual(["a", "b", "c"]));
+    vi.useFakeTimers();
+
+    pointer(row("a"), "pointerdown", 200, 20);
+    act(() => vi.advanceTimersByTime(600));
+    // First move establishes the finger's origin; the second crosses b's
+    // midpoint (60) and puts a after it while the finger is still down.
+    pointer(row("a"), "pointermove", 200, 30);
+    pointer(row("a"), "pointermove", 200, 80);
+    expect(order()).toEqual(["b", "a", "c"]);
+    // The dragged row follows the finger; the others only make way. `ids`
+    // already draws a in slot 1 (top 40), so the transform is only the rest of
+    // the finger's 50px travel: a's top stays at 50 instead of being carried
+    // by the new slot and the transform at once.
+    expect(document.querySelector<HTMLElement>("[data-dragging]")?.style.transform).toBe(
+      "translateY(10px)",
+    );
+
+    pointer(row("a"), "pointerup", 200, 80);
+
+    expect(order()).toEqual(["b", "a", "c"]);
+    expect(getTaskOrder()).toEqual({ "/work/alpha": ["b", "a", "c"] });
+  });
+
+  it("a cancelled drag leaves the stored order untouched", async () => {
+    setBucketOrder("/work/alpha", ["c", "b", "a"]);
+    mount();
+    await waitFor(() => expect(order()).toEqual(["c", "b", "a"]));
+    vi.useFakeTimers();
+
+    pointer(row("c"), "pointerdown", 200, 20);
+    act(() => vi.advanceTimersByTime(600));
+    pointer(row("c"), "pointermove", 200, 30);
+    pointer(row("c"), "pointermove", 200, 80);
+    expect(order()).toEqual(["b", "c", "a"]);
+
+    pointer(row("c"), "pointercancel", 200, 80);
+
+    expect(order()).toEqual(["c", "b", "a"]);
+    expect(getTaskOrder()).toEqual({ "/work/alpha": ["c", "b", "a"] });
+  });
+
+  it("a row cannot be dropped into another project bucket", async () => {
+    fixtures.tasks = [
+      task("a", 30),
+      task("b", 20),
+      task("c", 10),
+      task("x", 9, false, "/work/beta"),
+      task("y", 8, false, "/work/beta"),
+    ];
+    mount();
+    await waitFor(() => expect(order()).toHaveLength(5));
+    vi.useFakeTimers();
+
+    // Hold the last alpha row and drag far past both beta rows: the hit test
+    // only knows this bucket's ids, so the row stays inside its project.
+    pointer(row("c"), "pointerdown", 200, 20);
+    act(() => vi.advanceTimersByTime(600));
+    pointer(row("c"), "pointermove", 200, 30);
+    pointer(row("c"), "pointermove", 200, 260);
+    pointer(row("c"), "pointerup", 200, 260);
+
+    const alpha = order().filter((id) => ["a", "b", "c"].includes(id));
+    const beta = order().filter((id) => ["x", "y"].includes(id));
+    expect(alpha).toEqual(["a", "b", "c"]);
+    expect(beta).toEqual(["x", "y"]);
+    expect(getTaskOrder()).toEqual({ "/work/alpha": ["a", "b", "c"] });
+  });
+
+  it("an imported read-only row does not start a drag", async () => {
+    const user = userEvent.setup();
+    fixtures.tasks = [];
+    fixtures.sessions = [
+      {
+        id: "s1",
+        agent_id: "claude-code",
+        external_ref: "s1",
+        title: "Imported chat",
+        cwd: "/work/alpha",
+        status: "idle",
+        first_seen_at: 0,
+        last_seen_at: 0,
+        updated_at: 1,
+        linked: false,
+      } as AgentSession,
+      {
+        id: "s2",
+        agent_id: "claude-code",
+        external_ref: "s2",
+        title: "Another imported chat",
+        cwd: "/work/alpha",
+        status: "idle",
+        first_seen_at: 0,
+        last_seen_at: 0,
+        updated_at: 1,
+        linked: false,
+      } as AgentSession,
+    ];
+    mount();
+    const heading = await screen.findByRole("button", { name: /^Imported sessions/ });
+    if (heading.getAttribute("aria-expanded") === "false") await user.click(heading);
+    await waitFor(() => expect(row("s1")).toBeTruthy());
+
+    vi.useFakeTimers();
+    pointer(row("s1"), "pointerdown", 200, 20);
+    act(() => vi.advanceTimersByTime(600));
+    pointer(row("s1"), "pointermove", 200, 80);
+
+    // No lift, and nothing written: an imported session's order is not ours.
+    expect(document.querySelector("[data-dragging]")).toBeNull();
+    expect(getTaskOrder()).toEqual({});
+  });
+
+  it("the list does not scroll while a row is dragged", async () => {
+    mount();
+    await waitFor(() => expect(order()).toEqual(["a", "b", "c"]));
+    vi.useFakeTimers();
+
+    pointer(row("a"), "pointerdown", 200, 20);
+    act(() => vi.advanceTimersByTime(600));
+    pointer(row("a"), "pointermove", 200, 60);
+
+    // Touch events keep targeting the element the touch started on, so a
+    // non-passive touchmove on the lifted row is what stops the page from
+    // scrolling under the drag (`touch-action: pan-y` was fixed at start).
+    const touchMove = new Event("touchmove", { bubbles: true, cancelable: true });
+    row("a").dispatchEvent(touchMove);
+    expect(touchMove.defaultPrevented).toBe(true);
   });
 });
