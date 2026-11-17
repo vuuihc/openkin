@@ -204,7 +204,9 @@ export default function TaskHeader({
             >
               {hostAgentAvatar.initials}
             </span>
-            <span className="hidden xl:inline">{tr("newChat.hostAgent", { name: hostAgentName })}</span>
+            <span className="hidden xl:inline">
+              {tr("newChat.hostAgent", { name: hostAgentName })}
+            </span>
           </span>
           {/* The list column yielded to an open panel; this is its way back.
               It is desktop-only because the phone has no list column to
