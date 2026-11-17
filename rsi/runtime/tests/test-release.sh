@@ -202,6 +202,23 @@ out="$(env RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)
 grep -q 'detach=1' "$STATE/releases.log" || fail "release must pass KIN_REBUILD_DETACH=1 to the node rebuild"
 pass "release: the node rebuild is asked to detach"
 
+# 9b. A second release on the same checkout must not keep stacking merge commits, and
+#     the script must carry its own KIN_API default: `set -u` turns a missing one into an
+#     abort *after* the node rebuild, which no hermetic case can reach (the real node owns
+#     :7777), so it is asserted as a static guard here.
+printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$STATE/last_release"
+git -C "$SECOND" reset -q --hard "$BASE2"
+echo note2 >> "$SECOND/NOTES.md"; git -C "$SECOND" add NOTES.md
+git -C "$SECOND" commit -q -m "docs: second local only"
+before_count="$(git -C "$SECOND" rev-list --count HEAD)"
+merge_run "release: a second release merges once, then stops adding commits" 0
+first_count="$(git -C "$SECOND" rev-list --count HEAD)"
+printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$STATE/last_release"
+merge_run "release: a repeat release adds no merge commit" 0
+[ "$(git -C "$SECOND" rev-list --count HEAD)" = "$first_count" ] || fail "a repeat release stacked another merge commit"
+[ "$first_count" -gt "$before_count" ] || fail "the merge did not happen at all"
+grep -q 'KIN_API="${KIN_API:-http://127.0.0.1:7777}"' "$RELEASE" || fail "release.sh lost its KIN_API default (unbound under set -u)"
+
 # 10. A dry run reports the plan and writes nothing.
 printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$STATE/last_release"
 before="$(cat "$STATE/last_release")"

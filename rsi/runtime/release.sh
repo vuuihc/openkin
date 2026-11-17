@@ -32,11 +32,12 @@ HUB_SSH="${RSI_HUB_SSH:-nas}"
 HUB_DIR="${RSI_HUB_DIR:-/volume1/docker/openkin}"
 HUB_COMPOSE="${RSI_HUB_COMPOSE:-docker-compose.dogfood.yml}"
 IMAGE="${RSI_HUB_IMAGE:-openkin:dogfood}"
+KIN_API="${KIN_API:-http://127.0.0.1:7777}"
 TIMEOUT="${RSI_HUB_TIMEOUT:-3600}"
 NODE=1; HUB=1; DRY=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --repo) REPO="$2"; shift 2 ;;
+    --repo) [ $# -ge 2 ] || die "--repo needs a directory"; REPO="$2"; shift 2 ;;
     --node-only) HUB=0; shift ;;
     --hub-only) NODE=0; shift ;;
     --dry-run) DRY=1; shift ;;
@@ -81,7 +82,9 @@ dirty="$($git -C "$REPO" status --porcelain)"
 [ -z "$dirty" ] || die "checkout is dirty (leave it alone): $(printf '%s' "$dirty" | head -3 | tr '\n' ' ')"
 CUR="$($git -C "$REPO" rev-parse --abbrev-ref HEAD)"
 [ "$CUR" = main ] || die "checkout is on $CUR, not main"
-if ! $git -C "$REPO" merge --ff-only -q origin/main; then
+if $git -C "$REPO" merge-base --is-ancestor origin/main HEAD; then
+  :   # already contains origin/main (an earlier release merged it)
+elif ! $git -C "$REPO" merge --ff-only -q origin/main; then
   # Local main has commits of its own (a docs edit, an earlier merge). Integrate them the
   # plain way instead of rewriting anything: a merge commit is allowed, a reset never is.
   [ "$($git -C "$REPO" rev-list --count origin/main..HEAD)" -gt 0 ] || die "main cannot fast-forward to origin/main"
@@ -97,8 +100,9 @@ mark() { # mark <target> — record this SHA as released for one target, keeping
   [ "$t" = node ] && other="$(sed -n 's/^hub=//p' "$STATE/last_release" 2>/dev/null | head -1)"
   [ "$t" = hub ] && other="$(sed -n 's/^node=//p' "$STATE/last_release" 2>/dev/null | head -1)"
   tmp="$STATE/.last_release.$$"
-  { [ "$t" = node ] && echo "node=$SHA" || echo "node=$other"; } > "$tmp"
-  { [ "$t" = hub ] && echo "hub=$SHA" || echo "hub=$other"; } >> "$tmp"
+  : > "$tmp"
+  { [ "$t" = node ] && echo "node=$SHA" || { [ -n "$other" ] && echo "node=$other"; }; } >> "$tmp"
+  { [ "$t" = hub ] && echo "hub=$SHA" || { [ -n "$other" ] && echo "hub=$other"; }; } >> "$tmp"
   echo "released_at=$(date '+%F %T %z')" >> "$tmp"
   mv "$tmp" "$STATE/last_release"
 }
@@ -127,7 +131,7 @@ if [ "$HUB" = 1 ]; then
   docker info >/dev/null 2>&1 || die "hub: docker daemon is not running (start OrbStack, then release again)"
   STAGE="$(mktemp -d)"
   trap 'rm -rf "$STAGE"' EXIT
-  $git -C "$REPO" archive "$SHA" | tar -x -C "$STAGE" || die "hub: could not stage $SHORT"
+  ( set -o pipefail; $git -C "$REPO" archive "$SHA" | tar -x -C "$STAGE" ) || die "hub: could not stage $SHORT"
   say "hub: building $IMAGE for linux/amd64 from $SHORT (emulated, this takes a while)"
   start=$(date +%s)
   if ! with_timeout "$TIMEOUT" docker build --platform linux/amd64 \
@@ -137,7 +141,7 @@ if [ "$HUB" = 1 ]; then
   say "hub: built in $(( $(date +%s) - start ))s; rolling it to $HUB_SSH"
   ssh -n -o BatchMode=yes -o ConnectTimeout=15 "$HUB_SSH" \
       "docker tag $IMAGE ${IMAGE}-prev 2>/dev/null || true" || die "hub: cannot reach $HUB_SSH"
-  docker save "$IMAGE" | ssh "$HUB_SSH" 'docker load' >>"$STATE/releases.log" 2>&1 || die "hub: image transfer failed"
+  ( set -o pipefail; docker save "$IMAGE" | ssh "$HUB_SSH" 'docker load' ) >>"$STATE/releases.log" 2>&1 || die "hub: image transfer failed"
   ssh -n -o BatchMode=yes "$HUB_SSH" \
       "cd $HUB_DIR && docker compose -f $HUB_COMPOSE up -d" >>"$STATE/releases.log" 2>&1 || die "hub: compose up failed"
   for i in $(seq 1 30); do
