@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DEFAULT_LOCALE, setLocale, t } from "../../i18n";
 import type { TaskWorkspaceFileResponse } from "../../api/client";
@@ -20,6 +20,24 @@ const mocks = vi.hoisted(() => ({
   goToDiff: vi.fn(),
 }));
 
+/**
+ * The pieces of the editor the comment path reads. Monaco cannot run in
+ * jsdom, so the stub below records the handlers the viewer registers and the
+ * tests drive them the way a tap would.
+ */
+const editorState = vi.hoisted(() => ({
+  lineChanges: [] as {
+    originalStartLineNumber: number;
+    originalEndLineNumber: number;
+    modifiedStartLineNumber: number;
+    modifiedEndLineNumber: number;
+  }[],
+  lineText: {} as Record<number, string>,
+  cursorHandler: null as ((event: { position: { lineNumber: number } }) => void) | null,
+  mouseDownHandler: null as
+    ((event: { target: { type: number; position?: { lineNumber: number } } }) => void) | null,
+}));
+
 vi.mock("../../api/client", async () => {
   const actual = await vi.importActual<typeof import("../../api/client")>("../../api/client");
   return {
@@ -36,27 +54,88 @@ vi.mock("./monacoSetup", () => ({}));
  * editor surfaces only have to be identifiable; the plain one takes typing so
  * the save path can be exercised the way a reader would trigger it.
  */
-vi.mock("@monaco-editor/react", () => ({
-  default: ({ value, onChange }: { value?: string; onChange?: (value: string) => void }) => (
-    <textarea
-      data-testid="editor"
-      value={value ?? ""}
-      onChange={(event) => onChange?.(event.target.value)}
-    />
-  ),
-  DiffEditor: (props: {
-    modified?: string;
-    options?: { renderSideBySide?: boolean };
-    onMount?: (editor: { goToDiff: (target: "next" | "previous") => void }) => void;
-  }) => {
-    props.onMount?.({ goToDiff: mocks.goToDiff });
-    return (
-      <div data-testid="diff-editor" data-side-by-side={String(props.options?.renderSideBySide)}>
-        {props.modified}
-      </div>
-    );
-  },
-}));
+vi.mock("@monaco-editor/react", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+  return {
+    default: ({ value, onChange }: { value?: string; onChange?: (value: string) => void }) => (
+      <textarea
+        data-testid="editor"
+        value={value ?? ""}
+        onChange={(event) => onChange?.(event.target.value)}
+      />
+    ),
+    DiffEditor: (props: {
+      modified?: string;
+      options?: { renderSideBySide?: boolean };
+      onMount?: (editor: unknown, monaco: unknown) => void;
+    }) => {
+      // The viewer wires its comment gutter from onMount — line changes,
+      // cursor and click events, the ⌥C command. Monaco mounts after the
+      // first render, and the stub carries every method that path touches so
+      // the real component runs unmodified against it. The mount is deferred
+      // for the same reason: the viewer resets its line changes in a
+      // `[path]` effect on mount, and real Monaco reports its diff only after
+      // that effect has run.
+      const { onMount } = props;
+      React.useEffect(() => {
+        const disposable = { dispose: () => {} };
+        let timer: number | undefined;
+        const modifiedEditor = {
+          createDecorationsCollection: () => ({ clear: () => {}, set: () => {} }),
+          onDidChangeCursorPosition: (
+            handler: (event: { position: { lineNumber: number } }) => void,
+          ) => {
+            editorState.cursorHandler = handler;
+            return disposable;
+          },
+          onMouseDown: (
+            handler: (event: {
+              target: { type: number; position?: { lineNumber: number } };
+            }) => void,
+          ) => {
+            editorState.mouseDownHandler = handler;
+            return disposable;
+          },
+          addCommand: () => {},
+          getModel: () => ({
+            getLineContent: (line: number) => editorState.lineText[line] ?? "",
+          }),
+          getPosition: () => null,
+          // Real Monaco moves the cursor and emits the same change event; the
+          // viewer's opening auto-select goes through this one path.
+          setPosition: (position: { lineNumber: number; column: number }) => {
+            editorState.cursorHandler?.({ position });
+          },
+        };
+        timer = window.setTimeout(() => {
+          onMount?.(
+            {
+              getModifiedEditor: () => modifiedEditor,
+              getLineChanges: () => editorState.lineChanges,
+              onDidUpdateDiff: () => disposable,
+              onDidDispose: () => disposable,
+              goToDiff: mocks.goToDiff,
+            },
+            {
+              Range: class {},
+              editor: { MouseTargetType: { GUTTER_GLYPH_MARGIN: 6 } },
+              KeyMod: { Alt: 1 },
+              KeyCode: { KeyC: 1 },
+            },
+          );
+        }, 0);
+        // Mount once, like Monaco itself.
+        return () => window.clearTimeout(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, []);
+      return (
+        <div data-testid="diff-editor" data-side-by-side={String(props.options?.renderSideBySide)}>
+          {props.modified}
+        </div>
+      );
+    },
+  };
+});
 
 import CodeViewer from "./CodeViewer";
 
@@ -86,6 +165,10 @@ beforeEach(() => {
   mocks.writeWorkspaceFile.mockReset();
   mocks.goToDiff.mockReset();
   mocks.writeTaskWorkspaceFile.mockResolvedValue(textFile("a.ts", "const a = 1;x"));
+  editorState.lineChanges = [];
+  editorState.lineText = {};
+  editorState.cursorHandler = null;
+  editorState.mouseDownHandler = null;
 });
 
 afterEach(() => {
@@ -211,5 +294,130 @@ describe("the code viewer's action row", () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
     expect(mocks.writeTaskWorkspaceFile).toHaveBeenCalledTimes(1);
     expect(mocks.writeTaskWorkspaceFile).toHaveBeenCalledWith("task-1", "a.ts", "const a = 1;x");
+  });
+
+  /**
+   * The diff surface has one filled action at a time. `保留` is it while the
+   * person is reviewing the file; once comments are queued, the tray's send is
+   * the next step and keep steps back so the two blue buttons cannot compete.
+   */
+  it("steps keep back to a bordered peer while comments are queued", () => {
+    render(
+      <CodeViewer
+        path="a.ts"
+        file={null}
+        loading={false}
+        error={null}
+        diff={{ path: "a.ts", original: "one", modified: "two", source: "write" }}
+        reviewActions
+        reviewPrimary={false}
+        onDiscard={vi.fn()}
+        onKeep={vi.fn()}
+      />,
+    );
+
+    const keep = screen.getByRole("button", { name: t("workspace.changed.keep") });
+    expect(keep.className).toContain("kin-btn-secondary");
+    expect(keep.className).not.toContain("kin-btn-primary");
+  });
+
+  /**
+   * `保留` belongs on the file's own row. In a 380px pane the old single
+   * wrapping row pushed it alone onto a third header line; the diff paid for
+   * that line with its own height.
+   */
+  it("keeps the review decision on the file's row, off the controls row", () => {
+    render(diffSurface(false, vi.fn(), vi.fn()));
+
+    const path = screen.getByTitle("a.ts");
+    const fileRow = path.parentElement as HTMLElement;
+    const keep = screen.getByRole("button", { name: t("workspace.changed.keep") });
+    const inline = screen.getByRole("button", { name: t("workspace.viewer.diffInline") });
+
+    expect(fileRow.contains(keep)).toBe(true);
+    expect(fileRow.contains(inline)).toBe(false);
+  });
+
+  /**
+   * KIN-RESULT-003's phone path. On a touch screen there is no hover, so the
+   * entry to the comment box has to be a control that is always visible and
+   * tappable: the same header action as the line's gutter glyph over a line
+   * the cursor is on, and the diff opens with the cursor already on its first
+   * changed line. The gutter glyph itself is hit through Monaco's mouse-down,
+   * which a touch also emits.
+   */
+  it("reaches the comment entry from the header action with no hover — the phone path", async () => {
+    const user = userEvent.setup();
+    const onCommentLine = vi.fn();
+    editorState.lineChanges = [
+      {
+        originalStartLineNumber: 1,
+        originalEndLineNumber: 1,
+        modifiedStartLineNumber: 2,
+        modifiedEndLineNumber: 2,
+      },
+    ];
+    editorState.lineText = { 2: "  return `See you later, ${name}`;" };
+
+    render(
+      <CodeViewer
+        path="a.ts"
+        file={null}
+        loading={false}
+        error={null}
+        diff={{ path: "a.ts", original: "one", modified: "two", source: "write" }}
+        onCommentLine={onCommentLine}
+      />,
+    );
+
+    // Monaco mounts after the viewer's own mount-time resets.
+    await waitFor(() => expect(editorState.cursorHandler).not.toBeNull());
+
+    const action = screen.getByRole("button", {
+      name: t("workspace.comments.action"),
+    }) as HTMLButtonElement;
+    // The shared facade carries the 44px phone touch floor onto this action;
+    // `h-auto!` drops the fixed height, not the floor.
+    expect(action.className).toContain("kin-btn");
+    expect(action.className).toContain("min-h-11");
+    // A diff opens with the cursor on its first changed line, so the entry is
+    // enabled without a tap — and a touch screen has no hover to explain a
+    // disabled control. It says what it does, not why it is unavailable.
+    await waitFor(() => expect(action.disabled).toBe(false));
+    expect(action.getAttribute("title")).toBe(t("workspace.comments.actionHint"));
+
+    // Moving off a changed line disables it and says why, for the readers who
+    // can see a tooltip.
+    await act(async () => {
+      editorState.cursorHandler?.({ position: { lineNumber: 1 } });
+    });
+    await waitFor(() => expect(action.disabled).toBe(true));
+    expect(action.getAttribute("title")).toBe(t("workspace.comments.notChanged"));
+
+    // A tap on the line moves the cursor; nothing here involves hover.
+    await act(async () => {
+      editorState.cursorHandler?.({ position: { lineNumber: 2 } });
+    });
+    await waitFor(() => expect(action.disabled).toBe(false));
+    expect(action.getAttribute("title")).toBe(t("workspace.comments.actionHint"));
+
+    const anchor = {
+      path: "a.ts",
+      line: 2,
+      hunkHeader: "@@ -1,1 +2,1 @@",
+      quote: "  return `See you later, ${name}`;",
+    };
+    await user.click(action);
+    expect(onCommentLine).toHaveBeenCalledWith(anchor);
+
+    // The gutter glyph is the same entry, hit by the same pointer-down a tap
+    // produces.
+    act(() => {
+      editorState.mouseDownHandler?.({
+        target: { type: 6, position: { lineNumber: 2 } },
+      });
+    });
+    expect(onCommentLine).toHaveBeenCalledTimes(2);
+    expect(onCommentLine).toHaveBeenLastCalledWith(anchor);
   });
 });
