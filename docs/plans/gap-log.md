@@ -61,36 +61,6 @@ aria 里它的名字是「打开封面」。它不挡「开始」，但点不中
 - 390×844：量「打开封面」的 bounding box 高 ≥44；`smallTapTargets` 为 0；截图。
 - `./scripts/check.sh` 绿。
 
-### 2026-11-17 · 中 · 同一个项目在对话列表里有两个名字（有对话时是文件夹名，空项目是项目名）
-
-实测（390 手机列表与 1100 Mac 侧栏同屏）：`[seed] Project Alpha` / `Beta` 因为各有一条对话，
-显示为 `alpha` / `beta`；`[seed] Project Gamma` 的唯一对话已归档、当前范围无行，反而显示
-项目全名。同一个项目只要最后一条对话被归档，标题就会在文件夹名与项目名之间切换；项目改名也
-不会反映到有对话的桶上。原因：有行的桶用 cwd 末段做 label
-（`ui/src/lib/phoneSessionBuckets.ts:277`），空项目由 `seedProjects` 用 `project.name` 补
-（`ui/src/components/sessions/SessionList.tsx:1266`）。
-
-期望（可直接写成测试）：
-
-- 桶的标题优先用 `/api/projects` 里该 cwd 对应项目的 `name`；解析不到项目时才退回 cwd 末段
-  （现有 `tailOf`）。同一项目在「有对话 / 无对话 / 对话被归档」三种状态下标题一致。
-- 项目改名后列表标题随之更新；「新建对话」、归档确认、项目菜单里的名字与标题一致
-  （这些位置现在都读 `bucket.label`，`SessionList.tsx:936/950/1153/1160/1471/1565`）。
-
-不要：把项目名改成文件夹名来「对齐」；隐藏没有对话的项目；只在手机改、Mac 侧栏仍两种名字；
-用 cwd 全路径当标题。
-
-线索：`ui/src/lib/phoneSessionBuckets.ts:215-289`（`bucketFor` 的 `label = tailOf(cwd)` 在
-`:277`）、`ui/src/components/sessions/SessionList.tsx:444-462`（调用）、`:1250-1276`
-（`seedProjects`，`label: project.name` 在 `:1266`）；测试
-`ui/src/lib/phoneSessionBuckets.test.ts`。
-
-验收：
-
-- 单测：两个 name≠文件夹名的项目，一个有一条活跃对话、一个没有，桶标题都等于项目名；
-  归档最后一条对话后标题不变。
-- 390 与 1100 截图各一张；`./scripts/check.sh` 绿。
-
 ### 2026-11-15 · 高 · iPad 左栏长按进入多选后找不到退出，行菜单里也没有多选入口
 
 iPad（视口 ≥768px、`pointer: coarse`）的左栏是 248px 侧栏，但列表仍走触屏路径：
@@ -253,6 +223,7 @@ card"）需要按新契约改写；i18n `chat.progress.*` en / zh 同步。
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
 
+- 2026-11-17 · 同一个项目在对话列表里有两个名字（有对话时是文件夹名，空项目是项目名）— 分支 `rsi/project-name-bucket-label`（期望：桶标题优先用 `/api/projects` 里该 cwd 对应项目的 `name`，解析不到才退回 cwd 末段，有对话 / 无对话 / 最后一条对话归档三种状态一致。`phoneProjectBuckets` 新增可选 `projectNameFor` 查询，`SessionList` 用 `useMemo([projects])` 建 cwd→name 映射（同一 root 先到先得），归档范围里的远端副本也按 cwd 查名；`seedProjects` 仍用 `project.name`，两条路径现在得到同一标题。单测 5 项先红（`expected 'alpha' to be 'Project Alpha'`）后绿，新增 `SessionList.projectNames.dom.test.tsx` 覆盖 page / sidebar 两种壳与「最后一条对话归档后标题不变」，`phoneSessionBuckets` + sessions + Sidebar 套件 125 passed，`tsc` / `npm run build` / `check-ui-inventory.py` / `check.sh` 绿；390×844 与 1100×760 截图见 `rsi/state/shots/project-name-bucket-label/`）
 - 2026-11-15 · iPad 左栏长按进入多选后找不到退出，行菜单里也没有多选入口（行菜单部分）— PR #170（`SessionRow` 对可选择行提供 `多选` 入口并在多选态保留 `⋯` 触发器显示 `退出多选`，复用 `SessionList` 同一退出与焦点归还路径；`SessionRow` / `SessionList.selection` 两套 DOM 测试 28 passed，390×844 / 1100×760 截图验证，check.sh 全绿；长按改道仍待 `KIN-MANAGE-001`）
 - 2026-11-14 · 新建对话发送后，进入对话 URI 时仍插入整页骨架屏 — PR #61（`cf7ba2bd`；就绪条件改为接受已种入的列表行或草稿交接，真正冷启动的深链改画有签名的品牌等待态（`IconKin` + `role="status"` + 慢连接提示）而不是整页骨架屏；新增 `TaskSessionHost.handoff.dom.test.tsx` 覆盖创建交接、切出页、冷进入、404 带缓存行，连同 coldLoad / pendingSend 共 5 文件 25 项通过，`tsc` 与 `npm run build` 绿；还原就绪条件与冷启动分支后 4 项按预期转红）
 - 2026-11-12 · 例行任务查不到 gap sweep，伴随 token 长度超过约 65530 的错误 — PR #52（`?runs=1&runs_limit=80` 的运行流不再拼进每次运行十几 KB 的 prompt：本机实测 1,200,074 → 约 94 KB，落在机器中继 `worker.MaxRoutineResponse` 655,360 字节内，页面不再整页失败；红测还原修复后 1,245,269 字节超限、恢复后通过，`go test ./internal/api/`、`./scripts/check.sh` 14 项、`./scripts/smoke.sh` 全绿；报告人原始报错原文仍未取得，若同一报错再现请附原文）
