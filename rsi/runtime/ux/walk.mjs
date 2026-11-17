@@ -4,7 +4,7 @@
 //   node walk.mjs --resolve-j1 DIR/seed.log [--spec path/to/journeys.json]   (print the J1 approve/deny URLs or skip; no browser)
 //   node walk.mjs --resolve-j7 DIR/seed.log [--spec path/to/journeys.json]   (print the J7 URL or skip; no browser)
 //   node walk.mjs --resolve-j7-plan DIR/seed.log [--spec path/to/journeys.json] (print the resolved J7 steps as JSON; no browser)
-//   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J3's send contract and J7's landing contract; no browser)
+//   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J3's send + mid-run follow-up contract and J7's landing contract; no browser)
 // Needs playwright-core (PW_CORE or ~/.kin/ux-proto-tools) and Google Chrome. Writes DIR/<journey>-<vp>-<step>.png (+ .aria.txt) and DIR/walk.json.
 // Exit 0 always when the walk ran (verdicts are the reviewer's and walk.json's `hardFail`); exit 2 when it could not run (no chrome, daemon unreachable).
 import { createRequire } from 'node:module';
@@ -59,8 +59,37 @@ function checkJ3Contract(spec) {
   if (prompt && promptWait < 0) errs.push('J3 never waits for the typed prompt inside the transcript (the title alone is not the message)');
   const statusWait = afterSend(([op, needle]) => op === 'wait' && /^css=/.test(String(needle)) && /role=status/.test(String(needle)) && /思考|thinking/.test(String(needle)));
   if (statusWait < 0) errs.push('J3 never waits for the waiting row ([role=status], chat.thinking)');
-  const replyWait = afterSend(([op, needle]) => op === 'wait' && /^text=/.test(String(needle)) && String(needle).includes('Fake reply from the journey fake agent.'));
+  const REPLY = 'Fake reply from the journey fake agent.';
+  const replyWait = afterSend(([op, needle]) => op === 'wait' && /^text=/.test(String(needle)) && String(needle).includes(REPLY));
   if (replyWait < 0) errs.push("J3 never waits for the fake agent's reply");
+  // The mid-run follow-up is F2's lost-message path: a second message typed
+  // and queued while the first round is still open must be proved on screen
+  // BEFORE the first answer, marked queued, with the composer's honest guide.
+  // A walk that only sends once never exercises the queue at all, and one that
+  // asserts the guide but not the ordering is green while the message is lost.
+  const followFillAt = afterSend(([op, sel, val]) => op === 'fill' && /textarea/.test(String(sel)) && typeof val === 'string' && val.trim() !== '');
+  const followPrompt = followFillAt >= 0 ? String(steps[followFillAt][2]) : '';
+  if (followFillAt < 0) errs.push('J3 never types a follow-up while the round runs (a second fill after Start)');
+  else if (prompt && followPrompt === prompt) errs.push('the mid-run follow-up repeats the Start prompt; it must be a distinct message');
+  else if (/\[seed\] slow/.test(followPrompt)) errs.push('the mid-run follow-up must not carry [seed] slow: it answers as soon as the first round ends');
+  const followSendAt = followFillAt < 0 ? -1 : idx(([op, sel]) => op === 'send' && !/开始|Start/.test(String(sel)) && !/打断|[Ii]nterrupt/.test(String(sel)), followFillAt + 1);
+  if (followFillAt >= 0 && followSendAt < 0) errs.push('J3 never sends the follow-up with the queue Send (a send step after the second fill that is not Start or the interrupt)');
+  const followWaitAt = followPrompt ? idx(([op, needle]) => op === 'wait' && /^css=/.test(String(needle)) && /\[role=.?region/.test(String(needle)) && String(needle).includes(followPrompt), followFillAt + 1) : -1;
+  if (followPrompt && followWaitAt < 0) errs.push('J3 never waits for the mid-run follow-up inside the transcript');
+  const guideAt = afterSend(([op, needle]) => op === 'wait' && /^css=/.test(String(needle)) && /role=status/.test(String(needle)) && /已排队：本轮结束后回答|Queued — answered when the current round ends/.test(String(needle)));
+  if (guideAt < 0) errs.push("J3 never waits for the composer's queued guide ([role=status], task.queuedGuide)");
+  const queuedAt = afterSend(([op, needle]) => op === 'wait' && /^css=/.test(String(needle)) && /\[role=.?region/.test(String(needle)) && /排队中|Queued/.test(String(needle)));
+  if (queuedAt < 0) errs.push('J3 never waits for the queued marker inside the transcript (chat.queued)');
+  // The ordering proof: no answer on screen yet when the follow-up is read.
+  // Counting the reply as 0 is what separates "queued mid-round" from "the
+  // round ended and the message happened to be in the transcript after it".
+  const zeroCountAt = afterSend(([op, needle, want]) => op === 'count' && /^text=/.test(String(needle)) && String(needle).includes(REPLY) && String(want) === '0');
+  if (zeroCountAt < 0) errs.push("J3 never counts the fake agent's reply as 0 before waiting for it; the follow-up must be on screen before the first answer");
+  else if (replyWait >= 0 && zeroCountAt > replyWait) errs.push('the reply count must come before the reply wait; after it the answer is already on screen');
+  // The fake holds the first round open for RSI_FAKE_SLOW_SECS (10s in the
+  // mutant walk), so the reply wait needs its own budget beyond the global one.
+  const replyTimeout = replyWait >= 0 ? Number(steps[replyWait][2]) : NaN;
+  if (replyWait >= 0 && !(Number.isFinite(replyTimeout) && replyTimeout >= 20000)) errs.push('the reply wait must carry a per-step timeout of at least 20000ms (the fake holds the first round open)');
   const urlWait = afterSend(([op, pattern]) => op === 'url' && /tasks/.test(String(pattern)));
   if (urlWait < 0) errs.push('J3 never waits for the /tasks/ route');
   const shotAt = (name) => steps.findIndex((st) => Array.isArray(st) && st[0] === 'shot' && st[1] === name);
@@ -137,7 +166,7 @@ if (process.argv.includes('--check-spec')) {
     if (j7.length) { console.log('spec red: J7'); j7.forEach((e) => console.log(' - ' + e)); }
     process.exit(1);
   }
-  console.log('spec ok: J3 sends a prompt and waits for the reply');
+  console.log('spec ok: J3 sends a prompt, queues a mid-run follow-up before the reply, and marks it queued');
   console.log('spec ok: J7 lands on the named card, proves focus, consumes ?focus=, and reopens it after Back');
   // With a seed log the check also prints the assertion the walk will make,
   // resolved through the same function the walker uses: the reviewer reads
@@ -387,6 +416,27 @@ async function pollUntil(page, probe, timeout) {
 // regex (the J3 prompt carries `[seed]`, which as a regex is a character
 // class). `css=` is a selector. Both wait for something VISIBLE; hidden text
 // is not the screen showing the message.
+// How many VISIBLE matches a `text=`/`css=` needle has right now. `count` is
+// an assertion, not a wait: it reports what is on screen at this instant, so a
+// spec can say "the answer is not here yet" before waiting for it.
+async function visibleCount(page, needle) {
+  let loc;
+  if (needle.startsWith('text=')) {
+    const text = needle.slice('text='.length);
+    if (!text) throw new Error('count text= needs a literal');
+    loc = page.getByText(text);
+  } else if (needle.startsWith('css=')) {
+    const sel = needle.slice('css='.length);
+    if (!sel) throw new Error('count css= needs a selector');
+    loc = page.locator(sel);
+  } else {
+    throw new Error('count needs text=<literal> or css=<selector>');
+  }
+  const total = await loc.count();
+  let visible = 0;
+  for (let i = 0; i < total; i++) if (await loc.nth(i).isVisible().catch(() => false)) visible++;
+  return visible;
+}
 async function waitVisible(page, needle, timeout) {
   if (needle.startsWith('text=')) {
     const text = needle.slice('text='.length);
@@ -568,12 +618,30 @@ for (const j of want) {
           log.push('pressed ' + sel + '; the daemon runs the journey fake agent');
         } else if (op === 'wait') {
           const { optional, value: needle } = optionalOf(a);
+          // A third element is this step's own budget in ms: one wait (the
+          // reply behind a held round) can need longer than the global one
+          // without loosening every other proof in the journey.
+          const stepWait = (() => { const n = Number(b); return Number.isFinite(n) && n > 0 ? n : WAIT_MS; })();
           let seen;
-          try { seen = await waitVisible(page, needle, WAIT_MS); }
+          try { seen = await waitVisible(page, needle, stepWait); }
           catch (e) { hardFail.push(`${j}/${vpName}: wait ${needle}: ${String(e.message).split('\n')[0]}`); continue; }
           if (seen) log.push('waited for ' + needle);
-          else if (optional) log.push('skipped wait ' + needle + ' (not visible within ' + WAIT_MS + 'ms)');
-          else hardFail.push(`${j}/${vpName}: wait ${needle} not visible within ${WAIT_MS}ms`);
+          else if (optional) log.push('skipped wait ' + needle + ' (not visible within ' + stepWait + 'ms)');
+          else hardFail.push(`${j}/${vpName}: wait ${needle} not visible within ${stepWait}ms`);
+        } else if (op === 'count') {
+          // `["count", "text=<literal>"|"css=<selector>", "<n>"]`: the number of
+          // VISIBLE matches must be exactly n. Used before a reply wait to
+          // prove the screen did not already carry the answer.
+          const want = Number(b);
+          if (!Number.isInteger(want) || want < 0) {
+            hardFail.push(`${j}/${vpName}: count ${String(a)} needs a non-negative integer, got ${JSON.stringify(b)}`);
+            continue;
+          }
+          let got;
+          try { got = await visibleCount(page, String(a)); }
+          catch (e) { hardFail.push(`${j}/${vpName}: count ${String(a)}: ${String(e.message).split('\n')[0]}`); continue; }
+          log.push(`count ${String(a)} = ${got}`);
+          if (got !== want) hardFail.push(`${j}/${vpName}: count ${String(a)} is ${got}, want ${want}`);
         } else if (op === 'url') {
           // The path the person is on, as a regex over `location.pathname`.
           const { optional, value: pattern } = optionalOf(a);
