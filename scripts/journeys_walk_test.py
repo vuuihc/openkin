@@ -5,9 +5,9 @@ Run directly: `python3 -B scripts/journeys_walk_test.py`. Pure: fixture
 seed.log and spec files, no browser, no daemon, no network. The walker's
 `--resolve-j1` / `--resolve-j7` modes run the same read/apply functions the
 real walk uses, so a green case here is the resolution that walk would take.
-`--check-spec` runs the J3 send contract through the same parser, so a spec
-that regressed to merely asserting Start is usable fails before a browser
-starts.
+`--check-spec` runs the J2 review-loop and J3 send contracts through the same
+parser, so a spec that regressed to photographing the diff, or to merely
+asserting Start is usable, fails before a browser starts.
 """
 
 from __future__ import annotations
@@ -295,6 +295,162 @@ class WalkJ3ContractTest(unittest.TestCase):
         code, out = self.check(self.copy_with(plain_prompt))
         self.assertEqual(code, 1, out)
         self.assertIn("[seed] slow", out)
+
+
+@unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")
+class WalkJ2ContractTest(unittest.TestCase):
+    """J2 must walk the review loop, not stop at the diff screenshot.
+
+    The loop a reviewer actually runs is: open the changed file, comment a
+    changed line, save it into the tray, send the tray as one ordinary
+    follow-up, and find the comment in the transcript WITH its anchor (path,
+    hunk header and quoted line) — not only its words. Same shape as
+    WalkJ3ContractTest: the checked-in spec passes the walker's own contract
+    check, and a copy that regresses one rule at a time fails with a message
+    naming that rule. Without this, a J2 that stops at `workspace-diff`, or
+    one that asserts only the comment body, is green while a dropped anchor
+    reaches dogfooding unnoticed.
+    """
+
+    BODY = "把这一行改成一句总结。[{vp}]"
+    QUOTE = "- [seed] change: the journey walk reads this line as a real diff."
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j2-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        with open(SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        mutate(spec["journeys"]["J2"]["steps"])
+        path = os.path.join(self.tmp, "journeys.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh)
+        return path
+
+    @staticmethod
+    def at(steps: list, pred) -> int:
+        return next(i for i, step in enumerate(steps) if pred(step))
+
+    @staticmethod
+    def is_send(step: list) -> bool:
+        # The tray's send is the button, or its documented ⌘/Ctrl+Enter on a
+        # focused row; the seeded pending approval floats over the button.
+        return (
+            step[0] == "click"
+            and ("改动评论" in str(step[1]) or "Diff comments" in str(step[1]))
+            and ("发送" in str(step[1]) or "Send" in str(step[1]))
+        ) or (step[0] == "key" and re.search(r"(Meta|Ctrl|Control)\+Enter", str(step[1]), re.I) is not None)
+
+    def test_j2_walks_the_review_loop(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J2", out)
+        with open(SPEC, encoding="utf-8") as fh:
+            journey = json.load(fh)["journeys"]["J2"]
+        steps = journey["steps"]
+        self.assertEqual(journey["viewports"], ["mac", "mac-wide"])
+        names = [step[1] for step in steps if step[0] == "shot"]
+        self.assertLess(names.index("diff-comment-box"), names.index("diff-comment-tray"), names)
+        self.assertLess(names.index("diff-comment-tray"), names.index("diff-comment-sent"), names)
+        # The transcript assertion carries the whole anchor, not the words.
+        transcript = next(
+            step[1]
+            for step in steps
+            if step[0] == "wait" and "notes.md:5" in str(step[1])
+        )
+        self.assertIn(self.BODY, transcript)
+        self.assertIn("@@ ", transcript)
+        self.assertIn(self.QUOTE, transcript)
+        # Both widths run against one daemon and the same seeded conversation.
+        # A shared body would let mac-wide's wait pass on mac's message, so each
+        # viewport's substituted body must be its own needle.
+        bodies = [self.BODY.replace("{vp}", vp) for vp in journey["viewports"]]
+        for mine_vp, mine in zip(journey["viewports"], bodies):
+            for other_vp, other in zip(journey["viewports"], bodies):
+                if mine_vp != other_vp:
+                    self.assertNotIn(mine, other, "%s's body would match %s's message" % (mine_vp, other_vp))
+
+    def test_j2_contract_rejects_a_comment_before_the_diff_is_open(self) -> None:
+        # Today's shape: the workspace section ends at the diff screenshot, so
+        # moving the review block above the file click still reads plausibly.
+        def comment_before_diff(steps: list) -> None:
+            start = self.at(
+                steps,
+                lambda step: step[0] == "wait" and ".monaco-diff-editor" in str(step[1]),
+            )
+            send = self.at(steps, self.is_send)
+            block = steps[start : send + 1]
+            del steps[start : send + 1]
+            panel = self.at(steps, lambda step: step == ["shot", "workspace-panel"])
+            steps[panel + 1 : panel + 1] = block
+
+        code, out = self.check(self.copy_with(comment_before_diff))
+        self.assertEqual(code, 1, out)
+        self.assertIn("before the seeded file is open", out)
+
+    def test_j2_contract_rejects_an_unanchored_transcript_assertion(self) -> None:
+        # The failure the mutant proves: the comment arrives with its words but
+        # no path/hunk/quote. A body-only wait must not satisfy the contract.
+        def body_only(steps: list) -> None:
+            at = self.at(
+                steps,
+                lambda step: step[0] == "wait" and "notes.md:5" in str(step[1]),
+            )
+            steps[at] = [
+                "wait",
+                "css=[role=region][tabindex='-1']:has-text('%s')" % self.BODY,
+            ]
+
+        code, out = self.check(self.copy_with(body_only))
+        self.assertEqual(code, 1, out)
+        self.assertIn("path, hunk header and quote", out)
+
+    def test_j2_contract_rejects_a_comment_body_shared_across_viewports(self) -> None:
+        # Both widths walk the same seeded conversation against one daemon.
+        # Without the {vp} token, mac-wide's transcript wait was satisfied by
+        # mac's message, so the second width's own send was never proven.
+        def shared_body(steps: list) -> None:
+            for step in steps:
+                for i in (1, 2):
+                    if len(step) > i and isinstance(step[i], str):
+                        step[i] = step[i].replace("[{vp}]", "")
+
+        code, out = self.check(self.copy_with(shared_body))
+        self.assertEqual(code, 1, out)
+        self.assertIn("{vp}", out)
+
+    def test_j2_contract_rejects_an_unbracketed_viewport_token(self) -> None:
+        # `mac` sits inside `mac-wide`, so an unbracketed token would still let
+        # one viewport's body match the other's message.
+        def unbracketed(steps: list) -> None:
+            for step in steps:
+                for i in (1, 2):
+                    if len(step) > i and isinstance(step[i], str):
+                        step[i] = step[i].replace("[{vp}]", "{vp}")
+
+        code, out = self.check(self.copy_with(unbracketed))
+        self.assertEqual(code, 1, out)
+        self.assertIn("inside another", out)
+
+    def test_j2_contract_rejects_a_missing_tray_send(self) -> None:
+        # Deleting the press but keeping the transcript wait would prove only
+        # that the words are somewhere on the page.
+        def drop_send(steps: list) -> None:
+            steps.pop(self.at(steps, self.is_send))
+
+        code, out = self.check(self.copy_with(drop_send))
+        self.assertEqual(code, 1, out)
+        self.assertIn("send", out.lower())
 
 
 @unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")

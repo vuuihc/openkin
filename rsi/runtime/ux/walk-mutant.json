@@ -21,6 +21,13 @@
     "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once"
   },
   {
+    "label": "the sent review loses its anchor: the hunk header and quoted line are dropped",
+    "file": "ui/src/components/workspace/diffCommentAnchor.ts",
+    "old": "export function formatCommentBlock(comment: DiffComment): string {\n  return [\n    `${comment.path}:${comment.line}`,\n    comment.hunkHeader,\n    `> ${comment.quote}`,\n    \"\",\n    comment.text,\n  ].join(\"\\n\");\n}",
+    "new": "export function formatCommentBlock(comment: DiffComment): string {\n  // R-p3-review-walk: the anchor dropped on purpose — the words still arrive,\n  // the hunk header and the quoted line do not, so the walk's transcript\n  // assertion must fail. Keep the body so the failure is about the anchor.\n  return [\n    `${comment.path}:${comment.line}`,\n    \"\",\n    comment.text,\n  ].join(\"\\n\");\n}",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J2"
+  },
+  {
     "label": "Stop does nothing, so the round keeps running",
     "file": "ui/src/pages/TaskDetailPage.tsx",
     "old": "  async function onStop() {\n    if (!task || isTerminal(task.status)) return;",

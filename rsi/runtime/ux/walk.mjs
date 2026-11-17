@@ -145,6 +145,113 @@ function checkJ3Contract(spec) {
   }
   return errs;
 }
+// J2's contract: the review loop a person runs, not a screenshot of it. A
+// comment on a changed line is saved into the tray and sent as one ordinary
+// follow-up; the transcript must carry the anchor — path, hunk header and the
+// quoted line — not only the words. The quote is the exact line the journey
+// fake appends to the seeded notes.md; pinning it here (as J3 pins the fake
+// reply) is what lets a body-only assertion be rejected.
+//   node walk.mjs --check-spec [--spec path/to/journeys.json]
+const J2_QUOTE = '- [seed] change: the journey walk reads this line as a real diff.';
+function checkJ2Contract(spec) {
+  const steps = (((spec || {}).journeys || {}).J2 || {}).steps;
+  if (!Array.isArray(steps) || steps.length === 0) return ['J2 has no steps'];
+  const errs = [];
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
+  // Strictly after `prev`: a rule that silently searches from 0 would accept
+  // the step it depends on being absent.
+  const after = (prev, pred) => (prev < 0 ? -1 : idx(pred, prev + 1));
+  const sel = (st, i) => String((st || [])[i] ?? '');
+  const cssWait = (st, re) => st[0] === 'wait' && /^css=/.test(sel(st, 1)) && re.test(sel(st, 1));
+  const traySel = (st, i = 1) => /改动评论|Diff comments/.test(sel(st, i));
+
+  // The seeded diff must be open before a changed line is commented: the file
+  // click, then Monaco's diff editor. A comment box opened on whatever was
+  // mounted (the file list, another file) proves nothing about the diff.
+  const notesAt = idx((st) => st[0] === 'click' && /notes\.md/.test(sel(st, 1))
+    && !/评论|Comment on/.test(sel(st, 1)) && !/改动评论|Diff comments/.test(sel(st, 1)));
+  const diffWaitAt = idx((st) => cssWait(st, /monaco-diff-editor/));
+  if (notesAt < 0) errs.push('J2 never opens the seeded changed file (click notes.md)');
+  if (diffWaitAt < 0) errs.push('J2 never waits for the diff editor (wait css=.monaco-diff-editor)');
+
+  // The entry is the changed line's own: Alt+C on the cursor line, or the
+  // line's glyph. The box wait names the path, so a box opened elsewhere
+  // cannot stand in.
+  const openAt = idx((st) => (st[0] === 'key' && /Alt\+.*C/i.test(sel(st, 1)))
+    || (st[0] === 'click' && /kin-diff-comment-glyph/.test(sel(st, 1))));
+  if (openAt < 0) errs.push('J2 never opens the comment box on a changed line (key Alt+C, or click .kin-diff-comment-glyph)');
+  else if (notesAt >= 0 && openAt < notesAt) errs.push('J2 opens the comment box before the seeded file is open');
+  if (openAt >= 0 && diffWaitAt >= 0 && openAt < diffWaitAt) errs.push('J2 opens the comment box before the diff is open');
+  const boxAt = idx((st) => cssWait(st, /section\[aria-label/) && /notes\.md/.test(sel(st, 1)) && /aria-label\^=/.test(sel(st, 1)));
+  if (boxAt < 0) errs.push('J2 never waits for the comment box naming notes.md (section[aria-label^=…])');
+  else if (openAt >= 0 && boxAt < openAt) errs.push('J2 waits for the comment box before opening it');
+
+  // The person's words, typed into the box itself, then saved into the tray.
+  const fillAt = idx((st) => st[0] === 'fill' && /textarea/.test(sel(st, 1)) && /aria-label/.test(sel(st, 1))
+    && typeof st[2] === 'string' && st[2].trim() !== '');
+  const body = fillAt >= 0 ? String(steps[fillAt][2]) : '';
+  if (fillAt < 0) errs.push('J2 never types the comment into the box textarea');
+  else if (boxAt >= 0 && fillAt < boxAt) errs.push('J2 fills the comment before the box is on screen');
+  const saveAt = after(fillAt, (st) => st[0] === 'click' && /保存|Save/.test(sel(st, 1)));
+  if (saveAt < 0) errs.push('J2 never saves the comment (click Save) after typing it');
+
+  // Saved means one row in the tray, carrying both the path and the line's
+  // own text — not a count of text that happens to appear somewhere.
+  const trayWaitAt = after(saveAt, (st) => cssWait(st, /li:has-text/) && traySel(st) && /notes\.md/.test(sel(st, 1)) && sel(st, 1).includes(J2_QUOTE));
+  if (trayWaitAt < 0) errs.push('J2 never waits for the tray row naming notes.md and the quoted changed line');
+  const countAt = after(trayWaitAt, (st) => st[0] === 'count' && traySel(st) && String(st[2]) === '1');
+  if (countAt < 0) errs.push('J2 never asserts the tray holds exactly one comment (count … 1)');
+
+  // The press itself, after the row is read: the tray's send button, or the
+  // tray's documented ⌘/Ctrl+Enter on a focused row (the seeded pending
+  // approval floats over the button at Mac widths, and the keyboard path is
+  // the same send()).
+  const clickSendAt = after(countAt, (st) => st[0] === 'click' && traySel(st) && /发送|Send/.test(sel(st, 1)));
+  const rowFocusAt = after(countAt, (st) => st[0] === 'focus' && traySel(st));
+  const keySendAt = after(rowFocusAt, (st) => st[0] === 'key' && /(Meta|Ctrl|Control)\+Enter/i.test(sel(st, 1)));
+  const sendAt = clickSendAt >= 0 ? clickSendAt : keySendAt;
+  if (sendAt < 0) errs.push('J2 never sends the tray (click the send button, or focus a row and press Meta/Ctrl+Enter); a transcript assertion without the send proves nothing');
+
+  // The transcript must carry the whole anchor. Counting the comment body
+  // alone is the mutant's shape: the words arrive, the path/hunk/quote are
+  // gone, and a reviewer can no longer tell what was commented.
+  const transcriptAt = after(sendAt, (st) => st[0] === 'wait' && /^css=/.test(sel(st, 1)) && /\[role=.?region/.test(sel(st, 1))
+    && body !== '' && sel(st, 1).includes(body)
+    && /notes\.md/.test(sel(st, 1))
+    && /@@\s*-\d+,\d+\s*\+\d+,\d+\s*@@/.test(sel(st, 1))
+    && sel(st, 1).includes(J2_QUOTE));
+  if (transcriptAt < 0) {
+    errs.push('J2 never asserts the sent follow-up carries the path, hunk header and quote in the transcript');
+  }
+  // Both widths walk the same seeded conversation against one daemon. A body
+  // shared across viewports lets the second width's transcript wait be
+  // satisfied by the first width's message, so the second send is unproven;
+  // the body carries {vp}, and no substituted body may be a substring of
+  // another's (plain `mac` is inside `mac-wide`, so the token is bracketed).
+  const viewports = (((spec || {}).journeys || {}).J2 || {}).viewports;
+  const sentBodies = Array.isArray(viewports) ? viewports.map((vp) => applyVpStep([body], vp)[0]) : [];
+  if (body === '' || !body.includes('{vp}')) {
+    errs.push('J2 types one comment body at every viewport; put a {vp} token in the body and the transcript wait so each width proves its own send');
+  } else if (sentBodies.some((mine, i) => sentBodies.some((other, k) => i !== k && other.includes(mine)))) {
+    errs.push('J2\'s {vp} token leaves one viewport\'s comment body inside another\'s; bracket it, e.g. [{vp}]');
+  }
+  // The loop closes: the tray is empty again (or says it was sent), otherwise
+  // the send is unproven and the comments are still waiting.
+  const goneAt = after(sendAt, (st) => st[0] === 'gone' && traySel(st));
+  const sentAt = after(sendAt, (st) => st[0] === 'wait' && /已发回对话|Sent back to the conversation/.test(sel(st, 1)));
+  if (sentAt < 0 && goneAt < 0) errs.push('J2 never proves the tray emptied after send (gone … or the sent line)');
+
+  // The screenshots are the reviewable evidence, in the order the loop runs.
+  const shotAt = (name) => steps.findIndex((st) => Array.isArray(st) && st[0] === 'shot' && st[1] === name);
+  const boxShot = shotAt('diff-comment-box'), trayShot = shotAt('diff-comment-tray'), sentShot = shotAt('diff-comment-sent');
+  if (boxShot < 0) errs.push('J2 takes no `diff-comment-box` shot');
+  else if (boxAt >= 0 && (boxShot < boxAt || (saveAt >= 0 && boxShot > saveAt))) errs.push('the `diff-comment-box` shot must be taken while the box is open, before Save');
+  if (trayShot < 0) errs.push('J2 takes no `diff-comment-tray` shot');
+  else if (trayWaitAt >= 0 && trayShot < trayWaitAt) errs.push('the `diff-comment-tray` shot must follow the tray row wait');
+  if (sentShot < 0) errs.push('J2 takes no `diff-comment-sent` shot');
+  else if (transcriptAt >= 0 && sentShot < transcriptAt) errs.push('the `diff-comment-sent` shot must follow the transcript assertion');
+  return errs;
+}
 // J7's contract: a notification tap must prove it landed on the card the
 // notification named — not just photograph whatever loaded. Without these
 // rules a blank deep link, a landing on the wrong card, and a Back that
@@ -200,13 +307,16 @@ function checkJ7Contract(spec) {
   return errs;
 }
 if (process.argv.includes('--check-spec')) {
+  const j2 = checkJ2Contract(spec);
   const j3 = checkJ3Contract(spec);
   const j7 = checkJ7Contract(spec);
-  if (j3.length || j7.length) {
+  if (j2.length || j3.length || j7.length) {
+    if (j2.length) { console.log('spec red: J2'); j2.forEach((e) => console.log(' - ' + e)); }
     if (j3.length) { console.log('spec red: J3'); j3.forEach((e) => console.log(' - ' + e)); }
     if (j7.length) { console.log('spec red: J7'); j7.forEach((e) => console.log(' - ' + e)); }
     process.exit(1);
   }
+  console.log('spec ok: J2 comments a changed line, sends the tray, and proves path, hunk and quote in the transcript');
   console.log('spec ok: J3 sends a prompt, queues a mid-run follow-up before the reply, and marks it queued');
   console.log('spec ok: J3 stops a held round, proves Stop left, and reads the queued message discard report');
   console.log('spec ok: J7 lands on the named card, proves focus, consumes ?focus=, and reopens it after Back');
@@ -259,6 +369,13 @@ function applyJ7Fields(value, target) {
 }
 function applyJ7Step(step, target) {
   return Array.isArray(step) ? step.map((part) => (typeof part === 'string' ? applyJ7Fields(part, target) : part)) : step;
+}
+// `{vp}` makes a step's own words viewport-specific: two widths walk the same
+// seeded conversation against one daemon, so an identical comment body would
+// let the second width's wait pass on the first width's message and leave its
+// own send unproven. --check-spec resolves the same function it enforces.
+function applyVpStep(step, vpName) {
+  return Array.isArray(step) ? step.map((part) => (typeof part === 'string' ? part.split('{vp}').join(vpName) : part)) : step;
 }
 // The selector the landing assertion resolves to, printed by --check-spec so
 // the red/green evidence names a real card rather than `{focus}`.
@@ -560,7 +677,8 @@ for (const j of want) {
     });
     const log = []; let n = 0;
     for (const rawStep of J.steps) {
-      const st = j === 'J7' && j7 ? applyJ7Step(rawStep, j7) : rawStep;
+      const preStep = j === 'J7' && j7 ? applyJ7Step(rawStep, j7) : rawStep;
+      const st = applyVpStep(preStep, vpName);
       const [op, a, b] = st;
       try {
         if (op === 'goto') {
