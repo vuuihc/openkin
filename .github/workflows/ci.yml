@@ -202,3 +202,27 @@ jobs:
           npm run typecheck
           npm test
           npm run build
+
+  # The journey harness is what keeps every walk screenshot and every
+  # `--walk-once` red proof honest: scripts/journeys_seed.py creates the
+  # lived-in state, and scripts/journeys_fake_agent/claude is what stops a walk
+  # from launching a real model CLI. Their suites are hermetic (a local
+  # http.server stub and real shell scripts), but they cost ~49 s + ~17 s —
+  # running them in scripts/check.sh would grow the local gate's p50 by ~25 %
+  # on every change, so they run here instead. rsi/runtime/tests/test-wiring.sh
+  # carries the other half of the bargain: allow_unwired_py() requires both
+  # paths to be named in this file, so deleting this job turns that test red
+  # instead of silently retiring the two suites.
+  journeys:
+    runs-on: ubuntu-latest
+    # Backstop only: the suites bound their own waits and sleeps.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # -B: the seed test imports the seed module, and CI should not leave
+      # __pycache__ in the tree it just checked out.
+      - name: Journey seed + fake-agent suites
+        run: |
+          python3 -B scripts/journeys_seed_test.py
+          python3 -B scripts/journeys_fake_agent_test.py
