@@ -402,9 +402,9 @@ def kimi_allowed() -> tuple[bool, dict]:
     except Exception:
         kimi_cny = 0.0
     try:
-        cap = float(data.get("RSI_VOLC_KIMI_DAY_MAX") or 80)
+        cap = float(data.get("RSI_VOLC_KIMI_DAY_MAX") or 150)
     except Exception:
-        cap = 80.0
+        cap = 150.0
     try:
         total = float(data.get("RSI_VOLC_CNY") or 0)
     except Exception:
