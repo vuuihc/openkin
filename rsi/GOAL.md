@@ -38,7 +38,8 @@ found its new test scripts staged `100644`). The next most-used path has
 no such proof: F2 mid-run control. The composer already carries the queue-vs-interrupt rule
 (`TaskDetailPage.onComposer`, `interrupt: true`) and the fake agent can hold a turn open (`[seed] slow`,
 `RSI_FAKE_SLOW_SECS`), yet nothing asserts that a message sent while the agent runs appears at once, that
-the honest queued/interrupted copy is the one a person actually sees, or that an explicit stop really ends
+the honest queued/interrupted copy is the one a person actually sees in the walk (the DOM tests cover the
+copy itself), or that an explicit stop really ends
 the run. A wrong answer here is the defect people notice first — a message that vanishes, or a node that
 keeps "running" after Stop.
 
@@ -69,8 +70,9 @@ on a route nobody seeded. So the gate that was supposed to prove "a person can f
 "the page renders". Every visible defect caught that week (a centred row, two names for one conversation,
 a blank deep link) was caught by a human eye, not by the gate.
 
-**Delivered** (throwaway daemon with the fake agent from `scripts/journeys_seed.py`; the walker/seed PRs
-touched no `ui/` file, so `ux-gate.sh` did not run on them — item 4's mutant was their verification):
+**Delivered** items 1–3 (throwaway daemon with the fake agent from `scripts/journeys_seed.py`; the
+walker/seed PRs touched no `ui/` file, so `ux-gate.sh` did not run on them — item 4's mutant is their
+verification and is still in rework under P2):
 1. J3 pressed Send for real: the composer emptied, the pending bubble + waiting row appeared **and
    stayed** across `/new` → `/tasks/:id`, the fake agent's reply rendered, 390/1100 shots stored (#245).
 2. J1 opened the seeded conversation holding a real approval card, approved it (`gone` asserted), and
