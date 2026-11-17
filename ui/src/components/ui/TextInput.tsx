@@ -74,11 +74,12 @@ const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function TextInpu
   const inputId = id ?? `kin-text-input-${generatedId}`;
   const hintId = hint ? `${inputId}-hint` : undefined;
   const statusId = status?.message ? `${inputId}-status` : undefined;
-  const describedBy =
-    [ariaDescribedBy, hintId, statusId].filter(Boolean).join(" ") || undefined;
+  const describedBy = [ariaDescribedBy, hintId, statusId].filter(Boolean).join(" ") || undefined;
   // An unqualified height utility replaces the default floor; a responsive one
   // does not, because the phone floor is the part that must not be forgotten.
-  const callerOwnsHeight = className ? /(?:^|\s)(?:min-h-|h-|\[min-height:)/.test(className) : false;
+  const callerOwnsHeight = className
+    ? /(?:^|\s)(?:min-h-|h-|\[min-height:)/.test(className)
+    : false;
 
   return (
     <div className={isLabelHidden ? undefined : "space-y-1"}>

@@ -59,9 +59,9 @@ describe("the shared text input", () => {
     expect(message.id).toBeTruthy();
     expect(input.getAttribute("aria-describedby")).toBe(message.id);
     expect(input.getAttribute("aria-invalid")).toBe("true");
-    expect(
-      screen.getByRole("textbox", { name: "Base URL", description: /ends in \/v1/ }),
-    ).toBe(input);
+    expect(screen.getByRole("textbox", { name: "Base URL", description: /ends in \/v1/ })).toBe(
+      input,
+    );
   });
 
   it("keeps a warning out of aria-invalid but in the description", () => {
@@ -76,9 +76,9 @@ describe("the shared text input", () => {
 
     const input = screen.getByLabelText("Base URL");
     expect(input.hasAttribute("aria-invalid")).toBe(false);
-    expect(
-      screen.getByRole("textbox", { name: "Base URL", description: /looks unusual/ }),
-    ).toBe(input);
+    expect(screen.getByRole("textbox", { name: "Base URL", description: /looks unusual/ })).toBe(
+      input,
+    );
   });
 
   it("keeps the kin-input contract on the input element", () => {
@@ -135,9 +135,7 @@ describe("the shared text input", () => {
   });
 
   it("hides the label without losing the accessible name", () => {
-    render(
-      <TextInput isLabelHidden label="Role 2 name" value="Review" onChange={() => {}} />,
-    );
+    render(<TextInput isLabelHidden label="Role 2 name" value="Review" onChange={() => {}} />);
 
     const input = screen.getByLabelText("Role 2 name");
     expect(input).toBe(screen.getByRole("textbox", { name: "Role 2 name" }));
