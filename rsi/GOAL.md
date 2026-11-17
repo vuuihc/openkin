@@ -71,8 +71,8 @@ on a route nobody seeded. So the gate that was supposed to prove "a person can f
 "the page renders". Every visible defect caught that week (a centred row, two names for one conversation,
 a blank deep link) was caught by a human eye, not by the gate.
 
-**Delivered** (throwaway daemon with the fake agent from `scripts/journeys_seed.py`; the walker/seed PRs
-touched no `ui/` file, so `ux-gate.sh` did not run on them — item 4's mutant was their verification):
+**Delivered** (throwaway daemon with the fake agent from `scripts/journeys_seed.py`; #245/#249 touched no
+`ui/` file, so `ux-gate.sh` did not run on them — item 4's mutant was their verification):
 1. J3 pressed Send for real: the composer emptied, the pending bubble + waiting row appeared **and
    stayed** across `/new` → `/tasks/:id`, the fake agent's reply rendered, 390/1100 shots stored (#245).
 2. J1 opened the seeded conversation holding a real approval card, approved it (`gone` asserted), and
