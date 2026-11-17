@@ -161,7 +161,9 @@ function macTab(id: string): HTMLElement {
 function phoneRow(id: string): HTMLElement {
   const card = screen.getByText(t("settings.moreSections")).nextElementSibling as HTMLElement;
   expect(card).toBeTruthy();
-  const row = within(card).getByText(t(`settings.tabs.${id}`)).closest("button");
+  const row = within(card)
+    .getByText(t(`settings.tabs.${id}`))
+    .closest("button");
   expect(row).toBeTruthy();
   return row as HTMLElement;
 }
