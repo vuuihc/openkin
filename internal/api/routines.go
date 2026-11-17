@@ -187,6 +187,11 @@ func (s *Server) handleListRoutines(w http.ResponseWriter, r *http.Request) {
 		Before:    q.Get("cursor"),
 		Query:     query,
 		Summary:   explicitPage,
+		Cwd:       strings.TrimSpace(q.Get("cwd")),
+		// Only the word "failed" is a filter. Any other outcome, including a
+		// misspelling, is ignored rather than read as "nothing matches": a
+		// typo must not silently empty the list.
+		FailedOnly: strings.EqualFold(strings.TrimSpace(q.Get("outcome")), "failed"),
 	}
 	if v := q.Get("enabled"); v != "" {
 		b := v == "1" || strings.EqualFold(v, "true")
