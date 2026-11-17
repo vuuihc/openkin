@@ -23,6 +23,9 @@ import type { AgentSession, Project, Task } from "../../api/client";
  * the markup does not ask for more inline space than the container has; it
  * cannot prove a real browser paints it that way. A Chromium measurement at
  * 248px and 390px is recorded alongside the change for that.
+ *
+ * KIN-MANAGE-001, step 3: the row menu is the only pointer door into
+ * selection; Escape still returns focus to the row that started it.
  */
 
 const fixtures = vi.hoisted(() => ({
@@ -282,18 +285,19 @@ describe("the selection toolbar at the width it actually has", () => {
 });
 
 describe("leaving multi-select", () => {
-  it("enters from the long press and exits with Escape back to the initiating row", async () => {
-    vi.useFakeTimers();
+  it("exits with Escape back to the row that entered selection", async () => {
+    const user = userEvent.setup();
     mount("sidebar");
-    const initiating = row("alpha-1");
 
-    fireEvent.pointerDown(initiating, { pointerType: "touch", clientX: 12, clientY: 12 });
-    act(() => {
-      vi.advanceTimersByTime(600);
-    });
-    expect(toolbar()).toBeTruthy();
-    // Entering changes the row's wrapper, so the element that carried the
-    // gesture is replaced; the row identity is what must survive.
+    // Selection starts from the row's visible menu (or Shift+Enter); the hold
+    // itself opens this row's actions and leaves the list alone.
+    await user.click(rowActions("alpha-1"));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "alpha-1" })).getByRole("button", {
+        name: "Select",
+      }),
+    );
+    await waitFor(() => expect(toolbar()).toBeTruthy());
     expect(row("alpha-1").getAttribute("aria-pressed")).toBe("true");
 
     const focused = row("alpha-1");
@@ -302,10 +306,12 @@ describe("leaving multi-select", () => {
 
     expect(document.querySelector("[data-selection-toolbar]")).toBeNull();
     expect(screen.queryByRole("checkbox", { name: "Select all" })).toBeNull();
-    // fireEvent flushes effects, so the one-shot restore has already run; with
-    // fake timers installed `waitFor` would poll a clock that is not moving.
-    const active = document.activeElement as HTMLElement | null;
-    expect(active?.getAttribute("data-session-row")).toBe("alpha-1");
+    // fireEvent flushes effects, so the one-shot restore has already run.
+    await waitFor(() =>
+      expect((document.activeElement as HTMLElement | null)?.getAttribute("data-session-row")).toBe(
+        "alpha-1",
+      ),
+    );
     expect(row("alpha-1").getAttribute("aria-pressed")).toBeNull();
   });
 
@@ -393,7 +399,7 @@ describe("leaving multi-select", () => {
 });
 
 describe("the row menu is the visible door", () => {
-  it("enters selection from the row menu, not only the long press", async () => {
+  it("enters selection from the row menu", async () => {
     const user = userEvent.setup();
     mount("sidebar");
 
@@ -412,6 +418,29 @@ describe("the row menu is the visible door", () => {
     expect(row("alpha-1").getAttribute("aria-pressed")).toBe("false");
     expect(screen.getByText("1 selected")).toBeTruthy();
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("the row menu is the only pointer door into selection", async () => {
+    vi.useFakeTimers();
+    mount("sidebar");
+    const initiating = row("alpha-1");
+
+    fireEvent.pointerDown(initiating, { pointerType: "touch", clientX: 12, clientY: 12 });
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+
+    // The hold opened this row's own menu; it did not change the list's mode.
+    const sheet = screen.getByRole("dialog", { name: "alpha-1" });
+    expect(document.querySelector("[data-selection-toolbar]")).toBeNull();
+    expect(row("alpha-1").getAttribute("aria-pressed")).toBeNull();
+
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    await user.click(within(sheet).getByRole("button", { name: "Select" }));
+    await waitFor(() => expect(toolbar()).toBeTruthy());
+    expect(row("alpha-1").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("1 selected")).toBeTruthy();
   });
 
   it("exits from the row menu back to the row", async () => {
