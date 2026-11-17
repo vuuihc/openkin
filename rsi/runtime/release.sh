@@ -67,7 +67,16 @@ dirty="$($git -C "$REPO" status --porcelain)"
 [ -z "$dirty" ] || die "checkout is dirty (leave it alone): $(printf '%s' "$dirty" | head -3 | tr '\n' ' ')"
 CUR="$($git -C "$REPO" rev-parse --abbrev-ref HEAD)"
 [ "$CUR" = main ] || die "checkout is on $CUR, not main"
-$git -C "$REPO" merge --ff-only -q origin/main || die "main cannot fast-forward to origin/main (diverged locally)"
+if ! $git -C "$REPO" merge --ff-only -q origin/main; then
+  # Local main has commits of its own (a docs edit, an earlier merge). Integrate them the
+  # plain way instead of rewriting anything: a merge commit is allowed, a reset never is.
+  [ "$($git -C "$REPO" rev-list --count origin/main..HEAD)" -gt 0 ] || die "main cannot fast-forward to origin/main"
+  say "main has $($git -C "$REPO" rev-list --count origin/main..HEAD) local commit(s); merging origin/main"
+  if ! $git -C "$REPO" merge --no-edit -q origin/main; then
+    $git -C "$REPO" merge --abort 2>/dev/null || true
+    die "origin/main conflicts with local main; a person has to resolve that (checkout left as it was)"
+  fi
+fi
 
 mark() { # mark <target> — record this SHA as released for one target, keeping the other.
   local t="$1" other="" tmp
@@ -83,8 +92,9 @@ mark() { # mark <target> — record this SHA as released for one target, keeping
 # 3. Node: the console + binary Ethan is looking at. desktop-rebuild.sh owns the
 #    sequence (UI embed, ./kin, ~/.kin/node refresh, stop :7777, relaunch Electron).
 if [ "$NODE" = 1 ]; then
-  say "node: ./scripts/desktop-rebuild.sh"
-  ( cd "$REPO" && ./scripts/desktop-rebuild.sh ) >>"$STATE/releases.log" 2>&1 || die "node rebuild failed (see state/releases.log)"
+  NODE_CMD="${RSI_RELEASE_NODE_CMD:-./scripts/desktop-rebuild.sh}"
+  say "node: $NODE_CMD"
+  ( cd "$REPO" && $NODE_CMD ) >>"$STATE/releases.log" 2>&1 || die "node rebuild failed (see state/releases.log)"
   mark node
   say "node: shipped $SHORT"
 fi

@@ -38,8 +38,9 @@ refuses unless `rsi/runtime/release-check.sh` prints `verdict=GO`. GO needs **bo
   per-target SHAs in `state/last_release` — the point that the node last ran and the point the Hub last ran.
   A release that shipped the node but failed on the Hub is retried, never counted as shipped.
 
-Order: fast-forward the primary checkout to `origin/main` (clean tree + fast-forward only — a dirty or
-diverged checkout is Ethan's, never reset), node (`./scripts/desktop-rebuild.sh`), then Hub (linux/amd64
+Order: bring the primary checkout to `origin/main` — fast-forward when it simply lags; when local `main`
+has its own unpublished commits, a plain merge commit (never a reset, never a rebase), and a conflict stops
+the release so a person can resolve it. A dirty checkout is Ethan's: the release refuses to touch it. Then node (`./scripts/desktop-rebuild.sh`), then Hub (linux/amd64
 image built off-NAS from the same commit, previous image kept as `openkin:dogfood-prev`, compose `up -d`,
 wait for healthy). Each target records its SHA in `state/last_release`; one line goes to `state/releases.log`.
 The CEO loop runs this on patrol when the gate says GO (or `make release-check`); nobody needs to run it by hand.

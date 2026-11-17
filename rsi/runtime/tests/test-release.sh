@@ -135,7 +135,46 @@ run 10 "HOLD: both targets already at the tip"
 echo "node=$HEAD_SHA" > "$STATE/last_release"
 run 10 "HOLD: hub has no marker at all, so nothing is released for it"
 
-# 9. A dry run reports the plan and writes nothing.
+# 9. Integrating into a primary checkout: fast-forward when it lags, a plain merge commit
+#    when local main has its own unpublished work, and a refusal (no reset, no rewrite)
+#    when the two conflict. RSI_RELEASE_NODE_CMD stands in for desktop-rebuild.sh.
+SECOND="$T/second"; git clone -q "$REPO" "$SECOND"
+git -C "$SECOND" checkout -q main
+git -C "$SECOND" remote set-url origin "$REPO"
+printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$STATE/last_release"
+merge_run() { # merge_run <case> <want-exit>
+  local name="$1" want="$2" out rc
+  out="$(env RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
+    RSI_RELEASE_NODE_CMD=true bash "$RELEASE" --repo "$SECOND" --node-only 2>&1)"; rc=$?
+  [ "$rc" = "$want" ] || { printf '%s\n' "$out" >&2; fail "$name: expected exit $want, got $rc"; }
+  pass "$name"
+}
+# (a) origin/main moved on, local checkout only lags -> fast-forward, node marked.
+git -C "$SECOND" reset -q --hard "$BASE2"
+merge_run "release: a lagging checkout is fast-forwarded" 0
+[ "$(git -C "$SECOND" rev-list --count origin/main..HEAD)" = 0 ] || fail "fast-forward left local commits"
+grep -q "^node=$HEAD_SHA" "$STATE/last_release" || fail "node marker not written after a release"
+
+# (b) local main has an unpublished docs commit -> merge commit, nothing rewritten.
+printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$STATE/last_release"
+git -C "$SECOND" reset -q --hard "$BASE2"
+echo note >> "$SECOND/NOTES.md"; git -C "$SECOND" add NOTES.md
+git -C "$SECOND" commit -q -m "docs: local only"
+merge_run "release: an unpublished local commit is merged, not reset" 0
+grep -q "docs: local only" <(git -C "$SECOND" log --format=%s -5) || fail "local commit lost"
+[ -z "$(git -C "$SECOND" status --porcelain)" ] || fail "merge left the checkout dirty"
+
+# (c) a real conflict stops the release and leaves the checkout as it was.
+printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$STATE/last_release"
+git -C "$SECOND" reset -q --hard "$BASE2"
+echo mine > "$SECOND/f6"; git -C "$SECOND" add f6; git -C "$SECOND" commit -q -m "fix: conflicting local edit"
+before="$(git -C "$SECOND" rev-parse HEAD)"
+merge_run "release: a conflict holds and rewrites nothing" 1
+[ "$(git -C "$SECOND" rev-parse HEAD)" = "$before" ] || fail "a conflicting release moved HEAD"
+[ -d "$SECOND/.git" ] && [ ! -f "$SECOND/.git/MERGE_HEAD" ] || fail "merge not aborted"
+git -C "$SECOND" status --porcelain | grep -q '^UU' && fail "conflict markers left behind"
+
+# 10. A dry run reports the plan and writes nothing.
 printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$STATE/last_release"
 before="$(cat "$STATE/last_release")"
 out="$(env RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$REPO" KIN_API="$(API)" \
