@@ -9436,6 +9436,17 @@ export interface operations {
                 cursor?: string;
                 /** @description Case-insensitive match on title and prompt. */
                 q?: string;
+                /** @description Exact working directory. Empty or absent means every directory.
+                 *     Not a prefix match: a directory filter never includes a
+                 *     subdirectory.
+                 *      */
+                cwd?: string;
+                /** @description Only `failed` is recognised: keep routines whose most recent run
+                 *     failed. A routine that has never run has no outcome and does not
+                 *     match. Any other value is ignored rather than read as a filter
+                 *     that matches nothing.
+                 *      */
+                outcome?: "failed";
                 page?: string;
                 runs?: "1";
                 /** @description Return runs older than this task id. Independent of the definitions' cursor. */

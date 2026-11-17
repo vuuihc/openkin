@@ -23,7 +23,11 @@ import {
   toLocalInputValue,
 } from "../components/routine/RoutineScheduleFields";
 import RoutineEditor, { type FormDraft } from "../components/routine/RoutineEditor";
-import RoutineList from "../components/routine/RoutineList";
+import RoutineList, {
+  ROUTINE_STATUS_FILTERS,
+  type RoutineStatusFilter,
+} from "../components/routine/RoutineList";
+import { directoryOptions } from "../lib/routineDirectories";
 import { localTimeZone, serializeRoutineRule, type RoutineRule } from "../lib/routineRecurrence";
 import {
   appendOlderRuns,
@@ -65,6 +69,40 @@ import { routineForm, routinePatch, routineTitle } from "../lib/routineEdit";
 import { formatWhen } from "../lib/routineTime";
 import { subscribeWS, useAppStore } from "../store/appStore";
 
+/**
+ * `?status=` is the list filter's only source. Unknown or absent reads as 全部,
+ * never as a filter nothing can match — the same rule `normalizeStatusFilter`
+ * applies to the conversation list.
+ */
+export function normalizeRoutineStatus(raw: string | null): RoutineStatusFilter {
+  return (ROUTINE_STATUS_FILTERS as readonly string[]).includes(raw ?? "")
+    ? (raw as RoutineStatusFilter)
+    : "";
+}
+
+/** The request parameters one filter pair turns into. */
+function routineFilterParams(status: RoutineStatusFilter, cwd: string) {
+  const directory = cwd.trim();
+  if (status === "failed") {
+    return { outcome: "failed" as const, ...(directory ? { cwd: directory } : {}) };
+  }
+  const enabled: boolean | undefined =
+    status === "enabled" ? true : status === "paused" ? false : undefined;
+  return {
+    ...(enabled !== undefined ? { enabled } : {}),
+    ...(directory ? { cwd: directory } : {}),
+  };
+}
+
+/**
+ * Cursor generations are keyed by everything the first page was read with.
+ * A cursor from another query or filter pair would append a different result
+ * set under the rows already on screen.
+ */
+function routineCursorKey(query: string, status: RoutineStatusFilter, cwd: string): string {
+  return JSON.stringify([query, status, cwd.trim()]);
+}
+
 function statusLabel(
   status: string,
   tr: (key: string, vars?: Record<string, string | number>) => string,
@@ -97,8 +135,13 @@ export default function RoutinesPage() {
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [routineQuery, setRoutineQuery] = useState("");
   const [routineCursor, setRoutineCursor] = useState("");
-  const routineCursorQuery = useRef("");
+  // The query and both filters the current cursor belongs to. A cursor is only
+  // usable while all three still describe what the reader is looking at.
+  const routineCursorScope = useRef("");
   const [routineHasMore, setRoutineHasMore] = useState(false);
+  // Every directory on the selected machine, read without the list filters so
+  // picking one directory cannot hide the others from the menu.
+  const [directoryCwds, setDirectoryCwds] = useState<string[]>([]);
   const [loadingMoreRoutines, setLoadingMoreRoutines] = useState(false);
   const [runs, setRuns] = useState<Task[]>([]);
   const [runsCursor, setRunsCursor] = useState("");
@@ -169,6 +212,11 @@ export default function RoutinesPage() {
   // Keep the URL and the visible machine in step so warm taps, Back/Forward,
   // and a second tap of the same notification all select the right machine.
   const [searchParams, setSearchParams] = useSearchParams();
+  // Both list filters live in the URL, so a reload, a shared link, and a Back
+  // press restore the list the reader narrowed. The page never keeps its own
+  // copy: one source cannot disagree with itself.
+  const status = normalizeRoutineStatus(searchParams.get("status"));
+  const cwdFilter = (searchParams.get("cwd") ?? "").trim();
   const [deviceId, setDeviceId] = useState<string>(
     () => searchParams.get("device")?.trim() || readRoutineDevice(),
   );
@@ -268,15 +316,31 @@ export default function RoutinesPage() {
     ++olderRunsSeq.current;
     ++olderRoutinesSeq.current;
     const query = routineQuery.trim() || undefined;
+    const filters = routineFilterParams(status, cwdFilter);
+    // With no query and no filters this page already is the machine's first
+    // 100 routines, which is exactly what the directory menu needs. Asking
+    // twice would be a second relay round trip answering the same question.
+    const unfiltered = !query && status === "" && cwdFilter === "";
     const epoch = readAllEpoch.current;
     try {
-      const [rs, feed] = await Promise.all([
-        listRoutines({ limit: 100, q: query }, deviceId),
+      const [rs, feed, all] = await Promise.all([
+        listRoutines({ limit: 100, q: query, ...filters }, deviceId),
         listRoutineRuns(ROUTINE_HISTORY_PAGE, deviceId),
+        // Otherwise the directory menu is the machine's directories, not the
+        // filtered page's — picking one directory must not hide the others. A
+        // failure here costs the menu its extra rows, not the list: the active
+        // filter still runs server-side.
+        unfiltered
+          ? Promise.resolve(null)
+          : listRoutines({ limit: 100 }, deviceId).catch(() => null),
       ]);
       if (seq !== loadSeq.current) return;
       setRoutines(rs.routines ?? []);
-      routineCursorQuery.current = query ?? "";
+      const directorySource = unfiltered ? rs : all;
+      if (directorySource) {
+        setDirectoryCwds((directorySource.routines ?? []).map((r) => r.cwd));
+      }
+      routineCursorScope.current = routineCursorKey(query ?? "", status, cwdFilter);
       setRoutineCursor(rs.next_cursor ?? "");
       setRoutineHasMore(rs.has_more);
       setRuns(
@@ -302,7 +366,7 @@ export default function RoutinesPage() {
     } finally {
       if (seq === loadSeq.current) setLoading(false);
     }
-  }, [tr, routineQuery, deviceId, machinesLoading]);
+  }, [tr, routineQuery, deviceId, machinesLoading, status, cwdFilter]);
 
   const loadMoreRuns = async () => {
     if (!runsCursor || !runsHasMore || loadingMoreRuns || runs.length >= ROUTINE_HISTORY_MAX)
@@ -336,12 +400,13 @@ export default function RoutinesPage() {
   const loadMoreRoutines = async () => {
     const query = routineQuery.trim();
     // The cursor belongs to the first page that produced it. Pairing it with a
-    // newer search would append an unrelated result set before that page lands.
+    // newer search or filter would append an unrelated result set before that
+    // page lands.
     if (
       !routineCursor ||
       !routineHasMore ||
       loadingMoreRoutines ||
-      routineCursorQuery.current !== query
+      routineCursorScope.current !== routineCursorKey(query, status, cwdFilter)
     )
       return;
     const view = currentView();
@@ -354,6 +419,7 @@ export default function RoutinesPage() {
           limit: 100,
           cursor: routineCursor,
           q: query || undefined,
+          ...routineFilterParams(status, cwdFilter),
         },
         deviceId,
       );
@@ -439,7 +505,14 @@ export default function RoutinesPage() {
       if (resolved !== deviceId) setDeviceId(resolved);
       writeRoutineDevice(resolved);
       writingURL.current = true;
-      setSearchParams({ device: resolved }, { replace: true });
+      setSearchParams(
+        (prev) => {
+          const params = new URLSearchParams(prev);
+          params.set("device", resolved);
+          return params;
+        },
+        { replace: true },
+      );
       return;
     }
     if (fromURL === deviceId) return;
@@ -452,7 +525,14 @@ export default function RoutinesPage() {
     writeRoutineDevice(resolved);
     if (resolved !== fromURL) {
       writingURL.current = true;
-      setSearchParams({ device: resolved }, { replace: true });
+      setSearchParams(
+        (prev) => {
+          const params = new URLSearchParams(prev);
+          params.set("device", resolved);
+          return params;
+        },
+        { replace: true },
+      );
     }
   }, [searchParams, deviceId, machinesLoading, machinesFailed, machines]);
 
@@ -483,8 +563,9 @@ export default function RoutinesPage() {
     setRunsHasMore(false);
     setLoadingMoreRuns(false);
     setRoutineCursor("");
-    routineCursorQuery.current = "";
+    routineCursorScope.current = "";
     setRoutineHasMore(false);
+    setDirectoryCwds([]);
     setHistory({});
     setHistoryLoading({});
     setHistoryError({});
@@ -642,7 +723,14 @@ export default function RoutinesPage() {
     try {
       const updated = await patchRoutine(r.id, { enabled: !r.enabled }, view.deviceId);
       if (!isCurrentView(view)) return;
-      setRoutines((list) => list.map((x) => (x.id === r.id ? updated : x)));
+      if (status !== "" || cwdFilter !== "") {
+        // Under a filter a row can stop matching because of this very write:
+        // pausing under 已启用 would otherwise leave the paused row on screen
+        // until the next refresh, contradicting the chip above it.
+        void load();
+      } else {
+        setRoutines((list) => list.map((x) => (x.id === r.id ? updated : x)));
+      }
     } catch (e) {
       if (!isCurrentView(view)) return;
       pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
@@ -1116,7 +1204,14 @@ export default function RoutinesPage() {
         view.deviceId,
       );
       if (!isCurrentView(view)) return;
-      setRoutines((list) => [r, ...list]);
+      if (status !== "" || cwdFilter !== "") {
+        // The new routine may not match the active filter (a paused filter, a
+        // directory filter on another directory). Ask the daemon rather than
+        // prepending a row the filter says is not there.
+        void load();
+      } else {
+        setRoutines((list) => [r, ...list]);
+      }
       closeForm(true);
       resetForm();
       pushToast(tr("routines.created"), "info");
@@ -1138,6 +1233,38 @@ export default function RoutinesPage() {
     // Before the list arrives there is still one machine: this one.
     return rows.length > 0 ? rows : [{ id: THIS_MACHINE, label: tr("machine.thisMachine") }];
   }, [machines, tr]);
+
+  const directoryChoices = useMemo(() => directoryOptions(directoryCwds), [directoryCwds]);
+
+  /**
+   * Write one filter, keeping the machine and the other filter.
+   *
+   * Deliberately not routed through `writingURL`: that flag says "the device
+   * in this URL was written by this page", and a filter write is not a device
+   * write. Marking it would leave the next real device write misread as an
+   * outside navigation.
+   */
+  const writeFilters = (next: { status?: RoutineStatusFilter; cwd?: string }) => {
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        if (next.status !== undefined) {
+          if (next.status) params.set("status", next.status);
+          else params.delete("status");
+        }
+        if (next.cwd !== undefined) {
+          if (next.cwd) params.set("cwd", next.cwd);
+          else params.delete("cwd");
+        }
+        return params;
+      },
+      { replace: true },
+    );
+  };
+
+  const onStatusChange = (next: RoutineStatusFilter) => writeFilters({ status: next });
+  const onCwdChange = (next: string) => writeFilters({ cwd: next });
+  const onClearFilters = () => writeFilters({ status: "", cwd: "" });
 
   /**
    * Point the page at another machine.
@@ -1164,7 +1291,17 @@ export default function RoutinesPage() {
     // Mac keeps the machines the reader actually visited; phone replaces the
     // routines view so one Back still reaches the conversation list.
     writingURL.current = true;
-    setSearchParams({ device: id }, { replace: isPhoneLayout() });
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        params.set("device", id);
+        // A directory belongs to the machine that has it. The status filter
+        // is machine-independent, so it stays.
+        params.delete("cwd");
+        return params;
+      },
+      { replace: isPhoneLayout() },
+    );
     // The sidebar badge counts the machine this page shows; a switch that did
     // not tell it would leave the old machine's number there.
     window.dispatchEvent(new Event("kin:routine-unread-changed"));
@@ -1387,6 +1524,12 @@ export default function RoutinesPage() {
                 routines={routines}
                 query={routineQuery}
                 onQueryChange={setRoutineQuery}
+                status={status}
+                onStatusChange={onStatusChange}
+                cwd={cwdFilter}
+                directories={directoryChoices}
+                onCwdChange={onCwdChange}
+                onClearFilters={onClearFilters}
                 selectedId={selectedId}
                 unreadByRoutine={unreadByRoutine}
                 busy={busy}

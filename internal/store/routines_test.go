@@ -272,6 +272,108 @@ func TestRoutineCursorSearchScalesBeyondLegacyCap(t *testing.T) {
 	}
 }
 
+func TestListRoutinesPageFiltersByDirectory(t *testing.T) {
+	s, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+	rows := []Routine{
+		{ID: "alpha-old", Cwd: "/work/alpha", Enabled: true, CreatedAt: now},
+		{ID: "alpha-new", Cwd: "/work/alpha", Enabled: false, CreatedAt: now + 1},
+		{ID: "beta", Cwd: "/work/beta", Enabled: true, CreatedAt: now + 2},
+	}
+	for _, r := range rows {
+		r.Agent, r.Prompt, r.IntervalSecs, r.NextDueAt = "kin", "sweep", 60, now
+		if err := s.InsertRoutine(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	page, err := s.ListRoutinesPage(ctx, ListRoutinesOpts{Cwd: "/work/alpha"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Routines) != 2 {
+		t.Fatalf("alpha page = %+v", page.Routines)
+	}
+	for _, r := range page.Routines {
+		if r.Cwd != "/work/alpha" {
+			t.Fatalf("directory filter leaked %q", r.Cwd)
+		}
+	}
+
+	// The directory filter composes with the enabled filter instead of
+	// replacing it: a paused row in the same directory is still excluded.
+	enabled := true
+	page, err = s.ListRoutinesPage(ctx, ListRoutinesOpts{Cwd: "/work/alpha", Enabled: &enabled})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Routines) != 1 || page.Routines[0].ID != "alpha-old" {
+		t.Fatalf("alpha enabled page = %+v", page.Routines)
+	}
+
+	// A cursor stays inside the filter: the second page is the older alpha
+	// row, never the newer beta one that sorts between them globally.
+	first, err := s.ListRoutinesPage(ctx, ListRoutinesOpts{Cwd: "/work/alpha", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Routines) != 1 || first.Routines[0].ID != "alpha-new" || !first.HasMore {
+		t.Fatalf("first filtered page = %+v", first)
+	}
+	second, err := s.ListRoutinesPage(ctx, ListRoutinesOpts{
+		Cwd: "/work/alpha", Limit: 1, Before: first.NextCursor,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Routines) != 1 || second.Routines[0].ID != "alpha-old" || second.HasMore {
+		t.Fatalf("second filtered page = %+v", second)
+	}
+
+	// A directory no routine uses is an empty answer, not an error.
+	empty, err := s.ListRoutinesPage(ctx, ListRoutinesOpts{Cwd: "/work/missing"})
+	if err != nil {
+		t.Fatalf("unknown cwd errored: %v", err)
+	}
+	if len(empty.Routines) != 0 {
+		t.Fatalf("unknown cwd page = %+v", empty.Routines)
+	}
+}
+
+func TestListRoutinesPageFiltersFailedOnly(t *testing.T) {
+	s, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+	rows := []Routine{
+		{ID: "failed", Cwd: "/work/a", Enabled: true, CreatedAt: now, LastOutcome: "failed"},
+		{ID: "succeeded", Cwd: "/work/a", Enabled: true, CreatedAt: now + 1, LastOutcome: "succeeded"},
+		// Never ran: no outcome at all, so it is not a recent failure.
+		{ID: "never", Cwd: "/work/a", Enabled: true, CreatedAt: now + 2},
+	}
+	for _, r := range rows {
+		r.Agent, r.Prompt, r.IntervalSecs, r.NextDueAt = "kin", "sweep", 60, now
+		if err := s.InsertRoutine(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page, err := s.ListRoutinesPage(ctx, ListRoutinesOpts{FailedOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Routines) != 1 || page.Routines[0].ID != "failed" {
+		t.Fatalf("failed-only page = %+v", page.Routines)
+	}
+}
+
 func TestListRoutinesPageCursorSurvivesDeletedRow(t *testing.T) {
 	s, err := Open(filepath.Join(t.TempDir(), "kin.db"))
 	if err != nil {

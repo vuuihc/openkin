@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { Routine } from "../../api/client";
 import { t } from "../../i18n";
@@ -46,11 +47,17 @@ function setup(props: Partial<RoutineListProps> = {}) {
     onToggle: vi.fn(),
     onDelete: vi.fn(),
     onLoadMore: vi.fn(),
+    onStatusChange: vi.fn(),
+    onCwdChange: vi.fn(),
+    onClearFilters: vi.fn(),
   };
   const utils = render(
     <RoutineList
       routines={[morning, evening]}
       query=""
+      status=""
+      cwd=""
+      directories={[]}
       selectedId={null}
       unreadByRoutine={{}}
       busy={{}}
@@ -227,5 +234,66 @@ describe("RoutineList", () => {
     matrix({ machineOffline: true }, true, false);
     // Load more answers only to its own loading state.
     matrix({ loadingMore: true }, false, true);
+  });
+
+  const trigger = (label: string) =>
+    screen.getByRole("button", { name: new RegExp(`^${label}`) });
+
+  it("renders the status and directory filters on 全部", () => {
+    setup();
+    expect(trigger(t("routines.filterStatus")).textContent).toBe(t("routines.filterAll"));
+    expect(trigger(t("routines.filterDirectory")).textContent).toBe(t("routines.filterAllDirs"));
+  });
+
+  it("reports a status choice", async () => {
+    const { onStatusChange } = setup();
+    await userEvent.click(trigger(t("routines.filterStatus")));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: t("routines.paused") }));
+    expect(onStatusChange).toHaveBeenCalledWith("paused");
+  });
+
+  it("reports a directory choice and shows the active one on the trigger", async () => {
+    const { onCwdChange } = setup({
+      cwd: "/work/alpha",
+      directories: [
+        { id: "/work/alpha", label: "alpha" },
+        { id: "/work/beta", label: "beta" },
+      ],
+    });
+    expect(trigger(t("routines.filterDirectory")).textContent).toBe("alpha");
+    await userEvent.click(trigger(t("routines.filterDirectory")));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "beta" }));
+    expect(onCwdChange).toHaveBeenCalledWith("/work/beta");
+  });
+
+  it("names a directory the machine no longer offers instead of showing a raw menu row", () => {
+    setup({ cwd: "/gone/missing" });
+    expect(trigger(t("routines.filterDirectory")).textContent).toBe("missing");
+  });
+
+  it("offers clear only while a filter is set", async () => {
+    const plain = setup();
+    expect(screen.queryByRole("button", { name: t("routines.filterClear") })).toBeNull();
+    plain.unmount();
+    const { onClearFilters } = setup({ status: "paused" });
+    await userEvent.click(screen.getByRole("button", { name: t("routines.filterClear") }));
+    expect(onClearFilters).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the filtered empty state, not the create call to action", () => {
+    setup({ routines: [], status: "failed" });
+    expect(screen.getByText(t("routines.filterEmpty"))).toBeTruthy();
+    expect(screen.getByText(t("routines.filterEmptyHint"))).toBeTruthy();
+    expect(screen.queryByRole("button", { name: t("routines.createEntry") })).toBeNull();
+    expect(screen.getAllByRole("button", { name: t("routines.filterClear") }).length).toBeGreaterThan(
+      0,
+    );
+  });
+
+  it("shows the plain empty state and create when no filter is set", () => {
+    setup({ routines: [] });
+    expect(screen.getByText(t("routines.emptyList"))).toBeTruthy();
+    expect(screen.queryByText(t("routines.filterEmpty"))).toBeNull();
+    expect(screen.getByRole("button", { name: t("routines.createEntry") })).toBeTruthy();
   });
 });
