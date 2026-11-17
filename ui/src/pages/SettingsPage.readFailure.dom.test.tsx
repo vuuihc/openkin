@@ -101,6 +101,7 @@ vi.mock("../api/client", async (importOriginal) => {
 
 vi.mock("../hooks/useMachines", () => ({
   useMachines: () => ({ machines: [], loading: false, failed: false }),
+  refreshMachines: vi.fn(async () => []),
 }));
 
 vi.mock("../hooks/useMinWidth", () => ({
