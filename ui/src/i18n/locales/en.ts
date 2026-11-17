@@ -874,6 +874,7 @@ const en: MessageTree = {
       sending: "Sending…",
       sent: "Sent back to the conversation",
       sendFailed: "The send failed — every comment is still here.",
+      sendBlockedByEdit: "Save or cancel the edit first.",
       stale: "This line has changed",
       staleRow: "Comment on {path}:{line} — this line has changed",
       jumpToRow: "Jump to {path}:{line}",
