@@ -262,9 +262,9 @@ describe("RoutinesPage created routine arrival", () => {
     // The mark is an arrival cue, not selection: the row's select control is
     // still unpressed and nothing was opened.
     expect(
-      within(rowOf("Two")).getByRole("button", { name: "routines.showRuns" }).getAttribute(
-        "aria-pressed",
-      ),
+      within(rowOf("Two"))
+        .getByRole("button", { name: "routines.showRuns" })
+        .getAttribute("aria-pressed"),
     ).toBe("false");
     // It is brought on screen even when the saved list scroll was elsewhere.
     expect(vi.mocked(Element.prototype.scrollIntoView)).toHaveBeenCalledWith({ block: "nearest" });
@@ -286,7 +286,8 @@ describe("RoutinesPage created routine arrival", () => {
     await screen.findByText("elsewhere");
     // Back to the very entry the page replaced, not a fresh push: a state that
     // was only consumed in memory would mark the row again here.
-    await goBack(router);    await screen.findByText("Two");
+    await goBack(router);
+    await screen.findByText("Two");
     expect(document.querySelector('[data-just-created="true"]')).toBeNull();
   });
 
