@@ -57,7 +57,7 @@ export default function ProjectSummaryCard({
           // project above a synthesized list. Modifier clicks keep the
           // browser's new-tab behaviour.
           onClick={(event) => onGuardedLinkClick(event, navigate, location, coverPath)}
-          className="flex-none rounded-lg border border-[var(--kin-hairline)] px-2.5 py-1 text-body text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text"
+          className="inline-flex min-h-11 flex-none items-center rounded-lg border border-[var(--kin-hairline)] px-2.5 py-1 text-body text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text sm:min-h-0"
         >
           {tr("newChat.openOnePager")}
         </Link>
