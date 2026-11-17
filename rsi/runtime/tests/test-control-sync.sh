@@ -18,10 +18,11 @@ export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com
 export GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
 export HOME="$T/home"; mkdir -p "$HOME"
 
-# pair <name> — a bare origin and a work clone one commit behind origin/main.
+# pair <name> [extra...] — a bare origin and a work clone one commit behind origin/main.
+# The seed's second commit adds next.txt plus one file per extra argument (content = name).
 # Sets WORK to the clone and ORIGIN_SHA to origin/main's tip.
 pair() {
-  local d="$T/$1"
+  local d="$T/$1" n; shift
   mkdir -p "$d"
   git init -q -b main "$d/seed"
   ( cd "$d/seed"
@@ -31,8 +32,9 @@ pair() {
   git -C "$d/seed" remote add origin "$d/origin.git"
   git -C "$d/seed" push -q origin main
   git clone -q "$d/origin.git" "$d/work"
-  ( cd "$d/seed" && echo next > next.txt && git add next.txt \
-    && git commit -q -m "feat: next" && git push -q origin main )
+  ( cd "$d/seed" && echo next > next.txt
+    for n in "$@"; do echo "$n" > "$n"; done
+    git add -A && git commit -q -m "feat: next" && git push -q origin main )
   WORK="$d/work"
   ORIGIN_SHA="$(git -C "$d/origin.git" rev-parse main)"
 }
@@ -128,5 +130,68 @@ sync
 [ "$(head_now)" = "$before" ] || fail "no-origin: HEAD moved without a remote"
 [ -z "$ERR" ] || fail "no-origin: expected silence, got: $ERR"
 pass "no-origin-is-silent"
+
+# 7. An untracked path that main now tracks blocks the fast-forward; identical bytes are adopted,
+#    so the tree still reaches origin/main (2026-11-18: a stale draft of reviewer-misses.py pinned it).
+pair untracked-same
+( cd "$WORK" && echo next > next.txt )   # untracked, byte-identical to main's copy
+sync
+[ "$RC" = 0 ] || fail "untracked-same: expected exit 0, got $RC"
+[ "$(head_now)" = "$ORIGIN_SHA" ] || fail "untracked-same: HEAD did not become origin/main: $ERR"
+grep -q 'adopted untracked next.txt' <<<"$ERR" || fail "untracked-same: the adopt was not reported: $ERR"
+[ "$(cat "$WORK/next.txt")" = next ] || fail "untracked-same: next.txt content changed"
+pass "untracked-collision-identical-adopts"
+
+# 8. The same collision with different bytes must not be destroyed and must say why it pinned.
+pair untracked-diff
+( cd "$WORK" && echo "my draft" > next.txt )
+before="$(head_now)"
+sync
+[ "$RC" = 0 ] || fail "untracked-diff: expected exit 0, got $RC"
+[ "$(head_now)" = "$before" ] || fail "untracked-diff: HEAD moved over a differing untracked draft"
+grep -q 'my draft' "$WORK/next.txt" || fail "untracked-diff: the untracked draft was discarded"
+grep -q 'untracked next.txt differs' <<<"$ERR" || fail "untracked-diff: the pin was silent: $ERR"
+pass "untracked-collision-different-pins-loudly"
+
+# 9. Dirty-but-identical tracked content plus a differing untracked draft: the tree must stay pinned
+#    with a line naming the draft — `reset --hard` is only safe when every tracked path matches, and an
+#    untracked path main now tracks would be overwritten by it.
+pair untracked-diff-dirty other.txt
+( cd "$WORK" && echo "my other draft" > other.txt )   # untracked draft of a path main just added
+( cd "$WORK" && echo next > next.txt && git add next.txt )
+git -C "$WORK" fetch -q origin main
+before="$(head_now)"
+sync
+[ "$RC" = 0 ] || fail "untracked-diff-dirty: expected exit 0, got $RC"
+[ "$(head_now)" = "$before" ] || fail "untracked-diff-dirty: HEAD moved and overwrote the draft"
+[ "$(cat "$WORK/other.txt")" = "my other draft" ] || fail "untracked-diff-dirty: other.txt was clobbered"
+grep -q 'untracked other.txt differs' <<<"$ERR" || fail "untracked-diff-dirty: the pin was silent: $ERR"
+pass "untracked-collision-blocks-adopt"
+
+# 10. A clean tracked tree whose fast-forward still fails for another reason must say so. A broken
+#     symlink at the added path is skipped by adopt's `[ -f ]`, yet `merge --ff-only` refuses to
+#     overwrite it. (An empty directory does not work: git replaces it and the ff succeeds.)
+pair untracked-symlink
+ln -s /nonexistent-target "$WORK/next.txt"
+before="$(head_now)"
+sync
+[ "$RC" = 0 ] || fail "untracked-symlink: expected exit 0, got $RC"
+[ "$(head_now)" = "$before" ] || fail "untracked-symlink: HEAD moved over the broken symlink"
+grep -q 'fast-forward to origin/main failed' <<<"$ERR" || fail "untracked-symlink: the ff failure was silent: $ERR"
+pass "fast-forward-failure-is-loud"
+
+# 11. A rename in origin/main: its destination only appears in `git diff --diff-filter=A` with
+#     --no-renames (default detection reports the pair as R). A byte-identical untracked draft at
+#     the destination is adopted, so the tree still reaches origin/main instead of pinning.
+pair rename-dest
+( cd "$T/rename-dest/seed" && git mv runtime.sh renamed.sh \
+  && git commit -q -m "refactor: rename runtime" && git push -q origin main )
+ORIGIN_SHA="$(git -C "$T/rename-dest/origin.git" rev-parse main)"
+( cd "$WORK" && echo rt > renamed.sh )   # untracked, byte-identical to the rename destination
+sync
+[ "$RC" = 0 ] || fail "rename-dest: expected exit 0, got $RC"
+[ "$(head_now)" = "$ORIGIN_SHA" ] || fail "rename-dest: HEAD did not become origin/main: $ERR"
+grep -q 'adopted untracked renamed.sh' <<<"$ERR" || fail "rename-dest: the adopt was not reported: $ERR"
+pass "rename-destination-identical-adopts"
 
 echo "all cases passed"
