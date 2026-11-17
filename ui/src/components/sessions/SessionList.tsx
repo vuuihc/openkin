@@ -1666,6 +1666,27 @@ function ProjectBucket({
             {tr("sessions.restore")}
           </Button>
         ) : null}
+        {hasStoredOrder && !archived && !realProject && !imported ? (
+          /*
+            Pinned and No-project are synthetic buckets: they have no `cwd` and
+            therefore no project record, so neither the fine-pointer hover strip
+            nor the coarse-pointer project menu draws for them. Without this
+            heading control a manual order written inside one (a drag or
+            Alt+↑/↓ stores it under `__pinned__` / `__unassigned__`) would have
+            no way back to recent activity.
+          */
+          <Button
+            variant="quiet"
+            aria-label={tr("nav.restoreTimeOrder")}
+            onClick={onRestoreOrder}
+            className={[
+              "kin-row-press flex flex-none items-center justify-center rounded-lg p-0 text-kin-muted!",
+              coarse ? "h-11 min-h-11 w-11" : "h-9 w-8",
+            ].join(" ")}
+          >
+            <IconRefresh size={14} />
+          </Button>
+        ) : null}
         {realProject && !onRestoreProject && !coarse ? (
           /*
             The hover actions float over the row's tail instead of holding a
