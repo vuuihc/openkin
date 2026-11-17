@@ -19,11 +19,8 @@ vi.mock("../ui/SheetSelect", () => ({
     <input aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} />
   ),
 }));
-vi.mock("../ui/SearchSelect", () => ({
-  default: ({ label, value, onChange }: FieldProps) => (
-    <input aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} />
-  ),
-}));
+// `ModelPicker` and `SearchSelect` stay real: the model chip's portaled
+// popover is the layer the Escape case below needs.
 vi.mock("../chat/CwdPicker", () => ({
   default: ({
     cwd,
@@ -42,7 +39,6 @@ vi.mock("../chat/CwdPicker", () => ({
     />
   ),
 }));
-vi.mock("../chat/ModelPicker", () => ({ default: () => null }));
 vi.mock("../chat/PermissionModePicker", () => ({
   default: ({ value, onChange }: { value: string; onChange: (v: "yolo") => void }) => (
     <input
@@ -178,6 +174,31 @@ describe("RoutineEditor", () => {
     expect(saving.onCancel).not.toHaveBeenCalled();
   });
 
+  it("closes only the open picker on Escape, then the form", async () => {
+    const { onCancel } = setup({}, { models: [{ id: "opus", label: "Opus" }] });
+    // Two triggers share this name: the desktop popover's chip and the phone's
+    // sheet opener. The first in document order is the desktop one.
+    const trigger = screen.getAllByRole("button", {
+      name: new RegExp(`^${t("modelPicker.label")}`),
+    })[0];
+
+    fireEvent.click(trigger);
+    await screen.findByRole("listbox");
+
+    // The picker is portaled to <body>, but its key event still reaches this
+    // form's React handler first. The layer the reader opened last owns the
+    // first Escape; the form underneath must not take it too.
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(screen.queryByRole("listbox")).toBeNull();
+    // The layer hands focus back to the chip it opened from, so the reader can
+    // reopen it or Tab on without hunting for where the caret went.
+    expect(document.activeElement).toBe(trigger);
+
+    fireEvent.keyDown(form(), { key: "Escape" });
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
   it("puts cancel and create/save on the shared Button and keeps the disabled rules", () => {
     const ready = setup();
     const cancel = cancelButton();
@@ -231,15 +252,19 @@ describe("RoutineEditor", () => {
     expect(primaries[0]).toBe(saveButton());
   });
 
-  it("reports schedule edits through onChange", () => {
+  it("reports schedule edits through onChange", async () => {
     const { onChange } = setup();
     fireEvent.change(screen.getByLabelText(t("routines.firstRunLabel")), {
       target: { value: "2026-11-16T09:00" },
     });
     expect(onChange).toHaveBeenCalledWith({ nextRunLocal: "2026-11-16T09:00" });
-    fireEvent.change(screen.getByLabelText(t("routines.repeatLabel")), {
-      target: { value: "minutes" },
-    });
+    // The repeat control is the shared select, not a native <select>: open its
+    // list and take the row the old test typed into the element.
+    const repeat = screen.getAllByRole("button", {
+      name: new RegExp(`^${t("routines.repeatLabel")}`),
+    })[0];
+    fireEvent.click(repeat);
+    fireEvent.click(await screen.findByRole("option", { name: t("routines.repeatEveryMinutes") }));
     expect(onChange).toHaveBeenCalledWith({ rule: { kind: "minutes", every: 15 } });
   });
 });

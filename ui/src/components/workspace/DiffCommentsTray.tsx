@@ -224,8 +224,13 @@ export default function DiffCommentsTray({
         </span>
         <Button
           className="ml-auto text-caption md:min-h-0 md:py-1 md:px-2"
-          disabled={sending}
+          // While a row is being edited, Save is the surface's one primary:
+          // this action turns secondary and disabled, and says why. Sending
+          // here would commit the saved words and throw the draft away.
+          variant={editingId !== null ? "secondary" : "default"}
+          disabled={sending || editingId !== null}
           isLoading={sending}
+          title={editingId !== null ? tr("workspace.comments.sendBlockedByEdit") : undefined}
           onClick={() => void send()}
         >
           {sending

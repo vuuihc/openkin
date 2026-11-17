@@ -430,6 +430,51 @@ describe("the diff comments tray", () => {
     expect(screen.getByText("Use the default title instead.")).toBeTruthy();
   });
 
+  // ——— R-tray-single-primary: one primary while a row is being edited ———
+
+  it("keeps save as the only primary while a row is being edited", () => {
+    render(<Harness initial={THREE} />);
+
+    // Before editing, the header send is the tray's one primary.
+    const before = sendButton(3) as HTMLButtonElement;
+    expect(before.disabled).toBe(false);
+    expect(before.classList.contains("kin-btn-primary")).toBe(true);
+
+    fireEvent.click(editButton("src/other.ts", 3));
+
+    // While the editor is open, Save is the primary. The header send is a
+    // secondary, disabled, and states why: clicking it would send the saved
+    // words and throw the draft away.
+    const send = sendButton(3) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    expect(send.classList.contains("kin-btn-primary")).toBe(false);
+    expect(send.title).toBe(t("workspace.comments.sendBlockedByEdit"));
+    const save = screen.getByRole("button", { name: t("workspace.comments.save") });
+    expect(save.classList.contains("kin-btn-primary")).toBe(true);
+
+    // Cancelling gives the header send back as the one primary.
+    fireEvent.click(screen.getByRole("button", { name: t("workspace.comments.cancel") }));
+    const afterCancel = sendButton(3) as HTMLButtonElement;
+    expect(afterCancel.disabled).toBe(false);
+    expect(afterCancel.classList.contains("kin-btn-primary")).toBe(true);
+  });
+
+  it("re-enables the header send once the edit is saved", () => {
+    render(<Harness initial={THREE} />);
+
+    fireEvent.click(editButton("src/other.ts", 3));
+    const field = screen.getByRole("textbox", { name: t("workspace.comments.fieldLabel") });
+    fireEvent.change(field, { target: { value: "a + b overflows on 32-bit." } });
+    fireEvent.click(screen.getByRole("button", { name: t("workspace.comments.save") }));
+
+    // Saving closes the editor: the header send is the one primary again and
+    // the words it would send are the edited ones.
+    const send = sendButton(3) as HTMLButtonElement;
+    expect(send.disabled).toBe(false);
+    expect(send.classList.contains("kin-btn-primary")).toBe(true);
+    expect(screen.getByText("a + b overflows on 32-bit.")).toBeTruthy();
+  });
+
   it("undoes a delete at the original position", async () => {
     const onRestore = vi.fn();
     render(<Harness initial={THREE} onRestore={onRestore} />);
