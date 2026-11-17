@@ -879,6 +879,10 @@ const en: MessageTree = {
       jumpToRow: "Jump to {path}:{line}",
       delete: "Delete",
       deleteRow: "Delete comment on {path}:{line}",
+      edit: "Edit",
+      editRow: "Edit comment on {path}:{line}",
+      deleted: "Deleted",
+      undo: "Undo",
       messageIntro: "I reviewed the diff and left these comments:",
     },
     openWith: {
