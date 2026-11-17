@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<rect width="1100" height="760" fill="#111315"/>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;fill:#e7e9eb}.muted{fill:#969da4}.small{font-size:12px}.tiny{font-size:11px}.label{font-size:14px}.title{font-size:16px;font-weight:600}.mono{font-family:'SF Mono',Menlo,monospace;font-size:12px}.button{fill:#20252a;stroke:#3b4249}</style>
+<text x="18" y="25" class="small muted">KIN-RESULT-003 · 04 / 发回对话：一条普通消息</text>
+
+<rect y="40" width="760" height="56" fill="#181b1e"/>
+<text x="22" y="74" class="title">对话</text>
+<text x="86" y="73" class="small muted">agent 已完成 · 改了 3 个文件</text>
+
+<rect x="20" y="112" width="600" height="64" rx="10" fill="#181b1e"/>
+<text x="36" y="138" class="small">已改 3 个文件：report.html +12 −4，theme.ts +3 −1，notes.md +8</text>
+<text x="36" y="160" class="tiny muted">结果摘要 · 入口「看改动」仍在摘要上，不重复开列表</text>
+
+<text x="80" y="216" class="tiny muted">你 · 刚刚</text>
+<rect x="80" y="228" width="660" height="386" rx="14" fill="#1b2b45"/>
+<text x="100" y="258" class="label">这几行还需要改一下：</text>
+<rect x="100" y="274" width="620" height="1" fill="#2e4062"/>
+
+<text x="100" y="298" class="tiny" fill="#9db9ff">report.html · @@ -38,7 +38,9 @@</text>
+<text x="100" y="320" class="mono muted">const area = panel.export();</text>
+<text x="100" y="344" class="label">这里应该先判空。</text>
+<rect x="100" y="360" width="620" height="1" fill="#2e4062"/>
+
+<text x="100" y="384" class="tiny" fill="#9db9ff">report.html · @@ -38,7 +38,9 @@</text>
+<text x="100" y="406" class="mono muted">  heading,</text>
+<text x="100" y="430" class="label">标题和副标题层级反了。</text>
+<rect x="100" y="446" width="620" height="1" fill="#2e4062"/>
+
+<text x="100" y="470" class="tiny" fill="#9db9ff">report.html · @@ -38,7 +38,9 @@</text>
+<text x="100" y="492" class="mono muted">  hint,</text>
+<text x="100" y="516" class="label">这行提示太长，收短一点。</text>
+
+<text x="100" y="570" class="small" fill="#9db9ff">查看改动 ›</text>
+<text x="720" y="258" text-anchor="end" class="tiny muted">一条消息</text>
+
+<rect x="80" y="632" width="460" height="52" rx="12" fill="#181b1e"/>
+<text x="96" y="663" class="small muted">好的，我按这三条再改一轮。</text>
+
+<rect x="760" y="40" width="1" height="696" fill="#23272b"/>
+<rect x="761" y="40" width="339" height="696" fill="#14171a"/>
+<text x="778" y="74" class="title">改动</text>
+<text x="1082" y="73" text-anchor="end" class="small muted">report.html</text>
+<rect x="778" y="96" width="304" height="30" rx="6" fill="#20252a"/>
+<text x="790" y="116" class="mono muted">@@ -38,7 +38,9 @@  导出区域</text>
+<rect x="778" y="134" width="304" height="26" rx="4" fill="#13251b"/>
+<text x="790" y="152" class="mono" fill="#6dd58c">41   heading,</text>
+<rect x="778" y="166" width="304" height="26" rx="4" fill="#13251b"/>
+<text x="790" y="184" class="mono" fill="#6dd58c">42   hint,</text>
+<circle cx="1066" cy="179" r="6" fill="#4a5560"/>
+<text x="790" y="220" class="tiny muted">灰点 = 这行评论过；点开看那条消息</text>
+
+<rect x="778" y="270" width="304" height="120" rx="10" fill="#1a1d21"/>
+<text x="792" y="298" class="small">已发回对话 · 3 条</text>
+<text x="792" y="322" class="tiny muted">托盘已清空；未发送的新评论会重新计数</text>
+<text x="792" y="352" class="small" fill="#9db9ff">查看那条消息 ›</text>
+<text x="792" y="376" class="tiny muted">同一条消息，不在别处再列一遍</text>
+
+<rect x="778" y="410" width="304" height="150" rx="10" fill="#1a1d21"/>
+<text x="792" y="438" class="small">agent 正在再改一轮</text>
+<text x="792" y="462" class="tiny muted">评论已发出，不再等待；行上灰点保留</text>
+<text x="792" y="482" class="tiny muted">新评论照常攒，和新一轮 diff 一起用</text>
+<text x="792" y="512" class="tiny muted">发送按钮只在有未发送评论时出现</text>
+<text x="792" y="536" class="tiny muted">断线时消息显示未送达并可重试</text>
+
+<text x="778" y="600" class="tiny muted">对话与工作区同屏：发送不把 diff 推走</text>
+<rect x="778" y="620" width="304" height="88" rx="10" class="button"/>
+<text x="930" y="650" text-anchor="middle" class="small">焦点回到 diff 原行</text>
+<text x="930" y="672" text-anchor="middle" class="tiny muted">Esc 收面板，不丢未发送评论</text>
+<text x="930" y="694" text-anchor="middle" class="tiny muted">⌘Enter 发送</text>
+
+<rect y="736" width="1100" height="24" fill="#181b1e"/>
+<text x="18" y="752" class="small muted">一条普通后续消息 · 走现有发送路径 · 无新表、无新接口、无新事件</text>
+</svg>
