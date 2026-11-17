@@ -12,6 +12,13 @@
 # (the negative cases below use a temp copy); with either set, only that pair is
 # enumerated, so a negative case cannot recurse into itself.
 #
+# The python suites under scripts/ are enumerated too: a *_test.py or *.test.py
+# that no job in check.sh names never runs, and can rot or be deleted silently.
+# Any job may run one, so the search covers the whole file, comments stripped;
+# allow_unwired_py() carries the measured reason for a suite kept out. The
+# RSI_SCRIPTS_DIR seam points that section at another scripts dir (the python
+# negative cases use a temp one) and is honoured only when the directory exists.
+#
 # Hermetic: temp dirs, no network. Prints "PASS <case>" per case and exits non-zero
 # on the first failure.
 set -u
@@ -21,6 +28,7 @@ RUNTIME="$(cd "$HERE/.." && pwd)"
 DEFAULT_CHECK="$REPO/scripts/check.sh"
 CHECK="${RSI_CHECK_SH:-$DEFAULT_CHECK}"
 TESTS="${RSI_TESTS_DIR:-$HERE}"
+SCRIPTS="${RSI_SCRIPTS_DIR:-$REPO/scripts}"
 # Every directory that holds loop suites. ux/ is enumerated too; its one
 # non-hermetic suite is allowlisted in allow_unwired() below.
 SUITE_DIRS=("$HERE" "$RUNTIME/nas/tests" "$RUNTIME/ux")
@@ -59,6 +67,48 @@ allow_unwired() {
   return 1
 }
 
+# allow_unwired_py <repo-relative path> — python suites deliberately kept out of the gate,
+# each with the measured reason. Both are hermetic but too slow to run on every change.
+allow_unwired_py() {
+  case "$1" in
+    # 49 s measured here (40 cases); the #251 review measured ~58 s. Each case
+    # runs the real seed script against a local http.server stub, which is why
+    # it is not in the always-on gate.
+    scripts/journeys_seed_test.py) return 0 ;;
+    # 17 s measured (3 cases): three deliberate sleeps (2.5 s pending window,
+    # 3 s default hold, 10 s clamp), so hermetic is not the same as cheap.
+    scripts/journeys_fake_agent_test.py) return 0 ;;
+  esac
+  return 1
+}
+
+# whole_body <check.sh> — the whole file with shell comments stripped: any job may
+# run a python suite, so unlike job_body() this does not stop at job_shell_test().
+whole_body() {
+  local f="$1"
+  [ -f "$f" ] && [ -r "$f" ] || fail "check.sh missing or unreadable: $f"
+  sed -E 's/(^|[[:space:]])#.*$//' "$f"
+}
+
+# py_unwired <check.sh> <scripts-dir> — print every python suite no job in <check.sh> names.
+# A trailing slash on the dir is ignored, so it cannot turn every path into "scripts//name".
+py_unwired() {
+  local check="$1" dir="${2%/}" body f rel rc=0
+  [ -d "$dir" ] || fail "scripts dir missing: $dir"
+  body="$(whole_body "$check")" || exit 1
+  for f in "$dir"/*_test.py "$dir"/*.test.py; do
+    [ -e "$f" ] || continue
+    rel="${f#"$REPO"/}"
+    [ "$rel" = "$f" ] && rel="scripts/${f##*/}"
+    allow_unwired_py "$rel" && continue
+    if ! named "$body" "$rel"; then
+      echo "$rel"
+      rc=1
+    fi
+  done
+  return "$rc"
+}
+
 # unwired <check.sh> <suite-dir> — print every suite file that job_shell_test() does not name.
 unwired() {
   local check="$1" dir="$2" body f rel rc=0
@@ -81,6 +131,14 @@ unwired() {
 if [ "$CHECK" != "$DEFAULT_CHECK" ] || [ "$TESTS" != "$HERE" ]; then
   if ! bad="$(unwired "$CHECK" "$TESTS")"; then
     fail "unwired suites in $TESTS: ${bad//$'\n'/ }"
+  fi
+  # Only when the python section was pointed at its own temp dir: the shell-only
+  # negative cases must not be judged against the repo's real scripts/*_test.py.
+  if [ -n "${RSI_SCRIPTS_DIR:-}" ] && [ -d "$SCRIPTS" ]; then
+    if ! bad="$(py_unwired "$CHECK" "$SCRIPTS")"; then
+      fail "unwired python suites in $SCRIPTS: ${bad//$'\n'/ }"
+    fi
+    echo "PASS custom-target-python-wired"
   fi
   echo "PASS custom-target-wired"
   exit 0
@@ -110,6 +168,13 @@ for d in "${SUITE_DIRS[@]}"; do
   fi
 done
 echo "PASS all-suites-wired"
+
+# And no python suite may be left behind: a new scripts/*_test.py is unwired
+# until some job in check.sh names it.
+if ! bad="$(py_unwired "$CHECK" "$SCRIPTS")"; then
+  fail "unwired python suites in $SCRIPTS: ${bad//$'\n'/ }"
+fi
+echo "PASS all-python-suites-wired"
 
 # --- negative cases: each points the checker at a temp copy ------------------------------------
 
@@ -147,3 +212,34 @@ if out="$(RSI_CHECK_SH="$T/unwired/nope.sh" RSI_TESTS_DIR="$HERE" bash "$HERE/te
 fi
 grep -q 'check.sh' <<<"$out" || fail "missing-check-sh-fails: output does not name check.sh: $out"
 echo "PASS missing-check-sh-fails"
+
+# --- python suites: the same two negatives, against a temp check.sh and scripts dir -------------
+# ui_lint_guard_test.py stands in for a suite that is already named, so the case
+# also proves the python section does not report a wired file. journeys_extra.test.py
+# covers the *.test.py half of the enumeration, which no checked-in suite exercises.
+PY="$T/py"
+mkdir -p "$PY/scripts"
+printf '#!/usr/bin/env python3\n' > "$PY/scripts/journeys_walk_test.py"
+printf '#!/usr/bin/env python3\n' > "$PY/scripts/journeys_extra.test.py"
+printf '#!/usr/bin/env python3\n' > "$PY/scripts/ui_lint_guard_test.py"
+
+# A python suite the check.sh copy does not name must fail the checker and be named.
+grep -v 'scripts/journeys_walk_test\.py' "$DEFAULT_CHECK" > "$PY/check.sh"
+if out="$(RSI_CHECK_SH="$PY/check.sh" RSI_SCRIPTS_DIR="$PY/scripts" bash "$HERE/test-wiring.sh" 2>&1)"; then
+  fail "python-suite-fails: checker exited 0"
+fi
+grep -q 'scripts/journeys_walk_test.py' <<<"$out" || fail "python-suite-fails: output does not name the suite: $out"
+grep -q 'scripts/journeys_extra.test.py' <<<"$out" || fail "python-suite-fails: output does not name the .test.py suite: $out"
+grep -q 'ui_lint_guard_test.py' <<<"$out" && fail "python-suite-fails: wired python suite reported unwired: $out"
+echo "PASS python-suite-fails"
+
+# A commented-out python wiring line does not count: the suite must still be reported.
+awk '{ if ($0 ~ /journeys_walk_test\.py/) sub(/^[[:space:]]*/, "  # "); print }' \
+  "$DEFAULT_CHECK" > "$PY/check-commented.sh"
+if out="$(RSI_CHECK_SH="$PY/check-commented.sh" RSI_SCRIPTS_DIR="$PY/scripts" bash "$HERE/test-wiring.sh" 2>&1)"; then
+  fail "python-commented-out-fails: checker exited 0"
+fi
+grep -q 'scripts/journeys_walk_test.py' <<<"$out" || fail "python-commented-out-fails: output does not name the suite: $out"
+grep -q 'scripts/journeys_extra.test.py' <<<"$out" || fail "python-commented-out-fails: output does not name the .test.py suite: $out"
+grep -q 'ui_lint_guard_test.py' <<<"$out" && fail "python-commented-out-fails: wired python suite reported unwired: $out"
+echo "PASS python-commented-out-fails"

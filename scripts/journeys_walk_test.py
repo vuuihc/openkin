@@ -263,6 +263,25 @@ class WalkJ3ContractTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("before choosing the run settings", out)
 
+    def test_j3_contract_rejects_a_title_only_prompt_wait(self) -> None:
+        # The conversation header's title IS the prompt, so a bare `text=` wait
+        # stays green while the bubble the draft drew is gone. The wait must be
+        # scoped to the transcript scroller and name the prompt inside it.
+        def title_only_wait(steps: list) -> None:
+            at = next(
+                i
+                for i, step in enumerate(steps)
+                if step[0] == "wait"
+                and str(step[1]).startswith("css=")
+                and "[role=" in str(step[1])
+                and "Draft: summarise this week's TODOs [seed] slow" in str(step[1])
+            )
+            steps[at] = ["wait", "text=Draft: summarise this week's TODOs [seed] slow"]
+
+        code, out = self.check(self.copy_with(title_only_wait))
+        self.assertEqual(code, 1, out)
+        self.assertIn("the title alone is not the message", out)
+
     def test_j3_contract_rejects_a_prompt_without_the_slow_marker(self) -> None:
         # Without [seed] slow the pending window is a race, and the `sent`
         # screenshot proves nothing.
