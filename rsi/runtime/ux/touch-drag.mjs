@@ -376,16 +376,19 @@ async function walk(viewport, options) {
     const order = await storedOrder(page);
     const entry = entryFor(order, first.ids);
     check(`${viewport} · release writes kin_task_order`, Boolean(entry), entry ? `${entry.key} → ${entry.list.join(',')}` : JSON.stringify(order));
+    // A bucket may also hold rows folded behind "show all"; compare the drawn
+    // ids only, in both directions.
+    const drawnOf = (list) => list.filter((id) => first.ids.includes(id));
     check(
       `${viewport} · stored order is the drawn order`,
-      entry.list.join(',') === afterIds.filter((id) => first.ids.includes(id)).join(','),
+      drawnOf(entry.list).join(',') === drawnOf(afterIds).join(','),
       `${entry.list.join(',')} vs ${afterIds.join(',')}`,
     );
     await openSessions(page);
     const reloadedBucket = await bucket(page, scope);
     check(
       `${viewport} · a full reload restores the new order`,
-      Boolean(reloadedBucket) && reloadedBucket.ids.join(',') === entry.list.join(','),
+      Boolean(reloadedBucket) && drawnOf(reloadedBucket.ids).join(',') === drawnOf(entry.list).join(','),
       reloadedBucket ? reloadedBucket.ids.join(',') : 'no bucket after reload',
     );
     await page.screenshot({ path: path.join(out, `${viewport}-after-reload.png`) });
