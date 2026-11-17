@@ -40,10 +40,12 @@ function setup(overrides: Partial<TaskHeaderProps> = {}) {
     degraded: false,
     filesOpen: false,
     panelOpen: false,
+    prOpen: false,
     archiving: false,
     deleting: false,
     stopping: false,
     onToggleWorkspace: vi.fn(),
+    onTogglePr: vi.fn(),
     onShare: vi.fn(),
     onToggleArchive: vi.fn(),
     onDelete: vi.fn(),
@@ -128,6 +130,31 @@ describe("TaskHeader", () => {
     expect(props.onShare).toHaveBeenCalledTimes(1);
     expect(props.onToggleArchive).toHaveBeenCalledTimes(1);
     expect(props.onDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it("desktop: keeps the conversation title readable when the row is crowded", () => {
+    const { utils } = setup();
+    const desktop = within(desktopBar(utils));
+
+    // A `flex-1` title with no floor collapsed to its first character once a
+    // right-side panel narrowed the row; the verbs are what give way instead.
+    const titleBlock = desktop.getByText("Fix the header").parentElement as HTMLElement;
+    expect(titleBlock.className.split(/\s+/)).toContain("min-w-cell");
+
+    // Secondary verbs keep their icon, name and tooltip but lose the word
+    // below `xl`, which is what makes room for the title at 1100px.
+    const compacted = [
+      within(desktop.getByRole("button", { name: t("workspace.title") })).getByText(
+        t("workspace.title"),
+      ),
+      within(desktop.getByRole("button", { name: t("task.share") })).getByText(t("task.share")),
+      desktop.getByText(t("newChat.hostAgent", { name: "Kin" })),
+    ];
+    for (const label of compacted) {
+      const classes = label.className.split(/\s+/);
+      expect(classes).toContain("hidden");
+      expect(classes).toContain("xl:inline");
+    }
   });
 
   it("desktop: stop button appears only while the session is live", () => {
@@ -241,6 +268,24 @@ describe("TaskHeader", () => {
 
     setup({ panelOpen: false });
     expect(screen.queryByRole("button", { name: t("nav.showList") })).toBeNull();
+  });
+
+  it("desktop: the PR toggle reports its pressed state and calls the page", () => {
+    // The button is a peer of the workspace toggle, not a mode of it: the two
+    // panels are separate surfaces and each says whether it is the one open.
+    const { props, utils } = setup({ prOpen: true });
+    const toggle = within(desktopBar(utils)).getByRole("button", { name: t("pr.title") });
+
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(toggle);
+    expect(props.onTogglePr).toHaveBeenCalledTimes(1);
+    expect(props.onToggleWorkspace).not.toHaveBeenCalled();
+    utils.unmount();
+
+    setup({ prOpen: false });
+    expect(screen.getByRole("button", { name: t("pr.title") }).getAttribute("aria-pressed")).toBe(
+      "false",
+    );
   });
 
   it("keeps the phone bar unchanged", () => {
