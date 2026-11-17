@@ -25,6 +25,7 @@ SPEC="$ROOT/rsi/runtime/ux/journeys.json"
 WALK="$ROOT/rsi/runtime/ux/walk.mjs"
 SEED="$ROOT/scripts/journeys_seed.py"
 SUMMARY="$ROOT/scripts/journeys_smoke.py"
+FAKE_AGENT_DIR="$ROOT/scripts/journeys_fake_agent"
 
 OUT=""
 JOURNEYS=""
@@ -195,6 +196,18 @@ fi
 command -v node >/dev/null 2>&1 || unavail "node not found (the journey walker needs node)"
 command -v curl >/dev/null 2>&1 || unavail "curl not found"
 
+# Every conversation route starts the agent CLI the daemon resolves on PATH.
+# Put the fake first so the seeded conversations cannot start a real model
+# turn; the export reaches only this script's children (the daemon, the seed),
+# never the caller's shell, and KIN_CLAUDE_BIN would override PATH, so drop it.
+if [ -x "$FAKE_AGENT_DIR/claude" ]; then
+  PATH="$FAKE_AGENT_DIR:$PATH"
+  export PATH
+  unset KIN_CLAUDE_BIN
+elif [ "$DO_SEED" = 1 ]; then
+  unavail "fake agent missing: scripts/journeys_fake_agent/claude"
+fi
+
 if [ "$NEED_BUILD" = 1 ]; then
   echo "build: console ($BUILD_REASON)"
   if ! ( cd "$ROOT/ui" && npm run build ) >"$TMP/ui-build.log" 2>&1; then
@@ -237,7 +250,13 @@ TOKEN="$(cat "$TMP/state/token" 2>/dev/null || true)"
 
 if [ "$DO_SEED" = 1 ]; then
   echo "seed: $SEED"
-  if ! KIN_BASE="http://127.0.0.1:$PORT" KIN_TOKEN="$TOKEN" python3 "$SEED" >"$OUT/seed.log" 2>&1; then
+  # Say in the seed log which binary the daemon will start for a conversation.
+  RESOLVED="$(command -v claude || true)"
+  case "$RESOLVED" in
+    "$FAKE_AGENT_DIR"/*) echo "fake agent: claude -> scripts/journeys_fake_agent/claude" >"$OUT/seed.log" ;;
+    *) unavail "seed would start a real agent: claude resolves to ${RESOLVED:-nothing}" ;;
+  esac
+  if ! KIN_BASE="http://127.0.0.1:$PORT" KIN_TOKEN="$TOKEN" python3 "$SEED" >>"$OUT/seed.log" 2>&1; then
     echo "seed: failed (walk continues on what exists); see $OUT/seed.log" >&2
   fi
 else

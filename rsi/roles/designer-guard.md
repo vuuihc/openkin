@@ -6,4 +6,4 @@ Model: same as the pass it runs in (first reviewer = DeepSeek `--effort max`; UX
 **Drives:** the primitives roadmap — `Button`, `Menu`, `Popover`, `Select`, `Sheet` in `ui/src/components/ui/`; every migration removes bare controls from the top-12 file list in `ui_inventory.py` output.
 **Outputs:** a short "designer notes" block in the reviewer report and, when the ratchet drops, `ratchet.py update`. The durable baseline covers all 18 metrics and occurrence/file counts; standalone `kin-btn` is the adoption metric, not existing `kin-btn-*` variants.
 **Never:** change the visual language (colors/brand/fonts) or add a dependency.
-**Antibodies:** (dream appends here)
+**Antibodies:** a `quiet` Button must not emit `bg-transparent text-kin-text` after a tinted background — check the `!` utility cascade when a variant sits on `bg-kin-elevated` / `text-kin-muted` (`c91efa9b`). Phone controls are ≥44 px: `data-touch-mini` is 28 px and fails the walk; #167 fixed the last two. Measure the inventory on an `origin/main` export, never the stale control tree.
