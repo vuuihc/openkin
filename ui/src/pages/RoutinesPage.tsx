@@ -133,6 +133,8 @@ function statusLabel(
  */
 export default function RoutinesPage() {
   const tr = useT();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [routineQuery, setRoutineQuery] = useState("");
   const [routineCursor, setRoutineCursor] = useState("");
@@ -199,6 +201,9 @@ export default function RoutinesPage() {
   const [conversationMode, setConversationMode] =
     useState<ConversationMode>(DEFAULT_CONVERSATION_MODE);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // The routine this visit just made, marked until the page unmounts. Not
+  // selection: `selectedId` above is the row whose runs are open.
+  const [justCreatedId, setJustCreatedId] = useState<string | null>(null);
   // The form as it looked when it opened, so closing can tell an untouched
   // form from one that would lose typed words.
   const openDraftRef = useRef<string | null>(null);
@@ -422,6 +427,42 @@ export default function RoutinesPage() {
     if (saved === null || saved <= 0) return;
     el.scrollTop = Math.min(saved, Math.max(0, el.scrollHeight - el.clientHeight));
   }, [loading, error, deviceId, loadedDevice]);
+
+  // A routine made on another surface (New chat's "as routine") arrives named
+  // in router state. Read it once into page state — the rows may still be in
+  // flight — then replace the entry so the instruction belongs to this visit
+  // only: a return, a reload, or a second visit finds none. The key guard is
+  // what makes StrictMode's double effect and the clearing re-render no-ops.
+  // Declared before the URL-sync effect below, because that effect's
+  // `setSearchParams` replace would otherwise drop the state before it is read.
+  const consumedStateKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (consumedStateKey.current === location.key) return;
+    consumedStateKey.current = location.key;
+    const raw = (location.state as { createdId?: unknown } | null)?.createdId;
+    if (typeof raw !== "string" || raw === "") return;
+    setJustCreatedId(raw);
+    navigate(
+      { pathname: location.pathname, search: location.search, hash: location.hash },
+      { replace: true, state: null },
+    );
+  }, [location, navigate]);
+
+  // Bring the row just created on screen. Declared after the saved-scroll
+  // restore above, so in the commit that first shows the rows the restore
+  // applies and this runs last — the arrival cue wins over an offset saved
+  // halfway down the list. One shot per id: a later machine switch has no new
+  // row and restores its own place normally.
+  const revealedCreated = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (!justCreatedId || revealedCreated.current === justCreatedId) return;
+    if (loading || error || loadedDevice !== deviceId) return;
+    if (!routines.some((r) => r.id === justCreatedId)) return;
+    const row = scrollRef.current?.querySelector<HTMLElement>('[data-just-created="true"]');
+    if (!row) return;
+    revealedCreated.current = justCreatedId;
+    row.scrollIntoView?.({ block: "nearest" });
+  }, [justCreatedId, routines, loading, error, loadedDevice, deviceId]);
 
   const loadMoreRuns = async () => {
     if (!runsCursor || !runsHasMore || loadingMoreRuns || runs.length >= ROUTINE_HISTORY_MAX)
@@ -1268,6 +1309,10 @@ export default function RoutinesPage() {
       } else {
         setRoutines((list) => [r, ...list]);
       }
+      // Both paths mark the same id. A filtered reload that excludes the new
+      // routine has nothing to mark — the list only draws a mark for a row it
+      // holds — and that is the honest answer, not an error.
+      setJustCreatedId(r.id);
       closeForm(true);
       resetForm();
       pushToast(tr("routines.created"), "info");
@@ -1589,6 +1634,7 @@ export default function RoutinesPage() {
                 onCwdChange={onCwdChange}
                 onClearFilters={onClearFilters}
                 selectedId={selectedId}
+                justCreatedId={justCreatedId}
                 unreadByRoutine={unreadByRoutine}
                 busy={busy}
                 creating={creating}

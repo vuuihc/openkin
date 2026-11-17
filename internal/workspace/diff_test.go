@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -993,5 +994,420 @@ func TestLiveFileRawReadsWhatTheTextPathRefuses(t *testing.T) {
 	}
 	if _, err := m.ReadLiveFileRaw(context.Background(), meta, "huge.png"); !errors.Is(err, ErrOutputTooLarge) {
 		t.Fatalf("oversized raw read error = %v, want ErrOutputTooLarge", err)
+	}
+}
+
+// statusByPath is the change list as the console reads it: one status per path.
+func statusByPath(changes []Change) map[string]string {
+	status := make(map[string]string, len(changes))
+	for _, change := range changes {
+		status[change.Path] = change.Status
+	}
+	return status
+}
+
+// A checkout that has committed a round of work has changes, and the live list
+// is not the place they show up: `git diff HEAD` is the uncommitted answer by
+// definition. The branch list is the one that carries the work a session already
+// committed, against the base the checkout was started from.
+func TestListBranchChangesIncludesCommittedWork(t *testing.T) {
+	requireGit(t)
+	m := NewManager(t.TempDir())
+	src := t.TempDir()
+	initRepo(t, src)
+	commitFile(t, src, "base.txt", "base\n")
+	gitCmd(t, src, "branch", "-m", "main")
+	gitCmd(t, src, "checkout", "-q", "-b", "feature")
+	commitFile(t, src, "feature.txt", "feature\n")
+	// A binary file carries the flag the console reads, with no line counts.
+	commitFile(t, src, "image.bin", "\x00\x01binary\n")
+	// The tracked base is the branch's own upstream, which is where the base
+	// ref comes from first.
+	gitCmd(t, src, "branch", "--set-upstream-to=main", "feature")
+
+	if err := os.WriteFile(filepath.Join(src, "base.txt"), []byte("edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "untracked.txt"), []byte("new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	meta := SharedMetadata(src)
+	live, err := m.ListLiveChanges(context.Background(), meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveStatus := statusByPath(live)
+	if liveStatus["base.txt"] != "modified" || liveStatus["untracked.txt"] != "added" {
+		t.Fatalf("live changes = %v, want the modified and untracked files", liveStatus)
+	}
+	if _, ok := liveStatus["feature.txt"]; ok {
+		t.Fatalf("live changes = %v, want no committed work: ListLiveChanges is the uncommitted answer", liveStatus)
+	}
+
+	branch, err := m.ListBranchChanges(context.Background(), meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	branchStatus := statusByPath(branch)
+	if branchStatus["feature.txt"] != "added" {
+		t.Errorf("branch changes = %v, want the committed feature.txt", branchStatus)
+	}
+	if branchStatus["base.txt"] != "modified" || branchStatus["untracked.txt"] != "added" {
+		t.Errorf("branch changes = %v, want the uncommitted work too", branchStatus)
+	}
+	// The counts come from one numstat pass and still land on the files the
+	// status pass named.
+	for _, change := range branch {
+		switch change.Path {
+		case "feature.txt":
+			if change.Additions != 1 || change.Deletions != 0 {
+				t.Errorf("feature.txt = %+v, want 1 addition", change)
+			}
+		case "base.txt":
+			if change.Additions != 1 || change.Deletions != 1 {
+				t.Errorf("base.txt = %+v, want 1 addition and 1 deletion", change)
+			}
+		case "image.bin":
+			if !change.Binary || change.Additions != 0 || change.Deletions != 0 {
+				t.Errorf("image.bin = %+v, want a binary entry with no counts", change)
+			}
+		}
+	}
+}
+
+// pushedCheckout is a checkout whose main is pushed to a local origin, the way
+// a clone has one: refs/remotes/origin/main exists, main tracks it, and
+// origin/HEAD names it.
+func pushedCheckout(t *testing.T) string {
+	t.Helper()
+	src := t.TempDir()
+	initRepo(t, src)
+	commitFile(t, src, "tracked.txt", "one\n")
+	gitCmd(t, src, "branch", "-m", "main")
+	remote := filepath.Join(t.TempDir(), "origin.git")
+	gitCmd(t, src, "init", "--bare", remote)
+	gitCmd(t, src, "remote", "add", "origin", remote)
+	gitCmd(t, src, "push", "-q", "-u", "origin", "main")
+	gitCmd(t, src, "remote", "set-head", "origin", "main")
+	return src
+}
+
+// Sitting exactly on the base ref is the regression case, not a mode: the merge
+// base is HEAD, so the branch answer is today's answer, byte for byte.
+func TestListBranchChangesOnBaseBranchMatchesLiveChanges(t *testing.T) {
+	requireGit(t)
+	m := NewManager(t.TempDir())
+	src := pushedCheckout(t)
+
+	if err := os.WriteFile(filepath.Join(src, "tracked.txt"), []byte("two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "untracked.txt"), []byte("new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	meta := SharedMetadata(src)
+	live, err := m.ListLiveChanges(context.Background(), meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	branch, err := m.ListBranchChanges(context.Background(), meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(live, branch) {
+		t.Fatalf("branch changes = %+v, want the live answer %+v on the base branch", branch, live)
+	}
+}
+
+// A directory git only half-knows is still answered the way it always was: no
+// upstream, no origin, nothing to measure from, and the answer falls back to
+// HEAD rather than becoming an error.
+func TestListBranchChangesWithoutBaseFallsBackToHEAD(t *testing.T) {
+	requireGit(t)
+	m := NewManager(t.TempDir())
+	src := t.TempDir()
+	initRepo(t, src)
+	commitFile(t, src, "tracked.txt", "one\n")
+	if err := os.WriteFile(filepath.Join(src, "tracked.txt"), []byte("two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	meta := SharedMetadata(src)
+	live, err := m.ListLiveChanges(context.Background(), meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	branch, err := m.ListBranchChanges(context.Background(), meta)
+	if err != nil {
+		t.Fatalf("no base should fall back to HEAD, not fail: %v", err)
+	}
+	if !reflect.DeepEqual(live, branch) {
+		t.Fatalf("branch changes = %+v, want the live answer %+v with no base", branch, live)
+	}
+}
+
+// The measurement is the merge base, not the base branch's tip: a branch that
+// forked before main moved on should not report main's later commits, and
+// certainly not as deletions of this working tree.
+func TestListBranchChangesMeasuresFromTheMergeBaseNotTheBaseTip(t *testing.T) {
+	requireGit(t)
+	m := NewManager(t.TempDir())
+	src := t.TempDir()
+	initRepo(t, src)
+	commitFile(t, src, "shared.txt", "base\n")
+	gitCmd(t, src, "branch", "-m", "main")
+	gitCmd(t, src, "checkout", "-q", "-b", "feature")
+	commitFile(t, src, "feature.txt", "feature\n")
+	gitCmd(t, src, "branch", "--set-upstream-to=main", "feature")
+	// The base moves on after this branch forked.
+	gitCmd(t, src, "checkout", "-q", "main")
+	commitFile(t, src, "base-only.txt", "later\n")
+	gitCmd(t, src, "checkout", "-q", "feature")
+
+	changes, err := m.ListBranchChanges(context.Background(), SharedMetadata(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := statusByPath(changes)
+	if status["feature.txt"] != "added" {
+		t.Errorf("changes = %v, want this branch's own commit", status)
+	}
+	if _, ok := status["base-only.txt"]; ok {
+		t.Fatalf("changes = %v, want no file from a commit this branch does not contain", status)
+	}
+}
+
+// Without an upstream, the base is the remote's default branch. Both shapes git
+// records it in are read: the symbolic ref a clone writes, and a direct ref left
+// by a hand-added remote. A detached checkout keeps that answer, because the
+// base is about history, not about which branch is checked out.
+func TestListBranchChangesBaseFromTheRemoteDefault(t *testing.T) {
+	requireGit(t)
+	cases := []struct {
+		name    string
+		prepare func(t *testing.T, src string)
+	}{
+		{"symbolic origin/HEAD", func(t *testing.T, src string) {
+			gitCmd(t, src, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+		}},
+		{"direct origin/HEAD", func(t *testing.T, src string) {
+			gitCmd(t, src, "update-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+		}},
+		{"detached HEAD with origin/HEAD", func(t *testing.T, src string) {
+			gitCmd(t, src, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+			gitCmd(t, src, "checkout", "-q", "--detach")
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := NewManager(t.TempDir())
+			src := pushedCheckout(t)
+			gitCmd(t, src, "checkout", "-q", "-b", "feature")
+			commitFile(t, src, "feature.txt", "feature\n")
+			tc.prepare(t, src)
+
+			changes, err := m.ListBranchChanges(context.Background(), SharedMetadata(src))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if statusByPath(changes)["feature.txt"] != "added" {
+				t.Fatalf("changes = %v, want the committed feature.txt measured from the remote default", changes)
+			}
+		})
+	}
+}
+
+// A commit made on the base branch itself is unreviewed work too: with main
+// tracking origin/main, a local commit on main is in the answer.
+func TestListBranchChangesIncludesLocalCommitsOnTheBaseBranch(t *testing.T) {
+	requireGit(t)
+	m := NewManager(t.TempDir())
+	src := pushedCheckout(t)
+	commitFile(t, src, "local.txt", "unpushed\n")
+
+	changes, err := m.ListBranchChanges(context.Background(), SharedMetadata(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if statusByPath(changes)["local.txt"] != "added" {
+		t.Fatalf("changes = %v, want the local commit on the base branch", changes)
+	}
+}
+
+// Kin's own Publish pushes with --set-upstream, so a published branch tracks its
+// own remote counterpart. Measured from there the merge base is HEAD: the panel
+// would empty the moment a round was pushed, and every later round would show
+// only what is still unpushed. The base stays the branch this one forked from.
+func TestListBranchChangesIgnoresUpstreamThatIsOwnRemoteCounterpart(t *testing.T) {
+	requireGit(t)
+	m := NewManager(t.TempDir())
+	src := pushedCheckout(t)
+	gitCmd(t, src, "checkout", "-q", "-b", "feature")
+	commitFile(t, src, "feature.txt", "feature\n")
+	// Publish, the way Kin's Publish does: feature now tracks origin/feature.
+	gitCmd(t, src, "push", "-q", "-u", "origin", "feature")
+	// A later round commits and pushes again, leaving HEAD == its upstream.
+	commitFile(t, src, "second.txt", "second\n")
+	gitCmd(t, src, "push", "-q", "origin", "feature")
+
+	changes, err := m.ListBranchChanges(context.Background(), SharedMetadata(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := statusByPath(changes)
+	if status["feature.txt"] != "added" || status["second.txt"] != "added" {
+		t.Fatalf("changes = %v, want the branch's committed work after publishing it", status)
+	}
+}
+
+// A base ref that shares no history with HEAD is not a base: merge-base fails,
+// and the answer falls back to HEAD rather than erroring or measuring from an
+// unrelated tip.
+func TestListBranchChangesUnrelatedBaseFallsBackToHEAD(t *testing.T) {
+	requireGit(t)
+	m := NewManager(t.TempDir())
+	src := t.TempDir()
+	initRepo(t, src)
+	commitFile(t, src, "tracked.txt", "one\n")
+	gitCmd(t, src, "branch", "-m", "main")
+	// An orphan branch has its own root commit and no common ancestor.
+	gitCmd(t, src, "checkout", "-q", "--orphan", "unrelated")
+	commitFile(t, src, "other.txt", "other\n")
+	gitCmd(t, src, "checkout", "-q", "main")
+	commitFile(t, src, "committed.txt", "work\n")
+	gitCmd(t, src, "branch", "--set-upstream-to=unrelated", "main")
+
+	meta := SharedMetadata(src)
+	live, err := m.ListLiveChanges(context.Background(), meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	branch, err := m.ListBranchChanges(context.Background(), meta)
+	if err != nil {
+		t.Fatalf("an unrelated base should fall back to HEAD, not fail: %v", err)
+	}
+	if !reflect.DeepEqual(live, branch) {
+		t.Fatalf("branch changes = %+v, want the live answer %+v", branch, live)
+	}
+}
+
+// A worktree generation records the commit it forked from when it is created,
+// and that commit is the precise base. The refs changeBase falls back to can be
+// older — a local base branch that was never pushed leaves origin/HEAD behind —
+// and the merge base with it lists the base branch's own commits as this
+// round's work. The recorded OID answers only what this round did.
+func TestListBranchChangesWorktreeUsesTheRecordedBaseOID(t *testing.T) {
+	requireGit(t)
+	m := NewManager(t.TempDir())
+	src := t.TempDir()
+	initRepo(t, src)
+	commitFile(t, src, "a.txt", "a\n")
+	gitCmd(t, src, "branch", "-m", "main")
+
+	// origin/HEAD stays at A: B is a local commit on main that was never pushed.
+	remote := filepath.Join(t.TempDir(), "origin.git")
+	gitCmd(t, src, "init", "--bare", remote)
+	gitCmd(t, src, "remote", "add", "origin", remote)
+	gitCmd(t, src, "push", "-q", "origin", "main")
+	gitCmd(t, src, "remote", "set-head", "origin", "main")
+	commitFile(t, src, "b.txt", "b\n")
+	baseOID := gitOut(t, src, "rev-parse", "HEAD")
+
+	// The generation's worktree forks from B and commits its own round, C.
+	worktree := filepath.Join(t.TempDir(), "wt")
+	gitCmd(t, src, "worktree", "add", "-q", "-b", "round", worktree, baseOID)
+	commitFile(t, worktree, "c.txt", "c\n")
+
+	meta := Metadata{
+		Mode:    ResolvedWorktree,
+		Root:    worktree,
+		Cwd:     worktree,
+		Scope:   ".",
+		BaseOID: baseOID,
+	}
+	changes, err := m.ListBranchChanges(context.Background(), meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := statusByPath(changes)
+	if status["c.txt"] != "added" {
+		t.Fatalf("changes = %v, want the worktree round's own file", status)
+	}
+	if _, ok := status["b.txt"]; ok {
+		t.Fatalf("changes = %v, want no file from the commit the worktree forked from", status)
+	}
+
+	// With nothing recorded, the answer is today's: the merge base with
+	// origin/HEAD is A, so B and C are both unreviewed work from here.
+	meta.BaseOID = ""
+	fallback, err := m.ListBranchChanges(context.Background(), meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fallbackStatus := statusByPath(fallback)
+	if fallbackStatus["b.txt"] != "added" || fallbackStatus["c.txt"] != "added" {
+		t.Fatalf("changes = %v, want the changeBase answer when no base is recorded", fallbackStatus)
+	}
+}
+
+// A stored base is repository state on its way to becoming a git argument. One
+// that is not an object id this repository can resolve — an option-looking
+// string, a ref name, or an id for an object that is not here — is no recorded
+// base: the answer falls through to changeBase, and nothing a bad value says
+// reaches git as an argument.
+func TestListBranchChangesBaseOIDIgnoresAMalformedValue(t *testing.T) {
+	requireGit(t)
+	m := NewManager(t.TempDir())
+	src := t.TempDir()
+	initRepo(t, src)
+	commitFile(t, src, "a.txt", "a\n")
+	gitCmd(t, src, "branch", "-m", "main")
+
+	// changeBase answers from A (origin/HEAD), while HEAD's own answer would
+	// omit B. That difference is what makes a ref name used as a base visible:
+	// git resolves it happily, and the answer changes.
+	remote := filepath.Join(t.TempDir(), "origin.git")
+	gitCmd(t, src, "init", "--bare", remote)
+	gitCmd(t, src, "remote", "add", "origin", remote)
+	gitCmd(t, src, "push", "-q", "origin", "main")
+	gitCmd(t, src, "remote", "set-head", "origin", "main")
+	commitFile(t, src, "b.txt", "b\n")
+
+	worktree := filepath.Join(t.TempDir(), "wt")
+	gitCmd(t, src, "worktree", "add", "-q", "-b", "round", worktree, "main")
+	if err := os.WriteFile(filepath.Join(worktree, "uncommitted.txt"), []byte("work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	meta := Metadata{Mode: ResolvedWorktree, Root: worktree, Cwd: worktree, Scope: "."}
+	want, err := m.ListBranchChanges(context.Background(), meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStatus := statusByPath(want)
+	if wantStatus["b.txt"] != "added" || wantStatus["uncommitted.txt"] != "added" {
+		t.Fatalf("changes = %v, want the changeBase answer", wantStatus)
+	}
+
+	for _, recorded := range []string{
+		"--upload-pack=x",
+		// Ref names git would resolve, so a format check is the only thing
+		// keeping them out of the diff argument.
+		"HEAD",
+		"main",
+		"not-an-oid",
+		// A well-formed id for an object this repository does not have.
+		strings.Repeat("0", 40),
+	} {
+		meta.BaseOID = recorded
+		changes, err := m.ListBranchChanges(context.Background(), meta)
+		if err != nil {
+			t.Fatalf("BaseOID %q: %v", recorded, err)
+		}
+		if !reflect.DeepEqual(changes, want) {
+			t.Fatalf("BaseOID %q: changes = %+v, want the changeBase answer %+v", recorded, changes, want)
+		}
 	}
 }

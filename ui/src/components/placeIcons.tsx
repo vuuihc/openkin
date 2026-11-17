@@ -6,6 +6,7 @@ import {
   IconExternal,
   IconFile,
   IconPlus,
+  IconPullRequest,
   IconRoutines,
   IconSessions,
   IconSettings,
@@ -45,6 +46,9 @@ export const PANEL_ICONS: Record<PanelId, (p: IconProps) => ReactNode> = {
   // The workspace panel is the file tree and the diff; it is the thing the
   // session owns, which is what it is drawn as.
   files: IconFile,
+  // The pull request is the branch's state on its forge: read-only, and drawn
+  // as the mark GitHub gives it.
+  pr: IconPullRequest,
   // Publishing writes to the Hub, which is the one panel whose subject is
   // somewhere else.
   publish: IconExternal,
