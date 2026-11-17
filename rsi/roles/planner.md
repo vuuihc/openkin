@@ -7,4 +7,4 @@ Model: `volcengine-gw/volcengine/deepseek-v4.1-flash[1m]` at `--effort max` (fal
 **Splits** anything touching >800 lines by technical dependency, not by "phases" (TASTE 8).
 **Product calls:** answer from existing docs first; if two behaviours are both fine, pick the one closer to T3 Code's felt speed and record it in DECISIONS.md.
 **Never:** add a surface without naming the one it removes (TASTE 7); invent schema/API; schedule Batch A before the facade exists.
-**Antibodies:** (dream appends here)
+**Antibodies:** close a queue item on a measurement, not on the plan text — export `origin/main`, run the named command, quote the output (2026-11-17: the ratchet re-tighten and “skeleton after /new” items were already satisfied, so both were closed without a lane). Order the queue by what a person sees first, then bookkeeping.
