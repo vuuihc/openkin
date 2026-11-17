@@ -210,7 +210,9 @@ export default function FloatingApproval({
     >
       {/* A live region: an approval arriving while the reader is on another
           screen is the whole point of this card, and a silent arrival means
-          the agent stays stopped until someone happens to look. */}
+          the agent stays stopped until someone happens to look. Opaque like
+          the card below: this chip floats over the list too, and the glass
+          surface let the row text read through it. */}
       <div
         role="status"
         aria-live="polite"
@@ -218,7 +220,7 @@ export default function FloatingApproval({
         // fire today; it keeps a gesture starting here from turning the page if
         // the card ever moves inside that pane.
         data-phone-swipe="true"
-        className="kin-glass pointer-events-auto flex items-center gap-2 self-start rounded-full py-1 pl-3 pr-2 shadow-e2"
+        className="bg-kin-panel pointer-events-auto flex items-center gap-2 self-start rounded-full py-1 pl-3 pr-2 shadow-e2"
       >
         <span className="text-caption font-semibold uppercase tracking-label text-kin-muted">
           {tr("approval.floatingLabel")}
@@ -250,7 +252,11 @@ export default function FloatingApproval({
           </>
         )}
       </div>
-      <div className="pointer-events-auto max-h-[50dvh] overflow-y-auto kin-scroll md:max-h-[60dvh]">
+      {/* An opaque base under the card: `ApprovalCard`'s own surface is a
+          translucent orange tint, which is right in the transcript (a solid
+          pane behind it) and unreadable here, floating over list rows whose
+          text showed through. Same radius so the base never peeks out. */}
+      <div className="pointer-events-auto max-h-[50dvh] overflow-y-auto kin-scroll rounded-xl bg-kin-panel md:max-h-[60dvh]">
         {/* Keyed by the approval: a payload that cannot render costs this one
             card, and the boundary's "caught" state is thrown away when the
             queue moves on — a permanently wedged boundary would hide every
