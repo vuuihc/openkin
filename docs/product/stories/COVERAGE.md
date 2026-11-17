@@ -22,4 +22,4 @@
 
 ## 汇总
 
-approved 6 · blocked 1 · covered 3 · draft 4
+approved 7 · blocked 1 · covered 3 · draft 3

@@ -788,6 +788,7 @@ const zh = {
       prevHunk: "上一处改动",
       nextHunk: "下一处改动",
       mdView: "Markdown 视图",
+      htmlView: "HTML 视图",
       preview: "预览",
       code: "源码",
       save: "保存",

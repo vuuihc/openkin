@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { fetchFileBytes } from "../../api/client";
+import { fetchFileBytes, formatBytes } from "../../api/client";
 import { useT } from "../../i18n/react";
 import Button from "../ui/Button";
+import OpenInMenu from "./OpenInMenu";
 import { buildPreviewDocument, previewDocumentIsEmpty } from "./htmlPreview";
 import {
   TABLE_MAX_COLUMNS,
@@ -325,9 +326,10 @@ export function DelimitedTablePane({
 
 /**
  * The one control the HTML pane adds: whether the file is read as a page or as
- * its source. It lives above the body in both views, so going to the source and
- * coming back is the same two-segment switch, and `aria-pressed` says which
- * one is showing.
+ * its source. It is the same segmented pill the Markdown view uses — one
+ * bordered group, a blue wash on the pressed segment — so the two ways of
+ * reading a file are recognised the same way. `aria-pressed` says which one is
+ * showing.
  */
 export function HtmlViewToggle({
   view,
@@ -342,7 +344,11 @@ export function HtmlViewToggle({
     { value: "code" as const, label: t("workspace.viewer.code") },
   ];
   return (
-    <div className="flex-none flex items-center justify-end gap-1 border-b border-[var(--kin-hairline)] px-2 py-1">
+    <div
+      role="group"
+      aria-label={t("workspace.viewer.htmlView")}
+      className="flex flex-none items-center gap-0.5 rounded-md border border-[var(--kin-hairline)] bg-[var(--kin-fill)] p-0.5"
+    >
       {options.map((option) => (
         <Button
           key={option.value}
@@ -351,12 +357,13 @@ export function HtmlViewToggle({
           onClick={() => onChange(option.value)}
           // The facade drops its floor at `sm`, which would take 44px away on
           // an iPad; the caller's floor carries `!` like the composer pickers.
+          // A wide container keeps the compact pill the Markdown view uses.
           className={[
-            "min-h-11! px-2 text-caption",
-            view === option.value ? "bg-[var(--kin-fill)]" : "",
-          ]
-            .filter(Boolean)
-            .join(" ")}
+            "min-h-11! px-2 text-caption md:h-auto! md:min-h-0! md:px-1.5 md:py-0.5",
+            view === option.value
+              ? "bg-kin-blue/15! text-kin-blue-ink!"
+              : "text-kin-muted! hover:text-kin-text! hover:bg-[var(--kin-fill-strong)]!",
+          ].join(" ")}
         >
           {option.label}
         </Button>
@@ -376,6 +383,8 @@ export function HtmlViewToggle({
 export function HtmlPreviewPane({
   path,
   content,
+  size,
+  openRoot,
   loading,
   error,
   truncated,
@@ -383,6 +392,9 @@ export function HtmlPreviewPane({
 }: {
   path: string;
   content: string | null;
+  size: number | null;
+  /** Task workspace root, for the source view's "Open in…" menu. */
+  openRoot: string;
   loading: boolean;
   error: string | null;
   /** The read stopped early, so the page would be a half-drawn one. */
@@ -408,7 +420,27 @@ export function HtmlPreviewPane({
 
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-[var(--kin-bg)]">
-      <HtmlViewToggle view="preview" onChange={(view) => view === "code" && onShowCode()} />
+      {/*
+        The same two-row file header the source view draws: what the file is,
+        then the controls that change how it is read. The page and its source
+        are two views of one file, so the switch must not look like a bar of
+        its own laid over the editor.
+      */}
+      <div
+        data-testid="html-preview-header"
+        className="flex-none border-b border-[var(--kin-hairline)] px-3 py-2 text-caption text-kin-muted"
+      >
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-kin-secondary truncate min-w-0" title={path}>
+            {path}
+          </span>
+          {size != null && <span className="flex-none tabular-nums">{formatBytes(size)}</span>}
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <HtmlViewToggle view="preview" onChange={(view) => view === "code" && onShowCode()} />
+          <OpenInMenu root={openRoot} relativePath={path} />
+        </div>
+      </div>
       {truncated ? (
         // The read itself stopped early, so the markup that is here is not the
         // page that was written. Say so, and keep the source one click away.

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ApiError } from "../../api/client";
 import { t } from "../../i18n";
 import type { ChangedFile } from "../../lib/changedFiles";
@@ -51,6 +51,7 @@ function openFile(
       path: name,
       content,
       binary: false,
+      size: content.length,
       truncated: options.truncated ?? false,
     });
   }
@@ -162,5 +163,54 @@ describe("previewing an HTML file", () => {
     for (const name of [t("workspace.viewer.preview"), t("workspace.viewer.code")]) {
       expect(screen.getByRole("button", { name }).className).toContain("min-h-11!");
     }
+  });
+
+  it("KIN-RESULT-002: the toggle is one labelled group, and the pressed half is visible", async () => {
+    openFile("design.html", "<h1>Hello</h1>");
+    await previewFrame("design.html");
+
+    // The Markdown view's pattern: one bordered segmented group, not two
+    // loose buttons, and a blue wash that says which half is showing.
+    const group = screen.getByRole("group", { name: t("workspace.viewer.htmlView") });
+    const preview = screen.getByRole("button", { name: t("workspace.viewer.preview") });
+    const code = screen.getByRole("button", { name: t("workspace.viewer.code") });
+    expect(group.contains(preview)).toBe(true);
+    expect(group.contains(code)).toBe(true);
+    expect(preview.getAttribute("aria-pressed")).toBe("true");
+    expect(preview.className).toContain("bg-kin-blue/15!");
+    expect(code.getAttribute("aria-pressed")).toBe("false");
+    expect(code.className).toContain("text-kin-muted!");
+
+    fireEvent.click(code);
+    expect(await screen.findByTestId("code-viewer")).toBeTruthy();
+    const pressed = screen.getByRole("button", { name: t("workspace.viewer.code") });
+    expect(pressed.getAttribute("aria-pressed")).toBe("true");
+    expect(pressed.className).toContain("bg-kin-blue/15!");
+  });
+
+  it("KIN-RESULT-002: the preview header carries the file's path and size", async () => {
+    openFile("design.html", "<h1>Hello</h1>");
+
+    await previewFrame("design.html");
+    // The source view states both in its header; the page view must not make
+    // the reader lose them just because the body is a frame.
+    const header = screen.getByTestId("html-preview-header");
+    expect(within(header).getByText(`${CWD}/design.html`)).toBeTruthy();
+    expect(within(header).getByText("14 B")).toBeTruthy();
+  });
+
+  it("KIN-RESULT-002: the source view adds no second header bar above the editor", async () => {
+    openFile("design.html", "<h1>Hello</h1>");
+    await previewFrame("design.html");
+
+    fireEvent.click(screen.getByRole("button", { name: t("workspace.viewer.code") }));
+    expect(await screen.findByTestId("code-viewer")).toBeTruthy();
+
+    const group = screen.getByRole("group", { name: t("workspace.viewer.htmlView") });
+    // The pill sits in the pane's flow, left-aligned; a full-width border
+    // here was the extra bar the reader had to scroll past on a phone.
+    const row = group.parentElement;
+    expect(row?.className).not.toContain("border-b");
+    expect(row?.className).toContain("px-3");
   });
 });

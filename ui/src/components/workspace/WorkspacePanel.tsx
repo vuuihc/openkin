@@ -1181,6 +1181,8 @@ export default function WorkspacePanel({
               <HtmlPreviewPane
                 path={selectedPath}
                 content={file?.content ?? null}
+                size={file?.size ?? null}
+                openRoot={normalizeFileResponse(file)?.root || cwd}
                 loading={loading}
                 error={error}
                 truncated={file?.truncated ?? false}
@@ -1189,7 +1191,16 @@ export default function WorkspacePanel({
             ) : selectedPath ? (
               <>
                 {preview === "text" && isHtmlPath(selectedPath) && (
-                  <HtmlViewToggle view="code" onChange={(view) => setHtmlAsCode(view === "code")} />
+                  // The same left-aligned pill as the preview's header, beside
+                  // CodeViewer rather than a bordered bar of its own: on a phone
+                  // a third divider above the editor's header read as one more
+                  // stacked bar before the first line of code.
+                  <div className="flex-none px-3 pt-2">
+                    <HtmlViewToggle
+                      view="code"
+                      onChange={(view) => setHtmlAsCode(view === "code")}
+                    />
+                  </div>
                 )}
                 <div className="flex-1 min-h-0 min-w-0">
                   <Suspense fallback={<ViewerLoading />}>

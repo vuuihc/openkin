@@ -811,6 +811,7 @@ const en: MessageTree = {
       prevHunk: "Previous change",
       nextHunk: "Next change",
       mdView: "Markdown view",
+      htmlView: "HTML view",
       preview: "Preview",
       code: "Code",
       save: "Save",
