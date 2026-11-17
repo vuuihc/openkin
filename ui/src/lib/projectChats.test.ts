@@ -101,6 +101,41 @@ describe("projectChatRows (KIN-PROJECT-001)", () => {
     expect(rows[1]?.title).toBe("fix the build");
   });
 
+  it("uses the local rename for a task row's title", () => {
+    // A rename is this browser's name for the conversation (taskTitles.ts),
+    // and the cover's recent row is one of the places that name is drawn. The
+    // map is passed in rather than read from storage, so the row builder stays
+    // a pure function of its arguments.
+    const rows = projectChatRows(
+      [
+        task({ id: "renamed", created_at: 20, title: "Old name" }),
+        task({ id: "plain", created_at: 10, title: "Own title" }),
+      ],
+      [],
+      COPY,
+      "self",
+      100,
+      { renamed: "New name" },
+    );
+    expect(rows.find((row) => row.key === "renamed")?.title).toBe("New name");
+    // Without an entry the row keeps today's order: title, prompt, untitled.
+    expect(rows.find((row) => row.key === "plain")?.title).toBe("Own title");
+  });
+
+  it("a blank local rename falls through instead of blanking the row", () => {
+    // Hand-edited or half-written storage must not turn a row into an empty
+    // cell; a blank override is "no override", exactly as the store reads it.
+    const rows = projectChatRows(
+      [task({ id: "t1", created_at: 10, title: "", prompt: "fix the build" })],
+      [],
+      COPY,
+      "self",
+      100,
+      { t1: "   " },
+    );
+    expect(rows[0]?.title).toBe("fix the build");
+  });
+
   it("uses the agent's display title for an opaque imported title", () => {
     const rows = projectChatRows(
       [],
@@ -217,9 +252,7 @@ describe("loadProjectChats", () => {
       roots: ["/work/a", "/work/b"],
       feed: {
         tasks: async () => [task({ id: "t1", created_at: 10 })],
-        sessions: async (root) => [
-          session({ id: `s-${root}`, cwd: root, updated_at: 20 }),
-        ],
+        sessions: async (root) => [session({ id: `s-${root}`, cwd: root, updated_at: 20 })],
       },
       copy,
       selfDeviceId: "self",
@@ -239,9 +272,7 @@ describe("loadProjectChats", () => {
       roots: ["/work/a"],
       feed: {
         tasks: async () => [task({ id: "t1", created_at: 50 })],
-        sessions: async () => [
-          session({ id: "s1", updated_at: 10, first_seen_at: 40 }),
-        ],
+        sessions: async () => [session({ id: "s1", updated_at: 10, first_seen_at: 40 })],
       },
       copy,
       selfDeviceId: "self",

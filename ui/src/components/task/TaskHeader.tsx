@@ -1,7 +1,8 @@
 import type { CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import type { Task } from "../../api/client";
-import { displayUserPrompt } from "../../lib/attachments";
+import { taskDisplayTitle } from "../../lib/taskTitle";
+import { useLocalTaskTitles } from "../../lib/taskTitles";
 import { useT } from "../../i18n/react";
 import {
   IconArchive,
@@ -127,7 +128,12 @@ export default function TaskHeader({
   onShowList,
 }: TaskHeaderProps) {
   const tr = useT();
-  const title = task.title || displayUserPrompt(task.prompt || "");
+  // This browser's renames, the same map the list's row menu writes
+  // (`taskTitles.ts`). The header is open when a rename happens in the sidebar
+  // or another tab, so it subscribes and re-reads rather than trusting the
+  // title it mounted with — that stale copy was the whole bug.
+  const [localTitles] = useLocalTaskTitles();
+  const title = taskDisplayTitle(task, localTitles);
   const archiveLabel = task.archived_at ? tr("task.unarchiveSession") : tr("task.archiveSession");
 
   return (

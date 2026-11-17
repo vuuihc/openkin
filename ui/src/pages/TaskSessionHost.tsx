@@ -17,6 +17,7 @@ import {
   writeSessionTabs,
 } from "../lib/sessionTabs";
 import { taskDisplayTitle } from "../lib/taskTitle";
+import { useLocalTaskTitles } from "../lib/taskTitles";
 import { subscribeWS } from "../store/appStore";
 import ErrorBoundary from "../components/ErrorBoundary";
 import SessionTabs, { type SessionTab } from "../components/layout/SessionTabs";
@@ -65,6 +66,10 @@ export default function TaskSessionHost() {
     () => new Map(taskList.data.map((task) => [task.id, task])),
     [taskList.data],
   );
+  // A rename is a local preference and never reaches the live feed, so this
+  // strip has to hear the store itself: without the subscription an idle
+  // conversation keeps the old tab label above a header showing the new one.
+  const [localTitles] = useLocalTaskTitles();
 
   // Which sessions need the reader. A mid-run block shows in the task's own
   // status too, but the pending lists also cover the moment before it lands.
@@ -202,7 +207,7 @@ export default function TaskSessionHost() {
 
   const tabs: SessionTab[] = tabOrder.map((id) => ({
     id,
-    label: taskDisplayTitle(tasksById.get(id)) || tr("tabs.untitled"),
+    label: taskDisplayTitle(tasksById.get(id), localTitles) || tr("tabs.untitled"),
     // The session in front carries no dot: its state is the screen itself, and
     // a mark there would label what the reader is already looking at.
     mark:
