@@ -18,6 +18,7 @@ REMOTE="${NAS_REMOTE:-}"
 SSH_BIN="${NAS_SSH:-ssh}"
 SCP_BIN="${NAS_SCP:-scp}"
 GH_BIN="${NAS_GH:-$GH}"
+DATE_BIN="${NAS_DATE:-date}"
 SSH=("$SSH_BIN" -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -n)
 SSH_T="${NAS_SSH_TIMEOUT:-90}"
 XFER_T="${NAS_XFER_TIMEOUT:-900}"
@@ -473,9 +474,14 @@ while IFS=, read -r SLUG ST <&3; do
     with_timeout "$GH_T" "$GH_BIN" pr edit "$PRN" --repo "$GH_REPO" --body-file "$PRB" >/dev/null 2>&1 \
       || echo "branch pushed; could not update the PR #$PRN body for $SLUG"
   fi
-  HIST_BASE="$STATE/lanes/history/$(date +%Y%m%d-%H%M%S)-$SLUG"; HIST="$HIST_BASE.json"; hn=1
-  while [ -e "$HIST" ]; do hn=$((hn+1)); HIST="$HIST_BASE-$hn.json"; done   # two results in one second are two rows
-  python3 - "$HIST" "$SLUG" "$ITEM" "$PRN" "$STATE/cloud/$SLUG.json" "$SC" <<'PY'
+  HIST_TS="$("$DATE_BIN" +%Y%m%d-%H%M%S)"
+  HIST_OUT="$STATE/lanes/history/$HIST_TS-$SLUG.json"
+  HIST_N=1
+  while [ -e "$HIST_OUT" ]; do
+    HIST_N=$((HIST_N + 1))
+    HIST_OUT="$STATE/lanes/history/$HIST_TS-$SLUG-$HIST_N.json"
+  done   # two results in one second are two rows
+  python3 - "$HIST_OUT" "$SLUG" "$ITEM" "$PRN" "$STATE/cloud/$SLUG.json" "$SC" <<'PY'
 import json,sys,time,os
 out,slug,item,pr,cf,sc=sys.argv[1:7]
 paths=json.load(open(cf)).get("paths",[]) if os.path.exists(cf) else []

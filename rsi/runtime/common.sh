@@ -94,7 +94,12 @@ rsi_kill_tree() {
 with_timeout() { # secs cmd...   (macOS has no `timeout`)
   local s="$1"; shift
   "$@" & local p=$!
-  ( sleep "$s"; kill -TERM "$p" 2>/dev/null; sleep 5; kill -KILL "$p" 2>/dev/null ) >/dev/null 2>&1 & local w=$!
+  ( sp=""
+    trap '[ -n "${sp:-}" ] && kill "$sp" 2>/dev/null; exit 0' TERM INT
+    sleep "$s" & sp=$!; wait "$sp" || exit 0
+    kill -TERM "$p" 2>/dev/null
+    sleep 5 & sp=$!; wait "$sp" || exit 0
+    kill -KILL "$p" 2>/dev/null ) >/dev/null 2>&1 & local w=$!
   wait "$p"; local rc=$?
   kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
   return $rc

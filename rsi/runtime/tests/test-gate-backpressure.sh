@@ -188,4 +188,24 @@ GHEOF
 ) || bad fake-gh-filter
 ok fake-gh-filter
 
+# with_timeout must reap its watchdog sleep when the wrapped command exits early.
+(
+  . "$H/common.sh"
+  mkdir -p "$T/sleep-bin"
+  cat > "$T/sleep-bin/sleep" <<SEOF
+#!/bin/bash
+echo \$\$ > "$T/sleep.pid"
+exec /bin/sleep "\$@"
+SEOF
+  chmod +x "$T/sleep-bin/sleep"
+  PATH="$T/sleep-bin:$PATH" with_timeout 60 sh -c 'i=0; while [ ! -s "'"$T"'/sleep.pid" ] && [ $i -lt 50 ]; do /bin/sleep 0.02; i=$((i+1)); done' || exit 1
+  [ -s "$T/sleep.pid" ] || exit 1
+  SPID="$(cat "$T/sleep.pid")"
+  i=0
+  while kill -0 "$SPID" 2>/dev/null && [ $i -lt 50 ]; do /bin/sleep 0.02; i=$((i+1)); done
+  ! kill -0 "$SPID" 2>/dev/null || exit 1
+  exit 0
+) || bad with-timeout-reaps-sleep
+ok with-timeout-reaps-sleep
+
 echo ALL-PASS
