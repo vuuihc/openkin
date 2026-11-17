@@ -3192,3 +3192,124 @@ describe("nameless tool updates", () => {
     ]);
   });
 });
+
+describe("process timing", () => {
+  const at = (seq: number, ts: number, type: string, payload: TaskEvent["payload"]): TaskEvent => ({
+    task_id: "task-1",
+    event_epoch: 0,
+    seq,
+    ts,
+    type,
+    payload,
+  });
+
+  const toolsOf = (events: TaskEvent[]) =>
+    buildChatItems(events, "kin")
+      .filter((item): item is ProgressItem => item.kind === "progress")
+      .flatMap((item) => item.steps.filter((step): step is ToolStep => step.kind === "tool"));
+
+  const call = (seq: number, ts: number) =>
+    at(seq, ts, "tool_use", { speaker: "kin", tool_use_id: "call-1", name: "bash" });
+  const result = (seq: number, ts: number) =>
+    at(seq, ts, "tool_result", {
+      speaker: "kin",
+      tool_use_id: "call-1",
+      name: "bash",
+      output: "ok",
+      ok: true,
+    });
+
+  it("carries a tool call's elapsed time from use to result", () => {
+    const [tool] = toolsOf([call(1, 1_000_000), result(2, 1_002_500)]);
+
+    expect(tool.durationMs).toBe(2500);
+  });
+
+  it("leaves a running tool without a duration", () => {
+    const [tool] = toolsOf([call(1, 1_000_000)]);
+
+    expect(tool.status).toBe("running");
+    expect(tool.durationMs).toBeUndefined();
+  });
+
+  it("measures a progress run from its first to its last stamped event", () => {
+    const items = buildChatItems([call(1, 1_000), result(2, 4_000)], "kin");
+    const progress = items.find((item): item is ProgressItem => item.kind === "progress");
+
+    expect(progress?.durationMs).toBe(3000);
+  });
+
+  it("leaves an unstamped run without a duration", () => {
+    const items = buildChatItems([call(1, 0), result(2, 0)], "kin");
+    const progress = items.find((item): item is ProgressItem => item.kind === "progress");
+
+    expect(progress?.durationMs).toBeUndefined();
+  });
+
+  it("leaves a run with a single stamped event without a duration", () => {
+    const items = buildChatItems([call(1, 1_000)], "kin");
+    const progress = items.find((item): item is ProgressItem => item.kind === "progress");
+
+    expect(progress?.durationMs).toBeUndefined();
+  });
+
+  it("measures a settled card across the groups it merges", () => {
+    const ask = (seq: number, ts: number, id: string) =>
+      at(seq, ts, "tool_use", { speaker: "kin", tool_use_id: id, name: "bash" });
+    const done = (seq: number, ts: number, id: string) =>
+      at(seq, ts, "tool_result", {
+        speaker: "kin",
+        tool_use_id: id,
+        name: "bash",
+        output: "ok",
+        ok: true,
+      });
+    const say = (seq: number, ts: number, text: string) =>
+      at(seq, ts, "message", {
+        role: "assistant",
+        speaker: "kin",
+        content: [{ type: "text", text }],
+      });
+    const settled = mergeProcessRuns(
+      buildChatItems(
+        [
+          ask(1, 1_000, "call-1"),
+          done(2, 2_000, "call-1"),
+          say(3, 3_000, "Halfway."),
+          ask(4, 4_000, "call-2"),
+          done(5, 6_000, "call-2"),
+          say(6, 7_000, "Done."),
+        ],
+        "kin",
+        undefined,
+        true,
+      ),
+    );
+    const progress = settled.find((item): item is ProgressItem => item.kind === "progress");
+
+    expect(progress?.durationMs).toBe(5000);
+  });
+
+  it("leaves a tool whose result predates its call without a duration", () => {
+    const [tool] = toolsOf([call(1, 2_000), result(2, 1_000)]);
+
+    expect(tool.durationMs).toBeUndefined();
+  });
+
+  it("keeps the start of a call that is re-sighted by a status-only update", () => {
+    const [tool] = toolsOf([
+      call(1, 1_000),
+      at(2, 3_000, "tool_use", { speaker: "kin", tool_use_id: "call-1" }),
+      result(3, 4_000),
+    ]);
+
+    expect(tool.durationMs).toBe(3000);
+  });
+
+  it("leaves a merged card with a single stamped event without a duration", () => {
+    const settled = mergeProcessRuns(buildChatItems([call(1, 1_000)], "kin", undefined, true));
+    const progress = settled.find((item): item is ProgressItem => item.kind === "progress");
+
+    expect(progress?.durationMs).toBeUndefined();
+  });
+});
