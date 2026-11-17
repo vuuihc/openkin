@@ -3312,4 +3312,18 @@ describe("process timing", () => {
 
     expect(progress?.durationMs).toBeUndefined();
   });
+
+  it("keeps the daemon's queued-message discard report on the transcript", () => {
+    // Stop drops the messages queued behind the canceled round, and the store
+    // writes this event in the same transaction (internal/store/pending_prompts.go).
+    // It is the only on-screen account of where those messages went: dropping it
+    // in projection would leave the reader with messages that silently vanished.
+    const message = "1 queued prompt(s) discarded with the canceled task";
+    const items = buildChatItems([
+      ev(1, "message", { role: "user", content: [{ type: "text", text: "queued" }] }),
+      ev(2, "error", { message, count: 1 }),
+    ]);
+
+    expect(items.find((item) => item.kind === "error")).toMatchObject({ kind: "error", message });
+  });
 });
