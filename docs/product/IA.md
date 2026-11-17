@@ -30,7 +30,7 @@
 - 设备名一直显示，单设备也不收起（2026-10-30 改；原规则"只有一台设备时收起"作废，`showMachineLabels` 随之改掉）。
 - 左栏现在已经是这个结构；手机列表现在只有"项目 → 对话"两层，缺设备层。
 - 归档页和搜索结果是同一份列表的另一种范围，层级相同。
-- 手机整页与 Mac 左栏共用同一个列表组件（`SessionList`）：数据、搜索、过滤、排序、折叠、行操作一致，宽度只决定容器和溢出的触发方式（左栏悬停按钮 / 手机滑动与长按）。项目标题是项目封面（`/projects/:id`）的入口，折叠是它前面的箭头。`/projects` 是「项目」区域的根 URL（四区域导航，N1/N2，2026-11-15）：路由、通知落点、⌘K 都从 `ui/src/lib/areas.ts` 这一张表读它，页面渲染项目集合；集合行是带 mode 与主目录、尾部 `>` 的 drill-in 链接，点进 `/projects/:id` 封面；手机四个底部入口的接线留给 N3/S2。R0b-2d 曾删掉这个索引页，四区域模型把 `/projects` 作为区域根恢复。
+- 手机整页与 Mac 左栏共用同一个列表组件（`SessionList`）：数据、搜索、过滤、排序、折叠、行操作一致，宽度只决定容器和溢出的触发方式（左栏悬停按钮 / 手机滑动与长按；行操作与长按入口归 KIN-MANAGE-001）。项目标题是项目封面（`/projects/:id`）的入口，折叠是它前面的箭头。`/projects` 是「项目」区域的根 URL（四区域导航，N1/N2，2026-11-15）：路由、通知落点、⌘K 都从 `ui/src/lib/areas.ts` 这一张表读它，页面渲染项目集合；集合行是带 mode 与主目录、尾部 `>` 的 drill-in 链接，点进 `/projects/:id` 封面；手机四个底部入口的接线留给 N3/S2。R0b-2d 曾删掉这个索引页，四区域模型把 `/projects` 作为区域根恢复。
 - 项目封面没有「对话」tab：概览的最近活动只放最近一段对话的入口，更早的对话回列表按项目找；封面不复制第二份对话列表（2026-11-11，KIN-PROJECT-001 签字）。摘要编辑 One-Pager 的 `Current Focus`，热力图固定两周，例行任务只读并链到 `/routines`；项目记录、摘要、pulse、活动、例行任务各自失败、各自保留上次结果（2026-11-11 交付）。
 - 导入的 agent 会话不是项目：每台机器末尾单独一组「导入的会话（N）」，默认收起，行与原生对话同形（无彩色 rail、状态点或可用性徽标）；新导入只改计数，不自动展开。详情页的头部也只保留标题与来源行，来源 ID 放进时间戳那一行（R0b-2c，2026-11-10）。
 
@@ -64,7 +64,7 @@
 
 | 面 | 归谁 | 内容 |
 |---|---|---|
-| 对话详情 → 文件工作区（KIN-RESULT-002 draft，待签） | 这段对话、其 source 工作区或选中的 generation | 文件树、diff、文本/图片/表格与自包含 HTML 预览；手机是「对话 / 文件列表 / 文件详情」三态；source 深链只携带 task/panel/file，不含绝对 cwd/token；generation/diff 仍是本地行为；不恢复 Artifacts |
+| 对话详情 → 文件工作区（KIN-RESULT-002 draft，待签） | 这段对话、其 source 工作区或选中的 generation | 文件树、diff、文本/图片/表格与自包含 HTML 预览；手机是「对话 / 文件列表 / 文件详情」三态；source 深链只携带 task/panel/file，不含绝对 cwd/token；generation/diff 仍是本地行为；diff 的一行可以留评论，评论按对话收在 diff 下方的本地托盘里，发出去才成为一条普通后续消息（KIN-RESULT-003）；不恢复 Artifacts |
 | 系统设置（macOS / iOS） | 这台设备 | 通知权限与开关；控制台不再有「设置 → 通知」面，iPhone 首次授权保留「设置 → 通用」的一行入口（2026-11-11，R0b-3） |
 | 系统通知中心 | macOS / iOS | 标题是对话标题，正文说清批准、提问、跑完、失败、额度或例行报告；点开落到那一条 |
 | iOS 锁屏 / 灵动岛（KIN-NOTIFY-002，待签） | 这部 iPhone 上正在关注的一段对话 | 一轮进行中、等待、完整回复就绪与终态；一段对话一个活动，不是第二份对话列表；点按定位本轮 / 卡片 |
@@ -93,7 +93,7 @@
 
 | 面 | 归谁 | 内容 |
 |---|---|---|
-| 控制台设置 `/settings` | Hub | Agent、模型、权限等运行默认值（KIN-SETTINGS-001 的面）；远程 / 通知两个 tab 已于 2026-11-11（R0b-3）删除，relay / APNs 仍是 daemon API；通知只保留 iPhone 首次授权的一行；`?tab=operations` 托管 Agent 运维（原 `AgentsPage` 主体，N4 已接管），E4a 已由 #141 `71402048` 交付、`/agents` 与 `/usage` 都 `replace` 到它；分区 ID 仍是 `general` / `agents` / `providers` / `routing` / `advanced` / `operations`，`?tab=agents` 永远是本地 Agent 与角色 |
+| 控制台设置 `/settings` | Hub | Agent、模型、权限等运行默认值（KIN-SETTINGS-001 的面；该故事于 2026-11-17 CEO 代签，D1–D8 已定，设计页 5 帧）；远程 / 通知两个 tab 已于 2026-11-11（R0b-3）删除，relay / APNs 仍是 daemon API；通知只保留 iPhone 首次授权的一行；`?tab=operations` 托管 Agent 运维（原 `AgentsPage` 主体，N4 已接管），E4a 已由 #141 `71402048` 交付、`/agents` 与 `/usage` 都 `replace` 到它；分区 ID 仍是 `general` / `agents` / `providers` / `routing` / `advanced` / `operations`，`?tab=agents` 永远是本地 Agent 与角色 |
 | 菜单栏托盘（Mac） | 桌面壳 | 常驻版本行「Kin X」；检查更新、下载（进度）、安装（open dmg + 确认退出）、删除已下载的安装包；只连 github.com 官方 Releases，不做后台轮询 |
 | 手机 | 无此面 | PWA 由 Hub 重新部署时自然更新；手机上没有桌面壳的升级问题 |
 

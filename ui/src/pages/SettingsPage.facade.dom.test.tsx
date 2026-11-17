@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// KIN-SETTINGS-001 — 改默认设置（J6）：本套件持有通用 / 路由 / 高级的按钮与保存验收行。
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -276,6 +277,47 @@ describe("the general tab on the button facade", () => {
 
     await waitFor(() =>
       expect(document.getElementById("settings-limit-policy-error")?.textContent).toContain("boom"),
+    );
+  });
+
+  it("routes the JSON fields through the shared text area", async () => {
+    const user = userEvent.setup();
+    pageOnly("/settings?tab=advanced");
+    await screen.findByRole("tab", { name: "Advanced" });
+
+    for (const [name, descriptionId] of [
+      ["Price table", "settings-price-description"],
+      ["Agent usage limits", "settings-agent-limits-description"],
+    ]) {
+      const field = screen.getByRole("textbox", { name });
+      // The primitive renders the native multi-line control and owns the name;
+      // the section heading still exists, but is no longer a second labelling
+      // path on the textarea itself.
+      expect(field).toBeInstanceOf(HTMLTextAreaElement);
+      expect(field.getAttribute("aria-describedby")).toContain(descriptionId);
+    }
+
+    const price = screen.getByRole("textbox", { name: "Price table" });
+    fireEvent.change(price, { target: { value: "{not json" } });
+    await user.click(screen.getByRole("button", { name: "Save price table" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("textbox", { name: "Price table" }).getAttribute("aria-describedby"),
+      ).toContain("settings-price-error"),
+    );
+
+    // The shared save validates the price table first; restore it so the
+    // limits group's own validation is the one that runs.
+    fireEvent.change(price, { target: { value: "{}" } });
+    const limits = screen.getByRole("textbox", { name: "Agent usage limits" });
+    fireEvent.change(limits, { target: { value: "{not json" } });
+    await user.click(screen.getByRole("button", { name: "Save limits" }));
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("textbox", { name: "Agent usage limits" })
+          .getAttribute("aria-describedby"),
+      ).toContain("settings-agent-limits-error"),
     );
   });
 

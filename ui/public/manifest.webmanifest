@@ -4,8 +4,8 @@
   "description": "Self-hosted agent console — dispatch, watch, approve",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0f1115",
-  "theme_color": "#0f1115",
+  "background_color": "#0e0e10",
+  "theme_color": "#0e0e10",
   "icons": [
     {
       "src": "/icons/icon-192.png",

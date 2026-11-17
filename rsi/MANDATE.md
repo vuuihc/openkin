@@ -5,7 +5,7 @@ calls are the CEO's; report after, not before. This file is the contract. It may
 
 ## Auto-approved (reversible)
 - Create worktrees/branches named `rsi/*` under `~/.kin/worktrees/rsi-*`; commit; push `rsi/*` branches.
-- Open PRs against `main` of `vuuihc/openkin`; **squash-merge** them when the merge gate below is green.
+- Open PRs against `main` of `vuuihc/openkin`; **squash-merge** them when the merge gate below is green; **close** superseded/obsolete `rsi/*` PRs without `--delete-branch` (reversible via `gh pr reopen`; never ask Ethan to approve closing a PR).
 - Edit code, tests, docs, `docs/product/*`, stories, gap-log, LESSONS; add ADRs.
 - Make product/UX decisions consistent with PRINCIPLE.md, IA.md, TASTE.md; record them in `rsi/DECISIONS.md` (one line: date · decision · why · how to reverse).
 - Sign stories on Ethan's behalf **only** when recorded in DECISIONS.md as a CEO call.
@@ -21,7 +21,6 @@ calls are the CEO's; report after, not before. This file is the contract. It may
 
 ## Red lines (never, even if a model argues for it)
 - No force-push, no `reset --hard` outside `rsi-*` worktrees, no deleting branches or worktrees, no `--delete-branch`.
-- Never touch the main checkout `~/Workspace/study/kin-multidevice` working tree (it holds Ethan's uncommitted work). Read-only there is fine.
 - No release, tag, dmg, `scripts/desktop-rebuild.sh`, relay deploy, Hub deploy, or restart of the live node on `:7777`. (The morning report tells Ethan to rebuild.)
 - No secrets: never read or print `~/.kin/secrets`, tokens, `.env`, keychain, magpie keys. Never commit them.
 - Public repo: no real hostnames, LAN addresses, device ids, account names/emails in any committed file (use placeholders per AGENTS.md).

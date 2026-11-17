@@ -8,13 +8,24 @@ the token is never printed. A state the API cannot produce without launching a
 real agent CLI is reported as `skip <state>: <reason>` and does not fail the
 walk — ux-walk.sh only treats a non-zero exit as a seed failure.
 
+Each project root is a clean git repository with one committed file, and the
+`conversation-created` prompt carries CHANGE_MARKER: the fake agent appends one
+line to that tracked file, so the walk can open a real workspace diff instead
+of an empty Changes bar.
+
 Conversations are seedable because the harness (rsi/runtime/ux-walk.sh and
 scripts/journeys-smoke.sh) puts scripts/journeys_fake_agent first on the
-throwaway daemon's PATH: the seed creates one succeeded, one failed and one
-archived conversation, and refuses to create any unless /api/agents names a
-`claude` inside that directory as the binary the daemon would launch. States
-the fake cannot produce — a permission request, a routine run — still print
-`skip`.
+throwaway daemon's PATH: the seed creates one succeeded, one failed, one
+archived and one held-open conversation, and refuses to create any unless
+/api/agents names a `claude` inside that directory as the binary the daemon
+would launch. The held conversation gets its approval card through the same
+loopback-only `POST /internal/approvals` bridge the agent's own client uses.
+When that card exists, the seed prints one line naming it for the walker:
+
+    j7 target conversation=<task-id> focus=<approval-id>
+
+With no card the line is absent and J7 stays a skip. States the fake cannot
+produce — a failed routine run — still print `skip`.
 
 Usage:
     KIN_BASE=http://127.0.0.1:<port> KIN_TOKEN=<token> \
@@ -26,6 +37,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -34,6 +46,20 @@ import urllib.parse
 import urllib.request
 
 PREFIX = "[seed] "
+# The literal the fake agent looks for; a prompt carrying it asks for one
+# modified tracked file, which is the diff the J2 walk opens.
+CHANGE_MARKER = "[seed] change"
+# The literal the fake agent looks for to hold one tool_use turn open: it
+# emits the request and then stays alive, so the task stays `running` until
+# the seed asks for an approval through the internal bridge.
+APPROVE_MARKER = "[seed] approve"
+# The exact line the fake agent appends to notes.md. The shell fake carries the
+# same text; a re-run finds it and leaves the file alone.
+CHANGE_SENTINEL = "- [seed] change: the journey walk reads this line as a real diff."
+# The fake agent only writes inside a root whose path carries this prefix, and
+# scripts/journeys_fake_agent/claude hard-codes the same match.
+SEED_ROOT_PREFIX = "kin-journeys-seed-"
+SEED_ROOT_NAMES = ("alpha", "beta", "gamma")
 # The harness directory that holds the fake claude. The seed only creates
 # conversations when the daemon resolves its `claude` binary inside it.
 FAKE_AGENT_DIRNAME = "journeys_fake_agent"
@@ -85,7 +111,8 @@ CONVERSATIONS = (
     {
         "slug": "conversation-created",
         "title": PREFIX + "Morning planning",
-        "prompt": PREFIX + "Summarise the three things worth doing today.",
+        # CHANGE_MARKER makes the fake agent leave one modified tracked file.
+        "prompt": PREFIX + "change: summarise the three things worth doing today.",
         "expect": ("succeeded",),
         "archive": False,
     },
@@ -103,6 +130,19 @@ CONVERSATIONS = (
         "prompt": PREFIX + "Review the notes from last week and list what to keep.",
         "expect": ("succeeded",),
         "archive": True,
+    },
+    {
+        # Created last so it is the newest row in the session list, which is
+        # the conversation J1 opens.
+        "slug": "waiting-approval",
+        "title": PREFIX + "Approve the migration",
+        # The literal marker keeps the turn open: no result is printed, so the
+        # task stays `running` and can carry a real approval row.
+        "prompt": APPROVE_MARKER + ": hold this turn open until a person answers.",
+        "expect": ("running", "waiting_approval"),
+        "archive": False,
+        # The one spec that must not wait for a terminal status.
+        "hold": True,
     },
 )
 
@@ -199,11 +239,48 @@ class Report:
         print(f"summary: created {self.created_count}, existing {self.existing_count}, skipped {self.skipped_count}{suffix}")
 
 
+def _git(root: str, *args: str) -> None:
+    """Run git in root. Missing git or a failed command is a seed failure."""
+    try:
+        done = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=30)
+    except FileNotFoundError:
+        raise SeedError("git is not installed; the seeded roots must be git repositories so the walk can open a real diff") from None
+    except subprocess.TimeoutExpired:
+        raise SeedError(f"git {' '.join(args)} did not finish within 30s in {root}") from None
+    if done.returncode != 0:
+        detail = " ".join((done.stderr or done.stdout or "").split())[:200]
+        raise SeedError(f"git {' '.join(args)} failed in {root}" + (f": {detail}" if detail else ""))
+
+
 def _seed_roots() -> str:
-    """Placeholder roots under a fresh temp dir — never a real repository."""
-    base = tempfile.mkdtemp(prefix="kin-journeys-seed-")
-    for name in ("alpha", "beta", "gamma"):
-        os.makedirs(os.path.join(base, name), exist_ok=True)
+    """Fresh temp roots, each a clean git repository with a committed notes.md.
+
+    Never a real repository: the fake agent appends its one diff line only
+    inside a path carrying SEED_ROOT_PREFIX, and this is the only place that
+    prefix is created. A missing git or a failed command raises SeedError, so
+    the walk reports a seed failure instead of a half-prepared root.
+    """
+    base = tempfile.mkdtemp(prefix=SEED_ROOT_PREFIX)
+    for name in SEED_ROOT_NAMES:
+        root = os.path.join(base, name)
+        os.makedirs(root, exist_ok=True)
+        with open(os.path.join(root, "notes.md"), "w", encoding="utf-8") as fh:
+            fh.write(
+                f"# {name} notes\n\n"
+                "- Seeded for the journey walk.\n"
+                "- The walk opens the diff the fake agent leaves in this file.\n"
+            )
+        _git(root, "init", "-q")
+        _git(root, "add", "notes.md")
+        # Inline identity and no signing: the seed must not depend on, or
+        # disturb, whatever git config the machine happens to carry.
+        _git(
+            root,
+            "-c", "user.name=Kin journey seed",
+            "-c", "user.email=owner@example.com",
+            "-c", "commit.gpgsign=false",
+            "commit", "-qm", f"seed: {name} notes",
+        )
     return base
 
 
@@ -378,21 +455,26 @@ def _fake_agent(api: Api) -> tuple[str | None, str]:
     return None, "no claude-code agent is installed on this daemon"
 
 
-def _wait_terminal(api: Api, ident: str, timeout: float) -> tuple[str | None, str]:
-    """Poll one task until it settles. Returns (terminal status or None, last seen)."""
+def _wait_status(api: Api, ident: str, wanted: tuple[str, ...], timeout: float) -> tuple[str | None, str]:
+    """Poll one task until it reports a status in `wanted`. (status or None, last seen)."""
     deadline = time.monotonic() + timeout
     last = "unknown"
     while time.monotonic() < deadline:
         status, body = api.call("GET", f"/api/tasks/{ident}")
         if status == 200 and isinstance(body, dict):
             last = str(body.get("status") or "unknown")
-            if last in TERMINAL_STATUSES:
+            if last in wanted:
                 return last, last
         else:
             # Say what went wrong instead of reporting a task as merely slow.
             last = _reason(status, body)
         time.sleep(0.1)
     return None, last
+
+
+def _wait_terminal(api: Api, ident: str, timeout: float) -> tuple[str | None, str]:
+    """Poll one task until it settles. Returns (terminal status or None, last seen)."""
+    return _wait_status(api, ident, TERMINAL_STATUSES, timeout)
 
 
 def _fake_answered(api: Api, ident: str) -> tuple[bool, str]:
@@ -403,6 +485,56 @@ def _fake_answered(api: Api, ident: str) -> tuple[bool, str]:
     if "fake-agent" not in json.dumps(body):
         return False, f"task {ident} has no fake-agent marker in its events"
     return True, ""
+
+
+def _create_approval(api: Api, report: Report, ident: str, timeout: float) -> str | None:
+    """Ask the internal bridge for one approval row, then confirm the task waits.
+
+    POST /internal/approvals is what the agent's own client calls: loopback
+    only, operator token, and internal/task.RequestApproval moves the task to
+    `waiting_approval`. A refusal means this daemon cannot produce the card, so
+    it stays a skip — never a failed seed, and never a fabricated card.
+
+    Returns the approval id when the task is confirmed waiting on it, else None.
+    """
+    status, body = api.call(
+        "POST",
+        "/internal/approvals",
+        {
+            "task_id": ident,
+            "kind": "tool_use",
+            "payload": {"tool_name": "Bash", "input": {"command": "git status --short"}},
+        },
+    )
+    if not (status in (200, 201) and isinstance(body, dict) and body.get("id")):
+        report.skip("waiting-approval", f"internal approval refused: {_reason(status, body)}")
+        return None
+    approval = str(body["id"])
+    state, last = _wait_status(api, ident, ("waiting_approval",), timeout)
+    if state is None:
+        report.skip("waiting-approval", f"task {ident} still {last} after {timeout:g}s of polling; no approval card")
+        return None
+    report.create("approval", approval)
+    return approval
+
+
+def _pending_approval(api: Api, ident: str) -> str | None:
+    """The pending approval id on a task an earlier run already held open.
+
+    A second seed run must still name the J7 target, or the walk would skip a
+    conversation whose card is already there. A daemon that cannot answer the
+    list leaves the target unnamed (the walker then skips J7); it never invents
+    an id and never fails the seed.
+    """
+    status, body = api.call("GET", "/api/approvals?status=pending")
+    if status != 200 or not isinstance(body, list):
+        return None
+    for row in body:
+        if isinstance(row, dict) and str(row.get("task_id") or "") == ident:
+            approval = str(row.get("id") or "")
+            if approval:
+                return approval
+    return None
 
 
 def _set_archived(api: Api, report: Report, spec: dict, ident: str, already: bool) -> None:
@@ -425,18 +557,23 @@ def _set_archived(api: Api, report: Report, spec: dict, ident: str, already: boo
     report.skip(spec["slug"], reason)
 
 
-def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | None = None) -> None:
-    """Create one succeeded, one failed and one archived conversation.
+def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | None = None) -> tuple[str, str] | None:
+    """Create one succeeded, one failed, one archived and one held-open conversation.
 
-    The fake agent makes each turn terminal; nothing here waits longer than
-    KIN_SEED_TASK_TIMEOUT_SECS, and a turn that does not settle is reported as
-    a skip rather than hanging the walk.
+    The fake agent makes every turn but the held one terminal; nothing here
+    waits longer than KIN_SEED_TASK_TIMEOUT_SECS, and a turn that does not
+    settle is reported as a skip rather than hanging the walk. The held
+    conversation is never waited on for a terminal status: it exists so the
+    walk can photograph the approval card a person actually meets.
+
+    Returns (conversation id, approval id) for the first held conversation that
+    really produced a card — the J7 deep link's target — or None.
     """
     agent, why = _fake_agent(api)
     if agent is None:
         for spec in CONVERSATIONS:
             report.skip(spec["slug"], why)
-        return
+        return None
     print(f"fake agent: claude resolves to {FAKE_AGENT_LABEL}")
 
     try:
@@ -449,7 +586,9 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
     except SeedError as exc:
         for spec in CONVERSATIONS:
             report.skip(spec["slug"], str(exc))
-        return
+        return None
+
+    target: tuple[str, str] | None = None
 
     by_title: dict[str, dict] = {}
     for row in filed + archived:
@@ -471,6 +610,18 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
             state = str(row.get("status") or "unknown")
             if state not in spec["expect"]:
                 report.skip(spec["slug"], f"existing task {ident} is {state}, wanted {'/'.join(spec['expect'])}")
+                continue
+            if spec.get("hold"):
+                # An earlier run can leave the task running because its
+                # approval was refused; retry that instead of leaving the walk
+                # with no card. A task already waiting needs nothing.
+                approval = None
+                if state == "running":
+                    approval = _create_approval(api, report, ident, timeout)
+                elif state == "waiting_approval":
+                    approval = _pending_approval(api, ident)
+                if approval and target is None:
+                    target = (ident, approval)
                 continue
             if spec["archive"]:
                 _set_archived(api, report, spec, ident, bool(row.get("archived_at")))
@@ -495,6 +646,11 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
                 "title": title,
                 # YOLO: the fake is never asked for an approval card.
                 "permission_mode": "yolo",
+                # The seeded root is a clean git repo, which auto mode would
+                # isolate in a daemon-owned worktree. The fake agent only
+                # writes inside the `kin-journeys-seed-` root, so shared mode
+                # keeps the turn there and the walk sees the real diff.
+                "workspace_mode": "shared",
             },
         )
         if not (status in (200, 201) and isinstance(body, dict) and body.get("id")):
@@ -507,6 +663,19 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
             continue
         ident = str(body["id"])
         report.create("conversation", title, ident)
+
+        if spec.get("hold"):
+            # No terminal wait and no fake-answered gate: this turn is meant to
+            # stay open. It only has to reach `running` before the agent's own
+            # permission bridge will accept an approval for it.
+            state, last = _wait_status(api, ident, ("running",), timeout)
+            if state is None:
+                report.skip(spec["slug"], f"task {ident} still {last} after {timeout:g}s of polling; not waiting forever")
+                continue
+            approval = _create_approval(api, report, ident, timeout)
+            if approval and target is None:
+                target = (ident, approval)
+            continue
 
         state, last = _wait_terminal(api, ident, timeout)
         if state is None:
@@ -521,11 +690,11 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
             continue
         if spec["archive"]:
             _set_archived(api, report, spec, ident, False)
+    return target
 
 
 def report_unproducible(report: Report) -> None:
     """Name the journey states the fake agent still cannot produce."""
-    report.skip("waiting-approval", "the fake agent never emits a permission request, so no approval card appears")
     report.skip("routine-failed", "a failed last run needs a real task execution; the seeded routines have not run")
 
 
@@ -554,10 +723,15 @@ def main(argv: list[str] | None = None) -> int:
         projects = seed_projects(api, report)
         seed_focus(api, report, projects)
         seed_routines(api, report)
-        seed_conversations(api, report, projects)
+        target = seed_conversations(api, report, projects)
     except SeedError as exc:
         print(f"journeys seed: {exc}", file=sys.stderr)
         return 1
+    # One line the walker can consume: the conversation a notification would
+    # name and the card it must reveal. Absent when no card exists, which is
+    # what keeps J7 a skip rather than a walk against a made-up id.
+    if target:
+        print(f"j7 target conversation={target[0]} focus={target[1]}")
     report_unproducible(report)
     report.summary()
     return 0

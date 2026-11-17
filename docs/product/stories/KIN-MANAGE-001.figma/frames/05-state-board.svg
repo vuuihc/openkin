@@ -1,0 +1,132 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="940" viewBox="0 0 1600 940">
+<rect width="1600" height="940" fill="#111315"/>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;fill:#e7e9eb}.muted{fill:#969da4}.small{font-size:12px}.tiny{font-size:11px}.label{font-size:14px}.title{font-size:16px;font-weight:600}.button{fill:#20252a;stroke:#3b4249}.danger{fill:#ff8a80}.ok{fill:#6dd58c}</style>
+<text x="24" y="38" class="label">KIN-MANAGE-001 · 05 / 状态板 · 1600×940</text>
+<text x="1576" y="38" text-anchor="end" class="small muted">空 · 加载 · 失败 · 断线 · 运行中菜单 · 行内改名</text>
+
+<rect x="20" y="84" width="500" height="400" rx="14" fill="#171a1d" stroke="#2c3238"/>
+<text x="36" y="112" class="label">空</text>
+<text x="504" y="112" text-anchor="end" class="tiny muted">390 手机</text>
+<rect x="150" y="136" width="240" height="320" rx="16" fill="#111315" stroke="#2c3238"/>
+<text x="170" y="180" class="label">对话</text>
+<rect x="326" y="152" width="50" height="30" rx="7" class="button"/>
+<text x="351" y="172" text-anchor="middle" class="tiny">新建</text>
+<rect x="162" y="192" width="216" height="30" rx="8" fill="#1b1f22" stroke="#2c3238"/>
+<text x="174" y="212" class="tiny muted">搜索对话…</text>
+<circle cx="270" cy="262" r="24" fill="#20252a"/>
+<rect x="262" y="254" width="16" height="16" rx="4" fill="#3b4249"/>
+<text x="270" y="314" text-anchor="middle" class="title">还没有对话</text>
+<text x="270" y="338" text-anchor="middle" class="tiny muted">新建一段对话，开始第一次整理</text>
+<rect x="210" y="358" width="120" height="44" rx="9" fill="#2f6feb"/>
+<text x="270" y="386" text-anchor="middle" class="label" fill="#fff">新建对话</text>
+<text x="270" y="436" text-anchor="middle" class="tiny muted">空不是错误 · 新建是唯一主按钮</text>
+
+<rect x="540" y="84" width="500" height="400" rx="14" fill="#171a1d" stroke="#2c3238"/>
+<text x="556" y="112" class="label">加载</text>
+<text x="1024" y="112" text-anchor="end" class="tiny muted">248 侧栏</text>
+<rect x="564" y="136" width="248" height="320" rx="10" fill="#141719" stroke="#2c3238"/>
+<text x="580" y="170" class="small">对话</text>
+<rect x="576" y="182" width="224" height="30" rx="8" fill="#1b1f22" stroke="#2c3238"/>
+<text x="588" y="202" class="tiny muted">搜索对话…</text>
+<circle cx="590" cy="240" r="9" fill="#23272b"/>
+<rect x="606" y="234" width="118" height="10" rx="5" fill="#23272b"/>
+<rect x="770" y="234" width="24" height="8" rx="4" fill="#23272b"/>
+<circle cx="590" cy="286" r="9" fill="#23272b"/>
+<rect x="606" y="280" width="96" height="10" rx="5" fill="#23272b"/>
+<rect x="770" y="280" width="24" height="8" rx="4" fill="#23272b"/>
+<circle cx="590" cy="332" r="9" fill="#23272b"/>
+<rect x="606" y="326" width="128" height="10" rx="5" fill="#23272b"/>
+<rect x="770" y="326" width="24" height="8" rx="4" fill="#23272b"/>
+<circle cx="590" cy="378" r="9" fill="#23272b"/>
+<rect x="606" y="372" width="86" height="10" rx="5" fill="#23272b"/>
+<rect x="770" y="372" width="24" height="8" rx="4" fill="#23272b"/>
+<circle cx="590" cy="424" r="9" fill="#23272b"/>
+<rect x="606" y="418" width="110" height="10" rx="5" fill="#23272b"/>
+<rect x="770" y="418" width="24" height="8" rx="4" fill="#23272b"/>
+<text x="688" y="474" text-anchor="middle" class="tiny muted">骨架按原行高，不跳版</text>
+
+<rect x="1060" y="84" width="500" height="400" rx="14" fill="#171a1d" stroke="#2c3238"/>
+<text x="1076" y="112" class="label">加载失败</text>
+<text x="1544" y="112" text-anchor="end" class="tiny muted">248 侧栏</text>
+<rect x="1084" y="136" width="248" height="320" rx="10" fill="#141719" stroke="#2c3238"/>
+<text x="1100" y="170" class="small">对话</text>
+<rect x="1096" y="182" width="224" height="30" rx="8" fill="#1b1f22" stroke="#2c3238"/>
+<text x="1108" y="202" class="tiny muted">搜索对话…</text>
+<circle cx="1208" cy="250" r="24" fill="#2a1717" stroke="#5a2a2a"/>
+<text x="1208" y="259" text-anchor="middle" class="title danger">!</text>
+<text x="1208" y="308" text-anchor="middle" class="label">列表加载失败</text>
+<text x="1208" y="332" text-anchor="middle" class="tiny muted">检查连接后重试</text>
+<rect x="1164" y="352" width="88" height="44" rx="9" class="button"/>
+<text x="1208" y="380" text-anchor="middle" class="label">重试</text>
+<text x="1208" y="474" text-anchor="middle" class="tiny muted">失败有原因、有重试，不留空白页</text>
+
+<rect x="20" y="504" width="500" height="400" rx="14" fill="#171a1d" stroke="#2c3238"/>
+<text x="36" y="532" class="label">断线</text>
+<text x="504" y="532" text-anchor="end" class="tiny muted">390 手机</text>
+<rect x="150" y="556" width="240" height="320" rx="16" fill="#111315" stroke="#2c3238"/>
+<text x="170" y="600" class="label">对话</text>
+<rect x="326" y="572" width="50" height="30" rx="7" class="button"/>
+<text x="351" y="592" text-anchor="middle" class="tiny">新建</text>
+<rect x="162" y="616" width="216" height="36" rx="8" fill="#2a1717" stroke="#5a2a2a"/>
+<text x="270" y="639" text-anchor="middle" class="tiny danger">连接中断 · 正在重试</text>
+<rect x="158" y="664" width="224" height="40" rx="8" fill="#171a1d"/>
+<circle cx="176" cy="684" r="8" fill="#293543"/>
+<text x="194" y="689" class="small">对话标题 A</text>
+<text x="370" y="689" text-anchor="end" class="tiny muted">10:24</text>
+<rect x="158" y="710" width="224" height="40" rx="8" fill="#171a1d"/>
+<circle cx="176" cy="730" r="8" fill="#293543"/>
+<text x="194" y="735" class="small">对话标题 B</text>
+<rect x="292" y="719" width="82" height="20" rx="10" fill="#20252a" stroke="#3b4249"/>
+<text x="333" y="733" text-anchor="middle" class="tiny muted">归档排队中</text>
+<rect x="158" y="756" width="224" height="40" rx="8" fill="#171a1d"/>
+<circle cx="176" cy="776" r="8" fill="#293543"/>
+<text x="194" y="781" class="small">对话标题 C</text>
+<text x="370" y="781" text-anchor="end" class="tiny muted">09:48</text>
+<text x="270" y="856" text-anchor="middle" class="tiny muted">已加载的行不清空 · 队列看得见</text>
+
+<rect x="540" y="504" width="500" height="400" rx="14" fill="#171a1d" stroke="#2c3238"/>
+<text x="556" y="532" class="label">正在运行的对话 · 菜单</text>
+<text x="1024" y="532" text-anchor="end" class="tiny muted">248 侧栏 + 菜单</text>
+<rect x="564" y="556" width="248" height="320" rx="10" fill="#141719" stroke="#2c3238"/>
+<rect x="568" y="580" width="240" height="44" rx="8" fill="#293543"/>
+<circle cx="586" cy="602" r="9" fill="#2f6feb"/>
+<text x="604" y="607" class="small">对话标题 C</text>
+<text x="796" y="607" text-anchor="end" class="tiny muted">09:48</text>
+<rect x="600" y="632" width="176" height="232" rx="10" fill="#1d2125" stroke="#3b4249"/>
+<text x="612" y="654" class="tiny">对话标题 C</text>
+<circle cx="616" cy="670" r="3" fill="#6dd58c"/>
+<text x="626" y="674" class="tiny ok">正在运行 · 2 分钟</text>
+<rect x="608" y="682" width="160" height="1" fill="#2c3238"/>
+<rect x="612" y="698" width="12" height="12" rx="3" fill="#3b4249"/>
+<text x="634" y="708" class="label">改名</text>
+<rect x="612" y="730" width="12" height="12" rx="3" fill="#3b4249"/>
+<text x="634" y="740" class="label">置顶</text>
+<rect x="612" y="762" width="12" height="12" rx="3" fill="#3b4249"/>
+<text x="634" y="772" class="label">多选</text>
+<rect x="612" y="794" width="12" height="12" rx="3" fill="#3b4249"/>
+<text x="634" y="804" class="label">归档</text>
+<rect x="608" y="818" width="160" height="1" fill="#3b4249"/>
+<rect x="612" y="832" width="12" height="12" rx="3" fill="#5a2a2a"/>
+<text x="634" y="844" class="label danger">删除</text>
+<text x="688" y="890" text-anchor="middle" class="tiny muted">运行中：归档和删除仍可用，只多一句说明</text>
+
+<rect x="1060" y="504" width="500" height="400" rx="14" fill="#171a1d" stroke="#2c3238"/>
+<text x="1076" y="532" class="label">行内改名</text>
+<text x="1544" y="532" text-anchor="end" class="tiny muted">248 侧栏</text>
+<rect x="1084" y="556" width="248" height="320" rx="10" fill="#141719" stroke="#2c3238"/>
+<text x="1100" y="590" class="small">对话</text>
+<rect x="1096" y="602" width="224" height="30" rx="8" fill="#1b1f22" stroke="#2c3238"/>
+<text x="1108" y="622" class="tiny muted">搜索对话…</text>
+<rect x="1092" y="660" width="232" height="44" rx="8" fill="#171a1d"/>
+<rect x="1100" y="664" width="216" height="36" rx="7" fill="#121518" stroke="#2f6feb" stroke-width="2"/>
+<rect x="1110" y="672" width="104" height="20" rx="3" fill="#2f6feb" opacity="0.55"/>
+<text x="1112" y="687" class="label">对话标题 B</text>
+<rect x="1216" y="672" width="2" height="20" fill="#e7e9eb"/>
+<text x="1208" y="734" text-anchor="middle" class="tiny muted">Enter 确认 · Esc 取消且不改</text>
+<text x="1208" y="790" text-anchor="middle" class="small muted">保存失败时恢复旧标题并说明</text>
+<text x="1208" y="816" text-anchor="middle" class="small muted">空标题不能确认</text>
+<text x="1208" y="856" text-anchor="middle" class="tiny muted">改名留在行里，不弹第二层对话框</text>
+
+<rect y="916" width="1600" height="24" fill="#181b1e"/>
+<text x="24" y="932" class="small muted">状态板 · 两个面共用同一套空 / 加载 / 失败 / 断线文案 · 运行中菜单多一句「正在运行」 · 改名在行内完成</text>
+</svg>

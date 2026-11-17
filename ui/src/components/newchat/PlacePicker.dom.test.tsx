@@ -274,7 +274,7 @@ describe("the place row (KIN-START-001)", () => {
     // popover in the console uses, not a panel positioned inside this card.
     expect(panel.parentElement).toBe(document.body);
     expect(panel.className).toContain("fixed");
-    expect(panel.className).toContain("rounded-xl");
+    expect(panel.className).toContain("rounded-2xl");
     // The panel's search header and rows draw their own padding; the base
     // padding would inset its hairline dividers by 6px on each side.
     expect(panel.className).not.toContain("p-1.5");
@@ -313,6 +313,41 @@ describe("the place row (KIN-START-001)", () => {
     await waitFor(() => expect(document.activeElement).toBe(search()));
     await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
     expect(onChange).toHaveBeenCalledWith({ machineId: "", cwd: "/work/beta" });
+  });
+
+  it("keeps the place trigger and refresh on the facade", async () => {
+    const user = userEvent.setup();
+    const onRefresh = vi.fn();
+    render(<Harness failed onRefresh={onRefresh} />);
+
+    const row = trigger();
+    expect(row.className).toContain("kin-btn");
+    expect(row.className).toContain("kin-btn-secondary");
+    // Astryx puts the children in a plain label span; the trigger's classes
+    // make that span the row so the icon, label and change chip stay on one
+    // line instead of stacking (jsdom has no layout, so the class is the pin).
+    expect(row.className).toContain("[&>span>span]:flex");
+    expect(row.className).toContain("[&>span>span]:w-full");
+    expect(row.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+
+    const panel = await open(user);
+    expect(row.getAttribute("aria-expanded")).toBe("true");
+    // The forwarded trigger ref is still the layer's anchor: the panel is
+    // portaled to the body and Escape hands focus back to this same node.
+    expect(panel.parentElement).toBe(document.body);
+    const search = within(panel).getByRole("searchbox", { name: "Search machines or projects…" });
+    await waitFor(() => expect(document.activeElement).toBe(search));
+    fireEvent.keyDown(row, { key: "Escape" });
+    await waitFor(() => expect(document.activeElement).toBe(row));
+
+    const refresh = screen.getByRole("button", { name: "Check again" });
+    expect(refresh.className).toContain("kin-btn");
+    expect(refresh.className).toContain("text-kin-blue-ink");
+    expect(refresh.className).not.toContain("kin-btn-primary");
+    expect(refresh.className).toContain("hover:underline");
+    await user.click(refresh);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
   it("does not make the panel a child of the trigger's own row", async () => {

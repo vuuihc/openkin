@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<rect width="1100" height="760" fill="#111315"/>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;fill:#e7e9eb}.muted{fill:#969da4}.small{font-size:12px}.tiny{font-size:11px}.label{font-size:14px}.title{font-size:16px;font-weight:600}.hero{font-size:22px;font-weight:700}.mono{font-family:'SF Mono',Menlo,monospace;font-size:12px}.button{fill:#20252a;stroke:#3b4249}.pressed{fill:#1f3a5f;stroke:#2f6feb}.dash{fill:none;stroke:#6ea8fe;stroke-dasharray:5 4}.danger{fill:#ff8a80}.ok{fill:#6dd58c}.warn{fill:#f0b429}.pop{fill:#20262c;stroke:#3b4249}</style>
+<text x="18" y="24" class="small muted">KIN-SETTINGS-001 · 02 / Mac 一行的选择器与未保存 · 1100×760</text>
+<text x="1082" y="24" text-anchor="end" class="tiny muted">实线＝已交付 · 虚线＝合同要求、还没交付</text>
+
+<rect y="36" width="1100" height="52" fill="#181b1e"/>
+<text x="22" y="68" class="title">Kin</text>
+<text x="60" y="67" class="small muted">本机 · 设置</text>
+
+<rect y="88" width="64" height="672" fill="#141719"/>
+<rect x="12" y="104" width="40" height="44" rx="10" fill="#1b1f22"/>
+<text x="32" y="131" text-anchor="middle" class="tiny muted">对话</text>
+<rect x="12" y="156" width="40" height="44" rx="10" fill="#1b1f22"/>
+<text x="32" y="183" text-anchor="middle" class="tiny muted">项目</text>
+<rect x="12" y="208" width="40" height="44" rx="10" fill="#1b1f22"/>
+<text x="32" y="235" text-anchor="middle" class="tiny muted">例行</text>
+<rect x="12" y="260" width="40" height="44" rx="10" fill="#293543"/>
+<text x="32" y="287" text-anchor="middle" class="tiny">设置</text>
+
+<rect x="64" y="88" width="1036" height="672" fill="#171a1d"/>
+<text x="88" y="126" class="hero">设置</text>
+<text x="88" y="148" class="tiny muted">认知 Provider（Kin agent）、Agent、路由与价格。</text>
+
+<rect x="88" y="170" width="224" height="44" rx="10" fill="#1b1f22"/>
+<text x="102" y="198" class="label muted">通用</text>
+<rect x="88" y="236" width="224" height="44" rx="10" fill="#1b1f22"/>
+<text x="102" y="264" class="label muted">Agents</text>
+<rect x="88" y="302" width="224" height="44" rx="10" fill="#1b1f22"/>
+<text x="102" y="330" class="label muted">运维</text>
+<rect x="88" y="368" width="224" height="44" rx="10" class="pressed"/>
+<text x="102" y="396" class="label">Providers</text>
+<rect x="88" y="434" width="224" height="44" rx="10" fill="#1b1f22"/>
+<text x="102" y="462" class="label muted">路由</text>
+<rect x="88" y="500" width="224" height="44" rx="10" fill="#1b1f22"/>
+<text x="102" y="528" class="label muted">高级</text>
+<text x="88" y="572" class="tiny muted">目录摘要仍未交付（见 01）</text>
+
+<text x="352" y="126" class="title">认知 · Provider</text>
+<text x="352" y="148" class="tiny muted">OpenAI 兼容端点；内置 kin agent 用它，编码仍走本机 CLI。</text>
+<rect x="840" y="112" width="132" height="44" rx="8" class="button"/>
+<text x="906" y="139" text-anchor="middle" class="label">添加 Provider</text>
+
+<rect x="352" y="170" width="620" height="64" rx="10" fill="#1f2733" stroke="#2f6feb"/>
+<text x="368" y="196" class="label">OpenAI</text>
+<text x="368" y="218" class="tiny muted mono">gpt-4.1-mini · https://aipool.example.com/v1</text>
+<text x="872" y="196" class="tiny">使用中</text>
+<rect x="352" y="242" width="620" height="62" rx="10" fill="#1b1f22" stroke="#2c3238"/>
+<text x="368" y="268" class="label">Ollama</text>
+<text x="368" y="290" class="tiny muted mono">llama3.2 · http://127.0.0.1:11434/v1</text>
+
+<rect x="352" y="320" width="620" height="398" rx="12" fill="#1b1f22" stroke="#2c3238"/>
+<text x="368" y="346" class="small">编辑 Provider</text>
+<text x="368" y="380" class="tiny muted">显示名称</text>
+<rect x="520" y="362" width="300" height="32" rx="7" fill="#20252a" stroke="#3b4249"/>
+<text x="532" y="383" class="small">OpenAI</text>
+<text x="368" y="424" class="tiny muted">Base URL</text>
+<rect x="520" y="406" width="300" height="32" rx="7" fill="#20252a" stroke="#ff8a80"/>
+<text x="532" y="427" class="mono">https://aipool.example.com/v1</text>
+<text x="520" y="456" class="tiny danger">保存失败：该地址未返回任何模型</text>
+<text x="368" y="484" class="tiny muted">API 密钥</text>
+<rect x="520" y="466" width="240" height="32" rx="7" fill="#20252a" stroke="#3b4249"/>
+<text x="532" y="487" class="mono muted">••••••••</text>
+<rect x="768" y="466" width="52" height="32" rx="7" class="button"/>
+<text x="794" y="487" text-anchor="middle" class="tiny muted">显示</text>
+<text x="520" y="516" class="tiny muted">保存在 ~/.kin/kin.db；留空不改，清空并保存才移除</text>
+<text x="368" y="552" class="tiny muted">默认模型</text>
+<rect x="700" y="556" width="72" height="22" rx="11" fill="#3a2a12"/>
+<text x="736" y="571" text-anchor="middle" class="tiny warn">未保存</text>
+<rect x="520" y="544" width="300" height="32" rx="7" fill="#20252a" stroke="#2f6feb"/>
+<text x="532" y="565" class="mono">gpt-4.1-mini</text>
+<text x="806" y="565" class="tiny muted">▾</text>
+<rect x="832" y="544" width="120" height="32" rx="7" class="button"/>
+<text x="892" y="565" text-anchor="middle" class="tiny muted">获取模型列表</text>
+
+<rect x="368" y="670" width="128" height="34" rx="8" class="dash"/>
+<text x="432" y="692" text-anchor="middle" class="tiny">测试连接（未交付）</text>
+<rect x="508" y="670" width="104" height="34" rx="8" fill="#2f6feb"/>
+<text x="560" y="692" text-anchor="middle" class="small">保存 Provider</text>
+<rect x="624" y="670" width="64" height="34" rx="8" class="button"/>
+<text x="656" y="692" text-anchor="middle" class="small muted">取消</text>
+
+<rect x="520" y="596" width="300" height="58" rx="10" class="pop"/>
+<rect x="520" y="596" width="300" height="26" fill="#1f3a5f"/>
+<text x="532" y="614" class="tiny">gpt-4.1-mini</text>
+<text x="804" y="614" text-anchor="end" class="tiny ok">✓</text>
+<text x="532" y="642" class="tiny muted">gpt-4.1 · o3-mini · llama3.2（上下键继续）</text>
+
+<text x="368" y="640" class="tiny muted">选择器贴这一行外弹，</text>
+<text x="368" y="656" class="tiny muted">页面高度不变（TASTE 14）。</text>
+<text x="352" y="740" class="tiny muted">虚线：测试连接今天不存在；只有「获取模型列表」和运维里的重检 / smoke。</text>
+</svg>

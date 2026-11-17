@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { type TaskWorkspaceEntry } from "../../api/client";
 import { t } from "../../i18n";
 import { useT } from "../../i18n/react";
+import { isImeKeyEvent } from "../../lib/ime";
 import { normalizeRelativePath } from "../../lib/paths";
 import { IconChevron, IconFile, IconFolder } from "../icons";
 import { workspaceErrorMessage } from "./workspacePreview";
@@ -40,6 +42,10 @@ export default function FileTree({
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ [ROOT]: true });
   const loadingRef = useRef<Set<string>>(new Set());
   const genRef = useRef(0);
+  const treeRef = useRef<HTMLDivElement | null>(null);
+  // The roving tab stop. Null until a row has been focused or the first
+  // visible row is known.
+  const [tabStop, setTabStop] = useState<string | null>(null);
 
   const loadDir = useCallback(
     async (dirPath: string) => {
@@ -121,11 +127,64 @@ export default function FileTree({
     void expandToPath(openPath);
   }, [expandToPath, openPath, openNonce]);
 
+  // Reading order is the rendered order: a directory's children sit between it
+  // and its next sibling, and a collapsed directory renders none of them, so
+  // the DOM already answers "what is visible" without a second model.
+  const rowElements = useCallback(
+    () =>
+      Array.from(
+        treeRef.current?.querySelectorAll<HTMLButtonElement>("[data-workspace-row]") ?? [],
+      ),
+    [],
+  );
+
+  // The remembered row can leave the tree (its directory collapsed, the task
+  // changed), and before the root loads there is no row yet. When it does, the
+  // selected row holds the tab stop, else the first visible row.
+  useEffect(() => {
+    const rows = rowElements();
+    if (rows.length === 0) return;
+    const paths = rows.map((row) => row.dataset.workspaceRow ?? "");
+    if (tabStop && paths.includes(tabStop)) return;
+    setTabStop(selectedPath && paths.includes(selectedPath) ? selectedPath : paths[0]);
+  }, [dirs, expanded, selectedPath, tabStop, rowElements]);
+
+  const onTreeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented || isImeKeyEvent(event.nativeEvent)) return;
+    const rows = rowElements();
+    const at = rows.indexOf(document.activeElement as HTMLButtonElement);
+    if (at === -1) return;
+    let next: number;
+    switch (event.key) {
+      case "ArrowDown":
+        next = Math.min(at + 1, rows.length - 1);
+        break;
+      case "ArrowUp":
+        next = Math.max(at - 1, 0);
+        break;
+      case "Home":
+        next = 0;
+        break;
+      case "End":
+        next = rows.length - 1;
+        break;
+      default:
+        return;
+    }
+    // The tree scrolls in its own pane; the arrow keys move focus, not the page.
+    event.preventDefault();
+    rows[next]?.focus();
+  };
+
   const rootState = dirs[ROOT];
   const rootEntries = useMemo(() => rootState?.entries ?? [], [rootState?.entries]);
 
   return (
-    <div className="h-full min-h-0 overflow-auto kin-scroll px-2 py-2">
+    <div
+      ref={treeRef}
+      className="h-full min-h-0 overflow-auto kin-scroll px-2 py-2"
+      onKeyDown={onTreeKeyDown}
+    >
       {rootState?.loading && rootEntries.length === 0 && (
         <div className="px-2 py-1.5 text-body text-kin-muted">{t("workspace.tree.loading")}</div>
       )}
@@ -140,6 +199,8 @@ export default function FileTree({
         dirs,
         expanded,
         selectedPath,
+        tabStop,
+        onFocusRow: setTabStop,
         onSelect,
         onToggle: async (entry) => {
           const next = !expanded[entry.path];
@@ -164,6 +225,8 @@ function renderEntries({
   dirs,
   expanded,
   selectedPath,
+  tabStop,
+  onFocusRow,
   onSelect,
   onToggle,
 }: {
@@ -172,6 +235,8 @@ function renderEntries({
   dirs: Record<string, DirState>;
   expanded: Record<string, boolean>;
   selectedPath: string | null;
+  tabStop: string | null;
+  onFocusRow: (path: string) => void;
   onSelect: (path: string) => void;
   onToggle: (entry: TaskWorkspaceEntry) => Promise<void>;
 }) {
@@ -188,6 +253,9 @@ function renderEntries({
           // The panel's back control finds the selected file to return focus
           // to when the list comes back on a phone.
           data-selected={isSelected || undefined}
+          data-workspace-row={entry.path}
+          tabIndex={tabStop === entry.path ? 0 : -1}
+          onFocus={() => onFocusRow(entry.path)}
           onClick={() => {
             if (isDir) {
               void onToggle(entry);
@@ -196,7 +264,7 @@ function renderEntries({
             }
           }}
           className={[
-            "w-full flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-body transition-colors",
+            "w-full flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-body transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-kin-focus-ring",
             // A selected row is a *tint*, not a fill — white on it was legible
             // only because the dark sidebar happens to be black. The tint is
             // the affordance and the ink only steps up from secondary to the
@@ -252,6 +320,8 @@ function renderEntries({
                 dirs,
                 expanded,
                 selectedPath,
+                tabStop,
+                onFocusRow,
                 onSelect,
                 onToggle,
               })}

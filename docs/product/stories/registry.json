@@ -124,7 +124,7 @@
     },
     {
       "id": "KIN-RESULT-001",
-      "state": "draft",
+      "state": "approved",
       "priority": "P1",
       "journeys": [
         "J4"
@@ -141,12 +141,16 @@
         "ui/src/components/chat/shareExport.ts",
         "ui/src/pages/TaskDetailPage.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "ui/src/components/workspace/WorkspacePanel.esc.dom.test.tsx",
+        "ui/src/components/workspace/ChangedFilesList.keys.dom.test.tsx",
+        "ui/src/components/workspace/FileTree.keys.dom.test.tsx"
+      ],
       "blockedReason": null
     },
     {
       "id": "KIN-MANAGE-001",
-      "state": "draft",
+      "state": "approved",
       "priority": "P1",
       "journeys": [
         "J5"
@@ -164,12 +168,16 @@
         "ui/src/hooks/useSessionDeletion.ts",
         "ui/src/pages/SessionsPage.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "ui/src/components/sessions/SessionRow.dom.test.tsx",
+        "ui/src/components/sessions/SessionList.selection.dom.test.tsx",
+        "ui/src/components/sessions/SessionList.drag.dom.test.tsx"
+      ],
       "blockedReason": null
     },
     {
       "id": "KIN-SETTINGS-001",
-      "state": "draft",
+      "state": "approved",
       "priority": "P1",
       "journeys": [
         "J6"
@@ -186,7 +194,15 @@
         "ui/src/components/settings/ProviderSettingsSection.tsx",
         "ui/src/components/settings/LocalAgentSettingsSection.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "ui/src/pages/SettingsPage.facade.dom.test.tsx",
+        "ui/src/pages/SettingsPage.notificationTab.dom.test.tsx",
+        "ui/src/pages/SettingsPage.operations.dom.test.tsx",
+        "ui/src/pages/settingsTabsWiring.test.ts",
+        "ui/src/components/settings/SettingsPrimitives.test.ts",
+        "ui/src/components/settings/ProviderSettingsSection.test.ts",
+        "ui/src/components/settings/LocalAgentSettingsSection.dom.test.tsx"
+      ],
       "blockedReason": null
     },
     {
@@ -316,7 +332,7 @@
     },
     {
       "id": "KIN-AGENTS-001",
-      "state": "blocked",
+      "state": "covered",
       "priority": "P1",
       "journeys": [
         "J6"
@@ -347,7 +363,7 @@
         "ui/src/lib/usage.test.ts",
         "ui/src/lib/agentSessionImport.test.ts"
       ],
-      "blockedReason": "The signed Agents page and its auto-import removal are implemented, but the full KIN-AGENTS-001 acceptance contract has not been re-run after integration with the current mainline."
+      "blockedReason": null
     },
     {
       "id": "KIN-ROUTINE-001",
@@ -426,7 +442,7 @@
     },
     {
       "id": "KIN-CONTINUE-003",
-      "state": "draft",
+      "state": "approved",
       "priority": "P0",
       "journeys": [
         "J1",
@@ -459,12 +475,25 @@
         "ui/src/lib/phoneDeepLinkParent.ts",
         "ui/src/lib/phoneNavigation.ts"
       ],
-      "tests": [],
+      "tests": [
+        "ui/src/lib/areas.test.ts",
+        "ui/src/lib/areaNavigation.test.ts",
+        "ui/src/components/layout/AreaNavigation.dom.test.tsx",
+        "ui/src/components/layout/PhoneNavigation.dom.test.tsx",
+        "ui/src/lib/notificationRoute.test.ts",
+        "ui/src/components/NotificationTaps.dom.test.tsx",
+        "ui/src/lib/overlayOwnsKeyboard.dom.test.ts",
+        "ui/src/pages/macKeyboardWiring.test.ts",
+        "ui/src/pages/SettingsPage.leaveGuard.dom.test.tsx",
+        "ui/src/pages/settingsTabsWiring.test.ts",
+        "ui/src/pages/ProjectDetailPage.dom.test.tsx",
+        "ui/src/pages/AgentSessionDetailPage.dom.test.tsx"
+      ],
       "blockedReason": null
     },
     {
       "id": "KIN-RESULT-002",
-      "state": "draft",
+      "state": "approved",
       "priority": "P0",
       "journeys": [
         "J4"
@@ -482,7 +511,33 @@
         "ui/src/components/workspace/WorkspacePanel.tsx",
         "ui/src/components/workspace/CodeViewer.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "ui/src/components/workspace/htmlPreview.test.ts",
+        "ui/src/components/workspace/FilePreview.dom.test.tsx"
+      ],
+      "blockedReason": null
+    },
+    {
+      "id": "KIN-RESULT-003",
+      "state": "approved",
+      "priority": "P0",
+      "journeys": [
+        "J2",
+        "J1"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "对改动逐行评论并发回对话",
+      "file": "docs/product/stories/KIN-RESULT-003.md",
+      "surface": "",
+      "ownerPaths": [],
+      "tests": [
+        "ui/src/components/workspace/diffCommentAnchor.test.ts",
+        "ui/src/components/workspace/DiffCommentGutter.dom.test.tsx",
+        "ui/src/components/workspace/DiffCommentsTray.dom.test.tsx"
+      ],
       "blockedReason": null
     }
   ]

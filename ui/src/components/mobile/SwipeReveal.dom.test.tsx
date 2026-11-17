@@ -141,8 +141,9 @@ describe("SwipeReveal gestures", () => {
   });
 
   it("swallows the click that ends a long press", () => {
-    // The press already selected the row; the click that follows the lift
-    // would toggle that selection straight back off.
+    // The press opened the row's own sheet; the click that follows the lift
+    // would otherwise reach the row underneath the modal and open the
+    // conversation (or toggle a selection) the person never asked for.
     vi.useFakeTimers();
     try {
       const onLongPress = vi.fn();
@@ -157,6 +158,238 @@ describe("SwipeReveal gestures", () => {
       pointer(button, "pointerup", 200);
       fireEvent.click(button);
       expect(onClick).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+/**
+ * Reorder shares the hold with the swipe but owns the vertical axis.
+ *
+ * A completed hold on a row that can be reordered starts a drag instead of
+ * opening the row's sheet; the moves that follow are the drag's, not a
+ * horizontal swipe. The wrapper keeps the pointer-capture and click-swallowing
+ * rules the swipe already established. Rows whose container offers no reorder
+ * keep the old hold behaviour (`onLongPress`).
+ */
+describe("SwipeReveal reorder", () => {
+  function pointer(node: Element, type: string, clientX: number, clientY: number) {
+    fireEvent(
+      node,
+      new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX,
+        clientY,
+        button: 0,
+      }),
+    );
+  }
+
+  function setup(reorder: {
+    onStart: () => void;
+    onMove: (clientY: number) => void;
+    onEnd: (cancelled: boolean) => void;
+  }) {
+    const onOpenChange = vi.fn();
+    const { container } = render(
+      <SwipeReveal open={false} onOpenChange={onOpenChange} reorder={reorder} actions={null}>
+        <button type="button">Row</button>
+      </SwipeReveal>,
+    );
+    const wrapper = container.firstElementChild as HTMLElement;
+    const capture = vi.fn();
+    const release = vi.fn();
+    wrapper.setPointerCapture = capture;
+    wrapper.releasePointerCapture = release;
+    return { capture, release, onOpenChange, row: screen.getByRole("button", { name: "Row" }) };
+  }
+
+  it("a hold that moves vertically reports a reorder instead of a long press", () => {
+    vi.useFakeTimers();
+    try {
+      const onStart = vi.fn();
+      const onMove = vi.fn();
+      const onEnd = vi.fn();
+      const onLongPress = vi.fn();
+      const { container } = render(
+        <SwipeReveal
+          open={false}
+          onOpenChange={() => {}}
+          onLongPress={onLongPress}
+          reorder={{ onStart, onMove, onEnd }}
+          actions={null}
+        >
+          <button type="button">Row</button>
+        </SwipeReveal>,
+      );
+      container.firstElementChild!.setPointerCapture = vi.fn();
+      container.firstElementChild!.releasePointerCapture = vi.fn();
+      const row = screen.getByRole("button", { name: "Row" });
+
+      pointer(row, "pointerdown", 200, 20);
+      act(() => vi.advanceTimersByTime(500));
+      expect(onStart).toHaveBeenCalledTimes(1);
+      expect(onLongPress).not.toHaveBeenCalled();
+
+      // A vertical move belongs to the drag: it must not become a horizontal
+      // reveal, and it must not be read as breaking the hold.
+      pointer(row, "pointermove", 202, 80);
+      // One report per move: the window listener also sees this event, and a
+      // second call would read the layout the first one already changed.
+      expect(onMove).toHaveBeenCalledTimes(1);
+      expect(onMove).toHaveBeenCalledWith(80);
+
+      pointer(row, "pointerup", 202, 80);
+      expect(onEnd).toHaveBeenCalledWith(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a hold released without moving still calls onLongPress when no reorder is offered", () => {
+    vi.useFakeTimers();
+    try {
+      const onLongPress = vi.fn();
+      const { container } = render(
+        <SwipeReveal open={false} onOpenChange={() => {}} onLongPress={onLongPress} actions={null}>
+          <button type="button">Row</button>
+        </SwipeReveal>,
+      );
+      container.firstElementChild!.setPointerCapture = vi.fn();
+      const row = screen.getByRole("button", { name: "Row" });
+
+      pointer(row, "pointerdown", 200, 20);
+      act(() => vi.advanceTimersByTime(500));
+
+      expect(onLongPress).toHaveBeenCalledTimes(1);
+      pointer(row, "pointerup", 200, 20);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("pointercancel reports the drag as cancelled", () => {
+    vi.useFakeTimers();
+    try {
+      const onStart = vi.fn();
+      const onMove = vi.fn();
+      const onEnd = vi.fn();
+      const { capture, release, row } = setup({ onStart, onMove, onEnd });
+
+      pointer(row, "pointerdown", 200, 20);
+      act(() => vi.advanceTimersByTime(500));
+      pointer(row, "pointermove", 200, 60);
+      pointer(row, "pointercancel", 200, 60);
+
+      expect(capture).toHaveBeenCalledTimes(1);
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(onEnd).toHaveBeenCalledWith(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("movement past the tolerance before 500ms cancels the hold", () => {
+    vi.useFakeTimers();
+    try {
+      const onStart = vi.fn();
+      const onLongPress = vi.fn();
+      const { container } = render(
+        <SwipeReveal
+          open={false}
+          onOpenChange={() => {}}
+          onLongPress={onLongPress}
+          reorder={{ onStart, onMove: vi.fn(), onEnd: vi.fn() }}
+          actions={null}
+        >
+          <button type="button">Row</button>
+        </SwipeReveal>,
+      );
+      container.firstElementChild!.setPointerCapture = vi.fn();
+      const row = screen.getByRole("button", { name: "Row" });
+
+      pointer(row, "pointerdown", 200, 20);
+      pointer(row, "pointermove", 200, 40);
+      act(() => vi.advanceTimersByTime(600));
+
+      expect(onStart).not.toHaveBeenCalled();
+      expect(onLongPress).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("claims the scroll while a drag is live", () => {
+    vi.useFakeTimers();
+    try {
+      const { row } = setup({ onStart: vi.fn(), onMove: vi.fn(), onEnd: vi.fn() });
+
+      pointer(row, "pointerdown", 200, 20);
+      act(() => vi.advanceTimersByTime(500));
+
+      // `touch-action: pan-y` was fixed at gesture start, so the wrapper takes
+      // the scroll back with a non-passive touchmove for the drag's duration.
+      const touchMove = new Event("touchmove", { bubbles: true, cancelable: true });
+      row.dispatchEvent(touchMove);
+      expect(touchMove.defaultPrevented).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports moves that land outside the row after the reorder drops capture", () => {
+    // The list re-orders the row in the DOM while the finger moves it, and a
+    // browser drops pointer capture when the capturing node moves. The next
+    // move targets whatever is under the finger — not the row — so the window
+    // has to be the one reporting it.
+    vi.useFakeTimers();
+    try {
+      const onStart = vi.fn();
+      const onMove = vi.fn();
+      const onEnd = vi.fn();
+      const { row } = setup({ onStart, onMove, onEnd });
+
+      pointer(row, "pointerdown", 200, 20);
+      act(() => vi.advanceTimersByTime(500));
+
+      fireEvent(
+        window,
+        new MouseEvent("pointermove", {
+          bubbles: true,
+          cancelable: true,
+          clientX: 200,
+          clientY: 120,
+        }),
+      );
+
+      expect(onMove).toHaveBeenCalledTimes(1);
+      expect(onMove).toHaveBeenCalledWith(120);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ends the drag when the release lands outside the row", () => {
+    // Rows re-order in the DOM while the finger moves, and a browser drops
+    // pointer capture when the capturing node moves. The lift must still end
+    // — a drag that never hears its release leaves the row raised forever.
+    vi.useFakeTimers();
+    try {
+      const onStart = vi.fn();
+      const onMove = vi.fn();
+      const onEnd = vi.fn();
+      const { row } = setup({ onStart, onMove, onEnd });
+
+      pointer(row, "pointerdown", 200, 20);
+      act(() => vi.advanceTimersByTime(500));
+      pointer(row, "pointermove", 200, 60);
+
+      fireEvent(window, new MouseEvent("pointerup", { bubbles: true, cancelable: true }));
+
+      expect(onEnd).toHaveBeenCalledTimes(1);
+      expect(onEnd).toHaveBeenCalledWith(false);
     } finally {
       vi.useRealTimers();
     }

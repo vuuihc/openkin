@@ -111,7 +111,7 @@ You are the WORKER for RSI item $ITEM in worktree \`$WT\` on branch \`$BR\`. Mod
 - Stay inside your declared paths; do not touch files other lanes may be editing. Declared paths: $(python3 -c "import json;print(', '.join(json.load(open('$STATE/lanes/$N.json'))['paths']))")
 - Test first. Run FOCUSED checks only (typecheck, lint on changed files, the tests you wrote/touched, \`go test\` for touched packages). The merge lane runs the full gate (\`gate.sh\`) and an independent review afterwards. Use \`VITEST_MAX_WORKERS=2\` for vitest; other lanes are running on the same machine.
 - If \`ui/\` changed: \`cd ui && npm run build\`, commit \`web/dist/index.html\` only (never \`web/dist/assets/\`). For visible UI also save 390×844 and 1100×760 before/after screenshots under \`$STATE/shots/$SLUG/\`.
-- UI ratchet: \`python3 scripts/check-ui-inventory.py\` must not grow. If your change IS the sanctioned primitive/facade (its own raw \`<button>\`, \`createPortal\`, \`role="dialog"\`, \`useAnchoredPanel\` use is the point), run \`python3 scripts/check-ui-inventory.py --update\`, commit the baseline, and say so in the PR body (Risk section). Also run \`cd ui && npx vitest run src/design/tokens.test.ts\` (design-token tests: e.g. focus ring must use \`outline-kin-focus-ring\`) and \`./scripts/check.sh\` before you finish.\n- Commit everything with Conventional Commits and explicit paths. Do NOT push, do NOT open the PR, do NOT touch the main checkout or other worktrees.
+- UI ratchet: \`python3 scripts/check-ui-inventory.py\` must not grow. If your change IS the sanctioned primitive/facade (its own raw \`<button>\`, \`createPortal\`, \`role="dialog"\`, \`useAnchoredPanel\` use is the point), run \`python3 scripts/check-ui-inventory.py --update\`, commit the baseline, and say so in the PR body (Risk section). Also run \`cd ui && npx vitest run src/design/tokens.test.ts\` (design-token tests: e.g. focus ring must use \`outline-kin-focus-ring\`) and \`./scripts/check.sh\` before you finish.\n- Commit everything with Conventional Commits and explicit paths. Do NOT push, do NOT open the PR, do NOT touch other worktrees.
 - Before you finish write the PR body to \`$STATUS_NOTE_FILE\` with sections: Symptom · Change · Verification (commands + results) · Screenshots (paths, or "none: not visible") · Risk · \`RSI item: $ITEM\`.
 - Final message: files changed, tests added (names), commands run with results, residual risk.
 HD
@@ -184,7 +184,11 @@ if [ -z "$PRN" ]; then
   PRURL="$($GH pr create --repo "$GH_REPO" --base main --head "$BR" --title "$TITLE" --body-file "$BODY" 2>&1 | tail -1)"
   PRN="$(echo "$PRURL" | sed -n 's#.*/pull/\([0-9]*\).*#\1#p')"
 else
-  PRURL="https://github.com/$GH_REPO/pull/$PRN"; $GH pr comment "$PRN" --repo "$GH_REPO" --body "RSI lane $N pushed a rework for the merge lane's findings ($(date '+%F %H:%M %Z'))." >/dev/null 2>&1
+  PRURL="https://github.com/$GH_REPO/pull/$PRN"
+  if [ -s "$STATUS_NOTE_FILE" ] && [ "$STATUS_NOTE_FILE" -nt "$HDR" ]; then
+    $GH pr edit "$PRN" --repo "$GH_REPO" --body-file "$STATUS_NOTE_FILE" >/dev/null 2>&1 || true
+  fi
+  $GH pr comment "$PRN" --repo "$GH_REPO" --body "RSI lane $N pushed a rework for the merge lane's findings ($(date '+%F %H:%M %Z'))." >/dev/null 2>&1
 fi
 [ -n "$PRN" ] || { count_fail "lane $N PR" "$PRURL"; finish failed "" "pr create failed: $PRURL"; exit 1; }
 [ "$MODE" = rework ] && mkdir -p "$STATE/sendback/done" && mv "$STATE/sendback/$SLUG.md" "$STATE/sendback/done/$SLUG-$(date +%H%M%S).md" 2>/dev/null

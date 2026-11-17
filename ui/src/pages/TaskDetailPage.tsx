@@ -8,7 +8,14 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useNavigationType,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { goBackToList } from "../lib/phoneBack";
 import { currentPhoneLocation, isPhoneLayout, phonePush } from "../lib/phoneNavigation";
 import {
@@ -110,6 +117,7 @@ import { clearFollowUpDraft, getFollowUpDraft, setFollowUpDraft } from "../lib/f
 import { clearSessionScroll, getSessionScroll, setSessionScroll } from "../lib/sessionScroll";
 import { modelPickerLabel, modelsForAgent } from "../lib/agentModels";
 import { panelForView, resolvePanel, type PanelContext } from "../lib/panels";
+import { dropSearchParam, parseWorkspaceLink, patchWorkspaceLink } from "../lib/workspaceDeepLink";
 import { useAppStore } from "../store/appStore";
 import { displayUserPrompt } from "../lib/attachments";
 
@@ -371,6 +379,10 @@ export default function TaskDetailPage({
   );
   const [workspaceOpenPath, setWorkspaceOpenPath] = useState<string | null>(null);
   const [workspaceOpenNonce, setWorkspaceOpenNonce] = useState(0);
+  // Bumped only when an applied link says the list (`panel=files`, no `file`):
+  // the panel leaves whatever file it was showing. A file the reader picked is
+  // the panel's own state, so this is the address's half of "Back to the list".
+  const [workspaceShowListNonce, setWorkspaceShowListNonce] = useState(0);
   /**
    * The file finder, owned by the page rather than the files panel: the
    * shortcut works with the panel closed, and the phone's action sheet needs an
@@ -429,7 +441,6 @@ export default function TaskDetailPage({
   const shownPanel = useAppStore((s) => s.shownPanel);
   const showPanel = useAppStore((s) => s.showPanel);
   const hidePanel = useAppStore((s) => s.hidePanel);
-  const togglePanel = useAppStore((s) => s.togglePanel);
   // Closing the files panel spends the open-file pulse. The panel consumes the
   // path once; keeping it would replay the last "open this file" on the next
   // open and land inside a file instead of on the list, which is what a fresh
@@ -466,6 +477,7 @@ export default function TaskDetailPage({
     withdrawnRef.current = new Set();
     setWorkspaceOpenPath(null);
     setWorkspaceOpenNonce(0);
+    setWorkspaceShowListNonce(0);
     setSelectedWorkspaceId(undefined);
     stickToBottomRef.current = true;
     listAgents()
@@ -925,8 +937,9 @@ export default function TaskDetailPage({
   // The parameter is then dropped, so a refresh or Back does not pull the
   // reader to a card they already saw — and a later tap on the same banner is
   // a fresh navigation rather than a replay of this one.
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const { pathname } = useLocation();
+  const navigationType = useNavigationType();
   // The route names the conversation the tap was for. A pane kept alive out of
   // sight still renders while the next one loads (`TaskSessionHost`), and it
   // must not answer a link about a different conversation: consuming it there
@@ -940,15 +953,13 @@ export default function TaskDetailPage({
   const consumedFocus = useRef<string | null>(null);
   const requestedFocusRefresh = useRef<string | null>(null);
   const dropFocusParam = useCallback(() => {
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.delete("focus");
-        return next;
-      },
-      { replace: true },
-    );
-  }, [setSearchParams]);
+    // Raw byte edit, not `URLSearchParams`: a neighbouring `?file=src/a%20b.ts`
+    // would be re-encoded (`/` as `%2F`, `%20` as `+`) on its way through.
+    const here = locationRef.current;
+    const next = dropSearchParam(here.search, "focus");
+    if (next === here.search) return;
+    navigate({ pathname: here.pathname, search: next }, { replace: true });
+  }, [navigate]);
   // The link stops naming an item once it is consumed. Clearing on the way out
   // is what makes a second tap on the same banner a new navigation instead of
   // a replay this pane silently swallows.
@@ -996,6 +1007,92 @@ export default function TaskDetailPage({
     pending.loaded,
     pendingRead,
     dropFocusParam,
+  ]);
+
+  // `/tasks/<id>?panel=files&file=<path>` is an address, not a moment: a
+  // refresh, a paste, a Forward and an arrival from anywhere else all land on
+  // the same file. On arrival and on Back/Forward the URL owns the panel; the
+  // page's own controls write it instead (and push, one entry per action).
+  // A pane kept alive out of sight answers nothing here — the same guard the
+  // `?focus=` link uses, because consuming the link there would drop it before
+  // the routed pane ever saw it.
+  const appliedWorkspaceKey = useRef<string | null>(null);
+  const writeWorkspaceSearch = useCallback(
+    (next: string, opts?: { replace?: boolean }) => {
+      const here = locationRef.current;
+      // Never navigate to the location already showing: React Router would
+      // push a second, identical entry for a read that changed nothing.
+      if (next === here.search) return;
+      navigate({ pathname: here.pathname, search: next }, { replace: opts?.replace });
+    },
+    [navigate],
+  );
+  useEffect(() => {
+    // A pane kept alive out of sight is not current: drop what it applied, so
+    // Back onto the very entry it left re-reads the address instead of
+    // trusting a key from before another conversation took the screen.
+    if (!active || routedId !== id) {
+      appliedWorkspaceKey.current = null;
+      return;
+    }
+    if (!task) return;
+    // The focus consumer owns its own key and must drop it first; two writers
+    // on one location would put back the parameter the other just removed.
+    if (focusParam) return;
+    const here = locationRef.current;
+    // Keyed by the location's key, which is read here as well as in the guard:
+    // Back after a refresh, or two Backs in a row, leave the search and the
+    // navigation type ("POP" both times) unchanged, so only the key says the
+    // address moved and the newly applied entry still has to run.
+    if (appliedWorkspaceKey.current === location.key) return;
+    appliedWorkspaceKey.current = location.key;
+    const link = parseWorkspaceLink(here.search);
+    if (link === null) {
+      // Back/Forward to a conversation: the address says no panel, so the pane
+      // closes. A push the page made itself already closed it.
+      if (navigationType === "POP" && filesPanelOpen) hidePanel(id);
+      return;
+    }
+    if (!link.explicit) {
+      // A stale `file` names no panel: drop only that key and open nothing.
+      writeWorkspaceSearch(dropSearchParam(here.search, "file"), { replace: true });
+      return;
+    }
+    // The URL is canonical after this read (a refusal drops only `file`). It is
+    // a no-op for a link that was already clean, so an arrival never grows the
+    // history by one.
+    writeWorkspaceSearch(patchWorkspaceLink(here.search, { panel: "files", file: link.file }), {
+      replace: true,
+    });
+    showPanel(id, "files");
+    if (link.file) {
+      if (workspaceOpenPath !== link.file) {
+        // Same path + same nonce is ignored inside the panel; bump once per
+        // arrival so Forward onto the same file opens it again.
+        setWorkspaceOpenPath(link.file);
+        setWorkspaceOpenNonce((n) => n + 1);
+      }
+    } else {
+      // The applied link names the list. Whatever file the panel was showing
+      // belongs to an entry the reader has left, so drop it — and drop the
+      // pulse path too, or Forward onto the file would look like the file the
+      // panel already shows and pulse nothing.
+      setWorkspaceOpenPath(null);
+      setWorkspaceShowListNonce((n) => n + 1);
+    }
+  }, [
+    active,
+    routedId,
+    id,
+    task,
+    focusParam,
+    navigationType,
+    filesPanelOpen,
+    hidePanel,
+    showPanel,
+    workspaceOpenPath,
+    writeWorkspaceSearch,
+    location.key,
   ]);
 
   // The card exists only after the render that follows `setFocusIdx`; looking
@@ -1484,6 +1581,27 @@ export default function TaskDetailPage({
     }
   }
 
+  /**
+   * A file picked inside the files panel — a tree row, a changed row, or a
+   * comment pointing at another file.
+   *
+   * The panel has already loaded it; this only records the address: exactly
+   * one push and one entry, and no arrival pulse, or the panel would read the
+   * same file a second time. Two cases are not durable addresses and write the
+   * list instead: a generation snapshot (its paths need not exist in the
+   * checkout the address resolves against) and a path the checkout cannot
+   * name. A link that lands on an error is worse than no link.
+   */
+  function onPanelSelectPath(filePath: string) {
+    if (!task || routedId !== id) return;
+    const next = toWorkspaceRelativePath(task.cwd, filePath);
+    const file = !next || next === "." || selectedWorkspaceId ? null : next;
+    writeWorkspaceSearch(patchWorkspaceLink(locationRef.current.search, { panel: "files", file }));
+    // No nonce bump: the panel loaded the file it just reported. Recording the
+    // path is what keeps the arrival effect from pulsing it again.
+    if (file) setWorkspaceOpenPath(file);
+  }
+
   function onOpenWorkspacePath(filePath: string): boolean {
     if (!task) return false;
     // If the path is already a canonical repo-relative path, use it directly.
@@ -1497,6 +1615,15 @@ export default function TaskDetailPage({
     setWorkspaceOpenPath(next);
     // Bump the nonce so re-clicking the same path re-loads/focuses it.
     setWorkspaceOpenNonce((n) => n + 1);
+    // A page-owned "open this file" is a user action: it writes the address
+    // and pushes one entry. `.` is the checkout itself, not a file, so the URL
+    // names the list while the panel still gets the pulse it always did.
+    writeWorkspaceSearch(
+      patchWorkspaceLink(locationRef.current.search, {
+        panel: "files",
+        file: next === "." ? null : next,
+      }),
+    );
     return true;
   }
 
@@ -1518,8 +1645,23 @@ export default function TaskDetailPage({
   // only when the stream changes, because it walks the whole transcript.
   const publishDraft = useMemo(() => publishDraftFrom(events), [events]);
 
+  /** Opening the panel is a place the reader can share: one history entry. */
   function openFilesPanel() {
     showPanel(id, "files");
+    writeWorkspaceSearch(
+      patchWorkspaceLink(locationRef.current.search, { panel: "files", file: null }),
+    );
+  }
+
+  /** Closing returns the address to the conversation, also one entry. */
+  function closeFilesPanel() {
+    hidePanel(id);
+    writeWorkspaceSearch(patchWorkspaceLink(locationRef.current.search, null));
+  }
+
+  function toggleFilesPanel() {
+    if (filesPanelOpen) closeFilesPanel();
+    else openFilesPanel();
   }
 
   function openPublishPanel() {
@@ -1822,7 +1964,7 @@ export default function TaskDetailPage({
       label: tr("workspace.find.action"),
       onSelect: () => setFileFinderOpen(true),
     },
-    { id: "files", label: tr("workspace.title"), onSelect: () => togglePanel(id, "files") },
+    { id: "files", label: tr("workspace.title"), onSelect: () => toggleFilesPanel() },
     ...(!terminal
       ? [
           {
@@ -1872,7 +2014,7 @@ export default function TaskDetailPage({
           deleting={deleting}
           stopping={stopping}
           onToggleWorkspace={() => {
-            togglePanel(id, "files");
+            toggleFilesPanel();
           }}
           onShare={() => setShareOpen(true)}
           onToggleArchive={onToggleArchive}
@@ -1882,7 +2024,7 @@ export default function TaskDetailPage({
           onOpenActions={() => setActionsOpen(true)}
           // One surface at a time: bringing the list back closes the panel
           // rather than leaving both columns to squeeze the conversation.
-          onShowList={() => hidePanel(id)}
+          onShowList={() => closeFilesPanel()}
         />
 
         {!wide && (
@@ -2119,15 +2261,24 @@ export default function TaskDetailPage({
         terminal={terminal}
         workspaceOpenPath={workspaceOpenPath}
         workspaceOpenNonce={workspaceOpenNonce}
+        workspaceShowListNonce={workspaceShowListNonce}
         selectedWorkspaceId={selectedWorkspaceId}
         onSelectWorkspace={setSelectedWorkspaceId}
         onOpenPath={onOpenWorkspacePath}
+        onPanelSelectPath={onPanelSelectPath}
         onOpenFilesPanel={openFilesPanel}
         onKeepAll={onKeepAllChanges}
         onDiscardAll={onDiscardAllChanges}
         onPublish={openPublishPanel}
         onFindFile={() => setFileFinderOpen(true)}
-        onClosePanel={() => hidePanel(id)}
+        onSendFollowUp={async (text) => {
+          // Diff comments are one ordinary follow-up: same pending bubble, same
+          // queue-vs-interrupt rule. A rejection travels back to the tray, which
+          // keeps every comment and says on its own surface that the send
+          // failed — there is no composer here to restore or toast from.
+          await onComposer(text);
+        }}
+        onClosePanel={() => closeFilesPanel()}
         publishDraft={publishDraft}
         onPublishRowChanged={() => void liveResources.refreshTask(task.id, true)}
       />

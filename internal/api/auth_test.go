@@ -541,11 +541,60 @@ func TestSafeReturnToRejectsOtherOrigins(t *testing.T) {
 		"https://evil.example.com": "/",
 		"javascript:alert(1)":      "/",
 		"  /settings  ":            "/settings",
+		// Percent-encoded forms: the raw string starts with a single "/", but a
+		// hop that decodes once would turn each of these into "//host".
+		"/%09/evil.example.com":                      "/",
+		"/%0d%0a/evil.example.com":                   "/",
+		"/%00evil.example.com":                       "/",
+		"/%7fevil.example.com":                       "/",
+		"/%2F/evil.example.com":                      "/",
+		"/%2f%2fevil.example.com":                    "/",
+		"/%5Cevil.example.com":                       "/",
+		"/%2509/evil.example.com":                    "/",          // double-encoded: one decode is not enough
+		"/a%zz":                                      "/",          // malformed escape
+		"/%80evil.example.com":                       "/",          // invalid UTF-8, which the browser twin also refuses
+		"/a%25b":                                     "/",          // the second decode finds "%b", also malformed
+		"/\t/evil.example.com":                       "/",          // a literal tab: WHATWG strips it, leaving "//host"
+		"/caf%C3%A9":                                 "/caf%C3%A9", // a harmless escape comes back untouched
+		"/tasks/a%20b":                               "/tasks/a%20b",
+		"/tasks/t1?panel=files&file=a%20b.html#frag": "/tasks/t1?panel=files&file=a%20b.html#frag",
+		// The decoded slash lives in the query, which does not decide the origin.
+		"/tasks/t1?panel=files&file=src%2Fa%20b.ts": "/tasks/t1?panel=files&file=src%2Fa%20b.ts",
+		"/settings": "/settings",
 	}
 	for in, want := range cases {
 		if got := safeReturnTo(in); got != want {
 			t.Errorf("safeReturnTo(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// Auth parameters belong in the query, never after a deep link's fragment: the
+// console reads window.location.search, and an anchor only resolves when the
+// fragment comes back byte for byte as the caller wrote it.
+func TestAuthParamsLandBeforeTheFragment(t *testing.T) {
+	cases := []struct{ name, returnTo, want string }{
+		{"plain path", "/sessions", "/sessions?auth_notice=signed-in"},
+		{"existing query", "/sessions?tab=active", "/sessions?tab=active&auth_notice=signed-in"},
+		{"fragment", "/tasks/t1#frag", "/tasks/t1?auth_notice=signed-in#frag"},
+		{"query and fragment", "/tasks/t1?panel=files&file=a%20b.html#frag",
+			"/tasks/t1?panel=files&file=a%20b.html&auth_notice=signed-in#frag"},
+	}
+	for _, tc := range cases {
+		if got := withAuthNotice(tc.returnTo, "signed-in"); got != tc.want {
+			t.Errorf("%s: withAuthNotice(%q) = %q, want %q", tc.name, tc.returnTo, got, tc.want)
+		}
+	}
+}
+
+func TestFailedSignInKeepsTheFragment(t *testing.T) {
+	s := &Server{}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/oidc/callback", nil)
+	s.redirectAuthError(rec, req, "/tasks/t1?panel=files&file=a%20b.html#frag", "provider_error", "try again")
+	want := "/tasks/t1?panel=files&file=a%20b.html&auth_error=try+again&auth_error_code=provider_error#frag"
+	if got := rec.Header().Get("Location"); got != want {
+		t.Fatalf("redirectAuthError = %q, want %q", got, want)
 	}
 }
 

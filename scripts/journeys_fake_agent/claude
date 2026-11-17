@@ -14,7 +14,24 @@
 # Extra flags after the prompt (--permission-mode, --mcp-config, …) are
 # ignored. A prompt containing the literal marker "[seed] fail" produces a
 # result with is_error true and a non-zero exit, which the engine maps to a
-# failed task. Nothing is written to disk: the task cwd stays untouched.
+# failed task.
+#
+# One prompt holds a turn open. A prompt containing "[seed] approve" prints
+# the init line and one assistant message carrying a tool_use block, then stays
+# alive instead of printing a result — so the daemon keeps the task `running`
+# and scripts/journeys_seed.py can ask the daemon's own permission bridge for an
+# approval row. The task then sits in `waiting_approval` and the walk
+# photographs the card. It exits when its parent (the daemon) is gone, and has
+# a hard cap, so a crashed walk cannot leave a sleeper behind.
+#
+# One prompt changes a file. A prompt containing "[seed] change" appends one
+# sentinel line to the tracked notes.md, and only when the process's real
+# working directory carries the `kin-journeys-seed-` prefix that
+# scripts/journeys_seed.py's _seed_roots() creates — this binary can be
+# selected by path, so it must never write into a real repository. The line is
+# appended only once, so a re-run leaves the same one-file diff and the journey
+# walk has a real workspace change to open. Every other prompt writes nothing:
+# the task cwd stays untouched.
 #
 # Deliberately no `session_id`: a made-up ref sends the engine looking for it
 # in the real agent session catalog on every turn (~16 s per seeded
@@ -48,6 +65,43 @@ case "$prompt" in
 {"type":"result","subtype":"error_during_execution","is_error":true,"result":"[seed] fail: the fake agent stopped on purpose","total_cost_usd":0.00042,"usage":{"input_tokens":42,"output_tokens":7}}
 EOF
     exit 1
+    ;;
+esac
+
+case "$prompt" in
+  *"[seed] approve"*)
+    # `cat` flushes at exit; a shell builtin's printf can sit in a pipe buffer
+    # while the process sleeps, and the daemon would never see these lines.
+    cat <<'EOF'
+{"type":"system","subtype":"init","cwd":"."}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_seed_approve","name":"Bash","input":{"command":"git status --short"}}]}}
+EOF
+    # A held turn, not a daemon of its own: die with the parent, and never
+    # outlive a walk by more than the hard cap.
+    i=0
+    while [ "$i" -lt 600 ]; do
+      kill -0 "$PPID" 2>/dev/null || exit 0
+      sleep 1
+      i=$((i + 1))
+    done
+    exit 0
+    ;;
+esac
+
+# The one workspace change this fake ever makes: a single line in the tracked
+# notes.md of a throwaway seed root, appended at most once.
+case "$prompt" in
+  *"[seed] change"*)
+    # pwd -P, not an inherited $PWD: the daemon passes its own environment
+    # through, so only the process's real directory proves where this writes.
+    case "$(pwd -P)" in
+      *kin-journeys-seed-*)
+        line='- [seed] change: the journey walk reads this line as a real diff.'
+        if [ -f notes.md ] && ! grep -qxF -e "$line" notes.md; then
+          printf '%s\n' "$line" >>notes.md
+        fi
+        ;;
+    esac
     ;;
 esac
 

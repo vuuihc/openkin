@@ -16,6 +16,7 @@ import { type AgentSession, type Task } from "../api/client";
 import { displayAgentSessionTitle } from "./agentSessionTitle";
 import { displayUserPrompt } from "./attachments";
 import type { Machine } from "./devices";
+import { applyTaskOrder } from "./taskOrder";
 
 /** Rows with no cwd at all still need one bucket; it sorts last. */
 export const UNASSIGNED_PROJECT = "__unassigned__";
@@ -171,6 +172,22 @@ function tailOf(cwd: string | undefined): string {
 }
 
 /**
+ * A bucket's heading: the project record's name, else the folder's.
+ *
+ * The lookup is asked about the cwd itself, not the bucket key: in the archived
+ * scope a remote copy's key carries a `\u0000device:` suffix for its own
+ * identity, and that suffix is not part of the project's address. A
+ * whitespace-only name is no name, so it falls through like a missing record.
+ */
+function headingFor(
+  cwd: string | undefined,
+  projectNameFor: (cwd: string | undefined) => string | undefined,
+  noProject: string,
+): string {
+  return (projectNameFor(cwd) ?? "").trim() || tailOf(cwd) || noProject;
+}
+
+/**
  * The identity one conversation has across the two feeds.
  *
  * Kin's task row and the imported provider session row describe the same
@@ -231,6 +248,25 @@ export function phoneProjectBuckets(
    *  what was put away, so it can be restored without leaving the list. It is
    *  this machine's archive, for the same reason. */
   scope: PhoneBucketScope = "active",
+  /** The `/api/projects` name for a cwd, when a record claims it.
+   *
+   *  The record is the project's own name; the folder is only its address. A
+   *  heading that used the folder whenever rows existed gave one project two
+   *  names — `alpha` here, `Project Alpha` on the empty heading beside it —
+   *  and flipped between them as the last conversation came and went. The
+   *  caller supplies the lookup so this module stays free of the record type
+   *  and its API; with no lookup the old folder-name behaviour stands. */
+  projectNameFor: (cwd: string | undefined) => string | undefined = () => undefined,
+  /** A bucket's manual order, keyed the way the list stores it. It replaces
+   *  the attention/recency rule inside that bucket whole: a status change or a
+   *  new message must not undo a move the person made. Imported sessions have
+   *  no manual order — they are an index, not a project. */
+  orders: Readonly<Record<string, readonly string[]>> | undefined = undefined,
+  /** This browser's renames, keyed by task id. The caller reads storage; this
+   *  module only composes the row, so the function stays pure and the search
+   *  below inherits the override through `row.title`. Imported sessions have
+   *  no task id and keep the title their agent index gave them. */
+  localTitles: Readonly<Record<string, string>> = {},
 ): PhoneProjectBucket[] {
   const archived = new Set(archivedCwds.map(archivedKeyOf));
   const selfId = selfDeviceId.trim();
@@ -274,7 +310,8 @@ export function phoneProjectBuckets(
     const key = bucketKey(cwd, device);
     const found = byKey.get(key);
     if (found) return found;
-    const label = key === UNASSIGNED_PROJECT ? copy.noProject : tailOf(cwd) || copy.noProject;
+    const label =
+      key === UNASSIGNED_PROJECT ? copy.noProject : headingFor(cwd, projectNameFor, copy.noProject);
     const made: PhoneProjectBucket = {
       key,
       label,
@@ -307,7 +344,11 @@ export function phoneProjectBuckets(
     bucket.rows.push({
       key: task.id,
       at,
-      title: task.title.trim() || displayUserPrompt(task.prompt) || copy.untitled,
+      title:
+        localTitles[task.id] ||
+        task.title.trim() ||
+        displayUserPrompt(task.prompt) ||
+        copy.untitled,
       agentId: task.agent || "kin",
       status: task.status,
       remote: Boolean(device) && device !== selfDeviceId,
@@ -361,7 +402,10 @@ export function phoneProjectBuckets(
       if (byKey.has(key)) continue;
       byKey.set(key, {
         key,
-        label: key === UNASSIGNED_PROJECT ? copy.noProject : tailOf(cwd) || copy.noProject,
+        label:
+          key === UNASSIGNED_PROJECT
+            ? copy.noProject
+            : headingFor(cwd, projectNameFor, copy.noProject),
         cwd: key === UNASSIGNED_PROJECT ? "" : cwd,
         rows: [],
         lastActivityAt: 0,
@@ -382,6 +426,9 @@ export function phoneProjectBuckets(
         b.at - a.at ||
         a.key.localeCompare(b.key),
     );
+    if (orders && !isImportedBucket(bucket.key)) {
+      bucket.rows = applyTaskOrder(bucket.rows, orders[bucket.key]);
+    }
   }
 
   return (
@@ -559,6 +606,9 @@ export function withPinnedBucket(
   buckets: readonly PhoneProjectBucket[],
   pinnedIds: ReadonlySet<string>,
   label: string,
+  /** The pinned section is its own bucket for ordering purposes, so a drag
+   *  there is stored and applied under `PINNED_BUCKET`. */
+  orders: Readonly<Record<string, readonly string[]>> | undefined = undefined,
 ): PhoneProjectBucket[] {
   const pinned: PhoneSessionRow[] = [];
   const rest = buckets.flatMap((bucket) => {
@@ -581,7 +631,7 @@ export function withPinnedBucket(
       key: PINNED_BUCKET,
       label,
       cwd: "",
-      rows: pinned,
+      rows: applyTaskOrder(pinned, orders?.[PINNED_BUCKET]),
       lastActivityAt: Math.max(0, ...pinned.map((row) => row.at)),
       createdAt: 0,
       hasActiveTask: false,

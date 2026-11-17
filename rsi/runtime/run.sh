@@ -22,7 +22,7 @@ if [ $CHECK -eq 1 ] || [ $STAT -eq 1 ]; then
   python3 "$LANES_PY" status
   for f in PAUSE NO_MERGE VOLC_NO_KIMI VOLC_STOP_WORKERS; do [ -e "$STATE/$f" ] && echo "$f set: $(cat "$STATE/$f")"; done
   python3 "$RSI_DIR/runtime/volc-budget.py" --apply >/dev/null 2>&1 || true
-  [ -s "$STATE/volc-budget.json" ] && python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print('volc list CNY today: ¥%.2f (%s); Kimi ¥%.2f / ¥%.0f'%(d['cny'],d['level'],d.get('kimi_cny') or 0,d.get('kimi_day_max') or 80))" "$STATE/volc-budget.json" 2>/dev/null
+  [ -s "$STATE/volc-budget.json" ] && python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print('volc list CNY today: ¥%.2f (%s); Kimi ¥%.2f / ¥%.0f'%(d['cny'],d['level'],d.get('kimi_cny') or 0,d.get('kimi_day_max') or 150))" "$STATE/volc-budget.json" 2>/dev/null
   echo "consec_fail=$(cat "$STATE/consec_fail" 2>/dev/null || echo 0) consec_timeout=$(cat "$STATE/consec_timeout" 2>/dev/null || echo 0)"
   echo "merge lane: $([ -d "$STATE/.merge.lock" ] && echo "running pid $(cat "$STATE/.merge.lock/pid")" || echo idle)"
   BP_NOTE=""
@@ -87,11 +87,15 @@ case "$MODE" in
     IDLE="$(python3 "$LANES_PY" idle | tr '\n' ' ')"
     LANES_TXT="$(python3 "$LANES_PY" status)"
     CLOUD_PENDING="$(python3 "$RSI_DIR/runtime/slices.py" cloud-pending 2>/dev/null | wc -l | tr -d ' ')"
-    if [ -z "${IDLE// }" ] && [ "${CLOUD_PENDING:-0}" -eq 0 ]; then
+    # Post-programme: even with no idle lane the director must still run while STATUS.md's Queue holds a
+    # dispatchable R-* row, because it is the only thing that writes a NAS brief (prompts/fill.md 2c).
+    # Parked rows, rows already in a lane and rows that wait on an open PR are not dispatchable.
+    R_QUEUE="$(awk 'BEGIN{q=0} /^## Queue/{q=1;next} /^## /{q=0} q && /^\| `R-/ && $0 !~ /lane [0-9]/ && $0 !~ /waits/ {n++} END{print n+0}' "$STATE/STATUS.md" 2>/dev/null)"
+    if [ -z "${IDLE// }" ] && [ "${CLOUD_PENDING:-0}" -eq 0 ] && [ "${R_QUEUE:-0}" -eq 0 ]; then
       if [ $DRY -eq 0 ] && rsi_allow_workers && [ -x "$RSI_DIR/runtime/nas/pulse-nas.sh" ]; then
         nohup /bin/bash "$RSI_DIR/runtime/nas/pulse-nas.sh" >> "$RUNS/launchd-nas.log" 2>&1 < /dev/null & disown 2>/dev/null || true
       fi
-      echo "no idle lane and no cloud brief pending. $LANES_TXT"; exit 0
+      echo "no idle lane, no cloud brief pending, no dispatchable R-* row. $LANES_TXT"; exit 0
     fi
     date +%s > "$STATE/last_fill";;
   daily) [ $FORCE -eq 0 ] && ls "$RUNS"/${TODAY}*-daily.jsonl >/dev/null 2>&1 && { echo "skip: daily already ran today"; exit 0; }; MAXSECS=5400; PROMPT_FILE="$RSI_DIR/runtime/prompts/daily.md";;

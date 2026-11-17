@@ -19,9 +19,9 @@ import { useAppStore } from "../../store/appStore";
  * one layer) is the console's rather than this file's. E4c finished the rest —
  * discovery, manual import, the two banners, the sortable headers, and the
  * phone action list, which now rides the shared `ActionSheet` row rather than
- * a facade `Button` per action — while the usage range picker keeps its raw
- * roving radiogroup because no Segmented/RadioGroup facade exists yet. These
- * tests drive the real section so a regression in either half shows up here.
+ * a facade `Button` per action. The usage range picker was the last exemption
+ * and now rides the shared `RadioGroup`; the section keeps no raw `<button>`.
+ * These tests drive the real section so a regression shows up here.
  */
 
 const client = vi.hoisted(() => ({
@@ -486,18 +486,16 @@ describe("the Operations section's remaining controls on the facade (E4c)", () =
     expect(week.getAttribute("aria-checked")).toBe("true");
   });
 
-  it("leaves no E4c breadcrumb behind", () => {
-    // The range picker is the one deliberate exemption, and it names the
-    // primitive it is waiting for rather than an owner.
+  it("the range picker has no raw-button breadcrumb left", () => {
+    // The picker rides the shared RadioGroup now, so the section no longer
+    // spells the radiogroup or its buttons itself (and has no exemption left).
     const source = readFileSync(
       resolve(process.cwd(), "src/components/settings/AgentOperationsSection.tsx"),
       "utf8",
     );
-    const remaining = source
-      .split("\n")
-      .filter((line) => line.includes("E4c") || line.includes("(E4c)"));
-    expect(remaining).toHaveLength(1);
-    expect(remaining[0]).toContain("range picker");
-    expect(remaining[0]).toContain("RadioGroup");
+    expect(source).not.toContain("E4c");
+    expect(source).not.toContain("no-raw-button");
+    expect(source).not.toContain('role="radio"');
+    expect(source).not.toContain("<button");
   });
 });

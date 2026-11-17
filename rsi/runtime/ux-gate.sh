@@ -67,11 +67,13 @@ NSHOT="$(ls "$SHOTS"/*.png 2>/dev/null | wc -l | tr -d ' ')"
 BASELINE="$STATE/shots/baseline"   # walk of the installed build before the programme (empty daemon); refresh with ux-walk.sh on current main
 APPROVED_PROTO="$STATE/ux-proto/final"
 BODY="$($GH pr view "$N" --repo "$GH_REPO" --json body --jq .body 2>/dev/null | head -c 3000)"
+PR_SHOTS="$(ls "$STATE/shots/$SLUG"/*.png 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
 PF="$STATE/briefs/$SLUG-ux-review.md"; mkdir -p "$STATE/briefs"
 {
   echo "You are the UX REVIEWER (read-only) for PR #$N (item $ITEM, branch rsi/$SLUG, worktree $WT). The worker was a different model."
   echo "Follow $RSI_DIR/roles/ux-reviewer.md and the rubric in $RSI_DIR/UX-RUBRIC.md EXACTLY. Do not run builds or tests."
   echo "Evidence you MUST open with the Read tool (images are viewable): the walk screenshots in $SHOTS (names are <journey>-<viewport>-<n>-<step>.png; the matching .aria.txt is the accessibility tree), and $SHOTS/walk.json (objective lint per screen: small tap targets, search boxes, overflow, console errors)."
+  [ -n "$PR_SHOTS" ] && echo "PR feature screenshots captured at 390x844 and 1100x760 (MUST also open with the Read tool, especially when a sub-surface such as workspace diffs or filtered states is not seeded in the generic journey walk): $PR_SHOTS"
   echo "Compare against: the BEFORE screenshots in $BASELINE (same names where they exist; the installed build before this programme) and the target prototype in $APPROVED_PROTO (the clickable shell Ethan approved; the product should converge on it, not on the old UI)."
   echo "Look at the attached diff only to explain what you see (do not run git/shell; the diff is provided). What the PR claims: $BODY"
   [ -n "$HARD" ] && { echo; echo "Walk hard failures (each is an automatic reject unless you can show it is a walker artefact):"; echo "$HARD"; }

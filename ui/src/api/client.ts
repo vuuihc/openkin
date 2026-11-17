@@ -1,5 +1,6 @@
 import { gateFor } from "../lib/accountGate";
 import { machineRef } from "../lib/devices";
+import { formatSeconds } from "../lib/duration";
 import { useAppStore } from "../store/appStore";
 import { t } from "../i18n";
 import {
@@ -1628,6 +1629,10 @@ export function listRoutines(
     limit?: number;
     cursor?: string;
     q?: string;
+    /** Exact working directory; absent means every directory. */
+    cwd?: string;
+    /** `failed` keeps routines whose most recent run failed. */
+    outcome?: "failed";
     runs?: boolean;
   },
   device?: string,
@@ -1639,6 +1644,8 @@ export function listRoutines(
   if (params?.limit) q.set("limit", String(params.limit));
   if (params?.cursor) q.set("cursor", params.cursor);
   if (params?.q) q.set("q", params.q);
+  if (params?.cwd) q.set("cwd", params.cwd);
+  if (params?.outcome === "failed") q.set("outcome", "failed");
   if (params?.runs) q.set("runs", "1");
   const qs = q.toString();
   return apiFetch<RoutinePage>(routinePath(`/api/routines${qs ? `?${qs}` : ""}`, device));
@@ -2755,13 +2762,7 @@ export function formatElapsed(task: Task, now = Date.now()): string {
   const start = task.started_at ?? task.created_at;
   const end = task.finished_at ?? now;
   const ms = Math.max(0, end - start);
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  const rem = s % 60;
-  if (m < 60) return `${m}m ${rem}s`;
-  const h = Math.floor(m / 60);
-  return `${h}h ${m % 60}m`;
+  return formatSeconds(Math.floor(ms / 1000));
 }
 
 export function isTerminal(status: string): boolean {

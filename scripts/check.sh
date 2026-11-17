@@ -191,15 +191,27 @@ job_shell_syntax() {
   done
 }
 
-# The installer is the path an agent runs end to end. Its contract tests use a
-# fake Docker, so they are fast and need no daemon; no other job executes the
-# script's behavior. The merge-lane resolver test is the same shape: temp git
-# repos, stub regenerators, no network — the sendback path is load-bearing for
-# every UI PR, so it is checked here rather than only in the running loop.
+# The installer and the loop's own guard scripts are shell, so no Go or console job
+# sees them. Their contract tests use fake Docker, stubbed npm/launchctl, temp git
+# repos and no network, so the whole set stays cheap; every hermetic suite under
+# rsi/runtime/tests, rsi/runtime/nas/tests and rsi/runtime/ux is wired here
+# (test-wiring.sh enforces that), because a broken claim, tier, sendback or
+# backpressure guard otherwise lands on main unnoticed and the next fill pulse
+# stalls or refuses a valid claim.
 job_shell_test() {
   ./scripts/install-hub.test.sh || return 1
   bash rsi/runtime/format-changed.test.sh || return 1
-  bash rsi/runtime/tests/test-merge-gen-resolve.sh
+  bash rsi/runtime/tests/node-stamp-test.sh || return 1
+  bash rsi/runtime/tests/test-escalate.sh || return 1
+  bash rsi/runtime/tests/test-gate-backpressure.sh || return 1
+  bash rsi/runtime/tests/test-outside-tests.sh || return 1
+  bash rsi/runtime/tests/test-throughput.sh || return 1
+  bash rsi/runtime/tests/test-lanes-history.sh || return 1
+  bash rsi/runtime/tests/test-merge-gen-resolve.sh || return 1
+  bash rsi/runtime/tests/test-install.sh || return 1
+  bash rsi/runtime/nas/tests/test-nas.sh || return 1
+  bash rsi/runtime/ux/retry-test.sh || return 1
+  bash rsi/runtime/tests/test-wiring.sh
 }
 
 job_python_syntax() {

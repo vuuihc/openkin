@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// KIN-SETTINGS-001 — 改默认设置（J6）：本套件持有目录 / 内容列布局与键盘焦点的验收行。
 import { createElement, useState } from "react";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";

@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+<rect width="390" height="844" fill="#111315"/>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;fill:#e7e9eb}.muted{fill:#969da4}.small{font-size:12px}.tiny{font-size:11px}.label{font-size:14px}.title{font-size:18px;font-weight:600}.button{fill:#20252a;stroke:#3b4249}.pressed{fill:#1f3a5f;stroke:#2f6feb}.dash{fill:none;stroke:#6ea8fe;stroke-dasharray:5 4}.ok{fill:#6dd58c}</style>
+<text x="16" y="24" class="small muted">KIN-SETTINGS-001 · 03 / 手机 通用即目录 · 390×844</text>
+
+<text x="18" y="52" class="small muted">9:41</text>
+<rect x="326" y="42" width="28" height="12" rx="3" fill="#3b4249"/>
+<rect x="360" y="42" width="14" height="12" rx="3" fill="#3b4249"/>
+
+<rect y="62" width="390" height="692" fill="#171a1d"/>
+<text x="18" y="96" class="title">设置</text>
+<text x="18" y="116" class="tiny muted">认知 Provider（Kin agent）、Agent、路由与价格。</text>
+
+<rect x="12" y="132" width="366" height="112" rx="14" fill="#1b1f22" stroke="#2c3238"/>
+<text x="28" y="158" class="label">外观</text>
+<rect x="28" y="172" width="104" height="44" rx="8" class="pressed"/>
+<text x="80" y="199" text-anchor="middle" class="small">跟随系统</text>
+<rect x="140" y="172" width="72" height="44" rx="8" class="button"/>
+<text x="176" y="199" text-anchor="middle" class="small muted">浅色</text>
+<rect x="220" y="172" width="72" height="44" rx="8" class="button"/>
+<text x="256" y="199" text-anchor="middle" class="small muted">深色</text>
+<text x="28" y="234" class="tiny muted">选完立即生效，没有保存按钮</text>
+
+<text x="20" y="276" class="small muted">更多设置</text>
+<rect x="12" y="290" width="366" height="424" rx="14" fill="#1b1f22" stroke="#2c3238"/>
+
+<rect x="12" y="290" width="366" height="84" fill="#1b1f22"/>
+<text x="28" y="316" class="label">Agents</text>
+<text x="28" y="336" class="tiny muted">本机 Agent 检测、会话导入和同步策略。</text>
+<rect x="28" y="344" width="220" height="15" rx="4" class="dash"/>
+<text x="34" y="356" class="tiny">2 个可用 · 1 个未检测</text>
+<text x="362" y="320" text-anchor="end" class="small muted">›</text>
+<rect x="12" y="374" width="366" height="1" fill="#2c3238"/>
+
+<rect x="12" y="375" width="366" height="84" fill="#1b1f22"/>
+<text x="28" y="401" class="label">运维</text>
+<text x="28" y="421" class="tiny muted">用量、限额、已连接的 Agent 和健康检查。</text>
+<rect x="28" y="429" width="220" height="15" rx="4" class="dash"/>
+<text x="34" y="441" class="tiny">运维 · 归 AGENTS-001</text>
+<text x="362" y="405" text-anchor="end" class="small muted">›</text>
+<rect x="12" y="459" width="366" height="1" fill="#2c3238"/>
+
+<rect x="12" y="460" width="366" height="84" fill="#1b1f22"/>
+<text x="28" y="486" class="label">Providers</text>
+<text x="28" y="506" class="tiny muted">认知 Provider、模型和默认主持 agent。</text>
+<rect x="28" y="514" width="220" height="15" rx="4" class="dash"/>
+<text x="34" y="526" class="tiny">gpt-4.1-mini · 使用中</text>
+<text x="362" y="490" text-anchor="end" class="small muted">›</text>
+<rect x="12" y="544" width="366" height="1" fill="#2c3238"/>
+
+<rect x="12" y="545" width="366" height="84" fill="#1b1f22"/>
+<text x="28" y="571" class="label">路由</text>
+<text x="28" y="591" class="tiny muted">自动模型路由、团队配置和限流策略。</text>
+<rect x="28" y="599" width="220" height="15" rx="4" class="dash"/>
+<text x="34" y="611" class="tiny">自动 · 平衡优先</text>
+<text x="362" y="575" text-anchor="end" class="small muted">›</text>
+<rect x="12" y="629" width="366" height="1" fill="#2c3238"/>
+
+<rect x="12" y="630" width="366" height="84" fill="#1b1f22"/>
+<text x="28" y="656" class="label">高级</text>
+<text x="28" y="676" class="tiny muted">价格表、用量上限和 JSON 配置。</text>
+<rect x="28" y="684" width="220" height="15" rx="4" class="dash"/>
+<text x="34" y="696" class="tiny">价格表已载入 · 2 条上限</text>
+<text x="362" y="660" text-anchor="end" class="small muted">›</text>
+
+<text x="20" y="734" class="tiny muted">虚线＝当前值摘要（未交付）。今天每行只有 title 描述。</text>
+
+<rect y="754" width="390" height="90" fill="#181b1e"/>
+<rect y="754" width="390" height="1" fill="#2c3238"/>
+<text x="52" y="802" text-anchor="middle" class="tiny muted">对话</text>
+<text x="150" y="802" text-anchor="middle" class="tiny muted">例行</text>
+<text x="248" y="802" text-anchor="middle" class="tiny muted">运维</text>
+<text x="344" y="802" text-anchor="middle" class="tiny">设置</text>
+<rect x="320" y="818" width="48" height="3" rx="2" fill="#2f6feb"/>
+</svg>
