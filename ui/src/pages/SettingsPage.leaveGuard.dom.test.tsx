@@ -110,6 +110,7 @@ vi.mock("../hooks/useMachines", () => ({
     loading: false,
     failed: false,
   }),
+  refreshMachines: vi.fn(async () => []),
 }));
 
 vi.mock("../hooks/useMinWidth", () => ({

@@ -7,7 +7,8 @@ import { Link } from "react-router-dom";
 import type { OnePager, Project, ProjectPulse, Routine, Task } from "../api/client";
 import { setLocale } from "../i18n";
 import { useAppStore } from "../store/appStore";
-import { writeProjectCover } from "../lib/projectCoverCache";
+import { readProjectCover, writeProjectCover } from "../lib/projectCoverCache";
+import { setLocalTaskTitle } from "../lib/taskTitles";
 
 /**
  * KIN-PROJECT-001: the project cover is one surface, not a second list.
@@ -206,6 +207,9 @@ afterEach(() => {
 beforeEach(() => {
   setLocale("en");
   sessionStorage.clear();
+  // A rename is per-browser and outlives a test; a title left in storage would
+  // rename the next test's rows.
+  localStorage.removeItem("kin_task_titles");
   useAppStore.setState({ wsStatus: "connected", reconnectGen: 0 });
   machineState.agents = [{ id: "kin", installed: true, available: true }];
   machineState.failed = false;
@@ -468,6 +472,70 @@ describe("the project cover (KIN-PROJECT-001)", () => {
     expect(await screen.findByText("Recent activity is unavailable right now")).toBeTruthy();
     // The error sits above the row it could not refresh.
     expect(screen.getByRole("button", { name: /newest chat/ })).toBeTruthy();
+  });
+
+  it("a rename made elsewhere updates the cover's recent row without navigation", async () => {
+    client.listProjectTasks.mockResolvedValue([
+      task({ id: "t1", created_at: 30, title: "Old name" }),
+    ]);
+    renderPage();
+
+    expect(await screen.findByRole("button", { name: /Old name/ })).toBeTruthy();
+
+    // The sidebar's rename writes the browser's map and tells every mounted
+    // reader; the cover's one row is a reader, not a copy taken at read time.
+    act(() => {
+      setLocalTaskTitle("t1", "New name");
+    });
+
+    expect(await screen.findByRole("button", { name: /New name/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Old name/ })).toBeNull();
+    // The rename reaches the row without re-reading the feed or leaving the
+    // cover: a refetch would lose the reader's place for a name they typed.
+    expect(client.listProjectTasks).toHaveBeenCalledTimes(1);
+  });
+
+  it("a rename that lands before the activity read resolves is the name the row shows", async () => {
+    const feed = deferred<Task[]>();
+    client.listProjectTasks.mockReturnValue(feed.promise);
+    renderPage();
+
+    await screen.findByText("alpha");
+    act(() => {
+      setLocalTaskTitle("t1", "New name");
+    });
+    await act(async () => {
+      feed.resolve([task({ id: "t1", created_at: 30, title: "Old name" })]);
+      await feed.promise;
+    });
+
+    // The read answered with the daemon's title, but the reader's rename is the
+    // current one; the row must not flash the old name back over it.
+    expect(await screen.findByRole("button", { name: /New name/ })).toBeTruthy();
+    expect(screen.queryByText(/Old name/)).toBeNull();
+  });
+
+  it("the cached cover row is renamed for the next visit", async () => {
+    client.listProjectTasks.mockResolvedValue([
+      task({ id: "t1", created_at: 30, title: "Old name" }),
+    ]);
+    const view = renderPage();
+    await screen.findByRole("button", { name: /Old name/ });
+
+    act(() => {
+      setLocalTaskTitle("t1", "New name");
+    });
+    await waitFor(() => expect(readProjectCover("p1")?.latest?.title).toBe("New name"));
+    view.unmount();
+
+    // Reopening with the feed down paints the per-browser cover first, and that
+    // row was written with the old name unless the rename updated it too.
+    client.listProjectTasks.mockRejectedValue(new Error("offline"));
+    renderPage();
+
+    expect(await screen.findByRole("button", { name: /New name/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Old name/ })).toBeNull();
+    expect(readProjectCover("p1")?.latest?.title).toBe("New name");
   });
 
   it("drops a project read that a newer route has replaced", async () => {
