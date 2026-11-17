@@ -34,7 +34,7 @@ export BASH_DEFAULT_TIMEOUT_MS=3300000 BASH_MAX_TIMEOUT_MS=3600000
 # Workers / rework: DeepSeek V4.1 Flash at --effort high. Director/planner/dream/first reviewer: same model at --effort max.
 # Strong reviewers: Antigravity gemini-4-hydrogen-medium first (UX too — Hydrogen is multimodal).
 # hydrogen-high only for F1–F4 / S1–S3 / architecture, or a second strong pass after disagreement.
-# Never xhigh by default. gpt-6.1-sol second, Carbon third, Kimi last (Volcengine, ¥80/day cap).
+# Never xhigh by default. gpt-6.1-sol second, Carbon third, Kimi last (Volcengine, ¥150/day cap).
 M_WORKER='volcengine-gw/volcengine/deepseek-v4.1-flash[1m]'
 M_DIRECTOR='volcengine-gw/volcengine/deepseek-v4.1-flash[1m]'
 M_ALT='codex/gpt-6.1-sol'
@@ -141,11 +141,11 @@ notify() { # title body
 # Volcengine list-price budget (Mac magpie, Asia/Singapore day). See runtime/volc-budget.py and escalate.py.
 # >= ¥450 (RSI_VOLC_KIMI_MAX): no Kimi; fall back to gpt-6.1-sol.
 # >= ¥560 (RSI_VOLC_STOP_WORKERS): new worker lanes / box pack / NAS pulse stand down until tomorrow.
-# Kimi daily cap ¥80 (RSI_VOLC_KIMI_DAY_MAX): further Kimi escalations fall back to gpt-6.1-sol.
+# Kimi daily cap ¥150 (RSI_VOLC_KIMI_DAY_MAX): further Kimi escalations fall back to gpt-6.1-sol.
 rsi_budget_apply() {
   # Preserve a caller's explicit cap: the tool re-reads policy on every call and a cached
   # spend snapshot carries the caps it was computed with (volc-budget.py recomputes them).
-  RSI_VOLC_CNY=; RSI_VOLC_LEVEL=ok; RSI_VOLC_DAY=; RSI_VOLC_KIMI_CNY=; RSI_VOLC_KIMI_DAY_MAX="${RSI_VOLC_KIMI_DAY_MAX:-80}"
+  RSI_VOLC_CNY=; RSI_VOLC_LEVEL=ok; RSI_VOLC_DAY=; RSI_VOLC_KIMI_CNY=; RSI_VOLC_KIMI_DAY_MAX="${RSI_VOLC_KIMI_DAY_MAX:-150}"
   local ev
   ev="$(python3 "$RSI_DIR/runtime/volc-budget.py" --export 2>/dev/null)" || return 0
   eval "$ev" 2>/dev/null || true
