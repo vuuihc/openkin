@@ -749,11 +749,32 @@ export default function SettingsPage() {
     );
   }
 
+  // What the directory says each section is set to. Every value comes from
+  // state the page already holds — the loaded form, the provider registry, the
+  // theme preference — so nothing here reads storage, calls the daemon, or
+  // invents an answer. `undefined` is deliberate: a value not loaded yet keeps
+  // the section's description, and a failed reload (#232's banner) keeps the
+  // values from the last good read rather than blanking them.
+  const themeSummary = tr(`settings.appearance.${theme}`);
+  const activeProvider =
+    providers.find((entry) => entry.id === activeProviderId) ??
+    providers.find((entry) => entry.active);
+  const providerSummary = activeProvider?.name || undefined;
+  const limitSummary =
+    limitPolicy === "wait"
+      ? tr("settings.summary.limitWait")
+      : limitPolicy === "ask"
+        ? tr("settings.summary.limitAsk")
+        : limitPolicy === "switch"
+          ? tr("settings.summary.limitSwitch")
+          : undefined;
+
   const settingsTabs: SettingsTabItem[] = [
     {
       id: "general",
       label: tr("settings.tabs.general"),
       description: tr("settings.tabs.generalDesc"),
+      summary: themeSummary,
     },
     {
       id: "agents",
@@ -769,11 +790,13 @@ export default function SettingsPage() {
       id: "providers",
       label: tr("settings.tabs.providers"),
       description: tr("settings.tabs.providersDesc"),
+      summary: providerSummary,
     },
     {
       id: "routing",
       label: tr("settings.tabs.routing"),
       description: tr("settings.tabs.routingDesc"),
+      summary: limitSummary,
     },
     {
       id: "advanced",
