@@ -33,7 +33,7 @@
         ["key", "Escape"], ["shot", "run-config-closed-focus"],
         ["send", "button[aria-label='开始'], button[aria-label='Start']"],
         ["url", "^/tasks/"],
-        ["wait", "text=Draft: summarise this week's TODOs [seed] slow"],
+        ["wait", "css=[role=region][tabindex=\"-1\"]:has-text(\"Draft: summarise this week's TODOs [seed] slow\")"],
         ["wait", "css=[role=status][aria-label*='思考'], [role=status][aria-label*='thinking']"],
         ["shot", "sent"],
         ["wait", "text=Fake reply from the journey fake agent."],
