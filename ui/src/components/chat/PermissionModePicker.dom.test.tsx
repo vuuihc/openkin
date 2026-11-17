@@ -181,6 +181,28 @@ describe("the permission picker", () => {
     expect(row(/^YOLO.*trusted/)).toBeTruthy();
   });
 
+  it("lays the label and chevron out on the facade's inner span", () => {
+    const { chip } = setup(true);
+
+    // Astryx's `Button` wraps its children in two spans of its own, so the row's
+    // flex layout and the shrink floor have to sit inside those wrappers; left
+    // on the `<button>` the label and chevron stack and the label never
+    // truncates. jsdom has no layout, so this pins the class contract, as the
+    // branch and dispatch chips do.
+    expect(chip.classList.contains("[&>span]:min-w-0")).toBe(true);
+    expect(chip.classList.contains("[&>span>span]:min-w-0")).toBe(true);
+
+    const inner = chip.querySelector<HTMLElement>("span.inline-flex.min-w-0.items-center");
+    expect(inner).not.toBeNull();
+    const label = inner!.querySelector<HTMLElement>("span.truncate");
+    expect(label?.textContent).toBeTruthy();
+    // One inner row holds both children in order: the label shrinks, the
+    // chevron keeps its width.
+    const chevron = inner!.querySelector("svg");
+    expect(chevron).not.toBeNull();
+    expect(label!.nextElementSibling).toBe(chevron);
+  });
+
   it("a locked chip opens nothing", async () => {
     const onChange = vi.fn();
     render(<PermissionModePicker value="default" compact locked onChange={onChange} />);

@@ -284,7 +284,7 @@ export function DispatchSelector({
           coarse ? "min-h-11! min-w-11" : "min-h-7! min-w-0"
         } ${
           open
-            ? "border-kin-blue bg-kin-blue/10 text-kin-blue-ink!"
+            ? "border-kin-blue bg-kin-blue/10! text-kin-blue-ink!"
             : "border-[var(--kin-hairline)] text-kin-secondary! hover:bg-[var(--kin-fill)]"
         }`}
         title={summary}

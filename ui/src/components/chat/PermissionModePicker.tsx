@@ -197,14 +197,20 @@ function PermissionMenu({
         aria-expanded={open}
         title={tr(hintKey[mode])}
         className={[
-          "inline-flex min-w-0 flex-none items-center gap-1 rounded-lg bg-transparent px-1.5 py-0.5 text-body font-medium sm:text-caption",
+          // The facade wraps children in its own spans, so the chip's row
+          // layout lives on one inner flex span (as in `CwdPicker` /
+          // `BranchPicker`); `[&>span…]` keeps each wrapper able to shrink, or
+          // the mode label cannot truncate.
+          "min-w-0 flex-none rounded-lg bg-transparent px-1.5 py-0.5 text-body font-medium sm:text-caption [&>span]:min-w-0 [&>span>span]:min-w-0",
           "border border-[var(--kin-hairline-strong)]",
           disabled ? "cursor-default opacity-70" : "cursor-pointer hover:text-kin-text!",
           mode === "yolo" ? "text-kin-orange-ink!" : "text-kin-secondary!",
         ].join(" ")}
       >
-        <span className="truncate">{tr(labelKey[mode])}</span>
-        <IconChevronDown size={11} className="flex-none opacity-70" />
+        <span className="inline-flex min-w-0 items-center gap-1">
+          <span className="truncate">{tr(labelKey[mode])}</span>
+          <IconChevronDown size={11} className="flex-none opacity-70" />
+        </span>
       </Button>
       <Menu
         open={open}
