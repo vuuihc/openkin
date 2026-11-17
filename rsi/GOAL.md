@@ -33,7 +33,8 @@ the five flows below closer to "passes without a human noticing".
 <!-- phase: P2-midrun-control target=2026-11-19T20:00 -->
 
 **Why this and not features.** P1 closed the journeys that prove a person can start a chat, approve and
-come back (#245 real send, #249 approve/deny, #251 deep link, #254 mutant). The next most-used path has
+come back (#245 real send, #249 approve/deny, #251 deep link; #254, the mutant, is in rework after review
+found its new test scripts staged `100644`). The next most-used path has
 no such proof: F2 mid-run control. The composer already carries the queue-vs-interrupt rule
 (`TaskDetailPage.onComposer`, `interrupt: true`) and the fake agent can hold a turn open (`[seed] slow`,
 `RSI_FAKE_SLOW_SECS`), yet nothing asserts that a message sent while the agent runs appears at once, that
@@ -58,8 +59,9 @@ that catches the most), keep 2–3 queued, and say so in the weekly retro. Do no
 ## Closed phase (P1) — make the walk real
 <!-- closed-phase: P1-walk-real target=2026-11-18T20:00 -->
 
-Closed 2026-11-18, all four items landed: #245 `89d9c656` (J3 sends for real), #249 `e64b43f0`
-(J1 approve + deny), #251 `77ff0b77` (J7 deep link + Back), #254 (the mutant that turns the gate red).
+Closed 2026-11-18: #245 `89d9c656` (J3 sends for real), #249 `e64b43f0` (J1 approve + deny), #251
+`77ff0b77` (J7 deep link + Back) landed; item 4 (#254, the mutant that turns the gate red) is in rework
+after review found its new test scripts staged `100644`, which would fail on a fresh checkout.
 
 **Why it was the phase and not features.** The Astryx programme was done (62/62) and the console passed a
 journey *walk*, but that walk never sent a message, never asserted an approve/deny result, and J7 landed
@@ -74,7 +76,7 @@ touched no `ui/` file, so `ux-gate.sh` did not run on them — item 4's mutant w
 2. J1 opened the seeded conversation holding a real approval card, approved it (`gone` asserted), and
    denying was captured as well (#249).
 3. J7 deep-linked to a seeded item and landed on that card, then Back returned to it (#251).
-4. `ux-gate.sh` went red when the pending-send handoff was removed — the mutant proof (#254).
+4. `ux-gate.sh` goes red when the pending-send handoff is removed — the mutant proof (#254, rework).
 
 ## Cadence and urgency (mechanism, not vibes)
 - **Every phase carries a date and a cut rule** in this file. No undated phase; if a phase has no
