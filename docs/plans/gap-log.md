@@ -34,6 +34,63 @@ person can see; the fix and its verification belong in the PR.
 
 ## Open
 
+### 2026-11-17 · 中 · 手机新建页「打开封面」入口小于 44px
+
+390×844 的新建页上，项目卡右上角的「打开封面」是这一页通往项目封面的唯一入口，但它是一个
+`px-2.5 py-1` 的 chip（`ProjectSummaryCard.tsx:60` 的 class，没有 `min-h-*`），高度低于
+44px。2026-11-17 的旅程基线实测：J3/phone 的 12 张截图每张都恰好有 1 个 <44px 的可点目标
+（`walk.json` 的 `smallTapTargets`，汇总 12）；同页所有 Button 都有
+`min-h-11 sm:min-h-0`（`ui/src/components/ui/Button.tsx:106`），所以这个锚点是唯一计数来源，
+aria 里它的名字是「打开封面」。它不挡「开始」，但点不中时没有第二个入口。
+
+期望（可直接写成测试）：
+
+- 390px 下「打开封面」的可点区域至少 44×44（加 `min-h-11`，或把整张项目卡做成入口）；
+  视觉可以仍是同一枚 chip，1100px 允许保持紧凑。
+- `scripts/journeys-smoke.sh --journeys J3` 的 J3/phone 行 `smallTapTargets` 为 0。
+
+不要：把链接藏进 ⋯ 菜单；只用 padding 假装变大而热区不变；给 44px 规则加手机例外；
+删掉「打开封面」。
+
+线索：`ui/src/components/project/ProjectSummaryCard.tsx:50-63`（`Link`，class 在 `:60`，
+无 `min-h`），由 `ui/src/pages/NewChatPage.tsx` 的项目卡渲染；同类做对的写法见
+`ui/src/components/ui/Button.tsx:106` 的 `min-h-11 sm:min-h-0`。TASTE 11。
+
+验收：
+
+- 390×844：量「打开封面」的 bounding box 高 ≥44；`smallTapTargets` 为 0；截图。
+- `./scripts/check.sh` 绿。
+
+### 2026-11-17 · 中 · 同一个项目在对话列表里有两个名字（有对话时是文件夹名，空项目是项目名）
+
+实测（390 手机列表与 1100 Mac 侧栏同屏）：`[seed] Project Alpha` / `Beta` 因为各有一条对话，
+显示为 `alpha` / `beta`；`[seed] Project Gamma` 的唯一对话已归档、当前范围无行，反而显示
+项目全名。同一个项目只要最后一条对话被归档，标题就会在文件夹名与项目名之间切换；项目改名也
+不会反映到有对话的桶上。原因：有行的桶用 cwd 末段做 label
+（`ui/src/lib/phoneSessionBuckets.ts:277`），空项目由 `seedProjects` 用 `project.name` 补
+（`ui/src/components/sessions/SessionList.tsx:1266`）。
+
+期望（可直接写成测试）：
+
+- 桶的标题优先用 `/api/projects` 里该 cwd 对应项目的 `name`；解析不到项目时才退回 cwd 末段
+  （现有 `tailOf`）。同一项目在「有对话 / 无对话 / 对话被归档」三种状态下标题一致。
+- 项目改名后列表标题随之更新；「新建对话」、归档确认、项目菜单里的名字与标题一致
+  （这些位置现在都读 `bucket.label`，`SessionList.tsx:936/950/1153/1160/1471/1565`）。
+
+不要：把项目名改成文件夹名来「对齐」；隐藏没有对话的项目；只在手机改、Mac 侧栏仍两种名字；
+用 cwd 全路径当标题。
+
+线索：`ui/src/lib/phoneSessionBuckets.ts:215-289`（`bucketFor` 的 `label = tailOf(cwd)` 在
+`:277`）、`ui/src/components/sessions/SessionList.tsx:444-462`（调用）、`:1250-1276`
+（`seedProjects`，`label: project.name` 在 `:1266`）；测试
+`ui/src/lib/phoneSessionBuckets.test.ts`。
+
+验收：
+
+- 单测：两个 name≠文件夹名的项目，一个有一条活跃对话、一个没有，桶标题都等于项目名；
+  归档最后一条对话后标题不变。
+- 390 与 1100 截图各一张；`./scripts/check.sh` 绿。
+
 ### 2026-11-15 · 高 · iPad 左栏长按进入多选后找不到退出，行菜单里也没有多选入口
 
 iPad（视口 ≥768px、`pointer: coarse`）的左栏是 248px 侧栏，但列表仍走触屏路径：
