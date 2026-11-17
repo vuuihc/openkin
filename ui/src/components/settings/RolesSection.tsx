@@ -6,6 +6,7 @@ import {
   newAgentRoleId,
   type AgentRole,
 } from "../../lib/agentRoles";
+import TextInput from "../ui/TextInput";
 import { SettingsSection } from "./SettingsPrimitives";
 
 /**
@@ -82,15 +83,17 @@ export function RolesSection({
               className="space-y-2 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)] p-3"
             >
               <div className="flex items-center gap-2">
-                <input
-                  className="kin-input min-h-11 flex-1"
-                  value={role.name}
-                  maxLength={AGENT_ROLE_NAME_MAX}
-                  disabled={disabled}
-                  placeholder={tr("settings.roles.namePlaceholder")}
-                  aria-label={tr("settings.roles.name", { index: index + 1 })}
-                  onChange={(event) => patch(role.id, "name", event.target.value)}
-                />
+                <div className="flex-1">
+                  <TextInput
+                    label={tr("settings.roles.name", { index: index + 1 })}
+                    isLabelHidden
+                    value={role.name}
+                    maxLength={AGENT_ROLE_NAME_MAX}
+                    disabled={disabled}
+                    placeholder={tr("settings.roles.namePlaceholder")}
+                    onChange={(event) => patch(role.id, "name", event.target.value)}
+                  />
+                </div>
                 <button
                   type="button"
                   onClick={() => remove(role.id)}

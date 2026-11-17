@@ -5,6 +5,7 @@ import { agentCatalogState, runnableAgents, sortAgentCatalog } from "../../lib/a
 import { onGuardedLinkClick } from "../../lib/phoneNavigation";
 import Button from "../ui/Button";
 import SearchSelect from "../ui/SearchSelect";
+import TextInput from "../ui/TextInput";
 import { SettingsTabPanel } from "./SettingsPrimitives";
 
 export function providerDisplayName(provider: ProviderEntry): string {
@@ -200,36 +201,28 @@ export function ProviderSettingsSection({
             <h3 className="text-body font-semibold text-kin-secondary">
               {editingId ? tr("settings.provider.editHeading") : tr("settings.provider.addHeading")}
             </h3>
-            <label className="block space-y-1">
-              <span className="text-body leading-4 font-medium text-kin-secondary">
-                {tr("settings.provider.name")}
-              </span>
-              <input
-                type="text"
-                value={providerName}
-                onChange={(event) => onProviderNameChange(event.target.value)}
-                placeholder={tr("settings.provider.namePlaceholder")}
-                className="kin-input min-h-11"
-              />
-            </label>
-            <label className="block space-y-1">
-              <span className="text-body leading-4 font-medium text-kin-secondary">
-                {tr("settings.provider.baseUrl")}
-              </span>
-              <input
-                type="url"
-                value={providerBaseUrl}
-                onChange={(event) => onProviderBaseUrlChange(event.target.value)}
-                placeholder="https://api.openai.com/v1 · http://127.0.0.1:8317/v1"
-                className="kin-input min-h-11 font-mono text-body leading-4"
-                autoComplete="off"
-              />
-              <span className="text-caption text-kin-muted">
-                {tr("settings.provider.baseUrlHintA")}
-                <code className="text-micro">/v1</code>
-                {tr("settings.provider.baseUrlHintB")}
-              </span>
-            </label>
+            <TextInput
+              label={tr("settings.provider.name")}
+              value={providerName}
+              onChange={(event) => onProviderNameChange(event.target.value)}
+              placeholder={tr("settings.provider.namePlaceholder")}
+            />
+            <TextInput
+              type="url"
+              label={tr("settings.provider.baseUrl")}
+              value={providerBaseUrl}
+              onChange={(event) => onProviderBaseUrlChange(event.target.value)}
+              placeholder="https://api.openai.com/v1 · http://127.0.0.1:8317/v1"
+              className="font-mono text-body leading-4"
+              autoComplete="off"
+              hint={
+                <>
+                  {tr("settings.provider.baseUrlHintA")}
+                  <code className="text-micro">/v1</code>
+                  {tr("settings.provider.baseUrlHintB")}
+                </>
+              }
+            />
             <label className="block space-y-1">
               <span className="text-body leading-4 font-medium text-kin-secondary">
                 {tr("settings.provider.apiKey")}
