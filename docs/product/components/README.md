@@ -20,6 +20,7 @@
 
 - [Button](button.md) —— 一个动作，页面上所有按钮的唯一起点
 - [TextInput](text-input.md) —— 单行文本字段，标签 / 提示 / 错误句的唯一起点
+- [TextArea](text-area.md) —— 多行文本字段，同一份标签 / 提示 / 状态契约，没有单行高度地板
 - [Tabs](tabs.md) —— 同一层里并列内容的切换；`segmented` 变体只切换“看哪一块内容”
 - [RadioGroup](radio-group.md) —— 内联的分段单选，三到五个互斥值一行看全
 - [Dialog](dialog-sheet.md) —— 桌面上打断当前任务的模态，退路按用途分级
