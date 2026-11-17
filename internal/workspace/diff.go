@@ -370,16 +370,18 @@ func (m *Manager) ListLiveChanges(ctx context.Context, meta Metadata) ([]Change,
 }
 
 // ListBranchChanges returns what a checkout has that its base branch does not:
-// the working tree, committed and uncommitted, measured from the merge base of
-// HEAD and the branch the checkout is based on.
+// the working tree, committed and uncommitted, measured from the branch the
+// checkout is based on.
 //
-// The base is the current branch's upstream when it has one, else the remote's
-// default branch (origin/HEAD). An upstream that is the branch's own pushed
-// counterpart is ignored: Kin's Publish creates that shape, and measuring from
-// it would empty the list at the first push. A checkout sitting exactly on its
-// base has HEAD as the merge base, so the answer is ListLiveChanges' answer.
-// Local commits made on the base branch itself are intentionally in the list:
-// they are unreviewed work too.
+// A worktree generation recorded the commit it forked from when it was created,
+// and that commit is the base: see worktreeBase. Everything else infers a base
+// from refs. The base is the current branch's upstream when it has one, else
+// the remote's default branch (origin/HEAD). An upstream that is the branch's
+// own pushed counterpart is ignored: Kin's Publish creates that shape, and
+// measuring from it would empty the list at the first push. A checkout sitting
+// exactly on its base has HEAD as the merge base, so the answer is
+// ListLiveChanges' answer. Local commits made on the base branch itself are
+// intentionally in the list: they are unreviewed work too.
 //
 // Every step falls back to HEAD, so a checkout with nothing recorded about its
 // base — and a directory git only half-knows — keeps the answer it has today
@@ -393,7 +395,47 @@ func (m *Manager) ListBranchChanges(ctx context.Context, meta Metadata) ([]Chang
 	if m.git == nil {
 		return nil, fmt.Errorf("git runner not available")
 	}
-	return m.listChangesSince(ctx, meta, m.changeBase(ctx, meta))
+	base := m.worktreeBase(ctx, meta)
+	if base == "" {
+		base = m.changeBase(ctx, meta)
+	}
+	return m.listChangesSince(ctx, meta, base)
+}
+
+// worktreeBase returns the revision a worktree generation's change list is
+// measured from: the commit the generation recorded when its worktree forked.
+//
+// The recorded commit is exact, and changeBase's inference is not: refs answer
+// where a branch is based now, and a local base branch that was never pushed
+// leaves origin/HEAD behind. The merge base with that older ref lists the base
+// branch's own commits as this round's work; the recorded fork point lists only
+// what this round did.
+//
+// The value is stored repository state on its way to becoming a git argument, so
+// it is checked twice before use: it must look like an object id, and this
+// repository must resolve it to a commit. Anything else is no recorded base —
+// the caller keeps changeBase's answer, and a malformed value never reaches git
+// as an argument.
+func (m *Manager) worktreeBase(ctx context.Context, meta Metadata) string {
+	if meta.Mode != ResolvedWorktree {
+		return ""
+	}
+	// With no root git would run in whatever directory the daemon happens to be
+	// in, and an OID resolved against the wrong repository is not a base.
+	if strings.TrimSpace(meta.Root) == "" {
+		return ""
+	}
+	oid := strings.TrimSpace(meta.BaseOID)
+	if !validObjectID(oid) {
+		return ""
+	}
+	out, err := m.git.Run(ctx, meta.Root, nil, ControlStdoutLimit,
+		"-c", "core.hooksPath="+m.emptyHooksDir(),
+		"rev-parse", "--verify", "--quiet", oid+"^{commit}")
+	if err != nil || strings.TrimSpace(string(out)) == "" {
+		return ""
+	}
+	return oid
 }
 
 // changeBase resolves the revision a branch's change list is measured from: the
