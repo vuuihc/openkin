@@ -173,7 +173,41 @@ describe("restoring time order in a synthetic bucket", () => {
     expect(screen.queryByRole("button", { name: /restore time order/i })).toBeNull();
   });
 
-  it("keeps the project bucket reset and gives the synthetic one a 44px target on coarse pointers", async () => {
+  it("gives the fine-pointer reset the same name and 24px shape as a project's", async () => {
+    fixtures.tasks = [task("p-low", "/work/alpha", 100), task("p-high", "/work/alpha", 200)];
+    localStorage.setItem("kin_pinned_tasks", JSON.stringify(["p-low", "p-high"]));
+    localStorage.setItem("kin_task_order", JSON.stringify({ __pinned__: ["p-low", "p-high"] }));
+    mount();
+    await waitFor(() => expect(order()).toEqual(["p-low", "p-high"]));
+
+    const button = resetIn("Pinned");
+    // The hover strip's project icon explains itself with a tooltip; a bare
+    // circular arrow next to "Pinned" would otherwise read as "refresh".
+    expect(button.getAttribute("title")).toBe("Restore time order");
+    expect(button.getAttribute("aria-label")).toBe("Restore time order");
+    expect(button.className.split(/\s+/)).toEqual(expect.arrayContaining(["h-6", "w-6"]));
+  });
+
+  it("returns focus to the bucket heading after a keyboard reset", async () => {
+    const user = userEvent.setup();
+    fixtures.tasks = [task("p-low", "/work/alpha", 100), task("p-high", "/work/alpha", 200)];
+    localStorage.setItem("kin_pinned_tasks", JSON.stringify(["p-low", "p-high"]));
+    localStorage.setItem("kin_task_order", JSON.stringify({ __pinned__: ["p-low", "p-high"] }));
+    mount();
+    await waitFor(() => expect(order()).toEqual(["p-low", "p-high"]));
+
+    resetIn("Pinned").focus();
+    await user.keyboard("{Enter}");
+
+    // The reset control unmounts with the order it clears; the heading takes
+    // focus back instead of it dropping to <body>.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Pinned" })),
+    );
+    expect(order()).toEqual(["p-high", "p-low"]);
+  });
+
+  it("keeps the project bucket reset and labels the synthetic one on coarse pointers", async () => {
     // A real project heading keeps its own hover-strip reset: that path must
     // not regress when the synthetic buckets gain a heading control.
     fixtures.tasks = [task("alpha-1", "/work/alpha", 100)];
@@ -182,8 +216,9 @@ describe("restoring time order in a synthetic bucket", () => {
     await waitFor(() => expect(order()).toEqual(["alpha-1"]));
     resetIn("alpha");
 
-    // The phone has no hover strip, so the synthetic bucket's control is the
-    // only way out there and has to meet the touch floor itself.
+    // The phone has no hover strip and no tooltip, so the synthetic bucket's
+    // control is the only way out there, has to meet the touch floor itself,
+    // and says what it does instead of showing a mystery ↻.
     cleanup();
     localStorage.clear();
     viewport("coarse");
@@ -194,11 +229,9 @@ describe("restoring time order in a synthetic bucket", () => {
     await waitFor(() => expect(order()).toEqual(["p-low", "p-high"]));
 
     const button = resetIn("Pinned");
-    // Token-level: the facade Button already adds `min-h-11` at every size, so
-    // a substring check would pass even without the coarse branch. `w-11` is
-    // what the phone gains, and `h-11` must be its own token, not a suffix.
-    expect(button.className.split(/\s+/)).toEqual(
-      expect.arrayContaining(["h-11", "min-h-11", "w-11"]),
-    );
+    expect(button.getAttribute("aria-label")).toBe("Restore time order");
+    expect(button.textContent).toContain("Restore");
+    // Token-level: `h-11` must be its own class, not a suffix of `min-h-11`.
+    expect(button.className.split(/\s+/)).toContain("h-11");
   });
 });
