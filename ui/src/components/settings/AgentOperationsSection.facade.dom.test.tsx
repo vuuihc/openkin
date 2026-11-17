@@ -17,10 +17,11 @@ import { useAppStore } from "../../store/appStore";
  * controls behind: the `⋯` trigger is a `Button` and its panel is `Menu`, so
  * the keyboard contract (arrows, Home/End, typeahead, Escape, focus return,
  * one layer) is the console's rather than this file's. E4c finished the rest —
- * discovery, manual import, the two banners, the phone action sheet, the
- * sortable headers — while the usage range picker keeps its raw roving
- * radiogroup because no Segmented/RadioGroup facade exists yet. These tests
- * drive the real section so a regression in either half shows up here.
+ * discovery, manual import, the two banners, the sortable headers, and the
+ * phone action list, which now rides the shared `ActionSheet` row rather than
+ * a facade `Button` per action — while the usage range picker keeps its raw
+ * roving radiogroup because no Segmented/RadioGroup facade exists yet. These
+ * tests drive the real section so a regression in either half shows up here.
  */
 
 const client = vi.hoisted(() => ({
@@ -420,18 +421,18 @@ describe("the Operations section's remaining controls on the facade (E4c)", () =
     const remove = within(sheet).getByRole("button", {
       name: /^Remove from catalog/,
     }) as HTMLButtonElement;
-    expectFacade(remove);
+    // The rows are the shared `ActionSheet`'s, so they are the primitive's own
+    // button — not a facade `Button` — and a disabled row keeps its reason on
+    // the surface the person is touching. It wraps: Astryx's button base sets
+    // `white-space: nowrap`, which would otherwise clip the line.
     expect(remove.disabled).toBe(true);
-    // A disabled action's reason stays on the surface the person is touching,
-    // and wraps: Astryx's button base sets `white-space: nowrap`, which the
-    // facade's clipped label span would otherwise inherit and clip.
+    expect(remove.className).toContain("min-h-11");
     const reason = within(sheet).getByText(
       "The default agent stays in the catalog. Set another agent as default first.",
     );
     expect(reason.className).toContain("whitespace-normal");
 
     const smoke = within(sheet).getByRole("button", { name: /^Smoke test/ });
-    expectFacade(smoke);
     fireEvent.click(smoke);
     // The row runs only once the sheet is gone (KIN-CONTINUE-002). The suite
     // stubs `history.back`, so deliver the popstate the browser would send.

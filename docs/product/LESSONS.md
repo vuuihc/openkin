@@ -642,6 +642,50 @@ seen: 1
 
 证据：`rsi/state/last_fill`（01:25:48）、`rsi/runtime/runs/launchd-pulse.log`
 
+## 2026-11-17 · 限流与额度只看结构化错误，不读正文
+seen: 1
+
+发生了什么：01:04 的 Hydrogen-medium 评审本身 `SUCCESS` 且返回 `UX_VERDICT: PASS`，正文里提到 “quota-wait indicators”，`dispatch.sh` 的 `note_agy_limit()` 因此写下 45 分钟的 `state/agy-limited-until`，把随后的 UX 评审全部改道 Kimi（当日 ¥57.82 / ¥80），直到 01:41 人工清除（`478bd4be`）。
+
+为什么没拦住：限额判断用 `grep -i quota` 扫整段模型输出，而模型输出是自然语言——既会引用被评审产品里的词，也会写解释性文字；“`status=SUCCESS` 与限额互斥”这一事实没有被先用上。
+
+规则：限流、额度、封禁只从进程退出码、结构化错误字段或 provider 明确的状态行判断；正文只能作为线索，不能作为写状态文件的依据。写入 `*-limited-until` 前先断言该次调用不是 `SUCCESS`，并为“成功文本包含 quota”写一条回归用例。
+
+证据：`478bd4be`（#151）；`rsi/state/escalations.jsonl` 2026-11-17 01:04
+
+## 2026-11-17 · 测量必须在 `origin/main` 的导出树上做
+seen: 2
+
+发生了什么：① 06:16 的计划项“重新收紧 inventory 基线”来自控制树 `rsi-ceo` 的读数（`use_anchored_panel` 22），同一时刻 `origin/main` 导出树上是 5，脚本输出 `UI_INVENTORY_OK`，该计划项在 06:36 被关闭；② 今晚 DREAM 在控制树运行 `ratchet.py check` 得到 `use_anchored_panel 22 > baseline 19` + `RATCHET_FAIL`，而在 `origin/main` 导出树（`git archive`）上同一条命令是 `UI_INVENTORY_OK (18 metrics within baseline)` + `RATCHET_PASS`。
+
+为什么没拦住：控制树落后 `origin/main` 约 100 个提交，且带着循环自身的未提交改动；“在仓库里跑脚本”看起来等价于“在交付树上跑脚本”，但两者不是一棵树。失败的读数又被当成产品回归，而不是先怀疑测量树。
+
+规则：任何 inventory / ratchet / 覆盖率 / 行数测量，先在 `git archive origin/main | tar -x -C <tmp>` 的导出树上运行，并在结论里写测量 SHA；控制树上的 FAIL 不作为证据，只作为“控制树过期”的信号。
+
+证据：`ecb3485a`（06:36 记录）、`5ae52e54`（今晚 `origin/main` 导出树 `RATCHET_PASS`）
+
+## 2026-11-17 · 只读评审者的搜索要限定在 state 目录，且每次等待都有超时
+seen: 2
+
+发生了什么：G4 (#163) 的独立复审两次挂起，都是评审者在 `$HOME` 下执行 `find ... -name merged.log`（macOS 容器 / worktree 让这次遍历极慢）；第一次杀进程后复审再次复现，直到把 `$STATE` 的实际路径写进评审简报、并禁止跨 `$HOME` / `/Users` 的 `find`，`#163` 才在 07:36 以 `5ae52e54` 合入。
+
+为什么没拦住：评审简报只给了 `$STATE` 这个环境变量名，没有给出可直接 `ls` 的绝对路径，评审者按“找文件”的直觉搜索整个 home；watchdog 只看到“评审未返回”，分不清是模型慢还是子进程卡住。
+
+规则：给只读评审者的简报必须写明 `$STATE` 的实际绝对路径和已知文件清单，并禁止在 `$HOME` / `/Users` 上跑 `find`；任何外部命令都要有超时，超时先杀进程树再判定“无结论”，不累计成质量 sendback。
+
+证据：`5ae52e54`；`rsi/runtime/merge.sh`（`$RB`）；`rsi/roles/reviewer.md`
+
+## 2026-11-17 · 同一份共享文件一轮只能有一个写者
+seen: 2
+
+发生了什么：① `scripts/ui-inventory-baseline.json` 同时被多个迁移切片修改，`#145` / `#152` 的 rework 都因该文件与 `web/dist/index.html` 冲突而多走一轮（04:05 / 04:13 记录）；② `ui/src/i18n/locales/{en,zh}.ts` 被两条并行车道同时编辑，本轮起改为“locale 每轮一个写者”，未拿到写者的切片复用现有 key（22:40 记录）。
+
+为什么没拦住：每个切片单独看都合理（迁移本来就会降低计数，加文案本来就要改 locale），但合并门按 PR 独立验证，冲突在 `main` 前进后才出现；生成文件与共享文案没有“认领”概念。
+
+规则：共享生成物与共享文案文件按轮次指定唯一写者；其他切片只读、复用现有 key，并在 PR 正文引用自己测到的增减；发生冲突时由 merge lane 在同步后的树上重跑生成命令，不接受手工编辑的生成物。
+
+证据：`7c8ff82e`（#145）、`4c8a21e9`（#152）；`rsi/state/decisions-pending.md` 2026-11-16 22:40 / 2026-11-17 00:12
+
 ---
 
 ## 升级记录
@@ -689,6 +733,10 @@ seen: 1
 | 发布流水线在第一个真 tag 之前先整条跑通一次 | 1 | 未升级；下一次改 `.github/workflows/` 先用预发布 tag 或 `workflow_dispatch` 跑通，并核对 `--version` 与 tag 一致 |
 | 列表响应按列表要用的字段投影，并在真实数据量上对着链路上限断言 | 1 | 未升级；`987d5788` 已给 routines 分页读加 summary 投影，下一次新增列表先把同一实体的所有读路径列出来并对 relay 上限断言 |
 | 合并或变基的结果当成一次新改动，提交前重跑 gate | 1 | 未升级；下一次解冲突或合并后先在合并树上跑 tsc/测试/格式/库存基线并重建 `web/dist`，ratchet 上调须在正文写明原因 |
+| 限流与额度只看结构化错误，不读正文 | 1 | 未升级；`note_agy_limit()` 已改为只认结构化错误，回归用例在 `rsi/runtime/tests/` |
+| 测量必须在 `origin/main` 的导出树上做 | 2 | 未升级；DREAM 夜报与 planner 卡已写抗体，下一次测量前先 `git archive` |
+| 只读评审者的搜索要限定在 state 目录 | 2 | 未升级；`reviewer.md` 与 `merge.sh` 的 `$RB` 已写死路径与禁令 |
+| 同一份共享文件一轮只能有一个写者 | 2 | 未升级；baseline / locale 的单写者规则已进 DECISIONS，第三次时进 AGENTS.md |
 
 ## 评审复盘与协议
 

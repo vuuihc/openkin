@@ -965,4 +965,34 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     // Nothing was connected by opening and closing the explanation.
     expect(readConnectedFamilies()).not.toContain("cursor");
   });
+
+  it("opens the phone's agent actions as the shared sheet with the remove reason on the row", async () => {
+    renderPage();
+    expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
+
+    // The phone block and the desktop table both render in jsdom (`md:hidden`
+    // is CSS only) and share the trigger's name; the table's copy is the
+    // desktop menu button, so take the one outside it.
+    const table = screen.getByRole("table");
+    const trigger = screen
+      .getAllByRole("button", { name: "Actions — Claude Code" })
+      .find((button) => !table.contains(button));
+    expect(trigger).toBeTruthy();
+    fireEvent.click(trigger!);
+
+    const dialog = await screen.findByRole("dialog", { name: "Claude Code" });
+    // A disabled row cannot be focused, so its reason has to be on the sheet.
+    const remove = within(dialog).getByRole("button", { name: /^Remove from catalog/ });
+    expect(remove.hasAttribute("disabled")).toBe(true);
+    expect(
+      within(dialog).getByText(
+        "The default agent stays in the catalog. Set another agent as default first.",
+      ),
+    ).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Claude Code" })).toBeNull());
+    // Cancel only dismisses: the default agent is still in the catalog.
+    expect(screen.getAllByText("Claude Code").length).toBeGreaterThan(0);
+  });
 });
