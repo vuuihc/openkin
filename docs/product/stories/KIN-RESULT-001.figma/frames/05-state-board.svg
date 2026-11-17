@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="940" viewBox="0 0 1600 940">
+<rect width="1600" height="940" fill="#111315"/>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;fill:#e7e9eb}.muted{fill:#969da4}.small{font-size:12px}.tiny{font-size:11px}.label{font-size:14px}.title{font-size:15px;font-weight:600}.mono{font-family:'SF Mono',Menlo,monospace;font-size:12px}.button{fill:#20252a;stroke:#3b4249}.ghost{fill:none;stroke:#5b636b;stroke-dasharray:5 4}.danger{fill:#ff8a80}.add{fill:#6dd58c}.del{fill:#ff8a80}.warn{fill:#f0b429}.ok{fill:#6dd58c}</style>
+<text x="20" y="26" class="small muted">KIN-RESULT-001 · 05 / 状态板 · 1600×940</text>
+<text x="1580" y="26" text-anchor="end" class="tiny muted">实线＝已交付 · 虚线＝合同要求、还没交付</text>
+
+<rect x="20" y="50" width="508" height="410" rx="12" fill="#171a1d" stroke="#2c3238"/>
+<text x="36" y="80" class="title">1 · 空：这次没有改动</text>
+<text x="512" y="80" text-anchor="end" class="tiny ok">已交付</text>
+<rect x="36" y="92" width="476" height="1" fill="#2c3238"/>
+<rect x="36" y="108" width="70" height="26" rx="7" fill="#1b1f22" stroke="#2c3238"/>
+<text x="71" y="125" text-anchor="middle" class="tiny muted">改动</text>
+<text x="122" y="125" class="small muted">目录树</text>
+<rect x="36" y="146" width="476" height="180" fill="#141719"/>
+<text x="274" y="240" text-anchor="middle" class="small muted">此任务还没有改动文件。</text>
+<text x="36" y="360" class="tiny muted">对话里的证据卡在没有改动时不出现；面板给这一句，</text>
+<text x="36" y="380" class="tiny muted">「改动」页签同时禁用，不会进到一个空白页。</text>
+<text x="36" y="408" class="tiny">合同写「这次没有改文件」；交付时统一成一句。</text>
+
+<rect x="544" y="50" width="508" height="410" rx="12" fill="#171a1d" stroke="#2c3238"/>
+<text x="560" y="80" class="title">2 · 加载：文件正在打开</text>
+<text x="1036" y="80" text-anchor="end" class="tiny warn">部分</text>
+<rect x="560" y="92" width="476" height="1" fill="#2c3238"/>
+<rect x="560" y="108" width="476" height="218" fill="#0f1215"/>
+<text x="798" y="210" text-anchor="middle" class="small muted">正在加载</text>
+<rect x="560" y="342" width="212" height="30" rx="8" class="ghost"/>
+<text x="666" y="362" text-anchor="middle" class="tiny muted">未交付：骨架（现在只有这一句）</text>
+<text x="560" y="398" class="tiny muted">已交付：查看器给一句「正在加载」；列表打开时不等网络。</text>
+
+<rect x="1068" y="50" width="508" height="410" rx="12" fill="#171a1d" stroke="#2c3238"/>
+<text x="1084" y="80" class="title">3 · 失败：文件读不出来</text>
+<text x="1560" y="80" text-anchor="end" class="tiny warn">部分</text>
+<rect x="1084" y="92" width="476" height="1" fill="#2c3238"/>
+<rect x="1084" y="108" width="476" height="218" fill="#0f1215"/>
+<text x="1322" y="210" text-anchor="middle" class="small danger">无法读取文件</text>
+<text x="1322" y="232" text-anchor="middle" class="tiny muted">路径还在，列表还能换一行</text>
+<rect x="1084" y="342" width="164" height="30" rx="8" class="ghost"/>
+<text x="1166" y="362" text-anchor="middle" class="tiny muted">未交付：重试按钮</text>
+<text x="1084" y="398" class="tiny muted">已交付：错误句；面板不假装空 diff。</text>
+
+<rect x="20" y="486" width="508" height="410" rx="12" fill="#171a1d" stroke="#2c3238"/>
+<text x="36" y="516" class="title">4 · 断线：已加载的内容留着</text>
+<text x="512" y="516" text-anchor="end" class="tiny ok">已交付</text>
+<rect x="36" y="528" width="476" height="1" fill="#2c3238"/>
+<rect x="36" y="544" width="476" height="28" fill="#3a2a12"/>
+<text x="274" y="563" text-anchor="middle" class="tiny warn">重连中…</text>
+<rect x="36" y="580" width="476" height="146" fill="#0f1215"/>
+<text x="46" y="606" class="mono muted">43</text><text x="82" y="606" class="mono">  return (</text>
+<text x="46" y="628" class="mono muted">44</text><text x="82" y="628" class="mono">    &lt;header className="h-11"&gt;</text>
+<text x="46" y="650" class="mono muted">45</text><text x="82" y="650" class="mono">      {title}</text>
+<text x="46" y="672" class="mono muted">46</text><text x="82" y="672" class="mono">    &lt;/header&gt;</text>
+<text x="36" y="754" class="tiny muted">提示是外壳给的，不在面板里；diff 与滚动位置都不清空。</text>
+<text x="36" y="774" class="tiny muted">重连后不自动跳位置。</text>
+<text x="36" y="802" class="tiny">合同写「连接断开，正在重试」；交付沿用「重连中…」。</text>
+
+<rect x="544" y="486" width="508" height="410" rx="12" fill="#171a1d" stroke="#2c3238"/>
+<text x="560" y="516" class="title">5 · 大 diff：读到这里为止</text>
+<text x="1036" y="516" text-anchor="end" class="tiny warn">部分</text>
+<rect x="560" y="528" width="476" height="1" fill="#2c3238"/>
+<rect x="560" y="544" width="476" height="164" fill="#0f1215"/>
+<text x="570" y="570" class="mono muted">412</text><text x="606" y="570" class="mono">  const rows = ...</text>
+<text x="570" y="592" class="mono muted">413</text><text x="606" y="592" class="mono">  return rows;</text>
+<rect x="560" y="600" width="476" height="22" fill="#2a1717"/>
+<text x="564" y="616" class="mono del">−</text><text x="578" y="616" class="mono muted">414</text><text x="606" y="616" class="mono del">  return undefined;</text>
+<rect x="560" y="622" width="476" height="22" fill="#13251b"/>
+<text x="564" y="638" class="mono add">+</text><text x="578" y="638" class="mono muted">414</text><text x="606" y="638" class="mono add">  return rows ?? [];</text>
+<text x="570" y="664" class="mono muted">415</text><text x="606" y="664" class="mono">}</text>
+<text x="560" y="730" class="tiny muted">状态行：已截断 · 文件已截断——只读</text>
+<rect x="560" y="744" width="196" height="30" rx="8" class="ghost"/>
+<text x="658" y="764" text-anchor="middle" class="tiny muted">未交付：展开全部</text>
+<text x="560" y="802" class="tiny">合同要「默认折叠 + 展开全部」；</text>
+<text x="560" y="822" class="tiny muted">现在只有读取截断的徽标与只读提示，没有折叠。</text>
+
+<rect x="1068" y="486" width="508" height="410" rx="12" fill="#171a1d" stroke="#2c3238"/>
+<text x="1084" y="516" class="title">6 · 文件在跑完后被删</text>
+<text x="1560" y="516" text-anchor="end" class="tiny warn">部分</text>
+<rect x="1084" y="528" width="476" height="1" fill="#2c3238"/>
+<rect x="1084" y="544" width="476" height="164" fill="#0f1215"/>
+<text x="1322" y="614" text-anchor="middle" class="small danger">无法读取文件</text>
+<text x="1322" y="636" text-anchor="middle" class="tiny muted">和读失败共用这一句</text>
+<rect x="1084" y="724" width="250" height="30" rx="8" class="ghost"/>
+<text x="1209" y="744" text-anchor="middle" class="tiny muted">未交付：文件已不存在（专门文案）</text>
+<text x="1084" y="784" class="tiny muted">合同要求点名「文件已不存在」，不显示空白 diff。</text>
+<text x="1084" y="804" class="tiny">现在至少不会画一个空 diff；把原因说准要交付时补。</text>
+<text x="1084" y="832" class="tiny muted">列表里的这一行仍可点，失败只影响查看器。</text>
+
+<rect y="916" width="1600" height="24" fill="#181b1e"/>
+<text x="20" y="932" class="small muted">六种状态 · 文案取自 en/zh 语言包 · 虚线是合同里有、代码里还没有的部分 · 见「现在→之后」的交付缺口</text>
+</svg>

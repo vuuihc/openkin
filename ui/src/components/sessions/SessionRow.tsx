@@ -70,6 +70,8 @@ export type SessionRowProps = {
   onDelete: () => void;
   onRestore: () => void;
   scope: SessionScopeFilter;
+  /** True while Alt+↑/↓ would move this row; the row then carries the hint. */
+  reorderHint?: boolean;
 };
 
 export default function SessionRow({
@@ -97,6 +99,7 @@ export default function SessionRow({
   onRestore,
   scope,
   query,
+  reorderHint = false,
 }: SessionRowProps) {
   const tr = useT();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -178,6 +181,9 @@ export default function SessionRow({
       aria-disabled={selectionMode && selectionLocked ? true : undefined}
       aria-label={label}
       aria-pressed={selectionMode ? selected : undefined}
+      // A tooltip only: the gesture has no visible affordance of its own, and
+      // the accessible name stays the row's sentence (see `label` above).
+      title={reorderHint ? tr("sessions.reorderHint") : undefined}
       className={[
         "kin-row-press flex min-h-11 w-full items-center gap-2.5 py-2.5 text-left",
         gutter,

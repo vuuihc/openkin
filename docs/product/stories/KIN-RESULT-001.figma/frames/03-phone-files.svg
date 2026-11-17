@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+<rect width="390" height="844" fill="#111315"/>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;fill:#e7e9eb}.muted{fill:#969da4}.small{font-size:12px}.tiny{font-size:11px}.label{font-size:14px}.title{font-size:17px;font-weight:600}.mono{font-family:'SF Mono',Menlo,monospace;font-size:12px}.button{fill:#20252a;stroke:#3b4249}.pressed{fill:#1f3a5f;stroke:#2f6feb}.add{fill:#6dd58c}.del{fill:#ff8a80}</style>
+<text x="16" y="25" class="small muted">KIN-RESULT-001 · 03 / 手机 改动列表 · 390×844</text>
+
+<text x="20" y="54" class="small muted">9:41</text>
+<rect x="330" y="44" width="26" height="12" rx="3" fill="#3b4249"/>
+<rect x="360" y="44" width="14" height="12" rx="3" fill="#3b4249"/>
+
+<rect y="56" width="390" height="716" fill="#171a1d"/>
+<text x="18" y="90" class="title">文件</text>
+<text x="18" y="110" class="tiny muted">项目一 · 本机</text>
+<rect x="330" y="68" width="44" height="44" rx="10" class="button"/>
+<text x="352" y="96" text-anchor="middle" class="label muted">✕</text>
+<rect y="116" width="390" height="1" fill="#2c3238"/>
+
+<rect x="12" y="128" width="94" height="32" rx="8" fill="#20252a" stroke="#3b4249"/>
+<text x="59" y="149" text-anchor="middle" class="small">改动 · 3</text>
+<text x="124" y="149" class="small muted">目录树</text>
+<text x="362" y="149" text-anchor="middle" class="small muted">⌕</text>
+<rect y="168" width="390" height="1" fill="#2c3238"/>
+
+<text x="16" y="192" class="small add">+12</text>
+<text x="48" y="192" class="small del">−4</text>
+<text x="70" y="192" class="small muted">3 个文件</text>
+<rect x="18" y="204" width="52" height="26" rx="7" fill="#1f2733" stroke="#2f6feb"/>
+<text x="44" y="221" text-anchor="middle" class="tiny">改动</text>
+<rect x="74" y="204" width="130" height="26" rx="7" fill="#20252a" stroke="#3b4249"/>
+<text x="139" y="221" text-anchor="middle" class="tiny muted">这一轮改了什么</text>
+<rect y="240" width="390" height="1" fill="#2c3238"/>
+
+<rect y="241" width="390" height="64" fill="#1f2733"/>
+<rect y="241" width="3" height="64" fill="#2f6feb"/>
+<circle cx="22" cy="266" r="3" fill="#f0b429"/>
+<text x="36" y="270" class="mono">src/demo/header.ts</text>
+<text x="36" y="290" class="tiny muted">改</text>
+<text x="58" y="290" class="tiny add">+6</text>
+<text x="82" y="290" class="tiny del">−2</text>
+<text x="366" y="270" text-anchor="end" class="tiny muted">▸</text>
+
+<rect y="305" width="390" height="64" fill="#171a1d"/>
+<circle cx="22" cy="330" r="3" fill="#6dd58c"/>
+<text x="36" y="334" class="mono">src/demo/panel.ts</text>
+<text x="36" y="354" class="tiny muted">写</text>
+<text x="58" y="354" class="tiny add">+6</text>
+<text x="82" y="354" class="tiny del">−1</text>
+
+<rect y="369" width="390" height="64" fill="#171a1d"/>
+<circle cx="22" cy="394" r="3" fill="#ff8a80"/>
+<text x="36" y="398" class="mono">docs/notes.md</text>
+<text x="36" y="418" class="tiny muted">删</text>
+<text x="58" y="418" class="tiny add">+0</text>
+<text x="82" y="418" class="tiny del">−1</text>
+
+<rect y="433" width="390" height="1" fill="#2c3238"/>
+<text x="18" y="466" class="tiny muted">点一行打开这个文件的 diff。</text>
+<text x="18" y="484" class="tiny muted">顶部 ✕ 关闭面板，回到对话原来的位置。</text>
+<text x="18" y="502" class="tiny muted">列表是扁平的、新的在上，还没有按目录分组。</text>
+
+<rect y="524" width="390" height="90" rx="10" fill="#1b1f22" stroke="#2c3238"/>
+<text x="32" y="548" class="small muted">这一帧画了什么</text>
+<text x="32" y="570" class="small">手机上文件面板就是整页：列表一级，diff 一级</text>
+<text x="32" y="592" class="small muted">44px 行高；点按没有悬停，所以没有预览这一步</text>
+
+<rect y="628" width="390" height="1" fill="#2c3238"/>
+<text x="18" y="656" class="tiny muted">入口在对话页的 ⋯ → 文件；打开的是同一份面板。</text>
+
+<rect y="772" width="390" height="72" fill="#181b1e"/>
+<rect y="772" width="390" height="1" fill="#2c3238"/>
+<rect x="18" y="786" width="56" height="24" rx="7" fill="#20252a"/>
+<text x="46" y="802" text-anchor="middle" class="tiny">对话</text>
+<text x="142" y="802" text-anchor="middle" class="tiny muted">例行任务</text>
+<text x="240" y="802" text-anchor="middle" class="tiny muted">Agent 运维</text>
+<text x="338" y="802" text-anchor="middle" class="tiny muted">设置</text>
+<rect x="145" y="834" width="100" height="4" rx="2" fill="#3b4249"/>
+</svg>

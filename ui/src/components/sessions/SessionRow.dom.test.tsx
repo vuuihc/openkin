@@ -733,4 +733,15 @@ describe("SessionRow", () => {
     expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
   });
+
+  it("reorder-hint-is-a-tooltip-not-the-accessible-name", () => {
+    const { rerender } = render(<SessionRow {...props({ reorderHint: true })} />);
+
+    expect(rowButton().getAttribute("title")).toBe("Alt+↑/↓ moves this chat");
+    // The hint is sighted-only guidance; the row's sentence must not grow it.
+    expect(rowButton().getAttribute("aria-label")).not.toContain("Alt");
+
+    rerender(<SessionRow {...props()} />);
+    expect(rowButton().hasAttribute("title")).toBe(false);
+  });
 });
