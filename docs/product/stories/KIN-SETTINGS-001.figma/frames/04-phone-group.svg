@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+<rect width="390" height="844" fill="#111315"/>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;fill:#e7e9eb}.muted{fill:#969da4}.small{font-size:12px}.tiny{font-size:11px}.label{font-size:14px}.title{font-size:18px;font-weight:600}.button{fill:#20252a;stroke:#3b4249}.pressed{fill:#1f3a5f;stroke:#2f6feb}.dash{fill:none;stroke:#6ea8fe;stroke-dasharray:5 4}.danger{fill:#ff8a80}.ok{fill:#6dd58c}</style>
+<text x="16" y="24" class="small muted">KIN-SETTINGS-001 · 04 / 手机 组详情与选择器 · 390×844</text>
+
+<text x="18" y="52" class="small muted">9:41</text>
+<rect x="326" y="42" width="28" height="12" rx="3" fill="#3b4249"/>
+<rect x="360" y="42" width="14" height="12" rx="3" fill="#3b4249"/>
+
+<rect y="62" width="390" height="692" fill="#171a1d"/>
+<rect y="62" width="390" height="44" fill="#181b1e"/>
+<text x="18" y="91" class="small">‹ 设置</text>
+<rect y="106" width="390" height="1" fill="#2c3238"/>
+
+<text x="18" y="136" class="title">认知 · Provider</text>
+<text x="18" y="156" class="tiny muted">OpenAI 兼容端点；内置 kin agent 用它。</text>
+<rect x="18" y="168" width="354" height="44" rx="10" class="button"/>
+<text x="195" y="195" text-anchor="middle" class="label">添加 Provider</text>
+
+<rect x="18" y="222" width="354" height="60" rx="10" fill="#1f2733" stroke="#2f6feb"/>
+<text x="32" y="246" class="label">OpenAI</text>
+<text x="32" y="266" class="tiny muted mono">gpt-4.1-mini · aipool.example.com</text>
+<text x="360" y="246" text-anchor="end" class="tiny">使用中</text>
+<rect x="18" y="288" width="354" height="60" rx="10" fill="#1b1f22" stroke="#2c3238"/>
+<text x="32" y="312" class="label">Ollama</text>
+<text x="32" y="332" class="tiny muted mono">llama3.2 · 127.0.0.1:11434</text>
+
+<rect x="18" y="360" width="354" height="118" rx="12" fill="#1b1f22" stroke="#2c3238"/>
+<text x="32" y="384" class="small">编辑 Provider</text>
+<text x="32" y="406" class="tiny muted">Base URL</text>
+<rect x="120" y="390" width="236" height="32" rx="7" fill="#20252a" stroke="#ff8a80"/>
+<text x="132" y="411" class="mono">https://aipool.example.com/v1</text>
+<text x="120" y="438" class="tiny danger">保存失败：401 Unauthorized</text>
+<text x="32" y="462" class="tiny muted">密钥只显示已配置 / 未配置，不回显</text>
+
+<rect x="146" y="476" width="98" height="30" rx="15" fill="#13251b" stroke="#2b5c3b"/>
+<text x="195" y="496" text-anchor="middle" class="tiny ok">已保存</text>
+
+<rect y="106" width="390" height="406" fill="#0b0d0f" opacity="0.35"/>
+<rect y="512" width="390" height="332" fill="#1d2329"/>
+<rect x="172" y="526" width="46" height="4" rx="2" fill="#4a5158"/>
+<text x="18" y="556" class="label">默认模型</text>
+<text x="372" y="556" text-anchor="end" class="small muted">取消</text>
+<rect y="568" width="390" height="1" fill="#2c3238"/>
+
+<rect y="569" width="390" height="56" fill="#1f3a5f"/>
+<text x="18" y="602" class="label">gpt-4.1-mini</text>
+<text x="372" y="602" text-anchor="end" class="label ok">✓</text>
+<rect y="625" width="390" height="1" fill="#2c3238"/>
+<rect y="626" width="390" height="56" fill="#1d2329"/>
+<text x="18" y="659" class="label muted">gpt-4.1</text>
+<rect y="682" width="390" height="1" fill="#2c3238"/>
+<rect y="683" width="390" height="56" fill="#1d2329"/>
+<text x="18" y="716" class="label muted">o3-mini</text>
+<rect y="739" width="390" height="1" fill="#2c3238"/>
+<rect y="740" width="390" height="56" fill="#1d2329"/>
+<text x="18" y="773" class="label muted">llama3.2</text>
+<rect y="796" width="390" height="1" fill="#2c3238"/>
+<text x="18" y="822" class="tiny muted">选择器盖在当前页上；选完关闭，页面高度不变。</text>
+<text x="18" y="838" class="tiny muted">返回不自动保存；文本与 JSON 组仍走组内保存。</text>
+</svg>

@@ -50,4 +50,40 @@ describe("the page a sign-in returns to", () => {
   it("trims surrounding whitespace", () => {
     expect(safeReturnTo("  /tasks/t1?x=1  ")).toBe("/tasks/t1?x=1");
   });
+
+  it("refuses a percent-encoded tab before the first segment", () => {
+    // It starts with one `/` and is neither `//` nor `/\`, so the raw check
+    // passes -- but any hop that decodes once (`/%09/…` -> `//…`) hands a
+    // freshly authenticated browser to another origin.
+    expect(safeReturnTo("/%09/evil.example.com")).toBe("/");
+  });
+
+  it.each([
+    ["/%0d%0a/evil.example.com", "/"],
+    ["/%00evil.example.com", "/"],
+    ["/%7fevil.example.com", "/"],
+    ["/%2F/evil.example.com", "/"],
+    ["/%2f%2fevil.example.com", "/"],
+    ["/%5Cevil.example.com", "/"],
+    ["/%2509/evil.example.com", "/"], // double-encoded: one decode is not enough
+    ["/a%zz", "/"], // malformed escape
+    ["/%80evil.example.com", "/"], // not valid UTF-8: decodeURIComponent throws
+    ["/a%25b", "/"], // the second decode finds `%b`, also malformed
+    ["/\t/evil.example.com", "/"], // a literal tab: WHATWG strips it, leaving `//host`
+    ["/caf%C3%A9", "/caf%C3%A9"], // a harmless escape comes back untouched
+    ["/tasks/a%20b", "/tasks/a%20b"],
+    ["/tasks/t1?panel=files&file=a%20b.html#frag", "/tasks/t1?panel=files&file=a%20b.html#frag"],
+    // The decoded slash lives in the query, which does not decide the origin.
+    ["/tasks/t1?panel=files&file=src%2Fa%20b.ts", "/tasks/t1?panel=files&file=src%2Fa%20b.ts"],
+    ["/settings", "/settings"],
+    ["  /settings  ", "/settings"],
+  ])("safeReturnTo(%s) is %s", (input, want) => {
+    expect(safeReturnTo(input)).toBe(want);
+  });
+
+  it("refuses an encoded tab arriving as the browser pathname", () => {
+    // The location is handed in, so a crafted path reaches the same check
+    // without `window` and without the router.
+    expect(returnToFrom({ pathname: "/%09/evil.example.com", search: "", hash: "" })).toBe("/");
+  });
 });
