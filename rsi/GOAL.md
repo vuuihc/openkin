@@ -76,8 +76,8 @@ catches the most), keep 2–4 queued, and say so in the weekly retro. Do not ext
 - **Three strikes become a guardrail.** A defect pattern seen three times graduates into a lint rule,
   a ratchet, a test, or a role-card change — never a third prose note. `docs/product/LESSONS.md`
   stays the inbox; guards are the exit.
-- **Reviewer quality is measured, not assumed.** `rsi/runtime/reviewer-misses.py` (control-tree local
-  until it lands) writes the per-reviewer ledger; the CEO demotes a reviewer with two misses in
+- **Reviewer quality is measured, not assumed.** `rsi/runtime/reviewer-misses.py` runs from `main`
+  and writes the per-reviewer ledger; the CEO demotes a reviewer with two misses in
   `ROUTING.md`, and prefers a reviewer that keeps finding blockers for that tier.
 - **The fence moves.** Escalation thresholds, lane counts, budgets and caps live in `MANDATE.md` /
   `DECISIONS.md` with a one-line reversal; anything the loop has outgrown is raised by the CEO with a
