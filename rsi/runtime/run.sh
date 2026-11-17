@@ -22,9 +22,20 @@ source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 #                          would either abort or overwrite that draft silently.
 #   anything else       -> leave alone; unmerged local loop commits on rsi/ceo-loop must survive.
 #
-# Never silent: a tree that cannot move says why. 2026-11-18 a stale untracked draft of
-# rsi/runtime/reviewer-misses.py pinned the live tree 5 commits behind main with no output at all,
-# so every merge ran the old runtime scripts.
+# Never silent: a tree that cannot move says why and `--sync-check` exits non-zero. 2026-11-18 a stale
+# untracked draft of rsi/runtime/reviewer-misses.py pinned the live tree 5 commits behind main with no
+# output at all, and a 30-minute-old draft of rsi/GOAL.md did the same to a 7-commit lag: every merge
+# ran the old runtime scripts while `--sync-check` printed nothing and exited 0.
+
+# pinned <reason> — one line on stderr saying how far behind the tree is and which tracked paths are in
+# the way, then return 1 so `--sync-check` (patrol, tests) cannot mistake a stale tree for a synced one.
+pinned() {
+  local behind paths
+  behind="$($GIT -C "$RSI_CTRL" rev-list --count HEAD..origin/main 2>/dev/null)"
+  paths="$($GIT -C "$RSI_CTRL" status --porcelain --untracked-files=no 2>/dev/null | cut -c4- | paste -sd' ' -)"
+  echo "control tree pinned at $($GIT -C "$RSI_CTRL" rev-parse --short HEAD 2>/dev/null) (${behind:-?} commits behind origin/main): ${1}${paths:+: $paths}" >&2
+  return 1
+}
 adopt_untracked_collision() {
   local p
   while IFS= read -r p; do
@@ -36,7 +47,7 @@ adopt_untracked_collision() {
       rm -f -- "$RSI_CTRL/$p" && echo "control tree: adopted untracked $p (identical to origin/main)" >&2
       continue
     fi
-    echo "control tree pinned at $($GIT -C "$RSI_CTRL" rev-parse --short HEAD 2>/dev/null): untracked $p differs from origin/main; move it aside to resume syncing" >&2
+    pinned "untracked $p differs from origin/main; move it aside to resume syncing"
     return 1
   done < <($GIT -C "$RSI_CTRL" diff --no-renames --name-only --diff-filter=A HEAD origin/main 2>/dev/null)
 }
@@ -44,21 +55,26 @@ sync_control_tree() {
   local before after
   $GIT -C "$RSI_CTRL" fetch -q origin main 2>/dev/null
   $GIT -C "$RSI_CTRL" merge-base --is-ancestor HEAD origin/main 2>/dev/null || return 0
-  adopt_untracked_collision || return 0
+  adopt_untracked_collision || return 1
   if [ -z "$($GIT -C "$RSI_CTRL" status --porcelain --untracked-files=no)" ]; then
     $GIT -C "$RSI_CTRL" merge -q --ff-only origin/main 2>/dev/null || {
-      echo "control tree pinned at $($GIT -C "$RSI_CTRL" rev-parse --short HEAD 2>/dev/null): fast-forward to origin/main failed" >&2
+      pinned "fast-forward to origin/main failed"
+      return 1
     }
     return 0
   fi
-  $GIT -C "$RSI_CTRL" diff --quiet origin/main 2>/dev/null || return 0
+  $GIT -C "$RSI_CTRL" diff --quiet origin/main 2>/dev/null \
+    || { pinned "uncommitted tracked changes differ from origin/main; commit or move them aside"; return 1; }
   before="$($GIT -C "$RSI_CTRL" rev-parse HEAD 2>/dev/null)"
-  $GIT -C "$RSI_CTRL" reset -q --hard origin/main 2>/dev/null || return 0
+  $GIT -C "$RSI_CTRL" reset -q --hard origin/main 2>/dev/null \
+    || { pinned "reset --hard origin/main failed"; return 1; }
   after="$($GIT -C "$RSI_CTRL" rev-parse HEAD 2>/dev/null)"
   [ "$before" = "$after" ] || echo "control tree synced to ${after:0:8} (tracked content already matched)" >&2
 }
 # --sync-check: run only the control-tree sync and exit — no lock, no daemon, no launchd.
-case "${1:-}" in --sync-check) sync_control_tree; exit 0;; esac
+# Exit 0 means the tree is at origin/main (or legitimately ahead with unpublished loop commits);
+# exit 1 means it is pinned behind it, with the reason already on stderr.
+case "${1:-}" in --sync-check) sync_control_tree || exit 1; exit 0;; esac
 
 MODE=""; FORCE=0; DRY=0; CHECK=0; STAT=0
 for a in "$@"; do case "$a" in pulse|daily|dream) MODE="$a";; --force) FORCE=1;; --dry-run) DRY=1;; --check) CHECK=1;; --status) STAT=1;; *) echo "unknown arg $a"; exit 2;; esac; done
@@ -87,7 +103,7 @@ fi
 # Keep the control worktree on origin/main once the loop itself has landed there (it is owned by the loop).
 # Unmerged local loop commits on rsi/ceo-loop must survive; see sync_control_tree.
 if [ -z "${RSI_SYNCED:-}" ]; then
-  sync_control_tree
+  sync_control_tree || true   # already loud; a pinned tree must not block the run it was called from
   RSI_SYNCED=1 exec /bin/bash "$SELF" "$@"
 fi
 
