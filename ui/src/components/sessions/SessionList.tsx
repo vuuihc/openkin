@@ -90,7 +90,7 @@ import {
 import { mergeTaskTail } from "../../lib/taskTail";
 import ActionSheet from "../ui/ActionSheet";
 import Button from "../ui/Button";
-import { SessionListSkeleton } from "../ui/Skeleton";
+import { SessionListSkeleton } from "../Skeleton";
 import HighlightedText from "../HighlightedText";
 import {
   IconAlert,

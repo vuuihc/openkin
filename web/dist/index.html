@@ -44,31 +44,30 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 52px;
-        height: 52px;
-        border-radius: 15px;
-        background: #0a84ff;
-        color: #ffffff;
-        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
-        font-size: 24px;
-        font-weight: 700;
-        letter-spacing: -0.02em;
+        width: 64px;
+        height: 64px;
+        border-radius: 14.5px;
+        overflow: hidden;
+        background: #282828;
         box-shadow:
-          inset 0 1px 0 rgba(255, 255, 255, 0.28),
-          0 12px 32px -8px rgba(10, 132, 255, 0.45);
+          inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+          0 16px 40px -8px rgba(0, 0, 0, 0.55);
       }
       .kin-boot-ring {
         position: absolute;
-        width: 76px;
-        height: 76px;
-        border-radius: 22px;
-        border: 1.5px solid rgba(10, 132, 255, 0.35);
+        width: 88px;
+        height: 88px;
+        border-radius: 21px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
         animation: kin-boot-pulse 2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+      }
+      html.light .kin-boot-ring {
+        border-color: rgba(0, 0, 0, 0.1);
       }
       @keyframes kin-boot-pulse {
         0%,
         100% {
-          transform: scale(0.94);
+          transform: scale(0.95);
           opacity: 0.45;
         }
         50% {
@@ -83,14 +82,22 @@
         }
       }
     </style>
-    <script type="module" crossorigin src="/assets/index-BmCA4sVW.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-GEL3KgQ9.css">
+    <script type="module" crossorigin src="/assets/index-D964PHnM.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DddIOsLD.css">
   </head>
   <body class="bg-kin-bg text-kin-text antialiased">
     <div id="root">
       <div class="kin-boot" aria-hidden="true">
         <div class="kin-boot-ring"></div>
-        <div class="kin-boot-mark">K</div>
+        <div class="kin-boot-mark">
+          <svg viewBox="0 0 512 512" width="64" height="64" aria-hidden="true">
+            <rect width="512" height="512" fill="#282828" />
+            <path
+              d="M116 116H219V210L396 23V116L263 256L396 396V489L219 302V396H116Z"
+              fill="#ffffff"
+            />
+          </svg>
+        </div>
       </div>
     </div>
   </body>

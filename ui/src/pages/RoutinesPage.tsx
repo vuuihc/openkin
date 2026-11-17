@@ -36,10 +36,9 @@ import {
   ROUTINE_HISTORY_MAX,
   ROUTINE_HISTORY_PAGE,
 } from "../lib/routineHistory";
-import { SlowConnectHint } from "../components/Skeleton";
+import { PageListSkeleton, SlowConnectHint } from "../components/Skeleton";
 import Button from "../components/ui/Button";
 import SheetSelect from "../components/ui/SheetSelect";
-import { PageListSkeleton } from "../components/ui/Skeleton";
 import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { useMachines } from "../hooks/useMachines";
 import { useRoutinePreview } from "../hooks/useRoutinePreview";

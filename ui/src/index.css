@@ -765,9 +765,11 @@
     }
   }
   .kin-skeleton-card {
-    border-radius: var(--radius-xl);
-    border: 1px solid var(--kin-hairline);
-    background-color: var(--kin-fill);
+    border-radius: var(--radius-2xl);
+    background-color: rgb(var(--kin-panel-rgb) / 0.8);
+  }
+  .kin-skeleton-card .kin-skeleton {
+    background-color: var(--kin-fill-strong);
   }
   /* A row inside a card. The press wash is the phone's only feedback — a
      hover colour does not exist on glass — so every tappable row carries it. */
