@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { t } from "../../i18n";
 import { AstryxProvider } from "../../design/AstryxProvider";
-import type { DiffComment } from "./diffCommentAnchor";
+import type { CommentAnchorState, DiffComment } from "./diffCommentAnchor";
 import DiffCommentsTray from "./DiffCommentsTray";
 
 function comment(overrides: Partial<DiffComment> = {}): DiffComment {
@@ -49,11 +49,13 @@ const THREE = [
  */
 function Harness({
   initial,
+  anchors,
   onJump = vi.fn(),
   onClose = vi.fn(),
   onSend = vi.fn(() => Promise.resolve()),
 }: {
   initial: DiffComment[];
+  anchors?: Record<string, CommentAnchorState>;
   onJump?: (value: DiffComment) => void;
   onClose?: () => void;
   onSend?: () => Promise<void>;
@@ -64,6 +66,7 @@ function Harness({
       <div data-testid="diff-surface" tabIndex={-1} />
       <DiffCommentsTray
         comments={comments}
+        anchors={anchors}
         onJump={onJump}
         onDelete={(id) => setComments((current) => current.filter((item) => item.id !== id))}
         onSend={async () => {
@@ -196,5 +199,57 @@ describe("the diff comments tray", () => {
 
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(document.activeElement).toBe(screen.getByTestId("diff-surface"));
+  });
+
+  it("marks a stale row 该行已变化, keeps its hunk header and quote, and still deletes", () => {
+    const anchors: Record<string, CommentAnchorState> = {
+      dc_1: { line: 11, stale: true },
+    };
+    render(<Harness initial={[comment()]} anchors={anchors} />);
+
+    // The accessible name carries the failure state, so it is not colour-only.
+    const row = screen.getByRole("button", {
+      name: t("workspace.comments.staleRow", { path: "src/settings.ts", line: 11 }),
+    });
+    expect(
+      screen.queryByRole("button", {
+        name: t("workspace.comments.jumpToRow", { path: "src/settings.ts", line: 11 }),
+      }),
+    ).toBeNull();
+
+    // The badge, the original hunk header and the quote all survive: the row
+    // still says where the comment was written.
+    expect(screen.getByText(t("workspace.comments.stale"))).toBeTruthy();
+    expect(screen.getByText("@@ -10,3 +10,4 @@")).toBeTruthy();
+    expect(screen.getByText("const title = settings.title;")).toBeTruthy();
+    // A stale row is a note, not a disabled row: it still deletes.
+    expect(row).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: t("workspace.comments.deleteRow", { path: "src/settings.ts", line: 11 }),
+      }),
+    );
+    expect(screen.queryByText("src/settings.ts:11")).toBeNull();
+  });
+
+  it("shows the re-anchored line on a live row and jumps to it", () => {
+    const anchors: Record<string, CommentAnchorState> = {
+      dc_1: { line: 21, stale: false },
+    };
+    // The panel resolves the jump line exactly this way; the tray only shows
+    // the state the panel hands it.
+    const resolve = (item: DiffComment) => anchors[item.id]?.line ?? item.line;
+    const onJump = vi.fn((item: DiffComment) => ({ id: item.id, line: resolve(item) }));
+    render(<Harness initial={[comment()]} anchors={anchors} onJump={onJump} />);
+
+    // The saved line was 11; the row reads the re-anchored line.
+    expect(screen.getByText("src/settings.ts:21")).toBeTruthy();
+    expect(screen.queryByText("src/settings.ts:11")).toBeNull();
+    // A live row is never implied stale.
+    expect(screen.queryByText(t("workspace.comments.stale"))).toBeNull();
+
+    fireEvent.click(jumpButton("src/settings.ts", 21));
+    expect(onJump).toHaveBeenCalledTimes(1);
+    expect(onJump.mock.results[0]?.value).toEqual({ id: "dc_1", line: 21 });
   });
 });
