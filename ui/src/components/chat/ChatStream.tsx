@@ -1470,15 +1470,21 @@ const MessageRow = memo(function MessageRow({
                 {tr("chat.queued")}
                 {onEditQueued && (
                   // Beside the ×, because it is the gentler half of the same
-                  // thought: take the message back, but keep what it says. Same
-                  // `touch-mini` treatment as the × it sits next to.
+                  // thought: take the message back, but keep what it says.
+                  //
+                  // Both actions take the `.touch-lg` 44px phone floor rather
+                  // than the `touch-mini` opt-out: this badge is a primary
+                  // mid-run surface, and a thumb a few pixels off these 10px
+                  // glyphs must still land on the action it aimed at. The
+                  // badge grows to a tap row there; the unchanged `h-5 w-5` and
+                  // the `md:`-scoped margins keep the Mac's 20px glyph buttons
+                  // and compact pill exactly as they were.
                   <button
                     type="button"
                     onClick={onEditQueued}
-                    data-touch-mini
                     title={tr("chat.editQueued")}
                     aria-label={editName}
-                    className="touch-mini -my-1 ml-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full text-kin-blue-ink/80 transition-colors hover:bg-kin-blue/15 hover:text-kin-blue-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kin-focus-ring"
+                    className="ml-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full text-kin-blue-ink/80 transition-colors hover:bg-kin-blue/15 hover:text-kin-blue-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kin-focus-ring md:-my-1"
                   >
                     <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
                       <path
@@ -1496,17 +1502,18 @@ const MessageRow = memo(function MessageRow({
                   // message is in the transcript and the badge is the only thing
                   // that says it has not been sent yet.
                   //
-                  // `data-touch-mini` + `touch-mini`: a bare button under
-                  // `.touch-lg` is floored to 44px on a phone, which would turn
-                  // a 16px pill into a 44px slab. The sanctioned opt-out is the
-                  // one the composer's tile × uses — 22px on a coarse pointer.
+                  // This one used to opt out of the floor to keep the pill from
+                  // becoming a 44px slab. That trade was wrong for this row:
+                  // 撤回 discards a message the person had not sent yet and has
+                  // no undo, so it needs the full 44×44 phone target. The
+                  // sanctioned `touch-mini` home is a control on a tile too
+                  // small to grow, like the attachment thumbnail's ×.
                   <button
                     type="button"
                     onClick={onUnqueue}
-                    data-touch-mini
                     title={tr("chat.withdraw")}
                     aria-label={withdrawName}
-                    className="touch-mini -my-1 -mr-1 ml-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full text-kin-blue-ink/80 transition-colors hover:bg-kin-blue/15 hover:text-kin-blue-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kin-focus-ring"
+                    className="ml-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full text-kin-blue-ink/80 transition-colors hover:bg-kin-blue/15 hover:text-kin-blue-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kin-focus-ring md:-my-1 md:-mr-1"
                   >
                     <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
                       <path
