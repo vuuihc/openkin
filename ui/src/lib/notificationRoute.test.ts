@@ -11,6 +11,7 @@ import {
 } from "./notificationRoute";
 
 // KIN-NOTIFY-001: a notification is a path into the console, never a URL to open.
+// KIN-CONTINUE-003 rows 7–8: a target resolves to the right card and survives delivery.
 
 const ORIGIN = "https://kin.example.com";
 

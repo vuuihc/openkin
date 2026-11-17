@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 /**
  * KIN-CONTINUE-001, steps 2, 3 and 7: the keyboard's way around the Mac shell.
+ * KIN-CONTINUE-003 row 9: shortcuts answer only in the live area.
  *
  * The pieces are each tested where they live — `focusSessionSearch` in
  * `sessionSearch.test.ts`, the overlay rule in `overlayOwnsKeyboard.dom.test`,
