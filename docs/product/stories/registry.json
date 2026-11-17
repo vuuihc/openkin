@@ -434,7 +434,7 @@
     },
     {
       "id": "KIN-CONTINUE-003",
-      "state": "draft",
+      "state": "approved",
       "priority": "P0",
       "journeys": [
         "J1",
@@ -467,7 +467,20 @@
         "ui/src/lib/phoneDeepLinkParent.ts",
         "ui/src/lib/phoneNavigation.ts"
       ],
-      "tests": [],
+      "tests": [
+        "ui/src/lib/areas.test.ts",
+        "ui/src/lib/areaNavigation.test.ts",
+        "ui/src/components/layout/AreaNavigation.dom.test.tsx",
+        "ui/src/components/layout/PhoneNavigation.dom.test.tsx",
+        "ui/src/lib/notificationRoute.test.ts",
+        "ui/src/components/NotificationTaps.dom.test.tsx",
+        "ui/src/lib/overlayOwnsKeyboard.dom.test.ts",
+        "ui/src/pages/macKeyboardWiring.test.ts",
+        "ui/src/pages/SettingsPage.leaveGuard.dom.test.tsx",
+        "ui/src/pages/settingsTabsWiring.test.ts",
+        "ui/src/pages/ProjectDetailPage.dom.test.tsx",
+        "ui/src/pages/AgentSessionDetailPage.dom.test.tsx"
+      ],
       "blockedReason": null
     },
     {
