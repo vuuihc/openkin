@@ -3,7 +3,7 @@
   "viewports": { "phone": "390x844", "mac": "1100x760", "mac-wide": "1280x800" },
   "journeys": {
     "J1": { "title": "Phone: find yesterday's chat, continue, answer an approval; search and filter the list", "viewports": ["phone"],
-      "steps": [["goto", "/sessions"], ["shot", "list"], ["click", "?[data-session-row], a[href^='/tasks/'], [data-task], [role=option]"], ["shot", "conversation"], ["click", "?/批准|同意|Approve|Allow|Accept/"], ["shot", "approval"], ["key", "Tab"], ["shot", "conversation-focus"], ["goto", "/sessions"], ["fill", "?input[type=search]", "week"], ["shot", "search"], ["click", "?/筛选|Filter/"], ["shot", "filters"], ["key", "Escape"]] },
+      "steps": [["goto", "/sessions"], ["shot", "list"], ["click", "?[data-session-row], a[href^='/tasks/'], [data-task], [role=option]"], ["shot", "conversation"], ["shot", "approval-card"], ["click", "?button[aria-label='批准'], button[aria-label='Approve']"], ["shot", "approval"], ["key", "Tab"], ["shot", "conversation-focus"], ["goto", "/sessions"], ["fill", "?input[type=search]", "week"], ["shot", "search"], ["click", "?/筛选|Filter/"], ["shot", "filters"], ["key", "Escape"]] },
     "J2": { "title": "Mac: search last week's chat, continue, change model/permission, look at the diff; filter the list", "viewports": ["mac", "mac-wide"],
       "steps": [["goto", "/sessions"], ["shot", "list"], ["fill", "?input[type=search]", "week"], ["shot", "search"], ["click", "?/筛选|Filter/"], ["shot", "filters"], ["key", "Escape"], ["fill", "?input[type=search]", ""], ["click", "?/Morning planning/"], ["shot", "conversation"],
         ["click", "?/变更|文件|Changes|Files/"], ["shot", "workspace-panel"], ["click", "?/notes\\.md/"], ["shot", "workspace-diff"],
