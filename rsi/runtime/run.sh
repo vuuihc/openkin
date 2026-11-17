@@ -87,11 +87,15 @@ case "$MODE" in
     IDLE="$(python3 "$LANES_PY" idle | tr '\n' ' ')"
     LANES_TXT="$(python3 "$LANES_PY" status)"
     CLOUD_PENDING="$(python3 "$RSI_DIR/runtime/slices.py" cloud-pending 2>/dev/null | wc -l | tr -d ' ')"
-    if [ -z "${IDLE// }" ] && [ "${CLOUD_PENDING:-0}" -eq 0 ]; then
+    # Post-programme: even with no idle lane the director must still run while STATUS.md's Queue holds a
+    # dispatchable R-* row, because it is the only thing that writes a NAS brief (prompts/fill.md 2c).
+    # Parked rows, rows already in a lane and rows that wait on an open PR are not dispatchable.
+    R_QUEUE="$(awk 'BEGIN{q=0} /^## Queue/{q=1;next} /^## /{q=0} q && /^\| `R-/ && $0 !~ /lane [0-9]/ && $0 !~ /waits/ {n++} END{print n+0}' "$STATE/STATUS.md" 2>/dev/null)"
+    if [ -z "${IDLE// }" ] && [ "${CLOUD_PENDING:-0}" -eq 0 ] && [ "${R_QUEUE:-0}" -eq 0 ]; then
       if [ $DRY -eq 0 ] && rsi_allow_workers && [ -x "$RSI_DIR/runtime/nas/pulse-nas.sh" ]; then
         nohup /bin/bash "$RSI_DIR/runtime/nas/pulse-nas.sh" >> "$RUNS/launchd-nas.log" 2>&1 < /dev/null & disown 2>/dev/null || true
       fi
-      echo "no idle lane and no cloud brief pending. $LANES_TXT"; exit 0
+      echo "no idle lane, no cloud brief pending, no dispatchable R-* row. $LANES_TXT"; exit 0
     fi
     date +%s > "$STATE/last_fill";;
   daily) [ $FORCE -eq 0 ] && ls "$RUNS"/${TODAY}*-daily.jsonl >/dev/null 2>&1 && { echo "skip: daily already ran today"; exit 0; }; MAXSECS=5400; PROMPT_FILE="$RSI_DIR/runtime/prompts/daily.md";;

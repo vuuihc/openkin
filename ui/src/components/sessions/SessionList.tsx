@@ -81,6 +81,7 @@ import {
   subscribeSessionViewed,
 } from "../../lib/sessionViewed";
 import { getPinnedTaskIds, setTaskPinned } from "../../lib/taskPins";
+import { getLocalTaskTitles, setLocalTaskTitle, subscribeTaskTitles } from "../../lib/taskTitles";
 import {
   clearBucketOrder,
   getTaskOrder,
@@ -238,6 +239,13 @@ export default function SessionList({
   const [pinnedIds, setPinnedIds] = useState<ReadonlySet<string>>(
     () => new Set(getPinnedTaskIds()),
   );
+  // This browser's renames, read once the way pins are. The row's title is
+  // composed during bucketing, so the list draws from this state rather than
+  // reading storage per row.
+  const [localTitles, setLocalTitles] = useState(() => getLocalTaskTitles());
+  // A title can be written from another mounted surface, so the list re-reads
+  // the map instead of trusting the copy it wrote.
+  useEffect(() => subscribeTaskTitles(() => setLocalTitles(getLocalTaskTitles())), []);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set());
   const [deletingSelection, setDeletingSelection] = useState(false);
@@ -513,6 +521,7 @@ export default function SessionList({
         // copy's key carries a device suffix that is not part of the address.
         (cwd) => projectNameByCwd.get(bucketKeyFor(cwd)),
         orders,
+        localTitles,
       ),
     [
       tasks,
@@ -524,6 +533,7 @@ export default function SessionList({
       archivedCwds,
       projectNameByCwd,
       orders,
+      localTitles,
     ],
   );
   // A project heading is where its cover lives, so a project with no row in the
@@ -728,6 +738,7 @@ export default function SessionList({
         pinnedIds={pinnedIds}
         pinnedProjects={pinnedProjects}
         onPin={pinRow}
+        onRename={renameRow}
         onArchive={archiveRow}
         onDelete={deleteRow}
         onRestore={restoreRow}
@@ -867,6 +878,16 @@ export default function SessionList({
   function pinRow(row: PhoneSessionRow) {
     if (!row.task) return;
     setPinnedIds(new Set(setTaskPinned(row.task.id, !pinnedIds.has(row.task.id))));
+    setSwipeOpen(null);
+  }
+
+  function renameRow(row: PhoneSessionRow, title: string) {
+    if (!row.task) return;
+    // A rename is a local preference like a pin: this browser's name for the
+    // conversation, written without the daemon. The lib returns the new map
+    // even when storage refuses it, so the list still shows the new title for
+    // this session and nothing here has to retry or toast.
+    setLocalTitles(setLocalTaskTitle(row.task.id, title));
     setSwipeOpen(null);
   }
 
@@ -1627,6 +1648,7 @@ function ProjectBucket({
   pinnedIds,
   pinnedProjects,
   onPin,
+  onRename,
   onArchive,
   onDelete,
   onRestore,
@@ -1674,6 +1696,7 @@ function ProjectBucket({
   pinnedIds: ReadonlySet<string>;
   pinnedProjects: readonly string[];
   onPin: (row: PhoneSessionRow) => void;
+  onRename: (row: PhoneSessionRow, title: string) => void;
   onArchive: (row: PhoneSessionRow) => void;
   onDelete: (row: PhoneSessionRow) => void;
   onRestore: (row: PhoneSessionRow) => void;
@@ -1926,6 +1949,7 @@ function ProjectBucket({
               onSwipeOpenChange={(open) => onSwipeOpenChange(open ? row.key : null)}
               pinned={row.task ? pinnedIds.has(row.task.id) : false}
               onPin={() => onPin(row)}
+              onRename={(title) => onRename(row, title)}
               onArchive={() => onArchive(row)}
               onDelete={() => onDelete(row)}
               onRestore={() => onRestore(row)}
