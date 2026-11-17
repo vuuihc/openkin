@@ -44,7 +44,8 @@ usage: scripts/journeys-smoke.sh [--out DIR] [--journeys J1,J2] [--no-build] [--
 
   --out DIR        where the PNGs, walk.json and seed.log go (default: mktemp -d under /tmp)
   --journeys LIST  walk only these journey ids
-  --no-build       do not rebuild the console even when web/dist/assets is stale
+  --no-build       do not rebuild the console even when web/dist/assets is stale;
+                   refuses a dist whose index.html names assets that are not on disk
   --no-seed        walk an empty daemon
   --dry-run        print the plan and exit; no build, daemon, Chrome or token
 
@@ -85,6 +86,58 @@ while [ $# -gt 0 ]; do
 done
 
 command -v python3 >/dev/null 2>&1 || unavail "python3 not found"
+
+# --no-build must not walk a dist whose index.html and assets/ came from
+# different builds: the console 404s its entry chunk and every journey fails
+# like a product defect (#264, and two phantom walks on #251). Refuse before
+# the out dir exists and before the plan, so a dry run reports it too.
+if [ "$DO_BUILD" = 0 ]; then
+  DIST_STATE="$(python3 - "$ROOT" 2>&1 <<'PY'
+import os
+import re
+import sys
+
+dist = os.path.join(sys.argv[1], "web", "dist")
+index = os.path.join(dist, "index.html")
+assets = os.path.join(dist, "assets")
+if not os.path.isfile(index):
+    print("web/dist/index.html is missing; rebuild")
+    raise SystemExit
+if not os.path.isdir(assets):
+    print("web/dist/assets is missing; rebuild")
+    raise SystemExit
+try:
+    with open(index, encoding="utf-8", errors="replace") as fh:
+        html = fh.read()
+except OSError as exc:
+    print(f"cannot read web/dist/index.html: {exc}")
+    raise SystemExit
+
+# Only local asset references are files to require: CDN and data: URLs are
+# not on disk by design. Vite writes absolute /assets/ paths; relative forms
+# appear in hand-built fixtures. Quote characters are written as hex escapes
+# because bash 3.2 misparses a bare apostrophe inside a heredoc in $(...).
+missing = []
+for ref in re.findall(r"(?:src|href)\s*=\s*[\x22\x27]([^\x22\x27]+)[\x22\x27]", html, re.I):
+    if ref.startswith(("http://", "https://", "//", "data:")):
+        continue
+    path = ref.split("?", 1)[0].split("#", 1)[0]
+    if path.startswith("/assets/"):
+        rel = path[len("/"):]
+    elif path.startswith("./assets/"):
+        rel = path[len("./"):]
+    elif path.startswith("assets/"):
+        rel = path
+    else:
+        continue
+    if not os.path.isfile(os.path.join(dist, rel)) and path not in missing:
+        missing.append(path)
+if missing:
+    print("index.html and assets disagree; rebuild (missing: " + ", ".join(missing) + ")")
+PY
+)"
+  [ -z "$DIST_STATE" ] || unavail "$DIST_STATE"
+fi
 
 # A real run owns its out dir from here on, so every later exit 2 can leave
 # DIR/UNAVAILABLE next to whatever was produced. A dry run creates nothing.
