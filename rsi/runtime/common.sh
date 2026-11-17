@@ -81,6 +81,19 @@ FILL_SECS="${FILL_SECS:-1200}"
 LANES_PY="$RSI_DIR/runtime/lanes.py"
 mkdir -p "$STATE/lanes" "$STATE/sendback" "$STATE/merge"
 
+# Restore a lost +x bit on the runtime scripts. The live control tree is patched in place
+# (CEO hotfixes), and a temp-file+mv edit drops the mode to 644: a caller that invokes a
+# runtime script directly — ux-gate.sh runs `dispatch.sh`, not `bash dispatch.sh` — then
+# dies with exit 126 and the reviewer reports "unavailable" while the code is fine (2026-11-17
+# 23:24, dispatch.sh and ux-gate.sh both left 644, #238's UX gate stalled on it). Every entry
+# point sources this file, so the heal happens before anything is dispatched.
+for _rsi_sh in "$RSI_DIR"/runtime/*.sh; do
+  [ -f "$_rsi_sh" ] || continue
+  [ -x "$_rsi_sh" ] && continue
+  chmod +x "$_rsi_sh" 2>/dev/null && echo "rsi: restored +x on ${_rsi_sh##*/}" >&2
+done
+unset _rsi_sh
+
 
 # Reap a process and its descendants (children first). Never signals pid 1.
 # Used on lane exit/timeout so a killed worker cannot leave vitest/go/node/agy behind.
