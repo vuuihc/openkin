@@ -6,7 +6,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import type { ComponentProps } from "react";
-import { setLocale } from "../../i18n";
+import { setLocale, t } from "../../i18n";
 import { NO_ACCOUNT, useAppStore } from "../../store/appStore";
 import { AccountSection } from "./AccountSection";
 import { LocalAgentSettingsSection } from "./LocalAgentSettingsSection";
@@ -26,8 +26,8 @@ import { unlinkIdentity } from "../../api/account";
  * facade's classes, and one of them reads the sources to keep the next raw
  * button from being added quietly.
  *
- * The fields inside these sections are out of scope: there is no input
- * primitive yet, and a text field is not an action.
+ * The fields are no longer out of scope: `TextInput` exists, and the provider
+ * form's text fields are asserted below to come from it.
  */
 
 vi.mock("../../api/account", async (importOriginal) => {
@@ -217,6 +217,37 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+
+describe("the provider form's text fields", () => {
+  it("draws every provider text field with the shared TextInput", () => {
+    providerSection({
+      editingId: "openai",
+      providerModels: [{ id: "claude-sonnet-4", tier: "balanced", cost_label: "unknown" }],
+      showRouting: true,
+    });
+
+    const keys = [
+      "settings.provider.apiKey",
+      "settings.provider.model",
+      "settings.routing.supportsAgents",
+    ] as const;
+
+    for (const key of keys) {
+      const field = screen.getByLabelText(t(key));
+      expect(field).toBeInstanceOf(HTMLInputElement);
+      expect(field.classList.contains("kin-input")).toBe(true);
+      expect(field.closest("label")).toBeNull();
+    }
+
+    // The per-model id has no visible label of its own; the shared field keeps
+    // an accessible name for it, hidden beside the row's "Model 1" caption.
+    const modelField = screen.getByLabelText(t("settings.provider.modelLabel", { index: 1 }));
+    expect(modelField).toBeInstanceOf(HTMLInputElement);
+    expect(modelField.classList.contains("kin-input")).toBe(true);
+    expect(modelField.closest("label")).toBeNull();
+    expect((modelField as HTMLInputElement).placeholder).toBe("claude-sonnet-4-20250514");
+  });
 });
 
 describe("the settings sections on the shared button", () => {

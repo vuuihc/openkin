@@ -9,6 +9,7 @@ import {
 } from "../../api/client";
 import { useT } from "../../i18n/react";
 import Button from "../ui/Button";
+import TextInput from "../ui/TextInput";
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -230,19 +231,20 @@ export default function ShareDialog({
 
         {url ? (
           <div className="mt-3 space-y-2">
-            <label className="block">
+            <div className="space-y-1">
               <span className="text-caption font-medium uppercase tracking-label text-kin-muted">
                 {tr("task.shareLinkLabel")}
               </span>
-              <input
+              <TextInput
                 ref={inputRef}
+                isLabelHidden
+                label={tr("task.shareLinkLabel")}
                 readOnly
                 value={url}
                 onFocus={(event) => event.target.select()}
-                aria-label={tr("task.shareLinkLabel")}
-                className="kin-input mt-1 w-full font-mono text-body"
+                className="w-full font-mono text-body"
               />
-            </label>
+            </div>
             <p className="text-caption text-kin-muted">{tr("task.shareOnlyOnce")}</p>
             <Button variant="secondary" onClick={() => void copy()} className="min-h-11 w-full">
               {copied ? tr("task.shareCopied") : tr("task.shareCopy")}
