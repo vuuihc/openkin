@@ -15,11 +15,12 @@ of an empty Changes bar.
 
 Conversations are seedable because the harness (rsi/runtime/ux-walk.sh and
 scripts/journeys-smoke.sh) puts scripts/journeys_fake_agent first on the
-throwaway daemon's PATH: the seed creates one succeeded, one failed and one
-archived conversation, and refuses to create any unless /api/agents names a
-`claude` inside that directory as the binary the daemon would launch. States
-the fake cannot produce — a permission request, a routine run — still print
-`skip`.
+throwaway daemon's PATH: the seed creates one succeeded, one failed, one
+archived and one held-open conversation, and refuses to create any unless
+/api/agents names a `claude` inside that directory as the binary the daemon
+would launch. The held conversation gets its approval card through the same
+loopback-only `POST /internal/approvals` bridge the agent's own client uses.
+States the fake cannot produce — a failed routine run — still print `skip`.
 
 Usage:
     KIN_BASE=http://127.0.0.1:<port> KIN_TOKEN=<token> \
@@ -43,6 +44,10 @@ PREFIX = "[seed] "
 # The literal the fake agent looks for; a prompt carrying it asks for one
 # modified tracked file, which is the diff the J2 walk opens.
 CHANGE_MARKER = "[seed] change"
+# The literal the fake agent looks for to hold one tool_use turn open: it
+# emits the request and then stays alive, so the task stays `running` until
+# the seed asks for an approval through the internal bridge.
+APPROVE_MARKER = "[seed] approve"
 # The exact line the fake agent appends to notes.md. The shell fake carries the
 # same text; a re-run finds it and leaves the file alone.
 CHANGE_SENTINEL = "- [seed] change: the journey walk reads this line as a real diff."
@@ -120,6 +125,19 @@ CONVERSATIONS = (
         "prompt": PREFIX + "Review the notes from last week and list what to keep.",
         "expect": ("succeeded",),
         "archive": True,
+    },
+    {
+        # Created last so it is the newest row in the session list, which is
+        # the conversation J1 opens.
+        "slug": "waiting-approval",
+        "title": PREFIX + "Approve the migration",
+        # The literal marker keeps the turn open: no result is printed, so the
+        # task stays `running` and can carry a real approval row.
+        "prompt": APPROVE_MARKER + ": hold this turn open until a person answers.",
+        "expect": ("running", "waiting_approval"),
+        "archive": False,
+        # The one spec that must not wait for a terminal status.
+        "hold": True,
     },
 )
 
@@ -432,21 +450,26 @@ def _fake_agent(api: Api) -> tuple[str | None, str]:
     return None, "no claude-code agent is installed on this daemon"
 
 
-def _wait_terminal(api: Api, ident: str, timeout: float) -> tuple[str | None, str]:
-    """Poll one task until it settles. Returns (terminal status or None, last seen)."""
+def _wait_status(api: Api, ident: str, wanted: tuple[str, ...], timeout: float) -> tuple[str | None, str]:
+    """Poll one task until it reports a status in `wanted`. (status or None, last seen)."""
     deadline = time.monotonic() + timeout
     last = "unknown"
     while time.monotonic() < deadline:
         status, body = api.call("GET", f"/api/tasks/{ident}")
         if status == 200 and isinstance(body, dict):
             last = str(body.get("status") or "unknown")
-            if last in TERMINAL_STATUSES:
+            if last in wanted:
                 return last, last
         else:
             # Say what went wrong instead of reporting a task as merely slow.
             last = _reason(status, body)
         time.sleep(0.1)
     return None, last
+
+
+def _wait_terminal(api: Api, ident: str, timeout: float) -> tuple[str | None, str]:
+    """Poll one task until it settles. Returns (terminal status or None, last seen)."""
+    return _wait_status(api, ident, TERMINAL_STATUSES, timeout)
 
 
 def _fake_answered(api: Api, ident: str) -> tuple[bool, str]:
@@ -457,6 +480,35 @@ def _fake_answered(api: Api, ident: str) -> tuple[bool, str]:
     if "fake-agent" not in json.dumps(body):
         return False, f"task {ident} has no fake-agent marker in its events"
     return True, ""
+
+
+def _create_approval(api: Api, report: Report, ident: str, timeout: float) -> bool:
+    """Ask the internal bridge for one approval row, then confirm the task waits.
+
+    POST /internal/approvals is what the agent's own client calls: loopback
+    only, operator token, and internal/task.RequestApproval moves the task to
+    `waiting_approval`. A refusal means this daemon cannot produce the card, so
+    it stays a skip — never a failed seed, and never a fabricated card.
+    """
+    status, body = api.call(
+        "POST",
+        "/internal/approvals",
+        {
+            "task_id": ident,
+            "kind": "tool_use",
+            "payload": {"tool_name": "Bash", "input": {"command": "git status --short"}},
+        },
+    )
+    if not (status in (200, 201) and isinstance(body, dict) and body.get("id")):
+        report.skip("waiting-approval", f"internal approval refused: {_reason(status, body)}")
+        return False
+    approval = str(body["id"])
+    state, last = _wait_status(api, ident, ("waiting_approval",), timeout)
+    if state is None:
+        report.skip("waiting-approval", f"task {ident} still {last} after {timeout:g}s of polling; no approval card")
+        return False
+    report.create("approval", approval)
+    return True
 
 
 def _set_archived(api: Api, report: Report, spec: dict, ident: str, already: bool) -> None:
@@ -480,11 +532,13 @@ def _set_archived(api: Api, report: Report, spec: dict, ident: str, already: boo
 
 
 def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | None = None) -> None:
-    """Create one succeeded, one failed and one archived conversation.
+    """Create one succeeded, one failed, one archived and one held-open conversation.
 
-    The fake agent makes each turn terminal; nothing here waits longer than
-    KIN_SEED_TASK_TIMEOUT_SECS, and a turn that does not settle is reported as
-    a skip rather than hanging the walk.
+    The fake agent makes every turn but the held one terminal; nothing here
+    waits longer than KIN_SEED_TASK_TIMEOUT_SECS, and a turn that does not
+    settle is reported as a skip rather than hanging the walk. The held
+    conversation is never waited on for a terminal status: it exists so the
+    walk can photograph the approval card a person actually meets.
     """
     agent, why = _fake_agent(api)
     if agent is None:
@@ -525,6 +579,13 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
             state = str(row.get("status") or "unknown")
             if state not in spec["expect"]:
                 report.skip(spec["slug"], f"existing task {ident} is {state}, wanted {'/'.join(spec['expect'])}")
+                continue
+            if spec.get("hold"):
+                # An earlier run can leave the task running because its
+                # approval was refused; retry that instead of leaving the walk
+                # with no card. A task already waiting needs nothing.
+                if state == "running":
+                    _create_approval(api, report, ident, timeout)
                 continue
             if spec["archive"]:
                 _set_archived(api, report, spec, ident, bool(row.get("archived_at")))
@@ -567,6 +628,17 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
         ident = str(body["id"])
         report.create("conversation", title, ident)
 
+        if spec.get("hold"):
+            # No terminal wait and no fake-answered gate: this turn is meant to
+            # stay open. It only has to reach `running` before the agent's own
+            # permission bridge will accept an approval for it.
+            state, last = _wait_status(api, ident, ("running",), timeout)
+            if state is None:
+                report.skip(spec["slug"], f"task {ident} still {last} after {timeout:g}s of polling; not waiting forever")
+                continue
+            _create_approval(api, report, ident, timeout)
+            continue
+
         state, last = _wait_terminal(api, ident, timeout)
         if state is None:
             report.skip(spec["slug"], f"task {ident} still {last} after {timeout:g}s of polling; not waiting forever")
@@ -584,7 +656,6 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
 
 def report_unproducible(report: Report) -> None:
     """Name the journey states the fake agent still cannot produce."""
-    report.skip("waiting-approval", "the fake agent never emits a permission request, so no approval card appears")
     report.skip("routine-failed", "a failed last run needs a real task execution; the seeded routines have not run")
 
 

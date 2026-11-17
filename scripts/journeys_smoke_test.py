@@ -24,6 +24,7 @@ ROOT = os.path.dirname(SCRIPTS)
 SHELL = os.path.join(SCRIPTS, "journeys-smoke.sh")
 
 sys.path.insert(0, SCRIPTS)
+import journeys_seed  # noqa: E402
 import journeys_smoke  # noqa: E402
 
 # The smallest spec that still exercises every shape the real journeys.json
@@ -169,6 +170,23 @@ class SummarizerTest(unittest.TestCase):
         self.assertEqual(bad_code, 2, bad_out + bad_err)
         self.assertIn("unavailable:", bad_out + bad_err)
         self.assertIn("J9", bad_out + bad_err)
+
+
+class SeedSkipContractTest(unittest.TestCase):
+    """The walk's skip list must only name states nothing can seed yet."""
+
+    def test_waiting_approval_is_no_longer_unproducible(self) -> None:
+        report = journeys_seed.Report(dry_run=True)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            journeys_seed.report_unproducible(report)
+        states = [
+            line[len("skip "):].split(":", 1)[0]
+            for line in out.getvalue().splitlines()
+            if line.startswith("skip ")
+        ]
+        self.assertEqual(states, ["routine-failed"], out.getvalue())
+        self.assertNotIn("waiting-approval", states, out.getvalue())
 
 
 class ShellTest(unittest.TestCase):
