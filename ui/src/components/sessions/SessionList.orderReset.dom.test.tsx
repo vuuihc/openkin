@@ -125,16 +125,10 @@ beforeEach(() => {
 describe("restoring time order in a synthetic bucket", () => {
   it("offers the pinned bucket its own restore-time-order control", async () => {
     const user = userEvent.setup();
-    fixtures.tasks = [
-      task("p-low", "/work/alpha", 100),
-      task("p-high", "/work/alpha", 200),
-    ];
+    fixtures.tasks = [task("p-low", "/work/alpha", 100), task("p-high", "/work/alpha", 200)];
     localStorage.setItem("kin_pinned_tasks", JSON.stringify(["p-low", "p-high"]));
     // The hand-made order is the reverse of the clock's.
-    localStorage.setItem(
-      "kin_task_order",
-      JSON.stringify({ __pinned__: ["p-low", "p-high"] }),
-    );
+    localStorage.setItem("kin_task_order", JSON.stringify({ __pinned__: ["p-low", "p-high"] }));
     mount();
     await waitFor(() => expect(order()).toEqual(["p-low", "p-high"]));
 
@@ -151,10 +145,7 @@ describe("restoring time order in a synthetic bucket", () => {
 
   it("offers the unassigned bucket the same reset", async () => {
     const user = userEvent.setup();
-    fixtures.tasks = [
-      task("loose-low", "", 100),
-      task("loose-high", "", 200),
-    ];
+    fixtures.tasks = [task("loose-low", "", 100), task("loose-high", "", 200)];
     localStorage.setItem(
       "kin_task_order",
       JSON.stringify({ __unassigned__: ["loose-low", "loose-high"] }),
@@ -174,10 +165,7 @@ describe("restoring time order in a synthetic bucket", () => {
   });
 
   it("does not offer a reset when the bucket has no stored order", async () => {
-    fixtures.tasks = [
-      task("pinned-1", "/work/alpha", 100),
-      task("loose-1", "", 200),
-    ];
+    fixtures.tasks = [task("pinned-1", "/work/alpha", 100), task("loose-1", "", 200)];
     localStorage.setItem("kin_pinned_tasks", JSON.stringify(["pinned-1"]));
     mount();
     await waitFor(() => expect(order()).toEqual(["pinned-1", "loose-1"]));
@@ -199,15 +187,9 @@ describe("restoring time order in a synthetic bucket", () => {
     cleanup();
     localStorage.clear();
     viewport("coarse");
-    fixtures.tasks = [
-      task("p-low", "/work/alpha", 100),
-      task("p-high", "/work/alpha", 200),
-    ];
+    fixtures.tasks = [task("p-low", "/work/alpha", 100), task("p-high", "/work/alpha", 200)];
     localStorage.setItem("kin_pinned_tasks", JSON.stringify(["p-low", "p-high"]));
-    localStorage.setItem(
-      "kin_task_order",
-      JSON.stringify({ __pinned__: ["p-low", "p-high"] }),
-    );
+    localStorage.setItem("kin_task_order", JSON.stringify({ __pinned__: ["p-low", "p-high"] }));
     mount();
     await waitFor(() => expect(order()).toEqual(["p-low", "p-high"]));
 
