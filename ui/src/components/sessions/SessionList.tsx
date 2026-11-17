@@ -90,6 +90,7 @@ import {
 import { mergeTaskTail } from "../../lib/taskTail";
 import ActionSheet from "../ui/ActionSheet";
 import Button from "../ui/Button";
+import { SessionListSkeleton } from "../Skeleton";
 import HighlightedText from "../HighlightedText";
 import {
   IconAlert,
@@ -1248,11 +1249,7 @@ export default function SessionList({
 
   const body = (
     <div ref={listRef} onKeyDown={onListKeyDown}>
-      {loading && (
-        <p className="px-4 py-10 text-center text-strong text-kin-muted">
-          {tr("sessions.loading")}
-        </p>
-      )}
+      {loading && <SessionListSkeleton shell={shell} label={tr("sessions.loading")} />}
 
       {!loading && pendingQuery && listed.length === 0 && !loadFailed && (
         <p className="px-4 py-10 text-center text-strong text-kin-muted">
