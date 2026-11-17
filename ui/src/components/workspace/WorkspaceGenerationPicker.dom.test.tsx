@@ -105,10 +105,7 @@ describe("the generation picker's menu", () => {
     const user = userEvent.setup();
     render(
       <WorkspaceGenerationPicker
-        generations={[
-          generation({ id: "g1", generation: 1, state: "integrated" }),
-          generation(),
-        ]}
+        generations={[generation({ id: "g1", generation: 1, state: "integrated" }), generation()]}
         loading={false}
         selectedId="g2"
         onChange={vi.fn()}
