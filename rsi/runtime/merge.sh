@@ -242,9 +242,67 @@ PY
   esac
 }
 
+# ------------------------------------------------------------------ queue-time carry
+pr_diff_hash() { # <worktree> — the review key (step 4's DH): the PR's own diff, dist + lockfile excluded
+  $GIT -C "$1" diff origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | shasum | cut -c1-16
+}
+
+queue_carry() { # <wt> <old-head> <new-sha> <incoming> <pr-changed> <gate-file> <reviewed-file> <role>
+  # Step 1 just merged origin/main into a verified PR. Run the same predicate the land-time carry
+  # uses: a move that is disjoint from the PR's own files and the shared surfaces keeps the gate
+  # instead of paying for a full fresh gate. Sets QUEUE_CARRY_REASON.
+  # 0 = carried (gate and review cache now name <new-sha>); 1 = no carry. The gate file is only
+  # removed when carry_forward itself decides a re-gate; every earlier refusal leaves it alone so
+  # the ordinary NEED_GATE check still sees a gate that may already name the current head.
+  local wt="$1" oldhead="$2" newsha="$3" incoming="$4" changed="$5" gatefile="$6" reviewed="$7" role="$8"
+  local gsha="" gpass="" grole="" rdh="" rver="" rrole=""
+  QUEUE_CARRY_REASON=""
+  if [ "$newsha" = "$oldhead" ]; then
+    QUEUE_CARRY_REASON="origin/main did not move under the PR"; return 1
+  fi
+  [ -s "$gatefile" ] && { read -r gsha gpass grole _ < "$gatefile" 2>/dev/null || true; }
+  if [ "$gsha" != "$oldhead" ] || [ "$gpass" != PASS ]; then
+    QUEUE_CARRY_REASON="the gate names ${gsha:-no head} (${gpass:-no verdict}), not the pre-sync head $oldhead; not a carry candidate"
+    return 1
+  fi
+  # Use the role recorded in the gate file when the caller has none: it is the reviewer that
+  # actually passed this tree, and the review cache is keyed by role as well as by diff.
+  role="${role:-${grole:-reviewer}}"
+  if ! carry_forward "$wt" "$incoming" "$changed" "$gatefile" "$newsha" "$role"; then
+    QUEUE_CARRY_REASON="$CARRY_REASON"; return 1
+  fi
+  QUEUE_CARRY_REASON="$CARRY_REASON"
+  # The review is keyed by the PR's own diff, which a disjoint main move does not change. Move its
+  # recorded SHA to the merged head so step 4 reuses the PASS; anything other than a PASS for this
+  # exact diff is left for the review path to re-decide from DH.
+  [ -s "$reviewed" ] && { read -r rdh rver _ rrole _ < "$reviewed" 2>/dev/null || true; }
+  if [ "$rver" = PASS ] && [ "$rdh" = "$(pr_diff_hash "$wt")" ]; then
+    printf '%s PASS %s %s\n' "$rdh" "$newsha" "${rrole:-$role}" > "$reviewed"
+    QUEUE_CARRY_REASON="$QUEUE_CARRY_REASON; review cache moved to $newsha"
+  fi
+  return 0
+}
+
+queue_carry_step() { # <wt> <old-head> <incoming> <new-sha> <pr-changed> <gate-file> <reviewed-file> [role]
+  # The one call site step 1 and --queue-carry-check share, so the seam proves the wiring rather
+  # than a parallel copy of it. The role defaults to the gate file's field 3.
+  queue_carry "$1" "$2" "$4" "$3" "$5" "$6" "$7" "${8:-$(cut -d' ' -f3 "$6" 2>/dev/null | head -1)}"
+}
+
 # ------------------------------------------------------------------ dispatcher
 if [ "${1:-}" != "--one" ]; then
   [ "${1:-}" = "--resolve-generated" ] && { gen_resolve "${2:?worktree required}"; exit $?; }
+  # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: the queue-time carry step 1 applies
+  # after sync_main, with lists of paths on disk. No locks, fetch, gate, review, merge or dispatch.
+  if [ "${1:-}" = "--queue-carry-check" ]; then
+    QWT="${2:?worktree required}"; QOLD="${3:?pre-sync head required}"; QNEW="${4:?merged head required}"
+    QIN="${5:?incoming list required}"; QCH="${6:?pr changed list required}"
+    QGATE="${7:?gate file required}"; QREV="${8:?reviewed file required}"; QROLE="${9:-}"
+    if queue_carry_step "$QWT" "$QOLD" "$(cat "$QIN")" "$QNEW" "$(cat "$QCH")" "$QGATE" "$QREV" "$QROLE"; then
+      echo "CARRY $QUEUE_CARRY_REASON"; exit 0
+    fi
+    echo "REGATE $QUEUE_CARRY_REASON"; exit 1
+  fi
   # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: run the same carry_forward() the land
   # loop calls, with lists of paths on disk. No gate, no review, no relaunch.
   if [ "${1:-}" = "--carry-check" ]; then
@@ -446,12 +504,24 @@ fi
 $GIT -C "$WT" merge -q --ff-only "origin/$BR" >/dev/null 2>&1 || { say "#$N $SLUG: local branch diverged from origin, skip"; exit 0; }
 
 # 1. sync main
+OLDHEAD="$($GIT -C "$WT" rev-parse HEAD)"
+OLDBASE="$($GIT -C "$WT" merge-base HEAD origin/main)"
 sync_main; rc=$?; [ $rc -ne 0 ] && exit 0
 bash "$RSI_DIR/runtime/prep-worktree.sh" "$WT" 2>&1 | tail -2
 SHA="$($GIT -C "$WT" rev-parse HEAD)"
 
 # 2. hold rules (MANDATE): never auto-merge these
 CH="$($GIT -C "$WT" -c core.fileMode=false diff --no-renames --raw origin/main...HEAD | awk '$3 != $4 {sub(/^[^\t]*\t/, ""); print}')"
+# A main move that is disjoint from the PR's own files and the shared surfaces does not invalidate
+# the gate: carry it to the merged head instead of paying for a full fresh gate. carry_forward owns
+# the predicate and removes the gate on a re-gate; NEED_GATE below then sees the carried head and
+# skips the gate body, while CI still reports on that head before the land loop merges.
+QUEUE_INCOMING="$($GIT -C "$WT" diff --name-only "$OLDBASE" origin/main 2>/dev/null)"
+if queue_carry_step "$WT" "$OLDHEAD" "$QUEUE_INCOMING" "$SHA" "$CH" "$V" "$RV"; then
+  say "#$N $SLUG: gate carried across the main move to ${SHA:0:8} ($QUEUE_CARRY_REASON)"
+elif [ "$OLDHEAD" != "$SHA" ]; then
+  say "#$N $SLUG: queue-time carry declined: $QUEUE_CARRY_REASON"
+fi
 SIZE="$($GIT -C "$WT" diff --numstat origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | awk '{s+=$1+$2} END{print s+0}')"
 # CEO 2026-11-16 EMPTY-DELIVERY: a PR whose tree equals main delivers nothing; never merge it.
 if [ "$SIZE" = 0 ] && $GIT -C "$WT" diff --quiet origin/main HEAD; then
@@ -499,7 +569,7 @@ if echo "$CH" | grep -qE '^ui/src/.*\.tsx$' && ! echo "$CH" | grep -qE '^ui/src/
 fi
 
 # 4. gate and review IN PARALLEL. Review is keyed by the PR's own diff (web/dist/index.html and lockfile excluded), the gate by head SHA.
-DH="$($GIT -C "$WT" diff origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | shasum | cut -c1-16)"
+DH="$(pr_diff_hash "$WT")"
 # MANDATE 2: the reviewer must be a different model from the worker. Workers run on $M_WORKER
 # (DeepSeek), so use the role that is a different family (reviewer-alt = gpt-6.1-sol). Selecting
 # the DeepSeek 'reviewer' here would put the worker's own model on its review.
