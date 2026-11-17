@@ -223,6 +223,24 @@ function SwitchingPanes() {
   );
 }
 
+function KeptAlivePanes() {
+  // Both panes stay mounted while the route decides which one owns the screen,
+  // so a pane that goes out of sight keeps its refs — the case this pins.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const onTask1 = location.pathname === "/tasks/task-1";
+  return (
+    <>
+      <button type="button" onClick={() => navigate("/tasks/task-2?panel=files")}>
+        other task
+      </button>
+      <HistoryProbe />
+      <TaskDetailPage taskId="task-1" active={onTask1} fallbackTask={task} />
+      <TaskDetailPage taskId="task-2" active={!onTask1} fallbackTask={{ ...task, id: "task-2" }} />
+    </>
+  );
+}
+
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", ResizeObserverStub);
   Element.prototype.scrollIntoView = vi.fn();
@@ -324,6 +342,31 @@ describe("the files panel's address", () => {
     expect(panel()?.getAttribute("data-open-path")).toBe("src/a b.ts");
     expect(useAppStore.getState().shownPanel).toEqual({ view: "task-2", id: "files" });
     expect(address()).toBe("/tasks/task-2?panel=files&file=src/a%20b.ts");
+  });
+
+  it("a kept-alive pane reopens its file when Back returns it to the same entry", async () => {
+    render(
+      <MemoryRouter initialEntries={["/tasks/task-1?panel=files&file=src/a%20b.ts"]}>
+        <KeptAlivePanes />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(panel()?.getAttribute("data-open-path")).toBe("src/a b.ts"));
+    const linkKey = screen.getByTestId("location").getAttribute("data-key");
+
+    // Another conversation takes the screen and opens its own files panel, so
+    // the kept-alive pane is left with nothing open.
+    fireEvent.click(screen.getByRole("button", { name: "other task" }));
+    await waitFor(() => expect(panel()?.getAttribute("data-task")).toBe("task-2"));
+    expect(panel()?.getAttribute("data-open-path")).toBe("");
+
+    // Back lands on the very entry that named the file — the same location key
+    // the pane applied before it went out of sight.
+    fireEvent.click(screen.getByRole("button", { name: "back" }));
+    await waitFor(() => expect(address()).toBe("/tasks/task-1?panel=files&file=src/a%20b.ts"));
+    expect(screen.getByTestId("location").getAttribute("data-key")).toBe(linkKey);
+    await waitFor(() => expect(panel()?.getAttribute("data-task")).toBe("task-1"));
+    expect(panel()?.getAttribute("data-open-path")).toBe("src/a b.ts");
+    expect(useAppStore.getState().shownPanel).toEqual({ view: "task-1", id: "files" });
   });
 
   it("consuming focus leaves a neighbouring file byte-identical", async () => {

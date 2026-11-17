@@ -1023,7 +1023,14 @@ export default function TaskDetailPage({
     [navigate],
   );
   useEffect(() => {
-    if (!active || routedId !== id || !task) return;
+    // A pane kept alive out of sight is not current: drop what it applied, so
+    // Back onto the very entry it left re-reads the address instead of
+    // trusting a key from before another conversation took the screen.
+    if (!active || routedId !== id) {
+      appliedWorkspaceKey.current = null;
+      return;
+    }
+    if (!task) return;
     // The focus consumer owns its own key and must drop it first; two writers
     // on one location would put back the parameter the other just removed.
     if (focusParam) return;
