@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Tests for the J1/J7 resolution in rsi/runtime/ux/walk.mjs.
+"""Tests for the spec contracts in rsi/runtime/ux/walk.mjs.
 
-Run directly: `python3 -B scripts/journeys_walk_test.py`. Pure: a fixture
-seed.log and a spec file, no browser, no daemon, no network. The walker's
+Run directly: `python3 -B scripts/journeys_walk_test.py`. Pure: fixture
+seed.log and spec files, no browser, no daemon, no network. The walker's
 `--resolve-j1` / `--resolve-j7` modes run the same read/apply functions the
 real walk uses, so a green case here is the resolution that walk would take.
+`--check-spec` runs the J3 send contract through the same parser, so a spec
+that regressed to merely asserting Start is usable fails before a browser
+starts.
 """
 
 from __future__ import annotations
@@ -188,6 +191,88 @@ class WalkJ1ResolveTest(unittest.TestCase):
             json.dump(spec, fh)
         problems = j1_contract_problems(path)
         self.assertTrue(any("deny control" in problem for problem in problems), problems)
+
+
+@unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")
+class WalkJ3ContractTest(unittest.TestCase):
+    """J3 must press Start for real, not photograph a startable composer.
+
+    The checked-in spec is the merge-gate spec; these cases run the walker's
+    own contract check against it and against copies that regress one rule at
+    a time, so the check cannot go green on a spec that only asserts Start.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j3-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        with open(SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        mutate(spec["journeys"]["J3"]["steps"])
+        path = os.path.join(self.tmp, "journeys.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh)
+        return path
+
+    def test_j3_presses_start_for_real(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J3", out)
+        with open(SPEC, encoding="utf-8") as fh:
+            steps = json.load(fh)["journeys"]["J3"]["steps"]
+        # The evidence the reviewer reads: a real press, the prompt and the
+        # waiting row still on screen, then the reply and the empty composer.
+        ops = [step[0] for step in steps]
+        self.assertIn("send", ops, steps)
+        self.assertIn(["value", "textarea", ""], steps, steps)
+        names = [step[1] for step in steps if step[0] == "shot"]
+        self.assertLess(names.index("sent"), names.index("replied"), names)
+
+    def test_j3_contract_rejects_a_spec_that_only_enables(self) -> None:
+        # Today's shape: assert Start is usable, never press it.
+        def only_enables(steps: list) -> None:
+            at = next(i for i, step in enumerate(steps) if step[0] == "send")
+            steps[at] = ["enabled", steps[at][1]]
+
+        code, out = self.check(self.copy_with(only_enables))
+        self.assertEqual(code, 1, out)
+        self.assertIn("no send step", out)
+
+    def test_j3_contract_rejects_sending_before_the_run_settings(self) -> None:
+        # The page navigates away on Start, so the pickers must be chosen first.
+        def send_after_place(steps: list) -> None:
+            at = next(i for i, step in enumerate(steps) if step[0] == "send")
+            send = steps.pop(at)
+            place_shot = next(i for i, step in enumerate(steps) if step == ["shot", "place"])
+            steps.insert(place_shot + 1, send)
+
+        code, out = self.check(self.copy_with(send_after_place))
+        self.assertEqual(code, 1, out)
+        self.assertIn("before choosing the run settings", out)
+
+    def test_j3_contract_rejects_a_prompt_without_the_slow_marker(self) -> None:
+        # Without [seed] slow the pending window is a race, and the `sent`
+        # screenshot proves nothing.
+        def plain_prompt(steps: list) -> None:
+            at = next(i for i, step in enumerate(steps) if step[0] == "fill")
+            steps[at][2] = "Draft: summarise this week's TODOs"
+            for step in steps:
+                if step[0] == "wait" and "[seed] slow" in step[1]:
+                    step[1] = "text=Draft: summarise this week's TODOs"
+
+        code, out = self.check(self.copy_with(plain_prompt))
+        self.assertEqual(code, 1, out)
+        self.assertIn("[seed] slow", out)
 
 
 if __name__ == "__main__":
