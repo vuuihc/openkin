@@ -171,6 +171,22 @@ function tailOf(cwd: string | undefined): string {
 }
 
 /**
+ * A bucket's heading: the project record's name, else the folder's.
+ *
+ * The lookup is asked about the cwd itself, not the bucket key: in the archived
+ * scope a remote copy's key carries a `\u0000device:` suffix for its own
+ * identity, and that suffix is not part of the project's address. A
+ * whitespace-only name is no name, so it falls through like a missing record.
+ */
+function headingFor(
+  cwd: string | undefined,
+  projectNameFor: (cwd: string | undefined) => string | undefined,
+  noProject: string,
+): string {
+  return (projectNameFor(cwd) ?? "").trim() || tailOf(cwd) || noProject;
+}
+
+/**
  * The identity one conversation has across the two feeds.
  *
  * Kin's task row and the imported provider session row describe the same
@@ -231,6 +247,15 @@ export function phoneProjectBuckets(
    *  what was put away, so it can be restored without leaving the list. It is
    *  this machine's archive, for the same reason. */
   scope: PhoneBucketScope = "active",
+  /** The `/api/projects` name for a cwd, when a record claims it.
+   *
+   *  The record is the project's own name; the folder is only its address. A
+   *  heading that used the folder whenever rows existed gave one project two
+   *  names — `alpha` here, `Project Alpha` on the empty heading beside it —
+   *  and flipped between them as the last conversation came and went. The
+   *  caller supplies the lookup so this module stays free of the record type
+   *  and its API; with no lookup the old folder-name behaviour stands. */
+  projectNameFor: (cwd: string | undefined) => string | undefined = () => undefined,
 ): PhoneProjectBucket[] {
   const archived = new Set(archivedCwds.map(archivedKeyOf));
   const selfId = selfDeviceId.trim();
@@ -274,7 +299,8 @@ export function phoneProjectBuckets(
     const key = bucketKey(cwd, device);
     const found = byKey.get(key);
     if (found) return found;
-    const label = key === UNASSIGNED_PROJECT ? copy.noProject : tailOf(cwd) || copy.noProject;
+    const label =
+      key === UNASSIGNED_PROJECT ? copy.noProject : headingFor(cwd, projectNameFor, copy.noProject);
     const made: PhoneProjectBucket = {
       key,
       label,
@@ -361,7 +387,10 @@ export function phoneProjectBuckets(
       if (byKey.has(key)) continue;
       byKey.set(key, {
         key,
-        label: key === UNASSIGNED_PROJECT ? copy.noProject : tailOf(cwd) || copy.noProject,
+        label:
+          key === UNASSIGNED_PROJECT
+            ? copy.noProject
+            : headingFor(cwd, projectNameFor, copy.noProject),
         cwd: key === UNASSIGNED_PROJECT ? "" : cwd,
         rows: [],
         lastActivityAt: 0,
