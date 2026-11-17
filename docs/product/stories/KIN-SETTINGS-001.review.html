@@ -16,16 +16,16 @@
 </head>
 <body><main class="page">
 <header>
-<div class="eyebrow">Figma 审阅版 · 约 9 分钟 · 3 条已定 + 5 条待签</div>
+<div class="eyebrow">Figma 审阅版 · 已签字 2026-11-17 · 8 条已定</div>
 <h1>KIN-SETTINGS-001 · 改默认设置</h1>
-<p class="meta">draft · 面：Mac / 手机 · 对照 <code>KIN-SETTINGS-001.md</code></p>
+<p class="meta">approved · 2026-11-17 CEO 代签 · 面：Mac / 手机 · 对照 <code>KIN-SETTINGS-001.md</code></p>
 <p class="meta">2026-11-17 · 5 张帧 · 七种状态 · 只画设计页和帧，不动产品代码</p>
-<div class="tags"><span class="pill here">待签字</span><span class="pill">旅程 J6</span><span class="pill">设置与环境 · 目录 → 分组 → 选择器</span></div>
+<div class="tags"><span class="pill here">已签字 · 2026-11-17</span><span class="pill">旅程 J6</span><span class="pill">设置与环境 · 目录 → 分组 → 选择器</span></div>
 </header>
 
 <section class="card summary"><p><strong>一句话：</strong>当我常用某个 agent、模型或这台机器，我想在设置里一次改好默认值，以便新建对话时不用每次重选，也不想在设置页里翻半天才找到那一项。</p></section>
 
-<section class="card howto"><h2>怎么审</h2><ol><li>先看切法：这条只管「改默认值」，新建页的选择器归 START，运维表归 AGENTS，通知行归 NOTIFY。</li><li>看 5 张帧和每屏六段用户流程，重点看三件今天做不到的事：目录上看不到当前值、改完没有「已保存」的就地反馈、provider 没有「测试连接」。</li><li>最后回决定：D4–D8 待拍板；D1–D3 已定，不用再确认。</li></ol><p class="note">帧只用线框，没有真实 provider 名、主机名、设备 id 或账号。宽帧在卡片内左右滑动，页面本身不横滚。</p><p class="note"><strong>先说三个量出来的发现：</strong>① 合同第 1 步的「左目录右内容」和手机「目录 → 详情」今天已经存在，缺的是组名旁那行<strong>当前值摘要</strong>（<code>SettingsPrimitives.tsx:167</code> 的 <code>md:w-56</code>、<code>:218</code> 的 620px 表单、<code>:199</code> 的 <code>title=</code> 提示）。② 设置页<strong>没有任何搜索</strong>（<code>git grep settings.search</code> 无结果），合同第 2 步的「或搜索设置项」是从未交付的承诺。③ 合同目录写五组，实际有<strong>六组</strong>，第六组 <code>operations</code> 托管的是 KIN-AGENTS-001 的运维面（<code>settingsTabsWiring.test.ts</code>「offers exactly the six settings that are still used」）。</p></section>
+<section class="card howto"><h2>怎么审</h2><ol><li>先看切法：这条只管「改默认值」，新建页的选择器归 START，运维表归 AGENTS，通知行归 NOTIFY。</li><li>看 5 张帧和每屏六段用户流程，重点看三件今天做不到的事：目录上看不到当前值、改完没有「已保存」的就地反馈、provider 没有「测试连接」。</li><li>最后回决定：D4–D8 已于 2026-11-17 全部同意；D1–D3 已定，不用再确认。</li></ol><p class="note">帧只用线框，没有真实 provider 名、主机名、设备 id 或账号。宽帧在卡片内左右滑动，页面本身不横滚。</p><p class="note"><strong>先说三个量出来的发现：</strong>① 合同第 1 步的「左目录右内容」和手机「目录 → 详情」今天已经存在，缺的是组名旁那行<strong>当前值摘要</strong>（<code>SettingsPrimitives.tsx:167</code> 的 <code>md:w-56</code>、<code>:218</code> 的 620px 表单、<code>:199</code> 的 <code>title=</code> 提示）。② 设置页<strong>没有任何搜索</strong>（<code>git grep settings.search</code> 无结果），合同第 2 步的「或搜索设置项」是从未交付的承诺。③ 合同目录写五组，实际有<strong>六组</strong>，第六组 <code>operations</code> 托管的是 KIN-AGENTS-001 的运维面（<code>settingsTabsWiring.test.ts</code>「offers exactly the six settings that are still used」）。</p></section>
 
 <nav class="toc" aria-label="页内导航"><a class="primary" href="#mece">切法</a><a href="#before-after">现在→之后</a><a class="primary" href="#screens">界面</a><a href="#states">状态</a><a class="primary" href="#decisions">决定</a><a href="#reply">回复模板</a></nav>
 
@@ -155,7 +155,7 @@
 <div class="state"><b>测试连接中</b><span>「测试中…」→「连接正常」/ 提供方原话 /「超时，稍后再试」；结果不持久化。provider 今天没有这个按钮，只有「获取模型列表」与运维里的重检 / smoke。未交付（D7）。</span></div>
 </div></section>
 
-<section id="decisions"><h2>要你拍板的</h2><p class="note">每条都写推荐和代价；只回不同意的编号。D1–D3 已经拍过板，写出来是为了让后来的人知道为什么。</p>
+<section id="decisions"><h2>决定与签字</h2><p class="note">每条都写已定做法和代价；D1–D8 已于 2026-11-17 全部拍板，写出来是为了让后来的人知道为什么。</p>
 
 <div class="decision settled"><h3>D1 导航形状不动：Mac 左目录右内容，手机通用即目录</h3><p class="rec"><strong>已定：</strong>保留今天的 <code>SettingsPrimitives</code> 形状——Mac 224px 竖排 tablist + 620px 表单，手机通用首页 +「更多设置」+ 详情返回行；不新开设置页，不做第二个目录。合同第 1 步的这两句已经成立。</p><p class="tradeoff"><strong>代价：</strong>手机要两级才能到一组（多一次返回）；换来一屏只做一件事，符合 TASTE 1 与 12。重做导航只会把已交付的测试（<code>SettingsPrimitives.test.ts</code>、<code>settingsTabsWiring.test.ts</code>）推倒重来。</p></div>
 
@@ -163,15 +163,17 @@
 
 <div class="decision settled"><h3>D3 通用里的账户与通知只标归属，不重画</h3><p class="rec"><strong>已定：</strong><code>AccountSection</code> 留在通用，标「账户 · 由 Hub 管理」；<code>PushPermissionRow</code> 标「通知 · 由 KIN-NOTIFY-001 管理」。本条不加账号、订阅、团队或通知设置。</p><p class="tradeoff"><strong>代价：</strong>通用仍混着一块不属于「默认值」的账户内容；把它搬到独立账户面需要另一条故事。换来合同 Do-not 的边界不被顺手突破。</p></div>
 
-<div class="decision"><h3>D4 把「或搜索设置项」从合同删掉，不建搜索</h3><p class="rec"><strong>推荐：</strong>删掉合同第 2 步的「或搜索设置项」，以及第 2 步「搜索无结果」那一行。证据：今天没有任何设置搜索（<code>git grep settings.search</code> 无结果），五组在手机一屏内能看完；TASTE 7 先删后加，TASTE 4 一份列表一个搜索框。</p><p class="tradeoff"><strong>代价：</strong>provider 很多的人仍要在 Providers 组里滚动（搜索也帮不了目录，因为组只有六行）。若以后设置真的超过一屏，再按那时的形状补搜索，并带上空结果与保留输入。</p></div>
+<div class="decision settled"><h3>D4 把「或搜索设置项」从合同删掉，不建搜索</h3><p class="rec"><strong>已定：</strong>删掉合同第 2 步的「或搜索设置项」，以及第 2 步「搜索无结果」那一行。证据：今天没有任何设置搜索（<code>git grep settings.search</code> 无结果），五组在手机一屏内能看完；TASTE 7 先删后加，TASTE 4 一份列表一个搜索框。</p><p class="tradeoff"><strong>代价：</strong>provider 很多的人仍要在 Providers 组里滚动（搜索也帮不了目录，因为组只有六行）。若以后设置真的超过一屏，再按那时的形状补搜索，并带上空结果与保留输入。</p></div>
 
-<div class="decision"><h3>D5 当前值摘要放哪：目录行下一句 + 每组一句影响</h3><p class="rec"><strong>推荐：</strong>Mac 在每组名下一句摘要（跟随系统 / gpt-4.1-mini · 使用中 / 自动 · 平衡优先），手机用「更多设置」行已有的 detail 位改显示摘要；每组内容顶部再加一句影响（「新建对话默认用这个 agent」）。摘要取自已保存的 settings，不发新请求，保存中的草稿不写进去。</p><p class="tradeoff"><strong>代价：</strong>每组要多一个 i18n 串和一条「摘要怎么算」的规则；摘要多了会变成第二份界面。选 B（在每组里做一张「当前默认」卡）会把一屏能改多项的优点弄丢。</p></div>
+<div class="decision settled"><h3>D5 当前值摘要放哪：目录行下一句 + 每组一句影响</h3><p class="rec"><strong>已定：</strong>Mac 在每组名下一句摘要（跟随系统 / gpt-4.1-mini · 使用中 / 自动 · 平衡优先），手机用「更多设置」行已有的 detail 位改显示摘要；每组内容顶部再加一句影响（「新建对话默认用这个 agent」）。摘要取自已保存的 settings，不发新请求，保存中的草稿不写进去。</p><p class="tradeoff"><strong>代价：</strong>每组要多一个 i18n 串和一条「摘要怎么算」的规则；摘要多了会变成第二份界面。选 B（在每组里做一张「当前默认」卡）会把一屏能改多项的优点弄丢。</p></div>
 
-<div class="decision"><h3>D6 一套未保存策略：选择器逐行保存，文本 / JSON 组内保存</h3><p class="rec"><strong>推荐：</strong>选择器（agent / 模型 / 主题 / 使用中的 provider）选完即存，给轻提示「已保存」；文本与 JSON（价格表、agent 限额、角色、路由、provider 表单）保留组内保存 + 这一行下面红字；离开设置仍用现有 <code>useLeaveGuard</code> 问一次。断线时禁用保存并说明原因，不做本地队列。</p><p class="tradeoff"><strong>代价：</strong>两种保存模型并存，需要一句话讲清（按控件类型分）；逐行保存要有失败回滚和逐行「未保存」标记。选「全部组内保存」会让改主题、换 agent 多一次点击；选「全部即时保存」会让 JSON 每敲一个字符都可能提交。</p></div>
+<div class="decision settled"><h3>D6 一套未保存策略：选择器逐行保存，文本 / JSON 组内保存</h3><p class="rec"><strong>已定：</strong>选择器（agent / 模型 / 主题 / 使用中的 provider）选完即存，给轻提示「已保存」；文本与 JSON（价格表、agent 限额、角色、路由、provider 表单）保留组内保存 + 这一行下面红字；离开设置仍用现有 <code>useLeaveGuard</code> 问一次。断线时禁用保存并说明原因，不做本地队列。</p><p class="tradeoff"><strong>代价：</strong>两种保存模型并存，需要一句话讲清（按控件类型分）；逐行保存要有失败回滚和逐行「未保存」标记。选「全部组内保存」会让改主题、换 agent 多一次点击；选「全部即时保存」会让 JSON 每敲一个字符都可能提交。</p></div>
 
-<div class="decision"><h3>D7 provider 的「测试连接」保留在合同里，先画虚线</h3><p class="rec"><strong>推荐：</strong>保留合同第 5 步的测试连接：按钮在「保存 Provider」旁，10 秒超时，成功「连接正常」，失败用提供方自己的话，超时「超时，稍后再试」，结果不写成「已连接」。交付时补；今天只有「获取模型列表」和运维里的重检 / smoke，页里画成虚线。</p><p class="tradeoff"><strong>代价：</strong>交付要多一个探测端点或复用模型列表请求，并处理超时与错误归一化。选 B（把第 5 步收窄成「获取模型列表」）成本低，但用户仍无法在保存前确认 key 能用，只能新建对话试错。</p></div>
+<div class="decision settled"><h3>D7 provider 的「测试连接」保留在合同里，先画虚线</h3><p class="rec"><strong>已定：</strong>保留合同第 5 步的测试连接：按钮在「保存 Provider」旁，10 秒超时，成功「连接正常」，失败用提供方自己的话，超时「超时，稍后再试」，结果不写成「已连接」。交付时补；今天只有「获取模型列表」和运维里的重检 / smoke，页里画成虚线。</p><p class="tradeoff"><strong>代价：</strong>交付要多一个探测端点或复用模型列表请求，并处理超时与错误归一化。选 B（把第 5 步收窄成「获取模型列表」）成本低，但用户仍无法在保存前确认 key 能用，只能新建对话试错。</p></div>
 
-<div class="decision"><h3>D8 手机返回不自动保存；选择器选完即存</h3><p class="rec"><strong>推荐：</strong>返回行只是导航，不提交任何东西；选择器选完立即保存并给「已保存」；文本 / JSON 组有未保存改动时，返回先问「放弃未保存的设置更改？」（沿用现有文案）。</p><p class="tradeoff"><strong>代价：</strong>改完一段 JSON 直接返回会多一次确认；选「返回时统一保存」会把一屏一个动作变成一次隐式提交，失败时用户已经离开那一组，错误无处可放。</p></div>
+<div class="decision settled"><h3>D8 手机返回不自动保存；选择器选完即存</h3><p class="rec"><strong>已定：</strong>返回行只是导航，不提交任何东西；选择器选完立即保存并给「已保存」；文本 / JSON 组有未保存改动时，返回先问「放弃未保存的设置更改？」（沿用现有文案）。</p><p class="tradeoff"><strong>代价：</strong>改完一段 JSON 直接返回会多一次确认；选「返回时统一保存」会把一屏一个动作变成一次隐式提交，失败时用户已经离开那一组，错误无处可放。</p></div>
+
+<section class="card sign"><h3>签字记录</h3><p><strong>2026-11-17 CEO 代签。</strong>D4–D8 全部同意；D1–D3 按本页「已定」执行。依据：<code>rsi/DECISIONS.md</code> 2026-11-15 的用户授权，以及 2026-11-17 18:05 的 CEO 决定（记录见 <code>rsi/state/decisions-pending.md</code>）。签字后即可开实现切片，第一刀是 D5 当前值摘要 + 设置读取失败重试。</p></section>
 </section>
 
 <section id="reply"><h2>回复模板</h2><div class="card reply"><p class="note">长按下面这段复制，改掉不同意的；都同意就回「全部同意」。D1–D3 已定，不用回。</p><pre>D4 同意（删掉「或搜索设置项」，不建搜索）
@@ -182,7 +184,7 @@ D8 同意（手机返回不自动保存；选完即存，脏文本组返回时�
 补充：______
 （不同意某条就写成：D5 不同意：……）</pre></div></section>
 
-<section id="sign"><h2>签字</h2><div class="card sign"><p>你回「全部同意」或列出不同意的编号后，我才把 <code>KIN-SETTINGS-001.md</code> 改成 <code>approved</code>，然后才开始写测试和代码。</p><p class="note">这一轮只改设计页和帧：没有产品代码、没有 UI 改动、没有测试，控制台现在看起来和之前一样。<strong>story 仍是 draft，签字由 CEO 另做</strong>；签字后需要同步更新 <code>registry.json</code> 的状态和 <code>IA.md</code> 对应行——本轮按约束没有碰它们，也没有碰 <code>COVERAGE.md</code>。</p></div></section>
+<section id="sign"><h2>签字</h2><div class="card sign"><p>2026-11-17 CEO 代签后，<code>KIN-SETTINGS-001.md</code> 已改成 <code>approved</code>；实现切片从下一步开始。</p><p class="note">这一轮只改设计页和帧：没有产品代码、没有 UI 改动、没有测试逻辑改动，控制台现在看起来和之前一样。<strong>CEO 已于 2026-11-17 代签</strong>；<code>registry.json</code>、<code>IA.md</code> 与 <code>COVERAGE.md</code> 已随签字更新，登记的可执行测试见 registry。</p></div></section>
 
 <footer><p>设计源：<code>KIN-SETTINGS-001.figma/frames/</code>（5 张 SVG）</p><p>合同：<code>KIN-SETTINGS-001.md</code> · Figma 审阅版 · figma-flow-v1</p></footer>
 </main><script>for(const el of document.querySelectorAll('.frame-scroll[data-start]'))el.scrollLeft=Number(el.dataset.start)||0;</script>
