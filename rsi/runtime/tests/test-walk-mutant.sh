@@ -3,12 +3,15 @@
 #
 # The proof itself needs a browser and two UI builds, so it is not part of the
 # gate. What the gate *can* check without one is that the committed mutants still
-# point at the real hand-off pair, the row tap, and the mid-run follow-up
-# dispatch; that the runner prints that same manifest; and that the J3 spec
-# carries the mid-run ordering proof (the follow-up on screen before the first
-# answer) and still satisfies the contract the walk depends on. A manifest whose
-# `old` no longer occurs exactly once would make mutants.py stop before it ever
-# ran a mutant, silently retiring the proof.
+# point at the real hand-off pair, the row tap, the mid-run follow-up
+# dispatch, the Stop that must cancel the round, and the J2 review anchor;
+# that the runner prints
+# that same manifest; and that the J3 spec carries the mid-run ordering proof
+# (the follow-up on screen before the first answer) and the Stop proof (a held
+# round stopped, its control gone, and the queued message accounted for by the
+# daemon's discard report) and still satisfies the contract the walk depends
+# on. A manifest whose `old` no longer occurs exactly once would make mutants.py
+# stop before it ever ran a mutant, silently retiring the proof.
 #
 # No browser, no npm, no daemon: python3 stdlib and node only.
 # Prints "PASS <case>" per case and exits non-zero on the first failure.
@@ -27,12 +30,13 @@ case_name="test_walk_mutant_manifest_points_at_the_handoff_pair_and_the_row_tap"
 [ -f "$RUNNER" ] || fail "$case_name: rsi/runtime/ux/walk-mutant-test.sh is missing"
 python3 - "$MANIFEST" "$WT" <<'PY' || exit 1
 import json
+import re
 import sys
 
 manifest_path, root = sys.argv[1], sys.argv[2]
 entries = json.load(open(manifest_path, encoding="utf-8"))
-if not isinstance(entries, list) or len(entries) != 4:
-    raise SystemExit("manifest must be exactly four entries, got %r" % (entries,))
+if not isinstance(entries, list) or len(entries) != 5:
+    raise SystemExit("manifest must be exactly five entries, got %r" % (entries,))
 for entry in entries:
     for key in ("label", "file", "old", "new", "test"):
         if not isinstance(entry.get(key), str) or not entry[key]:
@@ -63,8 +67,10 @@ if "--walk-once J7" not in j7["test"]:
 # The mid-run mutant must drop the follow-up dispatch itself, not a render
 # detail: the walk's second message has to vanish from the transcript. The
 # guard below is the one snippet that removes the send for a running task
-# while keeping every import used under noUnusedLocals.
-follow = next((e for e in entries if e["file"].endswith("ui/src/pages/TaskDetailPage.tsx")), None)
+# while keeping every import used under noUnusedLocals. A later entry shares
+# the file (Stop), so select by the composer half, not by the path alone.
+follow = next((e for e in entries if e["file"].endswith("ui/src/pages/TaskDetailPage.tsx")
+               and "onComposer" in e["old"]), None)
 if follow is None:
     raise SystemExit("no mid-run entry for ui/src/pages/TaskDetailPage.tsx")
 if "if (!isTerminal(task.status)) return;" not in follow["new"]:
@@ -86,8 +92,21 @@ if "comment.hunkHeader" in review["new"] or "comment.quote" in review["new"]:
 if "comment.text" not in review["new"]:
     raise SystemExit("the J2 mutant drops the comment body too; the failure "
                      "would not be about the anchor")
-print("manifest ok: %s, %s, %s and %s, one occurrence of each `old`"
-      % (j3["file"], j7["file"], follow["file"], review["file"]))
+# The Stop mutant must remove the cancel call itself, not a render detail: the
+# walk presses Stop and requires the control to leave the screen, so an onStop
+# that returns before cancelTask is the honest break of that proof.
+stop = next((e for e in entries if e["file"].endswith("ui/src/pages/TaskDetailPage.tsx")
+             and "function onStop()" in e["old"]), None)
+if stop is None:
+    raise SystemExit("no Stop entry for ui/src/pages/TaskDetailPage.tsx")
+if "R-midrun-stop" not in stop["new"] or not re.search(r"function onStop\(\).*?return;\s*\n\s*// R-midrun-stop", stop["new"], re.S):
+    raise SystemExit("the Stop mutant does not return before cancelTask (no guarded onStop)")
+if "cancelTask" in stop["new"]:
+    raise SystemExit("the Stop mutant leaves cancelTask reachable; it must remove the cancel")
+if "J7" in stop["test"]:
+    raise SystemExit("the Stop entry's `test` walks J7; it must walk J3")
+print("manifest ok: %s, %s, %s, %s and %s, one occurrence of each `old`"
+      % (j3["file"], j7["file"], follow["file"], review["file"], stop["file"]))
 PY
 [ $? -eq 0 ] || fail "$case_name: manifest check failed"
 pass "$case_name"
@@ -273,6 +292,101 @@ fi
 rm -f "$log" "$spec_tmp"
 pass "$case_name"
 
+# The Stop proof is the other half of the round: a held round is stopped, the
+# Stop control leaves the screen, the stopped toast is read, and the message
+# queued behind it is accounted for by the daemon's discard report. Each
+# clause below is a separate way for that proof to disappear while the walk
+# stays green (no Stop press, no gone, a silent discard, the shot moved before
+# the report, or a "stopped" round that never had a queued message in it).
+case_name="test_j3_spec_carries_the_stop_and_discard_proof"
+python3 - "$WT/rsi/runtime/ux/journeys.json" <<'PY' || fail "$case_name: the J3 spec lost the Stop proof"
+import json
+import sys
+
+spec = json.load(open(sys.argv[1], encoding="utf-8"))
+steps = spec["journeys"]["J3"]["steps"]
+DISCARD = "queued prompt(s) discarded with the canceled task"
+
+def at(pred, start=0):
+    for i in range(start, len(steps)):
+        if isinstance(steps[i], list) and pred(steps[i]):
+            return i
+    return -1
+
+def stop_control(sel):
+    return "aria-label" in str(sel) and ("停止" in str(sel) or "Stop" in str(sel))
+
+replied = at(lambda st: st[0] == "shot" and st[1] == "replied")
+assert replied >= 0, "J3 takes no replied shot"
+click = at(lambda st: st[0] == "click" and stop_control(st[1]), replied + 1)
+assert click >= 0, "no Stop click after the reply"
+gone = at(lambda st: st[0] == "gone" and stop_control(st[1]), click + 1)
+assert gone >= 0, "no gone on the Stop control after the click"
+toast = at(lambda st: st[0] == "wait" and str(st[1]).startswith("css=") and "role=status" in str(st[1])
+           and ("已停止当前轮次" in str(st[1]) or "Stopped current round" in str(st[1])), click + 1)
+assert toast >= 0, "no wait for the stopped toast"
+discard = at(lambda st: st[0] == "wait" and DISCARD in str(st[1]), click + 1)
+assert discard >= 0, "no wait for the discard report"
+assert "1 queued prompt(s)" in str(steps[discard][1]), \
+    "the discard report wait names no count: %r" % (steps[discard][1],)
+stopped = at(lambda st: st[0] == "shot" and st[1] == "stopped", discard + 1)
+assert stopped >= 0, "no stopped shot after the discard report"
+held = at(lambda st: st[0] == "fill" and "textarea" in str(st[1])
+          and "[seed] slow" in str(st[2]), replied + 1)
+assert held >= 0 and held < click, "the stopped round is not held open by a second [seed] slow prompt"
+follow = at(lambda st: st[0] == "fill" and "textarea" in str(st[1])
+            and str(st[2]).strip() and "[seed] slow" not in str(st[2]), held + 1)
+assert follow >= 0 and follow < click, "no follow-up queued into the round that is stopped"
+text = str(steps[follow][2])
+send = at(lambda st: st[0] == "send" and "开始" not in str(st[1]) and "Start" not in str(st[1])
+          and "打断" not in str(st[1]) and "nterrupt" not in str(st[1]), follow + 1)
+assert send >= 0 and send < click, "the stopped round's follow-up is never queue-sent"
+seen = at(lambda st: st[0] == "wait" and str(st[1]).startswith("css=")
+          and "[role=region]" in str(st[1]) and text in str(st[1]), send + 1)
+assert seen >= 0 and seen < click, "the stopped round's follow-up is never read in the transcript"
+guide = at(lambda st: st[0] == "wait" and ("已排队：本轮结束后回答" in str(st[1])
+           or "Queued — answered when the current round ends" in str(st[1])), send + 1)
+assert guide >= 0 and guide < click, "no queued guide before Stop"
+print("J3 stop ok: held round stopped, Stop gone, toast + discard report read, "
+      "and the queued follow-up accounted for")
+PY
+pass "$case_name"
+
+case_name="test_j3_spec_rejects_a_stop_without_the_control_leaving"
+command -v node >/dev/null 2>&1 || fail "$case_name: node is not on PATH"
+spec_tmp="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec-mutant.XXXXXX")"
+log="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec.XXXXXX")"
+python3 - "$WT/rsi/runtime/ux/journeys.json" "$spec_tmp" <<'PY' || exit 1
+import json
+import sys
+
+src, dst = sys.argv[1], sys.argv[2]
+spec = json.load(open(src, encoding="utf-8"))
+steps = spec["journeys"]["J3"]["steps"]
+
+def stop_control(sel):
+    return "aria-label" in str(sel) and ("停止" in str(sel) or "Stop" in str(sel))
+
+click = next((i for i, st in enumerate(steps) if st[0] == "click" and stop_control(st[1])), -1)
+if click < 0:
+    raise SystemExit("J3 has no Stop click to break")
+gone = next((i for i in range(click + 1, len(steps))
+             if steps[i][0] == "gone" and stop_control(steps[i][1])), -1)
+if gone < 0:
+    raise SystemExit("no gone on the Stop control after the click")
+del steps[gone]
+json.dump(spec, open(dst, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+PY
+( cd "$WT" && node rsi/runtime/ux/walk.mjs --check-spec --spec "$spec_tmp" ) >"$log" 2>&1
+rc=$?
+if [ "$rc" -ne 1 ] || ! grep -q "never proves the Stop control left the screen" "$log"; then
+  cat "$log" >&2
+  rm -f "$log" "$spec_tmp"
+  fail "$case_name: --check-spec exited $rc without rejecting a Stop that never leaves the screen"
+fi
+rm -f "$log" "$spec_tmp"
+pass "$case_name"
+
 case_name="test_j7_spec_rejects_a_keyboard_reopen_instead_of_a_tap"
 command -v node >/dev/null 2>&1 || fail "$case_name: node is not on PATH"
 spec_tmp="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec-mutant.XXXXXX")"
@@ -308,4 +422,4 @@ fi
 rm -f "$log" "$spec_tmp"
 pass "$case_name"
 
-echo "walk-mutant contract: 8/8 cases passed"
+echo "walk-mutant contract: 10/10 cases passed"

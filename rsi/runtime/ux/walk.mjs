@@ -102,6 +102,47 @@ function checkJ3Contract(spec) {
   const emptyAt = idx(([op, sel, want]) => op === 'value' && /textarea/.test(String(sel)) && String(want) === '');
   if (emptyAt < 0) errs.push('J3 never proves the composer emptied (value textarea "")');
   else if (repliedAt >= 0 && emptyAt < repliedAt) errs.push('the empty-composer check must follow the reply');
+  // The Stop contract (R-midrun-stop). A round stopped mid-flight must end on
+  // screen, and the message queued behind it must be accounted for. Without
+  // these rules a Stop that does nothing stays green: the walk photographs a
+  // running round, the stop never happens, and nothing says so.
+  const stopControl = (sel) => /停止|Stop/.test(String(sel)) && /aria-label/.test(String(sel));
+  const afterReplied = repliedAt >= 0 ? repliedAt + 1 : 0;
+  const stopClickAt = idx(([op, sel]) => op === 'click' && stopControl(sel), afterReplied);
+  if (stopClickAt < 0) errs.push('J3 never presses Stop on the running round after the reply (click button[aria-label=停止|Stop])');
+  const afterStop = (pred) => (stopClickAt < 0 ? -1 : idx(pred, stopClickAt + 1));
+  if (stopClickAt >= 0 && afterStop(([op, sel]) => op === 'gone' && stopControl(sel)) < 0) {
+    errs.push('J3 never proves the Stop control left the screen (gone button[aria-label=停止|Stop])');
+  }
+  if (stopClickAt >= 0 && afterStop(([op, needle]) => op === 'wait' && /^css=/.test(String(needle)) && /role=status/.test(String(needle)) && /已停止当前轮次|Stopped current round/.test(String(needle))) < 0) {
+    errs.push('J3 never waits for the stopped toast (task.stopped)');
+  }
+  const discardAt = afterStop(([op, needle]) => op === 'wait' && String(needle).includes('queued prompt(s) discarded with the canceled task'));
+  if (stopClickAt >= 0 && discardAt < 0) {
+    errs.push("J3 never waits for the daemon's discard report (queued prompt(s) discarded with the canceled task)");
+  }
+  const stoppedAt = shotAt('stopped');
+  if (stopClickAt >= 0 && stoppedAt < 0) errs.push('J3 takes no `stopped` shot after Stop');
+  else if (stopClickAt >= 0 && discardAt >= 0 && stoppedAt < discardAt) errs.push('the `stopped` shot must follow the discard report');
+  // The round being stopped has to be held open, and a follow-up must be
+  // queued into it before Stop: that queued message is what the discard report
+  // has to account for, and the only reason the report can name a count.
+  const heldAt = idx(([op, sel, val]) => op === 'fill' && /textarea/.test(String(sel)) && String(val).includes('[seed] slow'), afterReplied);
+  if (stopClickAt >= 0 && (heldAt < 0 || heldAt > stopClickAt)) {
+    errs.push('the stopped round must start from a held prompt carrying [seed] slow after the first answer');
+  }
+  const stopFillAt = heldAt < 0 ? -1 : idx(([op, sel, val]) => op === 'fill' && /textarea/.test(String(sel)) && String(val).trim() !== '' && !String(val).includes('[seed] slow'), heldAt + 1);
+  if (heldAt >= 0 && (stopFillAt < 0 || stopFillAt > stopClickAt)) {
+    errs.push('J3 never queues a follow-up into the round it stops (the never-silently-dropped half)');
+  }
+  const stopGuideAt = stopFillAt < 0 ? -1 : idx(([op, needle]) => op === 'wait' && /已排队：本轮结束后回答|Queued — answered when the current round ends/.test(String(needle)), stopFillAt + 1);
+  if (stopFillAt >= 0 && (stopGuideAt < 0 || stopGuideAt > stopClickAt)) {
+    errs.push('J3 never waits for the queued guide before it presses Stop');
+  }
+  const stopFollowWaitAt = stopFillAt < 0 ? -1 : idx(([op, needle]) => op === 'wait' && /^css=/.test(String(needle)) && /\[role=.?region/.test(String(needle)) && String(needle).includes(String(steps[stopFillAt][2])), stopFillAt + 1);
+  if (stopFillAt >= 0 && (stopFollowWaitAt < 0 || stopFollowWaitAt > stopClickAt)) {
+    errs.push('J3 never waits for the stopped round\'s follow-up inside the transcript');
+  }
   return errs;
 }
 // J2's contract: the review loop a person runs, not a screenshot of it. A
@@ -265,6 +306,7 @@ if (process.argv.includes('--check-spec')) {
   }
   console.log('spec ok: J2 comments a changed line, sends the tray, and proves path, hunk and quote in the transcript');
   console.log('spec ok: J3 sends a prompt, queues a mid-run follow-up before the reply, and marks it queued');
+  console.log('spec ok: J3 stops a held round, proves Stop left, and reads the queued message discard report');
   console.log('spec ok: J7 lands on the named card, proves focus, consumes ?focus=, and reopens it after Back');
   // With a seed log the check also prints the assertion the walk will make,
   // resolved through the same function the walker uses: the reviewer reads
