@@ -43,9 +43,13 @@ export type TaskPanelsProps = {
   terminal: boolean;
   workspaceOpenPath: string | null;
   workspaceOpenNonce: number;
+  /** Bumps when an applied link says the list: the panel leaves its file. */
+  workspaceShowListNonce?: number;
   selectedWorkspaceId: string | null | undefined;
   onSelectWorkspace: (id: string | null) => void;
   onOpenPath: (path: string) => void;
+  /** A file picked inside the panel; the page writes the address. */
+  onPanelSelectPath?: (path: string) => void;
   onOpenFilesPanel: () => void;
   onKeepAll: () => void | Promise<void>;
   onDiscardAll: () => void | Promise<void>;
@@ -76,9 +80,11 @@ export default function TaskPanels({
   terminal,
   workspaceOpenPath,
   workspaceOpenNonce,
+  workspaceShowListNonce,
   selectedWorkspaceId,
   onSelectWorkspace,
   onOpenPath,
+  onPanelSelectPath,
   onOpenFilesPanel,
   onKeepAll,
   onDiscardAll,
@@ -128,6 +134,8 @@ export default function TaskPanels({
               cwd={task.cwd}
               openPath={workspaceOpenPath}
               openNonce={workspaceOpenNonce}
+              showListNonce={workspaceShowListNonce}
+              onSelectPath={onPanelSelectPath}
               events={events}
               changedFiles={changedFiles}
               selectedWorkspaceId={selectedWorkspaceId}

@@ -379,6 +379,10 @@ export default function TaskDetailPage({
   );
   const [workspaceOpenPath, setWorkspaceOpenPath] = useState<string | null>(null);
   const [workspaceOpenNonce, setWorkspaceOpenNonce] = useState(0);
+  // Bumped only when an applied link says the list (`panel=files`, no `file`):
+  // the panel leaves whatever file it was showing. A file the reader picked is
+  // the panel's own state, so this is the address's half of "Back to the list".
+  const [workspaceShowListNonce, setWorkspaceShowListNonce] = useState(0);
   /**
    * The file finder, owned by the page rather than the files panel: the
    * shortcut works with the panel closed, and the phone's action sheet needs an
@@ -473,6 +477,7 @@ export default function TaskDetailPage({
     withdrawnRef.current = new Set();
     setWorkspaceOpenPath(null);
     setWorkspaceOpenNonce(0);
+    setWorkspaceShowListNonce(0);
     setSelectedWorkspaceId(undefined);
     stickToBottomRef.current = true;
     listAgents()
@@ -1035,8 +1040,12 @@ export default function TaskDetailPage({
     // on one location would put back the parameter the other just removed.
     if (focusParam) return;
     const here = locationRef.current;
-    if (appliedWorkspaceKey.current === here.key) return;
-    appliedWorkspaceKey.current = here.key;
+    // Keyed by the location's key, which is read here as well as in the guard:
+    // Back after a refresh, or two Backs in a row, leave the search and the
+    // navigation type ("POP" both times) unchanged, so only the key says the
+    // address moved and the newly applied entry still has to run.
+    if (appliedWorkspaceKey.current === location.key) return;
+    appliedWorkspaceKey.current = location.key;
     const link = parseWorkspaceLink(here.search);
     if (link === null) {
       // Back/Forward to a conversation: the address says no panel, so the pane
@@ -1056,11 +1065,20 @@ export default function TaskDetailPage({
       replace: true,
     });
     showPanel(id, "files");
-    if (link.file && workspaceOpenPath !== link.file) {
-      // Same path + same nonce is ignored inside the panel; bump once per
-      // arrival so Forward onto the same file opens it again.
-      setWorkspaceOpenPath(link.file);
-      setWorkspaceOpenNonce((n) => n + 1);
+    if (link.file) {
+      if (workspaceOpenPath !== link.file) {
+        // Same path + same nonce is ignored inside the panel; bump once per
+        // arrival so Forward onto the same file opens it again.
+        setWorkspaceOpenPath(link.file);
+        setWorkspaceOpenNonce((n) => n + 1);
+      }
+    } else {
+      // The applied link names the list. Whatever file the panel was showing
+      // belongs to an entry the reader has left, so drop it — and drop the
+      // pulse path too, or Forward onto the file would look like the file the
+      // panel already shows and pulse nothing.
+      setWorkspaceOpenPath(null);
+      setWorkspaceShowListNonce((n) => n + 1);
     }
   }, [
     active,
@@ -1074,6 +1092,7 @@ export default function TaskDetailPage({
     showPanel,
     workspaceOpenPath,
     writeWorkspaceSearch,
+    location.key,
   ]);
 
   // The card exists only after the render that follows `setFocusIdx`; looking
@@ -1560,6 +1579,27 @@ export default function TaskDetailPage({
     } finally {
       setActionBusy(false);
     }
+  }
+
+  /**
+   * A file picked inside the files panel — a tree row, a changed row, or a
+   * comment pointing at another file.
+   *
+   * The panel has already loaded it; this only records the address: exactly
+   * one push and one entry, and no arrival pulse, or the panel would read the
+   * same file a second time. Two cases are not durable addresses and write the
+   * list instead: a generation snapshot (its paths need not exist in the
+   * checkout the address resolves against) and a path the checkout cannot
+   * name. A link that lands on an error is worse than no link.
+   */
+  function onPanelSelectPath(filePath: string) {
+    if (!task || routedId !== id) return;
+    const next = toWorkspaceRelativePath(task.cwd, filePath);
+    const file = !next || next === "." || selectedWorkspaceId ? null : next;
+    writeWorkspaceSearch(patchWorkspaceLink(locationRef.current.search, { panel: "files", file }));
+    // No nonce bump: the panel loaded the file it just reported. Recording the
+    // path is what keeps the arrival effect from pulsing it again.
+    if (file) setWorkspaceOpenPath(file);
   }
 
   function onOpenWorkspacePath(filePath: string): boolean {
@@ -2221,9 +2261,11 @@ export default function TaskDetailPage({
         terminal={terminal}
         workspaceOpenPath={workspaceOpenPath}
         workspaceOpenNonce={workspaceOpenNonce}
+        workspaceShowListNonce={workspaceShowListNonce}
         selectedWorkspaceId={selectedWorkspaceId}
         onSelectWorkspace={setSelectedWorkspaceId}
         onOpenPath={onOpenWorkspacePath}
+        onPanelSelectPath={onPanelSelectPath}
         onOpenFilesPanel={openFilesPanel}
         onKeepAll={onKeepAllChanges}
         onDiscardAll={onDiscardAllChanges}
