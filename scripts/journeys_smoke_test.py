@@ -235,6 +235,24 @@ class ShellTest(unittest.TestCase):
             result.stdout,
         )
 
+    def test_slow_agent_hold_default_is_pinned(self) -> None:
+        # J3 types a second message while the first round is still open, so the
+        # fake agent's 3 s default hold has to be stretched to 10 s; this export
+        # is the only thing that does it. Dropping or retuning it would surface
+        # as an intermittent walk failure, not a red test, so pin the exact line
+        # (the dry run exits before it, so the resolved value cannot be read).
+        with open(SHELL, encoding="utf-8") as fh:
+            lines = [
+                line.strip()
+                for line in fh
+                if line.strip().startswith("export RSI_FAKE_SLOW_SECS=")
+            ]
+        self.assertEqual(
+            lines,
+            ['export RSI_FAKE_SLOW_SECS="${RSI_FAKE_SLOW_SECS:-10}"'],
+            "scripts/journeys-smoke.sh must export RSI_FAKE_SLOW_SECS with a 10 s default",
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
