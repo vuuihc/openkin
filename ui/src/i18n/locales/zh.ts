@@ -1052,6 +1052,9 @@ const zh = {
     reveal: "显示",
     subtitle: "认知 Provider（Kin agent）、Agent、路由与价格。",
     saving: "保存中…",
+    loadFailed: "设置读取失败",
+    loadFailedHint: "已保存的设置没有被改动，重试即可重新读取。",
+    disconnected: "已断线 — 正在显示上次读取的值。",
     roles: {
       heading: "角色",
       description:

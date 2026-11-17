@@ -19,6 +19,8 @@ import {
   type Settings,
 } from "../api/client";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
+import { MobileEmpty } from "../components/mobile/MobileList";
+import { IconAlert } from "../components/icons";
 import {
   AGENT_ROLES_CHANGED_EVENT,
   parseAgentRoles,
@@ -173,6 +175,12 @@ export default function SettingsPage() {
   const [agentList, setAgentList] = useState<AgentInfo[]>([]);
   const [agentProviders, setAgentProviders] = useState<AgentProvider[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // The read's own failure. `error` keeps its meaning (a page-level action
+  // failed), but a failed read is a state of the page, not an action result: a
+  // first read has to name itself and offer a retry, and a reconnect reload
+  // that fails has to keep the loaded form on screen and say the link dropped.
+  // Pasting the daemon's raw text into the page banner did neither.
+  const [loadError, setLoadError] = useState<string | null>(null);
   // One error line per general-tab group. A failure belongs under the Save
   // button whose group caused it, not on every group and the page banner at
   // once; the shared `error` above stays for the page-level failures (load,
@@ -217,7 +225,9 @@ export default function SettingsPage() {
   );
   const reconnectGen = useAppStore((s) => s.reconnectGen);
   const pushToast = useAppStore((s) => s.pushToast);
-  const slow = useSlowHint(!settings && !error);
+  // The slow hint belongs under the skeleton only; over a named failure it
+  // would sit under the retry and read as a second answer to the same wait.
+  const slow = useSlowHint(!settings && !loadError);
   const [settingsBaseline, setSettingsBaseline] = useState<string | null>(null);
   const [providerBaseline, setProviderBaseline] = useState<string | null>(null);
   const [routingDirty, setRoutingDirty] = useState({ defaults: false, profiles: false });
@@ -321,20 +331,30 @@ export default function SettingsPage() {
     setSettingsBaseline(settingsDraftKey(next));
   }, []);
 
+  const loadSeq = useRef(0);
   const load = useCallback(
     async (preserveDirty = false) => {
+      // Only the newest read may write. A mount read, a reconnect read and a
+      // retry can overlap, and a late rejection from an older one used to be
+      // able to paint the failure state over a form a newer read had loaded.
+      const seq = ++loadSeq.current;
       setError(null);
+      // The skeleton replaces the failure state the moment a retry starts, so
+      // the retry button cannot be pressed a second time while the read is out.
+      setLoadError(null);
       try {
         const s = await getSettings();
+        if (seq !== loadSeq.current) return;
         setSettings(s);
         applyServerSettings(s, preserveDirty);
         setActiveProviderId(s["provider.active_id"] ?? "");
         try {
           const reg = await listProviders();
+          if (seq !== loadSeq.current) return;
           setProviders(reg.providers ?? []);
           setActiveProviderId(reg.active_id ?? s["provider.active_id"] ?? "");
         } catch {
-          setProviders([]);
+          if (seq === loadSeq.current) setProviders([]);
         }
         listAgents()
           .then(setAgentList)
@@ -343,19 +363,32 @@ export default function SettingsPage() {
           .then(setAgentProviders)
           .catch(() => undefined);
       } catch (e) {
+        if (seq !== loadSeq.current) return;
         if (e instanceof ApiError && e.status === 401) return;
-        setError(e instanceof ApiError ? e.message : String(e));
+        // Do not touch `settings`: a failed reload keeps the values already on
+        // screen, and a failed first read has none to lose.
+        setLoadError(e instanceof ApiError ? e.message : String(e));
       }
     },
     [applyServerSettings],
   );
 
+  const retryLoad = () => {
+    setLoadError(null);
+    void load();
+  };
+
   useEffect(() => {
     void load();
   }, [load]);
 
+  // A generation the page has already answered. Comparing against the ref,
+  // rather than only skipping `reconnectGen === 0`, keeps a mount after an
+  // earlier reconnect from issuing a second read beside the mount read.
+  const seenReconnect = useRef(reconnectGen);
   useEffect(() => {
-    if (reconnectGen === 0) return;
+    if (reconnectGen === seenReconnect.current) return;
+    seenReconnect.current = reconnectGen;
     void load(true);
   }, [reconnectGen, load]);
 
@@ -680,13 +713,24 @@ export default function SettingsPage() {
     }
   };
 
-  if (error && !settings) {
+  if (!settings && loadError) {
     return (
       <div className="flex-1 overflow-y-auto overflow-x-hidden kin-scroll px-4 sm:px-6 py-6">
         <h1 className="hidden text-hero font-bold md:block">{tr("settings.title")}</h1>
-        <p className="text-strong leading-5 text-kin-red-ink mt-3" role="alert">
-          {error}
-        </p>
+        {/* One named failure with one action, in place of the form: a person
+            whose daemon restarted mid-edit should not have to leave Settings to
+            try again. The daemon's text stays as a muted detail underneath. */}
+        <div role="alert" className="mt-3">
+          <MobileEmpty
+            icon={<IconAlert size={30} />}
+            title={tr("settings.loadFailed")}
+            hint={tr("settings.loadFailedHint")}
+            action={<Button onClick={retryLoad}>{tr("common.retry")}</Button>}
+          />
+          <p className="px-8 pb-2 text-center text-caption leading-4 text-kin-muted break-words">
+            {loadError}
+          </p>
+        </div>
       </div>
     );
   }
@@ -750,6 +794,15 @@ export default function SettingsPage() {
       activeTab={activeTab}
       onTabChange={selectTab}
     >
+      {loadError ? (
+        <p
+          className="rounded-lg border border-kin-orange/30 bg-kin-orange/10 px-3 py-2 text-body leading-4 text-kin-orange-ink"
+          role="alert"
+        >
+          {tr("settings.disconnected")}
+        </p>
+      ) : null}
+
       {error ? (
         <p
           className="rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-body leading-4 text-kin-red-ink"

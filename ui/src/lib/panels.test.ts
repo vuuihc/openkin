@@ -69,6 +69,15 @@ describe("isPanelAvailable", () => {
     expect(isPanelAvailable("files", ctx({ remote: true }))).toBe(true);
   });
 
+  it("offers the pull request panel for any session", () => {
+    // Reading a pull request is a cache lookup on the machine holding the
+    // checkout, so it is offered for every session — including one whose
+    // checkout is elsewhere, where that machine is the one that answers.
+    expect(isPanelAvailable("pr", ctx())).toBe(true);
+    expect(isPanelAvailable("pr", ctx({ remote: true }))).toBe(true);
+    expect(isPanelAvailable("pr", ctx({ taskId: null }))).toBe(false);
+  });
+
   it("offers publishing only for a session running elsewhere", () => {
     expect(isPanelAvailable("publish", ctx({ remote: true }))).toBe(true);
     expect(isPanelAvailable("publish", ctx())).toBe(false);
@@ -92,9 +101,10 @@ describe("isPanelAvailable", () => {
 
 describe("availablePanels", () => {
   it("lists what is offered, in table order", () => {
-    expect(availablePanels(ctx()).map((p) => p.id)).toEqual(["files", "terminal"]);
+    expect(availablePanels(ctx()).map((p) => p.id)).toEqual(["files", "pr", "terminal"]);
     expect(availablePanels(ctx({ remote: true })).map((p) => p.id)).toEqual([
       "files",
+      "pr",
       "publish",
       "terminal",
     ]);
@@ -106,6 +116,7 @@ describe("availablePanels", () => {
     // The phone loses exactly one row, and it is the terminal's.
     expect(availablePanels(ctx({ remote: true, desktop: false })).map((p) => p.id)).toEqual([
       "files",
+      "pr",
       "publish",
     ]);
   });
@@ -197,7 +208,7 @@ describe("resolvePanel", () => {
 
   it("keeps an open panel that is still offered", () => {
     expect(resolvePanel("files", ctx())).toBe("files");
-        expect(resolvePanel("publish", ctx({ remote: true }))).toBe("publish");
+    expect(resolvePanel("publish", ctx({ remote: true }))).toBe("publish");
     expect(resolvePanel("terminal", ctx())).toBe("terminal");
   });
 
