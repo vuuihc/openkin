@@ -81,7 +81,7 @@ const zh = {
     loadError: "对话列表读不出来",
     loadErrorHint: "网络或守护进程暂时没有响应，稍后会自动重试。",
     empty: "还没有对话",
-    emptyHint: "点右下角的铅笔开一个，或在桌面控制台里发起。",
+    emptyHint: "点「新建对话」开始。",
     untitled: "未命名对话",
     agentSessionsFailed: "本机 agent 会话暂时读不出来，Kin 自己的会话仍在上面。",
     agentSessionsLoadError: "导入的会话读不出来",

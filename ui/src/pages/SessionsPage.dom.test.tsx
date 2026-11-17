@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { setLocale } from "../i18n";
 import { liveResources } from "../api/liveResources";
@@ -287,7 +287,8 @@ describe("the phone page's states", () => {
     render(phonePage());
 
     expect(await screen.findByText("No chats yet")).toBeTruthy();
-    expect(screen.getByText(/bottom right/)).toBeTruthy();
+    // The hint's truth is the next describe's contract: it must name the
+    // control that is actually on screen, not a position from a removed one.
     expect(document.querySelector("[data-phone-return='new']")).toBeTruthy();
   });
 
@@ -319,5 +320,66 @@ describe("the phone page's states", () => {
     render(phonePage());
     expect(await screen.findByRole("button", { name: /Yesterday chat/ })).toBeTruthy();
     await waitFor(() => expect(document.querySelector("[data-session-row='only']")).toBeTruthy());
+  });
+});
+
+describe("the empty list's copy", () => {
+  /** The label the button on screen actually reads out. */
+  function controlName(button: HTMLElement) {
+    const name = button.getAttribute("aria-label") ?? button.textContent ?? "";
+    // The Mac button appends its ⌘N shortcut inside the same control; the
+    // label is the words before it.
+    return name.replace(/⌘N/g, "").replace(/\s+/g, " ").trim();
+  }
+
+  function hintUnder(title: HTMLElement) {
+    // MobileEmpty draws the hint as the title's next paragraph.
+    const hint = title.nextElementSibling;
+    expect(hint?.tagName).toBe("P");
+    return (hint as HTMLElement).textContent ?? "";
+  }
+
+  it("empty hint names the New chat control that is on screen", async () => {
+    // Both languages ship; the hint and the button must agree in each one.
+    const cases = [
+      { locale: "en", title: "No chats yet", button: "New chat" },
+      { locale: "zh", title: "还没有对话", button: "新建对话" },
+    ] as const;
+
+    for (const c of cases) {
+      cleanup();
+      setLocale(c.locale);
+      render(phonePage());
+
+      const title = await screen.findByText(c.title);
+      const newChat = screen.getByRole("button", { name: c.button });
+      expect(controlName(newChat)).toBe(c.button);
+
+      const hint = hintUnder(title);
+      expect(hint).toContain(c.button);
+      expect(hint).not.toMatch(/bottom right|右下角/i);
+    }
+  });
+
+  it("empty hint stays true on the Mac sidebar", async () => {
+    // The same shared string renders in the sidebar's list. A phone-only
+    // rewrite (a corner, a floating pencil) would make this copy lie here.
+    viewport(true);
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <AppShell pendingApprovals={[]}>
+          <div />
+        </AppShell>
+      </MemoryRouter>,
+    );
+
+    const title = await screen.findByText("No chats yet");
+    const newChat = screen.getByRole("button", { name: /New chat/ });
+    const label = controlName(newChat);
+
+    expect(label).toBe("New chat");
+    const hint = hintUnder(title);
+    expect(hint).toContain(label);
+    expect(hint).not.toMatch(/bottom right|右下角/i);
   });
 });
