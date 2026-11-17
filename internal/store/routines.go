@@ -282,16 +282,14 @@ func (s *Store) ListRoutinesPage(ctx context.Context, opts ListRoutinesOpts) (Ro
 	}
 	if cwd := strings.TrimSpace(opts.Cwd); cwd != "" {
 		// Exact match, not a prefix: a directory filter that also matched
-		// descendants would answer a question nobody asked.
-		if len(cwd) > 200 {
-			cwd = cwd[:200]
-		}
+		// descendants would answer a question nobody asked. The path is used
+		// as given: truncating it would match no stored directory at all.
 		b.WriteString(` AND cwd = ?`)
 		args = append(args, cwd)
 	}
 	if opts.FailedOnly {
-		// SQL NULL never equals 'failed', so a routine that has never run is
-		// excluded rather than treated as a failure.
+		// A routine that has never run stores an empty outcome, never
+		// 'failed', so it is excluded rather than treated as a failure.
 		b.WriteString(` AND last_outcome = 'failed'`)
 	}
 	if opts.Before != "" {

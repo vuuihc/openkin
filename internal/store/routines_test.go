@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -280,10 +281,14 @@ func TestListRoutinesPageFiltersByDirectory(t *testing.T) {
 	t.Cleanup(func() { _ = s.Close() })
 	ctx := context.Background()
 	now := time.Now().UnixMilli()
+	// Longer than any defensive cap on a query parameter: the filter must
+	// compare the directory exactly as stored, not a truncated prefix.
+	longCwd := "/work/" + strings.Repeat("nested/", 40) + "leaf"
 	rows := []Routine{
 		{ID: "alpha-old", Cwd: "/work/alpha", Enabled: true, CreatedAt: now},
 		{ID: "alpha-new", Cwd: "/work/alpha", Enabled: false, CreatedAt: now + 1},
 		{ID: "beta", Cwd: "/work/beta", Enabled: true, CreatedAt: now + 2},
+		{ID: "long", Cwd: longCwd, Enabled: true, CreatedAt: now + 3},
 	}
 	for _, r := range rows {
 		r.Agent, r.Prompt, r.IntervalSecs, r.NextDueAt = "kin", "sweep", 60, now
@@ -342,6 +347,16 @@ func TestListRoutinesPageFiltersByDirectory(t *testing.T) {
 	}
 	if len(empty.Routines) != 0 {
 		t.Fatalf("unknown cwd page = %+v", empty.Routines)
+	}
+
+	// A path longer than any defensive query cap is still an exact filter: a
+	// truncated comparison would answer empty for a directory that exists.
+	long, err := s.ListRoutinesPage(ctx, ListRoutinesOpts{Cwd: longCwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(long.Routines) != 1 || long.Routines[0].ID != "long" {
+		t.Fatalf("long cwd page = %+v", long.Routines)
 	}
 }
 
