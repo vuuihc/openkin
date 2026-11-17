@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import {
   getTaskSourceChanges,
@@ -68,6 +69,8 @@ import {
 import { isHtmlPath } from "./htmlPreview";
 import { previewKind, workspaceErrorMessage } from "./workspacePreview";
 import { lensForPick } from "../../lib/workspaceLens";
+import { isImeKeyEvent } from "../../lib/ime";
+import { overlayOwnsKeyboard } from "../../lib/overlayOwnsKeyboard";
 import { useAppStore } from "../../store/appStore";
 
 // CodeViewer is the only thing that pulls in monaco-editor, which is by far the
@@ -322,6 +325,19 @@ export default function WorkspacePanel({
   // changes: the way back, and the list the file was opened from.
   const asideRef = useRef<HTMLElement | null>(null);
   const backRef = useRef<HTMLButtonElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  // Where focus goes when this panel closes: the control the reader pressed to
+  // open it. Captured once, on mount, and only when that control is outside
+  // the panel — an element inside would be unmounted by the same close. No
+  // capture (a deep link opened the panel, or focus was on <body>) means no
+  // guess: closing leaves focus where the platform puts it.
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && rootRef.current && !rootRef.current.contains(active)) {
+      returnFocusRef.current = active;
+    }
+  }, []);
 
   const [sidebarWidth, setSidebarWidth] = useState(readStoredSidebarWidth);
   const sidebarWidthRef = useRef(sidebarWidth);
@@ -822,6 +838,40 @@ export default function WorkspacePanel({
     focusFileList();
   };
 
+  // Close means close and hand the keyboard back. The header's close button
+  // used to drop focus to <body> when the panel unmounted, so the next Tab
+  // started at the top of the page behind it.
+  const restoreTriggerFocus = useCallback(() => {
+    const target = returnFocusRef.current;
+    if (target?.isConnected) target.focus();
+  }, []);
+
+  const closePanel = useCallback(() => {
+    onClose?.();
+    restoreTriggerFocus();
+  }, [onClose, restoreTriggerFocus]);
+
+  // Escape unwinds exactly one layer, and only from inside this one: the panel
+  // is an inspector column, not a modal, so a handler on its root is the
+  // "focus is in the visible layer" rule. A window listener would steal the
+  // key from the page the reader is actually in (TASTE 16). Layers above keep
+  // their own Escape; so do controls that already claimed it (the diff-comment
+  // box and the comments tray both preventDefault + stopPropagation).
+  const handlePanelKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Escape") return;
+    if (isImeKeyEvent(event.nativeEvent)) return;
+    if (event.defaultPrevented) return;
+    if (overlayOwnsKeyboard()) return;
+    if (phoneView === "file" && !panesWide && selectedPath) {
+      event.preventDefault();
+      goBackToFiles();
+      return;
+    }
+    if (!onClose) return;
+    event.preventDefault();
+    closePanel();
+  };
+
   // A scope that leaves the open file out is a contradiction: the list says
   // the file is not part of what this round changed, while its viewer and its
   // keep/discard controls stay live. Close it and go back to the list the
@@ -844,7 +894,11 @@ export default function WorkspacePanel({
   }, [showingTurn, turnFiles, selectedPath, focusFileList]);
 
   return (
-    <div className="h-full min-h-0 flex flex-col bg-[var(--kin-inspector)]">
+    <div
+      ref={rootRef}
+      onKeyDown={handlePanelKeyDown}
+      className="h-full min-h-0 flex flex-col bg-[var(--kin-inspector)]"
+    >
       <div className="flex-none flex items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2">
         {/* The narrow container's way back to the list. A wide container shows
             both panes at once, so there is nothing to go back to and the
@@ -911,7 +965,7 @@ export default function WorkspacePanel({
         {onClose && (
           <Button
             variant="quiet"
-            onClick={onClose}
+            onClick={closePanel}
             className="flex-none h-11 w-11 items-center justify-center p-0 text-kin-muted sm:h-6 sm:w-6"
             aria-label={tr("workspace.close")}
           >
