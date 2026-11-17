@@ -1079,6 +1079,9 @@ const en: MessageTree = {
     reveal: "Reveal",
     subtitle: "Cognition provider (Kin agent), agents, routing, and pricing.",
     saving: "Saving…",
+    loadFailed: "Couldn't read settings",
+    loadFailedHint: "Your saved settings were not changed. Retry to read them again.",
+    disconnected: "Disconnected — showing the last values read from this machine.",
     roles: {
       heading: "Roles",
       description:
