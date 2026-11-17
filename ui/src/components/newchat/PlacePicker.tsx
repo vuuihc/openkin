@@ -11,6 +11,7 @@ import { projectLabel } from "../../lib/paths";
 import { useMinWidth } from "../../hooks/useMinWidth";
 import Sheet, { SheetSecondaryButton } from "../mobile/Sheet";
 import { IconCheck, IconChevronDown, IconFolder } from "../icons";
+import Button from "../ui/Button";
 import Popover from "../ui/Popover";
 
 export type Place = {
@@ -115,20 +116,16 @@ export default function PlacePicker({
 
   return (
     <div className="w-full">
-      <button
+      <Button
         ref={triggerRef}
-        type="button"
+        variant="secondary"
         disabled={disabled || detecting}
         onClick={() => setOpen((v) => !v)}
         aria-label={`${tr("newChat.placeTitle")}${tr("common.labelSeparator")}${label}`}
         aria-haspopup="dialog"
         aria-expanded={open}
         title={value.cwd || label}
-        className={[
-          "flex min-h-11 w-full items-center gap-2 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 text-left transition-colors",
-          "hover:border-[var(--kin-hairline-strong)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-kin-focus-ring",
-          disabled ? "opacity-60" : "",
-        ].join(" ")}
+        className="min-h-11! w-full justify-start rounded-xl px-3 text-left"
       >
         <IconFolder size={16} className="flex-none text-kin-secondary" />
         <span className="min-w-0 flex-1 truncate text-body font-medium text-kin-text">{label}</span>
@@ -136,14 +133,18 @@ export default function PlacePicker({
           {tr("newChat.placeChange")}
           <IconChevronDown size={11} className="opacity-70" />
         </span>
-      </button>
+      </Button>
       {failed ? (
         <p className="mt-1.5 px-1 text-caption text-kin-muted">
           {tr("machine.listUnavailable")}{" "}
           {onRefresh ? (
-            <button type="button" className="text-kin-blue-ink hover:underline" onClick={onRefresh}>
+            <Button
+              variant="quiet"
+              className="inline min-h-0! p-0 text-kin-blue-ink! hover:bg-transparent! hover:underline"
+              onClick={onRefresh}
+            >
               {tr("machine.refresh")}
-            </button>
+            </Button>
           ) : null}
         </p>
       ) : null}
@@ -327,6 +328,9 @@ function PlacePanel({
         onKeyDown={onListKeyDown}
       >
         {directory ? (
+          // A row in the option list, not an action button: the facade's
+          // button typography and centred flex would corrupt the row.
+          // eslint-disable-next-line kin/no-raw-button -- an option row in the listbox
           <button
             type="button"
             data-place-option=""
@@ -367,6 +371,7 @@ function PlacePanel({
                     (machine.isSelf ? "" : machine.id) === value.machineId &&
                     project.path === value.cwd;
                   return (
+                    // eslint-disable-next-line kin/no-raw-button -- an option row in the listbox
                     <button
                       key={`${machine.id}\u0000${project.path}`}
                       type="button"

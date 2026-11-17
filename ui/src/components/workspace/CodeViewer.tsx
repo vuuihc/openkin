@@ -20,6 +20,7 @@ import { useT } from "../../i18n/react";
 import type { FileDiffSnippet } from "../../lib/changedFiles";
 import Markdown from "../Markdown";
 import { IconCheck, IconChevron, IconX } from "../icons";
+import Button from "../ui/Button";
 import OpenInMenu from "./OpenInMenu";
 import "./monacoSetup";
 
@@ -227,34 +228,36 @@ export default function CodeViewer({
               role="group"
               aria-label={t("workspace.viewer.diffLayout")}
             >
-              <button
-                type="button"
+              {/* A pressed toggle, not a filled action: the quiet weight keeps
+                  the pair's wash and the state inks override its own with `!`. */}
+              <Button
+                variant="quiet"
                 onClick={() => setDiffLayout("inline")}
                 aria-pressed={diffLayout === "inline"}
                 title={t("workspace.viewer.diffInline")}
                 className={[
-                  "px-1.5 py-0.5 rounded text-caption font-semibold transition-colors",
+                  "px-1.5 py-0.5 rounded text-caption",
                   diffLayout === "inline"
-                    ? "bg-kin-blue/15 text-kin-blue-ink"
-                    : "text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)]",
+                    ? "bg-kin-blue/15! text-kin-blue-ink!"
+                    : "text-kin-muted! hover:text-kin-text! hover:bg-[var(--kin-fill-strong)]!",
                 ].join(" ")}
               >
                 {t("workspace.viewer.diffInline")}
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="quiet"
                 onClick={() => setDiffLayout("sideBySide")}
                 aria-pressed={diffLayout === "sideBySide"}
                 title={t("workspace.viewer.diffSideBySide")}
                 className={[
-                  "px-1.5 py-0.5 rounded text-caption font-semibold transition-colors",
+                  "px-1.5 py-0.5 rounded text-caption",
                   diffLayout === "sideBySide"
-                    ? "bg-kin-blue/15 text-kin-blue-ink"
-                    : "text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)]",
+                    ? "bg-kin-blue/15! text-kin-blue-ink!"
+                    : "text-kin-muted! hover:text-kin-text! hover:bg-[var(--kin-fill-strong)]!",
                 ].join(" ")}
               >
                 {t("workspace.viewer.diffSideBySide")}
-              </button>
+              </Button>
             </div>
           )}
           {useDiff && (
@@ -263,25 +266,25 @@ export default function CodeViewer({
               role="group"
               aria-label={t("workspace.viewer.diffNav")}
             >
-              <button
-                type="button"
+              <Button
+                variant="quiet"
                 onClick={() => goToHunk("previous")}
                 title={t("workspace.viewer.prevHunk")}
                 aria-label={t("workspace.viewer.prevHunk")}
-                className="p-1 rounded text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-focus-ring"
+                className="p-1 rounded text-kin-muted! hover:text-kin-text! hover:bg-[var(--kin-fill-strong)]!"
               >
                 {/* Chevron points right by default; rotate for up/down. */}
                 <IconChevron size={13} className="-rotate-90" />
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="quiet"
                 onClick={() => goToHunk("next")}
                 title={t("workspace.viewer.nextHunk")}
                 aria-label={t("workspace.viewer.nextHunk")}
-                className="p-1 rounded text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-focus-ring"
+                className="p-1 rounded text-kin-muted! hover:text-kin-text! hover:bg-[var(--kin-fill-strong)]!"
               >
                 <IconChevron size={13} className="rotate-90" />
-              </button>
+              </Button>
             </div>
           )}
           {isMd && !useDiff && file && (
@@ -290,34 +293,34 @@ export default function CodeViewer({
               role="group"
               aria-label={t("workspace.viewer.mdView")}
             >
-              <button
-                type="button"
+              <Button
+                variant="quiet"
                 onClick={() => setMdView("preview")}
                 aria-pressed={mdView === "preview"}
                 title={t("workspace.viewer.preview")}
                 className={[
-                  "px-1.5 py-0.5 rounded text-caption font-semibold transition-colors",
+                  "px-1.5 py-0.5 rounded text-caption",
                   mdView === "preview"
-                    ? "bg-kin-blue/15 text-kin-blue-ink"
-                    : "text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)]",
+                    ? "bg-kin-blue/15! text-kin-blue-ink!"
+                    : "text-kin-muted! hover:text-kin-text! hover:bg-[var(--kin-fill-strong)]!",
                 ].join(" ")}
               >
                 {t("workspace.viewer.preview")}
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="quiet"
                 onClick={() => setMdView("code")}
                 aria-pressed={mdView === "code"}
                 title={t("workspace.viewer.code")}
                 className={[
-                  "px-1.5 py-0.5 rounded text-caption font-semibold transition-colors",
+                  "px-1.5 py-0.5 rounded text-caption",
                   mdView === "code"
-                    ? "bg-kin-blue/15 text-kin-blue-ink"
-                    : "text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)]",
+                    ? "bg-kin-blue/15! text-kin-blue-ink!"
+                    : "text-kin-muted! hover:text-kin-text! hover:bg-[var(--kin-fill-strong)]!",
                 ].join(" ")}
               >
                 {t("workspace.viewer.code")}
-              </button>
+              </Button>
             </div>
           )}
           {file && (
@@ -330,28 +333,28 @@ export default function CodeViewer({
           {!file && loading && <span className="tabular-nums">…</span>}
           {reviewActions && path && (
             <>
-              <button
-                type="button"
+              <Button
+                variant="secondary"
                 disabled={actionsBusy}
                 onClick={() => onDiscard?.()}
                 title={t("workspace.changed.discardHint")}
-                // eslint-disable-next-line kin/no-legacy-class -- the diff discard control has not migrated to `Button` yet
-                className="kin-btn-secondary md:min-h-0 md:py-1 md:px-2 text-caption disabled:opacity-50"
+                aria-label={t("workspace.changed.discard")}
+                className="md:min-h-0 md:py-1 md:px-2 text-caption"
               >
                 <IconX size={12} />
                 {t("workspace.changed.discard")}
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="default"
                 disabled={actionsBusy}
                 onClick={() => onKeep?.()}
                 title={t("workspace.changed.keepHint")}
-                // eslint-disable-next-line kin/no-legacy-class -- the diff keep control has not migrated to `Button` yet
-                className="kin-btn-primary md:min-h-0 md:py-1 md:px-2 text-caption disabled:opacity-50"
+                aria-label={t("workspace.changed.keep")}
+                className="md:min-h-0 md:py-1 md:px-2 text-caption"
               >
                 <IconCheck size={12} />
                 {t("workspace.changed.keep")}
-              </button>
+              </Button>
             </>
           )}
           {editable && file?.truncated && !useDiff && (
@@ -372,17 +375,19 @@ export default function CodeViewer({
               {saveState === "saved" && !dirty && (
                 <span className="text-kin-green-ink">{t("workspace.viewer.saved")}</span>
               )}
-              <button
-                type="button"
+              <Button
+                variant="default"
                 disabled={!dirty || saveState === "saving"}
                 onClick={() => void doSave()}
                 title={t("workspace.viewer.save")}
-                // eslint-disable-next-line kin/no-legacy-class -- the editor save control has not migrated to `Button` yet
-                className="kin-btn-primary md:min-h-0 md:py-1 md:px-2 text-caption disabled:opacity-50"
+                aria-label={
+                  saveState === "saving" ? t("workspace.viewer.saving") : t("workspace.viewer.save")
+                }
+                className="md:min-h-0 md:py-1 md:px-2 text-caption"
               >
                 <IconCheck size={12} />
                 {saveState === "saving" ? t("workspace.viewer.saving") : t("workspace.viewer.save")}
-              </button>
+              </Button>
             </>
           )}
           <OpenInMenu root={openRoot} relativePath={path} />
