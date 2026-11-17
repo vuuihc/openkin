@@ -11,7 +11,6 @@ source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 source "$(cd "$(dirname "$0")" && pwd)/node-stamp.sh"
 MERGE_WORKERS="${RSI_MERGE_WORKERS:-2}"          # verifier slots for any PR
 SMALL_SLOTS="${RSI_MERGE_SMALL_SLOTS:-1}"        # extra slot only small-safe PRs may use: a 3-line refactor never queues behind two big reviews
-CODE_RE='^(ui/|internal/|cmd/|scripts/|desktop/|mobile/|web/|go\.mod|go\.sum|\.github/)'   # main changes here invalidate a carried-forward gate
 unset SB_FIXLIST SB_GATEFAILS
 say() { echo "[$(date +%T)] $*"; }
 attempts() { cat "$STATE/merge/$1.attempts" 2>/dev/null || echo 0; }
@@ -57,6 +56,7 @@ GEN_INV=scripts/ui-inventory-baseline.json
 # temp repo with stubs; the defaults are the commands a person would run.
 DIST_BUILD="${RSI_DIST_BUILD_CMD:-npm run build}"
 INV_UPDATE="${RSI_INV_UPDATE_CMD:-python3 scripts/check-ui-inventory.py --update}"
+INV_CHECK="${RSI_INV_CHECK_CMD:-python3 scripts/check-ui-inventory.py}"
 
 ratchet_ok() { # worktree -> 0 when the regenerated inventory did not grow past origin/main's copy
   local wt="$1" base rc; base="$(mktemp)" || return 1
@@ -119,9 +119,117 @@ gen_resolve() { # worktree -> 0 resolved and committed; 1 anything else (caller 
   $GIT -C "$wt" commit -q --no-edit || return 1
 }
 
+carry_forward() { # <worktree> <incoming-paths> <pr-changed-paths> <gate-file> <new-sha> <role>
+  # origin/main moved under a verified PR. Carry the verified gate to <new-sha> only when every
+  # incoming path is disjoint from the PR's own files and packages and from the shared surfaces;
+  # otherwise drop the gate file and let the caller re-gate. Sets CARRY_REASON for the log line.
+  # 0 = carried (gate file now names <new-sha>), 1 = needs a fresh gate (gate file removed).
+  # Bias: every path this cannot positively classify re-gates. CI still runs on the merged head.
+  local wt="$1" incoming="$2" changed="$3" gatefile="$4" newsha="$5" role="$6"
+  local dfile tag reason
+  CARRY_REASON=""
+  # A here-document inside $( ) is mis-parsed by the macOS /bin/bash 3.2 this script runs on
+  # (it quote-scans the body while looking for the closing paren), so the verdict goes through a
+  # temp file, like gate.sh's changed-path listing.
+  dfile="$(mktemp "${TMPDIR:-/tmp}/rsi-carry.XXXXXX")" || { CARRY_REASON="cannot create a temp file for the carry predicate"; rm -f "$gatefile"; return 1; }
+  python3 - "$incoming" "$changed" > "$dfile" <<'PY'
+import sys
+
+incoming = [p for p in sys.argv[1].splitlines() if p]
+pr_files = [p for p in sys.argv[2].splitlines() if p]
+pr_set = set(pr_files)
+
+# Never gate-relevant on their own: published docs, loop state, generated outputs.
+def dropped(p):
+    return (p.startswith("docs/") or p.startswith("rsi/") or p.endswith(".md")
+            or p in ("web/dist/index.html", "scripts/ui-inventory-baseline.json"))
+
+# Surfaces many things depend on: a move here can change what any PR's verification means.
+shared_dirs = (
+    "ui/src/components/ui/", "ui/src/components/layout/", "ui/src/design/",
+    "ui/src/lib/", "ui/src/api/", "ui/src/store/", "ui/src/hooks/", "ui/src/i18n/",
+    "cmd/", "internal/api/", ".github/", "desktop/", "mobile/", "scripts/", "web/",
+)
+shared_files = {
+    "ui/src/index.css", "ui/src/App.tsx", "ui/src/main.tsx",
+    "ui/package.json", "ui/package-lock.json", "go.mod", "go.sum",
+}
+# A PR's Go package is internal/<pkg>/: a sibling file in it can change the package's behaviour.
+pr_pkgs = {"/".join(p.split("/")[:2]) + "/" for p in pr_files
+           if p.startswith("internal/") and p.count("/") >= 2}
+pr_root_files = {p for p in pr_files if "/" not in p}
+
+carry = []      # incoming paths that justify the carry
+need_ui = False  # a ui leaf moved: the build+inventory safety step must still pass
+for p in incoming:
+    if dropped(p):
+        continue
+    if p in shared_files or p.startswith(shared_dirs):
+        print("REGATE\tshared surface moved: %s" % p); sys.exit()
+    if p.startswith(("ui/src/components/", "ui/src/pages/")):
+        if p in pr_set:
+            print("REGATE\tthe PR's own file moved: %s" % p); sys.exit()
+        carry.append(p); need_ui = True
+        continue
+    if p.startswith("ui/"):
+        print("REGATE\tunclassified ui path moved: %s" % p); sys.exit()
+    if p.startswith("internal/"):
+        if p.count("/") < 2:
+            print("REGATE\tinternal root file moved: %s" % p); sys.exit()
+        pkg = "/".join(p.split("/")[:2]) + "/"
+        if pkg in pr_pkgs:
+            print("REGATE\tthe PR's own package moved: %s" % pkg); sys.exit()
+        carry.append(p)
+        continue
+    if p in pr_root_files:
+        print("REGATE\tthe PR's own top-level file moved: %s" % p); sys.exit()
+    print("REGATE\tunclassified path moved: %s" % p); sys.exit()
+
+if not carry:
+    print("CARRY\tnothing but docs/rsi/generated files moved")
+elif need_ui:
+    print("CARRY-UI\t" + " ".join(carry))
+else:
+    print("CARRY\t" + " ".join(carry))
+PY
+  { read -r tag reason; } < "$dfile"
+  rm -f "$dfile"
+  case "$tag" in
+    CARRY)
+      CARRY_REASON="$reason"
+      echo "$newsha PASS $role" > "$gatefile"; return 0 ;;
+    CARRY-UI)
+      # Leaf ui paths disjoint from the PR's own files. Prove the merged tree still holds the two
+      # things only a build can answer: the inventory ratchet and a dist rebuild that reproduces
+      # the committed web/dist/index.html. Any doubt (failed step, changed dist) re-gates.
+      if ( cd "$wt" && bash -c "$INV_CHECK" ) >/dev/null 2>&1 \
+         && ( cd "$wt/ui" && bash -c "$DIST_BUILD" ) >/dev/null 2>&1 \
+         && $GIT -C "$wt" diff --quiet -- web/dist/index.html; then
+        CARRY_REASON="$reason; inventory+build green, web/dist/index.html unchanged"
+        echo "$newsha PASS $role" > "$gatefile"; return 0
+      fi
+      $GIT -C "$wt" checkout -q -- web/dist/index.html 2>/dev/null || true
+      CARRY_REASON="ui safety step failed (inventory/build/dist) after: $reason"
+      rm -f "$gatefile"; return 1 ;;
+    *)
+      CARRY_REASON="${reason:-carry predicate produced no decision}"
+      rm -f "$gatefile"; return 1 ;;
+  esac
+}
+
 # ------------------------------------------------------------------ dispatcher
 if [ "${1:-}" != "--one" ]; then
   [ "${1:-}" = "--resolve-generated" ] && { gen_resolve "${2:?worktree required}"; exit $?; }
+  # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: run the same carry_forward() the land
+  # loop calls, with lists of paths on disk. No gate, no review, no relaunch.
+  if [ "${1:-}" = "--carry-check" ]; then
+    CWT="${2:?worktree required}"; CIN="${3:?incoming list required}"; CCH="${4:?pr changed list required}"
+    CGATE="${5:?gate file required}"; CSHA="${6:?merged head required}"; CROLE="${7:-reviewer}"
+    if carry_forward "$CWT" "$(cat "$CIN")" "$(cat "$CCH")" "$CGATE" "$CSHA" "$CROLE"; then
+      echo "CARRY $CARRY_REASON"; exit 0
+    fi
+    echo "REGATE $CARRY_REASON"; exit 1
+  fi
   DRY=0; [ "${1:-}" = "--dry-run" ] && DRY=1
   [ -e "$STATE/PAUSE" ] && { echo "paused"; exit 0; }
   # legacy single-instance lock (pre-pipeline merge.sh still running): do not double-process
@@ -682,53 +790,17 @@ PY
   INCOMING="$($GIT -C "$WT" diff --name-only "$OLDBASE" origin/main 2>/dev/null)"
   NEWSHA="$($GIT -C "$WT" rev-parse HEAD)"
   rm -rf "$STATE/.land.lock"
-  if echo "$INCOMING" | grep -qE "$CODE_RE"; then
-    DISJOINT_LEAF=0
-    if python3 - "$INCOMING" "$CH" <<'PY'
-import os, sys
-incoming = [p for p in sys.argv[1].splitlines() if p]
-pr_files = [p for p in sys.argv[2].splitlines() if p]
-pr_dirs = {os.path.dirname(p) for p in pr_files if p.startswith("ui/src/")}
-shared_dirs = (
-    "ui/src/components/ui/",
-    "ui/src/components/layout/",
-    "ui/src/design/",
-    "ui/src/lib/",
-    "ui/src/api/",
-    "ui/src/store/",
-    "ui/src/hooks/",
-    "ui/src/i18n/",
-)
-shared_files = {"ui/src/index.css", "ui/src/App.tsx", "ui/src/main.tsx"}
-for p in incoming:
-    if p.startswith(("docs/", "rsi/")) or p.endswith(".md") or p in ("web/dist/index.html", "scripts/ui-inventory-baseline.json"):
-        continue
-    if p in shared_files or any(p.startswith(s) for s in shared_dirs):
-        sys.exit(1)
-    if p.startswith("ui/src/components/") or p.startswith("ui/src/pages/"):
-        if os.path.dirname(p) in pr_dirs:
-            sys.exit(1)
-        continue
-    sys.exit(1)
-sys.exit(0)
-PY
-    then
-      if ( cd "$WT" && python3 scripts/check-ui-inventory.py >/dev/null 2>&1 && cd ui && npm run build >/dev/null 2>&1 ) && $GIT -C "$WT" diff --quiet -- web/dist/index.html; then
-        DISJOINT_LEAF=1
-      else
-        $GIT -C "$WT" checkout -q -- web/dist/index.html 2>/dev/null || true
-      fi
-    fi
-    if [ $DISJOINT_LEAF -eq 1 ]; then
-      say "#$N $SLUG: main moved only in disjoint leaf UI paths; build+inventory green, carrying gate forward to ${NEWSHA:0:8} (CI still runs on merged head)"
-      echo "$NEWSHA PASS $ROLE" > "$V"; SHA="$NEWSHA"
-      continue
-    fi
-    say "#$N $SLUG: main moved with code changes ($(echo "$INCOMING" | grep -cE "$CODE_RE") files); needs a fresh gate"; rm -f "$V"
-    nohup /bin/bash "$SELF" >> "$RUNS/launchd-merge.log" 2>&1 < /dev/null & disown 2>/dev/null || true
-    exit 0
+  if carry_forward "$WT" "$INCOMING" "$CH" "$V" "$NEWSHA" "$ROLE"; then
+    # Exit instead of continuing into ci_state: seconds after sync_main pushed the carried head there
+    # are no checks yet, and ci_state reads an empty check list as green, so the same process could
+    # squash-merge the carried head before CI ever ran. The carried gate file and the DH-keyed review
+    # cache make the next dispatch cycle (launchd, 600s) cheap, and it lands only after CI reported.
+    say "#$N $SLUG: gate carried forward to ${NEWSHA:0:8} ($CARRY_REASON); landing deferred one cycle so CI reports on the merged head first"
+    SHA="$NEWSHA"; exit 0
   fi
-  say "#$N $SLUG: main moved only in non-code paths; gate carried forward to ${NEWSHA:0:8}"; echo "$NEWSHA PASS $ROLE" > "$V"; SHA="$NEWSHA"
+  say "#$N $SLUG: main moved with code changes ($(echo "$INCOMING" | grep -c .) files); needs a fresh gate: $CARRY_REASON"
+  nohup /bin/bash "$SELF" >> "$RUNS/launchd-merge.log" 2>&1 < /dev/null & disown 2>/dev/null || true
+  exit 0
 done
 
 exit 0
