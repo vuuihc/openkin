@@ -107,6 +107,21 @@ describe("the diff comments tray", () => {
     expect(stack?.children).toHaveLength(3);
     expect(stack?.className).toContain("w-full");
     expect(stack?.className).toContain("min-w-0");
+    // The facade's fixed 44px height is a touch floor, not a cap: a three-line
+    // row that cannot grow overflows its own button and its comment text is
+    // clipped at the bottom of the pane.
+    expect(row.className).toContain("h-auto!");
+    expect(row.className).toContain("min-h-11");
+  });
+
+  it("keeps its own height so the diff above yields, not its rows", () => {
+    render(<Harness initial={THREE} />);
+
+    // jsdom has no layout, so the class is the pin: a shrinkable tray lost the
+    // height argument with the editor and clipped its first row at the pane's
+    // bottom edge instead of showing it.
+    const tray = screen.getByRole("region", { name: t("workspace.comments.trayTitle") });
+    expect(tray.className).toContain("flex-none");
   });
 
   it("jumps to the anchored line when a row is activated", () => {

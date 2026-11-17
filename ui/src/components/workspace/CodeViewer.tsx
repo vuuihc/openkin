@@ -37,6 +37,12 @@ type Props = {
   cwd?: string;
   /** Show keep/discard controls for the open file. */
   reviewActions?: boolean;
+  /**
+   * Whether keep is this surface's one filled action. False while the comment
+   * tray is showing: the tray's send is then the next step, and two solid
+   * primaries side by side make neither of them read as primary.
+   */
+  reviewPrimary?: boolean;
   onKeep?: () => void;
   onDiscard?: () => void;
   actionsBusy?: boolean;
@@ -93,6 +99,7 @@ export default function CodeViewer({
   diff,
   cwd,
   reviewActions = false,
+  reviewPrimary = true,
   onKeep,
   onDiscard,
   actionsBusy = false,
@@ -220,10 +227,28 @@ export default function CodeViewer({
       diffEditorRef.current = editor;
       monacoRef.current = monaco;
       const modified = editor.getModifiedEditor();
+      // The auto-select below is an opening gesture, not a rule: it runs when
+      // this Monaco instance first reports changes and never moves the cursor
+      // again.
+      let autoSelected = false;
 
       const applyLineChanges = () => {
         const changes = editor.getLineChanges();
         setDiffLineChanges(changes ?? []);
+        // Opening a diff puts the cursor on its first changed line. On a phone
+        // there is no hover for the disabled comment action's title to explain
+        // itself, and the person should not have to guess which line counts as
+        // changed before the button will do anything. Once per mounted diff,
+        // and only when the cursor is not already on a change.
+        if (!autoSelected && changes && changes.length > 0) {
+          autoSelected = true;
+          const first = changes.find((change) => change.modifiedEndLineNumber !== 0);
+          const current = modified.getPosition()?.lineNumber ?? 1;
+          if (first && !isChangedLine(changes, current)) {
+            setCursorLine(first.modifiedStartLineNumber);
+            modified.setPosition({ lineNumber: first.modifiedStartLineNumber, column: 1 });
+          }
+        }
         if (!onCommentLineRef.current) return;
         // A comment glyph on every changed line: the entry is on the line, not
         // in a menu that makes the person describe where they are.
@@ -410,16 +435,100 @@ export default function CodeViewer({
         }
         .kin-diff-comment-glyph:hover::after { opacity: 1; }
       `}</style>
-      <div className="flex-none flex flex-wrap items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2 text-caption text-kin-muted">
-        <span className="font-mono text-kin-secondary truncate min-w-0" title={path}>
-          {path}
-        </span>
-        {useDiff && (
-          <span className="flex-none rounded bg-kin-blue/15 px-1.5 py-0.5 text-micro font-semibold uppercase tracking-label text-kin-blue-ink">
-            {t("workspace.viewer.diff")}
+      {/*
+        Two compact rows, not one wrapping row. The file's own facts and the
+        single review decision stay on top; every reading control sits below.
+        Wrapped as one row, a 380px panel turned this header into three, and
+        `保留` fell alone onto the last one — paid for out of the diff's own
+        height.
+      */}
+      <div className="flex-none border-b border-[var(--kin-hairline)] px-3 py-2 text-caption text-kin-muted">
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-kin-secondary truncate min-w-0" title={path}>
+            {path}
           </span>
-        )}
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          {useDiff && (
+            <span className="flex-none rounded bg-kin-blue/15 px-1.5 py-0.5 text-micro font-semibold uppercase tracking-label text-kin-blue-ink">
+              {t("workspace.viewer.diff")}
+            </span>
+          )}
+          {file && (
+            <span className="flex-none tabular-nums">
+              {formatBytes(file.size)}
+              {file.truncated ? ` · ${t("workspace.viewer.truncated")}` : ""}
+              {loading ? " · …" : ""}
+            </span>
+          )}
+          {!file && loading && <span className="flex-none tabular-nums">…</span>}
+          {editable && file?.truncated && !useDiff && (
+            <span
+              className="flex-none rounded bg-kin-orange/15 px-1.5 py-0.5 text-micro font-semibold uppercase tracking-label text-kin-orange-ink"
+              title={t("workspace.viewer.readOnlyTruncated")}
+            >
+              {t("workspace.viewer.readOnlyTruncated")}
+            </span>
+          )}
+          <div className="ml-auto flex flex-none items-center justify-end gap-2">
+            {reviewActions && path && (
+              <>
+                <Button
+                  variant="secondary"
+                  disabled={actionsBusy}
+                  onClick={() => onDiscard?.()}
+                  title={t("workspace.changed.discardHint")}
+                  aria-label={t("workspace.changed.discard")}
+                  className="md:h-auto! md:min-h-0 md:py-1 md:px-2 text-caption [&>span>span]:flex [&>span>span]:items-center [&>span>span]:gap-2"
+                >
+                  <IconX size={12} />
+                  {t("workspace.changed.discard")}
+                </Button>
+                <Button
+                  variant={reviewPrimary ? "default" : "secondary"}
+                  disabled={actionsBusy}
+                  onClick={() => onKeep?.()}
+                  title={t("workspace.changed.keepHint")}
+                  aria-label={t("workspace.changed.keep")}
+                  className="md:h-auto! md:min-h-0 md:py-1 md:px-2 text-caption [&>span>span]:flex [&>span>span]:items-center [&>span>span]:gap-2"
+                >
+                  <IconCheck size={12} />
+                  {t("workspace.changed.keep")}
+                </Button>
+              </>
+            )}
+            {canEdit && (
+              <>
+                {saveState === "error" && saveError && (
+                  <span className="text-kin-red-ink" title={saveError}>
+                    {t("workspace.viewer.saveFailed")}
+                  </span>
+                )}
+                {saveState === "saved" && !dirty && (
+                  <span className="text-kin-green-ink">{t("workspace.viewer.saved")}</span>
+                )}
+                <Button
+                  variant="default"
+                  disabled={!dirty || saveState === "saving"}
+                  onClick={() => void doSave()}
+                  title={t("workspace.viewer.save")}
+                  aria-label={
+                    saveState === "saving"
+                      ? t("workspace.viewer.saving")
+                      : t("workspace.viewer.save")
+                  }
+                  className="md:h-auto! md:min-h-0 md:py-1 md:px-2 text-caption [&>span>span]:flex [&>span>span]:items-center [&>span>span]:gap-2"
+                >
+                  <IconCheck size={12} />
+                  {saveState === "saving"
+                    ? t("workspace.viewer.saving")
+                    : t("workspace.viewer.save")}
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+        {/* Reading controls. Absent ones render nothing; `empty:hidden` keeps
+            a plain file view from paying for the row's margin. */}
+        <div className="mt-1 flex flex-wrap items-center gap-2 empty:hidden">
           {useDiff && (
             <div
               className="flex items-center gap-0.5 rounded-md border border-[var(--kin-hairline)] bg-[var(--kin-fill)] p-0.5"
@@ -487,8 +596,10 @@ export default function CodeViewer({
           )}
           {useDiff && onCommentLine && (
             // The same action as the line's glyph, reachable without a mouse:
-            // a phone taps the line first, then this button. Disabled until the
-            // cursor sits on a changed line, with the reason in the title.
+            // a phone taps the line first, then this button. The diff opens
+            // with the cursor already on its first changed line, so the entry
+            // is usable on a touch screen; the disabled title stays as the
+            // explanation for the cursor having moved off a change since.
             <Button
               variant="quiet"
               className="h-auto! px-2 py-1 text-caption"
@@ -539,73 +650,6 @@ export default function CodeViewer({
                 {t("workspace.viewer.code")}
               </Button>
             </div>
-          )}
-          {file && (
-            <span className="tabular-nums">
-              {formatBytes(file.size)}
-              {file.truncated ? ` · ${t("workspace.viewer.truncated")}` : ""}
-              {loading ? " · …" : ""}
-            </span>
-          )}
-          {!file && loading && <span className="tabular-nums">…</span>}
-          {reviewActions && path && (
-            <>
-              <Button
-                variant="secondary"
-                disabled={actionsBusy}
-                onClick={() => onDiscard?.()}
-                title={t("workspace.changed.discardHint")}
-                aria-label={t("workspace.changed.discard")}
-                className="md:h-auto! md:min-h-0 md:py-1 md:px-2 text-caption [&>span>span]:flex [&>span>span]:items-center [&>span>span]:gap-2"
-              >
-                <IconX size={12} />
-                {t("workspace.changed.discard")}
-              </Button>
-              <Button
-                variant="default"
-                disabled={actionsBusy}
-                onClick={() => onKeep?.()}
-                title={t("workspace.changed.keepHint")}
-                aria-label={t("workspace.changed.keep")}
-                className="md:h-auto! md:min-h-0 md:py-1 md:px-2 text-caption [&>span>span]:flex [&>span>span]:items-center [&>span>span]:gap-2"
-              >
-                <IconCheck size={12} />
-                {t("workspace.changed.keep")}
-              </Button>
-            </>
-          )}
-          {editable && file?.truncated && !useDiff && (
-            <span
-              className="flex-none rounded bg-kin-orange/15 px-1.5 py-0.5 text-micro font-semibold uppercase tracking-label text-kin-orange-ink"
-              title={t("workspace.viewer.readOnlyTruncated")}
-            >
-              {t("workspace.viewer.readOnlyTruncated")}
-            </span>
-          )}
-          {canEdit && (
-            <>
-              {saveState === "error" && saveError && (
-                <span className="text-kin-red-ink" title={saveError}>
-                  {t("workspace.viewer.saveFailed")}
-                </span>
-              )}
-              {saveState === "saved" && !dirty && (
-                <span className="text-kin-green-ink">{t("workspace.viewer.saved")}</span>
-              )}
-              <Button
-                variant="default"
-                disabled={!dirty || saveState === "saving"}
-                onClick={() => void doSave()}
-                title={t("workspace.viewer.save")}
-                aria-label={
-                  saveState === "saving" ? t("workspace.viewer.saving") : t("workspace.viewer.save")
-                }
-                className="md:h-auto! md:min-h-0 md:py-1 md:px-2 text-caption [&>span>span]:flex [&>span>span]:items-center [&>span>span]:gap-2"
-              >
-                <IconCheck size={12} />
-                {saveState === "saving" ? t("workspace.viewer.saving") : t("workspace.viewer.save")}
-              </Button>
-            </>
           )}
           <OpenInMenu root={openRoot} relativePath={path} />
         </div>

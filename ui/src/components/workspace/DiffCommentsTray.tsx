@@ -93,7 +93,10 @@ export default function DiffCommentsTray({
   return (
     <section
       aria-label={tr("workspace.comments.trayTitle")}
-      className="flex flex-col border-t border-[var(--kin-hairline)] bg-[var(--kin-bg)]"
+      // `flex-none`: the diff above it gives up the height. A shrinkable tray
+      // lost the argument with the editor and its first row was clipped at the
+      // bottom of the pane instead of being scrolled to.
+      className="flex-none flex flex-col border-t border-[var(--kin-hairline)] bg-[var(--kin-bg)]"
       onKeyDown={handleKeyDown}
     >
       <div className="flex items-center gap-2 px-3 py-2">
@@ -133,7 +136,7 @@ export default function DiffCommentsTray({
                 path: comment.path,
                 line: comment.line,
               })}
-              className="flex-1 min-w-0 min-h-11 sm:min-h-0 flex-col items-start justify-start gap-0.5 px-2 py-2 text-left"
+              className="flex-1 min-w-0 min-h-11 sm:min-h-0 h-auto! flex-col items-start justify-start gap-0.5 px-2 py-2 text-left"
               onClick={() => onJump(comment)}
             >
               {/* Astryx wraps `children` in its own row-direction label span,

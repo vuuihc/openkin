@@ -101,6 +101,11 @@ vi.mock("@monaco-editor/react", async () => {
             getLineContent: (line: number) => editorState.lineText[line] ?? "",
           }),
           getPosition: () => null,
+          // Real Monaco moves the cursor and emits the same change event; the
+          // viewer's opening auto-select goes through this one path.
+          setPosition: (position: { lineNumber: number; column: number }) => {
+            editorState.cursorHandler?.({ position });
+          },
         };
         timer = window.setTimeout(() => {
           onMount?.(
@@ -292,11 +297,54 @@ describe("the code viewer's action row", () => {
   });
 
   /**
+   * The diff surface has one filled action at a time. `保留` is it while the
+   * person is reviewing the file; once comments are queued, the tray's send is
+   * the next step and keep steps back so the two blue buttons cannot compete.
+   */
+  it("steps keep back to a bordered peer while comments are queued", () => {
+    render(
+      <CodeViewer
+        path="a.ts"
+        file={null}
+        loading={false}
+        error={null}
+        diff={{ path: "a.ts", original: "one", modified: "two", source: "write" }}
+        reviewActions
+        reviewPrimary={false}
+        onDiscard={vi.fn()}
+        onKeep={vi.fn()}
+      />,
+    );
+
+    const keep = screen.getByRole("button", { name: t("workspace.changed.keep") });
+    expect(keep.className).toContain("kin-btn-secondary");
+    expect(keep.className).not.toContain("kin-btn-primary");
+  });
+
+  /**
+   * `保留` belongs on the file's own row. In a 380px pane the old single
+   * wrapping row pushed it alone onto a third header line; the diff paid for
+   * that line with its own height.
+   */
+  it("keeps the review decision on the file's row, off the controls row", () => {
+    render(diffSurface(false, vi.fn(), vi.fn()));
+
+    const path = screen.getByTitle("a.ts");
+    const fileRow = path.parentElement as HTMLElement;
+    const keep = screen.getByRole("button", { name: t("workspace.changed.keep") });
+    const inline = screen.getByRole("button", { name: t("workspace.viewer.diffInline") });
+
+    expect(fileRow.contains(keep)).toBe(true);
+    expect(fileRow.contains(inline)).toBe(false);
+  });
+
+  /**
    * KIN-RESULT-003's phone path. On a touch screen there is no hover, so the
    * entry to the comment box has to be a control that is always visible and
-   * tappable: the same header action as the line's gutter glyph, enabled once
-   * a tap has put the cursor on a changed line. The gutter glyph itself is
-   * hit through Monaco's mouse-down, which a touch also emits.
+   * tappable: the same header action as the line's gutter glyph over a line
+   * the cursor is on, and the diff opens with the cursor already on its first
+   * changed line. The gutter glyph itself is hit through Monaco's mouse-down,
+   * which a touch also emits.
    */
   it("reaches the comment entry from the header action with no hover — the phone path", async () => {
     const user = userEvent.setup();
@@ -332,8 +380,18 @@ describe("the code viewer's action row", () => {
     // `h-auto!` drops the fixed height, not the floor.
     expect(action.className).toContain("kin-btn");
     expect(action.className).toContain("min-h-11");
-    // Off a changed line it is disabled and says why.
-    expect(action.disabled).toBe(true);
+    // A diff opens with the cursor on its first changed line, so the entry is
+    // enabled without a tap — and a touch screen has no hover to explain a
+    // disabled control. It says what it does, not why it is unavailable.
+    await waitFor(() => expect(action.disabled).toBe(false));
+    expect(action.getAttribute("title")).toBe(t("workspace.comments.actionHint"));
+
+    // Moving off a changed line disables it and says why, for the readers who
+    // can see a tooltip.
+    await act(async () => {
+      editorState.cursorHandler?.({ position: { lineNumber: 1 } });
+    });
+    await waitFor(() => expect(action.disabled).toBe(true));
     expect(action.getAttribute("title")).toBe(t("workspace.comments.notChanged"));
 
     // A tap on the line moves the cursor; nothing here involves hover.

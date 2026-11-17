@@ -1108,7 +1108,10 @@ export default function WorkspacePanel({
           data-pane="viewer"
           className={[
             panesWide || phoneView === "file" ? "flex" : "hidden",
-            "flex-1 min-w-0 min-h-0 bg-[var(--kin-bg)] flex-col",
+            // The pane is a fixed share of the screen; nothing inside it paints
+            // past its bottom edge. The tray below the diff is `flex-none`, so
+            // this is the belt to that pair of braces.
+            "flex-1 min-w-0 min-h-0 overflow-hidden bg-[var(--kin-bg)] flex-col",
           ].join(" ")}
         >
           <div className="flex-1 min-h-0 flex flex-col">
@@ -1151,6 +1154,9 @@ export default function WorkspacePanel({
                   editable={workspaceView.editable}
                   onSaved={(updated) => setFile(updated)}
                   reviewActions={workspaceView.editable && reviewActions && Boolean(selectedPath)}
+                  // While comments are queued the tray's send is the surface's
+                  // one filled action; keep steps back to a bordered peer.
+                  reviewPrimary={diffComments.length === 0}
                   actionsBusy={actionsBusy}
                   onKeep={() => {
                     if (!selectedPath) return;
