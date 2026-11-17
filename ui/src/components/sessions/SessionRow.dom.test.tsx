@@ -874,7 +874,73 @@ describe("SessionRow", () => {
 
     expect(onRename).not.toHaveBeenCalled();
     // The field stays open and keeps focus so the person can finish typing.
-    expect(screen.getByRole("textbox", { name: "Chat title" })).toBe(document.activeElement);
+    const shown = screen.getByRole("textbox", { name: "Chat title" }) as HTMLInputElement;
+    expect(shown).toBe(document.activeElement);
+    // And it says why nothing was saved, rather than looking like a no-op.
+    expect(shown.getAttribute("aria-invalid")).toBe("true");
+    expect(screen.getByText("Enter a title to save")).toBeTruthy();
+    // Typing again is an answer to that message, so it goes away.
+    fireEvent.change(shown, { target: { value: "Ship it" } });
+    expect(screen.queryByText("Enter a title to save")).toBeNull();
+  });
+
+  it("hides the row's tail and the actions trigger while the title is edited", async () => {
+    const { container } = render(
+      <SessionRow {...props({ shell: "sidebar", coarse: false, deviceLabel: "Studio" })} />,
+    );
+    expect(screen.getByText("Studio")).toBeTruthy();
+
+    const field = await chooseRename(container, "menu");
+
+    // In a 248px sidebar the time, the device label and the trigger beside
+    // the field left only a few characters of the name visible.
+    expect(screen.queryByText("Studio")).toBeNull();
+    expect(screen.queryByText("2 minutes ago")).toBeNull();
+    expect(container.querySelector("[data-row-actions]")).toBeNull();
+    expect(field.className).toContain("px-1.5");
+  });
+
+  it("offers touch-sized Save and Cancel beside the phone's edit field", async () => {
+    const onRename = vi.fn();
+    const { container } = render(
+      <SessionRow {...props({ shell: "page", coarse: true, onRename })} />,
+    );
+    const field = await chooseRename(container, "sheet");
+
+    // A soft keyboard has no Enter or Escape, so the touch surface draws both
+    // controls at the same 44px target the row's own actions keep.
+    const save = within(rowButton()).getByRole("button", { name: "Save" });
+    const cancel = within(rowButton()).getByRole("button", { name: "Cancel" });
+    for (const control of [save, cancel]) {
+      expect(control.className).toContain("h-11");
+      expect(control.className).toContain("w-11");
+    }
+    // The trailing trigger is gone while editing: it cannot take the draft.
+    expect(container.querySelector("[data-row-actions]")).toBeNull();
+
+    fireEvent.change(field, { target: { value: "  Ship it  " } });
+    await userEvent.click(save);
+
+    // The tap confirms the edit instead of blurring the field away first.
+    expect(onRename).toHaveBeenCalledWith("Ship it");
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(document.activeElement).toBe(rowButton());
+  });
+
+  it("Cancel leaves the phone's edit without saving", async () => {
+    const onRename = vi.fn();
+    const { container } = render(
+      <SessionRow {...props({ shell: "page", coarse: true, onRename })} />,
+    );
+    const field = await chooseRename(container, "sheet");
+    fireEvent.change(field, { target: { value: "Never mind" } });
+
+    await userEvent.click(within(rowButton()).getByRole("button", { name: "Cancel" }));
+
+    expect(onRename).not.toHaveBeenCalled();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    // The row still carries the title it had before the edit.
+    expect(rowButton().textContent).toContain("Fix the build");
   });
 
   it("the rename field is not inside the row's button", async () => {

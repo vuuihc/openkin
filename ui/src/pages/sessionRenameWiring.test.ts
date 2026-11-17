@@ -22,7 +22,7 @@ const SOURCE = readFileSync(join(UI, "src/components/sessions/SessionList.tsx"),
 describe("the page's rename wiring", () => {
   it("SessionList persists the row's new title", () => {
     expect(SOURCE).toContain(
-      'import { getLocalTaskTitles, setLocalTaskTitle } from "../../lib/taskTitles";',
+      'import { getLocalTaskTitles, setLocalTaskTitle, subscribeTaskTitles } from "../../lib/taskTitles";',
     );
     // The lib returns the new map either way (a refused write included), so
     // the page renders from the returned value rather than reading again.
@@ -41,5 +41,14 @@ describe("the page's rename wiring", () => {
 
   it("the row receives the rename handler", () => {
     expect(SOURCE).toContain("onRename={(title) => onRename(row, title)}");
+  });
+
+  it("the list re-reads a title written by another surface", () => {
+    // The list is not the only reader of the map: a rename written from the
+    // conversation header has to reach rows the list already drew, so the
+    // page subscribes instead of only keeping the map it wrote itself.
+    expect(SOURCE).toContain(
+      "useEffect(() => subscribeTaskTitles(() => setLocalTitles(getLocalTaskTitles())), []);",
+    );
   });
 });

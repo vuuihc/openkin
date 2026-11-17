@@ -139,6 +139,9 @@ export default function SessionRow({
   // dialog, a route or a network round trip.
   const [renaming, setRenaming] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
+  // A blank save is refused in place and says why, rather than closing on a
+  // no-op the person would read as "it saved".
+  const [renameError, setRenameError] = useState(false);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const shellRef = useRef<HTMLElement | null>(null);
   // Whether ending the edit should put the keyboard back on the row. A blur
@@ -160,6 +163,9 @@ export default function SessionRow({
     .filter(Boolean)
     .join(" · ");
   const gutter = shell === "sidebar" ? "px-2" : "px-4";
+  // The Mac sidebar is a pointer surface with a keyboard: its edit is confirmed
+  // with Enter. A touch surface has neither key, so it draws explicit controls.
+  const desktop = shell === "sidebar" && !coarse;
   // The row's title element is what the action trigger is described by, so a
   // screen reader hears which conversation a "More" belongs to.
   const titleId = `session-row-title-${row.task?.id ?? row.session?.id}`;
@@ -217,6 +223,7 @@ export default function SessionRow({
     setMenuOpen(false);
     setSheetOpen(false);
     setDraftTitle(row.title);
+    setRenameError(false);
     setRenaming(true);
   }
 
@@ -228,18 +235,26 @@ export default function SessionRow({
     setRenaming(false);
   }
 
+  /** Enter and the touch Save do exactly the same thing. */
+  function commitRename() {
+    const title = draftTitle.trim();
+    // A blank title is not a name: the field stays open and focused and says
+    // so, instead of closing as if something had been saved.
+    if (!title) {
+      setRenameError(true);
+      return;
+    }
+    returnFocusToShell.current = true;
+    setRenaming(false);
+    // An edit that changes nothing just closes the field.
+    if (title !== row.title.trim()) onRename(title);
+  }
+
   function onRenameKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
     if (isImeKeyEvent(event.nativeEvent)) return;
     if (event.key === "Enter") {
       event.preventDefault();
-      const title = draftTitle.trim();
-      // A blank title is not a name: Enter keeps the field open and focused so
-      // the person can finish typing instead of saving nothing.
-      if (!title) return;
-      returnFocusToShell.current = true;
-      setRenaming(false);
-      // An edit that changes nothing just closes the field.
-      if (title !== row.title.trim()) onRename(title);
+      commitRename();
       return;
     }
     if (event.key === "Escape") {
@@ -294,22 +309,59 @@ export default function SessionRow({
         // The title position itself becomes the field, so the edit happens
         // where the name is read. The id stays here: the trailing trigger is
         // described by this element on both surfaces.
-        <div id={titleId} className="min-w-0 flex-1">
-          <TextInput
-            ref={renameInputRef}
-            isLabelHidden
-            label={tr("sessions.renameFieldLabel")}
-            value={draftTitle}
-            onChange={(event) => setDraftTitle(event.target.value)}
-            onKeyDown={onRenameKeyDown}
-            // A click elsewhere ends the edit without saving it: an accidental
-            // click must never silently rename a conversation.
-            onBlur={() => cancelRename(false)}
-            // One line inside the row's own height; the facade drops its 44px
-            // floor when the caller sets a height (TASTE 11: the row keeps it).
-            className="h-7 min-h-0"
-            autoFocus
-          />
+        <div id={titleId} className="flex min-w-0 flex-1 items-center gap-1">
+          <div className="min-w-0 flex-1">
+            <TextInput
+              ref={renameInputRef}
+              isLabelHidden
+              label={tr("sessions.renameFieldLabel")}
+              value={draftTitle}
+              onChange={(event) => {
+                setDraftTitle(event.target.value);
+                setRenameError(false);
+              }}
+              onKeyDown={onRenameKeyDown}
+              // A click elsewhere ends the edit without saving it: an accidental
+              // click must never silently rename a conversation.
+              onBlur={() => cancelRename(false)}
+              // One line inside the row's own height; the facade drops its 44px
+              // floor when the caller sets a height (TASTE 11: the row keeps it).
+              // The row's tail is hidden while editing, so the field spends the
+              // width on the name instead of on its own gutter.
+              className="h-7 min-h-0 px-1.5"
+              status={
+                renameError ? { type: "error", message: tr("sessions.renameEmpty") } : undefined
+              }
+              autoFocus
+            />
+          </div>
+          {desktop ? null : (
+            // A soft keyboard has no Enter or Escape, and a tap outside drops
+            // the draft. The explicit pair is the touch surface's way to
+            // confirm or leave. `onMouseDown` keeps the field from blurring —
+            // and the blur handler from cancelling the edit — before the tap
+            // lands on the control.
+            <>
+              <Button
+                variant="default"
+                aria-label={tr("common.save")}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={commitRename}
+                className="h-11 w-11 flex-none rounded-md bg-transparent p-0 text-kin-blue-ink hover:bg-[var(--kin-fill)] hover:brightness-100"
+              >
+                <IconCheck size={16} strokeWidth={2.25} />
+              </Button>
+              <Button
+                variant="default"
+                aria-label={tr("common.cancel")}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => cancelRename()}
+                className="h-11 w-11 flex-none rounded-md bg-transparent p-0 text-kin-muted hover:bg-[var(--kin-fill)] hover:brightness-100"
+              >
+                <IconX size={16} />
+              </Button>
+            </>
+          )}
         </div>
       ) : (
         <span
@@ -322,24 +374,31 @@ export default function SessionRow({
           <HighlightedText text={row.title} query={query} />
         </span>
       )}
-      {row.remote && (
-        <span
-          className="flex-none text-kin-muted"
-          title={deviceLabel || tr("machine.remote")}
-          aria-hidden
-        >
-          <IconMachine size={12} />
-        </span>
+      {/* While editing, the field owns the row's tail. A 248px sidebar cannot
+          hold the name, the time and a trigger at once: keeping them beside
+          the field clipped the title to a few characters. */}
+      {!renaming && (
+        <>
+          {row.remote && (
+            <span
+              className="flex-none text-kin-muted"
+              title={deviceLabel || tr("machine.remote")}
+              aria-hidden
+            >
+              <IconMachine size={12} />
+            </span>
+          )}
+          <PendingBadge count={pendingCount} />
+          {deviceLabel ? (
+            <span className="max-w-[6rem] flex-none truncate text-caption leading-ui text-kin-muted">
+              {deviceLabel}
+            </span>
+          ) : null}
+          <span className="flex-none text-caption leading-ui text-kin-muted tabular-nums">
+            {formatRelativeTime(row.at, now)}
+          </span>
+        </>
       )}
-      <PendingBadge count={pendingCount} />
-      {deviceLabel ? (
-        <span className="max-w-[6rem] flex-none truncate text-caption leading-ui text-kin-muted">
-          {deviceLabel}
-        </span>
-      ) : null}
-      <span className="flex-none text-caption leading-ui text-kin-muted tabular-nums">
-        {formatRelativeTime(row.at, now)}
-      </span>
     </>
   );
 
@@ -400,7 +459,6 @@ export default function SessionRow({
   // The Mac sidebar is a pointer surface, so its actions open as the console's
   // shared menu (TASTE 3: a Mac row gets a menu, not a phone sheet). A touch
   // page gets the same list as the ActionSheet every other phone surface uses.
-  const desktop = shell === "sidebar" && !coarse;
   const actionsLabel = `${tr("common.more")}: ${row.title}`;
   // One list feeds both surfaces, so the phone sheet and the Mac menu cannot
   // drift: while selecting there is exactly the exit; otherwise the way in
@@ -542,7 +600,9 @@ export default function SessionRow({
         ].join(" ")}
       >
         <div className="min-w-0 flex-1">{rowButton}</div>
-        <div className="flex flex-none items-center pr-2">{trigger}</div>
+        {/* While editing, the trigger would sit beside the field and squeeze
+            the name it is meant to describe; the field is the whole row. */}
+        <div className="flex flex-none items-center pr-2">{renaming ? null : trigger}</div>
         <Menu
           open={menuOpen}
           onOpenChange={setMenuOpen}
@@ -558,7 +618,9 @@ export default function SessionRow({
   const touchRow = (
     <div className="flex items-stretch">
       <div className="min-w-0 flex-1">{rowButton}</div>
-      <div className="flex flex-none items-center">{trigger}</div>
+      {/* An edit in place has no room for the actions trigger, and a stray tap
+          on it would take the draft away with no way back. */}
+      <div className="flex flex-none items-center">{renaming ? null : trigger}</div>
     </div>
   );
   const sheet = (
@@ -573,8 +635,10 @@ export default function SessionRow({
 
   // While selecting, the swipe strip and the long press belong to the
   // out-of-mode row; the row's only gesture here is the toggle, and the
-  // trigger is only the exit.
-  if (selectionMode) {
+  // trigger is only the exit. An edit in place is the same: a swipe or a hold
+  // under the field would move the row (or open the sheet) mid-typing and
+  // blur the draft away.
+  if (selectionMode || renaming) {
     return (
       <>
         {touchRow}

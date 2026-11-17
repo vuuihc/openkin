@@ -9,6 +9,50 @@
  */
 
 const STORAGE_KEY = "kin_task_titles";
+const EVENT = "kin:task-titles";
+
+const listeners = new Set<() => void>();
+
+function emit(): void {
+  for (const fn of listeners) {
+    try {
+      fn();
+    } catch {
+      // A reader that throws must not stop the other surfaces updating.
+    }
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(EVENT));
+  }
+}
+
+/**
+ * Subscribe to local-title changes: this tab's writes and another tab's.
+ *
+ * The conversation list is not the only surface that draws a task's name — the
+ * open conversation's header and a project cover's recent row draw it too — so
+ * a rename has to reach every mounted reader, not only the one that wrote it.
+ * Same shape as `subscribeSessionViewed` in `sessionViewed.ts`.
+ */
+export function subscribeTaskTitles(listener: () => void): () => void {
+  listeners.add(listener);
+  if (typeof window === "undefined") {
+    return () => {
+      listeners.delete(listener);
+    };
+  }
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === STORAGE_KEY || event.key === null) listener();
+  };
+  // This tab's writes arrive through `listeners`; the window event exists for
+  // listeners outside this helper, so subscribing to both would call a reader
+  // twice for one rename.
+  window.addEventListener("storage", onStorage);
+  return () => {
+    listeners.delete(listener);
+    window.removeEventListener("storage", onStorage);
+  };
+}
 
 /** Read the local titles. Anything unreadable is simply no overrides. */
 export function getLocalTaskTitles(): Record<string, string> {
@@ -49,5 +93,7 @@ export function setLocalTaskTitle(taskId: string, title: string): Record<string,
   } catch {
     // A rename must never break the list; the in-memory copy still answers.
   }
+  // Every mounted reader re-reads; the writer already has the returned map.
+  emit();
   return next;
 }

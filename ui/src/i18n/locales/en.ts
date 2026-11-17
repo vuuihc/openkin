@@ -75,7 +75,7 @@ const en: MessageTree = {
     unpin: "Unpin",
     rename: "Rename",
     renameFieldLabel: "Chat title",
-    renameFailed: "Could not save the new title",
+    renameEmpty: "Enter a title to save",
     delete: "Delete",
     archive: "Archive",
     selectedCount: "{count} selected",

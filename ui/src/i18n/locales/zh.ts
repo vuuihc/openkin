@@ -72,7 +72,7 @@ const zh = {
     unpin: "取消置顶",
     rename: "改名",
     renameFieldLabel: "对话标题",
-    renameFailed: "无法保存新标题",
+    renameEmpty: "请先输入标题，再保存",
     delete: "删除",
     archive: "归档",
     selectedCount: "已选 {count} 项",

@@ -81,7 +81,7 @@ import {
   subscribeSessionViewed,
 } from "../../lib/sessionViewed";
 import { getPinnedTaskIds, setTaskPinned } from "../../lib/taskPins";
-import { getLocalTaskTitles, setLocalTaskTitle } from "../../lib/taskTitles";
+import { getLocalTaskTitles, setLocalTaskTitle, subscribeTaskTitles } from "../../lib/taskTitles";
 import {
   clearBucketOrder,
   getTaskOrder,
@@ -243,6 +243,9 @@ export default function SessionList({
   // composed during bucketing, so the list draws from this state rather than
   // reading storage per row.
   const [localTitles, setLocalTitles] = useState(() => getLocalTaskTitles());
+  // A title can be written from another mounted surface, so the list re-reads
+  // the map instead of trusting the copy it wrote.
+  useEffect(() => subscribeTaskTitles(() => setLocalTitles(getLocalTaskTitles())), []);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set());
   const [deletingSelection, setDeletingSelection] = useState(false);

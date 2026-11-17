@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getLocalTaskTitles, setLocalTaskTitle } from "./taskTitles";
+import { getLocalTaskTitles, setLocalTaskTitle, subscribeTaskTitles } from "./taskTitles";
 
 /**
  * KIN-MANAGE-001, step 5: a renamed conversation keeps its name in this
@@ -39,6 +39,33 @@ describe("taskTitles", () => {
     expect(getLocalTaskTitles()).toEqual({});
     localStorage.setItem("kin_task_titles", JSON.stringify({ t1: 42, t2: "Kept" }));
     expect(getLocalTaskTitles()).toEqual({ t2: "Kept" });
+  });
+
+  it("a write notifies every mounted reader until it leaves", () => {
+    const seen = vi.fn();
+    const leave = subscribeTaskTitles(seen);
+    setLocalTaskTitle("t1", "Ship it");
+    expect(seen).toHaveBeenCalledTimes(1);
+    // The map the notification is about is already readable.
+    expect(getLocalTaskTitles()).toEqual({ t1: "Ship it" });
+
+    // A surface that went away must not be called again.
+    leave();
+    setLocalTaskTitle("t2", "Ship that");
+    expect(seen).toHaveBeenCalledTimes(1);
+  });
+
+  it("another tab's write notifies this tab; an unrelated key does not", () => {
+    const seen = vi.fn();
+    const leave = subscribeTaskTitles(seen);
+    try {
+      window.dispatchEvent(new StorageEvent("storage", { key: "kin_task_titles" }));
+      expect(seen).toHaveBeenCalledTimes(1);
+      window.dispatchEvent(new StorageEvent("storage", { key: "kin_something_else" }));
+      expect(seen).toHaveBeenCalledTimes(1);
+    } finally {
+      leave();
+    }
   });
 
   it("a refused write still returns the new map", () => {
