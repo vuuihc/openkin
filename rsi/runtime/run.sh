@@ -38,7 +38,7 @@ adopt_untracked_collision() {
     fi
     echo "control tree pinned at $($GIT -C "$RSI_CTRL" rev-parse --short HEAD 2>/dev/null): untracked $p differs from origin/main; move it aside to resume syncing" >&2
     return 1
-  done < <($GIT -C "$RSI_CTRL" diff --name-only --diff-filter=A HEAD origin/main 2>/dev/null)
+  done < <($GIT -C "$RSI_CTRL" diff --no-renames --name-only --diff-filter=A HEAD origin/main 2>/dev/null)
 }
 sync_control_tree() {
   local before after

@@ -168,4 +168,30 @@ sync
 grep -q 'untracked other.txt differs' <<<"$ERR" || fail "untracked-diff-dirty: the pin was silent: $ERR"
 pass "untracked-collision-blocks-adopt"
 
+# 10. A clean tracked tree whose fast-forward still fails for another reason must say so. A broken
+#     symlink at the added path is skipped by adopt's `[ -f ]`, yet `merge --ff-only` refuses to
+#     overwrite it. (An empty directory does not work: git replaces it and the ff succeeds.)
+pair untracked-symlink
+ln -s /nonexistent-target "$WORK/next.txt"
+before="$(head_now)"
+sync
+[ "$RC" = 0 ] || fail "untracked-symlink: expected exit 0, got $RC"
+[ "$(head_now)" = "$before" ] || fail "untracked-symlink: HEAD moved over the broken symlink"
+grep -q 'fast-forward to origin/main failed' <<<"$ERR" || fail "untracked-symlink: the ff failure was silent: $ERR"
+pass "fast-forward-failure-is-loud"
+
+# 11. A rename in origin/main: its destination only appears in `git diff --diff-filter=A` with
+#     --no-renames (default detection reports the pair as R). A byte-identical untracked draft at
+#     the destination is adopted, so the tree still reaches origin/main instead of pinning.
+pair rename-dest
+( cd "$T/rename-dest/seed" && git mv runtime.sh renamed.sh \
+  && git commit -q -m "refactor: rename runtime" && git push -q origin main )
+ORIGIN_SHA="$(git -C "$T/rename-dest/origin.git" rev-parse main)"
+( cd "$WORK" && echo rt > renamed.sh )   # untracked, byte-identical to the rename destination
+sync
+[ "$RC" = 0 ] || fail "rename-dest: expected exit 0, got $RC"
+[ "$(head_now)" = "$ORIGIN_SHA" ] || fail "rename-dest: HEAD did not become origin/main: $ERR"
+grep -q 'adopted untracked renamed.sh' <<<"$ERR" || fail "rename-dest: the adopt was not reported: $ERR"
+pass "rename-destination-identical-adopts"
+
 echo "all cases passed"
