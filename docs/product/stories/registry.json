@@ -196,6 +196,7 @@
       ],
       "tests": [
         "ui/src/pages/SettingsPage.facade.dom.test.tsx",
+        "ui/src/pages/SettingsPage.readFailure.dom.test.tsx",
         "ui/src/pages/SettingsPage.notificationTab.dom.test.tsx",
         "ui/src/pages/SettingsPage.operations.dom.test.tsx",
         "ui/src/pages/settingsTabsWiring.test.ts",
