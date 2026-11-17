@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for scripts/journeys_fake_agent/claude's bounded `[seed] slow` branch.
+"""Tests for scripts/journeys_fake_agent/claude's bounded branches.
 
 Run directly: `python3 -B scripts/journeys_fake_agent_test.py`. Hermetic: the
 fake is a shell script speaking stream-json on stdout, so each case starts the
@@ -11,14 +11,23 @@ the walk presses Start, photographs the pending bubble and the waiting row,
 and only then waits for the reply. If the fake answered in one burst the
 pending state would be a race, and the gate would flake instead of proving
 anything.
+
+The workspace branch is the fixture for P3 item 3's second round: `[seed]
+change` leaves a diff to comment on, `[seed] shift` moves that line down and
+`[seed] rewrite` changes its text, so a walk can prove a saved comment
+re-anchors and then goes stale. Each write case runs in a throwaway directory
+named with the seed prefix; the guard case proves nothing is written outside
+one.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import select
 import shutil
 import subprocess
+import tempfile
 import time
 import unittest
 
@@ -28,6 +37,21 @@ FAKE = os.path.join(SCRIPTS, "journeys_fake_agent", "claude")
 SLOW_PROMPT = "Draft: summarise this week's TODOs [seed] slow"
 PLAIN_PROMPT = "Draft: summarise this week's TODOs"
 REPLY = "Fake reply from the journey fake agent."
+
+# The lines the fake writes into notes.md. The shell fake and
+# scripts/journeys_seed.py carry the same literals; a re-run finds them and
+# leaves the file alone.
+CHANGE_SENTINEL = "- [seed] change: the journey walk reads this line as a real diff."
+SHIFT_LINE = "- [seed] shift: a line added above the commented one."
+REWRITE_LINE = "- [seed] rewrite: this line changed after the comment was written."
+NOTES = (
+    "# alpha notes",
+    "",
+    "- Seeded for the journey walk.",
+    "- The walk opens the diff the fake agent leaves in this file.",
+)
+SHIFT_PROMPT = "Push the notes down one line [seed] shift"
+REWRITE_PROMPT = "Rewrite the commented line [seed] rewrite"
 
 
 def fake_env(**extra: str) -> dict[str, str]:
@@ -41,10 +65,13 @@ def fake_env(**extra: str) -> dict[str, str]:
     return env
 
 
-class FakeAgentSlowTest(unittest.TestCase):
-    def start(self, prompt: str, **env: str) -> subprocess.Popen[str]:
+class FakeAgentCase(unittest.TestCase):
+    """Shared plumbing: start the real fake and read it against deadlines."""
+
+    def start(self, prompt: str, cwd: str | None = None, **env: str) -> subprocess.Popen[str]:
         proc = subprocess.Popen(
             [FAKE, "-p", prompt],
+            cwd=cwd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -82,6 +109,9 @@ class FakeAgentSlowTest(unittest.TestCase):
                 break
             lines.append(line)
         return lines
+
+
+class FakeAgentSlowTest(FakeAgentCase):
 
     def test_slow_prompt_stays_running_then_answers(self) -> None:
         # The walk's `sent` shot depends on this shape: the init line now, no
@@ -170,6 +200,108 @@ class FakeAgentSlowTest(unittest.TestCase):
         self.assertIn(REPLY, done.stdout)
         self.assertIn('"type":"result"', done.stdout)
         self.assertLess(time.monotonic() - started, 3.0, "a plain prompt must answer without a hold")
+
+
+class FakeAgentWorkspaceWriteTest(FakeAgentCase):
+    """The rerun fixtures: `[seed] shift` and `[seed] rewrite` edit notes.md.
+
+    P3 item 3's second round needs a line that moves and then a line whose text
+    changes: a saved diff comment must re-anchor to the moved line, and read as
+    stale (该行已变化) once its quote is gone. Each case writes the seeded
+    notes.md itself, so the asserted bytes are the whole contract rather than a
+    side effect of an earlier turn.
+    """
+
+    def seed_root(self, prefix: str = "kin-journeys-seed-") -> str:
+        root = tempfile.mkdtemp(prefix=prefix)
+        self.addCleanup(shutil.rmtree, root, True)
+        return root
+
+    @staticmethod
+    def write_notes(root: str, *lines: str) -> None:
+        with open(os.path.join(root, "notes.md"), "w", encoding="utf-8") as fh:
+            fh.write("".join(line + "\n" for line in lines))
+
+    @staticmethod
+    def notes(root: str) -> str:
+        with open(os.path.join(root, "notes.md"), encoding="utf-8") as fh:
+            return fh.read()
+
+    def run_marker(self, root: str, prompt: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [FAKE, "-p", prompt],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            env=fake_env(),
+            timeout=15,
+        )
+
+    def test_shift_inserts_one_line_above_the_sentinel(self) -> None:
+        root = self.seed_root()
+        self.write_notes(root, *NOTES, CHANGE_SENTINEL)
+        done = self.run_marker(root, SHIFT_PROMPT)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        expected = "".join(line + "\n" for line in (*NOTES, SHIFT_LINE, CHANGE_SENTINEL))
+        self.assertEqual(self.notes(root), expected, "the shift line must sit immediately above the sentinel")
+
+        before = self.notes(root)
+        again = self.run_marker(root, SHIFT_PROMPT)
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(self.notes(root), before, "a second [seed] shift must leave the file byte-identical")
+
+    def test_rewrite_changes_the_sentinel_line_once(self) -> None:
+        root = self.seed_root()
+        self.write_notes(root, *NOTES, CHANGE_SENTINEL)
+        done = self.run_marker(root, REWRITE_PROMPT)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        content = self.notes(root)
+        self.assertNotIn(CHANGE_SENTINEL, content, "the quoted text must be gone: that is the stale case")
+        expected = "".join(line + "\n" for line in (*NOTES, REWRITE_LINE))
+        self.assertEqual(content, expected)
+
+        again = self.run_marker(root, REWRITE_PROMPT)
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(self.notes(root), content, "a second [seed] rewrite must leave the file byte-identical")
+
+    def test_markers_write_nothing_outside_a_seed_root(self) -> None:
+        # The prefix is the whole safety boundary: this fake can be selected by
+        # path, so a marker must never edit a real repository's notes.md.
+        root = self.seed_root(prefix="kin-not-a-seed-")
+        self.write_notes(root, *NOTES, CHANGE_SENTINEL)
+        before = self.notes(root)
+        for prompt in (SHIFT_PROMPT, REWRITE_PROMPT):
+            done = self.run_marker(root, prompt)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual(self.notes(root), before, f"{prompt!r} wrote outside a seed root")
+
+    def test_marker_reply_still_streams(self) -> None:
+        # The write turns must keep the adapter's protocol shape: init first,
+        # then the assistant reply, then a successful result. The write
+        # assertion is deliberate: a prompt that fell through to the plain tail
+        # without doing anything would stream just as happily.
+        for prompt, written in ((SHIFT_PROMPT, SHIFT_LINE), (REWRITE_PROMPT, REWRITE_LINE)):
+            root = self.seed_root()
+            self.write_notes(root, *NOTES, CHANGE_SENTINEL)
+            done = self.run_marker(root, prompt)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertIn(written, self.notes(root), f"{prompt!r} did not take its write branch")
+
+            events = [json.loads(line) for line in done.stdout.splitlines() if line.strip()]
+            kinds = [str(event.get("type") or "") for event in events]
+            self.assertEqual(kinds[0], "system", f"the init line must come first: {events!r}")
+            self.assertIn("assistant", kinds, f"the reply never arrived: {events!r}")
+            self.assertIn("result", kinds, f"the turn never finished: {events!r}")
+            self.assertLess(kinds.index("assistant"), kinds.index("result"), f"result before assistant: {events!r}")
+            replies = [
+                block.get("text", "")
+                for event in events
+                if event.get("type") == "assistant"
+                for block in (event.get("message") or {}).get("content") or []
+                if isinstance(block, dict)
+            ]
+            self.assertTrue(any(REPLY in text for text in replies), f"no assistant text carried the reply: {events!r}")
+            self.assertIs(events[kinds.index("result")].get("is_error"), False, f"the turn did not succeed: {events!r}")
 
 
 if __name__ == "__main__":
