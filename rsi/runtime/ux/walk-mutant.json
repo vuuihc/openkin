@@ -19,5 +19,12 @@
     "old": "  async function onComposer(text: string, opts?: { interrupt?: boolean }) {\n    if (!task) return;",
     "new": "  async function onComposer(text: string, opts?: { interrupt?: boolean }) {\n    if (!task) return;\n    // R-midrun-followup: the mid-run dispatch removed on purpose; the composer\n    // clears its draft, so the follow-up must vanish from the walk.\n    if (!isTerminal(task.status)) return;",
     "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once"
+  },
+  {
+    "label": "Stop does nothing, so the round keeps running",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "old": "  async function onStop() {\n    if (!task || isTerminal(task.status)) return;",
+    "new": "  async function onStop() {\n    if (!task || isTerminal(task.status)) return;\n    // R-midrun-stop: the cancel removed on purpose.\n    if (!isTerminal(task.status)) return;",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once"
   }
 ]
