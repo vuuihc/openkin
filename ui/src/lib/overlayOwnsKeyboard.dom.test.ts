@@ -5,6 +5,8 @@ import { overlayOwnsKeyboard } from "./overlayOwnsKeyboard";
 /**
  * KIN-CONTINUE-001: an overlay keeps the covered surface's shortcuts dead.
  *
+ * KIN-CONTINUE-003 row 9: only the visible layer answers keys.
+ *
  * The conversation's `j/k/a/d` and ⌘F handlers read this predicate, so the
  * roles listed here are the contract between the layers that open over a
  * session and the keys that session would otherwise answer. A new layer that
