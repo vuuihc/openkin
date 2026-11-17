@@ -12,13 +12,16 @@
 #
 # The fix at every prompt-truncation site is to keep only complete characters:
 #   head -c N ... | iconv -f UTF-8 -t UTF-8 -c
+# `tail -c N` has the same defect at the *start* of its window, and the sendback
+# brief (merged gate log + previous review notes) is handed to a rework worker as
+# its prompt, so both directions are sanitized.
 # `iconv -c` discards the split character. On macOS it still exits 1 when it
 # discarded something, which is harmless at the three call sites: none of them
 # runs under `set -e`, so only the (valid) output matters.
 #
 # Case 1 is the control: it proves the fixture really does reproduce the bug and
-# must keep passing after the fix. Case 4 is the source guard that keeps every
-# truncation site sanitizing.
+# must keep passing after the fix. Case 5 is the same control for `tail -c`.
+# Case 4 is the source guard that keeps every truncation site sanitizing.
 #
 # Hermetic: python3 + iconv only, no network, no repo state. Prints
 # "PASS <case>" per case and exits non-zero on the first failure.
@@ -75,6 +78,27 @@ guard() { # <file> <what> <pattern>
 guard rsi/runtime/ux-gate.sh  "PR body for the UX reviewer" 'head -c 3000 | iconv -f UTF-8 -t UTF-8 -c'
 guard rsi/runtime/merge.sh    "PR body for the reviewer"    'head -c 3500 | iconv -f UTF-8 -t UTF-8 -c'
 guard rsi/runtime/dispatch.sh "diff over 250000 bytes"      'head -c 250000 .* | iconv -f UTF-8 -t UTF-8 -c'
+guard rsi/runtime/merge.sh    "re-review notes"             'tail -c 4000 .* | iconv -f UTF-8 -t UTF-8 -c'
+guard rsi/runtime/merge.sh    "sendback raw report"         'tail -c 6000 .* | iconv -f UTF-8 -t UTF-8 -c'
+guard rsi/runtime/merge.sh    "sendback gate log"           'tail -c 3500 .*GL.* | iconv -f UTF-8 -t UTF-8 -c'
+guard rsi/runtime/merge.sh    "sendback review notes"       'tail -c 3500 .*PREV.* | iconv -f UTF-8 -t UTF-8 -c'
 pass "every-prompt-truncation-sanitizes"
+
+# --- 5. tail -c starts mid-character too --------------------------------------------------------
+# 2996 ASCII bytes, then "默认": byte 3001 is the last byte of 认 by itself, and
+# tail -c 3000 begins exactly there.
+python3 -c 'import sys; sys.stdout.write("a"*2996 + "默认" + "b"*2999)' > "$T/tail.bin"
+[ "$(nbytes "$T/tail.bin")" -eq 6001 ] || fail "fixture-tail: expected 6001 bytes, got $(nbytes "$T/tail.bin")"
+if tail -c 3000 "$T/tail.bin" | valid_utf8; then
+  fail "fixture-splits-tail-codepoint: tail -c 3000 stayed valid UTF-8, so the fixture cannot reproduce the bug"
+fi
+pass "fixture-splits-tail-codepoint"
+
+tail -c 3000 "$T/tail.bin" | iconv -f UTF-8 -t UTF-8 -c > "$T/tail.cut" 2>/dev/null
+valid_utf8 < "$T/tail.cut" || fail "sanitized-tail: iconv -c output is not valid UTF-8"
+TAIL_N="$(nbytes "$T/tail.cut")"
+[ "$TAIL_N" -le 3000 ] || fail "sanitized-tail: $TAIL_N bytes exceeds the 3000-byte bound"
+[ "$TAIL_N" -eq 2999 ] || fail "sanitized-tail: expected the 2999 complete bytes, got $TAIL_N"
+pass "sanitized-tail-is-valid-utf8"
 
 echo "test-utf8-truncation: ALL-PASS"
