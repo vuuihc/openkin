@@ -685,6 +685,28 @@ describe("SessionRow", () => {
     }
   });
 
+  it("an archived conversation does not say Running", async () => {
+    // An archived conversation is settled whatever its last task reported: the
+    // menu it opens is the way back plus delete, not a status report.
+    const { container } = render(
+      <SessionRow
+        {...props({
+          shell: "sidebar",
+          coarse: false,
+          row: taskRow({ task: task("row-1", 99, "running") }),
+          scope: "archived",
+        })}
+      />,
+    );
+
+    await userEvent.click(rowActionsTrigger(container));
+    expect(
+      within(screen.getByRole("menu"))
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Select", "Restore", "Delete"]);
+  });
+
   it("while selecting, the row menu holds only Exit selection", async () => {
     const onExitSelection = vi.fn();
     const onPin = vi.fn();
