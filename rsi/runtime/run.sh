@@ -16,13 +16,39 @@ source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 #                          fast-forward would skip forever and the loop would keep running old runtime
 #                          scripts. `git diff origin/main` compares the whole tracked worktree, staged
 #                          changes included, and ignores untracked files: exit 0 proves nothing is lost.
+#   untracked collision -> a path the loop left untracked is now tracked by main. Identical bytes are
+#                          adopted (nothing is lost, the ff writes the same content); different bytes pin
+#                          the tree with a line naming the path, because both the ff and `reset --hard`
+#                          would either abort or overwrite that draft silently.
 #   anything else       -> leave alone; unmerged local loop commits on rsi/ceo-loop must survive.
+#
+# Never silent: a tree that cannot move says why. 2026-11-18 a stale untracked draft of
+# rsi/runtime/reviewer-misses.py pinned the live tree 5 commits behind main with no output at all,
+# so every merge ran the old runtime scripts.
+adopt_untracked_collision() {
+  local p
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    [ -f "$RSI_CTRL/$p" ] || continue
+    $GIT -C "$RSI_CTRL" ls-files --error-unmatch -- "$p" >/dev/null 2>&1 && continue
+    if [ "$($GIT -C "$RSI_CTRL" hash-object -- "$p" 2>/dev/null)" = \
+         "$($GIT -C "$RSI_CTRL" rev-parse "origin/main:$p" 2>/dev/null)" ]; then
+      rm -f -- "$RSI_CTRL/$p" && echo "control tree: adopted untracked $p (identical to origin/main)" >&2
+      continue
+    fi
+    echo "control tree pinned at $($GIT -C "$RSI_CTRL" rev-parse --short HEAD 2>/dev/null): untracked $p differs from origin/main; move it aside to resume syncing" >&2
+    return 1
+  done < <($GIT -C "$RSI_CTRL" diff --no-renames --name-only --diff-filter=A HEAD origin/main 2>/dev/null)
+}
 sync_control_tree() {
   local before after
   $GIT -C "$RSI_CTRL" fetch -q origin main 2>/dev/null
   $GIT -C "$RSI_CTRL" merge-base --is-ancestor HEAD origin/main 2>/dev/null || return 0
+  adopt_untracked_collision || return 0
   if [ -z "$($GIT -C "$RSI_CTRL" status --porcelain --untracked-files=no)" ]; then
-    $GIT -C "$RSI_CTRL" merge -q --ff-only origin/main 2>/dev/null
+    $GIT -C "$RSI_CTRL" merge -q --ff-only origin/main 2>/dev/null || {
+      echo "control tree pinned at $($GIT -C "$RSI_CTRL" rev-parse --short HEAD 2>/dev/null): fast-forward to origin/main failed" >&2
+    }
     return 0
   fi
   $GIT -C "$RSI_CTRL" diff --quiet origin/main 2>/dev/null || return 0
