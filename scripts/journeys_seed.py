@@ -11,7 +11,11 @@ walk — ux-walk.sh only treats a non-zero exit as a seed failure.
 Each project root is a clean git repository with one committed file, and the
 `conversation-created` prompt carries CHANGE_MARKER: the fake agent appends one
 line to that tracked file, so the walk can open a real workspace diff instead
-of an empty Changes bar.
+of an empty Changes bar. A second round of the same walk sends two more
+markers to that conversation: `[seed] shift` inserts one line immediately above
+CHANGE_SENTINEL, and `[seed] rewrite` replaces the sentinel's text. Together
+they move a saved diff comment to its new line and then make it stale
+(该行已变化) — the P3 item 3 rerun this seed exists to make walkable.
 
 Conversations are seedable because the harness (rsi/runtime/ux-walk.sh and
 scripts/journeys-smoke.sh) puts scripts/journeys_fake_agent first on the
@@ -64,6 +68,15 @@ APPROVE_MARKER = "[seed] approve"
 # The exact line the fake agent appends to notes.md. The shell fake carries the
 # same text; a re-run finds it and leaves the file alone.
 CHANGE_SENTINEL = "- [seed] change: the journey walk reads this line as a real diff."
+# The rerun pair, sent by a follow-up turn of the same conversation and not by
+# this seed: `[seed] shift` inserts one line immediately above CHANGE_SENTINEL,
+# so a saved comment's line moves down while its quote stays the same, and
+# `[seed] rewrite` replaces the sentinel with a different line, so the quoted
+# text is gone and the comment reads stale (该行已变化). The fake writes both
+# only inside a SEED_ROOT_PREFIX root and only once, so a repeated round
+# changes no bytes.
+SHIFT_MARKER = "[seed] shift"
+REWRITE_MARKER = "[seed] rewrite"
 # The fake agent only writes inside a root whose path carries this prefix, and
 # scripts/journeys_fake_agent/claude hard-codes the same match.
 SEED_ROOT_PREFIX = "kin-journeys-seed-"
