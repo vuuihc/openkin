@@ -183,6 +183,10 @@ class _Handler(BaseHTTPRequestHandler):
             stub.approvals.append(approval)
             row["status"] = "waiting_approval"
             return self._json(201, approval)
+        if method == "GET" and path == "/api/approvals":
+            want_status = query.get("status", [""])[0]
+            rows = [a for a in stub.approvals if not want_status or a.get("decision") == want_status]
+            return self._json(200, rows)
         match = re.fullmatch(r"/api/tasks/([^/]+)/events", path)
         if match and method == "GET":
             if match.group(1) not in stub.task_events:
@@ -427,6 +431,52 @@ class SeedTest(unittest.TestCase):
         self.assertIn(f"create conversation {HELD_CONVERSATION}", result.stdout)
         self.assertIn("skip waiting-approval: internal approval refused: HTTP 404", result.stdout)
         self.assertEqual(self.stub.approvals, [])
+
+    def test_j7_target_line_names_the_seeded_conversation_and_approval(self) -> None:
+        # The walker has no other way to learn which conversation a
+        # notification would name: a refused card must produce no target line
+        # (J7 then skips), and a card that exists must name both real ids.
+        self.enable_fake_agent()
+        self.stub.fail = [(("POST", "/internal/approvals"), 404)]
+        refused = self.run_seed()
+        self.assertEqual(refused.returncode, 0, refused.stdout + refused.stderr)
+        self.assertNotIn("j7 target", refused.stdout)
+        self.assertIn("skip waiting-approval: ", refused.stdout)
+
+        # Clearing the refusal makes the next run retry the held (still
+        # running) conversation, create the card, and name the target once.
+        self.stub.fail = []
+        result = self.run_seed()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        held = next(row for row in self.stub.tasks if row["title"] == HELD_CONVERSATION)
+        approval = next(row for row in self.stub.approvals if row["task_id"] == held["id"])
+        self.assertEqual(held["status"], "waiting_approval", self.stub.tasks)
+        targets = [line for line in result.stdout.splitlines() if line.startswith("j7 target ")]
+        self.assertEqual(
+            targets,
+            [f"j7 target conversation={held['id']} focus={approval['id']}"],
+            result.stdout,
+        )
+
+    def test_j7_target_line_survives_a_second_run(self) -> None:
+        # A daemon seeded once and walked twice must still name the card: the
+        # pending approval is already on the task, so the line comes from the
+        # list rather than from a new POST.
+        self.enable_fake_agent()
+        first = self.run_seed()
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        second = self.run_seed()
+        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+        held = next(row for row in self.stub.tasks if row["title"] == HELD_CONVERSATION)
+        approval = next(row for row in self.stub.approvals if row["task_id"] == held["id"])
+        self.assertIn(
+            f"j7 target conversation={held['id']} focus={approval['id']}",
+            second.stdout,
+        )
+        self.assertEqual(len(self.approval_posts()), 1, second.stdout)
+        self.assertEqual(len(self.stub.approvals), 1, second.stdout)
+        self.assertIn(("GET", "/api/approvals"), [(m, p) for m, p, _ in self.stub.requests])
+        self.assertNotIn("create approval", second.stdout)
 
     def test_agent_requests_are_bounded_and_report_failure(self) -> None:
         self.enable_fake_agent()

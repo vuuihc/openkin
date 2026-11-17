@@ -20,7 +20,12 @@ archived and one held-open conversation, and refuses to create any unless
 /api/agents names a `claude` inside that directory as the binary the daemon
 would launch. The held conversation gets its approval card through the same
 loopback-only `POST /internal/approvals` bridge the agent's own client uses.
-States the fake cannot produce — a failed routine run — still print `skip`.
+When that card exists, the seed prints one line naming it for the walker:
+
+    j7 target conversation=<task-id> focus=<approval-id>
+
+With no card the line is absent and J7 stays a skip. States the fake cannot
+produce — a failed routine run — still print `skip`.
 
 Usage:
     KIN_BASE=http://127.0.0.1:<port> KIN_TOKEN=<token> \
@@ -482,13 +487,15 @@ def _fake_answered(api: Api, ident: str) -> tuple[bool, str]:
     return True, ""
 
 
-def _create_approval(api: Api, report: Report, ident: str, timeout: float) -> bool:
+def _create_approval(api: Api, report: Report, ident: str, timeout: float) -> str | None:
     """Ask the internal bridge for one approval row, then confirm the task waits.
 
     POST /internal/approvals is what the agent's own client calls: loopback
     only, operator token, and internal/task.RequestApproval moves the task to
     `waiting_approval`. A refusal means this daemon cannot produce the card, so
     it stays a skip — never a failed seed, and never a fabricated card.
+
+    Returns the approval id when the task is confirmed waiting on it, else None.
     """
     status, body = api.call(
         "POST",
@@ -501,14 +508,33 @@ def _create_approval(api: Api, report: Report, ident: str, timeout: float) -> bo
     )
     if not (status in (200, 201) and isinstance(body, dict) and body.get("id")):
         report.skip("waiting-approval", f"internal approval refused: {_reason(status, body)}")
-        return False
+        return None
     approval = str(body["id"])
     state, last = _wait_status(api, ident, ("waiting_approval",), timeout)
     if state is None:
         report.skip("waiting-approval", f"task {ident} still {last} after {timeout:g}s of polling; no approval card")
-        return False
+        return None
     report.create("approval", approval)
-    return True
+    return approval
+
+
+def _pending_approval(api: Api, ident: str) -> str | None:
+    """The pending approval id on a task an earlier run already held open.
+
+    A second seed run must still name the J7 target, or the walk would skip a
+    conversation whose card is already there. A daemon that cannot answer the
+    list leaves the target unnamed (the walker then skips J7); it never invents
+    an id and never fails the seed.
+    """
+    status, body = api.call("GET", "/api/approvals?status=pending")
+    if status != 200 or not isinstance(body, list):
+        return None
+    for row in body:
+        if isinstance(row, dict) and str(row.get("task_id") or "") == ident:
+            approval = str(row.get("id") or "")
+            if approval:
+                return approval
+    return None
 
 
 def _set_archived(api: Api, report: Report, spec: dict, ident: str, already: bool) -> None:
@@ -531,7 +557,7 @@ def _set_archived(api: Api, report: Report, spec: dict, ident: str, already: boo
     report.skip(spec["slug"], reason)
 
 
-def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | None = None) -> None:
+def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | None = None) -> tuple[str, str] | None:
     """Create one succeeded, one failed, one archived and one held-open conversation.
 
     The fake agent makes every turn but the held one terminal; nothing here
@@ -539,12 +565,15 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
     settle is reported as a skip rather than hanging the walk. The held
     conversation is never waited on for a terminal status: it exists so the
     walk can photograph the approval card a person actually meets.
+
+    Returns (conversation id, approval id) for the first held conversation that
+    really produced a card — the J7 deep link's target — or None.
     """
     agent, why = _fake_agent(api)
     if agent is None:
         for spec in CONVERSATIONS:
             report.skip(spec["slug"], why)
-        return
+        return None
     print(f"fake agent: claude resolves to {FAKE_AGENT_LABEL}")
 
     try:
@@ -557,7 +586,9 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
     except SeedError as exc:
         for spec in CONVERSATIONS:
             report.skip(spec["slug"], str(exc))
-        return
+        return None
+
+    target: tuple[str, str] | None = None
 
     by_title: dict[str, dict] = {}
     for row in filed + archived:
@@ -584,8 +615,13 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
                 # An earlier run can leave the task running because its
                 # approval was refused; retry that instead of leaving the walk
                 # with no card. A task already waiting needs nothing.
+                approval = None
                 if state == "running":
-                    _create_approval(api, report, ident, timeout)
+                    approval = _create_approval(api, report, ident, timeout)
+                elif state == "waiting_approval":
+                    approval = _pending_approval(api, ident)
+                if approval and target is None:
+                    target = (ident, approval)
                 continue
             if spec["archive"]:
                 _set_archived(api, report, spec, ident, bool(row.get("archived_at")))
@@ -636,7 +672,9 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
             if state is None:
                 report.skip(spec["slug"], f"task {ident} still {last} after {timeout:g}s of polling; not waiting forever")
                 continue
-            _create_approval(api, report, ident, timeout)
+            approval = _create_approval(api, report, ident, timeout)
+            if approval and target is None:
+                target = (ident, approval)
             continue
 
         state, last = _wait_terminal(api, ident, timeout)
@@ -652,6 +690,7 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
             continue
         if spec["archive"]:
             _set_archived(api, report, spec, ident, False)
+    return target
 
 
 def report_unproducible(report: Report) -> None:
@@ -684,10 +723,15 @@ def main(argv: list[str] | None = None) -> int:
         projects = seed_projects(api, report)
         seed_focus(api, report, projects)
         seed_routines(api, report)
-        seed_conversations(api, report, projects)
+        target = seed_conversations(api, report, projects)
     except SeedError as exc:
         print(f"journeys seed: {exc}", file=sys.stderr)
         return 1
+    # One line the walker can consume: the conversation a notification would
+    # name and the card it must reveal. Absent when no card exists, which is
+    # what keeps J7 a skip rather than a walk against a made-up id.
+    if target:
+        print(f"j7 target conversation={target[0]} focus={target[1]}")
     report_unproducible(report)
     report.summary()
     return 0

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Journey walk of the REAL console. Usage:
 //   node walk.mjs --base http://127.0.0.1:PORT --token T --out DIR [--journeys J1,J2] [--files changed-files.txt] [--spec path/to/journeys.json]
+//   node walk.mjs --resolve-j7 DIR/seed.log [--spec path/to/journeys.json]   (print the J7 URL or skip; no browser)
 // Needs playwright-core (PW_CORE or ~/.kin/ux-proto-tools) and Google Chrome. Writes DIR/<journey>-<vp>-<step>.png (+ .aria.txt) and DIR/walk.json.
 // Exit 0 always when the walk ran (verdicts are the reviewer's and walk.json's `hardFail`); exit 2 when it could not run (no chrome, daemon unreachable).
 import { createRequire } from 'node:module';
@@ -12,6 +13,40 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
 const base = arg('base'), token = arg('token', ''), out = path.resolve(arg('out', './ux-walk'));
 const spec = JSON.parse(fs.readFileSync(arg('spec', path.join(here, 'journeys.json')), 'utf8'));
+// J7 must land on the conversation and card a notification would name. The
+// seed prints one `j7 target conversation=<task> focus=<approval>` line when
+// (and only when) it really produced both; without that line J7 is a skip,
+// never a walk against an invented id. The spec itself keeps its literals
+// (rsi/runtime/ux/journeys.json is the merge-gate spec, DECISIONS 2026-11-17);
+// the walker substitutes here.
+const J7_TARGET = /^j7 target conversation=(\S+) focus=(\S+)$/m;
+function readJ7Target(seedText) {
+  const seed = typeof seedText === 'string' ? seedText : '';
+  if (/no scripts\/journeys_seed|seed failed|empty daemon/i.test(seed)) return { skip: 'seed failed or empty daemon' };
+  if (!seed.trim()) return { skip: 'no seeded notification target' };
+  const match = J7_TARGET.exec(seed);
+  if (!match) return { skip: 'no seeded notification target' };
+  return { conversation: match[1], focus: match[2] };
+}
+function applyJ7Target(goto, target) {
+  return String(goto)
+    .replace(/demo-task/g, target.conversation)
+    .replace(/demo-item/g, target.focus)
+    .replace(/\{conversation\}/g, target.conversation)
+    .replace(/\{focus\}/g, target.focus);
+}
+// `--resolve-j7 <seed.log>` answers the same question without Chromium or a
+// daemon, so the resolution has a pure test: the target line, the skip, the
+// legacy literals and the placeholders all resolve through this one function.
+const resolveJ7 = arg('resolve-j7');
+if (resolveJ7) {
+  const target = readJ7Target(fs.existsSync(resolveJ7) ? fs.readFileSync(resolveJ7, 'utf8') : '');
+  const gotoStep = ((spec.journeys.J7 || {}).steps || []).find((st) => st[0] === 'goto');
+  if (target.skip) console.log('J7 skip: ' + target.skip);
+  else if (!gotoStep) console.log('J7 skip: the spec has no J7 goto step');
+  else console.log('J7 ' + applyJ7Target(gotoStep[1], target));
+  process.exit(0);
+}
 let want = arg('journeys', '') ? arg('journeys').split(',') : null;
 if (!want && arg('files')) { // map changed files -> journeys
   const files = fs.readFileSync(arg('files'), 'utf8').split('\n').filter(Boolean); const set = new Set();
@@ -100,9 +135,29 @@ async function choosePlace(page, selector) {
   await page.waitForTimeout(500);
   if (!(await clickListedPlace(page))) throw new Error('typing ' + root + ' into the picker offered no directory to choose');
 }
+// A text selector names a control by what it says. Resolve it the way a person
+// reads the page: a VISIBLE text match first, then the accessible name (the
+// phone's icon-only back button says 返回 only to a screen reader). A match that
+// is only hidden text is not the control — J7's `/返回|Back/` otherwise resolves
+// to the collapsed usage note "此任务未返回缓存用量" and every optional step
+// would wait out a click timeout on it.
+async function stepLocator(page, sel) {
+  if (!sel.startsWith('/')) return page.locator(sel).first();
+  const re = new RegExp(sel.slice(1, sel.lastIndexOf('/')), 'i');
+  const text = page.getByText(re);
+  const count = await text.count();
+  for (let i = 0; i < count; i++) if (await text.nth(i).isVisible().catch(() => false)) return text.nth(i);
+  for (const role of ['button', 'link']) {
+    const named = page.getByRole(role, { name: re });
+    const namedCount = await named.count();
+    for (let i = 0; i < namedCount; i++) if (await named.nth(i).isVisible().catch(() => false)) return named.nth(i);
+  }
+  return text.first();
+}
 for (const j of want) {
   const seed = j === 'J7' && fs.existsSync(path.join(out, 'seed.log')) ? fs.readFileSync(path.join(out, 'seed.log'), 'utf8') : '';
-  if (j === 'J7' && (/no scripts\/journeys_seed|seed failed|empty daemon/i.test(seed) || !seed.trim())) { screens.push({ journey: j, viewport: 'n/a', name: 'J7-skipped-no-fixtures', url: '', lint: {}, notes: ['skipped J7: no seeded notification target'] }); continue; }
+  const j7 = j === 'J7' ? readJ7Target(seed) : null;
+  if (j7 && j7.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J7-skipped-no-fixtures', url: '', lint: {}, notes: ['skipped J7: no seeded notification target'] }); continue; }
   const J = spec.journeys[j];
   for (const vpName of J.viewports) {
     const [w, h] = spec.viewports[vpName].split('x').map(Number); const phone = w < 700;
@@ -125,7 +180,7 @@ for (const j of want) {
     for (const st of J.steps) {
       const [op, a, b] = st;
       try {
-        if (op === 'goto') { await page.goto(base + a, { waitUntil: 'domcontentloaded', timeout: 20000 }); await page.waitForTimeout(900); }
+        if (op === 'goto') { await page.goto(base + (j === 'J7' ? applyJ7Target(a, j7) : a), { waitUntil: 'domcontentloaded', timeout: 20000 }); await page.waitForTimeout(900); }
         else if (op === 'shot') {
           await page.waitForTimeout(250); const name = `${j}-${vpName}-${String(++n).padStart(2, '0')}-${a}`;
           await page.screenshot({ path: path.join(out, name + '.png') });
@@ -135,8 +190,11 @@ for (const j of want) {
           if (l.overflowX) hardFail.push(`${name}: horizontal page overflow`);
         } else if (op === 'click' || op === 'hover' || op === 'fill' || op === 'enabled' || op === 'focus') {
           const raw = String(a), optional = raw.startsWith('?'), sel = optional ? raw.slice(1) : raw;
-          const loc = sel.startsWith('/') ? page.getByText(new RegExp(sel.slice(1, sel.lastIndexOf('/')), 'i')).first() : page.locator(sel).first();
+          const loc = await stepLocator(page, sel);
           if (await loc.count() === 0) { if (optional) { log.push('skipped ' + op + ' ' + sel); continue; } hardFail.push(`${j}/${vpName}: missing required ${op} ${sel}`); continue; }
+          // An optional step whose only match is invisible is that control not
+          // being on this page; clicking it can only time out.
+          if (optional && !(await loc.isVisible().catch(() => false))) { log.push('skipped ' + op + ' ' + sel + ' (not visible)'); continue; }
           if (op === 'enabled') {
             // Asserts the control a person would use is usable, without pressing it:
             // the walk daemon is throwaway and has no fake agent, so a real Start
