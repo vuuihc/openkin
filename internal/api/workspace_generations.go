@@ -501,12 +501,15 @@ func (s *Server) handleGetWorkspaceDiff(w http.ResponseWriter, r *http.Request) 
 	// Determine view based on state
 	view := defaultSide(ws.State)
 	if view == "live" {
-		// Active generation: show live changes
+		// Active generation: show everything the round has, committed and
+		// uncommitted. The branch answer measures from the fork point the
+		// generation recorded, so an agent's commit does not empty the panel;
+		// `git diff HEAD` would, because committing moves HEAD onto the work.
 		if s.Workspace == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "workspace manager unavailable"})
 			return
 		}
-		changes, err := s.Workspace.ListLiveChanges(r.Context(), meta)
+		changes, err := s.Workspace.ListBranchChanges(r.Context(), meta)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
