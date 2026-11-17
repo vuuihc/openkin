@@ -943,6 +943,28 @@ describe("SessionRow", () => {
     expect(rowButton().textContent).toContain("Fix the build");
   });
 
+  it("Tab from the field reaches the phone's Save and commits on Enter", async () => {
+    const onRename = vi.fn();
+    const { container } = render(
+      <SessionRow {...props({ shell: "page", coarse: true, onRename })} />,
+    );
+    const field = await chooseRename(container, "sheet");
+    fireEvent.change(field, { target: { value: "Ship it" } });
+
+    await userEvent.tab();
+
+    // The field and the Save/Cancel pair are one editor: moving focus between
+    // them must not cancel the edit and unmount the control keyboard focus is
+    // travelling to (TASTE 11).
+    const save = within(rowButton()).getByRole("button", { name: "Save" });
+    expect(document.activeElement).toBe(save);
+
+    await userEvent.keyboard("{Enter}");
+
+    expect(onRename).toHaveBeenCalledWith("Ship it");
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
   it("the rename field is not inside the row's button", async () => {
     const onOpen = vi.fn();
     const { container } = render(

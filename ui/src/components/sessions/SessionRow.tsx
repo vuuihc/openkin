@@ -242,6 +242,10 @@ export default function SessionRow({
     // so, instead of closing as if something had been saved.
     if (!title) {
       setRenameError(true);
+      // The touch Save is reachable by keyboard too: if it (or Enter on it)
+      // asked with a blank field, the field takes the keyboard back so the
+      // person can finish typing where the message is.
+      renameInputRef.current?.focus({ preventScroll: true });
       return;
     }
     returnFocusToShell.current = true;
@@ -309,7 +313,16 @@ export default function SessionRow({
         // The title position itself becomes the field, so the edit happens
         // where the name is read. The id stays here: the trailing trigger is
         // described by this element on both surfaces.
-        <div id={titleId} className="flex min-w-0 flex-1 items-center gap-1">
+        <div
+          id={titleId}
+          className="flex min-w-0 flex-1 items-center gap-1"
+          // The field and the touch Save/Cancel pair are one editor: focus
+          // moving between them is not leaving the edit. Only a focus that
+          // lands outside the container (a click elsewhere) ends it.
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) cancelRename(false);
+          }}
+        >
           <div className="min-w-0 flex-1">
             <TextInput
               ref={renameInputRef}
@@ -321,9 +334,6 @@ export default function SessionRow({
                 setRenameError(false);
               }}
               onKeyDown={onRenameKeyDown}
-              // A click elsewhere ends the edit without saving it: an accidental
-              // click must never silently rename a conversation.
-              onBlur={() => cancelRename(false)}
               // One line inside the row's own height; the facade drops its 44px
               // floor when the caller sets a height (TASTE 11: the row keeps it).
               // The row's tail is hidden while editing, so the field spends the
