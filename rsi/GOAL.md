@@ -33,13 +33,14 @@ the five flows below closer to "passes without a human noticing".
 <!-- phase: P1-walk-real target=2026-11-18T20:00 -->
 
 **Why this and not features.** The Astryx programme is done (62/62) and the console now passes a
-journey *walk*, but that walk never sends a message, never answers an approval, and J7 lands on a
-route nobody seeded. So the gate that is supposed to prove "a person can finish this" only proves
-"the page renders". Every visible defect caught this week (a centred row, two names for one
+journey *walk*, but that walk never sends a message, never asserts an approve/deny result, and J7
+lands on a route nobody seeded. So the gate that is supposed to prove "a person can finish this"
+only proves "the page renders". Every visible defect caught this week (a centred row, two names for one
 conversation, a blank deep link) was caught by a human eye, not by the gate.
 
-**Done means** (checked in the merge lane, on a throwaway daemon with the fake agent from
-`scripts/journeys_seed.py`):
+**Done means** (on a throwaway daemon with the fake agent from `scripts/journeys_seed.py`; the
+walker/seed PRs touch no `ui/` file, so `ux-gate.sh` does not run on them — item 4's mutant is their
+verification):
 1. J3 presses Send for real: the composer empties, the pending bubble + waiting row appear **and
    stay** across `/new` → `/tasks/:id`, the fake agent's reply renders, and 390/1100 shots of the
    before/after/reply frames are stored.
@@ -57,8 +58,9 @@ catches the most), keep 2–4 queued, and say so in the weekly retro. Do not ext
   date, the CEO writes one before the next lane is claimed.
 - **Every patrol quotes `python3 rsi/runtime/pace.py`** — merges/24h, open→merge p50/p90, unshipped
   vs the release threshold, hours left in the phase — and says ahead or behind in one line.
-- **Behind = a decision, not a push.** Two consecutive patrols behind (>25% under the phase's
-  implied rate) means cut scope or write `needs-ceo.md` with the trade-off; never "work harder".
+- **Behind = a decision, not a push.** Two consecutive patrols whose `pace.py` line says BEHIND means
+  cut scope or write `needs-ceo.md` with the trade-off; never "work harder" — `pace.py` is the one
+  rate authority.
 - **Stop the line for product defects.** A reproduced P0 on F1/F2/F5 (lost message, stuck approval,
   blank deep link) outranks any refactor in the queue; the CEO may preempt a lane and says why.
 - **Refactors pay rent.** A pure refactor only enters the queue when it removes an observed cost
@@ -74,9 +76,9 @@ catches the most), keep 2–4 queued, and say so in the weekly retro. Do not ext
 - **Three strikes become a guardrail.** A defect pattern seen three times graduates into a lint rule,
   a ratchet, a test, or a role-card change — never a third prose note. `docs/product/LESSONS.md`
   stays the inbox; guards are the exit.
-- **Reviewer quality is measured, not assumed.** `rsi/runtime/reviewer-misses.py` compares what a
-  reviewer passed with what later escaped; a reviewer with two misses is demoted in `ROUTING.md`,
-  a reviewer that keeps finding blockers is preferred for that tier.
+- **Reviewer quality is measured, not assumed.** `rsi/runtime/reviewer-misses.py` (control-tree local
+  until it lands) writes the per-reviewer ledger; the CEO demotes a reviewer with two misses in
+  `ROUTING.md`, and prefers a reviewer that keeps finding blockers for that tier.
 - **The fence moves.** Escalation thresholds, lane counts, budgets and caps live in `MANDATE.md` /
   `DECISIONS.md` with a one-line reversal; anything the loop has outgrown is raised by the CEO with a
   measurement, not by silently raising a limit.
