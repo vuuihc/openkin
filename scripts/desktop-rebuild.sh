@@ -18,6 +18,10 @@
 # a machine set up with `scripts/install-node-service.sh` that port belongs to
 # the *installed* copy at ~/.kin/node/kin — not to the $BIN built here. Skip it
 # with KIN_SKIP_NODE_REFRESH=1.
+#
+# KIN_REBUILD_DETACH=1 starts the desktop app in the background and returns
+# instead of staying attached to it, so a supervising caller (rsi/runtime/
+# release.sh) is not held open until Electron exits.
 
 set -euo pipefail
 
@@ -238,6 +242,22 @@ echo "==> [5/5] launch desktop app"
 # Icons are cheap; keep tray assets fresh like `make desktop-dev`.
 if [[ -f "$ROOT/desktop/scripts/gen-icons.mjs" ]]; then
   (cd "$ROOT/desktop" && node scripts/gen-icons.mjs) || true
+fi
+
+if [[ "${KIN_REBUILD_DETACH:-0}" == "1" ]]; then
+  # Detached: the caller gets its shell back as soon as the app is launched.
+  (
+    cd "$ROOT/desktop"
+    if [[ ! -d node_modules ]]; then
+      echo "    npm install (first run)..."
+      npm install
+    fi
+    mkdir -p "$ROOT/.kin-dev"
+    log="$ROOT/.kin-dev/desktop-dev.log"
+    nohup npm run dev >>"$log" 2>&1 &
+    echo "    desktop dev started detached (pid $!); log: $log"
+  )
+  exit 0
 fi
 
 (

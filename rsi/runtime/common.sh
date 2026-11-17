@@ -29,6 +29,10 @@ export GIT_COMMITTER_NAME=vuuihc GIT_COMMITTER_EMAIL=vuuihc@users.noreply.github
 export GIT_TERMINAL_PROMPT=0
 # Let the Bash tool wait for long builds/tests inside a claude -p run.
 export BASH_DEFAULT_TIMEOUT_MS=3300000 BASH_MAX_TIMEOUT_MS=3600000
+# Every loop process resolves "opus" to DeepSeek, never to Kimi (CEO 2026-11-17, ROUTING.md):
+# worker lanes pass --model explicitly, but Claude Code's own sub-agents and any internal
+# "opus" resolution read this env first, and the global ~/.claude mapping points at Kimi.
+export ANTHROPIC_DEFAULT_OPUS_MODEL='volcengine-gw/volcengine/deepseek-v4.1-flash[1m]'
 
 # Model routing — policy in rsi/ROUTING.md (CEO 2026-11-15). Default DeepSeek; escalate only on necessity.
 # Workers / rework: DeepSeek V4.1 Flash at --effort high. Director/planner/dream/first reviewer: same model at --effort max.

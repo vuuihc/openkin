@@ -1,4 +1,4 @@
-.PHONY: build test clean ui go-build setup-dev desktop-dev desktop-dist desktop-icons desktop-rebuild dev release
+.PHONY: build test clean ui go-build setup-dev desktop-dev desktop-dist desktop-icons desktop-rebuild dev release release-check ship
 
 VERSION ?= 0.0.0-dev
 RELEASE_LDFLAGS := -s -w -X main.version=$(VERSION)
@@ -66,6 +66,15 @@ desktop-dev: go-build desktop-icons
 # Use this when you changed frontend or need a clean daemon restart.
 desktop-rebuild:
 	./scripts/desktop-rebuild.sh
+
+# Ship the merged loop work (MANDATE "Release gate"): node + Hub, only when nothing is
+# in flight and ≥5 merged PRs are unshipped. `make release-check` answers; `make ship`
+# acts on GO. Not to be confused with `release` above, which cross-compiles binaries.
+release-check:
+	bash rsi/runtime/release-check.sh
+
+ship:
+	bash rsi/runtime/release.sh
 
 # Packaged .dmg under desktop/dist-electron/ (unsigned).
 # Bundles a freshly built kin binary via extraResources.
