@@ -170,7 +170,7 @@ describe("the projects collection", () => {
     // Loading: the read has not answered yet.
     vi.mocked(listProjects).mockImplementationOnce(() => new Promise<Project[]>(() => {}));
     const loading = renderPage();
-    expect(screen.getByText(t("common.loading"))).toBeTruthy();
+    expect(screen.getByRole("status", { name: t("common.loading") })).toBeTruthy();
     expect(screen.queryByText(t("projects.empty"))).toBeNull();
     loading.unmount();
 
@@ -179,7 +179,7 @@ describe("the projects collection", () => {
     const failed = renderPage();
     expect(await screen.findByText(t("projects.loadFailed"))).toBeTruthy();
     expect(screen.queryByText(t("projects.empty"))).toBeNull();
-    expect(screen.queryByText(t("common.loading"))).toBeNull();
+    expect(screen.queryByRole("status", { name: t("common.loading") })).toBeNull();
     failed.unmount();
 
     // Empty: a successful read with nothing in it.
@@ -187,7 +187,7 @@ describe("the projects collection", () => {
     renderPage();
     expect(await screen.findByText(t("projects.empty"))).toBeTruthy();
     expect(screen.queryByText(t("projects.loadFailed"))).toBeNull();
-    expect(screen.queryByText(t("common.loading"))).toBeNull();
+    expect(screen.queryByRole("status", { name: t("common.loading") })).toBeNull();
   });
 
   it("keeps one scrolling region", async () => {

@@ -169,6 +169,9 @@ export function agentDisplayName(id: string): string {
   }
 }
 
+const NEUTRAL_AGENT_AVATAR =
+  "border border-[var(--kin-hairline)] bg-[var(--kin-fill-strong)] text-kin-secondary";
+
 /** Avatar initials / color tokens for chat. */
 export function agentAvatarMeta(id: string): {
   label: string;
@@ -192,49 +195,49 @@ export function agentAvatarMeta(id: string): {
       return {
         label: "Claude Code",
         initials: "C",
-        className: "bg-kin-agent-claude text-kin-on-status",
+        className: NEUTRAL_AGENT_AVATAR,
       };
     case "codex":
       return {
         label: "Codex",
         initials: "X",
-        className: "bg-kin-agent-codex text-kin-on-status",
+        className: NEUTRAL_AGENT_AVATAR,
       };
     case "droid":
       return {
         label: "Droid",
         initials: "D",
-        className: "bg-kin-agent-droid text-kin-on-brand",
+        className: NEUTRAL_AGENT_AVATAR,
       };
     case "workbuddy":
       return {
         label: "WorkBuddy",
         initials: "W",
-        className: "bg-kin-agent-workbuddy text-kin-on-brand",
+        className: NEUTRAL_AGENT_AVATAR,
       };
     case "trae":
       return {
         label: "TRAE",
         initials: "T",
-        className: "bg-kin-agent-trae text-kin-on-status",
+        className: NEUTRAL_AGENT_AVATAR,
       };
     case "doubao":
       return {
         label: "Doubao",
         initials: "D",
-        className: "bg-kin-agent-doubao text-kin-on-status",
+        className: NEUTRAL_AGENT_AVATAR,
       };
     case "zcode":
       return {
         label: "Zcode",
         initials: "Z",
-        className: "bg-kin-agent-zcode text-kin-on-brand border border-kin-hairline-strong",
+        className: NEUTRAL_AGENT_AVATAR,
       };
     case "grok":
       return {
         label: "Grok",
         initials: "G",
-        className: "bg-kin-fill-strong text-kin-text border border-kin-hairline-strong",
+        className: NEUTRAL_AGENT_AVATAR,
       };
     default: {
       const label = agentDisplayName(id) || id || "agent";
@@ -252,7 +255,7 @@ export function agentAvatarMeta(id: string): {
       return {
         label,
         initials,
-        className: "bg-kin-blue/15 text-kin-blue-ink",
+        className: NEUTRAL_AGENT_AVATAR,
       };
     }
   }
