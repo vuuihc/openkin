@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Journey walk of the REAL console. Usage:
 //   node walk.mjs --base http://127.0.0.1:PORT --token T --out DIR [--journeys J1,J2] [--files changed-files.txt] [--spec path/to/journeys.json]
+//   node walk.mjs --resolve-j1 DIR/seed.log [--spec path/to/journeys.json]   (print the J1 approve/deny URLs or skip; no browser)
 //   node walk.mjs --resolve-j7 DIR/seed.log [--spec path/to/journeys.json]   (print the J7 URL or skip; no browser)
 //   node walk.mjs --resolve-j7-plan DIR/seed.log [--spec path/to/journeys.json] (print the resolved J7 steps as JSON; no browser)
 //   node walk.mjs --check-spec [--seed DIR/seed.log] [--spec path/to/journeys.json] (J3's send contract and J7's landing contract; no browser)
@@ -164,6 +165,39 @@ function applyJ7Step(step, target) {
 // the red/green evidence names a real card rather than `{focus}`.
 function resolvedCardSelector(target) {
   return `[data-pending-id="${target.focus}"]`;
+}
+// J1 must press BOTH decisions on the two conversations the seed named, not on
+// "the first row". The seed prints one `j1 targets …` line only when both held
+// cards exist; without it J1 is a skip, never a walk against an invented id.
+const J1_TARGETS = /^j1 targets approve conversation=(\S+) focus=(\S+) deny conversation=(\S+) focus=(\S+)$/m;
+function readJ1Target(seedText) {
+  const seed = typeof seedText === 'string' ? seedText : '';
+  if (/no scripts\/journeys_seed|seed failed|empty daemon/i.test(seed)) return { skip: 'seed failed or empty daemon' };
+  if (!seed.trim()) return { skip: 'no seeded approval targets' };
+  const match = J1_TARGETS.exec(seed);
+  if (!match) return { skip: 'no seeded approval targets' };
+  return { approve: { conversation: match[1], focus: match[2] }, deny: { conversation: match[3], focus: match[4] } };
+}
+function applyJ1Target(goto, target) {
+  return String(goto)
+    .replace(/\{approve\.conversation\}/g, target.approve.conversation)
+    .replace(/\{approve\.focus\}/g, target.approve.focus)
+    .replace(/\{deny\.conversation\}/g, target.deny.conversation)
+    .replace(/\{deny\.focus\}/g, target.deny.focus);
+}
+// `--resolve-j1 <seed.log>` answers the same question without Chromium or a
+// daemon, so the resolution (both cards, the skip, the placeholders) has a pure
+// test through the same functions the real walk uses.
+const resolveJ1 = arg('resolve-j1');
+if (resolveJ1) {
+  const target = readJ1Target(fs.existsSync(resolveJ1) ? fs.readFileSync(resolveJ1, 'utf8') : '');
+  const gotos = ((spec.journeys.J1 || {}).steps || []).filter((st) => st[0] === 'goto');
+  const approveStep = gotos.find((st) => String(st[1]).includes('{approve.conversation}'));
+  const denyStep = gotos.find((st) => String(st[1]).includes('{deny.conversation}'));
+  if (target.skip) console.log('J1 skip: ' + target.skip);
+  else if (!approveStep || !denyStep) console.log('J1 skip: the spec has no J1 approval gotos');
+  else console.log('J1 approve ' + applyJ1Target(approveStep[1], target) + ' deny ' + applyJ1Target(denyStep[1], target));
+  process.exit(0);
 }
 // `--resolve-j7 <seed.log>` answers the same question without Chromium or a
 // daemon, so the resolution has a pure test: the target line, the skip, the
@@ -370,8 +404,10 @@ async function fakeAgentVerdict() {
   return '';
 }
 for (const j of want) {
-  const seed = j === 'J7' && fs.existsSync(path.join(out, 'seed.log')) ? fs.readFileSync(path.join(out, 'seed.log'), 'utf8') : '';
+  const seed = (j === 'J1' || j === 'J7') && fs.existsSync(path.join(out, 'seed.log')) ? fs.readFileSync(path.join(out, 'seed.log'), 'utf8') : '';
+  const j1 = j === 'J1' ? readJ1Target(seed) : null;
   const j7 = j === 'J7' ? readJ7Target(seed) : null;
+  if (j1 && j1.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J1-skipped-no-approval-target', url: '', lint: {}, notes: ['skipped J1: ' + j1.skip] }); continue; }
   if (j7 && j7.skip) { screens.push({ journey: j, viewport: 'n/a', name: 'J7-skipped-no-fixtures', url: '', lint: {}, notes: ['skipped J7: no seeded notification target'] }); continue; }
   const J = spec.journeys[j];
   for (const vpName of J.viewports) {
@@ -396,7 +432,11 @@ for (const j of want) {
       const st = j === 'J7' && j7 ? applyJ7Step(rawStep, j7) : rawStep;
       const [op, a, b] = st;
       try {
-        if (op === 'goto') { await page.goto(base + a, { waitUntil: 'domcontentloaded', timeout: 20000 }); await page.waitForTimeout(900); }
+        if (op === 'goto') {
+          const href = j === 'J1' && j1 ? applyJ1Target(a, j1) : a; // J7 is already substituted above.
+          await page.goto(base + href, { waitUntil: 'domcontentloaded', timeout: 20000 });
+          await page.waitForTimeout(900);
+        }
         else if (op === 'shot') {
           await page.waitForTimeout(250); const name = `${j}-${vpName}-${String(++n).padStart(2, '0')}-${a}`;
           await page.screenshot({ path: path.join(out, name + '.png') });
@@ -438,6 +478,26 @@ for (const j of want) {
             await loc.focus({ timeout: 3000 }); await page.waitForTimeout(200); continue;
           }
           if (op === 'fill') await loc.fill(b, { timeout: 3000 }); else await (op === 'click' ? loc.click({ timeout: 3000 }) : loc.hover({ timeout: 3000 })); await page.waitForTimeout(400);
+        } else if (op === 'gone') {
+          // A decision landing must take its control off the screen: the
+          // pending card unmounts its buttons when the answer arrives. Waiting
+          // for "detached" is not enough — a card can stay mounted and be
+          // hidden — so poll until no VISIBLE match remains, and treat a
+          // control still on screen at the deadline as a hard failure.
+          const raw = String(a), optional = raw.startsWith('?'), sel = optional ? raw.slice(1) : raw;
+          const wait = Math.max(0, Number(process.env.RSI_UX_WAIT_MS) || 15000);
+          const deadline = Date.now() + wait;
+          const stillVisible = async () => {
+            const loc = page.locator(sel);
+            const count = await loc.count().catch(() => 0);
+            for (let i = 0; i < count; i++) if (await loc.nth(i).isVisible().catch(() => false)) return true;
+            return false;
+          };
+          let visible = await stillVisible();
+          while (visible && Date.now() < deadline) { await page.waitForTimeout(200); visible = await stillVisible(); }
+          if (!visible) { log.push('gone ' + sel); continue; }
+          if (optional) { log.push('skipped gone ' + sel + ' (still visible)'); continue; }
+          hardFail.push(`${j}/${vpName}: gone ${sel} still visible after ${wait}ms`);
         } else if (op === 'place') {
           await choosePlace(page, a); log.push('chose a working directory');
         } else if (op === 'send') {
