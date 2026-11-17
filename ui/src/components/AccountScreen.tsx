@@ -18,6 +18,7 @@ import {
 } from "../lib/hubConfig";
 import { withoutClaimHash } from "../lib/loginLink";
 import { hasFinePointer } from "../lib/pointer";
+import { returnToFrom } from "../lib/returnTo";
 import { useT } from "../i18n/react";
 import { useAppStore, type AccountMode, type AccountProvider } from "../store/appStore";
 import Button from "./ui/Button";
@@ -138,11 +139,21 @@ export default function AccountScreen({ mode }: { mode: AccountMode }) {
     // The code was read into the form above, so neither shape needs to stay in
     // the address bar. The query form is what links printed by older versions
     // use; the fragment is the current one.
-    const url = new URL(window.location.href);
-    url.searchParams.delete("claim");
-    const cleaned = withoutClaimHash(url.toString());
-    if (cleaned !== window.location.href) {
-      window.history.replaceState({}, "", cleaned);
+    //
+    // Rewrite only when there is a claim to remove. `URLSearchParams`
+    // re-serializes the query on the way through (`%20` becomes `+`), and this
+    // effect runs on every visit: doing that unconditionally would rewrite the
+    // page the reader is on, which is the address a sign-in round trip has to
+    // bring them back to byte for byte.
+    const hasQueryClaim = new URLSearchParams(window.location.search).has("claim");
+    const hasHashClaim = new URLSearchParams(window.location.hash.replace(/^#/, "")).has("claim");
+    if (hasQueryClaim || hasHashClaim) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("claim");
+      const cleaned = withoutClaimHash(url.toString());
+      if (cleaned !== window.location.href) {
+        window.history.replaceState({}, "", cleaned);
+      }
     }
   }, []);
 
@@ -397,8 +408,11 @@ function OIDCButton({
       variant="secondary"
       className="w-full"
       onClick={() => {
+        // The page to come back to is the whole same-origin address, not just
+        // its path: the provider hop would otherwise drop a filter or an
+        // anchor, and the person would land on a page they had already left.
         if (!plugin) {
-          startOIDC(provider, window.location.pathname);
+          startOIDC(provider, returnToFrom(window.location));
           return;
         }
         // The app flow (G9): keep the device key in memory, hand the shell the
@@ -422,7 +436,7 @@ function OIDCButton({
             });
           },
         });
-        startOIDC(provider, window.location.pathname);
+        startOIDC(provider, returnToFrom(window.location));
       }}
     >
       {label("account.continueWith", { provider: provider.label })}
