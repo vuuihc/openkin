@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+<rect width="390" height="844" fill="#111315"/>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;fill:#e7e9eb}.muted{fill:#969da4}.small{font-size:12px}.tiny{font-size:11px}.label{font-size:14px}.title{font-size:17px;font-weight:600}.button{fill:#20252a;stroke:#3b4249}.danger{fill:#ff8a80}</style>
+<text x="16" y="25" class="small muted">KIN-MANAGE-001 · 04 / 手机 多选 · 390×844</text>
+
+<text x="20" y="54" class="small muted">9:41</text>
+<rect x="330" y="44" width="26" height="12" rx="3" fill="#3b4249"/>
+<rect x="360" y="44" width="14" height="12" rx="3" fill="#3b4249"/>
+
+<text x="20" y="94" class="title">对话</text>
+<rect x="306" y="64" width="64" height="44" rx="9" class="button"/>
+<text x="338" y="91" text-anchor="middle" class="label">新建</text>
+
+<rect x="16" y="120" width="358" height="40" rx="10" fill="#1b1f22" stroke="#2c3238"/>
+<text x="30" y="145" class="small muted">搜索对话…</text>
+
+<rect x="8" y="168" width="374" height="100" rx="10" fill="#1b1f22" stroke="#2c3238"/>
+<rect x="16" y="186" width="16" height="16" rx="4" fill="#2f6feb"/>
+<path d="M19 194l3 3 6-6" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="42" y="199" class="label">已选 2 项</text>
+<rect x="270" y="172" width="104" height="44" rx="8" class="button"/>
+<text x="322" y="199" text-anchor="middle" class="small">退出多选</text>
+<rect x="12" y="222" width="112" height="44" rx="8" class="button"/>
+<text x="68" y="249" text-anchor="middle" class="small">置顶</text>
+<rect x="130" y="222" width="112" height="44" rx="8" class="button"/>
+<text x="186" y="249" text-anchor="middle" class="small">归档</text>
+<rect x="248" y="222" width="112" height="44" rx="8" class="button"/>
+<text x="304" y="249" text-anchor="middle" class="small danger">删除</text>
+
+<rect x="8" y="278" width="374" height="50" rx="10" fill="#1f2733"/>
+<circle cx="30" cy="303" r="9" fill="#2f6feb"/>
+<path d="M26 303l3 3 5-5" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="52" y="308" class="label">对话标题 A</text>
+<text x="366" y="308" text-anchor="end" class="tiny muted">10:24</text>
+
+<rect x="8" y="332" width="374" height="50" rx="10" fill="#1f2733"/>
+<circle cx="30" cy="357" r="9" fill="#2f6feb"/>
+<path d="M26 357l3 3 5-5" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="52" y="362" class="label">对话标题 B</text>
+<text x="336" y="362" text-anchor="end" class="tiny muted">10:02</text>
+<rect x="350" y="345" width="26" height="24" rx="7" fill="#20252a" stroke="#3b4249"/>
+<text x="363" y="362" text-anchor="middle" class="small">⋯</text>
+
+<rect x="8" y="386" width="374" height="50" rx="10" fill="#171a1d"/>
+<circle cx="30" cy="411" r="9" fill="none" stroke="#5a6168" stroke-width="1.5"/>
+<text x="52" y="416" class="label">对话标题 C</text>
+<text x="366" y="416" text-anchor="end" class="tiny muted">09:48</text>
+
+<rect x="8" y="440" width="374" height="50" rx="10" fill="#171a1d"/>
+<circle cx="30" cy="465" r="9" fill="none" stroke="#5a6168" stroke-width="1.5"/>
+<text x="52" y="470" class="label">对话标题 D</text>
+<text x="366" y="470" text-anchor="end" class="tiny muted">昨天</text>
+
+<rect x="8" y="494" width="374" height="50" rx="10" fill="#171a1d"/>
+<circle cx="30" cy="519" r="9" fill="none" stroke="#5a6168" stroke-width="1.5"/>
+<text x="52" y="524" class="label">对话标题 E</text>
+<text x="366" y="524" text-anchor="end" class="tiny muted">昨天</text>
+
+<rect x="8" y="548" width="374" height="50" rx="10" fill="#171a1d"/>
+<circle cx="30" cy="573" r="9" fill="none" stroke="#5a6168" stroke-width="1.5"/>
+<text x="52" y="578" class="label">对话标题 F</text>
+<text x="366" y="578" text-anchor="end" class="tiny muted">周一</text>
+
+<text x="195" y="632" text-anchor="middle" class="small muted">点行加选或减选 · 已选中的行有底色和勾</text>
+
+<text x="195" y="780" text-anchor="middle" class="tiny muted">工具条在 390px 内不横向滚动 · 退出多选 ≥44px</text>
+<text x="195" y="800" text-anchor="middle" class="tiny muted">Esc 退出并把焦点还给发起行</text>
+<rect x="145" y="818" width="100" height="4" rx="2" fill="#3b4249"/>
+</svg>
