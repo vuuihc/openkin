@@ -117,7 +117,7 @@ const Dialog = forwardRef<HTMLDialogElement, DialogProps>(function Dialog(
       purpose={purpose}
       width={width}
       aria-label={label}
-      className={className}
+      className={["kin-glass-float rounded-2xl", className].filter(Boolean).join(" ")}
     >
       <Layout
         header={
