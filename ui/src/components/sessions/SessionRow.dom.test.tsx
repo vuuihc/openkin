@@ -613,7 +613,9 @@ describe("SessionRow", () => {
     expect((running as HTMLButtonElement).disabled).toBe(true);
 
     for (const name of ["Rename", "Archive", "Delete"]) {
-      expect((within(sheet).getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(false);
+      expect((within(sheet).getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(
+        false,
+      );
     }
 
     await userEvent.click(within(sheet).getByRole("button", { name: "Archive" }));
@@ -678,9 +680,9 @@ describe("SessionRow", () => {
         />,
       );
       await userEvent.click(rowActionsTrigger(view.container));
-      expect(
-        within(screen.getByRole("menu")).getAllByRole("menuitem")[0]?.textContent,
-      ).toBe("Running");
+      expect(within(screen.getByRole("menu")).getAllByRole("menuitem")[0]?.textContent).toBe(
+        "Running",
+      );
       view.unmount();
     }
   });

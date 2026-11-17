@@ -192,9 +192,7 @@ export default function SessionRow({
   // the live row's own menu carries it: while selecting, the menu is the one
   // way out, and an archived conversation is settled.
   const runningNow =
-    mode === "active" && row.task
-      ? taskCardStatusView(row.task.status).tone === "running"
-      : false;
+    mode === "active" && row.task ? taskCardStatusView(row.task.status).tone === "running" : false;
   // A mode can end while its surface is open (the row is archived from
   // elsewhere, multi-select starts): the surface is gone with the trigger, or
   // its action set is about to change under the reader, so the state must not
