@@ -165,6 +165,178 @@ describe("SwipeReveal gestures", () => {
 });
 
 /**
+ * Reorder shares the hold with the swipe but owns the vertical axis.
+ *
+ * A completed hold on a row that can be reordered starts a drag instead of
+ * opening the row's sheet; the moves that follow are the drag's, not a
+ * horizontal swipe. The wrapper keeps the pointer-capture and click-swallowing
+ * rules the swipe already established. Rows whose container offers no reorder
+ * keep the old hold behaviour (`onLongPress`).
+ */
+describe("SwipeReveal reorder", () => {
+  function pointer(node: Element, type: string, clientX: number, clientY: number) {
+    fireEvent(
+      node,
+      new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX,
+        clientY,
+        button: 0,
+      }),
+    );
+  }
+
+  function setup(reorder: {
+    onStart: () => void;
+    onMove: (clientY: number) => void;
+    onEnd: (cancelled: boolean) => void;
+  }) {
+    const onOpenChange = vi.fn();
+    const { container } = render(
+      <SwipeReveal open={false} onOpenChange={onOpenChange} reorder={reorder} actions={null}>
+        <button type="button">Row</button>
+      </SwipeReveal>,
+    );
+    const wrapper = container.firstElementChild as HTMLElement;
+    const capture = vi.fn();
+    const release = vi.fn();
+    wrapper.setPointerCapture = capture;
+    wrapper.releasePointerCapture = release;
+    return { capture, release, onOpenChange, row: screen.getByRole("button", { name: "Row" }) };
+  }
+
+  it("a 500ms hold then a vertical move reports a reorder drag, not a long press", () => {
+    vi.useFakeTimers();
+    try {
+      const onStart = vi.fn();
+      const onMove = vi.fn();
+      const onEnd = vi.fn();
+      const { capture, onOpenChange, row } = setup({ onStart, onMove, onEnd });
+
+      pointer(row, "pointerdown", 200, 20);
+      expect(onStart).not.toHaveBeenCalled();
+      act(() => vi.advanceTimersByTime(500));
+      expect(onStart).toHaveBeenCalledTimes(1);
+      expect(capture).toHaveBeenCalledTimes(1);
+
+      // A vertical move is the drag's; it must not become a horizontal
+      // reveal, and it must not be cancelled as if the hold had broken.
+      pointer(row, "pointermove", 202, 80);
+      expect(onMove).toHaveBeenCalledWith(80);
+      expect(onOpenChange).not.toHaveBeenCalled();
+
+      // `touch-action: pan-y` was fixed at gesture start, so the wrapper takes
+      // the scroll back with a non-passive touchmove for the drag's duration.
+      const touchMove = new Event("touchmove", { bubbles: true, cancelable: true });
+      row.dispatchEvent(touchMove);
+      expect(touchMove.defaultPrevented).toBe(true);
+
+      pointer(row, "pointerup", 202, 80);
+      expect(onEnd).toHaveBeenCalledWith(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("movement past the tolerance before 500ms cancels the hold", () => {
+    vi.useFakeTimers();
+    try {
+      const onStart = vi.fn();
+      const onLongPress = vi.fn();
+      const { container } = render(
+        <SwipeReveal
+          open={false}
+          onOpenChange={() => {}}
+          onLongPress={onLongPress}
+          reorder={{ onStart, onMove: vi.fn(), onEnd: vi.fn() }}
+          actions={null}
+        >
+          <button type="button">Row</button>
+        </SwipeReveal>,
+      );
+      container.firstElementChild!.setPointerCapture = vi.fn();
+      const row = screen.getByRole("button", { name: "Row" });
+
+      pointer(row, "pointerdown", 200, 20);
+      pointer(row, "pointermove", 200, 40);
+      act(() => vi.advanceTimersByTime(600));
+
+      expect(onStart).not.toHaveBeenCalled();
+      expect(onLongPress).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("without a reorder handler the hold still calls onLongPress", () => {
+    vi.useFakeTimers();
+    try {
+      const onLongPress = vi.fn();
+      const { container } = render(
+        <SwipeReveal open={false} onOpenChange={() => {}} onLongPress={onLongPress} actions={null}>
+          <button type="button">Row</button>
+        </SwipeReveal>,
+      );
+      container.firstElementChild!.setPointerCapture = vi.fn();
+      const row = screen.getByRole("button", { name: "Row" });
+
+      pointer(row, "pointerdown", 200, 20);
+      act(() => vi.advanceTimersByTime(500));
+
+      expect(onLongPress).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ends the drag when the release lands outside the row", () => {
+    // Rows re-order in the DOM while the finger moves, and a browser drops
+    // pointer capture when the capturing node moves. The lift must still end
+    // — a drag that never hears its release leaves the row raised forever.
+    vi.useFakeTimers();
+    try {
+      const onStart = vi.fn();
+      const onMove = vi.fn();
+      const onEnd = vi.fn();
+      const { row } = setup({ onStart, onMove, onEnd });
+
+      pointer(row, "pointerdown", 200, 20);
+      act(() => vi.advanceTimersByTime(500));
+      pointer(row, "pointermove", 200, 60);
+
+      fireEvent(window, new MouseEvent("pointerup", { bubbles: true, cancelable: true }));
+
+      expect(onEnd).toHaveBeenCalledTimes(1);
+      expect(onEnd).toHaveBeenCalledWith(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("pointercancel during a reorder drag reports cancelled and clears the capture", () => {
+    vi.useFakeTimers();
+    try {
+      const onStart = vi.fn();
+      const onMove = vi.fn();
+      const onEnd = vi.fn();
+      const { capture, release, row } = setup({ onStart, onMove, onEnd });
+
+      pointer(row, "pointerdown", 200, 20);
+      act(() => vi.advanceTimersByTime(500));
+      pointer(row, "pointermove", 200, 60);
+      pointer(row, "pointercancel", 200, 60);
+
+      expect(capture).toHaveBeenCalledTimes(1);
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(onEnd).toHaveBeenCalledWith(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+/**
  * The reveal has to start with the finger.
  *
  * `open` is the parent's answer, so a strip mounted only when `open` is true

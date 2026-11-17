@@ -18,6 +18,18 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
  * a move that the captured events now target at this element — a handler on
  * the row's own button would never see those moves.
  */
+/**
+ * A container that lets a completed hold become a reorder drag instead of a
+ * long press. The wrapper owns the gesture (it is the element with the
+ * pointer), the parent owns the order: `onMove` reports the finger's Y and the
+ * parent decides which row that is over.
+ */
+export type SwipeReorder = {
+  onStart(): void;
+  onMove(clientY: number): void;
+  onEnd(cancelled: boolean): void;
+};
+
 /** px: two 76px action chips, the default reveal. */
 const REVEAL_WIDTH = 152;
 const LONG_PRESS_MS = 500;
@@ -29,6 +41,7 @@ export default function SwipeReveal({
   open,
   onOpenChange,
   onLongPress,
+  reorder,
   actions,
   /** How far the row slides to uncover its actions, in px. */
   width = REVEAL_WIDTH,
@@ -37,8 +50,14 @@ export default function SwipeReveal({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Completed hold on the row (opens the row's own action sheet). Optional:
-   *  a row without actions has nothing to open. */
+   *  a row without actions has nothing to open. Ignored when `reorder` is
+   *  present: a hold means one thing at a time. */
   onLongPress?: () => void;
+  /** The row can be dragged into a new place. A completed hold starts the
+   *  drag instead of calling `onLongPress`, and the finger's vertical moves
+   *  are reported here rather than becoming a swipe. An open row still closes
+   *  on a tap: reordering never starts from the action strip. */
+  reorder?: SwipeReorder;
   /** Rendered behind the row, on the right, revealed by the swipe. */
   actions: ReactNode;
   width?: number;
@@ -77,9 +96,26 @@ export default function SwipeReveal({
   const settleTimer = useRef<number | null>(null);
   const previousOpen = useRef(open);
   const actionsLayer = useRef<HTMLDivElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  // A reorder drag has the pointer from the moment the hold fires: vertical
+  // moves belong to it and must not be read as a horizontal swipe.
+  const reordering = useRef(false);
+  const [reorderActive, setReorderActive] = useState(false);
+  const pointerId = useRef<number | null>(null);
   // Reachable only when the parent has committed the row open and no finger is
   // still moving it. Everything else is a strip the row still covers.
   const actionsInteractive = open && drag === null;
+
+  // `touch-action: pan-y` was fixed when the gesture started, so the list
+  // would scroll under the drag unless the wrapper claims the scroll back. The
+  // listener has to be non-passive, which a React prop cannot express.
+  useEffect(() => {
+    const node = rootRef.current;
+    if (!node || !reorderActive) return;
+    const prevent = (event: TouchEvent) => event.preventDefault();
+    node.addEventListener("touchmove", prevent, { passive: false });
+    return () => node.removeEventListener("touchmove", prevent);
+  }, [reorderActive]);
 
   const holdActionsWhileSettling = useCallback(() => {
     if (settleTimer.current !== null) window.clearTimeout(settleTimer.current);
@@ -123,6 +159,50 @@ export default function SwipeReveal({
     else layer.setAttribute("inert", "");
   }, [actionsInteractive, open, drag, settling]);
 
+  /**
+   * End the reorder drag, whichever event got here first.
+   *
+   * The row is re-ordered in the DOM while the finger moves it, and a browser
+   * drops pointer capture when the capturing node is moved. The finger can
+   * then lift over a different row, whose own `endDrag` has no drag to end —
+   * leaving this row lifted forever. So the window also listens for the
+   * release while a drag is live; this guard makes the two paths one.
+   */
+  function finishReorder(cancelled: boolean) {
+    if (!reordering.current) return;
+    reordering.current = false;
+    setReorderActive(false);
+    startX.current = null;
+    captured.current = false;
+    const id = pointerId.current;
+    pointerId.current = null;
+    // A released drag is followed by the browser's own click; a cancelled one
+    // is not.
+    if (!cancelled) suppressClick.current = true;
+    if (id !== null) {
+      try {
+        rootRef.current?.releasePointerCapture?.(id);
+      } catch {
+        // the pointer already ended
+      }
+    }
+    reorder?.onEnd(cancelled);
+  }
+  const finishReorderRef = useRef(finishReorder);
+  finishReorderRef.current = finishReorder;
+
+  useEffect(() => {
+    if (!reorderActive) return;
+    const finish = (event: PointerEvent) =>
+      finishReorderRef.current(event.type === "pointercancel");
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+    return () => {
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+    };
+  }, [reorderActive]);
+
   const cancelLongPress = () => {
     if (longPressTimer.current !== null) {
       window.clearTimeout(longPressTimer.current);
@@ -138,19 +218,41 @@ export default function SwipeReveal({
     suppressClick.current = false;
     captured.current = false;
     startX.current = event.clientX;
-    if (onLongPress) {
+    pointerId.current = event.pointerId;
+    // An open row belongs to its action strip: a hold there keeps the plain
+    // "tap to close" reading instead of lifting the row out from under it.
+    const canHold = reorder ? !open : Boolean(onLongPress);
+    if (canHold) {
       pressOrigin.current = { x: event.clientX, y: event.clientY };
       longPressTimer.current = window.setTimeout(() => {
         longPressTimer.current = null;
         pressOrigin.current = null;
         // The tap that ends this press is not a tap on the row.
         suppressClick.current = true;
-        onLongPress();
+        if (reorder) {
+          reordering.current = true;
+          setReorderActive(true);
+          const id = pointerId.current;
+          if (id !== null) {
+            try {
+              rootRef.current?.setPointerCapture?.(id);
+            } catch {
+              // no active pointer — the drag still works within this element
+            }
+          }
+          reorder.onStart();
+          return;
+        }
+        onLongPress?.();
       }, LONG_PRESS_MS);
     }
   }
 
   function onPointerMove(event: React.PointerEvent) {
+    if (reordering.current) {
+      reorder?.onMove(event.clientY);
+      return;
+    }
     const origin = pressOrigin.current;
     if (
       origin &&
@@ -182,6 +284,10 @@ export default function SwipeReveal({
 
   function endDrag(event: React.PointerEvent) {
     cancelLongPress();
+    if (reordering.current) {
+      finishReorder(event.type === "pointercancel");
+      return;
+    }
     if (startX.current === null) return;
     const dx = event.clientX - startX.current;
     startX.current = null;
@@ -203,8 +309,10 @@ export default function SwipeReveal({
 
   return (
     <div
+      ref={rootRef}
       className="relative overflow-hidden"
       data-phone-swipe
+      data-reordering={reorderActive ? "" : undefined}
       style={{ touchAction: "pan-y" }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
