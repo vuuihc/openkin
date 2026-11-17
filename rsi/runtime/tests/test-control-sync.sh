@@ -1,0 +1,132 @@
+#!/bin/bash
+# test-control-sync.sh — run.sh's control-tree sync must adopt origin/main even when the
+# tracked worktree is dirty but already byte-identical to it (the state a landed loop PR
+# leaves behind), while a real local change or an unpublished local commit still blocks.
+#
+# Hermetic: temp bare origin + work clone per case, fixed git identities, temp HOME,
+# RSI_CTRL points at the work clone, and run.sh is invoked as `--sync-check` so no
+# lock, daemon fetch or launchd check runs. Prints "PASS <case>" per case; exits
+# non-zero on the first failure.
+set -u
+HERE="$(cd "$(dirname "$0")" && pwd)"
+RUN="$HERE/../run.sh"
+T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+fail() { echo "FAIL $*" >&2; exit 1; }
+pass() { echo "PASS $*"; }
+
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com
+export GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
+export HOME="$T/home"; mkdir -p "$HOME"
+
+# pair <name> — a bare origin and a work clone one commit behind origin/main.
+# Sets WORK to the clone and ORIGIN_SHA to origin/main's tip.
+pair() {
+  local d="$T/$1"
+  mkdir -p "$d"
+  git init -q -b main "$d/seed"
+  ( cd "$d/seed"
+    echo base > tracked.txt; git add tracked.txt; git commit -q -m "chore: base"
+    echo rt > runtime.sh; git add runtime.sh; git commit -q -m "feat: runtime" )
+  git init -q --bare -b main "$d/origin.git"
+  git -C "$d/seed" remote add origin "$d/origin.git"
+  git -C "$d/seed" push -q origin main
+  git clone -q "$d/origin.git" "$d/work"
+  ( cd "$d/seed" && echo next > next.txt && git add next.txt \
+    && git commit -q -m "feat: next" && git push -q origin main )
+  WORK="$d/work"
+  ORIGIN_SHA="$(git -C "$d/origin.git" rev-parse main)"
+}
+
+# sync [env assignments...] — run only the control-tree sync against $WORK.
+# Sets RC, OUT and ERR.
+sync() {
+  env RSI_CTRL="$WORK" "$@" bash "$RUN" --sync-check >"$T/out" 2>"$T/err"; RC=$?
+  OUT="$(cat "$T/out")"; ERR="$(cat "$T/err")"
+}
+
+head_now() { git -C "$WORK" rev-parse HEAD; }
+
+# 1. A clean tree behind origin/main is fast-forwarded, silently.
+pair clean
+sync
+[ "$RC" = 0 ] || { printf '%s\n' "$ERR" >&2; fail "clean-behind: expected exit 0, got $RC"; }
+[ "$(head_now)" = "$ORIGIN_SHA" ] || fail "clean-behind: HEAD did not become origin/main"
+[ -z "$ERR" ] || fail "clean-behind: expected silence, got: $ERR"
+pass "clean-behind-ff"
+
+# 2. An unpublished local loop commit survives: HEAD is not an ancestor of origin/main.
+pair local-commit
+( cd "$WORK" && echo mine > mine.txt && git add mine.txt && git commit -q -m "fix: local loop commit" )
+before="$(head_now)"
+sync
+[ "$RC" = 0 ] || fail "local-commit: expected exit 0, got $RC"
+[ "$(head_now)" = "$before" ] || fail "local-commit: HEAD moved and lost the unpublished commit"
+[ -f "$WORK/mine.txt" ] || fail "local-commit: the local commit's file disappeared"
+pass "local-commit-survives"
+
+# 2b. Dirty and content-equal to origin/main, but HEAD carries an unpublished commit: the
+#     adopt must not run, or the commit (not just its content) would be discarded.
+pair local-same-content
+( cd "$WORK" && echo wrong > tracked.txt && git add tracked.txt \
+  && git commit -q -m "fix: unpublished local edit" )
+echo base > "$WORK/tracked.txt"       # hand-restored to origin/main's content
+echo next > "$WORK/next.txt"          # origin/main's other path, also matching
+git -C "$WORK" add next.txt
+git -C "$WORK" fetch -q origin main
+[ -n "$(git -C "$WORK" status --porcelain --untracked-files=no)" ] || fail "local-same: setup is not dirty"
+git -C "$WORK" diff --quiet origin/main || fail "local-same: setup content does not match origin/main"
+before="$(head_now)"
+sync
+[ "$RC" = 0 ] || fail "local-same: expected exit 0, got $RC"
+[ "$(head_now)" = "$before" ] || fail "local-same: HEAD moved and discarded an unpublished commit"
+pass "local-commit-same-content-survives"
+
+# 3. A real local edit blocks the sync and stays intact.
+pair dirty-real
+echo "local edit" >> "$WORK/tracked.txt"
+before="$(head_now)"
+sync
+[ "$RC" = 0 ] || fail "dirty-real: expected exit 0, got $RC"
+[ "$(head_now)" = "$before" ] || fail "dirty-real: HEAD moved over a real local change"
+grep -q "local edit" "$WORK/tracked.txt" || fail "dirty-real: the local edit was discarded"
+pass "dirty-real-change-blocks"
+
+# 4. Dirty but every tracked path already equals origin/main: adopt it. This is the shape a
+#    landed loop PR leaves in the control tree (a staged runtime file matching main, HEAD behind).
+pair dirty-equal
+echo next > "$WORK/next.txt"          # byte-identical to the file origin/main added
+git -C "$WORK" add next.txt
+git -C "$WORK" fetch -q origin main
+[ -n "$(git -C "$WORK" status --porcelain --untracked-files=no)" ] || fail "dirty-equal: setup is not dirty"
+git -C "$WORK" diff --quiet origin/main || fail "dirty-equal: setup content does not match origin/main"
+sync
+[ "$RC" = 0 ] || { printf '%s\n' "$ERR" >&2; fail "dirty-equal: expected exit 0, got $RC"; }
+[ "$(head_now)" = "$ORIGIN_SHA" ] || fail "dirty-equal: HEAD did not become origin/main"
+[ -z "$(git -C "$WORK" status --porcelain --untracked-files=no)" ] || fail "dirty-equal: tracked tree still dirty after the sync"
+grep -q 'control tree synced to' <<<"$ERR" || fail "dirty-equal: the sync did not say it moved HEAD: $ERR"
+pass "dirty-equal-content-adopts"
+
+# 5. Untracked files are not the sync's business: they survive the adopt.
+pair untracked
+echo next > "$WORK/next.txt"
+git -C "$WORK" add next.txt
+echo "keep me" > "$WORK/scratch.txt"
+sync
+[ "$RC" = 0 ] || fail "untracked: expected exit 0, got $RC"
+[ "$(head_now)" = "$ORIGIN_SHA" ] || fail "untracked: HEAD did not become origin/main"
+grep -q "keep me" "$WORK/scratch.txt" 2>/dev/null || fail "untracked: an untracked file was lost"
+pass "untracked-survives"
+
+# 6. No origin remote: the fetch fails silently and nothing moves.
+NOr="$T/no-origin"; mkdir -p "$NOr"
+git init -q -b main "$NOr"
+( cd "$NOr" && echo base > tracked.txt && git add tracked.txt && git commit -q -m "chore: base" )
+WORK="$NOr"
+before="$(head_now)"
+sync
+[ "$RC" = 0 ] || fail "no-origin: expected exit 0, got $RC"
+[ "$(head_now)" = "$before" ] || fail "no-origin: HEAD moved without a remote"
+[ -z "$ERR" ] || fail "no-origin: expected silence, got: $ERR"
+pass "no-origin-is-silent"
+
+echo "all cases passed"

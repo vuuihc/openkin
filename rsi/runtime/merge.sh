@@ -15,7 +15,24 @@ unset SB_FIXLIST SB_GATEFAILS
 say() { echo "[$(date +%T)] $*"; }
 attempts() { cat "$STATE/merge/$1.attempts" 2>/dev/null || echo 0; }
 sendback() { # slug item title detail-file
-  local slug="$1" item="$2" title="$3" det="$4" a; a=$(( $(attempts "$slug") + 1 )); echo $a > "$STATE/merge/$slug.attempts"
+  local slug="$1" item="$2" title="$3" det="$4" a live
+  # A rework lane can push the fix WHILE this lane is still reviewing. Bouncing the PR on the SHA
+  # that failed would then hand back a head that already contains the fix, burning one of three
+  # attempts and 10-20 min of lane time. If the live head moved past the reviewed SHA, suppress the
+  # sendback and let the next cycle re-verify the newer head. Fail closed: an unreadable or
+  # malformed head, or an empty SHA (the first sync_main conflict sendback runs before SHA exists),
+  # keeps today's behaviour. Suppression loses nothing: the land loop's later sendbacks
+  # (sendback_mech's m>5 escalation, CI) simply defer to the next cycle, which re-detects the same
+  # failure on the newer head.
+  if [ -n "${SHA:-}" ] && [ -n "${N:-}" ] && live="$(pr_head "$N" 2>/dev/null)" && oid "$live" && [ "$live" != "$SHA" ]; then
+    mkdir -p "$STATE/sendback/done"
+    cp "$det" "$STATE/sendback/done/$slug.stale-${SHA:0:8}.md" 2>/dev/null || true
+    printf -- '- %s PR #%s rsi/%s: head moved %s -> %s during review; sendback suppressed (re-review)\n' \
+      "$(date '+%F %H:%M')" "$N" "$slug" "${SHA:0:8}" "${live:0:8}" >> "$STATE/needs-ceo.md"
+    say "#$N $slug: head moved past reviewed ${SHA:0:8} -> ${live:0:8}; sendback suppressed"
+    KICK=1; SB_SUPPRESSED=1; return
+  fi
+  a=$(( $(attempts "$slug") + 1 )); echo $a > "$STATE/merge/$slug.attempts"
   if [ $a -gt 3 ]; then
     touch "$STATE/merge/$slug.blocked"
     printf -- '- %s PR rsi/%s blocked after %s sendbacks: %s (see %s)\n' "$(date '+%F %H:%M')" "$slug" "$((a-1))" "$title" "$det" >> "$STATE/needs-ceo.md"
@@ -57,6 +74,14 @@ GEN_INV=scripts/ui-inventory-baseline.json
 DIST_BUILD="${RSI_DIST_BUILD_CMD:-npm run build}"
 INV_UPDATE="${RSI_INV_UPDATE_CMD:-python3 scripts/check-ui-inventory.py --update}"
 INV_CHECK="${RSI_INV_CHECK_CMD:-python3 scripts/check-ui-inventory.py}"
+# The live PR head, overridable so rsi/runtime/tests/test-loop-sendback-stale.sh can stub it.
+PR_HEAD_CMD="${RSI_PR_HEAD_CMD:-}"   # test seam; empty = the real gh call
+pr_head() { # <pr-number> -> prints the live head oid, non-zero on failure (an override reads it as $1)
+  if [ -n "$PR_HEAD_CMD" ]; then bash -c "$PR_HEAD_CMD" pr-head "$1"
+  else "$GH" pr view "$1" --repo "$GH_REPO" --json headRefOid --jq .headRefOid; fi
+}
+# A head is an oid and nothing else: a gh warning or a blank line on stdout must read as unreadable.
+oid() { case "${1:-}" in ""|*[!0-9a-fA-F]*) return 1 ;; esac; }
 
 ratchet_ok() { # worktree -> 0 when the regenerated inventory did not grow past origin/main's copy
   local wt="$1" base rc; base="$(mktemp)" || return 1
@@ -217,9 +242,67 @@ PY
   esac
 }
 
+# ------------------------------------------------------------------ queue-time carry
+pr_diff_hash() { # <worktree> — the review key (step 4's DH): the PR's own diff, dist + lockfile excluded
+  $GIT -C "$1" diff origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | shasum | cut -c1-16
+}
+
+queue_carry() { # <wt> <old-head> <new-sha> <incoming> <pr-changed> <gate-file> <reviewed-file> <role>
+  # Step 1 just merged origin/main into a verified PR. Run the same predicate the land-time carry
+  # uses: a move that is disjoint from the PR's own files and the shared surfaces keeps the gate
+  # instead of paying for a full fresh gate. Sets QUEUE_CARRY_REASON.
+  # 0 = carried (gate and review cache now name <new-sha>); 1 = no carry. The gate file is only
+  # removed when carry_forward itself decides a re-gate; every earlier refusal leaves it alone so
+  # the ordinary NEED_GATE check still sees a gate that may already name the current head.
+  local wt="$1" oldhead="$2" newsha="$3" incoming="$4" changed="$5" gatefile="$6" reviewed="$7" role="$8"
+  local gsha="" gpass="" grole="" rdh="" rver="" rrole=""
+  QUEUE_CARRY_REASON=""
+  if [ "$newsha" = "$oldhead" ]; then
+    QUEUE_CARRY_REASON="origin/main did not move under the PR"; return 1
+  fi
+  [ -s "$gatefile" ] && { read -r gsha gpass grole _ < "$gatefile" 2>/dev/null || true; }
+  if [ "$gsha" != "$oldhead" ] || [ "$gpass" != PASS ]; then
+    QUEUE_CARRY_REASON="the gate names ${gsha:-no head} (${gpass:-no verdict}), not the pre-sync head $oldhead; not a carry candidate"
+    return 1
+  fi
+  # Use the role recorded in the gate file when the caller has none: it is the reviewer that
+  # actually passed this tree, and the review cache is keyed by role as well as by diff.
+  role="${role:-${grole:-reviewer}}"
+  if ! carry_forward "$wt" "$incoming" "$changed" "$gatefile" "$newsha" "$role"; then
+    QUEUE_CARRY_REASON="$CARRY_REASON"; return 1
+  fi
+  QUEUE_CARRY_REASON="$CARRY_REASON"
+  # The review is keyed by the PR's own diff, which a disjoint main move does not change. Move its
+  # recorded SHA to the merged head so step 4 reuses the PASS; anything other than a PASS for this
+  # exact diff is left for the review path to re-decide from DH.
+  [ -s "$reviewed" ] && { read -r rdh rver _ rrole _ < "$reviewed" 2>/dev/null || true; }
+  if [ "$rver" = PASS ] && [ "$rdh" = "$(pr_diff_hash "$wt")" ]; then
+    printf '%s PASS %s %s\n' "$rdh" "$newsha" "${rrole:-$role}" > "$reviewed"
+    QUEUE_CARRY_REASON="$QUEUE_CARRY_REASON; review cache moved to $newsha"
+  fi
+  return 0
+}
+
+queue_carry_step() { # <wt> <old-head> <incoming> <new-sha> <pr-changed> <gate-file> <reviewed-file> [role]
+  # The one call site step 1 and --queue-carry-check share, so the seam proves the wiring rather
+  # than a parallel copy of it. The role defaults to the gate file's field 3.
+  queue_carry "$1" "$2" "$4" "$3" "$5" "$6" "$7" "${8:-$(cut -d' ' -f3 "$6" 2>/dev/null | head -1)}"
+}
+
 # ------------------------------------------------------------------ dispatcher
 if [ "${1:-}" != "--one" ]; then
   [ "${1:-}" = "--resolve-generated" ] && { gen_resolve "${2:?worktree required}"; exit $?; }
+  # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: the queue-time carry step 1 applies
+  # after sync_main, with lists of paths on disk. No locks, fetch, gate, review, merge or dispatch.
+  if [ "${1:-}" = "--queue-carry-check" ]; then
+    QWT="${2:?worktree required}"; QOLD="${3:?pre-sync head required}"; QNEW="${4:?merged head required}"
+    QIN="${5:?incoming list required}"; QCH="${6:?pr changed list required}"
+    QGATE="${7:?gate file required}"; QREV="${8:?reviewed file required}"; QROLE="${9:-}"
+    if queue_carry_step "$QWT" "$QOLD" "$(cat "$QIN")" "$QNEW" "$(cat "$QCH")" "$QGATE" "$QREV" "$QROLE"; then
+      echo "CARRY $QUEUE_CARRY_REASON"; exit 0
+    fi
+    echo "REGATE $QUEUE_CARRY_REASON"; exit 1
+  fi
   # Hermetic seam for rsi/runtime/tests/test-gate-carry.sh: run the same carry_forward() the land
   # loop calls, with lists of paths on disk. No gate, no review, no relaunch.
   if [ "${1:-}" = "--carry-check" ]; then
@@ -229,6 +312,14 @@ if [ "${1:-}" != "--one" ]; then
       echo "CARRY $CARRY_REASON"; exit 0
     fi
     echo "REGATE $CARRY_REASON"; exit 1
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-loop-sendback-stale.sh: run the same sendback() the
+  # land loop calls with a stubbed PR head. No lock, fetch, gate, review, merge or dispatch.
+  if [ "${1:-}" = "--stale-check" ]; then
+    SLUG="${2:?slug required}"; ITEM="${3:?item required}"; N="${4:?pr required}"
+    SHA="${5-}"; DET="${6:?detail file required}"
+    sendback "$SLUG" "$ITEM" "stale-check" "$DET"
+    exit 0
   fi
   DRY=0; [ "${1:-}" = "--dry-run" ] && DRY=1
   [ -e "$STATE/PAUSE" ] && { echo "paused"; exit 0; }
@@ -413,12 +504,25 @@ fi
 $GIT -C "$WT" merge -q --ff-only "origin/$BR" >/dev/null 2>&1 || { say "#$N $SLUG: local branch diverged from origin, skip"; exit 0; }
 
 # 1. sync main
+OLDHEAD="$($GIT -C "$WT" rev-parse HEAD)"
+OLDBASE="$($GIT -C "$WT" merge-base HEAD origin/main)"
 sync_main; rc=$?; [ $rc -ne 0 ] && exit 0
 bash "$RSI_DIR/runtime/prep-worktree.sh" "$WT" 2>&1 | tail -2
 SHA="$($GIT -C "$WT" rev-parse HEAD)"
 
 # 2. hold rules (MANDATE): never auto-merge these
 CH="$($GIT -C "$WT" -c core.fileMode=false diff --no-renames --raw origin/main...HEAD | awk '$3 != $4 {sub(/^[^\t]*\t/, ""); print}')"
+# A main move that is disjoint from the PR's own files and the shared surfaces does not invalidate
+# the gate: carry it to the merged head instead of paying for a full fresh gate. carry_forward owns
+# the predicate and removes the gate on a re-gate; NEED_GATE below then sees the carried head and
+# skips the gate body, while CI still reports on that head before the land loop merges.
+QUEUE_INCOMING="$($GIT -C "$WT" diff --name-only "$OLDBASE" origin/main 2>/dev/null)"
+if queue_carry_step "$WT" "$OLDHEAD" "$QUEUE_INCOMING" "$SHA" "$CH" "$V" "$RV"; then
+  QUEUE_CARRIED=1
+  say "#$N $SLUG: gate carried across the main move to ${SHA:0:8} ($QUEUE_CARRY_REASON)"
+elif [ "$OLDHEAD" != "$SHA" ]; then
+  say "#$N $SLUG: queue-time carry declined: $QUEUE_CARRY_REASON"
+fi
 SIZE="$($GIT -C "$WT" diff --numstat origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | awk '{s+=$1+$2} END{print s+0}')"
 # CEO 2026-11-16 EMPTY-DELIVERY: a PR whose tree equals main delivers nothing; never merge it.
 if [ "$SIZE" = 0 ] && $GIT -C "$WT" diff --quiet origin/main HEAD; then
@@ -466,7 +570,7 @@ if echo "$CH" | grep -qE '^ui/src/.*\.tsx$' && ! echo "$CH" | grep -qE '^ui/src/
 fi
 
 # 4. gate and review IN PARALLEL. Review is keyed by the PR's own diff (web/dist/index.html and lockfile excluded), the gate by head SHA.
-DH="$($GIT -C "$WT" diff origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | shasum | cut -c1-16)"
+DH="$(pr_diff_hash "$WT")"
 # MANDATE 2: the reviewer must be a different model from the worker. Workers run on $M_WORKER
 # (DeepSeek), so use the role that is a different family (reviewer-alt = gpt-6.1-sol). Selecting
 # the DeepSeek 'reviewer' here would put the worker's own model on its review.
@@ -675,7 +779,7 @@ if [ $GATE_OK -eq 0 ] || [ $REV_OK -eq 0 ]; then
   [ $GATE_OK -eq 0 ] && grep -E 'error TS[0-9]+|^ *(FAIL|✗|×) |AssertionError|^FAIL:|Error:|not ok|--- FAIL' "$GL" 2>/dev/null | head -30 > "$SB_GATEFAILS"
   export SB_FIXLIST SB_GATEFAILS
   sendback "$SLUG" "$ITEM" "$TITLEBAD" "$C"
-  scorecard_row "$ITEM $SLUG" "$M_WORKER" "$RMODEL" "$TITLEBAD" "[#$N]($PRURL)" "patched" "see ${GL##*/}"
+  [ -z "${SB_SUPPRESSED:-}" ] && scorecard_row "$ITEM $SLUG" "$M_WORKER" "$RMODEL" "$TITLEBAD" "[#$N]($PRURL)" "patched" "see ${GL##*/}"
   exit 0
 fi
 [ $NEED_GATE -eq 1 ] && echo "$SHA PASS $ROLE" > "$V"
@@ -721,7 +825,7 @@ if [ $UI_TOUCH -eq 1 ] && [ "${RSI_UX_GATE:-on}" != off ]; then
       $GH pr comment "$N" --repo "$GH_REPO" --body "RSI UX gate: PASS on ${SHA:0:8} ($SC). Journey screenshots are kept on the CEO machine (rsi/state/shots/$SLUG/journeys/). Rubric: rsi/UX-RUBRIC.md." >/dev/null 2>&1
     elif [ $urc -eq 1 ]; then
       say "#$N $SLUG: UX gate FAIL ($SC)"; sendback "$SLUG" "$ITEM" "UX gate failed ($SC)" "$STATE/merge/$SLUG.ux.txt"
-      scorecard_row "$ITEM $SLUG" "$M_WORKER" "$RMODEL (ux)" "UX FAIL $SC" "[#$N]($PRURL)" "patched" "see state/ux/$SLUG"; exit 0
+      [ -z "${SB_SUPPRESSED:-}" ] && scorecard_row "$ITEM $SLUG" "$M_WORKER" "$RMODEL (ux)" "UX FAIL $SC" "[#$N]($PRURL)" "patched" "see state/ux/$SLUG"; exit 0
     else
       [ -e "$STATE/merge/$SLUG.uxunavail.$DH" ] || { touch "$STATE/merge/$SLUG.uxunavail.$DH"
       printf -- '- %s PR #%s rsi/%s: UX gate could not run (%s); verified, NOT merged. Fix the walker/daemon or set RSI_UX_GATE=off and record it in DECISIONS.\n' "$(date '+%F %H:%M')" "$N" "$SLUG" "$(cat "$STATE/ux/$SLUG/unavailable.txt" 2>/dev/null | head -c 160)" >> "$STATE/needs-ceo.md"; }
@@ -732,6 +836,16 @@ fi
 
 # 5. NO_MERGE honours
 if [ -e "$STATE/NO_MERGE" ]; then say "#$N $SLUG: verified, NO_MERGE set -> not merging"; exit 0; fi
+
+# A queue-time carry moved the gate to the merged head this process pushed in step 1; CI cannot
+# have reported on that head yet and ci_state reads an empty check list as green, so continuing
+# into the land loop could squash-merge it before CI ever ran. Exit for the same reason the
+# land-time carry does: the carried gate and DH-keyed review cache make the next dispatch cycle
+# (launchd, 600s) cheap, and it lands only after CI reported.
+if [ "${QUEUE_CARRIED:-0}" = 1 ]; then
+  say "#$N $SLUG: gate carried to ${SHA:0:8}; landing deferred one cycle so CI reports on the merged head first"
+  exit 0
+fi
 
 # 6. CI, then land under the land lock (serialised); if main moved while we verified: sync, carry the gate forward only when
 #    the incoming main changes touch no code paths, otherwise hand back for a fresh gate (review stays valid: same PR diff).

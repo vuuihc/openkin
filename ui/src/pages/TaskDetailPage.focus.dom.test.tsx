@@ -224,11 +224,36 @@ describe("a notification that names a waiting card", () => {
     expect(older?.textContent).not.toContain("focused");
   });
 
+  it("keeps trying when the card cannot take focus on the first attempt", async () => {
+    // A real page calls focus() while the transcript scroller is still
+    // `visibility:hidden` (it positions its scroll after the first paint), and
+    // a node in a hidden subtree cannot take focus: focus() returns without
+    // firing focusin. The reveal must retry rather than consume the link on a
+    // landing that never happened.
+    const realFocus = HTMLElement.prototype.focus;
+    let refused = 0;
+    vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (
+      this: HTMLElement,
+      ...args: Parameters<HTMLElement["focus"]>
+    ) {
+      if (this.getAttribute("data-pending-id") === "ap-named" && refused === 0) {
+        refused += 1;
+        return;
+      }
+      realFocus.apply(this, args);
+    });
+
+    open("?focus=ap-named");
+
+    const named = document.querySelector('[data-pending-id="ap-named"]');
+    await waitFor(() => expect(document.activeElement).toBe(named));
+    expect(refused).toBe(1);
+    expect(screen.getByTestId("location").textContent).toBe("/tasks/task-1");
+  });
+
   it("drops the parameter so the link stops naming an item", async () => {
     open("?focus=ap-named");
-    await waitFor(() =>
-      expect(screen.getByTestId("location").textContent).toBe("/tasks/task-1"),
-    );
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/tasks/task-1"));
   });
 
   it("still opens the conversation when the named item is gone", async () => {
@@ -236,9 +261,7 @@ describe("a notification that names a waiting card", () => {
 
     // Answered on another device, expired, or outside the window: the
     // conversation is the right landing and the parameter has nothing to name.
-    await waitFor(() =>
-      expect(screen.getByTestId("location").textContent).toBe("/tasks/task-1"),
-    );
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/tasks/task-1"));
     expect(screen.getByTestId("chat-stream")).toBeTruthy();
     expect(document.querySelector('[data-pending-id="answered-elsewhere"]')).toBeNull();
   });
@@ -255,16 +278,12 @@ describe("a notification that names a waiting card", () => {
 
     // The stale pane never answers for work that is not its own: the link is
     // still there when the incoming pane is ready to take it.
-    expect(screen.getByTestId("location").textContent).toBe(
-      "/tasks/task-2?focus=ap-other-task",
-    );
+    expect(screen.getByTestId("location").textContent).toBe("/tasks/task-2?focus=ap-other-task");
     expect(liveResources.refreshPending).not.toHaveBeenCalled();
 
     // The incoming pane loads; only now does it take the screen and the link.
     fireEvent.click(screen.getByRole("button", { name: "loaded" }));
-    await waitFor(() =>
-      expect(screen.getByTestId("location").textContent).toBe("/tasks/task-2"),
-    );
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/tasks/task-2"));
     const named = () => document.querySelector('[data-pending-id="ap-other-task"]');
     await waitFor(() => expect(named()?.textContent).toContain("focused"));
   });
@@ -286,9 +305,7 @@ describe("a notification that names a waiting card", () => {
       "/tasks/task-1?focus=answered-elsewhere",
     );
     finish();
-    await waitFor(() =>
-      expect(screen.getByTestId("location").textContent).toBe("/tasks/task-1"),
-    );
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/tasks/task-1"));
   });
 
   it("focuses the card again when the same banner is tapped a second time", async () => {
@@ -304,15 +321,11 @@ describe("a notification that names a waiting card", () => {
     await waitFor(() => expect(document.activeElement).toBe(named));
 
     fireEvent.click(screen.getByRole("button", { name: "leave" }));
-    await waitFor(() =>
-      expect(screen.getByTestId("location").textContent).toBe("/sessions"),
-    );
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/sessions"));
     expect(document.activeElement).not.toBe(named);
 
     fireEvent.click(screen.getByRole("button", { name: "tap again" }));
     await waitFor(() => expect(document.activeElement).toBe(named));
-    await waitFor(() =>
-      expect(screen.getByTestId("location").textContent).toBe("/tasks/task-1"),
-    );
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/tasks/task-1"));
   });
 });

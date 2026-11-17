@@ -36,10 +36,13 @@ TOKEN = "tok-test-2f8a1c-never-print"
 
 PROJECTS = ["[seed] Project Alpha", "[seed] Project Beta", "[seed] Project Gamma"]
 ROUTINES = ["[seed] Morning check-in", "[seed] Weekly review"]
-# Two held cards: J1 approves one and the next slice denies the other by id.
+# Three held cards: J1 approves one and denies another by id, and J7's deep
+# link names the third. Created in this order so the approve card stays the
+# newest row J1 opens.
 HELD_CONVERSATION = "[seed] Approve the migration"
 DENY_CONVERSATION = "[seed] Deny the migration"
-HELD_CONVERSATIONS = [DENY_CONVERSATION, HELD_CONVERSATION]
+J7_CONVERSATION = "[seed] Answer the deploy"
+HELD_CONVERSATIONS = [DENY_CONVERSATION, J7_CONVERSATION, HELD_CONVERSATION]
 CONVERSATIONS = [
     "[seed] Morning planning",
     "[seed] Failed migration",
@@ -50,7 +53,8 @@ CONVERSATIONS = [
 J1_TARGETS = re.compile(
     r"^j1 targets approve conversation=(\S+) focus=(\S+) deny conversation=(\S+) focus=(\S+)$", re.M
 )
-J7_TARGET = re.compile(r"^j7 target conversation=(\S+) focus=(\S+)$", re.M)
+# J7's line names its own card and the title the walk clicks after Back.
+J7_TARGET = re.compile(r"^j7 target conversation=(\S+) focus=(\S+) title=(.+)$", re.M)
 # The path the seed must see when it asks the daemon which claude it would run.
 # The directory name is what the seed checks; the script itself only has to be
 # named `claude` for the stub.
@@ -306,7 +310,7 @@ class SeedTest(unittest.TestCase):
         approve_conversation, approve_focus, deny_conversation, deny_focus = hits[0]
         return (approve_conversation, approve_focus), (deny_conversation, deny_focus)
 
-    def j7_target(self, stdout: str) -> tuple[str, str]:
+    def j7_target(self, stdout: str) -> tuple[str, str, str]:
         hits = J7_TARGET.findall(stdout)
         self.assertEqual(len(hits), 1, stdout)
         return hits[0]
@@ -389,7 +393,11 @@ class SeedTest(unittest.TestCase):
         self.assertEqual(
             [body.get("cwd") for body in posts],
             [proj["roots"][0] for proj in self.stub.projects]
-            + [self.stub.projects[1]["roots"][0], self.stub.projects[0]["roots"][0]],
+            + [
+                self.stub.projects[1]["roots"][0],
+                self.stub.projects[1]["roots"][0],
+                self.stub.projects[0]["roots"][0],
+            ],
         )
         failed = [row for row in self.stub.tasks if row["status"] == "failed"]
         self.assertEqual(len(failed), 1, self.stub.tasks)
@@ -426,9 +434,10 @@ class SeedTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.skip_states(result), ["routine-failed"], result.stdout)
 
-    def test_seed_holds_two_conversations_in_waiting_approval(self) -> None:
-        # One card is approved today, the other is the deny fixture. Both must
-        # be real waiting_approval tasks, or the walk photographs nothing.
+    def test_seed_holds_three_conversations_in_waiting_approval(self) -> None:
+        # One card is approved today, one is denied, and one is the J7 landing
+        # target. All must be real waiting_approval tasks, or the walk
+        # photographs nothing.
         self.enable_fake_agent()
         result = self.run_seed()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -437,15 +446,17 @@ class SeedTest(unittest.TestCase):
         for row in held:
             self.assertEqual(row["status"], "waiting_approval", self.stub.tasks)
         posts = self.approval_posts()
-        self.assertEqual(len(posts), 2, result.stdout)
+        self.assertEqual(len(posts), 3, result.stdout)
         self.assertEqual({post.get("task_id") for post in posts}, {row["id"] for row in held}, posts)
         for post in posts:
             self.assertEqual(post.get("kind"), "tool_use", post)
             self.assertTrue((post.get("payload") or {}).get("tool_name"), post)
         self.assertIn("create approval apr-1", result.stdout)
         self.assertIn("create approval apr-2", result.stdout)
+        self.assertIn("create approval apr-3", result.stdout)
         self.assertNotIn("skip waiting-approval:", result.stdout)
         self.assertNotIn("skip waiting-approval-deny:", result.stdout)
+        self.assertNotIn("skip waiting-approval-j7:", result.stdout)
 
     def test_approval_conversation_does_not_wait_for_terminal(self) -> None:
         # The held task is running forever by design. Waiting for a terminal
@@ -469,36 +480,35 @@ class SeedTest(unittest.TestCase):
             self.assertIn(f"create conversation {title}", result.stdout)
         self.assertIn("skip waiting-approval: internal approval refused: HTTP 404", result.stdout)
         self.assertIn("skip waiting-approval-deny: internal approval refused: HTTP 404", result.stdout)
+        self.assertIn("skip waiting-approval-j7: internal approval refused: HTTP 404", result.stdout)
         self.assertEqual(self.stub.approvals, [])
 
-    def test_j7_target_line_names_the_seeded_conversation_and_approval(self) -> None:
+    def test_j7_target_line_names_its_own_card_and_title(self) -> None:
         # The walker has no other way to learn which conversation a
-        # notification would name: a refused card must produce no target line
-        # (J7 then skips), and a card that exists must name both real ids.
+        # notification would name, which card it points at, or which row to
+        # click after Back: a refused card must produce no target line (J7
+        # then skips), and a produced card must name all three.
         self.enable_fake_agent()
-        self.stub.fail = [(("POST", "/internal/approvals"), 404)]
+        self.stub.approval_refusals = {J7_CONVERSATION: 409}
         refused = self.run_seed()
         self.assertEqual(refused.returncode, 0, refused.stdout + refused.stderr)
         self.assertNotIn("j7 target", refused.stdout)
-        self.assertNotIn("j1 targets", refused.stdout)
-        self.assertIn("skip waiting-approval: ", refused.stdout)
-        self.assertIn("skip waiting-approval-deny: ", refused.stdout)
+        self.assertIn("skip waiting-approval-j7: ", refused.stdout)
+        # The two J1 cards are live; J7 still names neither of them.
+        self.assertIn("j1 targets", refused.stdout)
 
         # Clearing the refusal makes the next run retry the held (still
-        # running) conversations, create both cards, and name the targets once.
-        self.stub.fail = []
+        # running) J7 conversation and name exactly that card.
+        self.stub.approval_refusals = {}
         result = self.run_seed()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        held = next(row for row in self.stub.tasks if row["title"] == HELD_CONVERSATION)
+        held = next(row for row in self.stub.tasks if row["title"] == J7_CONVERSATION)
         approval = next(row for row in self.stub.approvals if row["task_id"] == held["id"])
         self.assertEqual(held["status"], "waiting_approval", self.stub.tasks)
-        (approve_conversation, approve_focus), (deny_conversation, _) = self.j1_targets(result.stdout)
-        self.assertEqual((approve_conversation, approve_focus), (held["id"], approval["id"]))
-        self.assertNotEqual(deny_conversation, held["id"], result.stdout)
         targets = [line for line in result.stdout.splitlines() if line.startswith("j7 target ")]
         self.assertEqual(
             targets,
-            [f"j7 target conversation={held['id']} focus={approval['id']}"],
+            [f"j7 target conversation={held['id']} focus={approval['id']} title={J7_CONVERSATION}"],
             result.stdout,
         )
 
@@ -511,21 +521,18 @@ class SeedTest(unittest.TestCase):
         self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
         second = self.run_seed()
         self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
-        held = next(row for row in self.stub.tasks if row["title"] == HELD_CONVERSATION)
+        held = next(row for row in self.stub.tasks if row["title"] == J7_CONVERSATION)
         approval = next(row for row in self.stub.approvals if row["task_id"] == held["id"])
-        self.assertIn(
-            f"j7 target conversation={held['id']} focus={approval['id']}",
-            second.stdout,
-        )
-        self.assertEqual(self.j1_targets(second.stdout)[0], (held["id"], approval["id"]))
-        self.assertEqual(len(self.approval_posts()), 2, second.stdout)
-        self.assertEqual(len(self.stub.approvals), 2, second.stdout)
+        self.assertEqual(self.j7_target(second.stdout), (held["id"], approval["id"], J7_CONVERSATION))
+        self.assertEqual(len(self.approval_posts()), 3, second.stdout)
+        self.assertEqual(len(self.stub.approvals), 3, second.stdout)
         self.assertIn(("GET", "/api/approvals"), [(m, p) for m, p, _ in self.stub.requests])
         self.assertNotIn("create approval", second.stdout)
 
-    def test_seeds_two_held_conversations_and_prints_both_targets(self) -> None:
-        # The next slice denies by id, so the seed must create both cards and
-        # name each conversation with its own approval in one machine line.
+    def test_seeds_three_held_conversations_and_prints_both_targets(self) -> None:
+        # The next slice denies by id and J7 lands on its own card, so the seed
+        # must create all three cards and name each conversation with its own
+        # approval in the machine lines.
         self.enable_fake_agent()
         result = self.run_seed()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -534,32 +541,40 @@ class SeedTest(unittest.TestCase):
         for row in held:
             self.assertEqual(row["status"], "waiting_approval", self.stub.tasks)
         posts = self.approval_posts()
-        self.assertEqual(len(posts), 2, result.stdout)
-        self.assertEqual(len({post.get("task_id") for post in posts}), 2, posts)
+        self.assertEqual(len(posts), 3, result.stdout)
+        self.assertEqual(len({post.get("task_id") for post in posts}), 3, posts)
         agree = self.held_approval(HELD_CONVERSATION)
         deny = self.held_approval(DENY_CONVERSATION)
+        j7 = self.held_approval(J7_CONVERSATION)
         (approve_conversation, approve_focus), (deny_conversation, deny_focus) = self.j1_targets(result.stdout)
         self.assertEqual((approve_conversation, approve_focus), (agree["task"]["id"], agree["approval"]["id"]))
         self.assertEqual((deny_conversation, deny_focus), (deny["task"]["id"], deny["approval"]["id"]))
         self.assertNotEqual(approve_conversation, deny_conversation, result.stdout)
         self.assertNotEqual(approve_focus, deny_focus, result.stdout)
         # The approve card stays the newest row, so J1 landed on it before the
-        # deny card existed and keeps landing on it now.
+        # other cards existed and keeps landing on it now.
         self.assertEqual(self.stub.tasks[-1]["title"], HELD_CONVERSATION, result.stdout)
-        self.assertEqual(self.j7_target(result.stdout), (approve_conversation, approve_focus))
+        self.assertEqual(
+            self.j7_target(result.stdout),
+            (j7["task"]["id"], j7["approval"]["id"], J7_CONVERSATION),
+        )
 
-    def test_j7_targets_the_approve_card_not_the_deny_card(self) -> None:
-        # J7's deep link must keep pointing at the card the notification story
-        # names, even though a second held card now exists.
+    def test_j7_target_is_its_own_pending_card(self) -> None:
+        # J1 presses Approve on the approve card earlier in the same walk, so
+        # asserting "the card is visible" there would be red for the wrong
+        # reason. J7's line names its own held conversation, card and title —
+        # never the approve or deny conversation.
         self.enable_fake_agent()
         result = self.run_seed()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        j7 = self.held_approval(J7_CONVERSATION)
         agree = self.held_approval(HELD_CONVERSATION)
         deny = self.held_approval(DENY_CONVERSATION)
-        conversation, focus = self.j7_target(result.stdout)
-        self.assertEqual((conversation, focus), (agree["task"]["id"], agree["approval"]["id"]))
-        self.assertNotEqual(conversation, deny["task"]["id"], result.stdout)
-        self.assertNotEqual(focus, deny["approval"]["id"], result.stdout)
+        conversation, focus, title = self.j7_target(result.stdout)
+        self.assertEqual((conversation, focus), (j7["task"]["id"], j7["approval"]["id"]))
+        self.assertEqual(title, J7_CONVERSATION)
+        self.assertNotIn(conversation, {agree["task"]["id"], deny["task"]["id"]}, result.stdout)
+        self.assertNotIn(focus, {agree["approval"]["id"], deny["approval"]["id"]}, result.stdout)
 
     def test_rerun_creates_no_second_pair(self) -> None:
         self.enable_fake_agent()
@@ -568,6 +583,7 @@ class SeedTest(unittest.TestCase):
         tasks_after_first = len(self.stub.tasks)
         approvals_after_first = len(self.stub.approvals)
         first_targets = self.j1_targets(first.stdout)
+        first_j7 = self.j7_target(first.stdout)
         self.stub.requests.clear()
 
         second = self.run_seed()
@@ -577,43 +593,60 @@ class SeedTest(unittest.TestCase):
         self.assertEqual(len(self.stub.tasks), tasks_after_first, second.stdout)
         self.assertEqual(len(self.stub.approvals), approvals_after_first, second.stdout)
         self.assertEqual(self.j1_targets(second.stdout), first_targets)
-        self.assertEqual(self.j7_target(second.stdout), first_targets[0])
+        self.assertEqual(self.j7_target(second.stdout), first_j7)
 
     def test_deny_bridge_refusal_is_a_skip(self) -> None:
         # A daemon that refuses the second card must still leave the approve
-        # card usable, and must say which card it could not produce.
+        # and J7 cards usable, and must say which card it could not produce.
         self.enable_fake_agent()
         self.stub.approval_refusals = {DENY_CONVERSATION: 409}
         result = self.run_seed()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         agree = self.held_approval(HELD_CONVERSATION)
+        j7 = self.held_approval(J7_CONVERSATION)
         deny = next(row for row in self.stub.tasks if row["title"] == DENY_CONVERSATION)
         self.assertEqual(agree["task"]["status"], "waiting_approval", self.stub.tasks)
+        self.assertEqual(j7["task"]["status"], "waiting_approval", self.stub.tasks)
         self.assertEqual(deny["status"], "running", self.stub.tasks)
-        self.assertEqual([row["task_id"] for row in self.stub.approvals], [agree["task"]["id"]], result.stdout)
+        self.assertEqual(
+            {row["task_id"] for row in self.stub.approvals},
+            {agree["task"]["id"], j7["task"]["id"]},
+            result.stdout,
+        )
         self.assertIn("skip waiting-approval-deny: internal approval refused: HTTP 409", result.stdout)
         self.assertNotIn("skip waiting-approval:", result.stdout)
         # One card cannot be expressed as the two-pair target line.
         self.assertNotIn("j1 targets", result.stdout)
-        self.assertEqual(self.j7_target(result.stdout), (agree["task"]["id"], agree["approval"]["id"]))
+        self.assertEqual(
+            self.j7_target(result.stdout),
+            (j7["task"]["id"], j7["approval"]["id"], J7_CONVERSATION),
+        )
 
-    def test_approve_bridge_refusal_keeps_j7_a_skip(self) -> None:
-        # The mirror image: a refused approve card must not make J7 fall back
-        # to the deny card, and the deny fixture must still be created.
+    def test_approve_bridge_refusal_does_not_take_j7_down(self) -> None:
+        # The mirror image: J7 no longer borrows the approve card, so a refused
+        # approve card leaves J7's own line intact and the deny fixture usable.
         self.enable_fake_agent()
         self.stub.approval_refusals = {HELD_CONVERSATION: 409}
         result = self.run_seed()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         agree = next(row for row in self.stub.tasks if row["title"] == HELD_CONVERSATION)
         deny = self.held_approval(DENY_CONVERSATION)
+        j7 = self.held_approval(J7_CONVERSATION)
         self.assertEqual(agree["status"], "running", self.stub.tasks)
         self.assertEqual(deny["task"]["status"], "waiting_approval", self.stub.tasks)
-        self.assertEqual([row["task_id"] for row in self.stub.approvals], [deny["task"]["id"]], result.stdout)
+        self.assertEqual(j7["task"]["status"], "waiting_approval", self.stub.tasks)
+        self.assertEqual(
+            {row["task_id"] for row in self.stub.approvals},
+            {deny["task"]["id"], j7["task"]["id"]},
+            result.stdout,
+        )
         self.assertIn("skip waiting-approval: internal approval refused: HTTP 409", result.stdout)
         self.assertNotIn("skip waiting-approval-deny:", result.stdout)
-        # J7 names the approve card or nothing; never the deny card.
-        self.assertNotIn("j7 target", result.stdout)
         self.assertNotIn("j1 targets", result.stdout)
+        self.assertEqual(
+            self.j7_target(result.stdout),
+            (j7["task"]["id"], j7["approval"]["id"], J7_CONVERSATION),
+        )
 
     def test_agent_requests_are_bounded_and_report_failure(self) -> None:
         self.enable_fake_agent()
@@ -683,8 +716,8 @@ class SeedTest(unittest.TestCase):
         result = self.run_seed()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("existing task tsk-1 is running, wanted succeeded", result.stdout)
-        # The other four are still created; the running row is left alone.
-        self.assertEqual(len(self.task_posts()), 4, result.stdout)
+        # The other five are still created; the running row is left alone.
+        self.assertEqual(len(self.task_posts()), 5, result.stdout)
 
     def test_fake_agent_contract(self) -> None:
         # The shell fake is the only thing standing between a seeded turn and
@@ -826,7 +859,7 @@ class SeedTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(
             [os.path.basename(body["cwd"]) for body in self.task_posts()],
-            ["alpha", "beta", "gamma", "beta", "alpha"],
+            ["alpha", "beta", "gamma", "beta", "beta", "alpha"],
         )
 
 
@@ -911,6 +944,26 @@ class HarnessContractTest(unittest.TestCase):
         # One modified tracked file, nothing new and untracked.
         self.assertEqual(len(status.stdout.splitlines()), 1, status.stdout)
 
+    def test_fake_agent_change_names_the_file_in_a_tool_use(self) -> None:
+        # The console's changed-files bar is fed by path-bearing tool_use
+        # events. A text-only turn leaves it empty, and the journey walk then
+        # photographs a conversation with no bar on it at all.
+        base = tempfile.mkdtemp(prefix="kin-journeys-seed-test-")
+        self.addCleanup(shutil.rmtree, base, True)
+        root = os.path.join(base, "alpha")
+        make_repo(root)
+        result = run_fake_agent(root, "[seed] change: summarise the three things worth doing today.")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+        tools = [
+            (block["name"], block["input"].get("file_path"))
+            for line in lines
+            if line.get("type") == "assistant"
+            for block in line["message"]["content"]
+            if block.get("type") == "tool_use"
+        ]
+        self.assertEqual(tools, [("Write", "notes.md")])
+
     def test_fake_agent_change_is_idempotent(self) -> None:
         base = tempfile.mkdtemp(prefix="kin-journeys-seed-test-")
         self.addCleanup(shutil.rmtree, base, True)
@@ -960,14 +1013,19 @@ class HarnessContractTest(unittest.TestCase):
             if spec is not marked[0]:
                 self.assertNotIn(journeys_seed.CHANGE_MARKER, spec["prompt"])
 
-    def test_two_conversations_hold_approval_turns(self) -> None:
+    def test_three_conversations_hold_approval_turns(self) -> None:
         marked = [spec for spec in journeys_seed.CONVERSATIONS if journeys_seed.APPROVE_MARKER in spec["prompt"]]
         self.assertEqual([spec["title"] for spec in marked], HELD_CONVERSATIONS, [spec["title"] for spec in marked])
-        # One held card is approved, the other denied; the walk learns both
-        # pairs by id from the seed's target line. The projects are named so a
-        # new card cannot move an existing conversation to another bucket.
-        self.assertEqual([spec.get("target") for spec in marked], ["deny", "approve"], marked)
-        self.assertEqual([spec.get("project") for spec in marked], ["Project Beta", "Project Alpha"], marked)
+        # One held card is approved, one denied, and J7 lands on the third; the
+        # walk learns every pair by id from the seed's target lines. The
+        # projects are named so a new card cannot move an existing
+        # conversation to another bucket.
+        self.assertEqual([spec.get("target") for spec in marked], ["deny", "j7", "approve"], marked)
+        self.assertEqual(
+            [spec.get("project") for spec in marked],
+            ["Project Beta", "Project Beta", "Project Alpha"],
+            marked,
+        )
         for spec in marked:
             self.assertTrue(spec.get("hold"), spec)
             # The hold path must never be given a terminal expectation: no

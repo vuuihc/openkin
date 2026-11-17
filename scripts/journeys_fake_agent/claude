@@ -17,12 +17,15 @@
 # failed task.
 #
 # One prompt holds a turn open. A prompt containing "[seed] approve" prints
-# the init line and one assistant message carrying a tool_use block, then stays
-# alive instead of printing a result — so the daemon keeps the task `running`
-# and scripts/journeys_seed.py can ask the daemon's own permission bridge for an
-# approval row. The task then sits in `waiting_approval` and the walk
-# photographs the card. It exits when its parent (the daemon) is gone, and has
-# a hard cap, so a crashed walk cannot leave a sleeper behind.
+# the init line and one assistant message carrying its tool_use blocks, then
+# stays alive instead of printing a result — so the daemon keeps the task
+# `running` and scripts/journeys_seed.py can ask the daemon's own permission
+# bridge for an approval row. The task then sits in `waiting_approval` and the
+# walk photographs the card. It exits when its parent (the daemon) is gone, and
+# has a hard cap, so a crashed walk cannot leave a sleeper behind. The second
+# block names a real path in the shared seed root, because this is the
+# conversation the phone journey opens: the console's changed-files bar reads
+# path-bearing tool_use events, and without one there is no bar to photograph.
 #
 # One prompt changes a file. A prompt containing "[seed] change" appends one
 # sentinel line to the tracked notes.md, and only when the process's real
@@ -38,6 +41,13 @@
 # conversation on a machine with a large catalog), and a seeded conversation
 # has no real session behind it. Omitting the optional field leaves the task
 # succeeded in well under a second and touches no local session state.
+# One prompt answers slowly. A prompt containing "[seed] slow" prints the init
+# line, holds for RSI_FAKE_SLOW_SECS (default 3, clamped 0..10, a malformed
+# value falls back to the default), then prints the usual reply. The J3 walk
+# presses Start for real and photographs the pending bubble and the waiting
+# row; without a deterministic hold that window is a race against the answer.
+# The hold is bounded so a crashed walk can never leave a turn running for
+# minutes, and it changes nothing for any other prompt.
 set -u
 
 prompt=""
@@ -74,7 +84,7 @@ case "$prompt" in
     # while the process sleeps, and the daemon would never see these lines.
     cat <<'EOF'
 {"type":"system","subtype":"init","cwd":"."}
-{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_seed_approve","name":"Bash","input":{"command":"git status --short"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_seed_approve","name":"Bash","input":{"command":"git status --short"}},{"type":"tool_use","id":"toolu_seed_approve_write","name":"Write","input":{"file_path":"notes.md","content":"- [seed] change: the journey walk reads this line as a real diff."}}]}}
 EOF
     # A held turn, not a daemon of its own: die with the parent, and never
     # outlive a walk by more than the hard cap.
@@ -105,8 +115,41 @@ case "$prompt" in
     ;;
 esac
 
+# Every answer begins with the init line, before any hold below. `cat` rather
+# than a shell builtin's printf: the approve branch documents why a buffered
+# write can sit in the pipe while the process sleeps.
 cat <<'EOF'
 {"type":"system","subtype":"init","cwd":"."}
+EOF
+
+case "$prompt" in
+  *"[seed] slow"*)
+    raw="${RSI_FAKE_SLOW_SECS:-3}"
+    case "$raw" in
+      '' | *[!0-9]*) secs=3 ;;
+      *)
+        # Compare by length first: an arbitrarily large number is not a
+        # number `test -gt` has to parse.
+        if [ "${#raw}" -gt 2 ] || [ "$raw" -gt 10 ]; then secs=10; else secs="$raw"; fi
+        ;;
+    esac
+    sleep "$secs"
+    ;;
+esac
+
+# The change turn names the file it just touched, so the console's
+# changed-files bar (fed by path-bearing tool_use events) has a file to
+# summarize. Without it the seeded conversation reads as a text-only turn and
+# the bar renders null in every journey screenshot.
+case "$prompt" in
+  *"[seed] change"*)
+    cat <<'EOF'
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_seed_change","name":"Write","input":{"file_path":"notes.md","content":"- [seed] change: the journey walk reads this line as a real diff."}}]}}
+EOF
+    ;;
+esac
+
+cat <<'EOF'
 {"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Fake reply"}}}
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Fake reply from the journey fake agent."}]}}
 {"type":"result","subtype":"success","is_error":false,"result":"Fake reply from the journey fake agent.","total_cost_usd":0.00042,"usage":{"input_tokens":42,"output_tokens":7}}

@@ -8,7 +8,9 @@
 # no npm, no python beyond the stdlib.
 #
 # Exercises merge.sh --carry-check, which runs the same carry_forward() the land loop calls: on a
-# carry it rewrites the gate file with the merged head SHA, on a re-gate it removes it.
+# carry it rewrites the gate file with the merged head SHA, on a re-gate it removes it. The queue
+# cases exercise --queue-carry-check, the step-1 seam: the same predicate, applied right after the
+# verifier merges origin/main into the PR branch, refusing a stale gate and an unmoved main.
 # Prints "PASS <case>" per case and exits non-zero on the first failure.
 # Set RSI_TEST_ONLY=<case name> to run one case (used to show the red run per case).
 set -u
@@ -124,6 +126,36 @@ expect_regate() { # name
 }
 
 reset_stubs() { unset STUB_DIST_FAIL STUB_INV_FAIL STUB_DIST_TEXT; }
+
+# --- queue-time seam helpers -------------------------------------------------------------------
+
+# diff_hash — the review key the merge lane computes for the PR's own diff (step 4's DH).
+diff_hash() { g diff origin/main...HEAD -- . ':!web/dist/index.html' ':!*package-lock.json' | shasum | cut -c1-16; }
+
+# write_gate <name> <head> — the state a previous cycle leaves behind: a gate verified on <head>
+# and a PASS review keyed by the PR's diff hash. Must run on feat at the PR head.
+write_gate() {
+  mkdir -p "$T/state/merge"
+  QUEUE_V="$T/state/merge/$1.verified"; QUEUE_RV="$T/state/merge/$1.reviewed"; QUEUE_DH="$(diff_hash)"
+  [ -n "$QUEUE_DH" ] || fail "$1: no diff hash (shasum missing?)"
+  echo "$2 PASS reviewer" > "$QUEUE_V"
+  echo "$QUEUE_DH PASS $2 reviewer" > "$QUEUE_RV"
+}
+
+# queue_check <name> <pre-sync-head> [incoming-paths...] — call the step-1 seam with the gate and
+# reviewed files write_gate left behind, the PR's changed paths and the main move's paths.
+queue_check() {
+  local name="$1" old="$2"; shift 2
+  printf '%s\n' "$@" > "$T/$name.qincoming"
+  RSI_CTRL="$T/ctrl" \
+  RSI_DIST_BUILD_CMD="bash $T/dist-stub.sh" \
+  RSI_INV_CHECK_CMD="bash $T/inv-stub.sh" \
+  STUB_DIST_FAIL="${STUB_DIST_FAIL:-0}" STUB_INV_FAIL="${STUB_INV_FAIL:-0}" \
+  STUB_DIST_TEXT="${STUB_DIST_TEXT:-dist-ok}" \
+    bash "$MERGE" --queue-carry-check "$R" "$old" "$NEWSHA" "$T/$name.qincoming" "$T/$name.ch" \
+      "$QUEUE_V" "$QUEUE_RV" reviewer > "$T/$name.qout" 2>&1
+  RC=$?
+}
 
 # --- cases -------------------------------------------------------------------------------------
 
@@ -244,6 +276,130 @@ test_carry_exits_the_land_loop_before_ci_state() {
     || fail "carry does not exit the land loop for CI to report on the next cycle"
 }
 
+# The queue-time carry has the same hazard: step 1 pushed the merged head, so seconds later the
+# step-6 land loop's ci_state would read an empty check list as green and could squash-merge the
+# carried head before CI ran. The success branch must record the carry, and the process must exit
+# before the land loop — mirroring the land-time carry pinned above.
+test_queue_carry_exits_before_the_land_loop() {
+  local setline guardline loopline
+  grep -A1 -F 'if queue_carry_step "$WT"' "$MERGE" | grep -qF 'QUEUE_CARRIED=1' \
+    || fail "the queue carry success branch does not set QUEUE_CARRIED=1"
+  setline="$(grep -nF 'QUEUE_CARRIED=1' "$MERGE" | head -1 | cut -d: -f1)"
+  guardline="$(grep -nF '${QUEUE_CARRIED:-0}' "$MERGE" | head -1 | cut -d: -f1)"
+  loopline="$(grep -nF 'for round in 1 2 3; do' "$MERGE" | head -1 | cut -d: -f1)"
+  [ -n "$guardline" ] || fail "no QUEUE_CARRIED guard exits before the step-6 land loop"
+  [ -n "$loopline" ] || fail "no step-6 land loop in $MERGE"
+  [ "$setline" -lt "$guardline" ] && [ "$guardline" -lt "$loopline" ] \
+    || fail "the queue-carry exit ($guardline) is not between the carry ($setline) and the land loop ($loopline)"
+  sed -n "${guardline},${loopline}p" "$MERGE" | grep -qF 'exit 0' \
+    || fail "a queue-carried gate falls through into the step-6 land loop"
+}
+
+# --- queue-time carry cases --------------------------------------------------------------------
+
+# The motivating case: step 1 merged a disjoint main move into a PR whose gate was verified on the
+# pre-sync head. The gate must move to the merged head and the DH-keyed review cache too, so the
+# PR does not pay for a full fresh gate.
+test_queue_carries_disjoint_main_move() {
+  reset_stubs; new_repo q1
+  set_line "$R/ui/src/pages/SettingsPage.tsx" 1 pr
+  commit_pr q1
+  OLD="$(g rev-parse HEAD)"; write_gate q1 "$OLD"
+  g checkout -q main
+  set_line "$R/ui/src/pages/ProjectDetailPage.tsx" 1 main
+  set_line "$R/internal/workspace/diff.go" 1 main
+  move_main q1
+  queue_check q1 "$OLD" ui/src/pages/ProjectDetailPage.tsx internal/workspace/diff.go
+  [ "$RC" -eq 0 ] || fail "q1: re-gated, expected a carry ($(tr '\n' ' ' < "$T/q1.qout"))"
+  [ "$(cat "$QUEUE_V" 2>/dev/null)" = "$NEWSHA PASS reviewer" ] \
+    || fail "q1: gate file is '$(cat "$QUEUE_V" 2>/dev/null)', want '$NEWSHA PASS reviewer'"
+  [ "$(cat "$QUEUE_RV" 2>/dev/null)" = "$QUEUE_DH PASS $NEWSHA reviewer" ] \
+    || fail "q1: reviewed file is '$(cat "$QUEUE_RV" 2>/dev/null)', want '$QUEUE_DH PASS $NEWSHA reviewer'"
+}
+
+# Main moving the PR's own file invalidates the gate: gated on the merged tree it may now behave
+# differently, and the review cache is left alone (the review path re-decides from DH).
+test_queue_regates_when_main_moves_the_prs_own_file() {
+  reset_stubs; new_repo q2
+  set_line "$R/ui/src/pages/SettingsPage.tsx" 1 pr
+  commit_pr q2
+  OLD="$(g rev-parse HEAD)"; write_gate q2 "$OLD"; BEFORE_RV="$(cat "$QUEUE_RV")"
+  g checkout -q main
+  set_line "$R/ui/src/pages/SettingsPage.tsx" 3 main
+  move_main q2
+  queue_check q2 "$OLD" ui/src/pages/SettingsPage.tsx
+  [ "$RC" -ne 0 ] || fail "q2: carried, expected a re-gate ($(tr '\n' ' ' < "$T/q2.qout"))"
+  [ ! -e "$QUEUE_V" ] || fail "q2: gate file still present after a re-gate"
+  [ "$(cat "$QUEUE_RV" 2>/dev/null)" = "$BEFORE_RV" ] || fail "q2: reviewed file changed on a re-gate"
+}
+
+# A shared UI surface can change what the PR's own tests mean: never carry past it.
+test_queue_regates_when_main_moves_a_shared_surface() {
+  reset_stubs; new_repo q3
+  set_line "$R/ui/src/pages/SettingsPage.tsx" 1 pr
+  commit_pr q3
+  OLD="$(g rev-parse HEAD)"; write_gate q3 "$OLD"
+  g checkout -q main
+  set_line "$R/ui/src/lib/useMachines.ts" 1 main
+  move_main q3
+  queue_check q3 "$OLD" ui/src/lib/useMachines.ts
+  [ "$RC" -ne 0 ] || fail "q3: carried past a shared surface ($(tr '\n' ' ' < "$T/q3.qout"))"
+  [ ! -e "$QUEUE_V" ] || fail "q3: gate file still present after a re-gate"
+}
+
+# A gate that names an older head is not evidence for the pre-sync head, so even a disjoint move
+# must not carry it. Nothing is rewritten: the normal gate path decides.
+test_queue_no_carry_when_head_is_stale() {
+  reset_stubs; new_repo q4
+  set_line "$R/ui/src/pages/SettingsPage.tsx" 1 pr
+  commit_pr q4
+  OLD="$(g rev-parse HEAD)"; STALE="$(g rev-parse HEAD~1)"
+  mkdir -p "$T/state/merge"
+  QUEUE_V="$T/state/merge/q4.verified"; QUEUE_RV="$T/state/merge/q4.reviewed"
+  echo "$STALE PASS reviewer" > "$QUEUE_V"
+  echo "$(diff_hash) PASS $STALE reviewer" > "$QUEUE_RV"
+  g checkout -q main
+  set_line "$R/ui/src/pages/ProjectDetailPage.tsx" 1 main
+  move_main q4
+  queue_check q4 "$OLD" ui/src/pages/ProjectDetailPage.tsx
+  [ "$RC" -ne 0 ] || fail "q4: carried a gate that names $STALE, not the pre-sync head ($(tr '\n' ' ' < "$T/q4.qout"))"
+  [ "$(cat "$QUEUE_V" 2>/dev/null)" = "$STALE PASS reviewer" ] || fail "q4: a stale gate was rewritten"
+}
+
+# No main move means there is nothing to carry: the gate already names the head, so it must be
+# left where the normal NEED_GATE check finds it.
+test_queue_no_carry_when_main_did_not_move() {
+  reset_stubs; new_repo q5
+  set_line "$R/ui/src/pages/SettingsPage.tsx" 1 pr
+  commit_pr q5
+  OLD="$(g rev-parse HEAD)"; write_gate q5 "$OLD"; NEWSHA="$OLD"
+  queue_check q5 "$OLD"
+  [ "$RC" -ne 0 ] || fail "q5: carried without a main move ($(tr '\n' ' ' < "$T/q5.qout"))"
+  [ "$(cat "$QUEUE_V" 2>/dev/null)" = "$OLD PASS reviewer" ] || fail "q5: gate was rewritten without a main move"
+}
+
+# The ui-leaf safety step is part of the predicate: when the merged tree fails the inventory
+# ratchet or the dist rebuild changes web/dist/index.html, step 1 must propagate the re-gate.
+test_queue_ui_leaf_safety_failure_regates() {
+  reset_stubs; new_repo q6
+  set_line "$R/ui/src/pages/SettingsPage.tsx" 1 pr
+  commit_pr q6
+  OLD="$(g rev-parse HEAD)"; write_gate q6 "$OLD"
+  g checkout -q main
+  set_line "$R/ui/src/pages/ProjectDetailPage.tsx" 1 main
+  move_main q6
+  STUB_INV_FAIL=1; queue_check q6 "$OLD" ui/src/pages/ProjectDetailPage.tsx
+  [ "$RC" -ne 0 ] || fail "q6: carried although the inventory check failed ($(tr '\n' ' ' < "$T/q6.qout"))"
+  [ ! -e "$QUEUE_V" ] || fail "q6: gate file still present after the inventory check failed"
+  reset_stubs
+  write_gate q6 "$OLD"
+  STUB_DIST_TEXT=dist-other; queue_check q6 "$OLD" ui/src/pages/ProjectDetailPage.tsx
+  [ "$RC" -ne 0 ] || fail "q6: carried although the dist rebuild changed web/dist/index.html ($(tr '\n' ' ' < "$T/q6.qout"))"
+  [ ! -e "$QUEUE_V" ] || fail "q6: gate file still present after the dist check failed"
+  g diff --quiet -- web/dist/index.html || fail "q6: a changed dist was not restored"
+  reset_stubs
+}
+
 run() {
   if [ -n "$ONLY" ] && [ "$1" != "$ONLY" ]; then return 0; fi
   "$1" || exit 1
@@ -259,4 +415,11 @@ run test_regates_when_main_moves_the_shared_go_api
 run test_regates_when_the_ui_safety_step_fails
 run test_keeps_the_non_code_carry
 run test_carry_exits_the_land_loop_before_ci_state
+run test_queue_carry_exits_before_the_land_loop
+run test_queue_carries_disjoint_main_move
+run test_queue_regates_when_main_moves_the_prs_own_file
+run test_queue_regates_when_main_moves_a_shared_surface
+run test_queue_no_carry_when_head_is_stale
+run test_queue_no_carry_when_main_did_not_move
+run test_queue_ui_leaf_safety_failure_regates
 echo ALL-PASS
