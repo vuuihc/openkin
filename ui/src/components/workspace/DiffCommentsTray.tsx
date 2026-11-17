@@ -1,11 +1,16 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useT } from "../../i18n/react";
 import Button from "../ui/Button";
-import type { DiffComment } from "./diffCommentAnchor";
+import type { CommentAnchorState, DiffComment } from "./diffCommentAnchor";
 
 export type DiffCommentsTrayProps = {
   /** The conversation's saved comments, oldest first. */
   comments: DiffComment[];
+  /**
+   * KIN-RESULT-003 part 2: where each comment points in the diff open now.
+   * An absent id renders as saved (live/unknown) — never implied stale.
+   */
+  anchors?: Record<string, CommentAnchorState>;
   /** Reveal and highlight the line a row points at. */
   onJump: (comment: DiffComment) => void;
   /** Remove one comment immediately — deletion is local and final. */
@@ -28,6 +33,7 @@ export type DiffCommentsTrayProps = {
  */
 export default function DiffCommentsTray({
   comments,
+  anchors,
   onJump,
   onDelete,
   onSend,
@@ -120,55 +126,74 @@ export default function DiffCommentsTray({
         </p>
       )}
       <ul className="max-h-64 overflow-y-auto kin-scroll">
-        {comments.map((comment, index) => (
-          <li
-            key={comment.id}
-            className="flex items-start gap-1 border-t border-[var(--kin-hairline)] px-1"
-          >
-            {/* part 2: the 「该行已变化」 badge sits on this row when the saved
-                anchor no longer matches the fresh diff. */}
-            <Button
-              ref={(element) => {
-                rowsRef.current[index] = element;
-              }}
-              variant="quiet"
-              aria-label={tr("workspace.comments.jumpToRow", {
-                path: comment.path,
-                line: comment.line,
-              })}
-              className="flex-1 min-w-0 min-h-11 sm:min-h-0 h-auto! flex-col items-start justify-start gap-0.5 px-2 py-2 text-left"
-              onClick={() => onJump(comment)}
+        {comments.map((comment, index) => {
+          const anchor = anchors?.[comment.id];
+          // No anchor state is "as saved", never "stale": the tray only says
+          // the line has changed when the fresh diff said so.
+          const line = anchor?.line ?? comment.line;
+          const stale = anchor?.stale === true;
+          return (
+            <li
+              key={comment.id}
+              className="flex items-start gap-1 border-t border-[var(--kin-hairline)] px-1"
             >
-              {/* Astryx wraps `children` in its own row-direction label span,
-                  so the stack has to be one child of our own. */}
-              <span className="flex w-full min-w-0 flex-col items-start gap-0.5">
-                <span className="font-mono text-caption text-kin-secondary">
-                  {comment.path}:{comment.line}
+              <Button
+                ref={(element) => {
+                  rowsRef.current[index] = element;
+                }}
+                variant="quiet"
+                aria-label={
+                  stale
+                    ? tr("workspace.comments.staleRow", { path: comment.path, line })
+                    : tr("workspace.comments.jumpToRow", { path: comment.path, line })
+                }
+                className="flex-1 min-w-0 min-h-11 sm:min-h-0 h-auto! flex-col items-start justify-start gap-0.5 px-2 py-2 text-left"
+                onClick={() => onJump(comment)}
+              >
+                {/* Astryx wraps `children` in its own row-direction label span,
+                    so the stack has to be one child of our own. */}
+                <span className="flex w-full min-w-0 flex-col items-start gap-0.5">
+                  <span className="font-mono text-caption text-kin-secondary">
+                    {comment.path}:{line}
+                  </span>
+                  <span className="w-full truncate font-mono text-micro text-kin-muted">
+                    {comment.quote}
+                  </span>
+                  {stale && (
+                    // The failure state is text, not colour alone: the row also
+                    // keeps the hunk header it was written in, so a person can
+                    // still find the place the agent changed.
+                    <span className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <span className="rounded bg-[var(--kin-fill-strong)] px-1.5 py-0.5 text-micro font-semibold text-kin-secondary">
+                        {tr("workspace.comments.stale")}
+                      </span>
+                      <span className="truncate font-mono text-micro text-kin-muted">
+                        {comment.hunkHeader}
+                      </span>
+                    </span>
+                  )}
+                  <span className="w-full text-body text-kin-text whitespace-pre-wrap break-words">
+                    {comment.text}
+                  </span>
                 </span>
-                <span className="w-full truncate font-mono text-micro text-kin-muted">
-                  {comment.quote}
-                </span>
-                <span className="w-full text-body text-kin-text whitespace-pre-wrap break-words">
-                  {comment.text}
-                </span>
-              </span>
-            </Button>
-            <Button
-              variant="quiet-danger"
-              aria-label={tr("workspace.comments.deleteRow", {
-                path: comment.path,
-                line: comment.line,
-              })}
-              className="flex-none min-h-11 sm:min-h-0 px-2 py-1 text-caption"
-              onClick={() => {
-                pendingFocus.current = index;
-                onDelete(comment.id);
-              }}
-            >
-              {tr("workspace.comments.delete")}
-            </Button>
-          </li>
-        ))}
+              </Button>
+              <Button
+                variant="quiet-danger"
+                aria-label={tr("workspace.comments.deleteRow", {
+                  path: comment.path,
+                  line,
+                })}
+                className="flex-none min-h-11 sm:min-h-0 px-2 py-1 text-caption"
+                onClick={() => {
+                  pendingFocus.current = index;
+                  onDelete(comment.id);
+                }}
+              >
+                {tr("workspace.comments.delete")}
+              </Button>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

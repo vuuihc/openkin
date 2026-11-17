@@ -43,8 +43,10 @@ import {
   newCommentId,
   readDiffComments,
   writeDiffComments,
+  type CommentAnchorState,
   type DiffAnchor,
   type DiffComment,
+  type ReanchoredComment,
 } from "./diffCommentAnchor";
 import FileTree from "./FileTree";
 
@@ -263,6 +265,9 @@ export default function WorkspacePanel({
   // Part 2 re-anchors them against a fresh diff; nothing here assumes the
   // line numbers are still right.
   const [diffComments, setDiffComments] = useState<DiffComment[]>(() => readDiffComments(taskId));
+  // Part 2: where each comment points in the fresh diff, as the viewer last
+  // reported it. Display state only — the saved anchors are never rewritten.
+  const [commentAnchors, setCommentAnchors] = useState<Record<string, CommentAnchorState>>({});
   const [commentsTask, setCommentsTask] = useState(taskId);
   const [commentTarget, setCommentTarget] = useState<DiffAnchor | null>(null);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
@@ -592,6 +597,7 @@ export default function WorkspacePanel({
   useEffect(() => {
     if (commentsTask === taskId) return;
     setDiffComments(readDiffComments(taskId));
+    setCommentAnchors({});
     setCommentTarget(null);
     setCommentDrafts({});
     setCommentsCollapsed(false);
@@ -648,15 +654,37 @@ export default function WorkspacePanel({
     [commentTarget, focusDiffLine],
   );
 
+  // The viewer reports after every diff update. Merge by id so a report for
+  // one file never drops what another file's diff taught us, and return the
+  // same object when nothing moved so a repeated report cannot re-render.
+  const reanchorCommentsForViewer = useCallback((results: ReanchoredComment[]) => {
+    setCommentAnchors((current) => {
+      let next: Record<string, CommentAnchorState> | null = null;
+      for (const result of results) {
+        const previous = current[result.id];
+        if (previous && previous.line === result.line && previous.stale === result.stale) {
+          continue;
+        }
+        next ??= { ...current };
+        next[result.id] = { line: result.line, stale: result.stale };
+      }
+      return next ?? current;
+    });
+  }, []);
+
   const jumpToComment = useCallback(
     (comment: DiffComment) => {
       // A comment may point into another file of the same conversation. Open it
       // first; the reveal request waits in CodeViewer until that diff mounts.
       if (comment.path !== selectedPath) void loadFile(comment.path);
-      lastDiffLineRef.current = comment.line;
-      focusDiffLine(comment.line, comment.path);
+      // The resolved line is display state: the saved anchor stays untouched,
+      // but jumping to a line number the rerun invalidated would land on the
+      // wrong code.
+      const line = commentAnchors[comment.id]?.line ?? comment.line;
+      lastDiffLineRef.current = line;
+      focusDiffLine(line, comment.path);
     },
-    [focusDiffLine, loadFile, selectedPath],
+    [commentAnchors, focusDiffLine, loadFile, selectedPath],
   );
 
   const deleteComment = useCallback((id: string) => {
@@ -1179,6 +1207,8 @@ export default function WorkspacePanel({
                     setCommentTarget(anchor);
                     setCommentsCollapsed(false);
                   }}
+                  comments={diffComments}
+                  onCommentsReanchored={reanchorCommentsForViewer}
                   focusLine={commentFocus}
                 />
               </Suspense>
@@ -1218,6 +1248,7 @@ export default function WorkspacePanel({
             ) : (
               <DiffCommentsTray
                 comments={diffComments}
+                anchors={commentAnchors}
                 onJump={jumpToComment}
                 onDelete={deleteComment}
                 onSend={sendComments}
