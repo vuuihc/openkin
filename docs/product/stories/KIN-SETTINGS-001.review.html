@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="kin-review-format" content="figma-flow-v1">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:,">
+<title>KIN-SETTINGS-001 · 改默认设置</title>
+<style>
+:root{color-scheme:light dark;--ink:#1a1a1a;--muted:#666a73;--line:#dedee3;--bg:#f1f1f4;--page:#fbfbfd;--card:#fff;--accent:#1f6feb;--soft:#eef3ff;--warn:#b42318;--warnbg:#fff1f0;--ok:#137a3f;--okbg:#eef8f1;--gutter:clamp(16px,5vw,24px)}
+@media(prefers-color-scheme:dark){:root{--ink:#f5f5f7;--muted:#a1a1aa;--line:#35353a;--bg:#0b0b0d;--page:#141416;--card:#1d1d20;--accent:#6ea8fe;--soft:#17243a;--warn:#ff8a80;--warnbg:#2a1717;--ok:#6dd58c;--okbg:#13251b}}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;-webkit-font-smoothing:antialiased}a{color:var(--accent)}code{padding:1px 5px;border-radius:5px;background:var(--bg);font-size:.9em;overflow-wrap:anywhere}.page{max-width:860px;min-height:100vh;margin:auto;padding:0 var(--gutter) calc(48px + env(safe-area-inset-bottom));background:var(--page)}header{padding:30px 0 12px}.eyebrow{color:var(--muted);font-size:12.5px;letter-spacing:.02em}h1{margin:6px 0 8px;font-size:26px;line-height:1.28;letter-spacing:-.02em}h2{margin:0 0 10px;font-size:20px;line-height:1.35}h3{margin:0 0 6px;font-size:16px;line-height:1.4}h4{margin:16px 0 8px;font-size:15px}p{margin:8px 0}ul,ol{margin:8px 0;padding-left:20px}li{margin:6px 0}.meta{margin:2px 0;color:var(--muted);font-size:13px}.tags,.screen-index{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}.pill{display:inline-flex;align-items:center;height:25px;padding:0 10px;border-radius:999px;font-size:12px;white-space:nowrap;border:1px solid var(--line);background:var(--card);color:var(--muted)}.pill.here{color:var(--accent);background:var(--soft);border-color:var(--accent)}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px}.summary{margin-top:12px;border-left:4px solid var(--accent)}.summary p{margin:0}.howto{margin-top:12px;background:var(--soft);border-color:transparent}.howto h2{font-size:17px;margin:0}.howto ol{font-size:15px;margin-bottom:0}.note{color:var(--muted);font-size:13.5px}.toc{position:sticky;top:0;z-index:20;display:flex;gap:8px;margin:0 calc(-1 * var(--gutter));padding:8px var(--gutter);overflow-x:auto;background:var(--page);border-bottom:1px solid var(--line);scrollbar-width:none}.toc::-webkit-scrollbar{display:none}.toc a,.screen-index a{flex:none;display:inline-flex;align-items:center;min-height:44px;padding:0 14px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--ink);font-size:13px;text-decoration:none;white-space:nowrap}.toc a.primary{border-color:var(--accent);color:var(--accent);background:var(--soft)}section{padding-top:30px;scroll-margin-top:72px}.mece{margin-top:10px;padding:2px 14px}.mece-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);font-size:15px}.mece-row:last-child{border:0}.who{color:var(--muted);font-size:12.5px}.mece-row.here{margin:2px -8px;padding:11px 8px;border:0;border-radius:10px;background:var(--soft)}.mece-row.here strong{color:var(--accent)}.bullets{font-size:15px}.two{display:grid;gap:10px}.two .card{border-left-width:4px;font-size:15px}.now{border-left-color:var(--warn)!important;background:var(--warnbg)}.after{border-left-color:var(--ok)!important;background:var(--okbg)}.gaps{margin-top:12px;border-left:4px solid var(--warn);font-size:15px}.gaps ol{margin-bottom:0}.screen-index{margin:10px 0 16px}.screen{margin:16px 0;padding:14px;background:var(--card);border:1px solid var(--line);border-radius:18px}.screen-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}.frame{margin:0}.frame-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:#fff;scrollbar-width:thin}.frame-scroll:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.frame img{display:block;height:auto;max-width:none}.fig-phone .frame-scroll{max-width:390px;margin:auto}.fig-phone img{width:100%}.fig-wide img{width:1100px}.fig-board img{width:1600px}.frame figcaption{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin-top:8px;color:var(--muted);font-size:12.5px}.frame figcaption a{display:inline-flex;align-items:center;min-height:44px}.flow{list-style:none;margin:0;padding:0;display:grid;gap:8px}.flow li{display:grid;grid-template-columns:6.5em minmax(0,1fr);gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-size:16px}.flow b{color:var(--accent)}.flow span{min-width:0;overflow-wrap:anywhere}.state-list{display:grid;gap:8px;margin-top:10px}.state{padding:11px 13px;background:var(--card);border:1px solid var(--line);border-radius:12px;font-size:15px}.state b{display:block}.state span{color:var(--muted)}.decision{margin:12px 0;padding:14px;background:var(--card);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:14px}.decision p{font-size:16px}.rec strong{color:var(--accent)}.tradeoff{color:var(--muted);font-size:14px}.decision.settled{border-left-color:var(--ok)}.decision.settled .rec strong{color:var(--ok)}.reply pre{padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:13.5px/1.9 -apple-system,BlinkMacSystemFont,"SF Mono",Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere}.sign{border-left:4px solid var(--ok)}footer{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}a:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:6px}@media(min-width:600px){body{padding:26px 0}.page{min-height:auto;border-radius:28px;box-shadow:0 20px 60px #0002}.two{grid-template-columns:1fr 1fr}}@media(max-width:380px){.flow li{grid-template-columns:1fr;gap:4px}}
+</style>
+</head>
+<body><main class="page">
+<header>
+<div class="eyebrow">Figma 审阅版 · 约 9 分钟 · 3 条已定 + 5 条待签</div>
+<h1>KIN-SETTINGS-001 · 改默认设置</h1>
+<p class="meta">draft · 面：Mac / 手机 · 对照 <code>KIN-SETTINGS-001.md</code></p>
+<p class="meta">2026-11-17 · 5 张帧 · 七种状态 · 只画设计页和帧，不动产品代码</p>
+<div class="tags"><span class="pill here">待签字</span><span class="pill">旅程 J6</span><span class="pill">设置与环境 · 目录 → 分组 → 选择器</span></div>
+</header>
+
+<section class="card summary"><p><strong>一句话：</strong>当我常用某个 agent、模型或这台机器，我想在设置里一次改好默认值，以便新建对话时不用每次重选，也不想在设置页里翻半天才找到那一项。</p></section>
+
+<section class="card howto"><h2>怎么审</h2><ol><li>先看切法：这条只管「改默认值」，新建页的选择器归 START，运维表归 AGENTS，通知行归 NOTIFY。</li><li>看 5 张帧和每屏六段用户流程，重点看三件今天做不到的事：目录上看不到当前值、改完没有「已保存」的就地反馈、provider 没有「测试连接」。</li><li>最后回决定：D4–D8 待拍板；D1–D3 已定，不用再确认。</li></ol><p class="note">帧只用线框，没有真实 provider 名、主机名、设备 id 或账号。宽帧在卡片内左右滑动，页面本身不横滚。</p><p class="note"><strong>先说三个量出来的发现：</strong>① 合同第 1 步的「左目录右内容」和手机「目录 → 详情」今天已经存在，缺的是组名旁那行<strong>当前值摘要</strong>（<code>SettingsPrimitives.tsx:167</code> 的 <code>md:w-56</code>、<code>:218</code> 的 620px 表单、<code>:199</code> 的 <code>title=</code> 提示）。② 设置页<strong>没有任何搜索</strong>（<code>git grep settings.search</code> 无结果），合同第 2 步的「或搜索设置项」是从未交付的承诺。③ 合同目录写五组，实际有<strong>六组</strong>，第六组 <code>operations</code> 托管的是 KIN-AGENTS-001 的运维面（<code>settingsTabsWiring.test.ts</code>「offers exactly the six settings that are still used」）。</p></section>
+
+<nav class="toc" aria-label="页内导航"><a class="primary" href="#mece">切法</a><a href="#before-after">现在→之后</a><a class="primary" href="#screens">界面</a><a href="#states">状态</a><a class="primary" href="#decisions">决定</a><a href="#reply">回复模板</a></nav>
+
+<section id="mece"><h2>MECE：这条故事切在哪</h2><p class="note">SETTINGS-001 管「把默认值改对」：打开目录 → 找到组 → 看清当前值和影响 → 改一项 → 看到保存结果 → 返回新建页用上新值。新建页怎么挑这一次的 agent 归 START；运维面的表归 AGENTS；通知落点归 NOTIFY。</p>
+<div class="card mece">
+<div class="mece-row"><div>接着问一段对话<div class="who">KIN-CONTINUE-001 / 002 / 003</div></div><span class="pill">只用它的对话头与返回，不改设置</span></div>
+<div class="mece-row"><div>新建一段对话的选择器<div class="who">KIN-START-001</div></div><span class="pill">它读本条保存的默认值，选择器归它</span></div>
+<div class="mece-row"><div>看一次跑完改了什么<div class="who">KIN-RESULT-001 / 002 / 003</div></div><span class="pill">不归这条</span></div>
+<div class="mece-row"><div>管理对话与项目<div class="who">KIN-MANAGE-001 / PROJECT-001</div></div><span class="pill">不归这条</span></div>
+<div class="mece-row here"><div><strong>改默认设置：目录 → 分组 → 选择器</strong><div class="who">KIN-SETTINGS-001 · 这条</div></div><span class="pill here">本页</span></div>
+<div class="mece-row"><div>运维：用量、限额、健康、重检 / smoke<div class="who">KIN-AGENTS-001 · <code>?tab=operations</code></div></div><span class="pill">目录里只留一行入口，不重复画它的表</span></div>
+<div class="mece-row"><div>通知行与首次授权<div class="who">KIN-NOTIFY-001</div></div><span class="pill">通用里只标归属</span></div>
+<div class="mece-row"><div>桌面壳一键升级<div class="who">KIN-SETTINGS-002</div></div><span class="pill">不归这条</span></div>
+<div class="mece-row"><div>Hub 账户、订阅、团队<div class="who">Hub 账户面（不在本条）</div></div><span class="pill">通用里保留现有账户块并标归属</span></div>
+</div>
+<ul class="bullets">
+<li><strong>为什么单独一条：</strong>「改一个默认值」是一个人独立完成的一件事：找组、看值、改、保存、回去用上；它有自己的空（没有 provider）、慢、失败、断线和离开再回来。</li>
+<li><strong>Job map 覆盖：</strong>第 1 步定义 / 打开＝01、03 的目录；第 2 步定位＝01、03；第 3 步准备 / 确认＝01 的当前值与影响、05 的默认格；第 4 步执行＝02、04 的选择器；第 5 步修改＝02 的测试连接、04 的保存反馈；第 6 步监控＝05 的失败、断线、未保存三格；第 7 步收尾＝01 的默认 agent 摘要与故事第 7 步（返回新建页）。七步都有落点，没有「先做 Mac 再做手机」。</li>
+<li><strong>设备只是差异：</strong>Mac 是 224px 左目录 + 620px 表单 + 贴行外弹；手机是「通用即目录」+ 详情页 + 盖在页上的选择器。同一套文案、同一份设置；差异写在故事「各面差异」。</li>
+<li><strong>不在这一条：</strong>新增 provider 类型、OAuth scope、schema 变更、<code>kin_permission_mode</code>、账号 / 订阅 / 团队、远程与通知两个旧 tab（R0b-3 已删）、运维表本体（AGENTS-001）、新建页的运行配置（START-001）。</li>
+<li><strong>四条大小自检：</strong>① 标题只有一个动作（改默认值）；② 一个人一台设备一次走得完；③ 一次交付装得下测试、复审和 390 / 1100 截图；④ 7 步 ≥ 3 步，验收每行都能写成 Given / Then。</li>
+</ul></section>
+
+<section id="before-after"><h2>现在 → 之后</h2>
+<div class="two"><div class="card now"><h3>现在（2026-11-17，读 <code>origin/main</code> 实测）</h3><ul>
+<li><strong>目录已存在：</strong>Mac 是 224px 左栏（<code>SettingsPrimitives.tsx:167</code>）加 620px 表单（<code>:218</code>），竖排 <code>role="tablist"</code>（<code>:182</code>）；手机把通用当首页，下面一张「更多设置」卡列出其余五组，进组后是顶部一条返回（<code>:231</code>、<code>:241</code>）。合同第 1 步的形状不用重做。</li>
+<li><strong>缺的是当前值：</strong>Mac 的组名只有 <code>title={tab.description}</code> 悬停提示（<code>:199</code>），手机上 <code>MobileRow</code> 的 <code>detail</code> 显示的是一句介绍，不是「现在用的是什么」。合同第 1 / 3 步要的摘要和影响句今天都不存在。</li>
+<li><strong>六组不是五组：</strong><code>SettingsPage.tsx:708-738</code> 的 id 依次是 <code>general / agents / operations / providers / routing / advanced</code>；<code>operations</code> 托管 <code>AgentsPage embedded</code>（<code>:822-824</code>），打开时占满整页、藏起目录，只在选中时渲染。它是运维面，不是第六组默认值。</li>
+<li><strong>没有搜索：</strong>页面上没有任何设置搜索框、快捷键或结果页；合同第 2 步的「或搜索设置项」没有对应代码，也没有测试。</li>
+<li><strong>状态归 URL：</strong><code>?tab=</code> 是唯一状态（<code>SettingsPage.tsx:198-216</code>），未带参数是通用；通知在页面已挂载时改 URL 也会切组。<code>SettingsPage.notificationTab.dom.test.tsx</code> 钉住「puts a hand-picked tab in the URL」（<code>/settings?tab=routing</code> 与 <code>/settings</code>）。</li>
+<li><strong>键盘：</strong><code>nextSettingsTabId</code> 支持 ↑/↓ 与 Home / End，roving tabindex，焦点在 <code>requestAnimationFrame</code> 后落到新组；<code>SettingsPrimitives.test.ts</code>「renders the Mac section nav as a vertical tablist」钉住形状。手机上 <code>role="tablist"</code> 是 <code>hidden</code>（<code>:182</code>），<strong>没有横向 tab 条</strong>；<code>offscreenEdges</code> 只有定义和单元测试，组件里没有用到。</li>
+<li><strong>通用里混着两个别的面：</strong><code>AccountSection</code>（<code>SettingsPage.tsx:852</code>）在 <code>account.enabled</code> 为假时返回 <code>null</code>（<code>AccountSection.tsx:64</code>）；<code>PushPermissionRow</code>（<code>:856</code>）在授权后不渲染。两者都不属于本条的「默认值」。</li>
+<li><strong>各组今天能改什么：</strong>Agents 是检测列表 + 状态（可用 / 不可用 / 仅检测到存在 / 未检测到 / 能力降级 / 需要权限）+ 刷新检测 + 手动导入 + 角色（<code>LocalAgentSettingsSection.tsx</code>）；Providers 是列表（使用中 / 切换使用 / 编辑 / 删除）+ 表单（Base URL、API 密钥、默认模型、流式传输、默认 agent）；路由两段各有自己的保存与「已保存」；高级是价格表与 agent 限额两段 JSON，各有自己的红字。</li>
+<li><strong>密钥：</strong>GET 时服务端掩码（<code>internal/api/api.go:1792</code>），表单是 <code>type=password</code> + 显示 / 隐藏，提示写「保存在 ~/.kin/kin.db」。但<strong>没有「已配置 / 未配置」这句</strong>，也没有测试钉住「不回显」——<code>ProviderSettingsSection.test.ts</code> 只测 <code>providerDisplayName</code> 与 <code>providerSummary</code>。</li>
+<li><strong>测试连接不存在：</strong><code>git grep 测试连接</code> 在 <code>ui/</code> 与 <code>internal/</code> 都没有结果。Provider 只有「获取模型列表」（获取中… / 请先填写 Base URL / 该地址未返回任何模型），Agents 运维里有「重检」和 smoke（<code>AgentOperationsSection.dom.test.tsx</code>「names the agent that failed the smoke test」）。</li>
+<li><strong>保存与未保存：</strong>页面级 <code>settings.saved</code>「设置已保存」toast；路由是段内保存 +「已保存」（<code>settings.savedShort</code>）；失败是组内红字。离开时有 <code>useLeaveGuard</code> 问「放弃未保存的设置更改？」（<code>SettingsPage.leaveGuard.dom.test.tsx</code>「asks on every root departure for Advanced, then Save releases it」）。但只有路由、general JSON / 角色 / provider 表单进 dirty；<strong>选择器行没有逐行保存或未保存标记</strong>，主题按钮选完立即生效，也不进 guard。</li>
+<li><strong>加载与失败：</strong>首屏是一张卡片的 <code>SkeletonLine</code>（<code>SettingsPage.tsx:694-706</code>），慢连接加一句硬编码英文「Still connecting — your link may be slow.」（<code>Skeleton.tsx:86</code>）；读取失败是原始错误句 + <code>role="alert"</code>，<strong>没有「设置读取失败」，也没有重试</strong>（<code>SettingsPage.tsx:683-691</code>）。</li>
+<li><strong>第 7 步今天成立一半：</strong><code>agent.default</code> 被写进设置（<code>internal/api/api.go:1953</code>），agent 列表按它标默认（<code>internal/agent/registry.go:328</code>），新建页取 <code>available.find(a =&gt; a.default)</code>（<code>NewChatPage.tsx:358</code>）。「改完给一句话说明下一次会用上」没有。</li>
+</ul></div><div class="card after"><h3>之后（这条要交付的）</h3><ul>
+<li>保留今天的两套形状（D1）：Mac 左目录右内容、手机通用即目录 + 详情返回；不新开设置页、不做第二个列表。</li>
+<li>目录每一行加一句<strong>可见的当前值摘要</strong>，每组再加一句它影响什么（D5）；值来自已加载的 settings，不发新请求，保存中的草稿不写进摘要。</li>
+<li>把「搜索设置项」从合同删掉（D4）：五组在手机一屏能看完，先删承诺再加控件。</li>
+<li>运维仍是第六行，标成「运维 · 归 KIN-AGENTS-001」，点进去就是今天的托管面（D2）；账户与通知在通用里各留一行并标归属（D3）。</li>
+<li>一套未保存策略（D6 / D8）：选择器改完即存并给「已保存」；文本 / JSON / provider 表单保留组内保存与红字；离开设置仍问；手机返回不自动保存。</li>
+<li>provider 的「测试连接」按 D7 先画虚线：交付时补 10 秒超时、提供方原话、结果不持久化；在那之前合同第 5 步只算部分成立。</li>
+<li>第 7 步补一句收尾：保存后摘要立刻变，返回新建页时运行设置读到新默认；旧对话不受影响。</li>
+</ul></div></div>
+<div class="card gaps"><h3>交付缺口：合同写了、代码今天没有的</h3><ol>
+<li>第 1 / 3 步：目录行上的<strong>当前值摘要</strong>与每组一句影响（D5）。今天只有 <code>title=</code> 和手机 <code>detail</code> 描述。</li>
+<li>第 2 步：<strong>搜索设置项</strong>（D4 推荐从合同删除，不实现）。</li>
+<li>第 2 / 3 步：跨组搜索无结果、组内失败的独立文案；今天失败是页面级原始错误。</li>
+<li>第 4 步：选择器<strong>贴行外弹</strong>的统一形状（D6）。Provider 的模型今天是输入框 + 原生 <code>datalist</code>；合同与 TASTE 14 要的是共享 facade 的外弹层。</li>
+<li>第 4 / 6 步：逐行的<strong>未保存标记</strong>与「保存失败恢复旧值」；今天只有页面级 dirty 和 provider / routing 的段内错误。</li>
+<li>第 5 步：provider 的<strong>测试连接</strong>（D7）：进行中、连接正常、提供方原话、超时「超时，稍后再试」、断线不可用。</li>
+<li>第 1 步：读不出来时的「<strong>设置读取失败</strong>」+ <strong>重试</strong>；今天是原始错误句，没有重试按钮。</li>
+<li>第 6 步：断线时<strong>禁用保存并说明原因</strong>（D6 选禁用，不做本地队列）；今天保存会失败并给错误句。</li>
+<li>第 3 步：密钥类显示「<strong>已配置 / 未配置</strong>」；今天列表只显示名称与模型，表单是密码框 + 提示，没有这句话。</li>
+<li>第 7 步：保存后「下一次新建对话会用上」的<strong>收尾句</strong>；今天只有 toast「设置已保存」。</li>
+<li>框架缺口：合同验收点名的 <code>ui/src/pages/SettingsPage.dom.test.tsx</code> 不存在；现有的是 <code>SettingsPage.facade.dom.test.tsx</code>、<code>.leaveGuard</code>、<code>.notificationTab</code>、<code>.operations</code> 四份。合同点名的 <code>LocalAgentSettingsSection.dom.test.ts</code> 实际是 <code>.dom.test.tsx</code>，且只覆盖导入按钮，没有「选择器贴行外弹」。签字时把验收行改成真实文件名，或交付时补测试。</li>
+</ol></div></section>
+
+<section id="screens"><h2>界面与用户流程</h2><p class="note">每一屏先看 Figma 帧，再读下面六段用户流程。帧是设计源；宽帧在卡片内左右滑动，点「打开原图」可以全尺寸看。虚线框是合同要求、代码里还没有的部分。</p>
+<div class="screen-index"><a href="#screen-1">01 · Mac · 目录与通用</a><a href="#screen-2">02 · Mac · 选择器与未保存</a><a href="#screen-3">03 · 手机 · 通用即目录</a><a href="#screen-4">04 · 手机 · 组详情与选择器</a><a href="#states">05 · 状态板</a></div>
+
+<article class="screen" id="screen-1"><div class="screen-head"><div><div class="eyebrow">01 · Mac · 1100×760</div><h3>目录：六组、当前值摘要、影响一句</h3></div><span class="pill">Figma 帧</span></div>
+<figure class="frame fig-wide"><div class="frame-scroll" role="region" aria-label="Mac 设置页的目录与通用组帧" tabindex="0"><img src="KIN-SETTINGS-001.figma/frames/01-mac-directory.svg" width="1100" height="760" alt="Mac 设置页：左侧 224px 目录列六组（通用选中），每组名下有一行虚线标出的当前值摘要；右侧 620px 表单是通用组的外观三选一、账户行标为由 Hub 管理、通知行标为由 KIN-NOTIFY-001 管理，底部虚线框说明摘要与影响句尚未交付" loading="lazy"></div><figcaption><span>1100×760 · Mac 帧 · 本帧从左侧开始，因为目录是这一屏的主体</span><a href="KIN-SETTINGS-001.figma/frames/01-mac-directory.svg">打开原图</a></figcaption></figure>
+<h4>用户流程</h4><ol class="flow">
+<li><b>起点</b><span>Mac 1100 宽，左栏底部图标进入设置；URL 是 <code>/settings</code>，通用选中。</span></li>
+<li><b>动作</b><span>看目录，或按 Tab 进目录再用 ↑/↓ 换组；也可以点一行。</span></li>
+<li><b>立刻看到</b><span>左边六组：通用、Agents、运维、Providers、路由、高级。每组名下一句当前值（跟随系统 / 2 个可用 / gpt-4.1-mini · 使用中 / 自动 / 价格表已载入），运维行标明归 AGENTS-001；右边是通用组的外观三选一。</span></li>
+<li><b>慢 / 空 / 失败 / 断线</b><span>首次加载：只骨架右边首块，目录照常可见；读不到：目录还在，右边给「设置读取失败」和重试（虚线，未交付）；断线：外壳顶部「重连中…」，已加载的摘要不清空。</span></li>
+<li><b>键盘与焦点</b><span>Tab 进目录，↑/↓ 循环换组，Home / End 到两端；换组后焦点落在新组（或运维的返回行）；读屏把组名与 <code>aria-selected</code> 一起读。</span></li>
+<li><b>离开再回来</b><span>URL 的 <code>?tab=</code> 记住组；返回设置仍是这一组，目录滚动位置不动；摘要显示已保存的值，不显示未保存的草稿。</span></li>
+</ol></article>
+
+<article class="screen" id="screen-2"><div class="screen-head"><div><div class="eyebrow">02 · Mac · 1100×760</div><h3>一行的选择器、失败行与未保存</h3></div><span class="pill">Figma 帧</span></div>
+<figure class="frame fig-wide"><div class="frame-scroll" role="region" aria-label="Mac Providers 组里一行的选择器外弹与保存失败帧" tabindex="0" data-start="330"><img src="KIN-SETTINGS-001.figma/frames/02-mac-picker.svg" width="1100" height="760" alt="Mac Providers 组：编辑表单里默认模型一行打开贴着字段的选择器，浮层盖在下方内容上、页面高度不变；Base URL 下有一行红字保存失败，模型行带未保存标记，底部虚线标出尚未交付的测试连接按钮" loading="lazy"></div><figcaption><span>1100×760 · Mac 帧 · 主区优先，左右滑动看完整；虚线是未交付</span><a href="KIN-SETTINGS-001.figma/frames/02-mac-picker.svg">打开原图</a></figcaption></figure>
+<h4>用户流程</h4><ol class="flow">
+<li><b>起点</b><span>Provider 组，OpenAI 使用中；正在编辑它的 Base URL 与默认模型。</span></li>
+<li><b>动作</b><span>点「默认模型」这一行（或聚焦后 Enter）打开选择器；↑/↓ 选一项，Enter 确定。</span></li>
+<li><b>立刻看到</b><span>选择器贴着这一行向下外弹，盖住下面的字段与按钮，<strong>页面高度不变</strong>；当前项带 ✓；选完这一行的值立刻变，焦点回到这一行。</span></li>
+<li><b>慢 / 空 / 失败 / 断线</b><span>选项加载中写「加载中」；地址没填先给「请先填写 Base URL」；保存失败在这一行下面给红字（图示「保存失败：该地址未返回任何模型」）并恢复旧值；断线时选择器还能开，保存禁用并说明原因（虚线，未交付）。</span></li>
+<li><b>键盘与焦点</b><span>↑/↓ 移动、Enter 确定、Esc 关闭并把焦点还给这一行；打开时焦点进当前项，Tab 不跑到背后的表单。</span></li>
+<li><b>离开再回来</b><span>已保存的值还在；没保存的改动带「未保存」标记，离开设置时被问一次；失败的行不假装成功。</span></li>
+</ol></article>
+
+<article class="screen" id="screen-3"><div class="screen-head"><div><div class="eyebrow">03 · 手机 · 390×844</div><h3>通用就是目录，五组在「更多设置」里</h3></div><span class="pill">Figma 帧</span></div>
+<figure class="frame fig-phone"><div class="frame-scroll" role="region" aria-label="手机设置首页的通用组与更多设置目录帧" tabindex="0"><img src="KIN-SETTINGS-001.figma/frames/03-phone-directory.svg" width="390" height="844" alt="手机 390：设置首页先是外观三选一，下面是更多设置卡的五行（Agents、运维、Providers、路由、高级），每行是名称、描述、虚线当前值摘要和右箭头；底部四区导航停在设置" loading="lazy"></div><figcaption><span>390×844 · 手机帧</span><a href="KIN-SETTINGS-001.figma/frames/03-phone-directory.svg">打开原图</a></figcaption></figure>
+<h4>用户流程</h4><ol class="flow">
+<li><b>起点</b><span>手机 390，底部导航停在「设置」；URL 是 <code>/settings</code>。</span></li>
+<li><b>动作</b><span>看外观，或点「更多设置」里的一行。</span></li>
+<li><b>立刻看到</b><span>通用是首页；下面五行走廊：Agents、运维、Providers、路由、高级，每行至少 44px，名称 + 描述 + 当前值摘要 + ›。没有横向 tab 条。</span></li>
+<li><b>慢 / 空 / 失败 / 断线</b><span>摘要还没读到时留空位，不显示「未知」；读取失败在卡上方给一句错误与重试（虚线）；断线时已显示的摘要保留，顶部「重连中…」。</span></li>
+<li><b>键盘与焦点</b><span>外接键盘 Tab 逐行走，Enter 进入；每行是按钮语义，读屏读「名称 + 当前值」；返回行也是 44px。</span></li>
+<li><b>离开再回来</b><span>从详情返回，目录停在原来的滚动位置；再进设置仍是通用目录，除非 URL 带着 <code>?tab=</code>。</span></li>
+</ol></article>
+
+<article class="screen" id="screen-4"><div class="screen-head"><div><div class="eyebrow">04 · 手机 · 390×844</div><h3>组详情：返回行、盖在页上的选择器、保存反馈</h3></div><span class="pill">Figma 帧</span></div>
+<figure class="frame fig-phone"><div class="frame-scroll" role="region" aria-label="手机 Provider 详情与选择器浮层帧" tabindex="0"><img src="KIN-SETTINGS-001.figma/frames/04-phone-group.svg" width="390" height="844" alt="手机 Provider 详情页：顶部‹设置返回行，Provider 列表与编辑卡，Base URL 下红字保存失败，绿色轻提示已保存；下半是盖住当前页的默认模型选择器，四个选项每个 56px，当前项带勾" loading="lazy"></div><figcaption><span>390×844 · 手机帧；选择器盖在当前页上，页面高度不变</span><a href="KIN-SETTINGS-001.figma/frames/04-phone-group.svg">打开原图</a></figcaption></figure>
+<h4>用户流程</h4><ol class="flow">
+<li><b>起点</b><span>手机目录，点 Providers；顶部出现「‹ 设置」返回行。</span></li>
+<li><b>动作</b><span>点「默认模型」，或先改 Base URL 再保存。</span></li>
+<li><b>立刻看到</b><span>选择器从底部盖在当前页上，当前项带 ✓，每项 56px；选完关闭并给轻提示「已保存」；Base URL 保存失败时字段下是「保存失败：401 Unauthorized」，旧值恢复。</span></li>
+<li><b>慢 / 空 / 失败 / 断线</b><span>空是「还没有 Provider。添加一个 OpenAI 兼容端点即可驱动 kin agent。」+ 唯一主按钮；加载只骨架首块；断线顶部「重连中…」且保存禁用；选择器里的选项加载慢时写「加载中」。</span></li>
+<li><b>键盘与焦点</b><span>返回行和每个选项至少 44px；选择器打开时焦点进当前项，Esc 或「取消」关闭并回到那一行；轻提示不抢焦点。</span></li>
+<li><b>离开再回来</b><span>返回目录不自动保存文本组（D8）；选择器选完已经保存。再进这一组，值还是刚才选的；未保存的文本改动会在返回时被问一次。</span></li>
+</ol></article>
+</section>
+
+<section id="states"><h2>状态</h2><p class="note">状态板并排七种样子：默认、空、加载、失败、断线、未保存、测试连接中。第八格是逐条文案检查表。实线已交付，虚线是合同要求、代码里还没有。</p>
+<figure class="frame fig-board"><div class="frame-scroll" role="region" aria-label="设置页七种状态与文案检查表的状态板" tabindex="0"><img src="KIN-SETTINGS-001.figma/frames/05-state-board.svg" width="1600" height="1000" alt="状态板八格：默认给当前值与影响，空给还没有 Provider 和唯一主按钮，加载只骨架首块，失败给设置读取失败与重试（虚线），断线保留已加载值并禁用保存，未保存给放弃确认，测试连接中给进行中、连接正常、提供方原话与超时，第八格是文案检查表" loading="lazy"></div><figcaption><span>1600×1000 · 状态板 · 左右滑动或打开原图</span><a href="KIN-SETTINGS-001.figma/frames/05-state-board.svg">打开原图</a></figcaption></figure>
+<h4>用户流程</h4><ol class="flow">
+<li><b>起点</b><span>设置页在冷启动、刚刷新、断线、有未保存改动，或 provider 正在测试连接。</span></li>
+<li><b>动作</b><span>看每一格，对照它给的话和下一步。</span></li>
+<li><b>立刻看到</b><span>默认：每组一行当前值与一句影响；空：「还没有 Provider。添加一个 OpenAI 兼容端点即可驱动 kin agent。」；加载：首块骨架；失败：「设置读取失败」+ 重试；断线：「重连中…」；未保存：「放弃未保存的设置更改？」；测试中：「测试中…」。</span></li>
+<li><b>慢 / 空 / 失败 / 断线</b><span>慢＝一块骨架 + 硬编码英文慢连接句；空＝唯一主按钮「添加 Provider」；失败＝错误句 + 重试（未交付）；断线＝保留值、禁用保存并说明（未交付）；测试＝10 秒超时「超时，稍后再试」，失败用提供方原话。</span></li>
+<li><b>键盘与焦点</b><span>每种状态都有落点：目录行、返回行、重试按钮、保存按钮、选择器当前项；错误态不把焦点丢给 body；轻提示不抢焦点。</span></li>
+<li><b>离开再回来</b><span>失败与断线不清空已加载的值；未保存的改动在离开时被问；测试结果不写成「已连接」，重开不假装测过。</span></li>
+</ol>
+<div class="state-list">
+<div class="state"><b>默认</b><span>每组一句当前值 + 一句影响。今天只有 <code>title=</code> 悬停提示和手机 <code>detail</code> 描述；D5 要把它变成可见的一行。</span></div>
+<div class="state"><b>空（没有 provider）</b><span>「还没有 Provider。添加一个 OpenAI 兼容端点即可驱动 kin agent。」+「添加 Provider」；其余组照常。已交付。</span></div>
+<div class="state"><b>加载</b><span>只骨架首个内容块，目录和外壳导航照常；慢连接加一句硬编码英文「Still connecting — your link may be slow.」。已交付，但那句没有 i18n。</span></div>
+<div class="state"><b>失败</b><span>今天是原始错误句 + <code>role="alert"</code>，没有重试；合同要「设置读取失败」+ 重试。缺口。</span></div>
+<div class="state"><b>断线</b><span>外壳顶部「重连中…」，已加载的值保留；合同要「禁用保存或进本地队列，二者取一并说明」。D6 推荐禁用并说明，不做队列。部分成立。</span></div>
+<div class="state"><b>未保存</b><span>离开设置问「放弃未保存的设置更改？」；组内失败是这一行下的红字。逐行「未保存」标记还没有。部分成立。</span></div>
+<div class="state"><b>测试连接中</b><span>「测试中…」→「连接正常」/ 提供方原话 /「超时，稍后再试」；结果不持久化。provider 今天没有这个按钮，只有「获取模型列表」与运维里的重检 / smoke。未交付（D7）。</span></div>
+</div></section>
+
+<section id="decisions"><h2>要你拍板的</h2><p class="note">每条都写推荐和代价；只回不同意的编号。D1–D3 已经拍过板，写出来是为了让后来的人知道为什么。</p>
+
+<div class="decision settled"><h3>D1 导航形状不动：Mac 左目录右内容，手机通用即目录</h3><p class="rec"><strong>已定：</strong>保留今天的 <code>SettingsPrimitives</code> 形状——Mac 224px 竖排 tablist + 620px 表单，手机通用首页 +「更多设置」+ 详情返回行；不新开设置页，不做第二个目录。合同第 1 步的这两句已经成立。</p><p class="tradeoff"><strong>代价：</strong>手机要两级才能到一组（多一次返回）；换来一屏只做一件事，符合 TASTE 1 与 12。重做导航只会把已交付的测试（<code>SettingsPrimitives.test.ts</code>、<code>settingsTabsWiring.test.ts</code>）推倒重来。</p></div>
+
+<div class="decision settled"><h3>D2 运维是第六行入口，不是第六组默认值</h3><p class="rec"><strong>已定：</strong>保留 <code>?tab=operations</code> 这一行，视觉上标成「运维 · 归 KIN-AGENTS-001」；点进去仍是今天占满整页的托管面（<code>AgentsPage embedded</code>），内容、空态和重检都归 AGENTS-001。设置页不重复画 agent 卡片、用量表或健康检查。</p><p class="tradeoff"><strong>代价：</strong>合同目录那句「五组」要改成「五组默认值 + 一行运维」；用户会看到六行。换来一份运维表、一个入口，符合 TASTE 1（一个东西只有一个列表）。</p></div>
+
+<div class="decision settled"><h3>D3 通用里的账户与通知只标归属，不重画</h3><p class="rec"><strong>已定：</strong><code>AccountSection</code> 留在通用，标「账户 · 由 Hub 管理」；<code>PushPermissionRow</code> 标「通知 · 由 KIN-NOTIFY-001 管理」。本条不加账号、订阅、团队或通知设置。</p><p class="tradeoff"><strong>代价：</strong>通用仍混着一块不属于「默认值」的账户内容；把它搬到独立账户面需要另一条故事。换来合同 Do-not 的边界不被顺手突破。</p></div>
+
+<div class="decision"><h3>D4 把「或搜索设置项」从合同删掉，不建搜索</h3><p class="rec"><strong>推荐：</strong>删掉合同第 2 步的「或搜索设置项」，以及第 2 步「搜索无结果」那一行。证据：今天没有任何设置搜索（<code>git grep settings.search</code> 无结果），五组在手机一屏内能看完；TASTE 7 先删后加，TASTE 4 一份列表一个搜索框。</p><p class="tradeoff"><strong>代价：</strong>provider 很多的人仍要在 Providers 组里滚动（搜索也帮不了目录，因为组只有六行）。若以后设置真的超过一屏，再按那时的形状补搜索，并带上空结果与保留输入。</p></div>
+
+<div class="decision"><h3>D5 当前值摘要放哪：目录行下一句 + 每组一句影响</h3><p class="rec"><strong>推荐：</strong>Mac 在每组名下一句摘要（跟随系统 / gpt-4.1-mini · 使用中 / 自动 · 平衡优先），手机用「更多设置」行已有的 detail 位改显示摘要；每组内容顶部再加一句影响（「新建对话默认用这个 agent」）。摘要取自已保存的 settings，不发新请求，保存中的草稿不写进去。</p><p class="tradeoff"><strong>代价：</strong>每组要多一个 i18n 串和一条「摘要怎么算」的规则；摘要多了会变成第二份界面。选 B（在每组里做一张「当前默认」卡）会把一屏能改多项的优点弄丢。</p></div>
+
+<div class="decision"><h3>D6 一套未保存策略：选择器逐行保存，文本 / JSON 组内保存</h3><p class="rec"><strong>推荐：</strong>选择器（agent / 模型 / 主题 / 使用中的 provider）选完即存，给轻提示「已保存」；文本与 JSON（价格表、agent 限额、角色、路由、provider 表单）保留组内保存 + 这一行下面红字；离开设置仍用现有 <code>useLeaveGuard</code> 问一次。断线时禁用保存并说明原因，不做本地队列。</p><p class="tradeoff"><strong>代价：</strong>两种保存模型并存，需要一句话讲清（按控件类型分）；逐行保存要有失败回滚和逐行「未保存」标记。选「全部组内保存」会让改主题、换 agent 多一次点击；选「全部即时保存」会让 JSON 每敲一个字符都可能提交。</p></div>
+
+<div class="decision"><h3>D7 provider 的「测试连接」保留在合同里，先画虚线</h3><p class="rec"><strong>推荐：</strong>保留合同第 5 步的测试连接：按钮在「保存 Provider」旁，10 秒超时，成功「连接正常」，失败用提供方自己的话，超时「超时，稍后再试」，结果不写成「已连接」。交付时补；今天只有「获取模型列表」和运维里的重检 / smoke，页里画成虚线。</p><p class="tradeoff"><strong>代价：</strong>交付要多一个探测端点或复用模型列表请求，并处理超时与错误归一化。选 B（把第 5 步收窄成「获取模型列表」）成本低，但用户仍无法在保存前确认 key 能用，只能新建对话试错。</p></div>
+
+<div class="decision"><h3>D8 手机返回不自动保存；选择器选完即存</h3><p class="rec"><strong>推荐：</strong>返回行只是导航，不提交任何东西；选择器选完立即保存并给「已保存」；文本 / JSON 组有未保存改动时，返回先问「放弃未保存的设置更改？」（沿用现有文案）。</p><p class="tradeoff"><strong>代价：</strong>改完一段 JSON 直接返回会多一次确认；选「返回时统一保存」会把一屏一个动作变成一次隐式提交，失败时用户已经离开那一组，错误无处可放。</p></div>
+</section>
+
+<section id="reply"><h2>回复模板</h2><div class="card reply"><p class="note">长按下面这段复制，改掉不同意的；都同意就回「全部同意」。D1–D3 已定，不用回。</p><pre>D4 同意（删掉「或搜索设置项」，不建搜索）
+D5 同意（目录行加可见当前值摘要 + 每组一句影响）
+D6 同意（选择器逐行保存；文本 / JSON 组内保存；离开仍问）
+D7 同意（测试连接保留在合同，交付时补，先画虚线）
+D8 同意（手机返回不自动保存；选完即存，脏文本组返回时问）
+补充：______
+（不同意某条就写成：D5 不同意：……）</pre></div></section>
+
+<section id="sign"><h2>签字</h2><div class="card sign"><p>你回「全部同意」或列出不同意的编号后，我才把 <code>KIN-SETTINGS-001.md</code> 改成 <code>approved</code>，然后才开始写测试和代码。</p><p class="note">这一轮只改设计页和帧：没有产品代码、没有 UI 改动、没有测试，控制台现在看起来和之前一样。<strong>story 仍是 draft，签字由 CEO 另做</strong>；签字后需要同步更新 <code>registry.json</code> 的状态和 <code>IA.md</code> 对应行——本轮按约束没有碰它们，也没有碰 <code>COVERAGE.md</code>。</p></div></section>
+
+<footer><p>设计源：<code>KIN-SETTINGS-001.figma/frames/</code>（5 张 SVG）</p><p>合同：<code>KIN-SETTINGS-001.md</code> · Figma 审阅版 · figma-flow-v1</p></footer>
+</main><script>for(const el of document.querySelectorAll('.frame-scroll[data-start]'))el.scrollLeft=Number(el.dataset.start)||0;</script>
+</body></html>
