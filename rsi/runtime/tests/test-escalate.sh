@@ -173,6 +173,29 @@ mkdir -p "$T/agy_st3"
   [ -s "$STATE/agy-limited-until" ] && [ "$(cat "$STATE/agy-limited-until")" -gt "$(date +%s)" ] || exit 1
 ) && ok agy-limit-stamps-bare-quota-error || bad agy-limit-stamps-bare-quota-error
 
+# A stale clock (a Mon DD already in the past) must not roll a full year into a loop-wide hold.
+mkdir -p "$T/agy_st4"
+(
+  STATE="$T/agy_st4"
+  eval "$(sed -n '/^note_agy_limit()/,/^}/p' "$H/dispatch.sh")"
+  LOG="$T/agy_stale"
+  : > "$LOG"
+  past="$(python3 - <<'PY'
+import datetime
+tz = datetime.timezone(datetime.timedelta(hours=8))
+now = datetime.datetime.now(tz)
+t = now - datetime.timedelta(days=1)
+months = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+print("" if t.year != now.year else f"{months[t.month]} {t.day} {t.hour:02d}:{t.minute:02d}")
+PY
+)"
+  [ -z "$past" ] && exit 0   # Jan 1: yesterday belongs to last year, not expressible as a same-year clock
+  echo "{\"status\":\"ERROR\",\"error\":\"RESOURCE_EXHAUSTED: exceeded your current quota; not asked again before $past UTC+8\"}" > "$LOG.agy.json"
+  note_agy_limit
+  # Either no stamp at all, or one that stays well inside the next two days — never ~1 year out.
+  [ ! -s "$STATE/agy-limited-until" ] || [ "$(cat "$STATE/agy-limited-until")" -lt "$(( $(date +%s) + 172800 ))" ] || exit 1
+) && ok agy-limit-ignores-stale-clock || bad agy-limit-ignores-stale-clock
+
 # --- note_sol_limit handles both HH:MM and Mon DD HH:MM UTC+8 ---
 mkdir -p "$T/sol_st1" "$T/sol_st2"
 (
@@ -205,5 +228,28 @@ PY
   note_sol_limit
   [ -s "$STATE/sol-limited-until" ] && [ "$(cat "$STATE/sol-limited-until")" = "$expected" ] || exit 1
 ) && ok sol-limit-stamps-month-day-hhmm || bad sol-limit-stamps-month-day-hhmm
+
+# A stale clock (a Mon DD already in the past) must not roll a full year into a ~12-month sol hold.
+mkdir -p "$T/sol_st3"
+(
+  STATE="$T/sol_st3"
+  eval "$(sed -n '/^note_sol_limit()/,/^}/p' "$H/dispatch.sh")"
+  LOG="$T/sol_stale"
+  past="$(python3 - <<'PY'
+import datetime
+tz = datetime.timezone(datetime.timedelta(hours=8))
+now = datetime.datetime.now(tz)
+t = now - datetime.timedelta(days=1)
+months = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+print("" if t.year != now.year else f"{months[t.month]} {t.day} {t.hour:02d}:{t.minute:02d}")
+PY
+)"
+  [ -z "$past" ] && exit 0   # Jan 1: yesterday belongs to last year, not expressible as a same-year clock
+  echo "API Error: not asked again before $past UTC+8" > "$LOG"
+  : > "$LOG.txt"
+  note_sol_limit
+  # Either no stamp at all, or one that stays well inside the next two days — never ~1 year out.
+  [ ! -s "$STATE/sol-limited-until" ] || [ "$(cat "$STATE/sol-limited-until")" -lt "$(( $(date +%s) + 172800 ))" ] || exit 1
+) && ok sol-limit-ignores-stale-clock || bad sol-limit-ignores-stale-clock
 
 echo ALL-PASS

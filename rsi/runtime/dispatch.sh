@@ -99,7 +99,11 @@ if mon_str and day_str:
     day=int(day_str)
     try:
         d=datetime.datetime(now.year,mon,day,hh,mm,tzinfo=tz)
-        if d<=now: d=datetime.datetime(now.year+1,mon,day,hh,mm,tzinfo=tz)
+        if d<=now:
+            nxt=datetime.datetime(now.year+1,mon,day,hh,mm,tzinfo=tz)
+            # A year roll is only plausible for a real cross-year clock: cap it at two weeks.
+            if nxt-now>datetime.timedelta(days=14): sys.exit(0)
+            d=nxt
     except ValueError:
         sys.exit(0)
 else:
@@ -198,7 +202,11 @@ if m:
         if mon:
             try:
                 until=datetime.datetime(now.year, mon, int(day_str), hh, mm)
-                if until<=now: until=datetime.datetime(now.year+1, mon, int(day_str), hh, mm)
+                if until<=now:
+                    nxt=datetime.datetime(now.year+1, mon, int(day_str), hh, mm)
+                    # Same cap as note_sol_limit: a stale clock must not mean a year-long hold.
+                    if nxt-now>datetime.timedelta(days=14): sys.exit(0)
+                    until=nxt
                 epoch=int(until.timestamp())
             except ValueError:
                 epoch=None
