@@ -1,0 +1,173 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+<rect width="1600" height="1000" fill="#111315"/>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;fill:#e7e9eb}.muted{fill:#969da4}.small{font-size:12px}.tiny{font-size:11px}.label{font-size:13px}.title{font-size:15px;font-weight:600}.mono{font-family:'SF Mono',Menlo,monospace;font-size:12px}.button{fill:#20252a;stroke:#3b4249}.dash{fill:none;stroke:#6ea8fe;stroke-dasharray:5 4}.danger{fill:#ff8a80}.add{fill:#6dd58c}.ok{fill:#6dd58c}.warn{fill:#f0b429}</style>
+<text x="20" y="26" class="small muted">KIN-SETTINGS-001 · 05 / 状态板 · 1600×1000</text>
+<text x="1580" y="26" text-anchor="end" class="tiny muted">实线＝已交付 · 虚线＝合同要求、还没交付</text>
+
+<rect x="16" y="50" width="380" height="440" rx="12" fill="#171a1d" stroke="#2c3238"/>
+<text x="32" y="80" class="title">1 · 默认：目录 + 当前值</text>
+<text x="380" y="80" text-anchor="end" class="tiny warn">部分</text>
+<rect x="32" y="92" width="348" height="1" fill="#2c3238"/>
+<rect x="32" y="108" width="62" height="24" rx="6" fill="#1f3a5f" stroke="#2f6feb"/>
+<text x="63" y="124" text-anchor="middle" class="tiny">通用</text>
+<text x="106" y="124" class="tiny muted">Agents</text>
+<text x="154" y="124" class="tiny muted">Providers</text>
+<rect x="32" y="142" width="348" height="44" rx="8" fill="#1b1f22"/>
+<text x="44" y="161" class="tiny">跟随系统</text>
+<rect x="44" y="168" width="175" height="12" rx="3" class="dash"/>
+<text x="50" y="178" class="tiny muted">影响整个控制台，立即生效</text>
+<rect x="32" y="196" width="348" height="44" rx="8" fill="#1b1f22"/>
+<text x="44" y="215" class="tiny">gpt-4.1-mini · 使用中</text>
+<rect x="44" y="222" width="215" height="12" rx="3" class="dash"/>
+<text x="50" y="232" class="tiny muted">新建对话默认用这个 Provider</text>
+<rect x="32" y="250" width="348" height="44" rx="8" fill="#1b1f22"/>
+<text x="44" y="269" class="tiny">自动 · 平衡优先</text>
+<rect x="44" y="276" width="155" height="12" rx="3" class="dash"/>
+<text x="50" y="286" class="tiny muted">新会话的模型选择</text>
+<text x="32" y="330" class="tiny">已交付：目录 224px / 表单 620px、六组、手机</text>
+<text x="32" y="346" class="tiny">「更多设置」两级、通用即目录。</text>
+<text x="32" y="374" class="tiny">未交付：组名旁那行摘要与影响一句。</text>
+<text x="32" y="390" class="tiny muted">今天只有 title= 悬停提示和 detail 描述。</text>
+<text x="32" y="424" class="tiny muted">测试：SettingsPrimitives.test.ts</text>
+<text x="32" y="440" class="tiny muted">「renders the Mac section nav as a vertical tablist」</text>
+
+<rect x="412" y="50" width="380" height="440" rx="12" fill="#171a1d" stroke="#2c3238"/>
+<text x="428" y="80" class="title">2 · 空：还没有 Provider</text>
+<text x="776" y="80" text-anchor="end" class="tiny ok">已交付</text>
+<rect x="428" y="92" width="348" height="1" fill="#2c3238"/>
+<text x="428" y="124" class="label">认知 · Provider</text>
+<rect x="620" y="104" width="156" height="30" rx="7" class="button"/>
+<text x="698" y="124" text-anchor="middle" class="tiny">添加 Provider</text>
+<text x="428" y="168" class="small muted">还没有 Provider。添加一个</text>
+<text x="428" y="186" class="small muted">OpenAI 兼容端点即可驱动 kin agent。</text>
+<rect x="428" y="208" width="348" height="52" rx="8" fill="#1b1f22" stroke="#2c3238"/>
+<text x="440" y="230" class="tiny muted">默认模型</text>
+<text x="440" y="248" class="tiny warn">先添加 Provider</text>
+<rect x="428" y="268" width="348" height="52" rx="8" fill="#1b1f22" stroke="#2c3238"/>
+<text x="440" y="290" class="tiny muted">默认 agent（无 @ 提及时）</text>
+<text x="440" y="308" class="tiny warn">先添加 Provider</text>
+<text x="428" y="352" class="tiny">空不是错误：页面保留其余组，不显示空白表单。</text>
+<text x="428" y="368" class="tiny muted">「添加 Provider」是这一屏唯一的主按钮。</text>
+<text x="428" y="396" class="tiny">未交付：禁用行旁边那句原因。</text>
+<text x="428" y="424" class="tiny muted">文案取自 settings.provider.empty。</text>
+
+<rect x="808" y="50" width="380" height="440" rx="12" fill="#171a1d" stroke="#2c3238"/>
+<text x="824" y="80" class="title">3 · 加载：只骨架首屏一块</text>
+<text x="1172" y="80" text-anchor="end" class="tiny ok">已交付</text>
+<rect x="824" y="92" width="348" height="1" fill="#2c3238"/>
+<rect x="824" y="108" width="348" height="150" rx="10" fill="#1b1f22" stroke="#2c3238"/>
+<rect x="840" y="124" width="160" height="40" rx="8" fill="#23272b"/>
+<rect x="840" y="176" width="276" height="12" rx="6" fill="#23272b"/>
+<rect x="840" y="196" width="220" height="12" rx="6" fill="#23272b"/>
+<rect x="840" y="224" width="120" height="12" rx="6" fill="#23272b"/>
+<text x="824" y="290" class="tiny">骨架只覆盖首个内容块；目录和外壳导航照常</text>
+<text x="824" y="306" class="tiny">可见（TASTE 15：只在首次加载用骨架）。</text>
+<text x="824" y="334" class="tiny">慢连接时另加一句：</text>
+<text x="824" y="352" class="small">Still connecting — your link may be slow.</text>
+<text x="824" y="378" class="tiny muted">今天这句是硬编码英文（Skeleton.tsx:86）。</text>
+<text x="824" y="404" class="tiny">测试：SettingsPage.facade.dom.test.tsx 覆盖首屏</text>
+<text x="824" y="420" class="tiny muted">之外；加载骨架本身没有专门断言。</text>
+
+<rect x="1204" y="50" width="380" height="440" rx="12" fill="#171a1d" stroke="#2c3238"/>
+<text x="1220" y="80" class="title">4 · 失败：设置读不出来</text>
+<text x="1568" y="80" text-anchor="end" class="tiny warn">部分</text>
+<rect x="1220" y="92" width="348" height="1" fill="#2c3238"/>
+<rect x="1220" y="108" width="348" height="70" rx="10" fill="#2a1717" stroke="#5c2b2b"/>
+<text x="1236" y="136" class="small danger">设置读取失败</text>
+<text x="1236" y="158" class="tiny muted">（合同要的这句；今天显示原始错误）</text>
+<rect x="1220" y="190" width="348" height="70" rx="10" fill="#1b1f22" stroke="#2c3238"/>
+<text x="1236" y="218" class="small">request failed: 500 Internal Server Error</text>
+<text x="1236" y="240" class="tiny muted">今天：error 原样，role="alert"，没有重试</text>
+<rect x="1220" y="272" width="72" height="30" rx="7" class="dash"/>
+<text x="1256" y="292" text-anchor="middle" class="tiny">重试</text>
+<text x="1304" y="292" class="tiny muted">未交付：重试按钮</text>
+<text x="1220" y="336" class="tiny">失败不显示空表单，也不把各组留在半截；</text>
+<text x="1220" y="352" class="tiny">目录仍可见，重试只重读设置。</text>
+<text x="1220" y="380" class="tiny">代码：SettingsPage.tsx:683-691（error &amp;&amp; !settings）。</text>
+<text x="1220" y="404" class="tiny muted">断线由外壳提示；失败是内容自己的错误。</text>
+
+<rect x="16" y="506" width="380" height="440" rx="12" fill="#171a1d" stroke="#2c3238"/>
+<text x="32" y="536" class="title">5 · 断线：已加载的值留着</text>
+<text x="380" y="536" text-anchor="end" class="tiny warn">部分</text>
+<rect x="32" y="548" width="348" height="1" fill="#2c3238"/>
+<rect x="32" y="564" width="348" height="28" fill="#3a2a12"/>
+<text x="206" y="583" text-anchor="middle" class="tiny warn">重连中…</text>
+<rect x="32" y="600" width="348" height="44" rx="8" fill="#1b1f22"/>
+<text x="44" y="619" class="tiny">跟随系统</text>
+<rect x="44" y="626" width="170" height="12" rx="3" class="dash"/>
+<text x="50" y="636" class="tiny muted">影响整个控制台</text>
+<rect x="32" y="652" width="348" height="44" rx="8" fill="#1b1f22"/>
+<text x="44" y="671" class="tiny">gpt-4.1-mini · 使用中</text>
+<rect x="32" y="706" width="120" height="32" rx="7" fill="#2a2f34" stroke="#3b4249"/>
+<text x="92" y="726" text-anchor="middle" class="tiny muted">保存（禁用）</text>
+<rect x="160" y="706" width="220" height="32" rx="7" class="dash"/>
+<text x="270" y="726" text-anchor="middle" class="tiny">未交付：连接断开，改动暂不能保存</text>
+<text x="32" y="774" class="tiny">已加载的值不清空；重连后不自动重提交。</text>
+<text x="32" y="790" class="tiny muted">今天：外壳「重连中…」，保存会失败并给错误句。</text>
+<text x="32" y="818" class="tiny">合同要「进本地队列或禁用保存，二者取一」。</text>
+<text x="32" y="842" class="tiny muted">D6 推荐：禁用保存并说明原因，不进队列。</text>
+
+<rect x="412" y="506" width="380" height="440" rx="12" fill="#171a1d" stroke="#2c3238"/>
+<text x="428" y="536" class="title">6 · 未保存：离开前问一句</text>
+<text x="776" y="536" text-anchor="end" class="tiny ok">部分</text>
+<rect x="428" y="548" width="348" height="1" fill="#2c3238"/>
+<rect x="428" y="564" width="348" height="112" rx="10" fill="#1b1f22" stroke="#2c3238"/>
+<text x="444" y="590" class="small">放弃未保存的设置更改？</text>
+<text x="444" y="612" class="tiny muted">高级 · 价格表还有未保存的文本</text>
+<rect x="444" y="628" width="76" height="32" rx="7" class="button"/>
+<text x="482" y="648" text-anchor="middle" class="tiny muted">继续编辑</text>
+<rect x="528" y="628" width="76" height="32" rx="7" fill="#5c2b2b" stroke="#a14444"/>
+<text x="566" y="648" text-anchor="middle" class="tiny">放弃</text>
+<rect x="428" y="692" width="348" height="40" rx="8" fill="#1b1f22" stroke="#2c3238"/>
+<text x="440" y="716" class="tiny">价格表 JSON</text>
+<text x="704" y="716" text-anchor="end" class="tiny warn">未保存</text>
+<rect x="428" y="744" width="348" height="1" fill="#2c3238"/>
+<text x="428" y="768" class="tiny danger">保存失败：agent_limits 必须是合法的 JSON</text>
+<text x="428" y="796" class="tiny">已交付：settings.discardConfirm、每组自己的红字、</text>
+<text x="428" y="812" class="tiny">已进 leave guard：高级 / 角色 / 默认 agent、</text>
+<text x="428" y="828" class="tiny">provider、路由；选择器行还没有逐行未保存标记。</text>
+<text x="428" y="856" class="tiny muted">测试：SettingsPage.leaveGuard.dom.test.tsx。</text>
+
+<rect x="808" y="506" width="380" height="440" rx="12" fill="#171a1d" stroke="#2c3238"/>
+<text x="824" y="536" class="title">7 · 测试连接中</text>
+<text x="1172" y="536" text-anchor="end" class="tiny danger">未交付</text>
+<rect x="824" y="548" width="348" height="1" fill="#2c3238"/>
+<rect x="824" y="564" width="150" height="40" rx="8" class="dash"/>
+<text x="899" y="589" text-anchor="middle" class="tiny">测试中…</text>
+<text x="990" y="582" class="tiny muted">按钮保持原宽，</text>
+<text x="990" y="598" class="tiny muted">焦点留在按钮上</text>
+<rect x="824" y="620" width="348" height="1" fill="#2c3238"/>
+<text x="824" y="646" class="small ok">连接正常</text>
+<text x="824" y="666" class="tiny muted">2.1s · 模型 gpt-4.1-mini 可用</text>
+<rect x="824" y="682" width="348" height="1" fill="#2c3238"/>
+<text x="824" y="708" class="small danger">401 Unauthorized</text>
+<text x="824" y="728" class="tiny muted">提供方自己的话，不是 HTML 页面</text>
+<rect x="824" y="744" width="348" height="1" fill="#2c3238"/>
+<text x="824" y="770" class="small warn">超时，稍后再试</text>
+<text x="824" y="790" class="tiny muted">10s 到点就停，不一直转</text>
+<text x="824" y="818" class="tiny">结果不写成「已连接」状态；只有保存的值</text>
+<text x="824" y="834" class="tiny">影响新建对话。今天 Provider 没有这个按钮，</text>
+<text x="824" y="850" class="tiny">只有「获取模型列表」与运维里的重检 / smoke。</text>
+
+<rect x="1204" y="506" width="380" height="440" rx="12" fill="#171a1d" stroke="#2c3238"/>
+<text x="1220" y="536" class="title">8 · 文案检查表</text>
+<text x="1568" y="536" text-anchor="end" class="tiny muted">逐条对照</text>
+<rect x="1220" y="548" width="348" height="1" fill="#2c3238"/>
+<text x="1220" y="574" class="tiny">目录摘要　跟随系统 · gpt-4.1-mini · 使用中</text>
+<text x="1220" y="596" class="tiny">影响一句　新建对话默认用这个 agent</text>
+<text x="1220" y="618" class="tiny">空　　　　还没有 Provider。添加一个…</text>
+<text x="1220" y="640" class="tiny">加载　　　Still connecting — your link may be slow.</text>
+<text x="1220" y="662" class="tiny">失败　　　设置读取失败 + 重试</text>
+<text x="1220" y="684" class="tiny">断线　　　重连中…（外壳）</text>
+<text x="1220" y="706" class="tiny">未保存　　放弃未保存的设置更改？</text>
+<text x="1220" y="728" class="tiny">已保存　　已保存 / 设置已保存</text>
+<text x="1220" y="750" class="tiny">失败行　　保存失败：…（这一行下面）</text>
+<text x="1220" y="772" class="tiny">测试　　　测试中… / 连接正常 / 超时，稍后再试</text>
+<text x="1220" y="794" class="tiny">密钥　　　已配置 / 未配置（不显示值）</text>
+<text x="1220" y="822" class="tiny muted">密钥在 GET 上被服务端掩码（api.go:1792）；</text>
+<text x="1220" y="838" class="tiny muted">表单里是 password 输入 + 显示 / 隐藏。</text>
+<text x="1220" y="862" class="tiny muted">「已配置 / 未配置」这句本身还没交付。</text>
+
+<rect y="966" width="1600" height="34" fill="#181b1e"/>
+<text x="20" y="988" class="small muted">七种状态 · 文案取自 zh / en 语言包与 SettingsPage.tsx、ProviderSettingsSection.tsx · 虚线是合同里有、代码里还没有的部分</text>
+</svg>
