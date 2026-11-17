@@ -520,7 +520,7 @@
     },
     {
       "id": "KIN-RESULT-003",
-      "state": "covered",
+      "state": "approved",
       "priority": "P0",
       "journeys": [
         "J2",
