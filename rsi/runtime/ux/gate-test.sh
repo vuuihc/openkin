@@ -91,7 +91,8 @@ for vp in ("phone", "mac"):
     assert re.match(r"^/tasks/[^/]+", sent[-1]["url"]), sent[-1]
     assert names.index(sent[-1]["name"]) < names.index(replied[-1]["name"]), names
     assert any(note.startswith("pressed ") for note in sent[-1].get("notes", [])), sent[-1]
-    assert any(note.startswith("waited for text=Draft:") for note in sent[-1].get("notes", [])), sent[-1]
+    assert any(note.startswith("waited for css=[role=region]") and "Draft: " in note
+               for note in sent[-1].get("notes", [])), sent[-1]
 PY
     else bad "J3 case 1: the throwaway daemon did not start"; fi
   else bad "J3 case 1: the fake agent is missing at $WT/scripts/journeys_fake_agent/claude"; fi

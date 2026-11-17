@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Journey walk of the REAL console. Usage:
-//   node walk.mjs --base http://127.0.0.1:PORT --token T --out DIR [--journeys J1,J2] [--files changed-files.txt] [--spec path/to/journeys.json]
+//   node walk.mjs --base http://127.0.0.1:PORT --token T --out DIR [--journeys J1,J2] [--files changed-files.txt] [--spec path/to/journeys.json] [--delay-tasks MS]
 //   node walk.mjs --resolve-j1 DIR/seed.log [--spec path/to/journeys.json]   (print the J1 approve/deny URLs or skip; no browser)
 //   node walk.mjs --resolve-j7 DIR/seed.log [--spec path/to/journeys.json]   (print the J7 URL or skip; no browser)
 //   node walk.mjs --resolve-j7-plan DIR/seed.log [--spec path/to/journeys.json] (print the resolved J7 steps as JSON; no browser)
@@ -18,6 +18,13 @@ const base = arg('base'), token = arg('token', ''), out = path.resolve(arg('out'
 const spec = JSON.parse(fs.readFileSync(arg('spec', path.join(here, 'journeys.json')), 'utf8'));
 // How long a `wait`/`url` may take before it is a hard failure.
 const WAIT_MS = (() => { const n = Number(process.env.RSI_UX_WAIT_MS); return Number.isFinite(n) && n > 0 ? n : 15000; })();
+// `--delay-tasks <ms>` holds the task-detail GET open so a walk can prove the
+// message the draft already showed survives the route *before* the first
+// detail answer. The pending bubble is handed over in memory and the seeded
+// detail row carries `task.prompt`; a tree that loses both draws a skeleton
+// until this request lands, and a wait shorter than the delay goes red.
+// Default 0 installs no route at all, so the gate's behaviour is unchanged.
+const DELAY_TASKS_MS = (() => { const n = Number(arg('delay-tasks', '0')); return Number.isFinite(n) && n > 0 ? n : 0; })();
 // The J3 contract the gate depends on: the walk must press Start for real and
 // then prove the send landed. A spec that only asserts Start is usable
 // photographs a page, not the product — the F1 path could lose the pending
@@ -43,8 +50,13 @@ function checkJ3Contract(spec) {
   if (configAt < 0) errs.push('J3 never opens the run settings');
   else if (sendAt >= 0 && configAt > sendAt) errs.push('J3 presses Start before choosing the run settings; the page navigates away');
   const afterSend = (pred) => (sendAt < 0 ? -1 : idx(pred, sendAt + 1));
-  const promptWait = prompt ? afterSend(([op, needle]) => op === 'wait' && String(needle) === 'text=' + prompt) : -1;
-  if (prompt && promptWait < 0) errs.push('J3 never waits for the typed prompt on the conversation route');
+  // The message, not any text that happens to equal it: the conversation
+  // header's title IS the prompt, so a bare `text=` wait stays green while the
+  // bubble the draft drew is gone (R-walk-mutant proved exactly that). The
+  // wait must be a selector scoped to the transcript scroller and name the
+  // prompt inside it.
+  const promptWait = prompt ? afterSend(([op, needle]) => op === 'wait' && /^css=/.test(String(needle)) && /\[role=.?region/.test(String(needle)) && String(needle).includes(prompt)) : -1;
+  if (prompt && promptWait < 0) errs.push('J3 never waits for the typed prompt inside the transcript (the title alone is not the message)');
   const statusWait = afterSend(([op, needle]) => op === 'wait' && /^css=/.test(String(needle)) && /role=status/.test(String(needle)) && /思考|thinking/.test(String(needle)));
   if (statusWait < 0) errs.push('J3 never waits for the waiting row ([role=status], chat.thinking)');
   const replyWait = afterSend(([op, needle]) => op === 'wait' && /^text=/.test(String(needle)) && String(needle).includes('Fake reply from the journey fake agent.'));
@@ -415,6 +427,17 @@ for (const j of want) {
     const ctx = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: phone ? 2 : 1, isMobile: phone, hasTouch: phone });
     if (token) await ctx.addInitScript((t) => { try { localStorage.setItem('kin_token', t); } catch (_) {} }, token);
     const page = await ctx.newPage(); const errs = [], bad = [], soft = [];
+    if (DELAY_TASKS_MS > 0) {
+      // Only the detail GET: /api/tasks/<one segment>, with or without a query.
+      // Never the list (/api/tasks), the create POST, or /api/tasks/<id>/events:
+      // those all still answer at once so the route itself is not what reddens
+      // the walk. Installed before the first goto, so the first answer is late.
+      await page.route((url) => /^\/api\/tasks\/[^/]+$/.test(url.pathname), async (route) => {
+        if (route.request().method() !== 'GET') return route.continue();
+        await new Promise((resolve) => setTimeout(resolve, DELAY_TASKS_MS));
+        await route.continue().catch(() => {});
+      });
+    }
     page.on('pageerror', (e) => errs.push(String(e.message).slice(0, 200)));
     // A failed request also prints a content-free "Failed to load resource" console line. Attribute
     // failures to the response below, where the URL and status are known, so a 404 can be told apart
