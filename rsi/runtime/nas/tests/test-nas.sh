@@ -360,6 +360,23 @@ t_existing_pr() {
   check "M7 an existing PR receives the new commit" [ "$(git -C "$T/origin.git" rev-parse refs/heads/rsi/s1)" = "$h2" ]
   check "M7 the reused PR body is refreshed" test -s "$T/gh-edit.log"
   check "M7 the second result is a separate history row" [ "$(ls "$T/state/lanes/history" | wc -l | tr -d ' ')" = 2 ]
+  # Two ingests within the same wall-clock second must not collide on the second-stamped filename.
+  cat > "$T/bin/fixed-date" <<'EOS'
+#!/bin/bash
+[ "${1:-}" = "+%Y%m%d-%H%M%S" ] && { echo 20261117-153519; exit 0; }
+exec /bin/date "$@"
+EOS
+  chmod +x "$T/bin/fixed-date"
+  echo samesec1 >> "$T/wt/rsi-s1/docs/s1.md"
+  git -C "$T/wt/rsi-s1" add -A; git -C "$T/wt/rsi-s1" commit -qm "feat: s1 same second 1"
+  local h3; h3="$(git -C "$T/wt/rsi-s1" rev-parse HEAD)"
+  job_record "$T" s1 R-T-14a rsi/s1 1700000901 1700000901 >/dev/null
+  run_ingest "$T" FAKE_PR=1 FAKE_PR_HEAD="$h2" NAS_DATE="$T/bin/fixed-date" > "$T/i3.log" 2>&1
+  echo samesec2 >> "$T/wt/rsi-s1/docs/s1.md"
+  git -C "$T/wt/rsi-s1" add -A; git -C "$T/wt/rsi-s1" commit -qm "feat: s1 same second 2"
+  job_record "$T" s1 R-T-14a rsi/s1 1700000902 1700000902 >/dev/null
+  run_ingest "$T" FAKE_PR=1 FAKE_PR_HEAD="$h3" NAS_DATE="$T/bin/fixed-date" > "$T/i4.log" 2>&1
+  check "M7 two ingests in the same second write distinct history rows" [ "$(ls "$T/state/lanes/history"/20261117-153519-s1*.json | wc -l | tr -d ' ')" = 2 ]
 
   local T2; sandbox; T2=$T
   local a1; a1="$(job "$T2" s1 R-T-14b 0)"
