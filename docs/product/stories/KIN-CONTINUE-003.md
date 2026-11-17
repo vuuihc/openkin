@@ -1,6 +1,7 @@
 # KIN-CONTINUE-003 · 四个区域，一套可以预期的工作台
 
-状态：draft
+状态：approved
+签字：2026-11-17 CEO 代签（用户授权见 rsi/DECISIONS.md 2026-11-15「KIN-CONTINUE-003 treated as approved」）。设计页与 20 张帧已读；登记的可执行测试见 registry。
 优先级：P0
 旅程：J1、J2、J3、J4、J5、J6、J7
 归属面：`IA.md` 的四区导航与共享外壳
@@ -159,7 +160,7 @@
 | 视觉 | 390×844 / 1100×760 / 1280×800 | Given 四个区域及详情 When 执行 J1–J7 Then 四区位置稳定、Mac 双栏与手机栈分别成立、没有意外重排或重复列表 |
 | 组件 | `python3 scripts/ui_inventory.py` + UI tests/lint | Given 迁移过的面 Then 裸按钮/手写 menu/dialog/tab 下降，旧写法不能回流；证据回填到总计划 |
 
-仍然 `draft`，所以 registry 的 `tests` 为空且没有覆盖声明；`AreaNavigation.dom.test.tsx` 与 `areaNavigation.test.ts` 等拟建路径还不是文件。签字时先建立能挡住旧导航的可执行测试，再变成 approved 并登记其实际路径；不另造 pendingTests 字段混淆执行真相。
+已签字，registry 登记了本故事的可执行测试：四区表与路由/父级表、Mac 四区栏、手机四栈、通知目标与交付恢复、浮层键盘、设置离开守卫、项目封面与导入会话详情。每个登记文件都真的挡住旧导航（/agents、/usage 退回列表，或从四区表删除一个区时变红），不是只按路径存在。不另造 pendingTests 字段混淆执行真相。
 
 测试文件或测试名必须出现 `KIN-CONTINUE-003`。真实旅程最终统一验收，不在每个内部批次请人确认。
 ## 证据
@@ -173,3 +174,4 @@
 
 - 2026-11-14 创建，按用户选择：四区为 对话 / 项目 / 例行任务 / 设置；Mac 同构侧栏双栏；一级克制动效、二级对称转场、区域状态保留；保留 Kin token、采用 Astryx 交互底座。
 - 2026-11-14 取代 `KIN-CONTINUE-002` 和 `NAVIGATION.md` 手机目的地模型；将项目提升为一级集合而不是取消项目封面能力。
+- 2026-11-17 签字并登记测试（CEO 代签，授权见 rsi/DECISIONS.md）；Astryx 计划 62/62 已合并，四区导航与其测试在 main。

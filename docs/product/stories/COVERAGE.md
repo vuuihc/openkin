@@ -7,7 +7,7 @@
 |---|---|---|---|---|---|---|
 | `KIN-CONTINUE-001` | approved | P0 | J1、J2 | Mac/手机 | 接着问一段对话 | 26 |
 | `KIN-CONTINUE-002` | approved | P0 | J1、J2 | Mac/手机 | 手机只留一个导航面：列表页就是侧栏 | 6 |
-| `KIN-CONTINUE-003` | draft | P0 | J1、J2、J3、J4、J5、J6、J7 | Mac/手机 | 统一控制台的四区导航与工作台 | 0 |
+| `KIN-CONTINUE-003` | approved | P0 | J1、J2、J3、J4、J5、J6、J7 | Mac/手机 | 统一控制台的四区导航与工作台 | 12 |
 | `KIN-NOTIFY-001` | approved | P0 | J7 | Mac/手机 | 离开时被叫回来 | 14 |
 | `KIN-RESULT-002` | approved | P0 | J4 | Mac/手机 | 读懂文件、预览并返回原对话 | 2 |
 | `KIN-RESULT-003` | approved | P0 | J2、J1 | Mac/手机 | 对改动逐行评论并发回对话 | 3 |
@@ -22,4 +22,4 @@
 
 ## 汇总
 
-approved 8 · blocked 1 · covered 3 · draft 2
+approved 9 · blocked 1 · covered 3 · draft 1

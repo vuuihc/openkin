@@ -79,6 +79,9 @@ function renderPage() {
   );
 }
 
+// KIN-CONTINUE-003 row 12: an imported session opened from a list, a project
+// or Settings → Agent Ops keeps its source entry and every original control.
+
 /**
  * Opening a large session lands on what happened last, and stays there while
  * the page finishes laying out.

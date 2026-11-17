@@ -7,6 +7,9 @@ import { normalizeSettingsTab } from "../lib/areaNavigation";
 /**
  * The settings page's tab set, checked at the seam a panel test cannot see.
  *
+ * KIN-CONTINUE-003 row 13: the six sections stay distinct — `agents` is the
+ * local section, `operations` is Agent Ops — and retired tabs stay retired.
+ *
  * R0b-3 deleted the Remote and Notifications tabs: nothing in the console
  * configures a tunnel or a push registration any more, because the phone's
  * loop goes through the Hub and notification permission belongs to the

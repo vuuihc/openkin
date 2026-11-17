@@ -20,6 +20,9 @@ import SettingsPage from "./SettingsPage";
  * Settings has several forms that persist only through explicit Save actions.
  * Settings is a peer root (KIN-CONTINUE-002), so its bottom tabs and blank
  * tab swipes ask rather than quietly unmount those drafts.
+ *
+ * KIN-CONTINUE-003 row 13: leaving or reshaping Settings asks before dropping a
+ * draft, and a section keeps its fields on return.
  */
 
 const baseSettings = {

@@ -26,6 +26,9 @@ import Sheet from "./mobile/Sheet";
  * until the router exists). Both are one navigation, the shell's copy is
  * acknowledged so the next launch does not replay it, and a banner for an item
  * handled elsewhere goes away.
+ *
+ * KIN-CONTINUE-003 rows 7–8: the original target survives until resolution and
+ * acceptance, not just until the URL is consumed.
  */
 
 const h = vi.hoisted(() => {
