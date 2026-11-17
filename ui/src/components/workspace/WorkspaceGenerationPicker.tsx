@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { type WorkspaceGeneration } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { IconChevron } from "../icons";
+import Button from "../ui/Button";
 
 type Props = {
   generations: readonly WorkspaceGeneration[];
@@ -58,10 +59,13 @@ export default function WorkspaceGenerationPicker({
 
   return (
     <div className="relative" data-gen-picker>
-      <button
-        type="button"
+      {/* The children are elements, so the facade cannot derive a string
+          accessible name; the label is stated explicitly. */}
+      <Button
+        variant="secondary"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-caption font-medium text-kin-text hover:bg-[var(--kin-fill-strong)] transition-colors"
+        aria-label={label}
+        className="h-auto! rounded-md px-2 py-1 text-caption [&>span>span]:flex [&>span>span]:items-center [&>span>span]:gap-1"
       >
         <span className="truncate max-w-[160px]">{label}</span>
         {selected && (
@@ -81,11 +85,12 @@ export default function WorkspaceGenerationPicker({
             open ? "rotate-180" : "",
           ].join(" ")}
         />
-      </button>
+      </Button>
 
       {open && (
         <div className="absolute top-full left-0 mt-1 z-50 min-w-menu rounded-lg bg-kin-elevated shadow-e2 py-1">
           {/* Source / current project */}
+          {/* eslint-disable-next-line kin/no-raw-button -- an option row in the menu */}
           <button
             type="button"
             onClick={() => {
@@ -106,6 +111,7 @@ export default function WorkspaceGenerationPicker({
           </button>
 
           {generations.map((gen) => (
+            // eslint-disable-next-line kin/no-raw-button -- an option row in the menu
             <button
               key={gen.id}
               type="button"
