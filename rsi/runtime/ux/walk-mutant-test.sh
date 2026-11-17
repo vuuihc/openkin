@@ -18,6 +18,13 @@
 # then fails on the follow-up wait, not on the first prompt wait. The fake
 # holds the round for 10s (RSI_FAKE_SLOW_SECS) so the queue window exists.
 #
+# Three: a held round must be stoppable, and the message queued behind it must
+# be accounted for. The manifest's fourth entry removes the cancel call; the
+# walk presses Stop, requires the control to leave the screen and reads the
+# daemon's own discard report ("1 queued prompt(s) discarded with the canceled
+# task"). A Stop that does nothing leaves the control up and the report absent,
+# so the walk reddens on the gone, not on a screenshot.
+#
 # J3 therefore runs as two walks, because the two proofs pull apart: holding
 # the detail GET is what proves the hand-off (walk 2), but it also keeps
 # `detail.loaded` false, and the composer is disabled until it flips — at the
@@ -158,6 +165,21 @@ if not any(st[0] == "shot" and st[1] == "midrun-queued" for st in steps):
     raise SystemExit("no J3 midrun-queued shot")
 PY
 
+# The stop half is a second walk contract: a held round is stopped, the Stop
+# control leaves the screen, and the daemon's discard report names the message
+# queued behind it. Without these steps the Stop mutant would look red for no
+# reason, so say "could not run", not "red".
+python3 - "$WT/rsi/runtime/ux/journeys.json" <<'PY' || unavailable "the J3 spec carries no Stop proof (no stopped shot / discard report wait)"
+import json
+import sys
+
+steps = json.load(open(sys.argv[1], encoding="utf-8"))["journeys"]["J3"]["steps"]
+if not any(st[0] == "shot" and st[1] == "stopped" for st in steps):
+    raise SystemExit("no J3 stopped shot")
+if not any(st[0] == "wait" and "queued prompt(s) discarded with the canceled task" in str(st[1]) for st in steps):
+    raise SystemExit("no J3 discard report wait")
+PY
+
 # Walk 1, the mid-run proof: no held detail GET, so the composer is usable as
 # soon as the page mounts; the fake holds the round for 10s, which is the
 # window to type the follow-up, queue it, read it and see the answer is not
@@ -196,7 +218,9 @@ if hard:
 
 # Per viewport, the order is the proof: sent (the first message is on the
 # transcript) -> midrun-queued (the second one was queued and read while the
-# round was still open) -> replied (the first answer finally landed).
+# round was still open) -> replied (the first answer finally landed) ->
+# stopped (a later held round was stopped and the screen says what became of
+# the message queued behind it).
 shots = {}
 for i, name in enumerate(names):
     m = re.match(r"^J3-([^-]+)-\d+-(.+)$", name)
@@ -208,10 +232,11 @@ for vp in ("phone", "mac"):
     sent = [i for i, shot in seq if shot == "sent"]
     queued = [i for i, shot in seq if shot == "midrun-queued"]
     replied = [i for i, shot in seq if shot == "replied"]
-    if not sent or not queued or not replied or not (min(sent) < min(queued) < min(replied)):
+    stopped = [i for i, shot in seq if shot == "stopped"]
+    if not sent or not queued or not replied or not stopped or not (min(sent) < min(queued) < min(replied) < min(stopped)):
         missing.append(vp)
 if missing:
-    print("walk-mutant: J3 red: no sent -> midrun-queued -> replied order at " + ", ".join(missing))
+    print("walk-mutant: J3 red: no sent -> midrun-queued -> replied -> stopped order at " + ", ".join(missing))
     sys.exit(1)
 
 # The mid-run screen is only evidence if the walk actually saw the composer's
@@ -225,7 +250,27 @@ for vp in ("phone", "mac"):
 if unread:
     print("walk-mutant: J3 red: the queued guide was never read at " + ", ".join(unread))
     sys.exit(1)
-print("walk-mutant: J3 mid-run green: sent -> midrun-queued -> replied at both viewports, queued guide read")
+
+# The stopped screen is only evidence if the walk read, from the page it
+# photographed, the control leaving, the stopped toast and the daemon's own
+# discard report. A shot of a transcript taken after Stop proves nothing on
+# its own, and a report line nobody read is exactly the silent drop this
+# contract exists to catch.
+unread = []
+for vp in ("phone", "mac"):
+    mine = [s for s in screens if s["name"].startswith(f"J3-{vp}-") and s["name"].endswith("-stopped")]
+    notes = [str(n) for n in (mine[-1].get("notes", []) if mine else [])]
+    if not any(n.startswith("gone ") and "停止" in n for n in notes):
+        unread.append(vp + " (Stop control still on screen)")
+    if not any(n.startswith("waited for css=") and ("已停止当前轮次" in n or "Stopped current round" in n) for n in notes):
+        unread.append(vp + " (stopped toast)")
+    if not any(n.startswith("waited for text=") and "queued prompt(s) discarded with the canceled task" in n for n in notes):
+        unread.append(vp + " (discard report)")
+if unread:
+    print("walk-mutant: J3 red: the stopped screen never read the " + ", ".join(unread))
+    sys.exit(1)
+print("walk-mutant: J3 mid-run green: sent -> midrun-queued -> replied -> stopped at both viewports, "
+      "queued guide read, Stop gone, stopped toast and discard report read")
 PY
 midrun_rc=$?
 # A red mid-run verdict is the verdict: without this the script would run the
