@@ -124,6 +124,15 @@ class Lock:
 
 def path_of(n): return os.path.join(LDIR, f"{n}.json")
 
+def unique_history_path(slug, stamp=None):
+    """A history filename that never overwrites an earlier row for the same slug."""
+    stamp = stamp or time.strftime("%Y%m%d-%H%M%S")
+    n, path = 1, os.path.join(LDIR, "history", f"{stamp}-{slug}.json")
+    while os.path.exists(path):
+        n += 1
+        path = os.path.join(LDIR, "history", f"{stamp}-{slug}-{n}.json")
+    return path
+
 def load(n):
     try:
         return json.load(open(path_of(n)))
@@ -258,7 +267,7 @@ def cmd_claim(a):
                     if overlap(p, q):
                         print(f"REFUSED: overlap with lane {n} ({o.get('item')} {o.get('slug')}): '{p}' vs '{q}'. Pick an item in a disjoint area."); sys.exit(3)
         if cur:
-            os.replace(path_of(a.lane), os.path.join(LDIR, "history", f"{time.strftime('%Y%m%d-%H%M%S')}-{cur.get('slug','x')}.json"))
+            os.replace(path_of(a.lane), unique_history_path(cur.get('slug', 'x')))
         save(a.lane, dict(lane=a.lane, slug=a.slug, item=a.item, brief=a.brief, mode=a.mode, paths=paths,
                           status="claimed", claimed_at=time.time()))
     print(f"CLAIMED lane {a.lane}: {a.item} {a.slug} paths={paths}")
