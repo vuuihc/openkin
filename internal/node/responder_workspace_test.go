@@ -467,3 +467,31 @@ func TestWorkspaceFilesRefusesWhatItCannotAnswerAbout(t *testing.T) {
 		t.Errorf("refusal = %q, want the limit named", reason)
 	}
 }
+
+// The machine answers the same question the Hub answers for its own checkout:
+// what does this directory have that its base branch does not, committed work
+// included. A session that runs in the person's own checkout commits a round at
+// a time, and a change list that empties out at each commit is not an answer to
+// "what changed".
+func TestResponderWorkspaceChangesIncludeCommittedBranchWork(t *testing.T) {
+	root := t.TempDir()
+	repo := gitRepo(t, filepath.Join(root, "repo"))
+	r, conn := repoOn(t, root)
+
+	gitCmdIn(t, repo, "checkout", "-q", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(repo, "feature.txt"), []byte("committed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCmdIn(t, repo, "add", "feature.txt")
+	gitCmdIn(t, repo, "commit", "-q", "-m", "feature work")
+	gitCmdIn(t, repo, "branch", "--set-upstream-to=main", "feature")
+
+	found := changesIn(t, r, conn, repo)
+	status := map[string]string{}
+	for _, change := range found.Changes {
+		status[change.Path] = change.Status
+	}
+	if status["feature.txt"] != "added" {
+		t.Fatalf("changes = %v, want the committed feature.txt", status)
+	}
+}
