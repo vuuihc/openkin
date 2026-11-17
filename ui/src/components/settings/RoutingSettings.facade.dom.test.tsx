@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { setLocale } from "../../i18n";
+import { setLocale, t } from "../../i18n";
 import { useAppStore } from "../../store/appStore";
 import { RoutingDefaultsSection, RoutingProfilesSection } from "./RoutingSettings";
 
@@ -83,6 +83,40 @@ beforeEach(() => {
   api.updateProfiles.mockResolvedValue({ profiles: [] });
   api.updateDefaults.mockResolvedValue(undefined);
   Element.prototype.scrollIntoView = vi.fn();
+});
+
+describe("routing fields on the shared TextInput", () => {
+  it("draws every routing text field with the shared TextInput", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <RoutingDefaultsSection />
+        <RoutingProfilesSection />
+      </>,
+    );
+    // The profile editor is where five of the seven fields live.
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+
+    const keys = [
+      "settings.routing.maxAttempts",
+      "settings.routing.profileId",
+      "settings.routing.profileName",
+      "settings.routing.alias",
+      "settings.routing.agent",
+      "settings.routing.providerPriority",
+      "settings.routing.fallback",
+    ] as const;
+
+    for (const key of keys) {
+      const field = screen.getByLabelText(t(key));
+      // The shared field's two guarantees: `.kin-input` sits on the native
+      // input (the stylesheet's visual contract) and the label reaches it by
+      // `htmlFor`, never by wrapping it in a `<label>`.
+      expect(field).toBeInstanceOf(HTMLInputElement);
+      expect(field.classList.contains("kin-input")).toBe(true);
+      expect(field.closest("label")).toBeNull();
+    }
+  });
 });
 
 describe("routing actions on the shared Button", () => {

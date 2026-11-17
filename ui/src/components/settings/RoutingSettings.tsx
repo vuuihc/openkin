@@ -14,6 +14,7 @@ import { useT } from "../../i18n/react";
 import { useAppStore } from "../../store/appStore";
 import Button from "../ui/Button";
 import SearchSelect from "../ui/SearchSelect";
+import TextInput from "../ui/TextInput";
 
 // ---------------------------------------------------------------------------
 // Routing Defaults Section
@@ -322,19 +323,14 @@ export function RoutingDefaultsSection({
             </div>
           </fieldset>
 
-          <label className="block space-y-1">
-            <span className="text-body leading-4 font-medium text-kin-secondary">
-              {tr("settings.routing.maxAttempts")}
-            </span>
-            <input
-              type="number"
-              min={1}
-              max={10}
-              value={maxAttempts}
-              onChange={(e) => setMaxAttempts(Number(e.target.value))}
-              className="kin-input min-h-11"
-            />
-          </label>
+          <TextInput
+            type="number"
+            label={tr("settings.routing.maxAttempts")}
+            min={1}
+            max={10}
+            value={maxAttempts}
+            onChange={(e) => setMaxAttempts(Number(e.target.value))}
+          />
 
           <div className="block space-y-1">
             <span className="text-body leading-4 font-medium text-kin-secondary">
@@ -573,56 +569,44 @@ export function RoutingProfilesSection({
           <h3 className="text-body font-semibold text-kin-secondary">
             {isNew ? "New profile" : "Edit profile"}
           </h3>
-          <label className="block space-y-1">
-            <span className="text-body leading-4 font-medium text-kin-secondary">
-              {tr("settings.routing.profileId")}
-            </span>
-            <input
-              type="text"
+          <div className="space-y-1">
+            <TextInput
+              label={tr("settings.routing.profileId")}
               value={editing.id}
               onChange={(e) => setEditing({ ...editing, id: e.target.value })}
-              className="kin-input min-h-11 font-mono text-body leading-4"
+              className="font-mono text-body leading-4"
               disabled={!isNew}
               placeholder={isNew ? slugFromName(editing.name) || "auto-generated" : ""}
             />
+            {/* The auto-generation note stays a `text-micro` sibling: the
+                field's own hint would render it at caption size. */}
             {isNew && (
               <span className="text-micro text-kin-muted">
                 ID will be auto-generated from the name if left empty
               </span>
             )}
-          </label>
-          <label className="block space-y-1">
-            <span className="text-body leading-4 font-medium text-kin-secondary">
-              {tr("settings.routing.profileName")}
-            </span>
-            <input
-              type="text"
-              value={editing.name}
-              onChange={(e) => {
-                const name = e.target.value;
-                setEditing({
-                  ...editing,
-                  name,
-                  // Auto-fill ID from name for new profiles.
-                  id: isNew && !editing.id ? slugFromName(name) : editing.id,
-                });
-              }}
-              className="kin-input min-h-11"
-            />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-body leading-4 font-medium text-kin-secondary">
-              {tr("settings.routing.alias")}
-            </span>
-            <input
-              type="text"
-              value={editing.alias || ""}
-              onChange={(e) => setEditing({ ...editing, alias: e.target.value })}
-              className="kin-input min-h-11 font-mono text-body leading-4"
-              placeholder="A"
-            />
-            <span className="text-caption text-kin-muted">{tr("settings.routing.aliasHint")}</span>
-          </label>
+          </div>
+          <TextInput
+            label={tr("settings.routing.profileName")}
+            value={editing.name}
+            onChange={(e) => {
+              const name = e.target.value;
+              setEditing({
+                ...editing,
+                name,
+                // Auto-fill ID from name for new profiles.
+                id: isNew && !editing.id ? slugFromName(name) : editing.id,
+              });
+            }}
+          />
+          <TextInput
+            label={tr("settings.routing.alias")}
+            value={editing.alias || ""}
+            onChange={(e) => setEditing({ ...editing, alias: e.target.value })}
+            className="font-mono text-body leading-4"
+            placeholder="A"
+            hint={tr("settings.routing.aliasHint")}
+          />
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
@@ -689,16 +673,17 @@ export function RoutingProfilesSection({
                     remove
                   </Button>
                 </div>
-                <label className="block space-y-0.5">
+                <div className="space-y-0.5">
                   <span className="text-micro text-kin-muted">{tr("settings.routing.agent")}</span>
-                  <input
-                    type="text"
+                  <TextInput
+                    isLabelHidden
+                    label={tr("settings.routing.agent")}
                     value={pp.agent}
                     onChange={(e) => updatePhase(phase, "agent", e.target.value)}
-                    className="kin-input min-h-9 text-body leading-4 font-mono"
+                    className="min-h-9 text-body leading-4 font-mono"
                     placeholder="claude-code"
                   />
-                </label>
+                </div>
                 <div className="block space-y-0.5">
                   <span className="text-micro text-kin-muted">{tr("settings.routing.tier")}</span>
                   <SearchSelect
@@ -714,12 +699,13 @@ export function RoutingProfilesSection({
                     onChange={(next) => updatePhase(phase, "tier", next)}
                   />
                 </div>
-                <label className="block space-y-0.5">
+                <div className="space-y-0.5">
                   <span className="text-micro text-kin-muted">
                     {tr("settings.routing.providerPriority")}
                   </span>
-                  <input
-                    type="text"
+                  <TextInput
+                    isLabelHidden
+                    label={tr("settings.routing.providerPriority")}
                     value={pp.provider_priority.join(", ")}
                     onChange={(e) =>
                       updatePhase(
@@ -731,16 +717,17 @@ export function RoutingProfilesSection({
                           .filter(Boolean),
                       )
                     }
-                    className="kin-input min-h-9 text-body leading-4 font-mono"
+                    className="min-h-9 text-body leading-4 font-mono"
                     placeholder="provider-1, provider-2"
                   />
-                </label>
-                <label className="block space-y-0.5">
+                </div>
+                <div className="space-y-0.5">
                   <span className="text-micro text-kin-muted">
                     {tr("settings.routing.fallback")}
                   </span>
-                  <input
-                    type="text"
+                  <TextInput
+                    isLabelHidden
+                    label={tr("settings.routing.fallback")}
                     value={pp.fallback.join(", ")}
                     onChange={(e) =>
                       updatePhase(
@@ -752,10 +739,10 @@ export function RoutingProfilesSection({
                           .filter(Boolean),
                       )
                     }
-                    className="kin-input min-h-9 text-body leading-4 font-mono"
+                    className="min-h-9 text-body leading-4 font-mono"
                     placeholder="next_provider_same_tier"
                   />
-                </label>
+                </div>
               </div>
             ))}
           </div>
