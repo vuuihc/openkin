@@ -16,6 +16,9 @@ import type { AgentSession, Approval, Project, Task, UserQuestion } from "../../
 /**
  * KIN-CONTINUE-002: the phone has one navigation surface.
  *
+ * KIN-CONTINUE-003 rows 3, 4, 6: the four phone stacks, archived inside
+ * Conversations, and returns across areas.
+ *
  * The real shell, the real list page and the real footer are rendered at phone
  * width. These tests pin what the story promised and a unit test of any one
  * component cannot see:
