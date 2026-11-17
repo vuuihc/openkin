@@ -8,6 +8,7 @@ import SheetSelect from "../ui/SheetSelect";
 import type { ConversationMode } from "../../lib/routineConversation";
 import type { PermissionMode } from "../../lib/permissionMode";
 import type { RoutineRule } from "../../lib/routineRecurrence";
+import { overlayOwnsKeyboard } from "../../lib/overlayOwnsKeyboard";
 import { useT } from "../../i18n/react";
 import RoutineScheduleFields from "./RoutineScheduleFields";
 
@@ -92,6 +93,10 @@ export default function RoutineEditor({
         // picker.
         if (e.defaultPrevented) return;
         if (e.key === "Escape") {
+          // A picker opened from this form is portaled to <body>, but its key
+          // event still reaches this React handler first. One Escape belongs
+          // to one layer: the picker takes the first press, this form the next.
+          if (overlayOwnsKeyboard()) return;
           e.preventDefault();
           // A save in flight owns the form: closing it here would let the
           // completion close whatever form the reader opened meanwhile.
