@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import SessionList from "./SessionList";
 import { setLocale } from "../../i18n";
-import { getTaskOrder } from "../../lib/taskOrder";
+import { getTaskOrder, setBucketOrder } from "../../lib/taskOrder";
 import type { AgentSession, Project, Task } from "../../api/client";
 
 /**
@@ -23,6 +24,7 @@ import type { AgentSession, Project, Task } from "../../api/client";
 
 const fixtures = vi.hoisted(() => ({
   tasks: [] as Task[],
+  sessions: [] as AgentSession[],
 }));
 
 vi.mock("../../api/useLiveResources", () => ({
@@ -45,7 +47,7 @@ vi.mock("../../api/client", async (importOriginal) => {
   return {
     ...actual,
     listAgentSessionsPage: vi.fn(async () => ({
-      items: [] as AgentSession[],
+      items: fixtures.sessions,
       next_cursor: undefined,
     })),
     listTasks: vi.fn(async () => []),
@@ -87,6 +89,15 @@ function mount(entry = "/sessions") {
   );
 }
 
+/** The Mac sidebar: fine pointer, so each project heading draws its hover strip. */
+function mountSidebar() {
+  return render(
+    <MemoryRouter initialEntries={["/sessions"]}>
+      <SessionList shell="sidebar" />
+    </MemoryRouter>,
+  );
+}
+
 function row(id: string): HTMLElement {
   const el = document.querySelector<HTMLElement>(`[data-session-row="${id}"]`);
   if (!el) throw new Error(`row ${id} is not on screen`);
@@ -106,7 +117,10 @@ beforeEach(() => {
   setLocale("en");
   localStorage.clear();
   sessionStorage.clear();
+  // A sheet owns one history entry; start each test from a clean one.
+  window.history.replaceState({ idx: 0 }, "", "/sessions");
   fixtures.tasks = [task("a", 30), task("b", 20), task("c", 10)];
+  fixtures.sessions = [];
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: query === "(pointer: coarse)",
     media: query,
@@ -202,5 +216,153 @@ describe("keyboard reorder", () => {
     fireEvent.keyDown(row("a"), { key: "ArrowDown", altKey: true });
     expect(order()).toEqual(["a", "b", "c"]);
     expect(getTaskOrder()).toEqual({});
+  });
+});
+
+/**
+ * The way back out of a manual order, and the only sign that the keyboard
+ * gesture exists. Both live where the move is offered: the project sheet only
+ * carries the reset once that project has a stored order, and a row only shows
+ * the hint while Alt+↑/↓ would actually do something.
+ *
+ * KIN-MANAGE-001, gap-log 2026-11-15 (第二切片 R-drag-order-ux).
+ */
+describe("order escape hatch", () => {
+  it("restore-time-order-appears-only-after-a-manual-move", async () => {
+    const user = userEvent.setup();
+    mount();
+    await waitFor(() => expect(order()).toEqual(["a", "b", "c"]));
+
+    await user.click(screen.getByRole("button", { name: "Project actions" }));
+    expect(screen.queryByRole("button", { name: "Restore time order" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull());
+
+    row("a").focus();
+    fireEvent.keyDown(row("a"), { key: "ArrowDown", altKey: true });
+    await waitFor(() => expect(order()).toEqual(["b", "a", "c"]));
+
+    await user.click(screen.getByRole("button", { name: "Project actions" }));
+    expect(screen.getByRole("button", { name: "Restore time order" })).toBeTruthy();
+  });
+
+  it("restore-time-order-clears-the-bucket-and-returns-the-clock-order", async () => {
+    const user = userEvent.setup();
+    // A second project's order must survive: the sheet speaks for one bucket.
+    setBucketOrder("/work/beta", ["x"]);
+    mount();
+    await waitFor(() => expect(order()).toEqual(["a", "b", "c"]));
+    row("a").focus();
+    fireEvent.keyDown(row("a"), { key: "ArrowDown", altKey: true });
+    await waitFor(() => expect(order()).toEqual(["b", "a", "c"]));
+    expect(getTaskOrder()).toEqual({
+      "/work/alpha": ["b", "a", "c"],
+      "/work/beta": ["x"],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Project actions" }));
+    await user.click(screen.getByRole("button", { name: "Restore time order" }));
+
+    await waitFor(() => expect(order()).toEqual(["a", "b", "c"]));
+    expect(getTaskOrder()).toEqual({ "/work/beta": ["x"] });
+  });
+
+  it("fine-pointer-project-strip-restores-time-order", async () => {
+    const user = userEvent.setup();
+    // The Mac sidebar is a fine pointer, so its project actions live in the
+    // hover strip rather than the sheet. The way back out of a manual order
+    // has to exist there too.
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    mountSidebar();
+    await waitFor(() => expect(order()).toEqual(["a", "b", "c"]));
+    expect(screen.queryByRole("button", { name: "Restore time order" })).toBeNull();
+
+    row("a").focus();
+    fireEvent.keyDown(row("a"), { key: "ArrowDown", altKey: true });
+    await waitFor(() => expect(order()).toEqual(["b", "a", "c"]));
+
+    await user.click(screen.getByRole("button", { name: "Restore time order" }));
+
+    await waitFor(() => expect(order()).toEqual(["a", "b", "c"]));
+    expect(getTaskOrder()).toEqual({});
+  });
+
+  it("restore-time-order-is-offered-for-a-remote-only-project", async () => {
+    const user = userEvent.setup();
+    // The order is a per-browser preference, so it applies to a remote copy
+    // too. The reset must not hide behind the local project record.
+    fixtures.tasks = [
+      { ...task("a", 30), executing_device_id: "nas-1" },
+      { ...task("b", 20), executing_device_id: "nas-1" },
+    ];
+    setBucketOrder("/work/alpha", ["b", "a"]);
+    mount();
+    await waitFor(() => expect(order()).toEqual(["b", "a"]));
+
+    await user.click(screen.getByRole("button", { name: "Project actions" }));
+    await user.click(screen.getByRole("button", { name: "Restore time order" }));
+
+    await waitFor(() => expect(order()).toEqual(["a", "b"]));
+    expect(getTaskOrder()).toEqual({});
+  });
+
+  it("a-row-carries-the-reorder-hint-while-a-move-is-offered", async () => {
+    const view = mount();
+    await waitFor(() => expect(order()).toEqual(["a", "b", "c"]));
+    expect(row("a").getAttribute("title")).toBe("Alt+↑/↓ moves this chat");
+    // The hint is a tooltip, never part of what a screen reader announces.
+    expect(row("a").getAttribute("aria-label")).not.toContain("Alt");
+    view.unmount();
+
+    // A narrowed list still shows the stored order, but a move is not offered
+    // there, so the row must not advertise the gesture.
+    const searched = mount("/sessions?search=alpha");
+    await waitFor(() => expect(order()).toEqual(["a", "b", "c"]));
+    expect(row("a").hasAttribute("title")).toBe(false);
+    expect(row("a").getAttribute("aria-label")).not.toContain("Alt");
+    searched.unmount();
+
+    fixtures.tasks = [task("a", 30, true), task("b", 20, true), task("c", 10, true)];
+    mount("/sessions?scope=archived");
+    await waitFor(() => expect(order()).toEqual(["a", "b", "c"]));
+    expect(row("a").hasAttribute("title")).toBe(false);
+    expect(row("a").getAttribute("aria-label")).not.toContain("Alt");
+  });
+
+  it("an-imported-row-does-not-advertise-a-move-that-is-discarded", async () => {
+    const user = userEvent.setup();
+    // Imported sessions are an index, not a project: their bucket ignores
+    // stored orders, so a move here would be discarded. The hint must follow
+    // the move, not the global "reorder is on" flag.
+    fixtures.tasks = [];
+    fixtures.sessions = [
+      {
+        id: "s1",
+        agent_id: "claude-code",
+        external_ref: "s1",
+        title: "Imported chat",
+        cwd: "/work/alpha",
+        status: "idle",
+        first_seen_at: 0,
+        last_seen_at: 0,
+        updated_at: 1,
+        linked: false,
+      } as AgentSession,
+    ];
+    mount();
+    const heading = await screen.findByRole("button", { name: /^Imported sessions/ });
+    if (heading.getAttribute("aria-expanded") === "false") await user.click(heading);
+    await waitFor(() => expect(row("s1")).toBeTruthy());
+    expect(row("s1").hasAttribute("title")).toBe(false);
+    expect(row("s1").getAttribute("aria-label")).not.toContain("Alt");
   });
 });

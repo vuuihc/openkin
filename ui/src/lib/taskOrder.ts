@@ -42,7 +42,8 @@ function write(order: TaskOrder): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(order));
   } catch {
-    // A reorder must never break the list; the in-memory copy still answers.
+    // The write is best effort: if storage is full or blocked the order is
+    // simply not remembered, and this render's in-memory state still answers.
   }
 }
 

@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<rect width="1100" height="760" fill="#111315"/>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;fill:#e7e9eb}.muted{fill:#969da4}.small{font-size:12px}.tiny{font-size:11px}.label{font-size:14px}.title{font-size:16px;font-weight:600}.mono{font-family:'SF Mono',Menlo,monospace;font-size:12px}.button{fill:#20252a;stroke:#3b4249}.pressed{fill:#1f3a5f;stroke:#2f6feb}.ghost{fill:none;stroke:#5b636b;stroke-dasharray:5 4}.danger{fill:#ff8a80}.add{fill:#6dd58c}.del{fill:#ff8a80}</style>
+<text x="18" y="25" class="small muted">KIN-RESULT-001 · 02 / Mac diff · 1100×760</text>
+
+<rect y="40" width="1100" height="56" fill="#181b1e"/>
+<text x="22" y="74" class="title">Kin</text>
+<text x="70" y="73" class="small muted">本机 · 项目一</text>
+
+<rect y="96" width="64" height="640" fill="#141719"/>
+<rect x="14" y="112" width="36" height="36" rx="9" fill="#293543"/>
+<text x="32" y="135" text-anchor="middle" class="tiny">对话</text>
+<rect x="14" y="160" width="36" height="36" rx="9" fill="#1b1f22"/>
+<text x="32" y="183" text-anchor="middle" class="tiny muted">项目</text>
+<rect x="14" y="208" width="36" height="36" rx="9" fill="#1b1f22"/>
+<text x="32" y="231" text-anchor="middle" class="tiny muted">例行</text>
+<rect x="14" y="256" width="36" height="36" rx="9" fill="#1b1f22"/>
+<text x="32" y="279" text-anchor="middle" class="tiny muted">设置</text>
+
+<rect x="64" y="96" width="656" height="640" fill="#171a1d"/>
+<rect x="64" y="96" width="656" height="52" fill="#181b1e"/>
+<text x="84" y="120" class="title">对话标题 A</text>
+<text x="84" y="138" class="tiny muted">项目一 · 本机</text>
+<rect x="428" y="104" width="88" height="36" rx="8" class="button"/>
+<text x="472" y="127" text-anchor="middle" class="small">显示列表</text>
+<rect x="524" y="104" width="76" height="36" rx="8" class="pressed"/>
+<text x="562" y="127" text-anchor="middle" class="small">文件</text>
+<rect x="608" y="104" width="76" height="36" rx="8" class="button"/>
+<text x="646" y="127" text-anchor="middle" class="small">分享</text>
+
+<rect x="410" y="168" width="290" height="52" rx="12" fill="#20252a"/>
+<text x="428" y="190" class="small">把这三个文件的标题统一一下，</text>
+<text x="428" y="208" class="small">别动别的。</text>
+<rect x="96" y="244" width="380" height="14" rx="7" fill="#23272b"/>
+<rect x="96" y="270" width="330" height="14" rx="7" fill="#23272b"/>
+
+<rect x="96" y="316" width="560" height="196" rx="12" fill="#1d2125" stroke="#2c3238"/>
+<text x="112" y="342" class="label">这一轮改了什么</text>
+<text x="474" y="342" class="small muted">3 个文件</text>
+<text x="548" y="342" class="small add">+12</text>
+<text x="584" y="342" class="small del">−4</text>
+<text x="620" y="342" class="tiny muted">收起</text>
+<rect x="96" y="354" width="560" height="1" fill="#2c3238"/>
+<circle cx="116" cy="374" r="3" fill="#f0b429"/>
+<text x="130" y="378" class="mono">src/demo/header.ts</text>
+<text x="512" y="378" class="tiny muted">改</text>
+<text x="540" y="378" class="small add">+6</text>
+<text x="568" y="378" class="small del">−2</text>
+<circle cx="116" cy="404" r="3" fill="#6dd58c"/>
+<text x="130" y="408" class="mono">src/demo/panel.ts</text>
+<text x="512" y="408" class="tiny muted">写</text>
+<text x="540" y="408" class="small add">+6</text>
+<text x="568" y="408" class="small del">−1</text>
+<circle cx="116" cy="434" r="3" fill="#ff8a80"/>
+<text x="130" y="438" class="mono">docs/notes.md</text>
+<text x="512" y="438" class="tiny muted">删</text>
+<text x="540" y="438" class="small add">+0</text>
+<text x="568" y="438" class="small del">−1</text>
+<rect x="96" y="454" width="560" height="1" fill="#2c3238"/>
+<text x="112" y="476" class="tiny muted">只统计 agent 用文件工具（写/改/删）改的内容，shell 命令改的看不到；</text>
+<text x="112" y="494" class="tiny muted">完整差异在工作区与 PR 面板。</text>
+
+<rect x="96" y="536" width="560" height="176" rx="12" fill="#1b1f22" stroke="#2c3238"/>
+<text x="112" y="560" class="small muted">这一帧画了什么</text>
+<text x="112" y="584" class="small">380px 栏：列表让位给 diff，顶部「返回文件」回到刚那一行</text>
+<text x="112" y="606" class="small">上一处 / 下一处改动只在当前文件里跳，不换文件</text>
+<text x="112" y="628" class="small">合同要的「列表 + diff 同屏」需要 ≥640px 宽栏（见 D5）</text>
+<text x="112" y="650" class="small muted">对话一直留在左边：打开 diff 不会把对话推走或卸载</text>
+<text x="112" y="678" class="tiny muted">虚线框是合同要求、还没交付的样子；实线是现在就有的。</text>
+
+<rect x="720" y="96" width="380" height="640" fill="#171a1d"/>
+<rect x="720" y="96" width="380" height="52" fill="#181b1e"/>
+<text x="738" y="120" class="title">文件</text>
+<text x="738" y="138" class="tiny muted">项目一 · 本机</text>
+<text x="1072" y="126" text-anchor="middle" class="label muted">✕</text>
+
+<rect x="720" y="148" width="380" height="52" fill="#171a1d"/>
+<rect x="728" y="154" width="40" height="40" rx="8" fill="#20252a" stroke="#3b4249"/>
+<text x="748" y="180" text-anchor="middle" class="label">←</text>
+<text x="778" y="170" class="label">返回文件</text>
+<text x="778" y="190" class="mono muted">src/demo/header.ts</text>
+<text x="1076" y="190" text-anchor="end" class="tiny muted">改 +6 −2</text>
+<rect x="720" y="200" width="380" height="1" fill="#2c3238"/>
+
+<rect x="720" y="201" width="380" height="38" fill="#141719"/>
+<rect x="728" y="207" width="86" height="26" rx="6" class="button"/>
+<text x="771" y="225" text-anchor="middle" class="tiny">上一处改动</text>
+<rect x="822" y="207" width="86" height="26" rx="6" class="button"/>
+<text x="865" y="225" text-anchor="middle" class="tiny">下一处改动</text>
+<rect x="950" y="207" width="52" height="26" rx="6" fill="#1f2733" stroke="#2f6feb"/>
+<text x="976" y="225" text-anchor="middle" class="tiny">同文件</text>
+<rect x="1006" y="207" width="44" height="26" rx="6" class="button"/>
+<text x="1028" y="225" text-anchor="middle" class="tiny muted">并排</text>
+
+<rect x="720" y="239" width="380" height="440" fill="#0f1215"/>
+<rect x="720" y="247" width="380" height="22" fill="#1b1f22"/>
+<text x="732" y="263" class="mono muted">@@ −41,7 +41,9 @@</text>
+<text x="732" y="288" class="mono muted">41</text><text x="768" y="288" class="mono">export function Header() {</text>
+<text x="732" y="310" class="mono muted">42</text><text x="768" y="310" class="mono">  const title = session.title;</text>
+<rect x="720" y="316" width="380" height="22" fill="#2a1717"/>
+<text x="726" y="332" class="mono del">−</text><text x="740" y="332" class="mono muted">43</text><text x="768" y="332" class="mono del">  return &lt;div className="h-11"&gt;</text>
+<rect x="720" y="338" width="380" height="22" fill="#2a1717"/>
+<text x="726" y="354" class="mono del">−</text><text x="740" y="354" class="mono muted">44</text><text x="768" y="354" class="mono del">    {title}&lt;/div&gt;;</text>
+<rect x="720" y="360" width="380" height="22" fill="#13251b"/>
+<text x="726" y="376" class="mono add">+</text><text x="740" y="376" class="mono muted">43</text><text x="768" y="376" class="mono add">  return (</text>
+<rect x="720" y="382" width="380" height="22" fill="#13251b"/>
+<text x="726" y="398" class="mono add">+</text><text x="740" y="398" class="mono muted">44</text><text x="768" y="398" class="mono add">    &lt;header className="h-11"&gt;</text>
+<rect x="720" y="404" width="380" height="22" fill="#13251b"/>
+<text x="726" y="420" class="mono add">+</text><text x="740" y="420" class="mono muted">45</text><text x="768" y="420" class="mono add">      {title}</text>
+<text x="732" y="444" class="mono muted">46</text><text x="768" y="444" class="mono">    &lt;/header&gt;</text>
+<text x="732" y="466" class="mono muted">47</text><text x="768" y="466" class="mono">  );</text>
+
+<rect x="728" y="600" width="168" height="30" rx="8" class="ghost"/>
+<text x="812" y="620" text-anchor="middle" class="tiny muted">未交付：悬停预览摘要</text>
+<rect x="892" y="600" width="188" height="30" rx="8" class="ghost"/>
+<text x="986" y="620" text-anchor="middle" class="tiny muted">未交付：↑/↓ 换文件、Esc</text>
+<text x="732" y="654" class="tiny muted">同文件 · diff 只读 · 上一处/下一处只在文件内跳</text>
+<text x="732" y="672" class="tiny muted">断线时已加载的 diff 不清空，顶部由外壳给一条提示。</text>
+
+<rect y="736" width="1100" height="24" fill="#181b1e"/>
+<text x="18" y="752" class="small muted">380px 栏内列表与 diff 二选一 · 返回文件把焦点还给刚那一行 · 同屏要更宽的栏</text>
+</svg>
