@@ -6,6 +6,7 @@ import {
   newAgentRoleId,
   type AgentRole,
 } from "../../lib/agentRoles";
+import TextArea from "../ui/TextArea";
 import TextInput from "../ui/TextInput";
 import { SettingsSection } from "./SettingsPrimitives";
 
@@ -104,14 +105,15 @@ export function RolesSection({
                   {tr("settings.roles.removeShort")}
                 </button>
               </div>
-              <textarea
-                className="kin-input min-h-[4.5rem] font-mono text-body leading-5"
+              <TextArea
+                label={tr("settings.roles.prompt", { index: index + 1 })}
+                isLabelHidden
+                className="min-h-[4.5rem] font-mono text-body leading-5"
                 value={role.prompt}
                 maxLength={AGENT_ROLE_PROMPT_MAX}
                 disabled={disabled}
                 rows={3}
                 placeholder={tr("settings.roles.promptPlaceholder")}
-                aria-label={tr("settings.roles.prompt", { index: index + 1 })}
                 onChange={(event) => patch(role.id, "prompt", event.target.value)}
               />
             </li>
