@@ -8,6 +8,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { setLocale, t } from "../../i18n";
 import type { AgentInfo } from "../../api/client";
+import { RoutineToggle } from "../../pages/NewChatPage";
 import RunConfigControl, { type RunConfigControlProps } from "./RunConfigSheet";
 
 const MODELS = [
@@ -76,10 +77,15 @@ function setViewport(width: number, height: number) {
  * `matchMedia`, and `useMinWidth`'s fallback is the desktop shape, so a test
  * that says nothing about the width would silently run against the panel.
  * Each group states which width it is about.
+ *
+ * `coarse` is the other half: the touch floor follows the pointer, so an iPad
+ * is 768px wide (the panel) and still a thumb (44px targets).
  */
-function setWideScreen(wide: boolean) {
+function setWideScreen(wide: boolean, coarse = false) {
   vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: wide && query.includes("min-width: 768px"),
+    matches: query.includes("pointer: coarse")
+      ? coarse
+      : wide && query.includes("min-width: 768px"),
     media: query,
     onchange: null,
     addEventListener: () => {},
@@ -245,6 +251,52 @@ describe("RunConfigControl", () => {
     await userEvent.type(screen.getByLabelText("Search models"), "model");
     const clear = screen.getByRole("button", { name: "Clear" });
     expect(clear.className).toContain("max-sm:min-w-11");
+  });
+
+  it("keys the run-config face's size to the pointer, not the width", () => {
+    // TASTE 11: an iPad is ≥640px wide and still a thumb. The face is a 44px
+    // target on touch at every width, and the Mac's 28px face returns only
+    // when the pointer is fine.
+    setWideScreen(false, true);
+    const coarse = setup();
+    expect(screen.getByRole("button", { name: /^Run settings/ }).className).toContain("min-h-11!");
+    coarse.unmount();
+
+    setWideScreen(false, false);
+    setup();
+    const face = screen.getByRole("button", { name: /^Run settings/ });
+    // The facade ships a plain `min-h-11`; the compact shape is our important
+    // override, which also wins under a narrow fine-pointer window.
+    expect(face.className).toContain("min-h-7!");
+    expect(face.className).not.toContain("min-h-11!");
+    // No viewport shrink left behind: `sm:` is what made the iPad small.
+    expect(face.className).not.toContain("sm:min-h-7");
+  });
+
+  it("gives the routine toggle in extraRows a 44px target on a coarse pointer", async () => {
+    setWideScreen(false, true);
+    setup({
+      extraRows: <RoutineToggle pressed={false} onToggle={() => {}} />,
+    });
+    const dialog = await openSheet();
+    const toggle = within(dialog).getByRole("button", { name: t("routines.asRoutine") });
+    expect(toggle.className).toContain("h-11");
+    expect(toggle.className).toContain("w-11");
+    expect(toggle.className).toContain("min-h-11!");
+    expect(toggle.className).not.toContain("h-[26px]");
+  });
+
+  it("keeps the routine toggle's designed 26px face on a fine pointer", async () => {
+    setWideScreen(false, false);
+    setup({
+      extraRows: <RoutineToggle pressed={false} onToggle={() => {}} />,
+    });
+    const dialog = await openSheet();
+    const toggle = within(dialog).getByRole("button", { name: t("routines.asRoutine") });
+    expect(toggle.className).toContain("h-[26px]");
+    expect(toggle.className).toContain("w-[26px]");
+    expect(toggle.classList.contains("h-11")).toBe(false);
+    expect(toggle.classList.contains("w-11")).toBe(false);
   });
 
   it("opens the agent list as a radio menu and marks the current agent", async () => {
@@ -759,8 +811,22 @@ describe("RunConfigControl on a wide screen", () => {
     expect(screen.getByRole("button", { name: /^Permissions/ })).toBeTruthy();
   });
 
-  it("keeps the close control a quiet Button with the close name", async () => {
+  it("gives the panel's head and rows a 44px target on a coarse pointer", async () => {
+    // The iPad shape: ≥768px wide, so the panel, and still a thumb. The shared
+    // Button ships a `sm:` zero-floor variant, and it would collapse every row
+    // at this width unless the touch floor is stated with `!`.
+    setWideScreen(true, true);
     setup();
+    const panel = await openSheet();
+    const close = within(panel).getByRole("button", { name: "Close" });
+    expect(close.className).toContain("h-11");
+    expect(close.className).toContain("w-11");
+    for (const trigger of panel.querySelectorAll<HTMLElement>("[data-run-config-trigger]")) {
+      expect(trigger.className).toContain("min-h-11!");
+    }
+  });
+
+  it("keeps the close control a quiet Button with the close name", async () => {    setup();
     const panel = await openSheet();
     const close = within(panel).getByRole("button", { name: "Close" });
     expect(close.className).toContain("kin-btn");

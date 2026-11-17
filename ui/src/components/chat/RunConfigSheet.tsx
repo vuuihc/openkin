@@ -1,6 +1,7 @@
 import { useId, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { AgentInfo } from "../../api/client";
 import { useMinWidth } from "../../hooks/useMinWidth";
+import { useCoarsePointer } from "../../hooks/useMediaQuery";
 import { useT } from "../../i18n/react";
 import { agentAvatarMeta } from "../../lib/agentMention";
 import {
@@ -115,6 +116,10 @@ export default function RunConfigControl({
   // bottom sheet, a Mac the anchored panel — the same split `SheetSelect`
   // already makes for every other one-choice control.
   const wide = useMinWidth(768);
+  // The face's height follows the pointer, not the viewport: an iPad gets the
+  // anchored panel (≥768px) and must still be a 44px thumb target, while the
+  // Mac's composer row keeps its 28px face.
+  const coarse = useCoarsePointer();
   const current = model.trim();
   const mode = normalizePermissionMode(permission);
   const permissionLabel = tr(PERMISSION_MODE_LABEL_KEY[mode]);
@@ -160,7 +165,11 @@ export default function RunConfigControl({
         // content; the last selector makes that span fill the face so the
         // model ellipsizes instead of pushing the row wider than the composer.
         className={[
-          "flex h-auto min-h-11 min-w-0 max-w-full items-center justify-start gap-1.5 overflow-hidden rounded-lg px-1.5 py-1 text-left font-normal transition-colors active:bg-[var(--kin-fill)] disabled:opacity-50 sm:min-h-7 [&>span>span]:w-full",
+          "flex h-auto min-w-0 max-w-full items-center justify-start gap-1.5 overflow-hidden rounded-lg px-1.5 py-1 text-left font-normal transition-colors active:bg-[var(--kin-fill)] disabled:opacity-50 [&>span>span]:w-full",
+          // `!` because the facade ships its own `min-h-11` plus a `sm:`
+          // zero-floor variant: the variant would otherwise win at the iPad's
+          // width and zero the floor exactly where the coarse pointer needs it.
+          coarse ? "min-h-11!" : "min-h-7!",
           className,
         ].join(" ")}
       >
@@ -263,6 +272,9 @@ function RunConfigPanel({
   ...body
 }: SheetProps & { triggerRef: RefObject<HTMLButtonElement | null> }) {
   const tr = useT();
+  // The panel is the iPad's shape too (≥768px), so its header controls must
+  // answer the pointer rather than assume a mouse.
+  const coarse = useCoarsePointer();
   return (
     <Popover
       open={open}
@@ -292,7 +304,7 @@ function RunConfigPanel({
             triggerRef.current?.focus({ preventScroll: true });
           }}
           aria-label={tr("common.close")}
-          className="h-7 w-7 flex-none p-0"
+          className={`${coarse ? "h-11 w-11" : "h-7 w-7"} flex-none p-0`}
         >
           {/* The muted ink sits on the glyph: the quiet weight's own text
               colour is a utility emitted after this call site's, so it would
@@ -343,6 +355,9 @@ function RunConfigBody({
 }) {
   const tr = useT();
   const [openRow, setOpenRow] = useState<RowId | null>(null);
+  // The custom-model field is a tap target in the option layer; the 40px field
+  // is the fine-pointer shape, and touch gets the 44px floor.
+  const coarse = useCoarsePointer();
   // The option layer is part of this sheet's modal even though it is portaled
   // out of the panel: Tab stays inside both, Back closes it first, and the
   // sheet stops claiming `aria-modal` over a subtree it does not contain.
@@ -561,7 +576,9 @@ function RunConfigBody({
                   value={model}
                   onChange={(event) => onModelChange(event.target.value)}
                   placeholder={tr("modelPicker.customPlaceholder")}
-                  className="mt-1 min-h-10 w-full rounded-lg border border-[var(--kin-hairline-strong)] bg-kin-elevated px-2.5 text-strong text-kin-text outline-none placeholder:text-kin-muted focus:ring-1 focus:ring-kin-focus-ring"
+                  className={`mt-1 w-full rounded-lg border border-[var(--kin-hairline-strong)] bg-kin-elevated px-2.5 text-strong text-kin-text outline-none placeholder:text-kin-muted focus:ring-1 focus:ring-kin-focus-ring ${
+                    coarse ? "min-h-11" : "min-h-10"
+                  }`}
                 />
               </div>
             ) : undefined
@@ -684,6 +701,11 @@ function PickerTrigger({
   children: ReactNode;
 }) {
   const tr = useT();
+  // The row trigger's floor needs `!` on touch: the facade ships a `sm:`
+  // zero-floor variant, so at the iPad's ≥640px width the floor would be
+  // zeroed and the row would collapse to its text height. The fine pointer
+  // keeps the shape it has today.
+  const coarse = useCoarsePointer();
   return (
     <Button
       ref={triggerRef}
@@ -710,7 +732,8 @@ function PickerTrigger({
       // row is the tap target that opens the options, and the previous
       // `min-h-10` left it 4px under the floor the shared button ships with.
       className={[
-        "flex h-auto min-h-11 w-full items-center justify-start rounded-lg border-0 px-3 py-1.5 text-left text-strong font-medium whitespace-normal [&>span>span]:w-full",
+        "flex h-auto w-full items-center justify-start rounded-lg border-0 px-3 py-1.5 text-left text-strong font-medium whitespace-normal [&>span>span]:w-full",
+        coarse ? "min-h-11!" : "min-h-11",
         expanded
           ? "bg-[var(--kin-fill-strong)] text-kin-text ring-2 ring-kin-blue/30"
           : "bg-[var(--kin-fill)] text-kin-text hover:bg-[var(--kin-fill-strong)]",
