@@ -1098,18 +1098,42 @@ export default function TaskDetailPage({
   ]);
 
   // The card exists only after the render that follows `setFocusIdx`; looking
-  // for its node in the same effect would find the previous list.
+  // for its node in the same effect would find the previous list. A real page
+  // also lays out after that render: the transcript scroller is `invisible`
+  // until it has positioned its scroll (`scrollReady`), and a node inside a
+  // `visibility:hidden` subtree cannot take focus — `focus()` returns without
+  // firing focusin. Keep the reveal pending and retry, rather than consuming
+  // the link's landing on a focus call that silently did nothing.
   useEffect(() => {
     if (!revealId) return;
-    setRevealId(null);
-    const nodes = scrollRef.current?.querySelectorAll("[data-pending-id]") ?? [];
-    for (const node of nodes) {
-      if (node.getAttribute("data-pending-id") !== revealId) continue;
-      node.scrollIntoView?.({ block: "nearest" });
-      stickToBottomRef.current = false;
-      if (node instanceof HTMLElement) node.focus({ preventScroll: true });
-      break;
-    }
+    let raf = 0;
+    const deadline = Date.now() + 10000;
+    const attempt = (): boolean => {
+      const nodes = scrollRef.current?.querySelectorAll("[data-pending-id]") ?? [];
+      for (const node of nodes) {
+        if (node.getAttribute("data-pending-id") !== revealId) continue;
+        node.scrollIntoView?.({ block: "nearest" });
+        stickToBottomRef.current = false;
+        if (node instanceof HTMLElement) node.focus({ preventScroll: true });
+        if (document.activeElement === node) {
+          setRevealId(null);
+          return true;
+        }
+        return false;
+      }
+      return false;
+    };
+    if (attempt()) return;
+    const retry = () => {
+      if (attempt()) return;
+      if (Date.now() >= deadline) {
+        setRevealId(null);
+        return;
+      }
+      raf = requestAnimationFrame(retry);
+    };
+    raf = requestAnimationFrame(retry);
+    return () => cancelAnimationFrame(raf);
   }, [revealId]);
 
   useEffect(() => {

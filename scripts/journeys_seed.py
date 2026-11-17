@@ -16,24 +16,24 @@ of an empty Changes bar.
 Conversations are seedable because the harness (rsi/runtime/ux-walk.sh and
 scripts/journeys-smoke.sh) puts scripts/journeys_fake_agent first on the
 throwaway daemon's PATH: the seed creates one succeeded, one failed, one
-archived and two held-open conversations, and refuses to create any unless
+archived and three held-open conversations, and refuses to create any unless
 /api/agents names a `claude` inside that directory as the binary the daemon
 would launch. Each held conversation gets its approval card through the same
 loopback-only `POST /internal/approvals` bridge the agent's own client uses:
-one card for the approve path and one for the deny path. When both exist the
-seed prints the line the next walk slice targets them from:
+one card for the approve path, one for the deny path, and one that J7's
+notification deep link lands on. When both J1 cards exist the seed prints the
+line the next walk slice targets them from:
 
     j1 targets approve conversation=<task-id> focus=<approval-id> deny conversation=<task-id> focus=<approval-id>
 
-When at least the approve card exists the seed also prints the line J7 already
-consumes, unchanged in shape, naming the approve card:
+J7's own card prints its own line, naming the conversation, the card a
+notification would reveal, and the row title a reader clicks after Back:
 
-    j7 target conversation=<task-id> focus=<approval-id>
+    j7 target conversation=<task-id> focus=<approval-id> title=<title>
 
-With no approve card that line is absent and J7 stays a skip; with no deny card
-the `j1 targets` line is absent, because a half pair would point 拒絕 at
-nothing. States the fake cannot produce — a failed routine run — still print
-`skip`.
+With no J7 card that line is absent and J7 stays a skip; with no deny card the
+`j1 targets` line is absent, because a half pair would point 拒絕 at nothing.
+States the fake cannot produce — a failed routine run — still print `skip`.
 
 Usage:
     KIN_BASE=http://127.0.0.1:<port> KIN_TOKEN=<token> \
@@ -153,6 +153,22 @@ CONVERSATIONS = (
         "target": "deny",
         # Named, not positional: adding a card must not move an existing
         # conversation to another project's bucket.
+        "project": "Project Beta",
+    },
+    {
+        # J7's landing target: its own held card, never the approve card J1
+        # answers earlier in the same walk. Its title is short and stable
+        # because the walk clicks that row after Back. Created after the deny
+        # card and before the approve card, so the approve row stays the
+        # newest one J1 opens.
+        "slug": "waiting-approval-j7",
+        "title": PREFIX + "Answer the deploy",
+        "prompt": APPROVE_MARKER + ": hold this turn open until a notification opens it.",
+        "expect": ("running", "waiting_approval"),
+        "archive": False,
+        "hold": True,
+        # Which pair this card fills in the `j7 target` line.
+        "target": "j7",
         "project": "Project Beta",
     },
     {
@@ -566,11 +582,13 @@ def _pending_approval(api: Api, ident: str) -> str | None:
     return None
 
 
-def _remember_target(targets: dict[str, tuple[str, str]], spec: dict, ident: str, approval: str | None) -> None:
+def _remember_target(
+    targets: dict[str, tuple[str, str, str]], spec: dict, ident: str, approval: str | None
+) -> None:
     """Record one held card under its role; the first real answer wins."""
     role = str(spec.get("target") or "")
     if approval and role and role not in targets:
-        targets[role] = (ident, approval)
+        targets[role] = (ident, approval, str(spec.get("title") or ""))
 
 
 def _set_archived(api: Api, report: Report, spec: dict, ident: str, already: bool) -> None:
@@ -593,8 +611,8 @@ def _set_archived(api: Api, report: Report, spec: dict, ident: str, already: boo
     report.skip(spec["slug"], reason)
 
 
-def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | None = None) -> dict[str, tuple[str, str]]:
-    """Create one succeeded, one failed, one archived and two held-open conversations.
+def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | None = None) -> dict[str, tuple[str, str, str]]:
+    """Create one succeeded, one failed, one archived and three held-open conversations.
 
     The fake agent makes every turn but the held ones terminal; nothing here
     waits longer than KIN_SEED_TASK_TIMEOUT_SECS, and a turn that does not
@@ -602,8 +620,9 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
     conversations are never waited on for a terminal status: they exist so the
     walk can photograph the approval cards a person actually meets.
 
-    Returns {role: (conversation id, approval id)} for each held conversation
-    that really produced a card — the `j1 targets` / `j7 target` pairs — or {}.
+    Returns {role: (conversation id, approval id, title)} for each held
+    conversation that really produced a card — the `j1 targets` / `j7 target`
+    pairs — or {}.
     """
     agent, why = _fake_agent(api)
     if agent is None:
@@ -624,7 +643,7 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
             report.skip(spec["slug"], str(exc))
         return {}
 
-    targets: dict[str, tuple[str, str]] = {}
+    targets: dict[str, tuple[str, str, str]] = {}
 
     by_title: dict[str, dict] = {}
     for row in filed + archived:
@@ -770,6 +789,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     approve = targets.get("approve")
     deny = targets.get("deny")
+    j7 = targets.get("j7")
     # Both cards, so the next slice can target 批准 and 拒絕 by id instead of
     # "the first row". Absent when either card is missing: a half pair would
     # point one of the two actions at nothing.
@@ -779,10 +799,12 @@ def main(argv: list[str] | None = None) -> int:
             f"deny conversation={deny[0]} focus={deny[1]}"
         )
     # One line the walker can consume: the conversation a notification would
-    # name and the card it must reveal. Absent when no approve card exists,
-    # which is what keeps J7 a skip rather than a walk against a made-up id.
-    if approve:
-        print(f"j7 target conversation={approve[0]} focus={approve[1]}")
+    # name, the card it must reveal, and the row title a reader clicks after
+    # Back. J7 has its own held card — the approve card is answered by J1
+    # earlier in the walk. Absent when that card is absent, which is what keeps
+    # J7 a skip rather than a walk against a made-up id.
+    if j7:
+        print(f"j7 target conversation={j7[0]} focus={j7[1]} title={j7[2]}")
     report_unproducible(report)
     report.summary()
     return 0
