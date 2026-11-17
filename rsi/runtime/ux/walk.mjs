@@ -223,6 +223,18 @@ function checkJ2Contract(spec) {
   if (transcriptAt < 0) {
     errs.push('J2 never asserts the sent follow-up carries the path, hunk header and quote in the transcript');
   }
+  // Both widths walk the same seeded conversation against one daemon. A body
+  // shared across viewports lets the second width's transcript wait be
+  // satisfied by the first width's message, so the second send is unproven;
+  // the body carries {vp}, and no substituted body may be a substring of
+  // another's (plain `mac` is inside `mac-wide`, so the token is bracketed).
+  const viewports = (((spec || {}).journeys || {}).J2 || {}).viewports;
+  const sentBodies = Array.isArray(viewports) ? viewports.map((vp) => applyVpStep([body], vp)[0]) : [];
+  if (body === '' || !body.includes('{vp}')) {
+    errs.push('J2 types one comment body at every viewport; put a {vp} token in the body and the transcript wait so each width proves its own send');
+  } else if (sentBodies.some((mine, i) => sentBodies.some((other, k) => i !== k && other.includes(mine)))) {
+    errs.push('J2\'s {vp} token leaves one viewport\'s comment body inside another\'s; bracket it, e.g. [{vp}]');
+  }
   // The loop closes: the tray is empty again (or says it was sent), otherwise
   // the send is unproven and the comments are still waiting.
   const goneAt = after(sendAt, (st) => st[0] === 'gone' && traySel(st));
@@ -357,6 +369,13 @@ function applyJ7Fields(value, target) {
 }
 function applyJ7Step(step, target) {
   return Array.isArray(step) ? step.map((part) => (typeof part === 'string' ? applyJ7Fields(part, target) : part)) : step;
+}
+// `{vp}` makes a step's own words viewport-specific: two widths walk the same
+// seeded conversation against one daemon, so an identical comment body would
+// let the second width's wait pass on the first width's message and leave its
+// own send unproven. --check-spec resolves the same function it enforces.
+function applyVpStep(step, vpName) {
+  return Array.isArray(step) ? step.map((part) => (typeof part === 'string' ? part.split('{vp}').join(vpName) : part)) : step;
 }
 // The selector the landing assertion resolves to, printed by --check-spec so
 // the red/green evidence names a real card rather than `{focus}`.
@@ -658,7 +677,8 @@ for (const j of want) {
     });
     const log = []; let n = 0;
     for (const rawStep of J.steps) {
-      const st = j === 'J7' && j7 ? applyJ7Step(rawStep, j7) : rawStep;
+      const base = j === 'J7' && j7 ? applyJ7Step(rawStep, j7) : rawStep;
+      const st = applyVpStep(base, vpName);
       const [op, a, b] = st;
       try {
         if (op === 'goto') {

@@ -312,7 +312,7 @@ class WalkJ2ContractTest(unittest.TestCase):
     reaches dogfooding unnoticed.
     """
 
-    BODY = "把这一行改成一句总结。"
+    BODY = "把这一行改成一句总结。[{vp}]"
     QUOTE = "- [seed] change: the journey walk reads this line as a real diff."
 
     def setUp(self) -> None:
@@ -371,6 +371,14 @@ class WalkJ2ContractTest(unittest.TestCase):
         self.assertIn(self.BODY, transcript)
         self.assertIn("@@ ", transcript)
         self.assertIn(self.QUOTE, transcript)
+        # Both widths run against one daemon and the same seeded conversation.
+        # A shared body would let mac-wide's wait pass on mac's message, so each
+        # viewport's substituted body must be its own needle.
+        bodies = [self.BODY.replace("{vp}", vp) for vp in journey["viewports"]]
+        for mine_vp, mine in zip(journey["viewports"], bodies):
+            for other_vp, other in zip(journey["viewports"], bodies):
+                if mine_vp != other_vp:
+                    self.assertNotIn(mine, other, "%s's body would match %s's message" % (mine_vp, other_vp))
 
     def test_j2_contract_rejects_a_comment_before_the_diff_is_open(self) -> None:
         # Today's shape: the workspace section ends at the diff screenshot, so
@@ -406,6 +414,33 @@ class WalkJ2ContractTest(unittest.TestCase):
         code, out = self.check(self.copy_with(body_only))
         self.assertEqual(code, 1, out)
         self.assertIn("path, hunk header and quote", out)
+
+    def test_j2_contract_rejects_a_comment_body_shared_across_viewports(self) -> None:
+        # Both widths walk the same seeded conversation against one daemon.
+        # Without the {vp} token, mac-wide's transcript wait was satisfied by
+        # mac's message, so the second width's own send was never proven.
+        def shared_body(steps: list) -> None:
+            for step in steps:
+                for i in (1, 2):
+                    if len(step) > i and isinstance(step[i], str):
+                        step[i] = step[i].replace("[{vp}]", "")
+
+        code, out = self.check(self.copy_with(shared_body))
+        self.assertEqual(code, 1, out)
+        self.assertIn("{vp}", out)
+
+    def test_j2_contract_rejects_an_unbracketed_viewport_token(self) -> None:
+        # `mac` sits inside `mac-wide`, so an unbracketed token would still let
+        # one viewport's body match the other's message.
+        def unbracketed(steps: list) -> None:
+            for step in steps:
+                for i in (1, 2):
+                    if len(step) > i and isinstance(step[i], str):
+                        step[i] = step[i].replace("[{vp}]", "{vp}")
+
+        code, out = self.check(self.copy_with(unbracketed))
+        self.assertEqual(code, 1, out)
+        self.assertIn("inside another", out)
 
     def test_j2_contract_rejects_a_missing_tray_send(self) -> None:
         # Deleting the press but keeping the transcript wait would prove only
