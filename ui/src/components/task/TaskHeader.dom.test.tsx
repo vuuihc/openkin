@@ -40,10 +40,12 @@ function setup(overrides: Partial<TaskHeaderProps> = {}) {
     degraded: false,
     filesOpen: false,
     panelOpen: false,
+    prOpen: false,
     archiving: false,
     deleting: false,
     stopping: false,
     onToggleWorkspace: vi.fn(),
+    onTogglePr: vi.fn(),
     onShare: vi.fn(),
     onToggleArchive: vi.fn(),
     onDelete: vi.fn(),
@@ -241,6 +243,24 @@ describe("TaskHeader", () => {
 
     setup({ panelOpen: false });
     expect(screen.queryByRole("button", { name: t("nav.showList") })).toBeNull();
+  });
+
+  it("desktop: the PR toggle reports its pressed state and calls the page", () => {
+    // The button is a peer of the workspace toggle, not a mode of it: the two
+    // panels are separate surfaces and each says whether it is the one open.
+    const { props, utils } = setup({ prOpen: true });
+    const toggle = within(desktopBar(utils)).getByRole("button", { name: t("pr.title") });
+
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(toggle);
+    expect(props.onTogglePr).toHaveBeenCalledTimes(1);
+    expect(props.onToggleWorkspace).not.toHaveBeenCalled();
+    utils.unmount();
+
+    setup({ prOpen: false });
+    expect(screen.getByRole("button", { name: t("pr.title") }).getAttribute("aria-pressed")).toBe(
+      "false",
+    );
   });
 
   it("keeps the phone bar unchanged", () => {

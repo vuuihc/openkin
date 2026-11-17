@@ -8,6 +8,7 @@ import {
   IconBack,
   IconMore,
   IconPanel,
+  IconPullRequest,
   IconRestore,
   IconSessions,
   IconShare,
@@ -73,8 +74,10 @@ export type TaskHeaderProps = {
   /** Connected to the daemon's live stream but not receiving it. */
   degraded: boolean;
   filesOpen: boolean;
+  /** The read-only pull-request panel is the surface in front. */
+  prOpen: boolean;
   /**
-   * A panel (files or publish) is open for this conversation.
+   * A panel (files, pull request or publish) is open for this conversation.
    *
    * The shell hides the conversation list while that is true, so this is what
    * draws the one control that brings it back. `filesOpen` is the workspace
@@ -85,6 +88,7 @@ export type TaskHeaderProps = {
   deleting: boolean;
   stopping: boolean;
   onToggleWorkspace: () => void;
+  onTogglePr: () => void;
   onShare: () => void;
   onToggleArchive: () => void | Promise<void>;
   onDelete: () => void | Promise<void>;
@@ -107,11 +111,13 @@ export default function TaskHeader({
   terminal,
   degraded,
   filesOpen,
+  prOpen,
   panelOpen,
   archiving,
   deleting,
   stopping,
   onToggleWorkspace,
+  onTogglePr,
   onShare,
   onToggleArchive,
   onDelete,
@@ -226,6 +232,25 @@ export default function TaskHeader({
           >
             <IconPanel size={13} />
             <span>{tr("workspace.title")}</span>
+          </Button>
+          {/* The pull request is a sibling surface to the workspace, in the
+              same right-side container (TASTE 17), so its toggle is that
+              toggle's peer rather than a row inside the file tree. */}
+          <Button
+            variant="secondary"
+            onClick={onTogglePr}
+            aria-pressed={prOpen}
+            aria-label={tr("pr.title")}
+            className={[
+              "gap-1.5 rounded-md px-2 py-1 text-body font-normal",
+              prOpen
+                ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
+                : "text-kin-secondary hover:text-kin-text",
+            ].join(" ")}
+            title={tr("pr.title")}
+          >
+            <IconPullRequest size={13} />
+            <span>{tr("pr.title")}</span>
           </Button>
           <Button
             variant="secondary"
