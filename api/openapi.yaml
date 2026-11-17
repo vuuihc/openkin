@@ -3274,6 +3274,26 @@ paths:
             type: string
           description: Case-insensitive match on title and prompt.
         - in: query
+          name: cwd
+          required: false
+          schema:
+            type: string
+          description: |
+            Exact working directory. Empty or absent means every directory.
+            Not a prefix match: a directory filter never includes a
+            subdirectory.
+        - in: query
+          name: outcome
+          required: false
+          schema:
+            type: string
+            enum: ["failed"]
+          description: |
+            Only `failed` is recognised: keep routines whose most recent run
+            failed. A routine that has never run has no outcome and does not
+            match. Any other value is ignored rather than read as a filter
+            that matches nothing.
+        - in: query
           name: page
           required: false
           schema:

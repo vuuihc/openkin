@@ -74,6 +74,11 @@ type ListRoutinesOpts struct {
 	Limit     int
 	Before    string // cursor: rows older than this routine id
 	Query     string // literal substring over title, prompt, cwd, agent, id
+	// Cwd narrows the list to one exact working directory; empty = all.
+	Cwd string
+	// FailedOnly keeps routines whose most recent run failed. A routine that
+	// never ran has no outcome and is not a failure.
+	FailedOnly bool
 	// Summary omits each row's stored prompt while preserving status, schedule
 	// and last_error. Copying full text into every remote row can exceed a frame.
 	Summary bool
@@ -274,6 +279,18 @@ func (s *Store) ListRoutinesPage(ctx context.Context, opts ListRoutinesOpts) (Ro
 		}
 		b.WriteString(` AND enabled = ?`)
 		args = append(args, v)
+	}
+	if cwd := strings.TrimSpace(opts.Cwd); cwd != "" {
+		// Exact match, not a prefix: a directory filter that also matched
+		// descendants would answer a question nobody asked. The path is used
+		// as given: truncating it would match no stored directory at all.
+		b.WriteString(` AND cwd = ?`)
+		args = append(args, cwd)
+	}
+	if opts.FailedOnly {
+		// A routine that has never run stores an empty outcome, never
+		// 'failed', so it is excluded rather than treated as a failure.
+		b.WriteString(` AND last_outcome = 'failed'`)
 	}
 	if opts.Before != "" {
 		if createdAt, id, ok := decodeRoutineCursor(opts.Before); ok {
