@@ -16,9 +16,11 @@
 
 别用它：
 
-- 需要搜索的长列表 → `SearchSelect`。
+- 目录长到要自带过滤、分组或手机底栏时 → `SearchSelect`（完整的下拉控件，自带触发器）；
+  Menu 的 `search` 只用于调用方自己按查询过滤的短目录。
 - 手机上从底部升起的单选 / 动作面板 → `ActionSheet` / `SheetSelect`。
-- 内容需要说明、输入或分组 → 用 `Popover` 自己排版，不要塞进菜单行。
+- 一行后果说明 → `description`；一个由某一行展开的编辑器 → `footer`；多行或需要
+  分组排版的内容 → 用 `Popover` 自己排版，不要塞进菜单行。
 - 只有一个动作、能直接放在行里 → 不要为了统一再藏一层（TASTE 7）。
 
 ## 行为
@@ -31,8 +33,9 @@
   该行不可用时，落在第一个可用的行上。单选菜单传当前选中行，第一次按方向键
   就从读者已经处在的位置出发。
 - **`search` 的上下进出。** 有 `search` 时打开焦点先落在字段里；Down 进列表
-  （优先 `initialFocusId`，否则第一行），从第一行 Up 回到字段。菜单不自行
-  过滤：`items` 由调用方按查询过滤，Enter 选中第一行可用项。
+  （优先 `initialFocusId`，否则第一行），从第一行 Up 回到字段，从字段 Up 到
+  最后一行，形成回绕。菜单不自行过滤：`items` 由调用方按查询过滤，Enter 选中
+  第一行可用项。
 - **关闭只有三种来路：** 选中一行（`keepOpen` 行除外）、Escape、在面板外按下
   指针。外部关闭只调用 `onOpenChange(false)`，不触发任何 `onSelect`。
 - **选中后焦点回触发点。** 关闭菜单的行在选中后卸载；不还焦点，下一次 Tab
@@ -48,12 +51,12 @@
 
 | 键 | 归属 |
 |---|---|
-| ArrowDown / ArrowUp | 在可用的行之间走一步并回绕；有 `search` 时 Down 从字段进列表、Up 从第一行回字段；禁用的行不停留 |
-| Home / End | 第一行 / 最后一行（都跳过禁用行） |
+| ArrowDown / ArrowUp | 在可用的行之间走一步并回绕；有 `search` 时 Down 从字段进列表（优先 `initialFocusId`）、Up 从第一行回字段、从字段 Up 到最后一行；禁用的行不停留 |
+| Home / End | 第一行 / 最后一行（都跳过禁用行）；焦点在 `search` 字段时归字段，编辑文本 |
 | 字母 / 数字 | 焦点在行上时，500ms 内的连续输入按行首字母查找，从当前行之后开始并回绕；不区分大小写。焦点在 `search` 字段时归字段 |
 | Enter / Space | 选中当前行一次；除 `keepOpen` 行外关闭。焦点在 `search` 字段时 Enter 选中第一行可用项 |
 | Escape | 关闭本层，焦点回触发点；输入法组字期间不响应（`isImeKeyEvent`） |
-| Tab / Shift+Tab | 由底层层圈在面板内；菜单是一个 Tab 停点，不是每行一个 |
+| Tab / Shift+Tab | 由底层层圈在面板内；行是**一个** Tab 停点，不是每行一个；`search` 字段、它的清除按钮与 `footer` 里的控件是面板内各自独立的停点 |
 | 输入法组字中的任何键 | 归输入法；不选中、不关闭、不跳行 |
 
 ## 无障碍
@@ -88,7 +91,7 @@ type MenuItem = {
   description?: string;
   /** 有定义即渲染 role="menuitemradio" 与 aria-checked。 */
   checked?: boolean;
-  /** 配置 footer 而不是选项：选中后菜单保持打开、焦点不移动。 */
+  /** 选中后菜单保持打开、焦点不移动：让 `footer` 里刚展开的编辑器不被卸载；这一行仍可以是 `checked` 的选项。 */
   keepOpen?: boolean;
   onSelect: () => void;
 };
