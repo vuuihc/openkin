@@ -10,7 +10,7 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CHECK="$HERE/../release-check.sh"
 RELEASE="$HERE/../release.sh"
-T="$(mktemp -d)"; trap 'stop_node; rm -rf "$T"' EXIT
+T="$(mktemp -d)"; trap 'stop_node; [ -f "$T/dev.pid" ] && kill "$(cat "$T/dev.pid")" 2>/dev/null; rm -rf "$T"' EXIT
 fail() { echo "FAIL $*" >&2; exit 1; }
 pass() { echo "PASS $*"; }
 
@@ -269,6 +269,7 @@ out="$(env HOME="$T/home2" PATH="$T/fakebin:$PATH" KIN_PORT=1 KIN_REBUILD_DETACH
 took=$(( $(date +%s) - start ))
 [ "$rc" = 0 ] || { printf '%s\n' "$out" >&2; fail "desktop-rebuild detach: exit $rc"; }
 [ "$took" -lt 20 ] || fail "desktop-rebuild detach: still blocked after ${took}s"
+for _ in $(seq 1 100); do [ -s "$T/dev.pid" ] && break; sleep 0.05; done   # the app starts after the script returns
 [ -s "$T/dev.pid" ] && kill -0 "$(cat "$T/dev.pid")" 2>/dev/null \
   || fail "desktop-rebuild detach: the desktop process did not survive the script"
 kill "$(cat "$T/dev.pid")" 2>/dev/null || true
