@@ -308,8 +308,7 @@ describe("RoutinesPage keeps the list's place", () => {
     vi.mocked(listRoutines).mockImplementationOnce(
       () =>
         new Promise((resolve) => {
-          releaseB = () =>
-            resolve({ routines: rows(20), next_cursor: "", has_more: false });
+          releaseB = () => resolve({ routines: rows(20), next_cursor: "", has_more: false });
         }) as ReturnType<typeof listRoutines>,
     );
     await act(async () => {
