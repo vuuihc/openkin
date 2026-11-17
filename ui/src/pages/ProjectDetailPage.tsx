@@ -54,6 +54,8 @@ import { readRoutineDevice, routineDeviceForProject } from "../lib/routineDevice
 import { formatRelativeTime } from "../lib/relativeTime";
 import { sessionStatusDotClass } from "../lib/sessionViewed";
 import { taskCardStatusView } from "../lib/taskCardStatus";
+import { taskDisplayTitle } from "../lib/taskTitle";
+import { useLocalTaskTitles } from "../lib/taskTitles";
 import { useT } from "../i18n/react";
 import { useAppStore } from "../store/appStore";
 
@@ -86,6 +88,11 @@ export default function ProjectDetailPage() {
   const offline = wsStatus === "disconnected";
   const wide = useMinWidth(1024);
   const cardIds = useId();
+  // A rename is this browser's name for a conversation, and the cover's one
+  // row draws that name like the sidebar and the header do. Subscribing here
+  // (rather than only reading the map when the activity feed lands) is what
+  // makes a rename from another surface reach a row already on screen.
+  const [localTitles] = useLocalTaskTitles();
 
   const [project, setProject] = useState<Project | null>(null);
   const [markdown, setMarkdown] = useState("");
@@ -127,6 +134,11 @@ export default function ProjectDetailPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [conflict, setConflict] = useState<OnePager | null>(null);
+
+  // What the cover draws now, not what the read returned: a rename can land
+  // between reads, and this same row is what the cache stores, so the next
+  // offline visit paints the new name instead of the one the feed answered.
+  const drawnLatest = useMemo(() => renameCoverRow(latest, localTitles), [latest, localTitles]);
 
   const [params, setParams] = useSearchParams();
   const projectRef = useRef<Project | null>(null);
@@ -437,7 +449,7 @@ export default function ProjectDetailPage() {
       pulse: pulseFor === currentProject.id ? pulse : null,
       routines: routinesCurrent ? routines : [],
       routinesLoaded: routinesCurrent && routinesLoaded,
-      latest: activityCurrent ? latest : null,
+      latest: activityCurrent ? drawnLatest : null,
       lastImportAt: activityCurrent ? lastImportAt : null,
       activityLoaded: activityCurrent && activityLoaded,
       savedAt: lastLoadedAt || Date.now(),
@@ -450,7 +462,7 @@ export default function ProjectDetailPage() {
     routines,
     routinesFor,
     routinesLoaded,
-    latest,
+    drawnLatest,
     lastImportAt,
     activityFor,
     activityLoaded,
@@ -763,7 +775,7 @@ export default function ProjectDetailPage() {
     );
   }
 
-  const activity = activityFor === currentProject.id ? latest : null;
+  const activity = activityFor === currentProject.id ? drawnLatest : null;
   const importAt = activityFor === currentProject.id ? lastImportAt : null;
   const activityPartialShown = activityFor === currentProject.id && activityPartial;
   const shownRoutines = routinesFor === currentProject.id ? routines : [];
@@ -1169,6 +1181,27 @@ function NewChatControl({
       {tr("projects.newChat")}
     </Link>
   );
+}
+
+/**
+ * The row with the reader's current name for it.
+ *
+ * A task row's name is `taskDisplayTitle(task, localTitles)` — the same
+ * expression the sidebar and the conversation header use — so a rename made
+ * after the feed answered still names the row. An imported session keeps the
+ * name the read gave it; its title does not come from the local map. The same
+ * object comes back when nothing changed, so the cache write below does not
+ * run on every render.
+ */
+function renameCoverRow(
+  row: ProjectChatRow | null,
+  localTitles: Record<string, string>,
+): ProjectChatRow | null {
+  if (!row?.task) return row;
+  // An empty rename result means the task has no name of its own; the row
+  // already carries the cover's untitled fallback, which is better than blank.
+  const title = taskDisplayTitle(row.task, localTitles);
+  return title && title !== row.title ? { ...row, title } : row;
 }
 
 function RecentConversationRow({

@@ -63,6 +63,17 @@ describe("the page's rename wiring", () => {
     expect(HOST).toContain("taskDisplayTitle(tasksById.get(id), localTitles)");
   });
 
+  it("the project cover draws its recent row from the subscribed map", () => {
+    // The cover's one conversation row is a name like any other. It used to
+    // read the map only when the activity feed landed, so a rename from the
+    // sidebar left the old name on screen until the reader left and came back.
+    const COVER = source("pages/ProjectDetailPage.tsx");
+    expect(COVER).toContain("taskDisplayTitle(row.task, localTitles)");
+    // The cached row follows the rename too, or an offline reopen paints the
+    // name the read returned instead of the one the reader typed.
+    expect(COVER).toContain("latest: activityCurrent ? drawnLatest : null");
+  });
+
   it("every name-drawing surface subscribes through the one hook", () => {
     // One place owns the `useState` + `subscribeTaskTitles` pair; a surface
     // that copies it can (and did) forget the listener.
@@ -74,6 +85,7 @@ describe("the page's rename wiring", () => {
       "components/task/TaskHeader.tsx",
       "components/cards/RunningTaskCard.tsx",
       "pages/TaskSessionHost.tsx",
+      "pages/ProjectDetailPage.tsx",
     ]) {
       const reader = source(path);
       expect(reader, path).toContain("useLocalTaskTitles()");
