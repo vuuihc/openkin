@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -39,6 +39,7 @@ import {
 import { PageListSkeleton, SlowConnectHint } from "../components/Skeleton";
 import Button from "../components/ui/Button";
 import SheetSelect from "../components/ui/SheetSelect";
+import { getKeyedScroll, setKeyedScroll } from "../lib/sessionScroll";
 import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { useMachines } from "../hooks/useMachines";
 import { useRoutinePreview } from "../hooks/useRoutinePreview";
@@ -175,6 +176,10 @@ export default function RoutinesPage() {
   const readAllEpoch = useRef(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // The machine the rows on screen were read for. `deviceId` changes a commit
+  // before the switch effect clears the list and sets `loading`, so for one
+  // commit the outgoing rows are rendered under the incoming machine's name.
+  const [loadedDevice, setLoadedDevice] = useState<string | null>(null);
   const [showSilent, setShowSilent] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -277,6 +282,14 @@ export default function RoutinesPage() {
   const editSeq = useRef(0);
   const formRef = useRef<HTMLElement | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
+  // The list is this page's scroll container, and the page unmounts whenever a
+  // routine or another area opens. Keep where the reader was, per machine.
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  // The machine whose saved offset this mount has already applied.
+  const restoredKey = useRef<string | null>(null);
+  // Set when this mount already moved the page to the form; the saved list
+  // offset must not then pull it back.
+  const formScrolled = useRef(false);
   const toggleRef = useRef<HTMLButtonElement | null>(null);
   // The create draft an edit temporarily took over (see `closeForm`).
   const createDraftRef = useRef<FormDraft | null>(null);
@@ -336,6 +349,7 @@ export default function RoutinesPage() {
       ]);
       if (seq !== loadSeq.current) return;
       setRoutines(rs.routines ?? []);
+      setLoadedDevice(deviceId);
       const directorySource = unfiltered ? rs : all;
       if (directorySource) {
         setDirectoryCwds((directorySource.routines ?? []).map((r) => r.cwd));
@@ -367,6 +381,47 @@ export default function RoutinesPage() {
       if (seq === loadSeq.current) setLoading(false);
     }
   }, [tr, routineQuery, deviceId, machinesLoading, status, cwdFilter]);
+
+  // Save the list offset as the reader scrolls, under the machine whose rows are
+  // on screen at that moment. A switch renders the outgoing list once more under
+  // the incoming `deviceId`, and the list-clearing render shrinks the content —
+  // browsers clamp `scrollTop` and fire `scroll` for that. Saving it would write
+  // the outgoing machine's clamped place under the incoming machine's key, so a
+  // transition (loading, or rows from another machine) is never saved. Both are
+  // read through refs because the listener is attached once and must see the
+  // state at event time.
+  const loadingRef = useRef(loading);
+  loadingRef.current = loading;
+  const loadedDeviceRef = useRef(loadedDevice);
+  loadedDeviceRef.current = loadedDevice;
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const save = () => {
+      if (loadingRef.current || loadedDeviceRef.current !== deviceRef.current) return;
+      setKeyedScroll(`routines:${deviceRef.current}`, el.scrollTop);
+    };
+    el.addEventListener("scroll", save, { passive: true });
+    return () => el.removeEventListener("scroll", save);
+  }, []);
+
+  // Restore after the list for a machine has been read, and before paint: the
+  // loading skeleton is much shorter than the list, so restoring earlier would
+  // clamp the offset to the skeleton's bottom. The key is per machine, not per
+  // mount, because choosing another machine re-renders this page in place. A
+  // failed read must not consume it — the page retries by itself, and the retry
+  // that fills the list is what applies the saved place.
+  useLayoutEffect(() => {
+    if (loading || error || loadedDevice !== deviceId) return;
+    if (restoredKey.current === deviceId) return;
+    restoredKey.current = deviceId;
+    if (formScrolled.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const saved = getKeyedScroll(`routines:${deviceId}`);
+    if (saved === null || saved <= 0) return;
+    el.scrollTop = Math.min(saved, Math.max(0, el.scrollHeight - el.clientHeight));
+  }, [loading, error, deviceId, loadedDevice]);
 
   const loadMoreRuns = async () => {
     if (!runsCursor || !runsHasMore || loadingMoreRuns || runs.length >= ROUTINE_HISTORY_MAX)
@@ -1019,6 +1074,7 @@ export default function RoutinesPage() {
       formFocusFrame.current = null;
       const active = document.activeElement;
       if (scrollToForm) {
+        formScrolled.current = true;
         const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
         formRef.current?.scrollIntoView?.({
           block: "start",
@@ -1309,7 +1365,7 @@ export default function RoutinesPage() {
   };
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden kin-scroll">
+    <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden kin-scroll">
       <div className="mx-auto max-w-5xl px-4 py-6 md:px-6">
         <div className="flex items-start justify-between gap-3">
           <div className="hidden md:block">
