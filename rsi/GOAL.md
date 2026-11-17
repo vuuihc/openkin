@@ -33,8 +33,7 @@ the five flows below closer to "passes without a human noticing".
 <!-- phase: P2-midrun-control target=2026-11-19T20:00 -->
 
 **Why this and not features.** P1 closed the journeys that prove a person can start a chat, approve and
-come back (#245 real send, #249 approve/deny, #251 deep link; #254, the mutant, is in rework after review
-found its new test scripts staged `100644`). The next most-used path has
+come back (#245 real send, #249 approve/deny, #251 deep link, #254 the mutant). The next most-used path has
 no such proof: F2 mid-run control. The composer already carries the queue-vs-interrupt rule
 (`TaskDetailPage.onComposer`, `interrupt: true`) and the fake agent can hold a turn open (`[seed] slow`,
 `RSI_FAKE_SLOW_SECS`), yet nothing asserts that a message sent while the agent runs appears at once, that
@@ -51,8 +50,10 @@ interrupted+requeued) instead of trusting the source to contain it.
 2. Stop ends the run: the task leaves `running` (row and header agree), the transcript shows the end
 state, and a follow-up sent during the hold is either delivered or visibly cancelled — never dropped
 silently. 390/1100 shots of the queued and stopped frames are stored.
-3. `ux-gate.sh` fails when either path regresses — proved by a mutant (drop the follow-up dispatch, or the
-`interrupt` flag), not by a green run alone.
+3. A mutant is the proof, not a green run: removing the follow-up dispatch (or the `interrupt` flag) turns
+the J3/J8 walk red with the detail GET held — the same surface #254 uses, since a fast localhost keeps the
+default walk green — and `--check-spec` negatives run in `scripts/check.sh` so weakening the spec itself is
+red without a browser.
 
 **Cut rule.** If item 1 is not green by the target, land 1 alone (it is the lost-message path and the one
 that catches the most), keep 2–3 queued, and say so in the weekly retro. Do not extend the date.
@@ -60,9 +61,9 @@ that catches the most), keep 2–3 queued, and say so in the weekly retro. Do no
 ## Closed phase (P1) — make the walk real
 <!-- closed-phase: P1-walk-real target=2026-11-18T20:00 -->
 
-Closed 2026-11-18: #245 `89d9c656` (J3 sends for real), #249 `e64b43f0` (J1 approve + deny), #251
-`77ff0b77` (J7 deep link + Back) landed; item 4 (#254, the mutant that turns the gate red) is in rework
-after review found its new test scripts staged `100644`, which would fail on a fresh checkout.
+Closed 2026-11-18, all four items landed: #245 `89d9c656` (J3 sends for real), #249 `e64b43f0` (J1
+approve + deny), #251 `77ff0b77` (J7 deep link + Back), #254 `9d34c20e` (the mutant that turns the J3 walk
+red with the task-detail GET held).
 
 **Why it was the phase and not features.** The Astryx programme was done (62/62) and the console passed a
 journey *walk*, but that walk never sent a message, never asserted an approve/deny result, and J7 landed
@@ -70,15 +71,16 @@ on a route nobody seeded. So the gate that was supposed to prove "a person can f
 "the page renders". Every visible defect caught that week (a centred row, two names for one conversation,
 a blank deep link) was caught by a human eye, not by the gate.
 
-**Delivered** items 1–3 (throwaway daemon with the fake agent from `scripts/journeys_seed.py`; the
-walker/seed PRs touched no `ui/` file, so `ux-gate.sh` did not run on them — item 4's mutant is their
-verification and is still in rework under P2):
+**Delivered** (throwaway daemon with the fake agent from `scripts/journeys_seed.py`; the walker/seed PRs
+touched no `ui/` file, so `ux-gate.sh` did not run on them — item 4's mutant was their verification):
 1. J3 pressed Send for real: the composer emptied, the pending bubble + waiting row appeared **and
    stayed** across `/new` → `/tasks/:id`, the fake agent's reply rendered, 390/1100 shots stored (#245).
 2. J1 opened the seeded conversation holding a real approval card, approved it (`gone` asserted), and
    denying was captured as well (#249).
 3. J7 deep-linked to a seeded item and landed on that card, then Back returned to it (#251).
-4. `ux-gate.sh` goes red when the pending-send handoff is removed — the mutant proof (#254, rework).
+4. The J3 walk went red with the detail GET held when the pending-send handoff was removed
+   (`walk-mutant-test.sh`, #254); the default walk on a fast localhost stays green, which is why the
+   always-on guard is the `--check-spec` negative pair, not the walk.
 
 ## Cadence and urgency (mechanism, not vibes)
 - **Every phase carries a date and a cut rule** in this file. No undated phase; if a phase has no
