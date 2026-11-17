@@ -9,6 +9,7 @@ import RoutinesPage from "./RoutinesPage";
 import { setLocale } from "../i18n";
 import { createRoutine, listRoutineRuns, listRoutines, type Routine } from "../api/client";
 import type { WSMessage } from "../api/contract";
+import { getKeyedScroll, setKeyedScroll } from "../lib/sessionScroll";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -105,6 +106,13 @@ vi.mock("../lib/routineEdit", () => ({
 }));
 
 vi.mock("../lib/routineStatus", () => ({ routineStatusLabel: () => "" }));
+
+// Observable but otherwise real: test 1 asserts the saved-scroll restore ran
+// before the reveal, which only a call order can show.
+vi.mock("../lib/sessionScroll", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/sessionScroll")>();
+  return { ...actual, getKeyedScroll: vi.fn(actual.getKeyedScroll) };
+});
 
 vi.mock("../lib/agentModels", () => ({ modelsForAgent: () => [] }));
 
@@ -250,10 +258,35 @@ afterEach(() => {
 
 describe("RoutinesPage created routine arrival", () => {
   it("marks the routine named by location.state.createdId", async () => {
-    vi.mocked(listRoutines).mockResolvedValue(
-      page([routine("r-1", "One"), routine("r-2", "Two"), routine("r-3", "Three")]),
-    );
-    renderApp({ pathname: "/routines", state: { createdId: "r-2" } });
+    const pending = deferred<Page>();
+    vi.mocked(listRoutines).mockReturnValue(pending.promise);
+    // The reader left this list 600px down. The reveal must run after that
+    // saved offset is restored, or the new row stays off screen.
+    setKeyedScroll("routines:self", 600);
+    const { router } = renderApp({
+      pathname: "/routines",
+      search: "?device=self",
+      state: { createdId: "r-2" },
+    });
+    // jsdom has no layout: give the list a real scroll range so the restore's
+    // clamp keeps 600, and record the offset the reveal sees.
+    const scroller = document.querySelector<HTMLElement>(".kin-scroll")!;
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 2000 });
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 400 });
+    const revealAt: number[] = [];
+    vi.mocked(Element.prototype.scrollIntoView).mockImplementation(function (this: Element) {
+      revealAt.push((this.closest(".kin-scroll") as HTMLElement | null)?.scrollTop ?? -1);
+    });
+
+    // Consume the one-shot state while the rows are still in flight, so the
+    // restore and the reveal are both armed for the commit that shows them.
+    await waitFor(() => expect(router.state.location.state).toBeNull());
+    await act(async () => {
+      pending.resolve(
+        page([routine("r-1", "One"), routine("r-2", "Two"), routine("r-3", "Three")]),
+      );
+      await pending.promise;
+    });
 
     await screen.findByText("Two");
     await waitFor(() => expect(rowOf("Two").getAttribute("data-just-created")).toBe("true"));
@@ -266,8 +299,12 @@ describe("RoutinesPage created routine arrival", () => {
         .getByRole("button", { name: "routines.showRuns" })
         .getAttribute("aria-pressed"),
     ).toBe("false");
-    // It is brought on screen even when the saved list scroll was elsewhere.
-    expect(vi.mocked(Element.prototype.scrollIntoView)).toHaveBeenCalledWith({ block: "nearest" });
+    // It is brought on screen even when the saved list scroll was elsewhere:
+    // the restore ran first, then the reveal saw the restored offset.
+    expect(vi.mocked(getKeyedScroll).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(Element.prototype.scrollIntoView).mock.invocationCallOrder[0],
+    );
+    expect(revealAt).toEqual([600]);
   });
 
   it("clears the one-shot state so a return visit does not mark again", async () => {
