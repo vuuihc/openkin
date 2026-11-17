@@ -15,7 +15,24 @@ unset SB_FIXLIST SB_GATEFAILS
 say() { echo "[$(date +%T)] $*"; }
 attempts() { cat "$STATE/merge/$1.attempts" 2>/dev/null || echo 0; }
 sendback() { # slug item title detail-file
-  local slug="$1" item="$2" title="$3" det="$4" a; a=$(( $(attempts "$slug") + 1 )); echo $a > "$STATE/merge/$slug.attempts"
+  local slug="$1" item="$2" title="$3" det="$4" a live
+  # A rework lane can push the fix WHILE this lane is still reviewing. Bouncing the PR on the SHA
+  # that failed would then hand back a head that already contains the fix, burning one of three
+  # attempts and 10-20 min of lane time. If the live head moved past the reviewed SHA, suppress the
+  # sendback and let the next cycle re-verify the newer head. Fail closed: an unreadable or
+  # malformed head, or an empty SHA (the first sync_main conflict sendback runs before SHA exists),
+  # keeps today's behaviour. Suppression loses nothing: the land loop's later sendbacks
+  # (sendback_mech's m>5 escalation, CI) simply defer to the next cycle, which re-detects the same
+  # failure on the newer head.
+  if [ -n "${SHA:-}" ] && [ -n "${N:-}" ] && live="$(pr_head "$N" 2>/dev/null)" && oid "$live" && [ "$live" != "$SHA" ]; then
+    mkdir -p "$STATE/sendback/done"
+    cp "$det" "$STATE/sendback/done/$slug.stale-${SHA:0:8}.md" 2>/dev/null || true
+    printf -- '- %s PR #%s rsi/%s: head moved %s -> %s during review; sendback suppressed (re-review)\n' \
+      "$(date '+%F %H:%M')" "$N" "$slug" "${SHA:0:8}" "${live:0:8}" >> "$STATE/needs-ceo.md"
+    say "#$N $slug: head moved past reviewed ${SHA:0:8} -> ${live:0:8}; sendback suppressed"
+    KICK=1; SB_SUPPRESSED=1; return
+  fi
+  a=$(( $(attempts "$slug") + 1 )); echo $a > "$STATE/merge/$slug.attempts"
   if [ $a -gt 3 ]; then
     touch "$STATE/merge/$slug.blocked"
     printf -- '- %s PR rsi/%s blocked after %s sendbacks: %s (see %s)\n' "$(date '+%F %H:%M')" "$slug" "$((a-1))" "$title" "$det" >> "$STATE/needs-ceo.md"
@@ -57,6 +74,14 @@ GEN_INV=scripts/ui-inventory-baseline.json
 DIST_BUILD="${RSI_DIST_BUILD_CMD:-npm run build}"
 INV_UPDATE="${RSI_INV_UPDATE_CMD:-python3 scripts/check-ui-inventory.py --update}"
 INV_CHECK="${RSI_INV_CHECK_CMD:-python3 scripts/check-ui-inventory.py}"
+# The live PR head, overridable so rsi/runtime/tests/test-loop-sendback-stale.sh can stub it.
+PR_HEAD_CMD="${RSI_PR_HEAD_CMD:-}"   # test seam; empty = the real gh call
+pr_head() { # <pr-number> -> prints the live head oid, non-zero on failure (an override reads it as $1)
+  if [ -n "$PR_HEAD_CMD" ]; then bash -c "$PR_HEAD_CMD" pr-head "$1"
+  else "$GH" pr view "$1" --repo "$GH_REPO" --json headRefOid --jq .headRefOid; fi
+}
+# A head is an oid and nothing else: a gh warning or a blank line on stdout must read as unreadable.
+oid() { case "${1:-}" in ""|*[!0-9a-fA-F]*) return 1 ;; esac; }
 
 ratchet_ok() { # worktree -> 0 when the regenerated inventory did not grow past origin/main's copy
   local wt="$1" base rc; base="$(mktemp)" || return 1
@@ -229,6 +254,14 @@ if [ "${1:-}" != "--one" ]; then
       echo "CARRY $CARRY_REASON"; exit 0
     fi
     echo "REGATE $CARRY_REASON"; exit 1
+  fi
+  # Hermetic seam for rsi/runtime/tests/test-loop-sendback-stale.sh: run the same sendback() the
+  # land loop calls with a stubbed PR head. No lock, fetch, gate, review, merge or dispatch.
+  if [ "${1:-}" = "--stale-check" ]; then
+    SLUG="${2:?slug required}"; ITEM="${3:?item required}"; N="${4:?pr required}"
+    SHA="${5-}"; DET="${6:?detail file required}"
+    sendback "$SLUG" "$ITEM" "stale-check" "$DET"
+    exit 0
   fi
   DRY=0; [ "${1:-}" = "--dry-run" ] && DRY=1
   [ -e "$STATE/PAUSE" ] && { echo "paused"; exit 0; }
@@ -675,7 +708,7 @@ if [ $GATE_OK -eq 0 ] || [ $REV_OK -eq 0 ]; then
   [ $GATE_OK -eq 0 ] && grep -E 'error TS[0-9]+|^ *(FAIL|✗|×) |AssertionError|^FAIL:|Error:|not ok|--- FAIL' "$GL" 2>/dev/null | head -30 > "$SB_GATEFAILS"
   export SB_FIXLIST SB_GATEFAILS
   sendback "$SLUG" "$ITEM" "$TITLEBAD" "$C"
-  scorecard_row "$ITEM $SLUG" "$M_WORKER" "$RMODEL" "$TITLEBAD" "[#$N]($PRURL)" "patched" "see ${GL##*/}"
+  [ -z "${SB_SUPPRESSED:-}" ] && scorecard_row "$ITEM $SLUG" "$M_WORKER" "$RMODEL" "$TITLEBAD" "[#$N]($PRURL)" "patched" "see ${GL##*/}"
   exit 0
 fi
 [ $NEED_GATE -eq 1 ] && echo "$SHA PASS $ROLE" > "$V"
@@ -721,7 +754,7 @@ if [ $UI_TOUCH -eq 1 ] && [ "${RSI_UX_GATE:-on}" != off ]; then
       $GH pr comment "$N" --repo "$GH_REPO" --body "RSI UX gate: PASS on ${SHA:0:8} ($SC). Journey screenshots are kept on the CEO machine (rsi/state/shots/$SLUG/journeys/). Rubric: rsi/UX-RUBRIC.md." >/dev/null 2>&1
     elif [ $urc -eq 1 ]; then
       say "#$N $SLUG: UX gate FAIL ($SC)"; sendback "$SLUG" "$ITEM" "UX gate failed ($SC)" "$STATE/merge/$SLUG.ux.txt"
-      scorecard_row "$ITEM $SLUG" "$M_WORKER" "$RMODEL (ux)" "UX FAIL $SC" "[#$N]($PRURL)" "patched" "see state/ux/$SLUG"; exit 0
+      [ -z "${SB_SUPPRESSED:-}" ] && scorecard_row "$ITEM $SLUG" "$M_WORKER" "$RMODEL (ux)" "UX FAIL $SC" "[#$N]($PRURL)" "patched" "see state/ux/$SLUG"; exit 0
     else
       [ -e "$STATE/merge/$SLUG.uxunavail.$DH" ] || { touch "$STATE/merge/$SLUG.uxunavail.$DH"
       printf -- '- %s PR #%s rsi/%s: UX gate could not run (%s); verified, NOT merged. Fix the walker/daemon or set RSI_UX_GATE=off and record it in DECISIONS.\n' "$(date '+%F %H:%M')" "$N" "$SLUG" "$(cat "$STATE/ux/$SLUG/unavailable.txt" 2>/dev/null | head -c 160)" >> "$STATE/needs-ceo.md"; }
