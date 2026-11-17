@@ -17,7 +17,7 @@ import sys
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 SEED = os.path.join(SCRIPTS, "journeys_seed.py")
@@ -30,6 +30,11 @@ TOKEN = "tok-test-2f8a1c-never-print"
 
 PROJECTS = ["[seed] Project Alpha", "[seed] Project Beta", "[seed] Project Gamma"]
 ROUTINES = ["[seed] Morning check-in", "[seed] Weekly review"]
+CONVERSATIONS = ["[seed] Morning planning", "[seed] Failed migration", "[seed] Last week's review"]
+# The path the seed must see when it asks the daemon which claude it would run.
+# The directory name is what the seed checks; the script itself only has to be
+# named `claude` for the stub.
+FAKE_AGENT = os.path.join(SCRIPTS, "journeys_fake_agent", "claude")
 
 
 class Stub:
@@ -40,9 +45,19 @@ class Stub:
         self.routines: list[dict] = []
         self.one_pagers: dict[str, str] = {}
         self.agents: list[dict] = []
+        self.tasks: list[dict] = []
+        self.task_events: dict[str, list[dict]] = {}
+        # False keeps every created task in `running` forever, for the bounded-
+        # wait case.
+        self.tasks_terminal = True
+        # Force one terminal status for every created task, for the
+        # wrong-outcome case. Empty means derive it from the prompt marker.
+        self.force_status = ""
+        # False drops the fake agent's stderr marker from the events.
+        self.emit_fake_marker = True
         self.requests: list[tuple[str, str, bytes]] = []
         self.fail: list[tuple[tuple[str, str], int]] = []
-        self.seq = {"prj": 0, "rtn": 0}
+        self.seq = {"prj": 0, "rtn": 0, "tsk": 0}
 
     def mutations(self) -> list[tuple[str, str]]:
         return [(m, p) for m, p, _ in self.requests if m != "GET"]
@@ -61,7 +76,9 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(raw)
 
     def _dispatch(self, method: str) -> None:
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
+        query = parse_qs(parsed.query)
         length = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(length) if length else b""
         stub: Stub = self.server.stub  # type: ignore[attr-defined]
@@ -99,6 +116,54 @@ class _Handler(BaseHTTPRequestHandler):
             return self._json(201, row)
         if method == "GET" and path == "/api/agents":
             return self._json(200, stub.agents)
+        if method == "GET" and path == "/api/tasks":
+            want_archived = query.get("archived", ["0"])[0] == "1"
+            rows = [row for row in stub.tasks if bool(row.get("archived_at")) == want_archived]
+            return self._json(200, rows)
+        if method == "POST" and path == "/api/tasks":
+            body = json.loads(raw or b"{}")
+            stub.seq["tsk"] += 1
+            ident = f"tsk-{stub.seq['tsk']}"
+            if not stub.tasks_terminal:
+                status = "running"
+            elif stub.force_status:
+                status = stub.force_status
+            else:
+                # The fake agent fails exactly the prompts carrying its marker.
+                status = "failed" if "[seed] fail" in str(body.get("prompt", "")) else "succeeded"
+            row = {
+                "id": ident,
+                "title": body.get("title"),
+                "prompt": body.get("prompt"),
+                "agent": body.get("agent"),
+                "permission_mode": body.get("permission_mode"),
+                "status": status,
+                "archived_at": None,
+            }
+            stub.tasks.append(row)
+            events = [{"type": "result", "payload": {"is_error": status == "failed"}}]
+            if stub.emit_fake_marker:
+                events.insert(0, {"type": "raw_output", "payload": {"line": f"fake-agent {row['title']}", "stream": "stderr"}})
+            stub.task_events[ident] = events
+            return self._json(201, row)
+        match = re.fullmatch(r"/api/tasks/([^/]+)/events", path)
+        if match and method == "GET":
+            if match.group(1) not in stub.task_events:
+                return self._json(404, {"error": "not found"})
+            return self._json(200, stub.task_events[match.group(1)])
+        match = re.fullmatch(r"/api/tasks/([^/]+)/archive", path)
+        if match and method == "POST":
+            for row in stub.tasks:
+                if row["id"] == match.group(1):
+                    row["archived_at"] = 1
+                    return self._json(200, row)
+            return self._json(404, {"error": "not found"})
+        match = re.fullmatch(r"/api/tasks/([^/]+)", path)
+        if match and method == "GET":
+            for row in stub.tasks:
+                if row["id"] == match.group(1):
+                    return self._json(200, row)
+            return self._json(404, {"error": "not found"})
         return self._json(404, {"error": "no stub route"})
 
     def do_GET(self) -> None:
@@ -128,9 +193,16 @@ class SeedTest(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
 
-    def run_seed(self, *args: str, base: str | None = "stub", token: str = TOKEN) -> subprocess.CompletedProcess[str]:
+    def run_seed(
+        self,
+        *args: str,
+        base: str | None = "stub",
+        token: str = TOKEN,
+        extra_env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         env = {key: value for key, value in os.environ.items() if key in ("PATH", "TMPDIR", "LANG", "LC_ALL")}
         env["KIN_TOKEN"] = token
+        env.update(extra_env or {})
         if base is not None:
             env["KIN_BASE"] = self.base if base == "stub" else base
         return subprocess.run(
@@ -152,6 +224,18 @@ class SeedTest(unittest.TestCase):
             {"id": "rtn-1", "title": ROUTINES[0]},
             {"id": "rtn-2", "title": ROUTINES[1]},
         ]
+
+    def enable_fake_agent(self) -> None:
+        """The daemon reports the harness fake as the claude it would launch."""
+        self.stub.agents = [
+            {"id": "claude-code", "name": "Claude Code", "installed": True, "available": True, "binary": FAKE_AGENT}
+        ]
+
+    def task_posts(self) -> list[dict]:
+        return [json.loads(raw or b"{}") for m, p, raw in self.stub.requests if m == "POST" and p == "/api/tasks"]
+
+    def skip_states(self, result: subprocess.CompletedProcess[str]) -> list[str]:
+        return [line[len("skip ") :].split(":", 1)[0] for line in result.stdout.splitlines() if line.startswith("skip ")]
 
     def assert_report(self, result: subprocess.CompletedProcess[str], pattern: str) -> None:
         self.assertRegex(result.stdout, pattern, result.stdout + result.stderr)
@@ -207,6 +291,179 @@ class SeedTest(unittest.TestCase):
             self.assertNotIn(TOKEN, result.stdout)
             self.assertNotIn(TOKEN, result.stderr)
 
+    def test_conversations_are_created_idempotently(self) -> None:
+        self.enable_fake_agent()
+        result = self.run_seed()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        posts = self.task_posts()
+        self.assertEqual(len(posts), 3, result.stdout)
+        for body in posts:
+            self.assertTrue(str(body.get("title", "")).startswith("[seed] "), body)
+            self.assertTrue(str(body.get("prompt", "")).startswith("[seed] "), body)
+            # YOLO keeps the fake from ever being asked for an approval card.
+            self.assertEqual(body.get("agent"), "claude-code", body)
+            self.assertEqual(body.get("permission_mode"), "yolo", body)
+        self.assertEqual(
+            [body.get("cwd") for body in posts],
+            [proj["roots"][0] for proj in self.stub.projects],
+        )
+        failed = [row for row in self.stub.tasks if row["status"] == "failed"]
+        self.assertEqual(len(failed), 1, self.stub.tasks)
+        self.assertIn("[seed] fail", failed[0]["prompt"])
+        archived = [row for row in self.stub.tasks if row["archived_at"]]
+        self.assertEqual(len(archived), 1, self.stub.tasks)
+        self.assertEqual(archived[0]["title"], CONVERSATIONS[2])
+        self.assertIn(("POST", f"/api/tasks/{archived[0]['id']}/archive"), self.stub.mutations())
+
+        # A second run finds all three, including the archived one, and creates
+        # nothing new.
+        before = len(self.stub.tasks)
+        self.stub.requests.clear()
+        result = self.run_seed()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.stub.mutations(), [])
+        self.assertEqual(len(self.stub.tasks), before)
+        for title in CONVERSATIONS:
+            self.assert_report(result, rf"existing conversation {re.escape(title)} \S+")
+        self.assert_report(result, rf"existing archive {re.escape(CONVERSATIONS[2])}")
+
+    def test_conversations_are_not_created_in_dry_run(self) -> None:
+        self.enable_fake_agent()
+        result = self.run_seed("--dry-run")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.stub.mutations(), [])
+        for title in CONVERSATIONS:
+            self.assertIn(f"plan conversation {title}", result.stdout)
+        self.assertNotIn("create conversation", result.stdout)
+
+    def test_reports_only_the_unproduced_states(self) -> None:
+        self.enable_fake_agent()
+        result = self.run_seed()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.skip_states(result), ["waiting-approval", "routine-failed"], result.stdout)
+
+    def test_agent_requests_are_bounded_and_report_failure(self) -> None:
+        self.enable_fake_agent()
+        self.stub.tasks_terminal = False
+        result = self.run_seed(extra_env={"KIN_SEED_TASK_TIMEOUT_SECS": "1"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        skips = self.skip_states(result)
+        for slug in ("conversation-created", "conversation-failed", "conversation-archived"):
+            self.assertIn(slug, skips, result.stdout)
+        self.assertIn("not waiting forever", result.stdout)
+        # It gave up instead of waiting forever: one task polled, not slept on.
+        self.assertLessEqual(len(self.stub.tasks), 3)
+
+    def test_dry_run_does_not_archive_an_existing_row(self) -> None:
+        # An interrupted earlier run can leave the archived fixture filed but
+        # not archived; a dry run must describe that, never fix it.
+        self.enable_fake_agent()
+        self.stub.tasks = [
+            {"id": "tsk-1", "title": CONVERSATIONS[0], "status": "succeeded", "archived_at": None},
+            {"id": "tsk-2", "title": CONVERSATIONS[1], "status": "failed", "archived_at": None},
+            {"id": "tsk-3", "title": CONVERSATIONS[2], "status": "succeeded", "archived_at": None},
+        ]
+        result = self.run_seed("--dry-run")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.stub.mutations(), [])
+        self.assertIn(f"plan archive {CONVERSATIONS[2]}", result.stdout)
+        self.assertNotIn("create archive", result.stdout)
+
+    def test_blank_daemon_binary_refuses(self) -> None:
+        # A blank binary means the daemon did not say which claude it would
+        # start. This process's PATH must not stand in for that answer, even
+        # when it points at the fake.
+        self.stub.agents = [
+            {"id": "claude-code", "name": "Claude Code", "installed": True, "available": True, "binary": ""}
+        ]
+        fake_path = f"{os.path.dirname(FAKE_AGENT)}:{os.environ.get('PATH', '')}"
+        result = self.run_seed(extra_env={"PATH": fake_path})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.task_posts(), [])
+        self.assertIn("does not say which claude", result.stdout)
+        self.assertIn("conversation-created", self.skip_states(result))
+
+    def test_existing_wrong_state_is_reported(self) -> None:
+        self.enable_fake_agent()
+        self.stub.tasks = [
+            {"id": "tsk-1", "title": CONVERSATIONS[0], "status": "running", "archived_at": None},
+        ]
+        result = self.run_seed()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("existing task tsk-1 is running, wanted succeeded", result.stdout)
+        # The other two are still created; the running row is left alone.
+        self.assertEqual(len(self.task_posts()), 2, result.stdout)
+
+    def test_fake_agent_contract(self) -> None:
+        # The shell fake is the only thing standing between a seeded turn and
+        # a real model run; keep its stream-json and exit codes pinned to what
+        # the adapter parses.
+        fake = FAKE_AGENT
+        self.assertTrue(os.access(fake, os.X_OK), fake)
+        ok = subprocess.run(
+            [fake, "-p", "[seed] hello", "--output-format", "stream-json", "--verbose"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        self.assertIn("fake-agent [seed] hello", ok.stderr)
+        lines = [json.loads(line) for line in ok.stdout.splitlines() if line.strip()]
+        self.assertEqual([line["type"] for line in lines], ["system", "stream_event", "assistant", "result"])
+        self.assertFalse(lines[-1]["is_error"])
+        self.assertIn("total_cost_usd", lines[-1])
+        self.assertIn("input_tokens", lines[-1]["usage"])
+
+        bad = subprocess.run([fake, "-p", "[seed] fail now"], capture_output=True, text=True, timeout=10)
+        self.assertNotEqual(bad.returncode, 0)
+        last = json.loads(bad.stdout.strip().splitlines()[-1])
+        self.assertEqual(last["type"], "result")
+        self.assertTrue(last["is_error"])
+
+    def test_wrong_terminal_status_is_reported(self) -> None:
+        self.enable_fake_agent()
+        self.stub.force_status = "canceled"
+        result = self.run_seed()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("ended canceled", result.stdout)
+        self.assertIn("conversation-failed", self.skip_states(result))
+        self.assertNotIn("create archive", result.stdout)
+
+    def test_missing_fake_marker_is_reported(self) -> None:
+        self.enable_fake_agent()
+        self.stub.emit_fake_marker = False
+        result = self.run_seed()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("no fake-agent marker", result.stdout)
+        # It must not archive a conversation it could not prove the fake ran.
+        self.assertNotIn("create archive", result.stdout)
+
+    def test_real_agent_is_never_started(self) -> None:
+        # A runnable claude that is not the harness fake: creating the
+        # conversation would start a real model turn, so the seed must refuse.
+        self.stub.agents = [
+            {
+                "id": "claude-code",
+                "name": "Claude Code",
+                "installed": True,
+                "available": True,
+                "binary": "/usr/local/bin/claude",
+            }
+        ]
+        result = self.run_seed()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.task_posts(), [])
+        self.assertIn("conversation-created", self.skip_states(result))
+        self.assertIn("fake", result.stdout)
+
+        # The same daemon with the harness fake behind it does create: the
+        # refusal above is about the binary, not a blanket "never seed".
+        self.stub.requests.clear()
+        self.enable_fake_agent()
+        result = self.run_seed()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(self.task_posts()), 3, result.stdout)
+
     def test_created_report_lists_fixtures(self) -> None:
         result = self.run_seed()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -216,6 +473,16 @@ class SeedTest(unittest.TestCase):
         self.assertIn("create focus [seed] Project Alpha", result.stdout)
         self.assertIn("create routine [seed] Morning check-in rtn-1", result.stdout)
         self.assertIn("create routine [seed] Weekly review rtn-2", result.stdout)
+
+    def test_conversations_fall_back_when_project_roots_missing(self) -> None:
+        self.preload()
+        self.enable_fake_agent()
+        result = self.run_seed()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(
+            [os.path.basename(body["cwd"]) for body in self.task_posts()],
+            ["alpha", "beta", "gamma"],
+        )
 
 
 if __name__ == "__main__":
