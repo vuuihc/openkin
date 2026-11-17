@@ -251,17 +251,18 @@ export function SettingsLayout({
                     <span className="block truncate">{tab.label}</span>
                     {/* The value in effect under the section it belongs to —
                         one list, not a second index (TASTE 1). On the selected
-                        blue tab it keeps the on-brand ink at a quieter
-                        opacity rather than switching to a muted grey that
-                        would fight the fill. */}
+                        blue tab it keeps the on-brand ink rather than
+                        switching to a muted grey that would fight the fill. */}
                     {tab.summary ? (
                       <span
                         className={classes(
                           "mt-0.5 block truncate text-caption font-normal",
-                          // The on-brand ink at a quieter weight. The token is
-                          // a plain var (no `<alpha-value>`), so the dimming
-                          // has to be the element's own opacity.
-                          selected ? "text-kin-on-brand opacity-75" : "text-kin-muted",
+                          // Caption size and the regular weight already make
+                          // the line secondary. The ink stays at full opacity:
+                          // dimming it drops the on-brand/blue pair under the
+                          // 3:1 floor recorded in design/colors.ts, and an
+                          // element opacity is invisible to the token guard.
+                          selected ? "text-kin-on-brand" : "text-kin-muted",
                         )}
                       >
                         {tab.summary}
