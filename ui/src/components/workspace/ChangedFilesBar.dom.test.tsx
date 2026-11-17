@@ -124,3 +124,49 @@ describe("KIN-RESULT-001: the changed-files summary row is one shared Button", (
     expect(rawRows).toHaveLength(1);
   });
 });
+
+describe("R-changed-files-bar: bulk action layout and bar affordance", () => {
+  function renderBulk() {
+    render(
+      <ChangedFilesBar
+        files={twoFiles}
+        onOpenPath={vi.fn()}
+        onOpenPanel={vi.fn()}
+        reviewActions
+        onKeepAll={vi.fn()}
+        onDiscardAll={vi.fn()}
+      />,
+    );
+    return {
+      discard: screen.getByRole("button", { name: t("workspace.changed.discardAll") }),
+      keep: screen.getByRole("button", { name: t("workspace.changed.keepAll") }),
+    };
+  }
+
+  it("bar: each bulk action draws its icon and label on one line", () => {
+    const { discard, keep } = renderBulk();
+
+    // The facade puts every child in one content span, where Astryx's svg is
+    // block-level; the icon would stack above the label without a flex line.
+    for (const button of [discard, keep]) {
+      const icon = button.querySelector("svg");
+      expect(icon, `${button.textContent} needs its icon`).not.toBeNull();
+      const line = icon!.parentElement!;
+      expect(line.className).toContain("inline-flex");
+      expect(line.className).toContain("items-center");
+      // The label is inside that same line, not a sibling of it.
+      expect(line.textContent?.trim()).not.toBe("");
+    }
+  });
+
+  it("bar: the chevron points right — it opens the panel, not an inline expander", () => {
+    render(<ChangedFilesBar files={twoFiles} onOpenPath={vi.fn()} onOpenPanel={vi.fn()} />);
+
+    const summary = screen.getByRole("button", { name: new RegExp(reviewTitle()) });
+    const chevron = summary.querySelector("svg");
+    expect(chevron).not.toBeNull();
+    // IconChevron's own path points right; `rotate-90` would turn it into the
+    // down arrow that reads as a dropdown (the phone bar hides the expand hint).
+    expect(chevron!.getAttribute("class")).not.toContain("rotate-90");
+  });
+});

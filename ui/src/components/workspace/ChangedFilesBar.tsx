@@ -151,8 +151,13 @@ export default function ChangedFilesBar({
             aria-label={t("workspace.changed.discardAll")}
             className="md:min-h-0 md:px-2.5 md:py-1 text-caption"
           >
-            <IconX size={12} className="opacity-80" />
-            {t("workspace.changed.discardAll")}
+            {/* Icon and label need their own flex line: the facade puts both
+                inside one content span, where the svg is a block and would
+                stack above the text. */}
+            <span className="inline-flex items-center gap-1.5">
+              <IconX size={12} className="opacity-80" />
+              {t("workspace.changed.discardAll")}
+            </span>
           </Button>
           <Button
             variant="default"
@@ -162,8 +167,10 @@ export default function ChangedFilesBar({
             aria-label={t("workspace.changed.keepAll")}
             className="md:min-h-0 md:px-2.5 md:py-1 text-caption"
           >
-            <IconCheck size={12} />
-            {t("workspace.changed.keepAll")}
+            <span className="inline-flex items-center gap-1.5">
+              <IconCheck size={12} />
+              {t("workspace.changed.keepAll")}
+            </span>
           </Button>
         </>
       )}
@@ -282,7 +289,10 @@ export default function ChangedFilesBar({
               needs its own flex line or the count and the diff delta run
               together. */}
           <span className="flex min-w-0 items-center gap-2">
-            <IconChevron size={13} className="flex-none text-kin-muted rotate-90" />
+            {/* Points right, not down: the row opens the workspace files/diff
+                panel; a down chevron reads as an inline accordion on phone,
+                where the expand hint is hidden. */}
+            <IconChevron size={13} className="flex-none text-kin-muted" />
             <span className="flex-none text-body font-semibold text-kin-text">
               {t("workspace.changed.reviewTitle", { count: labelCount })}
             </span>

@@ -24,6 +24,7 @@ import ActionSheet from "../../components/ui/ActionSheet";
 import Menu from "../../components/ui/Menu";
 import RadioGroup from "../../components/ui/RadioGroup";
 import { useAgentSessionImport } from "../../hooks/useAgentSessionImport";
+import { refreshMachines } from "../../hooks/useMachines";
 import { useSlowHint } from "../../hooks/useSlowHint";
 import { useAppStore } from "../../store/appStore";
 import { useT } from "../../i18n/react";
@@ -688,6 +689,10 @@ export default function AgentOperationsSection({ embedded = false }: { embedded?
     try {
       await updateSettings({ "agent.default": id });
       pushToast(tr("agents.defaultUpdated"), "info");
+      // The same saved value is what `/new` names as its host agent. It reads
+      // the shared machine snapshot, not this table's list, so ask that
+      // snapshot to reload; the local list below only refreshes this table.
+      void refreshMachines();
       await loadAgents();
     } catch (e) {
       pushToast(messageOf(e), "error");
