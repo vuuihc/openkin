@@ -125,7 +125,7 @@ export default function PlacePicker({
         aria-haspopup="dialog"
         aria-expanded={open}
         title={value.cwd || label}
-        className="min-h-11! w-full justify-start rounded-xl px-3 text-left"
+        className="min-h-11! w-full justify-start rounded-xl px-3 text-left [&>span>span]:flex [&>span>span]:w-full [&>span>span]:items-center [&>span>span]:gap-2"
       >
         <IconFolder size={16} className="flex-none text-kin-secondary" />
         <span className="min-w-0 flex-1 truncate text-body font-medium text-kin-text">{label}</span>

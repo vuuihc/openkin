@@ -339,7 +339,7 @@ export default function CodeViewer({
                 onClick={() => onDiscard?.()}
                 title={t("workspace.changed.discardHint")}
                 aria-label={t("workspace.changed.discard")}
-                className="md:h-auto! md:min-h-0 md:py-1 md:px-2 text-caption"
+                className="md:h-auto! md:min-h-0 md:py-1 md:px-2 text-caption [&>span>span]:flex [&>span>span]:items-center [&>span>span]:gap-2"
               >
                 <IconX size={12} />
                 {t("workspace.changed.discard")}
@@ -350,7 +350,7 @@ export default function CodeViewer({
                 onClick={() => onKeep?.()}
                 title={t("workspace.changed.keepHint")}
                 aria-label={t("workspace.changed.keep")}
-                className="md:h-auto! md:min-h-0 md:py-1 md:px-2 text-caption"
+                className="md:h-auto! md:min-h-0 md:py-1 md:px-2 text-caption [&>span>span]:flex [&>span>span]:items-center [&>span>span]:gap-2"
               >
                 <IconCheck size={12} />
                 {t("workspace.changed.keep")}
@@ -383,7 +383,7 @@ export default function CodeViewer({
                 aria-label={
                   saveState === "saving" ? t("workspace.viewer.saving") : t("workspace.viewer.save")
                 }
-                className="md:h-auto! md:min-h-0 md:py-1 md:px-2 text-caption"
+                className="md:h-auto! md:min-h-0 md:py-1 md:px-2 text-caption [&>span>span]:flex [&>span>span]:items-center [&>span>span]:gap-2"
               >
                 <IconCheck size={12} />
                 {saveState === "saving" ? t("workspace.viewer.saving") : t("workspace.viewer.save")}

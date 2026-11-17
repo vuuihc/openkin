@@ -140,6 +140,13 @@ describe("the code viewer's action row", () => {
     }) as HTMLButtonElement;
     expect(discard.className).toContain("kin-btn-secondary");
     expect(keep.className).toContain("kin-btn-primary");
+    // The 12px icon and the label share Astryx's label span; without the flex
+    // selector each action becomes a two-line, taller button (jsdom has no
+    // layout, so the class is the pin).
+    for (const action of [discard, keep]) {
+      expect(action.className).toContain("[&>span>span]:flex");
+      expect(action.className).toContain("[&>span>span]:items-center");
+    }
     expect(discard.getAttribute("title")).toBe(t("workspace.changed.discardHint"));
     expect(keep.getAttribute("title")).toBe(t("workspace.changed.keepHint"));
 
@@ -195,6 +202,7 @@ describe("the code viewer's action row", () => {
       name: t("workspace.viewer.save"),
     }) as HTMLButtonElement;
     expect(save.className).toContain("kin-btn-primary");
+    expect(save.className).toContain("[&>span>span]:flex");
     expect(save.disabled).toBe(true);
 
     await user.type(screen.getByTestId("editor"), "x");

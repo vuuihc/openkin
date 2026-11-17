@@ -54,6 +54,10 @@ describe("the generation picker's trigger", () => {
     expect(trigger.textContent).toContain("Workspace 2");
     expect(trigger.className).toContain("kin-btn");
     expect(trigger.className).toContain("kin-btn-secondary");
+    // Astryx's label span is the row: label, badge and chevron share one line
+    // (jsdom has no layout, so the class is the pin).
+    expect(trigger.className).toContain("[&>span>span]:flex");
+    expect(trigger.className).toContain("[&>span>span]:items-center");
 
     await user.click(trigger);
     // The option rows keep their own row shape; selecting one is unchanged.
