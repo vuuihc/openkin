@@ -84,7 +84,7 @@ const en: MessageTree = {
     loadError: "Could not load chats",
     loadErrorHint: "The daemon did not answer; this will retry on its own.",
     empty: "No chats yet",
-    emptyHint: "Tap the pencil at the bottom right, or start one from the desktop console.",
+    emptyHint: "Start one with New chat.",
     untitled: "Untitled chat",
     agentSessionsFailed:
       "Local agent sessions could not be read right now. Kin's own sessions are still listed above.",
