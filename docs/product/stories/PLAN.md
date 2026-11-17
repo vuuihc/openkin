@@ -1,6 +1,6 @@
 # 用户故事方案
 
-状态：十条合同已写；七条意图已签字（五条控制台内 + 一条离开时被叫回来 + 一条「让它按时跑」，2026-11-11 签字）。逐条签字、逐条交付，不分阶段。
+状态：十四条合同已写，全部已签字（4 条 `covered`、10 条 `approved`，没有 `draft`）；七条意图已于 2026-11-11 全部签字。逐条签字、逐条交付，不分阶段。
 配套：[`IA.md`](../IA.md)（哪个面归谁）、[`TASTE.md`](../TASTE.md)（所有面长什么样）、[`stories/README.md`](README.md)（怎么写、怎么签、怎么交付）、[`LESSONS.md`](../LESSONS.md)（规则从真实缺陷长出来）。
 
 ## 一句话
@@ -64,11 +64,12 @@
 
 ## 状态
 
-2026-11-11：R0b 补故事只写合同，不写产品代码；PROJECT / AGENTS / ROUTINE / START 四条已签字，按此顺序交付。
+本节以 [`registry.json`](registry.json) 为准（汇总见 [`COVERAGE.md`](COVERAGE.md)，由 `python3 scripts/stories.py --write-coverage` 生成），状态用词只有 `draft` / `approved` / `covered`，不按叙事手写。
 
-- 已签字、已交付：`KIN-CONTINUE-001`。
-- 已签字、已实现（真机验收待补）：`KIN-NOTIFY-001`。
-- 已签字、等交付：`KIN-SETTINGS-002`（桌面壳一键升级）、`KIN-PROJECT-001`、`KIN-AGENTS-001`、`KIN-ROUTINE-001`、`KIN-START-001`。
-- 仍是 `draft`：`KIN-RESULT-001`、`KIN-RESULT-002`（文件工作区独立小设计，2026-11-14 待签）、`KIN-MANAGE-001`、`KIN-SETTINGS-001`。
-- 草图：`KIN-CONTINUE-001`、`KIN-NOTIFY-001`、`KIN-SETTINGS-002`、`KIN-PROJECT-001`、`KIN-AGENTS-001`、`KIN-ROUTINE-001`、`KIN-START-001` 已画并已签字；`KIN-RESULT-001`、`KIN-MANAGE-001`、`KIN-SETTINGS-001` 在各自签字前画。
+2026-11-11：R0b 补故事只写合同，不写产品代码；PROJECT / AGENTS / ROUTINE / START 四条当时签字，现已全部交付。
+
+- `covered`（4 条，验收全绿、已交付）：`KIN-START-001`、`KIN-PROJECT-001`、`KIN-AGENTS-001`、`KIN-ROUTINE-001`。
+- `approved`（10 条，已签字、可开工）：`KIN-CONTINUE-001`、`KIN-CONTINUE-002`、`KIN-CONTINUE-003`、`KIN-NOTIFY-001`、`KIN-RESULT-001`、`KIN-RESULT-002`、`KIN-RESULT-003`、`KIN-MANAGE-001`、`KIN-SETTINGS-001`、`KIN-SETTINGS-002`。
+- 没有 `draft`：14 条全部已签字。
+- 设计页：14 条都有 `<编号>.review.html`；其中 13 条另有 `<编号>.figma/frames/`，`KIN-CONTINUE-001` 是旧格式，只有审阅页。
 - 第七条意图「让它按时跑」已于 2026-11-11 签字，成为正式一条；签字页在 `KIN-ROUTINE-001.review.html` 的 D1。
