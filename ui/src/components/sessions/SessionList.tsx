@@ -81,7 +81,12 @@ import {
   subscribeSessionViewed,
 } from "../../lib/sessionViewed";
 import { getPinnedTaskIds, setTaskPinned } from "../../lib/taskPins";
-import { getTaskOrder, setBucketOrder, type TaskOrder } from "../../lib/taskOrder";
+import {
+  clearBucketOrder,
+  getTaskOrder,
+  setBucketOrder,
+  type TaskOrder,
+} from "../../lib/taskOrder";
 import { mergeTaskTail } from "../../lib/taskTail";
 import ActionSheet from "../ui/ActionSheet";
 import Button from "../ui/Button";
@@ -701,6 +706,7 @@ export default function SessionList({
         onRestore={restoreRow}
         scope={scope}
         query={query}
+        canReorder={canReorder}
         archived={scope === "archived"}
         onRestoreProject={
           scope === "archived" && bucketIsLocal(bucket) && archivedCwdFor(bucket.key, archivedCwds)
@@ -1265,6 +1271,21 @@ export default function SessionList({
                         if (projectMenu.bucket.cwd) toggleProjectPinned(projectMenu.bucket.cwd);
                       },
                     },
+                    // The way back out of a manual order. Offered only when
+                    // this project actually has one; restoring is a
+                    // preference, not a deletion, so it takes no red ink.
+                    ...((taskOrder[projectMenu.bucket.key]?.length ?? 0) > 0
+                      ? [
+                          {
+                            id: "restore-order",
+                            label: tr("nav.restoreTimeOrder"),
+                            onSelect: () => {
+                              clearBucketOrder(projectMenu.bucket.key);
+                              setTaskOrder(getTaskOrder());
+                            },
+                          },
+                        ]
+                      : []),
                   ]),
               ...(!bucketIsLocal(projectMenu.bucket)
                 ? []
@@ -1493,6 +1514,7 @@ function ProjectBucket({
   onRestore,
   scope,
   query,
+  canReorder,
   archived,
   local,
   onRestoreProject,
@@ -1531,6 +1553,8 @@ function ProjectBucket({
   onDelete: (row: PhoneSessionRow) => void;
   onRestore: (row: PhoneSessionRow) => void;
   scope: SessionScopeFilter;
+  /** Alt+↑/↓ moves a row here; each row carries the hint while it does. */
+  canReorder: boolean;
   archived: boolean;
   /** This bucket's rows run on this machine, so the local project record —
    *  cover, pin, archive — describes it. */
@@ -1727,6 +1751,7 @@ function ProjectBucket({
               onRestore={() => onRestore(row)}
               scope={scope}
               query={query}
+              reorderHint={canReorder}
             />
           ))}
           {canToggle && (hidden > 0 || bucket.rows.length > ROWS_BEFORE_SHOW_ALL) ? (

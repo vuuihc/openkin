@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import SessionList from "./SessionList";
 import { setLocale } from "../../i18n";
-import { getTaskOrder } from "../../lib/taskOrder";
+import { getTaskOrder, setBucketOrder } from "../../lib/taskOrder";
 import type { AgentSession, Project, Task } from "../../api/client";
 
 /**
@@ -106,6 +107,8 @@ beforeEach(() => {
   setLocale("en");
   localStorage.clear();
   sessionStorage.clear();
+  // A sheet owns one history entry; start each test from a clean one.
+  window.history.replaceState({ idx: 0 }, "", "/sessions");
   fixtures.tasks = [task("a", 30), task("b", 20), task("c", 10)];
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: query === "(pointer: coarse)",
@@ -202,5 +205,77 @@ describe("keyboard reorder", () => {
     fireEvent.keyDown(row("a"), { key: "ArrowDown", altKey: true });
     expect(order()).toEqual(["a", "b", "c"]);
     expect(getTaskOrder()).toEqual({});
+  });
+});
+
+/**
+ * The way back out of a manual order, and the only sign that the keyboard
+ * gesture exists. Both live where the move is offered: the project sheet only
+ * carries the reset once that project has a stored order, and a row only shows
+ * the hint while Alt+↑/↓ would actually do something.
+ *
+ * KIN-MANAGE-001, gap-log 2026-11-15 (第二切片 R-drag-order-ux).
+ */
+describe("order escape hatch", () => {
+  it("restore-time-order-appears-only-after-a-manual-move", async () => {
+    const user = userEvent.setup();
+    mount();
+    await waitFor(() => expect(order()).toEqual(["a", "b", "c"]));
+
+    await user.click(screen.getByRole("button", { name: "Project actions" }));
+    expect(screen.queryByRole("button", { name: "Restore time order" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull());
+
+    row("a").focus();
+    fireEvent.keyDown(row("a"), { key: "ArrowDown", altKey: true });
+    await waitFor(() => expect(order()).toEqual(["b", "a", "c"]));
+
+    await user.click(screen.getByRole("button", { name: "Project actions" }));
+    expect(screen.getByRole("button", { name: "Restore time order" })).toBeTruthy();
+  });
+
+  it("restore-time-order-clears-the-bucket-and-returns-the-clock-order", async () => {
+    const user = userEvent.setup();
+    // A second project's order must survive: the sheet speaks for one bucket.
+    setBucketOrder("/work/beta", ["x"]);
+    mount();
+    await waitFor(() => expect(order()).toEqual(["a", "b", "c"]));
+    row("a").focus();
+    fireEvent.keyDown(row("a"), { key: "ArrowDown", altKey: true });
+    await waitFor(() => expect(order()).toEqual(["b", "a", "c"]));
+    expect(getTaskOrder()).toEqual({
+      "/work/alpha": ["b", "a", "c"],
+      "/work/beta": ["x"],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Project actions" }));
+    await user.click(screen.getByRole("button", { name: "Restore time order" }));
+
+    await waitFor(() => expect(order()).toEqual(["a", "b", "c"]));
+    expect(getTaskOrder()).toEqual({ "/work/beta": ["x"] });
+  });
+
+  it("a-row-carries-the-reorder-hint-while-a-move-is-offered", async () => {
+    const view = mount();
+    await waitFor(() => expect(order()).toEqual(["a", "b", "c"]));
+    expect(row("a").getAttribute("title")).toBe("Alt+↑/↓ moves this chat");
+    // The hint is a tooltip, never part of what a screen reader announces.
+    expect(row("a").getAttribute("aria-label")).not.toContain("Alt");
+    view.unmount();
+
+    // A narrowed list still shows the stored order, but a move is not offered
+    // there, so the row must not advertise the gesture.
+    const searched = mount("/sessions?search=alpha");
+    await waitFor(() => expect(order()).toEqual(["a", "b", "c"]));
+    expect(row("a").hasAttribute("title")).toBe(false);
+    expect(row("a").getAttribute("aria-label")).not.toContain("Alt");
+    searched.unmount();
+
+    fixtures.tasks = [task("a", 30, true), task("b", 20, true), task("c", 10, true)];
+    mount("/sessions?scope=archived");
+    await waitFor(() => expect(order()).toEqual(["a", "b", "c"]));
+    expect(row("a").hasAttribute("title")).toBe(false);
+    expect(row("a").getAttribute("aria-label")).not.toContain("Alt");
   });
 });
