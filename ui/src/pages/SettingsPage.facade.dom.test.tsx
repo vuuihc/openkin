@@ -279,6 +279,47 @@ describe("the general tab on the button facade", () => {
     );
   });
 
+  it("routes the JSON fields through the shared text area", async () => {
+    const user = userEvent.setup();
+    pageOnly("/settings?tab=advanced");
+    await screen.findByRole("tab", { name: "Advanced" });
+
+    for (const [name, descriptionId] of [
+      ["Price table", "settings-price-description"],
+      ["Agent usage limits", "settings-agent-limits-description"],
+    ]) {
+      const field = screen.getByRole("textbox", { name });
+      // The primitive renders the native multi-line control and owns the name;
+      // the section heading still exists, but is no longer a second labelling
+      // path on the textarea itself.
+      expect(field).toBeInstanceOf(HTMLTextAreaElement);
+      expect(field.getAttribute("aria-describedby")).toContain(descriptionId);
+    }
+
+    const price = screen.getByRole("textbox", { name: "Price table" });
+    fireEvent.change(price, { target: { value: "{not json" } });
+    await user.click(screen.getByRole("button", { name: "Save price table" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("textbox", { name: "Price table" }).getAttribute("aria-describedby"),
+      ).toContain("settings-price-error"),
+    );
+
+    // The shared save validates the price table first; restore it so the
+    // limits group's own validation is the one that runs.
+    fireEvent.change(price, { target: { value: "{}" } });
+    const limits = screen.getByRole("textbox", { name: "Agent usage limits" });
+    fireEvent.change(limits, { target: { value: "{not json" } });
+    await user.click(screen.getByRole("button", { name: "Save limits" }));
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("textbox", { name: "Agent usage limits" })
+          .getAttribute("aria-describedby"),
+      ).toContain("settings-agent-limits-error"),
+    );
+  });
+
   it("names both JSON fields and keeps a validation error in its own group", async () => {
     const user = userEvent.setup();
     pageOnly("/settings?tab=advanced");

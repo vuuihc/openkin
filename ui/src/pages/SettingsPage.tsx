@@ -43,6 +43,7 @@ import {
   type SettingsTabItem,
 } from "../components/settings/SettingsPrimitives";
 import Button from "../components/ui/Button";
+import TextArea from "../components/ui/TextArea";
 import { normalizeSettingsTab, type SettingsTabId } from "../lib/areaNavigation";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useLeaveGuard } from "../hooks/useLeaveGuard";
@@ -895,18 +896,19 @@ export default function SettingsPage() {
             {" · "}
             {tr("settings.price.overrideHint")}
           </p>
-          <textarea
+          <TextArea
+            label={tr("settings.price.heading")}
+            isLabelHidden
             value={priceTable}
             onChange={(e) => setPriceTable(e.target.value)}
             rows={10}
             spellCheck={false}
-            aria-labelledby="settings-price-heading"
             aria-describedby={
               priceError
                 ? "settings-price-description settings-price-error"
                 : "settings-price-description"
             }
-            className="kin-input font-mono text-body leading-4 resize-y min-h-40"
+            className="font-mono text-body leading-4 resize-y min-h-40"
           />
           <div className="flex flex-wrap items-center gap-3">
             <Button disabled={busy} onClick={() => void save("price")}>
@@ -961,18 +963,19 @@ export default function SettingsPage() {
             {tr("settings.agentLimits.desc")}
             <code className="text-kin-secondary">{tr("settings.agentLimits.shape")}</code>
           </p>
-          <textarea
+          <TextArea
+            label={tr("settings.agentLimits.heading")}
+            isLabelHidden
             value={agentLimitsText}
             onChange={(e) => setAgentLimitsText(e.target.value)}
             rows={6}
             spellCheck={false}
-            aria-labelledby="settings-agent-limits-heading"
             aria-describedby={
               agentLimitsError
                 ? "settings-agent-limits-description settings-agent-limits-error"
                 : "settings-agent-limits-description"
             }
-            className="kin-input font-mono text-body leading-4 resize-y min-h-24"
+            className="font-mono text-body leading-4 resize-y min-h-24"
           />
           <div className="flex items-center gap-3">
             <Button disabled={busy} onClick={() => void save("agentLimits")}>

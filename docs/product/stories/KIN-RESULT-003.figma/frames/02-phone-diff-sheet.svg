@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+<rect width="390" height="844" fill="#111315"/>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;fill:#e7e9eb}.muted{fill:#969da4}.small{font-size:12px}.tiny{font-size:11px}.label{font-size:14px}.title{font-size:16px;font-weight:600}.mono{font-family:'SF Mono',Menlo,monospace;font-size:12px}.button{fill:#20252a;stroke:#3b4249}.primary{fill:#2f6feb;stroke:#2f6feb}</style>
+<text x="14" y="22" class="tiny muted">KIN-RESULT-003 · 02 / 手机统一 diff + 评论面板</text>
+
+<rect y="32" width="390" height="56" fill="#181b1e"/>
+<text x="16" y="66" class="label" fill="#9db9ff">‹ 对话</text>
+<text x="195" y="66" text-anchor="middle" class="title">report.html</text>
+<text x="374" y="65" text-anchor="end" class="small muted">+12 −4</text>
+
+<rect y="88" width="390" height="44" fill="#141719"/>
+<text x="16" y="116" class="label" fill="#9db9ff">‹ 文件</text>
+<text x="88" y="115" class="small muted">改动 · 3 个文件</text>
+<text x="374" y="115" text-anchor="end" class="small muted">评论 2</text>
+
+<rect y="132" width="390" height="30" fill="#20252a"/>
+<text x="16" y="152" class="mono muted">@@ -38,7 +38,9 @@  导出区域</text>
+
+<rect y="162" width="390" height="44" fill="#171a1d"/>
+<text x="8" y="189" class="mono muted">38</text><text x="44" y="189" class="mono">const area = panel.export();</text>
+<rect y="206" width="390" height="44" fill="#171a1d"/>
+<text x="8" y="233" class="mono muted">39</text><text x="44" y="233" class="mono">area.title(</text>
+<rect y="250" width="390" height="44" fill="#2a1717"/>
+<text x="8" y="277" class="mono" fill="#ff8a80">−40</text><text x="44" y="277" class="mono" fill="#ff8a80">  heading,</text>
+<rect y="294" width="390" height="44" fill="#13251b"/>
+<text x="8" y="321" class="mono" fill="#6dd58c">+40</text><text x="44" y="321" class="mono" fill="#6dd58c">  eyebrow,</text>
+<rect y="338" width="390" height="44" fill="#13251b"/>
+<text x="8" y="365" class="mono" fill="#6dd58c">+41</text><text x="44" y="365" class="mono" fill="#6dd58c">  heading,</text>
+<rect y="382" width="390" height="44" fill="#13251b"/>
+<rect x="354" y="382" width="4" height="44" fill="#2f6feb"/>
+<text x="8" y="409" class="mono" fill="#6dd58c">+42</text><text x="44" y="409" class="mono" fill="#6dd58c">  hint,</text>
+<rect x="292" y="392" width="56" height="24" rx="12" fill="#2f6feb"/>
+<text x="320" y="409" text-anchor="middle" class="tiny" fill="#fff">评论 2</text>
+<rect y="426" width="390" height="44" fill="#171a1d"/>
+<text x="8" y="453" class="mono muted">43</text><text x="44" y="453" class="mono">);</text>
+
+<text x="16" y="492" class="tiny muted">一行 44px；宽代码在行内横滑，页面不横滚</text>
+<text x="16" y="518" class="small muted">本轮 2 条评论 · 收起面板后可查看与发送</text>
+
+<path d="M0 570 Q0 546 24 546 H366 Q390 546 390 570 V844 H0 Z" fill="#1b1e22"/>
+<rect x="177" y="558" width="36" height="4" rx="2" fill="#3b4249"/>
+<text x="16" y="592" class="title">评论第 42 行</text>
+<text x="374" y="591" text-anchor="end" class="tiny muted">report.html</text>
+<rect x="16" y="604" width="358" height="56" rx="10" fill="#121518"/>
+<text x="28" y="626" class="mono muted">  hint,</text>
+<text x="28" y="646" class="mono muted">  );</text>
+<text x="16" y="682" class="tiny muted">块头 @@ -38,7 +38,9 @@ · 引用行随评论保存</text>
+<rect x="16" y="692" width="358" height="88" rx="10" fill="#121518" stroke="#2c3238"/>
+<text x="28" y="720" class="label">这行提示太长，收短一点。</text>
+<rect x="16" y="794" width="150" height="48" rx="10" class="button"/>
+<text x="91" y="823" text-anchor="middle" class="label">取消</text>
+<rect x="182" y="794" width="192" height="48" rx="10" class="primary"/>
+<text x="278" y="823" text-anchor="middle" class="label" fill="#fff">保存</text>
+</svg>

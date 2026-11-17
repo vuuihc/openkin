@@ -118,28 +118,22 @@ export default function TrayPage() {
                       </div>
                     )}
                     <div className="flex gap-1.5 mt-2.5">
-                      {/* The approve/deny weights land on the facade with #122.
-                          Migrating this pair now would either duplicate that
-                          work or ship a second spelling of it; a later slice
-                          moves the tray pair and the approval cards together. */}
-                      {/* eslint-disable-next-line kin/no-raw-button -- approve/deny weights land with #122 */}
-                      <button
-                        type="button"
+                      <Button
+                        variant="approve"
                         disabled={!!busy[a.id]}
                         onClick={() => void decide(a.id, "approved")}
-                        className="flex-1 py-1.5 rounded-lg bg-kin-orange text-kin-on-status text-body font-semibold disabled:opacity-50"
+                        className="flex-1 py-1.5"
                       >
                         {busy[a.id] === "approved" ? "…" : tr("chat.approve")}
-                      </button>
-                      {/* eslint-disable-next-line kin/no-raw-button -- approve/deny weights land with #122 */}
-                      <button
-                        type="button"
+                      </Button>
+                      <Button
+                        variant="deny"
                         disabled={!!busy[a.id]}
                         onClick={() => void decide(a.id, "denied")}
-                        className="flex-1 py-1.5 rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-body font-semibold disabled:opacity-50"
+                        className="flex-1 py-1.5"
                       >
                         {busy[a.id] === "denied" ? "…" : tr("chat.deny")}
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 );

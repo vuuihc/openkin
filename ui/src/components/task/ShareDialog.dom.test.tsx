@@ -98,6 +98,26 @@ describe("ShareDialog", () => {
     expect(screen.queryByLabelText(t("task.shareLinkLabel"))).toBeNull();
   });
 
+  it("keeps the share link a labelled TextInput", async () => {
+    mocked.getSessionShare.mockResolvedValue({ active: false });
+    mocked.createSessionShare.mockResolvedValue({
+      token: "tok-field",
+      created_at: 1,
+      expires_at: 0,
+    });
+    setup();
+    fireEvent.click(screen.getByRole("button", { name: t("task.shareCreate") }));
+
+    const field = (await screen.findByLabelText(t("task.shareLinkLabel"))) as HTMLInputElement;
+    expect(field).toBeInstanceOf(HTMLInputElement);
+    expect(field.readOnly).toBe(true);
+    expect(field.classList.contains("kin-input")).toBe(true);
+    // The uppercase caption stays a sibling: the field owns the name, the
+    // `<label>` wrapper does not.
+    expect(field.closest("label")).toBeNull();
+    expect(screen.getByText(t("task.shareLinkLabel"), { selector: "span" })).toBeTruthy();
+  });
+
   // The link cannot be shown again, so it has to be reachable without a mouse.
   it("focuses the minted link", async () => {
     mocked.getSessionShare.mockResolvedValue({ active: false });

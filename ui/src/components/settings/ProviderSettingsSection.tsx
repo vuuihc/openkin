@@ -5,6 +5,7 @@ import { agentCatalogState, runnableAgents, sortAgentCatalog } from "../../lib/a
 import { onGuardedLinkClick } from "../../lib/phoneNavigation";
 import Button from "../ui/Button";
 import SearchSelect from "../ui/SearchSelect";
+import TextInput from "../ui/TextInput";
 import { SettingsTabPanel } from "./SettingsPrimitives";
 
 export function providerDisplayName(provider: ProviderEntry): string {
@@ -200,51 +201,50 @@ export function ProviderSettingsSection({
             <h3 className="text-body font-semibold text-kin-secondary">
               {editingId ? tr("settings.provider.editHeading") : tr("settings.provider.addHeading")}
             </h3>
-            <label className="block space-y-1">
-              <span className="text-body leading-4 font-medium text-kin-secondary">
-                {tr("settings.provider.name")}
-              </span>
-              <input
-                type="text"
-                value={providerName}
-                onChange={(event) => onProviderNameChange(event.target.value)}
-                placeholder={tr("settings.provider.namePlaceholder")}
-                className="kin-input min-h-11"
-              />
-            </label>
-            <label className="block space-y-1">
-              <span className="text-body leading-4 font-medium text-kin-secondary">
-                {tr("settings.provider.baseUrl")}
-              </span>
-              <input
-                type="url"
-                value={providerBaseUrl}
-                onChange={(event) => onProviderBaseUrlChange(event.target.value)}
-                placeholder="https://api.openai.com/v1 · http://127.0.0.1:8317/v1"
-                className="kin-input min-h-11 font-mono text-body leading-4"
-                autoComplete="off"
-              />
-              <span className="text-caption text-kin-muted">
-                {tr("settings.provider.baseUrlHintA")}
-                <code className="text-micro">/v1</code>
-                {tr("settings.provider.baseUrlHintB")}
-              </span>
-            </label>
-            <label className="block space-y-1">
+            <TextInput
+              label={tr("settings.provider.name")}
+              value={providerName}
+              onChange={(event) => onProviderNameChange(event.target.value)}
+              placeholder={tr("settings.provider.namePlaceholder")}
+            />
+            <TextInput
+              type="url"
+              label={tr("settings.provider.baseUrl")}
+              value={providerBaseUrl}
+              onChange={(event) => onProviderBaseUrlChange(event.target.value)}
+              placeholder="https://api.openai.com/v1 · http://127.0.0.1:8317/v1"
+              className="font-mono text-body leading-4"
+              autoComplete="off"
+              hint={
+                <>
+                  {tr("settings.provider.baseUrlHintA")}
+                  <code className="text-micro">/v1</code>
+                  {tr("settings.provider.baseUrlHintB")}
+                </>
+              }
+            />
+            <div className="block space-y-1">
+              {/* The label and the hint stay outside the flex row so the
+                  reveal button sits beside the input, not beside the label;
+                  the field carries the same words as its hidden label. */}
               <span className="text-body leading-4 font-medium text-kin-secondary">
                 {tr("settings.provider.apiKey")}
               </span>
               <div className="flex gap-2">
-                <input
-                  type={revealApiKey ? "text" : "password"}
-                  value={providerApiKey}
-                  onChange={(event) => {
-                    onProviderApiKeyChange(event.target.value);
-                    onProviderApiKeyDirty(true);
-                  }}
-                  className="kin-input min-h-11 font-mono text-body leading-4 flex-1"
-                  autoComplete="off"
-                />
+                <div className="min-w-0 flex-1">
+                  <TextInput
+                    isLabelHidden
+                    label={tr("settings.provider.apiKey")}
+                    type={revealApiKey ? "text" : "password"}
+                    value={providerApiKey}
+                    onChange={(event) => {
+                      onProviderApiKeyChange(event.target.value);
+                      onProviderApiKeyDirty(true);
+                    }}
+                    className="font-mono text-body leading-4 flex-1"
+                    autoComplete="off"
+                  />
+                </div>
                 <Button variant="secondary" className="shrink-0" onClick={onToggleApiKeyReveal}>
                   {revealApiKey ? tr("settings.hide") : tr("settings.reveal")}
                 </Button>
@@ -252,8 +252,8 @@ export function ProviderSettingsSection({
               <span className="text-caption text-kin-muted">
                 {tr("settings.provider.apiKeyHint")}
               </span>
-            </label>
-            <label className="block space-y-1">
+            </div>
+            <div className="block space-y-1">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-body leading-4 font-medium text-kin-secondary">
                   {tr("settings.provider.model")}
@@ -269,13 +269,15 @@ export function ProviderSettingsSection({
                     : tr("settings.provider.modelsFetch")}
                 </Button>
               </div>
-              <input
+              <TextInput
+                isLabelHidden
+                label={tr("settings.provider.model")}
                 type="text"
                 list="provider-model-options"
                 value={providerModel}
                 onChange={(event) => onProviderModelChange(event.target.value)}
                 placeholder="gpt-4.1-mini · grok-3 · llama3.2"
-                className="kin-input min-h-11 font-mono text-body leading-4"
+                className="font-mono text-body leading-4"
               />
               <datalist id="provider-model-options">
                 {providerModelOptions.map((model) => (
@@ -300,7 +302,7 @@ export function ProviderSettingsSection({
                   onChange={onProviderModelChange}
                 />
               ) : null}
-            </label>
+            </div>
             <label className="flex items-start gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -329,21 +331,20 @@ export function ProviderSettingsSection({
               </button>
               {showRouting && (
                 <div className="mt-2 space-y-3">
-                  <label className="block space-y-1">
-                    <span className="text-body leading-4 font-medium text-kin-secondary">
-                      {tr("settings.routing.supportsAgents")}
-                    </span>
-                    <input
-                      type="text"
+                  <div className="space-y-1">
+                    <TextInput
+                      label={tr("settings.routing.supportsAgents")}
                       value={providerSupportsAgents}
                       onChange={(event) => onProviderSupportsAgentsChange(event.target.value)}
-                      className="kin-input min-h-10 font-mono text-body leading-4"
+                      className="min-h-10 font-mono text-body leading-4"
                       placeholder="claude-code, kin, codex"
                     />
+                    {/* `text-micro`, which the field's caption-sized hint
+                        would not preserve. */}
                     <span className="text-micro text-kin-muted">
                       {tr("settings.provider.supportsAgentsHint")}
                     </span>
-                  </label>
+                  </div>
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
                       <span className="text-body leading-4 font-medium text-kin-secondary">
@@ -383,11 +384,12 @@ export function ProviderSettingsSection({
                             {tr("settings.provider.removeModel")}
                           </Button>
                         </div>
-                        <input
-                          type="text"
+                        <TextInput
+                          isLabelHidden
+                          label={tr("settings.provider.modelLabel", { index: index + 1 })}
                           value={model.id}
                           onChange={(event) => updateModel(index, { id: event.target.value })}
-                          className="kin-input min-h-8 text-body leading-4 font-mono"
+                          className="min-h-8 text-body leading-4 font-mono"
                           placeholder="claude-sonnet-4-20250514"
                         />
                         <div className="flex gap-2">

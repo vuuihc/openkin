@@ -7,6 +7,7 @@ import {
   type ModelSpec,
 } from "../../api/client";
 import { useT } from "../../i18n/react";
+import { useCoarsePointer } from "../../hooks/useMediaQuery";
 import Button from "../ui/Button";
 import Popover from "../ui/Popover";
 import SearchSelect, { type SearchSelectOption } from "../ui/SearchSelect";
@@ -101,6 +102,10 @@ export function DispatchSelector({
   routine,
 }: Props) {
   const tr = useT();
+  // A finger needs 44px at every width; a mouse does not. The viewport is the
+  // wrong question — an iPad is ≥640px wide and still a thumb — so the compact
+  // chip is the fine-pointer shape, not the `sm:` shape.
+  const coarse = useCoarsePointer();
   const [options, setOptions] = useState<RoutingOptions | null>(null);
   const [preview, setPreview] = useState<RoutingPreview | null>(null);
   const [loading, setLoading] = useState(false);
@@ -271,10 +276,12 @@ export function DispatchSelector({
         aria-controls={open ? popoverId : undefined}
         // The trigger is the phone's tap target for this whole panel, so its
         // own box holds the 44px floor (`min-h-11 min-w-11`) rather than a
-        // wrapper or a pseudo-element the journey walk cannot measure. From
-        // `sm` up the compact 28px chip returns so the Mac row heights do not
-        // move.
-        className={`text-caption font-medium px-2 py-1 rounded min-h-11 min-w-11 sm:min-h-7 sm:min-w-0 border truncate max-w-[220px] ${
+        // wrapper or a pseudo-element the journey walk cannot measure. The
+        // compact 28px chip returns for a fine pointer only (a Mac), so the
+        // Mac row heights do not move while an iPad keeps the touch size.
+        className={`text-caption font-medium px-2 py-1 rounded border truncate max-w-[220px] ${
+          coarse ? "min-h-11 min-w-11" : "min-h-7 min-w-0"
+        } ${
           open
             ? "border-kin-blue bg-kin-blue/10 text-kin-blue-ink"
             : "border-[var(--kin-hairline)] text-kin-secondary hover:bg-[var(--kin-fill)]"
@@ -311,7 +318,10 @@ export function DispatchSelector({
               disabled={disabled}
               onClick={() => onChange({ mode: "auto" })}
               aria-pressed={mode === "auto"}
-              className="min-h-7 px-2 py-1 text-caption font-medium"
+              // The mode pair is a tap target on the phone's panel too. The
+              // `!` holds the floor over the facade's own `sm:` zero-floor
+              // variant, which would otherwise win at an iPad's width.
+              className={`text-caption font-medium ${coarse ? "min-h-11! px-3 py-2" : "min-h-7 px-2 py-1"}`}
             >
               {tr("dispatch.auto")}
             </Button>
@@ -320,7 +330,7 @@ export function DispatchSelector({
               disabled={disabled}
               onClick={() => onChange({ mode: "manual" })}
               aria-pressed={mode === "manual"}
-              className="min-h-7 px-2 py-1 text-caption font-medium"
+              className={`text-caption font-medium ${coarse ? "min-h-11! px-3 py-2" : "min-h-7 px-2 py-1"}`}
             >
               {tr("dispatch.manual")}
             </Button>
@@ -409,7 +419,9 @@ export function DispatchSelector({
             <button
               type="button"
               onClick={() => setShowPreview((v) => !v)}
-              className="text-micro text-kin-blue-ink hover:underline"
+              className={`text-micro text-kin-blue-ink hover:underline ${
+                coarse ? "inline-flex min-h-11 items-center" : ""
+              }`}
             >
               {showPreview ? tr("dispatch.hidePreview") : tr("dispatch.showPreview")}
             </button>

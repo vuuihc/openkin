@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT } from "../../i18n/react";
 import { agentAvatarMeta, agentDisplayName } from "../../lib/agentMention";
 import type { PhoneSessionRow } from "../../lib/phoneSessionBuckets";
@@ -15,6 +15,7 @@ import {
   IconPin,
   IconRestore,
   IconTrash,
+  IconX,
 } from "../icons";
 import SessionRowActions, {
   sessionRowActionsWidth,
@@ -37,11 +38,12 @@ import type { SessionScopeFilter } from "../ui/SessionFilters";
  * actions live on: one trailing "More" trigger opens the console's shared
  * `Menu` on the Mac and its shared `ActionSheet` on a touch page, so managing
  * a conversation is one discoverable control instead of a row of hover-only
- * icons (or a gesture with no visible entry point). Swipe remains a second,
- * faster path on touch.
+ * icons. Swipe remains a second, faster path on touch, and a long press opens
+ * the very same sheet: three gestures, one list, no invisible mode change.
  *
- * `selectionMode` replaces the whole action surface with the selection control;
- * an imported row has no task and likewise carries no list actions.
+ * `selectionMode` turns the row into a selection control. A row the toolbar
+ * can act on keeps its trigger while selecting, holding the one way out; an
+ * imported row has no task and likewise carries no list actions.
  */
 export type SessionRowProps = {
   row: PhoneSessionRow;
@@ -59,7 +61,7 @@ export type SessionRowProps = {
   selected: boolean;
   onToggleSelect: () => void;
   onStartSelection: () => void;
-  onLongPress: () => void;
+  onExitSelection: () => void;
   swipeOpen: boolean;
   onSwipeOpenChange: (open: boolean) => void;
   pinned: boolean;
@@ -85,7 +87,7 @@ export default function SessionRow({
   selected,
   onToggleSelect,
   onStartSelection,
-  onLongPress,
+  onExitSelection,
   swipeOpen,
   onSwipeOpenChange,
   pinned,
@@ -128,15 +130,20 @@ export default function SessionRow({
       : scope === "archived"
         ? null
         : "active";
-  const showsActions = !selectionMode && mode !== null;
+  const canSelect = rowSelectable(row, scope);
+  // While selecting, the trigger stays on a row the toolbar can act on: it is
+  // the visible way out for anyone who entered by accident. A row that cannot
+  // be selected has no batch action to offer and keeps no trigger.
+  const showsActions = mode !== null && (selectionMode ? canSelect : true);
   // A mode can end while its surface is open (the row is archived from
-  // elsewhere, multi-select starts): the surface is gone with the trigger, so
-  // the state must not be left waiting to reopen the next time it appears.
+  // elsewhere, multi-select starts): the surface is gone with the trigger, or
+  // its action set is about to change under the reader, so the state must not
+  // be left waiting to reopen the next time it appears.
   useEffect(() => {
-    if (showsActions) return;
+    if (showsActions && !selectionMode) return;
     setMenuOpen(false);
     setSheetOpen(false);
-  }, [showsActions]);
+  }, [showsActions, selectionMode]);
 
   const rowButton = (
     /* eslint-disable-next-line kin/no-raw-button --
@@ -238,48 +245,80 @@ export default function SessionRow({
   // page gets the same list as the ActionSheet every other phone surface uses.
   const desktop = shell === "sidebar" && !coarse;
   const actionsLabel = `${tr("common.more")}: ${row.title}`;
-  const deleteIcon = <IconTrash size={12} className="text-kin-red-ink" />;
-  const menuItems: MenuItem[] =
-    mode === "archived"
-      ? [
-          {
-            id: "restore",
-            label: tr("sessions.restore"),
-            icon: <IconRestore size={12} />,
-            onSelect: onRestore,
-          },
-          { id: "delete", label: tr("sessions.delete"), icon: deleteIcon, onSelect: onDelete },
-        ]
-      : [
-          {
-            id: "pin",
-            label: pinned ? tr("sessions.unpin") : tr("sessions.pin"),
-            icon: <IconPin size={12} />,
-            onSelect: onPin,
-          },
-          {
-            id: "archive",
-            label: tr("sessions.archive"),
-            icon: <IconArchive size={12} />,
-            onSelect: onArchive,
-          },
-          { id: "delete", label: tr("sessions.delete"), icon: deleteIcon, onSelect: onDelete },
-        ];
-  const sheetRows: ActionSheetRow[] =
-    mode === "archived"
-      ? [
-          { id: "restore", label: tr("sessions.restore"), onSelect: onRestore },
-          { id: "delete", label: tr("sessions.delete"), destructive: true, onSelect: onDelete },
-        ]
-      : [
-          {
-            id: "pin",
-            label: pinned ? tr("sessions.unpin") : tr("sessions.pin"),
-            onSelect: onPin,
-          },
-          { id: "archive", label: tr("sessions.archive"), onSelect: onArchive },
-          { id: "delete", label: tr("sessions.delete"), destructive: true, onSelect: onDelete },
-        ];
+  // One list feeds both surfaces, so the phone sheet and the Mac menu cannot
+  // drift: while selecting there is exactly the exit; otherwise the way in
+  // (only where the row is selectable) followed by the row's own edits.
+  const rowActions: {
+    id: string;
+    label: string;
+    icon?: ReactNode;
+    destructive?: boolean;
+    onSelect: () => void;
+  }[] = selectionMode
+    ? [
+        {
+          id: "exit-selection",
+          label: tr("sessions.exitSelection"),
+          icon: <IconX size={12} />,
+          // Never disabled: the toolbar's Cancel is not, either. The point of
+          // the mode is that there is always a way out.
+          onSelect: onExitSelection,
+        },
+      ]
+    : [
+        ...(canSelect
+          ? [
+              {
+                id: "select",
+                label: tr("sessions.select"),
+                icon: <IconCheck size={12} />,
+                onSelect: onStartSelection,
+              },
+            ]
+          : []),
+        ...(mode === "archived"
+          ? [
+              {
+                id: "restore",
+                label: tr("sessions.restore"),
+                icon: <IconRestore size={12} />,
+                onSelect: onRestore,
+              },
+            ]
+          : [
+              {
+                id: "pin",
+                label: pinned ? tr("sessions.unpin") : tr("sessions.pin"),
+                icon: <IconPin size={12} />,
+                onSelect: onPin,
+              },
+              {
+                id: "archive",
+                label: tr("sessions.archive"),
+                icon: <IconArchive size={12} />,
+                onSelect: onArchive,
+              },
+            ]),
+        {
+          id: "delete",
+          label: tr("sessions.delete"),
+          icon: <IconTrash size={12} className="text-kin-red-ink" />,
+          destructive: true,
+          onSelect: onDelete,
+        },
+      ];
+  const menuItems: MenuItem[] = rowActions.map(({ id, label, icon, onSelect }) => ({
+    id,
+    label,
+    icon,
+    onSelect,
+  }));
+  const sheetRows: ActionSheetRow[] = rowActions.map(({ id, label, destructive, onSelect }) => ({
+    id,
+    label,
+    destructive,
+    onSelect,
+  }));
 
   // One trigger, whichever surface it opens. It sits in the row's tab order,
   // and the row's title is its description, so a screen reader hears which
@@ -304,8 +343,8 @@ export default function SessionRow({
         else setSheetOpen(true);
       }}
       // The trigger is a button, not a drag surface: a press that starts on it
-      // must not also arm SwipeReveal's long press (which would enter selection
-      // and swallow the tap that was meant to open the sheet).
+      // must not also arm SwipeReveal's long press, which would open the row's
+      // sheet underneath the one this tap is already opening.
       onPointerDown={desktop ? undefined : (event) => event.stopPropagation()}
       className={[
         "h-11 w-11 flex-none rounded-md bg-transparent p-0 text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text hover:brightness-100",
@@ -345,12 +384,42 @@ export default function SessionRow({
     );
   }
 
+  const touchRow = (
+    <div className="flex items-stretch">
+      <div className="min-w-0 flex-1">{rowButton}</div>
+      <div className="flex flex-none items-center">{trigger}</div>
+    </div>
+  );
+  const sheet = (
+    <ActionSheet
+      open={sheetOpen}
+      onClose={() => setSheetOpen(false)}
+      title={row.title}
+      anyWidth={coarse}
+      rows={sheetRows}
+    />
+  );
+
+  // While selecting, the swipe strip and the long press belong to the
+  // out-of-mode row; the row's only gesture here is the toggle, and the
+  // trigger is only the exit.
+  if (selectionMode) {
+    return (
+      <>
+        {touchRow}
+        {sheet}
+      </>
+    );
+  }
+
   return (
     <>
       <SwipeReveal
         open={swipeOpen}
         onOpenChange={onSwipeOpenChange}
-        onLongPress={onLongPress}
+        // A completed hold opens this row's own actions: the same list as the
+        // trailing trigger, not an invisible step into multi-select.
+        onLongPress={() => setSheetOpen(true)}
         width={sessionRowActionsWidth(mode)}
         actions={
           <SessionRowActions
@@ -363,18 +432,9 @@ export default function SessionRow({
           />
         }
       >
-        <div className="flex items-stretch">
-          <div className="min-w-0 flex-1">{rowButton}</div>
-          <div className="flex flex-none items-center">{trigger}</div>
-        </div>
+        {touchRow}
       </SwipeReveal>
-      <ActionSheet
-        open={sheetOpen}
-        onClose={() => setSheetOpen(false)}
-        title={row.title}
-        anyWidth={coarse}
-        rows={sheetRows}
-      />
+      {sheet}
     </>
   );
 }

@@ -8,7 +8,7 @@ STATE="$RSI_DIR/state"
 RUNS="$RSI_DIR/runtime/runs"
 GH_REPO="vuuihc/openkin"
 WT_ROOT="$HOME/.kin/worktrees"
-MAIN_CHECKOUT="$HOME/Workspace/study/kin-multidevice"   # read-only for the loop
+MAIN_CHECKOUT="$HOME/Workspace/study/kin-multidevice"   # primary checkout
 
 NODE_BIN="$(ls -d "$HOME"/.nvm/versions/node/*/bin 2>/dev/null | sort -V | tail -1 || true)"
 export PATH="$HOME/.antigravity/antigravity/bin:$HOME/.local/bin:$HOME/Library/pnpm:/opt/homebrew/bin:/usr/local/go/bin:$HOME/go/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"

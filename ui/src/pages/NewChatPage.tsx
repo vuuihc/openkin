@@ -62,6 +62,7 @@ import {
 import { forgetPlaceReturn } from "../lib/placeReturn";
 import { THIS_MACHINE, writeRoutineDevice } from "../lib/routineDevice";
 import { useMachines } from "../hooks/useMachines";
+import { useCoarsePointer } from "../hooks/useMediaQuery";
 import { useMinWidth } from "../hooks/useMinWidth";
 import { catalogFor, cwdOnMachine, findMachine } from "../lib/devices";
 import { projectLabel } from "../lib/paths";
@@ -81,6 +82,51 @@ import { useAppStore } from "../store/appStore";
 
 /** One empty transcript, shared: the pending send has no events yet. */
 const NO_EVENTS: TaskEvent[] = [];
+
+/**
+ * The routine switch's round face.
+ *
+ * A pressed toggle, not a filled action. It only ever renders in the run
+ * settings sheet's row, where every control is a 44px phone tap target: the
+ * circle is 44px on a coarse pointer, and a fine pointer gets back the 26px
+ * face the row was designed around. The size follows the pointer, not the
+ * viewport — an iPad is ≥640px wide and still a thumb (TASTE 11). The facade's
+ * line box is neutralized and the state inks are stated with `!` over quiet's
+ * own fill/ink.
+ */
+export function RoutineToggle({
+  pressed,
+  disabled,
+  onToggle,
+}: {
+  pressed: boolean;
+  disabled?: boolean;
+  onToggle: () => void;
+}) {
+  const tr = useT();
+  const coarse = useCoarsePointer();
+  return (
+    <Button
+      variant="quiet"
+      disabled={disabled}
+      onClick={onToggle}
+      aria-pressed={pressed}
+      aria-label={tr("routines.asRoutine")}
+      title={`${tr("routines.asRoutine")} — ${tr("routines.asRoutineHint")}`}
+      className={[
+        "inline-flex flex-none items-center justify-center rounded-full border px-0 py-0 transition-colors",
+        // One size or the other, never both: two competing `min-h-*!`
+        // utilities would be settled by stylesheet order, not by intent.
+        coarse ? "h-11 w-11 min-h-11! min-w-11" : "h-[26px] w-[26px] min-h-0! min-w-0",
+        pressed
+          ? "border-kin-blue/50 bg-kin-blue/15! text-kin-blue-ink!"
+          : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)]! text-kin-secondary! hover:text-kin-text!",
+      ].join(" ")}
+    >
+      <IconRoutines size={13} />
+    </Button>
+  );
+}
 
 /**
  * New session: user talks to the configured main agent.
@@ -633,29 +679,12 @@ export default function NewChatPage() {
         );
       case "routine":
         return (
-          // A pressed toggle, not a filled action. It only ever renders in the
-          // run-settings sheet's row, where every control is a 44px phone tap
-          // target: the circle is 44px there, and from `sm` up it drops back to
-          // the 26px face the row was designed around. The facade's line box is
-          // neutralized and the state inks are stated with `!` over quiet's own
-          // fill/ink.
-          <Button
+          <RoutineToggle
             key={control}
-            variant="quiet"
+            pressed={asRoutine}
             disabled={sending}
-            onClick={() => setAsRoutine((v) => !v)}
-            aria-pressed={asRoutine}
-            aria-label={tr("routines.asRoutine")}
-            title={`${tr("routines.asRoutine")} — ${tr("routines.asRoutineHint")}`}
-            className={[
-              "inline-flex h-11 w-11 min-h-11! min-w-11 flex-none items-center justify-center rounded-full border px-0 py-0 transition-colors sm:h-[26px] sm:w-[26px] sm:min-h-0! sm:min-w-0",
-              asRoutine
-                ? "border-kin-blue/50 bg-kin-blue/15! text-kin-blue-ink!"
-                : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)]! text-kin-secondary! hover:text-kin-text!",
-            ].join(" ")}
-          >
-            <IconRoutines size={13} />
-          </Button>
+            onToggle={() => setAsRoutine((v) => !v)}
+          />
         );
       case "dispatch":
         return (

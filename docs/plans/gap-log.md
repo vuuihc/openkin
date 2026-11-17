@@ -85,9 +85,10 @@ iPad（视口 ≥768px、`pointer: coarse`）的左栏是 248px 侧栏，但列�
 
 进展（2026-11-17）：退出路径与工具条溢出已修，见 PR #62（`695d053e`）——工具条换行、
 图标按钮 44px、取消留在 248px 容器内、Esc 走同一退出路径，248px 与 390×844 实测
-`scrollWidth == clientWidth`。仍缺两半：行尾 `⋯` 菜单里的「多选」入口由 PR #170
-（`R-selection-menu`）在合并门禁中；长按不再进入多选由 `R-drag-reorder` 接手，排在
-#170 之后。
+`scrollWidth == clientWidth`；行尾 `⋯` 菜单的「多选 / 退出多选」入口已修，见「已修」
+PR #170（`R-selection-menu`）。长按手势改道（不再进入多选）仍待 `KIN-MANAGE-001`
+（`registry.json` 中为 `draft`）及后续拖动排序 `R-drag-reorder` 落地，故本条保留在
+Open。
 
 ### 2026-11-15 · 中 · 长按对话行不能拖动排序，列表顺序只能跟着最近活动走
 
@@ -138,63 +139,14 @@ iPad（视口 ≥768px、`pointer: coarse`）的左栏是 248px 侧栏，但列�
   截图或录屏。
 - `./scripts/check.sh` 绿。
 
-### 2026-11-14 · 高 · 对话把思考与过程叙述收进卡片；只有工具该进卡片
-
-现在对话 URI（以及导入的 agent 会话）把连续的过程统一收进一张 `ProgressCard`：
-`mergeProcessRuns` 把 reasoning、计划、进度叙述、子代理叙述和同一轮里非最终的
-assistant 消息合并成一张卡
-（`ui/src/components/chat/transcriptProjection.ts:1008-1115`），卡片默认折叠，只显示
-「执行中 · N 个工具」和最近一条 note
-（`ui/src/components/chat/ChatStream.tsx:1030-1209`）。agent 工作时，用户看到的是一张
-摘要卡，思考与过程叙述被藏在卡里；过程文本和工具调用被当成同一种东西。
-
-期望（可直接写成测试）：
-
-- **运行中**：思考 / reasoning、进度叙述、计划行、子代理叙述都按事件顺序作为正文
-  直接出现在对话列里，像普通消息一样流式增长；可以用更弱的字号 / 颜色区分，但不能
-  折叠在卡片后面。390px 手机上可读、可滚动，长文本换行正常。
-- **工具**：只有工具调用进卡片 / 工具行。相邻工具可以共用一张卡或一组行；每个工具
-  仍可展开看输入 / 输出（保留今天卡片里的能力），运行 / 完成 / 失败状态与耗时仍在。
-- **顺序**：正文与工具卡严格按发生顺序交错（文本 → 工具 → 文本 → 工具）；工具不能
-  把前后的过程文本一起拖进卡里。
-- **结束后**：本轮除最后一条最终回答外的所有过程（正文 + 工具卡）折叠成一条紧凑的
-  摘要行，默认收起；摘要行显示终态（完成 / 失败 / 取消）与步数 / 工具数，点开按原
-  顺序看到完整过程。最后一条最终回答保持正文可见，就是这一轮的结论。结束时没有最终
-  回答的轮次（只有过程 / 错误 / 取消）不得凭空造结论：保留摘要行与错误态。
-- 用户发出下一条消息即开始新一轮；上一轮的折叠状态不影响新一轮的运行中展示。
-- 会话内查找仍能命中折叠区里的过程文本（沿用现有的命中自动展开），键盘 / 焦点行为
-  不变；只有空白的 reasoning 不渲染空行或空摘要。
-
-不要：运行中就把过程藏进折叠卡（用户要能读到 agent 正在做什么）；把所有内容都留在
-卡片里、只把卡片标题改个名字；为了折叠丢掉工具的输入 / 输出；展开后与正文重复显示
-同一段文字；只改样式不改编排（过程仍在卡内）。
-
-待定（2026-11-14 已问报告人）：结束后的摘要行具体形态。建议：一行、默认收起、点击
-展开，显示状态、步数 / 工具数、耗时。若报告人希望结束后只保留结论、过程完全不再
-显示（不可展开），请指出；未答复前按可展开实现。
-
-线索：`transcriptProjection.ts` 的 `buildChatItems` / `pushNote` /
-`mergeProcessRuns` / `mergeProcessRun` / `summarizeProgressDetails` /
-`summarizeProgressStatus`；`ChatStream.tsx` 的 `AgentTurn` / `ProgressCard` /
-`ToolStepRow` / `NoteStepRow` / `ThinkingRow`；锁定旧行为的测试
-`transcriptProjection.test.ts`（如 "keeps reasoning, tools, and progress narration
-in one process card"）与 `ChatStream.find.dom.test.tsx`（"find inside a process
-card"）需要按新契约改写；i18n `chat.progress.*` en / zh 同步。
-
-验收：一条投影测试：运行中的 reasoning / note 是正文项、工具是卡，顺序与事件一致；
-轮次结束后只剩最后回答 + 一条折叠摘要；展开摘要能按顺序看到全部过程。一条渲染测试
-断言运行中过程文本在卡片之外可见、能被 find 命中；折叠后按现有可访问性约定隐藏。
-390px 截图：运行中能连续读到思考 / 过程文本与工具卡交错；结束后只剩结论与一行摘要。
-`./scripts/check.sh` 绿。
-
-进展（2026-11-17）：运行中的思考与过程叙述按正文展示已修，见 PR #165（`9d8fbffc`）。
-剩余的一半「结束后折叠成一条摘要行」由 PR #171（`R-process-summary`）在合并门禁中，
-尚未合并。
-
 ## 已修
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
 
+- 2026-11-17 · 对话把思考与过程叙述收进卡片；只有工具该进卡片 — 运行中过程按事件顺序进正文 PR #165（`9d8fbffc`），结束一轮收成一条带终态、工具数与时长的已收摘要行 PR #171（`e43b0b62`）；测试见 `transcriptProjection.test.ts` 与 `ChatStream.{prose,summary,find}.dom.test.tsx`，390/1100 截图见 `rsi/state/shots/live-process-prose/`、`rsi/state/shots/process-summary/`；取消沿用既有「cancel noise 不算失败」约定，摘要行不单列取消态（待定：是否需要独立的「取消」终态；若要单列，另开条目并写清文案与可点动作）
+- 2026-11-17 · 手机新建页「打开封面」入口小于 44px（`ProjectSummaryCard.tsx:60` 的 chip 无 `min-h`，且 inline 盒使 `min-height` 不生效）— `797e3dd2`（`Link` 加 `inline-flex min-h-11 sm:min-h-0`，390×844 实测 chip 74×27.9 → 74×44.0，1100×760 保持 74×27.9；新增 `ProjectSummaryCard.dom.test.tsx`，旧 class 与「有 `min-h-11` 但无非 inline 显示盒」两处变异均转红；J3/phone `smallTapTargets` 12 → 0，`check.sh` 全绿）
+- 2026-11-17 · 同一个项目在对话列表里有两个名字（有对话时是文件夹名，空项目是项目名）— 分支 `rsi/project-name-bucket-label`（期望：桶标题优先用 `/api/projects` 里该 cwd 对应项目的 `name`，解析不到才退回 cwd 末段，有对话 / 无对话 / 最后一条对话归档三种状态一致。`phoneProjectBuckets` 新增可选 `projectNameFor` 查询，`SessionList` 用 `useMemo([projects])` 建 cwd→name 映射（同一 root 先到先得），归档范围里的远端副本也按 cwd 查名；`seedProjects` 仍用 `project.name`，两条路径现在得到同一标题。单测 5 项先红（`expected 'alpha' to be 'Project Alpha'`）后绿，新增 `SessionList.projectNames.dom.test.tsx` 覆盖 page / sidebar 两种壳与「最后一条对话归档后标题不变」，`phoneSessionBuckets` + sessions + Sidebar 套件 125 passed，`tsc` / `npm run build` / `check-ui-inventory.py` / `check.sh` 绿；390×844 与 1100×760 截图见 `rsi/state/shots/project-name-bucket-label/`）
+- 2026-11-15 · iPad 左栏长按进入多选后找不到退出，行菜单里也没有多选入口（行菜单部分）— PR #170（`SessionRow` 对可选择行提供 `多选` 入口并在多选态保留 `⋯` 触发器显示 `退出多选`，复用 `SessionList` 同一退出与焦点归还路径；`SessionRow` / `SessionList.selection` 两套 DOM 测试 28 passed，390×844 / 1100×760 截图验证，check.sh 全绿；长按改道仍待 `KIN-MANAGE-001`）
 - 2026-11-14 · 新建对话发送后，进入对话 URI 时仍插入整页骨架屏 — PR #61（`cf7ba2bd`；就绪条件改为接受已种入的列表行或草稿交接，真正冷启动的深链改画有签名的品牌等待态（`IconKin` + `role="status"` + 慢连接提示）而不是整页骨架屏；新增 `TaskSessionHost.handoff.dom.test.tsx` 覆盖创建交接、切出页、冷进入、404 带缓存行，连同 coldLoad / pendingSend 共 5 文件 25 项通过，`tsc` 与 `npm run build` 绿；还原就绪条件与冷启动分支后 4 项按预期转红）
 - 2026-11-12 · 例行任务查不到 gap sweep，伴随 token 长度超过约 65530 的错误 — PR #52（`?runs=1&runs_limit=80` 的运行流不再拼进每次运行十几 KB 的 prompt：本机实测 1,200,074 → 约 94 KB，落在机器中继 `worker.MaxRoutineResponse` 655,360 字节内，页面不再整页失败；红测还原修复后 1,245,269 字节超限、恢复后通过，`go test ./internal/api/`、`./scripts/check.sh` 14 项、`./scripts/smoke.sh` 全绿；报告人原始报错原文仍未取得，若同一报错再现请附原文）
 - 2026-11-09 · routines 改为设备归属后的遗留项（旧 Hub 库的 routines 没迁移、只有选「本机」才看得到）— PR #51（显示其他机器时提示「本机还有 N 个例行任务」并可一键切到本机；禁用 / 迁移 2026-11-10 已问报告人、超 48 小时无回答，按 §4 执行可回退默认值：不改数据只让现状可见，禁用 / 迁移仍待方向；3 条新 DOM 测试，check.sh 除已知 PanelSurface 抖动外全绿）

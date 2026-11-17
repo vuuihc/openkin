@@ -117,8 +117,8 @@ import SessionToolbar, { SessionSelectionBar } from "./SessionToolbar";
  * R0b-2d merged the phone page and the Mac sidebar into this component: one
  * model (`phoneProjectBuckets`), one row, one set of search / filter / row
  * actions. `shell` decides only the container and which shortcut uncovers a
- * row's overflow — hover controls in the sidebar, swipe and long-press on the
- * page — never which features the list has.
+ * row's overflow — hover controls in the sidebar, swipe and a long press that
+ * open the same row menu on the page — never which features the list has.
  *
  * The query, status and scope live in the URL (`?search=`, `?status=`, `?scope=`),
  * so switching width cannot change what the list is showing: the route stays
@@ -439,6 +439,23 @@ export default function SessionList({
 
   const archivedCwds = useMemo(() => getArchivedProjects(), [prefsTick]);
   const pinnedProjects = useMemo(() => getPinnedProjects(), [prefsTick]);
+  // A project's record names it; the folder is only its address. Every root of
+  // every record is a heading, keyed the way buckets key a cwd, and the first
+  // record wins on a duplicate root so a heading never depends on iteration
+  // order. The records are this machine's own filesystem (the API has no device
+  // column), which is also why `seedProjects` files them under this machine.
+  const projectNameByCwd = useMemo(() => {
+    const byKey = new Map<string, string>();
+    for (const project of projects) {
+      const name = project.name.trim();
+      if (!name) continue;
+      for (const root of project.roots ?? []) {
+        const key = bucketKeyFor(root);
+        if (key !== UNASSIGNED_PROJECT && !byKey.has(key)) byKey.set(key, name);
+      }
+    }
+    return byKey;
+  }, [projects]);
   const buckets = useMemo(
     () =>
       phoneProjectBuckets(
@@ -452,8 +469,11 @@ export default function SessionList({
         },
         archivedCwds,
         scope,
+        // Asked about the cwd rather than the bucket key: an archived remote
+        // copy's key carries a device suffix that is not part of the address.
+        (cwd) => projectNameByCwd.get(bucketKeyFor(cwd)),
       ),
-    [tasks, allSessions, status, scope, selfDeviceId, locale, archivedCwds],
+    [tasks, allSessions, status, scope, selfDeviceId, locale, archivedCwds, projectNameByCwd],
   );
   // A project heading is where its cover lives, so a project with no row in the
   // loaded page is still drawn, with a count of 0 rather than omitted.
@@ -646,7 +666,7 @@ export default function SessionList({
         selectedIds={selectedIds}
         onToggleSelect={toggleSelected}
         onStartSelection={enterSelection}
-        onLongPress={enterSelection}
+        onExitSelection={() => exitSelection(true)}
         swipeOpen={swipeOpen}
         onSwipeOpenChange={setSwipeOpen}
         pinnedIds={pinnedIds}
@@ -1395,7 +1415,7 @@ function ProjectBucket({
   selectedIds,
   onToggleSelect,
   onStartSelection,
-  onLongPress,
+  onExitSelection,
   swipeOpen,
   onSwipeOpenChange,
   pinnedIds,
@@ -1434,7 +1454,7 @@ function ProjectBucket({
   selectedIds: ReadonlySet<string>;
   onToggleSelect: (id: string) => void;
   onStartSelection: (row: PhoneSessionRow) => void;
-  onLongPress: (row: PhoneSessionRow) => void;
+  onExitSelection: () => void;
   swipeOpen: string | null;
   onSwipeOpenChange: (open: string | null) => void;
   pinnedIds: ReadonlySet<string>;
@@ -1630,7 +1650,7 @@ function ProjectBucket({
                 if (row.task) onToggleSelect(row.task.id);
               }}
               onStartSelection={() => onStartSelection(row)}
-              onLongPress={() => onLongPress(row)}
+              onExitSelection={onExitSelection}
               swipeOpen={swipeOpen === row.key}
               onSwipeOpenChange={(open) => onSwipeOpenChange(open ? row.key : null)}
               pinned={row.task ? pinnedIds.has(row.task.id) : false}
