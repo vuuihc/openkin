@@ -110,6 +110,22 @@ function checkJ7Contract(spec) {
     if (idx(([op, p]) => op === 'url' && required(p) && /sessions/.test(bare(p)), backAt + 1) < 0) {
       errs.push('J7 never proves Back returned to the conversation list (url ^/sessions)');
     }
+    // Reopening after Back must be a pointer tap, the way a thumb does it.
+    // focus+Enter only proves the row is in the tab order: a surface lying over
+    // the list (the pre-#252 approval panel) leaves that path green while the
+    // row is unreachable by touch. Playwright's click runs the hit-target
+    // check, so a covered row times out and reddens the walk.
+    const rowSel = '[data-session-row="{conversation}"]';
+    const rowClickAt = idx(([op, sel]) => op === 'click' && required(sel) && bare(sel).includes(rowSel), backAt + 1);
+    const titleWaitAt = idx(([op, needle]) => op === 'wait' && required(needle) && /^text=/.test(bare(needle)) && bare(needle).includes('{title}'), backAt + 1);
+    if (rowClickAt < 0) {
+      errs.push('J7 never reopens the seeded conversation after Back; it must tap the row (click ' + rowSel + ')');
+    } else if (titleWaitAt >= 0 && rowClickAt < titleWaitAt) {
+      errs.push('J7 taps the session row before the list shows the seeded title (wait text={title})');
+    }
+    if (idx(([op, sel]) => op === 'focus' && required(sel) && bare(sel).includes(rowSel), backAt + 1) >= 0) {
+      errs.push('J7 reopens the row with focus+Enter after Back; it must tap the row (click ' + rowSel + '), so a surface covering the row reddens the walk');
+    }
   }
   return errs;
 }

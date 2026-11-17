@@ -20,7 +20,7 @@ WALKER="$WT/rsi/runtime/ux/walk.mjs"
 pass() { echo "PASS $*"; }
 fail() { echo "FAIL $*" >&2; exit 1; }
 
-case_name="test_walk_mutant_manifest_points_at_the_handoff_pair"
+case_name="test_walk_mutant_manifest_points_at_the_handoff_pair_and_the_row_tap"
 [ -f "$MANIFEST" ] || fail "$case_name: no rsi/runtime/ux/walk-mutant.json"
 [ -f "$RUNNER" ] || fail "$case_name: rsi/runtime/ux/walk-mutant-test.sh is missing"
 python3 - "$MANIFEST" "$WT" <<'PY' || exit 1
@@ -29,26 +29,37 @@ import sys
 
 manifest_path, root = sys.argv[1], sys.argv[2]
 entries = json.load(open(manifest_path, encoding="utf-8"))
-if not isinstance(entries, list) or len(entries) != 1:
-    raise SystemExit("manifest must be exactly one entry, got %r" % (entries,))
-entry = entries[0]
-for key in ("label", "file", "old", "new", "test"):
-    if not isinstance(entry.get(key), str) or not entry[key]:
-        raise SystemExit("entry is missing a non-empty %r" % key)
-if entry["old"] == entry["new"]:
-    raise SystemExit("`new` is identical to `old`; the mutant changes nothing")
-path = root + "/" + entry["file"]
-text = open(path, encoding="utf-8").read()
-count = text.count(entry["old"])
-if count != 1:
-    raise SystemExit("`old` occurs %d times in %s, not once" % (count, entry["file"]))
-if "if (false)" not in entry["new"]:
-    raise SystemExit("`new` does not put the calls behind `if (false)`")
-if "--walk-once" not in entry["test"]:
-    raise SystemExit("`test` does not run the runner's --walk-once")
-if "rsi/runtime/ux/walk-mutant-test.sh" not in entry["test"]:
-    raise SystemExit("`test` does not name rsi/runtime/ux/walk-mutant-test.sh")
-print("manifest ok: %s, %d occurrence of the hand-off pair" % (entry["file"], count))
+if not isinstance(entries, list) or len(entries) != 2:
+    raise SystemExit("manifest must be exactly two entries, got %r" % (entries,))
+for entry in entries:
+    for key in ("label", "file", "old", "new", "test"):
+        if not isinstance(entry.get(key), str) or not entry[key]:
+            raise SystemExit("entry %r is missing a non-empty %r"
+                             % (entry.get("label"), key))
+    if entry["old"] == entry["new"]:
+        raise SystemExit("`new` is identical to `old`; the mutant changes nothing")
+    path = root + "/" + entry["file"]
+    text = open(path, encoding="utf-8").read()
+    count = text.count(entry["old"])
+    if count != 1:
+        raise SystemExit("`old` occurs %d times in %s, not once"
+                         % (count, entry["file"]))
+    if "rsi/runtime/ux/walk-mutant-test.sh" not in entry["test"]:
+        raise SystemExit("`test` does not name rsi/runtime/ux/walk-mutant-test.sh")
+    if "--walk-once" not in entry["test"]:
+        raise SystemExit("`test` does not run the runner's --walk-once")
+j3 = next((e for e in entries if e["file"].endswith("NewChatPage.tsx")), None)
+if j3 is None:
+    raise SystemExit("no J3 entry for ui/src/pages/NewChatPage.tsx")
+if "if (false)" not in j3["new"]:
+    raise SystemExit("the hand-off mutant does not put the calls behind `if (false)`")
+j7 = next((e for e in entries if e["file"].endswith("FloatingApproval.tsx")), None)
+if j7 is None:
+    raise SystemExit("no J7 entry for ui/src/components/cards/FloatingApproval.tsx")
+if "--walk-once J7" not in j7["test"]:
+    raise SystemExit("the J7 entry's `test` does not walk J7 (--walk-once J7)")
+print("manifest ok: %s and %s, one occurrence of each `old`"
+      % (j3["file"], j7["file"]))
 PY
 [ $? -eq 0 ] || fail "$case_name: manifest check failed"
 pass "$case_name"
@@ -59,14 +70,10 @@ python3 - "$MANIFEST" "$printed" <<'PY' || exit 1
 import json
 import sys
 
-committed = json.load(open(sys.argv[1], encoding="utf-8"))[0]
+committed = json.load(open(sys.argv[1], encoding="utf-8"))
 printed = json.loads(sys.argv[2])
-if not isinstance(printed, list) or len(printed) != 1:
-    raise SystemExit("--print-manifest did not print the one-entry manifest")
-for key in ("file", "test"):
-    if printed[0].get(key) != committed.get(key):
-        raise SystemExit("--print-manifest %s=%r, committed %r"
-                         % (key, printed[0].get(key), committed.get(key)))
+if printed != committed:
+    raise SystemExit("--print-manifest differs from the committed manifest")
 PY
 [ $? -eq 0 ] || fail "$case_name: printed manifest does not match"
 pass "$case_name"
@@ -150,4 +157,39 @@ fi
 rm -f "$log" "$spec_tmp"
 pass "$case_name"
 
-echo "walk-mutant contract: 5/5 cases passed"
+case_name="test_j7_spec_rejects_a_keyboard_reopen_instead_of_a_tap"
+command -v node >/dev/null 2>&1 || fail "$case_name: node is not on PATH"
+spec_tmp="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec-mutant.XXXXXX")"
+log="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec.XXXXXX")"
+python3 - "$WT/rsi/runtime/ux/journeys.json" "$spec_tmp" <<'PY' || exit 1
+import json
+import sys
+
+src, dst = sys.argv[1], sys.argv[2]
+spec = json.load(open(src, encoding="utf-8"))
+steps = spec["journeys"]["J7"]["steps"]
+row = '[data-session-row="{conversation}"]'
+hit = 0
+for i, st in enumerate(steps):
+    if st[0] == "click" and row in str(st[1]):
+        steps[i:i + 1] = [["focus", row], ["key", "Enter"]]
+        hit += 1
+if hit != 1:
+    raise SystemExit("expected one row tap after Back, rewrote %d" % hit)
+json.dump(spec, open(dst, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+PY
+( cd "$WT" && node rsi/runtime/ux/walk.mjs --check-spec --spec "$spec_tmp" ) >"$log" 2>&1
+rc=$?
+# Both sentences, not just the tap one: removing the click alone would already
+# fail with the click-required error, so a grep for "must tap the row" keeps
+# this case green even if the focus+Enter rejection itself is deleted.
+if [ "$rc" -ne 1 ] || ! grep -q "must tap the row" "$log" \
+   || ! grep -q "reopens the row with focus+Enter" "$log"; then
+  cat "$log" >&2
+  rm -f "$log" "$spec_tmp"
+  fail "$case_name: --check-spec exited $rc without rejecting a focus+Enter reopen"
+fi
+rm -f "$log" "$spec_tmp"
+pass "$case_name"
+
+echo "walk-mutant contract: 6/6 cases passed"
