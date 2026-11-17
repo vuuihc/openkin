@@ -17,6 +17,9 @@ Updated: (seed)  Mode: running  NO_MERGE: no
 | Q9 | Review loop: line-comment → send back to agent; one-button commit/push/PR. | F3 | lody-parity gap §2 | research |
 | Q10 | Batch A (React 19 / Tailwind 4 / Astryx behind facade). | all | astryx-spike | after Q6, split by risk |
 
+| P1 (phase pointer) | **Make the walk real** (CEO next phase, Ethan 2026-11-17): J3 sends, J1 approves, J7 lands on a seeded item, ux-gate red on regression. Dispatch its `R-*` items, not this row. | F1 F2 F5 | GOAL.md P1 | phase (top) |
+| R-loop-guards-control-sync | `run.sh` gates the control-tree fast-forward on `git status` vs the tree's own HEAD, so a tree whose tracked files already equal `origin/main` still stays pinned while a doc diff vs the old HEAD keeps status non-empty. Compare the worktree to `origin/main`, not HEAD. | — | PR #247 review 2026-11-18 | queued (loop-infra) |
+
 ## Last 48h
 - (none yet)
 
