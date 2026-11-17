@@ -2127,6 +2127,13 @@ export default function TaskDetailPage({
         onDiscardAll={onDiscardAllChanges}
         onPublish={openPublishPanel}
         onFindFile={() => setFileFinderOpen(true)}
+        onSendFollowUp={async (text) => {
+          // Diff comments are one ordinary follow-up: same pending bubble, same
+          // queue-vs-interrupt rule. A rejection travels back to the tray, which
+          // keeps every comment and says on its own surface that the send
+          // failed — there is no composer here to restore or toast from.
+          await onComposer(text);
+        }}
         onClosePanel={() => hidePanel(id)}
         publishDraft={publishDraft}
         onPublishRowChanged={() => void liveResources.refreshTask(task.id, true)}

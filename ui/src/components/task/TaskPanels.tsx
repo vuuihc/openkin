@@ -51,6 +51,12 @@ export type TaskPanelsProps = {
   onDiscardAll: () => void | Promise<void>;
   onPublish: () => void;
   onFindFile: () => void;
+  /**
+   * Send one ordinary follow-up message into this conversation. The page owns
+   * the send path; the workspace's diff comments go back through it so a
+   * comment costs exactly one message, queued like any other.
+   */
+  onSendFollowUp?: (text: string) => Promise<void>;
   onClosePanel: () => void;
   /** The agent's last answer, as the publish sheet's opening draft. */
   publishDraft: PublishDraft;
@@ -78,6 +84,7 @@ export default function TaskPanels({
   onDiscardAll,
   onPublish,
   onFindFile,
+  onSendFollowUp,
   onClosePanel,
   publishDraft,
   onPublishRowChanged,
@@ -136,6 +143,7 @@ export default function TaskPanels({
               // one home — the same one `resolvePanel` just consulted.
               onPublish={isPanelAvailable("publish", panelCtx) ? onPublish : undefined}
               onFindFile={onFindFile}
+              onSendFollowUp={onSendFollowUp}
               onClose={onClosePanel}
             />
           </div>
