@@ -425,7 +425,7 @@ def _set_archived(api: Api, report: Report, spec: dict, ident: str, already: boo
     report.skip(spec["slug"], reason)
 
 
-def seed_conversations(api: Api, report: Report) -> None:
+def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | None = None) -> None:
     """Create one succeeded, one failed and one archived conversation.
 
     The fake agent makes each turn terminal; nothing here waits longer than
@@ -478,14 +478,19 @@ def seed_conversations(api: Api, report: Report) -> None:
         if report.dry_run:
             report.plan("conversation", title)
             continue
-        if not roots:
-            roots = _seed_roots()
+        project_name = PROJECTS[index % len(PROJECTS)][0]
+        project_roots = ((projects or {}).get(project_name) or {}).get("roots") or []
+        cwd = str(project_roots[0]) if project_roots and project_roots[0] else ""
+        if not cwd:
+            if not roots:
+                roots = _seed_roots()
+            cwd = os.path.join(roots, ("alpha", "beta", "gamma")[index % 3])
         status, body = api.call(
             "POST",
             "/api/tasks",
             {
                 "agent": agent,
-                "cwd": os.path.join(roots, ("alpha", "beta", "gamma")[index % 3]),
+                "cwd": cwd,
                 "prompt": spec["prompt"],
                 "title": title,
                 # YOLO: the fake is never asked for an approval card.
@@ -549,7 +554,7 @@ def main(argv: list[str] | None = None) -> int:
         projects = seed_projects(api, report)
         seed_focus(api, report, projects)
         seed_routines(api, report)
-        seed_conversations(api, report)
+        seed_conversations(api, report, projects)
     except SeedError as exc:
         print(f"journeys seed: {exc}", file=sys.stderr)
         return 1

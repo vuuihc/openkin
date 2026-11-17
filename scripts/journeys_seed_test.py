@@ -303,6 +303,10 @@ class SeedTest(unittest.TestCase):
             # YOLO keeps the fake from ever being asked for an approval card.
             self.assertEqual(body.get("agent"), "claude-code", body)
             self.assertEqual(body.get("permission_mode"), "yolo", body)
+        self.assertEqual(
+            [body.get("cwd") for body in posts],
+            [proj["roots"][0] for proj in self.stub.projects],
+        )
         failed = [row for row in self.stub.tasks if row["status"] == "failed"]
         self.assertEqual(len(failed), 1, self.stub.tasks)
         self.assertIn("[seed] fail", failed[0]["prompt"])
@@ -469,6 +473,16 @@ class SeedTest(unittest.TestCase):
         self.assertIn("create focus [seed] Project Alpha", result.stdout)
         self.assertIn("create routine [seed] Morning check-in rtn-1", result.stdout)
         self.assertIn("create routine [seed] Weekly review rtn-2", result.stdout)
+
+    def test_conversations_fall_back_when_project_roots_missing(self) -> None:
+        self.preload()
+        self.enable_fake_agent()
+        result = self.run_seed()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(
+            [os.path.basename(body["cwd"]) for body in self.task_posts()],
+            ["alpha", "beta", "gamma"],
+        )
 
 
 if __name__ == "__main__":
