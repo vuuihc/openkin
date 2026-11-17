@@ -32,6 +32,10 @@ const client = vi.hoisted(() => ({
   importAgentSessions: vi.fn(),
 }));
 
+/** The shared snapshot `/new` names its host agent from, replaced so the save
+ *  path's request to reload it is countable. */
+const machines = vi.hoisted(() => ({ refreshMachines: vi.fn() }));
+
 vi.mock("../../api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../api/client")>();
   return {
@@ -46,6 +50,10 @@ vi.mock("../../api/client", async (importOriginal) => {
     importAgentSessions: client.importAgentSessions,
   };
 });
+
+vi.mock("../../hooks/useMachines", () => ({
+  refreshMachines: machines.refreshMachines,
+}));
 
 import AgentsPage from "./AgentOperationsSection";
 
@@ -130,6 +138,10 @@ beforeEach(() => {
   vi.spyOn(window.history, "back").mockImplementation(() => {});
   useAppStore.setState({ wsStatus: "connected", reconnectGen: 0, toasts: [] });
   for (const fn of Object.values(client)) fn.mockReset();
+  machines.refreshMachines.mockReset();
+  // The import errand reads this snapshot too; an unreadable answer there would
+  // turn every import into a failed test for the wrong reason.
+  machines.refreshMachines.mockResolvedValue([]);
   client.listAgents.mockResolvedValue([claude, codex]);
   client.listAgentManagement.mockResolvedValue([
     management({ id: "claude-code" }),
@@ -403,6 +415,42 @@ describe("the agents console (KIN-AGENTS-001)", () => {
     // Removal is a catalog decision, not an uninstall: the agent is still on
     // the machine, so it is offered for connecting again.
     expect(screen.getByText("1 discovered, not connected")).toBeTruthy();
+  });
+
+  it("asks the shared machine snapshot to reload after setting a default here", async () => {
+    // `/new` names its host agent from useMachines()' shared snapshot, not from
+    // this table's list. A save here that only refreshed the table left `/new`
+    // naming the previous agent for up to the snapshot's 30-second window.
+    renderPage();
+
+    expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
+    const table = screen.getByRole("table");
+    fireEvent.click(within(table).getByRole("button", { name: "Actions — Codex" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Set as default/ }));
+
+    await waitFor(() =>
+      expect(client.updateSettings).toHaveBeenCalledWith({ "agent.default": "codex" }),
+    );
+    await waitFor(() => expect(machines.refreshMachines).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not reload the shared snapshot when the default save fails", async () => {
+    client.updateSettings.mockRejectedValue(new Error("daemon went away"));
+    renderPage();
+
+    expect((await screen.findAllByText("Claude Code")).length).toBeGreaterThan(0);
+    const table = screen.getByRole("table");
+    fireEvent.click(within(table).getByRole("button", { name: "Actions — Codex" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Set as default/ }));
+
+    // The error is the answer the person gets; the rejected write must not
+    // reach the shared snapshot as if the old default were saved.
+    await waitFor(() =>
+      expect(
+        useAppStore.getState().toasts.some((toast) => toast.message.includes("daemon went away")),
+      ).toBe(true),
+    );
+    expect(machines.refreshMachines).not.toHaveBeenCalled();
   });
 
   it("labels a waiting agent with the time this console has watched", async () => {
