@@ -406,7 +406,7 @@ describe("cascade foundation through the real stylesheet", () => {
     for (const declaration of [
       "display: inline-flex",
       "min-height: calc(var(--spacing) * 11)",
-      "border-radius: var(--radius-lg)",
+      "border-radius: var(--radius-xl)",
       "padding-inline: calc(var(--spacing) * 3)",
       "font-size: 14px",
       "font-weight: var(--font-weight-semibold)",
