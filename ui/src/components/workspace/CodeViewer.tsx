@@ -229,8 +229,7 @@ export default function CodeViewer({
             .flatMap((change) =>
               Array.from(
                 {
-                  length:
-                    change.modifiedEndLineNumber - change.modifiedStartLineNumber + 1,
+                  length: change.modifiedEndLineNumber - change.modifiedStartLineNumber + 1,
                 },
                 (_, offset) => ({
                   range: new monaco.Range(

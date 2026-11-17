@@ -661,10 +661,7 @@ export default function WorkspacePanel({
     if (!onSendFollowUp) throw new Error("follow-up send is not wired");
     // One ordinary message: the page's own follow-up path builds the pending
     // bubble, applies queue-vs-interrupt, and reports a failure.
-    const message = formatDiffCommentsMessage(
-      diffComments,
-      t("workspace.comments.messageIntro"),
-    );
+    const message = formatDiffCommentsMessage(diffComments, t("workspace.comments.messageIntro"));
     await onSendFollowUp(message);
     // Only after the send resolved: a rejection leaves every comment in place.
     setDiffComments([]);
@@ -1108,77 +1105,79 @@ export default function WorkspacePanel({
           ].join(" ")}
         >
           <div className="flex-1 min-h-0 flex flex-col">
-          {selectedPath && preview === "image" && fileBytes ? (
-            <ImagePreview
-              key={`${selectedPath}:${previewNonce}`}
-              name={selectedPath}
-              previewURL={fileBytes.preview}
-              downloadURL={fileBytes.download}
-            />
-          ) : selectedPath && preview === "binary" && fileBytes ? (
-            <DownloadPreview
-              key={`${selectedPath}:${previewNonce}`}
-              name={selectedPath}
-              downloadURL={fileBytes.download}
-              message={tr("workspace.viewer.binaryHint")}
-            />
-          ) : selectedPath && preview === "table" && !tableAsCode ? (
-            <DelimitedTablePane
-              path={selectedPath}
-              content={file?.content ?? null}
-              loading={loading}
-              error={error}
-              truncated={file?.truncated ?? false}
-              onShowCode={() => setTableAsCode(true)}
-            />
-          ) : selectedPath ? (
-            <Suspense fallback={<ViewerLoading />}>
-              <CodeViewer
+            {selectedPath && preview === "image" && fileBytes ? (
+              <ImagePreview
+                key={`${selectedPath}:${previewNonce}`}
+                name={selectedPath}
+                previewURL={fileBytes.preview}
+                downloadURL={fileBytes.download}
+              />
+            ) : selectedPath && preview === "binary" && fileBytes ? (
+              <DownloadPreview
+                key={`${selectedPath}:${previewNonce}`}
+                name={selectedPath}
+                downloadURL={fileBytes.download}
+                message={tr("workspace.viewer.binaryHint")}
+              />
+            ) : selectedPath && preview === "table" && !tableAsCode ? (
+              <DelimitedTablePane
                 path={selectedPath}
-                file={normalizeFileResponse(file)}
+                content={file?.content ?? null}
                 loading={loading}
                 error={error}
-                diff={enrichedDiff}
-                cwd={cwd}
-                taskId={taskId}
-                workspaceId={workspaceView.kind === "generation" ? workspaceView.workspaceId : null}
-                editable={workspaceView.editable}
-                onSaved={(updated) => setFile(updated)}
-                reviewActions={workspaceView.editable && reviewActions && Boolean(selectedPath)}
-                actionsBusy={actionsBusy}
-                onKeep={() => {
-                  if (!selectedPath) return;
-                  setDismissedPaths((prev) => {
-                    const next = new Set(prev);
-                    next.add(selectedPath);
-                    return next;
-                  });
-                }}
-                onDiscard={() => {
-                  if (!selectedPath) return;
-                  setDismissedPaths((prev) => {
-                    const next = new Set(prev);
-                    next.add(selectedPath);
-                    return next;
-                  });
-                }}
-                onCommentLine={(anchor) => {
-                  lastDiffLineRef.current = anchor.line;
-                  setCommentTarget(anchor);
-                  setCommentsCollapsed(false);
-                }}
-                focusLine={commentFocus}
+                truncated={file?.truncated ?? false}
+                onShowCode={() => setTableAsCode(true)}
               />
-            </Suspense>
-          ) : (
-            // Rendering the empty state here rather than inside CodeViewer keeps
-            // the editor chunk off the wire for the common case of opening the
-            // panel before picking a file — which is what the header's Files
-            // button does.
-            <div className="h-full flex items-center justify-center text-strong leading-5 text-kin-muted px-6 text-center">
-              {tr("workspace.viewer.empty")}
-            </div>
-          )}
+            ) : selectedPath ? (
+              <Suspense fallback={<ViewerLoading />}>
+                <CodeViewer
+                  path={selectedPath}
+                  file={normalizeFileResponse(file)}
+                  loading={loading}
+                  error={error}
+                  diff={enrichedDiff}
+                  cwd={cwd}
+                  taskId={taskId}
+                  workspaceId={
+                    workspaceView.kind === "generation" ? workspaceView.workspaceId : null
+                  }
+                  editable={workspaceView.editable}
+                  onSaved={(updated) => setFile(updated)}
+                  reviewActions={workspaceView.editable && reviewActions && Boolean(selectedPath)}
+                  actionsBusy={actionsBusy}
+                  onKeep={() => {
+                    if (!selectedPath) return;
+                    setDismissedPaths((prev) => {
+                      const next = new Set(prev);
+                      next.add(selectedPath);
+                      return next;
+                    });
+                  }}
+                  onDiscard={() => {
+                    if (!selectedPath) return;
+                    setDismissedPaths((prev) => {
+                      const next = new Set(prev);
+                      next.add(selectedPath);
+                      return next;
+                    });
+                  }}
+                  onCommentLine={(anchor) => {
+                    lastDiffLineRef.current = anchor.line;
+                    setCommentTarget(anchor);
+                    setCommentsCollapsed(false);
+                  }}
+                  focusLine={commentFocus}
+                />
+              </Suspense>
+            ) : (
+              // Rendering the empty state here rather than inside CodeViewer keeps
+              // the editor chunk off the wire for the common case of opening the
+              // panel before picking a file — which is what the header's Files
+              // button does.
+              <div className="h-full flex items-center justify-center text-strong leading-5 text-kin-muted px-6 text-center">
+                {tr("workspace.viewer.empty")}
+              </div>
+            )}
           </div>
           {/* The comment box docks over the bottom of the diff, then the tray
               of everything saved for this conversation. Both are ordinary
