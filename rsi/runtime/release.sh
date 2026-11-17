@@ -48,6 +48,20 @@ say() { printf '%s %s\n' "$(date '+%F %T')" "$*"; }
 log() { mkdir -p "$STATE"; say "$*" >> "$STATE/releases.log"; }
 die() { say "release: $*" >&2; log "ABORT $*"; exit 1; }
 
+with_timeout() { # secs cmd...   (macOS has no `timeout`; same helper as runtime/common.sh)
+  local s="$1"; shift
+  "$@" & local p=$!
+  ( sp=""
+    trap '[ -n "${sp:-}" ] && kill "$sp" 2>/dev/null; exit 0' TERM INT
+    sleep "$s" & sp=$!; wait "$sp" || exit 0
+    kill -TERM "$p" 2>/dev/null
+    sleep 5 & sp=$!; wait "$sp" || exit 0
+    kill -KILL "$p" 2>/dev/null ) >/dev/null 2>&1 & local w=$!
+  wait "$p"; local rc=$?
+  kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
+  return $rc
+}
+
 git="$(command -v git)" || die "git not found"
 mkdir -p "$STATE"
 
@@ -94,7 +108,14 @@ mark() { # mark <target> — record this SHA as released for one target, keeping
 if [ "$NODE" = 1 ]; then
   NODE_CMD="${RSI_RELEASE_NODE_CMD:-./scripts/desktop-rebuild.sh}"
   say "node: $NODE_CMD"
-  ( cd "$REPO" && $NODE_CMD ) >>"$STATE/releases.log" 2>&1 || die "node rebuild failed (see state/releases.log)"
+  # desktop-rebuild.sh ends by launching Electron and would hold this script open until
+  # the desktop app exits; ask it to detach so the release can record its marker.
+  ( cd "$REPO" && KIN_REBUILD_DETACH=1 $NODE_CMD ) >>"$STATE/releases.log" 2>&1 || die "node rebuild failed (see state/releases.log)"
+  for i in $(seq 1 45); do
+    curl -fs -o /dev/null -m 3 "$KIN_API/api/health" 2>/dev/null && break
+    [ "$i" = 45 ] && die "node did not answer /api/health after 90s (see state/releases.log)"
+    sleep 2
+  done
   mark node
   say "node: shipped $SHORT"
 fi
@@ -109,7 +130,7 @@ if [ "$HUB" = 1 ]; then
   $git -C "$REPO" archive "$SHA" | tar -x -C "$STAGE" || die "hub: could not stage $SHORT"
   say "hub: building $IMAGE for linux/amd64 from $SHORT (emulated, this takes a while)"
   start=$(date +%s)
-  if ! timeout "$TIMEOUT" docker build --platform linux/amd64 \
+  if ! with_timeout "$TIMEOUT" docker build --platform linux/amd64 \
       --build-arg VERSION="dogfood-$SHORT" -t "$IMAGE" "$STAGE" >>"$STATE/releases.log" 2>&1; then
     die "hub: image build failed or timed out (see state/releases.log)"
   fi

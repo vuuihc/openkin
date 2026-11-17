@@ -82,7 +82,8 @@ sessions=""; sessions_num=0; note=""
 health="$(curl -fs -o /dev/null -m 3 "$KIN_API/api/health" 2>/dev/null && echo up || echo down)"
 if [ "$health" = "up" ]; then
   token="$(cat "$TOKEN_FILE" 2>/dev/null || true)"
-  body="$(curl -s -m 5 -H "Authorization: Bearer ${token}" "$KIN_API/api/tasks" 2>/dev/null)"
+  # -f: an HTTP error is not an empty task list. Refused or broken replies must fail closed.
+  body="$(curl -fs -m 5 -H "Authorization: Bearer ${token}" "$KIN_API/api/tasks" 2>/dev/null)"
   parsed="$(printf '%s' "$body" | python3 -c '
 import json, sys
 live = {"queued", "running", "waiting_approval", "waiting_input", "retrying"}
@@ -91,13 +92,18 @@ try:
     d = json.loads(raw)
 except Exception:
     print("UNREADABLE 0"); raise SystemExit
-tasks = d if isinstance(d, list) else d.get("tasks") or []
+if isinstance(d, list):
+    tasks = d
+elif isinstance(d, dict) and isinstance(d.get("tasks"), list):
+    tasks = d["tasks"]
+else:
+    print("UNREADABLE 0"); raise SystemExit
 hot = [t for t in tasks if (t.get("status") or t.get("state")) in live]
 names = ", ".join("%s %s" % ((t.get("id") or "?")[:8], t.get("status") or t.get("state")) for t in hot[:4])
 print("%s %d" % (names or "-", len(hot)))
 ' 2>/dev/null)"
   case "$parsed" in
-    UNREADABLE*) note="node answered /api/tasks but the reply could not be parsed" ;;
+    ""|UNREADABLE*) note="node answered /api/tasks but the reply could not be read" ;;
     *) sessions="${parsed% *}"; sessions_num="${parsed##* }"
        [ "$sessions" = "-" ] && sessions="" ;;
   esac

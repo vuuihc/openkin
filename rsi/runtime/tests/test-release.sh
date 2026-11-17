@@ -37,12 +37,12 @@ export KIN_TOKEN_FILE="$TOKEN"
 PORT=""
 
 # --- node stub: /api/health always answers; /api/tasks needs the bearer token.
-start_node() { # start_node <raw-body>
+start_node() { # start_node <raw-body> [http-status]
   stop_node
   rm -f "$T/port"
-  python3 - "$1" "$T/port" <<'PY' &
+  python3 - "$1" "${2:-200}" "$T/port" <<'PY' &
 import http.server, socketserver, sys
-body, portfile = sys.argv[1], sys.argv[2]
+body, status, portfile = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/api/health":
@@ -50,7 +50,7 @@ class H(http.server.BaseHTTPRequestHandler):
         if self.headers.get("Authorization") != "Bearer tok":
             self.send_response(401); self.end_headers(); return
         data = body.encode()
-        self.send_response(200); self.send_header("Content-Type", "application/json")
+        self.send_response(status); self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data))); self.end_headers(); self.wfile.write(data)
     def log_message(self, *a): pass
 with socketserver.TCPServer(("127.0.0.1", 0), H) as s:
@@ -115,6 +115,23 @@ run 0 "GO: finished sessions do not block"
 start_node 'not json at all'
 run 10 "HOLD: an unreadable task list fails closed"
 
+# 5b. An HTTP error or a reply of the wrong shape must never read as "0 sessions".
+start_node '{"error":"unauthorized"}' 500
+run 10 "HOLD: an HTTP error from /api/tasks fails closed"
+grep -q 'sessions unknown' <<<"$LAST" || fail "HTTP error: reason must say the sessions are unknown"
+start_node '{"error":"unauthorized"}' 401
+run 10 "HOLD: a refused /api/tasks fails closed"
+start_node 'null'
+run 10 "HOLD: a JSON null reply fails closed"
+start_node '"err"'
+run 10 "HOLD: a JSON string reply fails closed"
+start_node '[null]'
+run 10 "HOLD: a task list of non-objects fails closed"
+start_node '{"tasks":[{"id":"aaaabbbb","status":"running"}]}'
+run 10 "HOLD: a dict with a live task still blocks"
+start_node '{"tasks":[]}'
+run 0 "GO: a dict with an empty task list is idle"
+
 # 6. A node that is down has nothing to interrupt.
 stop_node
 run 0 "GO: node down is nothing to interrupt"
@@ -174,6 +191,17 @@ merge_run "release: a conflict holds and rewrites nothing" 1
 [ -d "$SECOND/.git" ] && [ ! -f "$SECOND/.git/MERGE_HEAD" ] || fail "merge not aborted"
 git -C "$SECOND" status --porcelain | grep -q '^UU' && fail "conflict markers left behind"
 
+# (d) the node rebuild is told to detach: desktop-rebuild.sh ends by launching Electron
+#     and must not hold the release open until the desktop app exits.
+printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$STATE/last_release"
+git -C "$SECOND" reset -q --hard "$BASE2"
+STUB="$T/node-cmd.sh"; printf '#!/bin/bash\necho "detach=${KIN_REBUILD_DETACH:-unset}"\n' > "$STUB"; chmod +x "$STUB"
+out="$(env RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$SECOND" KIN_API="$(API)" \
+  RSI_RELEASE_NODE_CMD="$STUB" bash "$RELEASE" --repo "$SECOND" --node-only 2>&1)"; rc=$?
+[ "$rc" = 0 ] || { printf '%s\n' "$out" >&2; fail "detach: expected exit 0, got $rc"; }
+grep -q 'detach=1' "$STATE/releases.log" || fail "release must pass KIN_REBUILD_DETACH=1 to the node rebuild"
+pass "release: the node rebuild is asked to detach"
+
 # 10. A dry run reports the plan and writes nothing.
 printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$STATE/last_release"
 before="$(cat "$STATE/last_release")"
@@ -182,5 +210,68 @@ out="$(env RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$REPO" KIN_API="$(API)" 
 [ "$rc" = 0 ] || { printf '%s\n' "$out" >&2; fail "dry run exit $rc"; }
 [ "$(cat "$STATE/last_release")" = "$before" ] || fail "dry run wrote the marker"
 pass "GO: dry run changes nothing"
+
+# 11. The Hub build is bounded by `with_timeout`, not the `timeout` binary macOS does not
+#     ship. A stub docker that never finishes must be cut off, not waited on.
+BIN="$T/bin"; mkdir -p "$BIN"
+cat > "$BIN/docker" <<'SH'
+#!/bin/bash
+case "${1:-}" in
+  info) exit 0 ;;
+  build) exec sleep 30 ;;   # the watchdog must end this
+  save) exit 0 ;;
+esac
+exit 0
+SH
+cat > "$BIN/ssh" <<'SH'
+#!/bin/bash
+case "$*" in *"docker ps"*) echo "Up 1 minute (healthy)" ;; esac
+exit 0
+SH
+chmod +x "$BIN/docker" "$BIN/ssh"
+printf 'node=%s\nhub=%s\n' "$ROOT" "$ROOT" > "$STATE/last_release"
+start=$(date +%s)
+out="$(env RSI_RELEASE_STATE="$STATE" RSI_RELEASE_REPO="$REPO" KIN_API="$(API)" \
+  RSI_HUB_TIMEOUT=1 PATH="$BIN:$PATH" bash "$RELEASE" --repo "$REPO" --hub-only 2>&1)"; rc=$?
+took=$(( $(date +%s) - start ))
+[ "$rc" = 1 ] || { printf '%s\n' "$out" >&2; fail "hub: expected the timed-out build to abort, got exit $rc"; }
+grep -q 'failed or timed out' <<<"$out" || fail "hub: timeout did not abort the build"
+case "$out" in *"command not found"*) fail "hub: build used a command this platform lacks" ;; esac
+[ "$took" -lt 20 ] || fail "hub: with_timeout did not stop the build ($took s)"
+pass "hub: a build that never finishes is cut off without GNU timeout"
+
+# 12. desktop-rebuild.sh must return promptly when asked to detach and leave the desktop
+#     app running: release.sh runs it in the foreground.
+FAKE="$T/fakerepo"; mkdir -p "$FAKE/scripts" "$FAKE/ui" "$FAKE/desktop" "$T/fakebin"
+cp "$HERE/../../../scripts/desktop-rebuild.sh" "$FAKE/scripts/desktop-rebuild.sh"
+printf '#!/bin/bash\nexit 0\n' > "$FAKE/scripts/dev-sign.sh"
+cat > "$T/fakebin/go" <<'SH'
+#!/bin/bash
+while [ $# -gt 0 ]; do
+  if [ "$1" = -o ]; then shift; : > "$1"; chmod +x "$1"; fi
+  shift
+done
+exit 0
+SH
+cat > "$T/fakebin/npm" <<'SH'
+#!/bin/bash
+if [ "${1:-}" = run ] && [ "${2:-}" = dev ]; then
+  [ -n "${DEV_PID_FILE:-}" ] && echo $$ > "$DEV_PID_FILE"
+  exec sleep 60
+fi
+exit 0
+SH
+printf '#!/bin/bash\nexit 0\n' > "$T/fakebin/node"
+chmod +x "$FAKE/scripts/dev-sign.sh" "$T/fakebin/go" "$T/fakebin/npm" "$T/fakebin/node"
+start=$(date +%s)
+out="$(env HOME="$T/home2" PATH="$T/fakebin:$PATH" KIN_PORT=1 KIN_REBUILD_DETACH=1 \
+  DEV_PID_FILE="$T/dev.pid" bash "$FAKE/scripts/desktop-rebuild.sh" 2>&1)"; rc=$?
+took=$(( $(date +%s) - start ))
+[ "$rc" = 0 ] || { printf '%s\n' "$out" >&2; fail "desktop-rebuild detach: exit $rc"; }
+[ "$took" -lt 20 ] || fail "desktop-rebuild detach: still blocked after ${took}s"
+[ -s "$T/dev.pid" ] && kill -0 "$(cat "$T/dev.pid")" 2>/dev/null \
+  || fail "desktop-rebuild detach: the desktop process did not survive the script"
+kill "$(cat "$T/dev.pid")" 2>/dev/null || true
+pass "desktop-rebuild: KIN_REBUILD_DETACH=1 returns and leaves the app running"
 
 echo "all cases passed"
