@@ -407,6 +407,7 @@ if [ $NEED_REV -eq 1 ]; then
     echo "Behaviour claimed (PR body): $(echo "$BODY" | head -c 3500)"
     SHOT_LIST="$(ls -1 "$STATE/shots/$SLUG" 2>/dev/null | tr '\n' ' ')"
     echo; echo "Checklist and grading: $RSI_DIR/roles/reviewer.md ; binding rules: $RSI_DIR/MANDATE.md ; screenshots (if any): $STATE/shots/$SLUG/ or links in the PR body."
+    echo "RSI state directory: $STATE (e.g. $STATE/merged.log, $STATE/ux/). NEVER run find on ~ or /Users."
     [ -n "$SHOT_LIST" ] && echo "Existing files in $STATE/shots/$SLUG/: $SHOT_LIST"
     echo "The gate (tests, lint, build, ratchet) is running separately; its verdict is not your job."
     if [ "$TIER" = small ]; then echo; echo "This is a SMALL-SAFE slice (pure refactor/extract or tiny diff; tests added only). You are the only reviewer, so check hard that behaviour, props, handlers, keyboard, a11y names, i18n and test strength are preserved. If you genuinely cannot decide, say so instead of guessing: end with VERDICT: UNSURE and why."; fi

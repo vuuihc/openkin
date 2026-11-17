@@ -15,6 +15,7 @@ import {
   type ReactNode,
 } from "react";
 import type { TaskEvent } from "../../api/client";
+import { formatDuration } from "../../lib/duration";
 import { findMatches, stepMatch } from "../../lib/findInTranscript";
 import { friendlyErrorLabel } from "../../lib/friendlyError";
 import { useLocale, useT } from "../../i18n/react";
@@ -1216,10 +1217,23 @@ function ProgressCard({
                 broke between a tool name and its count and made the row two
                 ragged lines tall while the fold label beside it stayed put. The
                 full text is the tooltip and the steps are one tap away. */}
-            <span className="truncate font-medium text-kin-text" title={summary}>
-              {summary}
+            <span className="flex min-w-0 items-baseline gap-2">
+              <span className="truncate font-medium text-kin-text" title={summary}>
+                {summary}
+              </span>
+              {!running && item.durationMs != null && (
+                // The settled face of the run: one number that does not change
+                // once the turn is done. A live card never gets one — a clock
+                // that does not tick would be a lie.
+                <span
+                  className="flex-none text-caption font-normal tabular-nums text-kin-muted"
+                  data-progress-duration={item.durationMs}
+                >
+                  · {formatDuration(item.durationMs)}
+                </span>
+              )}
             </span>
-            {!expanded && details.latestNote && (
+            {!expanded && details.latestNote && running && (
               <span
                 className="truncate text-caption font-normal text-kin-muted"
                 title={details.latestNote}

@@ -19,6 +19,7 @@
 ## 现有
 
 - [Button](button.md) —— 一个动作，页面上所有按钮的唯一起点
+- [TextInput](text-input.md) —— 单行文本字段，标签 / 提示 / 错误句的唯一起点
 - [Tabs](tabs.md) —— 同一层里并列内容的切换，含三到五选一的分段按钮
 - [Dialog](dialog-sheet.md) —— 桌面上打断当前任务的模态，退路按用途分级
 - [Popover](popover.md) —— 受控、按视口定位的通用浮层，菜单和选择器长在它上面

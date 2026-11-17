@@ -5,7 +5,7 @@ calls are the CEO's; report after, not before. This file is the contract. It may
 
 ## Auto-approved (reversible)
 - Create worktrees/branches named `rsi/*` under `~/.kin/worktrees/rsi-*`; commit; push `rsi/*` branches.
-- Open PRs against `main` of `vuuihc/openkin`; **squash-merge** them when the merge gate below is green.
+- Open PRs against `main` of `vuuihc/openkin`; **squash-merge** them when the merge gate below is green; **close** superseded/obsolete `rsi/*` PRs without `--delete-branch` (reversible via `gh pr reopen`; never ask Ethan to approve closing a PR).
 - Edit code, tests, docs, `docs/product/*`, stories, gap-log, LESSONS; add ADRs.
 - Make product/UX decisions consistent with PRINCIPLE.md, IA.md, TASTE.md; record them in `rsi/DECISIONS.md` (one line: date · decision · why · how to reverse).
 - Sign stories on Ethan's behalf **only** when recorded in DECISIONS.md as a CEO call.
