@@ -22,6 +22,7 @@ import Sheet, { SheetPrimaryButton, SheetSecondaryButton } from "../../component
 import Button from "../../components/ui/Button";
 import ActionSheet from "../../components/ui/ActionSheet";
 import Menu from "../../components/ui/Menu";
+import RadioGroup from "../../components/ui/RadioGroup";
 import { useAgentSessionImport } from "../../hooks/useAgentSessionImport";
 import { useSlowHint } from "../../hooks/useSlowHint";
 import { useAppStore } from "../../store/appStore";
@@ -1810,7 +1811,7 @@ function SortTh({
   );
 }
 
-/** A usage interval with three stops, reachable with ←/→. */
+/** A usage interval with three stops, over the shared radio group. */
 function RangePicker({
   value,
   onChange,
@@ -1819,59 +1820,17 @@ function RangePicker({
   onChange: (next: UsageDays) => void;
 }) {
   const tr = useT();
-  const refs = useRef(new Map<UsageDays, HTMLButtonElement | null>());
   const RANGES: UsageDays[] = [7, 30, 90];
   const label = (d: UsageDays) =>
     d === 7 ? tr("usage.thisWeek") : d === 30 ? tr("usage.days30") : tr("usage.days90");
 
-  function move(delta: number) {
-    const at = RANGES.indexOf(value);
-    const next = RANGES[(at + delta + RANGES.length) % RANGES.length];
-    onChange(next);
-    requestAnimationFrame(() => refs.current.get(next)?.focus());
-  }
-
   return (
-    <div
-      role="radiogroup"
-      aria-label={tr("agents.rangeLabel")}
-      className="flex min-h-11 items-stretch rounded-xl bg-kin-elevated p-1"
-      onKeyDown={(event) => {
-        if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-          event.preventDefault();
-          move(1);
-        } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-          event.preventDefault();
-          move(-1);
-        }
-      }}
-    >
-      {RANGES.map((d) => (
-        // E4c: no Segmented/RadioGroup facade exists for the range picker's
-        // roving radiogroup (arrow keys, one tab stop); a tab strip cannot
-        // carry radio semantics. Tracked in rsi/state/followups.md.
-        // eslint-disable-next-line kin/no-raw-button
-        <button
-          key={d}
-          ref={(el) => {
-            refs.current.set(d, el);
-          }}
-          type="button"
-          role="radio"
-          aria-checked={value === d}
-          tabIndex={value === d ? 0 : -1}
-          onClick={() => onChange(d)}
-          className={[
-            "min-h-11 rounded-lg px-3 text-body",
-            value === d
-              ? "bg-kin-elevated font-semibold text-kin-text shadow-e1"
-              : "text-kin-muted hover:text-kin-text",
-          ].join(" ")}
-        >
-          {label(d)}
-        </button>
-      ))}
-    </div>
+    <RadioGroup
+      value={value}
+      onChange={onChange}
+      options={RANGES.map((d) => ({ value: d, label: label(d) }))}
+      ariaLabel={tr("agents.rangeLabel")}
+    />
   );
 }
 
