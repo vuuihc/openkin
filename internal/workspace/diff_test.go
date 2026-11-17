@@ -1292,3 +1292,122 @@ func TestListBranchChangesUnrelatedBaseFallsBackToHEAD(t *testing.T) {
 		t.Fatalf("branch changes = %+v, want the live answer %+v", branch, live)
 	}
 }
+
+// A worktree generation records the commit it forked from when it is created,
+// and that commit is the precise base. The refs changeBase falls back to can be
+// older — a local base branch that was never pushed leaves origin/HEAD behind —
+// and the merge base with it lists the base branch's own commits as this
+// round's work. The recorded OID answers only what this round did.
+func TestListBranchChangesWorktreeUsesTheRecordedBaseOID(t *testing.T) {
+	requireGit(t)
+	m := NewManager(t.TempDir())
+	src := t.TempDir()
+	initRepo(t, src)
+	commitFile(t, src, "a.txt", "a\n")
+	gitCmd(t, src, "branch", "-m", "main")
+
+	// origin/HEAD stays at A: B is a local commit on main that was never pushed.
+	remote := filepath.Join(t.TempDir(), "origin.git")
+	gitCmd(t, src, "init", "--bare", remote)
+	gitCmd(t, src, "remote", "add", "origin", remote)
+	gitCmd(t, src, "push", "-q", "origin", "main")
+	gitCmd(t, src, "remote", "set-head", "origin", "main")
+	commitFile(t, src, "b.txt", "b\n")
+	baseOID := gitOut(t, src, "rev-parse", "HEAD")
+
+	// The generation's worktree forks from B and commits its own round, C.
+	worktree := filepath.Join(t.TempDir(), "wt")
+	gitCmd(t, src, "worktree", "add", "-q", "-b", "round", worktree, baseOID)
+	commitFile(t, worktree, "c.txt", "c\n")
+
+	meta := Metadata{
+		Mode:    ResolvedWorktree,
+		Root:    worktree,
+		Cwd:     worktree,
+		Scope:   ".",
+		BaseOID: baseOID,
+	}
+	changes, err := m.ListBranchChanges(context.Background(), meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := statusByPath(changes)
+	if status["c.txt"] != "added" {
+		t.Fatalf("changes = %v, want the worktree round's own file", status)
+	}
+	if _, ok := status["b.txt"]; ok {
+		t.Fatalf("changes = %v, want no file from the commit the worktree forked from", status)
+	}
+
+	// With nothing recorded, the answer is today's: the merge base with
+	// origin/HEAD is A, so B and C are both unreviewed work from here.
+	meta.BaseOID = ""
+	fallback, err := m.ListBranchChanges(context.Background(), meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fallbackStatus := statusByPath(fallback)
+	if fallbackStatus["b.txt"] != "added" || fallbackStatus["c.txt"] != "added" {
+		t.Fatalf("changes = %v, want the changeBase answer when no base is recorded", fallbackStatus)
+	}
+}
+
+// A stored base is repository state on its way to becoming a git argument. One
+// that is not an object id this repository can resolve — an option-looking
+// string, a ref name, or an id for an object that is not here — is no recorded
+// base: the answer falls through to changeBase, and nothing a bad value says
+// reaches git as an argument.
+func TestListBranchChangesBaseOIDIgnoresAMalformedValue(t *testing.T) {
+	requireGit(t)
+	m := NewManager(t.TempDir())
+	src := t.TempDir()
+	initRepo(t, src)
+	commitFile(t, src, "a.txt", "a\n")
+	gitCmd(t, src, "branch", "-m", "main")
+
+	// changeBase answers from A (origin/HEAD), while HEAD's own answer would
+	// omit B. That difference is what makes a ref name used as a base visible:
+	// git resolves it happily, and the answer changes.
+	remote := filepath.Join(t.TempDir(), "origin.git")
+	gitCmd(t, src, "init", "--bare", remote)
+	gitCmd(t, src, "remote", "add", "origin", remote)
+	gitCmd(t, src, "push", "-q", "origin", "main")
+	gitCmd(t, src, "remote", "set-head", "origin", "main")
+	commitFile(t, src, "b.txt", "b\n")
+
+	worktree := filepath.Join(t.TempDir(), "wt")
+	gitCmd(t, src, "worktree", "add", "-q", "-b", "round", worktree, "main")
+	if err := os.WriteFile(filepath.Join(worktree, "uncommitted.txt"), []byte("work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	meta := Metadata{Mode: ResolvedWorktree, Root: worktree, Cwd: worktree, Scope: "."}
+	want, err := m.ListBranchChanges(context.Background(), meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStatus := statusByPath(want)
+	if wantStatus["b.txt"] != "added" || wantStatus["uncommitted.txt"] != "added" {
+		t.Fatalf("changes = %v, want the changeBase answer", wantStatus)
+	}
+
+	for _, recorded := range []string{
+		"--upload-pack=x",
+		// Ref names git would resolve, so a format check is the only thing
+		// keeping them out of the diff argument.
+		"HEAD",
+		"main",
+		"not-an-oid",
+		// A well-formed id for an object this repository does not have.
+		strings.Repeat("0", 40),
+	} {
+		meta.BaseOID = recorded
+		changes, err := m.ListBranchChanges(context.Background(), meta)
+		if err != nil {
+			t.Fatalf("BaseOID %q: %v", recorded, err)
+		}
+		if !reflect.DeepEqual(changes, want) {
+			t.Fatalf("BaseOID %q: changes = %+v, want the changeBase answer %+v", recorded, changes, want)
+		}
+	}
+}
