@@ -8,6 +8,7 @@ import {
 import { useT } from "../../i18n/react";
 import { branchAnswerApplies, isDirtyRefusal } from "../../lib/devices";
 import { useAppStore } from "../../store/appStore";
+import Button from "../ui/Button";
 import Popover from "../ui/Popover";
 
 type Props = {
@@ -183,23 +184,32 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
       {!compact && (
         <span className="text-caption text-kin-muted flex-none">{tr("branch.label")}</span>
       )}
-      <button
+      {/* The chip's own fill, border and type stay; the facade supplies the
+          family's focus ring, press behaviour and the phone's 44px floor (its
+          `sm:min-h-0` leaves the Mac row height alone). Its children are
+          elements, so the accessible name travels explicitly. */}
+      <Button
         ref={triggerRef}
-        type="button"
+        variant="quiet"
         disabled={busy}
         onClick={() => {
           if (busy) return;
           setOpen((v) => !v);
           void load(cwd);
         }}
+        aria-label={`${tr("branch.label")}${tr("common.labelSeparator")}${label}`}
         className={[
-          "inline-flex items-center min-w-0 max-w-full rounded-lg border",
-          "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)]",
+          // The facade wraps children in its own spans, so the row's layout
+          // lives on one inner flex span (the `CwdPicker` chip does the same);
+          // `[&>span…]` keeps each wrapper able to shrink, or the branch name
+          // cannot truncate inside the panel's row.
+          "min-w-0 max-w-full rounded-lg border [&>span]:min-w-0 [&>span>span]:min-w-0",
+          "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)]!",
           compact
-            ? "gap-1 px-1.5 py-0.5 text-caption font-medium transition-colors"
-            : "gap-1.5 px-2 py-0.5 text-caption font-medium transition-colors",
-          "hover:border-kin-blue/40 hover:text-kin-secondary",
-          open ? "border-kin-blue/50 text-kin-blue-ink" : "text-kin-secondary",
+            ? "px-1.5 py-0.5 text-caption font-medium transition-colors"
+            : "px-2 py-0.5 text-caption font-medium transition-colors",
+          "hover:border-kin-blue/40 hover:text-kin-secondary!",
+          open ? "border-kin-blue/50 text-kin-blue-ink!" : "text-kin-secondary!",
           busy ? "opacity-60" : "",
         ].join(" ")}
         title={
@@ -212,17 +222,21 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <BranchIcon />
-        <span className="truncate font-mono">{busy ? "…" : label}</span>
-        {status.dirty && (
-          <span
-            className="flex-none w-1.5 h-1.5 rounded-full bg-kin-orange"
-            title={tr("branch.dirtyHint")}
-            aria-hidden
-          />
-        )}
-        <ChevronIcon open={open} />
-      </button>
+        <span
+          className={["inline-flex min-w-0 items-center", compact ? "gap-1" : "gap-1.5"].join(" ")}
+        >
+          <BranchIcon />
+          <span className="truncate font-mono">{busy ? "…" : label}</span>
+          {status.dirty && (
+            <span
+              className="flex-none w-1.5 h-1.5 rounded-full bg-kin-orange"
+              title={tr("branch.dirtyHint")}
+              aria-hidden
+            />
+          )}
+          <ChevronIcon open={open} />
+        </span>
+      </Button>
 
       {/*
         The composer's control row is an `overflow-x-auto` strip, which in CSS
@@ -277,6 +291,7 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
                 const active = b.current || b.name === status.current;
                 return (
                   <li key={b.name}>
+                    {/* eslint-disable-next-line kin/no-raw-button -- an option row in the listbox; the row is the hit area, not an action. */}
                     <button
                       type="button"
                       role="option"
