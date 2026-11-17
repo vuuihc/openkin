@@ -826,7 +826,8 @@ describe("RunConfigControl on a wide screen", () => {
     }
   });
 
-  it("keeps the close control a quiet Button with the close name", async () => {    setup();
+  it("keeps the close control a quiet Button with the close name", async () => {
+    setup();
     const panel = await openSheet();
     const close = within(panel).getByRole("button", { name: "Close" });
     expect(close.className).toContain("kin-btn");
