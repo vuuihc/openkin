@@ -1,9 +1,8 @@
-import { useEffect, useState } from "react";
 import { formatCost, formatElapsed, isTerminal, type Task } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { IconTerminal } from "../icons";
 import { taskDisplayTitle } from "../../lib/taskTitle";
-import { getLocalTaskTitles, subscribeTaskTitles } from "../../lib/taskTitles";
+import { useLocalTaskTitles } from "../../lib/taskTitles";
 import { taskCardStatusView } from "../../lib/taskCardStatus";
 
 type Props = {
@@ -27,8 +26,7 @@ export default function RunningTaskCard({
   const tr = useT();
   // The card outlives a rename made in the list beside it, so it draws the
   // same name expression as every other surface and hears the store change.
-  const [localTitles, setLocalTitles] = useState(getLocalTaskTitles);
-  useEffect(() => subscribeTaskTitles(() => setLocalTitles(getLocalTaskTitles())), []);
+  const [localTitles] = useLocalTaskTitles();
   const terminal = isTerminal(task.status);
   const statusView = taskCardStatusView(task.status, degraded && !terminal);
   const live = statusView.tone === "running" && !terminal;

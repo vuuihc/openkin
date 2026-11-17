@@ -44,6 +44,7 @@ import { remoteMachine } from "../../lib/devices";
 import { placeById } from "../../lib/places";
 import { focusPlaceReturn, takePlaceReturn } from "../../lib/placeReturn";
 import { taskDisplayTitle } from "../../lib/taskTitle";
+import { useLocalTaskTitles } from "../../lib/taskTitles";
 import { floatingApprovals } from "../../lib/floatingApprovals";
 import { useApprovalDecision } from "../../hooks/useApprovalDecision";
 import { useEdgeSwipeBack } from "../../hooks/useEdgeSwipeBack";
@@ -278,6 +279,9 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
   // a name lookup — not the sidebar's data.
   const taskList = useTaskList(SHELL_TITLE_TASKS);
   const tasks = taskList.data;
+  // The approval card is open while the reader can be renaming in the sidebar,
+  // and a rename never reaches the feed: it has to hear the local store.
+  const [localTitles] = useLocalTaskTitles();
   const [paletteOpen, setPaletteOpen] = useState(false);
   // Zen: chrome out of the way, session untouched. State, not a preference —
   // nothing writes it anywhere, so a reload is always back to the shell (P3 plan
@@ -722,7 +726,12 @@ export default function AppShell({ children, pendingApprovals, routineUnreadCoun
         <ErrorBoundary fallback={null} resetKey={floating.map((approval) => approval.id).join(",")}>
           <FloatingApproval
             approvals={floating}
-            titleFor={(taskId) => taskDisplayTitle(tasks.find((task) => task.id === taskId))}
+            titleFor={(taskId) =>
+              taskDisplayTitle(
+                tasks.find((task) => task.id === taskId),
+                localTitles,
+              )
+            }
             busy={approvalDecision.busy}
             onDecide={(id, decision) => void approvalDecision.decide(id, decision)}
             onOpenTask={(taskId) =>
