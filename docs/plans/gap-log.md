@@ -86,9 +86,10 @@ iPad（视口 ≥768px、`pointer: coarse`）的左栏是 248px 侧栏，但列�
 进展（2026-11-17）：退出路径与工具条溢出已修，见 PR #62（`695d053e`）——工具条换行、
 图标按钮 44px、取消留在 248px 容器内、Esc 走同一退出路径，248px 与 390×844 实测
 `scrollWidth == clientWidth`；行尾 `⋯` 菜单的「多选 / 退出多选」入口已修，见「已修」
-PR #170（`R-selection-menu`）。长按手势改道（不再进入多选）仍待 `KIN-MANAGE-001`
-（`registry.json` 中为 `draft`）及后续拖动排序 `R-drag-reorder` 落地，故本条保留在
-Open。
+PR #170（`R-selection-menu`）。该 story 已于 2026-11-17 由 CEO 签字、
+`registry.json` 改为 `approved`（设计页 `KIN-MANAGE-001.review.html` 已读）；长按手势
+改道（不再进入多选）仍待该 story 的产品步骤 3–5 及后续拖动排序 `R-drag-reorder` 落地，
+故本条保留在 Open。
 
 ### 2026-11-15 · 中 · 长按对话行不能拖动排序，列表顺序只能跟着最近活动走
 
