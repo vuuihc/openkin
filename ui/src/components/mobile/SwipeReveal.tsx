@@ -191,16 +191,35 @@ export default function SwipeReveal({
   }
   const finishReorderRef = useRef(finishReorder);
   finishReorderRef.current = finishReorder;
+  const reorderRef = useRef(reorder);
+  reorderRef.current = reorder;
 
   useEffect(() => {
     if (!reorderActive) return;
-    const finish = (event: PointerEvent) =>
-      finishReorderRef.current(event.type === "pointercancel");
+    // A move is only this drag's while the finger that started it is down; a
+    // second finger must not steer (or end) the lift.
+    const mine = (event: PointerEvent) =>
+      pointerId.current === null || event.pointerId === pointerId.current;
+    const finish = (event: PointerEvent) => {
+      if (mine(event)) finishReorderRef.current(event.type === "pointercancel");
+    };
+    // Re-ordering moves the row in the DOM, and the browser drops pointer
+    // capture when the capturing node moves: moves then target whatever sits
+    // under the finger, not this row. The window keeps reporting them for as
+    // long as the drag is live.
+    const move = (event: PointerEvent) => {
+      if (mine(event)) reorderRef.current?.onMove(event.clientY);
+    };
+    window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", finish);
     window.addEventListener("pointercancel", finish);
     return () => {
+      window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", finish);
       window.removeEventListener("pointercancel", finish);
+      // A row removed mid-drag never hears its release; end the lift here so
+      // the list does not keep a drag for a row that is no longer drawn.
+      finishReorderRef.current(true);
     };
   }, [reorderActive]);
 
@@ -251,7 +270,10 @@ export default function SwipeReveal({
 
   function onPointerMove(event: React.PointerEvent) {
     if (reordering.current) {
-      reorder?.onMove(event.clientY);
+      // Once the drag is live the window listener owns the moves — the row may
+      // have been re-ordered and lost pointer capture. Only the first frame,
+      // before that listener is mounted, still arrives here.
+      if (!reorderActive) reorder?.onMove(event.clientY);
       return;
     }
     const origin = pressOrigin.current;

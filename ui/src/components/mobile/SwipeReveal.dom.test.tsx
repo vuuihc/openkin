@@ -236,6 +236,9 @@ describe("SwipeReveal reorder", () => {
       // A vertical move belongs to the drag: it must not become a horizontal
       // reveal, and it must not be read as breaking the hold.
       pointer(row, "pointermove", 202, 80);
+      // One report per move: the window listener also sees this event, and a
+      // second call would read the layout the first one already changed.
+      expect(onMove).toHaveBeenCalledTimes(1);
       expect(onMove).toHaveBeenCalledWith(80);
 
       pointer(row, "pointerup", 202, 80);
@@ -331,6 +334,38 @@ describe("SwipeReveal reorder", () => {
       const touchMove = new Event("touchmove", { bubbles: true, cancelable: true });
       row.dispatchEvent(touchMove);
       expect(touchMove.defaultPrevented).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports moves that land outside the row after the reorder drops capture", () => {
+    // The list re-orders the row in the DOM while the finger moves it, and a
+    // browser drops pointer capture when the capturing node moves. The next
+    // move targets whatever is under the finger — not the row — so the window
+    // has to be the one reporting it.
+    vi.useFakeTimers();
+    try {
+      const onStart = vi.fn();
+      const onMove = vi.fn();
+      const onEnd = vi.fn();
+      const { row } = setup({ onStart, onMove, onEnd });
+
+      pointer(row, "pointerdown", 200, 20);
+      act(() => vi.advanceTimersByTime(500));
+
+      fireEvent(
+        window,
+        new MouseEvent("pointermove", {
+          bubbles: true,
+          cancelable: true,
+          clientX: 200,
+          clientY: 120,
+        }),
+      );
+
+      expect(onMove).toHaveBeenCalledTimes(1);
+      expect(onMove).toHaveBeenCalledWith(120);
     } finally {
       vi.useRealTimers();
     }

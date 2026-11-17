@@ -262,6 +262,11 @@ export default function SessionList({
   // synchronous copy; `drag` is what the list draws from.
   const dragRef = useRef<SessionDrag | null>(null);
   const dragOriginY = useRef<number | null>(null);
+  // The lifted row's top before it moved. The reorder draws the row in a new
+  // DOM slot, so the transform is measured from this start rather than from
+  // the finger's raw travel: otherwise the slot and the transform would both
+  // carry the row.
+  const dragStartTop = useRef<number | null>(null);
   const [prefsTick, setPrefsTick] = useState(0);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectMenu, setProjectMenu] = useState<{
@@ -1070,20 +1075,29 @@ export default function SessionList({
   function startDrag(bucketKey: string, key: string, ids: readonly string[]) {
     if (dragRef.current || !canReorder) return;
     dragOriginY.current = null;
+    dragStartTop.current = rowTop(key);
     // The action strip and the drag cannot both own the row.
     setSwipeOpen(null);
     updateDrag({ bucketKey, key, ids: [...ids], offsetY: 0 });
   }
 
+  /** The top of one drawn row's rect, transform included. */
+  function rowTop(key: string): number | null {
+    for (const element of sessionRows()) {
+      if (element.dataset.sessionRow === key) return element.getBoundingClientRect().top;
+    }
+    return null;
+  }
+
   /** The drawn rows' midpoints, in the order they currently sit on screen. */
-  function rowMidpoints(ids: readonly string[]): { id: string; mid: number }[] {
+  function rowMidpoints(ids: readonly string[]): { id: string; mid: number; height: number }[] {
     const wanted = new Set(ids);
-    const out: { id: string; mid: number }[] = [];
+    const out: { id: string; mid: number; height: number }[] = [];
     for (const element of sessionRows()) {
       const id = element.dataset.sessionRow;
       if (!id || !wanted.has(id)) continue;
       const rect = element.getBoundingClientRect();
-      out.push({ id, mid: rect.top + rect.height / 2 });
+      out.push({ id, mid: rect.top + rect.height / 2, height: rect.height });
     }
     return out.sort((a, b) => a.mid - b.mid);
   }
@@ -1098,19 +1112,36 @@ export default function SessionList({
     // whose midpoint the finger has passed. Only this bucket's ids are asked
     // for, so a row can never be dropped into another project.
     const remaining = current.ids.filter((id) => id !== current.key);
+    const rows = rowMidpoints(remaining);
     let at = 0;
-    for (const row of rowMidpoints(remaining)) {
+    for (const row of rows) {
       if (clientY <= row.mid) break;
       at += 1;
     }
     const ids = [...remaining.slice(0, at), current.key, ...remaining.slice(at)];
-    updateDrag({ ...current, ids, offsetY: clientY - dragOriginY.current });
+    // `ids` draws the row in its new slot on the next render, so the transform
+    // must cover only the distance between the finger and that slot; using the
+    // finger's raw travel would move the row by both at once. The slot it sits
+    // in now is its rect minus the transform already on it, shifted by the
+    // rows this move jumps over.
+    const from = current.ids.indexOf(current.key);
+    const jumped = from < at ? rows.slice(from, at) : rows.slice(at, from);
+    const shift = jumped.reduce((sum, row) => sum + row.height, 0) * (at < from ? -1 : 1);
+    const startTop = dragStartTop.current ?? 0;
+    const drawnTop = rowTop(current.key);
+    const slotTop = (drawnTop === null ? startTop : drawnTop - current.offsetY) + shift;
+    updateDrag({
+      ...current,
+      ids,
+      offsetY: startTop + clientY - dragOriginY.current - slotTop,
+    });
   }
 
   function endDrag(cancelled: boolean) {
     const current = dragRef.current;
     updateDrag(null);
     dragOriginY.current = null;
+    dragStartTop.current = null;
     // A cancelled gesture puts the rows back; only a release is a decision.
     if (!current || cancelled) return;
     setBucketOrder(current.bucketKey, current.ids);

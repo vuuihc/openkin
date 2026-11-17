@@ -161,7 +161,13 @@ beforeEach(() => {
   ) {
     const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-session-row]"));
     const index = this.hasAttribute("data-session-row") ? rows.indexOf(this) : -1;
-    const top = index >= 0 ? index * ROW_HEIGHT : 0;
+    // The lifted row is translated inside its slot; a browser's rect includes
+    // that transform, and the drag subtracts it back out to find the slot.
+    const lift = index >= 0 ? this.closest<HTMLElement>("[data-dragging]") : null;
+    const shift = Number(
+      /translateY\((-?[\d.]+)px\)/.exec(lift?.getAttribute("style") ?? "")?.[1] ?? 0,
+    );
+    const top = index >= 0 ? index * ROW_HEIGHT + shift : 0;
     return {
       top,
       bottom: top + ROW_HEIGHT,
@@ -445,9 +451,12 @@ describe("pointer reorder", () => {
     pointer(row("a"), "pointermove", 200, 30);
     pointer(row("a"), "pointermove", 200, 80);
     expect(order()).toEqual(["b", "a", "c"]);
-    // The dragged row follows the finger; the others only make way.
+    // The dragged row follows the finger; the others only make way. `ids`
+    // already draws a in slot 1 (top 40), so the transform is only the rest of
+    // the finger's 50px travel: a's top stays at 50 instead of being carried
+    // by the new slot and the transform at once.
     expect(document.querySelector<HTMLElement>("[data-dragging]")?.style.transform).toBe(
-      "translateY(50px)",
+      "translateY(10px)",
     );
 
     pointer(row("a"), "pointerup", 200, 80);
