@@ -439,6 +439,23 @@ export default function SessionList({
 
   const archivedCwds = useMemo(() => getArchivedProjects(), [prefsTick]);
   const pinnedProjects = useMemo(() => getPinnedProjects(), [prefsTick]);
+  // A project's record names it; the folder is only its address. Every root of
+  // every record is a heading, keyed the way buckets key a cwd, and the first
+  // record wins on a duplicate root so a heading never depends on iteration
+  // order. The records are this machine's own filesystem (the API has no device
+  // column), which is also why `seedProjects` files them under this machine.
+  const projectNameByCwd = useMemo(() => {
+    const byKey = new Map<string, string>();
+    for (const project of projects) {
+      const name = project.name.trim();
+      if (!name) continue;
+      for (const root of project.roots ?? []) {
+        const key = bucketKeyFor(root);
+        if (key !== UNASSIGNED_PROJECT && !byKey.has(key)) byKey.set(key, name);
+      }
+    }
+    return byKey;
+  }, [projects]);
   const buckets = useMemo(
     () =>
       phoneProjectBuckets(
@@ -452,8 +469,11 @@ export default function SessionList({
         },
         archivedCwds,
         scope,
+        // Asked about the cwd rather than the bucket key: an archived remote
+        // copy's key carries a device suffix that is not part of the address.
+        (cwd) => projectNameByCwd.get(bucketKeyFor(cwd)),
       ),
-    [tasks, allSessions, status, scope, selfDeviceId, locale, archivedCwds],
+    [tasks, allSessions, status, scope, selfDeviceId, locale, archivedCwds, projectNameByCwd],
   );
   // A project heading is where its cover lives, so a project with no row in the
   // loaded page is still drawn, with a count of 0 rather than omitted.

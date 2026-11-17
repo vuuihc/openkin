@@ -22,8 +22,8 @@
 
 别用它：
 
-- 多行文本 → 等 `TextArea` facade；`RolesSection` 的 prompt 仍在用它自己的
-  `<textarea>`。
+- 多行文本 → 用 [`TextArea`](text-area.md)；同一份标签 / 提示 / 状态契约，
+  高度由 `rows` 和调用方决定。
 - 选择器、checkbox、`time` / `number` / `datetime-local` → 用
   `SearchSelect` / `SheetSelect` 或跟进里的专用输入；这些控件的键盘、步进和
   移动端键盘不是单行文本框能给的。

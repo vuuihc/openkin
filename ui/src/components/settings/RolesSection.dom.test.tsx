@@ -57,6 +57,24 @@ describe("RolesSection", () => {
     });
   });
 
+  it("keeps each role prompt named while it edits", () => {
+    const { onChange } = setup([review]);
+    const prompt = screen.getByLabelText(t("settings.roles.prompt", { index: 1 }));
+
+    // The prompt is a multi-line field on the shared text area, and its name
+    // still comes from the role row it belongs to.
+    expect(prompt).toBeInstanceOf(HTMLTextAreaElement);
+    fireEvent.change(prompt, { target: { value: "New text." } });
+
+    expect((onChange.mock.calls[0][0] as AgentRole[])[0]).toEqual({
+      ...review,
+      prompt: "New text.",
+    });
+    expect(screen.getByRole("textbox", { name: t("settings.roles.prompt", { index: 1 }) })).toBe(
+      prompt,
+    );
+  });
+
   it("removes only the row that was asked for", () => {
     const { onChange } = setup([review, commit]);
     fireEvent.click(
