@@ -36,6 +36,16 @@ import Button from "../ui/Button";
 import Tabs from "../ui/Tabs";
 import DeltaInline from "../changedFileFace";
 import ChangedFilesList from "./ChangedFilesList";
+import DiffCommentGutter from "./DiffCommentGutter";
+import DiffCommentsTray from "./DiffCommentsTray";
+import {
+  formatDiffCommentsMessage,
+  newCommentId,
+  readDiffComments,
+  writeDiffComments,
+  type DiffAnchor,
+  type DiffComment,
+} from "./diffCommentAnchor";
 import FileTree from "./FileTree";
 
 import {
@@ -96,7 +106,18 @@ type Props = {
    * surface, next to the two lenses it searches past.
    */
   onFindFile?: () => void;
+  /**
+   * KIN-RESULT-003: send one ordinary follow-up into this conversation. The
+   * page owns the send path (pending bubble, queue-vs-interrupt, failure
+   * toast); the tray never calls the API itself.
+   */
+  onSendFollowUp?: (text: string) => Promise<void>;
 };
+
+/** One comment box draft per file line, kept while the panel lives. */
+function draftKeyFor(anchor: { path: string; line: number }): string {
+  return `${anchor.path}:${anchor.line}`;
+}
 
 const SIDEBAR_WIDTH_KEY = "kin.workspace.sidebarWidth";
 const DEFAULT_SIDEBAR_WIDTH = 320;
@@ -175,6 +196,7 @@ export default function WorkspacePanel({
   actionsBusy = false,
   onPublish,
   onFindFile,
+  onSendFollowUp,
 }: Props) {
   useT();
   const tr = useT();
@@ -235,6 +257,25 @@ export default function WorkspacePanel({
   );
   const viewedWorkspaceId = workspaceView.kind === "generation" ? workspaceView.workspaceId : null;
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  // KIN-RESULT-003: comments belong to this conversation, not to the open file.
+  // The anchors are data (path + hunk header + quote + line), so switching
+  // files, closing the panel or reloading never loses where a comment points.
+  // Part 2 re-anchors them against a fresh diff; nothing here assumes the
+  // line numbers are still right.
+  const [diffComments, setDiffComments] = useState<DiffComment[]>(() => readDiffComments(taskId));
+  const [commentsTask, setCommentsTask] = useState(taskId);
+  const [commentTarget, setCommentTarget] = useState<DiffAnchor | null>(null);
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [commentsCollapsed, setCommentsCollapsed] = useState(false);
+  const [commentFocus, setCommentFocus] = useState<{
+    line: number;
+    nonce: number;
+    path?: string;
+  } | null>(null);
+  const commentFocusNonce = useRef(0);
+  // The last diff line the person was on, so Esc from the tray returns there
+  // rather than to the top of the file.
+  const lastDiffLineRef = useRef(1);
   // Below `md` the panel is one pane at a time: the list, then a full-height
   // file. Stacking them left a diff with roughly half a phone screen while the
   // list that led to it held the rest. On md+ both panes are shown side by side
@@ -541,6 +582,94 @@ export default function WorkspacePanel({
     },
     [cwd, taskId, workspaceView],
   );
+
+  // A different conversation is a different tray. Reading and persisting are
+  // separate effects so a load for the new task can never be overwritten by
+  // the previous task's comments in the same commit.
+  useEffect(() => {
+    if (commentsTask === taskId) return;
+    setDiffComments(readDiffComments(taskId));
+    setCommentTarget(null);
+    setCommentDrafts({});
+    setCommentsCollapsed(false);
+    setCommentFocus(null);
+    setCommentsTask(taskId);
+  }, [taskId, commentsTask]);
+
+  useEffect(() => {
+    if (commentsTask !== taskId) return;
+    writeDiffComments(taskId, diffComments);
+  }, [commentsTask, taskId, diffComments]);
+
+  const focusDiffLine = useCallback((line: number, path?: string) => {
+    commentFocusNonce.current += 1;
+    setCommentFocus({ line, nonce: commentFocusNonce.current, path });
+  }, []);
+
+  const saveComment = useCallback(
+    (text: string) => {
+      if (!commentTarget) return;
+      const saved: DiffComment = {
+        ...commentTarget,
+        id: newCommentId(),
+        text,
+        createdAt: Date.now(),
+      };
+      setDiffComments((current) => [...current, saved]);
+      setCommentDrafts((current) => {
+        const next = { ...current };
+        delete next[draftKeyFor(commentTarget)];
+        return next;
+      });
+      setCommentTarget(null);
+      setCommentsCollapsed(false);
+      // Focus goes back to the line the comment was written on.
+      lastDiffLineRef.current = commentTarget.line;
+      focusDiffLine(commentTarget.line, commentTarget.path);
+    },
+    [commentTarget, focusDiffLine],
+  );
+
+  const cancelComment = useCallback(
+    (draft: string) => {
+      if (!commentTarget) return;
+      // Esc keeps the words: reopening the same line's box restores them.
+      setCommentDrafts((current) => ({ ...current, [draftKeyFor(commentTarget)]: draft }));
+      setCommentTarget(null);
+      setCommentsCollapsed(false);
+      focusDiffLine(commentTarget.line, commentTarget.path);
+    },
+    [commentTarget, focusDiffLine],
+  );
+
+  const jumpToComment = useCallback(
+    (comment: DiffComment) => {
+      // A comment may point into another file of the same conversation. Open it
+      // first; the reveal request waits in CodeViewer until that diff mounts.
+      if (comment.path !== selectedPath) void loadFile(comment.path);
+      lastDiffLineRef.current = comment.line;
+      focusDiffLine(comment.line, comment.path);
+    },
+    [focusDiffLine, loadFile, selectedPath],
+  );
+
+  const deleteComment = useCallback((id: string) => {
+    setDiffComments((current) => current.filter((comment) => comment.id !== id));
+  }, []);
+
+  const sendComments = useCallback(async () => {
+    if (!onSendFollowUp) throw new Error("follow-up send is not wired");
+    // One ordinary message: the page's own follow-up path builds the pending
+    // bubble, applies queue-vs-interrupt, and reports a failure.
+    const message = formatDiffCommentsMessage(
+      diffComments,
+      t("workspace.comments.messageIntro"),
+    );
+    await onSendFollowUp(message);
+    // Only after the send resolved: a rejection leaves every comment in place.
+    setDiffComments([]);
+    writeDiffComments(taskId, []);
+  }, [diffComments, onSendFollowUp, taskId]);
 
   useEffect(() => {
     requestRef.current += 1;
@@ -978,6 +1107,7 @@ export default function WorkspacePanel({
             "flex-1 min-w-0 min-h-0 bg-[var(--kin-bg)] flex-col",
           ].join(" ")}
         >
+          <div className="flex-1 min-h-0 flex flex-col">
           {selectedPath && preview === "image" && fileBytes ? (
             <ImagePreview
               key={`${selectedPath}:${previewNonce}`}
@@ -1032,6 +1162,12 @@ export default function WorkspacePanel({
                     return next;
                   });
                 }}
+                onCommentLine={(anchor) => {
+                  lastDiffLineRef.current = anchor.line;
+                  setCommentTarget(anchor);
+                  setCommentsCollapsed(false);
+                }}
+                focusLine={commentFocus}
               />
             </Suspense>
           ) : (
@@ -1043,6 +1179,40 @@ export default function WorkspacePanel({
               {tr("workspace.viewer.empty")}
             </div>
           )}
+          </div>
+          {/* The comment box docks over the bottom of the diff, then the tray
+              of everything saved for this conversation. Both are ordinary
+              React next to the editor, so the phone gets the same surface at
+              full width and every target keeps its 44px floor. */}
+          {commentTarget && (
+            <DiffCommentGutter
+              anchor={commentTarget}
+              initialDraft={commentDrafts[draftKeyFor(commentTarget)] ?? ""}
+              onSave={saveComment}
+              onCancel={cancelComment}
+            />
+          )}
+          {diffComments.length > 0 &&
+            (commentsCollapsed ? (
+              <div className="flex-none border-t border-[var(--kin-hairline)] px-3 py-1">
+                <Button
+                  variant="quiet"
+                  className="text-caption"
+                  onClick={() => setCommentsCollapsed(false)}
+                >
+                  {tr("workspace.comments.showTray", { count: diffComments.length })}
+                </Button>
+              </div>
+            ) : (
+              <DiffCommentsTray
+                comments={diffComments}
+                onJump={jumpToComment}
+                onDelete={deleteComment}
+                onSend={sendComments}
+                onClose={() => setCommentsCollapsed(true)}
+                returnFocus={() => focusDiffLine(lastDiffLineRef.current)}
+              />
+            ))}
         </div>
       </div>
     </div>

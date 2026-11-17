@@ -487,7 +487,7 @@
     },
     {
       "id": "KIN-RESULT-003",
-      "state": "draft",
+      "state": "approved",
       "priority": "P0",
       "journeys": [
         "J2",
@@ -501,7 +501,11 @@
       "file": "docs/product/stories/KIN-RESULT-003.md",
       "surface": "",
       "ownerPaths": [],
-      "tests": [],
+      "tests": [
+        "ui/src/components/workspace/diffCommentAnchor.test.ts",
+        "ui/src/components/workspace/DiffCommentGutter.dom.test.tsx",
+        "ui/src/components/workspace/DiffCommentsTray.dom.test.tsx"
+      ],
       "blockedReason": null
     }
   ]

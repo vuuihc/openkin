@@ -17,9 +17,12 @@ import {
   type WorkspaceFileResponse,
 } from "../../api/client";
 import { useT } from "../../i18n/react";
+import { t as translate } from "../../i18n";
 import type { FileDiffSnippet } from "../../lib/changedFiles";
 import Markdown from "../Markdown";
 import { IconCheck, IconChevron, IconX } from "../icons";
+import Button from "../ui/Button";
+import { anchorForLine, isChangedLine, type DiffAnchor } from "./diffCommentAnchor";
 import OpenInMenu from "./OpenInMenu";
 import "./monacoSetup";
 
@@ -45,6 +48,16 @@ type Props = {
   editable?: boolean;
   /** Called with the server response after a successful save. */
   onSaved?: (updated: TaskWorkspaceFileResponse | WorkspaceFileResponse) => void;
+  /**
+   * KIN-RESULT-003: called with the anchor of a changed diff line the person
+   * wants to comment. Supplying it is what turns on the gutter affordance.
+   */
+  onCommentLine?: (anchor: DiffAnchor) => void;
+  /**
+   * Reveal, highlight and focus a modified line. The nonce makes the same line
+   * requestable twice (jump, then back again after the box closes).
+   */
+  focusLine?: { line: number; nonce: number; path?: string } | null;
 };
 
 type MdViewMode = "preview" | "code";
@@ -87,6 +100,8 @@ export default function CodeViewer({
   workspaceId,
   editable = false,
   onSaved,
+  onCommentLine,
+  focusLine,
 }: Props) {
   const t = useT();
   const [draft, setDraft] = useState("");
@@ -99,6 +114,23 @@ export default function CodeViewer({
   const serverContent = file?.content ?? "";
   const saveRef = useRef<(() => void) | null>(null);
   const diffEditorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(null);
+  // KIN-RESULT-003: the comment entry and the tray's jump share this editor
+  // state. Line changes come from Monaco's own diff, never a second algorithm.
+  const [diffLineChanges, setDiffLineChanges] = useState<MonacoEditor.ILineChange[] | null>(null);
+  const [cursorLine, setCursorLine] = useState(1);
+  const monacoRef = useRef<Monaco | null>(null);
+  const glyphsRef = useRef<MonacoEditor.IEditorDecorationsCollection | null>(null);
+  const flashRef = useRef<MonacoEditor.IEditorDecorationsCollection | null>(null);
+  const flashTimerRef = useRef<number | null>(null);
+  const pendingFocusRef = useRef<{ line: number; nonce: number } | null>(null);
+  const appliedFocusNonceRef = useRef(0);
+  // The editor is mounted asynchronously, and it remounts on every layout or
+  // path change. These refs keep the latest closure reachable from the
+  // instance that eventually mounts.
+  const revealLineRef = useRef<(line: number) => boolean>(() => false);
+  const requestCommentRef = useRef<(line: number) => void>(() => {});
+  const onCommentLineRef = useRef(onCommentLine);
+  onCommentLineRef.current = onCommentLine;
 
   // Reset draft + view modes when the open path changes.
   useEffect(() => {
@@ -107,6 +139,8 @@ export default function CodeViewer({
     setSaveError(null);
     setMdView("preview");
     setDiffLayout("inline");
+    setDiffLineChanges(null);
+    setCursorLine(1);
   }, [path]); // eslint-disable-line react-hooks/exhaustive-deps -- only on path change
 
   // Keep draft in sync when server content refreshes for the same path
@@ -122,12 +156,147 @@ export default function CodeViewer({
   useEffect(() => {
     return () => {
       diffEditorRef.current = null;
+      monacoRef.current = null;
+      glyphsRef.current = null;
+      flashRef.current?.clear();
+      flashRef.current = null;
+      if (flashTimerRef.current !== null) window.clearTimeout(flashTimerRef.current);
     };
   }, [path]);
 
-  const onDiffMount = useCallback((editor: MonacoEditor.IStandaloneDiffEditor) => {
-    diffEditorRef.current = editor;
+  /** Reveal a modified line, flash it, and put keyboard focus there. */
+  const revealLine = useCallback((line: number): boolean => {
+    const editor = diffEditorRef.current;
+    const monaco = monacoRef.current;
+    const modified = editor?.getModifiedEditor();
+    const model = modified?.getModel();
+    if (!editor || !monaco || !modified || !model || line < 1 || line > model.getLineCount()) {
+      return false;
+    }
+    modified.revealLineInCenter(line);
+    modified.setPosition({ lineNumber: line, column: 1 });
+    modified.focus();
+    // The flash is the "this is the one you asked for" mark; it is temporary
+    // on purpose, so it never reads as a saved comment of its own.
+    flashRef.current?.clear();
+    flashRef.current = modified.createDecorationsCollection([
+      {
+        range: new monaco.Range(line, 1, line, model.getLineMaxColumn(line)),
+        options: { isWholeLine: true, className: "kin-diff-comment-flash" },
+      },
+    ]);
+    if (flashTimerRef.current !== null) window.clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = window.setTimeout(() => {
+      flashRef.current?.clear();
+      flashRef.current = null;
+      flashTimerRef.current = null;
+    }, 1400);
+    return true;
   }, []);
+  revealLineRef.current = revealLine;
+
+  // A tray jump or a closed comment box asks for a line. The editor may still
+  // be loading (the file read, the diff computation), so the request waits in
+  // the mount path instead of being dropped.
+  useEffect(() => {
+    if (!focusLine || focusLine.nonce === appliedFocusNonceRef.current) return;
+    // A comment may live in another file: wait for that file's diff instead of
+    // revealing the same line number in whatever happens to be open now.
+    if (focusLine.path && focusLine.path !== path) return;
+    pendingFocusRef.current = focusLine;
+    if (revealLine(focusLine.line)) {
+      appliedFocusNonceRef.current = focusLine.nonce;
+      pendingFocusRef.current = null;
+    }
+  }, [focusLine, path, revealLine]);
+
+  const onDiffMount = useCallback(
+    (editor: MonacoEditor.IStandaloneDiffEditor, monaco: Monaco) => {
+      diffEditorRef.current = editor;
+      monacoRef.current = monaco;
+      const modified = editor.getModifiedEditor();
+
+      const applyLineChanges = () => {
+        const changes = editor.getLineChanges();
+        setDiffLineChanges(changes ?? []);
+        if (!onCommentLineRef.current) return;
+        // A comment glyph on every changed line: the entry is on the line, not
+        // in a menu that makes the person describe where they are.
+        glyphsRef.current?.clear();
+        glyphsRef.current = modified.createDecorationsCollection(
+          (changes ?? [])
+            .filter((change) => change.modifiedEndLineNumber !== 0)
+            .flatMap((change) =>
+              Array.from(
+                {
+                  length:
+                    change.modifiedEndLineNumber - change.modifiedStartLineNumber + 1,
+                },
+                (_, offset) => ({
+                  range: new monaco.Range(
+                    change.modifiedStartLineNumber + offset,
+                    1,
+                    change.modifiedStartLineNumber + offset,
+                    1,
+                  ),
+                  options: {
+                    glyphMarginClassName: "kin-diff-comment-glyph",
+                    glyphMarginHoverMessage: {
+                      value: translate("workspace.comments.actionHint"),
+                    },
+                  },
+                }),
+              ),
+            ),
+        );
+      };
+      applyLineChanges();
+
+      const requestComment = (line: number | undefined) => {
+        const changes = editor.getLineChanges();
+        const model = modified.getModel();
+        if (!line || !path || !model || !onCommentLineRef.current) return;
+        const anchor = anchorForLine({
+          path,
+          line,
+          lineContent: model.getLineContent(line),
+          lineChanges: changes,
+        });
+        if (anchor) onCommentLineRef.current(anchor);
+      };
+      requestCommentRef.current = requestComment;
+
+      modified.onDidChangeCursorPosition((event) => setCursorLine(event.position.lineNumber));
+      modified.onMouseDown((event) => {
+        if (event.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return;
+        requestComment(event.target.position?.lineNumber);
+      });
+      // ⌥C / Alt+C: the keyboard way to the same box, on the line the cursor
+      // is already on. Part 2 re-anchors saved comments after a rerun here too.
+      modified.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.KeyC, () => {
+        requestComment(modified.getPosition()?.lineNumber);
+      });
+      const diffListener = editor.onDidUpdateDiff(() => applyLineChanges());
+
+      const pending = pendingFocusRef.current;
+      if (pending) {
+        // One frame lets the diff's own layout settle before revealing.
+        window.requestAnimationFrame(() => {
+          if (revealLineRef.current(pending.line)) {
+            appliedFocusNonceRef.current = pending.nonce;
+            pendingFocusRef.current = null;
+          }
+        });
+      }
+
+      editor.onDidDispose?.(() => {
+        diffListener.dispose();
+        glyphsRef.current?.clear();
+        glyphsRef.current = null;
+      });
+    },
+    [path],
+  );
 
   const goToHunk = useCallback((target: "next" | "previous") => {
     const ed = diffEditorRef.current;
@@ -176,8 +345,11 @@ export default function CodeViewer({
       readOnly: true,
       renderIndicators: true,
       ignoreTrimWhitespace: false,
+      // The gutter is the line-level comment entry; it only exists when the
+      // page has somewhere to put a comment.
+      glyphMargin: Boolean(onCommentLine),
     }),
-    [diffLayout],
+    [diffLayout, onCommentLine],
   );
 
   if (!path) {
@@ -206,11 +378,33 @@ export default function CodeViewer({
   const showError = Boolean(error) && !loading;
   const showInitialLoading = loading && !file && !useDiff;
   const openRoot = file?.root || cwd || "";
+  const cursorOnChangedLine = isChangedLine(diffLineChanges, cursorLine);
   const modifiedContent =
     file?.content != null && file.content.length > 0 ? file.content : (diff?.modified ?? "");
 
   return (
     <div className="h-full min-h-0 flex flex-col">
+      {/*
+        Two rules Monaco renders by class name. They live here rather than in
+        the global stylesheet because they exist only while this viewer does:
+        the comment glyph in the diff's gutter, and the flash that marks the
+        line a tray row jumped to.
+      */}
+      <style>{`
+        .kin-diff-comment-glyph { cursor: pointer; }
+        .kin-diff-comment-glyph::after {
+          content: "💬";
+          display: block;
+          font-size: 11px;
+          line-height: 19px;
+          text-align: center;
+          opacity: 0.65;
+        }
+        .kin-diff-comment-glyph:hover::after { opacity: 1; }
+        .kin-diff-comment-flash {
+          background: rgb(var(--kin-blue-rgb) / 0.2);
+        }
+      `}</style>
       <div className="flex-none flex items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2 text-caption text-kin-muted">
         <span className="font-mono text-kin-secondary truncate min-w-0" title={path}>
           {path}
@@ -283,6 +477,25 @@ export default function CodeViewer({
                 <IconChevron size={13} className="rotate-90" />
               </button>
             </div>
+          )}
+          {useDiff && onCommentLine && (
+            // The same action as the line's glyph, reachable without a mouse:
+            // a phone taps the line first, then this button. Disabled until the
+            // cursor sits on a changed line, with the reason in the title.
+            <Button
+              variant="quiet"
+              className="text-caption md:min-h-0 md:py-1 md:px-2"
+              disabled={!cursorOnChangedLine}
+              aria-label={t("workspace.comments.action")}
+              title={
+                cursorOnChangedLine
+                  ? t("workspace.comments.actionHint")
+                  : t("workspace.comments.notChanged")
+              }
+              onClick={() => requestCommentRef.current(cursorLine)}
+            >
+              {t("workspace.comments.action")}
+            </Button>
           )}
           {isMd && !useDiff && file && (
             <div
