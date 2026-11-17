@@ -54,6 +54,10 @@ fi
 ARGS=(--base "http://127.0.0.1:$PORT" --token "$TOKEN" --out "$OUT")
 [ -f "$WT/rsi/runtime/ux/journeys.json" ] && ARGS+=(--spec "$WT/rsi/runtime/ux/journeys.json")
 case "$SEL" in @*) ARGS+=(--files "${SEL#@}");; ?*) ARGS+=(--journeys "$SEL");; esac
+# The mutant proof needs the task-detail answer held: the message the draft
+# showed must be on screen before the first detail GET lands. Unset (the gate)
+# adds nothing, so the walker's default 0 installs no route.
+[ -n "${RSI_UX_DELAY_TASKS_MS:-}" ] && ARGS+=(--delay-tasks "$RSI_UX_DELAY_TASKS_MS")
 # The walker must come from the same tree as the spec above: a branch that adds
 # a step op or a placeholder would otherwise feed its new spec to the control
 # tree's older walker ("unknown step op", unsubstituted URLs in goto).
