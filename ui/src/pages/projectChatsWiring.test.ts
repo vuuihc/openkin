@@ -67,7 +67,7 @@ describe("the project cover's data wiring (KIN-PROJECT-001)", () => {
   it("shows the activity row only for the project it was read for", () => {
     expect(SOURCE).toContain("const [activityFor, setActivityFor] = useState<string | null>(null)");
     expect(SOURCE).toContain("setActivityFor(outcome.projectId)");
-    expect(SOURCE).toContain("activityFor === currentProject.id ? latest : null");
+    expect(SOURCE).toContain("activityFor === currentProject.id ? drawnLatest : null");
   });
 
   it("keeps the previous row when a reload fails", () => {
