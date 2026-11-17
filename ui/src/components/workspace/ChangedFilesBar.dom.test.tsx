@@ -37,6 +37,8 @@ describe("KIN-RESULT-001: the changed-files summary row is one shared Button", (
 
     const summary = screen.getByRole("button", { name: new RegExp(reviewTitle()) });
     expect(summary.className).toContain("kin-btn");
+    // The shared Button centres its content; the bar packs the summary left.
+    expect(summary.className).toContain("justify-start");
     expect(summary.getAttribute("aria-label")).toContain(reviewTitle());
     expect(summary.getAttribute("aria-label")).toContain(expand());
 
@@ -63,6 +65,7 @@ describe("KIN-RESULT-001: the changed-files summary row is one shared Button", (
 
     const summary = screen.getByRole("button", { name: new RegExp(reviewTitle()) });
     expect(summary.className).toContain("kin-btn");
+    expect(summary.className).toContain("justify-start");
     expect(summary.getAttribute("aria-label")).toContain(reviewTitle());
     expect(summary.getAttribute("aria-label")).toContain(expand());
 

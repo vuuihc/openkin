@@ -275,7 +275,7 @@ export default function ChangedFilesBar({
           onClick={() => openDiffPanel()}
           title={t("workspace.changed.expand")}
           aria-label={`${t("workspace.changed.reviewTitle", { count: labelCount })} — ${t("workspace.changed.expand")}`}
-          className="flex-1 min-w-0 flex items-center gap-2 text-left rounded-md -ml-1 pl-1 pr-1 py-0.5"
+          className="flex-1 min-w-0 flex items-center justify-start gap-2 text-left rounded-md -ml-1 pl-1 pr-1 py-0.5"
         >
           <IconChevron size={13} className="flex-none text-kin-muted rotate-90" />
           <span className="flex-none text-body font-semibold text-kin-text">
