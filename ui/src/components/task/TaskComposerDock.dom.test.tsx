@@ -107,6 +107,9 @@ function setup(overrides: Partial<TaskComposerDockProps> = {}) {
     machine: null,
     waitingCount: 0,
     pendingIsApproval: false,
+    // Off screen is the default: the band still carries the decision, and the
+    // card in the transcript is the second place it can be made.
+    pendingCardOnScreen: false,
     pendingApprovalBusy: false,
     onRevealFirstPending: vi.fn(),
     onApproveFirstPending: vi.fn(),
@@ -157,6 +160,45 @@ describe("TaskComposerDock", () => {
 
     // The same decision path as the inline card, and not while it is already
     // being answered.
+    const approve = screen.getByRole("button", { name: t("chat.approve") });
+    expect((approve as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(approve);
+    expect(onApproveFirstPending).not.toHaveBeenCalled();
+
+    rerender(<TaskComposerDock {...props} pendingApprovalBusy={false} />);
+    fireEvent.click(screen.getByRole("button", { name: t("chat.approve") }));
+    expect(onApproveFirstPending).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the approval action while the card is on screen", () => {
+    // One decision, one primary. The card the reader can see already carries
+    // Approve and Deny; a second Approve pinned under it would be a second way
+    // to answer the same question, and the rule is one primary per screen.
+    setup({
+      waitingCount: 2,
+      pendingIsApproval: true,
+      pendingCardOnScreen: true,
+    });
+
+    // The locator stays: the row still names what is waiting and how many.
+    expect(screen.getByText(`${t("approval.cardTitle")} · +1`)).toBeTruthy();
+    expect(screen.getByRole("button", { name: t("task.viewPending") })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: t("chat.approve") })).toBeNull();
+  });
+
+  it("keeps the approval action while the card is off screen", () => {
+    // Scrolled away is exactly when the band's Approve is the only one within
+    // reach — and it still goes through the page's one decision path.
+    const onApproveFirstPending = vi.fn();
+    const { props, rerender } = setup({
+      waitingCount: 2,
+      pendingIsApproval: true,
+      pendingCardOnScreen: false,
+      pendingApprovalBusy: true,
+      onApproveFirstPending,
+    });
+
+    expect(screen.getByRole("button", { name: t("task.viewPending") })).toBeTruthy();
     const approve = screen.getByRole("button", { name: t("chat.approve") });
     expect((approve as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(approve);

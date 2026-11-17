@@ -932,6 +932,53 @@ export default function TaskDetailPage({
     return orderPending([...pending, ...decided].sort((a, b) => a.created_at - b.created_at));
   }, [needsYou, decidedCards, events]);
 
+  // The band under the transcript names the oldest waiting approval and can
+  // decide it — but the card in the transcript already carries Approve and
+  // Deny, and two primaries for one decision is what the one-primary rule
+  // forbids. So the page watches that card: while it is on screen the band
+  // keeps its locator row and drops the duplicate. The card is observed at the
+  // transcript scroller, which is what "visible" means here; scroll arithmetic
+  // cannot answer it (a card taller than the viewport, a hidden pane, a
+  // dislocated scroll position all lie).
+  const oldestPending = needsYou[0] ?? null;
+  const oldestPendingId =
+    oldestPending !== null && oldestPending.kind === "approval" ? oldestPending.id : null;
+  // Where the card sits in the stream. A late event can give an unanchored
+  // card a place, which remounts its node; the observer has to follow it.
+  const oldestPendingSeq = oldestPending?.seq ?? null;
+  const [pendingCardOnScreen, setPendingCardOnScreen] = useState(false);
+  useEffect(() => {
+    // Off screen is the honest starting point, and the answer when the browser
+    // has no observer: the band keeps the decision rather than losing it.
+    setPendingCardOnScreen(false);
+    if (!oldestPendingId) return;
+    const root = scrollRef.current;
+    if (!root || typeof IntersectionObserver === "undefined") return;
+    let target: Element | null = null;
+    for (const node of root.querySelectorAll("[data-pending-id]")) {
+      if (node.getAttribute("data-pending-id") !== oldestPendingId) continue;
+      target = node;
+      break;
+    }
+    // A card that is not in the transcript cannot be seen by the reader; the
+    // initial `false` already says so.
+    if (!target) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // Only this card speaks for this row. An entry about a node the page
+        // has since replaced is stale and is dropped rather than deciding
+        // whether the band shows its Approve.
+        for (const entry of entries) {
+          if (entry.target !== target) continue;
+          setPendingCardOnScreen(entry.isIntersecting);
+        }
+      },
+      { root },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [oldestPendingId, oldestPendingSeq]);
+
   // A notification names the card it is about (`/tasks/<id>?focus=<item>`),
   // because "open the conversation" alone makes a reader hunt for the answer
   // they were told was waiting. Consume it once the pending list can answer:
@@ -2279,6 +2326,7 @@ export default function TaskDetailPage({
           machine={machine}
           waitingCount={needsYou.length}
           pendingIsApproval={needsYou[0]?.kind === "approval"}
+          pendingCardOnScreen={pendingCardOnScreen}
           pendingApprovalBusy={needsYou[0] ? Boolean(busy[needsYou[0].id]) : false}
           onRevealFirstPending={revealFirstPending}
           // The oldest waiting decision, through the same path the inline card
