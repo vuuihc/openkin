@@ -1,5 +1,6 @@
 import { gateFor } from "../lib/accountGate";
 import { machineRef } from "../lib/devices";
+import { formatSeconds } from "../lib/duration";
 import { useAppStore } from "../store/appStore";
 import { t } from "../i18n";
 import {
@@ -2755,13 +2756,7 @@ export function formatElapsed(task: Task, now = Date.now()): string {
   const start = task.started_at ?? task.created_at;
   const end = task.finished_at ?? now;
   const ms = Math.max(0, end - start);
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  const rem = s % 60;
-  if (m < 60) return `${m}m ${rem}s`;
-  const h = Math.floor(m / 60);
-  return `${h}h ${m % 60}m`;
+  return formatSeconds(Math.floor(ms / 1000));
 }
 
 export function isTerminal(status: string): boolean {
