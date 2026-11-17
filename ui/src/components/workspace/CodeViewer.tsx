@@ -131,6 +131,11 @@ export default function CodeViewer({
   const requestCommentRef = useRef<(line: number) => void>(() => {});
   const onCommentLineRef = useRef(onCommentLine);
   onCommentLineRef.current = onCommentLine;
+  // The mount callback is created once per Monaco instance; a comment request
+  // that arrives later must anchor to the file that is open now, not the one
+  // that was open when the instance mounted.
+  const pathRef = useRef(path);
+  pathRef.current = path;
 
   // Reset draft + view modes when the open path changes.
   useEffect(() => {
@@ -182,7 +187,7 @@ export default function CodeViewer({
     flashRef.current = modified.createDecorationsCollection([
       {
         range: new monaco.Range(line, 1, line, model.getLineMaxColumn(line)),
-        options: { isWholeLine: true, className: "kin-diff-comment-flash" },
+        options: { isWholeLine: true, className: "kin-diff-comment-flash bg-kin-blue/20" },
       },
     ]);
     if (flashTimerRef.current !== null) window.clearTimeout(flashTimerRef.current);
@@ -254,9 +259,12 @@ export default function CodeViewer({
       const requestComment = (line: number | undefined) => {
         const changes = editor.getLineChanges();
         const model = modified.getModel();
-        if (!line || !path || !model || !onCommentLineRef.current) return;
+        // `path` guards that the mounted instance had a file; the anchor takes
+        // the path that is open now.
+        const currentPath = pathRef.current;
+        if (!line || !path || !currentPath || !model || !onCommentLineRef.current) return;
         const anchor = anchorForLine({
-          path,
+          path: currentPath,
           line,
           lineContent: model.getLineContent(line),
           lineChanges: changes,
@@ -384,10 +392,11 @@ export default function CodeViewer({
   return (
     <div className="h-full min-h-0 flex flex-col">
       {/*
-        Two rules Monaco renders by class name. They live here rather than in
-        the global stylesheet because they exist only while this viewer does:
-        the comment glyph in the diff's gutter, and the flash that marks the
-        line a tray row jumped to.
+        One rule Monaco renders by class name. It lives here rather than in the
+        global stylesheet because it exists only while this viewer does: the
+        comment glyph in the diff's gutter. The flash that marks the line a
+        tray row jumped to is the token class `bg-kin-blue/20` on the
+        decoration itself.
       */}
       <style>{`
         .kin-diff-comment-glyph { cursor: pointer; }
@@ -400,11 +409,8 @@ export default function CodeViewer({
           opacity: 0.65;
         }
         .kin-diff-comment-glyph:hover::after { opacity: 1; }
-        .kin-diff-comment-flash {
-          background: rgb(var(--kin-blue-rgb) / 0.2);
-        }
       `}</style>
-      <div className="flex-none flex items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2 text-caption text-kin-muted">
+      <div className="flex-none flex flex-wrap items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2 text-caption text-kin-muted">
         <span className="font-mono text-kin-secondary truncate min-w-0" title={path}>
           {path}
         </span>
@@ -413,7 +419,7 @@ export default function CodeViewer({
             {t("workspace.viewer.diff")}
           </span>
         )}
-        <div className="ml-auto flex items-center gap-2 shrink-0">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           {useDiff && (
             <div
               className="flex items-center gap-0.5 rounded-md border border-[var(--kin-hairline)] bg-[var(--kin-fill)] p-0.5"
@@ -485,7 +491,7 @@ export default function CodeViewer({
             // cursor sits on a changed line, with the reason in the title.
             <Button
               variant="quiet"
-              className="text-caption md:min-h-0 md:py-1 md:px-2"
+              className="h-auto! px-2 py-1 text-caption"
               disabled={!cursorOnChangedLine}
               aria-label={t("workspace.comments.action")}
               title={

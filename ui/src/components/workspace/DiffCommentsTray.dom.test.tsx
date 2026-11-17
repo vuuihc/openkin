@@ -95,6 +95,20 @@ describe("the diff comments tray", () => {
     ).toBeTruthy();
   });
 
+  it("stacks a row's path, quote and text in one column", () => {
+    render(<Harness initial={THREE} />);
+
+    // jsdom has no layout, so the class is the pin: the three lines live in
+    // our own column wrapper, not directly under Astryx's row-direction label
+    // span, which would lay them out sideways and under the Delete button.
+    const row = jumpButton("src/settings.ts", 11);
+    const stack = row.querySelector("span.flex-col");
+    expect(stack).toBeTruthy();
+    expect(stack?.children).toHaveLength(3);
+    expect(stack?.className).toContain("w-full");
+    expect(stack?.className).toContain("min-w-0");
+  });
+
   it("jumps to the anchored line when a row is activated", () => {
     const onJump = vi.fn();
     render(<Harness initial={THREE} onJump={onJump} />);

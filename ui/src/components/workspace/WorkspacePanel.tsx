@@ -267,6 +267,9 @@ export default function WorkspacePanel({
   const [commentTarget, setCommentTarget] = useState<DiffAnchor | null>(null);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [commentsCollapsed, setCommentsCollapsed] = useState(false);
+  // The send confirmation outlives the tray: clearing the list unmounts the
+  // rows, so the acknowledgement has to live here rather than inside it.
+  const [commentsSent, setCommentsSent] = useState(false);
   const [commentFocus, setCommentFocus] = useState<{
     line: number;
     nonce: number;
@@ -592,6 +595,7 @@ export default function WorkspacePanel({
     setCommentTarget(null);
     setCommentDrafts({});
     setCommentsCollapsed(false);
+    setCommentsSent(false);
     setCommentFocus(null);
     setCommentsTask(taskId);
   }, [taskId, commentsTask]);
@@ -623,6 +627,8 @@ export default function WorkspacePanel({
       });
       setCommentTarget(null);
       setCommentsCollapsed(false);
+      // A new comment starts a new set: the old "sent" note no longer applies.
+      setCommentsSent(false);
       // Focus goes back to the line the comment was written on.
       lastDiffLineRef.current = commentTarget.line;
       focusDiffLine(commentTarget.line, commentTarget.path);
@@ -665,6 +671,7 @@ export default function WorkspacePanel({
     await onSendFollowUp(message);
     // Only after the send resolved: a rejection leaves every comment in place.
     setDiffComments([]);
+    setCommentsSent(true);
     writeDiffComments(taskId, []);
   }, [diffComments, onSendFollowUp, taskId]);
 
@@ -1212,6 +1219,11 @@ export default function WorkspacePanel({
                 returnFocus={() => focusDiffLine(lastDiffLineRef.current)}
               />
             ))}
+          {diffComments.length === 0 && commentsSent && (
+            <p className="px-3 py-2 text-caption text-kin-green-ink">
+              {tr("workspace.comments.sent")}
+            </p>
+          )}
         </div>
       </div>
     </div>

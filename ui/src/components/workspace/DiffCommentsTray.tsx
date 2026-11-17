@@ -136,14 +136,18 @@ export default function DiffCommentsTray({
               className="flex-1 min-w-0 min-h-11 sm:min-h-0 flex-col items-start justify-start gap-0.5 px-2 py-2 text-left"
               onClick={() => onJump(comment)}
             >
-              <span className="font-mono text-caption text-kin-secondary">
-                {comment.path}:{comment.line}
-              </span>
-              <span className="w-full truncate font-mono text-micro text-kin-muted">
-                {comment.quote}
-              </span>
-              <span className="w-full text-body text-kin-text whitespace-pre-wrap break-words">
-                {comment.text}
+              {/* Astryx wraps `children` in its own row-direction label span,
+                  so the stack has to be one child of our own. */}
+              <span className="flex w-full min-w-0 flex-col items-start gap-0.5">
+                <span className="font-mono text-caption text-kin-secondary">
+                  {comment.path}:{comment.line}
+                </span>
+                <span className="w-full truncate font-mono text-micro text-kin-muted">
+                  {comment.quote}
+                </span>
+                <span className="w-full text-body text-kin-text whitespace-pre-wrap break-words">
+                  {comment.text}
+                </span>
               </span>
             </Button>
             <Button
