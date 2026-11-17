@@ -855,6 +855,10 @@ const zh = {
       jumpToRow: "跳到 {path}:{line}",
       delete: "删除",
       deleteRow: "删除 {path}:{line} 的评论",
+      edit: "编辑",
+      editRow: "编辑 {path}:{line} 的评论",
+      deleted: "已删除",
+      undo: "撤销",
       messageIntro: "我看了这次 diff，有这几条评论：",
     },
     openWith: {

@@ -301,6 +301,12 @@ export default function WorkspacePanel({
   // The send confirmation outlives the tray: clearing the list unmounts the
   // rows, so the acknowledgement has to live here rather than inside it.
   const [commentsSent, setCommentsSent] = useState(false);
+  // KIN-RESULT-003 §6: the most recent delete stays undoable — the comment
+  // and the position it held. One slot: another delete replaces it.
+  const [commentUndo, setCommentUndo] = useState<{
+    comment: DiffComment;
+    index: number;
+  } | null>(null);
   const [commentFocus, setCommentFocus] = useState<{
     line: number;
     nonce: number;
@@ -678,6 +684,7 @@ export default function WorkspacePanel({
     setCommentDrafts({});
     setCommentsCollapsed(false);
     setCommentsSent(false);
+    setCommentUndo(null);
     setCommentFocus(null);
     setCommentsTask(taskId);
   }, [taskId, commentsTask]);
@@ -767,8 +774,35 @@ export default function WorkspacePanel({
     [commentAnchors, focusDiffLine, loadFile, onSelectPath, selectedPath],
   );
 
-  const deleteComment = useCallback((id: string) => {
-    setDiffComments((current) => current.filter((comment) => comment.id !== id));
+  const deleteComment = useCallback(
+    (id: string) => {
+      const index = diffComments.findIndex((comment) => comment.id === id);
+      const comment = diffComments[index];
+      if (!comment) return;
+      // Deletion is immediate; the slot keeps the row and its place so the
+      // undo can put it back between the same neighbours.
+      setCommentUndo({ comment, index });
+      setDiffComments((current) => current.filter((item) => item.id !== id));
+    },
+    [diffComments],
+  );
+
+  const restoreComment = useCallback((comment: DiffComment, index: number) => {
+    setDiffComments((current) => {
+      if (current.some((item) => item.id === comment.id)) return current;
+      const next = [...current];
+      next.splice(Math.min(index, next.length), 0, comment);
+      return next;
+    });
+    setCommentUndo(null);
+  }, []);
+
+  const editComment = useCallback((id: string, text: string) => {
+    // Words only: id, path, hunk header, quote, line and createdAt stay, so
+    // the row keeps pointing at the same code and the storage effect saves it.
+    setDiffComments((current) =>
+      current.map((comment) => (comment.id === id ? { ...comment, text } : comment)),
+    );
   }, []);
 
   const sendComments = useCallback(async () => {
@@ -780,6 +814,8 @@ export default function WorkspacePanel({
     // Only after the send resolved: a rejection leaves every comment in place.
     setDiffComments([]);
     setCommentsSent(true);
+    // A sent set cannot be resurrected by an undo that outlived it.
+    setCommentUndo(null);
     writeDiffComments(taskId, []);
   }, [diffComments, onSendFollowUp, taskId]);
 
@@ -1398,8 +1434,8 @@ export default function WorkspacePanel({
               onCancel={cancelComment}
             />
           )}
-          {diffComments.length > 0 &&
-            (commentsCollapsed ? (
+          {(diffComments.length > 0 || commentUndo) &&
+            (commentsCollapsed && diffComments.length > 0 ? (
               <div className="flex-none border-t border-[var(--kin-hairline)] px-3 py-1">
                 <Button
                   variant="quiet"
@@ -1413,8 +1449,11 @@ export default function WorkspacePanel({
               <DiffCommentsTray
                 comments={diffComments}
                 anchors={commentAnchors}
+                undo={commentUndo}
                 onJump={jumpToComment}
                 onDelete={deleteComment}
+                onRestore={restoreComment}
+                onEdit={editComment}
                 onSend={sendComments}
                 onClose={() => setCommentsCollapsed(true)}
                 returnFocus={() => focusDiffLine(lastDiffLineRef.current)}
