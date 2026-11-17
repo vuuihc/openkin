@@ -36,7 +36,7 @@ import {
   ROUTINE_HISTORY_MAX,
   ROUTINE_HISTORY_PAGE,
 } from "../lib/routineHistory";
-import { SlowConnectHint } from "../components/Skeleton";
+import { PageListSkeleton, SlowConnectHint } from "../components/Skeleton";
 import Button from "../components/ui/Button";
 import SheetSelect from "../components/ui/SheetSelect";
 import { useLeaveGuard } from "../hooks/useLeaveGuard";
@@ -1420,7 +1420,9 @@ export default function RoutinesPage() {
         {loading && (
           <div className="mt-8">
             <SlowConnectHint show={slow} />
-            <div className="mt-4 h-24 animate-pulse rounded-2xl bg-[var(--kin-fill)]" />
+            <div className="mt-4">
+              <PageListSkeleton rows={3} label={tr("common.loading")} />
+            </div>
           </div>
         )}
 

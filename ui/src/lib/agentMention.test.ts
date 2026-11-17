@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseAgentDirective } from "./agentMention";
+import { agentAvatarMeta, parseAgentDirective } from "./agentMention";
 
 const AGENTS = ["kin", "claude-code", "codex", "grok"];
 
@@ -42,5 +42,18 @@ describe("parseAgentDirective", () => {
     expect(parseAgentDirective("@codex, please fix", AGENTS).agent).toBe("codex");
     expect(parseAgentDirective("ask @codex.", AGENTS).agent).toBe("codex");
     expect(parseAgentDirective("@codex[gpt-5] fix", AGENTS).steps[0].model).toBe("gpt-5");
+  });
+});
+
+describe("agentAvatarMeta", () => {
+  it("keeps Kin on brand blue and external agents on calm monochrome chrome", () => {
+    expect(agentAvatarMeta("kin").className).toContain("bg-kin-blue");
+    for (const id of ["claude-code", "codex", "droid", "workbuddy", "trae", "doubao", "zcode"]) {
+      const meta = agentAvatarMeta(id);
+      expect(meta.className).not.toContain("bg-kin-agent-");
+      expect(meta.className).toContain("bg-[var(--kin-fill-strong)]");
+      expect(meta.className).toContain("text-kin-secondary");
+    }
+    expect(agentAvatarMeta("custom-agent").className).toContain("bg-[var(--kin-fill-strong)]");
   });
 });
