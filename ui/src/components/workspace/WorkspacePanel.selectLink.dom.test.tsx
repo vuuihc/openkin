@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { t } from "../../i18n";
 import type { TaskEvent } from "../../api/client";
 import type { ChangedFile } from "../../lib/changedFiles";
+import { toWorkspaceRelativePath } from "../../lib/paths";
 import { useAppStore } from "../../store/appStore";
 import { AstryxProvider } from "../../design/AstryxProvider";
 import WorkspacePanel from "./WorkspacePanel";
@@ -148,9 +150,50 @@ describe("a file picked inside the panel asks the page for its address", () => {
     expect(onSelectPath).toHaveBeenCalledWith(COMMENT.path);
   });
 
+  it("a pick the page writes back as openPath is read once", async () => {
+    // The page's answer to a pick is to record the workspace-relative path as
+    // the address, which re-fires the arrival pulse with that path. The panel
+    // must recognise the pick as already handled, or it reads the same file
+    // twice and throws the first answer away.
+    const onSelectPath = vi.fn();
+    function PageLoop() {
+      const [openPath, setOpenPath] = useState<string | null>(null);
+      return (
+        <AstryxProvider>
+          <WorkspacePanel
+            taskId="task-1"
+            cwd={CWD}
+            changedFiles={FILES}
+            events={EVENTS}
+            openPath={openPath}
+            openNonce={0}
+            showListNonce={0}
+            onSelectPath={(path) => {
+              onSelectPath(path);
+              // Mirrors the page: the address names the path relative to the
+              // checkout, and an absolute changed-row path is normalized.
+              setOpenPath(toWorkspaceRelativePath(CWD, path));
+            }}
+          />
+        </AstryxProvider>
+      );
+    }
+    render(<PageLoop />);
+
+    fireEvent.click(screen.getByTitle(FILES[0]!.path));
+
+    await waitFor(() => expect(screen.getByTestId("code-viewer")).toBeTruthy());
+    expect(onSelectPath).toHaveBeenCalledTimes(1);
+    expect(api.readTaskSourceFile).toHaveBeenCalledTimes(1);
+    expect(api.readTaskSourceFile).toHaveBeenCalledWith("task-1", "src/f1.ts");
+  });
+
   it("the link-arrival pulse loads the file without asking the page for an address", async () => {
     const onSelectPath = vi.fn();
-    renderPanel({ openPath: "src/a.ts", openNonce: 1, onSelectPath });
+    // The page passes its counter from the first render, so an arrival mounts
+    // with the file pulse and that counter set in the same commit. The pulse
+    // must survive it, or a refresh on `?panel=files&file=…` lands on the list.
+    renderPanel({ openPath: "src/a.ts", openNonce: 1, showListNonce: 0, onSelectPath });
 
     await waitFor(() => expect(api.readTaskSourceFile).toHaveBeenCalledTimes(1));
     expect(api.readTaskSourceFile).toHaveBeenCalledWith("task-1", "src/a.ts");

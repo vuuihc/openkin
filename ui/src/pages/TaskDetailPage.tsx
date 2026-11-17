@@ -1040,8 +1040,12 @@ export default function TaskDetailPage({
     // on one location would put back the parameter the other just removed.
     if (focusParam) return;
     const here = locationRef.current;
-    if (appliedWorkspaceKey.current === here.key) return;
-    appliedWorkspaceKey.current = here.key;
+    // Keyed by the location's key, which is read here as well as in the guard:
+    // Back after a refresh, or two Backs in a row, leave the search and the
+    // navigation type ("POP" both times) unchanged, so only the key says the
+    // address moved and the newly applied entry still has to run.
+    if (appliedWorkspaceKey.current === location.key) return;
+    appliedWorkspaceKey.current = location.key;
     const link = parseWorkspaceLink(here.search);
     if (link === null) {
       // Back/Forward to a conversation: the address says no panel, so the pane
@@ -1088,6 +1092,7 @@ export default function TaskDetailPage({
     showPanel,
     workspaceOpenPath,
     writeWorkspaceSearch,
+    location.key,
   ]);
 
   // The card exists only after the render that follows `setFocusIdx`; looking

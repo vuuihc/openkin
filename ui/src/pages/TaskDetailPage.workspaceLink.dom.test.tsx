@@ -3,7 +3,7 @@ import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, useLocation, useNavigate, useNavigationType } from "react-router-dom";
-import type { Task } from "../api/client";
+import type { Task, TaskEvent } from "../api/client";
 import { liveResources } from "../api/liveResources";
 import { setLocale } from "../i18n";
 import { useAppStore } from "../store/appStore";
@@ -69,18 +69,24 @@ const store = vi.hoisted(() => {
   };
 });
 
-vi.mock("../api/useLiveResources", () => ({
-  useTaskResource: (id: string) => {
-    useSyncExternalStore(store.subscribe, store.version, store.version);
-    return {
-      loaded: true,
-      error: null,
-      data: { task: { ...task, id }, events: [], deleted: false },
-      id,
-    };
-  },
-  usePendingResources: () => pending,
-}));
+vi.mock("../api/useLiveResources", () => {
+  // One `data` object per task id, kept across renders. A fresh object on every
+  // render would re-run every task-keyed effect, which is exactly what hides a
+  // navigation effect that forgets to depend on the address.
+  const dataById = new Map<string, { task: Task; events: TaskEvent[]; deleted: boolean }>();
+  return {
+    useTaskResource: (id: string) => {
+      useSyncExternalStore(store.subscribe, store.version, store.version);
+      let data = dataById.get(id);
+      if (!data) {
+        data = { task: { ...task, id }, events: [], deleted: false };
+        dataById.set(id, data);
+      }
+      return { loaded: true, error: null, data, id };
+    },
+    usePendingResources: () => pending,
+  };
+});
 
 vi.mock("../api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api/client")>();
@@ -334,6 +340,35 @@ describe("the files panel's address", () => {
     expect(address()).toBe("/tasks/task-1?panel=files&file=src/a%20b.ts");
     expect(useAppStore.getState().shownPanel).toEqual({ view: "task-1", id: "files" });
     expect(historyType()).toBe("POP");
+  });
+
+  it("two Backs in a row each apply their entry", async () => {
+    at([
+      "/tasks/task-1",
+      "/tasks/task-1?panel=files",
+      "/tasks/task-1?panel=files&file=src/a%20b.ts",
+    ]);
+    await waitFor(() => expect(panel()?.getAttribute("data-open-path")).toBe("src/a b.ts"));
+    const listNonceBefore = Number(panel()?.getAttribute("data-show-list-nonce"));
+
+    // Back onto the list: both steps are POP and no task-keyed prop moves, so
+    // only the location's key says the address changed and the entry has not
+    // been applied yet.
+    fireEvent.click(screen.getByRole("button", { name: "back" }));
+    await waitFor(() => expect(address()).toBe("/tasks/task-1?panel=files"));
+    expect(historyType()).toBe("POP");
+    await waitFor(() =>
+      expect(Number(panel()?.getAttribute("data-show-list-nonce"))).toBe(listNonceBefore + 1),
+    );
+    expect(panel()?.getAttribute("data-open-path")).toBe("");
+
+    // A second Back of the same shape must still be applied: this one leaves
+    // the panel and returns to the conversation.
+    fireEvent.click(screen.getByRole("button", { name: "back" }));
+    await waitFor(() => expect(address()).toBe("/tasks/task-1"));
+    expect(historyType()).toBe("POP");
+    await waitFor(() => expect(panel()).toBeNull());
+    expect(useAppStore.getState().shownPanel).toBeNull();
   });
 
   it("opening and closing the panel from the page pushes one entry each", async () => {

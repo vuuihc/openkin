@@ -634,6 +634,15 @@ export default function WorkspacePanel({
     [cwd, taskId, workspaceView],
   );
 
+  // The parent's "open this file" is a one-shot command, not a condition, and
+  // the path plus the nonce the parent bumps is its identity. It has to be
+  // consumed once: `loadFile` takes a new identity whenever the workspace view
+  // does — a generation refresh hands back a fresh `generations` array while it
+  // loads — and re-running the command then would drag a reader who pressed
+  // Back straight into the file again, or reopen a file the new checkout does
+  // not have.
+  const handledPulseRef = useRef<{ path: string; nonce: number | undefined } | null>(null);
+
   /**
    * Every way a person picks a file in this panel: report it, then load it.
    *
@@ -643,10 +652,19 @@ export default function WorkspacePanel({
    */
   const selectFile = useCallback(
     (path: string) => {
+      // The page answers a pick by writing the address, and that prop change
+      // re-fires the arrival pulse below. Record the pick as already handled
+      // first — keyed by the workspace-relative form the page writes, which is
+      // what the pulse will see — or the file is read twice and the first
+      // answer thrown away.
+      handledPulseRef.current = {
+        path: toWorkspaceRelativePath(cwd, path) ?? path,
+        nonce: openNonce,
+      };
       onSelectPath?.(path);
       void loadFile(path);
     },
-    [loadFile, onSelectPath],
+    [cwd, loadFile, onSelectPath, openNonce],
   );
 
   // A different conversation is a different tray. Reading and persisting are
@@ -782,14 +800,6 @@ export default function WorkspacePanel({
     setTurnOnly(false);
   }, [cwd, taskId, workspaceView.kind, workspaceView.workspaceId]);
 
-  // The parent's "open this file" is a one-shot command, not a condition, and
-  // the path plus the nonce the parent bumps is its identity. It has to be
-  // consumed once: `loadFile` takes a new identity whenever the workspace view
-  // does — a generation refresh hands back a fresh `generations` array while it
-  // loads — and re-running the command then would drag a reader who pressed
-  // Back straight into the file again, or reopen a file the new checkout does
-  // not have.
-  const handledPulseRef = useRef<{ path: string; nonce: number | undefined } | null>(null);
   useEffect(() => {
     if (!openPath) {
       // No pulse pending. Clearing here keeps the dedupe local to this ref
@@ -809,7 +819,12 @@ export default function WorkspacePanel({
   // the entry the reader left. The page bumps this for that case alone; a
   // selection is the panel's own state and never comes through here. Clearing
   // state that is already clear is a no-op, so a first open of the list is one.
-  const handledShowListRef = useRef<number | null>(null);
+  // Seeded with the mount value: the page passes its counter from the first
+  // render, and a from-scratch arrival (`?panel=files&file=…`) mounts with the
+  // file pulse already in flight. Bumping on that mount value would cancel the
+  // arrival read and land the reader on the list instead. Only a nonce that
+  // changes after mount clears.
+  const handledShowListRef = useRef<number | null>(showListNonce ?? null);
   useEffect(() => {
     if (showListNonce === undefined) return;
     if (handledShowListRef.current === showListNonce) return;
