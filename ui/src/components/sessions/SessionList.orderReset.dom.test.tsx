@@ -194,7 +194,11 @@ describe("restoring time order in a synthetic bucket", () => {
     await waitFor(() => expect(order()).toEqual(["p-low", "p-high"]));
 
     const button = resetIn("Pinned");
-    expect(button.className).toContain("h-11");
-    expect(button.tabIndex).toBe(0);
+    // Token-level: the facade Button already adds `min-h-11` at every size, so
+    // a substring check would pass even without the coarse branch. `w-11` is
+    // what the phone gains, and `h-11` must be its own token, not a suffix.
+    expect(button.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(["h-11", "min-h-11", "w-11"])
+    );
   });
 });
