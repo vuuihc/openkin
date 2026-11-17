@@ -171,11 +171,18 @@ vi.mock("../components/routine/RoutineScheduleFields", () => ({
 
 vi.mock("../components/ui/SheetSelect", () => ({
   default: (props: {
+    label: string;
     value: string;
     options: Array<{ id: string; label: string }>;
     onChange: (id: string) => void;
   }) => (
-    <div data-testid="machine-picker" data-value={props.value}>
+    // The page now mounts a machine picker and two list filters through this
+    // primitive. Only the machine one is the machine picker.
+    <div
+      data-testid={props.label === "machine.title" ? "machine-picker" : "filter-picker"}
+      data-label={props.label}
+      data-value={props.value}
+    >
       {props.options.map((option) => (
         <button
           key={option.id}
