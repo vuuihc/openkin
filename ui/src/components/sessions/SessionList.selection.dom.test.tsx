@@ -430,21 +430,13 @@ describe("the row menu is the visible door", () => {
       vi.advanceTimersByTime(600);
     });
 
-    // The hold is the list's reorder gesture now: it lifts the row, and it
-    // neither opens the row menu nor changes the list's mode.
-    expect(document.querySelector("[data-dragging]")).not.toBeNull();
-    expect(screen.queryByRole("dialog")).toBeNull();
+    // The hold opened this row's own menu; it did not change the list's mode.
+    const sheet = screen.getByRole("dialog", { name: "alpha-1" });
     expect(document.querySelector("[data-selection-toolbar]")).toBeNull();
     expect(row("alpha-1").getAttribute("aria-pressed")).toBeNull();
-    fireEvent.pointerUp(initiating, { pointerType: "touch", clientX: 12, clientY: 12 });
-    // The browser's own click after that release: SwipeReveal swallows it so
-    // the drag does not also open the conversation.
-    fireEvent.click(initiating);
 
     vi.useRealTimers();
     const user = userEvent.setup();
-    await user.click(rowActions("alpha-1"));
-    const sheet = screen.getByRole("dialog", { name: "alpha-1" });
     await user.click(within(sheet).getByRole("button", { name: "Select" }));
     await waitFor(() => expect(toolbar()).toBeTruthy());
     expect(row("alpha-1").getAttribute("aria-pressed")).toBe("true");

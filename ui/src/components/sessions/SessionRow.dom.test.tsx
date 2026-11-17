@@ -400,35 +400,40 @@ describe("SessionRow", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("a long press on a touch row no longer opens the action sheet", async () => {
+  it("a long press on a touch row opens the row's action sheet instead of selecting", () => {
     vi.useFakeTimers();
-    const onOpen = vi.fn();
-    const onStartSelection = vi.fn();
-    render(<SessionRow {...props({ shell: "page", coarse: true, onOpen, onStartSelection })} />);
-    const row = rowButton();
+    try {
+      const onOpen = vi.fn();
+      const onStartSelection = vi.fn();
+      render(<SessionRow {...props({ shell: "page", coarse: true, onOpen, onStartSelection })} />);
+      const row = rowButton();
 
-    // The hold is the list's reorder gesture now. Without a list offering a
-    // reorder it does nothing: it does not open the sheet, does not navigate
-    // and does not enter multi-select.
-    pointer(row, "pointerdown", 200);
-    act(() => {
-      vi.advanceTimersByTime(600);
-    });
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(onOpen).not.toHaveBeenCalled();
-    expect(onStartSelection).not.toHaveBeenCalled();
+      // A finger resting on the row: the sheet opens while that finger is
+      // still down, with the same list the trailing trigger opens.
+      pointer(row, "pointerdown", 200);
+      act(() => {
+        vi.advanceTimersByTime(600);
+      });
 
-    pointer(row, "pointerup", 200);
-    vi.useRealTimers();
+      const sheet = screen.getByRole("dialog", { name: "Fix the build" });
+      expect(
+        within(sheet)
+          .getAllByRole("button")
+          .map((item) => item.textContent),
+      ).toEqual(["Select", "Pin", "Archive", "Delete", "Cancel"]);
+      expect(onOpen).not.toHaveBeenCalled();
+      expect(onStartSelection).not.toHaveBeenCalled();
 
-    // The same list is still one tap away on the trailing trigger.
-    await userEvent.click(document.querySelector<HTMLElement>("[data-row-actions]")!);
-    const sheet = screen.getByRole("dialog", { name: "Fix the build" });
-    expect(
-      within(sheet)
-        .getAllByRole("button")
-        .map((item) => item.textContent),
-    ).toEqual(["Select", "Pin", "Archive", "Delete", "Cancel"]);
+      // The scrim mounted under the finger that is still holding the row. The
+      // lift that follows belongs to that scrim and must not take the sheet
+      // away before the person can choose from it.
+      const scrim = document.querySelector<HTMLElement>("[data-kin-sheet] .kin-scrim-enter");
+      if (!scrim) throw new Error("the sheet mounted without its scrim");
+      pointer(scrim, "pointerup", 200);
+      expect(screen.getByRole("dialog", { name: "Fix the build" })).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("a long press never enters multi-select", () => {
@@ -451,19 +456,29 @@ describe("SessionRow", () => {
     }
   });
 
-  it("Escape closes the row sheet and returns focus to its trigger", async () => {
-    render(<SessionRow {...props({ shell: "page", coarse: true })} />);
-    const trigger = document.querySelector<HTMLElement>("[data-row-actions]")!;
-    trigger.focus();
-    fireEvent.click(trigger);
-    expect(screen.getByRole("dialog", { name: "Fix the build" })).toBeTruthy();
+  it("Escape closes a long-press sheet and returns focus to the row", () => {
+    vi.useFakeTimers();
+    try {
+      render(<SessionRow {...props({ shell: "page", coarse: true })} />);
+      const row = rowButton();
+      row.focus();
+      pointer(row, "pointerdown", 200);
+      act(() => {
+        vi.advanceTimersByTime(600);
+      });
+      expect(screen.getByRole("dialog", { name: "Fix the build" })).toBeTruthy();
 
-    fireEvent.keyDown(window, { key: "Escape" });
+      fireEvent.keyDown(window, { key: "Escape" });
 
-    expect(screen.queryByRole("dialog")).toBeNull();
-    // The sheet remembers the element that was focused when it opened; no
-    // second focus mechanism is invented for the gesture.
-    await waitFor(() => expect(document.activeElement).toBe(trigger));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      // Sheet remembers the element that was focused when it opened; no
+      // second focus mechanism is invented for the gesture.
+      expect((document.activeElement as HTMLElement | null)?.getAttribute("data-session-row")).toBe(
+        "row-1",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("offers Select in the Mac sidebar menu too", async () => {
@@ -641,7 +656,7 @@ describe("SessionRow", () => {
     expect(rowActionsTrigger(container).getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("touch rows use SessionRowActions with the existing active or archived width, forward swipe open, and never open the sheet from a hold", async () => {
+  it("touch rows use SessionRowActions with the existing active or archived width, forward swipe open, and open their own sheet on a long press", async () => {
     const active = props({ shell: "page", coarse: true, swipeOpen: true });
     const { rerender } = render(<SessionRow {...active} />);
     const pin = screen.getByRole("button", { name: "Pin" });
@@ -677,17 +692,19 @@ describe("SessionRow", () => {
       pointer(row, "pointerup", 40);
       expect(onOpenChange).toHaveBeenCalledWith(true);
 
-      // Holding the row belongs to the list's reorder gesture now; the sheet
-      // is not a second door out of it.
+      // Holding the row is the sheet's own second door: the same list the
+      // trailing trigger opens, not an invisible way into multi-select.
       pointer(row, "pointerdown", 200);
       act(() => {
         vi.advanceTimersByTime(600);
       });
+      expect(screen.getByRole("dialog", { name: "Fix the build" })).toBeTruthy();
+      fireEvent.keyDown(window, { key: "Escape" });
       expect(screen.queryByRole("dialog")).toBeNull();
 
       // A press that starts on the trailing trigger is a press on that control,
-      // not the row's hold: holding "More" must not lift the row from
-      // underneath the finger.
+      // not the row's long press: holding "More" must not open the row's sheet
+      // from underneath the finger.
       const trigger = document.querySelector("[data-row-actions]")!;
       pointer(trigger, "pointerdown", 200);
       act(() => {
