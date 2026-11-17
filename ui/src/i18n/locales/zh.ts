@@ -801,6 +801,8 @@ const zh = {
       tableEmpty: "这个表格没有数据。",
       tableTruncated: "最多显示前 {rows} 行、{columns} 列。",
       tableIncomplete: "文件读取被截断，表格可能缺少数据。",
+      htmlEmpty: "这个 HTML 文件没有可预览的内容。",
+      htmlIncomplete: "文件读取被截断，因此不显示页面。可打开源码查看已加载的内容。",
     },
     generation: {
       source: "当前项目",
