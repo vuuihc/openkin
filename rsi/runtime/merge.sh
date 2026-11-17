@@ -791,8 +791,12 @@ PY
   NEWSHA="$($GIT -C "$WT" rev-parse HEAD)"
   rm -rf "$STATE/.land.lock"
   if carry_forward "$WT" "$INCOMING" "$CH" "$V" "$NEWSHA" "$ROLE"; then
-    say "#$N $SLUG: gate carried forward to ${NEWSHA:0:8} ($CARRY_REASON; CI still runs on the merged head)"
-    SHA="$NEWSHA"; continue
+    # Exit instead of continuing into ci_state: seconds after sync_main pushed the carried head there
+    # are no checks yet, and ci_state reads an empty check list as green, so the same process could
+    # squash-merge the carried head before CI ever ran. The carried gate file and the DH-keyed review
+    # cache make the next dispatch cycle (launchd, 600s) cheap, and it lands only after CI reported.
+    say "#$N $SLUG: gate carried forward to ${NEWSHA:0:8} ($CARRY_REASON); landing deferred one cycle so CI reports on the merged head first"
+    SHA="$NEWSHA"; exit 0
   fi
   say "#$N $SLUG: main moved with code changes ($(echo "$INCOMING" | grep -c .) files); needs a fresh gate: $CARRY_REASON"
   nohup /bin/bash "$SELF" >> "$RUNS/launchd-merge.log" 2>&1 < /dev/null & disown 2>/dev/null || true

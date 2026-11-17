@@ -233,6 +233,17 @@ test_keeps_the_non_code_carry() {
   expect_carry c8
 }
 
+# The land loop must not continue into ci_state after a carry: seconds after sync_main pushed the
+# carried head there are no checks yet, and ci_state reads an empty check list as green, so the same
+# process could squash-merge the carried head before CI ever ran. The loop itself needs gh and a
+# remote, so pin its control flow in the source, as node-stamp-test.sh does for its own guards.
+test_carry_exits_the_land_loop_before_ci_state() {
+  grep -qF 'SHA="$NEWSHA"; continue' "$MERGE" \
+    && fail "carry still continues into ci_state in the same process"
+  grep -qF 'SHA="$NEWSHA"; exit 0' "$MERGE" \
+    || fail "carry does not exit the land loop for CI to report on the next cycle"
+}
+
 run() {
   if [ -n "$ONLY" ] && [ "$1" != "$ONLY" ]; then return 0; fi
   "$1" || exit 1
@@ -247,4 +258,5 @@ run test_regates_when_main_moves_the_prs_own_go_package
 run test_regates_when_main_moves_the_shared_go_api
 run test_regates_when_the_ui_safety_step_fails
 run test_keeps_the_non_code_carry
+run test_carry_exits_the_land_loop_before_ci_state
 echo ALL-PASS
