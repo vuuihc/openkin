@@ -86,11 +86,7 @@ function Harness({
         }}
         onRestore={(comment, index) => {
           onRestore(comment, index);
-          setComments((current) => [
-            ...current.slice(0, index),
-            comment,
-            ...current.slice(index),
-          ]);
+          setComments((current) => [...current.slice(0, index), comment, ...current.slice(index)]);
           setUndo(null);
         }}
         onEdit={(id, text) => {
@@ -311,9 +307,7 @@ describe("the diff comments tray", () => {
       await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
       // The tray clears, and the keyboard is back where the review continues.
       await waitFor(() => expect(screen.queryByText("src/other.ts:3")).toBeNull());
-      await waitFor(() =>
-        expect(document.activeElement).toBe(screen.getByTestId("diff-surface")),
-      );
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("diff-surface")));
       view.unmount();
     }
   });
@@ -432,9 +426,7 @@ describe("the diff comments tray", () => {
     cancel.focus();
     fireEvent.keyDown(cancel, { key: "Escape" });
     expect(onClose).not.toHaveBeenCalled();
-    expect(
-      screen.getByRole("region", { name: t("workspace.comments.trayTitle") }),
-    ).toBeTruthy();
+    expect(screen.getByRole("region", { name: t("workspace.comments.trayTitle") })).toBeTruthy();
     expect(screen.getByText("Use the default title instead.")).toBeTruthy();
   });
 
@@ -458,9 +450,7 @@ describe("the diff comments tray", () => {
     expect(rows[2]).toContain("src/third.ts:6");
     expect(sendButton(3)).toBeTruthy();
     // Focus lands on the row that came back, ready for ↑/↓.
-    await waitFor(() =>
-      expect(document.activeElement).toBe(jumpButton("src/other.ts", 3)),
-    );
+    await waitFor(() => expect(document.activeElement).toBe(jumpButton("src/other.ts", 3)));
   });
 
   it("keeps a one-line undo after the last delete and gives focus back to the diff", async () => {
@@ -469,19 +459,13 @@ describe("the diff comments tray", () => {
     fireEvent.click(deleteButton("src/settings.ts", 11));
 
     // No empty panel: the tray region is gone, one line remains.
-    expect(
-      screen.queryByRole("region", { name: t("workspace.comments.trayTitle") }),
-    ).toBeNull();
+    expect(screen.queryByRole("region", { name: t("workspace.comments.trayTitle") })).toBeNull();
     expect(screen.getByText(t("workspace.comments.deleted"))).toBeTruthy();
-    await waitFor(() =>
-      expect(document.activeElement).toBe(screen.getByTestId("diff-surface")),
-    );
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("diff-surface")));
 
     // Undo brings the tray back with the row it lost.
     fireEvent.click(undoButton());
-    expect(
-      screen.getByRole("region", { name: t("workspace.comments.trayTitle") }),
-    ).toBeTruthy();
+    expect(screen.getByRole("region", { name: t("workspace.comments.trayTitle") })).toBeTruthy();
     expect(jumpButton("src/settings.ts", 11)).toBeTruthy();
   });
 
@@ -496,12 +480,8 @@ describe("the diff comments tray", () => {
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
 
     // A sent set cannot be resurrected by an undo that outlived it.
-    await waitFor(() =>
-      expect(screen.queryByText(t("workspace.comments.deleted"))).toBeNull(),
-    );
-    expect(
-      screen.queryByRole("button", { name: t("workspace.comments.undo") }),
-    ).toBeNull();
+    await waitFor(() => expect(screen.queryByText(t("workspace.comments.deleted"))).toBeNull());
+    expect(screen.queryByRole("button", { name: t("workspace.comments.undo") })).toBeNull();
     expect(await screen.findByText(t("workspace.comments.sent"))).toBeTruthy();
   });
 });
