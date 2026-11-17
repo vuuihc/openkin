@@ -149,5 +149,33 @@ d = json.load(open(sys.argv[1]))
 assert any("J3/" in h and "no working-directory picker" in h for h in d["hardFail"]), d["hardFail"]
 assert not any("skipped-no-workdir" in s["name"] for s in d["screens"]), [s["name"] for s in d["screens"]]
 PY
-else echo "skip J3 walk cases (set UX_KIN_BIN)"; fi
+
+  # 3.6 J1: a seed line that claims an approval card, on a page that renders no
+  # card, must fail the walk -- not skip it. This is the regression a green J1
+  # used to hide: every decision step was optional, so no card walked through.
+  mkdir -p "$T/j1-missing-card/sessions" "$T/j1-missing-card/tasks/task-1" "$T/j1-missing-card/tasks/task-2" "$T/j1-missing-card-out"
+  for page in sessions tasks/task-1 tasks/task-2; do
+    cat > "$T/j1-missing-card/$page/index.html" <<'HTML'
+<!doctype html><meta charset="utf-8"><title>J1 fixture</title>
+<p>A conversation-shaped page with a transcript and no approval card on it. The seed below claims both cards exist, so the walk must fail rather than skip.</p>
+<button type="button" aria-label="返回">返回</button>
+HTML
+  done
+  : > "$T/j1-missing-card/favicon.ico"
+  printf 'journeys seed: base http://127.0.0.1:<port>\nj1 targets approve conversation=task-1 focus=appr-1 deny conversation=task-2 focus=appr-2\n' > "$T/j1-missing-card-out/seed.log"
+  J1PORT=$(freeport)
+  python3 -m http.server "$J1PORT" --bind 127.0.0.1 --directory "$T/j1-missing-card" >"$T/j1-missing-card/server.log" 2>&1 & J1PID=$!
+  for _ in $(seq 1 40); do curl -fs -o /dev/null --max-time 1 "http://127.0.0.1:$J1PORT/sessions/" 2>/dev/null && break; sleep 0.1; done
+  node "$RT/ux/walk.mjs" --base "http://127.0.0.1:$J1PORT" --out "$T/j1-missing-card-out" --journeys J1 >"$T/j1-missing-card-out/walk.log" 2>&1
+  kill -KILL "$J1PID" 2>/dev/null; wait "$J1PID" 2>/dev/null
+  python3 - "$T/j1-missing-card-out/walk.json" <<'PY' && ok "a seeded card that is not on the page is a hard failure" || bad "a seeded card that is not on the page was not a hard failure (see $T/j1-missing-card-out/walk.json)"
+import json, sys
+d = json.load(open(sys.argv[1]))
+hard = [h for h in d["hardFail"] if "J1/" in h and "missing required click" in h]
+assert any("批准" in h or "Approve" in h for h in hard), d["hardFail"]
+assert any("拒绝" in h or "Deny" in h for h in hard), d["hardFail"]
+assert not any("skipped" in s["name"] for s in d["screens"]), [s["name"] for s in d["screens"]]
+assert any(s["journey"] == "J1" for s in d["screens"]), d["screens"]
+PY
+else echo "skip J3/J1 walk cases (set UX_KIN_BIN)"; fi
 exit $fail
