@@ -112,7 +112,10 @@ vi.mock("../lib/routineHistory", async (importOriginal) => ({
   ROUTINE_HISTORY_MAX: 100,
 }));
 
-vi.mock("../components/Skeleton", () => ({ SlowConnectHint: () => null }));
+vi.mock("../components/Skeleton", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../components/Skeleton")>()),
+  SlowConnectHint: () => null,
+}));
 
 vi.mock("../lib/routineEdit", () => ({
   routineForm: vi.fn(),

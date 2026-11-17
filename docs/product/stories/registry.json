@@ -324,7 +324,7 @@
     },
     {
       "id": "KIN-AGENTS-001",
-      "state": "blocked",
+      "state": "covered",
       "priority": "P1",
       "journeys": [
         "J6"
@@ -355,7 +355,7 @@
         "ui/src/lib/usage.test.ts",
         "ui/src/lib/agentSessionImport.test.ts"
       ],
-      "blockedReason": "The signed Agents page and its auto-import removal are implemented, but the full KIN-AGENTS-001 acceptance contract has not been re-run after integration with the current mainline."
+      "blockedReason": null
     },
     {
       "id": "KIN-ROUTINE-001",

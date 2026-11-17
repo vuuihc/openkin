@@ -276,7 +276,7 @@ cdp_eval() { # wsurl, expression
 
 # Return an object, not JSON.stringify(...): cdp.mjs prints the CDP value as
 # JSON, and a string return value would arrive double-encoded.
-READY_EXPR='({ready:document.readyState,root:document.querySelector("#root")?document.querySelector("#root").children.length:-1,fcp:Math.round((performance.getEntriesByName("first-contentful-paint")[0]||{startTime:-1}).startTime),fp:Math.round((performance.getEntriesByName("first-paint")[0]||{startTime:-1}).startTime),dcl:performance.timing.domContentLoadedEventEnd?performance.timing.domContentLoadedEventEnd-performance.timing.navigationStart:-1,load:performance.timing.loadEventEnd?performance.timing.loadEventEnd-performance.timing.navigationStart:-1,href:location.href})'
+READY_EXPR='({ready:document.readyState,root:document.querySelector("#root")?document.querySelectorAll("#root > :not(.kin-boot)").length:-1,fcp:Math.round((performance.getEntriesByName("first-contentful-paint")[0]||{startTime:-1}).startTime),fp:Math.round((performance.getEntriesByName("first-paint")[0]||{startTime:-1}).startTime),dcl:performance.timing.domContentLoadedEventEnd?performance.timing.domContentLoadedEventEnd-performance.timing.navigationStart:-1,load:performance.timing.loadEventEnd?performance.timing.loadEventEnd-performance.timing.navigationStart:-1,href:location.href})'
 
 # wait_for_page PORT TIMEOUT_SEC [URL_SUBSTRING]
 # Sets WAIT_WS / WAIT_URL / WAIT_TARGET_MS / WAIT_READY_MS / WAIT_JSON.

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { listProjects, type Project } from "../api/client";
 import { MobileChevron } from "../components/mobile/MobileHeader";
+import { PageListSkeleton } from "../components/Skeleton";
 import { useT } from "../i18n/react";
 
 /** The API's four modes, labelled the way the cover labels them. */
@@ -86,7 +87,7 @@ export default function ProjectsCollectionPage() {
           // for this slice. The failure is still distinct from the empty state.
           <p className="text-body leading-5 text-kin-red-ink">{tr("projects.loadFailed")}</p>
         ) : projects === null ? (
-          <p className="text-body leading-5 text-kin-muted">{tr("common.loading")}</p>
+          <PageListSkeleton variant="rows" rows={4} label={tr("common.loading")} />
         ) : projects.length === 0 ? (
           <p className="text-body leading-5 text-kin-muted">{tr("projects.empty")}</p>
         ) : (

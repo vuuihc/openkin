@@ -274,7 +274,7 @@ describe("the place row (KIN-START-001)", () => {
     // popover in the console uses, not a panel positioned inside this card.
     expect(panel.parentElement).toBe(document.body);
     expect(panel.className).toContain("fixed");
-    expect(panel.className).toContain("rounded-xl");
+    expect(panel.className).toContain("rounded-2xl");
     // The panel's search header and rows draw their own padding; the base
     // padding would inset its hairline dividers by 6px on each side.
     expect(panel.className).not.toContain("p-1.5");
