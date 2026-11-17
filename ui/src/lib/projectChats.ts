@@ -16,8 +16,9 @@
  */
 import { type AgentSession, type Project, type Task } from "../api/client";
 import { displayAgentSessionTitle } from "./agentSessionTitle";
-import { displayUserPrompt } from "./attachments";
 import { taskActivityAt, type PhoneSessionRow } from "./phoneSessionBuckets";
+import { taskDisplayTitle } from "./taskTitle";
+import { getLocalTaskTitles } from "./taskTitles";
 
 export type ProjectChatRow = PhoneSessionRow;
 
@@ -43,25 +44,33 @@ export function projectRoots(project: Pick<Project, "roots"> | null): string[] {
  * not look usable.
  */
 export type ProjectNewChatTarget =
-  | { kind: "cwd"; href: string }
-  | { kind: "picker"; href: string }
-  | { kind: "no-root" };
+  { kind: "cwd"; href: string } | { kind: "picker"; href: string } | { kind: "no-root" };
 
-export function projectNewChatTarget(
-  project: Pick<Project, "roots"> | null,
-): ProjectNewChatTarget {
+export function projectNewChatTarget(project: Pick<Project, "roots"> | null): ProjectNewChatTarget {
   const roots = projectRoots(project);
   if (roots.length === 0) return { kind: "no-root" };
   if (roots.length > 1) return { kind: "picker", href: "/new" };
   return { kind: "cwd", href: `/new?cwd=${encodeURIComponent(roots[0])}` };
 }
 
+/**
+ * The merged rows, newest first.
+ *
+ * A task's name comes from `taskDisplayTitle`, so the cover's recent row draws
+ * the same name as the list and the conversation header: a local rename
+ * (`taskTitles.ts`) first, then the task's own title, then its prompt, then
+ * the cover's generic `untitled`. `localTitles` is a parameter with the whole
+ * map's shape rather than a storage read inside the loop, so the row builder
+ * is a pure function of what it was handed; the default is the store at the
+ * moment the rows are built, which is what the cover wants on open.
+ */
 export function projectChatRows(
   tasks: readonly Task[],
   sessions: readonly AgentSession[],
   copy: { untitled: string },
   selfDeviceId: string,
   limit = 100,
+  localTitles: Record<string, string> = getLocalTaskTitles(),
 ): ProjectChatRow[] {
   const rows = new Map<string, ProjectChatRow>();
 
@@ -70,7 +79,7 @@ export function projectChatRows(
     rows.set(`task:${task.id}`, {
       key: task.id,
       at: taskActivityAt(task),
-      title: (task.title ?? "").trim() || displayUserPrompt(task.prompt) || copy.untitled,
+      title: taskDisplayTitle(task, localTitles) || copy.untitled,
       agentId: task.agent || "kin",
       status: task.status,
       remote: Boolean(device) && device !== selfDeviceId,
@@ -150,6 +159,8 @@ export async function loadProjectChats(args: {
   copy: { untitled: string; loadFailed: string };
   selfDeviceId: string;
   limit?: number;
+  /** The local rename map; omitted, the rows read the store when they are built. */
+  localTitles?: Record<string, string>;
   isCurrent?: () => boolean;
 }): Promise<ProjectChatsOutcome | null> {
   const current = () => (args.isCurrent ? args.isCurrent() : true);
@@ -169,13 +180,18 @@ export async function loadProjectChats(args: {
   if (!current()) return null;
   const settled = await Promise.allSettled(args.roots.map((root) => args.feed.sessions(root)));
   if (!current()) return null;
-  const sessions = settled.flatMap((result) =>
-    result.status === "fulfilled" ? result.value : [],
-  );
+  const sessions = settled.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
   try {
     return {
       projectId: args.projectId,
-      rows: projectChatRows(tasks, sessions, args.copy, args.selfDeviceId, args.limit),
+      rows: projectChatRows(
+        tasks,
+        sessions,
+        args.copy,
+        args.selfDeviceId,
+        args.limit,
+        args.localTitles,
+      ),
       lastImportAt: latestImportAt(sessions),
       partial: settled.some((result) => result.status === "rejected"),
       error: null,
