@@ -266,30 +266,31 @@ export function DispatchSelector({
 
   return (
     <div className="relative inline-flex items-center">
-      <button
+      {/* The trigger is the phone's tap target for this whole panel, so its
+          own box holds the 44px floor (`min-h-11! min-w-11`) rather than a
+          wrapper or a pseudo-element the journey walk cannot measure. The
+          compact 28px chip returns for a fine pointer only (a Mac), so the
+          Mac row heights do not move while an iPad keeps the touch size. The
+          `!` holds either height over the facade's own `sm:` zero floor. */}
+      <Button
         ref={triggerRef}
-        type="button"
+        variant="quiet"
         disabled={disabled}
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? popoverId : undefined}
-        // The trigger is the phone's tap target for this whole panel, so its
-        // own box holds the 44px floor (`min-h-11 min-w-11`) rather than a
-        // wrapper or a pseudo-element the journey walk cannot measure. The
-        // compact 28px chip returns for a fine pointer only (a Mac), so the
-        // Mac row heights do not move while an iPad keeps the touch size.
-        className={`text-caption font-medium px-2 py-1 rounded border truncate max-w-[220px] ${
-          coarse ? "min-h-11 min-w-11" : "min-h-7 min-w-0"
+        className={`text-caption font-medium px-2 py-1 rounded border truncate max-w-[220px] [&>span]:min-w-0 [&>span>span]:truncate ${
+          coarse ? "min-h-11! min-w-11" : "min-h-7! min-w-0"
         } ${
           open
-            ? "border-kin-blue bg-kin-blue/10 text-kin-blue-ink"
-            : "border-[var(--kin-hairline)] text-kin-secondary hover:bg-[var(--kin-fill)]"
+            ? "border-kin-blue bg-kin-blue/10! text-kin-blue-ink!"
+            : "border-[var(--kin-hairline)] text-kin-secondary! hover:bg-[var(--kin-fill)]"
         }`}
         title={summary}
       >
         {summary}
-      </button>
+      </Button>
 
       <Popover
         open={open}
@@ -416,15 +417,15 @@ export function DispatchSelector({
           {/* Preview toggle */}
           {(mode === "auto" && value.team) ||
           (mode === "manual" && value.agent && value.provider && value.model) ? (
-            <button
-              type="button"
+            <Button
+              variant="quiet"
               onClick={() => setShowPreview((v) => !v)}
-              className={`text-micro text-kin-blue-ink hover:underline ${
-                coarse ? "inline-flex min-h-11 items-center" : ""
+              className={`text-micro text-kin-blue-ink! hover:underline ${
+                coarse ? "inline-flex min-h-11! items-center" : ""
               }`}
             >
               {showPreview ? tr("dispatch.hidePreview") : tr("dispatch.showPreview")}
-            </button>
+            </Button>
           ) : null}
 
           {showPreview && (

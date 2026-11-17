@@ -113,8 +113,11 @@ describe("the dispatch trigger", () => {
     // walk and the iPad measurement prove the geometry.
     setMedia({ coarse: true });
     const { trigger } = setup();
-    expect(trigger.classList.contains("min-h-11")).toBe(true);
+    // The floor carries `!`: the facade's own `sm:min-h-0` would otherwise
+    // undo it at an iPad's width.
+    expect(trigger.classList.contains("min-h-11!")).toBe(true);
     expect(trigger.classList.contains("min-w-11")).toBe(true);
+    expect(trigger.classList.contains("min-h-7")).toBe(false);
     expect(trigger.classList.contains("sm:min-h-7")).toBe(false);
     expect(trigger.classList.contains("sm:min-w-0")).toBe(false);
     // The chip is the same layer's trigger: label, popup role and open state
@@ -143,9 +146,12 @@ describe("the dispatch trigger", () => {
     // quietly move every Mac panel.
     setMedia({ coarse: false });
     const { trigger } = setup();
-    expect(trigger.classList.contains("min-h-7")).toBe(true);
+    // The compact height also carries `!`; the facade's base `min-h-11` is
+    // still in the class list but `sm:min-h-0` neutralises it at Mac widths,
+    // so the important-suffixed chip height is what actually draws.
+    expect(trigger.classList.contains("min-h-7!")).toBe(true);
     expect(trigger.classList.contains("min-w-0")).toBe(true);
-    expect(trigger.classList.contains("min-h-11")).toBe(false);
+    expect(trigger.classList.contains("min-h-11!")).toBe(false);
     expect(trigger.classList.contains("min-w-11")).toBe(false);
 
     await userEvent.click(trigger);

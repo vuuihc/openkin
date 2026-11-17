@@ -48,7 +48,10 @@ function status(overrides: Partial<GitBranchStatus> = {}): GitBranchStatus {
 async function openList() {
   const user = userEvent.setup();
   render(<BranchPicker cwd="/work/alpha" />);
-  const chip = await screen.findByRole("button", { name: "main" });
+  // The facade's accessible name carries the control's label as well as the
+  // branch, because the chip's children are elements and Astryx needs a string
+  // name of its own.
+  const chip = await screen.findByRole("button", { name: "Branch: main" });
   await user.click(chip);
   const list = await screen.findByRole("listbox", { name: "Git branches" });
   return { user, chip, list };
