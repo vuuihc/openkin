@@ -51,9 +51,9 @@ interrupted+requeued) instead of trusting the source to contain it.
 state, and a follow-up sent during the hold is either delivered or visibly cancelled — never dropped
 silently. 390/1100 shots of the queued and stopped frames are stored.
 3. A mutant is the proof, not a green run: removing the follow-up dispatch (or the `interrupt` flag) turns
-the J3/J8 walk red with the detail GET held — the same surface #254 uses, since a fast localhost keeps the
-default walk green — and `--check-spec` negatives run in `scripts/check.sh` so weakening the spec itself is
-red without a browser.
+the J3 walk (extended for the mid-run send) red with the detail GET held — the same surface #254 uses,
+since a fast localhost keeps the default walk green — and `--check-spec` negatives run in `scripts/check.sh`
+so weakening that J3 prompt-wait rule is red without a browser.
 
 **Cut rule.** If item 1 is not green by the target, land 1 alone (it is the lost-message path and the one
 that catches the most), keep 2–3 queued, and say so in the weekly retro. Do not extend the date.
