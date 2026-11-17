@@ -4,12 +4,12 @@
 // the same place, and each machine keeps its own place.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import RoutinesPage from "./RoutinesPage";
 import { setLocale } from "../i18n";
 import { listRoutineRuns, listRoutines, type Routine } from "../api/client";
-import { setKeyedScroll } from "../lib/sessionScroll";
+import { getKeyedScroll, setKeyedScroll } from "../lib/sessionScroll";
 import type { WSMessage } from "../api/contract";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -287,6 +287,74 @@ describe("RoutinesPage keeps the list's place", () => {
     const backToA = renderApp("/routines?device=dev-a");
     await screen.findByText("Routine 0");
     await waitFor(() => expect(scroller(backToA).scrollTop).toBe(480));
+  });
+
+  it("restores each machine's place when the machine is switched in place", async () => {
+    // The first control on the page switches machines without remounting it.
+    // A per-mount restore would leave B at A's offset, and the render that
+    // clears the list clamps and fires `scroll` — that clamp must not become
+    // B's saved place, or A's own offset is lost on the way back.
+    setKeyedScroll("routines:dev-b", 300);
+    const view = renderApp("/routines?device=dev-a");
+    await screen.findByText("Routine 0");
+    const list = scroller(view);
+    list.scrollTop = 480;
+    fireEvent.scroll(list);
+    expect(getKeyedScroll("routines:dev-a")).toBe(480);
+
+    // Hold B's read open so the list-clearing render is what the reader (and
+    // the browser's clamp) sees, exactly as during a real switch.
+    let releaseB: (() => void) | null = null;
+    vi.mocked(listRoutines).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseB = () =>
+            resolve({ routines: rows(20), next_cursor: "", has_more: false });
+        }) as ReturnType<typeof listRoutines>,
+    );
+    await act(async () => {
+      await view.router.navigate("/routines?device=dev-b");
+    });
+    // What a browser does when the list is replaced by a shorter one.
+    list.scrollTop = 0;
+    fireEvent.scroll(list);
+    // A's clamped place must not become B's saved place.
+    expect(getKeyedScroll("routines:dev-b")).toBe(300);
+    await act(async () => {
+      releaseB!();
+    });
+    await waitFor(() => expect(scroller(view).scrollTop).toBe(300));
+
+    await act(async () => {
+      await view.router.navigate("/routines?device=dev-a");
+    });
+    await waitFor(() => expect(scroller(view).scrollTop).toBe(480));
+    expect(getKeyedScroll("routines:dev-a")).toBe(480);
+  });
+
+  it("restores after the automatic retry when the first read failed", async () => {
+    // A sleeping machine is the state this page is built to survive: the first
+    // read fails, the page retries by itself, and the saved place must still
+    // apply when the rows finally arrive.
+    vi.useFakeTimers();
+    try {
+      vi.mocked(listRoutines).mockRejectedValueOnce(new Error("machine asleep"));
+      setKeyedScroll("routines:dev-a", 480);
+      const view = renderApp("/routines?device=dev-a");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByText("machine asleep")).toBeTruthy();
+      expect(scroller(view).scrollTop).toBe(0);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      expect(screen.getByText("Routine 0")).toBeTruthy();
+      expect(scroller(view).scrollTop).toBe(480);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("skips the restore once the page has scrolled to the form", () => {

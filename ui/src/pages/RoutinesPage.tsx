@@ -176,6 +176,10 @@ export default function RoutinesPage() {
   const readAllEpoch = useRef(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // The machine the rows on screen were read for. `deviceId` changes a commit
+  // before the switch effect clears the list and sets `loading`, so for one
+  // commit the outgoing rows are rendered under the incoming machine's name.
+  const [loadedDevice, setLoadedDevice] = useState<string | null>(null);
   const [showSilent, setShowSilent] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -281,7 +285,8 @@ export default function RoutinesPage() {
   // The list is this page's scroll container, and the page unmounts whenever a
   // routine or another area opens. Keep where the reader was, per machine.
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const scrollRestored = useRef(false);
+  // The machine whose saved offset this mount has already applied.
+  const restoredKey = useRef<string | null>(null);
   // Set when this mount already moved the page to the form; the saved list
   // offset must not then pull it back.
   const formScrolled = useRef(false);
@@ -344,6 +349,7 @@ export default function RoutinesPage() {
       ]);
       if (seq !== loadSeq.current) return;
       setRoutines(rs.routines ?? []);
+      setLoadedDevice(deviceId);
       const directorySource = unfiltered ? rs : all;
       if (directorySource) {
         setDirectoryCwds((directorySource.routines ?? []).map((r) => r.cwd));
@@ -376,30 +382,46 @@ export default function RoutinesPage() {
     }
   }, [tr, routineQuery, deviceId, machinesLoading, status, cwdFilter]);
 
-  // Save the list offset as the reader scrolls, under the machine that is on
-  // screen at that moment. A switch therefore never writes one machine's place
-  // under another machine's key.
+  // Save the list offset as the reader scrolls, under the machine whose rows are
+  // on screen at that moment. A switch renders the outgoing list once more under
+  // the incoming `deviceId`, and the list-clearing render shrinks the content —
+  // browsers clamp `scrollTop` and fire `scroll` for that. Saving it would write
+  // the outgoing machine's clamped place under the incoming machine's key, so a
+  // transition (loading, or rows from another machine) is never saved. Both are
+  // read through refs because the listener is attached once and must see the
+  // state at event time.
+  const loadingRef = useRef(loading);
+  loadingRef.current = loading;
+  const loadedDeviceRef = useRef(loadedDevice);
+  loadedDeviceRef.current = loadedDevice;
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const save = () => setKeyedScroll(`routines:${deviceRef.current}`, el.scrollTop);
+    const save = () => {
+      if (loadingRef.current || loadedDeviceRef.current !== deviceRef.current) return;
+      setKeyedScroll(`routines:${deviceRef.current}`, el.scrollTop);
+    };
     el.addEventListener("scroll", save, { passive: true });
     return () => el.removeEventListener("scroll", save);
   }, []);
 
-  // Restore once, after the first list read and before paint: the loading
-  // skeleton is much shorter than the list, so restoring earlier would clamp
-  // the offset to the skeleton's bottom.
+  // Restore after the list for a machine has been read, and before paint: the
+  // loading skeleton is much shorter than the list, so restoring earlier would
+  // clamp the offset to the skeleton's bottom. The key is per machine, not per
+  // mount, because choosing another machine re-renders this page in place. A
+  // failed read must not consume it — the page retries by itself, and the retry
+  // that fills the list is what applies the saved place.
   useLayoutEffect(() => {
-    if (loading || scrollRestored.current) return;
-    scrollRestored.current = true;
+    if (loading || error || loadedDevice !== deviceId) return;
+    if (restoredKey.current === deviceId) return;
+    restoredKey.current = deviceId;
     if (formScrolled.current) return;
     const el = scrollRef.current;
     if (!el) return;
     const saved = getKeyedScroll(`routines:${deviceId}`);
     if (saved === null || saved <= 0) return;
     el.scrollTop = Math.min(saved, Math.max(0, el.scrollHeight - el.clientHeight));
-  }, [loading, deviceId]);
+  }, [loading, error, deviceId, loadedDevice]);
 
   const loadMoreRuns = async () => {
     if (!runsCursor || !runsHasMore || loadingMoreRuns || runs.length >= ROUTINE_HISTORY_MAX)
