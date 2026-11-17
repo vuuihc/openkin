@@ -1700,6 +1700,13 @@ function ProjectBucket({
   onProjectMenu: () => void;
 }) {
   const tr = useT();
+  const headingRef = useRef<HTMLButtonElement | null>(null);
+  // The reset control unmounts together with the order it clears, so focus
+  // moves back to the bucket heading rather than falling to <body>.
+  const restoreOrder = () => {
+    onRestoreOrder();
+    window.requestAnimationFrame(() => headingRef.current?.focus());
+  };
   const rows = showAll ? bucket.rows : bucket.rows.slice(0, ROWS_BEFORE_SHOW_ALL);
   const hidden = bucket.rows.length - rows.length;
   const showAllLabel =
@@ -1748,6 +1755,7 @@ function ProjectBucket({
             opening its cover and folding its rows are its two tap targets,
             and the design system has no row primitive. */}
         <button
+          ref={headingRef}
           type="button"
           onClick={openable ? onOpenProject : onToggle}
           aria-label={heading}
@@ -1787,6 +1795,39 @@ function ProjectBucket({
             <IconRefresh size={13} />
             {tr("sessions.restore")}
           </Button>
+        ) : null}
+        {hasStoredOrder && !archived && !realProject && !imported ? (
+          /*
+            Pinned and No-project are synthetic buckets: they have no `cwd` and
+            therefore no project record, so neither the fine-pointer hover strip
+            nor the coarse-pointer project menu draws for them. Without this
+            heading control a manual order written inside one (a drag or
+            Alt+↑/↓ stores it under `__pinned__` / `__unassigned__`) would have
+            no way back to recent activity.
+
+            Fine pointers get the same 24px, tooltip-backed icon the real
+            projects' hover strip uses. A phone has no tooltip, and a bare ↻
+            beside “Pinned” reads as “refresh”, so coarse pointers get the
+            refresh-plus-label shape of the archived project's Restore button.
+          */
+          coarse ? (
+            <Button
+              variant="secondary"
+              title={tr("nav.restoreTimeOrder")}
+              aria-label={tr("nav.restoreTimeOrder")}
+              onClick={restoreOrder}
+              className="h-11 flex-none items-center gap-1.5 rounded-lg px-2.5 text-caption font-medium"
+            >
+              <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                <IconRefresh size={13} />
+                <span>{tr("sessions.restore")}</span>
+              </span>
+            </Button>
+          ) : (
+            <ProjectIconButton label={tr("nav.restoreTimeOrder")} onClick={restoreOrder}>
+              <IconRefresh size={12} />
+            </ProjectIconButton>
+          )
         ) : null}
         {realProject && !onRestoreProject && !coarse ? (
           /*
