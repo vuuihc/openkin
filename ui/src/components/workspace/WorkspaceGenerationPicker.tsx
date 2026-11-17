@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { type WorkspaceGeneration } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { IconChevron } from "../icons";
 import Button from "../ui/Button";
+import Menu from "../ui/Menu";
 
 type Props = {
   generations: readonly WorkspaceGeneration[];
@@ -15,6 +16,14 @@ type Props = {
  * Dropdown picker for workspace generations.
  * Shows "Workspace N" entries plus a "Current project" (source) option.
  * Displays lifecycle badge (active, integrated, released, blocked).
+ *
+ * The list is the console's shared `Menu` on the shared `Popover` layer, not a
+ * private copy of it: the portal, viewport anchoring, outside-pointer and
+ * Escape dismissal, focus moving in and back to the chip, and the layer that
+ * owns the keyboard while it is open all belong to that facade. What remains
+ * here is the domain mapping — which generation is checked, and what choosing
+ * one means. The trigger keeps its own shape: the chip names the workspace the
+ * viewer is showing and draws that generation's lifecycle pill.
  */
 export default function WorkspaceGenerationPicker({
   generations,
@@ -24,26 +33,12 @@ export default function WorkspaceGenerationPicker({
 }: Props) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const selected = useMemo(
     () => generations.find((g) => g.id === selectedId) ?? null,
     [generations, selectedId],
   );
-
-  const close = useCallback(() => setOpen(false), []);
-
-  // Close on outside click.
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target && !target.closest("[data-gen-picker]")) {
-        setOpen(false);
-      }
-    };
-    window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
-  }, [open]);
 
   if (generations.length === 0) {
     return (
@@ -58,13 +53,16 @@ export default function WorkspaceGenerationPicker({
     : t("workspace.generation.source");
 
   return (
-    <div className="relative" data-gen-picker>
+    <>
       {/* The children are elements, so the facade cannot derive a string
           accessible name; the label is stated explicitly. */}
       <Button
+        ref={triggerRef}
         variant="secondary"
         onClick={() => setOpen((v) => !v)}
         aria-label={label}
+        aria-haspopup="menu"
+        aria-expanded={open}
         className="h-auto! rounded-md px-2 py-1 text-caption [&>span>span]:flex [&>span>span]:items-center [&>span>span]:gap-1"
       >
         <span className="truncate max-w-[160px]">{label}</span>
@@ -86,62 +84,36 @@ export default function WorkspaceGenerationPicker({
           ].join(" ")}
         />
       </Button>
-
-      {open && (
-        <div className="absolute top-full left-0 mt-1 z-50 min-w-menu rounded-lg bg-kin-elevated shadow-e2 py-1">
-          {/* Source / current project */}
-          {/* eslint-disable-next-line kin/no-raw-button -- an option row in the menu */}
-          <button
-            type="button"
-            onClick={() => {
-              onChange(null);
-              close();
-            }}
-            className={[
-              "w-full flex items-center gap-2 px-3 py-1.5 text-left text-body transition-colors",
-              selectedId === null
-                ? "bg-kin-blue/15 text-kin-text"
-                : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
-            ].join(" ")}
-          >
-            <span className="flex-1 truncate">{t("workspace.generation.source")}</span>
-            <span className="flex-none rounded px-1 py-0 text-micro font-semibold uppercase tracking-label bg-kin-muted/20 text-kin-muted">
-              {t("workspace.generation.readOnly")}
-            </span>
-          </button>
-
-          {generations.map((gen) => (
-            // eslint-disable-next-line kin/no-raw-button -- an option row in the menu
-            <button
-              key={gen.id}
-              type="button"
-              onClick={() => {
-                onChange(gen.id);
-                close();
-              }}
-              className={[
-                "w-full flex items-center gap-2 px-3 py-1.5 text-left text-body transition-colors",
-                selectedId === gen.id
-                  ? "bg-kin-blue/15 text-kin-text"
-                  : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
-              ].join(" ")}
-            >
-              <span className="flex-1 truncate">
-                {t("workspace.generation.workspace")} {gen.generation}
-              </span>
-              <span
-                className={[
-                  "flex-none rounded px-1 py-0 text-micro font-semibold uppercase tracking-label",
-                  stateBadgeClass(gen.state),
-                ].join(" ")}
-              >
-                {stateLabel(gen.state, t)}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+      <Menu
+        open={open}
+        onOpenChange={setOpen}
+        triggerRef={triggerRef}
+        label={label}
+        items={[
+          {
+            id: "source",
+            label: t("workspace.generation.source"),
+            // The consequence stays in the row's text content, so it is part
+            // of the name a reader hears as they move through the choices.
+            description: t("workspace.generation.readOnly"),
+            checked: selectedId === null,
+            onSelect: () => onChange(null),
+          },
+          ...generations.map((gen) => ({
+            id: gen.id,
+            label: `${t("workspace.generation.workspace")} ${gen.generation}`,
+            description: stateLabel(gen.state, t),
+            checked: selectedId === gen.id,
+            onSelect: () => onChange(gen.id),
+          })),
+        ]}
+        // A radio menu opens on the row that is set: the arrow keys then move
+        // from the current choice instead of from the top of the list.
+        initialFocusId={selectedId ?? "source"}
+        placement="below"
+        align="left"
+      />
+    </>
   );
 }
 
