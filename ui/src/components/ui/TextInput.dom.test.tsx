@@ -44,6 +44,35 @@ describe("the shared text input", () => {
     ).toBe(input);
   });
 
+  it("keeps the caller's id and merges their aria-describedby before hint and status", () => {
+    render(
+      <TextInput
+        id="base-url"
+        aria-describedby="page-error"
+        label="Base URL"
+        hint="Ends in /v1"
+        status={{ type: "error", message: "Bad URL" }}
+        value=""
+        onChange={() => {}}
+      />,
+    );
+
+    const input = screen.getByLabelText("Base URL");
+    // The caller's id names the input, and the ids derived from it follow it.
+    expect(input.id).toBe("base-url");
+    // Order is the contract: the caller's own description first, then the hint
+    // and the status the field appends, so a reader hears them in that order.
+    expect(input.getAttribute("aria-describedby")).toBe("page-error base-url-hint base-url-status");
+  });
+
+  it("emits no aria-describedby when there is nothing to describe", () => {
+    render(<TextInput label="Base URL" hint="" value="" onChange={() => {}} />);
+
+    const input = screen.getByLabelText("Base URL");
+    // An empty hint must not leave a dangling id pointing at no element.
+    expect(input.hasAttribute("aria-describedby")).toBe(false);
+  });
+
   it("announces an error status", () => {
     render(
       <TextInput
