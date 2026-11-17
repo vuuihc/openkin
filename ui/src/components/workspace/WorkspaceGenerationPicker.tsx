@@ -65,7 +65,7 @@ export default function WorkspaceGenerationPicker({
         variant="secondary"
         onClick={() => setOpen((v) => !v)}
         aria-label={label}
-        className="rounded-md px-2 py-1 text-caption"
+        className="h-auto! rounded-md px-2 py-1 text-caption"
       >
         <span className="truncate max-w-[160px]">{label}</span>
         {selected && (

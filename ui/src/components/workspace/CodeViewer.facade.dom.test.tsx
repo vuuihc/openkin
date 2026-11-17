@@ -37,13 +37,7 @@ vi.mock("./monacoSetup", () => ({}));
  * the save path can be exercised the way a reader would trigger it.
  */
 vi.mock("@monaco-editor/react", () => ({
-  default: ({
-    value,
-    onChange,
-  }: {
-    value?: string;
-    onChange?: (value: string) => void;
-  }) => (
+  default: ({ value, onChange }: { value?: string; onChange?: (value: string) => void }) => (
     <textarea
       data-testid="editor"
       value={value ?? ""}

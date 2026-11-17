@@ -236,7 +236,7 @@ export default function CodeViewer({
                 aria-pressed={diffLayout === "inline"}
                 title={t("workspace.viewer.diffInline")}
                 className={[
-                  "px-1.5 py-0.5 rounded text-caption",
+                  "h-auto! px-1.5 py-0.5 rounded text-caption",
                   diffLayout === "inline"
                     ? "bg-kin-blue/15! text-kin-blue-ink!"
                     : "text-kin-muted! hover:text-kin-text! hover:bg-[var(--kin-fill-strong)]!",
@@ -250,7 +250,7 @@ export default function CodeViewer({
                 aria-pressed={diffLayout === "sideBySide"}
                 title={t("workspace.viewer.diffSideBySide")}
                 className={[
-                  "px-1.5 py-0.5 rounded text-caption",
+                  "h-auto! px-1.5 py-0.5 rounded text-caption",
                   diffLayout === "sideBySide"
                     ? "bg-kin-blue/15! text-kin-blue-ink!"
                     : "text-kin-muted! hover:text-kin-text! hover:bg-[var(--kin-fill-strong)]!",
@@ -271,7 +271,7 @@ export default function CodeViewer({
                 onClick={() => goToHunk("previous")}
                 title={t("workspace.viewer.prevHunk")}
                 aria-label={t("workspace.viewer.prevHunk")}
-                className="p-1 rounded text-kin-muted! hover:text-kin-text! hover:bg-[var(--kin-fill-strong)]!"
+                className="h-auto! p-1 rounded text-kin-muted! hover:text-kin-text! hover:bg-[var(--kin-fill-strong)]!"
               >
                 {/* Chevron points right by default; rotate for up/down. */}
                 <IconChevron size={13} className="-rotate-90" />
@@ -281,7 +281,7 @@ export default function CodeViewer({
                 onClick={() => goToHunk("next")}
                 title={t("workspace.viewer.nextHunk")}
                 aria-label={t("workspace.viewer.nextHunk")}
-                className="p-1 rounded text-kin-muted! hover:text-kin-text! hover:bg-[var(--kin-fill-strong)]!"
+                className="h-auto! p-1 rounded text-kin-muted! hover:text-kin-text! hover:bg-[var(--kin-fill-strong)]!"
               >
                 <IconChevron size={13} className="rotate-90" />
               </Button>
@@ -299,7 +299,7 @@ export default function CodeViewer({
                 aria-pressed={mdView === "preview"}
                 title={t("workspace.viewer.preview")}
                 className={[
-                  "px-1.5 py-0.5 rounded text-caption",
+                  "h-auto! px-1.5 py-0.5 rounded text-caption",
                   mdView === "preview"
                     ? "bg-kin-blue/15! text-kin-blue-ink!"
                     : "text-kin-muted! hover:text-kin-text! hover:bg-[var(--kin-fill-strong)]!",
@@ -313,7 +313,7 @@ export default function CodeViewer({
                 aria-pressed={mdView === "code"}
                 title={t("workspace.viewer.code")}
                 className={[
-                  "px-1.5 py-0.5 rounded text-caption",
+                  "h-auto! px-1.5 py-0.5 rounded text-caption",
                   mdView === "code"
                     ? "bg-kin-blue/15! text-kin-blue-ink!"
                     : "text-kin-muted! hover:text-kin-text! hover:bg-[var(--kin-fill-strong)]!",
@@ -339,7 +339,7 @@ export default function CodeViewer({
                 onClick={() => onDiscard?.()}
                 title={t("workspace.changed.discardHint")}
                 aria-label={t("workspace.changed.discard")}
-                className="md:min-h-0 md:py-1 md:px-2 text-caption"
+                className="md:h-auto! md:min-h-0 md:py-1 md:px-2 text-caption"
               >
                 <IconX size={12} />
                 {t("workspace.changed.discard")}
@@ -350,7 +350,7 @@ export default function CodeViewer({
                 onClick={() => onKeep?.()}
                 title={t("workspace.changed.keepHint")}
                 aria-label={t("workspace.changed.keep")}
-                className="md:min-h-0 md:py-1 md:px-2 text-caption"
+                className="md:h-auto! md:min-h-0 md:py-1 md:px-2 text-caption"
               >
                 <IconCheck size={12} />
                 {t("workspace.changed.keep")}
@@ -383,7 +383,7 @@ export default function CodeViewer({
                 aria-label={
                   saveState === "saving" ? t("workspace.viewer.saving") : t("workspace.viewer.save")
                 }
-                className="md:min-h-0 md:py-1 md:px-2 text-caption"
+                className="md:h-auto! md:min-h-0 md:py-1 md:px-2 text-caption"
               >
                 <IconCheck size={12} />
                 {saveState === "saving" ? t("workspace.viewer.saving") : t("workspace.viewer.save")}
