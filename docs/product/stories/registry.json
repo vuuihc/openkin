@@ -146,7 +146,7 @@
     },
     {
       "id": "KIN-MANAGE-001",
-      "state": "draft",
+      "state": "approved",
       "priority": "P1",
       "journeys": [
         "J5"
@@ -164,7 +164,11 @@
         "ui/src/hooks/useSessionDeletion.ts",
         "ui/src/pages/SessionsPage.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "ui/src/components/sessions/SessionRow.dom.test.tsx",
+        "ui/src/components/sessions/SessionList.selection.dom.test.tsx",
+        "ui/src/components/sessions/SessionList.drag.dom.test.tsx"
+      ],
       "blockedReason": null
     },
     {

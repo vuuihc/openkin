@@ -21,7 +21,7 @@ import SessionRowActions, {
   sessionRowActionsWidth,
   type SessionRowActionMode,
 } from "../mobile/SessionRowActions";
-import SwipeReveal from "../mobile/SwipeReveal";
+import SwipeReveal, { type SwipeReorder } from "../mobile/SwipeReveal";
 import ActionSheet, { type ActionSheetRow } from "../ui/ActionSheet";
 import Button from "../ui/Button";
 import Menu, { type MenuItem } from "../ui/Menu";
@@ -38,8 +38,10 @@ import type { SessionScopeFilter } from "../ui/SessionFilters";
  * actions live on: one trailing "More" trigger opens the console's shared
  * `Menu` on the Mac and its shared `ActionSheet` on a touch page, so managing
  * a conversation is one discoverable control instead of a row of hover-only
- * icons. Swipe remains a second, faster path on touch, and a long press opens
- * the very same sheet: three gestures, one list, no invisible mode change.
+ * icons. Swipe remains a second, faster path on touch, and a completed hold
+ * opens the very same sheet — unless the list offers a reorder, where the
+ * hold lifts the row and the trailing trigger stays the one way to the
+ * actions. Either way there are no invisible mode changes.
  *
  * `selectionMode` turns the row into a selection control. A row the toolbar
  * can act on keeps its trigger while selecting, holding the one way out; an
@@ -70,6 +72,16 @@ export type SessionRowProps = {
   onDelete: () => void;
   onRestore: () => void;
   scope: SessionScopeFilter;
+  /** True while Alt+↑/↓ would move this row; the row then carries the hint. */
+  reorderHint?: boolean;
+  /** The row can be dragged into a new place by holding it; the list owns the
+   *  resulting order. Absent while a search, a status filter or the archive
+   *  scope is narrowing the list, and for imported rows. */
+  reorder?: SwipeReorder;
+  /** This row is the one currently being dragged. */
+  dragging?: boolean;
+  /** How far the dragged row follows the finger, in px. */
+  dragOffsetY?: number;
 };
 
 export default function SessionRow({
@@ -97,6 +109,10 @@ export default function SessionRow({
   onRestore,
   scope,
   query,
+  reorderHint = false,
+  reorder,
+  dragging = false,
+  dragOffsetY = 0,
 }: SessionRowProps) {
   const tr = useT();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -178,6 +194,9 @@ export default function SessionRow({
       aria-disabled={selectionMode && selectionLocked ? true : undefined}
       aria-label={label}
       aria-pressed={selectionMode ? selected : undefined}
+      // A tooltip only: the gesture has no visible affordance of its own, and
+      // the accessible name stays the row's sentence (see `label` above).
+      title={reorderHint ? tr("sessions.reorderHint") : undefined}
       className={[
         "kin-row-press flex min-h-11 w-full items-center gap-2.5 py-2.5 text-left",
         gutter,
@@ -343,8 +362,8 @@ export default function SessionRow({
         else setSheetOpen(true);
       }}
       // The trigger is a button, not a drag surface: a press that starts on it
-      // must not also arm SwipeReveal's long press, which would open the row's
-      // sheet underneath the one this tap is already opening.
+      // must not also arm SwipeReveal's hold, which would lift (or drag) the
+      // row from underneath the sheet this tap is already opening.
       onPointerDown={desktop ? undefined : (event) => event.stopPropagation()}
       className={[
         "h-11 w-11 flex-none rounded-md bg-transparent p-0 text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text hover:brightness-100",
@@ -414,26 +433,38 @@ export default function SessionRow({
 
   return (
     <>
-      <SwipeReveal
-        open={swipeOpen}
-        onOpenChange={onSwipeOpenChange}
-        // A completed hold opens this row's own actions: the same list as the
-        // trailing trigger, not an invisible step into multi-select.
-        onLongPress={() => setSheetOpen(true)}
-        width={sessionRowActionsWidth(mode)}
-        actions={
-          <SessionRowActions
-            mode={mode}
-            pinned={pinned}
-            onPin={onPin}
-            onArchive={onArchive}
-            onRestore={onRestore}
-            onDelete={onDelete}
-          />
-        }
+      {/* The dragged row follows the finger while the rows around it have
+          already made way in the DOM: a lift, not a screen transition, so
+          there is deliberately no transition on this wrapper. */}
+      <div
+        className={dragging ? "relative z-10 shadow-e2" : undefined}
+        style={dragging ? { transform: `translateY(${dragOffsetY}px)` } : undefined}
+        data-dragging={dragging ? "" : undefined}
       >
-        {touchRow}
-      </SwipeReveal>
+        <SwipeReveal
+          open={swipeOpen}
+          onOpenChange={onSwipeOpenChange}
+          // Where the list offers a reorder, the completed hold lifts the row
+          // and the drag wins the gesture; elsewhere the hold keeps opening
+          // this row's own action sheet, and the trailing trigger opens it in
+          // both cases.
+          onLongPress={() => setSheetOpen(true)}
+          reorder={reorder}
+          width={sessionRowActionsWidth(mode)}
+          actions={
+            <SessionRowActions
+              mode={mode}
+              pinned={pinned}
+              onPin={onPin}
+              onArchive={onArchive}
+              onRestore={onRestore}
+              onDelete={onDelete}
+            />
+          }
+        >
+          {touchRow}
+        </SwipeReveal>
+      </div>
       {sheet}
     </>
   );
