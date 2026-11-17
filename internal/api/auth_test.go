@@ -554,10 +554,13 @@ func TestSafeReturnToRejectsOtherOrigins(t *testing.T) {
 		"/a%zz":                                      "/",          // malformed escape
 		"/%80evil.example.com":                       "/",          // invalid UTF-8, which the browser twin also refuses
 		"/a%25b":                                     "/",          // the second decode finds "%b", also malformed
+		"/\t/evil.example.com":                       "/",          // a literal tab: WHATWG strips it, leaving "//host"
 		"/caf%C3%A9":                                 "/caf%C3%A9", // a harmless escape comes back untouched
 		"/tasks/a%20b":                               "/tasks/a%20b",
 		"/tasks/t1?panel=files&file=a%20b.html#frag": "/tasks/t1?panel=files&file=a%20b.html#frag",
-		"/settings":                                  "/settings",
+		// The decoded slash lives in the query, which does not decide the origin.
+		"/tasks/t1?panel=files&file=src%2Fa%20b.ts": "/tasks/t1?panel=files&file=src%2Fa%20b.ts",
+		"/settings": "/settings",
 	}
 	for in, want := range cases {
 		if got := safeReturnTo(in); got != want {
