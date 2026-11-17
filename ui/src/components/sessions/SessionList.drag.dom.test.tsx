@@ -24,6 +24,7 @@ import type { AgentSession, Project, Task } from "../../api/client";
 
 const fixtures = vi.hoisted(() => ({
   tasks: [] as Task[],
+  sessions: [] as AgentSession[],
 }));
 
 vi.mock("../../api/useLiveResources", () => ({
@@ -46,7 +47,7 @@ vi.mock("../../api/client", async (importOriginal) => {
   return {
     ...actual,
     listAgentSessionsPage: vi.fn(async () => ({
-      items: [] as AgentSession[],
+      items: fixtures.sessions,
       next_cursor: undefined,
     })),
     listTasks: vi.fn(async () => []),
@@ -88,6 +89,15 @@ function mount(entry = "/sessions") {
   );
 }
 
+/** The Mac sidebar: fine pointer, so each project heading draws its hover strip. */
+function mountSidebar() {
+  return render(
+    <MemoryRouter initialEntries={["/sessions"]}>
+      <SessionList shell="sidebar" />
+    </MemoryRouter>,
+  );
+}
+
 function row(id: string): HTMLElement {
   const el = document.querySelector<HTMLElement>(`[data-session-row="${id}"]`);
   if (!el) throw new Error(`row ${id} is not on screen`);
@@ -110,6 +120,7 @@ beforeEach(() => {
   // A sheet owns one history entry; start each test from a clean one.
   window.history.replaceState({ idx: 0 }, "", "/sessions");
   fixtures.tasks = [task("a", 30), task("b", 20), task("c", 10)];
+  fixtures.sessions = [];
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: query === "(pointer: coarse)",
     media: query,
@@ -256,6 +267,54 @@ describe("order escape hatch", () => {
     expect(getTaskOrder()).toEqual({ "/work/beta": ["x"] });
   });
 
+  it("fine-pointer-project-strip-restores-time-order", async () => {
+    const user = userEvent.setup();
+    // The Mac sidebar is a fine pointer, so its project actions live in the
+    // hover strip rather than the sheet. The way back out of a manual order
+    // has to exist there too.
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    mountSidebar();
+    await waitFor(() => expect(order()).toEqual(["a", "b", "c"]));
+    expect(screen.queryByRole("button", { name: "Restore time order" })).toBeNull();
+
+    row("a").focus();
+    fireEvent.keyDown(row("a"), { key: "ArrowDown", altKey: true });
+    await waitFor(() => expect(order()).toEqual(["b", "a", "c"]));
+
+    await user.click(screen.getByRole("button", { name: "Restore time order" }));
+
+    await waitFor(() => expect(order()).toEqual(["a", "b", "c"]));
+    expect(getTaskOrder()).toEqual({});
+  });
+
+  it("restore-time-order-is-offered-for-a-remote-only-project", async () => {
+    const user = userEvent.setup();
+    // The order is a per-browser preference, so it applies to a remote copy
+    // too. The reset must not hide behind the local project record.
+    fixtures.tasks = [
+      { ...task("a", 30), executing_device_id: "nas-1" },
+      { ...task("b", 20), executing_device_id: "nas-1" },
+    ];
+    setBucketOrder("/work/alpha", ["b", "a"]);
+    mount();
+    await waitFor(() => expect(order()).toEqual(["b", "a"]));
+
+    await user.click(screen.getByRole("button", { name: "Project actions" }));
+    await user.click(screen.getByRole("button", { name: "Restore time order" }));
+
+    await waitFor(() => expect(order()).toEqual(["a", "b"]));
+    expect(getTaskOrder()).toEqual({});
+  });
+
   it("a-row-carries-the-reorder-hint-while-a-move-is-offered", async () => {
     const view = mount();
     await waitFor(() => expect(order()).toEqual(["a", "b", "c"]));
@@ -277,5 +336,33 @@ describe("order escape hatch", () => {
     await waitFor(() => expect(order()).toEqual(["a", "b", "c"]));
     expect(row("a").hasAttribute("title")).toBe(false);
     expect(row("a").getAttribute("aria-label")).not.toContain("Alt");
+  });
+
+  it("an-imported-row-does-not-advertise-a-move-that-is-discarded", async () => {
+    const user = userEvent.setup();
+    // Imported sessions are an index, not a project: their bucket ignores
+    // stored orders, so a move here would be discarded. The hint must follow
+    // the move, not the global "reorder is on" flag.
+    fixtures.tasks = [];
+    fixtures.sessions = [
+      {
+        id: "s1",
+        agent_id: "claude-code",
+        external_ref: "s1",
+        title: "Imported chat",
+        cwd: "/work/alpha",
+        status: "idle",
+        first_seen_at: 0,
+        last_seen_at: 0,
+        updated_at: 1,
+        linked: false,
+      } as AgentSession,
+    ];
+    mount();
+    const heading = await screen.findByRole("button", { name: /^Imported sessions/ });
+    if (heading.getAttribute("aria-expanded") === "false") await user.click(heading);
+    await waitFor(() => expect(row("s1")).toBeTruthy());
+    expect(row("s1").hasAttribute("title")).toBe(false);
+    expect(row("s1").getAttribute("aria-label")).not.toContain("Alt");
   });
 });
