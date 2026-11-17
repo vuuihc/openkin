@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import SessionList from "./SessionList";
@@ -111,6 +111,15 @@ function row(id: string): HTMLElement {
 function toolbar(): HTMLElement {
   const el = document.querySelector<HTMLElement>("[data-selection-toolbar]");
   if (!el) throw new Error("selection toolbar is not mounted");
+  return el;
+}
+
+/** One row's `⋯` trigger, found through the title it is described by. */
+function rowActions(id: string): HTMLElement {
+  const el = document.querySelector<HTMLElement>(
+    `[data-row-actions][aria-describedby="session-row-title-${id}"]`,
+  );
+  if (!el) throw new Error(`row ${id} has no actions trigger`);
   return el;
 }
 
@@ -380,6 +389,70 @@ describe("leaving multi-select", () => {
     );
     expect(document.querySelector("[data-selection-toolbar]")).not.toBeNull();
     expect(document.activeElement).toBe(selectAll);
+  });
+});
+
+describe("the row menu is the visible door", () => {
+  it("enters selection from the row menu, not only the long press", async () => {
+    const user = userEvent.setup();
+    mount("sidebar");
+
+    await user.click(rowActions("alpha-2"));
+    const sheet = screen.getByRole("dialog", { name: "alpha-2" });
+    // Select leads the row's own edits; batch actions stay on the toolbar.
+    expect(
+      within(sheet)
+        .getAllByRole("button")
+        .map((item) => item.textContent),
+    ).toEqual(["Select", "Pin", "Archive", "Delete", "Cancel"]);
+    await user.click(within(sheet).getByRole("button", { name: "Select" }));
+
+    await waitFor(() => expect(toolbar()).toBeTruthy());
+    expect(row("alpha-2").getAttribute("aria-pressed")).toBe("true");
+    expect(row("alpha-1").getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByText("1 selected")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("exits from the row menu back to the row", async () => {
+    const user = userEvent.setup();
+    const view = mount("sidebar");
+
+    await user.click(rowActions("alpha-1"));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "alpha-1" })).getByRole("button", {
+        name: "Select",
+      }),
+    );
+    await waitFor(() => expect(toolbar()).toBeTruthy());
+
+    // The same trigger, now holding exactly the one way out.
+    await user.click(rowActions("alpha-1"));
+    const sheet = screen.getByRole("dialog", { name: "alpha-1" });
+    expect(
+      within(sheet)
+        .getAllByRole("button")
+        .map((item) => item.textContent),
+    ).toEqual(["Exit selection", "Cancel"]);
+    await user.click(within(sheet).getByRole("button", { name: "Exit selection" }));
+
+    await waitFor(() => expect(document.querySelector("[data-selection-toolbar]")).toBeNull());
+    await waitFor(() =>
+      expect((document.activeElement as HTMLElement | null)?.getAttribute("data-session-row")).toBe(
+        "alpha-1",
+      ),
+    );
+
+    // The restore is one-shot: a later list update must not pull focus back.
+    const search = screen.getByRole("searchbox");
+    search.focus();
+    fixtures.tasks = [task("alpha-1"), task("alpha-2"), task("alpha-3"), task("alpha-4")];
+    view.rerender(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <SessionList shell="sidebar" />
+      </MemoryRouter>,
+    );
+    expect(document.activeElement).toBe(search);
   });
 });
 
