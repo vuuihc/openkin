@@ -94,9 +94,7 @@ export function parseWorkspaceLink(search: string): WorkspaceLink | null {
 
 /** Keep a matched pair's original bytes when its decoded value already agrees. */
 function keepOrWrite(segment: Segment, key: string, value: string): string {
-  return decode(segment.value) === value
-    ? segment.raw
-    : `${key}=${encodeWorkspacePath(value)}`;
+  return decode(segment.value) === value ? segment.raw : `${key}=${encodeWorkspacePath(value)}`;
 }
 
 /** Percent-encode a path without hiding its separators. */

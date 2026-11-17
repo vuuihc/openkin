@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  dropSearchParam,
-  parseWorkspaceLink,
-  patchWorkspaceLink,
-} from "./workspaceDeepLink";
+import { dropSearchParam, parseWorkspaceLink, patchWorkspaceLink } from "./workspaceDeepLink";
 
 /**
  * KIN-RESULT-002: the files panel's place lives in the address.
@@ -78,9 +74,7 @@ describe("workspace deep link", () => {
         explicit: true,
       });
       // A refusal keeps the panel and drops only the file.
-      expect(patchWorkspaceLink(search, { panel: "files", file: null }), path).toBe(
-        "?panel=files",
-      );
+      expect(patchWorkspaceLink(search, { panel: "files", file: null }), path).toBe("?panel=files");
     }
 
     // Malformed escapes, and an escape that decodes to a traversal, are refused
@@ -121,9 +115,9 @@ describe("workspace deep link", () => {
     expect(patchWorkspaceLink(search, null)).toBe("?focus=ap-1&z=1");
 
     // `+` is a literal here, not a space that gets rewritten.
-    expect(patchWorkspaceLink("?a=1+2&panel=files&file=src/a.ts", { panel: "files", file: "src/b.ts" })).toBe(
-      "?a=1+2&panel=files&file=src/b.ts",
-    );
+    expect(
+      patchWorkspaceLink("?a=1+2&panel=files&file=src/a.ts", { panel: "files", file: "src/b.ts" }),
+    ).toBe("?a=1+2&panel=files&file=src/b.ts");
 
     // Opening on a conversation appends without touching what was there.
     expect(patchWorkspaceLink("?z=1", { panel: "files", file: "src/a b.ts" })).toBe(

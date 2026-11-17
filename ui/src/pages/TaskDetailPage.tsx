@@ -8,7 +8,14 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { Link, useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from "react-router-dom";
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useNavigationType,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { goBackToList } from "../lib/phoneBack";
 import { currentPhoneLocation, isPhoneLayout, phonePush } from "../lib/phoneNavigation";
 import {
@@ -110,11 +117,7 @@ import { clearFollowUpDraft, getFollowUpDraft, setFollowUpDraft } from "../lib/f
 import { clearSessionScroll, getSessionScroll, setSessionScroll } from "../lib/sessionScroll";
 import { modelPickerLabel, modelsForAgent } from "../lib/agentModels";
 import { panelForView, resolvePanel, type PanelContext } from "../lib/panels";
-import {
-  dropSearchParam,
-  parseWorkspaceLink,
-  patchWorkspaceLink,
-} from "../lib/workspaceDeepLink";
+import { dropSearchParam, parseWorkspaceLink, patchWorkspaceLink } from "../lib/workspaceDeepLink";
 import { useAppStore } from "../store/appStore";
 import { displayUserPrompt } from "../lib/attachments";
 
@@ -1042,10 +1045,9 @@ export default function TaskDetailPage({
     // The URL is canonical after this read (a refusal drops only `file`). It is
     // a no-op for a link that was already clean, so an arrival never grows the
     // history by one.
-    writeWorkspaceSearch(
-      patchWorkspaceLink(here.search, { panel: "files", file: link.file }),
-      { replace: true },
-    );
+    writeWorkspaceSearch(patchWorkspaceLink(here.search, { panel: "files", file: link.file }), {
+      replace: true,
+    });
     showPanel(id, "files");
     if (link.file && workspaceOpenPath !== link.file) {
       // Same path + same nonce is ignored inside the panel; bump once per

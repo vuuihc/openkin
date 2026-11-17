@@ -109,7 +109,13 @@ vi.mock("../components/chat/Composer", () => ({
   default: () => <div data-testid="composer" />,
 }));
 vi.mock("../components/chat/ChatStream", () => ({
-  default: ({ pendingSlots, trailing }: { pendingSlots?: Record<string, ReactNode>; trailing?: ReactNode }) => (
+  default: ({
+    pendingSlots,
+    trailing,
+  }: {
+    pendingSlots?: Record<string, ReactNode>;
+    trailing?: ReactNode;
+  }) => (
     <div data-testid="chat-stream">
       {Object.entries(pendingSlots ?? {}).map(([id, node]) => (
         <div key={id}>{node}</div>
@@ -324,9 +330,7 @@ describe("the files panel's address", () => {
     open("?focus=ap-named&panel=files&file=src/a%20b.ts");
 
     // The focus consumer drops its own key; the file keeps its `%20`.
-    await waitFor(() =>
-      expect(address()).toBe("/tasks/task-1?panel=files&file=src/a%20b.ts"),
-    );
+    await waitFor(() => expect(address()).toBe("/tasks/task-1?panel=files&file=src/a%20b.ts"));
     await waitFor(() => expect(panel()?.getAttribute("data-open-path")).toBe("src/a b.ts"));
     expect(useAppStore.getState().shownPanel).toEqual({ view: "task-1", id: "files" });
   });
