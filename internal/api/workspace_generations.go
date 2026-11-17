@@ -773,15 +773,16 @@ func sourceFileQuery(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return query, true
 }
 
-// handleListSourceChanges answers what has changed in a task's workspace as it
-// stands right now.
+// handleListSourceChanges answers what a task's workspace has that its base
+// branch does not, as it stands right now.
 //
 // The other change route is a generation's diff, which exists once a task has an
 // isolated workspace and is what the console draws for one. A task whose files
-// are the person's own checkout has no generation and no base to diff against,
-// so this is the same question answered the other way: what does git say is
-// different from HEAD, uncommitted work included. On a machine that runs the
-// task, git is asked there — the answer is about its filesystem, not this one's.
+// are the person's own checkout has no generation, so this is the same question
+// answered from the checkout: committed and uncommitted work against the merge
+// base of HEAD and the checkout's base ref, because a session that commits a
+// round must not leave the panel empty. On a machine that runs the task, git is
+// asked there — the answer is about its filesystem, not this one's.
 func (s *Server) handleListSourceChanges(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.sourceTask(w, r)
 	if !ok {
@@ -804,7 +805,7 @@ func (s *Server) handleListSourceChanges(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	changes, err := s.Workspace.ListLiveChanges(r.Context(), meta)
+	changes, err := s.Workspace.ListBranchChanges(r.Context(), meta)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
