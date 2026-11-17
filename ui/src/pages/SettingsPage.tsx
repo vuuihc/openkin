@@ -29,6 +29,7 @@ import {
 } from "../lib/agentRoles";
 import { importToast } from "../lib/agentSessionImport";
 import { useAgentSessionImport } from "../hooks/useAgentSessionImport";
+import { refreshMachines } from "../hooks/useMachines";
 import { LocalAgentSettingsSection } from "../components/settings/LocalAgentSettingsSection";
 import { ProviderSettingsSection } from "../components/settings/ProviderSettingsSection";
 import { AccountSection } from "../components/settings/AccountSection";
@@ -442,6 +443,12 @@ export default function SettingsPage() {
       // without this, a role saved here would not reach the composer's `/`
       // menu until a reload.
       window.dispatchEvent(new Event(AGENT_ROLES_CHANGED_EVENT));
+      // The default agent is read from the shared machine snapshot by the
+      // new-chat face and the Run settings sheet, not from this page's list.
+      // Without this, a save leaves them naming the old agent until the
+      // snapshot's freshness window runs out. Fire and forget: the Save
+      // button must not wait on an inventory read to finish.
+      void refreshMachines();
       listAgents()
         .then(setAgentList)
         .catch(() => undefined);
