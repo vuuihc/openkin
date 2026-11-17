@@ -844,6 +844,8 @@ const zh = {
       sending: "发送中…",
       sent: "已发回对话",
       sendFailed: "发送失败，评论都还在。",
+      stale: "该行已变化",
+      staleRow: "评论 {path}:{line}（该行已变化）",
       jumpToRow: "跳到 {path}:{line}",
       delete: "删除",
       deleteRow: "删除 {path}:{line} 的评论",
