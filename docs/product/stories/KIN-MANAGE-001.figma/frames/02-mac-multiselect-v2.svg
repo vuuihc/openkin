@@ -56,13 +56,6 @@
 <text x="38" y="506" class="label">对话标题 E</text>
 <text x="232" y="506" text-anchor="end" class="tiny muted">昨天</text>
 
-<rect x="296" y="160" width="1" height="108" fill="#2f6feb"/>
-<rect x="300" y="160" width="420" height="108" rx="12" fill="#1d2125" stroke="#2c3238"/>
-<text x="316" y="186" class="small muted">248px 侧栏</text>
-<text x="316" y="210" class="label">工具条折成两行：计数 + 退出在上，</text>
-<text x="316" y="232" class="label">置顶 / 归档 / 删除 带标签在下。</text>
-<text x="316" y="254" class="small muted">scrollWidth = clientWidth · 不缩小字号、不横向滚动</text>
-
 <rect x="248" y="96" width="852" height="640" fill="#171a1d"/>
 <text x="270" y="124" class="title">对话标题 B</text>
 <text x="1078" y="123" text-anchor="end" class="small muted">多选 · 2 项</text>
@@ -70,9 +63,16 @@
 <rect x="760" y="170" width="300" height="60" rx="12" fill="#20252a"/>
 <text x="778" y="196" class="small">选中两段，一起归档。</text>
 <text x="778" y="214" class="small">归档后还能在已归档里找到。</text>
-<rect x="270" y="250" width="380" height="14" rx="7" fill="#23272b"/>
-<rect x="270" y="276" width="330" height="14" rx="7" fill="#23272b"/>
-<rect x="270" y="302" width="290" height="14" rx="7" fill="#23272b"/>
+<rect x="270" y="290" width="380" height="14" rx="7" fill="#23272b"/>
+<rect x="270" y="316" width="330" height="14" rx="7" fill="#23272b"/>
+<rect x="270" y="342" width="290" height="14" rx="7" fill="#23272b"/>
+
+<rect x="296" y="160" width="1" height="108" fill="#2f6feb"/>
+<rect x="300" y="160" width="420" height="108" rx="12" fill="#1d2125" stroke="#2c3238"/>
+<text x="316" y="186" class="small muted">248px 侧栏</text>
+<text x="316" y="210" class="label">工具条折成两行：计数 + 退出在上，</text>
+<text x="316" y="232" class="label">置顶 / 归档 / 删除 带标签在下。</text>
+<text x="316" y="254" class="small muted">scrollWidth = clientWidth · 不缩小字号、不横向滚动</text>
 
 <rect x="300" y="480" width="420" height="150" rx="12" fill="#1d2125" stroke="#2c3238"/>
 <text x="316" y="508" class="small muted">多选的入口与出口</text>

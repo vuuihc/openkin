@@ -45,7 +45,7 @@
 <li><strong>为什么不并进相邻故事：</strong>CONTINUE 从「打开一段对话」开始；PROJECT 管项目行的置顶、封面和归档。把对话行的菜单塞进任何一条，都会让那份合同同时说两层的事。</li>
 <li><strong>Job map 覆盖：</strong>定义/打开＝第 1 步，定位＝第 2 步，准备＝第 3 步，多选＝第 4 步，执行＝第 5 步，修改＝第 6 步，监控＝第 7 步，收尾＝第 8 步；八段都有落点，没有「先做 Mac 再做手机」。</li>
 <li><strong>设备只是差异：</strong>Mac 是贴行菜单 + 248px 侧栏，手机是底部动作面板 + 390 列表；入口、菜单项、退出路径和文案是同一套，差异写在故事「各面差异」。</li>
-<li><strong>不在这一条：</strong>拖拽排序 → <code>R-drag-reorder</code>（<code>gap-log.md</code> 2026-11-15 中条）；批量改名 / 批量归档 → 本版不做，已有批量删除保持；回收站 / 撤销 → 不做，归档是安全网；后端与同步协议 → 不碰。</li>
+<li><strong>不在这一条：</strong>拖拽排序 → <code>R-drag-reorder</code>（<code>gap-log.md</code> 2026-11-15 中条）；批量改名 → 本版不做，已有的批量置顶 / 归档（含已归档下的恢复）/ 删除保持；回收站 / 撤销 → 不做，归档是安全网；后端、API 与同步协议 → 不碰——改名和置顶跟 <code>taskPins.ts</code> 一样只写浏览器 localStorage，搜索在本地与服务端结果合并。</li>
 <li><strong>四条大小自检：</strong>① 标题只含一个动作（整理）；② 一个人一台设备一次能走完（开菜单 → 改名/置顶/多选 → 归档/删除 → 退出）；③ 一次交付装得下测试、复审和 390/1100 截图；④ 8 步 ≥ 3 步，验收每行都能写成 Given / Then。</li>
 </ul></section>
 
@@ -55,7 +55,7 @@
 <div class="screen-index"><a href="#screen-1">01 · Mac · 行菜单</a><a href="#screen-2">02 · Mac · 多选</a><a href="#screen-3">03 · 手机 · 行菜单</a><a href="#screen-4">04 · 手机 · 多选</a></div>
 
 <article class="screen" id="screen-1"><div class="screen-head"><div><div class="eyebrow">01 · Mac · 1100×760</div><h3>行菜单：一段对话的全部整理动作</h3></div><span class="pill">Figma 帧</span></div>
-<figure class="frame fig-wide"><div class="frame-scroll" role="region" aria-label="Mac 左栏行菜单帧" tabindex="0" data-start="330"><img src="KIN-MANAGE-001.figma/frames/01-mac-row-menu.svg" width="1100" height="760" alt="Mac 左栏列表，一段对话行尾的更多菜单打开：改名、置顶、多选、归档，分隔线后是红色的删除；右侧是对话内容"></div><figcaption><span>1100×760 · Mac 帧 · 卡片内左右滑动，主区优先</span><a href="KIN-MANAGE-001.figma/frames/01-mac-row-menu.svg">打开原图</a></figcaption></figure>
+<figure class="frame fig-wide"><div class="frame-scroll" role="region" aria-label="Mac 左栏行菜单帧" tabindex="0" data-start="0"><img src="KIN-MANAGE-001.figma/frames/01-mac-row-menu.svg" width="1100" height="760" alt="Mac 左栏列表，一段对话行尾的更多菜单打开：改名、置顶、多选、归档，分隔线后是红色的删除；右侧是对话内容"></div><figcaption><span>1100×760 · Mac 帧 · 卡片内左右滑动，左栏优先</span><a href="KIN-MANAGE-001.figma/frames/01-mac-row-menu.svg">打开原图</a></figcaption></figure>
 <h4>用户流程</h4><ol class="flow">
 <li><b>起点</b><span>Mac 左栏把对话按 设备 → 项目 排好；鼠标移到一行，行尾出现 ⋯，标题和最近时间都在。</span></li>
 <li><b>动作</b><span>点行尾 ⋯，或在行上右键。</span></li>
@@ -66,7 +66,7 @@
 </ol></article>
 
 <article class="screen" id="screen-2"><div class="screen-head"><div><div class="eyebrow">02 · Mac · 1100×760</div><h3>多选：248px 侧栏里的工具条</h3></div><span class="pill">Figma 帧</span></div>
-<figure class="frame fig-wide"><div class="frame-scroll" role="region" aria-label="Mac 248px 侧栏多选工具条帧" tabindex="0" data-start="330"><img src="KIN-MANAGE-001.figma/frames/02-mac-multiselect.svg" width="1100" height="760" alt="248px 左栏处于多选：工具条折成两行，第一行已选两项与退出多选，第二行置顶归档删除；前两行有勾选和底色"></div><figcaption><span>1100×760 · Mac 帧 · 卡片内左右滑动，主区优先</span><a href="KIN-MANAGE-001.figma/frames/02-mac-multiselect.svg">打开原图</a></figcaption></figure>
+<figure class="frame fig-wide"><div class="frame-scroll" role="region" aria-label="Mac 248px 侧栏多选工具条帧" tabindex="0" data-start="0"><img src="KIN-MANAGE-001.figma/frames/02-mac-multiselect-v2.svg" width="1100" height="760" alt="248px 左栏处于多选：工具条折成两行，第一行已选两项与退出多选，第二行置顶归档删除；前两行有勾选和底色"></div><figcaption><span>1100×760 · Mac 帧 · 卡片内左右滑动，左栏优先</span><a href="KIN-MANAGE-001.figma/frames/02-mac-multiselect-v2.svg">打开原图</a></figcaption></figure>
 <h4>用户流程</h4><ol class="flow">
 <li><b>起点</b><span>248px 左栏，某一行菜单里选「多选」；这一行立刻选中，工具条出现在搜索框下方。</span></li>
 <li><b>动作</b><span>点其它行加选或减选；点「退出多选」，或按 Esc。</span></li>
@@ -105,7 +105,7 @@
 <li><b>起点</b><span>列表在冷启动、刚刷新、断线，或某段对话正在跑的时候打开；也可能正在行里改名。</span></li>
 <li><b>动作</b><span>看每一格，或在行里改名。</span></li>
 <li><b>立刻看到</b><span>空有新建；加载是骨架且不跳版；失败有原因和重试；断线时已加载的行不清空、顶部提示、归档排队可见；运行中的菜单多一句「正在运行」；改名在行内变成输入框并全选当前标题。</span></li>
-<li><b>慢 / 空 / 失败 / 断线</b><span>慢＝骨架；空＝新建；失败＝原因和重试；断线＝提示、队列、不清空；改名保存失败恢复旧标题并说明；空标题不能确认。</span></li>
+<li><b>慢 / 空 / 失败 / 断线</b><span>慢＝骨架；空＝新建；失败＝原因和重试；断线＝提示、队列、不清空；改名只写本机 localStorage，立即生效、断线可用，浏览器拒绝存储时提示并保留旧标题；空标题不能确认。</span></li>
 <li><b>键盘与焦点</b><span>每种状态都有落点：重试按钮、行、输入框；改名 Enter 确认、Esc 取消且不改，焦点回原行。</span></li>
 <li><b>离开再回来</b><span>未保存的改名不落盘；断线恢复后队列自动继续；骨架和错误态不会互相卡住。</span></li>
 </ol>
@@ -116,7 +116,7 @@
 <div class="state"><b>断线</b><span>顶部「连接中断 · 正在重试」；行还在；归档进本地队列并显示「归档排队中」；删除不可用并说明。</span></div>
 <div class="state"><b>运行中</b><span>菜单顶部「正在运行 · N 分钟」；归档和删除仍可用，后果写清楚。</span></div>
 <div class="state"><b>批量进行中</b><span>按钮禁用并显示进行中；部分失败只保留失败项；退出多选始终可用。</span></div>
-<div class="state"><b>行内改名</b><span>输入框替换行标题并全选当前标题；空标题不能确认；保存失败恢复旧标题并说明。</span></div>
+<div class="state"><b>行内改名</b><span>输入框替换行标题并全选当前标题；空标题不能确认；改名只写本机 localStorage，立即生效、断线照常可用，浏览器拒绝存储时提示并保留旧标题。</span></div>
 </div></section>
 
 <section id="decisions"><h2>要你拍板的</h2><p class="note">每条都写推荐和代价；只回不同意的编号。D1 和 D3 已经拍过板，写出来是为了让后来的人知道为什么。</p>
@@ -124,7 +124,7 @@
 <div class="decision"><h3>D2 248px 工具条折两行、保留文字标签</h3><p class="rec"><strong>推荐：</strong>第一行计数与「退出多选」，第二行「置顶 / 归档 / 删除」；按钮保留文字，不缩小字号、不横向滚动。390 手机用同一套折行规则。</p><p class="tradeoff"><strong>代价：</strong>列表顶部固定多占约 44px 高；换来每个动作都读得懂。现已合入的图标版（PR #62）能放下一行，但第一次用的人要先认图标。</p></div>
 <div class="decision settled"><h3>D3 Esc 退出多选并把焦点还给发起行</h3><p class="rec"><strong>已定（gap 2026-11-15）：</strong>Esc 与「退出多选」走同一条退出路径，清空选择，焦点回到发起多选的那一行；Shift+Enter 进入多选的行为保留。</p><p class="tradeoff"><strong>代价：</strong>搜索框里的 Esc 仍归搜索框，只有列表有焦点时 Esc 才退多选；换来键盘用户永远有一条确定的路。</p></div>
 <div class="decision"><h3>D4 退出即清空选择；菜单里的「多选」选中它所在的那一行</h3><p class="rec"><strong>推荐：</strong>退出多选就清空选择；从某一行的菜单点「多选」，该行立刻处于选中态。多选状态下同一个菜单只显示「退出多选」。</p><p class="tradeoff"><strong>代价：</strong>不能「先选几行、退出看一眼、回来接着选」；换来进入多选时永远至少有一行，「多选模式但什么都没选」不会出现。</p></div>
-<div class="decision"><h3>D5 改名留在行内，不弹第二层对话框</h3><p class="rec"><strong>推荐：</strong>Mac 和手机都在行内把标题变成输入框、全选当前标题；Enter 确认，Esc 取消且不改；保存失败恢复旧标题并说明。</p><p class="tradeoff"><strong>代价：</strong>390 的窄行编辑长标题时输入框只能横向滚动；换来改一个名字不需要多一层页面，也不会分成「改名页」和行内两套实现。</p></div>
+<div class="decision"><h3>D5 改名留在行内，不弹第二层对话框</h3><p class="rec"><strong>推荐：</strong>Mac 和手机都在行内把标题变成输入框、全选当前标题；Enter 确认，Esc 取消且不改；改名和置顶一样只写本机浏览器（localStorage），立即生效、没有网络重试；浏览器拒绝存储时提示并保留旧标题。</p><p class="tradeoff"><strong>代价：</strong>390 的窄行编辑长标题时输入框只能横向滚动；改名不跨设备，换一台机器看不到，与置顶一致；换来改一个名字不需要多一层页面，不需要新的后端接口，也不会分成「改名页」和行内两套实现。</p></div>
 </section>
 
 <section id="reply"><h2>回复模板</h2><div class="card reply"><p class="note">长按下面这段复制，改掉不同意的；都同意就回「全部同意」。D1、D3 已定，不用回。</p><pre>D2 同意
