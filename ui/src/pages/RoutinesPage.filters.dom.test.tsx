@@ -41,7 +41,10 @@ vi.mock("../hooks/useSlowHint", () => ({ useSlowHint: () => false }));
 
 vi.mock("../api/client", () => ({
   ApiError: class ApiError extends Error {
-    constructor(public status: number, message: string) {
+    constructor(
+      public status: number,
+      message: string,
+    ) {
       super(message);
     }
   },
@@ -296,7 +299,8 @@ describe("RoutinesPage filters", () => {
 
   it("paginates inside the filter, sending the same status and directory", async () => {
     vi.mocked(listRoutines).mockImplementation(async (options) => {
-      if (options?.cursor === "p1") return page([routine("older", "Older paused", { enabled: false })]);
+      if (options?.cursor === "p1")
+        return page([routine("older", "Older paused", { enabled: false })]);
       if (options?.cwd === "/work/alpha" && options?.enabled === false) {
         return page([routine("first", "First paused", { enabled: false })], "p1", true);
       }
@@ -309,9 +313,7 @@ describe("RoutinesPage filters", () => {
     await screen.findByText("First paused");
     fireEvent.click(screen.getByRole("button", { name: "routines.loadMore" }));
     await screen.findByText("Older paused");
-    const call = vi
-      .mocked(listRoutines)
-      .mock.calls.find(([options]) => options?.cursor === "p1");
+    const call = vi.mocked(listRoutines).mock.calls.find(([options]) => options?.cursor === "p1");
     expect(call?.[1]).toBe("dev-a");
     expect(call?.[0]).toMatchObject({ enabled: false, cwd: "/work/alpha" });
     expect(call?.[0]).not.toHaveProperty("outcome");
@@ -343,9 +345,7 @@ describe("RoutinesPage filters", () => {
     );
     renderApp("/routines?device=dev-a&status=paused&cwd=/work/alpha");
     await screen.findByText("Paused alpha");
-    const call = vi
-      .mocked(listRoutines)
-      .mock.calls.find(([options]) => options?.enabled === false);
+    const call = vi.mocked(listRoutines).mock.calls.find(([options]) => options?.enabled === false);
     expect(call?.[0]).toMatchObject({ cwd: "/work/alpha" });
   });
 

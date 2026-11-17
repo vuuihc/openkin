@@ -236,8 +236,7 @@ describe("RoutineList", () => {
     matrix({ loadingMore: true }, false, true);
   });
 
-  const trigger = (label: string) =>
-    screen.getByRole("button", { name: new RegExp(`^${label}`) });
+  const trigger = (label: string) => screen.getByRole("button", { name: new RegExp(`^${label}`) });
 
   it("renders the status and directory filters on 全部", () => {
     setup();
@@ -285,9 +284,9 @@ describe("RoutineList", () => {
     expect(screen.getByText(t("routines.filterEmpty"))).toBeTruthy();
     expect(screen.getByText(t("routines.filterEmptyHint"))).toBeTruthy();
     expect(screen.queryByRole("button", { name: t("routines.createEntry") })).toBeNull();
-    expect(screen.getAllByRole("button", { name: t("routines.filterClear") }).length).toBeGreaterThan(
-      0,
-    );
+    expect(
+      screen.getAllByRole("button", { name: t("routines.filterClear") }).length,
+    ).toBeGreaterThan(0);
   });
 
   it("shows the plain empty state and create when no filter is set", () => {
