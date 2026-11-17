@@ -58,7 +58,14 @@ import {
   workspaceViewKey,
   workspaceViewFileBytesURL,
 } from "./workspaceView";
-import { DelimitedTablePane, DownloadPreview, ImagePreview } from "./FilePreview";
+import {
+  DelimitedTablePane,
+  DownloadPreview,
+  HtmlPreviewPane,
+  HtmlViewToggle,
+  ImagePreview,
+} from "./FilePreview";
+import { isHtmlPath } from "./htmlPreview";
 import { previewKind, workspaceErrorMessage } from "./workspacePreview";
 import { lensForPick } from "../../lib/workspaceLens";
 import { useAppStore } from "../../store/appStore";
@@ -295,6 +302,9 @@ export default function WorkspacePanel({
   // A table is a reading view; the source is one click away, and that click is
   // the whole state. Reset by opening another file or place.
   const [tableAsCode, setTableAsCode] = useState(false);
+  // The same one-click state for an HTML file: its page, or its source. Reset
+  // with the table's, so opening another file starts at the page again.
+  const [htmlAsCode, setHtmlAsCode] = useState(false);
   // Reopening a file is a request to look again. The text read answers by
   // fetching, but an image or a download fetches in its own effect, so it needs
   // something that changes even when the path does not.
@@ -544,6 +554,7 @@ export default function WorkspacePanel({
       const reqID = ++requestRef.current;
       setSelectedPath(path);
       setTableAsCode(false);
+      setHtmlAsCode(false);
       // Every way into a file ends here — the change list, the tree, quick-open,
       // the changed-files bar. A phone shows the file from now on, including
       // the path this refuses: the refusal is the viewer's answer and belongs
@@ -1166,52 +1177,81 @@ export default function WorkspacePanel({
                 truncated={file?.truncated ?? false}
                 onShowCode={() => setTableAsCode(true)}
               />
+            ) : selectedPath && preview === "text" && isHtmlPath(selectedPath) && !htmlAsCode ? (
+              <HtmlPreviewPane
+                path={selectedPath}
+                content={file?.content ?? null}
+                size={file?.size ?? null}
+                openRoot={normalizeFileResponse(file)?.root || cwd}
+                loading={loading}
+                error={error}
+                truncated={file?.truncated ?? false}
+                onShowCode={() => setHtmlAsCode(true)}
+              />
             ) : selectedPath ? (
-              <Suspense fallback={<ViewerLoading />}>
-                <CodeViewer
-                  path={selectedPath}
-                  file={normalizeFileResponse(file)}
-                  loading={loading}
-                  error={error}
-                  diff={enrichedDiff}
-                  cwd={cwd}
-                  taskId={taskId}
-                  workspaceId={
-                    workspaceView.kind === "generation" ? workspaceView.workspaceId : null
-                  }
-                  editable={workspaceView.editable}
-                  onSaved={(updated) => setFile(updated)}
-                  reviewActions={workspaceView.editable && reviewActions && Boolean(selectedPath)}
-                  // While comments are queued the tray's send is the surface's
-                  // one filled action; keep steps back to a bordered peer.
-                  reviewPrimary={diffComments.length === 0}
-                  actionsBusy={actionsBusy}
-                  onKeep={() => {
-                    if (!selectedPath) return;
-                    setDismissedPaths((prev) => {
-                      const next = new Set(prev);
-                      next.add(selectedPath);
-                      return next;
-                    });
-                  }}
-                  onDiscard={() => {
-                    if (!selectedPath) return;
-                    setDismissedPaths((prev) => {
-                      const next = new Set(prev);
-                      next.add(selectedPath);
-                      return next;
-                    });
-                  }}
-                  onCommentLine={(anchor) => {
-                    lastDiffLineRef.current = anchor.line;
-                    setCommentTarget(anchor);
-                    setCommentsCollapsed(false);
-                  }}
-                  comments={diffComments}
-                  onCommentsReanchored={reanchorCommentsForViewer}
-                  focusLine={commentFocus}
-                />
-              </Suspense>
+              <>
+                {preview === "text" && isHtmlPath(selectedPath) && (
+                  // The same left-aligned pill as the preview's header, beside
+                  // CodeViewer rather than a bordered bar of its own: on a phone
+                  // a third divider above the editor's header read as one more
+                  // stacked bar before the first line of code.
+                  <div className="flex-none px-3 pt-2">
+                    <HtmlViewToggle
+                      view="code"
+                      onChange={(view) => setHtmlAsCode(view === "code")}
+                    />
+                  </div>
+                )}
+                <div className="flex-1 min-h-0 min-w-0">
+                  <Suspense fallback={<ViewerLoading />}>
+                    <CodeViewer
+                      path={selectedPath}
+                      file={normalizeFileResponse(file)}
+                      loading={loading}
+                      error={error}
+                      diff={enrichedDiff}
+                      cwd={cwd}
+                      taskId={taskId}
+                      workspaceId={
+                        workspaceView.kind === "generation" ? workspaceView.workspaceId : null
+                      }
+                      editable={workspaceView.editable}
+                      onSaved={(updated) => setFile(updated)}
+                      reviewActions={
+                        workspaceView.editable && reviewActions && Boolean(selectedPath)
+                      }
+                      // While comments are queued the tray's send is the surface's
+                      // one filled action; keep steps back to a bordered peer.
+                      reviewPrimary={diffComments.length === 0}
+                      actionsBusy={actionsBusy}
+                      onKeep={() => {
+                        if (!selectedPath) return;
+                        setDismissedPaths((prev) => {
+                          const next = new Set(prev);
+                          next.add(selectedPath);
+                          return next;
+                        });
+                      }}
+                      onDiscard={() => {
+                        if (!selectedPath) return;
+                        setDismissedPaths((prev) => {
+                          const next = new Set(prev);
+                          next.add(selectedPath);
+                          return next;
+                        });
+                      }}
+                      onCommentLine={(anchor) => {
+                        lastDiffLineRef.current = anchor.line;
+                        setCommentTarget(anchor);
+                        setCommentsCollapsed(false);
+                      }}
+                      comments={diffComments}
+                      onCommentsReanchored={reanchorCommentsForViewer}
+                      focusLine={commentFocus}
+                    />
+                  </Suspense>
+                </div>
+              </>
             ) : (
               // Rendering the empty state here rather than inside CodeViewer keeps
               // the editor chunk off the wire for the common case of opening the
