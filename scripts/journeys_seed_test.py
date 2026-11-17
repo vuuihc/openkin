@@ -12,15 +12,19 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(SCRIPTS)
 SEED = os.path.join(SCRIPTS, "journeys_seed.py")
+JOURNEYS_SPEC = os.path.join(ROOT, "rsi", "runtime", "ux", "journeys.json")
 
 sys.path.insert(0, SCRIPTS)
 import journeys_seed  # noqa: E402
@@ -303,6 +307,9 @@ class SeedTest(unittest.TestCase):
             # YOLO keeps the fake from ever being asked for an approval card.
             self.assertEqual(body.get("agent"), "claude-code", body)
             self.assertEqual(body.get("permission_mode"), "yolo", body)
+            # A clean git root would be isolated in a daemon worktree by auto
+            # mode, where the fake agent's seed-root guard refuses to write.
+            self.assertEqual(body.get("workspace_mode"), "shared", body)
         self.assertEqual(
             [body.get("cwd") for body in posts],
             [proj["roots"][0] for proj in self.stub.projects],
@@ -483,6 +490,169 @@ class SeedTest(unittest.TestCase):
             [os.path.basename(body["cwd"]) for body in self.task_posts()],
             ["alpha", "beta", "gamma"],
         )
+
+
+def git(root: str, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, timeout=30)
+
+
+def make_repo(root: str, notes: str = "# notes\n\n- Seeded for the journey walk.\n") -> None:
+    """A committed notes.md, with an inline identity so no global config leaks in."""
+    os.makedirs(root, exist_ok=True)
+    with open(os.path.join(root, "notes.md"), "w", encoding="utf-8") as fh:
+        fh.write(notes)
+    commands = (
+        ("init", "-q"),
+        ("add", "notes.md"),
+        (
+            "-c", "user.name=Kin journey seed",
+            "-c", "user.email=owner@example.com",
+            "-c", "commit.gpgsign=false",
+            "commit", "-qm", "seed: notes",
+        ),
+    )
+    for argv in commands:
+        done = git(root, *argv)
+        if done.returncode != 0:
+            raise AssertionError(f"git {' '.join(argv)} failed in {root}: {done.stderr}")
+
+
+def run_fake_agent(cwd: str, prompt: str) -> subprocess.CompletedProcess[str]:
+    """The real fake agent, started exactly the way the adapter starts claude."""
+    env = dict(os.environ)
+    # cwd= moves the process but leaves the inherited PWD variable alone (the
+    # daemon passes its own environment through), so the guard must read the
+    # real directory, not this value. Deliberately stale to prove it does.
+    env["PWD"] = "/nope/not-a-seed-root"
+    return subprocess.run(
+        [FAKE_AGENT, "-p", prompt, "--output-format", "stream-json", "--verbose"],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=10,
+    )
+
+
+class HarnessContractTest(unittest.TestCase):
+    """The seed, the fake agent and the walk spec must agree, on disk."""
+
+    def notes(self, root: str) -> str:
+        with open(os.path.join(root, "notes.md"), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_seed_roots_are_clean_git_repos(self) -> None:
+        base = journeys_seed._seed_roots()
+        self.addCleanup(shutil.rmtree, base, True)
+        self.assertTrue(os.path.basename(base).startswith("kin-journeys-seed-"), base)
+        for name in ("alpha", "beta", "gamma"):
+            root = os.path.join(base, name)
+            top = git(root, "rev-parse", "--show-toplevel")
+            self.assertEqual(top.returncode, 0, top.stderr)
+            self.assertEqual(os.path.realpath(top.stdout.strip()), os.path.realpath(root))
+            tracked = git(root, "ls-files", "--error-unmatch", "notes.md")
+            self.assertEqual(tracked.returncode, 0, tracked.stderr)
+            self.assertTrue(self.notes(root).strip())
+            status = git(root, "status", "--porcelain")
+            self.assertEqual(status.returncode, 0, status.stderr)
+            self.assertEqual(status.stdout, "", f"{root} is not clean")
+
+    def test_fake_agent_changes_a_tracked_file_in_a_seed_root(self) -> None:
+        base = tempfile.mkdtemp(prefix="kin-journeys-seed-test-")
+        self.addCleanup(shutil.rmtree, base, True)
+        root = os.path.join(base, "alpha")
+        make_repo(root)
+        result = run_fake_agent(root, "[seed] change: summarise the three things worth doing today.")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+        self.assertTrue(lines)
+        self.assertEqual(lines[-1]["type"], "result")
+        status = git(root, "status", "--porcelain")
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn("notes.md", status.stdout)
+        # One modified tracked file, nothing new and untracked.
+        self.assertEqual(len(status.stdout.splitlines()), 1, status.stdout)
+
+    def test_fake_agent_change_is_idempotent(self) -> None:
+        base = tempfile.mkdtemp(prefix="kin-journeys-seed-test-")
+        self.addCleanup(shutil.rmtree, base, True)
+        root = os.path.join(base, "alpha")
+        make_repo(root)
+        prompt = "[seed] change: summarise the three things worth doing today."
+        for _ in range(2):
+            result = run_fake_agent(root, prompt)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        text = self.notes(root)
+        sentinel = journeys_seed.CHANGE_SENTINEL
+        self.assertEqual(text.count(sentinel), 1, text)
+        status = git(root, "status", "--porcelain")
+        self.assertEqual(len(status.stdout.splitlines()), 1, status.stdout)
+        self.assertIn("notes.md", status.stdout)
+
+    def test_fake_agent_ignores_the_marker_outside_a_seed_root(self) -> None:
+        # The binary is chosen by path, so the guard must hold even when a
+        # caller points it at a repository that is not a throwaway seed root.
+        base = tempfile.mkdtemp(prefix="kin-journeys-ordinary-")
+        self.addCleanup(shutil.rmtree, base, True)
+        root = os.path.join(base, "alpha")
+        make_repo(root)
+        before = self.notes(root)
+        result = run_fake_agent(root, "[seed] change: summarise the three things worth doing today.")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(git(root, "status", "--porcelain").stdout, "")
+        self.assertEqual(self.notes(root), before)
+
+    def test_plain_prompt_still_writes_nothing(self) -> None:
+        base = tempfile.mkdtemp(prefix="kin-journeys-seed-test-")
+        self.addCleanup(shutil.rmtree, base, True)
+        root = os.path.join(base, "alpha")
+        make_repo(root)
+        before = self.notes(root)
+        result = run_fake_agent(root, "[seed] hello")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(git(root, "status", "--porcelain").stdout, "")
+        self.assertEqual(self.notes(root), before)
+
+    def test_one_conversation_requests_a_workspace_change(self) -> None:
+        marked = [spec for spec in journeys_seed.CONVERSATIONS if journeys_seed.CHANGE_MARKER in spec["prompt"]]
+        self.assertEqual(len(marked), 1, [spec["title"] for spec in marked])
+        # Idempotency matches by title, so the title must not move with the prompt.
+        self.assertEqual(marked[0]["title"], "[seed] Morning planning")
+        for spec in journeys_seed.CONVERSATIONS:
+            if spec is not marked[0]:
+                self.assertNotIn(journeys_seed.CHANGE_MARKER, spec["prompt"])
+
+    def test_j2_opens_changes_before_leaving_the_conversation(self) -> None:
+        with open(JOURNEYS_SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        steps = spec["journeys"]["J2"]["steps"]
+        panel = next((i for i, step in enumerate(steps) if step[:2] == ["shot", "workspace-panel"]), -1)
+        new_chat = next((i for i, step in enumerate(steps) if step[:2] == ["goto", "/new"]), -1)
+        self.assertGreaterEqual(panel, 0, steps)
+        self.assertGreaterEqual(new_chat, 0, steps)
+        # The regression: the workspace click used to run after `goto /new`,
+        # where no conversation (and so no workspace) exists.
+        self.assertLess(panel, new_chat, steps)
+        changes = [
+            i
+            for i, step in enumerate(steps)
+            if step[0] == "click" and re.search(r"变更|文件|Changes|Files", step[1])
+        ]
+        self.assertTrue(changes, steps)
+        self.assertLess(changes[0], panel, steps)
+        diff = next((i for i, step in enumerate(steps) if step[:2] == ["shot", "workspace-diff"]), -1)
+        self.assertGreater(diff, panel, steps)
+        file_click = next(
+            (i for i, step in enumerate(steps) if step[0] == "click" and "notes" in step[1]), -1
+        )
+        self.assertGreater(file_click, panel, steps)
+        self.assertLess(file_click, diff, steps)
+        conversation = next((i for i, step in enumerate(steps) if step[:2] == ["shot", "conversation"]), -1)
+        self.assertGreaterEqual(conversation, 0, steps)
+        self.assertLess(conversation, changes[0], steps)
+        # Every selector stays optional: an empty daemon must skip, not fail.
+        for index in (changes[0], file_click):
+            self.assertTrue(steps[index][1].startswith("?"), steps[index])
 
 
 if __name__ == "__main__":

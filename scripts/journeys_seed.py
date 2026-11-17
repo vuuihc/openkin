@@ -8,6 +8,11 @@ the token is never printed. A state the API cannot produce without launching a
 real agent CLI is reported as `skip <state>: <reason>` and does not fail the
 walk — ux-walk.sh only treats a non-zero exit as a seed failure.
 
+Each project root is a clean git repository with one committed file, and the
+`conversation-created` prompt carries CHANGE_MARKER: the fake agent appends one
+line to that tracked file, so the walk can open a real workspace diff instead
+of an empty Changes bar.
+
 Conversations are seedable because the harness (rsi/runtime/ux-walk.sh and
 scripts/journeys-smoke.sh) puts scripts/journeys_fake_agent first on the
 throwaway daemon's PATH: the seed creates one succeeded, one failed and one
@@ -26,6 +31,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -34,6 +40,16 @@ import urllib.parse
 import urllib.request
 
 PREFIX = "[seed] "
+# The literal the fake agent looks for; a prompt carrying it asks for one
+# modified tracked file, which is the diff the J2 walk opens.
+CHANGE_MARKER = "[seed] change"
+# The exact line the fake agent appends to notes.md. The shell fake carries the
+# same text; a re-run finds it and leaves the file alone.
+CHANGE_SENTINEL = "- [seed] change: the journey walk reads this line as a real diff."
+# The fake agent only writes inside a root whose path carries this prefix, and
+# scripts/journeys_fake_agent/claude hard-codes the same match.
+SEED_ROOT_PREFIX = "kin-journeys-seed-"
+SEED_ROOT_NAMES = ("alpha", "beta", "gamma")
 # The harness directory that holds the fake claude. The seed only creates
 # conversations when the daemon resolves its `claude` binary inside it.
 FAKE_AGENT_DIRNAME = "journeys_fake_agent"
@@ -85,7 +101,8 @@ CONVERSATIONS = (
     {
         "slug": "conversation-created",
         "title": PREFIX + "Morning planning",
-        "prompt": PREFIX + "Summarise the three things worth doing today.",
+        # CHANGE_MARKER makes the fake agent leave one modified tracked file.
+        "prompt": PREFIX + "change: summarise the three things worth doing today.",
         "expect": ("succeeded",),
         "archive": False,
     },
@@ -199,11 +216,48 @@ class Report:
         print(f"summary: created {self.created_count}, existing {self.existing_count}, skipped {self.skipped_count}{suffix}")
 
 
+def _git(root: str, *args: str) -> None:
+    """Run git in root. Missing git or a failed command is a seed failure."""
+    try:
+        done = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=30)
+    except FileNotFoundError:
+        raise SeedError("git is not installed; the seeded roots must be git repositories so the walk can open a real diff") from None
+    except subprocess.TimeoutExpired:
+        raise SeedError(f"git {' '.join(args)} did not finish within 30s in {root}") from None
+    if done.returncode != 0:
+        detail = " ".join((done.stderr or done.stdout or "").split())[:200]
+        raise SeedError(f"git {' '.join(args)} failed in {root}" + (f": {detail}" if detail else ""))
+
+
 def _seed_roots() -> str:
-    """Placeholder roots under a fresh temp dir — never a real repository."""
-    base = tempfile.mkdtemp(prefix="kin-journeys-seed-")
-    for name in ("alpha", "beta", "gamma"):
-        os.makedirs(os.path.join(base, name), exist_ok=True)
+    """Fresh temp roots, each a clean git repository with a committed notes.md.
+
+    Never a real repository: the fake agent appends its one diff line only
+    inside a path carrying SEED_ROOT_PREFIX, and this is the only place that
+    prefix is created. A missing git or a failed command raises SeedError, so
+    the walk reports a seed failure instead of a half-prepared root.
+    """
+    base = tempfile.mkdtemp(prefix=SEED_ROOT_PREFIX)
+    for name in SEED_ROOT_NAMES:
+        root = os.path.join(base, name)
+        os.makedirs(root, exist_ok=True)
+        with open(os.path.join(root, "notes.md"), "w", encoding="utf-8") as fh:
+            fh.write(
+                f"# {name} notes\n\n"
+                "- Seeded for the journey walk.\n"
+                "- The walk opens the diff the fake agent leaves in this file.\n"
+            )
+        _git(root, "init", "-q")
+        _git(root, "add", "notes.md")
+        # Inline identity and no signing: the seed must not depend on, or
+        # disturb, whatever git config the machine happens to carry.
+        _git(
+            root,
+            "-c", "user.name=Kin journey seed",
+            "-c", "user.email=owner@example.com",
+            "-c", "commit.gpgsign=false",
+            "commit", "-qm", f"seed: {name} notes",
+        )
     return base
 
 
@@ -495,6 +549,11 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
                 "title": title,
                 # YOLO: the fake is never asked for an approval card.
                 "permission_mode": "yolo",
+                # The seeded root is a clean git repo, which auto mode would
+                # isolate in a daemon-owned worktree. The fake agent only
+                # writes inside the `kin-journeys-seed-` root, so shared mode
+                # keeps the turn there and the walk sees the real diff.
+                "workspace_mode": "shared",
             },
         )
         if not (status in (200, 201) and isinstance(body, dict) and body.get("id")):
