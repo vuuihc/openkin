@@ -520,7 +520,7 @@
     },
     {
       "id": "KIN-RESULT-003",
-      "state": "approved",
+      "state": "covered",
       "priority": "P0",
       "journeys": [
         "J2",
@@ -537,7 +537,8 @@
       "tests": [
         "ui/src/components/workspace/diffCommentAnchor.test.ts",
         "ui/src/components/workspace/DiffCommentGutter.dom.test.tsx",
-        "ui/src/components/workspace/DiffCommentsTray.dom.test.tsx"
+        "ui/src/components/workspace/DiffCommentsTray.dom.test.tsx",
+        "ui/src/components/workspace/WorkspacePanel.comments.dom.test.tsx"
       ],
       "blockedReason": null
     }

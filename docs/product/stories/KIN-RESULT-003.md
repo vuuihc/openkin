@@ -1,6 +1,6 @@
 # KIN-RESULT-003 · 对改动逐行评论并发回对话
 
-状态：approved
+状态：covered
 优先级：P0
 旅程：J2、J1
 归属面：`IA.md`「对话详情 → 文件工作区」
@@ -134,3 +134,4 @@ diff 已经能看：`WorkspacePanel` 的「改动 / 文件」标签里有文件�
 ## 变更记录
 
 - 2026-11-17 创建；按 CEO 已定的五条产品判断收窄为评论回路，Git 与 PR 留给另一条意图。
+- 2026-11-18 · 覆盖：#181 475ccc8a + #200 b1280989 交付；补 WorkspacePanel.comments.dom.test.tsx（一条消息、失败保留、按对话归属）
