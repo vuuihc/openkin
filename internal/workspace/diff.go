@@ -366,13 +366,109 @@ func (m *Manager) ListLiveChanges(ctx context.Context, meta Metadata) ([]Change,
 	if m.git == nil {
 		return nil, fmt.Errorf("git runner not available")
 	}
+	return m.listChangesSince(ctx, meta, "HEAD")
+}
 
+// ListBranchChanges returns what a checkout has that its base branch does not:
+// the working tree, committed and uncommitted, measured from the merge base of
+// HEAD and the branch the checkout is based on.
+//
+// The base is the current branch's upstream when it has one, else the remote's
+// default branch (origin/HEAD). An upstream that is the branch's own pushed
+// counterpart is ignored: Kin's Publish creates that shape, and measuring from
+// it would empty the list at the first push. A checkout sitting exactly on its
+// base has HEAD as the merge base, so the answer is ListLiveChanges' answer.
+// Local commits made on the base branch itself are intentionally in the list:
+// they are unreviewed work too.
+//
+// Every step falls back to HEAD, so a checkout with nothing recorded about its
+// base — and a directory git only half-knows — keeps the answer it has today
+// rather than becoming an error. A detached checkout is one of those only when
+// no origin/HEAD was ever recorded; with one, the remote's default is the base
+// like any other.
+func (m *Manager) ListBranchChanges(ctx context.Context, meta Metadata) ([]Change, error) {
+	if m == nil {
+		return nil, fmt.Errorf("workspace manager is nil")
+	}
+	if m.git == nil {
+		return nil, fmt.Errorf("git runner not available")
+	}
+	return m.listChangesSince(ctx, meta, m.changeBase(ctx, meta))
+}
+
+// changeBase resolves the revision a branch's change list is measured from: the
+// merge base of HEAD and the ref the checkout is based on, or HEAD when there is
+// no ref to find.
+//
+// The order is most specific first. The current branch's upstream is what the
+// person configured this checkout to be based on; a feature branch tracking
+// origin/main is based on that, not on the remote's default. An upstream that
+// names the branch's own remote counterpart (refs/remotes/<remote>/<current>)
+// is not a base — the branch tracks itself — so it is skipped. Without an
+// upstream, the remote's default branch (origin/HEAD) is the next best answer.
+// Every lookup and the merge-base itself fall back to HEAD rather than
+// returning an error, so a checkout with no recorded base, a repository with no
+// remote, and a history with no common ancestor all keep the answer they have
+// today.
+func (m *Manager) changeBase(ctx context.Context, meta Metadata) string {
+	hooksDir := m.emptyHooksDir()
+	run := func(args ...string) string {
+		out, err := m.git.Run(ctx, meta.Root, nil, ControlStdoutLimit,
+			append([]string{"-c", "core.hooksPath=" + hooksDir}, args...)...)
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(out))
+	}
+
+	// The upstream is the most specific answer, except when it is the branch's
+	// own remote counterpart: Kin's Publish pushes with --set-upstream, so a
+	// published branch tracks itself, its merge base is HEAD, and the list
+	// would empty the moment the work was pushed — every later round showing
+	// only what is still unpushed. That upstream says nothing about where the
+	// branch forked, so it is skipped like a checkout with none.
+	base := run("rev-parse", "--symbolic-full-name", "@{upstream}")
+	if base != "" {
+		if cur := run("symbolic-ref", "--quiet", "HEAD"); cur != "" &&
+			strings.HasPrefix(base, "refs/remotes/") &&
+			strings.HasSuffix(base, "/"+strings.TrimPrefix(cur, "refs/heads/")) {
+			base = ""
+		}
+	}
+	if base == "" {
+		base = run("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+	}
+	if base == "" {
+		base = run("rev-parse", "--verify", "--quiet", "origin/HEAD")
+	}
+	// A ref name is repository content, and it is about to become an argument:
+	// an option-looking one is not a base, it is a reason to fall back.
+	if base == "" || strings.HasPrefix(base, "-") {
+		return "HEAD"
+	}
+	out, err := m.git.Run(ctx, meta.Root, nil, ControlStdoutLimit,
+		"-c", "core.hooksPath="+hooksDir, "merge-base", base, "HEAD")
+	if err != nil {
+		return "HEAD"
+	}
+	// merge-base prints one OID; taking the first field keeps a multi-line
+	// answer (criss-cross histories) from becoming an unparsable argument.
+	fields := strings.Fields(string(out))
+	if len(fields) == 0 || !validObjectID(fields[0]) {
+		return "HEAD"
+	}
+	return fields[0]
+}
+
+// listChangesSince is the change list measured from one revision: the tracked
+// work git says differs from it, plus the files git reports as untracked here.
+func (m *Manager) listChangesSince(ctx context.Context, meta Metadata, rev string) ([]Change, error) {
 	hooksDir := m.emptyHooksDir()
 
 	// Use --name-status for rename detection and basic status
 	out, err := m.git.Run(ctx, meta.Root, nil, PathListStdoutLimit,
 		"-c", "core.hooksPath="+hooksDir,
-		"diff", "--name-status", "--find-renames", "HEAD")
+		"diff", "--name-status", "--find-renames", rev)
 	if err != nil {
 		return nil, fmt.Errorf("list live changes: %w", err)
 	}
@@ -396,21 +492,37 @@ func (m *Manager) ListLiveChanges(ctx context.Context, meta Metadata) ([]Change,
 		}
 	}
 
-	// Get stat counts for modified files
-	for i, c := range changes {
+	// Get stat counts for modified files. One pass, keyed by path: a branch
+	// answer can carry a committed round's whole file list, and a process per
+	// file would make each refresh spawn one git per changed path. A clean tree
+	// — the common case for this route — has nothing to count and asks nothing;
+	// a failed pass leaves every count at zero, because the file list is the
+	// answer and the counts are decoration.
+	needsCounts := false
+	for _, c := range changes {
 		if c.Status == "modified" || c.Status == "added" {
-			statOut, err := m.git.Run(ctx, meta.Root, nil, ControlStdoutLimit,
-				"-c", "core.hooksPath="+hooksDir,
-				"diff", "--numstat", "HEAD", "--", c.Path)
-			if err == nil {
-				fields := strings.Fields(strings.TrimSpace(string(statOut)))
-				if len(fields) >= 2 {
-					if n, err := strconv.Atoi(fields[0]); err == nil {
-						changes[i].Additions = n
-					}
-					if n, err := strconv.Atoi(fields[1]); err == nil {
-						changes[i].Deletions = n
-					}
+			needsCounts = true
+			break
+		}
+	}
+	if needsCounts {
+		numstat, err := m.git.Run(ctx, meta.Root, nil, PathListStdoutLimit,
+			"-c", "core.hooksPath="+hooksDir,
+			"diff", "--numstat", "--no-renames", rev)
+		if err == nil {
+			// --no-renames keeps this keyed by the paths the status pass
+			// reported: a rename shows up as its deleted and added halves, so
+			// the rename entry itself keeps no counts rather than claiming the
+			// whole file was added.
+			counts := parseNumstat(string(numstat))
+			for i, c := range changes {
+				if c.Status != "modified" && c.Status != "added" {
+					continue
+				}
+				if count, ok := counts[c.Path]; ok {
+					changes[i].Additions = count.Additions
+					changes[i].Deletions = count.Deletions
+					changes[i].Binary = count.Binary
 				}
 			}
 		}
