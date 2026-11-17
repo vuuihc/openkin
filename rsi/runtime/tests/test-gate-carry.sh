@@ -276,6 +276,25 @@ test_carry_exits_the_land_loop_before_ci_state() {
     || fail "carry does not exit the land loop for CI to report on the next cycle"
 }
 
+# The queue-time carry has the same hazard: step 1 pushed the merged head, so seconds later the
+# step-6 land loop's ci_state would read an empty check list as green and could squash-merge the
+# carried head before CI ran. The success branch must record the carry, and the process must exit
+# before the land loop — mirroring the land-time carry pinned above.
+test_queue_carry_exits_before_the_land_loop() {
+  local setline guardline loopline
+  grep -A1 -F 'if queue_carry_step "$WT"' "$MERGE" | grep -qF 'QUEUE_CARRIED=1' \
+    || fail "the queue carry success branch does not set QUEUE_CARRIED=1"
+  setline="$(grep -nF 'QUEUE_CARRIED=1' "$MERGE" | head -1 | cut -d: -f1)"
+  guardline="$(grep -nF '${QUEUE_CARRIED:-0}' "$MERGE" | head -1 | cut -d: -f1)"
+  loopline="$(grep -nF 'for round in 1 2 3; do' "$MERGE" | head -1 | cut -d: -f1)"
+  [ -n "$guardline" ] || fail "no QUEUE_CARRIED guard exits before the step-6 land loop"
+  [ -n "$loopline" ] || fail "no step-6 land loop in $MERGE"
+  [ "$setline" -lt "$guardline" ] && [ "$guardline" -lt "$loopline" ] \
+    || fail "the queue-carry exit ($guardline) is not between the carry ($setline) and the land loop ($loopline)"
+  sed -n "${guardline},${loopline}p" "$MERGE" | grep -qF 'exit 0' \
+    || fail "a queue-carried gate falls through into the step-6 land loop"
+}
+
 # --- queue-time carry cases --------------------------------------------------------------------
 
 # The motivating case: step 1 merged a disjoint main move into a PR whose gate was verified on the
@@ -396,6 +415,7 @@ run test_regates_when_main_moves_the_shared_go_api
 run test_regates_when_the_ui_safety_step_fails
 run test_keeps_the_non_code_carry
 run test_carry_exits_the_land_loop_before_ci_state
+run test_queue_carry_exits_before_the_land_loop
 run test_queue_carries_disjoint_main_move
 run test_queue_regates_when_main_moves_the_prs_own_file
 run test_queue_regates_when_main_moves_a_shared_surface

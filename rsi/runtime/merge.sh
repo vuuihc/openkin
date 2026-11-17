@@ -518,6 +518,7 @@ CH="$($GIT -C "$WT" -c core.fileMode=false diff --no-renames --raw origin/main..
 # skips the gate body, while CI still reports on that head before the land loop merges.
 QUEUE_INCOMING="$($GIT -C "$WT" diff --name-only "$OLDBASE" origin/main 2>/dev/null)"
 if queue_carry_step "$WT" "$OLDHEAD" "$QUEUE_INCOMING" "$SHA" "$CH" "$V" "$RV"; then
+  QUEUE_CARRIED=1
   say "#$N $SLUG: gate carried across the main move to ${SHA:0:8} ($QUEUE_CARRY_REASON)"
 elif [ "$OLDHEAD" != "$SHA" ]; then
   say "#$N $SLUG: queue-time carry declined: $QUEUE_CARRY_REASON"
@@ -835,6 +836,16 @@ fi
 
 # 5. NO_MERGE honours
 if [ -e "$STATE/NO_MERGE" ]; then say "#$N $SLUG: verified, NO_MERGE set -> not merging"; exit 0; fi
+
+# A queue-time carry moved the gate to the merged head this process pushed in step 1; CI cannot
+# have reported on that head yet and ci_state reads an empty check list as green, so continuing
+# into the land loop could squash-merge it before CI ever ran. Exit for the same reason the
+# land-time carry does: the carried gate and DH-keyed review cache make the next dispatch cycle
+# (launchd, 600s) cheap, and it lands only after CI reported.
+if [ "${QUEUE_CARRIED:-0}" = 1 ]; then
+  say "#$N $SLUG: gate carried to ${SHA:0:8}; landing deferred one cycle so CI reports on the merged head first"
+  exit 0
+fi
 
 # 6. CI, then land under the land lock (serialised); if main moved while we verified: sync, carry the gate forward only when
 #    the incoming main changes touch no code paths, otherwise hand back for a fresh gate (review stays valid: same PR diff).
