@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -39,6 +39,7 @@ import {
 import { PageListSkeleton, SlowConnectHint } from "../components/Skeleton";
 import Button from "../components/ui/Button";
 import SheetSelect from "../components/ui/SheetSelect";
+import { getKeyedScroll, setKeyedScroll } from "../lib/sessionScroll";
 import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { useMachines } from "../hooks/useMachines";
 import { useRoutinePreview } from "../hooks/useRoutinePreview";
@@ -277,6 +278,13 @@ export default function RoutinesPage() {
   const editSeq = useRef(0);
   const formRef = useRef<HTMLElement | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
+  // The list is this page's scroll container, and the page unmounts whenever a
+  // routine or another area opens. Keep where the reader was, per machine.
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const scrollRestored = useRef(false);
+  // Set when this mount already moved the page to the form; the saved list
+  // offset must not then pull it back.
+  const formScrolled = useRef(false);
   const toggleRef = useRef<HTMLButtonElement | null>(null);
   // The create draft an edit temporarily took over (see `closeForm`).
   const createDraftRef = useRef<FormDraft | null>(null);
@@ -367,6 +375,31 @@ export default function RoutinesPage() {
       if (seq === loadSeq.current) setLoading(false);
     }
   }, [tr, routineQuery, deviceId, machinesLoading, status, cwdFilter]);
+
+  // Save the list offset as the reader scrolls, under the machine that is on
+  // screen at that moment. A switch therefore never writes one machine's place
+  // under another machine's key.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const save = () => setKeyedScroll(`routines:${deviceRef.current}`, el.scrollTop);
+    el.addEventListener("scroll", save, { passive: true });
+    return () => el.removeEventListener("scroll", save);
+  }, []);
+
+  // Restore once, after the first list read and before paint: the loading
+  // skeleton is much shorter than the list, so restoring earlier would clamp
+  // the offset to the skeleton's bottom.
+  useLayoutEffect(() => {
+    if (loading || scrollRestored.current) return;
+    scrollRestored.current = true;
+    if (formScrolled.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const saved = getKeyedScroll(`routines:${deviceId}`);
+    if (saved === null || saved <= 0) return;
+    el.scrollTop = Math.min(saved, Math.max(0, el.scrollHeight - el.clientHeight));
+  }, [loading, deviceId]);
 
   const loadMoreRuns = async () => {
     if (!runsCursor || !runsHasMore || loadingMoreRuns || runs.length >= ROUTINE_HISTORY_MAX)
@@ -1019,6 +1052,7 @@ export default function RoutinesPage() {
       formFocusFrame.current = null;
       const active = document.activeElement;
       if (scrollToForm) {
+        formScrolled.current = true;
         const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
         formRef.current?.scrollIntoView?.({
           block: "start",
@@ -1309,7 +1343,7 @@ export default function RoutinesPage() {
   };
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden kin-scroll">
+    <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden kin-scroll">
       <div className="mx-auto max-w-5xl px-4 py-6 md:px-6">
         <div className="flex items-start justify-between gap-3">
           <div className="hidden md:block">

@@ -1,0 +1,300 @@
+// @vitest-environment jsdom
+// TASTE 15 / GOAL F4: opening a routine or visiting another area unmounts
+// this page. The list the reader had scrolled halfway down must come back at
+// the same place, and each machine keeps its own place.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider } from "react-router-dom";
+import RoutinesPage from "./RoutinesPage";
+import { setLocale } from "../i18n";
+import { listRoutineRuns, listRoutines, type Routine } from "../api/client";
+import { setKeyedScroll } from "../lib/sessionScroll";
+import type { WSMessage } from "../api/contract";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  pushToast: vi.fn(),
+  reconnectGen: 0,
+  machines: [] as Array<{
+    isSelf: boolean;
+    id: string;
+    label: string;
+    online: boolean;
+    roots: unknown[];
+  }>,
+  loading: false,
+  failed: false,
+  wsListeners: new Set<(message: WSMessage) => void>(),
+}));
+
+vi.mock("../hooks/useMachines", () => ({
+  useMachines: () => ({
+    machines: mocks.machines,
+    agents: [],
+    loading: mocks.loading,
+    failed: mocks.failed,
+    refresh: vi.fn(),
+  }),
+}));
+
+vi.mock("../hooks/useRoutinePreview", () => ({ useRoutinePreview: () => null }));
+vi.mock("../hooks/useSlowHint", () => ({ useSlowHint: () => false }));
+
+vi.mock("../api/client", () => ({
+  ApiError: class ApiError extends Error {
+    constructor(
+      public status: number,
+      message: string,
+    ) {
+      super(message);
+    }
+  },
+  createRoutine: vi.fn(),
+  deleteRoutine: vi.fn(),
+  getRoutine: vi.fn(),
+  isAuthenticated: () => true,
+  isTerminal: () => true,
+  listRoutineRuns: vi.fn(async () => ({ routines: [], runs: [], has_more: false })),
+  listRoutines: vi.fn(async () => ({ routines: [], next_cursor: "", has_more: false })),
+  listTasks: vi.fn(async () => []),
+  markAllRoutineRunsRead: vi.fn(),
+  markRoutineRunRead: vi.fn(),
+  patchRoutine: vi.fn(),
+  runRoutineNow: vi.fn(),
+}));
+
+vi.mock("../store/appStore", () => ({
+  subscribeWS: (listener: (message: WSMessage) => void) => {
+    mocks.wsListeners.add(listener);
+    return () => mocks.wsListeners.delete(listener);
+  },
+  useAppStore: (selector: (s: unknown) => unknown) =>
+    selector({
+      pushToast: mocks.pushToast,
+      reconnectGen: mocks.reconnectGen,
+      auth: { status: "ok" },
+    }),
+}));
+
+vi.mock("../i18n/react", () => {
+  const translate = (key: string) => key;
+  return { useT: () => translate };
+});
+
+vi.mock("../lib/devices", () => ({
+  catalogFor: () => [],
+  isRemoteDevice: (id: string) => id !== "self" && !!id,
+  pathWithin: () => false,
+}));
+
+vi.mock("../lib/routineRecurrence", () => ({
+  describeRoutineRule: () => "",
+  localTimeZone: () => "UTC",
+  parseRoutineRule: () => null,
+  serializeRoutineRule: () => null,
+}));
+
+vi.mock("../lib/routineHistory", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/routineHistory")>()),
+  ROUTINE_HISTORY_MAX: 100,
+}));
+
+vi.mock("../components/Skeleton", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../components/Skeleton")>()),
+  SlowConnectHint: () => null,
+}));
+
+vi.mock("../lib/routineEdit", () => ({
+  routineForm: vi.fn(),
+  routinePatch: vi.fn(),
+  routineTitle: () => "",
+}));
+
+vi.mock("../lib/routineStatus", () => ({ routineStatusLabel: () => "" }));
+
+vi.mock("../lib/agentModels", () => ({ modelsForAgent: () => [] }));
+
+vi.mock("../lib/permissionMode", () => ({
+  getDraftPermissionMode: () => "default",
+  normalizePermissionMode: (mode: string) => mode,
+}));
+
+vi.mock("../components/chat/CwdPicker", () => ({
+  default: (props: { cwd: string; onChange: (value: string) => void }) => (
+    <input
+      aria-label="cwd"
+      value={props.cwd}
+      onChange={(event) => props.onChange(event.target.value)}
+    />
+  ),
+}));
+vi.mock("../components/chat/ModelPicker", () => ({ default: () => null }));
+vi.mock("../components/chat/PermissionModePicker", () => ({ default: () => null }));
+vi.mock("../components/routine/RoutineScheduleFields", () => ({
+  default: () => null,
+  defaultNextRunLocal: () => "",
+  parseLocalDateTime: () => null,
+  toLocalInputValue: () => "",
+}));
+vi.mock("../components/ui/SheetSelect", () => ({
+  default: (props: { label: string; options: Array<{ id: string; label: string }> }) => (
+    <div data-testid={props.label === "machine.title" ? "machine-picker" : "filter-picker"} />
+  ),
+}));
+
+// jsdom has no layout and stores scrollTop without clamping, so a browser
+// would hide any bug in the page's own clamp. Pin the measured heights and
+// leave the setter raw: what the tests read back is exactly what the page
+// asked for. A new element (a remount) starts at 0, so a restored offset can
+// only come from the page itself.
+const VIEWPORT = 600;
+let contentHeight = 2000;
+const tops = new WeakMap<Element, number>();
+Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+  configurable: true,
+  get: () => contentHeight,
+});
+Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+  configurable: true,
+  get: () => VIEWPORT,
+});
+Object.defineProperty(HTMLElement.prototype, "scrollTop", {
+  configurable: true,
+  get(this: HTMLElement) {
+    return tops.get(this) ?? 0;
+  },
+  set(this: HTMLElement, value: number) {
+    tops.set(this, Number(value) || 0);
+  },
+});
+
+// jsdom rewrites import.meta.url to an http URL, so resolve from the package
+// root Vitest runs in (ui/).
+const SOURCE = readFileSync(join(process.cwd(), "src/pages/RoutinesPage.tsx"), "utf8");
+
+function renderApp(initial: string) {
+  const router = createMemoryRouter([{ path: "/routines", element: <RoutinesPage /> }], {
+    initialEntries: [initial],
+  });
+  const view = render(<RouterProvider router={router} />);
+  return { router, ...view };
+}
+
+function scroller(view: ReturnType<typeof renderApp>): HTMLElement {
+  return view.container.firstElementChild as HTMLElement;
+}
+
+function standardMachines() {
+  return [
+    { isSelf: true, id: "self-1", label: "Local node", online: true, roots: [] },
+    { isSelf: false, id: "dev-a", label: "Test node A", online: true, roots: [] },
+    { isSelf: false, id: "dev-b", label: "Test node B", online: true, roots: [] },
+  ];
+}
+
+function routine(id: string, title: string): Routine {
+  return {
+    id,
+    cwd: "/tmp/kin",
+    agent: "codex",
+    model: "",
+    permission_mode: "default",
+    prompt: "",
+    interval_secs: 86400,
+    enabled: true,
+    next_due_at: Date.now() + 60_000,
+    consec_failures: 0,
+    created_at: Date.now(),
+    title,
+    missed_run_policy: "skip",
+    lane: "default",
+    recurrence: "",
+  };
+}
+
+function rows(count: number): Routine[] {
+  return Array.from({ length: count }, (_, index) => routine(`r${index}`, `Routine ${index}`));
+}
+
+beforeEach(() => {
+  setLocale("en");
+  localStorage.clear();
+  contentHeight = 2000;
+  Element.prototype.scrollIntoView = vi.fn();
+  mocks.machines = standardMachines();
+  mocks.loading = false;
+  mocks.failed = false;
+  mocks.wsListeners.clear();
+  mocks.pushToast.mockClear();
+  mocks.reconnectGen = 0;
+  vi.mocked(listRoutines).mockResolvedValue({
+    routines: rows(20),
+    next_cursor: "",
+    has_more: false,
+  });
+  vi.mocked(listRoutineRuns).mockResolvedValue({ routines: [], runs: [], has_more: false });
+});
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+describe("RoutinesPage keeps the list's place", () => {
+  it("restores the list position after the page remounts", async () => {
+    const first = renderApp("/routines?device=dev-a");
+    await screen.findByText("Routine 0");
+
+    const before = scroller(first);
+    before.scrollTop = 480;
+    fireEvent.scroll(before);
+    first.unmount();
+
+    const second = renderApp("/routines?device=dev-a");
+    await screen.findByText("Routine 0");
+    await waitFor(() => expect(scroller(second).scrollTop).toBe(480));
+  });
+
+  it("clamps a stored offset larger than the rendered list to 0", async () => {
+    // Three rows do not fill the viewport, so there is nowhere to scroll.
+    contentHeight = 120;
+    vi.mocked(listRoutines).mockResolvedValue({
+      routines: rows(3),
+      next_cursor: "",
+      has_more: false,
+    });
+    setKeyedScroll("routines:dev-a", 99999);
+
+    const view = renderApp("/routines?device=dev-a");
+    await screen.findByText("Routine 0");
+    expect(scroller(view).scrollTop).toBe(0);
+  });
+
+  it("keeps a separate position per machine", async () => {
+    const a = renderApp("/routines?device=dev-a");
+    await screen.findByText("Routine 0");
+    scroller(a).scrollTop = 480;
+    fireEvent.scroll(scroller(a));
+    a.unmount();
+
+    const b = renderApp("/routines?device=dev-b");
+    await screen.findByText("Routine 0");
+    // B never inherits A's offset.
+    expect(scroller(b).scrollTop).toBe(0);
+    b.unmount();
+
+    const backToA = renderApp("/routines?device=dev-a");
+    await screen.findByText("Routine 0");
+    await waitFor(() => expect(scroller(backToA).scrollTop).toBe(480));
+  });
+
+  it("skips the restore once the page has scrolled to the form", () => {
+    // Not reachable through the DOM today: the edit control only exists after
+    // the list has loaded, and the restore runs in that same commit. Guarded at
+    // the source so a future form-opening path cannot be yanked back to the
+    // saved list offset.
+    expect(SOURCE).toContain("formScrolled.current = true;");
+    expect(SOURCE).toContain("if (formScrolled.current) return;");
+  });
+});
