@@ -142,9 +142,10 @@ iPad（视口 ≥768px、`pointer: coarse`）的左栏是 248px 侧栏，但列�
 
 进展（2026-11-17）：退出路径与工具条溢出已修，见 PR #62（`695d053e`）——工具条换行、
 图标按钮 44px、取消留在 248px 容器内、Esc 走同一退出路径，248px 与 390×844 实测
-`scrollWidth == clientWidth`。仍缺两半：行尾 `⋯` 菜单里的「多选」入口由 PR #170
-（`R-selection-menu`）在合并门禁中；长按不再进入多选由 `R-drag-reorder` 接手，排在
-#170 之后。
+`scrollWidth == clientWidth`；行尾 `⋯` 菜单的「多选 / 退出多选」入口已修，见「已修」
+PR #170（`R-selection-menu`）。长按手势改道（不再进入多选）仍待 `KIN-MANAGE-001`
+（`registry.json` 中为 `draft`）及后续拖动排序 `R-drag-reorder` 落地，故本条保留在
+Open。
 
 ### 2026-11-15 · 中 · 长按对话行不能拖动排序，列表顺序只能跟着最近活动走
 
@@ -252,6 +253,7 @@ card"）需要按新契约改写；i18n `chat.progress.*` en / zh 同步。
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
 
+- 2026-11-15 · iPad 左栏长按进入多选后找不到退出，行菜单里也没有多选入口（行菜单部分）— PR #170（`SessionRow` 对可选择行提供 `多选` 入口并在多选态保留 `⋯` 触发器显示 `退出多选`，复用 `SessionList` 同一退出与焦点归还路径；`SessionRow` / `SessionList.selection` 两套 DOM 测试 28 passed，390×844 / 1100×760 截图验证，check.sh 全绿；长按改道仍待 `KIN-MANAGE-001`）
 - 2026-11-14 · 新建对话发送后，进入对话 URI 时仍插入整页骨架屏 — PR #61（`cf7ba2bd`；就绪条件改为接受已种入的列表行或草稿交接，真正冷启动的深链改画有签名的品牌等待态（`IconKin` + `role="status"` + 慢连接提示）而不是整页骨架屏；新增 `TaskSessionHost.handoff.dom.test.tsx` 覆盖创建交接、切出页、冷进入、404 带缓存行，连同 coldLoad / pendingSend 共 5 文件 25 项通过，`tsc` 与 `npm run build` 绿；还原就绪条件与冷启动分支后 4 项按预期转红）
 - 2026-11-12 · 例行任务查不到 gap sweep，伴随 token 长度超过约 65530 的错误 — PR #52（`?runs=1&runs_limit=80` 的运行流不再拼进每次运行十几 KB 的 prompt：本机实测 1,200,074 → 约 94 KB，落在机器中继 `worker.MaxRoutineResponse` 655,360 字节内，页面不再整页失败；红测还原修复后 1,245,269 字节超限、恢复后通过，`go test ./internal/api/`、`./scripts/check.sh` 14 项、`./scripts/smoke.sh` 全绿；报告人原始报错原文仍未取得，若同一报错再现请附原文）
 - 2026-11-09 · routines 改为设备归属后的遗留项（旧 Hub 库的 routines 没迁移、只有选「本机」才看得到）— PR #51（显示其他机器时提示「本机还有 N 个例行任务」并可一键切到本机；禁用 / 迁移 2026-11-10 已问报告人、超 48 小时无回答，按 §4 执行可回退默认值：不改数据只让现状可见，禁用 / 迁移仍待方向；3 条新 DOM 测试，check.sh 除已知 PanelSurface 抖动外全绿）
