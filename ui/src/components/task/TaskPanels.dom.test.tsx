@@ -28,6 +28,11 @@ vi.mock("../../api/client", async () => {
     listWorkspaceTree: () => Promise.resolve({ path: ".", entries: [] }),
     getTaskSourceChanges: () => Promise.resolve({ changes: [] }),
     getWorkspaceDiff: () => Promise.resolve({ files: [] }),
+    // The pull-request panel reads its branch on mount. Nothing has been
+    // observed here; a failed read is not the subject of this suite, so it
+    // resolves an empty snapshot without asking GitHub.
+    getTaskPullRequest: () => Promise.resolve({ gh: { available: true }, observations: [] }),
+    refreshTaskPullRequest: () => Promise.resolve({ gh: { available: true }, observations: [] }),
   };
 });
 
@@ -134,6 +139,18 @@ describe("TaskPanels", () => {
     const { props } = setup({ panel: "files", panelCtx: remoteCtx, machine: remoteMachine });
     fireEvent.click(screen.getByRole("button", { name: t("publish.action") }));
     expect(props.onPublish).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the pull request surface under its translated title", async () => {
+    const { utils } = setup({ panel: "pr" });
+    expect(await screen.findByRole("complementary", { name: t("pr.title") })).toBeTruthy();
+    utils.unmount();
+
+    // It is the same one-surface rule as the other panels: nothing open means
+    // no PR surface anywhere.
+    setup({ panel: null });
+    expect(screen.queryByRole("complementary", { name: t("pr.title") })).toBeNull();
+    expect(screen.queryByText(t("pr.title"))).toBeNull();
   });
 
   it("forwards the page's close to the open surface", () => {

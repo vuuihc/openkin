@@ -25,7 +25,7 @@
  * the only way to add an id is to add it to the list, and the list is what the
  * test walks.
  */
-export const PANEL_IDS = ["files", "publish", "terminal"] as const;
+export const PANEL_IDS = ["files", "pr", "publish", "terminal"] as const;
 
 export type PanelId = (typeof PANEL_IDS)[number];
 
@@ -74,6 +74,15 @@ export const PANELS: PanelDescriptor[] = [
     // its file tree shows.
     id: "files",
     titleKey: "workspace.title",
+    available: (ctx) => ctx.taskId !== null,
+  },
+  {
+    // The pull-request panel is read-only state about this session's branch, so
+    // it is offered for every session. For a task whose checkout is elsewhere,
+    // the machine holding it is the one that answers — the panel says so rather
+    // than hiding a question that machine can still answer.
+    id: "pr",
+    titleKey: "pr.title",
     available: (ctx) => ctx.taskId !== null,
   },
   {

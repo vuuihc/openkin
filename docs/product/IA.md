@@ -64,7 +64,7 @@
 
 | 面 | 归谁 | 内容 |
 |---|---|---|
-| 对话详情 → 文件工作区（KIN-RESULT-002 draft，待签） | 这段对话、其 source 工作区或选中的 generation | 文件树、diff、文本/图片/表格与自包含 HTML 预览；手机是「对话 / 文件列表 / 文件详情」三态；source 深链只携带 task/panel/file，不含绝对 cwd/token；generation/diff 仍是本地行为；diff 的一行可以留评论，评论按对话收在 diff 下方的本地托盘里，发出去才成为一条普通后续消息（KIN-RESULT-003）；不恢复 Artifacts |
+| 对话详情 → 文件工作区（KIN-RESULT-002 draft，待签） | 这段对话、其 source 工作区或选中的 generation | 文件树、diff、文本/图片/表格与自包含 HTML 预览；手机是「对话 / 文件列表 / 文件详情」三态；source 深链只携带 task/panel/file，不含绝对 cwd/token；generation/diff 仍是本地行为；diff 的一行可以留评论，评论按对话收在 diff 下方的本地托盘里，发出去才成为一条普通后续消息（KIN-RESULT-003）；同一右侧容器里还有只读的 PR 面板：这条分支的编号、标题、状态（open / draft / merged / closed）、CI 与上次读取时间，一个 Refresh 现查 GitHub，读取失败时保留上次结果并在旁边说明；不合并、不评论、不 checkout；不恢复 Artifacts |
 | 系统设置（macOS / iOS） | 这台设备 | 通知权限与开关；控制台不再有「设置 → 通知」面，iPhone 首次授权保留「设置 → 通用」的一行入口（2026-11-11，R0b-3） |
 | 系统通知中心 | macOS / iOS | 标题是对话标题，正文说清批准、提问、跑完、失败、额度或例行报告；点开落到那一条 |
 | iOS 锁屏 / 灵动岛（KIN-NOTIFY-002，待签） | 这部 iPhone 上正在关注的一段对话 | 一轮进行中、等待、完整回复就绪与终态；一段对话一个活动，不是第二份对话列表；点按定位本轮 / 卡片 |
