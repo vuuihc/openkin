@@ -14,6 +14,17 @@ if [ -z "$BIN" ]; then
   ( cd "$WT" && go build -o "$TMP/kin" ./cmd/kin ) >"$TMP/build.log" 2>&1 || unavail "go build failed: $(tail -c 300 "$TMP/build.log")"
   BIN="$TMP/kin"
 fi
+# Every conversation route starts the agent CLI the daemon resolves on PATH.
+# Put the worktree's fake first so the seed's conversations cannot start a real
+# model turn; the export reaches only this script's children, and
+# KIN_CLAUDE_BIN would override PATH, so drop it. journeys-smoke.sh sets the
+# same PATH for its own daemon and seed, but fails hard when the fake is
+# missing: this runner still walks what exists and records the skips, while the
+# gate must not report green on missing fixtures.
+FAKE_AGENT_DIR="$WT/scripts/journeys_fake_agent"
+if [ -x "$FAKE_AGENT_DIR/claude" ]; then
+  PATH="$FAKE_AGENT_DIR:$PATH"; export PATH; unset KIN_CLAUDE_BIN
+fi
 PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
 mkdir -p "$TMP/state"
 KIN_STATE_DIR="$TMP/state" "$BIN" serve --port "$PORT" >"$TMP/daemon.log" 2>&1 & PID=$!
@@ -26,6 +37,13 @@ TOKEN="$(cat "$TMP/state/token" 2>/dev/null)"; [ -n "$TOKEN" ] || unavail "no to
 # failure — the walk records empty states and the journeys that need fixtures skip.
 if [ -f "$WT/scripts/journeys_seed.py" ]; then
   echo "seed: $WT/scripts/journeys_seed.py" > "$OUT/seed.log"
+  # Record which binary the daemon will start for a conversation. The seed
+  # checks the same resolution again before it creates anything.
+  RESOLVED="$(command -v claude || true)"
+  case "$RESOLVED" in
+    "$FAKE_AGENT_DIR"/*) echo "fake agent: claude -> scripts/journeys_fake_agent/claude" >> "$OUT/seed.log" ;;
+    *) echo "fake agent: MISSING (claude resolves to ${RESOLVED:-nothing}); no conversations will be seeded" >> "$OUT/seed.log" ;;
+  esac
   KIN_BASE="http://127.0.0.1:$PORT" KIN_TOKEN="$TOKEN" python3 "$WT/scripts/journeys_seed.py" >>"$OUT/seed.log" 2>&1 || echo "seed failed (walk continues on what exists)" >> "$OUT/seed.log"
 elif git -C "$WT" cat-file -e origin/main:scripts/journeys_seed.py 2>/dev/null; then
   echo "seed: origin/main:scripts/journeys_seed.py (this worktree has none)" > "$OUT/seed.log"
