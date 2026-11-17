@@ -484,6 +484,25 @@
       ],
       "tests": [],
       "blockedReason": null
+    },
+    {
+      "id": "KIN-RESULT-003",
+      "state": "draft",
+      "priority": "P0",
+      "journeys": [
+        "J2",
+        "J1"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "对改动逐行评论并发回对话",
+      "file": "docs/product/stories/KIN-RESULT-003.md",
+      "surface": "",
+      "ownerPaths": [],
+      "tests": [],
+      "blockedReason": null
     }
   ]
 }
