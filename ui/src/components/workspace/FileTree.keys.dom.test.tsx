@@ -82,8 +82,29 @@ describe("KIN-RESULT-001: keyboard navigation over the file tree", () => {
 
     await screen.findByTitle("src");
     await screen.findByTitle("README.md");
-    expect(rows().map((row) => row.tabIndex)).toEqual([0, -1]);
+    // The rows commit before the effect that hands the first one the tab stop,
+    // so this is a settled-state assertion, not a post-findByTitle one: reading
+    // it between those two commits sees every row at -1 under load.
+    await waitFor(() => expect(rows().map((row) => row.tabIndex)).toEqual([0, -1]), {
+      timeout: 3000,
+    });
   });
+
+  // One render proves the invariant holds; repeated renders prove it settles
+  // under scheduling pressure. A tree that never hands out a tab stop times
+  // this out instead of passing on a lucky screenshot.
+  it.each(Array.from({ length: 20 }, (_, i) => i + 1))(
+    "KIN-RESULT-001: the tree settles on one tab stop (run %i)",
+    async () => {
+      renderTree();
+
+      await screen.findByTitle("src");
+      await screen.findByTitle("README.md");
+      await waitFor(() => expect(rows().map((row) => row.tabIndex)).toEqual([0, -1]), {
+        timeout: 3000,
+      });
+    },
+  );
 
   it("ArrowDown walks visible rows in reading order", async () => {
     const user = userEvent.setup();
