@@ -116,22 +116,24 @@ describe("the diff comments tray", () => {
 
     // The row is gone and the next one took the focus — not `<body>`.
     expect(screen.queryByText("src/settings.ts:11")).toBeNull();
-    await waitFor(() =>
-      expect(document.activeElement).toBe(jumpButton("src/other.ts", 3)),
-    );
+    await waitFor(() => expect(document.activeElement).toBe(jumpButton("src/other.ts", 3)));
   });
 
   it("renders nothing when the conversation has no comments", () => {
     const { container } = render(<Harness initial={[]} />);
     expect(container.querySelector("section")).toBeNull();
-    expect(screen.queryByRole("button", { name: t("workspace.comments.send", { count: 0 }) })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: t("workspace.comments.send", { count: 0 }) }),
+    ).toBeNull();
   });
 
   it("sends every comment as one follow-up and clears the tray", async () => {
     const onSend = vi.fn(() => Promise.resolve());
     render(<Harness initial={THREE} onSend={onSend} />);
 
-    fireEvent.click(screen.getByRole("button", { name: t("workspace.comments.send", { count: 3 }) }));
+    fireEvent.click(
+      screen.getByRole("button", { name: t("workspace.comments.send", { count: 3 }) }),
+    );
 
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
     // One call, not one per comment: the page turns the tray into a single

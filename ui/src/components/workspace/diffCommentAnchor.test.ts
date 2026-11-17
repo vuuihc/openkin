@@ -103,7 +103,11 @@ describe("diff comment anchors", () => {
   it("formats a single follow-up message for N comments and keeps the person's words verbatim", () => {
     const message = formatDiffCommentsMessage(
       [
-        comment({ id: "dc_1", line: 11, text: 'Trim "  both ends  "?\nNo — keep the text as typed.' }),
+        comment({
+          id: "dc_1",
+          line: 11,
+          text: 'Trim "  both ends  "?\nNo — keep the text as typed.',
+        }),
         comment({
           id: "dc_2",
           path: "src/other.ts",

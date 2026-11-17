@@ -129,10 +129,7 @@ export function formatCommentBlock(comment: DiffComment): string {
  * The single follow-up message for a tray: one short sentence, then one
  * paragraph per comment. The person's words are copied verbatim.
  */
-export function formatDiffCommentsMessage(
-  comments: readonly DiffComment[],
-  intro: string,
-): string {
+export function formatDiffCommentsMessage(comments: readonly DiffComment[], intro: string): string {
   if (comments.length === 0) return intro;
   return `${intro}\n\n${comments.map(formatCommentBlock).join("\n\n")}`;
 }
