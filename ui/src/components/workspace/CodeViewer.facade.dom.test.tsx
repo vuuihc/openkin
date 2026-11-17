@@ -33,9 +33,13 @@ const editorState = vi.hoisted(() => ({
     modifiedEndLineNumber: number;
   }[],
   lineText: {} as Record<number, string>,
+  /** The modified model's full contents, 0-based like `getLinesContent()`. */
+  lines: [] as string[],
   cursorHandler: null as ((event: { position: { lineNumber: number } }) => void) | null,
   mouseDownHandler: null as
     ((event: { target: { type: number; position?: { lineNumber: number } } }) => void) | null,
+  /** `onDidUpdateDiff`'s handler — fired when a rerun changes the diff. */
+  diffHandler: null as (() => void) | null,
 }));
 
 vi.mock("../../api/client", async () => {
@@ -99,6 +103,7 @@ vi.mock("@monaco-editor/react", async () => {
           addCommand: () => {},
           getModel: () => ({
             getLineContent: (line: number) => editorState.lineText[line] ?? "",
+            getLinesContent: () => editorState.lines,
           }),
           getPosition: () => null,
           // Real Monaco moves the cursor and emits the same change event; the
@@ -112,7 +117,10 @@ vi.mock("@monaco-editor/react", async () => {
             {
               getModifiedEditor: () => modifiedEditor,
               getLineChanges: () => editorState.lineChanges,
-              onDidUpdateDiff: () => disposable,
+              onDidUpdateDiff: (handler: () => void) => {
+                editorState.diffHandler = handler;
+                return disposable;
+              },
               onDidDispose: () => disposable,
               goToDiff: mocks.goToDiff,
             },
@@ -167,8 +175,10 @@ beforeEach(() => {
   mocks.writeTaskWorkspaceFile.mockResolvedValue(textFile("a.ts", "const a = 1;x"));
   editorState.lineChanges = [];
   editorState.lineText = {};
+  editorState.lines = [];
   editorState.cursorHandler = null;
   editorState.mouseDownHandler = null;
+  editorState.diffHandler = null;
 });
 
 afterEach(() => {
@@ -419,5 +429,89 @@ describe("the code viewer's action row", () => {
     });
     expect(onCommentLine).toHaveBeenCalledTimes(2);
     expect(onCommentLine).toHaveBeenLastCalledWith(anchor);
+  });
+
+  /**
+   * KIN-RESULT-003 part 2: the viewer owns the live diff, so it is the one
+   * place that can say where a saved comment points now. It reports; the panel
+   * remembers.
+   */
+  it("re-anchors saved comments for the open file whenever the diff updates", async () => {
+    const onCommentsReanchored = vi.fn();
+    const saved = {
+      id: "dc_saved",
+      path: "a.ts",
+      hunkHeader: "@@ -10,3 +10,4 @@",
+      quote: "const title = settings.title;",
+      line: 11,
+      text: "This should fall back to the default title.",
+      createdAt: 1,
+    };
+
+    render(
+      <CodeViewer
+        path="a.ts"
+        file={null}
+        loading={false}
+        error={null}
+        diff={{ path: "a.ts", original: "one", modified: "two", source: "write" }}
+        comments={[saved]}
+        onCommentsReanchored={onCommentsReanchored}
+      />,
+    );
+
+    // The rerun moved the hunk: same quoted line, a new block and line number.
+    await waitFor(() => expect(editorState.diffHandler).not.toBeNull());
+    const lines = Array.from({ length: 50 }, () => "");
+    lines[40] = "const title = settings.title;";
+    editorState.lineChanges = [
+      {
+        originalStartLineNumber: 30,
+        originalEndLineNumber: 32,
+        modifiedStartLineNumber: 40,
+        modifiedEndLineNumber: 42,
+      },
+    ];
+    editorState.lines = lines;
+
+    act(() => {
+      editorState.diffHandler?.();
+    });
+
+    await waitFor(() =>
+      expect(onCommentsReanchored).toHaveBeenLastCalledWith([
+        { id: "dc_saved", line: 41, stale: false },
+      ]),
+    );
+  });
+
+  it("does not report stale comments in the plain file view", async () => {
+    const onCommentsReanchored = vi.fn();
+
+    render(
+      <CodeViewer
+        path="a.ts"
+        file={textFile("a.ts", "const a = 1;")}
+        loading={false}
+        error={null}
+        comments={[
+          {
+            id: "dc_saved",
+            path: "a.ts",
+            hunkHeader: "@@ -10,3 +10,4 @@",
+            quote: "const title = settings.title;",
+            line: 11,
+            text: "This should fall back to the default title.",
+            createdAt: 1,
+          },
+        ]}
+        onCommentsReanchored={onCommentsReanchored}
+      />,
+    );
+
+    // No diff, no line changes, no answer: a plain file read must never turn
+    // a saved comment into 「该行已变化」.
+    await waitFor(() => expect(screen.getByTestId("editor")).toBeTruthy());
+    expect(onCommentsReanchored).not.toHaveBeenCalled();
   });
 });

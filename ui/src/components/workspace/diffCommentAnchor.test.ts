@@ -5,6 +5,7 @@ import {
   anchorForLine,
   commentsStorageKey,
   formatDiffCommentsMessage,
+  reanchorComments,
   readDiffComments,
   writeDiffComments,
   type CommentStorage,
@@ -158,5 +159,133 @@ describe("diff comment anchors", () => {
 
     // No storage at all (a private window, a test) is still an empty tray.
     expect(readDiffComments("task-1", null)).toEqual([]);
+  });
+});
+
+/** A file of `count` lines with the given 1-based entries; the rest are blank. */
+function linesWith(entries: Record<number, string>, count: number): string[] {
+  const lines = Array.from({ length: count }, () => "");
+  for (const [line, text] of Object.entries(entries)) lines[Number(line) - 1] = text;
+  return lines;
+}
+
+function block(
+  originalStart: number,
+  originalEnd: number,
+  modifiedStart: number,
+  modifiedEnd: number,
+): LineChange {
+  return {
+    originalStartLineNumber: originalStart,
+    originalEndLineNumber: originalEnd,
+    modifiedStartLineNumber: modifiedStart,
+    modifiedEndLineNumber: modifiedEnd,
+  };
+}
+
+/**
+ * KIN-RESULT-003 part 2 — the saved anchor is matched against a fresh diff.
+ * The answer is a function of (anchor, lineChanges, lines) only: the tray can
+ * render it without Monaco, and storage is never rewritten.
+ */
+describe("re-anchoring (KIN-RESULT-003 part 2)", () => {
+  it("re-places a comment on the same quoted line after its hunk moved", () => {
+    // The block moved from modified 10-13 to 40-42 and the quoted line now
+    // sits at 41. The quote is the identity; the saved line number is not.
+    const results = reanchorComments([comment()], {
+      path: "src/settings.ts",
+      lineChanges: [block(30, 32, 40, 42)],
+      lines: linesWith({ 41: "const title = settings.title;   " }, 60),
+    });
+
+    expect(results).toEqual([{ id: "dc_1", line: 41, stale: false }]);
+  });
+
+  it("reports a stale anchor and keeps the saved line when the quoted line is gone", () => {
+    const results = reanchorComments([comment()], {
+      path: "src/settings.ts",
+      lineChanges: [block(10, 12, 10, 13)],
+      lines: linesWith({ 11: "const title = settings.fallbackTitle;" }, 30),
+    });
+
+    // The saved line stays so the row remains jumpable; the state says stale.
+    expect(results).toEqual([{ id: "dc_1", line: 11, stale: true }]);
+  });
+
+  it("does not attach a stale comment to a neighbouring changed line", () => {
+    const results = reanchorComments([comment()], {
+      path: "src/settings.ts",
+      lineChanges: [block(10, 12, 10, 13), block(20, 20, 21, 22)],
+      lines: linesWith(
+        {
+          10: "const title = settings.title + '!';",
+          12: "const title = settings.title; // moved?",
+          21: "const title = settings.title + suffix;",
+        },
+        30,
+      ),
+    });
+
+    // Line 12 is one line away and 21 is ten, but neither carries the exact
+    // quoted text — only the saved line itself could be the match, and it is
+    // not.
+    expect(results).toEqual([{ id: "dc_1", line: 11, stale: true }]);
+  });
+
+  it("prefers the saved hunk header when the same quote appears in two hunks", () => {
+    const saved = comment({ line: 13, hunkHeader: "@@ -10,3 +10,4 @@" });
+    const results = reanchorComments([saved], {
+      path: "src/settings.ts",
+      lineChanges: [
+        // The saved block, unchanged numbers, quote now on its first line.
+        block(10, 12, 10, 13),
+        // A new block right after it with the same quoted text, one line
+        // closer to the saved line than the saved block's match.
+        block(20, 21, 14, 15),
+      ],
+      lines: linesWith(
+        { 10: "const title = settings.title;", 14: "const title = settings.title;" },
+        30,
+      ),
+    });
+
+    // Distance alone would pick 14; the saved hunk header wins.
+    expect(results).toEqual([{ id: "dc_1", line: 10, stale: false }]);
+  });
+
+  it("re-points a stale comment when its quoted line comes back", () => {
+    const changes = [block(10, 12, 10, 13)];
+    const gone = reanchorComments([comment()], {
+      path: "src/settings.ts",
+      lineChanges: changes,
+      lines: linesWith({ 11: "const title = settings.fallbackTitle;" }, 30),
+    });
+    expect(gone).toEqual([{ id: "dc_1", line: 11, stale: true }]);
+
+    // No stored "stale" bit: the same saved comment re-points with no
+    // migration once the line exists again.
+    const back = reanchorComments([comment()], {
+      path: "src/settings.ts",
+      lineChanges: [block(30, 32, 40, 42)],
+      lines: linesWith({ 41: "const title = settings.title;" }, 60),
+    });
+    expect(back).toEqual([{ id: "dc_1", line: 41, stale: false }]);
+  });
+
+  it("returns no answer for another file or a diff that is not computed yet", () => {
+    const input = {
+      lineChanges: [block(10, 12, 10, 13)],
+      lines: linesWith({ 11: "const title = settings.title;" }, 30),
+    };
+
+    // Another file's comments are none of this diff's business.
+    expect(reanchorComments([comment()], { ...input, path: "src/other.ts" })).toEqual([]);
+    // No computed diff is not "everything is stale" — it is no answer at all.
+    expect(reanchorComments([comment()], { ...input, path: "src/settings.ts", lineChanges: null })).toEqual(
+      [],
+    );
+    expect(reanchorComments([comment()], { ...input, path: "src/settings.ts", lineChanges: [] })).toEqual(
+      [],
+    );
   });
 });
