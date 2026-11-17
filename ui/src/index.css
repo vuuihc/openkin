@@ -536,6 +536,14 @@
     transform: none;
   }
 }
+/* `/tasks/:id` renders `null` inside `<Routes>`: `TaskSessionHost` draws the
+   live chat beside this wrapper. An empty flex-1 box would still claim half of
+   `main.kin-main`'s height, so collapse it (the Tailwind `empty:hidden` class on
+   the wrapper says the same thing). This also keeps the swipe lift below from
+   raising a box with nothing in it. */
+.kin-route:empty {
+  display: none;
+}
 /* The page-scoped arrival. `data-motion="fade"` falls through to this rule. */
 .kin-route > * {
   animation: kin-page-in 140ms ease-out;

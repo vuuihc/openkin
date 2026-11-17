@@ -171,6 +171,7 @@ export default function DesignSystemPage() {
     {
       id: "unavailable",
       label: "Unavailable row",
+      hint: "A disabled row carries its reason on the surface.",
       disabled: true,
       onSelect: () => setLastAction("Unavailable"),
     },

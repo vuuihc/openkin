@@ -365,7 +365,9 @@ describe("Agent Ops is a destination, so the draft it opens replaces it", () => 
     expect(actionsButton).toBeTruthy();
     await user.click(actionsButton!);
     const sheet = await screen.findByRole("dialog", { name: "Claude Code" });
-    await user.click(within(sheet).getByRole("button", { name: "Ask default Agent to install" }));
+    // The shared row's name is its label plus the visible consequence line
+    // (the desktop menu already worked this way); match on the label prefix.
+    await user.click(within(sheet).getByRole("button", { name: /^Ask default Agent to install/ }));
 
     // [list, draft], not [list, agents, draft].
     await waitFor(() => expect(window.location.pathname).toBe("/new"));
