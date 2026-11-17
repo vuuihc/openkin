@@ -2,7 +2,7 @@
 
 ## 现在的位置
 
-- 日期：2026-11-17 08:52 +08；基线提交 `efdbf03a4d2b`（本页在它之上只加文档与 gap-log）。
+- 日期：2026-11-17 09:07 +08；测量树 = 本分支 HEAD `e643504a`（合并 `origin/main` `889e44e5`；代码树与 `origin/main` 完全一致，本分支只多本页与 gap-log 两处文档）。合并带入 #171/#172 的 UI 源码变化，所以基线在合并后重跑了一次；14 行判定不变，只有 J4/mac 的 `minBodyText` 从 305 变 306（相对时间文案少一个字），下表已是重跑结果。
 - 命令：`bash scripts/journeys-smoke.sh --out rsi/state/ux/journey-baseline/run`（一次性 state 目录、空闲端口、fake agent 在 `PATH` 首位；未触碰 `:7777` 与 `~/.kin`）。
 - 结果：**14 个「旅程 × 视口」= 11 绿 · 1 红 · 2 跳过**；89 张截图，0 横向溢出，0 原生 `<select>`，0 个缺失的必选选择器。种子 10 项全部创建，`seed.log` 只有两个已知 fake-agent 缺口（权限请求、例行任务运行）。
 - 三条优先项：
