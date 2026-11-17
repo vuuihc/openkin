@@ -29,6 +29,9 @@ NODE = shutil.which("node")
 # The two ids a notification names: the conversation and the card it points
 # at. Deliberately fake, like every other fixture in this repository.
 TARGET = "j7 target conversation=task-1 focus=appr-1"
+# The seed also names the conversation's title, so the walk can click the row
+# by what a reader sees instead of by "the first row".
+TARGET_TITLE = TARGET + " title=[seed] Answer the deploy"
 SKIP = "J7 skip: no seeded notification target"
 SEED_FAILED = "J7 skip: seed failed or empty daemon"
 
@@ -273,6 +276,135 @@ class WalkJ3ContractTest(unittest.TestCase):
         code, out = self.check(self.copy_with(plain_prompt))
         self.assertEqual(code, 1, out)
         self.assertIn("[seed] slow", out)
+
+
+@unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")
+class WalkJ7ContractTest(unittest.TestCase):
+    """J7 must prove the notification landed on the card it named.
+
+    Same shape as WalkJ3ContractTest: the checked-in spec passes the walker's
+    own contract check, and a copy that regresses one rule at a time fails with
+    a message naming that rule. Without this, a J7 that photographs whatever
+    loaded and clicks Back only if it happens to be there is green.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j7-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC, seed: str | None = None) -> tuple[int, str]:
+        argv = [NODE, WALK, "--check-spec", "--spec", spec_path]
+        if seed is not None:
+            seed_path = os.path.join(self.tmp, "seed.log")
+            with open(seed_path, "w", encoding="utf-8") as fh:
+                fh.write(seed + "\n")
+            argv += ["--seed", seed_path]
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=20)
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        with open(SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        mutate(spec["journeys"]["J7"]["steps"])
+        path = os.path.join(self.tmp, "journeys.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh)
+        return path
+
+    @staticmethod
+    def card_wait_at(steps: list) -> int:
+        return next(
+            i
+            for i, step in enumerate(steps)
+            if step[0] == "wait" and "[data-pending-id=" in str(step[1])
+        )
+
+    def test_j7_lands_on_the_named_card(self) -> None:
+        # With a seed line the check resolves the real ids and prints the
+        # assertion the walk will make, not just "the spec mentions {focus}".
+        code, out = self.check(seed=TARGET_TITLE)
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J7", out)
+        self.assertIn('[data-pending-id="appr-1"]', out)
+        with open(SPEC, encoding="utf-8") as fh:
+            steps = json.load(fh)["journeys"]["J7"]["steps"]
+        ops = [step[0] for step in steps]
+        # The landing is asserted, not photographed: a visible card, DOM focus
+        # on that card, then proof the ?focus= link was consumed.
+        self.assertIn("active", ops, steps)
+        self.assertIn("search", ops, steps)
+        self.assertIn("back", ops, steps)
+        # The spec keeps placeholders; only the walker substitutes real ids.
+        self.assertIn("{focus}", json.dumps(steps))
+        self.assertNotIn("demo-item", json.dumps(steps))
+
+    def test_j7_contract_rejects_a_landing_without_a_card_assertion(self) -> None:
+        # Today's shape: goto the link, photograph whatever loaded.
+        def drop_the_landing_wait(steps: list) -> None:
+            steps.pop(self.card_wait_at(steps))
+
+        code, out = self.check(self.copy_with(drop_the_landing_wait))
+        self.assertEqual(code, 1, out)
+        self.assertIn("named card", out)
+        self.assertIn('[data-pending-id="{focus}"]', out)
+
+    def test_j7_contract_rejects_an_optional_back(self) -> None:
+        # `?/返回|Back/` skips at 1100px, so nothing proves Back returned
+        # anywhere. A required Back is the rule.
+        def make_back_optional(steps: list) -> None:
+            at = next(i for i, step in enumerate(steps) if step[0] == "back")
+            steps[at] = ["click", "?/返回|Back/"]
+
+        code, out = self.check(self.copy_with(make_back_optional))
+        self.assertEqual(code, 1, out)
+        self.assertIn("Back", out)
+
+    def test_j7_contract_requires_the_card_after_back(self) -> None:
+        # Back is only half the promise: the reader must find the same card
+        # when they open the conversation again.
+        def drop_the_reopen_assertions(steps: list) -> None:
+            at = next(i for i, step in enumerate(steps) if step[0] == "back")
+            steps[at + 1 :] = [
+                step
+                for step in steps[at + 1 :]
+                if not (step[0] == "wait" and "[data-pending-id=" in str(step[1]))
+            ]
+
+        code, out = self.check(self.copy_with(drop_the_reopen_assertions))
+        self.assertEqual(code, 1, out)
+        self.assertIn("after Back", out)
+
+    def test_j7_assertion_uses_the_seeded_ids(self) -> None:
+        # Pure node mode: the same substitution the walk applies, printed so a
+        # reviewer can read the exact assertion without a browser.
+        seed_path = os.path.join(self.tmp, "seed.log")
+        with open(seed_path, "w", encoding="utf-8") as fh:
+            fh.write("journeys seed: base http://127.0.0.1:<port>\n" + TARGET_TITLE + "\n")
+        done = subprocess.run(
+            [NODE, WALK, "--resolve-j7-plan", seed_path, "--spec", SPEC],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        plan = json.loads(done.stdout)
+        steps = plan["steps"]
+        card = 'css=[data-pending-id="appr-1"]'
+        self.assertIn(["wait", card], steps, steps)
+        self.assertIn(["active", card], steps, steps)
+        self.assertIn(["wait", "text=[seed] Answer the deploy"], steps, steps)
+        # The row opens from the keyboard: at 390px the floating needs-you
+        # panel covers the row's pointer target (recorded for the CEO lane).
+        self.assertIn(["focus", '[data-session-row="task-1"]'], steps, steps)
+        self.assertIn(["key", "Enter"], steps, steps)
+        self.assertIn(["goto", "/tasks/task-1?focus=appr-1"], steps, steps)
+        self.assertIn(["url", "^/tasks/task-1"], steps, steps)
+        # Every argument was resolved: no placeholder or legacy literal left.
+        rendered = json.dumps(steps)
+        self.assertNotIn("{focus}", rendered)
+        self.assertNotIn("{conversation}", rendered)
+        self.assertNotIn("{title}", rendered)
+        self.assertNotIn("demo-item", rendered)
 
 
 if __name__ == "__main__":
