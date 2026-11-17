@@ -3305,4 +3305,11 @@ describe("process timing", () => {
 
     expect(tool.durationMs).toBe(3000);
   });
+
+  it("leaves a merged card with a single stamped event without a duration", () => {
+    const settled = mergeProcessRuns(buildChatItems([call(1, 1_000)], "kin", undefined, true));
+    const progress = settled.find((item): item is ProgressItem => item.kind === "progress");
+
+    expect(progress?.durationMs).toBeUndefined();
+  });
 });
