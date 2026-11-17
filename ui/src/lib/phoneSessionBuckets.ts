@@ -16,6 +16,7 @@ import { type AgentSession, type Task } from "../api/client";
 import { displayAgentSessionTitle } from "./agentSessionTitle";
 import { displayUserPrompt } from "./attachments";
 import type { Machine } from "./devices";
+import { applyTaskOrder } from "./taskOrder";
 
 /** Rows with no cwd at all still need one bucket; it sorts last. */
 export const UNASSIGNED_PROJECT = "__unassigned__";
@@ -256,6 +257,11 @@ export function phoneProjectBuckets(
    *  caller supplies the lookup so this module stays free of the record type
    *  and its API; with no lookup the old folder-name behaviour stands. */
   projectNameFor: (cwd: string | undefined) => string | undefined = () => undefined,
+  /** A bucket's manual order, keyed the way the list stores it. It replaces
+   *  the attention/recency rule inside that bucket whole: a status change or a
+   *  new message must not undo a move the person made. Imported sessions have
+   *  no manual order — they are an index, not a project. */
+  orders: Readonly<Record<string, readonly string[]>> | undefined = undefined,
 ): PhoneProjectBucket[] {
   const archived = new Set(archivedCwds.map(archivedKeyOf));
   const selfId = selfDeviceId.trim();
@@ -411,6 +417,9 @@ export function phoneProjectBuckets(
         b.at - a.at ||
         a.key.localeCompare(b.key),
     );
+    if (orders && !isImportedBucket(bucket.key)) {
+      bucket.rows = applyTaskOrder(bucket.rows, orders[bucket.key]);
+    }
   }
 
   return (
@@ -588,6 +597,9 @@ export function withPinnedBucket(
   buckets: readonly PhoneProjectBucket[],
   pinnedIds: ReadonlySet<string>,
   label: string,
+  /** The pinned section is its own bucket for ordering purposes, so a drag
+   *  there is stored and applied under `PINNED_BUCKET`. */
+  orders: Readonly<Record<string, readonly string[]>> | undefined = undefined,
 ): PhoneProjectBucket[] {
   const pinned: PhoneSessionRow[] = [];
   const rest = buckets.flatMap((bucket) => {
@@ -610,7 +622,7 @@ export function withPinnedBucket(
       key: PINNED_BUCKET,
       label,
       cwd: "",
-      rows: pinned,
+      rows: applyTaskOrder(pinned, orders?.[PINNED_BUCKET]),
       lastActivityAt: Math.max(0, ...pinned.map((row) => row.at)),
       createdAt: 0,
       hasActiveTask: false,

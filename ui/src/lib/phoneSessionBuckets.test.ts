@@ -192,6 +192,65 @@ describe("phoneProjectBuckets", () => {
     expect(rows[0]!.rows.map((row) => row.key)).toEqual(["waiting", "finished"]);
   });
 
+  /**
+   * A manual order replaces the attention/recency rule wholesale inside its
+   * bucket, including "needs you" lifting: the person moved the row, and a
+   * status change must not put it back. Rows the order has never seen — a new
+   * conversation — stay in front of the hand-placed ones.
+   */
+  describe("a manual task order", () => {
+    const rows = (
+      tasks: Task[],
+      sessions: AgentSession[] = [],
+      orders?: Readonly<Record<string, readonly string[]>>,
+    ) => phoneProjectBuckets(tasks, sessions, "self", COPY, [], "active", () => undefined, orders);
+
+    it("a manual order overrides attention rank and recency inside its bucket", () => {
+      const out = rows(
+        [
+          task({ id: "waiting", cwd: "/work/alpha", created_at: 10, status: "waiting_input" }),
+          task({ id: "running", cwd: "/work/alpha", created_at: 20, status: "running" }),
+          task({ id: "finished", cwd: "/work/alpha", created_at: 90, status: "succeeded" }),
+        ],
+        [],
+        { "/work/alpha": ["finished", "running", "waiting"] },
+      );
+      expect(out[0]!.rows.map((row) => row.key)).toEqual(["finished", "running", "waiting"]);
+    });
+
+    it("a manual order in one bucket does not touch another", () => {
+      const out = rows(
+        [
+          task({ id: "alpha-old", cwd: "/work/alpha", created_at: 10 }),
+          task({ id: "alpha-new", cwd: "/work/alpha", created_at: 20 }),
+          task({ id: "beta-old", cwd: "/work/beta", created_at: 10 }),
+          task({ id: "beta-new", cwd: "/work/beta", created_at: 20 }),
+        ],
+        [],
+        { "/work/alpha": ["alpha-old", "alpha-new"] },
+      );
+      const alpha = out.find((bucket) => bucket.key === "/work/alpha")!;
+      const beta = out.find((bucket) => bucket.key === "/work/beta")!;
+      expect(alpha.rows.map((row) => row.key)).toEqual(["alpha-old", "alpha-new"]);
+      // No stored order: still newest first.
+      expect(beta.rows.map((row) => row.key)).toEqual(["beta-new", "beta-old"]);
+    });
+
+    it("the pinned bucket keeps its own manual order", () => {
+      const out = withPinnedBucket(
+        buckets([
+          task({ id: "waiting", cwd: "/work/alpha", created_at: 10, status: "waiting_input" }),
+          task({ id: "finished", cwd: "/work/alpha", created_at: 90, status: "succeeded" }),
+        ]),
+        new Set(["finished", "waiting"]),
+        "Pinned",
+        { [PINNED_BUCKET]: ["finished", "waiting"] },
+      );
+      expect(out[0]!.key).toBe(PINNED_BUCKET);
+      expect(out[0]!.rows.map((row) => row.key)).toEqual(["finished", "waiting"]);
+    });
+  });
+
   // The `/api/projects` record is the project's own name — the one the sidebar
   // and the empty-project heading already show. A bucket whose rows arrived
   // before any record matched used the folder's last segment instead, so one
