@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="kin-review-format" content="figma-flow-v1">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:,">
+<title>KIN-RESULT-003 · 逐行评论并发回对话</title>
+<style>
+:root{color-scheme:light dark;--ink:#1a1a1a;--muted:#666a73;--line:#dedee3;--bg:#f1f1f4;--page:#fbfbfd;--card:#fff;--accent:#1f6feb;--soft:#eef3ff;--warn:#b42318;--warnbg:#fff1f0;--ok:#137a3f;--okbg:#eef8f1;--gutter:clamp(16px,5vw,24px)}
+@media(prefers-color-scheme:dark){:root{--ink:#f5f5f7;--muted:#a1a1aa;--line:#35353a;--bg:#0b0b0d;--page:#141416;--card:#1d1d20;--accent:#6ea8fe;--soft:#17243a;--warn:#ff8a80;--warnbg:#2a1717;--ok:#6dd58c;--okbg:#13251b}}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;-webkit-font-smoothing:antialiased}a{color:var(--accent)}code{padding:1px 5px;border-radius:5px;background:var(--bg);font-size:.9em;overflow-wrap:anywhere}.page{max-width:860px;min-height:100vh;margin:auto;padding:0 var(--gutter) calc(48px + env(safe-area-inset-bottom));background:var(--page)}header{padding:30px 0 12px}.eyebrow{color:var(--muted);font-size:12.5px;letter-spacing:.02em}h1{margin:6px 0 8px;font-size:26px;line-height:1.28;letter-spacing:-.02em}h2{margin:0 0 10px;font-size:20px;line-height:1.35}h3{margin:0 0 6px;font-size:16px;line-height:1.4}h4{margin:16px 0 8px;font-size:15px}p{margin:8px 0}ul,ol{margin:8px 0;padding-left:20px}li{margin:6px 0}.meta{margin:2px 0;color:var(--muted);font-size:13px}.tags,.screen-index{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}.pill{display:inline-flex;align-items:center;height:25px;padding:0 10px;border-radius:999px;font-size:12px;white-space:nowrap;border:1px solid var(--line);background:var(--card);color:var(--muted)}.pill.here{color:var(--accent);background:var(--soft);border-color:var(--accent)}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px}.summary{margin-top:12px;border-left:4px solid var(--accent)}.summary p{margin:0}.howto{margin-top:12px;background:var(--soft);border-color:transparent}.howto h2{font-size:17px;margin:0}.howto ol{font-size:14.5px;margin-bottom:0}.note{color:var(--muted);font-size:13.5px}.toc{position:sticky;top:0;z-index:20;display:flex;gap:8px;margin:0 calc(-1 * var(--gutter));padding:8px var(--gutter);overflow-x:auto;background:var(--page);border-bottom:1px solid var(--line);scrollbar-width:none}.toc::-webkit-scrollbar{display:none}.toc a,.screen-index a{flex:none;display:inline-flex;align-items:center;min-height:44px;padding:0 14px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--ink);font-size:13px;text-decoration:none;white-space:nowrap}.toc a.primary{border-color:var(--accent);color:var(--accent);background:var(--soft)}section{padding-top:30px;scroll-margin-top:72px}.mece{margin-top:10px;padding:2px 14px}.mece-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);font-size:14.5px}.mece-row:last-child{border:0}.who{color:var(--muted);font-size:12.5px}.mece-row.here{margin:2px -8px;padding:11px 8px;border:0;border-radius:10px;background:var(--soft)}.mece-row.here strong{color:var(--accent)}.bullets{font-size:14.5px}.two{display:grid;gap:10px}.two .card{border-left-width:4px;font-size:14.5px}.now{border-left-color:var(--warn)!important;background:var(--warnbg)}.after{border-left-color:var(--ok)!important;background:var(--okbg)}.screen-index{margin:10px 0 16px}.screen{margin:16px 0;padding:14px;background:var(--card);border:1px solid var(--line);border-radius:18px}.screen-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}.frame{margin:0}.frame-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:#fff;scrollbar-width:thin}.frame-scroll:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.frame img{display:block;height:auto;max-width:none}.fig-phone .frame-scroll{max-width:390px;margin:auto}.fig-phone img{width:100%}.fig-wide img{width:1100px}.fig-board img{width:1500px}.frame figcaption{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin-top:8px;color:var(--muted);font-size:12.5px}.frame figcaption a{display:inline-flex;align-items:center;min-height:44px}.flow{list-style:none;margin:0;padding:0;display:grid;gap:8px}.flow li{display:grid;grid-template-columns:6.5em minmax(0,1fr);gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-size:14.5px}.flow b{color:var(--accent)}.flow span{min-width:0;overflow-wrap:anywhere}.state-list{display:grid;gap:8px;margin-top:10px}.state{padding:11px 13px;background:var(--card);border:1px solid var(--line);border-radius:12px;font-size:14px}.state b{display:block}.state span{color:var(--muted)}.decision{margin:12px 0;padding:14px;background:var(--card);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:14px}.decision p{font-size:14.5px}.rec strong{color:var(--accent)}.tradeoff{color:var(--muted);font-size:13.5px}.decision.settled{border-left-color:var(--ok)}.decision.settled .rec strong{color:var(--ok)}.reply pre{padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:13.5px/1.9 -apple-system,BlinkMacSystemFont,"SF Mono",Menlo,monospace;white-space:pre-wrap}.sign{border-left:4px solid var(--ok)}footer{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}a:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:6px}@media(min-width:600px){body{padding:26px 0}.page{min-height:auto;border-radius:28px;box-shadow:0 20px 60px #0002}.two{grid-template-columns:1fr 1fr}}@media(max-width:380px){.flow li{grid-template-columns:1fr;gap:4px}}
+</style>
+</head>
+<body><main class="page">
+<header>
+<div class="eyebrow">Figma 审阅版 · 约 5 分钟 · 5 条已定 + 1 条待签</div>
+<h1>KIN-RESULT-003 · 逐行评论并发回对话</h1>
+<p class="meta">draft · 面：Mac / 手机 · 对照 <code>KIN-RESULT-003.md</code></p>
+<p class="meta">2026-11-17 · 4 张帧 · 8 类状态 · 只写合同，不动产品代码</p>
+<div class="tags"><span class="pill here">待签字</span><span class="pill">旅程 J2 · J1</span><span class="pill">看结果 · 再往下一步</span></div>
+</header>
+
+<section class="card summary"><p><strong>一句话：</strong>当我看着 Kin 改完的 diff，我想指着某一行说这里不对、攒几条一起发回去，以便不用回到输入框凭记忆重述文件和行号。</p></section>
+
+<section class="card howto"><h2>怎么审</h2><ol><li>先看切法：这是「看结果」里“看完之后说一句”的那一步，不是新的产品面。</li><li>看 4 张帧和每屏六段用户流程，重点看评论怎么挂住一行、发出去长什么样。</li><li>最后只回 D5；D0–D4 已定，不用再确认。</li></ol><p class="note">帧只用线框，没有真实文件名、路径或截图。宽帧在卡片内左右滑动，页面本身不横滚。</p></section>
+
+<nav class="toc" aria-label="页内导航"><a class="primary" href="#mece">切法</a><a href="#before-after">现在→之后</a><a class="primary" href="#screens">界面</a><a href="#states">状态</a><a class="primary" href="#decisions">决定</a><a href="#reply">回复模板</a></nav>
+
+<section id="mece"><h2>MECE：这条故事切在哪</h2><p class="note">RESULT-001 管“看改了哪些文件、打开 diff、切文件、分享”；RESULT-002 管“在工作区读文件、预览、返回”。这条从它们结束的地方开始：在 diff 的一行上留话，并把一组话发回对话。</p>
+<div class="card mece">
+<div class="mece-row"><div>接着问一段对话<div class="who">KIN-CONTINUE-001</div></div><span class="pill">只借用它的后续消息路径</span></div>
+<div class="mece-row"><div>新建一段对话<div class="who">KIN-START-001</div></div><span class="pill">不归这条</span></div>
+<div class="mece-row here"><div><strong>看它改了什么 → 逐行评论并发回</strong><div class="who">KIN-RESULT-001 / 002 之后 · 这条</div></div><span class="pill here">本页</span></div>
+<div class="mece-row"><div>整理对话与项目<div class="who">KIN-MANAGE-001 / PROJECT-001</div></div><span class="pill">不归这条</span></div>
+<div class="mece-row"><div>设置与环境<div class="who">KIN-SETTINGS / AGENTS</div></div><span class="pill">不归这条</span></div>
+<div class="mece-row"><div>让它按时跑<div class="who">KIN-ROUTINE-001</div></div><span class="pill">不归这条</span></div>
+<div class="mece-row"><div>被叫回来<div class="who">KIN-NOTIFY-001</div></div><span class="pill">不归这条</span></div>
+</div>
+<ul class="bullets">
+<li><strong>为什么单独一条：</strong>“看”与“说”是两件事。RESULT-001 只到“看清改了什么”；把评论发回去是同一意图下一个人能独立完成的一步，有自己的空、慢、失败和“离开再回来”。</li>
+<li><strong>为什么不并进 RESULT-001/002：</strong>那两条的验收是“能找到、能打开、能返回”；评论要求“锚点跟内容走、一次发回一条消息”，是新的行为，不该塞进已排队的合同。</li>
+<li><strong>Job map 覆盖：</strong>定义/定位＝第 1 步，准备＝第 2 步，确认＝第 3 步，执行＝第 4 步，监控＝第 5 步，修改/收尾＝第 6 步；八段都有落点，没有“先做 Mac 再做手机”。</li>
+<li><strong>设备只是差异：</strong>Mac 是左右对照 + 右侧评论栏，手机是统一 diff + 评论面板；同一套锚点、同一条发送路径。</li>
+<li><strong>不在这一条：</strong>Git 提交 / 推送 / 开 PR → 另一条意图（把一次已审阅的改动变成一个 PR）；跨设备同步、评论回复线程、一键应用 suggestion → 本版不做。</li>
+<li><strong>大小自检：</strong>标题只有一个动作；一个人一台设备一次能走完；一次交付含测试、复审、390/1100 截图；6 步 ≥ 3 步，装得下。</li>
+</ul></section>
+
+<section id="before-after"><h2>现在 → 之后</h2><div class="two"><div class="card now"><h3>现在</h3><ul><li>diff 里没有行级评论入口，只能说“那个文件里设置标题的那一行”。</li><li>文件路径和行号要自己重述，agent 还得猜。</li><li>一次只能发一条；agent 重跑后，连自己说过哪一行都难对上。</li></ul></div><div class="card after"><h3>之后</h3><ul><li>在 diff 的一行上留一条评论，攒几条一起发。</li><li>发出去是对话里一条普通消息：文件、块头、引用行、自己的话。</li><li>agent 重跑、行号移动，评论仍指向同一段代码；找不到时标「该行已变化」并保留原文。</li></ul></div></div></section>
+
+<section id="screens"><h2>界面与用户流程</h2><p class="note">每一屏先看 Figma 帧，再读下面六段用户流程。帧是设计源；宽帧在卡片内左右滑动，点「打开原图」可以全尺寸看。</p>
+<div class="screen-index"><a href="#screen-1">01 · Mac · 评论栏</a><a href="#screen-2">02 · 手机 · 评论面板</a><a href="#screen-3">03 · Mac · 发回对话</a></div>
+
+<article class="screen" id="screen-1"><div class="screen-head"><div><div class="eyebrow">01 · Mac · 1100×760</div><h3>左右对照 + 右侧评论栏</h3></div><span class="pill">Figma 帧</span></div>
+<figure class="frame fig-wide"><div class="frame-scroll" role="region" aria-label="Mac 左右对照 diff 与评论栏帧" tabindex="0" data-start="250"><img src="KIN-RESULT-003.figma/frames/01-mac-diff-comment.svg" width="1100" height="760" alt="Mac 改动面板：左边文件列表，中间左右对照 diff，右边评论栏有一条打开的评论框和发送按钮"></div><figcaption><span>1100×760 · Mac 帧 · 卡片内左右滑动，主区优先</span><a href="KIN-RESULT-003.figma/frames/01-mac-diff-comment.svg">打开原图</a></figcaption></figure>
+<h4>用户流程</h4><ol class="flow">
+<li><b>起点</b><span>对话里从「改动 / 文件」打开一个文件的 diff，左右对照；文件列表仍在左边，代码不被推走。</span></li>
+<li><b>动作</b><span>指针移到一行（或键盘聚焦该行后打开行操作，选「评论」），在右侧评论栏写一句，⌘Enter 保存；再评论两行。</span></li>
+<li><b>立刻看到</b><span>该行高亮、行尾出现入口；评论框标出文件、块头和引用行；保存后行上出现标记，托盘计数变 3，「发送 3 条评论」出现。</span></li>
+<li><b>慢 / 空 / 失败 / 断线</b><span>空内容提示「写点什么再保存」；diff 读取失败在代码区说明并可重试；断线时保存仍成功但绝不显示成已发送；发送失败时消息标未送达、可重试，评论留在托盘。</span></li>
+<li><b>键盘与焦点</b><span>行 → 评论框 → 保存 → 回原行；托盘 ↑/↓ 选条目，Enter 跳回该行，Esc 关闭并回到打开托盘的按钮；⌘Enter 发送。</span></li>
+<li><b>离开再回来</b><span>切到另一个文件再回来，未发送评论和未保存输入都在；刷新后同一段对话的评论还在；换一段对话不串。</span></li>
+</ol></article>
+
+<article class="screen" id="screen-2"><div class="screen-head"><div><div class="eyebrow">02 · 手机 · 390×844</div><h3>统一 diff + 评论面板</h3></div><span class="pill">Figma 帧</span></div>
+<figure class="frame fig-phone"><div class="frame-scroll" role="region" aria-label="手机统一 diff 与评论面板帧" tabindex="0"><img src="KIN-RESULT-003.figma/frames/02-phone-diff-sheet.svg" width="390" height="844" alt="手机统一 diff，一行右侧有评论数；底部评论面板显示行号、引用行、输入框与保存"></div><figcaption><span>390×844 · 手机帧</span><a href="KIN-RESULT-003.figma/frames/02-phone-diff-sheet.svg">打开原图</a></figcaption></figure>
+<h4>用户流程</h4><ol class="flow">
+<li><b>起点</b><span>手机对话 →「改动 / 文件」→ 一个文件的统一 diff；顶部「‹ 对话」和「‹ 文件」两个出口始终在外层。</span></li>
+<li><b>动作</b><span>点一行（整行 ≥44px）打开评论面板；写一句；保存；收起面板看本轮条数；点「发送」。</span></li>
+<li><b>立刻看到</b><span>面板从底部盖上来，标题是「评论第 N 行」，引用行与块头可见；保存后面板收起、行尾出现评论数；本轮条数跟着涨。</span></li>
+<li><b>慢 / 空 / 失败 / 断线</b><span>diff 加载或失败时没有行可点，代码区说明原因；空内容不能保存；断线仍可保存，发送失败显示未送达并可重试；键盘弹起时输入框不被遮住。</span></li>
+<li><b>键盘与焦点</b><span>打开面板即聚焦输入框；保存 / 取消 ≥44px，焦点回原行；收起面板焦点回打开它的入口；外接键盘 Esc 关闭面板。</span></li>
+<li><b>离开再回来</b><span>回文件列表再进同一文件，未发送评论仍在；刷新后还在；换一台设备看不到（本故事不同步）。</span></li>
+</ol></article>
+
+<article class="screen" id="screen-3"><div class="screen-head"><div><div class="eyebrow">03 · Mac · 1100×760</div><h3>发回对话：一条普通消息</h3></div><span class="pill">Figma 帧</span></div>
+<figure class="frame fig-wide"><div class="frame-scroll" role="region" aria-label="Mac 发回对话后的消息帧" tabindex="0" data-start="0"><img src="KIN-RESULT-003.figma/frames/04-mac-sent-message.svg" width="1100" height="760" alt="Mac 对话里一条用户消息包含三条评论，每条有文件、块头、引用行和一句话；右侧 diff 行上留下灰点"></div><figcaption><span>1100×760 · Mac 帧 · 卡片内左右滑动</span><a href="KIN-RESULT-003.figma/frames/04-mac-sent-message.svg">打开原图</a></figcaption></figure>
+<h4>用户流程</h4><ol class="flow">
+<li><b>起点</b><span>托盘里有三条评论，人在 diff 里，对话和工作区同屏。</span></li>
+<li><b>动作</b><span>点「发送 3 条评论」，或 ⌘Enter。</span></li>
+<li><b>立刻看到</b><span>对话里多一条普通用户消息：一句短说明，然后每条一段——文件路径、块头、引用行、自己的话；托盘清空并显示「已发回对话 · 3 条」；右侧 diff 不被推走。</span></li>
+<li><b>慢 / 空 / 失败 / 断线</b><span>消息立刻出现（和现有发送一致）；失败标未送达并可重试，评论不丢；没有评论时发送按钮不出现，不是禁用；agent 正在跑时按现有“再发一条”规则，不另造队列。</span></li>
+<li><b>键盘与焦点</b><span>发送后焦点回 diff 原行；消息可被键盘读到、可被引用；托盘空后发送按钮从 Tab 顺序消失。</span></li>
+<li><b>离开再回来</b><span>这条消息进 transcript，刷新或换设备（同一 Hub）都能看到；未发送的新评论留本地；已发内容不会在托盘里复活。</span></li>
+</ol></article>
+</section>
+
+<section id="states"><h2>状态</h2><p class="note">状态板画的是“agent 又改了一轮之后”：一条评论的引用行不见了，其余两条仍然有效。宽板在卡片内左右滑动。</p>
+<figure class="frame fig-board"><div class="frame-scroll" role="region" aria-label="锚点失效与托盘状态板" tabindex="0"><img src="KIN-RESULT-003.figma/frames/03-state-stale-anchor.svg" width="1500" height="860" alt="状态板：左边 diff 与标着该行已变化的评论卡，右边托盘列出三条评论与发送按钮，下方是发送后的状态"></div><figcaption><span>1500×860 · 状态板 · 左右滑动或打开原图</span><a href="KIN-RESULT-003.figma/frames/03-state-stale-anchor.svg">打开原图</a></figcaption></figure>
+<h4>用户流程</h4><ol class="flow">
+<li><b>起点</b><span>评论还在（已发或未发），agent 又改了一轮，重新打开同一文件的 diff。</span></li>
+<li><b>动作</b><span>看行上的标记和托盘，或点一条失效的评论。</span></li>
+<li><b>立刻看到</b><span>有效的评论跟着行走，行号变了也对；引用行不见的那条标「该行已变化」，并保留原块头与引用文本。</span></li>
+<li><b>慢 / 空 / 失败 / 断线</b><span>agent 还在跑时标记不闪、不重复；整个文件被删也一样保留；断线不清空托盘；不静默丢弃，也不改指向最近的一行。</span></li>
+<li><b>键盘与焦点</b><span>失效条目仍可聚焦、可读、可删；读屏读出「该行已变化」，不只靠颜色。</span></li>
+<li><b>离开再回来</b><span>失效不会因刷新自动“修好”或消失；同样的行再出现时恢复指向它。</span></li>
+</ol>
+<div class="state-list">
+<div class="state"><b>空</b><span>本轮没有评论：托盘不出现，不是空面板；行上也没有标记。</span></div>
+<div class="state"><b>加载</b><span>diff 还在加载时没有行可评，入口不出现；不拿旧行冒充新 diff。</span></div>
+<div class="state"><b>失败</b><span>diff 读取失败在代码区说明原因并给重试；评论入口不出现，已有评论仍在托盘。</span></div>
+<div class="state"><b>断线</b><span>已加载的行仍可评论，保存成功但不显示成已发送；发送失败的消息标未送达并可重试。</span></div>
+<div class="state"><b>空内容 / 禁用</b><span>空内容或只有空白不能保存，提示「写点什么再保存」；没有评论时发送按钮不出现，而不是灰着。</span></div>
+<div class="state"><b>运行中 / 等待批准</b><span>agent 正在跑时按现有“再发一条”规则；已发出的评论不受影响，行上灰点保留（D5）。</span></div>
+<div class="state"><b>锚点失效</b><span>标「该行已变化」，保留原块头与引用文本，可删、可复制原文；不做模糊匹配。</span></div>
+</div></section>
+
+<section id="decisions"><h2>要你拍板的</h2><p class="note">D0–D4 是已经拍过的板，写出来是为了让后来的人知道为什么。只回 D5。</p>
+<div class="decision settled"><h3>D0 只做评论回路，不做 Git / PR</h3><p class="rec"><strong>已定：</strong>评论、托盘、一次发回、锚点跟随；提交、推送、开 PR 不在这一条。</p><p class="tradeoff"><strong>代价：</strong>review 到 PR 的最后一段还要再走一次；换来这一条能一次交付完，不和 Git 权限混在一起。PR 那一步按意图另开故事。</p></div>
+<div class="decision settled"><h3>D1 评论是提示词，不是机器</h3><p class="rec"><strong>已定：</strong>「发送 N 条评论」把评论变成一条普通用户后续消息，走现有发送路径；不加评论表、接口、事件或迁移。</p><p class="tradeoff"><strong>代价：</strong>没有服务端评论历史、不能跨设备续编；换来没有第二份真相，也不用为评论造一套同步。</p></div>
+<div class="decision settled"><h3>D2 锚点跟内容走，丢了要看得见</h3><p class="rec"><strong>已定：</strong>按文件路径 + 块头 + 引用行重新落位；行号移动不影响；引用行消失时保留评论并标「该行已变化」。</p><p class="tradeoff"><strong>代价：</strong>要维护一点本地锚点与重定位逻辑（在现有 diff 之上，不引依赖）；换来人的话不会因为 agent 重跑而静默消失。</p></div>
+<div class="decision settled"><h3>D3 评论属于对话，不属于设备</h3><p class="rec"><strong>已定：</strong>评论按对话 id 存在内存 / localStorage，和输入框草稿、置顶同一层；发送前不进 transcript，也不同步。</p><p class="tradeoff"><strong>代价：</strong>换设备看不到未发送的评论；换来不新增存储协议，评论也不会在没发出去时出现在对话里。</p></div>
+<div class="decision settled"><h3>D4 一次一条消息，形状稳定</h3><p class="rec"><strong>已定：</strong>一条短说明，然后每条一段：文件路径、块头、引用行、自己的话。用用户能读懂的话写，不是模板字符串。</p><p class="tradeoff"><strong>代价：</strong>不能每条评论单独发、单独回；换来 agent 一次看全，人也只需读一条消息。</p></div>
+<div class="decision"><h3>D5 发完之后，行上还留不留痕迹？</h3><p class="rec"><strong>推荐：</strong>留一个灰点，点开能看到「已发回对话」和那条消息的跳转；灰点按对话保存在本地，直到这段对话结束。</p><p class="tradeoff"><strong>代价：</strong>要多记一份“哪条评论发去了哪条消息”的本地对应，比发完即清多一层状态；换来重新打开 diff 时知道自己评论过哪几行，不会重复提问。若选“发完不留痕”，实现更简单，但重开 diff 就看不出来。</p></div>
+</section>
+
+<section id="reply"><h2>回复模板</h2><div class="card reply"><p class="note">长按下面这段复制，改掉不同意的。D0–D4 已定，不用回。</p><pre>D5 同意
+补充：______
+
+或：
+D5 改成：发完不留痕</pre></div></section>
+
+<section id="sign"><h2>签字</h2><div class="card sign"><p>你回「全部同意」或「D5 同意」后，我才把 <code>KIN-RESULT-003.md</code> 改成 <code>approved</code>，下一条 slice 才开始写测试和代码。</p><p class="note">这一轮只写合同和这张页：没有产品代码、没有 UI 改动、没有测试，控制台现在看起来和之前一样。帧或流程有实质变化会重新请你确认。</p></div></section>
+
+<footer><p>设计源：<code>KIN-RESULT-003.figma/frames/</code>（4 张 SVG）</p><p>合同：<code>KIN-RESULT-003.md</code> · Figma 审阅版 · figma-flow-v1</p></footer>
+</main><script>for(const el of document.querySelectorAll('.frame-scroll[data-start]'))el.scrollLeft=Number(el.dataset.start)||0;</script>
+</body></html>
