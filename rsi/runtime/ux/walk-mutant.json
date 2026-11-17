@@ -1,0 +1,16 @@
+[
+  {
+    "label": "the seeded detail row and the pending bubble do not cross the route",
+    "file": "ui/src/pages/NewChatPage.tsx",
+    "old": "      liveResources.applyTaskSnapshot(task, liveResources.currentRevision());\n      // The same bubble travels with the route: the conversation mounts before\n      // its detail answers, and it must draw the message the draft was already\n      // showing rather than blink it away for one navigation plus one GET.\n      handOffPendingSend(task.id, sent);",
+    "new": "      // R-walk-mutant: the two halves of the #54 bridge — the seeded detail\n      // row and the in-memory pending bubble — broken together on purpose.\n      // `if (false)` keeps `task`, `sent` and both imports used under\n      // noUnusedLocals while esbuild drops the calls from the bundle.\n      if (false) {\n        liveResources.applyTaskSnapshot(task, liveResources.currentRevision());\n        // The same bubble travels with the route: the conversation mounts before\n        // its detail answers, and it must draw the message the draft was already\n        // showing rather than blink it away for one navigation plus one GET.\n        handOffPendingSend(task.id, sent);\n      }",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once"
+  },
+  {
+    "label": "the phone tab root draws the decision card over the seeded row again",
+    "file": "ui/src/components/cards/FloatingApproval.tsx",
+    "old": "      {!raised && (",
+    "new": "      {true && (",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J7"
+  }
+]

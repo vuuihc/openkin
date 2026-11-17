@@ -1,0 +1,9 @@
+[
+  {
+    "label": "worktree walker branch removed: every spec is graded by the control tree",
+    "file": "rsi/runtime/ux-walk.sh",
+    "test": "bash rsi/runtime/tests/test-ux-walker.sh",
+    "old": "  if [ -f \"$wt/rsi/runtime/ux/walk.mjs\" ]; then",
+    "new": "  if false; then"
+  }
+]

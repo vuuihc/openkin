@@ -393,10 +393,9 @@ class WalkJ7ContractTest(unittest.TestCase):
         self.assertIn(["wait", card], steps, steps)
         self.assertIn(["active", card], steps, steps)
         self.assertIn(["wait", "text=[seed] Answer the deploy"], steps, steps)
-        # The row opens from the keyboard: at 390px the floating needs-you
-        # panel covers the row's pointer target (recorded for the CEO lane).
-        self.assertIn(["focus", '[data-session-row="task-1"]'], steps, steps)
-        self.assertIn(["key", "Enter"], steps, steps)
+        # The row opens by pointer tap: J7 must prove the tap target itself is
+        # reachable, so no keyboard reopen stands in for the click.
+        self.assertIn(["click", '[data-session-row="task-1"]'], steps, steps)
         self.assertIn(["goto", "/tasks/task-1?focus=appr-1"], steps, steps)
         self.assertIn(["url", "^/tasks/task-1"], steps, steps)
         # Every argument was resolved: no placeholder or legacy literal left.

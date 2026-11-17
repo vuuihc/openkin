@@ -14,6 +14,11 @@ SMALL_SLOTS="${RSI_MERGE_SMALL_SLOTS:-1}"        # extra slot only small-safe PR
 unset SB_FIXLIST SB_GATEFAILS
 say() { echo "[$(date +%T)] $*"; }
 attempts() { cat "$STATE/merge/$1.attempts" 2>/dev/null || echo 0; }
+item_id() { # slug body -> the marker's id, else R-<slug>: the one reader and the one fallback rule
+  local id
+  id="$(printf '%s\n' "$2" | python3 "$RSI_DIR/runtime/item_marker.py")"
+  printf '%s\n' "${id:-R-$1}"
+}
 sendback() { # slug item title detail-file
   local slug="$1" item="$2" title="$3" det="$4" a live
   # A rework lane can push the fix WHILE this lane is still reviewing. Bouncing the PR on the SHA
@@ -321,6 +326,12 @@ if [ "${1:-}" != "--one" ]; then
     sendback "$SLUG" "$ITEM" "stale-check" "$DET"
     exit 0
   fi
+  # Hermetic seam for rsi/runtime/tests/test-loop-sendback-stale.sh: read the item id from a body
+  # file exactly as the verifier does, including the R-<slug> fallback. No state, no gh.
+  if [ "${1:-}" = "--item-check" ]; then
+    item_id "${2:?slug required}" "$(cat "${3:?body file required}")"
+    exit 0
+  fi
   DRY=0; [ "${1:-}" = "--dry-run" ] && DRY=1
   [ -e "$STATE/PAUSE" ] && { echo "paused"; exit 0; }
   # legacy single-instance lock (pre-pipeline merge.sh still running): do not double-process
@@ -333,13 +344,15 @@ if [ "${1:-}" != "--one" ]; then
   PRJ="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json number,headRefName,isDraft,labels,title,files,body 2>/dev/null)"
   echo "$PRJ" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1 || { sleep 3; PRJ="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json number,headRefName,isDraft,labels,title,files,body 2>/dev/null)"; }
   echo "$PRJ" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1 || PRJ="$($GH pr list --repo "$GH_REPO" --state open --limit 50 --json number,headRefName,isDraft,labels,title,body 2>/dev/null)"
-  PRS="$(printf '%s' "$PRJ" | STATE="$STATE" TIERPY="$RSI_DIR/runtime/review-tier.py" python3 -c '
-import json,sys,os,re,subprocess
+  PRS="$(printf '%s' "$PRJ" | STATE="$STATE" RSI_DIR="$RSI_DIR" TIERPY="$RSI_DIR/runtime/review-tier.py" python3 -c '
+import json,sys,os,subprocess
+sys.path.insert(0, os.path.join(os.environ["RSI_DIR"], "runtime"))
+from item_marker import parse_item
 st=os.environ["STATE"]; rows=[]
 for p in json.load(sys.stdin):
     h=p["headRefName"]; ls={l["name"] for l in p["labels"]}
     if not h.startswith("rsi/") or h.startswith("rsi/dream-") or h.startswith("rsi/ceo-") or p["isDraft"] or ls & {"hold","needs-ceo"}: continue
-    slug=h[4:]; m=re.search(r"RSI item: *([A-Za-z0-9._-]+)", p.get("body") or ""); item=m.group(1) if m else ""
+    slug=h[4:]; item=parse_item(p.get("body") or "")
     try: att=int(open("%s/merge/%s.attempts" % (st,slug)).read().strip() or 0)
     except Exception: att=0
     tier="large"
@@ -398,7 +411,7 @@ trap cleanup EXIT
 [ -e "$STATE/PAUSE" ] && exit 0
 BR="rsi/$SLUG"; WT="$WT_ROOT/rsi-$SLUG"; PRURL="https://github.com/$GH_REPO/pull/$N"
 BODY="$($GH pr view "$N" --repo "$GH_REPO" --json body --jq .body 2>/dev/null)"
-ITEM="$(echo "$BODY" | sed -n 's/.*RSI item: *\([A-Za-z0-9._-]*\).*/\1/p' | head -1)"; ITEM="${ITEM:-R-$SLUG}"
+ITEM="$(item_id "$SLUG" "$BODY")"
 V="$STATE/merge/$SLUG.verified"; RV="$STATE/merge/$SLUG.reviewed"; PREV="$STATE/merge/$SLUG.review.txt"
 QW=""; if [ -s "$STATE/merge/$SLUG.queued_at" ]; then QW=" queue_wait=$(( (T0 - $(cat "$STATE/merge/$SLUG.queued_at")) / 60 ))m"; rm -f "$STATE/merge/$SLUG.queued_at"; fi
 say "#$N $SLUG ($ITEM) verifier start$QW"; [ -n "$QW" ] && echo "$(date '+%F %H:%M') #$N $SLUG verifier_started$QW tier=$(cat "$STATE/merge/$SLUG.tier" 2>/dev/null || echo ?)" >> "$STATE/merge/cycles.log"

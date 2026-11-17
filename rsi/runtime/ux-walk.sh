@@ -3,8 +3,30 @@
 # seeds it when scripts/journeys_seed.py exists, walks the journeys with rsi/runtime/ux/walk.mjs, tears the daemon down.
 # exit 0 walked | 2 could not run (reason in <outdir>/UNAVAILABLE). Heavy steps (go build, npm build) go through the heavy.sh shims.
 #   UX_KIN_BIN=/path/to/kin   use a prebuilt binary instead of building the worktree (baseline / tests)
+#   --walker-for <worktree>   print the walker that worktree would run and exit; build-free seam for
+#                             rsi/runtime/tests/test-ux-walker.sh
 set -u
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
+
+# The walker must come from the same tree as the spec: a branch that adds a
+# step op or a placeholder would otherwise feed its new spec to the control
+# tree's older walker ("unknown step op", unsubstituted URLs in goto). The seam
+# below and the real walk both print through this one function, so a later edit
+# cannot reintroduce the control-tree walker for a branch that carries its own.
+walker_for() {
+  local wt="$1"
+  if [ -f "$wt/rsi/runtime/ux/walk.mjs" ]; then
+    printf '%s\n' "$wt/rsi/runtime/ux/walk.mjs"
+  else
+    printf '%s\n' "$RSI_DIR/runtime/ux/walk.mjs"
+  fi
+}
+# Build-free seam: answer and exit before any build, daemon or output directory.
+if [ "${1:-}" = "--walker-for" ]; then
+  [ -n "${2:-}" ] || { echo "usage: ux-walk.sh --walker-for <worktree>" >&2; exit 2; }
+  walker_for "$2"; exit 0
+fi
+
 WT="$1"; OUT="$2"; SEL="${3:-}"; mkdir -p "$OUT"
 unavail() { echo "$*" > "$OUT/UNAVAILABLE"; echo "[ux-walk] unavailable: $*" >&2; exit 2; }
 TMP="$(mktemp -d)"; PID=""; trap '[ -n "$PID" ] && kill -KILL "$PID" 2>/dev/null; rm -rf "$TMP"' EXIT
@@ -54,11 +76,13 @@ fi
 ARGS=(--base "http://127.0.0.1:$PORT" --token "$TOKEN" --out "$OUT")
 [ -f "$WT/rsi/runtime/ux/journeys.json" ] && ARGS+=(--spec "$WT/rsi/runtime/ux/journeys.json")
 case "$SEL" in @*) ARGS+=(--files "${SEL#@}");; ?*) ARGS+=(--journeys "$SEL");; esac
-# The walker must come from the same tree as the spec above: a branch that adds
-# a step op or a placeholder would otherwise feed its new spec to the control
-# tree's older walker ("unknown step op", unsubstituted URLs in goto).
-WALKER="$WT/rsi/runtime/ux/walk.mjs"
-[ -f "$WALKER" ] || WALKER="$RSI_DIR/runtime/ux/walk.mjs"
+# The mutant proof needs the task-detail answer held: the message the draft
+# showed must be on screen before the first detail GET lands. Unset (the gate)
+# adds nothing, so the walker's default 0 installs no route.
+[ -n "${RSI_UX_DELAY_TASKS_MS:-}" ] && ARGS+=(--delay-tasks "$RSI_UX_DELAY_TASKS_MS")
+# Same selection as the seam above: one writer, so the walker and the spec
+# cannot come from different trees.
+WALKER="$(walker_for "$WT")"
 node "$WALKER" "${ARGS[@]}" > "$OUT/walk.log" 2>&1; rc=$?
 [ $rc -eq 2 ] && unavail "walker could not run: $(tail -c 300 "$OUT/walk.log")"
 cat "$OUT/walk.log"; exit 0

@@ -210,12 +210,19 @@ job_shell_test() {
   bash rsi/runtime/tests/test-runtime-modes.sh || return 1
   bash rsi/runtime/tests/test-merge-gen-resolve.sh || return 1
   bash rsi/runtime/tests/test-gate-carry.sh || return 1
+  # The walk mutant's red proof builds the UI twice, so the gate runs only the
+  # runner's hermetic mode here; the browser proof itself is one command by hand
+  # (rsi/runtime/ux/walk-mutant-test.sh).
+  bash rsi/runtime/tests/test-walk-mutant.sh || return 1
+  bash rsi/runtime/ux/walk-mutant-test.sh --print-manifest >/dev/null || return 1
+  bash rsi/runtime/tests/test-ux-walker.sh || return 1
   bash rsi/runtime/tests/test-loop-sendback-stale.sh || return 1
   bash rsi/runtime/tests/test-release.sh || return 1
   bash rsi/runtime/tests/test-pace.sh || return 1
   bash rsi/runtime/tests/test-control-sync.sh || return 1
   bash rsi/runtime/tests/test-install.sh || return 1
   bash rsi/runtime/tests/test-utf8-truncation.sh || return 1
+  bash rsi/runtime/tests/test-reviewer-misses.sh || return 1
   bash rsi/runtime/nas/tests/test-nas.sh || return 1
   bash rsi/runtime/ux/retry-test.sh || return 1
   bash rsi/runtime/tests/test-wiring.sh
