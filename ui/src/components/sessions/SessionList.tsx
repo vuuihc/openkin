@@ -1819,7 +1819,12 @@ function ProjectBucket({
               reorder={
                 reorderEnabled && !imported
                   ? {
-                      onStart: () => onDragStart(bucket.key, row.key, bucket.rows.map((r) => r.key)),
+                      onStart: () =>
+                        onDragStart(
+                          bucket.key,
+                          row.key,
+                          bucket.rows.map((r) => r.key),
+                        ),
                       onMove: onDragMove,
                       onEnd: onDragEnd,
                     }
