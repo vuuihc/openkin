@@ -66,7 +66,9 @@ Every *new* strong-model review writes `rsi/state/escalations.jsonl` and a line 
 
 `run.sh` daily/dream refresh `rsi/state/escalations-weekly.md`. That file has a **daily worth-it line**: counts by trigger, and how many strong reviews found issues DeepSeek missed (strong `FAIL` with a substantive blocker/major after DeepSeek `PASS`) versus agreed. That is the metric for Ethan. The morning brief reads the file under 数据.
 
-After 2–3 days, also compare with `reviewer-misses.py` (PRs reverted or reopened after a merge-lane land).
+After 2–3 days, also compare with the per-reviewer ledger: `python3 rsi/runtime/reviewer-misses.py --update`
+writes `rsi/state/reviewer-misses.md` (PRs reverted or reopened after a merge-lane land), and `--status`
+prints the one-line read. It is evidence, not a gate.
 
 ## How to invoke Hydrogen (and Carbon)
 
