@@ -34,33 +34,6 @@ person can see; the fix and its verification belong in the PR.
 
 ## Open
 
-### 2026-11-17 · 中 · 手机新建页「打开封面」入口小于 44px
-
-390×844 的新建页上，项目卡右上角的「打开封面」是这一页通往项目封面的唯一入口，但它是一个
-`px-2.5 py-1` 的 chip（`ProjectSummaryCard.tsx:60` 的 class，没有 `min-h-*`），高度低于
-44px。2026-11-17 的旅程基线实测：J3/phone 的 12 张截图每张都恰好有 1 个 <44px 的可点目标
-（`walk.json` 的 `smallTapTargets`，汇总 12）；同页所有 Button 都有
-`min-h-11 sm:min-h-0`（`ui/src/components/ui/Button.tsx:106`），所以这个锚点是唯一计数来源，
-aria 里它的名字是「打开封面」。它不挡「开始」，但点不中时没有第二个入口。
-
-期望（可直接写成测试）：
-
-- 390px 下「打开封面」的可点区域至少 44×44（加 `min-h-11`，或把整张项目卡做成入口）；
-  视觉可以仍是同一枚 chip，1100px 允许保持紧凑。
-- `scripts/journeys-smoke.sh --journeys J3` 的 J3/phone 行 `smallTapTargets` 为 0。
-
-不要：把链接藏进 ⋯ 菜单；只用 padding 假装变大而热区不变；给 44px 规则加手机例外；
-删掉「打开封面」。
-
-线索：`ui/src/components/project/ProjectSummaryCard.tsx:50-63`（`Link`，class 在 `:60`，
-无 `min-h`），由 `ui/src/pages/NewChatPage.tsx` 的项目卡渲染；同类做对的写法见
-`ui/src/components/ui/Button.tsx:106` 的 `min-h-11 sm:min-h-0`。TASTE 11。
-
-验收：
-
-- 390×844：量「打开封面」的 bounding box 高 ≥44；`smallTapTargets` 为 0；截图。
-- `./scripts/check.sh` 绿。
-
 ### 2026-11-17 · 中 · 同一个项目在对话列表里有两个名字（有对话时是文件夹名，空项目是项目名）
 
 实测（390 手机列表与 1100 Mac 侧栏同屏）：`[seed] Project Alpha` / `Beta` 因为各有一条对话，
@@ -252,6 +225,8 @@ card"）需要按新契约改写；i18n `chat.progress.*` en / zh 同步。
 ## 已修
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
+
+- 2026-11-17 · 手机新建页「打开封面」入口小于 44px（`ProjectSummaryCard.tsx:60` 的 chip 无 `min-h`，且 inline 盒使 `min-height` 不生效）— `797e3dd2`（`Link` 加 `inline-flex min-h-11 sm:min-h-0`，390×844 实测 chip 74×27.9 → 74×44.0，1100×760 保持 74×27.9；新增 `ProjectSummaryCard.dom.test.tsx`，旧 class 与「有 `min-h-11` 但无非 inline 显示盒」两处变异均转红；J3/phone `smallTapTargets` 12 → 0，`check.sh` 全绿）
 
 - 2026-11-15 · iPad 左栏长按进入多选后找不到退出，行菜单里也没有多选入口（行菜单部分）— PR #170（`SessionRow` 对可选择行提供 `多选` 入口并在多选态保留 `⋯` 触发器显示 `退出多选`，复用 `SessionList` 同一退出与焦点归还路径；`SessionRow` / `SessionList.selection` 两套 DOM 测试 28 passed，390×844 / 1100×760 截图验证，check.sh 全绿；长按改道仍待 `KIN-MANAGE-001`）
 - 2026-11-14 · 新建对话发送后，进入对话 URI 时仍插入整页骨架屏 — PR #61（`cf7ba2bd`；就绪条件改为接受已种入的列表行或草稿交接，真正冷启动的深链改画有签名的品牌等待态（`IconKin` + `role="status"` + 慢连接提示）而不是整页骨架屏；新增 `TaskSessionHost.handoff.dom.test.tsx` 覆盖创建交接、切出页、冷进入、404 带缓存行，连同 coldLoad / pendingSend 共 5 文件 25 项通过，`tsc` 与 `npm run build` 绿；还原就绪条件与冷启动分支后 4 项按预期转红）
