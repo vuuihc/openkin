@@ -1,3 +1,4 @@
+// KIN-SETTINGS-001 — 改默认设置（J6）：本套件持有六组目录与已删面板的验收行。
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";

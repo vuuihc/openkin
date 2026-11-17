@@ -1,6 +1,7 @@
 # KIN-SETTINGS-001 · 改默认设置
 
-状态：draft
+状态：approved
+签字：2026-11-17 CEO 代签（用户授权见 rsi/DECISIONS.md 2026-11-15；决定见 rsi/state/decisions-pending.md 2026-11-17 18:05 行）。设计页与 5 张帧已读；登记的可执行测试见 registry。
 优先级：P1
 旅程：J6
 归属面：`IA.md`「设置与环境」
@@ -29,7 +30,7 @@
 |---|---|
 | 起点 | Mac 左栏底部图标，或手机 K 面板的"设置" |
 | 动作 | 打开设置 |
-| 立刻看到 | 分组的目录：通用、Agents、Providers、路由、高级；当前值以摘要形式挂在组名旁边 |
+| 立刻看到 | 分组的目录：通用、Agents、Providers、路由、高级，加一行运维（`?tab=operations`，归 `KIN-AGENTS-001`）；当前值以摘要形式挂在组名旁边 |
 | 慢 / 空 / 失败 / 断线 | 设置加载出骨架；读不到时显示"设置读取失败"和重试，不显示空表单；断线时顶部提示，已加载的值仍可看 |
 | 键盘与焦点 | Mac：Tab 进目录，↑/↓ 换组；手机：点组进详情 |
 | 离开再回来 | 回到上次停留的分组 |
@@ -39,9 +40,9 @@
 | 项 | 预期 |
 |---|---|
 | 起点 | 设置目录 |
-| 动作 | 点一组，或搜索设置项 |
+| 动作 | 点一组 |
 | 立刻看到 | 组内是若干行：名称、当前值、一句说明它影响什么（例如"新建对话默认用这个 agent"） |
-| 慢 / 空 / 失败 / 断线 | 搜索无结果说"没有匹配的设置"并保留输入；某组加载失败只影响这一组 |
+| 慢 / 空 / 失败 / 断线 | 某组加载失败只影响这一组 |
 | 键盘与焦点 | Mac：点组后焦点进组内第一行；手机：返回回到目录，目录位置不变 |
 | 离开再回来 | 分组和滚动位置保留 |
 
@@ -109,7 +110,13 @@
 
 ## 设计
 
-草图：`KIN-SETTINGS-001.review.html`（还没画；签字前按 `_REVIEW.html` 补，画 目录 → 分组 → 选择器 和 390/1100 两个面）。
+设计页：`KIN-SETTINGS-001.review.html`（Figma-first，2026-11-17 已读并签字），5 张帧：
+
+- `KIN-SETTINGS-001.figma/frames/01-mac-directory.svg`（Mac 目录与通用组）
+- `KIN-SETTINGS-001.figma/frames/02-mac-picker.svg`（Mac 选择器与未保存）
+- `KIN-SETTINGS-001.figma/frames/03-phone-directory.svg`（手机通用即目录）
+- `KIN-SETTINGS-001.figma/frames/04-phone-group.svg`（手机组详情与选择器）
+- `KIN-SETTINGS-001.figma/frames/05-state-board.svg`（七种状态与文案检查表）
 
 必须画到的状态：默认、空（没有 provider）、加载、失败、断线、未保存、测试连接中。
 
@@ -125,7 +132,7 @@
 
 | 层级 | 位置 | Given / When / Then |
 |---|---|---|
-| 组件 | `ui/src/pages/SettingsPage.dom.test.tsx`（新建） | Given 1100 宽 When 打开设置 Then 左目录右内容、当前值摘要可见；Given 手机宽度 Then 是 目录 → 详情 两级；打开设置时没有读取密钥的请求 |
+| 组件 | `ui/src/components/settings/SettingsPrimitives.test.ts`、`ui/src/pages/SettingsPage.facade.dom.test.tsx`（已有，扩充） | Given 1100 宽 When 打开设置 Then 左目录右内容、当前值摘要可见；Given 手机宽度 Then 是 目录 → 详情 两级；打开设置时没有读取密钥的请求 |
 | 回归 | `ui/src/components/settings/ProviderSettingsSection.test.ts`（已有） | Given 已配置的 provider When 渲染 Then 只显示已配置，不回显密钥 |
 | 组件 | `ui/src/components/settings/LocalAgentSettingsSection.dom.test.tsx`（已有，扩充） | Given 改模型 When 选择器打开 Then 贴行外弹、页面高度不变；选完值更新 |
 | 真浏览器 | 1100 和 390，`/browse` | 改一个默认值，返回新建页看到新值；设置页打开时网络面板没有第三方请求 |
@@ -140,3 +147,4 @@
 
 - 2026-10-30 从"设置与环境"意图写成第一条故事
 - 2026-11-11 R0b-3 删掉远程与通知两个 tab；本合同的目录与验收随之只覆盖保留下来的五组
+- 2026-11-17 CEO 代签（D1–D8 已定）；设计页 5 帧；验收改指真实套件

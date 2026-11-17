@@ -16,10 +16,10 @@
 | `KIN-PROJECT-001` | covered | P1 | J4 | Mac/手机 | 一个项目的封面：看清这里发生过什么，并从这里继续 | 6 |
 | `KIN-RESULT-001` | approved | P1 | J4 | Mac/手机 | 看它改了什么 | 3 |
 | `KIN-ROUTINE-001` | covered | P1 | J4 | Mac/手机 | 让它按时跑：把一件事交给机器重复做 | 6 |
-| `KIN-SETTINGS-001` | draft | P1 | J6 | Mac/手机 | 改默认设置 | 0 |
+| `KIN-SETTINGS-001` | approved | P1 | J6 | Mac/手机 | 改默认设置 | 7 |
 | `KIN-SETTINGS-002` | approved | P1 | J1、J6 | Mac | 桌面壳一键升级 | 3 |
 | `KIN-START-001` | covered | P1 | J3 | Mac/手机 | 新建一段对话 | 6 |
 
 ## 汇总
 
-approved 9 · covered 4 · draft 1
+approved 10 · covered 4
