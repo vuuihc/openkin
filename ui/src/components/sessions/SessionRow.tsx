@@ -1,6 +1,14 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
 import { useT } from "../../i18n/react";
 import { agentAvatarMeta, agentDisplayName } from "../../lib/agentMention";
+import { isImeKeyEvent } from "../../lib/ime";
 import type { PhoneSessionRow } from "../../lib/phoneSessionBuckets";
 import { formatRelativeTime } from "../../lib/relativeTime";
 import { rowSelectable } from "../../lib/sessionSelection";
@@ -12,6 +20,7 @@ import {
   IconCheck,
   IconMachine,
   IconMore,
+  IconPencil,
   IconPin,
   IconRestore,
   IconTrash,
@@ -27,14 +36,17 @@ import Button from "../ui/Button";
 import Menu, { type MenuItem } from "../ui/Menu";
 import PendingBadge from "../ui/PendingBadge";
 import type { SessionScopeFilter } from "../ui/SessionFilters";
+import TextInput from "../ui/TextInput";
 
 /**
  * One conversation row, shared by the phone page and the Mac sidebar.
  *
  * The row owns only presentation and gesture: which conversation it is, what
  * to announce, and which actions the current container uncovers. Opening,
- * selecting, pinning, archiving, restoring and deleting are the parent's
- * handlers — the same set either way. What changes is the surface those
+ * selecting, renaming, pinning, archiving, restoring and deleting are the
+ * parent's handlers — the same set either way. A rename is the one edit that
+ * happens here, in place: the title position becomes a field, and the parent
+ * only stores the result. What changes is the surface those
  * actions live on: one trailing "More" trigger opens the console's shared
  * `Menu` on the Mac and its shared `ActionSheet` on a touch page, so managing
  * a conversation is one discoverable control instead of a row of hover-only
@@ -68,6 +80,9 @@ export type SessionRowProps = {
   onSwipeOpenChange: (open: boolean) => void;
   pinned: boolean;
   onPin: () => void;
+  /** Save a new local title for this conversation. The parent owns storage,
+   *  so the row never waits on a write and never navigates. */
+  onRename: (title: string) => void;
   onArchive: () => void;
   onDelete: () => void;
   onRestore: () => void;
@@ -104,6 +119,7 @@ export default function SessionRow({
   onSwipeOpenChange,
   pinned,
   onPin,
+  onRename,
   onArchive,
   onDelete,
   onRestore,
@@ -118,6 +134,19 @@ export default function SessionRow({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+  // Renaming happens in the row itself: the title position becomes a field,
+  // so the same edit works on the phone and in the Mac sidebar without a
+  // dialog, a route or a network round trip.
+  const [renaming, setRenaming] = useState(false);
+  const [draftTitle, setDraftTitle] = useState("");
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const shellRef = useRef<HTMLElement | null>(null);
+  // Whether ending the edit should put the keyboard back on the row. A blur
+  // moves focus somewhere on purpose and must not be pulled back.
+  const returnFocusToShell = useRef(false);
+  const setShell = useCallback((node: HTMLElement | null) => {
+    shellRef.current = node;
+  }, []);
   const dot = row.task ? sessionStatusDotClass(row.task.status, viewedIds.has(row.task.id)) : null;
   const avatar = agentAvatarMeta(row.agentId);
   const label = [
@@ -159,17 +188,180 @@ export default function SessionRow({
     if (showsActions && !selectionMode) return;
     setMenuOpen(false);
     setSheetOpen(false);
+    // A mode can change under an open editor; the edit ends with the actions
+    // that opened it, and the row it would return to may be gone.
+    returnFocusToShell.current = false;
+    setRenaming(false);
   }, [showsActions, selectionMode]);
 
-  const rowButton = (
-    /* eslint-disable-next-line kin/no-raw-button --
-       The conversation row is a full-width navigation target, not a
-       button-shaped control: it is a list row that happens to be clickable,
-       and the design system has no row primitive. Its actions are drawn with
-       the shared Button, Menu and ActionSheet. */
+  // The field takes the keyboard as it appears, with the whole title selected
+  // so typing replaces the old name rather than appending to it.
+  useEffect(() => {
+    if (!renaming) return;
+    const field = renameInputRef.current;
+    field?.focus({ preventScroll: true });
+    field?.select();
+  }, [renaming]);
+
+  // Back to the row once the edit is over. The shell is a button again by the
+  // time this runs, whichever way the edit ended.
+  useEffect(() => {
+    if (renaming || !returnFocusToShell.current) return;
+    returnFocusToShell.current = false;
+    shellRef.current?.focus({ preventScroll: true });
+  }, [renaming]);
+
+  /** Open the in-place editor. Reached from the action surface, which is
+   *  already closing: nothing navigates and no selection changes. */
+  function startRename() {
+    setMenuOpen(false);
+    setSheetOpen(false);
+    setDraftTitle(row.title);
+    setRenaming(true);
+  }
+
+  /** `restoreFocus` is false when focus is leaving on purpose (a click
+   *  elsewhere): the edit still ends, but the keyboard is not pulled back. */
+  function cancelRename(restoreFocus = true) {
+    if (!renaming) return;
+    returnFocusToShell.current = restoreFocus;
+    setRenaming(false);
+  }
+
+  function onRenameKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
+    if (isImeKeyEvent(event.nativeEvent)) return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const title = draftTitle.trim();
+      // A blank title is not a name: Enter keeps the field open and focused so
+      // the person can finish typing instead of saving nothing.
+      if (!title) return;
+      returnFocusToShell.current = true;
+      setRenaming(false);
+      // An edit that changes nothing just closes the field.
+      if (title !== row.title.trim()) onRename(title);
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      // The row's Escape must not also reach an ancestor's handler: cancelling
+      // the edit is the whole request.
+      event.stopPropagation();
+      cancelRename();
+    }
+  }
+
+  const shellClassName = [
+    // The press animation belongs to a control. While editing, the shell is a
+    // plain row: it must not look tappable and must not navigate.
+    renaming ? "" : "kin-row-press",
+    "flex min-h-11 w-full items-center gap-2.5 py-2.5 text-left",
+    gutter,
+    selectionMode && selected ? "bg-[var(--kin-fill)]" : "",
+    active ? "bg-[var(--kin-fill-strong)]" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  // The row's contents are shared by both shells, so the geometry is identical
+  // before, during and after an edit; only the element around them changes.
+  const rowContent = (
+    <>
+      <span className="flex w-2 flex-none justify-center">
+        {selectionMode && rowSelectable(row, scope) ? (
+          <span
+            className={[
+              "flex h-4 w-4 items-center justify-center rounded-full border",
+              selected
+                ? "border-kin-blue bg-kin-blue text-kin-on-brand"
+                : "border-[var(--kin-hairline-strong)]",
+            ].join(" ")}
+            aria-hidden
+          >
+            {selected ? <IconCheck size={10} strokeWidth={2.5} /> : null}
+          </span>
+        ) : dot ? (
+          <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden />
+        ) : null}
+      </span>
+      <span
+        className={`flex h-5 w-5 flex-none items-center justify-center rounded-full text-micro font-semibold ${avatar.className}`}
+        title={agentDisplayName(row.agentId)}
+      >
+        {avatar.initials}
+      </span>
+      {renaming ? (
+        // The title position itself becomes the field, so the edit happens
+        // where the name is read. The id stays here: the trailing trigger is
+        // described by this element on both surfaces.
+        <div id={titleId} className="min-w-0 flex-1">
+          <TextInput
+            ref={renameInputRef}
+            isLabelHidden
+            label={tr("sessions.renameFieldLabel")}
+            value={draftTitle}
+            onChange={(event) => setDraftTitle(event.target.value)}
+            onKeyDown={onRenameKeyDown}
+            // A click elsewhere ends the edit without saving it: an accidental
+            // click must never silently rename a conversation.
+            onBlur={() => cancelRename(false)}
+            // One line inside the row's own height; the facade drops its 44px
+            // floor when the caller sets a height (TASTE 11: the row keeps it).
+            className="h-7 min-h-0"
+            autoFocus
+          />
+        </div>
+      ) : (
+        <span
+          id={titleId}
+          className={[
+            "min-w-0 flex-1 truncate leading-ui text-kin-text",
+            shell === "sidebar" ? "text-body font-normal" : "text-subtitle font-medium",
+          ].join(" ")}
+        >
+          <HighlightedText text={row.title} query={query} />
+        </span>
+      )}
+      {row.remote && (
+        <span
+          className="flex-none text-kin-muted"
+          title={deviceLabel || tr("machine.remote")}
+          aria-hidden
+        >
+          <IconMachine size={12} />
+        </span>
+      )}
+      <PendingBadge count={pendingCount} />
+      {deviceLabel ? (
+        <span className="max-w-[6rem] flex-none truncate text-caption leading-ui text-kin-muted">
+          {deviceLabel}
+        </span>
+      ) : null}
+      <span className="flex-none text-caption leading-ui text-kin-muted tabular-nums">
+        {formatRelativeTime(row.at, now)}
+      </span>
+    </>
+  );
+
+  const rowButton = renaming ? (
+    // HTML cannot nest an input inside a button, and while editing neither
+    // navigation nor selection may fire: the shell drops to a plain row.
+    <div
+      data-session-row={row.task?.id ?? row.session?.id}
+      ref={setShell}
+      className={shellClassName}
+    >
+      {rowContent}
+    </div>
+  ) : (
+    // The conversation row is a full-width navigation target, not a
+    // button-shaped control: it is a list row that happens to be clickable,
+    // and the design system has no row primitive. Its actions are drawn with
+    // the shared Button, Menu and ActionSheet.
     <button
       type="button"
       data-session-row={row.task?.id ?? row.session?.id}
+      ref={setShell}
       onClick={() => {
         if (selectionMode) {
           if (rowSelectable(row, scope) && !selectionLocked) onToggleSelect();
@@ -197,63 +389,9 @@ export default function SessionRow({
       // A tooltip only: the gesture has no visible affordance of its own, and
       // the accessible name stays the row's sentence (see `label` above).
       title={reorderHint ? tr("sessions.reorderHint") : undefined}
-      className={[
-        "kin-row-press flex min-h-11 w-full items-center gap-2.5 py-2.5 text-left",
-        gutter,
-        selectionMode && selected ? "bg-[var(--kin-fill)]" : "",
-        active ? "bg-[var(--kin-fill-strong)]" : "",
-      ].join(" ")}
+      className={shellClassName}
     >
-      <span className="flex w-2 flex-none justify-center">
-        {selectionMode && rowSelectable(row, scope) ? (
-          <span
-            className={[
-              "flex h-4 w-4 items-center justify-center rounded-full border",
-              selected
-                ? "border-kin-blue bg-kin-blue text-kin-on-brand"
-                : "border-[var(--kin-hairline-strong)]",
-            ].join(" ")}
-            aria-hidden
-          >
-            {selected ? <IconCheck size={10} strokeWidth={2.5} /> : null}
-          </span>
-        ) : dot ? (
-          <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden />
-        ) : null}
-      </span>
-      <span
-        className={`flex h-5 w-5 flex-none items-center justify-center rounded-full text-micro font-semibold ${avatar.className}`}
-        title={agentDisplayName(row.agentId)}
-      >
-        {avatar.initials}
-      </span>
-      <span
-        id={titleId}
-        className={[
-          "min-w-0 flex-1 truncate leading-ui text-kin-text",
-          shell === "sidebar" ? "text-body font-normal" : "text-subtitle font-medium",
-        ].join(" ")}
-      >
-        <HighlightedText text={row.title} query={query} />
-      </span>
-      {row.remote && (
-        <span
-          className="flex-none text-kin-muted"
-          title={deviceLabel || tr("machine.remote")}
-          aria-hidden
-        >
-          <IconMachine size={12} />
-        </span>
-      )}
-      <PendingBadge count={pendingCount} />
-      {deviceLabel ? (
-        <span className="max-w-[6rem] flex-none truncate text-caption leading-ui text-kin-muted">
-          {deviceLabel}
-        </span>
-      ) : null}
-      <span className="flex-none text-caption leading-ui text-kin-muted tabular-nums">
-        {formatRelativeTime(row.at, now)}
-      </span>
+      {rowContent}
     </button>
   );
 
@@ -285,6 +423,20 @@ export default function SessionRow({
         },
       ]
     : [
+        // Rename leads: it is the row's own name, and the edit a person
+        // reaches for when a title is just the first line of a prompt. It is
+        // offered only in the active scope — the archived menu is restore +
+        // delete — and only ever on a task row (`mode` is null without one).
+        ...(mode === "active"
+          ? [
+              {
+                id: "rename",
+                label: tr("sessions.rename"),
+                icon: <IconPencil size={12} />,
+                onSelect: startRename,
+              },
+            ]
+          : []),
         ...(canSelect
           ? [
               {
@@ -452,6 +604,9 @@ export default function SessionRow({
           reorder={reorder}
           width={sessionRowActionsWidth(mode)}
           actions={
+            // Deliberately no Rename chip here: the strip's width is derived
+            // from exactly three chips and the swipe distance from that width.
+            // The menu and the sheet are the one entrance to a rename.
             <SessionRowActions
               mode={mode}
               pinned={pinned}
