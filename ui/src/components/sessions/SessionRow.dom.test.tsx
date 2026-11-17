@@ -687,9 +687,9 @@ describe("SessionRow", () => {
     }
   });
 
-  it("an archived conversation does not say Running", async () => {
-    // An archived conversation is settled whatever its last task reported: the
-    // menu it opens is the way back plus delete, not a status report.
+  it("an archived conversation that is still running says Running", async () => {
+    // Archiving does not stop a run, so an archived conversation whose task is
+    // still going keeps the warning above the actions that follow it.
     const { container } = render(
       <SessionRow
         {...props({
@@ -706,7 +706,7 @@ describe("SessionRow", () => {
       within(screen.getByRole("menu"))
         .getAllByRole("menuitem")
         .map((item) => item.textContent),
-    ).toEqual(["Select", "Restore", "Delete"]);
+    ).toEqual(["Running", "Select", "Restore", "Delete"]);
   });
 
   it("while selecting, the row menu holds only Exit selection", async () => {

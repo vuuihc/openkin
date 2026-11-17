@@ -186,13 +186,14 @@ export default function SessionRow({
   // the visible way out for anyone who entered by accident. A row that cannot
   // be selected has no batch action to offer and keeps no trigger.
   const showsActions = mode !== null && (selectionMode ? canSelect : true);
-  // What the row's dot already draws, said in words at the top of its menu: a
-  // conversation that is queued, running or retrying is still being worked on.
-  // It is information, not a lock — every edit below it stays available. Only
-  // the live row's own menu carries it: while selecting, the menu is the one
-  // way out, and an archived conversation is settled.
-  const runningNow =
-    mode === "active" && row.task ? taskCardStatusView(row.task.status).tone === "running" : false;
+  // The status's tone, said in words at the top of the menu: a conversation
+  // that is queued, running or retrying is still being worked on. It follows
+  // the tone alone, archived or not — archiving does not stop a run, so an
+  // archived conversation that is still going must warn before Delete too. It
+  // is information, not a lock: every edit below it stays available. It is only
+  // added in the non-selection branch — while selecting, the menu is the one
+  // way out.
+  const runningNow = row.task ? taskCardStatusView(row.task.status).tone === "running" : false;
   // A mode can end while its surface is open (the row is archived from
   // elsewhere, multi-select starts): the surface is gone with the trigger, or
   // its action set is about to change under the reader, so the state must not
