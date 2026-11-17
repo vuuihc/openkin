@@ -2,11 +2,13 @@
 # test-walk-mutant.sh — hermetic contract for the R-walk-mutant red proof.
 #
 # The proof itself needs a browser and two UI builds, so it is not part of the
-# gate. What the gate *can* check without one is that the committed mutant still
-# points at the real hand-off pair, that the runner prints that same manifest,
-# and that the J3 spec still satisfies the contract the walk depends on. A
-# manifest whose `old` no longer occurs exactly once would make mutants.py stop
-# before it ever ran a mutant, silently retiring the proof.
+# gate. What the gate *can* check without one is that the committed mutants still
+# point at the real hand-off pair, the row tap, and the mid-run follow-up
+# dispatch; that the runner prints that same manifest; and that the J3 spec
+# carries the mid-run ordering proof (the follow-up on screen before the first
+# answer) and still satisfies the contract the walk depends on. A manifest whose
+# `old` no longer occurs exactly once would make mutants.py stop before it ever
+# ran a mutant, silently retiring the proof.
 #
 # No browser, no npm, no daemon: python3 stdlib and node only.
 # Prints "PASS <case>" per case and exits non-zero on the first failure.
@@ -29,8 +31,8 @@ import sys
 
 manifest_path, root = sys.argv[1], sys.argv[2]
 entries = json.load(open(manifest_path, encoding="utf-8"))
-if not isinstance(entries, list) or len(entries) != 2:
-    raise SystemExit("manifest must be exactly two entries, got %r" % (entries,))
+if not isinstance(entries, list) or len(entries) != 3:
+    raise SystemExit("manifest must be exactly three entries, got %r" % (entries,))
 for entry in entries:
     for key in ("label", "file", "old", "new", "test"):
         if not isinstance(entry.get(key), str) or not entry[key]:
@@ -58,8 +60,20 @@ if j7 is None:
     raise SystemExit("no J7 entry for ui/src/components/cards/FloatingApproval.tsx")
 if "--walk-once J7" not in j7["test"]:
     raise SystemExit("the J7 entry's `test` does not walk J7 (--walk-once J7)")
-print("manifest ok: %s and %s, one occurrence of each `old`"
-      % (j3["file"], j7["file"]))
+# The mid-run mutant must drop the follow-up dispatch itself, not a render
+# detail: the walk's second message has to vanish from the transcript. The
+# guard below is the one snippet that removes the send for a running task
+# while keeping every import used under noUnusedLocals.
+follow = next((e for e in entries if e["file"].endswith("ui/src/pages/TaskDetailPage.tsx")), None)
+if follow is None:
+    raise SystemExit("no mid-run entry for ui/src/pages/TaskDetailPage.tsx")
+if "if (!isTerminal(task.status)) return;" not in follow["new"]:
+    raise SystemExit("the mid-run mutant does not drop the follow-up dispatch "
+                     "(no `if (!isTerminal(task.status)) return;`)")
+if "J7" in follow["test"]:
+    raise SystemExit("the mid-run entry's `test` walks J7; it must walk J3")
+print("manifest ok: %s, %s and %s, one occurrence of each `old`"
+      % (j3["file"], j7["file"], follow["file"]))
 PY
 [ $? -eq 0 ] || fail "$case_name: manifest check failed"
 pass "$case_name"
@@ -89,6 +103,94 @@ if [ "$rc" -ne 0 ]; then
   fail "$case_name: --check-spec exited $rc"
 fi
 rm -f "$log"
+pass "$case_name"
+
+# The mid-run follow-up is the F2 lost-message path: a second message typed
+# while the first round runs, sent with the queue action, and proved on screen
+# *before* the first answer. Each clause is a separate way for the proof to
+# quietly disappear (no second fill, reusing Start, a bare `text=` wait that is
+# green off the header title, or the count moved after the reply).
+case_name="test_j3_spec_carries_the_midrun_followup"
+python3 - "$WT/rsi/runtime/ux/journeys.json" <<'PY' || fail "$case_name: the J3 spec lost the mid-run follow-up"
+import json
+import sys
+
+spec = json.load(open(sys.argv[1], encoding="utf-8"))
+steps = spec["journeys"]["J3"]["steps"]
+REPLY = "Fake reply from the journey fake agent."
+
+def at(pred, start=0):
+    for i in range(start, len(steps)):
+        if isinstance(steps[i], list) and pred(steps[i]):
+            return i
+    return -1
+
+start = at(lambda st: st[0] == "send" and ("开始" in str(st[1]) or "Start" in str(st[1])))
+assert start >= 0, "J3 has no Start send"
+prompt = next((str(st[2]) for st in steps
+               if st[0] == "fill" and "textarea" in str(st[1])), "")
+fill = at(lambda st: st[0] == "fill" and "textarea" in str(st[1])
+          and str(st[2]).strip() not in ("", prompt), start + 1)
+assert fill >= 0, "no second fill after Start (the mid-run follow-up)"
+follow = str(steps[fill][2])
+assert follow.strip(), "the mid-run follow-up is empty"
+send = at(lambda st: st[0] == "send"
+          and "开始" not in str(st[1]) and "Start" not in str(st[1])
+          and "打断" not in str(st[1]) and "nterrupt" not in str(st[1]), fill + 1)
+assert send >= 0, "no queue Send after the follow-up (the only send is Start)"
+wait = at(lambda st: st[0] == "wait" and str(st[1]).startswith("css=")
+          and "[role=region]" in str(st[1]) and follow in str(st[1]), send + 1)
+assert wait >= 0, "no transcript-scoped css= wait naming the follow-up"
+count = at(lambda st: st[0] == "count" and str(st[1]).startswith("text=")
+           and REPLY in str(st[1]) and str(st[2]) == "0", send + 1)
+assert count >= 0, "no count of the reply = 0 before it lands"
+reply = at(lambda st: st[0] == "wait" and str(st[1]).startswith("text=")
+           and REPLY in str(st[1]), send + 1)
+assert reply >= 0, "no reply wait"
+assert count < reply, "the reply count must come before the reply wait"
+timeout = steps[reply][2] if len(steps[reply]) > 2 else None
+try:
+    timeout_ms = float(timeout)
+except (TypeError, ValueError):
+    timeout_ms = 0
+assert timeout_ms >= 20000, \
+    "the reply wait must carry a per-step timeout >= 20000ms, got %r" % (timeout,)
+print("J3 mid-run ok: %r typed, queue-sent, waited for in the transcript, reply counted 0 first"
+      % follow)
+PY
+pass "$case_name"
+
+case_name="test_j3_spec_rejects_a_midrun_walk_without_the_ordering_proof"
+command -v node >/dev/null 2>&1 || fail "$case_name: node is not on PATH"
+spec_tmp="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec-mutant.XXXXXX")"
+log="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec.XXXXXX")"
+python3 - "$WT/rsi/runtime/ux/journeys.json" "$spec_tmp" <<'PY' || exit 1
+import json
+import sys
+
+src, dst = sys.argv[1], sys.argv[2]
+spec = json.load(open(src, encoding="utf-8"))
+steps = spec["journeys"]["J3"]["steps"]
+REPLY = "Fake reply from the journey fake agent."
+kept, dropped = [], 0
+for st in steps:
+    if st[0] == "count" and REPLY in str(st[1]) and str(st[2]) == "0":
+        dropped += 1
+        continue
+    kept.append(st)
+if dropped != 1:
+    raise SystemExit("expected one reply count of 0, dropped %d" % dropped)
+spec["journeys"]["J3"]["steps"] = kept
+json.dump(spec, open(dst, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+PY
+( cd "$WT" && node rsi/runtime/ux/walk.mjs --check-spec --spec "$spec_tmp" ) >"$log" 2>&1
+rc=$?
+if [ "$rc" -ne 1 ] || ! grep -q "counts the fake agent's reply as 0" "$log"; then
+  cat "$log" >&2
+  rm -f "$log" "$spec_tmp"
+  fail "$case_name: --check-spec exited $rc without rejecting a mid-run walk with no ordering proof"
+fi
+rm -f "$log" "$spec_tmp"
 pass "$case_name"
 
 case_name="test_j3_spec_rejects_a_title_only_prompt_wait"
@@ -192,4 +294,4 @@ fi
 rm -f "$log" "$spec_tmp"
 pass "$case_name"
 
-echo "walk-mutant contract: 6/6 cases passed"
+echo "walk-mutant contract: 8/8 cases passed"
