@@ -177,7 +177,7 @@
     },
     {
       "id": "KIN-SETTINGS-001",
-      "state": "draft",
+      "state": "approved",
       "priority": "P1",
       "journeys": [
         "J6"
@@ -194,7 +194,15 @@
         "ui/src/components/settings/ProviderSettingsSection.tsx",
         "ui/src/components/settings/LocalAgentSettingsSection.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "ui/src/pages/SettingsPage.facade.dom.test.tsx",
+        "ui/src/pages/SettingsPage.notificationTab.dom.test.tsx",
+        "ui/src/pages/SettingsPage.operations.dom.test.tsx",
+        "ui/src/pages/settingsTabsWiring.test.ts",
+        "ui/src/components/settings/SettingsPrimitives.test.ts",
+        "ui/src/components/settings/ProviderSettingsSection.test.ts",
+        "ui/src/components/settings/LocalAgentSettingsSection.dom.test.tsx"
+      ],
       "blockedReason": null
     },
     {
