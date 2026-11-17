@@ -47,7 +47,7 @@
 4. **拒绝不离开，不清除唯一副本。** 鉴权期间、pending 加载、显式「item 已不存在」处理和 leave guard 询问期间，原 target 均未被消费为当前页面；未匹配给出就地说明，不可选另一张卡。用户拒绝丢弃草稿时停在原页，保留一个明确的「重试打开通知」提醒，不自动导航、不并入任意区域历史；重试沿用完整原 target。pending 读取失败保留重试，不把未知 item 直接抹为不存在；只有 pending 成功加载且不存在，或明确过期/被另一设备解决时才进入「item 已不存在」状态。
 5. **通知消息与目标分开恢复。** 设备 id 与原生安全 URL 约束原样保留；导航拒绝后不得把旧 target 绑定到当前区或任意 task。提交时以这条通知交付生命周期和 [NOTIFY-001](KIN-NOTIFY-001.md) 的实际原生边界为准；这里不改 bridge、agent 或推送协议，也不改推送产生或业务审批语义。
 
-1. **Tab 仅入口根显示。** `/sessions`、`/routines`、`/agents`（即 `/settings?tab=operations`）、`/settings` 与 `/settings?tab=general` 是四个手机入口的根，显示完整四 Tab。`/tasks/:id`、`/new`、`/projects`、`/projects/:id`、`/machines/:device/tasks/:id`、`/agent-sessions/:id` 和任一非 general 的设置分区隐藏 Tab，提供原区域栈的返回；新建是关闭，摘要未保存等场景仍先过 leave guard。四个入口始终同级，但从项目进入新建的返回仍是项目封面。
+1. **Tab 仅入口根显示。** `/sessions`、`/routines`、`/agents`（即 `/settings?tab=operations`）、`/settings` 与 `/settings?tab=general` 是四个手机入口的根，显示完整四 Tab。`/tasks/:id`、`/new`、`/projects`、`/projects/:id`、`/machines/:device/tasks/:id`、`/agent-sessions/:id` 隐藏 Tab，提供原区域栈的返回；新建是关闭，摘要未保存等场景仍先过 leave guard。四个入口始终同级，但从项目进入新建的返回仍是项目封面。
 2. **入口证据而非导航目录改写 URL。** 区根到详情 push；跨区显式动作保存来源区、URL、位置和触发器身份，将新详情推进目标区。原入口回栈仍有效；冷启动使用上表默认父级，而非伪造“上次的滚动位置”。
 3. **同区栈不是全局一条。** 四区各自保存自己的根、筛选/选中/滚动与未提交编辑；四 Tab 切换不用 Back 互相穿梭。对原入口的回栈证据持久于 history state；tab 本地缓存只补充该应用会话的现场，不能篡改其他区的历史。
 4. **根页的父母是退出 Kin。** 在真正的区根或没有 Kin 父级的首次进入，页头/边缘不人为增加回栈；浏览器 Back 仍可正常离开应用。主应用在路由前给冷启动详情合成已知父级，history ledger（历史入口记录）只记录真实 Kin 入口，不伪造“上一页”把退出圆堵住。通知和外部 history 不能导致 `[项目, 对话, 项目, 对话]` 的环。跨区替换旧 child 时，ledger 和 marker 一起绑定入口 URL、region 与 history index；index 只是校验，不是唯一身份。

@@ -49,7 +49,7 @@
 | 键盘与焦点 | 打开时焦点进入新面的主要内容；返回时回到原触发项；系统返回、按钮、边缘手势同一结果；浮层先关浮层 |
 | 离开再回来 | 子页面栈与详情滚动按区域保存；冷启动合成有明确区域归属的父亲；不制造历史环，父级完整规则见下表 |
 
-**手机底栏只在各入口根出现：** 四个同级 Tab 是对话列表 `/sessions`、例行任务 `/routines`、Agent 运维 `/agents`（即 `/settings?tab=operations`）与设置 `/settings` / `?tab=general`；对话详情、导入会话、项目集合与项目封面、远程运行、非 general 设置分区皆隐藏 Tab、保留本区返回；新建则是有关闭的专注任务。项目没有独立的手机入口，`/projects` 由对话列表里的项目标题推入。页面栈仍留在原所属区，离开后回该 Tab 恢复它的根/现场。不是全局常驻底栏，也不是用 Back 在各 Tab 之间穿行。
+**手机底栏只在各入口根出现：** 四个同级 Tab 是对话列表 `/sessions`、例行任务 `/routines`、Agent 运维 `/agents`（即 `/settings?tab=operations`）与设置 `/settings` / `?tab=general`；对话详情、导入会话、项目集合与项目封面、远程运行皆隐藏 Tab、保留本区返回；设置按 `?tab=` 分区，任一分区都保留 Tab；新建则是有关闭的专注任务。项目没有独立的手机入口，`/projects/:id` 由对话列表里的项目标题推入。页面栈仍留在原所属区，离开后回该 Tab 恢复它的根/现场。不是全局常驻底栏，也不是用 Back 在各 Tab 之间穿行。
 
 **父级按进入时的证据，从项目打开不丢弃项目。** 原入口的 URL、区域、位置和触发器身份记入该 history entry；从项目封面进对话、导入会话或 `/new` 会回该封面；从列表进则回列表；从通知冷启动则用 [路由映射](ux-unification-story-map.md) 的区域父级。冷启动的父亲只补区域结构，不撒谎恢复没有发生过的滚动/焦点。无 Kin 父级时替换当前面，不盲目 `navigate(-1)` 离开；清除已不复存在的 child，避免历史环。Mac 保持正常浏览器历史与固定侧栏。
 
@@ -60,7 +60,7 @@
 | `/projects` / `/projects/:id` | 项目根；封面保留摘要、最近一条活动、项目模式、刷新和明确的新建入口 |
 | `/machines/:device/tasks/:id` | 实际项目/例程入口；冷启动为 `/routines?device=<原 device>`；原 URL/device 不变 |
 | `/agents` / `/usage` | `replace` 到 `/settings?tab=operations`，是设置 → Agent 运维，不改本地 `?tab=agents` |
-| `/settings?tab=:id` | general 是带 Tab 的设置根；其他分区隐藏 Tab，返回设置根；旧 general/agents/providers/routing/advanced 精确保留 |
+| `/settings?tab=:id` | general 是带 Tab 的设置根；任一分区都保留 Tab，返回设置根；旧 general/agents/providers/routing/advanced 精确保留 |
 | `/inbox?focus=:item` | 保留原 item id，以现有 pending 列表将其解析到真正的 task，再定位匹配审批/问题卡；未匹配不选第一张卡；旧 `/routines?device=:device` 继续选择那一台机器；交付生命周期按本条通知规则执行 |
 
 **通知的处理完成不等于 URL 变了。** 安全归一化后的**原 target（尤其原 `item`/`device` 参数）**独立保存在交付状态中，不能拿已消费并清掉 `?focus=` 的当前 URL 当通知身份。当前或在途的完全相同 target 去重；同一 task 的另一个 item 必须重新送达；离开后同一 target 又是新的点按。旧 `/inbox` 异步解析时保留原值直到鉴权成功、pending 找到对应卡或明确「item 已不存在」、且 leave guard 同意离开；原生 read-and-clear 的链接另有内存中的重试副本，导航真正接受后才确认原生副本。用户拒绝丢弃草稿时停在原页并给不自动导航的重试；新点按取代旧排队目标，完全相同的重复仍抑制。可见 URL 的 focus 清理规则不改，也不借用其他卡顶替。
@@ -165,7 +165,7 @@
 测试文件或测试名必须出现 `KIN-CONTINUE-003`。第 10、13、14 行点名的 `TaskDetailPage.dom.test.tsx`、`RoutinesPage.*.test.tsx` 与 Agents 相关测试暂不带本故事 id：这三个文件由各自的平行故事/批次拥有，这里只登记引用，补 id 随那些批次落地。真实旅程最终统一验收，不在每个内部批次请人确认。
 ## 证据
 
-- 设计源：`KIN-CONTINUE-003.figma/frames/`（20 张）。
+- 设计源：`KIN-CONTINUE-003.figma/frames/`（20 张）。2026-11-17 补记：帧 01/04/06/07/08/15/16 早于 IA D8，仍画「对话/项目/例行任务/设置」底栏或让 Agent 运维隐藏 Tab，已作废；现行契约以本故事 §2 为准——四个入口是 对话 / 例行任务 / Agent 运维 / 设置，`/projects/:id` 由项目标题推入，Agent 运维分区保留 Tab。
 - 集中审阅：`KIN-CONTINUE-003.review.html`。
 - 当前问题：用户 2026-11-14 明确指出导航没有对话入口、归档被错误提升、入口间缺乏统一转场，且 Mac 与手机结构不统一。
 - 交付证据：每个内部批次在总计划更新测试、截图、包体与实际规模；最终 J1–J7 走查一并交付。
