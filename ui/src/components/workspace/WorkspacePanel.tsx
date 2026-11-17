@@ -87,6 +87,20 @@ type Props = {
   openPath?: string | null;
   /** Bumps each time the user re-opens a path (even the same one). */
   openNonce?: number;
+  /**
+   * A file the reader picked *inside* the panel (a tree row, a changed row, a
+   * comment on another file). The page owns the address and writes it; the
+   * link-arrival pulse above never reports, or an arrival would push the entry
+   * it just landed on.
+   */
+  onSelectPath?: (path: string) => void;
+  /**
+   * Bumps when an applied link says `panel=files` with no `file`: Back from a
+   * file onto the list. The panel drops the file it was showing, on a phone to
+   * the list pane. It is not the panel's own state — a selection is — so only
+   * the address can ask for it.
+   */
+  showListNonce?: number;
   onClose?: () => void;
   /** Task event stream — used to reconstruct edit diffs for highlighting. */
   events?: TaskEvent[];
@@ -197,6 +211,8 @@ export default function WorkspacePanel({
   cwd,
   openPath,
   openNonce,
+  onSelectPath,
+  showListNonce,
   onClose,
   events,
   changedFiles: changedFilesProp,
@@ -618,6 +634,21 @@ export default function WorkspacePanel({
     [cwd, taskId, workspaceView],
   );
 
+  /**
+   * Every way a person picks a file in this panel: report it, then load it.
+   *
+   * Deliberately not inside `loadFile`: the arrival pulse below ends there too,
+   * and an arrival is the address talking, not the reader. Reporting one would
+   * push the entry the reader just landed on.
+   */
+  const selectFile = useCallback(
+    (path: string) => {
+      onSelectPath?.(path);
+      void loadFile(path);
+    },
+    [loadFile, onSelectPath],
+  );
+
   // A different conversation is a different tray. Reading and persisting are
   // separate effects so a load for the new task can never be overwritten by
   // the previous task's comments in the same commit.
@@ -703,7 +734,11 @@ export default function WorkspacePanel({
     (comment: DiffComment) => {
       // A comment may point into another file of the same conversation. Open it
       // first; the reveal request waits in CodeViewer until that diff mounts.
-      if (comment.path !== selectedPath) void loadFile(comment.path);
+      // A jump is a selection like any other click, so the page hears about it.
+      if (comment.path !== selectedPath) {
+        onSelectPath?.(comment.path);
+        void loadFile(comment.path);
+      }
       // The resolved line is display state: the saved anchor stays untouched,
       // but jumping to a line number the rerun invalidated would land on the
       // wrong code.
@@ -711,7 +746,7 @@ export default function WorkspacePanel({
       lastDiffLineRef.current = line;
       focusDiffLine(line, comment.path);
     },
-    [commentAnchors, focusDiffLine, loadFile, selectedPath],
+    [commentAnchors, focusDiffLine, loadFile, onSelectPath, selectedPath],
   );
 
   const deleteComment = useCallback((id: string) => {
@@ -767,6 +802,26 @@ export default function WorkspacePanel({
     handledPulseRef.current = { path: openPath, nonce: openNonce };
     void loadFile(openPath);
   }, [openPath, openNonce, loadFile]);
+
+  // An applied link that says `panel=files` with no `file` is the list. Back
+  // onto it must drop the file the panel was showing — on a phone the list is
+  // the whole visible answer — and it must not re-read anything: the file was
+  // the entry the reader left. The page bumps this for that case alone; a
+  // selection is the panel's own state and never comes through here. Clearing
+  // state that is already clear is a no-op, so a first open of the list is one.
+  const handledShowListRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (showListNonce === undefined) return;
+    if (handledShowListRef.current === showListNonce) return;
+    handledShowListRef.current = showListNonce;
+    requestRef.current += 1;
+    setSelectedPath(null);
+    setPhoneView("list");
+    setFile(null);
+    setLoading(false);
+    setError(null);
+    setTableAsCode(false);
+  }, [showListNonce]);
 
   // What the viewer shows comes from the file's name, and the bytes of an
   // image or a download come from the byte routes rather than the text one.
@@ -1122,7 +1177,7 @@ export default function WorkspacePanel({
               <ChangedFilesList
                 files={summaryFiles}
                 selectedPath={selectedPath}
-                onSelect={(path) => void loadFile(path)}
+                onSelect={selectFile}
               />
             ) : (
               <FileTree
@@ -1130,7 +1185,7 @@ export default function WorkspacePanel({
                 selectedPath={selectedPath}
                 openPath={openPath}
                 openNonce={openNonce}
-                onSelect={(path) => void loadFile(path)}
+                onSelect={selectFile}
                 view={workspaceView}
               />
             )}

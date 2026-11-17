@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, useLocation, useNavigate, useNavigationType } from "react-router-dom";
 import type { Task } from "../api/client";
 import { liveResources } from "../api/liveResources";
@@ -125,24 +125,44 @@ vi.mock("../components/chat/ChatStream", () => ({
   ),
 }));
 // The panel's own rendering has its own tests; this probe records the one-shot
-// command the page hands it and whether it is mounted at all.
+// command the page hands it, the list/pulse counters, and the two callbacks the
+// page has to answer — a file picked inside the panel and a generation pick.
+const panelProbe = vi.hoisted(() => ({
+  selectPath: null as ((path: string) => void) | null,
+  selectWorkspace: null as ((id: string | null) => void) | null,
+}));
+
 vi.mock("../components/workspace/WorkspacePanel", () => ({
   default: ({
     taskId,
     openPath,
     openNonce,
+    showListNonce,
+    selectedWorkspaceId,
+    onSelectPath,
+    onSelectWorkspace,
   }: {
     taskId: string;
     openPath?: string | null;
     openNonce?: number;
-  }) => (
-    <div
-      data-testid="workspace-panel"
-      data-task={taskId}
-      data-open-path={openPath ?? ""}
-      data-nonce={openNonce ?? 0}
-    />
-  ),
+    showListNonce?: number;
+    selectedWorkspaceId?: string | null;
+    onSelectPath?: (path: string) => void;
+    onSelectWorkspace?: (id: string | null) => void;
+  }) => {
+    panelProbe.selectPath = onSelectPath ?? null;
+    panelProbe.selectWorkspace = onSelectWorkspace ?? null;
+    return (
+      <div
+        data-testid="workspace-panel"
+        data-task={taskId}
+        data-open-path={openPath ?? ""}
+        data-nonce={openNonce ?? 0}
+        data-show-list-nonce={showListNonce ?? 0}
+        data-workspace={selectedWorkspaceId ?? ""}
+      />
+    );
+  },
 }));
 
 function panel() {
@@ -193,6 +213,20 @@ function at(entries: string[], index = entries.length - 1) {
 
 function open(search: string) {
   return at([`/tasks/task-1${search}`]);
+}
+
+/** A file picked inside the panel, through the callback the page hands it. */
+function selectInPanel(path: string) {
+  act(() => {
+    panelProbe.selectPath?.(path);
+  });
+}
+
+/** A generation picked in the panel's picker (the page's own setter). */
+function pickGeneration(id: string) {
+  act(() => {
+    panelProbe.selectWorkspace?.(id);
+  });
 }
 
 class ResizeObserverStub {
@@ -376,5 +410,99 @@ describe("the files panel's address", () => {
     await waitFor(() => expect(address()).toBe("/tasks/task-1?panel=files&file=src/a%20b.ts"));
     await waitFor(() => expect(panel()?.getAttribute("data-open-path")).toBe("src/a b.ts"));
     expect(useAppStore.getState().shownPanel).toEqual({ view: "task-1", id: "files" });
+  });
+});
+
+describe("a file picked inside the panel", () => {
+  it("a file picked in the panel becomes one history entry and one read", async () => {
+    at(["/tasks/task-1", "/tasks/task-1?panel=files"], 1);
+    await waitFor(() => expect(panel()?.getAttribute("data-task")).toBe("task-1"));
+    const nonceBefore = panel()?.getAttribute("data-nonce");
+
+    selectInPanel("src/a.ts");
+
+    await waitFor(() => expect(address()).toBe("/tasks/task-1?panel=files&file=src/a.ts"));
+    expect(historyType()).toBe("PUSH");
+    // The panel already loaded the file it reported, so the page records the
+    // path without bumping the arrival pulse's nonce: a bump here would make
+    // the panel read the same file a second time. (The panel's own suite pins
+    // the fetch count; this pins the only way the page could cause it.)
+    expect(panel()?.getAttribute("data-nonce")).toBe(nonceBefore);
+    expect(panel()?.getAttribute("data-open-path")).toBe("src/a.ts");
+
+    // Exactly one entry above the list: one Back reaches the list, the next
+    // the conversation it came from.
+    fireEvent.click(screen.getByRole("button", { name: "back" }));
+    await waitFor(() => expect(address()).toBe("/tasks/task-1?panel=files"));
+    fireEvent.click(screen.getByRole("button", { name: "back" }));
+    await waitFor(() => expect(address()).toBe("/tasks/task-1"));
+  });
+
+  it("Back from a file returns the panel to the list and Forward opens it again", async () => {
+    at(["/tasks/task-1", "/tasks/task-1?panel=files"], 1);
+    await waitFor(() => expect(panel()).toBeTruthy());
+
+    selectInPanel("src/a.ts");
+    await waitFor(() => expect(address()).toBe("/tasks/task-1?panel=files&file=src/a.ts"));
+    const listNonceBefore = Number(panel()?.getAttribute("data-show-list-nonce"));
+
+    fireEvent.click(screen.getByRole("button", { name: "back" }));
+    await waitFor(() => expect(address()).toBe("/tasks/task-1?panel=files"));
+    // The applied link says list, so the page drops the pulse path and tells
+    // the panel to leave the file. Without that a phone would still be
+    // looking at a file the address no longer names.
+    await waitFor(() =>
+      expect(Number(panel()?.getAttribute("data-show-list-nonce"))).toBe(listNonceBefore + 1),
+    );
+    expect(panel()?.getAttribute("data-open-path")).toBe("");
+
+    fireEvent.click(screen.getByRole("button", { name: "forward" }));
+    await waitFor(() => expect(address()).toBe("/tasks/task-1?panel=files&file=src/a.ts"));
+    await waitFor(() => expect(panel()?.getAttribute("data-open-path")).toBe("src/a.ts"));
+    // Re-opened by the arrival pulse, not by a push: the address did not move
+    // underneath the reader.
+    expect(panel()?.getAttribute("data-nonce")).not.toBe("0");
+    expect(historyType()).toBe("POP");
+  });
+
+  it("a snapshot file does not become part of the address", async () => {
+    open("?panel=files");
+    await waitFor(() => expect(panel()).toBeTruthy());
+
+    pickGeneration("gen-1");
+    await waitFor(() => expect(panel()?.getAttribute("data-workspace")).toBe("gen-1"));
+
+    selectInPanel("src/a.ts");
+
+    // A snapshot's paths may not exist in the checkout the address resolves
+    // against, so the address keeps naming the list — a link that would land
+    // on an error is worse than no link.
+    await waitFor(() => expect(panel()).toBeTruthy());
+    expect(address()).toBe("/tasks/task-1?panel=files");
+    expect(address()).not.toContain("file=");
+    expect(useAppStore.getState().shownPanel).toEqual({ view: "task-1", id: "files" });
+  });
+
+  it("a space in the filename is encoded once", async () => {
+    open("?panel=files");
+    await waitFor(() => expect(panel()).toBeTruthy());
+
+    selectInPanel("src/a b.ts");
+
+    await waitFor(() => expect(address()).toBe("/tasks/task-1?panel=files&file=src/a%20b.ts"));
+    expect(address()).not.toContain("+");
+    expect(address()).not.toContain("%2520");
+  });
+
+  it("a path outside the checkout names the list", async () => {
+    open("?panel=files");
+    await waitFor(() => expect(panel()).toBeTruthy());
+
+    selectInPanel("/etc/passwd");
+
+    // The checkout cannot resolve it, so the address cannot name it; the
+    // panel's own refusal is where the reader sees why.
+    expect(address()).toBe("/tasks/task-1?panel=files");
+    expect(address()).not.toContain("file=");
   });
 });
