@@ -79,8 +79,8 @@ function renderPage() {
   );
 }
 
-// KIN-CONTINUE-003 row 12: an imported session opened from a list, a project
-// or Settings → Agent Ops keeps its source entry and every original control.
+// KIN-CONTINUE-003 row 12: the imported session's controls use the shared
+// button facade, and "Back to chats" returns to the session list.
 
 /**
  * Opening a large session lands on what happened last, and stays there while

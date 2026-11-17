@@ -7,7 +7,7 @@ import { normalizeSettingsTab } from "../lib/areaNavigation";
 /**
  * The settings page's tab set, checked at the seam a panel test cannot see.
  *
- * KIN-CONTINUE-003 row 13: the six sections stay distinct — `agents` is the
+ * KIN-CONTINUE-003 row 14: the six sections stay distinct — `agents` is the
  * local section, `operations` is Agent Ops — and retired tabs stay retired.
  *
  * R0b-3 deleted the Remote and Notifications tabs: nothing in the console
