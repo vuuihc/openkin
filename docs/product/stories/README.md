@@ -2,7 +2,7 @@
 
 一条故事是**一个人要完成的一件事**：新建一段对话、接着问一段对话、看它改了什么、管理对话、改默认设置、让它按时跑。不是"改一个控件"，也不是"某个设备上的页面"。
 
-十条合同、七条意图写在同一份方案里，总览在 [`PLAN.md`](PLAN.md)。**不分阶段**：一条故事就是一次交付，做完、验收、截图、复审，再开下一条。顺序按优先级排队，不按 Phase。
+十四条合同、七条意图写在同一份方案里，总览在 [`PLAN.md`](PLAN.md)。**不分阶段**：一条故事就是一次交付，做完、验收、截图、复审，再开下一条。顺序按优先级排队，不按 Phase。
 
 参考了本地两份实现：Lody 用 24 条 journey 覆盖整个应用（`~/Workspace/works/Lody/e2e/journeys/registry.json`），Magpie 没有故事表，靠 `LESSONS.md` 累积规则再升级成 `docs/code-standards.md`（`~/Workspace/works/magpie`）。OpenKin 取中间：**故事少而厚，规则从真实缺陷长出来**。
 
@@ -10,10 +10,10 @@
 
 | 意图 | 故事 | 交付后用户能做什么 |
 |---|---|---|
-| 接着问一段对话 | `KIN-CONTINUE-001` | 找回那段对话，发下一条，必要时换 agent / 模型 / 权限 |
+| 接着问一段对话 | `KIN-CONTINUE-001`、`KIN-CONTINUE-002`、`KIN-CONTINUE-003` | 找回那段对话，发下一条，必要时换 agent / 模型 / 权限 |
 | 被叫回来 | `KIN-NOTIFY-001` | 离开控制台后收到原生通知，点开落到那一条 |
 | 新建一段对话 | `KIN-START-001` | 任一端写一句、选好、开始 |
-| 看它改了什么 | `KIN-RESULT-001` | 看改了哪些文件、打开 diff 或产物、分享 |
+| 看它改了什么 | `KIN-RESULT-001`、`KIN-RESULT-002`、`KIN-RESULT-003` | 看改了哪些文件、打开 diff 或产物、分享；读懂文件、预览、逐行评论 |
 | 整理对话与项目 | `KIN-MANAGE-001`、`KIN-PROJECT-001` | 改名、置顶、归档、删除；打开项目封面，从那继续 |
 | 设置与环境 | `KIN-SETTINGS-001`、`KIN-SETTINGS-002`、`KIN-AGENTS-001` | 改默认值；看清这台机器的 agent 与用量；桌面壳升级 |
 | 让它按时跑 | `KIN-ROUTINE-001` | 把一件事存成机器上的例行任务，到点自己跑、跑完告诉你 |
@@ -119,14 +119,14 @@ Magpie 就是这么做的：每晚复盘当天合并的提交，从"又被修了
 
 - `IA.md` 说：哪个面归谁，列表什么层级。
 - `TASTE.md` 说：所有面长什么样。它靠 LESSONS 慢慢加，不靠每次重写。
-- `PLAN.md` 说：六条故事、顺序、不做的。
+- `PLAN.md` 说：七条意图、顺序、不做的。
 - 故事说：这件事必须发生什么，怎么证明。
 
 故事只写这件事特有的东西；凡是所有面都该遵守的，属于 TASTE，不重复写。
 
 ## 目录
 
-- `PLAN.md` —— 一份方案：六条故事、顺序、共用的规则、不做的。
+- `PLAN.md` —— 一份方案：七条意图、顺序、共用的规则、不做的。
 - `_TEMPLATE.md` —— 骨架，复制它开始（`new` 会替你复制）。
 - `_REVIEW.html` —— 审阅页骨架：Figma 帧为主体、每屏六段用户流程，不依赖网络的单页，带 `figma-flow-v1` 标记。
 - `AUTHORING.md` —— 怎么写：六步、签字前 12 问、检查器会拦什么。
@@ -134,13 +134,21 @@ Magpie 就是这么做的：每晚复盘当天合并的提交，从"又被修了
 - `COVERAGE.md` —— 脚本生成，不要手改。
 - `KIN-CONTINUE-001.md` —— 接着问一段对话，Mac 和手机（`approved`）。
 - `KIN-CONTINUE-001.review.html` —— 它的设计草图，审批看这一页。
+- `KIN-CONTINUE-002.md` —— 手机只留一个导航面：列表页就是侧栏，Mac 和手机（`approved`）。
+- `KIN-CONTINUE-003.md` —— 统一控制台的四区导航与工作台，Mac 和手机（`approved`）。
 - `KIN-NOTIFY-001.md` —— 离开时被叫回来（原生通知），Mac 和手机（`approved`）。
 - `KIN-NOTIFY-001.review.html` —— 它的审阅页：Figma 帧 + 每屏用户流程，审批看这一页。
 - `KIN-NOTIFY-001.figma/` —— 它的设计源帧（SVG，Figma 可导入；含状态板和决策板）。
-- `KIN-START-001.md` —— 新建一段对话，Mac 和手机（`draft`）。
-- `KIN-RESULT-001.md` —— 看它改了什么，Mac 和手机（`draft`）。
-- `KIN-MANAGE-001.md` —— 整理一段对话，Mac 和手机（`draft`）。
-- `KIN-SETTINGS-001.md` —— 改默认设置，Mac 和手机（`draft`）。
+- `KIN-START-001.md` —— 新建一段对话，Mac 和手机（`covered`）。
+- `KIN-RESULT-001.md` —— 看它改了什么，Mac 和手机（`approved`）。
+- `KIN-RESULT-002.md` —— 读懂文件、预览并返回原对话，Mac 和手机（`approved`）。
+- `KIN-RESULT-003.md` —— 对改动逐行评论并发回对话，Mac 和手机（`approved`）。
+- `KIN-MANAGE-001.md` —— 整理一段对话，Mac 和手机（`approved`）。
+- `KIN-PROJECT-001.md` —— 一个项目的封面：看清这里发生过什么，并从这里继续，Mac 和手机（`covered`）。
+- `KIN-SETTINGS-001.md` —— 改默认设置，Mac 和手机（`approved`）。
+- `KIN-SETTINGS-002.md` —— 桌面壳一键升级，Mac（`approved`）。
+- `KIN-AGENTS-001.md` —— 机器上的 agent：装了什么、能不能用、用掉多少，Mac 和手机（`covered`）。
+- `KIN-ROUTINE-001.md` —— 让它按时跑：把一件事交给机器重复做，Mac 和手机（`covered`）。
 - `../LESSONS.md` —— 教训台账，规则从这来。
 
 ## 以后
