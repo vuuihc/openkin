@@ -646,6 +646,17 @@
   .kin-dash {
     animation: none;
   }
+  .kin-skeleton::after {
+    animation: none;
+    display: none;
+  }
+  .kin-btn:active:not(:disabled),
+  .kin-btn-primary:active:not(:disabled),
+  .kin-btn-secondary:active:not(:disabled),
+  .kin-btn-approve:active:not(:disabled),
+  .kin-btn-deny:active:not(:disabled) {
+    transform: none;
+  }
 }
 
 /* xterm minimal overrides */
@@ -687,13 +698,47 @@
     `@supports` arm below raises it to near-opaque where blur is unavailable.
   */
   .kin-glass {
-    background: rgb(var(--kin-panel-rgb) / 0.78);
-    -webkit-backdrop-filter: saturate(180%) blur(20px);
-    backdrop-filter: saturate(180%) blur(20px);
+    background: rgb(var(--kin-panel-rgb) / 0.74);
+    -webkit-backdrop-filter: saturate(190%) blur(24px);
+    backdrop-filter: saturate(190%) blur(24px);
+  }
+  .kin-glass-float,
+  .kin-sheet-surface {
+    background: rgb(var(--kin-panel-rgb) / 0.82);
+    -webkit-backdrop-filter: saturate(190%) blur(28px);
+    backdrop-filter: saturate(190%) blur(28px);
+    border: 1px solid var(--kin-hairline-strong);
+    box-shadow:
+      inset 0 0.5px 0 var(--kin-hairline-strong),
+      0 32px 80px -16px var(--kin-shadow-3),
+      0 4px 16px -4px var(--kin-shadow-2);
+  }
+  .kin-scrim {
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
   }
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    .kin-glass {
-      background: rgb(var(--kin-panel-rgb) / 0.97);
+    .kin-glass,
+    .kin-glass-float,
+    .kin-sheet-surface {
+      background: rgb(var(--kin-panel-rgb) / 0.98);
+    }
+    .kin-scrim {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    .kin-glass,
+    .kin-glass-float,
+    .kin-sheet-surface {
+      background: rgb(var(--kin-panel-rgb) / 0.98);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+    .kin-scrim {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
     }
   }
   .kin-card {
@@ -701,11 +746,28 @@
     border: 1px solid var(--kin-hairline);
     box-shadow: 0 1px 2px var(--kin-shadow-1);
   }
-  /* A sheet is the same surface as a card, raised: the scrim behind it is what
-     says "above", so the border goes away and the drop gets the third step. */
-  .kin-sheet-surface {
-    background: rgb(var(--kin-panel-rgb) / 1);
-    box-shadow: 0 40px 90px -20px var(--kin-shadow-3);
+  .kin-skeleton {
+    position: relative;
+    overflow: hidden;
+    background-color: var(--kin-fill);
+  }
+  .kin-skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, var(--kin-fill-strong), transparent);
+    animation: kin-shimmer 1.6s ease-in-out infinite;
+  }
+  @keyframes kin-shimmer {
+    100% {
+      transform: translateX(100%);
+    }
+  }
+  .kin-skeleton-card {
+    border-radius: var(--radius-xl);
+    border: 1px solid var(--kin-hairline);
+    background-color: var(--kin-fill);
   }
   /* A row inside a card. The press wash is the phone's only feedback — a
      hover colour does not exist on glass — so every tappable row carries it. */
@@ -741,13 +803,26 @@
   .kin-btn-secondary,
   .kin-btn-approve,
   .kin-btn-deny {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-strong font-semibold transition-colors min-h-11 sm:min-h-0;
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-strong font-semibold transition-colors min-h-11 sm:min-h-0;
+    transition-property: background-color, border-color, color, filter, transform;
+    transition-duration: 150ms;
+    transition-timing-function: ease-out;
+  }
+  .kin-btn:active:not(:disabled),
+  .kin-btn-primary:active:not(:disabled),
+  .kin-btn-secondary:active:not(:disabled),
+  .kin-btn-approve:active:not(:disabled),
+  .kin-btn-deny:active:not(:disabled) {
+    transform: scale(0.98);
   }
   /* `brightness-110`, not a lighter blue: an opacity modifier on the fill would
      darken the button by letting the surface through, which is the opposite of
      what a hover wants. It is also the idiom `kin-btn-approve` already used. */
   .kin-btn-primary {
     @apply bg-kin-blue text-kin-on-brand hover:brightness-110;
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.18),
+      0 1px 2px var(--kin-shadow-1);
   }
   .kin-btn-secondary {
     @apply border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-text hover:bg-[var(--kin-fill-strong)];
