@@ -198,7 +198,7 @@ describe("restoring time order in a synthetic bucket", () => {
     // a substring check would pass even without the coarse branch. `w-11` is
     // what the phone gains, and `h-11` must be its own token, not a suffix.
     expect(button.className.split(/\s+/)).toEqual(
-      expect.arrayContaining(["h-11", "min-h-11", "w-11"])
+      expect.arrayContaining(["h-11", "min-h-11", "w-11"]),
     );
   });
 });
