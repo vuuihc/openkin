@@ -646,6 +646,7 @@ export default function SessionList({
         selectedIds={selectedIds}
         onToggleSelect={toggleSelected}
         onStartSelection={enterSelection}
+        onExitSelection={() => exitSelection(true)}
         onLongPress={enterSelection}
         swipeOpen={swipeOpen}
         onSwipeOpenChange={setSwipeOpen}
@@ -1395,6 +1396,7 @@ function ProjectBucket({
   selectedIds,
   onToggleSelect,
   onStartSelection,
+  onExitSelection,
   onLongPress,
   swipeOpen,
   onSwipeOpenChange,
@@ -1434,6 +1436,7 @@ function ProjectBucket({
   selectedIds: ReadonlySet<string>;
   onToggleSelect: (id: string) => void;
   onStartSelection: (row: PhoneSessionRow) => void;
+  onExitSelection: () => void;
   onLongPress: (row: PhoneSessionRow) => void;
   swipeOpen: string | null;
   onSwipeOpenChange: (open: string | null) => void;
@@ -1630,6 +1633,7 @@ function ProjectBucket({
                 if (row.task) onToggleSelect(row.task.id);
               }}
               onStartSelection={() => onStartSelection(row)}
+              onExitSelection={onExitSelection}
               onLongPress={() => onLongPress(row)}
               swipeOpen={swipeOpen === row.key}
               onSwipeOpenChange={(open) => onSwipeOpenChange(open ? row.key : null)}

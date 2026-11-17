@@ -76,6 +76,8 @@ const en: MessageTree = {
     archive: "Archive",
     selectedCount: "{count} selected",
     selectAll: "Select all",
+    select: "Select",
+    exitSelection: "Exit selection",
     loading: "Loading chats…",
     searching: "Searching…",
     loadError: "Could not load chats",
