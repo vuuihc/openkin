@@ -788,6 +788,7 @@ const zh = {
       prevHunk: "上一处改动",
       nextHunk: "下一处改动",
       mdView: "Markdown 视图",
+      htmlView: "HTML 视图",
       preview: "预览",
       code: "源码",
       save: "保存",
@@ -803,6 +804,8 @@ const zh = {
       tableEmpty: "这个表格没有数据。",
       tableTruncated: "最多显示前 {rows} 行、{columns} 列。",
       tableIncomplete: "文件读取被截断，表格可能缺少数据。",
+      htmlEmpty: "这个 HTML 文件没有可预览的内容。",
+      htmlIncomplete: "文件读取被截断，因此不显示页面。可打开源码查看已加载的内容。",
     },
     generation: {
       source: "当前项目",
