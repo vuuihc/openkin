@@ -11,6 +11,7 @@ import { writeProjectCover } from "../lib/projectCoverCache";
 
 /**
  * KIN-PROJECT-001: the project cover is one surface, not a second list.
+ * KIN-CONTINUE-003 row 11: roots, modes, cover scroll and no duplicate list.
  *
  * The page has no tabs and one conversation row — the newest. The pulse, the
  * activity feed and the routines each fail inside their own block, because a

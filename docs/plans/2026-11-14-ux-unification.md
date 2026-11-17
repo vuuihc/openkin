@@ -17,37 +17,38 @@
 | Tailwind 4 兼容 | 🟢 已落地主线 | F1 #67 `37f63772`：`tailwindcss@4` + `@tailwindcss/postcss` 替换 v3 管线，layer / 对比度 / 焦点环回归测试随迁移通过 |
 | 当前故事与导航合同 | 🟢 已统一 | G2 #149 `49ddf5a0` 把 `NAVIGATION.md` 与 `IA.md` 改成四区 / 四入口合同；G2b #154 `2ea8e07b` 补齐组件契约。旧的「项目无独立列表」不再成立 |
 | 当前实现与规模 | 🟢 已复测 | `fb0dd3eb`：116 个非测试 TSX；12 个共享控件；85 个裸 `<button>` / 42 文件（开工基线 299 / 69）；页面 18,490 行（同口径基线 17,540） |
-| Goal 1 整体重构 | 🟢 五批已落地 | PR #59–#160；G1（lint 收口）#161 在 `fb0dd3eb` 测量之后以 `3ecae5d9` 落地，其 lint 禁令已在 `main`，但该次走查未复验，见验收说明「未验证项」 |
+| Goal 1 整体重构 | 🟢 五批已落地 | PR #59–#160；G1（lint 收口）#161 在 05:53 的 `fb0dd3eb` 测量之后以 `3ecae5d9` 落地，其 lint 禁令已在 `main`；2026-11-17 复走复验通过（验收说明 §6：`cd ui && npx eslint .` 退出 0） |
 | Goal 2 整体回归收口 | 🟢 验收说明已填 | 见下方《验收说明（2026-11-17）》：J1–J7、红项、未验证项、包体与手写控件、UX 分数、证据 |
 
 本计划以 `main` 起始提交 `c7c12cc6` 的实测为基线；实际开工先重新测量。该基线不是对未开始工作的完成声明。
 
 ## 验收说明（2026-11-17）
 
-测量于 `fb0dd3eb0eb33417219186d3bcc805f9da570893`（`origin/main`，2026-11-17 05:53；C3b #158 合并后的树）。下面每个数字都来自这棵树上的命令或本地 walk 输出；不能测的单独列出，不猜。本页是这次切片唯一改动的文件。
+测量于 `fb0dd3eb0eb33417219186d3bcc805f9da570893`（`origin/main`，2026-11-17 05:53；C3b #158 合并后的树）。复走于 `9c651cf21b9f5451291a1bdced25071784e1065c`（`origin/main`，2026-11-17 18:43；走查 18:45–18:50）。§1 的 J1 / J2 / J3 / J5 / J7 行取这次复走；J4 / J6 的判定沿用 05:53 的结论（本轮同样 0 失败，截图在同目录）。下面每个数字都来自这棵树上的命令或本地 walk 输出；不能测的单独列出，不猜。
 
 ### 1. 先说哪些旅程已可用
 
-`scripts/journeys-smoke.sh --out rsi/state/ux/final-acceptance` 在一次性 state 目录里启动真实 daemon，用公开 HTTP API 种子，再按 `rsi/runtime/ux/journeys.json` 走 J1–J7：14 个「旅程 × 视口」组合、89 张截图、0 横向溢出、0 原生 `<select>`。J7 的 4 个硬失败全部来自 `demo-task` 种子缺口（见红项），不是页面回归。
+`scripts/journeys-smoke.sh --out rsi/state/shots/journeys-reverify` 在一次性 state 目录里启动真实 daemon（临时 state、空闲端口，不碰 `:7777` / `~/.kin`），用公开 HTTP API 种子（12 个创建、1 个 skip：`routine-failed`），再按 `rsi/runtime/ux/journeys.json` 走 J1–J7：14 个「旅程 × 视口」组合、92 张截图、0 横向溢出、0 原生 `<select>`、0 个 <44px 触控目标、0 硬失败。J7 另在 `j7-fresh/` 单独复走 4 屏：主走查里 J1 已批准同一张卡，只有单独种子才能看到待批状态与「已聚焦」高亮。
 
 | 旅程 | 今天能做什么（一句话） | 证据（PR / SHA） | 最终截图 | 原型帧 | 判定 |
 |---|---|---|---|---|---|
-| J1 手机继续 + 批准 | 打开对话列表、按项目折叠、搜「week」、筛选；点进对话继续与批准需要一条真实会话 | #142 `0a33d2f5`、#120 `c762a2b9`、#136 `fe4b18a5`、#158 `fb0dd3eb` | `rsi/state/ux/final-acceptance/J1-phone-05-search.png`、`J1-phone-06-filters.png` | `rsi/state/ux-proto/final/p01-J1-chats.png`、`p03-J1-conversation-approval.png` | 有差距：列表 / 搜索 / 筛选与原型一致；继续与批准未验证（种子无会话） |
-| J2 Mac 继续 | 搜索、筛选、新建、运行设置的权限 / 模型 / Agent 三层都能用键盘走通（Enter / ArrowDown / Escape 实走）；对话正文与变更面板需真实会话 | #127 `6b4325b8`、#152 `4c8a21e9`、#129 `23567013`、#150 `b7037feb`、#158 `fb0dd3eb` | `rsi/state/ux/final-acceptance/J2-mac-02-search.png`、`J2-mac-09-model-picker.png` | `rsi/state/ux-proto/final/m03-J2-search.png`、`m04-J2-permission-popover-anchored.png` | 有差距：新建与选择器一致；对话 / 变更面板未验证 |
-| J3 新建（双端） | 选工作目录、输入草稿、开始按钮可用、权限 / 模型 / Agent 选择器可开可关、关闭后焦点回到触发按钮 | #159 `e8ac61fe`、#126 `bb38d5ef`、#140 `82dfb6d6`、#148 `9a5d7674` | `rsi/state/ux/final-acceptance/J3-phone-06-started.png`、`J3-mac-06-started.png` | `rsi/state/ux-proto/final/m10-J3-new-chat.png`、`p12-J3-new-chat.png` | 有差距：流程与原型一致；手机每屏最多 3 个 <44px 可点目标（汇总 18，见红项） |
+| J1 手机继续 + 批准 | 打开对话列表（设备 → 项目 → 对话）、按项目折叠、搜「week」、开筛选；点进「[seed] Approve the migration」看到真实对话正文与审批卡，点「批准」后卡片变为「已批准 · 在线决定」；本轮没有发送新消息（walk 无发送步骤） | #168 `6838703b`（种子会话）、#195 `90a89cce`（种子审批卡）、#142 `0a33d2f5`、#120 `c762a2b9`、#136 `fe4b18a5`、#158 `fb0dd3eb` | `rsi/state/shots/journeys-reverify/J1-phone-02-conversation.png`、`J1-phone-03-approval-card.png`、`J1-phone-04-approval.png`、`J1-phone-06-search.png`、`J1-phone-07-filters.png` | `rsi/state/ux-proto/final/p01-J1-chats.png`、`p03-J1-conversation-approval.png` | 一致（7 屏 0 失败；继续=进入对话已验证） |
+| J2 Mac 继续 | 搜索、筛选、打开「[seed] Morning planning」看到真实对话正文；文件面板打开 notes.md 并显示 fake agent 追加的 `[seed] change` 行（Markdown 预览，不是 hunk diff）；新建页运行设置用键盘改权限（ArrowDown + Enter → 自动编辑），模型 / Agent 选择器可开可关 | #193 `fc991fd2`（真实 diff 种子）、#168 `6838703b`、#127 `6b4325b8`、#152 `4c8a21e9`、#129 `23567013`、#150 `b7037feb`、#158 `fb0dd3eb` | `rsi/state/shots/journeys-reverify/J2-mac-04-conversation.png`、`J2-mac-05-workspace-panel.png`、`J2-mac-06-workspace-diff.png`、`J2-mac-10-permission-keyboard-choice.png`（`J2-mac-wide-*` 同名） | `rsi/state/ux-proto/final/m03-J2-search.png`、`m04-J2-permission-popover-anchored.png` | 一致（2 视口各 13 屏 0 失败；变更面板是文件内容预览） |
+| J3 新建（双端） | 选工作目录、输入草稿、开始按钮可用、权限 / 模型 / Agent 选择器可开可关、关闭后焦点回到触发按钮 | #159 `e8ac61fe`、#126 `bb38d5ef`、#140 `82dfb6d6`、#148 `9a5d7674`、#797e3dd2`（44px chip） | `rsi/state/shots/journeys-reverify/J3-phone-06-started.png`、`J3-mac-06-started.png` | `rsi/state/ux-proto/final/m10-J3-new-chat.png`、`p12-J3-new-chat.png` | 一致（双端各 12 屏 0 失败；手机 0 个 <44px 目标，05:53 为 18） |
 | J4 项目 + 例行任务 | 三宽度完整走通：项目集合 → 项目封面；例行任务 → 新建例行任务 → 工作目录浏览器（打开、Tab、改手动输入、选定） | #147 `b282ee4b`、#138 `0737b79e`、#137 `cf4a252a`、#140 `82dfb6d6` | `rsi/state/ux/final-acceptance/J4-phone-02-project-cover.png`、`J4-mac-04-routine-editor.png` | `rsi/state/ux-proto/final/m12-J4-projects-cover.png`、`m13-J4-routines.png` | 一致（3 视口 21 屏 0 失败） |
-| J5 行操作 | 未验证：种子没有会话行，hover / ⋯ 菜单步骤全部 skip | #131 `ca6afee0`、#62 `695d053e` | `rsi/state/ux/final-acceptance/J5-phone-02-row-actions.png`（实际是列表） | `rsi/state/ux-proto/final/m19-J5-row-actions.png` | 未验证（无会话行） |
+| J5 行操作 | hover 行 / 点行尾「更多」打开行操作：手机是底部 Sheet、Mac 是菜单，含多选、置顶、归档、删除、取消；缺已签字故事要求的「改名」，运行中的对话也没有「正在运行」提示 | #131 `ca6afee0`、#62 `695d053e`、#190 `456a922f`、#205 `62a7dcb6`；缺口见红项 | `rsi/state/shots/journeys-reverify/J5-phone-02-row-actions.png`、`J5-mac-02-row-actions.png` | `rsi/state/ux-proto/final/m19-J5-row-actions.png` | 有差距（双端菜单可开，0 失败；缺「改名」） |
 | J6 设置 + Agent 运维 | 双端设置根、`?tab=operations`、旧 `/agents` 落到同一运维分区；打开设置不隐式读取 Agent | #157 `110b05b0`、#156 `037ab687`、#123 `ac6b0b80` | `rsi/state/ux/final-acceptance/J6-phone-02-operations.png`、`J6-mac-03-legacy-agents-redirect.png` | `rsi/state/ux-proto/final/m14-J6-settings.png`、`m15-J6-agent-operations.png` | 一致（双端 6 屏 0 失败） |
-| J7 通知深链 | 硬失败：`404 /api/tasks/demo-task`，landing 空白；通知落点与卡片高亮本身未验证 | #76 `3206755c`、#149 `49ddf5a0` | `rsi/state/ux/final-acceptance/J7-phone-01-landing.png`（空白） | `rsi/state/ux-proto/final/m18-J7-deeplink-highlights-card.png` | 有差距 / 未验证（已知 fixture 404） |
+| J7 通知深链 | 深链落到种子会话「[seed] Approve the migration」的审批卡：手机与 Mac 都显示待批卡、蓝边与「已聚焦」徽标；手机点返回回到列表，Mac 没有返回按钮（桌面用侧栏），该步 skip | #204 `72a37296`、#195 `90a89cce`、#168 `6838703b`、#76 `3206755c`、#149 `49ddf5a0` | `rsi/state/shots/journeys-reverify/j7-fresh/J7-phone-01-landing.png`、`j7-fresh/J7-phone-02-back.png`、`j7-fresh/J7-mac-01-landing.png` | `rsi/state/ux-proto/final/m18-J7-deeplink-highlights-card.png` | 一致（手机 2 屏 0 失败；Mac 落点 0 失败，返回 skip） |
 
 ### 2. 红项
 
 以下都是在本 SHA 上重新核对过的「还没做完」，不是历史摘抄。
 
-- **高 · 思考与过程叙述仍被收进卡片**（gap-log 2026-11-14）。验证：`ui/src/components/chat/ChatStream.tsx:187` 仍调用 `mergeProcessRuns`，折叠逻辑在 `ui/src/components/chat/transcriptProjection.ts:1013`。后果：agent 工作时用户看到的是一张「执行中 · N 个工具」摘要卡，读不到正在进行的思考与过程。修复在 PR #60（`rsi/live-process-notes`），尚未合并。
-- **中 · 长按对话行不能拖动排序**（gap-log 2026-11-15）。验证：`ui/src/lib/phoneSessionBuckets.ts:379-382` 仍按 `b.at - a.at` 排序，没有手动顺序存储；`ui/src/components/mobile/SwipeReveal.tsx:22` 的 500ms 长按仍归多选。后果：列表顺序只能跟最近活动走。
-- **中 · 手机新建页仍有 <44px 触控目标**（walk 实测，不在 gap-log）。验证：`walk.json` 的 J3/phone 每屏 `smallTapTargets` 最多 3、12 屏汇总 18；`rsi/state/followups.md` 已记 `分发` 42×28 与 `保存为例行任务` 26×26。后果：违反 TASTE 11 的 44px 承诺。
-- **硬失败 · J7 walk `404 /api/tasks/demo-task`**。验证：`rsi/state/ux/final-acceptance/seed.log` 明确 `skip conversation-created`（没有 agent-free 的建会话路由），J7 因此拿到 404 与空白 landing。后果：通知落点 / 卡片高亮未在本次验收中证明；这是 harness 缺口，不是页面回归。
+- **中 · J5 行操作缺「改名」**（本轮 walk 新发现）。验证：`ui/src/components/sessions/SessionRow.tsx:270-327` 构造的行操作只有多选 / 置顶 / 归档 / 删除；手机 Sheet 与 Mac 菜单都能打开（`J5-phone-02-row-actions.png`、`J5-mac-02-row-actions.png`），但没有已签字故事 `docs/product/stories/KIN-MANAGE-001.md:57` 要求的「改名」，运行中的对话也没有该故事 `:58` 要求的「正在运行」提示。后果：标题相近的对话只能靠归档 / 删除整理，改不了名。需要单独切片补 KIN-MANAGE-001 的菜单项与本地改名（已记入 `rsi/state/needs-ceo.md`）。
+- 已修（#165 `9d8fbffc` + #171 `e43b0b62`）思考与过程叙述被收进卡片 —— gap-log 2026-11-17 已移入「已修」。验证：`ui/src/components/chat/ChatStream.tsx:190-193` 在 `loading` 时以 `splitNotes` 把进行中的过程留在正文，结束的一轮收成一条带终态 / 工具数 / 时长的摘要行；测试见 `ui/src/components/chat/transcriptProjection.test.ts`、`ChatStream.prose.dom.test.tsx`、`ChatStream.summary.dom.test.tsx`。
+- 已修（#205 `62a7dcb6`）长按对话行不能拖动排序 —— 验证：`ui/src/lib/taskOrder.ts` 持久化手动顺序，`ui/src/lib/phoneSessionBuckets.ts:421` 用 `applyTaskOrder` 覆盖桶内排序，`ui/src/components/mobile/SwipeReveal.tsx:244-253` 把完成的长按交给 `reorder`；测试见 `ui/src/lib/taskOrder.test.ts` 与 `ui/src/components/sessions/SessionList.drag.dom.test.tsx`。`docs/plans/gap-log.md:37` 的条目尚未移入「已修」，待随下一次 gap-log 维护同步。本轮 walk 不模拟指针手势，没有手势录像。
+- 已修（#797e3dd2）手机新建页 <44px 触控目标 —— `ProjectSummaryCard.tsx` 的封面 chip 加 `inline-flex min-h-11`；本轮复走 J3/phone 12 屏 `smallTapTargets` 汇总 0（05:53 为 18）。gap-log 2026-11-17 已移入「已修」。
+- 已修（#168 `6838703b` + #195 `90a89cce` + #204 `72a37296`）J7 通知深链的 `404 /api/tasks/demo-task` —— 种子现在创建真实会话与审批卡并打印 `j7 target`，walker 用它替换 `demo-task`；本轮 `j7-fresh` 双端 landing 都落在「[seed] Approve the migration」的待批卡上（已聚焦、蓝边），0 硬失败。原条目是 harness 缺口，不是页面回归。
 - 已修（#61 `cf7ba2bd`）新建对话发送后整页骨架屏 —— gap-log 待随之移入「已修」。验证：`ui/src/pages/TaskDetailPage.tsx:1556-1575` 冷启动改为品牌等待块，`ui/src/pages/TaskSessionHost.tsx:104-125` 以种子行 / handoff 判定就绪；#61 的提交信息与测试正是这条。
 - 已修（#62 `695d053e`）iPad 多选无法退出 —— gap-log 待移。验证：`ui/src/components/sessions/SessionToolbar.tsx:132` 工具栏 `flex-wrap` + `min-h-12`、`:182` 显式退出；`ui/src/components/sessions/SessionList.tsx:997-1007` 的 Escape 走同一路径。
 - 已修（#63 `1c572b20`）手机边缘返回不跟手 —— gap-log 待移。验证：`ui/src/hooks/useEdgeSwipeBack.ts:70-71` 暴露 `dragging` 与位移，`ui/src/components/layout/AppShell.tsx:704-707` 渲染 `--page-swipe-x` / `data-kin-swiping`；行左划部分此前 #50 已修。
@@ -56,10 +57,10 @@
 
 ### 3. 未验证项
 
-- **G1 #161 在测量之后落地**（`feat(lint): ban legacy kin-btn classes and raw overlay roles`）：#161 于 2026-11-17 06:09 以 `3ecae5d9` 合并，晚于 `fb0dd3eb` 的测量（05:53），其 lint 禁令已在 `main`；但 `fb0dd3eb` 的走查没有复验这些禁令与棘轮收紧，故本页不把它算作已验证。<https://github.com/vuuihc/openkin/pull/161>
-- **对话正文 / 继续 / 批准（J1、J2）与行操作（J5）**：一次性 daemon 不能在没有真实 agent 的情况下创建 task；`seed.log` 的 5 个 skip 是 `conversation-created` / `conversation-archived` / `conversation-failed` / `waiting-approval` / `routine-failed`。walk 把这些步骤记为 skipped，不是通过。
-- **通知深链落点与卡片高亮（J7）**：同上，`/tasks/demo-task` 404，landing 空白；已知 fixture artifact（`rsi/DECISIONS.md` 2026-11-16 J7 条）。
-- **手机手势**（左缘返回跟手、行左划、拖动排序）：walk 不模拟指针手势；本轮只做代码核对，没有真机 / 浏览器手势录像。
+- **发送新消息（J1 / J2「继续」里的发送动作）**：walk 只做 fill / click / key，没有发送步骤；本轮验证到对话正文、composer 与审批卡，没有真的发出新消息。
+- **J2「看 diff」只到文件内容**：walk 打开 notes.md 后停在 Markdown 预览（能看到 fake agent 追加的行），没有切到查看器里的「差异」视图；产品有该切换（`ui/src/i18n/locales/zh.ts` 的 `viewer.diff`），本轮没有走。
+- **J7/Mac 的「返回」步骤**：桌面布局没有手机上的返回按钮（Mac 用侧栏回到列表），walk 记为 skipped（not visible），不是失败；手机的同一步已走通（回到 `/sessions`）。
+- **手机手势**（左缘返回跟手、行左划、拖动排序）：walk 不模拟指针手势；拖动排序已有 #205 的代码与单测，本轮没有真机 / 浏览器手势录像。
 - **Electron 桌面外壳**：本轮只走浏览器 console（headless Chrome），没有重建或操作 Electron 壳。
 - **包体基线口径**：基线是 pre-F1 `162fdf74`（`37f63772^`），不是程序开始前的 `c7c12cc6`；F1 之前已合并的 N1 / R1 / Q3a 等也在这条基线里。因此 §4 的差值是「新栈引入的成本」，不是整个程序相对开工日的总成本。
 
@@ -119,6 +120,8 @@
 ### 6. 截图与证据
 
 - 走查输出：`rsi/state/ux/final-acceptance/` —— 89 张 PNG、同名 `.aria.txt`、`walk.json`、`seed.log`；汇总命令 `python3 scripts/journeys_smoke.py --walk-json rsi/state/ux/final-acceptance/walk.json --proto rsi/state/ux-proto/final`。
+- 复走输出（`9c651cf2`）：`rsi/state/shots/journeys-reverify/` —— 92 张 PNG、同名 `.aria.txt`、`walk.json`、`seed.log`；J7 单独种子另在 `j7-fresh/`（4 张）。命令 `scripts/journeys-smoke.sh --out rsi/state/shots/journeys-reverify`，J7 复跑用 `--journeys J7 --no-build --out rsi/state/shots/journeys-reverify/j7-fresh`；汇总命令 `python3 scripts/journeys_smoke.py --walk-json rsi/state/shots/journeys-reverify/walk.json --proto rsi/state/ux-proto/final`。
+- G1 #161 lint 禁令复验：`ui/eslint.config.js` 的 `kin/no-legacy-class` / `kin/no-raw-overlay-role` 对 `src/**/*.{ts,tsx}`（facade / 测试除外）为 `error`；`cd ui && npx eslint .` 退出 0（38 warning / 0 error）。
 - PR 范围：<https://github.com/vuuihc/openkin/pull/59> … <https://github.com/vuuihc/openkin/pull/160>；G1 仍是 <https://github.com/vuuihc/openkin/pull/161>。
 - 原型：`rsi/ux-proto/index.html`（tracked）；已签字的帧在 `rsi/state/ux-proto/final/`（APPROVED 2026-11-15 12:27 SGT）。
 - 程序前基线截图：`rsi/state/shots/baseline/`。

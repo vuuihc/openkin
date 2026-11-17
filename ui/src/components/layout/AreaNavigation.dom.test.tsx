@@ -15,6 +15,9 @@ import { SHELL_VIEW } from "../../lib/panels";
 /**
  * S1: the Mac four-area rail.
  *
+ * KIN-CONTINUE-003 rows 1–2, 15: this rail, its per-area state and its
+ * accessible entry points are the Mac half of the four-area contract.
+ *
  * The rail is a view of `AREAS`, so these tests read the table rather than a
  * second list of names: a destination added to the table has to turn up here,
  * and one removed has to disappear. What is pinned beyond the table is the
