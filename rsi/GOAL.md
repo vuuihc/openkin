@@ -28,3 +28,55 @@ the five flows below closer to "passes without a human noticing".
 - A UI change is not done without 390px and 1100px before/after screenshots (TASTE 9) and a one-line "what the user sees now".
 - Prefer deleting/merging UI over adding it (TASTE 7). Prompt before product machinery (PRINCIPLE 5.5).
 - Escaped defects → `docs/product/LESSONS.md` (see `LESSONS-HOOK.md`).
+
+## Current phase (P1) — make the walk real
+<!-- phase: P1-walk-real target=2026-11-18T20:00 -->
+
+**Why this and not features.** The Astryx programme is done (62/62) and the console now passes a
+journey *walk*, but that walk never sends a message, never answers an approval, and J7 lands on a
+route nobody seeded. So the gate that is supposed to prove "a person can finish this" only proves
+"the page renders". Every visible defect caught this week (a centred row, two names for one
+conversation, a blank deep link) was caught by a human eye, not by the gate.
+
+**Done means** (checked in the merge lane, on a throwaway daemon with the fake agent from
+`scripts/journeys_seed.py`):
+1. J3 presses Send for real: the composer empties, the pending bubble + waiting row appear **and
+   stay** across `/new` → `/tasks/:id`, the fake agent's reply renders, and 390/1100 shots of the
+   before/after/reply frames are stored.
+2. J1 opens the seeded conversation that holds a real approval card, approves it, and the card is
+   gone while the run continues; denying is captured as well.
+3. J7 deep-links to a seeded item and lands on that card (no blank route), then Back returns to it.
+4. `ux-gate.sh` fails when any of the three paths regresses — proved by a mutant (remove the
+   pending-send handoff → the walk goes red), not by a green run alone.
+
+**Cut rule.** If item 1 is not green by the target, land 1 alone (it is the F1 path and the one that
+catches the most), keep 2–4 queued, and say so in the weekly retro. Do not extend the date.
+
+## Cadence and urgency (mechanism, not vibes)
+- **Every phase carries a date and a cut rule** in this file. No undated phase; if a phase has no
+  date, the CEO writes one before the next lane is claimed.
+- **Every patrol quotes `python3 rsi/runtime/pace.py`** — merges/24h, open→merge p50/p90, unshipped
+  vs the release threshold, hours left in the phase — and says ahead or behind in one line.
+- **Behind = a decision, not a push.** Two consecutive patrols behind (>25% under the phase's
+  implied rate) means cut scope or write `needs-ceo.md` with the trade-off; never "work harder".
+- **Stop the line for product defects.** A reproduced P0 on F1/F2/F5 (lost message, stuck approval,
+  blank deep link) outranks any refactor in the queue; the CEO may preempt a lane and says why.
+- **Refactors pay rent.** A pure refactor only enters the queue when it removes an observed cost
+  (repeated gate minutes, repeated review finding, an inventory number that blocks a migration).
+
+## How the loop improves itself
+- **One loop change per week must land** via a clean `rsi/loop-guards` PR (merge.sh, lane.sh, prompts,
+  roles). A week with zero is a red row in the weekly retro — the loop that only changes the product
+  is not self-improving, it is just a conveyor.
+- **The retro verifies the previous retro.** Each weekly retro opens with "last week's ≤3
+  improvements: landed / dropped (why)" before it proposes new ones. Unverified improvements are
+  wishes.
+- **Three strikes become a guardrail.** A defect pattern seen three times graduates into a lint rule,
+  a ratchet, a test, or a role-card change — never a third prose note. `docs/product/LESSONS.md`
+  stays the inbox; guards are the exit.
+- **Reviewer quality is measured, not assumed.** `rsi/runtime/reviewer-misses.py` compares what a
+  reviewer passed with what later escaped; a reviewer with two misses is demoted in `ROUTING.md`,
+  a reviewer that keeps finding blockers is preferred for that tier.
+- **The fence moves.** Escalation thresholds, lane counts, budgets and caps live in `MANDATE.md` /
+  `DECISIONS.md` with a one-line reversal; anything the loop has outgrown is raised by the CEO with a
+  measurement, not by silently raising a limit.

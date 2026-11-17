@@ -17,6 +17,8 @@ Updated: (seed)  Mode: running  NO_MERGE: no
 | Q9 | Review loop: line-comment → send back to agent; one-button commit/push/PR. | F3 | lody-parity gap §2 | research |
 | Q10 | Batch A (React 19 / Tailwind 4 / Astryx behind facade). | all | astryx-spike | after Q6, split by risk |
 
+| P1 | **Make the walk real** (CEO next phase, Ethan 2026-11-17): J3 sends, J1 approves, J7 lands on a seeded item, ux-gate red on regression. | F1 F2 F5 | GOAL.md P1 | ready (top) |
+
 ## Last 48h
 - (none yet)
 

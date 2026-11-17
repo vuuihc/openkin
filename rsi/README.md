@@ -22,6 +22,7 @@ Files: `GOAL.md` · `MANDATE.md` · `DECISIONS.md` · `STATUS.md`/`scorecard.md`
 Control worktree: `~/.kin/worktrees/rsi-ceo` (branch `rsi/ceo-loop`, owned by the loop; auto-synced to `origin/main`).
 
 Operate:
+- Pace: `python3 rsi/runtime/pace.py` — 24h merges, open→merge p50/p90, unshipped vs the release threshold, hours left in the current `GOAL.md` phase, and an ON-PACE/BEHIND line. The CEO quotes it every patrol; `--json` for scripts.
 - Status: `rsi/runtime/run.sh --status` (lanes, flags, counters, merge lane, merged.log) · `cat rsi/state/STATUS.md` · logs in `rsi/runtime/runs/` (`*-laneN.log`, `*-dispatch-laneN-<slug>-worker.jsonl`, `gate-merge-*.log`, `launchd-merge.log`) · reports in `rsi/state/reports/`.
 - Pause everything: `touch rsi/state/PAUSE` (lanes in flight finish; nothing new starts) · resume: `rm` it. Stop merging only: `touch rsi/state/NO_MERGE` (merge lane still verifies, never merges).
 - Fewer lanes (machine overloaded): `RSI_MAX_LANES=2` (the default; 3 is supported but swamped this 16 GB Mac). Serial mode = `RSI_MAX_LANES=1`.
