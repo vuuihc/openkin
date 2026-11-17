@@ -27,6 +27,8 @@ export type RoutineListProps = {
   /** Drop both filters, keeping the search text untouched. */
   onClearFilters: () => void;
   selectedId: string | null;
+  /** The routine this visit just created, marked on arrival; not selection. */
+  justCreatedId?: string | null;
   unreadByRoutine: Record<string, number>;
   busy: Record<string, boolean>;
   creating: boolean;
@@ -64,6 +66,7 @@ export default function RoutineList({
   onCwdChange,
   onClearFilters,
   selectedId,
+  justCreatedId,
   unreadByRoutine,
   busy,
   creating,
@@ -164,12 +167,22 @@ export default function RoutineList({
           {routines.map((r) => {
             const unread = unreadByRoutine[r.id] ?? 0;
             const selectedHere = selectedId === r.id;
+            // The arrival cue is a separate affordance from selection: green
+            // (made) rather than blue (open), and never `aria-pressed`. It
+            // outranks the selected tone only because a row cannot be both the
+            // one just made and the one opened before it existed.
+            const justCreated = !!justCreatedId && justCreatedId === r.id;
             return (
               <li
                 key={r.id}
+                data-just-created={justCreated ? "true" : undefined}
                 className={[
                   "rounded-2xl px-4 py-3",
-                  selectedHere ? "bg-kin-blue/5 ring-1 ring-kin-blue/30" : "bg-kin-panel/80",
+                  justCreated
+                    ? "bg-kin-green/5 ring-2 ring-kin-green/50"
+                    : selectedHere
+                      ? "bg-kin-blue/5 ring-1 ring-kin-blue/30"
+                      : "bg-kin-panel/80",
                 ].join(" ")}
               >
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">

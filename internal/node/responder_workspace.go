@@ -34,7 +34,7 @@ func (r *Responder) workspaceChanges(ctx context.Context, asked worker.Workspace
 	if err != nil {
 		return worker.WorkspaceChangesResult{}, err
 	}
-	changes, err := git.ListLiveChanges(ctx, workspace.SharedMetadata(path))
+	changes, err := git.ListBranchChanges(ctx, workspace.SharedMetadata(path))
 	if err != nil {
 		return worker.WorkspaceChangesResult{}, err
 	}
