@@ -22,7 +22,7 @@ fail() { echo "FAIL $*" >&2; exit 1; }
 
 case_name="test_walk_mutant_manifest_points_at_the_handoff_pair"
 [ -f "$MANIFEST" ] || fail "$case_name: no rsi/runtime/ux/walk-mutant.json"
-[ -x "$RUNNER" ] || fail "$case_name: rsi/runtime/ux/walk-mutant-test.sh is missing or not executable"
+[ -f "$RUNNER" ] || fail "$case_name: rsi/runtime/ux/walk-mutant-test.sh is missing"
 python3 - "$MANIFEST" "$WT" <<'PY' || exit 1
 import json
 import sys
@@ -84,4 +84,70 @@ fi
 rm -f "$log"
 pass "$case_name"
 
-echo "walk-mutant contract: 3/3 cases passed"
+case_name="test_j3_spec_rejects_a_title_only_prompt_wait"
+command -v node >/dev/null 2>&1 || fail "$case_name: node is not on PATH"
+spec_tmp="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec-mutant.XXXXXX")"
+log="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec.XXXXXX")"
+python3 - "$WT/rsi/runtime/ux/journeys.json" "$spec_tmp" <<'PY' || exit 1
+import json
+import sys
+
+src, dst = sys.argv[1], sys.argv[2]
+spec = json.load(open(src, encoding="utf-8"))
+steps = spec["journeys"]["J3"]["steps"]
+prompt = next(st[2] for st in steps if st[0] == "fill" and "textarea" in str(st[1]))
+hit = 0
+for st in steps:
+    if st[0] == "wait" and str(st[1]).startswith("css=") and "[role=" in str(st[1]) and prompt in str(st[1]):
+        st[1] = "text=" + prompt
+        hit += 1
+if hit != 1:
+    raise SystemExit("expected one transcript prompt wait, rewrote %d" % hit)
+json.dump(spec, open(dst, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+PY
+( cd "$WT" && node rsi/runtime/ux/walk.mjs --check-spec --spec "$spec_tmp" ) >"$log" 2>&1
+rc=$?
+if [ "$rc" -ne 1 ] || ! grep -q "inside the transcript" "$log"; then
+  cat "$log" >&2
+  rm -f "$log" "$spec_tmp"
+  fail "$case_name: --check-spec exited $rc without rejecting a text= prompt wait"
+fi
+rm -f "$log" "$spec_tmp"
+pass "$case_name"
+
+# A `text=` wait is also rejected by the `^css=` half of the rule, so it cannot
+# see the transcript-scoping half. A `css=body:has-text(...)` wait satisfies
+# `^css=` and names the prompt, and is green the moment the `[role=region]`
+# clause is dropped: this case owns that half.
+case_name="test_j3_spec_rejects_a_prompt_wait_outside_the_transcript"
+command -v node >/dev/null 2>&1 || fail "$case_name: node is not on PATH"
+spec_tmp="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec-mutant.XXXXXX")"
+log="$(mktemp "${TMPDIR:-/tmp}/walk-mutant-spec.XXXXXX")"
+python3 - "$WT/rsi/runtime/ux/journeys.json" "$spec_tmp" <<'PY' || exit 1
+import json
+import sys
+
+src, dst = sys.argv[1], sys.argv[2]
+spec = json.load(open(src, encoding="utf-8"))
+steps = spec["journeys"]["J3"]["steps"]
+prompt = next(st[2] for st in steps if st[0] == "fill" and "textarea" in str(st[1]))
+hit = 0
+for st in steps:
+    if st[0] == "wait" and str(st[1]).startswith("css=") and "[role=" in str(st[1]) and prompt in str(st[1]):
+        st[1] = 'css=body:has-text("%s")' % prompt
+        hit += 1
+if hit != 1:
+    raise SystemExit("expected one transcript prompt wait, rewrote %d" % hit)
+json.dump(spec, open(dst, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+PY
+( cd "$WT" && node rsi/runtime/ux/walk.mjs --check-spec --spec "$spec_tmp" ) >"$log" 2>&1
+rc=$?
+if [ "$rc" -ne 1 ] || ! grep -q "inside the transcript" "$log"; then
+  cat "$log" >&2
+  rm -f "$log" "$spec_tmp"
+  fail "$case_name: --check-spec exited $rc without rejecting an unscoped css= prompt wait"
+fi
+rm -f "$log" "$spec_tmp"
+pass "$case_name"
+
+echo "walk-mutant contract: 5/5 cases passed"

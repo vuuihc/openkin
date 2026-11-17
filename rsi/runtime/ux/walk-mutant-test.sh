@@ -54,7 +54,12 @@ command -v npm >/dev/null 2>&1 || unavailable "npm is not on PATH"
 command -v python3 >/dev/null 2>&1 || unavailable "python3 is not on PATH"
 
 OUT="$(mktemp -d "${TMPDIR:-/tmp}/walk-mutant.XXXXXX")" || unavailable "cannot create a temp dir"
-trap 'rm -rf "$OUT"' EXIT
+# `npm run build` empties and rewrites the tracked web/dist/index.html (vite's
+# outDir), while mutants.py restores only the source file. Keep the committed
+# entry and put it back on the way out, or default mode leaves a dirty index
+# naming a mutant chunk that is gitignored.
+[ -f "$WT/web/dist/index.html" ] && cp "$WT/web/dist/index.html" "$OUT/index.html.bak"
+trap '[ -f "$OUT/index.html.bak" ] && cp "$OUT/index.html.bak" "$WT/web/dist/index.html"; rm -rf "$OUT"' EXIT
 
 ( cd ui && npm run build ) >"$OUT/build.log" 2>&1 \
   || unavailable "ui build failed: $(tail -c 300 "$OUT/build.log")"
