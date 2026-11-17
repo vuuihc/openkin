@@ -3245,4 +3245,64 @@ describe("process timing", () => {
 
     expect(progress?.durationMs).toBeUndefined();
   });
+
+  it("leaves a run with a single stamped event without a duration", () => {
+    const items = buildChatItems([call(1, 1_000)], "kin");
+    const progress = items.find((item): item is ProgressItem => item.kind === "progress");
+
+    expect(progress?.durationMs).toBeUndefined();
+  });
+
+  it("measures a settled card across the groups it merges", () => {
+    const ask = (seq: number, ts: number, id: string) =>
+      at(seq, ts, "tool_use", { speaker: "kin", tool_use_id: id, name: "bash" });
+    const done = (seq: number, ts: number, id: string) =>
+      at(seq, ts, "tool_result", {
+        speaker: "kin",
+        tool_use_id: id,
+        name: "bash",
+        output: "ok",
+        ok: true,
+      });
+    const say = (seq: number, ts: number, text: string) =>
+      at(seq, ts, "message", {
+        role: "assistant",
+        speaker: "kin",
+        content: [{ type: "text", text }],
+      });
+    const settled = mergeProcessRuns(
+      buildChatItems(
+        [
+          ask(1, 1_000, "call-1"),
+          done(2, 2_000, "call-1"),
+          say(3, 3_000, "Halfway."),
+          ask(4, 4_000, "call-2"),
+          done(5, 6_000, "call-2"),
+          say(6, 7_000, "Done."),
+        ],
+        "kin",
+        undefined,
+        true,
+      ),
+    );
+    const progress = settled.find((item): item is ProgressItem => item.kind === "progress");
+
+    expect(progress?.durationMs).toBe(5000);
+  });
+
+  it("leaves a tool whose result predates its call without a duration", () => {
+    const [tool] = toolsOf([call(1, 2_000), result(2, 1_000)]);
+
+    expect(tool.durationMs).toBeUndefined();
+  });
+
+  it("keeps the start of a call that is re-sighted by a status-only update", () => {
+    const [tool] = toolsOf([
+      call(1, 1_000),
+      at(2, 3_000, "tool_use", { speaker: "kin", tool_use_id: "call-1" }),
+      result(3, 4_000),
+    ]);
+
+    expect(tool.durationMs).toBe(3000);
+  });
 });

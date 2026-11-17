@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { setLocale } from "../../i18n";
 import ActionSheet from "./ActionSheet";
@@ -57,13 +57,16 @@ describe("the shared action sheet", () => {
 
   it("closes before it runs the row", async () => {
     const calls: string[] = [];
-    setup([
-      {
-        id: "share",
-        label: "Share",
-        onSelect: () => calls.push("row"),
-      },
-    ], vi.fn(() => calls.push("close")));
+    setup(
+      [
+        {
+          id: "share",
+          label: "Share",
+          onSelect: () => calls.push("row"),
+        },
+      ],
+      vi.fn(() => calls.push("close")),
+    );
 
     await userEvent.click(screen.getByRole("button", { name: "Share" }));
     // The row runs only once the sheet's history entry is behind us; a row that
@@ -113,14 +116,46 @@ describe("the shared action sheet", () => {
 
   it("does not run a disabled row", async () => {
     const onSelect = vi.fn();
-    const { onClose } = setup([
-      { id: "stop", label: "Stopping…", disabled: true, onSelect },
-    ]);
+    const { onClose } = setup([{ id: "stop", label: "Stopping…", disabled: true, onSelect }]);
     const row = screen.getByRole("button", { name: "Stopping…" });
     expect(row.hasAttribute("disabled")).toBe(true);
     await userEvent.click(row);
     expect(onSelect).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("draws a row's hint as a second line and keeps both lines in its name", () => {
+    const hint = "Leaves this catalog only; it is not uninstalled.";
+    setup([{ id: "remove", label: "Remove from catalog", hint, onSelect: () => undefined }]);
+
+    // The hint is part of the button, so it is both visible and part of the
+    // name a screen reader hears — not a `title` a phone cannot reach.
+    const row = screen.getByRole("button", { name: /Remove from catalog.*not uninstalled/ });
+    expect(within(row).getByText(hint)).toBeTruthy();
+    expect(row.textContent).toContain("Remove from catalog");
+  });
+
+  it("leaves a disabled row's reason on the surface and the row unpickable", async () => {
+    const onSelect = vi.fn();
+    const reason = "The default agent stays in the catalog. Set another agent as default first.";
+    const { onClose } = setup([
+      { id: "remove", label: "Remove from catalog", hint: reason, disabled: true, onSelect },
+    ]);
+
+    const row = screen.getByRole("button", { name: /^Remove from catalog/ });
+    expect(row.hasAttribute("disabled")).toBe(true);
+    // A disabled row cannot be focused, so its reason has to be on the surface.
+    expect(within(row).getByText(reason)).toBeTruthy();
+    await userEvent.click(row);
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("draws one line for a row without a hint", () => {
+    setup([{ id: "share", label: "Share", onSelect: () => undefined }]);
+
+    const row = screen.getByRole("button", { name: "Share" });
+    expect(row.querySelector(".text-caption")).toBeNull();
   });
 
   it("offers one quiet cancel that only dismisses", async () => {
