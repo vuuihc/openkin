@@ -16,6 +16,8 @@ scrim、焦点陷阱、Escape / Back、安全区都由 `Sheet` 负责。
 - 内容需要解释、输入或分组 → 直接用 `Sheet` 排版。
 - 桌面上的选择 → 用贴着触发点的菜单（`SearchSelect` / `SheetSelect` 的宽屏形状）。
 - 只有一两个动作且能直接放在行里 → 不要为了“统一”再藏一层。
+- 禁用行动必须带 `hint` 说明原因。禁用行不可聚焦，原因留在 `title` 里就没人
+  够得着——手机没有 hover，键盘也停不上去。
 
 ## 行为
 
@@ -26,6 +28,9 @@ scrim、焦点陷阱、Escape / Back、安全区都由 `Sheet` 负责。
 - **当前值用 `selected` 标记。** 行加 `aria-current="true"` 和勾选图标；选中态
   不是“点完不关”的 radio。
 - **破坏性行动用 `destructive`。** 行取 `--kin-red-ink`，不要自己塞颜色 class。
+- **`hint` 是标签下的第二行。** 写行的后果，或禁用行不能执行的原因；设了就
+  显示（不只禁用行）。它在按钮内部，因此也是行可访问名称的一部分——不要改用
+  `title`：手机没有 hover，读屏之外的人看不到。
 - **取消只有一条。** footer 的 `SheetSecondaryButton`，只关闭，不触发任何动作。
 - **宽屏触摸设备用 `anyWidth`。** iPad 横屏跑桌面布局但没有鼠标，侧栏项目行的
   `⋯` 仍会打开它；此时面板限宽居中，不按 768px 断点自动关闭。
@@ -49,6 +54,7 @@ scrim、焦点陷阱、Escape / Back、安全区都由 `Sheet` 负责。
 | 行名称 | 4.1.2 | 每行是带可见文本的 `<button>` | 全部 |
 | 当前值 | 4.1.2 | `aria-current="true"`，不只靠颜色 | 单选场景 |
 | 禁用行 | 4.1.2 | 原生 `disabled`，不可聚焦 | 忙碌 / 终态 |
+| 原因行 | 4.1.2 | `hint` 画在标签下，并在按钮名称内；不用 `title` | 设置 `hint` 的行 |
 | 触控目标 | 2.5.8 Target Size | 行高 ≥44px（`min-h-11`） | 手机 |
 | 破坏性行的对比度 | 1.4.3 | 用 `--kin-red-ink`，已在面板表面认证过 | 全部 |
 
@@ -69,6 +75,7 @@ type ActionSheetRow = {
   selected?: boolean;    // 当前值，画勾并给读屏
   destructive?: boolean; // 停止 / 删除
   disabled?: boolean;
+  hint?: string;         // 标签下的第二行：后果，或禁用原因
   onSelect: () => void;
 };
 
