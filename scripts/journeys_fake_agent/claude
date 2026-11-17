@@ -41,6 +41,13 @@
 # conversation on a machine with a large catalog), and a seeded conversation
 # has no real session behind it. Omitting the optional field leaves the task
 # succeeded in well under a second and touches no local session state.
+# One prompt answers slowly. A prompt containing "[seed] slow" prints the init
+# line, holds for RSI_FAKE_SLOW_SECS (default 3, clamped 0..10, a malformed
+# value falls back to the default), then prints the usual reply. The J3 walk
+# presses Start for real and photographs the pending bubble and the waiting
+# row; without a deterministic hold that window is a race against the answer.
+# The hold is bounded so a crashed walk can never leave a turn running for
+# minutes, and it changes nothing for any other prompt.
 set -u
 
 prompt=""
@@ -108,9 +115,27 @@ case "$prompt" in
     ;;
 esac
 
+# Every answer begins with the init line, before any hold below. `cat` rather
+# than a shell builtin's printf: the approve branch documents why a buffered
+# write can sit in the pipe while the process sleeps.
 cat <<'EOF'
 {"type":"system","subtype":"init","cwd":"."}
 EOF
+
+case "$prompt" in
+  *"[seed] slow"*)
+    raw="${RSI_FAKE_SLOW_SECS:-3}"
+    case "$raw" in
+      '' | *[!0-9]*) secs=3 ;;
+      *)
+        # Compare by length first: an arbitrarily large number is not a
+        # number `test -gt` has to parse.
+        if [ "${#raw}" -gt 2 ] || [ "$raw" -gt 10 ]; then secs=10; else secs="$raw"; fi
+        ;;
+    esac
+    sleep "$secs"
+    ;;
+esac
 
 # The change turn names the file it just touched, so the console's
 # changed-files bar (fed by path-bearing tool_use events) has a file to

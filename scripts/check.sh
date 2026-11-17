@@ -212,6 +212,7 @@ job_shell_test() {
   bash rsi/runtime/tests/test-gate-carry.sh || return 1
   bash rsi/runtime/tests/test-release.sh || return 1
   bash rsi/runtime/tests/test-pace.sh || return 1
+  bash rsi/runtime/tests/test-control-sync.sh || return 1
   bash rsi/runtime/tests/test-install.sh || return 1
   bash rsi/runtime/tests/test-utf8-truncation.sh || return 1
   bash rsi/runtime/nas/tests/test-nas.sh || return 1
