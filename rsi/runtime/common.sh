@@ -81,17 +81,37 @@ FILL_SECS="${FILL_SECS:-1200}"
 LANES_PY="$RSI_DIR/runtime/lanes.py"
 mkdir -p "$STATE/lanes" "$STATE/sendback" "$STATE/merge"
 
-# Restore a lost +x bit on the runtime scripts. The live control tree is patched in place
-# (CEO hotfixes), and a temp-file+mv edit drops the mode to 644: a caller that invokes a
-# runtime script directly — ux-gate.sh runs `dispatch.sh`, not `bash dispatch.sh` — then
-# dies with exit 126 and the reviewer reports "unavailable" while the code is fine (2026-11-17
-# 23:24, dispatch.sh and ux-gate.sh both left 644, #238's UX gate stalled on it). Every entry
-# point sources this file, so the heal happens before anything is dispatched.
-for _rsi_sh in "$RSI_DIR"/runtime/*.sh; do
-  [ -f "$_rsi_sh" ] || continue
-  [ -x "$_rsi_sh" ] && continue
-  chmod +x "$_rsi_sh" 2>/dev/null && echo "rsi: restored +x on ${_rsi_sh##*/}" >&2
-done
+# Restore a lost +x bit on a runtime script that the repository records as executable.
+#
+# Why: the live control tree is patched in place (CEO hotfixes), and a temp-file+mv edit drops
+# the mode to 644. A caller that invokes a runtime script as a program — ux-gate.sh runs
+# `dispatch.sh`, not `bash dispatch.sh` — then dies with exit 126 and the reviewer reports
+# "unavailable" while the code is fine (2026-11-17 23:24, dispatch.sh and ux-gate.sh both left
+# 644; #238's UX gate lost a cooldown cycle to it). run.sh, merge.sh, lane.sh, gate.sh,
+# dispatch.sh, ux-gate.sh and ux-walk.sh source this file, so the heal lands before they
+# dispatch anything. release.sh does not source it and calls release-check.sh via `bash`.
+#
+# Only files git records as 100755 are healed: rsi/runtime/tests/*.sh and three top-level
+# scripts are tracked 644 on purpose, and chmod-ing them would leave a mode-only modification
+# that run.sh:40 (control-tree fast-forward) and gate.sh:114 ("build left uncommitted changes")
+# read as operator edits. A tree that is not a git checkout has no recorded modes to respect,
+# so there everything is healed.
+if git -C "$RSI_CTRL" rev-parse --git-dir >/dev/null 2>&1; then
+  git -C "$RSI_CTRL" ls-files -s -- rsi/runtime 2>/dev/null \
+    | awk '$1 == "100755" && $4 ~ /^rsi\/runtime\/[^\/]+\.sh$/ {print substr($4, 13)}' \
+    | while read -r _rsi_sh; do
+        [ -n "$_rsi_sh" ] || continue
+        [ -x "$RSI_DIR/runtime/$_rsi_sh" ] && continue
+        chmod +x "$RSI_DIR/runtime/$_rsi_sh" 2>/dev/null \
+          && echo "rsi: restored +x on $_rsi_sh" >&2
+      done
+else
+  for _rsi_sh in "$RSI_DIR"/runtime/*.sh; do
+    [ -f "$_rsi_sh" ] || continue
+    [ -x "$_rsi_sh" ] && continue
+    chmod +x "$_rsi_sh" 2>/dev/null && echo "rsi: restored +x on ${_rsi_sh##*/}" >&2
+  done
+fi
 unset _rsi_sh
 
 
