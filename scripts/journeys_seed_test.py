@@ -754,6 +754,26 @@ class HarnessContractTest(unittest.TestCase):
         # One modified tracked file, nothing new and untracked.
         self.assertEqual(len(status.stdout.splitlines()), 1, status.stdout)
 
+    def test_fake_agent_change_names_the_file_in_a_tool_use(self) -> None:
+        # The console's changed-files bar is fed by path-bearing tool_use
+        # events. A text-only turn leaves it empty, and the journey walk then
+        # photographs a conversation with no bar on it at all.
+        base = tempfile.mkdtemp(prefix="kin-journeys-seed-test-")
+        self.addCleanup(shutil.rmtree, base, True)
+        root = os.path.join(base, "alpha")
+        make_repo(root)
+        result = run_fake_agent(root, "[seed] change: summarise the three things worth doing today.")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+        tools = [
+            (block["name"], block["input"].get("file_path"))
+            for line in lines
+            if line.get("type") == "assistant"
+            for block in line["message"]["content"]
+            if block.get("type") == "tool_use"
+        ]
+        self.assertEqual(tools, [("Write", "notes.md")])
+
     def test_fake_agent_change_is_idempotent(self) -> None:
         base = tempfile.mkdtemp(prefix="kin-journeys-seed-test-")
         self.addCleanup(shutil.rmtree, base, True)

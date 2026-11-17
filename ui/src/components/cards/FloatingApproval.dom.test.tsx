@@ -77,6 +77,20 @@ describe("FloatingApproval", () => {
     expect(screen.getByText("+1")).toBeTruthy();
   });
 
+  it("puts an opaque surface under the card, so list rows cannot show through", () => {
+    // The card's own surface is a translucent orange tint — right on a solid
+    // transcript pane, unreadable floating over the list, where row text bled
+    // through the gradient. The wrapper is the opaque base.
+    const { container } = setup();
+    const surfaces = Array.from(container.querySelectorAll("aside > div.pointer-events-auto"));
+    const cardSurface = surfaces.find((el) => el.querySelector("[class*='animate-slideIn']"));
+    expect(cardSurface?.className).toContain("bg-kin-panel");
+    // The waiting-count chip floats over the same rows.
+    const chip = container.querySelector("aside > [role='status']");
+    expect(chip?.className).toContain("bg-kin-panel");
+    expect(chip?.className).not.toContain("kin-glass");
+  });
+
   it("answers the approval on screen", () => {
     const { onDecide } = setup();
     fireEvent.click(screen.getByRole("button", { name: new RegExp(t("chat.approve")) }));

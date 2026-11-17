@@ -277,21 +277,27 @@ export default function ChangedFilesBar({
           aria-label={`${t("workspace.changed.reviewTitle", { count: labelCount })} — ${t("workspace.changed.expand")}`}
           className="flex-1 min-w-0 flex items-center justify-start gap-2 text-left rounded-md -ml-1 pl-1 pr-1 py-0.5"
         >
-          <IconChevron size={13} className="flex-none text-kin-muted rotate-90" />
-          <span className="flex-none text-body font-semibold text-kin-text">
-            {t("workspace.changed.reviewTitle", { count: labelCount })}
-          </span>
-          <span className="flex-none text-body font-mono tabular-nums">
-            {stats.hasStats ? (
-              <DeltaInline additions={stats.additions} deletions={stats.deletions} />
-            ) : (
-              <span className="font-sans text-caption text-kin-muted">
-                {t("workspace.changed.noLineDelta")}
-              </span>
-            )}
-          </span>
-          <span className="hidden sm:inline flex-none text-caption text-kin-muted">
-            {t("workspace.changed.expand")}
+          {/* The facade puts every child inside one content span, so the
+              Button's own `gap` never lands between these pieces. The row
+              needs its own flex line or the count and the diff delta run
+              together. */}
+          <span className="flex min-w-0 items-center gap-2">
+            <IconChevron size={13} className="flex-none text-kin-muted rotate-90" />
+            <span className="flex-none text-body font-semibold text-kin-text">
+              {t("workspace.changed.reviewTitle", { count: labelCount })}
+            </span>
+            <span className="flex-none text-body font-mono tabular-nums">
+              {stats.hasStats ? (
+                <DeltaInline additions={stats.additions} deletions={stats.deletions} />
+              ) : (
+                <span className="font-sans text-caption text-kin-muted">
+                  {t("workspace.changed.noLineDelta")}
+                </span>
+              )}
+            </span>
+            <span className="hidden sm:inline flex-none text-caption text-kin-muted">
+              {t("workspace.changed.expand")}
+            </span>
           </span>
         </Button>
 
