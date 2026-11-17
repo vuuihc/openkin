@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<rect width="1100" height="760" fill="#111315"/>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;fill:#e7e9eb}.muted{fill:#969da4}.small{font-size:12px}.tiny{font-size:11px}.label{font-size:14px}.title{font-size:16px;font-weight:600}.button{fill:#20252a;stroke:#3b4249}.danger{fill:#ff8a80}</style>
+<text x="18" y="25" class="small muted">KIN-MANAGE-001 · 02 / Mac 多选 · 1100×760</text>
+
+<rect y="40" width="1100" height="56" fill="#181b1e"/>
+<text x="22" y="74" class="title">对话</text>
+<text x="80" y="73" class="small muted">本机 · 项目一</text>
+<rect x="1012" y="48" width="66" height="44" rx="9" class="button"/>
+<text x="1045" y="75" text-anchor="middle" class="label">新建</text>
+
+<rect y="96" width="248" height="640" fill="#141719"/>
+<rect x="12" y="110" width="224" height="34" rx="8" fill="#1b1f22" stroke="#2c3238"/>
+<text x="24" y="132" class="small muted">搜索对话…</text>
+
+<rect x="4" y="154" width="240" height="108" rx="8" fill="#1b1f22" stroke="#2c3238"/>
+<rect x="14" y="175" width="16" height="16" rx="4" fill="#2f6feb"/>
+<path d="M17 183l3 3 6-6" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="38" y="188" class="label">已选 2 项</text>
+<rect x="152" y="161" width="88" height="44" rx="8" class="button"/>
+<text x="196" y="188" text-anchor="middle" class="small">退出多选</text>
+<rect x="12" y="210" width="72" height="44" rx="8" class="button"/>
+<text x="48" y="237" text-anchor="middle" class="small">置顶</text>
+<rect x="88" y="210" width="72" height="44" rx="8" class="button"/>
+<text x="124" y="237" text-anchor="middle" class="small">归档</text>
+<rect x="164" y="210" width="72" height="44" rx="8" class="button"/>
+<text x="200" y="237" text-anchor="middle" class="small danger">删除</text>
+
+<rect x="6" y="274" width="236" height="42" rx="8" fill="#1f2733"/>
+<circle cx="20" cy="295" r="8" fill="#2f6feb"/>
+<path d="M16 295l3 3 5-5" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="38" y="300" class="label">对话标题 A</text>
+<text x="232" y="300" text-anchor="end" class="tiny muted">10:24</text>
+
+<rect x="6" y="316" width="236" height="42" rx="8" fill="#1f2733"/>
+<circle cx="20" cy="337" r="8" fill="#2f6feb"/>
+<path d="M16 337l3 3 5-5" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="38" y="342" class="label">对话标题 B</text>
+<text x="196" y="342" text-anchor="end" class="tiny muted">10:02</text>
+<rect x="204" y="325" width="30" height="24" rx="7" fill="#20252a" stroke="#3b4249"/>
+<text x="219" y="342" text-anchor="middle" class="small">⋯</text>
+
+<rect x="6" y="358" width="236" height="42" rx="8" fill="none"/>
+<circle cx="20" cy="379" r="8" fill="none" stroke="#5a6168" stroke-width="1.5"/>
+<text x="38" y="384" class="label">对话标题 C</text>
+<text x="232" y="384" text-anchor="end" class="tiny muted">09:48</text>
+
+<rect x="6" y="400" width="236" height="42" rx="8" fill="none"/>
+<circle cx="20" cy="421" r="8" fill="none" stroke="#5a6168" stroke-width="1.5"/>
+<text x="38" y="426" class="label">对话标题 D</text>
+<text x="232" y="426" text-anchor="end" class="tiny muted">昨天</text>
+
+<text x="16" y="468" class="label">项目二</text>
+<rect x="6" y="480" width="236" height="42" rx="8" fill="none"/>
+<circle cx="20" cy="501" r="8" fill="none" stroke="#5a6168" stroke-width="1.5"/>
+<text x="38" y="506" class="label">对话标题 E</text>
+<text x="232" y="506" text-anchor="end" class="tiny muted">昨天</text>
+
+<rect x="248" y="96" width="852" height="640" fill="#171a1d"/>
+<text x="270" y="124" class="title">对话标题 B</text>
+<text x="1078" y="123" text-anchor="end" class="small muted">多选 · 2 项</text>
+<rect x="270" y="140" width="808" height="1" fill="#23272b"/>
+<rect x="760" y="170" width="300" height="60" rx="12" fill="#20252a"/>
+<text x="778" y="196" class="small">选中两段，一起归档。</text>
+<text x="778" y="214" class="small">归档后还能在已归档里找到。</text>
+<rect x="270" y="290" width="380" height="14" rx="7" fill="#23272b"/>
+<rect x="270" y="316" width="330" height="14" rx="7" fill="#23272b"/>
+<rect x="270" y="342" width="290" height="14" rx="7" fill="#23272b"/>
+
+<rect x="296" y="160" width="1" height="108" fill="#2f6feb"/>
+<rect x="300" y="160" width="420" height="108" rx="12" fill="#1d2125" stroke="#2c3238"/>
+<text x="316" y="186" class="small muted">248px 侧栏</text>
+<text x="316" y="210" class="label">工具条折成两行：计数 + 退出在上，</text>
+<text x="316" y="232" class="label">置顶 / 归档 / 删除 带标签在下。</text>
+<text x="316" y="254" class="small muted">scrollWidth = clientWidth · 不缩小字号、不横向滚动</text>
+
+<rect x="300" y="480" width="420" height="150" rx="12" fill="#1d2125" stroke="#2c3238"/>
+<text x="316" y="508" class="small muted">多选的入口与出口</text>
+<text x="316" y="534" class="label">从行菜单的「多选」进入，这一行已选中</text>
+<text x="316" y="560" class="label">退出多选固定在第一行，任何时候都能点</text>
+<text x="316" y="586" class="label">Esc 走同一条退出路径，焦点回发起行</text>
+<text x="316" y="612" class="small muted">0 项时批量按钮禁用，退出仍可用</text>
+
+<rect y="736" width="1100" height="24" fill="#181b1e"/>
+<text x="18" y="752" class="small muted">工具条留在 248px 内 · 计数与三个批量动作可用 · 退出始终可见、至少 44px</text>
+</svg>

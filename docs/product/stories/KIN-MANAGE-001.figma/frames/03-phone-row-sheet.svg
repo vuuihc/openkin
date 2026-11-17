@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+<rect width="390" height="844" fill="#111315"/>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;fill:#e7e9eb}.muted{fill:#969da4}.small{font-size:12px}.tiny{font-size:11px}.label{font-size:14px}.title{font-size:17px;font-weight:600}.button{fill:#20252a;stroke:#3b4249}.danger{fill:#ff8a80}</style>
+<text x="16" y="25" class="small muted">KIN-MANAGE-001 · 03 / 手机 行菜单 · 390×844</text>
+
+<text x="20" y="54" class="small muted">9:41</text>
+<rect x="330" y="44" width="26" height="12" rx="3" fill="#3b4249"/>
+<rect x="360" y="44" width="14" height="12" rx="3" fill="#3b4249"/>
+
+<text x="20" y="94" class="title">对话</text>
+<rect x="306" y="64" width="64" height="44" rx="9" class="button"/>
+<text x="338" y="91" text-anchor="middle" class="label">新建</text>
+
+<rect x="16" y="120" width="358" height="40" rx="10" fill="#1b1f22" stroke="#2c3238"/>
+<text x="30" y="145" class="small muted">搜索对话…</text>
+
+<text x="18" y="186" class="tiny muted">本机</text>
+<text x="18" y="210" class="label">项目一</text>
+
+<rect x="8" y="222" width="374" height="54" rx="10" fill="#171a1d"/>
+<circle cx="30" cy="249" r="10" fill="#293543"/>
+<text x="52" y="254" class="label">对话标题 A</text>
+<text x="366" y="254" text-anchor="end" class="tiny muted">10:24</text>
+
+<rect x="8" y="276" width="374" height="54" rx="10" fill="#1f2733"/>
+<circle cx="30" cy="303" r="10" fill="#2f6feb"/>
+<text x="52" y="308" class="label">对话标题 B</text>
+<text x="336" y="308" text-anchor="end" class="tiny muted">10:02</text>
+<text x="362" y="308" text-anchor="middle" class="small">⋯</text>
+
+<rect x="8" y="330" width="374" height="54" rx="10" fill="#171a1d"/>
+<circle cx="30" cy="357" r="10" fill="#293543"/>
+<text x="52" y="362" class="label">对话标题 C</text>
+<text x="366" y="362" text-anchor="end" class="tiny muted">09:48</text>
+
+<rect x="8" y="384" width="374" height="54" rx="10" fill="#171a1d"/>
+<circle cx="30" cy="411" r="10" fill="#293543"/>
+<text x="52" y="416" class="label">对话标题 D</text>
+<text x="366" y="416" text-anchor="end" class="tiny muted">昨天</text>
+
+<rect y="60" width="390" height="784" fill="#000" opacity="0.55"/>
+
+<path d="M0 340 Q0 322 18 322 H372 Q390 322 390 340 V844 H0 Z" fill="#1d1d20"/>
+<rect x="171" y="336" width="48" height="4" rx="2" fill="#3b4249"/>
+<text x="20" y="378" class="title">对话标题 B</text>
+<text x="20" y="400" class="tiny muted">项目一 · 本机 · 10:02</text>
+<rect x="16" y="416" width="358" height="1" fill="#2c3238"/>
+
+<rect x="24" y="440" width="20" height="20" rx="5" fill="#2a2f34"/>
+<text x="56" y="455" class="label">改名</text>
+<text x="360" y="455" text-anchor="end" class="tiny muted">行内编辑</text>
+
+<rect x="24" y="492" width="20" height="20" rx="5" fill="#2a2f34"/>
+<text x="56" y="507" class="label">置顶</text>
+
+<rect x="24" y="544" width="20" height="20" rx="5" fill="#2a2f34"/>
+<text x="56" y="559" class="label">多选</text>
+<text x="360" y="559" text-anchor="end" class="tiny muted">选中这一行</text>
+
+<rect x="24" y="596" width="20" height="20" rx="5" fill="#2a2f34"/>
+<text x="56" y="611" class="label">归档</text>
+
+<rect x="16" y="640" width="358" height="1" fill="#2c3238"/>
+
+<rect x="24" y="664" width="20" height="20" rx="5" fill="#5a2a2a"/>
+<text x="56" y="679" class="label danger">删除</text>
+<text x="360" y="679" text-anchor="end" class="tiny muted danger">不可恢复</text>
+
+<rect x="16" y="712" width="358" height="52" rx="10" class="button"/>
+<text x="195" y="744" text-anchor="middle" class="label">取消</text>
+
+<text x="195" y="798" text-anchor="middle" class="tiny muted">长按 500ms 或点 ⋯ 打开 · 点外面关闭 · Esc 关闭</text>
+<rect x="145" y="818" width="100" height="4" rx="2" fill="#3b4249"/>
+</svg>
