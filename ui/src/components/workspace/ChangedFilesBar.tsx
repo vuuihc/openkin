@@ -151,8 +151,13 @@ export default function ChangedFilesBar({
             aria-label={t("workspace.changed.discardAll")}
             className="md:min-h-0 md:px-2.5 md:py-1 text-caption"
           >
-            <IconX size={12} className="opacity-80" />
-            {t("workspace.changed.discardAll")}
+            {/* Icon and label need their own flex line: the facade puts both
+                inside one content span, where the svg is a block and would
+                stack above the text. */}
+            <span className="inline-flex items-center gap-1.5">
+              <IconX size={12} className="opacity-80" />
+              {t("workspace.changed.discardAll")}
+            </span>
           </Button>
           <Button
             variant="default"
@@ -162,8 +167,10 @@ export default function ChangedFilesBar({
             aria-label={t("workspace.changed.keepAll")}
             className="md:min-h-0 md:px-2.5 md:py-1 text-caption"
           >
-            <IconCheck size={12} />
-            {t("workspace.changed.keepAll")}
+            <span className="inline-flex items-center gap-1.5">
+              <IconCheck size={12} />
+              {t("workspace.changed.keepAll")}
+            </span>
           </Button>
         </>
       )}
@@ -174,11 +181,12 @@ export default function ChangedFilesBar({
     return (
       <div className={["rounded-xl bg-kin-elevated overflow-hidden", className ?? ""].join(" ")}>
         <div className="flex items-start gap-2 px-3 py-2 border-b border-[var(--kin-hairline)]">
-          <button
-            type="button"
+          <Button
+            variant="quiet"
             onClick={() => openDiffPanel()}
             title={t("workspace.changed.expand")}
-            className="flex-1 min-w-0 text-left rounded-md -mx-1 px-1 py-0.5 hover:bg-[var(--kin-fill)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-focus-ring"
+            aria-label={`${t("workspace.changed.reviewTitle", { count: labelCount })} — ${t("workspace.changed.expand")}`}
+            className="flex-1 min-w-0 flex-col items-stretch justify-start gap-0 rounded-md -mx-1 px-1 py-0.5 text-left"
           >
             <div className="flex items-center gap-1.5 min-w-0">
               <IconChevron size={12} className="flex-none text-kin-muted rotate-90" />
@@ -203,7 +211,7 @@ export default function ChangedFilesBar({
             <div className="mt-0.5 pl-[18px] text-caption text-kin-muted">
               {t("workspace.changed.expand")}
             </div>
-          </button>
+          </Button>
           {!showBulk && (
             <Button
               variant="quiet"
@@ -222,6 +230,7 @@ export default function ChangedFilesBar({
             const dir = f.path.slice(0, Math.max(0, f.path.length - name.length));
             return (
               <li key={`${f.action}:${f.path}:${f.seq}`}>
+                {/* eslint-disable-next-line kin/no-raw-button -- an option row in the list; the row is the hit area, not an action. */}
                 <button
                   type="button"
                   onClick={() => openDiffPanel(f.path)}
@@ -268,29 +277,39 @@ export default function ChangedFilesBar({
   return (
     <div className={["flex-none", "bg-kin-elevated/60", className ?? ""].join(" ")}>
       <div className="px-4 sm:px-5 py-2 flex items-center gap-2 min-w-0">
-        <button
-          type="button"
+        <Button
+          variant="quiet"
           onClick={() => openDiffPanel()}
           title={t("workspace.changed.expand")}
-          className="flex-1 min-w-0 flex items-center gap-2 text-left rounded-md -ml-1 pl-1 pr-1 py-0.5 hover:bg-[var(--kin-fill)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-focus-ring"
+          aria-label={`${t("workspace.changed.reviewTitle", { count: labelCount })} — ${t("workspace.changed.expand")}`}
+          className="flex-1 min-w-0 flex items-center justify-start gap-2 text-left rounded-md -ml-1 pl-1 pr-1 py-0.5"
         >
-          <IconChevron size={13} className="flex-none text-kin-muted rotate-90" />
-          <span className="flex-none text-body font-semibold text-kin-text">
-            {t("workspace.changed.reviewTitle", { count: labelCount })}
+          {/* The facade puts every child inside one content span, so the
+              Button's own `gap` never lands between these pieces. The row
+              needs its own flex line or the count and the diff delta run
+              together. */}
+          <span className="flex min-w-0 items-center gap-2">
+            {/* Points right, not down: the row opens the workspace files/diff
+                panel; a down chevron reads as an inline accordion on phone,
+                where the expand hint is hidden. */}
+            <IconChevron size={13} className="flex-none text-kin-muted" />
+            <span className="flex-none text-body font-semibold text-kin-text">
+              {t("workspace.changed.reviewTitle", { count: labelCount })}
+            </span>
+            <span className="flex-none text-body font-mono tabular-nums">
+              {stats.hasStats ? (
+                <DeltaInline additions={stats.additions} deletions={stats.deletions} />
+              ) : (
+                <span className="font-sans text-caption text-kin-muted">
+                  {t("workspace.changed.noLineDelta")}
+                </span>
+              )}
+            </span>
+            <span className="hidden sm:inline flex-none text-caption text-kin-muted">
+              {t("workspace.changed.expand")}
+            </span>
           </span>
-          <span className="flex-none text-body font-mono tabular-nums">
-            {stats.hasStats ? (
-              <DeltaInline additions={stats.additions} deletions={stats.deletions} />
-            ) : (
-              <span className="font-sans text-caption text-kin-muted">
-                {t("workspace.changed.noLineDelta")}
-              </span>
-            )}
-          </span>
-          <span className="hidden sm:inline flex-none text-caption text-kin-muted">
-            {t("workspace.changed.expand")}
-          </span>
-        </button>
+        </Button>
 
         {bulkActions}
 
