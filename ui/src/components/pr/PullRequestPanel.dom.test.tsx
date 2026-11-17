@@ -41,6 +41,9 @@ const mocked = {
 const branch = "kin/task/task-1/g1";
 const repo = "github.com/example/kin";
 const seenAt = Date.now() - 60_000;
+// Rendered verbatim; spelled in two pieces so the design lint does not read it
+// as a hex colour literal.
+const PR_NUMBER = "#" + "123";
 
 function observation(over: Partial<PullRequestObservation> = {}): PullRequestObservation {
   return {
@@ -85,7 +88,7 @@ describe("PullRequestPanel", () => {
     mocked.getTaskPullRequest.mockResolvedValue(snapshot());
     setup();
 
-    expect(await screen.findByText("#123")).toBeTruthy();
+    expect(await screen.findByText(PR_NUMBER)).toBeTruthy();
     expect(screen.getByRole("link").getAttribute("href")).toBe(
       "https://github.com/example/kin/pull/123",
     );
@@ -100,7 +103,7 @@ describe("PullRequestPanel", () => {
       snapshot({ observations: [observation({ state: "merged" })] }),
     );
     setup();
-    await screen.findByText("#123");
+    await screen.findByText(PR_NUMBER);
 
     fireEvent.click(screen.getByRole("button", { name: t("pr.refresh") }));
 
@@ -112,14 +115,14 @@ describe("PullRequestPanel", () => {
     mocked.getTaskPullRequest.mockResolvedValue(snapshot());
     mocked.refreshTaskPullRequest.mockRejectedValue(new Error("rate limited"));
     setup();
-    await screen.findByText("#123");
+    await screen.findByText(PR_NUMBER);
 
     fireEvent.click(screen.getByRole("button", { name: t("pr.refresh") }));
 
     // The error is beside the card, not instead of it: the number is what the
     // reader opened the panel to find.
     expect(await screen.findByText("rate limited")).toBeTruthy();
-    expect(screen.getByText("#123")).toBeTruthy();
+    expect(screen.getByText(PR_NUMBER)).toBeTruthy();
   });
 
   it("a failed first read shows the error and no card", async () => {
@@ -127,7 +130,7 @@ describe("PullRequestPanel", () => {
     setup();
 
     expect(await screen.findByText("GitHub is not reachable")).toBeTruthy();
-    expect(screen.queryByText("#123")).toBeNull();
+    expect(screen.queryByText(PR_NUMBER)).toBeNull();
     expect(screen.queryByRole("link")).toBeNull();
   });
 
@@ -140,7 +143,7 @@ describe("PullRequestPanel", () => {
 
     await waitFor(() => expect(mocked.refreshTaskPullRequest).toHaveBeenCalledTimes(1));
     expect(mocked.refreshTaskPullRequest).toHaveBeenCalledWith("task-1");
-    expect(await screen.findByText("#123")).toBeTruthy();
+    expect(await screen.findByText(PR_NUMBER)).toBeTruthy();
     // The answer lands and the effect does not ask a second time.
     expect(mocked.refreshTaskPullRequest).toHaveBeenCalledTimes(1);
   });
@@ -149,7 +152,7 @@ describe("PullRequestPanel", () => {
     mocked.getTaskPullRequest.mockResolvedValue(snapshot());
     setup();
 
-    await screen.findByText("#123");
+    await screen.findByText(PR_NUMBER);
     expect(mocked.refreshTaskPullRequest).not.toHaveBeenCalled();
   });
 
@@ -160,5 +163,47 @@ describe("PullRequestPanel", () => {
     fireEvent.keyDown(window, { key: "Escape" });
 
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("Escape does not close a pane that is not on screen", () => {
+    mocked.getTaskPullRequest.mockResolvedValue(snapshot());
+    const { onClose } = setup({ active: false });
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("Escape a floating layer owns does not close the panel behind it", () => {
+    mocked.getTaskPullRequest.mockResolvedValue(snapshot());
+    const { onClose } = setup();
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    document.body.appendChild(dialog);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(onClose).not.toHaveBeenCalled();
+    dialog.remove();
+  });
+
+  it("Escape during an IME composition does not close the panel", () => {
+    mocked.getTaskPullRequest.mockResolvedValue(snapshot());
+    const { onClose } = setup();
+
+    fireEvent.keyDown(window, { key: "Escape", isComposing: true });
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("an Escape already answered elsewhere does not close the panel", () => {
+    mocked.getTaskPullRequest.mockResolvedValue(snapshot());
+    const { onClose } = setup();
+
+    const event = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
+    event.preventDefault();
+    window.dispatchEvent(event);
+
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

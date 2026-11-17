@@ -7,6 +7,8 @@ import {
   type TaskPullRequestSnapshot,
 } from "../../api/client";
 import { useT } from "../../i18n/react";
+import { isImeKeyEvent } from "../../lib/ime";
+import { overlayOwnsKeyboard } from "../../lib/overlayOwnsKeyboard";
 import { formatRelativeTime } from "../../lib/relativeTime";
 import PanelSurface from "../layout/PanelSurface";
 import {
@@ -138,14 +140,20 @@ export default function PullRequestPanel({
   }, [active]);
 
   // Escape closes, as it does for the console's other overlays.
+  //
+  // Only the pane on screen and only when no floating layer owns the keyboard:
+  // recent tasks stay mounted and hidden, and a menu or sheet drawn over this
+  // pane is the reader's Escape target, not the panel underneath it.
   useEffect(() => {
-    if (!onClose) return;
+    if (!active || !onClose) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape" || event.defaultPrevented || isImeKeyEvent(event)) return;
+      if (overlayOwnsKeyboard()) return;
+      onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [active, onClose]);
 
   // Options rather than a positional flag: this is handed to `onClick`
   // elsewhere, and a stray event object must not be able to mean "implicit" and
