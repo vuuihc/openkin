@@ -93,7 +93,7 @@
 
 | 面 | 归谁 | 内容 |
 |---|---|---|
-| 控制台设置 `/settings` | Hub | Agent、模型、权限等运行默认值（KIN-SETTINGS-001 的面）；远程 / 通知两个 tab 已于 2026-11-11（R0b-3）删除，relay / APNs 仍是 daemon API；通知只保留 iPhone 首次授权的一行；`?tab=operations` 托管 Agent 运维（原 `AgentsPage` 主体，N4 已接管），E4a 已由 #141 `71402048` 交付、`/agents` 与 `/usage` 都 `replace` 到它；分区 ID 仍是 `general` / `agents` / `providers` / `routing` / `advanced` / `operations`，`?tab=agents` 永远是本地 Agent 与角色 |
+| 控制台设置 `/settings` | Hub | Agent、模型、权限等运行默认值（KIN-SETTINGS-001 的面；该故事于 2026-11-17 CEO 代签，D1–D8 已定，设计页 5 帧）；远程 / 通知两个 tab 已于 2026-11-11（R0b-3）删除，relay / APNs 仍是 daemon API；通知只保留 iPhone 首次授权的一行；`?tab=operations` 托管 Agent 运维（原 `AgentsPage` 主体，N4 已接管），E4a 已由 #141 `71402048` 交付、`/agents` 与 `/usage` 都 `replace` 到它；分区 ID 仍是 `general` / `agents` / `providers` / `routing` / `advanced` / `operations`，`?tab=agents` 永远是本地 Agent 与角色 |
 | 菜单栏托盘（Mac） | 桌面壳 | 常驻版本行「Kin X」；检查更新、下载（进度）、安装（open dmg + 确认退出）、删除已下载的安装包；只连 github.com 官方 Releases，不做后台轮询 |
 | 手机 | 无此面 | PWA 由 Hub 重新部署时自然更新；手机上没有桌面壳的升级问题 |
 
