@@ -2,7 +2,7 @@
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { claimOwner } from "../api/account";
+import { claimOwner, startOIDC } from "../api/account";
 import { setLocale } from "../i18n";
 import { NO_ACCOUNT, useAppStore, type AccountProvider } from "../store/appStore";
 import AccountScreen from "./AccountScreen";
@@ -278,5 +278,82 @@ describe("the account screen's actions", () => {
       password: "secret123",
       displayName: "Owner",
     });
+  });
+});
+
+/**
+ * KIN-RESULT-002 「登录」: a sign-in round trip comes back to the page the
+ * reader was on.
+ *
+ * The provider owns the address bar for the length of the hop, so the page to
+ * come back to travels as `return_to`. Sending only `pathname` loses the query
+ * and the fragment along the way: a filtered list comes back unfiltered, and a
+ * notification deep link to `#frag` lands at the top of the page instead.
+ */
+describe("returning after federated sign-in", () => {
+  // Percent-encoded and in this order on purpose: a URL round trip would turn
+  // `%20` into `+` and could reorder the parameters, and both are visible in
+  // the address bar the person comes back to.
+  const deepLink = "/tasks/t1?panel=files&file=a%20b.html#frag";
+
+  beforeEach(() => {
+    setLocale("en");
+    vi.clearAllMocks();
+    useAppStore.setState({
+      account: {
+        ...NO_ACCOUNT,
+        enabled: true,
+        authenticated: false,
+        providers: [password, oidc],
+      },
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    useAppStore.setState({ pendingAppSignIn: null });
+    window.history.replaceState({}, "", "/");
+  });
+
+  it("sends federated sign-in back to the page with its query and fragment", () => {
+    window.history.replaceState({}, "", deepLink);
+
+    render(<AccountScreen mode="login" />);
+    fireEvent.click(screen.getByRole("button", { name: "Continue with GitHub / Google" }));
+
+    expect(vi.mocked(startOIDC)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(startOIDC).mock.calls[0][1]).toBe(deepLink);
+  });
+
+  it("hands the app-flow start URL the full address", () => {
+    window.history.replaceState({}, "", deepLink);
+    // A G8/G9 shell: the platform check plus every method the console calls
+    // (the same shape `AccountSection.test.tsx` builds). This asserts the
+    // address handed to the start call; the app flow itself ends on kin:// and
+    // reloads the webview in place, so it is not an end-to-end return test.
+    const scope = globalThis as { Capacitor?: unknown };
+    const previous = scope.Capacitor;
+    scope.Capacitor = {
+      isNativePlatform: () => true,
+      getPlatform: () => "ios",
+      Plugins: {
+        KinHubConfig: {
+          getHubUrl: () => Promise.resolve({ url: "https://kin.example.com" }),
+          setHubUrl: () => Promise.resolve({ url: "https://kin.example.com" }),
+          clearHubUrl: () => Promise.resolve(),
+          openSystemBrowser: () => Promise.resolve(),
+          takeAuthCallback: () => Promise.resolve({ url: "" }),
+        },
+      },
+    };
+    try {
+      render(<AccountScreen mode="login" />);
+      fireEvent.click(screen.getByRole("button", { name: "Continue with GitHub / Google" }));
+
+      expect(vi.mocked(startOIDC)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(startOIDC).mock.calls[0][1]).toBe(deepLink);
+    } finally {
+      scope.Capacitor = previous;
+    }
   });
 });
