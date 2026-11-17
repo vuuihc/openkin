@@ -179,11 +179,27 @@ export default function FloatingApproval({
   // the app is open carry none at all, so "another task" is the honest last
   // resort rather than a name invented for a task this card cannot see.
   const title = titleFor(current.task_id) || current.task_title;
+  const titleText = title || tr("approval.floatingFallback");
 
   const decide = (decision: Decision) => {
     keepFocus.current = surfaceRef.current?.contains(document.activeElement) ? decision : null;
     onDecide(current.id, decision);
   };
+
+  // On the phone's four tab roots the pill is the whole surface, and the task
+  // link is the only hit target: the card's body covered the conversation
+  // list, so a row underneath it could not be tapped — the reader's finger
+  // landed on the panel instead of the conversation it named. 待批准 belongs
+  // to its conversation (IA §通知): the list row already carries the count,
+  // and this strip is the way in. Its name spells out what the small visible
+  // parts mean, including the queue behind the one it opens.
+  const stripLabel = [
+    tr("approval.floatingLabel"),
+    titleText,
+    waiting > 0 ? tr("approval.moreWaiting", { n: waiting }) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <aside
@@ -209,10 +225,10 @@ export default function FloatingApproval({
         .join(" ")}
     >
       {/* A live region: an approval arriving while the reader is on another
-          screen is the whole point of this card, and a silent arrival means
-          the agent stays stopped until someone happens to look. Opaque like
-          the card below: this chip floats over the list too, and the glass
-          surface let the row text read through it. */}
+          screen is the whole point of this surface, and a silent arrival
+          means the agent stays stopped until someone happens to look. Opaque
+          like the card under it: this pill floats over the list too, and the
+          glass surface let the row text read through it. */}
       <div
         role="status"
         aria-live="polite"
@@ -222,58 +238,91 @@ export default function FloatingApproval({
         data-phone-swipe="true"
         className="bg-kin-panel pointer-events-auto flex items-center gap-2 self-start rounded-full py-1 pl-3 pr-2 shadow-e2"
       >
-        <span className="text-caption font-semibold uppercase tracking-label text-kin-muted">
-          {tr("approval.floatingLabel")}
-        </span>
-        <Button
-          variant="quiet"
-          onClick={() => onOpenTask(current.task_id)}
-          title={tr("approval.openTask")}
-          // The strip's task link, not a filled action: keep its compact pill
-          // and blue ink instead of the facade's row geometry.
-          className="block max-w-approval-title min-h-0! truncate rounded-full px-1 py-0.5 text-caption font-medium text-kin-blue-ink! hover:bg-transparent! hover:underline"
-        >
-          {title || tr("approval.floatingFallback")}
-        </Button>
-        {waiting > 0 && (
-          <>
-            {/* The visible `+1` is a count with no noun; the label is what a
-                screen reader should hear, and `aria-label` on a plain span is
-                ignored — so the number is hidden from AT and the sentence is
-                rendered for it instead. */}
-            <span
-              aria-hidden="true"
-              title={tr("approval.moreWaiting", { n: waiting })}
-              className="rounded-full bg-kin-orange/15 px-1.5 py-0.5 text-caption font-semibold text-kin-orange-ink"
-            >
-              +{waiting}
+        {raised ? (
+          // One target, not three: the label, the task and the count are all
+          // inside the button, so the whole pill answers a thumb and the name
+          // says what the small parts mean. The pill's own padding and
+          // `bg-kin-panel` are the strip's, so the visual is today's chip.
+          <Button
+            variant="quiet"
+            onClick={() => onOpenTask(current.task_id)}
+            aria-label={stripLabel}
+            title={tr("approval.openTask")}
+            className="min-h-11! min-w-0 gap-2 rounded-full px-0 py-0 text-caption"
+          >
+            <span className="shrink-0 text-caption font-semibold uppercase tracking-label text-kin-muted">
+              {tr("approval.floatingLabel")}
             </span>
-            <span className="sr-only">{tr("approval.moreWaiting", { n: waiting })}</span>
+            <span className="min-w-0 max-w-approval-title truncate text-caption font-medium text-kin-blue-ink!">
+              {titleText}
+            </span>
+            {waiting > 0 && (
+              <span className="shrink-0 rounded-full bg-kin-orange/15 px-1.5 py-0.5 text-caption font-semibold text-kin-orange-ink">
+                +{waiting}
+              </span>
+            )}
+          </Button>
+        ) : (
+          <>
+            <span className="text-caption font-semibold uppercase tracking-label text-kin-muted">
+              {tr("approval.floatingLabel")}
+            </span>
+            <Button
+              variant="quiet"
+              onClick={() => onOpenTask(current.task_id)}
+              title={tr("approval.openTask")}
+              // The strip's task link, not a filled action: keep its compact
+              // pill and blue ink instead of the facade's row geometry.
+              className="block max-w-approval-title min-h-0! truncate rounded-full px-1 py-0.5 text-caption font-medium text-kin-blue-ink! hover:bg-transparent! hover:underline"
+            >
+              {titleText}
+            </Button>
+            {waiting > 0 && (
+              <>
+                {/* The visible `+1` is a count with no noun; the label is what
+                    a screen reader should hear, and `aria-label` on a plain
+                    span is ignored — so the number is hidden from AT and the
+                    sentence is rendered for it instead. */}
+                <span
+                  aria-hidden="true"
+                  title={tr("approval.moreWaiting", { n: waiting })}
+                  className="rounded-full bg-kin-orange/15 px-1.5 py-0.5 text-caption font-semibold text-kin-orange-ink"
+                >
+                  +{waiting}
+                </span>
+                <span className="sr-only">{tr("approval.moreWaiting", { n: waiting })}</span>
+              </>
+            )}
           </>
         )}
       </div>
-      {/* An opaque base under the card: `ApprovalCard`'s own surface is a
-          translucent orange tint, which is right in the transcript (a solid
-          pane behind it) and unreadable here, floating over list rows whose
-          text showed through. Same radius so the base never peeks out. */}
-      <div className="pointer-events-auto max-h-[50dvh] overflow-y-auto kin-scroll rounded-xl bg-kin-panel md:max-h-[60dvh]">
-        {/* Keyed by the approval: a payload that cannot render costs this one
-            card, and the boundary's "caught" state is thrown away when the
-            queue moves on — a permanently wedged boundary would hide every
-            later approval until a reload, which is the opposite of the point.
-            (Error boundaries catch render throws only; the payload is consumed
-            in render, which is where an agent-supplied value can hurt.) */}
-        <ErrorBoundary key={current.id} fallback={null}>
-          <ApprovalCard
-            approval={current}
-            busy={busy[current.id] ?? null}
-            onApprove={() => decide("approved")}
-            onDeny={() => decide("denied")}
-            onOpenPath={onOpenPath}
-            showKeys={false}
-          />
-        </ErrorBoundary>
-      </div>
+      {/* The decision card belongs to a conversation (and to Mac), never to a
+          phone tab root: there the strip above is the whole surface. An
+          opaque base under it: `ApprovalCard`'s own surface is a translucent
+          orange tint, which is right in the transcript (a solid pane behind
+          it) and unreadable here, floating over list rows whose text showed
+          through. Same radius so the base never peeks out. */}
+      {!raised && (
+        <div className="pointer-events-auto max-h-[50dvh] overflow-y-auto kin-scroll rounded-xl bg-kin-panel md:max-h-[60dvh]">
+          {/* Keyed by the approval: a payload that cannot render costs this one
+              card, and the boundary's "caught" state is thrown away when the
+              queue moves on — a permanently wedged boundary would hide every
+              later approval until a reload, which is the opposite of the point.
+              (Error boundaries catch render throws only; the payload is
+              consumed in render, which is where an agent-supplied value can
+              hurt.) */}
+          <ErrorBoundary key={current.id} fallback={null}>
+            <ApprovalCard
+              approval={current}
+              busy={busy[current.id] ?? null}
+              onApprove={() => decide("approved")}
+              onDeny={() => decide("denied")}
+              onOpenPath={onOpenPath}
+              showKeys={false}
+            />
+          </ErrorBoundary>
+        </div>
+      )}
     </aside>
   );
 }
