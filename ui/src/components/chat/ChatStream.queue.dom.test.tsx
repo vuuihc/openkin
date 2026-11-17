@@ -99,6 +99,36 @@ describe("withdrawing a queued message", () => {
   });
 });
 
+describe("queued row tap targets", () => {
+  it("keeps the queued row actions on the phone tap floor instead of the mini opt-out", () => {
+    render(
+      <ChatStream
+        events={[waiting]}
+        hostSpeaker="kin"
+        queuedSeqs={new Set([1])}
+        onUnqueue={vi.fn()}
+        onEditQueued={vi.fn()}
+      />,
+    );
+
+    // The floor is `.touch-lg button:not([data-touch-mini])` in index.css:
+    // inside that media query, any button under the console's `.touch-lg` roots
+    // gets a 44px phone target unless it opts out by name. These two sit in a
+    // `排队中` badge on a primary mid-run surface, and
+    // one of them discards the message, so a thumb a few pixels off the 10px
+    // glyph has to land inside the target rather than beside it. The opt-out's
+    // sanctioned home is a control on a tile too small to grow, not this row.
+    for (const name of [
+      t("chat.withdrawNamed", { text: "hold that thought" }),
+      t("chat.editQueuedNamed", { text: "hold that thought" }),
+    ]) {
+      const button = screen.getByRole("button", { name });
+      expect(button.hasAttribute("data-touch-mini")).toBe(false);
+      expect(button.className).not.toContain("touch-mini");
+    }
+  });
+});
+
 describe("editing a queued message", () => {
   const editButton = () =>
     screen.queryByRole("button", {
