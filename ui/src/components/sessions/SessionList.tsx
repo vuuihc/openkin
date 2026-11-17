@@ -157,6 +157,15 @@ const ROWS_BEFORE_SHOW_ALL = 5;
 const EMPTY_IDS: ReadonlySet<string> = new Set();
 const SEARCH_DEBOUNCE_MS = 200;
 
+/** The drag in flight: which bucket, which row, the order being drawn, and
+ *  how far the row has followed the finger. */
+type SessionDrag = {
+  bucketKey: string;
+  key: string;
+  ids: string[];
+  offsetY: number;
+};
+
 export default function SessionList({
   shell,
   activeTaskId = null,
@@ -248,6 +257,11 @@ export default function SessionList({
   // The manual order per bucket, read once the way pins are. A bucket without
   // an entry keeps the attention + recency rule.
   const [taskOrder, setTaskOrder] = useState<TaskOrder>(() => getTaskOrder());
+  const [drag, setDrag] = useState<SessionDrag | null>(null);
+  // Pointer moves land between renders, so the drag's mutable state has a
+  // synchronous copy; `drag` is what the list draws from.
+  const dragRef = useRef<SessionDrag | null>(null);
+  const dragOriginY = useRef<number | null>(null);
   const [prefsTick, setPrefsTick] = useState(0);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectMenu, setProjectMenu] = useState<{
@@ -467,8 +481,15 @@ export default function SessionList({
   }, [projects]);
   // Search and status views still display the stored order, but a reorder is
   // offered only where the whole bucket is shown; the archive scope has no
-  // manual order at all.
-  const orders = useMemo(() => (scope === "active" ? taskOrder : undefined), [scope, taskOrder]);
+  // manual order at all. While a drag is live the dragged bucket draws the
+  // in-flight order; the stored order is only written on release.
+  const dragIds = drag?.ids;
+  const dragBucketKey = drag?.bucketKey;
+  const orders = useMemo(() => {
+    if (scope !== "active") return undefined;
+    if (!dragIds || !dragBucketKey) return taskOrder;
+    return { ...taskOrder, [dragBucketKey]: dragIds };
+  }, [scope, taskOrder, dragIds, dragBucketKey]);
   const buckets = useMemo(
     () =>
       phoneProjectBuckets(
@@ -707,6 +728,11 @@ export default function SessionList({
         scope={scope}
         query={query}
         canReorder={canReorder}
+        draggingKey={drag?.key ?? null}
+        dragOffsetY={drag?.offsetY ?? 0}
+        onDragStart={startDrag}
+        onDragMove={moveDrag}
+        onDragEnd={endDrag}
         archived={scope === "archived"}
         onRestoreProject={
           scope === "archived" && bucketIsLocal(bucket) && archivedCwdFor(bucket.key, archivedCwds)
@@ -1032,6 +1058,63 @@ export default function SessionList({
    *  button. Escape empties the query and gives the field back to the shell. */
   function sessionRows(): HTMLElement[] {
     return Array.from(listRef.current?.querySelectorAll<HTMLElement>("[data-session-row]") ?? []);
+  }
+
+  function updateDrag(next: SessionDrag | null) {
+    dragRef.current = next;
+    setDrag(next);
+  }
+
+  /** A hold became a drag. The ids are the whole bucket, not only the drawn
+   *  rows: rows folded away by "show all" keep their place at the end. */
+  function startDrag(bucketKey: string, key: string, ids: readonly string[]) {
+    if (dragRef.current || !canReorder) return;
+    dragOriginY.current = null;
+    // The action strip and the drag cannot both own the row.
+    setSwipeOpen(null);
+    updateDrag({ bucketKey, key, ids: [...ids], offsetY: 0 });
+  }
+
+  /** The drawn rows' midpoints, in the order they currently sit on screen. */
+  function rowMidpoints(ids: readonly string[]): { id: string; mid: number }[] {
+    const wanted = new Set(ids);
+    const out: { id: string; mid: number }[] = [];
+    for (const element of sessionRows()) {
+      const id = element.dataset.sessionRow;
+      if (!id || !wanted.has(id)) continue;
+      const rect = element.getBoundingClientRect();
+      out.push({ id, mid: rect.top + rect.height / 2 });
+    }
+    return out.sort((a, b) => a.mid - b.mid);
+  }
+
+  function moveDrag(clientY: number) {
+    const current = dragRef.current;
+    if (!current) return;
+    // The first move sets the origin, so the row does not jump by however far
+    // the finger travelled during the hold.
+    if (dragOriginY.current === null) dragOriginY.current = clientY;
+    // The lifted row is not in the sequence; insert it after the last row
+    // whose midpoint the finger has passed. Only this bucket's ids are asked
+    // for, so a row can never be dropped into another project.
+    const remaining = current.ids.filter((id) => id !== current.key);
+    let at = 0;
+    for (const row of rowMidpoints(remaining)) {
+      if (clientY <= row.mid) break;
+      at += 1;
+    }
+    const ids = [...remaining.slice(0, at), current.key, ...remaining.slice(at)];
+    updateDrag({ ...current, ids, offsetY: clientY - dragOriginY.current });
+  }
+
+  function endDrag(cancelled: boolean) {
+    const current = dragRef.current;
+    updateDrag(null);
+    dragOriginY.current = null;
+    // A cancelled gesture puts the rows back; only a release is a decision.
+    if (!current || cancelled) return;
+    setBucketOrder(current.bucketKey, current.ids);
+    setTaskOrder(getTaskOrder());
   }
 
   /** Alt+↑/↓: the focused row changes places inside its own bucket. Only a
@@ -1522,6 +1605,11 @@ function ProjectBucket({
   scope,
   query,
   canReorder,
+  draggingKey,
+  dragOffsetY,
+  onDragStart,
+  onDragMove,
+  onDragEnd,
   archived,
   local,
   hasStoredOrder,
@@ -1562,8 +1650,14 @@ function ProjectBucket({
   onDelete: (row: PhoneSessionRow) => void;
   onRestore: (row: PhoneSessionRow) => void;
   scope: SessionScopeFilter;
-  /** Alt+↑/↓ moves a row here; each row carries the hint while it does. */
+  /** Alt+↑/↓ moves a row here; each row carries the hint while it does. A
+   *  completed hold also lifts the row into a drag. */
   canReorder: boolean;
+  draggingKey: string | null;
+  dragOffsetY: number;
+  onDragStart: (bucketKey: string, key: string, ids: readonly string[]) => void;
+  onDragMove: (clientY: number) => void;
+  onDragEnd: (cancelled: boolean) => void;
   archived: boolean;
   /** This bucket's rows run on this machine, so the local project record —
    *  cover, pin, archive — describes it. */
@@ -1769,6 +1863,24 @@ function ProjectBucket({
               scope={scope}
               query={query}
               reorderHint={canReorder && !imported}
+              // Imported sessions are an index, not a project order, and the
+              // stored order is never applied there; so no handle either.
+              reorder={
+                canReorder && !imported
+                  ? {
+                      onStart: () =>
+                        onDragStart(
+                          bucket.key,
+                          row.key,
+                          bucket.rows.map((member) => member.key),
+                        ),
+                      onMove: onDragMove,
+                      onEnd: onDragEnd,
+                    }
+                  : undefined
+              }
+              dragging={draggingKey === row.key}
+              dragOffsetY={draggingKey === row.key ? dragOffsetY : 0}
             />
           ))}
           {canToggle && (hidden > 0 || bucket.rows.length > ROWS_BEFORE_SHOW_ALL) ? (

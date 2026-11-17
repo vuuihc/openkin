@@ -430,17 +430,60 @@ describe("the row menu is the visible door", () => {
       vi.advanceTimersByTime(600);
     });
 
-    // The hold opened this row's own menu; it did not change the list's mode.
-    const sheet = screen.getByRole("dialog", { name: "alpha-1" });
+    // The hold is the list's reorder gesture now: it lifts the row, and it
+    // neither opens the row menu nor changes the list's mode.
+    expect(document.querySelector("[data-dragging]")).not.toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.querySelector("[data-selection-toolbar]")).toBeNull();
     expect(row("alpha-1").getAttribute("aria-pressed")).toBeNull();
+    fireEvent.pointerUp(initiating, { pointerType: "touch", clientX: 12, clientY: 12 });
+    // The browser's own click after that release: SwipeReveal swallows it so
+    // the drag does not also open the conversation.
+    fireEvent.click(initiating);
 
     vi.useRealTimers();
     const user = userEvent.setup();
+    await user.click(rowActions("alpha-1"));
+    const sheet = screen.getByRole("dialog", { name: "alpha-1" });
     await user.click(within(sheet).getByRole("button", { name: "Select" }));
     await waitFor(() => expect(toolbar()).toBeTruthy());
     expect(row("alpha-1").getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByText("1 selected")).toBeTruthy();
+  });
+
+  it("a hold in selection mode still toggles selection and never drags", async () => {
+    const user = userEvent.setup();
+    mount("sidebar");
+
+    // Enter the mode through the row's own menu, then hold a different row.
+    await user.click(rowActions("alpha-2"));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "alpha-2" })).getByRole("button", {
+        name: "Select",
+      }),
+    );
+    await waitFor(() => expect(toolbar()).toBeTruthy());
+    expect(row("alpha-2").getAttribute("aria-pressed")).toBe("true");
+
+    vi.useFakeTimers();
+    const target = row("alpha-1");
+    fireEvent.pointerDown(target, { pointerType: "touch", clientX: 12, clientY: 12 });
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+
+    // Inside the mode the row has no swipe wrapper and no reorder handle: a
+    // hold selects nothing by itself, and nothing lifts.
+    expect(document.querySelector("[data-dragging]")).toBeNull();
+    expect(row("alpha-1").getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.pointerUp(target, { pointerType: "touch", clientX: 12, clientY: 12 });
+    fireEvent.click(target);
+    vi.useRealTimers();
+
+    // The tap that ends the hold is the toggle, exactly as a quick tap is.
+    await waitFor(() => expect(row("alpha-1").getAttribute("aria-pressed")).toBe("true"));
+    expect(screen.getByText("2 selected")).toBeTruthy();
   });
 
   it("exits from the row menu back to the row", async () => {
