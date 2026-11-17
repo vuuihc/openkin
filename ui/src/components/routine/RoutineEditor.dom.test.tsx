@@ -264,9 +264,7 @@ describe("RoutineEditor", () => {
       name: new RegExp(`^${t("routines.repeatLabel")}`),
     })[0];
     fireEvent.click(repeat);
-    fireEvent.click(
-      await screen.findByRole("option", { name: t("routines.repeatEveryMinutes") }),
-    );
+    fireEvent.click(await screen.findByRole("option", { name: t("routines.repeatEveryMinutes") }));
     expect(onChange).toHaveBeenCalledWith({ rule: { kind: "minutes", every: 15 } });
   });
 });
