@@ -3,6 +3,7 @@ import { deleteTask } from "../api/client";
 import { liveResources } from "../api/liveResources";
 import { clearFollowUpDraft } from "../lib/followUpDraft";
 import { clearSessionScroll } from "../lib/sessionScroll";
+import { taskDisplayTitle } from "../lib/taskTitle";
 import { useT } from "../i18n/react";
 import { useAppStore } from "../store/appStore";
 
@@ -40,7 +41,10 @@ export function useSessionDeletion() {
   /** Asks, deletes one conversation, and drops its row. Returns whether it went. */
   const deleteOne = useCallback(
     async (task: { id: string; title?: string | null }): Promise<boolean> => {
-      const title = (task.title ?? "").trim();
+      // The row hands over the name it draws, which may have gone stale while
+      // the confirm box was opening; `taskDisplayTitle` re-reads the local
+      // rename first so the prompt quotes the name the person just saw.
+      const title = taskDisplayTitle({ id: task.id, title: task.title ?? "", prompt: "" });
       if (!window.confirm(t("task.deleteConfirm") + (title ? `\n\n${title}` : ""))) {
         return false;
       }

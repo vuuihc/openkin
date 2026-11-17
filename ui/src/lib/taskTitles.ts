@@ -54,6 +54,23 @@ export function subscribeTaskTitles(listener: () => void): () => void {
   };
 }
 
+/**
+ * The local rename for one task out of a map, trimmed, or `""` when it has
+ * none.
+ *
+ * The map is a parameter rather than read here so a surface that already holds
+ * it (a subscribed header, the project cover's row builder) can stay a pure
+ * function of what it was handed. `taskDisplayTitle` is the one expression
+ * that composes it with the task's own title and prompt.
+ */
+export function localTaskTitle(
+  taskId: string | null | undefined,
+  localTitles: Record<string, string>,
+): string {
+  if (!taskId) return "";
+  return (localTitles[taskId] ?? "").trim();
+}
+
 /** Read the local titles. Anything unreadable is simply no overrides. */
 export function getLocalTaskTitles(): Record<string, string> {
   try {
