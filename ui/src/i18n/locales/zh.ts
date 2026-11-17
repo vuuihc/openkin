@@ -1186,6 +1186,13 @@ const zh = {
       light: "浅色",
       dark: "深色",
     },
+    // 目录里限流策略的一词答案：紧挨着分区名，不是设置项标题，所以不重复
+    // 下面 `limitPolicy` 的整句选项。
+    summary: {
+      limitWait: "等待",
+      limitAsk: "询问",
+      limitSwitch: "自动切换",
+    },
     phone: {
       heading: "手机",
       blurb:
