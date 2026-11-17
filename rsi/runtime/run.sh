@@ -9,6 +9,31 @@
 set -u
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
+# Keep the control worktree on origin/main once the loop itself has landed there (it is owned by the loop).
+#   clean tree          -> fast-forward (today's path, silent).
+#   dirty but identical -> adopt with reset --hard. After a loop PR lands, the tracked files already
+#                          equal origin/main while HEAD is behind, so status is non-empty and a plain
+#                          fast-forward would skip forever and the loop would keep running old runtime
+#                          scripts. `git diff origin/main` compares the whole tracked worktree, staged
+#                          changes included, and ignores untracked files: exit 0 proves nothing is lost.
+#   anything else       -> leave alone; unmerged local loop commits on rsi/ceo-loop must survive.
+sync_control_tree() {
+  local before after
+  $GIT -C "$RSI_CTRL" fetch -q origin main 2>/dev/null
+  $GIT -C "$RSI_CTRL" merge-base --is-ancestor HEAD origin/main 2>/dev/null || return 0
+  if [ -z "$($GIT -C "$RSI_CTRL" status --porcelain --untracked-files=no)" ]; then
+    $GIT -C "$RSI_CTRL" merge -q --ff-only origin/main 2>/dev/null
+    return 0
+  fi
+  $GIT -C "$RSI_CTRL" diff --quiet origin/main 2>/dev/null || return 0
+  before="$($GIT -C "$RSI_CTRL" rev-parse HEAD 2>/dev/null)"
+  $GIT -C "$RSI_CTRL" reset -q --hard origin/main 2>/dev/null || return 0
+  after="$($GIT -C "$RSI_CTRL" rev-parse HEAD 2>/dev/null)"
+  [ "$before" = "$after" ] || echo "control tree synced to ${after:0:8} (tracked content already matched)" >&2
+}
+# --sync-check: run only the control-tree sync and exit — no lock, no daemon, no launchd.
+case "${1:-}" in --sync-check) sync_control_tree; exit 0;; esac
+
 MODE=""; FORCE=0; DRY=0; CHECK=0; STAT=0
 for a in "$@"; do case "$a" in pulse|daily|dream) MODE="$a";; --force) FORCE=1;; --dry-run) DRY=1;; --check) CHECK=1;; --status) STAT=1;; *) echo "unknown arg $a"; exit 2;; esac; done
 
@@ -34,13 +59,9 @@ fi
 [ -z "$MODE" ] && { echo "usage: run.sh <pulse|daily|dream> [--force] [--dry-run] | --check | --status"; exit 2; }
 
 # Keep the control worktree on origin/main once the loop itself has landed there (it is owned by the loop).
-# Only ever fast-forward: unmerged local loop commits on rsi/ceo-loop must survive.
+# Unmerged local loop commits on rsi/ceo-loop must survive; see sync_control_tree.
 if [ -z "${RSI_SYNCED:-}" ]; then
-  $GIT -C "$RSI_CTRL" fetch -q origin main 2>/dev/null
-  if [ -z "$($GIT -C "$RSI_CTRL" status --porcelain --untracked-files=no)" ] \
-     && $GIT -C "$RSI_CTRL" merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
-    $GIT -C "$RSI_CTRL" merge -q --ff-only origin/main 2>/dev/null
-  fi
+  sync_control_tree
   RSI_SYNCED=1 exec /bin/bash "$SELF" "$@"
 fi
 
