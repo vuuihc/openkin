@@ -1,13 +1,13 @@
 {
   "note": "Console UI inventory ratchet. Counts come from scripts/ui_inventory.py and may only go down. Update deliberately with `python3 scripts/check-ui-inventory.py --update` after a migration round; an increase belongs in a reviewed PR with its reason.",
   "metrics": {
-    "raw_button": {"label": "裸 <button", "occurrences": 85, "files": 42},
+    "raw_button": {"label": "裸 <button", "occurrences": 71, "files": 41},
     "kin_btn_class": {"label": "kin-btn 类", "occurrences": 1, "files": 1},
-    "raw_input": {"label": "<input", "occurrences": 51, "files": 26},
-    "kin_input_class": {"label": "kin-input 类", "occurrences": 16, "files": 7},
+    "raw_input": {"label": "<input", "occurrences": 39, "files": 25},
+    "kin_input_class": {"label": "kin-input 类", "occurrences": 4, "files": 4},
     "raw_textarea": {"label": "<textarea", "occurrences": 5, "files": 5},
     "native_select": {"label": "原生 <select", "occurrences": 0, "files": 0},
-    "raw_label": {"label": "<label", "occurrences": 40, "files": 17},
+    "raw_label": {"label": "<label", "occurrences": 29, "files": 16},
     "role_menu": {"label": "role=\"menu\"", "occurrences": 2, "files": 2},
     "role_listbox": {"label": "role=\"listbox\"", "occurrences": 9, "files": 6},
     "role_dialog": {"label": "role=\"dialog\"", "occurrences": 13, "files": 8},
@@ -17,7 +17,7 @@
     "use_anchored_panel": {"label": "useAnchoredPanel", "occurrences": 5, "files": 2},
     "create_portal": {"label": "createPortal", "occurrences": 8, "files": 4},
     "push_toast": {"label": "pushToast", "occurrences": 134, "files": 17},
-    "rounded_border_surface": {"label": "rounded-* + border 表面", "occurrences": 120, "files": 50},
+    "rounded_border_surface": {"label": "rounded-* + border 表面", "occurrences": 118, "files": 50},
     "magic_z": {"label": "z-[n] 数字层级", "occurrences": 4, "files": 4}
   }
 }
