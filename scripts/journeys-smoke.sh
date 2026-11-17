@@ -18,6 +18,9 @@
 # Environment:
 #   UX_KIN_BIN=/path/to/kin           use a prebuilt daemon instead of go build
 #   PW_CORE=/path/to/playwright-core  forwarded to walk.mjs
+#   RSI_FAKE_SLOW_SECS=N              how long the fake agent holds (default 10,
+#                                     clamped 0..10; J3 types a follow-up while
+#                                     the first round is still open)
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -204,6 +207,10 @@ if [ -x "$FAKE_AGENT_DIR/claude" ]; then
   PATH="$FAKE_AGENT_DIR:$PATH"
   export PATH
   unset KIN_CLAUDE_BIN
+  # J3 types a second message while the first round is open, so the fake's
+  # default 3s hold ends before the follow-up steps. Mirror ux-walk.sh: hold
+  # 10s unless the caller (the mutant runner) already chose a value.
+  export RSI_FAKE_SLOW_SECS="${RSI_FAKE_SLOW_SECS:-10}"
 elif [ "$DO_SEED" = 1 ]; then
   unavail "fake agent missing: scripts/journeys_fake_agent/claude"
 fi
