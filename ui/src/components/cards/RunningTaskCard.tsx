@@ -1,7 +1,8 @@
 import { formatCost, formatElapsed, isTerminal, type Task } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { IconTerminal } from "../icons";
-import { displayUserPrompt } from "../../lib/attachments";
+import { taskDisplayTitle } from "../../lib/taskTitle";
+import { useLocalTaskTitles } from "../../lib/taskTitles";
 import { taskCardStatusView } from "../../lib/taskCardStatus";
 
 type Props = {
@@ -23,6 +24,9 @@ export default function RunningTaskCard({
   activity,
 }: Props) {
   const tr = useT();
+  // The card outlives a rename made in the list beside it, so it draws the
+  // same name expression as every other surface and hears the store change.
+  const [localTitles] = useLocalTaskTitles();
   const terminal = isTerminal(task.status);
   const statusView = taskCardStatusView(task.status, degraded && !terminal);
   const live = statusView.tone === "running" && !terminal;
@@ -47,7 +51,7 @@ export default function RunningTaskCard({
             ].join(" ")}
           />
           <span className="text-strong font-semibold text-kin-text truncate">
-            {task.title || displayUserPrompt(task.prompt || "")}
+            {taskDisplayTitle(task, localTitles)}
           </span>
           <span className="text-caption font-semibold tracking-label text-kin-blue-ink bg-kin-blue/15 rounded px-1.5 py-0.5 flex-none">
             {task.agent}

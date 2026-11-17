@@ -120,6 +120,7 @@ import { panelForView, resolvePanel, type PanelContext } from "../lib/panels";
 import { dropSearchParam, parseWorkspaceLink, patchWorkspaceLink } from "../lib/workspaceDeepLink";
 import { useAppStore } from "../store/appStore";
 import { displayUserPrompt } from "../lib/attachments";
+import { taskDisplayTitle } from "../lib/taskTitle";
 
 /**
  * Single-column chat: user talks to the session host; @agents are task workers.
@@ -1514,7 +1515,10 @@ export default function TaskDetailPage({
 
   async function onDelete() {
     if (!task) return;
-    const title = (task.title || displayUserPrompt(task.prompt || "") || task.id).trim();
+    // The prompt names the conversation the person is about to lose, so it
+    // uses the same expression as the header behind it; the id is the last
+    // resort because a prompt with no name at all names nothing.
+    const title = taskDisplayTitle(task) || task.id;
     const ok = window.confirm(tr("task.deleteConfirm") + (title ? `\n\n${title}` : ""));
     if (!ok) return;
     setDeleting(true);

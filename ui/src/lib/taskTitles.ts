@@ -4,9 +4,12 @@
  * A rename is this browser's name for a conversation, not a daemon record:
  * like a pin (`taskPins.ts`), it is written and read without the network so a
  * title that reads like the first line of a prompt can be fixed offline and
- * stays fixed after a reload. The sidebar and the phone list both draw from
- * this map; nothing else needs to know about it.
+ * stays fixed after a reload. Every surface that draws a conversation's name —
+ * the sidebar, the open conversation's header, the approvals strip, the tab
+ * strip — draws it from this map, through `useLocalTaskTitles`.
  */
+
+import { useEffect, useState } from "react";
 
 const STORAGE_KEY = "kin_task_titles";
 const EVENT = "kin:task-titles";
@@ -30,8 +33,10 @@ function emit(): void {
  * Subscribe to local-title changes: this tab's writes and another tab's.
  *
  * The conversation list is not the only surface that draws a task's name — the
- * open conversation's header and a project cover's recent row draw it too — so
- * a rename has to reach every mounted reader, not only the one that wrote it.
+ * open conversation's header, the approvals strip and the tab strip draw it
+ * too — so a rename has to reach every mounted reader, not only the one that
+ * wrote it. Components use `useLocalTaskTitles` rather than calling this
+ * directly, so a new reader cannot forget the listener.
  * Same shape as `subscribeSessionViewed` in `sessionViewed.ts`.
  */
 export function subscribeTaskTitles(listener: () => void): () => void {
@@ -52,6 +57,42 @@ export function subscribeTaskTitles(listener: () => void): () => void {
     listeners.delete(listener);
     window.removeEventListener("storage", onStorage);
   };
+}
+
+/**
+ * The local titles as component state, re-read on every write.
+ *
+ * This is the one subscription every surface that draws a name uses: mounting
+ * with a copy of the map and never listening was the bug (a rename from the
+ * sidebar left the header, a card or a tab showing the old name). The setter
+ * is for the surface that writes — `setLocalTaskTitle` returns the new map
+ * even when the storage write is refused, and the row should still draw the
+ * name the reader just typed.
+ */
+export function useLocalTaskTitles(): [
+  Record<string, string>,
+  (titles: Record<string, string>) => void,
+] {
+  const [titles, setTitles] = useState(getLocalTaskTitles);
+  useEffect(() => subscribeTaskTitles(() => setTitles(getLocalTaskTitles())), []);
+  return [titles, setTitles];
+}
+
+/**
+ * The local rename for one task out of a map, trimmed, or `""` when it has
+ * none.
+ *
+ * The map is a parameter rather than read here so a surface that already holds
+ * it (a subscribed header, the project cover's row builder) can stay a pure
+ * function of what it was handed. `taskDisplayTitle` is the one expression
+ * that composes it with the task's own title and prompt.
+ */
+export function localTaskTitle(
+  taskId: string | null | undefined,
+  localTitles: Record<string, string>,
+): string {
+  if (!taskId) return "";
+  return (localTitles[taskId] ?? "").trim();
 }
 
 /** Read the local titles. Anything unreadable is simply no overrides. */
