@@ -83,7 +83,12 @@ iPad（视口 ≥768px、`pointer: coarse`）的左栏是 248px 侧栏，但列�
   `scrollWidth <= clientWidth`；退出按钮可见、可点；截图。
 - `./scripts/check.sh` 绿。
 
-进展（2026-11-17）：多选工具条窄栏换行 / Escape 退出（#62/#79）与行尾 `⋯` 菜单的「多选 / 退出多选」入口已修，见「已修」PR #170。长按手势改道（不再进入多选）仍待 `KIN-MANAGE-001`（`registry.json` 中为 `draft`）及下一条拖动排序落地，故本条保留在 Open。
+进展（2026-11-17）：退出路径与工具条溢出已修，见 PR #62（`695d053e`）——工具条换行、
+图标按钮 44px、取消留在 248px 容器内、Esc 走同一退出路径，248px 与 390×844 实测
+`scrollWidth == clientWidth`；行尾 `⋯` 菜单的「多选 / 退出多选」入口已修，见「已修」
+PR #170（`R-selection-menu`）。长按手势改道（不再进入多选）仍待 `KIN-MANAGE-001`
+（`registry.json` 中为 `draft`）及后续拖动排序 `R-drag-reorder` 落地，故本条保留在
+Open。
 
 ### 2026-11-15 · 中 · 长按对话行不能拖动排序，列表顺序只能跟着最近活动走
 
@@ -134,45 +139,6 @@ iPad（视口 ≥768px、`pointer: coarse`）的左栏是 248px 侧栏，但列�
   截图或录屏。
 - `./scripts/check.sh` 绿。
 
-### 2026-11-14 · 高 · 新建对话发送后，进入对话 URI 时仍插入整页骨架屏
-
-新建对话在 `/new` 发送后，用户消息与宿主等待行已经立即出现（#45）。但
-`POST /api/tasks` 返回、路由切到 `/tasks/:id` 时，对话页既没有 detail、也不一定有
-会话宿主持有的列表行，`TaskDetailPage` 走 `loading && !task` 分支画出整页骨架屏
-（`ui/src/pages/TaskDetailPage.tsx:1492`）：页头、标题、输入框和刚显示的用户气泡一起
-消失，等 detail 返回后才重新出现。读起来是「消息 → 骨架屏 → 同一条消息」，乐观更新
-在路由边界被拆掉，只做了一半。
-
-期望（可直接写成测试）：从 `/new` 触发发送，到新建对话 URI 的第一条真实事件到达，
-同一条用户消息（同一文本）与宿主等待行必须持续留在屏幕上：不出现整页骨架屏、不出现
-空白内容区、页头 / 标题 / 输入框不卸载、消息不闪回也不重复。创建响应里的 task 行要
-同时种进对话页的 detail（不能只更新任务列表）；在途的 pending 消息要跨路由交给对话页
-（按新建 task id 存到共享 store 或路由 state），使 `/tasks/:id` 的第一帧就画出同一个
-气泡与等待行；服务端的用户事件到达后，由现有 `settlePendingSends` 交还，气泡位置不跳、
-不重复。深链 / 冷启动且没有任何 task 行时仍按 #44 显示品牌等待态（#44 已在 `c7c12cc6`
-合并中被回退成骨架屏，修复时一并恢复）；控制台自己刚创建的对话不允许经过这个状态。
-detail 请求失败时保留用户气泡并显示现有错误横幅与重试，不能把消息丢掉。
-
-不要：靠「detail 很快就回来」掩盖；在乐观气泡与真实 transcript 之间保留 loading /
-骨架屏内容区；路由切换时清空 pending 消息、再等服务端事件重建；本地气泡与服务端事件
-同时显示。
-
-线索：`ui/src/pages/NewChatPage.tsx:520-554`（`setPendingSend` 是本页 state，
-`applyTaskSnapshot` 后立即 navigate）、`ui/src/pages/TaskDetailPage.tsx:187-204`
-（`task = detail.data.task ?? fallbackTask`、`loading = !detail.loaded`）、
-`:1492-1516`（整页骨架屏；`git blame` 显示 `c7c12cc6` 把 #44 的品牌等待态退回
-`SkeletonLine`，冷启动回归要一起修）、`:2013-2034`（ChatStream 的 `loading` 与
-`fallbackUserPrompt`）、`ui/src/api/liveResources.ts:351-354,681-715`
-（`applyTaskSnapshot` 只更新 `tasksById`，不创建 `taskDetails` 条目）、
-`ui/src/pages/TaskSessionHost.tsx:104-125,245-253`（fallback 行来自任务列表）、
-`ui/src/lib/pendingSend.ts`。现有测试：`NewChatPage.pendingSend.dom.test.tsx`、
-`TaskDetailPage.coldLoad.dom.test.tsx`、`TaskDetailPage.pendingSend.dom.test.tsx`。
-
-验收：一条 DOM 测试串起 `/new` → 发送 → resolve create → `/tasks/:id`，断言 pending
-气泡与等待行在导航前后都挂载、整页骨架屏从未出现，服务端用户事件到达后只剩一个气泡；
-一条测试让 detail 失败，断言气泡仍在且错误横幅 / 重试可见；390px 手机录屏从发送到
-第一条回复无骨架屏 / 空白帧；继续发送路径不回归；`./scripts/check.sh` 绿。
-
 ### 2026-11-14 · 高 · 对话把思考与过程叙述收进卡片；只有工具该进卡片
 
 现在对话 URI（以及导入的 agent 会话）把连续的过程统一收进一张 `ProgressCard`：
@@ -222,136 +188,21 @@ card"）需要按新契约改写；i18n `chat.progress.*` en / zh 同步。
 390px 截图：运行中能连续读到思考 / 过程文本与工具卡交错；结束后只剩结论与一行摘要。
 `./scripts/check.sh` 绿。
 
-### 2026-11-12 · 高 · 例行任务查不到 gap sweep，机器回答 655361 bytes / 上限 655360 bytes
-
-例行任务页面查不到按小时读取本文件的 gap sweep 任务。完整错误是：
-`the machine declined to answer: the routine answer is 655361 bytes, over the 655360-byte limit`。
-已复现并确定是列表响应经过 relay 时整体超过回答上限，不是凭漏掉的位数猜测 model token
-超限：只读实时聚合有 3 份 routine、80 份 run，共 697231 bytes，其中 run JSON 684170 bytes。
-原读取每份都携带完整 prompt / dispatch。开发中的显式摘要分页用真实 SQLite →
-机器 → Node → Hub 链路复现失败并验证新读取；本机历史也已改读同一 summary，不再单走
-旧 `listTasks` 大历史。抓到本案例真实错误之前曾出现 digit 混淆；最终只以错误原文的
-655361 为准。原注释曾误把 last_error 归为只另读诊断；改为摘要仍显示失败，store 测试
-直接验证。编辑只通过单条 GET 的完整原文比较保存；同 id 的过期编辑详情或 PATCH 响应也
-分别验证不覆盖当前设备。本轮没有删除真实任务、改写或截断其持久化 prompt。
-
-2026-11-14 当前门禁：读取与手机导航的实现及聚焦回归已推进到 8 个相关 UI 文件 151 项通过；
-签字 story 的目的地入口焦点恢复保持不变，未通过的 peer-focus 实验已撤回。非缓存 worker/API/store
-测试及 store/API race 均通过；功能 worktree 的 console build 成功。完整 `check.sh --all` 的
-Go/vet/tsc/OpenAPI/story 等通过，但默认并发 UI 不稳定：一轮 8 项超时，另一轮 2 项失败（含
-WorkspacePanel 断言失败）；逐文件串行复跑 71 项全过，完整套件在 `--maxWorkers=2` 下
-238 文件 / 2360 项全过（退出 0），与 14 job 并发下的 CPU 饥饿和 5 秒超时一致，不把局部
-重跑写成 gate 全绿。六个针对最终 root 历史、冷 root、Sheet ownership 和 128 KiB 请求包装的
-mutant 全部红证并恢复。128 KiB prompt 加 JSON 键后 PATCH 413 的旧 relay 边界已用真实
-Hub→Node 测试复现，并为 request 的 JSON 包装保留独立 32 KiB 空间、整体仍有界；未截断原文。
-最终 embedded bundle 的 390px 真 Chromium 已通过双方向空白横滑、边界不 wrap、纵向拖动、真实双指
-与 pointercancel 不切页、真实 Machine Sheet 背景优先、未保存 Settings 离开确认、归档恢复和草稿返回；
-例程历史及合成失败可见，编辑读回完整 11,000 字符原文且 Cancel 不写。390px FAB 位于 footer 上方，
-1100px 无手机 footer 和横向溢出，新页面无 Runtime/console error。
-独立分页审查发现 1 blocker / 2 major：live push 截断已翻页 feed、旧 cursor 与新搜索混用、
-迟到 feed 未与全部已读对账。三条均已在真实 DOM 回归中先复现失败，再修复并通过；新增
-4 个保护经串行 mutant 全部红证并恢复。随后冻结树的独立复审给 1 项 major 测试缺口与 7 项 nit；
-M1 与 nit 2/5 已修并红证；delta 复审确认未引入 blocker / major，并纠正 nit 1 的红证不成立
-（审批卡在 `<main>` 之外，手势不会冒泡到监听器，属性对当前行为惰性；测试改为断言兄弟布局）。
-复跑：最终源码完整 UI 套件 238 文件 / 2360 项通过，`go test ./internal/api -count=1` 退出 0。
-实时节点只读检查：gap sweep 定义当前为 **disabled**，`last_error` 是 `run failed`；最近
-20:00 一次成功，21:00 / 22:00 / 23:00 连续失败；daily LESSONS routine 正常成功。列表读取
-与调度状态必须分开记录。
-功能提交已在 `fix/phone-routines-tabs` 落地；发布 / Hub 部署、真手机读取和 gap sweep
-两次连续真实运行仍未完成，因此本条保留在 Open，不写成全部已修，也不把页面读取修复
-称为调度已修好。
-
-期望：gap sweep 在例行任务中有可辨认、可打开、可手动运行的记录，历史运行与错误
-能正常查看；token 超限错误消失，gap sweep 能读取 `docs/plans/gap-log.md` 并完成
-一次真实调度。修复必须覆盖超限数据的真实读取和持久化路径：先保存原始报错、请求
-大小与涉及的任务 / 运行记录，再区分是 SQLite 字段宽度、请求 / 代理限制、上游模型
-上下文限制，还是列表查询错误地把超长 prompt / transcript 拼进去；不能凭「65530」
-这个数字猜原因。若只是查询失败，任务本身和调度状态必须恢复；若任务确实不存在，
-补充可追溯的创建 / 恢复流程，不能静默新建重复任务。
-
-不要：为了绕过报错直接删除任务或历史、降低 / 截断 prompt 后继续累积超限内容、
-只改报错文案，或只让页面隐藏错误而不恢复真实查询与调度。
-
-待定（已解决）：原始字节错误及列表聚合路径已附上；不再需要另报人确认 token 猜测。
-线索：`internal/api/routines.go`、
-`internal/store/routines.go`、`internal/store/routine_dispatch.go`、
-`internal/routines/scheduler.go`、`internal/node/routines.go`，
-`ui/src/pages/RoutinesPage.tsx`，以及实际节点上的 gap sweep 任务定义与最近运行日志。
-验收：用超过当前边界的 prompt / run 数据复现失败测试；修复后同一数据能读回并展示；
-重启后 gap sweep 记录与调度仍存在；连续两次真实运行无重复任务、无 token 超限错误；
-`./scripts/check.sh` 与 `./scripts/smoke.sh` 绿。
-
-### 2026-11-12 · 高 · 手机端「划」没有过渡：返回硬切，行左划的动作条松手才出现
-
-手机上滑动是「松手才动」的。左缘右滑返回时，手指已经划过 64px，屏幕上的页面
-一动不动；松手后当前页瞬间消失，列表直接出现（新页只有 140ms 淡入，
-`ui/src/index.css:344`），读起来是一次硬切。`useEdgeSwipeBack` 只判定阈值，
-不暴露拖动距离（`ui/src/hooks/useEdgeSwipeBack.ts:19` 写明「没有跟手的
-transform」），`AppShell` 那条 20px 的透明感应条也没有任何可见反馈
-（`ui/src/components/layout/AppShell.tsx:524`）。
-
-期望（可直接写成测试）：
-
-- **拖动中**：当前页随手指水平右移（可加阻尼，上限约屏宽 1/3），列表在下层
-  露出来；拖动位移 > 0 即可断言。
-- **松手**：过阈值（64px 或右甩）继续滑完再落列表；不过阈值回弹到 0，位置和
-  路由都不变；pointercancel 仍视为放弃并回弹，不提交。
-- **`prefers-reduced-motion`**：不跟手，松手直接提交；沿用
-  `ui/src/lib/swipeGesture.ts` 的 `prefersReducedMotion`。
-- 页头返回按钮和系统返回不必跟手，但手势提交与按钮提交必须落同一页、走同一个
-  返回实现（`lib/phoneBack.ts` 的 `goBackToList`），不能各写一份。
-
-不要：只把新页的淡入从 140ms 拉长或换成位移动画来冒充跟手——手势的反馈必须
-发生在手指移动期间。也不要把 `transform` 永久挂在 `.kin-main` 上：它会让容器内
-的 fixed 后代改以它为包含块（`ui/src/index.css:337-352` 已写明这个约束，sheet、
-浮层、命令面板都在里面）。手势期间用的位移层在结束后要清掉，或只包住没有 fixed
-后代的页面内容。
-
-举一反三（同一类：手势有判定、没有连续反馈）：
-
-- **行左划露出操作**：`SwipeReveal` 只在 `open` 为真时才挂载动作条
-  （`ui/src/components/mobile/SwipeReveal.tsx:160`）。拖动过程中行向左滑，后面
-  是空的，松手动作条才「啪」地出现；收起时动作条又先瞬间消失、行再 180ms 滑回。
-  期望：动作条从拖动开始就在，随行一起连续露出；未提交前不可聚焦、不可点
-  （组件注释里已有「隐藏但可聚焦比没有更糟」的约束）。
-- **点开对话 / 目的地**：故事写的是「整页推出」
-  （`docs/product/stories/KIN-CONTINUE-002.md`），实际所有路由切换都只有
-  140ms 淡入、没有退出动画。若要做方向性过渡，必须先解决上面 fixed 后代的
-  问题；不做也要在交付里写明「推出」只是信息架构说法，不是动画承诺。
-  （待定，报告人：点开是否也要滑入，还是只有手势要跟手。）
-
-可以照抄的同类实现：`ui/src/components/mobile/Sheet.tsx:290-317`——跟手、阻尼、
-过阈值后先走完 180ms 再卸载、不过阈值回弹、reduced-motion 直接关；阈值与甩动
-速度共用 `lib/swipeGesture.ts`。
-
-线索：`ui/src/hooks/useEdgeSwipeBack.ts`、
-`ui/src/components/layout/AppShell.tsx:199,524`、
-`ui/src/components/mobile/SwipeReveal.tsx`、`ui/src/index.css:337-356`、
-`ui/src/components/mobile/Sheet.dom.test.tsx`（手势测试的写法）。
-
-验收：
-
-- `useEdgeSwipeBack.test.tsx`：拖动中位移 > 0；回弹归零；过阈值提交；取消回弹；
-  reduced-motion 无位移但提交。
-- `SwipeReveal.dom.test.tsx`：拖动未松手时动作条已在 DOM 且不可聚焦；收起过程中
-  仍在，动画结束后才卸载（或等价的可观察状态）。
-- 390px 浏览器连续截图或录屏：手指移动时页面跟着走，松手滑完落列表；行左划时
-  操作随行露出。
-- `./scripts/check.sh` 绿。
-
-进展（2026-11-14）：行左划的动作条部分已修，见「已修」PR #50。边缘右滑返回的
-跟手部分未动：`useEdgeSwipeBack` / `phoneBack` 只存在于本地未提交的工作树，
-`origin/main` 尚无该手势，等本地 WIP 推送后再修。
+进展（2026-11-17）：运行中的思考与过程叙述按正文展示已修，见 PR #165（`9d8fbffc`）。
+剩余的一半「结束后折叠成一条摘要行」由 PR #171（`R-process-summary`）在合并门禁中，
+尚未合并。
 
 ## 已修
 
 每条只留一行：症状、落地提交、PR。修复过程与验证在 PR 里，不再重复。
 
 - 2026-11-15 · iPad 左栏长按进入多选后找不到退出，行菜单里也没有多选入口（行菜单部分）— PR #170（`SessionRow` 对可选择行提供 `多选` 入口并在多选态保留 `⋯` 触发器显示 `退出多选`，复用 `SessionList` 同一退出与焦点归还路径；`SessionRow` / `SessionList.selection` 两套 DOM 测试 28 passed，390×844 / 1100×760 截图验证，check.sh 全绿；长按改道仍待 `KIN-MANAGE-001`）
+- 2026-11-14 · 新建对话发送后，进入对话 URI 时仍插入整页骨架屏 — PR #61（`cf7ba2bd`；就绪条件改为接受已种入的列表行或草稿交接，真正冷启动的深链改画有签名的品牌等待态（`IconKin` + `role="status"` + 慢连接提示）而不是整页骨架屏；新增 `TaskSessionHost.handoff.dom.test.tsx` 覆盖创建交接、切出页、冷进入、404 带缓存行，连同 coldLoad / pendingSend 共 5 文件 25 项通过，`tsc` 与 `npm run build` 绿；还原就绪条件与冷启动分支后 4 项按预期转红）
 - 2026-11-12 · 例行任务查不到 gap sweep，伴随 token 长度超过约 65530 的错误 — PR #52（`?runs=1&runs_limit=80` 的运行流不再拼进每次运行十几 KB 的 prompt：本机实测 1,200,074 → 约 94 KB，落在机器中继 `worker.MaxRoutineResponse` 655,360 字节内，页面不再整页失败；红测还原修复后 1,245,269 字节超限、恢复后通过，`go test ./internal/api/`、`./scripts/check.sh` 14 项、`./scripts/smoke.sh` 全绿；报告人原始报错原文仍未取得，若同一报错再现请附原文）
 - 2026-11-09 · routines 改为设备归属后的遗留项（旧 Hub 库的 routines 没迁移、只有选「本机」才看得到）— PR #51（显示其他机器时提示「本机还有 N 个例行任务」并可一键切到本机；禁用 / 迁移 2026-11-10 已问报告人、超 48 小时无回答，按 §4 执行可回退默认值：不改数据只让现状可见，禁用 / 迁移仍待方向；3 条新 DOM 测试，check.sh 除已知 PanelSurface 抖动外全绿）
 
 - 2026-11-12 · 手机端「划」没有过渡（行左划的动作条部分）— PR #50（拖动第一次位移即挂载动作条，未提交前 inert + aria-hidden + pointer-events:none，收起保留到 180ms 滑回结束；SwipeReveal DOM 测试 10 passed、还原组件后 4 failed，check.sh 除并发构建下的 5s 超时抖动外全绿）
+- 2026-11-12 · 手机端「划」没有过渡（边缘右滑返回的跟手部分；行左划的动作条部分见 PR #50）— PR #63（`1c572b20`；`useEdgeSwipeBack` 暴露跟手的 React offset，上限视口 1/3，取消 / 未过阈值 / 禁用 / 提交时归零，reduced-motion 不位移但仍只提交一次，translate 仅在 offset > 0 时存在以免重锚 fixed 后代；`useEdgeSwipeBack.test.tsx` 13 项通过、相关 shell 套件 74 项通过，两处 mutant 先红后恢复，`./scripts/check.sh` 16 项全绿；390×844 真浏览器拖动读到 `matrix(1, 0, 0, 1, 116, 0)`、松手落列表后 `transform: none`）
 - 2026-11-08 · 侧栏看不出设备 → 项目 → 对话的层级 — PR #47（每层一个 16px 缩进步长并嵌套相加，字重随深度递减：设备 semibold / 项目 body medium / 会话 regular，项目行不再用 `kin-section-label`；2026-11-10 的产品提问超过 48 小时无回答，按 §4 执行可回退的推荐默认值：16px 等步长、无分组背景、无竖线；Sidebar DOM 测试 16 passed、lint 0 error、check.sh 除既有负载抖动外全绿）
 
 - 2026-11-12 · 新建与继续对话发送后页面迟迟不变，缺少即时消息与回复等待态 — PR #45（发送时先入本地用户气泡与等待行：`pendingSend` 以「同文本 + 发送后 seq」在服务端消息落地后交还，失败撤回并由 Composer 恢复原文；新建对话在 create 在途时直接显示消息与宿主等待行；pendingSend/ChatStream/两页 DOM 测试共 16 passed，check.sh 全绿；只覆盖到创建请求在途，跨路由交接仍断，见 2026-11-14 条目）
