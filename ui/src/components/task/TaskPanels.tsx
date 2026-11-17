@@ -5,13 +5,14 @@ import type { PublishDraft } from "../../lib/publishDraft";
 import { useT } from "../../i18n/react";
 import PanelSurface from "../layout/PanelSurface";
 import PublishPanel from "../pr/PublishPanel";
+import PullRequestPanel from "../pr/PullRequestPanel";
 import ChangedFilesBar from "../workspace/ChangedFilesBar";
 import WorkspacePanel from "../workspace/WorkspacePanel";
 import TaskUsageSummary from "../usage/TaskUsageSummary";
 
 /**
- * The session's floating surfaces: the side rail, the files panel and the
- * publish sheet.
+ * The session's floating surfaces: the side rail, the files panel, the
+ * read-only pull-request panel and the publish sheet.
  *
  * Extracted from `TaskDetailPage` unchanged so the page's state, handlers and
  * lifecycle logic can be read — and later edited — without scrolling past the
@@ -30,6 +31,11 @@ export type TaskPanelsProps = {
   machine: { text: string; known: boolean } | null;
   /** The panel the page resolved for this view, if any. */
   panel: PanelId | null;
+  /**
+   * Whether this session's pane is the one on screen. The host keeps recent
+   * panes mounted and hides the rest, so a panel can be open and invisible.
+   */
+  active?: boolean;
   /** What the panel registry was asked about — publish's gate is read from it. */
   panelCtx: PanelContext;
   usage: TaskUsage | null;
@@ -71,6 +77,7 @@ export default function TaskPanels({
   task,
   machine,
   panel,
+  active = true,
   panelCtx,
   usage,
   usageLoading,
@@ -156,6 +163,18 @@ export default function TaskPanels({
             />
           </div>
         </PanelSurface>
+      )}
+
+      {panel === "pr" && (
+        <PullRequestPanel
+          taskId={task.id}
+          active={active}
+          // The machine holding the checkout, when that is not this one: it is
+          // what the panel falls back to before anything has been read, and
+          // what tells it a branchless task still has something to ask about.
+          elsewhere={machine}
+          onClose={onClosePanel}
+        />
       )}
 
       {publishOpen && machine && (

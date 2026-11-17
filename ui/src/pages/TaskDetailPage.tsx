@@ -441,6 +441,7 @@ export default function TaskDetailPage({
   const shownPanel = useAppStore((s) => s.shownPanel);
   const showPanel = useAppStore((s) => s.showPanel);
   const hidePanel = useAppStore((s) => s.hidePanel);
+  const togglePanel = useAppStore((s) => s.togglePanel);
   // Closing the files panel spends the open-file pulse. The panel consumes the
   // path once; keeping it would replay the last "open this file" on the next
   // open and land inside a file instead of on the list, which is what a fresh
@@ -1664,6 +1665,15 @@ export default function TaskDetailPage({
     else openFilesPanel();
   }
 
+  /**
+   * The pull-request panel is read-only state about this session's branch, so
+   * it has no address of its own and no mirror besides the open panel: one
+   * tap either opens it or closes it, wherever the tap came from.
+   */
+  function togglePrPanel() {
+    togglePanel(id, "pr");
+  }
+
   function openPublishPanel() {
     showPanel(id, "publish");
   }
@@ -1866,6 +1876,7 @@ export default function TaskDetailPage({
   };
   const panel = resolvePanel(panelForView(shownPanel, id), panelCtx);
   const filesOpen = panel === "files";
+  const prOpen = panel === "pr";
   const project = projectLabel(task.cwd);
   const degraded = wsStatus !== "connected" && !terminal;
   // The session's agent belongs to the machine that runs it, not to this one.
@@ -1965,6 +1976,7 @@ export default function TaskDetailPage({
       onSelect: () => setFileFinderOpen(true),
     },
     { id: "files", label: tr("workspace.title"), onSelect: () => toggleFilesPanel() },
+    { id: "pr", label: tr("pr.title"), onSelect: () => togglePrPanel() },
     ...(!terminal
       ? [
           {
@@ -2009,6 +2021,7 @@ export default function TaskDetailPage({
           terminal={terminal}
           degraded={degraded}
           filesOpen={filesOpen}
+          prOpen={prOpen}
           panelOpen={panel !== null}
           archiving={archiving}
           deleting={deleting}
@@ -2016,6 +2029,7 @@ export default function TaskDetailPage({
           onToggleWorkspace={() => {
             toggleFilesPanel();
           }}
+          onTogglePr={() => togglePrPanel()}
           onShare={() => setShareOpen(true)}
           onToggleArchive={onToggleArchive}
           onDelete={onDelete}
@@ -2252,6 +2266,7 @@ export default function TaskDetailPage({
         task={task}
         machine={machine}
         panel={panel}
+        active={active}
         panelCtx={panelCtx}
         usage={usage}
         usageLoading={usageLoading}
