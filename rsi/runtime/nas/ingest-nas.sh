@@ -480,7 +480,7 @@ while IFS=, read -r SLUG ST <&3; do
   while [ -e "$HIST_OUT" ]; do
     HIST_N=$((HIST_N + 1))
     HIST_OUT="$STATE/lanes/history/$HIST_TS-$SLUG-$HIST_N.json"
-  done
+  done   # two results in one second are two rows
   python3 - "$HIST_OUT" "$SLUG" "$ITEM" "$PRN" "$STATE/cloud/$SLUG.json" "$SC" <<'PY'
 import json,sys,time,os
 out,slug,item,pr,cf,sc=sys.argv[1:7]

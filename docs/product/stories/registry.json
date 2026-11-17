@@ -468,7 +468,7 @@
     },
     {
       "id": "KIN-RESULT-002",
-      "state": "draft",
+      "state": "approved",
       "priority": "P0",
       "journeys": [
         "J4"
@@ -486,7 +486,10 @@
         "ui/src/components/workspace/WorkspacePanel.tsx",
         "ui/src/components/workspace/CodeViewer.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "ui/src/components/workspace/htmlPreview.test.ts",
+        "ui/src/components/workspace/FilePreview.dom.test.tsx"
+      ],
       "blockedReason": null
     },
     {
