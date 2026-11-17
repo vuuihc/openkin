@@ -405,12 +405,13 @@ describe("the row menu is the visible door", () => {
 
     await user.click(rowActions("alpha-2"));
     const sheet = screen.getByRole("dialog", { name: "alpha-2" });
-    // Select leads the row's own edits; batch actions stay on the toolbar.
+    // Rename leads, then Select and the row's own edits; batch actions stay on
+    // the toolbar.
     expect(
       within(sheet)
         .getAllByRole("button")
         .map((item) => item.textContent),
-    ).toEqual(["Select", "Pin", "Archive", "Delete", "Cancel"]);
+    ).toEqual(["Rename", "Select", "Pin", "Archive", "Delete", "Cancel"]);
     await user.click(within(sheet).getByRole("button", { name: "Select" }));
 
     await waitFor(() => expect(toolbar()).toBeTruthy());
