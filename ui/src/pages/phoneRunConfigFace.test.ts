@@ -77,6 +77,26 @@ describe("the composer's run-config face", () => {
     expect(source.indexOf("setControlsOpen")).toBe(-1);
   });
 
+  it("sizes every run-settings tap target by pointer, not by viewport", () => {
+    // TASTE 11: every tappable thing on a phone is at least 44px. The old
+    // shrink was `sm:min-h-7` / `sm:h-[26px]` — a viewport rule — and an iPad
+    // is ≥640px wide with a coarse pointer, so the same touch panel rendered
+    // at Mac size. The shrink now lives behind `useCoarsePointer`; no raw
+    // viewport shrink may remain in the files that own these rows.
+    const files = [
+      "src/components/chat/DispatchSelector.tsx",
+      "src/components/chat/RunConfigSheet.tsx",
+      "src/pages/NewChatPage.tsx",
+    ];
+    for (const file of files) {
+      const source = read(file);
+      expect(source, `${file} asks the pointer`).toContain("useCoarsePointer");
+      expect(source, `${file} has no viewport tap-size shrink`).not.toMatch(
+        /sm:(?:min-h-7|min-h-0|min-w-0|h-\[26px\]|w-\[26px\])/,
+      );
+    }
+  });
+
   it("puts the machine and the project in one row under the card", () => {
     const source = read("src/pages/NewChatPage.tsx");
     // One card, then the place row. The project summary (when there is one)

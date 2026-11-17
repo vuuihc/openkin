@@ -37,6 +37,29 @@ function setViewportWidth(width: number) {
   Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
 }
 
+/**
+ * The answer `matchMedia` gives about this device.
+ *
+ * jsdom has none, and every viewport hook's fallback is the shipped desktop
+ * shape, so a test that says nothing about the pointer is a Mac with a mouse.
+ * The stub spells out the two queries this tree asks — pointer kind and width
+ * — so a coarse-pointer test cannot pass by inheriting a width answer.
+ */
+function setMedia({ coarse = false }: { coarse?: boolean } = {}) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    // The default is the 390px phone these tests are about: a width answer of
+    // `true` would make `Sheet` auto-close the moment it mounts.
+    matches: query.includes("pointer: coarse") ? coarse : false,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
+}
+
 function setup() {
   const onChange = vi.fn();
   render(<DispatchSelector value={{}} onChange={onChange} />);
@@ -46,6 +69,8 @@ function setup() {
 beforeEach(() => {
   setLocale("en");
   setViewportWidth(1024);
+  vi.unstubAllGlobals();
+  setMedia();
   resetLayerDismissers();
 });
 
@@ -81,24 +106,67 @@ async function openDispatchInSheet() {
 }
 
 describe("the dispatch trigger", () => {
-  it("gives the dispatch trigger a 44px phone tap target", async () => {
-    // The journey walk measures the button's own box at 390px, so the floor has
-    // to live on the button: `min-h-11 min-w-11` are the 44px, and `sm:` puts
-    // back the 28px chip the Mac panel's row heights were built around. jsdom
-    // has no layout, so this pins the class contract; the walk proves the
-    // geometry.
+  it("gives the dispatch trigger a 44px tap target on a coarse pointer", async () => {
+    // TASTE 11: the size follows the pointer, not the viewport. An iPad is
+    // ≥640px wide and still a thumb, so the 44px floor must not be undone by
+    // `sm:`. jsdom has no layout, so this pins the class contract; the journey
+    // walk and the iPad measurement prove the geometry.
+    setMedia({ coarse: true });
     const { trigger } = setup();
     expect(trigger.classList.contains("min-h-11")).toBe(true);
     expect(trigger.classList.contains("min-w-11")).toBe(true);
-    expect(trigger.classList.contains("sm:min-h-7")).toBe(true);
-    expect(trigger.classList.contains("sm:min-w-0")).toBe(true);
+    expect(trigger.classList.contains("sm:min-h-7")).toBe(false);
+    expect(trigger.classList.contains("sm:min-w-0")).toBe(false);
     // The chip is the same layer's trigger: label, popup role and open state
     // must not move with the size.
     expect(trigger.textContent).toBe("Dispatch");
     expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
     await userEvent.click(trigger);
-    expect(await screen.findByRole("dialog", { name: "Dispatch settings" })).toBeTruthy();
+    const panel = await screen.findByRole("dialog", { name: "Dispatch settings" });
+    expect(panel).toBeTruthy();
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    // The panel's own mode buttons are tap targets on the same surface, so
+    // they hold the same floor.
+    for (const name of ["Auto", "Manual"]) {
+      const button = within(panel).getByRole("button", { name });
+      // `!` is part of the contract: the facade's own `sm:` zero-floor
+      // variant would win at the iPad's width without it.
+      expect(button.className).toContain("min-h-11!");
+      expect(button.className).not.toContain("min-h-7");
+    }
+  });
+
+  it("keeps the compact trigger and mode buttons on a fine pointer", async () => {
+    // The Mac shape: a mouse does not need a 44px box, and the run settings
+    // panel's row heights were built around the 28px chip. This locks the
+    // other half of the pointer contract so a later "always big" fix cannot
+    // quietly move every Mac panel.
+    setMedia({ coarse: false });
+    const { trigger } = setup();
+    expect(trigger.classList.contains("min-h-7")).toBe(true);
+    expect(trigger.classList.contains("min-w-0")).toBe(true);
+    expect(trigger.classList.contains("min-h-11")).toBe(false);
+    expect(trigger.classList.contains("min-w-11")).toBe(false);
+
+    await userEvent.click(trigger);
+    const panel = await screen.findByRole("dialog", { name: "Dispatch settings" });
+    for (const name of ["Auto", "Manual"]) {
+      const button = within(panel).getByRole("button", { name });
+      expect(button.className).toContain("min-h-7");
+      expect(button.className).not.toContain("min-h-11!");
+    }
+  });
+
+  it("gives the preview toggle the touch floor on a coarse pointer", async () => {
+    // A team set is what reveals the toggle. It is a small text link on a Mac
+    // and must be a real 44px row on touch.
+    setMedia({ coarse: true });
+    render(<DispatchSelector value={{ mode: "auto", team: "t1" }} onChange={vi.fn()} />);
+    // A configured selection names the mode in the trigger, so the trigger is
+    // found by that summary rather than by the empty "Dispatch" label.
+    await userEvent.click(screen.getByRole("button", { name: /^Auto/ }));
+    const toggle = await screen.findByRole("button", { name: /Show preview/ });
+    expect(toggle.className).toContain("min-h-11");
   });
 });
 
