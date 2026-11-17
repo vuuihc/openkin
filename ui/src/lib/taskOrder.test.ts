@@ -10,8 +10,13 @@ import { applyTaskOrder, clearBucketOrder, getTaskOrder, setBucketOrder } from "
  * being buried under an old manual order — is testable without a browser.
  */
 
-function rows(...keys: string[]): { key: string }[] {
-  return keys.map((key) => ({ key }));
+function rows(...keys: string[]): { key: string; at: number }[] {
+  return keys.map((key, index) => ({ key, at: index }));
+}
+
+/** A row with an explicit clock, for the fresh-versus-older split. */
+function row(key: string, at: number): { key: string; at: number } {
+  return { key, at };
 }
 
 beforeEach(() => {
@@ -22,13 +27,28 @@ describe("applyTaskOrder", () => {
   it("applies a stored order inside its bucket and lists unseen rows first", () => {
     // `new` arrived after the order was stored; the stored rows follow in the
     // stored order, so a status change or a new message cannot undo the move.
-    expect(applyTaskOrder(rows("a", "b", "c", "new"), ["c", "a", "b"])).toEqual(
-      rows("new", "c", "a", "b"),
-    );
+    expect(applyTaskOrder(rows("a", "b", "c", "new"), ["c", "a", "b"])).toEqual([
+      row("new", 3),
+      row("c", 2),
+      row("a", 0),
+      row("b", 1),
+    ]);
+  });
+
+  it("keeps unseen rows older than the newest placed row behind the order", () => {
+    // "Load older" appends a page the move never saw. Those are old
+    // conversations, not new ones: they belong under the hand-placed order,
+    // while a genuinely newer row still goes in front.
+    expect(
+      applyTaskOrder([row("a", 30), row("old", 5), row("new", 40), row("b", 20)], ["b", "a"]),
+    ).toEqual([row("new", 40), row("b", 20), row("a", 30), row("old", 5)]);
   });
 
   it("ignores stored ids that no longer exist", () => {
-    expect(applyTaskOrder(rows("a", "c"), ["c", "gone", "a"])).toEqual(rows("c", "a"));
+    expect(applyTaskOrder(rows("a", "c"), ["c", "gone", "a"])).toEqual([
+      row("c", 1),
+      row("a", 0),
+    ]);
   });
 
   it("returns rows unchanged for a bucket with no stored order", () => {

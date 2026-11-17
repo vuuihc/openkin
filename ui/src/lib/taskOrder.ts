@@ -5,10 +5,12 @@
  * lives in localStorage, never syncs, and the sidebar and desktop do not know
  * about it. Once a bucket has an order, that order *replaces* the attention and
  * recency rule inside it — a status change or a new message must not put a
- * hand-placed row back where the clock says it belongs. Rows the stored order
- * has never seen (a conversation created or imported after the move) stay in
- * front of the placed ones, still in the incoming order, so a new chat is never
- * buried under an old manual arrangement.
+ * hand-placed row back where the clock says it belongs. A row the stored order
+ * has never seen stays in front of the placed ones only when it is newer than
+ * the newest placed row, still in the incoming order, so a new chat is never
+ * buried under an old manual arrangement. An unseen row that is older (a page
+ * loaded by "Load older" after the move) stays behind the placed order, where
+ * its own clock puts it.
  *
  * Bad storage reads as "no order": a broken preference must not break the list.
  */
@@ -62,17 +64,17 @@ export function clearBucketOrder(bucketKey: string): void {
  *
  * `stored` undefined means the bucket has no manual order and the rows are
  * returned untouched (a copy, so callers can keep sorting). Otherwise unseen
- * rows come first in the order they arrived, the stored ids follow in their
- * stored order, and ids whose row is gone are ignored.
+ * rows newer than the newest placed row come first in the order they arrived,
+ * the stored ids follow in their stored order, unseen older rows trail in
+ * arrival order, and ids whose row is gone are ignored.
  */
-export function applyTaskOrder<T extends { key: string }>(
+export function applyTaskOrder<T extends { key: string; at: number }>(
   rows: readonly T[],
   stored: readonly string[] | undefined,
 ): T[] {
   if (!stored) return [...rows];
   const byKey = new Map(rows.map((row) => [row.key, row]));
   const placed = new Set(stored);
-  const fresh = rows.filter((row) => !placed.has(row.key));
   const seen = new Set<string>();
   const known: T[] = [];
   for (const id of stored) {
@@ -81,5 +83,17 @@ export function applyTaskOrder<T extends { key: string }>(
     const row = byKey.get(id);
     if (row) known.push(row);
   }
-  return [...fresh, ...known];
+  // Only a row newer than the newest placed one counts as fresh. An older page
+  // ("Load older") also arrives unseen, and putting it in front would bury the
+  // hand-placed order under conversations the move never saw.
+  let newestKnown = -Infinity;
+  for (const row of known) if (row.at > newestKnown) newestKnown = row.at;
+  const fresh: T[] = [];
+  const trailing: T[] = [];
+  for (const row of rows) {
+    if (placed.has(row.key)) continue;
+    if (row.at > newestKnown) fresh.push(row);
+    else trailing.push(row);
+  }
+  return [...fresh, ...known, ...trailing];
 }

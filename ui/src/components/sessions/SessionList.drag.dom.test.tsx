@@ -161,6 +161,29 @@ describe("keyboard reorder", () => {
     expect(order()).toEqual(["b", "a", "c"]);
   });
 
+  it("does not move the last drawn row of a truncated project out of the slice", async () => {
+    // Six rows, five drawn: row "f" sits behind "Show all". Moving "e" past it
+    // would hide "e" from the drawn slice and drop keyboard focus to <body>,
+    // so the move clamps at the last row actually on screen.
+    fixtures.tasks = [
+      task("a", 60),
+      task("b", 50),
+      task("c", 40),
+      task("d", 30),
+      task("e", 20),
+      task("f", 10),
+    ];
+    mount();
+    await waitFor(() => expect(order()).toEqual(["a", "b", "c", "d", "e"]));
+    row("e").focus();
+
+    fireEvent.keyDown(row("e"), { key: "ArrowDown", altKey: true });
+
+    expect(order()).toEqual(["a", "b", "c", "d", "e"]);
+    expect(getTaskOrder()).toEqual({});
+    expect((document.activeElement as HTMLElement | null)?.dataset.sessionRow).toBe("e");
+  });
+
   it("Alt+Arrow does nothing while a search query is active or in the archived scope", async () => {
     // Search: the stored order still displays, but a reorder here would be an
     // order for "the current results", so the keys stay plain navigation.

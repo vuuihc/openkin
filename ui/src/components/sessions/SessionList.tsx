@@ -1033,8 +1033,16 @@ export default function SessionList({
     if (!bucket) return;
     const ids = bucket.rows.map((row) => row.key);
     const from = ids.indexOf(key);
-    const to = from + step;
-    if (from < 0 || to < 0 || to >= ids.length) return;
+    // The destination is the neighbour on screen, not the neighbour in the
+    // whole bucket: a truncated project draws only its first five rows, and a
+    // move past the last drawn one would take the row out of the slice and
+    // drop keyboard focus. A neighbour that belongs to another bucket has no
+    // index here, so the move clamps instead of crossing projects.
+    const rendered = sessionRows();
+    const at = rendered.indexOf(document.activeElement as HTMLElement);
+    const neighbour = at < 0 ? undefined : rendered[at + step];
+    const to = neighbour ? ids.indexOf(neighbour.dataset.sessionRow ?? "") : -1;
+    if (from < 0 || to < 0) return;
     ids.splice(from, 1);
     ids.splice(to, 0, key);
     setBucketOrder(bucket.key, ids);
