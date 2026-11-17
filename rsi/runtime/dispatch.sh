@@ -83,13 +83,28 @@ esac
 # merge lane stops starting sol-dependent (large-tier) verifiers and burning a gate + a dead call per cycle (state/sol-limited-until, epoch).
 note_sol_limit() {
   local f t
-  for f in "$LOG" "$LOG.txt"; do [ -s "$f" ] && t="$(tail -c 6000 "$f" | grep -oE 'not asked again before [0-9]{1,2}:[0-9]{2} UTC\+8' | tail -1)" && [ -n "$t" ] && break; t=""; done
+  for f in "$LOG" "$LOG.txt"; do [ -s "$f" ] && t="$(tail -c 6000 "$f" | grep -oE 'not asked again before ([A-Za-z]{3} +[0-9]{1,2} +)?[0-9]{1,2}:[0-9]{2} UTC\+8' | tail -1)" && [ -n "$t" ] && break; t=""; done
   [ -n "${t:-}" ] || return 0
   python3 - "$t" "$STATE/sol-limited-until" <<'PY'
-import sys,re,time,datetime
-m=re.search(r"(\d{1,2}):(\d{2})",sys.argv[1]); now=datetime.datetime.now()
-d=now.replace(hour=int(m.group(1)),minute=int(m.group(2)),second=0,microsecond=0)
-if d<=now: d+=datetime.timedelta(days=1)
+import sys,re,datetime
+tz=datetime.timezone(datetime.timedelta(hours=8))
+now=datetime.datetime.now(tz)
+m=re.search(r"before\s+(?:([A-Za-z]{3})\s+(\d{1,2})\s+)?(\d{1,2}):(\d{2})",sys.argv[1])
+if not m: sys.exit(0)
+mon_str,day_str,hh,mm=m.group(1),m.group(2),int(m.group(3)),int(m.group(4))
+if mon_str and day_str:
+    months={"jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,"jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12}
+    mon=months.get(mon_str.lower())
+    if not mon: sys.exit(0)
+    day=int(day_str)
+    try:
+        d=datetime.datetime(now.year,mon,day,hh,mm,tzinfo=tz)
+        if d<=now: d=datetime.datetime(now.year+1,mon,day,hh,mm,tzinfo=tz)
+    except ValueError:
+        sys.exit(0)
+else:
+    d=now.replace(hour=hh,minute=mm,second=0,microsecond=0)
+    if d<=now: d+=datetime.timedelta(days=1)
 open(sys.argv[2],"w").write(str(int(d.timestamp())))
 PY
 }
@@ -172,12 +187,27 @@ pat = re.compile(r"exceeded your current quota|quota exceeded|rate.?limit|usage 
 broad = re.compile(r"quota|\b429\b|exhausted your capacity", re.I)
 if not (pat.search(blob) or broad.search(err_status)):
     sys.exit(0)
-m=re.search(r"not asked again before\s+(\d{1,2}):(\d{2})", blob)
+m=re.search(r"not asked again before\s+(?:([A-Za-z]{3})\s+(\d{1,2})\s+)?(\d{1,2}):(\d{2})", blob)
 now=datetime.datetime.now()
 if m:
-    until=now.replace(hour=int(m.group(1)), minute=int(m.group(2)), second=0, microsecond=0)
-    if until<=now: until += datetime.timedelta(days=1)
-    epoch=int(until.timestamp())
+    mon_str,day_str,hh,mm=m.group(1),m.group(2),int(m.group(3)),int(m.group(4))
+    epoch=None
+    if mon_str and day_str:
+        months={"jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,"jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12}
+        mon=months.get(mon_str.lower())
+        if mon:
+            try:
+                until=datetime.datetime(now.year, mon, int(day_str), hh, mm)
+                if until<=now: until=datetime.datetime(now.year+1, mon, int(day_str), hh, mm)
+                epoch=int(until.timestamp())
+            except ValueError:
+                epoch=None
+    else:
+        until=now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if until<=now: until += datetime.timedelta(days=1)
+        epoch=int(until.timestamp())
+    if epoch is None:
+        epoch=int(time.time()) + 45*60
 else:
     epoch=int(time.time()) + 45*60
 open(stamp,"w").write(str(epoch))

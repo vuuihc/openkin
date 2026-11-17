@@ -173,4 +173,37 @@ mkdir -p "$T/agy_st3"
   [ -s "$STATE/agy-limited-until" ] && [ "$(cat "$STATE/agy-limited-until")" -gt "$(date +%s)" ] || exit 1
 ) && ok agy-limit-stamps-bare-quota-error || bad agy-limit-stamps-bare-quota-error
 
+# --- note_sol_limit handles both HH:MM and Mon DD HH:MM UTC+8 ---
+mkdir -p "$T/sol_st1" "$T/sol_st2"
+(
+  STATE="$T/sol_st1"
+  eval "$(sed -n '/^note_sol_limit()/,/^}/p' "$H/dispatch.sh")"
+  LOG="$T/sol_hhmm"
+  echo 'API Error: not asked again before 23:59 UTC+8' > "$LOG"
+  : > "$LOG.txt"
+  note_sol_limit
+  [ -s "$STATE/sol-limited-until" ] && [ "$(cat "$STATE/sol-limited-until")" -gt "$(date +%s)" ] || exit 1
+) && ok sol-limit-stamps-hhmm || bad sol-limit-stamps-hhmm
+
+(
+  STATE="$T/sol_st2"
+  eval "$(sed -n '/^note_sol_limit()/,/^}/p' "$H/dispatch.sh")"
+  LOG="$T/sol_mon"
+  expected="$(python3 - "$LOG" <<'PY'
+import datetime, sys
+tz = datetime.timezone(datetime.timedelta(hours=8))
+months = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+t = (datetime.datetime.now(tz) + datetime.timedelta(days=2)).replace(second=0, microsecond=0)
+open(sys.argv[1], "w").write(
+    f"API Error: Request rejected (429) · Codex: The usage limit has been reached "
+    f"(out of its allowance: not asked again before {months[t.month]} {t.day} {t.hour:02d}:{t.minute:02d} UTC+8)\n"
+)
+print(int(t.timestamp()))
+PY
+)"
+  : > "$LOG.txt"
+  note_sol_limit
+  [ -s "$STATE/sol-limited-until" ] && [ "$(cat "$STATE/sol-limited-until")" = "$expected" ] || exit 1
+) && ok sol-limit-stamps-month-day-hhmm || bad sol-limit-stamps-month-day-hhmm
+
 echo ALL-PASS
