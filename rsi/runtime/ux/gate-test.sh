@@ -71,6 +71,10 @@ PY
   # then press Start FOR REAL. The fake agent is first on this daemon's PATH, so
   # the press launches the fake and the walk can prove the send landed.
   if [ -x "$WT/scripts/journeys_fake_agent/claude" ]; then
+    # The fake holds a `[seed] slow` turn for RSI_FAKE_SLOW_SECS (default 3).
+    # J3 now types, queues and reads a second message during that round, so the
+    # default races those steps; the fake clamps at 10, which is the window.
+    export RSI_FAKE_SLOW_SECS=10
     if start_daemon_using "$WT/scripts/journeys_fake_agent" "$T/j3-started/state"; then
       make_project "$T/j3-started/project" || bad "J3 case 1: the project fixture was refused"
       walk_j3 "$T/j3-started"
@@ -93,10 +97,20 @@ for vp in ("phone", "mac"):
     assert any(note.startswith("pressed ") for note in sent[-1].get("notes", [])), sent[-1]
     assert any(note.startswith("waited for css=[role=region]") and "Draft: " in note
                for note in sent[-1].get("notes", [])), sent[-1]
+    # The mid-run follow-up: on screen and marked queued before the first
+    # answer. This is the F2 lost-message path, so it must fail the case, not
+    # only look right in a screenshot.
+    queued = [s for s in mine if s["name"].endswith("-midrun-queued")]
+    assert queued, names
+    assert names.index(queued[-1]["name"]) < names.index(replied[-1]["name"]), names
+    assert any(note.startswith("waited for css=[role=status]")
+               and ("已排队" in note or "Queued" in note)
+               for note in queued[-1].get("notes", [])), queued[-1]
 PY
     else bad "J3 case 1: the throwaway daemon did not start"; fi
   else bad "J3 case 1: the fake agent is missing at $WT/scripts/journeys_fake_agent/claude"; fi
   stop_daemon
+  unset RSI_FAKE_SLOW_SECS
 
   # 3.2 nothing to choose: an explicit skip with a reason, never a hard failure
   if start_daemon "$T/j3-skip/state"; then

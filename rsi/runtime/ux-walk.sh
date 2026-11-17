@@ -46,6 +46,10 @@ fi
 FAKE_AGENT_DIR="$WT/scripts/journeys_fake_agent"
 if [ -x "$FAKE_AGENT_DIR/claude" ]; then
   PATH="$FAKE_AGENT_DIR:$PATH"; export PATH; unset KIN_CLAUDE_BIN
+  # J3 types a second message while the first round is open, so the fake's
+  # `[seed] slow` hold must cover the follow-up steps. The fake clamps at 10s;
+  # an explicit value from the caller (the mutant runner) still wins.
+  export RSI_FAKE_SLOW_SECS="${RSI_FAKE_SLOW_SECS:-10}"
 fi
 PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
 mkdir -p "$TMP/state"
@@ -74,7 +78,11 @@ else
   echo "no scripts/journeys_seed.py in the worktree or origin/main: walking an empty daemon (empty states only)" > "$OUT/seed.log"
 fi
 ARGS=(--base "http://127.0.0.1:$PORT" --token "$TOKEN" --out "$OUT")
-[ -f "$WT/rsi/runtime/ux/journeys.json" ] && ARGS+=(--spec "$WT/rsi/runtime/ux/journeys.json")
+# RSI_UX_SPEC points at a variant of this tree's spec (walk-mutant-test.sh cuts
+# J3 down to its hand-off half for the delayed walk). The default is the tree's
+# own spec; either way the walker comes from the same tree.
+SPEC="${RSI_UX_SPEC:-$WT/rsi/runtime/ux/journeys.json}"
+[ -f "$SPEC" ] && ARGS+=(--spec "$SPEC")
 case "$SEL" in @*) ARGS+=(--files "${SEL#@}");; ?*) ARGS+=(--journeys "$SEL");; esac
 # The mutant proof needs the task-detail answer held: the message the draft
 # showed must be on screen before the first detail GET lands. Unset (the gate)
