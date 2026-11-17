@@ -13,6 +13,8 @@ This file is the policy. `runtime/escalate.py` enforces it and logs every decisi
 | Second code reviewer (`reviewer-alt`, risky paths or >500 lines) | `agy/gemini-4-hydrogen-medium` (or `hydrogen-high` for F/S/architecture or disagreement) | — | Antigravity Google consumer sign-in. Not Volcengine. Standing “different family” requirement. |
 | UX vision reviewer | `agy/gemini-4-hydrogen-medium` (Hydrogen is multimodal; `hydrogen-high` for F/S/architecture) | — | Same Antigravity account. `gpt-6.1-sol` via `claude -p` is the fallback if Hydrogen/agy is limited. |
 
+**Kimi is the advisor, not the daily loop (Ethan 2026-11-17).** No worker, rework, director, fill, planner or dream run resolves to Kimi: `runtime/common.sh` pins `ANTHROPIC_DEFAULT_OPUS_MODEL` to DeepSeek so even a Claude Code internal "opus" turn stays cheap, and the global `~/.claude` mapping is not inherited by loop processes. The one routine Kimi caller is the CEO advisor (≤1 per patrol, ≤3 per day, `pi -p --model magpie/auto/kimi-k3.1-pro`); the only other case is item 4 below, as the last resort.
+
 Do not start from Kimi or Carbon. DeepSeek at `--effort max` is the first lever for harder control-plane work. Strong reviews start on Hydrogen-medium, not on sol.
 
 ## When escalation is necessary
