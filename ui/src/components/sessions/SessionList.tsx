@@ -1821,8 +1821,10 @@ function ProjectBucket({
               onClick={restoreOrder}
               className="h-11 flex-none items-center gap-1.5 rounded-lg px-2.5 text-caption font-medium"
             >
-              <IconRefresh size={13} />
-              {tr("sessions.restore")}
+              <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                <IconRefresh size={13} />
+                <span>{tr("sessions.restore")}</span>
+              </span>
             </Button>
           ) : (
             <ProjectIconButton label={tr("nav.restoreTimeOrder")} onClick={restoreOrder}>

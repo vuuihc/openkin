@@ -231,6 +231,12 @@ describe("restoring time order in a synthetic bucket", () => {
     const button = resetIn("Pinned");
     expect(button.getAttribute("aria-label")).toBe("Restore time order");
     expect(button.textContent).toContain("Restore");
+    // Astryx renders children inside a non-flex label span, and Tailwind makes
+    // the block <svg> stack above the text; icon and label share one row only
+    // inside an explicit inline-flex wrapper.
+    const label = button.querySelector("span.inline-flex");
+    expect(label?.querySelector("svg")).not.toBeNull();
+    expect(label?.textContent).toBe("Restore");
     // Token-level: `h-11` must be its own class, not a suffix of `min-h-11`.
     expect(button.className.split(/\s+/)).toContain("h-11");
   });
