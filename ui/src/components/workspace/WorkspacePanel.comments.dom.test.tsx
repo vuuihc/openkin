@@ -261,8 +261,9 @@ describe("KIN-RESULT-003 · sending the tray back to the conversation", () => {
         name: t("workspace.comments.send", { count: 0 }),
       }),
     ).toBeNull();
-    expect(screen.queryByRole("button", { name: t("workspace.comments.send", { count: 1 }) }))
-      .toBeNull();
+    expect(
+      screen.queryByRole("button", { name: t("workspace.comments.send", { count: 1 }) }),
+    ).toBeNull();
     expect(screen.queryByText(t("workspace.comments.sent"))).toBeNull();
   });
 });
