@@ -34,65 +34,6 @@ person can see; the fix and its verification belong in the PR.
 
 ## Open
 
-### 2026-11-15 · 高 · iPad 左栏长按进入多选后找不到退出，行菜单里也没有多选入口
-
-iPad（视口 ≥768px、`pointer: coarse`）的左栏是 248px 侧栏，但列表仍走触屏路径：
-长按对话行 500ms 进入多选。多选工具条在 248px 里放不下——三个批量动作的标签用
-`hidden sm:inline` 按**视口**宽度显示（iPad 视口 ≥640px，标签全出来），四个按钮各自
-`min-w-11`，加上「已选 N 项」和 padding，总宽约 400px；即使全部只留图标也有约
-310px，超过 248px 侧栏扣掉 `px-1` 后的 240px。最右边的「取消」被推到可视区外，
-只能横向滚动列表才够得到；键盘也没有 Escape 退出（`onListKeyDown` 只处理 ↑/↓）。
-进入多选后行尾也没有更多按钮（`SessionRow` 在 `selectionMode` 时直接返回
-`rowButton`），所以没有任何就地退出的入口。报告人的原话是「不知道怎么退出」。
-
-期望（可直接写成测试）：
-
-- 在 248px 侧栏和 390px 手机页两种宽度下，多选工具条自身不得横向溢出
-  （`scrollWidth <= clientWidth`），「退出多选 / 取消」始终在可视区内、至少 44px
-  可点；计数和置顶 / 归档 / 删除仍可用。窄容器应换行或收成图标，不得靠缩小字号或
-  横向滚动。
-- 键盘：多选状态下 Esc 退出并把焦点还给发起多选的那一行；Shift+Enter 进入多选的
-  现有路径保留。
-- 对话行尾的更多（⋯）菜单增加「多选」一项：点它进入多选并选中该行。触屏上现在
-  只有滑动露出的动作条，没有行菜单；菜单沿用 `ActionSheet` / 项目 ⋯ 菜单的形态与
-  焦点规则。多选状态下同一个菜单显示「退出多选」，点它清空选择并退出。
-- 长按不再进入多选。拖动排序落地前，长按照 `KIN-MANAGE-001`（approved）的手机入口
-  打开同一行菜单；拖动排序落地后由那条接管长按。无论如何，长按不得让人进入一个
-  没有可见出口的状态。
-
-不要：把「取消」留在横向滚动里；用更小的字号或省略号让工具条「看起来」放得下；
-只给手机宽度做、在 248px 侧栏仍然溢出；让多选只能从长按进入；删掉批量置顶 / 归档 /
-删除或 Shift+Enter 选择。
-
-线索：`ui/src/components/sessions/SessionList.tsx` 的多选工具条（`selectionMode &&`，
-约 1099 行）、`enterSelection` / `exitSelection`（约 699 / 722）、`SessionRow` 的
-`if (selectionMode || !row.task) return rowButton;`（约 1923）；长按在
-`ui/src/components/mobile/SwipeReveal.tsx`（`LONG_PRESS_MS = 500`）；`sm:` 是视口
-断点，侧栏宽度见 `ui/tailwind.config.ts:177`（`sidebar: 248px`）和
-`ui/src/components/layout/Sidebar.tsx:270`（`w-sidebar`）；可照抄的菜单：
-`ui/src/components/ui/ActionSheet.tsx` 与 `SessionList` 里的 `projectSheet`
-（约 1223 行）；i18n 用 `sessions.*` / `common.cancel` 同一层。
-`ui/src/pages/sessionArchiveWiring.test.ts` 对工具条源码有字符串断言，改结构时要
-同步改成行为断言。
-
-验收：
-
-- DOM：行菜单有「多选」；进入后该行选中；工具条有可访问名称为「退出多选 / 取消」的
-  按钮且点击后退出；Esc 退出；Shift+Enter 仍进入；多选状态下行菜单仍有「退出多选」。
-- 浏览器 248px 侧栏（iPad 1100×820 或直接 248px 容器）与 390px：工具条
-  `scrollWidth <= clientWidth`；退出按钮可见、可点；截图。
-- `./scripts/check.sh` 绿。
-
-进展（2026-11-17）：退出路径与工具条溢出已修，见 PR #62（`695d053e`）——工具条换行、
-图标按钮 44px、取消留在 248px 容器内、Esc 走同一退出路径，248px 与 390×844 实测
-`scrollWidth == clientWidth`；行尾 `⋯` 菜单的「多选 / 退出多选」入口已修，见「已修」
-PR #170（`R-selection-menu`）。长按改道（不再进入多选，改为打开这一行的菜单）已在
-#190（`456a922f`）落地：`SessionRow.tsx:422` 的 `onLongPress` 打开行菜单，
-`SessionRow.dom.test.tsx:403,439` 覆盖「长按开面板 / 长按不进入多选」。该 story 已于
-2026-11-17 由 CEO 签字、`registry.json` 改为 `approved`（设计页
-`KIN-MANAGE-001.review.html` 已读）。本条只剩长按交给拖动排序的交接，那一步在下一条
-`R-drag-reorder` 里跟踪，故仍留在 Open。
-
 ### 2026-11-15 · 中 · 长按对话行不能拖动排序，列表顺序只能跟着最近活动走
 
 对话行现在没有拖动排序：同一个项目里的行由 `phoneProjectBuckets` 按 `at` 降序排
@@ -155,6 +96,7 @@ PR #170（`R-selection-menu`）。长按改道（不再进入多选，改为打�
 - 2026-11-17 · 对话把思考与过程叙述收进卡片；只有工具该进卡片 — 运行中过程按事件顺序进正文 PR #165（`9d8fbffc`），结束一轮收成一条带终态、工具数与时长的已收摘要行 PR #171（`e43b0b62`）；测试见 `transcriptProjection.test.ts` 与 `ChatStream.{prose,summary,find}.dom.test.tsx`，390/1100 截图见 `rsi/state/shots/live-process-prose/`、`rsi/state/shots/process-summary/`；取消沿用既有「cancel noise 不算失败」约定，摘要行不单列取消态（待定：是否需要独立的「取消」终态；若要单列，另开条目并写清文案与可点动作）
 - 2026-11-17 · 手机新建页「打开封面」入口小于 44px（`ProjectSummaryCard.tsx:60` 的 chip 无 `min-h`，且 inline 盒使 `min-height` 不生效）— `797e3dd2`（`Link` 加 `inline-flex min-h-11 sm:min-h-0`，390×844 实测 chip 74×27.9 → 74×44.0，1100×760 保持 74×27.9；新增 `ProjectSummaryCard.dom.test.tsx`，旧 class 与「有 `min-h-11` 但无非 inline 显示盒」两处变异均转红；J3/phone `smallTapTargets` 12 → 0，`check.sh` 全绿）
 - 2026-11-17 · 同一个项目在对话列表里有两个名字（有对话时是文件夹名，空项目是项目名）— 分支 `rsi/project-name-bucket-label`（期望：桶标题优先用 `/api/projects` 里该 cwd 对应项目的 `name`，解析不到才退回 cwd 末段，有对话 / 无对话 / 最后一条对话归档三种状态一致。`phoneProjectBuckets` 新增可选 `projectNameFor` 查询，`SessionList` 用 `useMemo([projects])` 建 cwd→name 映射（同一 root 先到先得），归档范围里的远端副本也按 cwd 查名；`seedProjects` 仍用 `project.name`，两条路径现在得到同一标题。单测 5 项先红（`expected 'alpha' to be 'Project Alpha'`）后绿，新增 `SessionList.projectNames.dom.test.tsx` 覆盖 page / sidebar 两种壳与「最后一条对话归档后标题不变」，`phoneSessionBuckets` + sessions + Sidebar 套件 125 passed，`tsc` / `npm run build` / `check-ui-inventory.py` / `check.sh` 绿；390×844 与 1100×760 截图见 `rsi/state/shots/project-name-bucket-label/`）
+- 2026-11-15 · iPad 左栏长按进入多选后找不到退出，行菜单里也没有多选入口 — 工具条换行与 Esc 退出 PR #62（`695d053e`）、行菜单「多选 / 退出多选」PR #170、长按改道打开行菜单 PR #190（`456a922f`）；长按已交给拖动排序：PR #205（`62a7dcb6`）把长按从多选改为拖动排序
 - 2026-11-15 · iPad 左栏长按进入多选后找不到退出，行菜单里也没有多选入口（行菜单部分）— PR #170（`SessionRow` 对可选择行提供 `多选` 入口并在多选态保留 `⋯` 触发器显示 `退出多选`，复用 `SessionList` 同一退出与焦点归还路径；`SessionRow` / `SessionList.selection` 两套 DOM 测试 28 passed，390×844 / 1100×760 截图验证，check.sh 全绿；长按改道仍待 `KIN-MANAGE-001`）
 - 2026-11-14 · 新建对话发送后，进入对话 URI 时仍插入整页骨架屏 — PR #61（`cf7ba2bd`；就绪条件改为接受已种入的列表行或草稿交接，真正冷启动的深链改画有签名的品牌等待态（`IconKin` + `role="status"` + 慢连接提示）而不是整页骨架屏；新增 `TaskSessionHost.handoff.dom.test.tsx` 覆盖创建交接、切出页、冷进入、404 带缓存行，连同 coldLoad / pendingSend 共 5 文件 25 项通过，`tsc` 与 `npm run build` 绿；还原就绪条件与冷启动分支后 4 项按预期转红）
 - 2026-11-12 · 例行任务查不到 gap sweep，伴随 token 长度超过约 65530 的错误 — PR #52（`?runs=1&runs_limit=80` 的运行流不再拼进每次运行十几 KB 的 prompt：本机实测 1,200,074 → 约 94 KB，落在机器中继 `worker.MaxRoutineResponse` 655,360 字节内，页面不再整页失败；红测还原修复后 1,245,269 字节超限、恢复后通过，`go test ./internal/api/`、`./scripts/check.sh` 14 项、`./scripts/smoke.sh` 全绿；报告人原始报错原文仍未取得，若同一报错再现请附原文）
