@@ -206,10 +206,35 @@ job_shell_test() {
   bash rsi/runtime/tests/test-gate-backpressure.sh || return 1
   bash rsi/runtime/tests/test-outside-tests.sh || return 1
   bash rsi/runtime/tests/test-throughput.sh || return 1
+  bash rsi/runtime/tests/test-lanes-history.sh || return 1
+  bash rsi/runtime/tests/test-runtime-modes.sh || return 1
   bash rsi/runtime/tests/test-merge-gen-resolve.sh || return 1
+  bash rsi/runtime/tests/test-gate-carry.sh || return 1
+  bash rsi/runtime/tests/test-verifier-ci-hold.sh || return 1
+  bash rsi/runtime/tests/test-merge-sync-skip.sh || return 1
+  # The walk mutant's red proof builds the UI twice, so the gate runs only the
+  # runner's hermetic mode here; the browser proof itself is one command by hand
+  # (rsi/runtime/ux/walk-mutant-test.sh).
+  bash rsi/runtime/tests/test-walk-mutant.sh || return 1
+  bash rsi/runtime/tests/test-journeys-smoke-assets.sh || return 1
+  bash rsi/runtime/ux/walk-mutant-test.sh --print-manifest >/dev/null || return 1
+  bash rsi/runtime/tests/test-ux-walker.sh || return 1
+  bash rsi/runtime/tests/test-loop-sendback-stale.sh || return 1
+  bash rsi/runtime/tests/test-lane-autofill.sh || return 1
+  bash rsi/runtime/tests/test-sendback-provenance.sh || return 1
+  bash rsi/runtime/tests/test-release.sh || return 1
+  bash rsi/runtime/tests/test-pace.sh || return 1
+  bash rsi/runtime/tests/test-control-sync.sh || return 1
   bash rsi/runtime/tests/test-install.sh || return 1
+  bash rsi/runtime/tests/test-utf8-truncation.sh || return 1
+  bash rsi/runtime/tests/test-reviewer-misses.sh || return 1
+  bash rsi/runtime/tests/test-live-config-ignore.sh || return 1
+  bash rsi/runtime/tests/test-lane-bash-timeout.sh || return 1
+  bash rsi/runtime/tests/test-lane-pr-retry.sh || return 1
   bash rsi/runtime/nas/tests/test-nas.sh || return 1
+  bash rsi/runtime/nas/tests/test-install-preflight.sh || return 1
   bash rsi/runtime/ux/retry-test.sh || return 1
+  bash rsi/runtime/tests/test-ux-gate-confirm-red.sh || return 1
   bash rsi/runtime/tests/test-wiring.sh
 }
 
@@ -251,6 +276,21 @@ job_ui_lint_guard() {
   ./scripts/ui-lint-guard.sh
 }
 
+# The journey walk's J3/J7 spec contracts, checked without a browser. walk.mjs's
+# --check-spec is the merge gate's proof that J3 presses Start, puts the mid-run
+# follow-up on screen before the first answer, and that J7 lands on the card the
+# notification named; a spec that regresses those rules must turn this job red
+# instead of reaching dogfooding. `-B` avoids __pycache__ in the tree.
+job_walk_contract() {
+  python3 -B scripts/journeys_walk_test.py || return 1
+}
+
+# The smoke summarizer reads the same journeys.json and walk.json, and its
+# fixture cases are hermetic and cheap, so they run beside the walk contract.
+job_journeys_smoke() {
+  python3 -B scripts/journeys_smoke_test.py || return 1
+}
+
 start gofmt job_gofmt
 start vet job_vet
 start gotest job_gotest
@@ -267,6 +307,8 @@ start python-syntax job_python_syntax
 start stories job_stories
 start ui-inventory job_ui_inventory
 start ui-lint-guard job_ui_lint_guard
+start walk-contract job_walk_contract
+start journeys-smoke job_journeys_smoke
 
 FAILED=()
 for i in "${!PIDS[@]}"; do

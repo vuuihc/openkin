@@ -462,10 +462,16 @@ export function ProviderSettingsSection({
               }),
             ]}
             onChange={onAgentDefaultChange}
+            describedBy="default-agent-desc"
           />
-          <span className="text-caption text-kin-muted">
-            {tr("settings.provider.defaultAgentHint")}
-          </span>
+          <div id="default-agent-desc" className="space-y-1">
+            <span className="block text-caption text-kin-muted">
+              {tr("settings.provider.defaultAgentHint")}
+            </span>
+            <span className="block text-caption text-kin-muted">
+              {tr("settings.provider.defaultAgentEffect")}
+            </span>
+          </div>
           {agentList.some((agent) => !agent.available) ? (
             <Link
               to="/agents"

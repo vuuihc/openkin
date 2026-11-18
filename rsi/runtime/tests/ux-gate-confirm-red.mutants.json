@@ -1,0 +1,30 @@
+[
+  {
+    "label": "first-walk HARD kept unchanged: the flaked J9 line still bills the rework round",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_confirm_flake_passes bash rsi/runtime/tests/test-ux-gate-confirm-red.sh",
+    "old": "      HARD=\"$(cat \"$UXD/confirm.hard\")\"",
+    "new": "      HARD=\"$HARD\""
+  },
+  {
+    "label": "confirm hook drops the journey selector, so the second walk cannot reproduce the named journeys",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_confirm_fails_only_reproduced bash rsi/runtime/tests/test-ux-gate-confirm-red.sh",
+    "old": "bash -c \"$RSI_UX_WALK_CMD\" _ \"$UXD/confirm\" \"$JOURNEYS\" >",
+    "new": "bash -c \"$RSI_UX_WALK_CMD\" _ \"$UXD/confirm\" \"\" >"
+  },
+  {
+    "label": "a confirm that cannot run clears the red instead of failing closed",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_confirm_unavailable_fails_closed bash rsi/runtime/tests/test-ux-gate-confirm-red.sh",
+    "old": "      CONF_SUMMARY=\"walk confirm: unavailable (${CRSN% }) — first-walk failures kept\"",
+    "new": "      HARD=\"\"; CONF_SUMMARY=\"walk confirm: unavailable (${CRSN% }) — first-walk failures kept\""
+  },
+  {
+    "label": "a screenshot-check line names its journey but is treated as unattributable, so the confirm cannot clear a flake",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_step_named_failure_is_confirmed bash rsi/runtime/tests/test-ux-gate-confirm-red.sh",
+    "old": "    m = re.match(r\"^([A-Za-z0-9_]+)/\", line) or re.match(r\"^(J[0-9]+)-\", line)",
+    "new": "    m = re.match(r\"^([A-Za-z0-9_]+)/\", line)"
+  }
+]

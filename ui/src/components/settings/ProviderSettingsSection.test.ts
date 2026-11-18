@@ -1,3 +1,4 @@
+// KIN-SETTINGS-001 — 改默认设置（J6）：本套件持有 provider 摘要与显示名的验收行。
 import { describe, expect, it } from "vitest";
 import type { ProviderEntry } from "../../api/client";
 import { providerDisplayName, providerSummary } from "./ProviderSettingsSection";

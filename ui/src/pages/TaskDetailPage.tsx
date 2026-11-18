@@ -8,7 +8,14 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useNavigationType,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { goBackToList } from "../lib/phoneBack";
 import { currentPhoneLocation, isPhoneLayout, phonePush } from "../lib/phoneNavigation";
 import {
@@ -51,6 +58,7 @@ import { useMinWidth } from "../hooks/useMinWidth";
 import { usePendingResources, useTaskResource } from "../api/useLiveResources";
 import { isImeKeyEvent } from "../lib/ime";
 import { taskIdFromPathname } from "../lib/sessionCache";
+import { runningSubagentCount } from "../lib/subagents";
 import ApprovalCard from "../components/cards/ApprovalCard";
 import LimitCard from "../components/cards/LimitCard";
 import UserQuestionCard from "../components/cards/UserQuestionCard";
@@ -110,8 +118,10 @@ import { clearFollowUpDraft, getFollowUpDraft, setFollowUpDraft } from "../lib/f
 import { clearSessionScroll, getSessionScroll, setSessionScroll } from "../lib/sessionScroll";
 import { modelPickerLabel, modelsForAgent } from "../lib/agentModels";
 import { panelForView, resolvePanel, type PanelContext } from "../lib/panels";
+import { dropSearchParam, parseWorkspaceLink, patchWorkspaceLink } from "../lib/workspaceDeepLink";
 import { useAppStore } from "../store/appStore";
 import { displayUserPrompt } from "../lib/attachments";
+import { taskDisplayTitle } from "../lib/taskTitle";
 
 /**
  * Single-column chat: user talks to the session host; @agents are task workers.
@@ -178,6 +188,10 @@ export default function TaskDetailPage({
     detail.data.deleted || (detail.error instanceof ApiError && detail.error.status === 404);
   const task = detail.data.task ?? (gone ? null : fallbackTask) ?? null;
   const events = detail.data.events;
+  // The header's one honest number: subagent calls the running turn still has
+  // in flight. Read from the raw events, not the transcript projection — the
+  // projection drops some task-only child tools and would undercount.
+  const subagentsRunning = useMemo(() => runningSubagentCount(events), [events]);
   const approvals = useMemo(
     () => pending.data.approvals.filter((item) => item.task_id === id),
     [id, pending.data.approvals],
@@ -226,6 +240,17 @@ export default function TaskDetailPage({
   const [queueReload, setQueueReload] = useState(0);
   const [usageLoading, setUsageLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  /**
+   * A send owns one pin of the transcript, not the whole in-flight window.
+   *
+   * `sending` can outlive the moment the reader reads: a queued message on a
+   * round blocked by an approval is answered long after the send. Following
+   * every event for that whole window dragged a reader who had scrolled up
+   * back to the bottom — the transcript lost the place they chose, and a
+   * conversation switch then restored that bottom instead of their line. The
+   * send pins once, when its bubble lands; after that the reader's scroll wins.
+   */
+  const pinAfterSendRef = useRef(false);
   const [awaitingReply, setAwaitingReply] = useState(false);
   /**
    * Sends the transcript has not echoed yet. The composer clears the input the
@@ -371,6 +396,10 @@ export default function TaskDetailPage({
   );
   const [workspaceOpenPath, setWorkspaceOpenPath] = useState<string | null>(null);
   const [workspaceOpenNonce, setWorkspaceOpenNonce] = useState(0);
+  // Bumped only when an applied link says the list (`panel=files`, no `file`):
+  // the panel leaves whatever file it was showing. A file the reader picked is
+  // the panel's own state, so this is the address's half of "Back to the list".
+  const [workspaceShowListNonce, setWorkspaceShowListNonce] = useState(0);
   /**
    * The file finder, owned by the page rather than the files panel: the
    * shortcut works with the panel closed, and the phone's action sheet needs an
@@ -438,9 +467,15 @@ export default function TaskDetailPage({
   // while the task loads), and the files panel is offered whenever there is a
   // task, so the store's answer is the panel's.
   const filesPanelOpen = shownPanel?.view === id && shownPanel.id === "files";
+  // The PR and publish are tabs of that same panel, so being on either is not
+  // leaving the files surface: the open file survives the visit and is still
+  // open — and still in the address — when a lens tab (or the header's Files
+  // button) comes back (TASTE 15).
+  const prSurfaceOpen = shownPanel?.view === id && shownPanel.id === "pr";
+  const publishSurfaceOpen = shownPanel?.view === id && shownPanel.id === "publish";
   useEffect(() => {
-    if (!filesPanelOpen) setWorkspaceOpenPath(null);
-  }, [filesPanelOpen]);
+    if (!filesPanelOpen && !prSurfaceOpen && !publishSurfaceOpen) setWorkspaceOpenPath(null);
+  }, [filesPanelOpen, prSurfaceOpen, publishSurfaceOpen]);
   const slow = useSlowHint(loading);
 
   const loadUsage = useCallback(async () => {
@@ -466,6 +501,7 @@ export default function TaskDetailPage({
     withdrawnRef.current = new Set();
     setWorkspaceOpenPath(null);
     setWorkspaceOpenNonce(0);
+    setWorkspaceShowListNonce(0);
     setSelectedWorkspaceId(undefined);
     stickToBottomRef.current = true;
     listAgents()
@@ -794,12 +830,17 @@ export default function TaskDetailPage({
     };
   }, [active, id, isNearBottom, markScrollReady]);
 
-  // Follow new content only when user was already at bottom, or just sent a message.
-  // Skip while keep-alive-hidden (clientHeight 0); stickToBottomRef keeps intent for restore.
+  // Follow new content only when user was already at bottom, or while the pin a
+  // send is owed has not happened yet. Skip while keep-alive-hidden
+  // (clientHeight 0); stickToBottomRef keeps intent for restore.
   // Instant pin — never smooth-scroll the main transcript.
   useLayoutEffect(() => {
     if (!didInitialScrollRef.current) return;
-    if (!(stickToBottomRef.current || sending)) return;
+    if (!(stickToBottomRef.current || (sending && pinAfterSendRef.current))) return;
+    // The send's pin belongs to the commit that lands its bubble. A pane that
+    // cannot scroll right now (keep-alive-hidden) spends it rather than
+    // deferring it to an unrelated event after the reader comes back.
+    pinAfterSendRef.current = false;
     const el = scrollRef.current;
     if (!el || el.clientHeight <= 0) return;
     el.scrollTop = el.scrollHeight;
@@ -817,8 +858,8 @@ export default function TaskDetailPage({
     seenEventCountRef.current = events.length;
     if (events.length <= previous) return;
     // The opening layout already lands at the end (or is still on its way); a
-    // keep-alive-hidden pane is not being read; a send is about to pin.
-    if (!didInitialScrollRef.current || !active || sending) return;
+    // keep-alive-hidden pane is not being read; a send's pin is still owed.
+    if (!didInitialScrollRef.current || !active || (sending && pinAfterSendRef.current)) return;
     if (stickToBottomRef.current) return;
     setUnseen((count) => count + (events.length - previous));
   }, [events.length, active, sending]);
@@ -918,6 +959,53 @@ export default function TaskDetailPage({
     return orderPending([...pending, ...decided].sort((a, b) => a.created_at - b.created_at));
   }, [needsYou, decidedCards, events]);
 
+  // The band under the transcript names the oldest waiting approval and can
+  // decide it — but the card in the transcript already carries Approve and
+  // Deny, and two primaries for one decision is what the one-primary rule
+  // forbids. So the page watches that card: while it is on screen the band
+  // keeps its locator row and drops the duplicate. The card is observed at the
+  // transcript scroller, which is what "visible" means here; scroll arithmetic
+  // cannot answer it (a card taller than the viewport, a hidden pane, a
+  // dislocated scroll position all lie).
+  const oldestPending = needsYou[0] ?? null;
+  const oldestPendingId =
+    oldestPending !== null && oldestPending.kind === "approval" ? oldestPending.id : null;
+  // Where the card sits in the stream. A late event can give an unanchored
+  // card a place, which remounts its node; the observer has to follow it.
+  const oldestPendingSeq = oldestPending?.seq ?? null;
+  const [pendingCardOnScreen, setPendingCardOnScreen] = useState(false);
+  useEffect(() => {
+    // Off screen is the honest starting point, and the answer when the browser
+    // has no observer: the band keeps the decision rather than losing it.
+    setPendingCardOnScreen(false);
+    if (!oldestPendingId) return;
+    const root = scrollRef.current;
+    if (!root || typeof IntersectionObserver === "undefined") return;
+    let target: Element | null = null;
+    for (const node of root.querySelectorAll("[data-pending-id]")) {
+      if (node.getAttribute("data-pending-id") !== oldestPendingId) continue;
+      target = node;
+      break;
+    }
+    // A card that is not in the transcript cannot be seen by the reader; the
+    // initial `false` already says so.
+    if (!target) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // Only this card speaks for this row. An entry about a node the page
+        // has since replaced is stale and is dropped rather than deciding
+        // whether the band shows its Approve.
+        for (const entry of entries) {
+          if (entry.target !== target) continue;
+          setPendingCardOnScreen(entry.isIntersecting);
+        }
+      },
+      { root },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [oldestPendingId, oldestPendingSeq]);
+
   // A notification names the card it is about (`/tasks/<id>?focus=<item>`),
   // because "open the conversation" alone makes a reader hunt for the answer
   // they were told was waiting. Consume it once the pending list can answer:
@@ -925,8 +1013,9 @@ export default function TaskDetailPage({
   // The parameter is then dropped, so a refresh or Back does not pull the
   // reader to a card they already saw — and a later tap on the same banner is
   // a fresh navigation rather than a replay of this one.
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const { pathname } = useLocation();
+  const navigationType = useNavigationType();
   // The route names the conversation the tap was for. A pane kept alive out of
   // sight still renders while the next one loads (`TaskSessionHost`), and it
   // must not answer a link about a different conversation: consuming it there
@@ -940,15 +1029,13 @@ export default function TaskDetailPage({
   const consumedFocus = useRef<string | null>(null);
   const requestedFocusRefresh = useRef<string | null>(null);
   const dropFocusParam = useCallback(() => {
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.delete("focus");
-        return next;
-      },
-      { replace: true },
-    );
-  }, [setSearchParams]);
+    // Raw byte edit, not `URLSearchParams`: a neighbouring `?file=src/a%20b.ts`
+    // would be re-encoded (`/` as `%2F`, `%20` as `+`) on its way through.
+    const here = locationRef.current;
+    const next = dropSearchParam(here.search, "focus");
+    if (next === here.search) return;
+    navigate({ pathname: here.pathname, search: next }, { replace: true });
+  }, [navigate]);
   // The link stops naming an item once it is consumed. Clearing on the way out
   // is what makes a second tap on the same banner a new navigation instead of
   // a replay this pane silently swallows.
@@ -998,19 +1085,129 @@ export default function TaskDetailPage({
     dropFocusParam,
   ]);
 
+  // `/tasks/<id>?panel=files&file=<path>` is an address, not a moment: a
+  // refresh, a paste, a Forward and an arrival from anywhere else all land on
+  // the same file. On arrival and on Back/Forward the URL owns the panel; the
+  // page's own controls write it instead (and push, one entry per action).
+  // A pane kept alive out of sight answers nothing here — the same guard the
+  // `?focus=` link uses, because consuming the link there would drop it before
+  // the routed pane ever saw it.
+  const appliedWorkspaceKey = useRef<string | null>(null);
+  const writeWorkspaceSearch = useCallback(
+    (next: string, opts?: { replace?: boolean }) => {
+      const here = locationRef.current;
+      // Never navigate to the location already showing: React Router would
+      // push a second, identical entry for a read that changed nothing.
+      if (next === here.search) return;
+      navigate({ pathname: here.pathname, search: next }, { replace: opts?.replace });
+    },
+    [navigate],
+  );
+  useEffect(() => {
+    // A pane kept alive out of sight is not current: drop what it applied, so
+    // Back onto the very entry it left re-reads the address instead of
+    // trusting a key from before another conversation took the screen.
+    if (!active || routedId !== id) {
+      appliedWorkspaceKey.current = null;
+      return;
+    }
+    if (!task) return;
+    // The focus consumer owns its own key and must drop it first; two writers
+    // on one location would put back the parameter the other just removed.
+    if (focusParam) return;
+    const here = locationRef.current;
+    // Keyed by the location's key, which is read here as well as in the guard:
+    // Back after a refresh, or two Backs in a row, leave the search and the
+    // navigation type ("POP" both times) unchanged, so only the key says the
+    // address moved and the newly applied entry still has to run.
+    if (appliedWorkspaceKey.current === location.key) return;
+    appliedWorkspaceKey.current = location.key;
+    const link = parseWorkspaceLink(here.search);
+    if (link === null) {
+      // Back/Forward to a conversation: the address says no panel, so the pane
+      // closes. A push the page made itself already closed it.
+      if (navigationType === "POP" && filesPanelOpen) hidePanel(id);
+      return;
+    }
+    if (!link.explicit) {
+      // A stale `file` names no panel: drop only that key and open nothing.
+      writeWorkspaceSearch(dropSearchParam(here.search, "file"), { replace: true });
+      return;
+    }
+    // The URL is canonical after this read (a refusal drops only `file`). It is
+    // a no-op for a link that was already clean, so an arrival never grows the
+    // history by one.
+    writeWorkspaceSearch(patchWorkspaceLink(here.search, { panel: "files", file: link.file }), {
+      replace: true,
+    });
+    showPanel(id, "files");
+    if (link.file) {
+      if (workspaceOpenPath !== link.file) {
+        // Same path + same nonce is ignored inside the panel; bump once per
+        // arrival so Forward onto the same file opens it again.
+        setWorkspaceOpenPath(link.file);
+        setWorkspaceOpenNonce((n) => n + 1);
+      }
+    } else {
+      // The applied link names the list. Whatever file the panel was showing
+      // belongs to an entry the reader has left, so drop it — and drop the
+      // pulse path too, or Forward onto the file would look like the file the
+      // panel already shows and pulse nothing.
+      setWorkspaceOpenPath(null);
+      setWorkspaceShowListNonce((n) => n + 1);
+    }
+  }, [
+    active,
+    routedId,
+    id,
+    task,
+    focusParam,
+    navigationType,
+    filesPanelOpen,
+    hidePanel,
+    showPanel,
+    workspaceOpenPath,
+    writeWorkspaceSearch,
+    location.key,
+  ]);
+
   // The card exists only after the render that follows `setFocusIdx`; looking
-  // for its node in the same effect would find the previous list.
+  // for its node in the same effect would find the previous list. A real page
+  // also lays out after that render: the transcript scroller is `invisible`
+  // until it has positioned its scroll (`scrollReady`), and a node inside a
+  // `visibility:hidden` subtree cannot take focus — `focus()` returns without
+  // firing focusin. Keep the reveal pending and retry, rather than consuming
+  // the link's landing on a focus call that silently did nothing.
   useEffect(() => {
     if (!revealId) return;
-    setRevealId(null);
-    const nodes = scrollRef.current?.querySelectorAll("[data-pending-id]") ?? [];
-    for (const node of nodes) {
-      if (node.getAttribute("data-pending-id") !== revealId) continue;
-      node.scrollIntoView?.({ block: "nearest" });
-      stickToBottomRef.current = false;
-      if (node instanceof HTMLElement) node.focus({ preventScroll: true });
-      break;
-    }
+    let raf = 0;
+    const deadline = Date.now() + 10000;
+    const attempt = (): boolean => {
+      const nodes = scrollRef.current?.querySelectorAll("[data-pending-id]") ?? [];
+      for (const node of nodes) {
+        if (node.getAttribute("data-pending-id") !== revealId) continue;
+        node.scrollIntoView?.({ block: "nearest" });
+        stickToBottomRef.current = false;
+        if (node instanceof HTMLElement) node.focus({ preventScroll: true });
+        if (document.activeElement === node) {
+          setRevealId(null);
+          return true;
+        }
+        return false;
+      }
+      return false;
+    };
+    if (attempt()) return;
+    const retry = () => {
+      if (attempt()) return;
+      if (Date.now() >= deadline) {
+        setRevealId(null);
+        return;
+      }
+      raf = requestAnimationFrame(retry);
+    };
+    raf = requestAnimationFrame(retry);
+    return () => cancelAnimationFrame(raf);
   }, [revealId]);
 
   useEffect(() => {
@@ -1288,8 +1485,9 @@ export default function TaskDetailPage({
     const sent = pendingSend(text, events);
     setPendingSends((current) => [...current, sent]);
     // Sending is choosing the end of the conversation; the pill has nothing
-    // left to offer, and the follow effect below pins the new bubble.
+    // left to offer, and the follow effect below pins the new bubble — once.
     setUnseen(0);
+    pinAfterSendRef.current = true;
     setSending(true);
     setAwaitingReply(true);
     // The draft as the composer left it when it submitted — normally empty,
@@ -1416,7 +1614,10 @@ export default function TaskDetailPage({
 
   async function onDelete() {
     if (!task) return;
-    const title = (task.title || displayUserPrompt(task.prompt || "") || task.id).trim();
+    // The prompt names the conversation the person is about to lose, so it
+    // uses the same expression as the header behind it; the id is the last
+    // resort because a prompt with no name at all names nothing.
+    const title = taskDisplayTitle(task) || task.id;
     const ok = window.confirm(tr("task.deleteConfirm") + (title ? `\n\n${title}` : ""));
     if (!ok) return;
     setDeleting(true);
@@ -1484,6 +1685,34 @@ export default function TaskDetailPage({
     }
   }
 
+  /**
+   * A file picked inside the files panel — a tree row, a changed row, or a
+   * comment pointing at another file.
+   *
+   * The panel has already loaded it; this only records the address: exactly
+   * one push and one entry, and no arrival pulse, or the panel would read the
+   * same file a second time. Two cases are not durable addresses and write the
+   * list instead: a generation snapshot (its paths need not exist in the
+   * checkout the address resolves against) and a path the checkout cannot
+   * name. A link that lands on an error is worse than no link.
+   */
+  function onPanelSelectPath(filePath: string) {
+    if (!task || routedId !== id) return;
+    const next = toWorkspaceRelativePath(task.cwd, filePath);
+    const file = !next || next === "." || selectedWorkspaceId ? null : next;
+    // The workspace root is the panel's Back-to-files, not a new selection:
+    // it names the list, and replacing the file entry is what makes Back
+    // leave the panel for the conversation instead of cycling between list
+    // and file. Any real path pushes one entry, as a pick always did.
+    writeWorkspaceSearch(
+      patchWorkspaceLink(locationRef.current.search, { panel: "files", file }),
+      next === "." ? { replace: true } : undefined,
+    );
+    // No nonce bump: the panel loaded the file it just reported. Recording the
+    // path is what keeps the arrival effect from pulsing it again.
+    if (file) setWorkspaceOpenPath(file);
+  }
+
   function onOpenWorkspacePath(filePath: string): boolean {
     if (!task) return false;
     // If the path is already a canonical repo-relative path, use it directly.
@@ -1497,6 +1726,15 @@ export default function TaskDetailPage({
     setWorkspaceOpenPath(next);
     // Bump the nonce so re-clicking the same path re-loads/focuses it.
     setWorkspaceOpenNonce((n) => n + 1);
+    // A page-owned "open this file" is a user action: it writes the address
+    // and pushes one entry. `.` is the checkout itself, not a file, so the URL
+    // names the list while the panel still gets the pulse it always did.
+    writeWorkspaceSearch(
+      patchWorkspaceLink(locationRef.current.search, {
+        panel: "files",
+        file: next === "." ? null : next,
+      }),
+    );
     return true;
   }
 
@@ -1514,14 +1752,68 @@ export default function TaskDetailPage({
 
   const changedFiles = useMemo(() => extractChangedFiles(events), [events]);
 
-  // The agent's last answer, as the publish sheet's opening draft. Recomputed
+  // The agent's last answer, as the publish tab's opening draft. Recomputed
   // only when the stream changes, because it walks the whole transcript.
   const publishDraft = useMemo(() => publishDraftFrom(events), [events]);
 
+  /** Opening the panel is a place the reader can share: one history entry. */
   function openFilesPanel() {
     showPanel(id, "files");
+    writeWorkspaceSearch(
+      patchWorkspaceLink(locationRef.current.search, { panel: "files", file: null }),
+    );
   }
 
+  /** Closing returns the address to the conversation, also one entry. */
+  function closeFilesPanel() {
+    hidePanel(id);
+    writeWorkspaceSearch(patchWorkspaceLink(locationRef.current.search, null));
+  }
+
+  function toggleFilesPanel() {
+    if (filesPanelOpen) closeFilesPanel();
+    // Coming back from the PR or publish tab is a change of view inside one
+    // panel, so it keeps the file the reader had open (see `showFilesSurface`);
+    // opening the panel from the conversation starts from the list.
+    else if (prSurfaceOpen || publishSurfaceOpen) showFilesSurface();
+    else openFilesPanel();
+  }
+
+  /**
+   * A lens tab picked while the pull-request or publish tab was in front.
+   *
+   * The lenses and those surfaces are tabs of one panel, so choosing a lens is
+   * choosing the files surface: the page records it the way a file pick does.
+   * Unlike `openFilesPanel`, this keeps the file the reader had open in the
+   * address — the tab changed the view, not the place (TASTE 15).
+   */
+  function showFilesSurface() {
+    if (!task || routedId !== id) return;
+    showPanel(id, "files");
+    const open = workspaceOpenPath ? toWorkspaceRelativePath(task.cwd, workspaceOpenPath) : null;
+    writeWorkspaceSearch(
+      patchWorkspaceLink(locationRef.current.search, {
+        panel: "files",
+        // "." is the checkout itself, not a file; the address names the list.
+        file: open === "." ? null : open,
+      }),
+    );
+  }
+
+  /**
+   * The pull-request panel is read-only state about this session's branch, so
+   * it has no address of its own and no mirror besides the open panel: one
+   * tap either opens it or closes it, wherever the tap came from.
+   */
+  function togglePrPanel() {
+    togglePanel(id, "pr");
+  }
+
+  /**
+   * Publish is the workspace panel's fourth tab, so this only moves the surface
+   * the one panel is showing — nothing is opened beside it, and the panel's one
+   * close still closes it.
+   */
   function openPublishPanel() {
     showPanel(id, "publish");
   }
@@ -1724,6 +2016,7 @@ export default function TaskDetailPage({
   };
   const panel = resolvePanel(panelForView(shownPanel, id), panelCtx);
   const filesOpen = panel === "files";
+  const prOpen = panel === "pr";
   const project = projectLabel(task.cwd);
   const degraded = wsStatus !== "connected" && !terminal;
   // The session's agent belongs to the machine that runs it, not to this one.
@@ -1822,7 +2115,8 @@ export default function TaskDetailPage({
       label: tr("workspace.find.action"),
       onSelect: () => setFileFinderOpen(true),
     },
-    { id: "files", label: tr("workspace.title"), onSelect: () => togglePanel(id, "files") },
+    { id: "files", label: tr("workspace.title"), onSelect: () => toggleFilesPanel() },
+    { id: "pr", label: tr("pr.title"), onSelect: () => togglePrPanel() },
     ...(!terminal
       ? [
           {
@@ -1866,14 +2160,19 @@ export default function TaskDetailPage({
           project={project}
           terminal={terminal}
           degraded={degraded}
+          // A finished turn has no live state, even if a stale event still
+          // looks open: the header must not outlive the run it described.
+          subagentsRunning={terminal ? 0 : subagentsRunning}
           filesOpen={filesOpen}
+          prOpen={prOpen}
           panelOpen={panel !== null}
           archiving={archiving}
           deleting={deleting}
           stopping={stopping}
           onToggleWorkspace={() => {
-            togglePanel(id, "files");
+            toggleFilesPanel();
           }}
+          onTogglePr={() => togglePrPanel()}
           onShare={() => setShareOpen(true)}
           onToggleArchive={onToggleArchive}
           onDelete={onDelete}
@@ -1882,7 +2181,7 @@ export default function TaskDetailPage({
           onOpenActions={() => setActionsOpen(true)}
           // One surface at a time: bringing the list back closes the panel
           // rather than leaving both columns to squeeze the conversation.
-          onShowList={() => hidePanel(id)}
+          onShowList={() => closeFilesPanel()}
         />
 
         {!wide && (
@@ -2095,6 +2394,7 @@ export default function TaskDetailPage({
           machine={machine}
           waitingCount={needsYou.length}
           pendingIsApproval={needsYou[0]?.kind === "approval"}
+          pendingCardOnScreen={pendingCardOnScreen}
           pendingApprovalBusy={needsYou[0] ? Boolean(busy[needsYou[0].id]) : false}
           onRevealFirstPending={revealFirstPending}
           // The oldest waiting decision, through the same path the inline card
@@ -2110,6 +2410,7 @@ export default function TaskDetailPage({
         task={task}
         machine={machine}
         panel={panel}
+        active={active}
         panelCtx={panelCtx}
         usage={usage}
         usageLoading={usageLoading}
@@ -2119,10 +2420,17 @@ export default function TaskDetailPage({
         terminal={terminal}
         workspaceOpenPath={workspaceOpenPath}
         workspaceOpenNonce={workspaceOpenNonce}
+        workspaceShowListNonce={workspaceShowListNonce}
         selectedWorkspaceId={selectedWorkspaceId}
         onSelectWorkspace={setSelectedWorkspaceId}
         onOpenPath={onOpenWorkspacePath}
+        onPanelSelectPath={onPanelSelectPath}
         onOpenFilesPanel={openFilesPanel}
+        // The tab opens the surface; it does not toggle it. Only the header
+        // button and the phone action sheet toggle, which is why the panel
+        // itself cannot be the thing that decides.
+        onOpenPr={() => showPanel(id, "pr")}
+        onShowFiles={showFilesSurface}
         onKeepAll={onKeepAllChanges}
         onDiscardAll={onDiscardAllChanges}
         onPublish={openPublishPanel}
@@ -2134,7 +2442,7 @@ export default function TaskDetailPage({
           // failed — there is no composer here to restore or toast from.
           await onComposer(text);
         }}
-        onClosePanel={() => hidePanel(id)}
+        onClosePanel={() => closeFilesPanel()}
         publishDraft={publishDraft}
         onPublishRowChanged={() => void liveResources.refreshTask(task.id, true)}
       />

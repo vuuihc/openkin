@@ -366,7 +366,7 @@ export default function Popover({
           bottom: anchor.bottom,
         }}
         className={[
-          "fixed z-50 overflow-y-auto kin-scroll rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated shadow-e3 focus:outline-none",
+          "fixed z-50 overflow-y-auto kin-scroll rounded-2xl kin-glass-float focus:outline-none",
           padded ? "p-1.5" : "",
           className,
         ]

@@ -13,6 +13,8 @@ This file is the policy. `runtime/escalate.py` enforces it and logs every decisi
 | Second code reviewer (`reviewer-alt`, risky paths or >500 lines) | `agy/gemini-4-hydrogen-medium` (or `hydrogen-high` for F/S/architecture or disagreement) | — | Antigravity Google consumer sign-in. Not Volcengine. Standing “different family” requirement. |
 | UX vision reviewer | `agy/gemini-4-hydrogen-medium` (Hydrogen is multimodal; `hydrogen-high` for F/S/architecture) | — | Same Antigravity account. `gpt-6.1-sol` via `claude -p` is the fallback if Hydrogen/agy is limited. |
 
+**Kimi is the advisor, not the daily loop (Ethan 2026-11-17).** No worker, rework, director, fill, planner or dream run resolves to Kimi: `runtime/common.sh` pins `ANTHROPIC_DEFAULT_OPUS_MODEL` to DeepSeek so even a Claude Code internal "opus" turn stays cheap, and the global `~/.claude` mapping is not inherited by loop processes. The one routine Kimi caller is the CEO advisor (≤1 per patrol, ≤3 per day, `pi -p --model magpie/auto/kimi-k3.1-pro`); the only other case is item 4 below, as the last resort.
+
 Do not start from Kimi or Carbon. DeepSeek at `--effort max` is the first lever for harder control-plane work. Strong reviews start on Hydrogen-medium, not on sol.
 
 ## When escalation is necessary
@@ -32,7 +34,7 @@ Once a signal fires, pick the first model that fits and is available. Cost sourc
 1. **Hydrogen first** (`agy` `gemini-4-hydrogen-medium` by default; `gemini-4-hydrogen-high` only for Astryx F1–F4 / S1–S3, architecture-marked or cross-cutting work, or a second strong pass after reviewer disagreement). Never `gemini-4-hydrogen-xhigh` by default. Invoked non-interactively with `agy -p --model <id> --output-format json --sandbox --disable-slash-commands` under the local Antigravity Google consumer sign-in (zshisme; no GCP quota project). The PR diff is attached inline (and as a file) so the model does not need Bash; `read_file` is allowed so UX reviews can open screenshots. This is not the Factory/Droid alias `factory/gemini-4-*` (do not use those from this loop).
 2. **`gpt-6.1-sol` second** (ChatGPT Plus via Codex / `claude -p` for images). Fallback when agy is disabled, unsigned, or rate-limited, and for UX if Hydrogen cannot be reached.
 3. **Carbon (Antigravity `gemini-4-carbon-high`) third**, same `agy` path, same consumer sign-in, for a further independent opinion.
-4. **Kimi k3.1 pro last.** Company Volcengine key, official list CNY. Only if Hydrogen, Codex and Carbon are all unavailable (missing CLI, auth, or API/quota error) **and** today’s Kimi list CNY is under ¥80 (`RSI_VOLC_KIMI_DAY_MAX`) **and** overall Volcengine list CNY is under ¥450 (`RSI_VOLC_KIMI_MAX`). Otherwise stay on the last working subscription model.
+4. **Kimi k3.1 pro last.** Company Volcengine key, official list CNY. Only if Hydrogen, Codex and Carbon are all unavailable (missing CLI, auth, or API/quota error) **and** today’s Kimi list CNY is under ¥150 (`RSI_VOLC_KIMI_DAY_MAX`) **and** overall Volcengine list CNY is under ¥450 (`RSI_VOLC_KIMI_MAX`). Otherwise stay on the last working subscription model.
 
 ## Tiered review (CEO 2026-11-15, `runtime/review-tier.py`)
 
@@ -54,7 +56,7 @@ A strong review is cached per head SHA in `state/merge/<slug>.strong` (+ `.stron
 
 Mac magpie, official 方舟 list CNY, Asia/Singapore day, cache billed as cache. Official list CNY is not 1:1 with company “credits.”
 
-- Kimi daily cap ¥80 → further Kimi blocked, fall back as above.
+- Kimi daily cap ¥150 → further Kimi blocked, fall back as above.
 - Overall ≥¥450 → no Kimi.
 - ≥¥560 → do not *start* new worker lanes, box pack, or NAS pulse until the next Singapore day. In-flight jobs finish; ingest/acks still run.
 
@@ -64,7 +66,9 @@ Every *new* strong-model review writes `rsi/state/escalations.jsonl` and a line 
 
 `run.sh` daily/dream refresh `rsi/state/escalations-weekly.md`. That file has a **daily worth-it line**: counts by trigger, and how many strong reviews found issues DeepSeek missed (strong `FAIL` with a substantive blocker/major after DeepSeek `PASS`) versus agreed. That is the metric for Ethan. The morning brief reads the file under 数据.
 
-After 2–3 days, also compare with `reviewer-misses.py` (PRs reverted or reopened after a merge-lane land).
+After 2–3 days, also compare with the per-reviewer ledger: `python3 rsi/runtime/reviewer-misses.py --update`
+writes `rsi/state/reviewer-misses.md` (PRs reverted or reopened after a merge-lane land), and `--status`
+prints the one-line read. It is evidence, not a gate.
 
 ## How to invoke Hydrogen (and Carbon)
 

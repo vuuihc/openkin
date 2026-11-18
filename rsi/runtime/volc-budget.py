@@ -9,7 +9,7 @@ DeepSeek V4.1 Flash peak hours (official docs): Mon–Fri 09:00–12:00 and
 Cache hits use the official cache-hit unit price. Codex/ChatGPT rows are ignored.
 
 Exit codes for --allow-kimi / --allow-workers: 0 allowed, 1 blocked, 2 error.
---allow-kimi also requires today's Kimi list CNY < RSI_VOLC_KIMI_DAY_MAX (default 80).
+--allow-kimi also requires today's Kimi list CNY < RSI_VOLC_KIMI_DAY_MAX (default 150).
 Decisions are logged under $RSI_STATE (or rsi/state next to this file).
 """
 from __future__ import annotations
@@ -30,7 +30,7 @@ DS_OFF = dict(in_=1.0, cache=0.02, out=4.0)
 DS_PEAK = dict(in_=2.0, cache=0.04, out=8.0)
 
 DEFAULT_KIMI_MAX = 450.0
-DEFAULT_KIMI_DAY_MAX = 80.0  # Kimi-only daily cap; remaining escalations fall back to gpt-6.1-sol
+DEFAULT_KIMI_DAY_MAX = 150.0  # Kimi-only daily cap (CEO 2026-11-17: 80 -> 150; advisor quota loosened); remaining escalations fall back to gpt-6.1-sol
 DEFAULT_STOP_WORKERS = 560.0
 DEFAULT_CACHE_SECS = 180
 
@@ -354,7 +354,7 @@ def apply(data: dict) -> dict:
         log_line(
             state,
             f"decision: day={day} cny=¥{cny:.2f} level={lvl} (was day={prev_day or '-'} {prev_lvl or '-'}) "
-            f"kimi_max=¥{data['kimi_max']:.0f} kimi_day=¥{data.get('kimi_day_max', 80):.0f} kimi_cny=¥{data.get('kimi_cny', 0):.2f} stop=¥{data['stop_workers']:.0f} source={data['source']}",
+            f"kimi_max=¥{data['kimi_max']:.0f} kimi_day=¥{data.get('kimi_day_max', DEFAULT_KIMI_DAY_MAX):.0f} kimi_cny=¥{data.get('kimi_cny', 0):.2f} stop=¥{data['stop_workers']:.0f} source={data['source']}",
         )
     return data
 
@@ -366,7 +366,7 @@ def export_sh(data: dict) -> str:
         f"RSI_VOLC_LEVEL={data['level']}\n"
         f"RSI_VOLC_DAY={data['day']}\n"
         f"RSI_VOLC_KIMI_MAX={data['kimi_max']}\n"
-        f"RSI_VOLC_KIMI_DAY_MAX={data.get('kimi_day_max', 80)}\n"
+        f"RSI_VOLC_KIMI_DAY_MAX={data.get('kimi_day_max', DEFAULT_KIMI_DAY_MAX)}\n"
         f"RSI_VOLC_KIMI_CNY={data.get('kimi_cny', 0)}\n"
         f"RSI_VOLC_STOP_WORKERS={data['stop_workers']}\n"
     )

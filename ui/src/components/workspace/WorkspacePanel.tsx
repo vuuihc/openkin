@@ -8,6 +8,8 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from "react";
 import {
   getTaskSourceChanges,
@@ -31,7 +33,7 @@ import {
 } from "../../lib/changedFiles";
 import WorkspaceGenerationPicker from "./WorkspaceGenerationPicker";
 import { projectLabel, shortPath, toWorkspaceRelativePath } from "../../lib/paths";
-import { IconBack, IconPanel, IconSearch, IconSend, IconSpinner, IconX } from "../icons";
+import { IconBack, IconPanel, IconSearch, IconSpinner, IconX } from "../icons";
 import Button from "../ui/Button";
 import Tabs from "../ui/Tabs";
 import DeltaInline from "../changedFileFace";
@@ -43,8 +45,10 @@ import {
   newCommentId,
   readDiffComments,
   writeDiffComments,
+  type CommentAnchorState,
   type DiffAnchor,
   type DiffComment,
+  type ReanchoredComment,
 } from "./diffCommentAnchor";
 import FileTree from "./FileTree";
 
@@ -56,9 +60,18 @@ import {
   workspaceViewKey,
   workspaceViewFileBytesURL,
 } from "./workspaceView";
-import { DelimitedTablePane, DownloadPreview, ImagePreview } from "./FilePreview";
+import {
+  DelimitedTablePane,
+  DownloadPreview,
+  HtmlPreviewPane,
+  HtmlViewToggle,
+  ImagePreview,
+} from "./FilePreview";
+import { isHtmlPath } from "./htmlPreview";
 import { previewKind, workspaceErrorMessage } from "./workspacePreview";
 import { lensForPick } from "../../lib/workspaceLens";
+import { isImeKeyEvent } from "../../lib/ime";
+import { overlayOwnsKeyboard } from "../../lib/overlayOwnsKeyboard";
 import { useAppStore } from "../../store/appStore";
 
 // CodeViewer is the only thing that pulls in monaco-editor, which is by far the
@@ -75,6 +88,20 @@ type Props = {
   openPath?: string | null;
   /** Bumps each time the user re-opens a path (even the same one). */
   openNonce?: number;
+  /**
+   * A file the reader picked *inside* the panel (a tree row, a changed row, a
+   * comment on another file). The page owns the address and writes it; the
+   * link-arrival pulse above never reports, or an arrival would push the entry
+   * it just landed on.
+   */
+  onSelectPath?: (path: string) => void;
+  /**
+   * Bumps when an applied link says `panel=files` with no `file`: Back from a
+   * file onto the list. The panel drops the file it was showing, on a phone to
+   * the list pane. It is not the panel's own state — a selection is — so only
+   * the address can ask for it.
+   */
+  showListNonce?: number;
   onClose?: () => void;
   /** Task event stream — used to reconstruct edit diffs for highlighting. */
   events?: TaskEvent[];
@@ -92,14 +119,6 @@ type Props = {
   onDiscardAll?: () => void | Promise<void>;
   actionsBusy?: boolean;
   /**
-   * Opens the publish sheet, for a task whose checkout is on another machine.
-   *
-   * Omitted means this console has nothing to publish here — the session runs on
-   * the machine showing the page, where the person can push the branch
-   * themselves, and the Hub refuses the write for exactly that reason.
-   */
-  onPublish?: () => void;
-  /**
    * Opens the file finder, for a console that has one.
    *
    * The shortcut is the desktop's; this button is how a phone reaches the same
@@ -112,6 +131,47 @@ type Props = {
    * toast); the tray never calls the API itself.
    */
   onSendFollowUp?: (text: string) => Promise<void>;
+  /**
+   * Which of the panel's surfaces is in front.
+   *
+   * The pull request and publish are the panel's third and fourth tabs, not
+   * sheets of their own: they are drawn in this same container, under this same
+   * strip, behind this same close. The page owns that address (`panel: "pr"` /
+   * `panel: "publish"`), so this is read here and never written.
+   */
+  surface?: "files" | "pr" | "publish";
+  /**
+   * The pull-request body, drawn when `surface` is `"pr"`.
+   *
+   * Passed in rather than imported so this panel stays about files; the page
+   * hands it the read-only pane it already owns.
+   */
+  prPane?: ReactNode;
+  /**
+   * The publish body, drawn when `surface` is `"publish"`.
+   *
+   * Passed in for the same reason as `prPane`: the panel owns the strip, the
+   * container and the close; the page owns what publishing is.
+   */
+  publishPane?: ReactNode;
+  /** The PR tab was picked: the page opens the pull-request surface. */
+  onOpenPr?: () => void;
+  /**
+   * The publish tab was picked: the page opens the publish surface.
+   *
+   * Defining it is what puts the tab in the strip. Omitted means this console
+   * has nothing to publish here — the session runs on the machine showing the
+   * page, where the person can push the branch themselves, and the Hub refuses
+   * the write for exactly that reason — and a control that could only ever be
+   * refused is worse than no control.
+   */
+  onOpenPublish?: () => void;
+  /**
+   * A lens tab was picked while the PR or publish was in front: the page
+   * returns the panel to its files surface. The lens pick is already recorded;
+   * this only moves the address.
+   */
+  onShowFiles?: () => void;
 };
 
 /** One comment box draft per file line, kept while the panel lives. */
@@ -185,6 +245,8 @@ export default function WorkspacePanel({
   cwd,
   openPath,
   openNonce,
+  onSelectPath,
+  showListNonce,
   onClose,
   events,
   changedFiles: changedFilesProp,
@@ -194,9 +256,14 @@ export default function WorkspacePanel({
   reviewActions = false,
   onDiscardAll,
   actionsBusy = false,
-  onPublish,
   onFindFile,
   onSendFollowUp,
+  surface = "files",
+  prPane,
+  publishPane,
+  onOpenPr,
+  onOpenPublish,
+  onShowFiles,
 }: Props) {
   useT();
   const tr = useT();
@@ -263,6 +330,9 @@ export default function WorkspacePanel({
   // Part 2 re-anchors them against a fresh diff; nothing here assumes the
   // line numbers are still right.
   const [diffComments, setDiffComments] = useState<DiffComment[]>(() => readDiffComments(taskId));
+  // Part 2: where each comment points in the fresh diff, as the viewer last
+  // reported it. Display state only — the saved anchors are never rewritten.
+  const [commentAnchors, setCommentAnchors] = useState<Record<string, CommentAnchorState>>({});
   const [commentsTask, setCommentsTask] = useState(taskId);
   const [commentTarget, setCommentTarget] = useState<DiffAnchor | null>(null);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
@@ -270,6 +340,12 @@ export default function WorkspacePanel({
   // The send confirmation outlives the tray: clearing the list unmounts the
   // rows, so the acknowledgement has to live here rather than inside it.
   const [commentsSent, setCommentsSent] = useState(false);
+  // KIN-RESULT-003 §6: the most recent delete stays undoable — the comment
+  // and the position it held. One slot: another delete replaces it.
+  const [commentUndo, setCommentUndo] = useState<{
+    comment: DiffComment;
+    index: number;
+  } | null>(null);
   const [commentFocus, setCommentFocus] = useState<{
     line: number;
     nonce: number;
@@ -290,6 +366,9 @@ export default function WorkspacePanel({
   // A table is a reading view; the source is one click away, and that click is
   // the whole state. Reset by opening another file or place.
   const [tableAsCode, setTableAsCode] = useState(false);
+  // The same one-click state for an HTML file: its page, or its source. Reset
+  // with the table's, so opening another file starts at the page again.
+  const [htmlAsCode, setHtmlAsCode] = useState(false);
   // Reopening a file is a request to look again. The text read answers by
   // fetching, but an image or a download fetches in its own effect, so it needs
   // something that changes even when the path does not.
@@ -307,6 +386,19 @@ export default function WorkspacePanel({
   // changes: the way back, and the list the file was opened from.
   const asideRef = useRef<HTMLElement | null>(null);
   const backRef = useRef<HTMLButtonElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  // Where focus goes when this panel closes: the control the reader pressed to
+  // open it. Captured once, on mount, and only when that control is outside
+  // the panel — an element inside would be unmounted by the same close. No
+  // capture (a deep link opened the panel, or focus was on <body>) means no
+  // guess: closing leaves focus where the platform puts it.
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && rootRef.current && !rootRef.current.contains(active)) {
+      returnFocusRef.current = active;
+    }
+  }, []);
 
   const [sidebarWidth, setSidebarWidth] = useState(readStoredSidebarWidth);
   const sidebarWidthRef = useRef(sidebarWidth);
@@ -319,6 +411,10 @@ export default function WorkspacePanel({
   // layout effect corrects it before the first paint.
   const [panesWide, setPanesWide] = useState(true);
   useLayoutEffect(() => {
+    // The PR and publish surfaces draw no panes, so the first files render has
+    // to measure then — measuring only on mount would leave a panel that opened
+    // on another surface claiming a split layout it never had.
+    if (surface !== "files") return;
     const el = panesRef.current;
     if (!el) return;
     const apply = () => {
@@ -332,7 +428,7 @@ export default function WorkspacePanel({
     const observer = new ResizeObserver(apply);
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [surface]);
 
   sidebarWidthRef.current = sidebarWidth;
 
@@ -539,6 +635,7 @@ export default function WorkspacePanel({
       const reqID = ++requestRef.current;
       setSelectedPath(path);
       setTableAsCode(false);
+      setHtmlAsCode(false);
       // Every way into a file ends here — the change list, the tree, quick-open,
       // the changed-files bar. A phone shows the file from now on, including
       // the path this refuses: the refusal is the viewer's answer and belongs
@@ -586,16 +683,51 @@ export default function WorkspacePanel({
     [cwd, taskId, workspaceView],
   );
 
+  // The parent's "open this file" is a one-shot command, not a condition, and
+  // the path plus the nonce the parent bumps is its identity. It has to be
+  // consumed once: `loadFile` takes a new identity whenever the workspace view
+  // does — a generation refresh hands back a fresh `generations` array while it
+  // loads — and re-running the command then would drag a reader who pressed
+  // Back straight into the file again, or reopen a file the new checkout does
+  // not have.
+  const handledPulseRef = useRef<{ path: string; nonce: number | undefined } | null>(null);
+
+  /**
+   * Every way a person picks a file in this panel: report it, then load it.
+   *
+   * Deliberately not inside `loadFile`: the arrival pulse below ends there too,
+   * and an arrival is the address talking, not the reader. Reporting one would
+   * push the entry the reader just landed on.
+   */
+  const selectFile = useCallback(
+    (path: string) => {
+      // The page answers a pick by writing the address, and that prop change
+      // re-fires the arrival pulse below. Record the pick as already handled
+      // first — keyed by the workspace-relative form the page writes, which is
+      // what the pulse will see — or the file is read twice and the first
+      // answer thrown away.
+      handledPulseRef.current = {
+        path: toWorkspaceRelativePath(cwd, path) ?? path,
+        nonce: openNonce,
+      };
+      onSelectPath?.(path);
+      void loadFile(path);
+    },
+    [cwd, loadFile, onSelectPath, openNonce],
+  );
+
   // A different conversation is a different tray. Reading and persisting are
   // separate effects so a load for the new task can never be overwritten by
   // the previous task's comments in the same commit.
   useEffect(() => {
     if (commentsTask === taskId) return;
     setDiffComments(readDiffComments(taskId));
+    setCommentAnchors({});
     setCommentTarget(null);
     setCommentDrafts({});
     setCommentsCollapsed(false);
     setCommentsSent(false);
+    setCommentUndo(null);
     setCommentFocus(null);
     setCommentsTask(taskId);
   }, [taskId, commentsTask]);
@@ -648,19 +780,72 @@ export default function WorkspacePanel({
     [commentTarget, focusDiffLine],
   );
 
+  // The viewer reports after every diff update. Merge by id so a report for
+  // one file never drops what another file's diff taught us, and return the
+  // same object when nothing moved so a repeated report cannot re-render.
+  const reanchorCommentsForViewer = useCallback((results: ReanchoredComment[]) => {
+    setCommentAnchors((current) => {
+      let next: Record<string, CommentAnchorState> | null = null;
+      for (const result of results) {
+        const previous = current[result.id];
+        if (previous && previous.line === result.line && previous.stale === result.stale) {
+          continue;
+        }
+        next ??= { ...current };
+        next[result.id] = { line: result.line, stale: result.stale };
+      }
+      return next ?? current;
+    });
+  }, []);
+
   const jumpToComment = useCallback(
     (comment: DiffComment) => {
       // A comment may point into another file of the same conversation. Open it
       // first; the reveal request waits in CodeViewer until that diff mounts.
-      if (comment.path !== selectedPath) void loadFile(comment.path);
-      lastDiffLineRef.current = comment.line;
-      focusDiffLine(comment.line, comment.path);
+      // A jump is a selection like any other click, so the page hears about it.
+      if (comment.path !== selectedPath) {
+        onSelectPath?.(comment.path);
+        void loadFile(comment.path);
+      }
+      // The resolved line is display state: the saved anchor stays untouched,
+      // but jumping to a line number the rerun invalidated would land on the
+      // wrong code.
+      const line = commentAnchors[comment.id]?.line ?? comment.line;
+      lastDiffLineRef.current = line;
+      focusDiffLine(line, comment.path);
     },
-    [focusDiffLine, loadFile, selectedPath],
+    [commentAnchors, focusDiffLine, loadFile, onSelectPath, selectedPath],
   );
 
-  const deleteComment = useCallback((id: string) => {
-    setDiffComments((current) => current.filter((comment) => comment.id !== id));
+  const deleteComment = useCallback(
+    (id: string) => {
+      const index = diffComments.findIndex((comment) => comment.id === id);
+      const comment = diffComments[index];
+      if (!comment) return;
+      // Deletion is immediate; the slot keeps the row and its place so the
+      // undo can put it back between the same neighbours.
+      setCommentUndo({ comment, index });
+      setDiffComments((current) => current.filter((item) => item.id !== id));
+    },
+    [diffComments],
+  );
+
+  const restoreComment = useCallback((comment: DiffComment, index: number) => {
+    setDiffComments((current) => {
+      if (current.some((item) => item.id === comment.id)) return current;
+      const next = [...current];
+      next.splice(Math.min(index, next.length), 0, comment);
+      return next;
+    });
+    setCommentUndo(null);
+  }, []);
+
+  const editComment = useCallback((id: string, text: string) => {
+    // Words only: id, path, hunk header, quote, line and createdAt stay, so
+    // the row keeps pointing at the same code and the storage effect saves it.
+    setDiffComments((current) =>
+      current.map((comment) => (comment.id === id ? { ...comment, text } : comment)),
+    );
   }, []);
 
   const sendComments = useCallback(async () => {
@@ -672,6 +857,8 @@ export default function WorkspacePanel({
     // Only after the send resolved: a rejection leaves every comment in place.
     setDiffComments([]);
     setCommentsSent(true);
+    // A sent set cannot be resurrected by an undo that outlived it.
+    setCommentUndo(null);
     writeDiffComments(taskId, []);
   }, [diffComments, onSendFollowUp, taskId]);
 
@@ -692,14 +879,6 @@ export default function WorkspacePanel({
     setTurnOnly(false);
   }, [cwd, taskId, workspaceView.kind, workspaceView.workspaceId]);
 
-  // The parent's "open this file" is a one-shot command, not a condition, and
-  // the path plus the nonce the parent bumps is its identity. It has to be
-  // consumed once: `loadFile` takes a new identity whenever the workspace view
-  // does — a generation refresh hands back a fresh `generations` array while it
-  // loads — and re-running the command then would drag a reader who pressed
-  // Back straight into the file again, or reopen a file the new checkout does
-  // not have.
-  const handledPulseRef = useRef<{ path: string; nonce: number | undefined } | null>(null);
   useEffect(() => {
     if (!openPath) {
       // No pulse pending. Clearing here keeps the dedupe local to this ref
@@ -712,6 +891,31 @@ export default function WorkspacePanel({
     handledPulseRef.current = { path: openPath, nonce: openNonce };
     void loadFile(openPath);
   }, [openPath, openNonce, loadFile]);
+
+  // An applied link that says `panel=files` with no `file` is the list. Back
+  // onto it must drop the file the panel was showing — on a phone the list is
+  // the whole visible answer — and it must not re-read anything: the file was
+  // the entry the reader left. The page bumps this for that case alone; a
+  // selection is the panel's own state and never comes through here. Clearing
+  // state that is already clear is a no-op, so a first open of the list is one.
+  // Seeded with the mount value: the page passes its counter from the first
+  // render, and a from-scratch arrival (`?panel=files&file=…`) mounts with the
+  // file pulse already in flight. Bumping on that mount value would cancel the
+  // arrival read and land the reader on the list instead. Only a nonce that
+  // changes after mount clears.
+  const handledShowListRef = useRef<number | null>(showListNonce ?? null);
+  useEffect(() => {
+    if (showListNonce === undefined) return;
+    if (handledShowListRef.current === showListNonce) return;
+    handledShowListRef.current = showListNonce;
+    requestRef.current += 1;
+    setSelectedPath(null);
+    setPhoneView("list");
+    setFile(null);
+    setLoading(false);
+    setError(null);
+    setTableAsCode(false);
+  }, [showListNonce]);
 
   // What the viewer shows comes from the file's name, and the bytes of an
   // image or a download come from the byte routes rather than the text one.
@@ -778,9 +982,71 @@ export default function WorkspacePanel({
   // pane, so focus goes to the row that opened the file — the place the reader
   // left off — and that row is scrolled back into view, because hiding the pane
   // also reset the list's scroll.
+  //
+  // The address names the open file, so it must stop naming it: hand the page
+  // the workspace root, which is this panel's "no file" value (`.` resolves
+  // to the list link, not a file the checkout can open). Without that, a
+  // refresh, a shared link or a Forward reopens the file the reader just left.
+  // `selectFile` is deliberately not used: the reader is not picking the root.
   const goBackToFiles = () => {
     setPhoneView("list");
+    onSelectPath?.(cwd);
     focusFileList();
+  };
+
+  // Close means close and hand the keyboard back. The header's close button
+  // used to drop focus to <body> when the panel unmounted, so the next Tab
+  // started at the top of the page behind it.
+  const restoreTriggerFocus = useCallback(() => {
+    const target = returnFocusRef.current;
+    if (target?.isConnected) target.focus();
+  }, []);
+
+  const closePanel = useCallback(() => {
+    onClose?.();
+    restoreTriggerFocus();
+  }, [onClose, restoreTriggerFocus]);
+
+  // The strip is drawn in a different parent on each surface, so a switch
+  // unmounts the tab that had focus and the browser drops focus to <body>:
+  // the keyboard loses the panel, and Escape (which needs focus inside it)
+  // stops closing. When that happened, put focus back on the selected tab;
+  // a switch made from a control outside the panel keeps the reader there,
+  // and so does the first mount.
+  const surfaceRef = useRef(surface);
+  useEffect(() => {
+    if (surfaceRef.current === surface) return;
+    surfaceRef.current = surface;
+    if (document.activeElement !== document.body) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (document.activeElement !== document.body) return;
+      rootRef.current?.querySelector<HTMLElement>("[role=tab][aria-selected=true]")?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [surface]);
+
+  // Escape unwinds exactly one layer, and only from inside this one: the panel
+  // is an inspector column, not a modal, so a handler on its root is the
+  // "focus is in the visible layer" rule. A window listener would steal the
+  // key from the page the reader is actually in (TASTE 16). Layers above keep
+  // their own Escape; so do controls that already claimed it (the diff-comment
+  // box and the comments tray both preventDefault + stopPropagation).
+  const handlePanelKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Escape") return;
+    if (isImeKeyEvent(event.nativeEvent)) return;
+    if (event.defaultPrevented) return;
+    if (overlayOwnsKeyboard()) return;
+    // The stacked file pane's Escape belongs to the file view; the PR and
+    // publish tabs have no list behind them, so there Escape is the panel's
+    // close.
+    if (surface === "files" && phoneView === "file" && !panesWide && selectedPath) {
+      event.preventDefault();
+      goBackToFiles();
+      return;
+    }
+    if (!onClose) return;
+    event.preventDefault();
+    closePanel();
   };
 
   // A scope that leaves the open file out is a contradiction: the list says
@@ -804,8 +1070,109 @@ export default function WorkspacePanel({
     if (focusLost) focusFileList();
   }, [showingTurn, turnFiles, selectedPath, focusFileList]);
 
+  // One strip, drawn by whichever surface is in front: beside the list under
+  // the files surface, above the PR and publish bodies under their tabs. The
+  // finder is an action beside the tabs and never a tab of its own; the close
+  // is the container's one close, and it says what it closes.
+  const strip = (
+    <Tabs
+      items={[
+        {
+          id: "changes",
+          label: hasChanges
+            ? tr("workspace.tabChangesCount", { count: summaryFiles.length })
+            : tr("workspace.tabChanges"),
+          disabled: !hasChanges,
+        },
+        { id: "files", label: tr("workspace.tabFiles") },
+        // The pull request is a surface of this panel, so it is a tab of the
+        // one strip — not a control beside it and not a second sheet.
+        { id: "pr", label: tr("pr.title"), disabled: !onOpenPr },
+        // Publish is the fourth tab, and it exists only where publishing does:
+        // the page omits the handler for a checkout this Hub holds, and a tab
+        // that could only ever be refused is worse than no tab.
+        ...(onOpenPublish ? [{ id: "publish", label: tr("publish.title") }] : []),
+      ]}
+      value={surface === "pr" ? "pr" : surface === "publish" ? "publish" : lens}
+      onChange={(id) => {
+        if (id === "pr") {
+          onOpenPr?.();
+          return;
+        }
+        if (id === "publish") {
+          onOpenPublish?.();
+          return;
+        }
+        if (id === "changes" || id === "files") {
+          pickWorkspaceLens(taskId, viewKey, id);
+          // Choosing a lens while another surface is in front is also choosing
+          // the files surface, and only the page can move the address to agree.
+          // The pick above is what the panel opens on (TASTE 15).
+          if (surface !== "files") onShowFiles?.();
+        }
+      }}
+      ariaLabel={tr("workspace.sidebarTabs")}
+      className="flex-1"
+    />
+  );
+
+  const finderAction = onFindFile && (
+    <Button
+      variant="quiet"
+      onClick={onFindFile}
+      title={tr("workspace.find.actionHint")}
+      aria-label={tr("workspace.find.action")}
+      className="flex-none h-11 w-11 items-center justify-center p-0 text-kin-muted! sm:h-6 sm:w-6"
+    >
+      <IconSearch size={13} />
+    </Button>
+  );
+
+  const closeAction = onClose && (
+    <Button
+      variant="quiet"
+      onClick={closePanel}
+      className="flex-none h-11 w-11 items-center justify-center p-0 text-kin-muted sm:h-6 sm:w-6"
+      aria-label={
+        surface === "pr"
+          ? tr("pr.close")
+          : surface === "publish"
+            ? tr("publish.close")
+            : tr("workspace.close")
+      }
+    >
+      <IconX size={14} />
+    </Button>
+  );
+
+  // The PR and publish surfaces: the same container, strip and close as the
+  // lenses, with the page's pane as the content. An early return rather than a
+  // branch inside the markup, so the files surface below stays exactly the
+  // markup it was: one tab switch is a different surface, not a different
+  // panel.
+  if (surface !== "files") {
+    return (
+      <div
+        ref={rootRef}
+        onKeyDown={handlePanelKeyDown}
+        className="h-full min-h-0 flex flex-col bg-[var(--kin-inspector)]"
+      >
+        <div className="flex-none flex items-center gap-1 border-b border-[var(--kin-hairline)] px-2 py-1.5">
+          {strip}
+          {finderAction}
+          {closeAction}
+        </div>
+        <div className="min-w-0 flex-1 min-h-0">{surface === "pr" ? prPane : publishPane}</div>
+      </div>
+    );
+  }
+
   return (
-    <div className="h-full min-h-0 flex flex-col bg-[var(--kin-inspector)]">
+    <div
+      ref={rootRef}
+      onKeyDown={handlePanelKeyDown}
+      className="h-full min-h-0 flex flex-col bg-[var(--kin-inspector)]"
+    >
       <div className="flex-none flex items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2">
         {/* The narrow container's way back to the list. A wide container shows
             both panes at once, so there is nothing to go back to and the
@@ -841,23 +1208,6 @@ export default function WorkspacePanel({
             {projectLabel(cwd)} · {shortPath(cwd, 48)}
           </div>
         </div>
-        {/*
-          The one write this panel offers, in the corner of the header it belongs
-          in: what the panel shows is a session's changes, and publishing is what
-          a person does about them when they are done reading.
-        */}
-        {onPublish && (
-          <Button
-            variant="secondary"
-            onClick={onPublish}
-            title={tr("publish.hint")}
-            aria-label={tr("publish.action")}
-            className="flex-none gap-1.5 px-2 py-1 text-caption"
-          >
-            <IconSend size={12} />
-            {tr("publish.action")}
-          </Button>
-        )}
         {workspaceView.editable && reviewActions && onDiscardAll && (
           <Button
             variant="secondary"
@@ -869,16 +1219,7 @@ export default function WorkspacePanel({
             {tr("workspace.changed.discardAll")}
           </Button>
         )}
-        {onClose && (
-          <Button
-            variant="quiet"
-            onClick={onClose}
-            className="flex-none h-11 w-11 items-center justify-center p-0 text-kin-muted sm:h-6 sm:w-6"
-            aria-label={tr("workspace.close")}
-          >
-            <IconX size={14} />
-          </Button>
-        )}
+        {closeAction}
       </div>
 
       {/* Dual pane: sidebar (list/tree) | resizer | viewer. Side-by-side while
@@ -912,40 +1253,11 @@ export default function WorkspacePanel({
           }
         >
           <div className="flex-none flex items-center gap-1 px-2 py-1.5 border-b border-[var(--kin-hairline)]">
-            {/*
-              The shared tab strip holds the two lenses and nothing else: an
-              action inside it would be announced as a third tab that selects
-              nothing. The finder is that action, so it sits beside the list.
-            */}
-            <Tabs
-              items={[
-                {
-                  id: "changes",
-                  label: hasChanges
-                    ? tr("workspace.tabChangesCount", { count: summaryFiles.length })
-                    : tr("workspace.tabChanges"),
-                  disabled: !hasChanges,
-                },
-                { id: "files", label: tr("workspace.tabFiles") },
-              ]}
-              value={lens}
-              onChange={(id) => {
-                if (id === "changes" || id === "files") pickWorkspaceLens(taskId, viewKey, id);
-              }}
-              ariaLabel={tr("workspace.sidebarTabs")}
-              className="flex-1"
-            />
-            {onFindFile && (
-              <Button
-                variant="quiet"
-                onClick={onFindFile}
-                title={tr("workspace.find.actionHint")}
-                aria-label={tr("workspace.find.action")}
-                className="flex-none h-11 w-11 items-center justify-center p-0 text-kin-muted! sm:h-6 sm:w-6"
-              >
-                <IconSearch size={13} />
-              </Button>
-            )}
+            {/* The one strip: the lenses and the panel's other surfaces, with
+                the finder as an action beside them — never a tab that selects
+                nothing. */}
+            {strip}
+            {finderAction}
           </div>
           {/*
             The answer to "what did this round do?", before any scrolling: how
@@ -1029,7 +1341,7 @@ export default function WorkspacePanel({
               <ChangedFilesList
                 files={summaryFiles}
                 selectedPath={selectedPath}
-                onSelect={(path) => void loadFile(path)}
+                onSelect={selectFile}
               />
             ) : (
               <FileTree
@@ -1037,7 +1349,7 @@ export default function WorkspacePanel({
                 selectedPath={selectedPath}
                 openPath={openPath}
                 openNonce={openNonce}
-                onSelect={(path) => void loadFile(path)}
+                onSelect={selectFile}
                 view={workspaceView}
               />
             )}
@@ -1138,50 +1450,81 @@ export default function WorkspacePanel({
                 truncated={file?.truncated ?? false}
                 onShowCode={() => setTableAsCode(true)}
               />
+            ) : selectedPath && preview === "text" && isHtmlPath(selectedPath) && !htmlAsCode ? (
+              <HtmlPreviewPane
+                path={selectedPath}
+                content={file?.content ?? null}
+                size={file?.size ?? null}
+                openRoot={normalizeFileResponse(file)?.root || cwd}
+                loading={loading}
+                error={error}
+                truncated={file?.truncated ?? false}
+                onShowCode={() => setHtmlAsCode(true)}
+              />
             ) : selectedPath ? (
-              <Suspense fallback={<ViewerLoading />}>
-                <CodeViewer
-                  path={selectedPath}
-                  file={normalizeFileResponse(file)}
-                  loading={loading}
-                  error={error}
-                  diff={enrichedDiff}
-                  cwd={cwd}
-                  taskId={taskId}
-                  workspaceId={
-                    workspaceView.kind === "generation" ? workspaceView.workspaceId : null
-                  }
-                  editable={workspaceView.editable}
-                  onSaved={(updated) => setFile(updated)}
-                  reviewActions={workspaceView.editable && reviewActions && Boolean(selectedPath)}
-                  // While comments are queued the tray's send is the surface's
-                  // one filled action; keep steps back to a bordered peer.
-                  reviewPrimary={diffComments.length === 0}
-                  actionsBusy={actionsBusy}
-                  onKeep={() => {
-                    if (!selectedPath) return;
-                    setDismissedPaths((prev) => {
-                      const next = new Set(prev);
-                      next.add(selectedPath);
-                      return next;
-                    });
-                  }}
-                  onDiscard={() => {
-                    if (!selectedPath) return;
-                    setDismissedPaths((prev) => {
-                      const next = new Set(prev);
-                      next.add(selectedPath);
-                      return next;
-                    });
-                  }}
-                  onCommentLine={(anchor) => {
-                    lastDiffLineRef.current = anchor.line;
-                    setCommentTarget(anchor);
-                    setCommentsCollapsed(false);
-                  }}
-                  focusLine={commentFocus}
-                />
-              </Suspense>
+              <>
+                {preview === "text" && isHtmlPath(selectedPath) && (
+                  // The same left-aligned pill as the preview's header, beside
+                  // CodeViewer rather than a bordered bar of its own: on a phone
+                  // a third divider above the editor's header read as one more
+                  // stacked bar before the first line of code.
+                  <div className="flex-none px-3 pt-2">
+                    <HtmlViewToggle
+                      view="code"
+                      onChange={(view) => setHtmlAsCode(view === "code")}
+                    />
+                  </div>
+                )}
+                <div className="flex-1 min-h-0 min-w-0">
+                  <Suspense fallback={<ViewerLoading />}>
+                    <CodeViewer
+                      path={selectedPath}
+                      file={normalizeFileResponse(file)}
+                      loading={loading}
+                      error={error}
+                      diff={enrichedDiff}
+                      cwd={cwd}
+                      taskId={taskId}
+                      workspaceId={
+                        workspaceView.kind === "generation" ? workspaceView.workspaceId : null
+                      }
+                      editable={workspaceView.editable}
+                      onSaved={(updated) => setFile(updated)}
+                      reviewActions={
+                        workspaceView.editable && reviewActions && Boolean(selectedPath)
+                      }
+                      // While comments are queued the tray's send is the surface's
+                      // one filled action; keep steps back to a bordered peer.
+                      reviewPrimary={diffComments.length === 0}
+                      actionsBusy={actionsBusy}
+                      onKeep={() => {
+                        if (!selectedPath) return;
+                        setDismissedPaths((prev) => {
+                          const next = new Set(prev);
+                          next.add(selectedPath);
+                          return next;
+                        });
+                      }}
+                      onDiscard={() => {
+                        if (!selectedPath) return;
+                        setDismissedPaths((prev) => {
+                          const next = new Set(prev);
+                          next.add(selectedPath);
+                          return next;
+                        });
+                      }}
+                      onCommentLine={(anchor) => {
+                        lastDiffLineRef.current = anchor.line;
+                        setCommentTarget(anchor);
+                        setCommentsCollapsed(false);
+                      }}
+                      comments={diffComments}
+                      onCommentsReanchored={reanchorCommentsForViewer}
+                      focusLine={commentFocus}
+                    />
+                  </Suspense>
+                </div>
+              </>
             ) : (
               // Rendering the empty state here rather than inside CodeViewer keeps
               // the editor chunk off the wire for the common case of opening the
@@ -1204,8 +1547,8 @@ export default function WorkspacePanel({
               onCancel={cancelComment}
             />
           )}
-          {diffComments.length > 0 &&
-            (commentsCollapsed ? (
+          {(diffComments.length > 0 || commentUndo) &&
+            (commentsCollapsed && diffComments.length > 0 ? (
               <div className="flex-none border-t border-[var(--kin-hairline)] px-3 py-1">
                 <Button
                   variant="quiet"
@@ -1218,8 +1561,12 @@ export default function WorkspacePanel({
             ) : (
               <DiffCommentsTray
                 comments={diffComments}
+                anchors={commentAnchors}
+                undo={commentUndo}
                 onJump={jumpToComment}
                 onDelete={deleteComment}
+                onRestore={restoreComment}
+                onEdit={editComment}
                 onSend={sendComments}
                 onClose={() => setCommentsCollapsed(true)}
                 returnFocus={() => focusDiffLine(lastDiffLineRef.current)}

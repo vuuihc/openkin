@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -36,9 +36,10 @@ import {
   ROUTINE_HISTORY_MAX,
   ROUTINE_HISTORY_PAGE,
 } from "../lib/routineHistory";
-import { SlowConnectHint } from "../components/Skeleton";
+import { PageListSkeleton, SlowConnectHint } from "../components/Skeleton";
 import Button from "../components/ui/Button";
 import SheetSelect from "../components/ui/SheetSelect";
+import { getKeyedScroll, setKeyedScroll } from "../lib/sessionScroll";
 import { useLeaveGuard } from "../hooks/useLeaveGuard";
 import { useMachines } from "../hooks/useMachines";
 import { useRoutinePreview } from "../hooks/useRoutinePreview";
@@ -132,6 +133,8 @@ function statusLabel(
  */
 export default function RoutinesPage() {
   const tr = useT();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [routineQuery, setRoutineQuery] = useState("");
   const [routineCursor, setRoutineCursor] = useState("");
@@ -175,6 +178,10 @@ export default function RoutinesPage() {
   const readAllEpoch = useRef(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // The machine the rows on screen were read for. `deviceId` changes a commit
+  // before the switch effect clears the list and sets `loading`, so for one
+  // commit the outgoing rows are rendered under the incoming machine's name.
+  const [loadedDevice, setLoadedDevice] = useState<string | null>(null);
   const [showSilent, setShowSilent] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -194,6 +201,9 @@ export default function RoutinesPage() {
   const [conversationMode, setConversationMode] =
     useState<ConversationMode>(DEFAULT_CONVERSATION_MODE);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // The routine this visit just made, marked until the page unmounts. Not
+  // selection: `selectedId` above is the row whose runs are open.
+  const [justCreatedId, setJustCreatedId] = useState<string | null>(null);
   // The form as it looked when it opened, so closing can tell an untouched
   // form from one that would lose typed words.
   const openDraftRef = useRef<string | null>(null);
@@ -277,6 +287,14 @@ export default function RoutinesPage() {
   const editSeq = useRef(0);
   const formRef = useRef<HTMLElement | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
+  // The list is this page's scroll container, and the page unmounts whenever a
+  // routine or another area opens. Keep where the reader was, per machine.
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  // The machine whose saved offset this mount has already applied.
+  const restoredKey = useRef<string | null>(null);
+  // Set when this mount already moved the page to the form; the saved list
+  // offset must not then pull it back.
+  const formScrolled = useRef(false);
   const toggleRef = useRef<HTMLButtonElement | null>(null);
   // The create draft an edit temporarily took over (see `closeForm`).
   const createDraftRef = useRef<FormDraft | null>(null);
@@ -336,6 +354,7 @@ export default function RoutinesPage() {
       ]);
       if (seq !== loadSeq.current) return;
       setRoutines(rs.routines ?? []);
+      setLoadedDevice(deviceId);
       const directorySource = unfiltered ? rs : all;
       if (directorySource) {
         setDirectoryCwds((directorySource.routines ?? []).map((r) => r.cwd));
@@ -367,6 +386,83 @@ export default function RoutinesPage() {
       if (seq === loadSeq.current) setLoading(false);
     }
   }, [tr, routineQuery, deviceId, machinesLoading, status, cwdFilter]);
+
+  // Save the list offset as the reader scrolls, under the machine whose rows are
+  // on screen at that moment. A switch renders the outgoing list once more under
+  // the incoming `deviceId`, and the list-clearing render shrinks the content —
+  // browsers clamp `scrollTop` and fire `scroll` for that. Saving it would write
+  // the outgoing machine's clamped place under the incoming machine's key, so a
+  // transition (loading, or rows from another machine) is never saved. Both are
+  // read through refs because the listener is attached once and must see the
+  // state at event time.
+  const loadingRef = useRef(loading);
+  loadingRef.current = loading;
+  const loadedDeviceRef = useRef(loadedDevice);
+  loadedDeviceRef.current = loadedDevice;
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const save = () => {
+      if (loadingRef.current || loadedDeviceRef.current !== deviceRef.current) return;
+      setKeyedScroll(`routines:${deviceRef.current}`, el.scrollTop);
+    };
+    el.addEventListener("scroll", save, { passive: true });
+    return () => el.removeEventListener("scroll", save);
+  }, []);
+
+  // Restore after the list for a machine has been read, and before paint: the
+  // loading skeleton is much shorter than the list, so restoring earlier would
+  // clamp the offset to the skeleton's bottom. The key is per machine, not per
+  // mount, because choosing another machine re-renders this page in place. A
+  // failed read must not consume it — the page retries by itself, and the retry
+  // that fills the list is what applies the saved place.
+  useLayoutEffect(() => {
+    if (loading || error || loadedDevice !== deviceId) return;
+    if (restoredKey.current === deviceId) return;
+    restoredKey.current = deviceId;
+    if (formScrolled.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const saved = getKeyedScroll(`routines:${deviceId}`);
+    if (saved === null || saved <= 0) return;
+    el.scrollTop = Math.min(saved, Math.max(0, el.scrollHeight - el.clientHeight));
+  }, [loading, error, deviceId, loadedDevice]);
+
+  // A routine made on another surface (New chat's "as routine") arrives named
+  // in router state. Read it once into page state — the rows may still be in
+  // flight — then replace the entry so the instruction belongs to this visit
+  // only: a return, a reload, or a second visit finds none. The key guard is
+  // what makes StrictMode's double effect and the clearing re-render no-ops.
+  // Declared before the URL-sync effect below, because that effect's
+  // `setSearchParams` replace would otherwise drop the state before it is read.
+  const consumedStateKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (consumedStateKey.current === location.key) return;
+    consumedStateKey.current = location.key;
+    const raw = (location.state as { createdId?: unknown } | null)?.createdId;
+    if (typeof raw !== "string" || raw === "") return;
+    setJustCreatedId(raw);
+    navigate(
+      { pathname: location.pathname, search: location.search, hash: location.hash },
+      { replace: true, state: null },
+    );
+  }, [location, navigate]);
+
+  // Bring the row just created on screen. Declared after the saved-scroll
+  // restore above, so in the commit that first shows the rows the restore
+  // applies and this runs last — the arrival cue wins over an offset saved
+  // halfway down the list. One shot per id: a later machine switch has no new
+  // row and restores its own place normally.
+  const revealedCreated = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (!justCreatedId || revealedCreated.current === justCreatedId) return;
+    if (loading || error || loadedDevice !== deviceId) return;
+    if (!routines.some((r) => r.id === justCreatedId)) return;
+    const row = scrollRef.current?.querySelector<HTMLElement>('[data-just-created="true"]');
+    if (!row) return;
+    revealedCreated.current = justCreatedId;
+    row.scrollIntoView?.({ block: "nearest" });
+  }, [justCreatedId, routines, loading, error, loadedDevice, deviceId]);
 
   const loadMoreRuns = async () => {
     if (!runsCursor || !runsHasMore || loadingMoreRuns || runs.length >= ROUTINE_HISTORY_MAX)
@@ -1019,6 +1115,7 @@ export default function RoutinesPage() {
       formFocusFrame.current = null;
       const active = document.activeElement;
       if (scrollToForm) {
+        formScrolled.current = true;
         const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
         formRef.current?.scrollIntoView?.({
           block: "start",
@@ -1212,6 +1309,10 @@ export default function RoutinesPage() {
       } else {
         setRoutines((list) => [r, ...list]);
       }
+      // Both paths mark the same id. A filtered reload that excludes the new
+      // routine has nothing to mark — the list only draws a mark for a row it
+      // holds — and that is the honest answer, not an error.
+      setJustCreatedId(r.id);
       closeForm(true);
       resetForm();
       pushToast(tr("routines.created"), "info");
@@ -1309,7 +1410,7 @@ export default function RoutinesPage() {
   };
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden kin-scroll">
+    <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden kin-scroll">
       <div className="mx-auto max-w-5xl px-4 py-6 md:px-6">
         <div className="flex items-start justify-between gap-3">
           <div className="hidden md:block">
@@ -1420,7 +1521,9 @@ export default function RoutinesPage() {
         {loading && (
           <div className="mt-8">
             <SlowConnectHint show={slow} />
-            <div className="mt-4 h-24 animate-pulse rounded-2xl bg-[var(--kin-fill)]" />
+            <div className="mt-4">
+              <PageListSkeleton rows={3} label={tr("common.loading")} />
+            </div>
           </div>
         )}
 
@@ -1531,6 +1634,7 @@ export default function RoutinesPage() {
                 onCwdChange={onCwdChange}
                 onClearFilters={onClearFilters}
                 selectedId={selectedId}
+                justCreatedId={justCreatedId}
                 unreadByRoutine={unreadByRoutine}
                 busy={busy}
                 creating={creating}

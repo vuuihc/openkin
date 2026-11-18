@@ -1,6 +1,7 @@
 # KIN-SETTINGS-001 · 改默认设置
 
-状态：draft
+状态：approved
+签字：2026-11-17 CEO 代签（用户授权见 rsi/DECISIONS.md 2026-11-15；决定见 rsi/state/decisions-pending.md 2026-11-17 18:05 行）。设计页与 5 张帧已读；登记的可执行测试见 registry。
 优先级：P1
 旅程：J6
 归属面：`IA.md`「设置与环境」
@@ -21,6 +22,19 @@
 - 做：打开设置 → 找到分组 → 看当前值和影响 → 改 agent / 模型 / 设备 / 权限默认 → 保存或测试连接 → 返回后新建对话用上新值。
 - 不做：新增 provider 类型；账号体系；OAuth scope 变更；推送和手机配对（控制台不再有这两个面，见 `KIN-NOTIFY-001`）；存储 schema 变更。
 
+## P8 结算（2026-11-18）
+
+| 默认 | 今天存在哪 | 新建对话怎么用上 | 证据 |
+|---|---|---|---|
+| agent | 服务端 settings 键 `agent.default`（设置 → Providers） | `/new` 通过共享机器快照读到被标记为 default 的 agent | `SettingsPage.defaultAgent.dom.test.tsx` 第 3 例 |
+| 模型 | 客户端 `localStorage` 键 `kin_draft_model`（`ui/src/lib/draftChat.ts`） | `NewChatPage.tsx:168` 播种 | `NewChatPage.dom.test.tsx` 的 “keeps the chosen model when the page is left and opened again” |
+| 设备 | 客户端 `localStorage` 键 `kin_draft_machine`（`draftChat.ts`） | `NewChatPage.tsx:170` 播种 | `NewChatPage.dom.test.tsx` 的 “starts a remote run with that machine and its own directory” |
+| 权限 | 客户端 `localStorage` 键 `kin_permission_mode`（`ui/src/lib/permissionMode.ts`） | `NewChatPage.tsx:154` 播种 | `permissionMode.test.ts` 的 “keeps the last chosen mode for the next draft” |
+
+后三项今天不是设置页的行，与本故事「范围」和 `IA.md` 设置与环境一行不符。若把它们提升为设置项，最小增量形状是三个服务端 settings 键加三行（Providers / 通用），由 `NewChatPage` 走现有 settings 读取播种——本次不建。
+
+故事保持 `approved`；等 P8 item 2 的走查改名并点名步骤后再翻 `covered`。
+
 ## 每一步的预期
 
 ### 1. 定义 / 打开：我要改一个默认
@@ -29,7 +43,7 @@
 |---|---|
 | 起点 | Mac 左栏底部图标，或手机 K 面板的"设置" |
 | 动作 | 打开设置 |
-| 立刻看到 | 分组的目录：通用、Agents、Providers、路由、高级；当前值以摘要形式挂在组名旁边 |
+| 立刻看到 | 分组的目录：通用、Agents、Providers、路由、高级，加一行运维（`?tab=operations`，归 `KIN-AGENTS-001`）；当前值以摘要形式挂在组名旁边 |
 | 慢 / 空 / 失败 / 断线 | 设置加载出骨架；读不到时显示"设置读取失败"和重试，不显示空表单；断线时顶部提示，已加载的值仍可看 |
 | 键盘与焦点 | Mac：Tab 进目录，↑/↓ 换组；手机：点组进详情 |
 | 离开再回来 | 回到上次停留的分组 |
@@ -39,9 +53,9 @@
 | 项 | 预期 |
 |---|---|
 | 起点 | 设置目录 |
-| 动作 | 点一组，或搜索设置项 |
+| 动作 | 点一组 |
 | 立刻看到 | 组内是若干行：名称、当前值、一句说明它影响什么（例如"新建对话默认用这个 agent"） |
-| 慢 / 空 / 失败 / 断线 | 搜索无结果说"没有匹配的设置"并保留输入；某组加载失败只影响这一组 |
+| 慢 / 空 / 失败 / 断线 | 某组加载失败只影响这一组 |
 | 键盘与焦点 | Mac：点组后焦点进组内第一行；手机：返回回到目录，目录位置不变 |
 | 离开再回来 | 分组和滚动位置保留 |
 
@@ -109,7 +123,13 @@
 
 ## 设计
 
-草图：`KIN-SETTINGS-001.review.html`（还没画；签字前按 `_REVIEW.html` 补，画 目录 → 分组 → 选择器 和 390/1100 两个面）。
+设计页：`KIN-SETTINGS-001.review.html`（Figma-first，2026-11-17 已读并签字），5 张帧：
+
+- `KIN-SETTINGS-001.figma/frames/01-mac-directory.svg`（Mac 目录与通用组）
+- `KIN-SETTINGS-001.figma/frames/02-mac-picker.svg`（Mac 选择器与未保存）
+- `KIN-SETTINGS-001.figma/frames/03-phone-directory.svg`（手机通用即目录）
+- `KIN-SETTINGS-001.figma/frames/04-phone-group.svg`（手机组详情与选择器）
+- `KIN-SETTINGS-001.figma/frames/05-state-board.svg`（七种状态与文案检查表）
 
 必须画到的状态：默认、空（没有 provider）、加载、失败、断线、未保存、测试连接中。
 
@@ -125,7 +145,7 @@
 
 | 层级 | 位置 | Given / When / Then |
 |---|---|---|
-| 组件 | `ui/src/pages/SettingsPage.dom.test.tsx`（新建） | Given 1100 宽 When 打开设置 Then 左目录右内容、当前值摘要可见；Given 手机宽度 Then 是 目录 → 详情 两级；打开设置时没有读取密钥的请求 |
+| 组件 | `ui/src/components/settings/SettingsPrimitives.test.ts`、`ui/src/pages/SettingsPage.facade.dom.test.tsx`（已有，扩充） | Given 1100 宽 When 打开设置 Then 左目录右内容、当前值摘要可见；Given 手机宽度 Then 是 目录 → 详情 两级；打开设置时没有读取密钥的请求 |
 | 回归 | `ui/src/components/settings/ProviderSettingsSection.test.ts`（已有） | Given 已配置的 provider When 渲染 Then 只显示已配置，不回显密钥 |
 | 组件 | `ui/src/components/settings/LocalAgentSettingsSection.dom.test.tsx`（已有，扩充） | Given 改模型 When 选择器打开 Then 贴行外弹、页面高度不变；选完值更新 |
 | 真浏览器 | 1100 和 390，`/browse` | 改一个默认值，返回新建页看到新值；设置页打开时网络面板没有第三方请求 |
@@ -140,3 +160,5 @@
 
 - 2026-10-30 从"设置与环境"意图写成第一条故事
 - 2026-11-11 R0b-3 删掉远程与通知两个 tab；本合同的目录与验收随之只覆盖保留下来的五组
+- 2026-11-17 CEO 代签（D1–D8 已定）；设计页 5 帧；验收改指真实套件
+- 2026-11-18 P8 结算：四个默认各自的落点入档；模型 / 设备 / 权限仍是客户端草稿键，不建设置行

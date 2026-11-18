@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import type { Task, TaskEvent, TaskUsage } from "../../api/client";
@@ -16,6 +16,27 @@ vi.mock("../workspace/CodeViewer", () => ({
   default: () => null,
 }));
 
+// The publish pane is the workspace panel's fourth tab. The wrapper records the
+// `embedded` it was handed — the pane must bring no surface of its own and no
+// second close — and the real component underneath is what would draw them if
+// it were not embedded. Its form is PublishPanel's own suite's subject.
+vi.mock("../pr/PublishPanel", async () => {
+  const actual = await vi.importActual<typeof import("../pr/PublishPanel")>("../pr/PublishPanel");
+  return {
+    default: (props: Parameters<typeof actual.default>[0]) => (
+      <div
+        data-testid="publish-pane"
+        data-embedded={String(props.embedded === true)}
+        // The row refresh is how a publish's answer reaches the page; a pane
+        // wired without it would look embedded and never update the Hub row.
+        data-row-changed={String(typeof props.onRowChanged === "function")}
+      >
+        <actual.default {...props} />
+      </div>
+    ),
+  };
+});
+
 // WorkspacePanel reads its generations, tree and diff on mount. None of that is
 // the subject here; the panel's own suite covers it. Answering with empty
 // results keeps the surfaces rendered without a network.
@@ -28,19 +49,26 @@ vi.mock("../../api/client", async () => {
     listWorkspaceTree: () => Promise.resolve({ path: ".", entries: [] }),
     getTaskSourceChanges: () => Promise.resolve({ changes: [] }),
     getWorkspaceDiff: () => Promise.resolve({ files: [] }),
+    // The pull-request panel reads its branch on mount. Nothing has been
+    // observed here; a failed read is not the subject of this suite, so it
+    // resolves an empty snapshot without asking GitHub.
+    getTaskPullRequest: () => Promise.resolve({ gh: { available: true }, observations: [] }),
+    refreshTaskPullRequest: () => Promise.resolve({ gh: { available: true }, observations: [] }),
   };
 });
 
 Element.prototype.scrollIntoView = vi.fn();
 
 /**
- * The session's three floating surfaces, extracted from `TaskDetailPage`.
+ * The session's floating surfaces, extracted from `TaskDetailPage`. The pull
+ * request is the workspace panel's third tab now, not a surface beside it.
  *
  * What is pinned here is the contract the extraction must not blur: the page
  * owns state and handlers, this component only decides which surface is open
  * and passes the page's callbacks straight through. The rail is always there
- * (CSS hides it below 1600px); the files surface and the publish sheet are
- * mutually exclusive, and publish additionally needs a machine to publish to.
+ * (CSS hides it below 1600px); the workspace panel is one container whose tabs
+ * are the lenses, the pull request and publish, and publish additionally needs
+ * a machine to publish to.
  */
 
 const task: Task = {
@@ -81,6 +109,8 @@ function setup(overrides: Partial<TaskPanelsProps> = {}) {
     onSelectWorkspace: vi.fn(),
     onOpenPath: vi.fn(),
     onOpenFilesPanel: vi.fn(),
+    onOpenPr: vi.fn(),
+    onShowFiles: vi.fn(),
     onKeepAll: vi.fn(),
     onDiscardAll: vi.fn(),
     onPublish: vi.fn(),
@@ -113,27 +143,105 @@ describe("TaskPanels", () => {
   });
 
   it("renders no publish surface without a machine", () => {
-    setup({ panel: "publish", machine: null });
+    // The registry allows it, but there is no machine to publish to: no
+    // surface opens rather than an empty one.
+    setup({ panel: "publish", machine: null, panelCtx: remoteCtx });
     expect(screen.queryByText(t("publish.title"))).toBeNull();
     // Only the rail's landmark remains: no surface opened in its place.
     expect(screen.queryByRole("complementary", { name: t("publish.title") })).toBeNull();
     expect(screen.queryByRole("complementary", { name: t("workspace.title") })).toBeNull();
   });
 
-  it("renders the publish surface for a remote machine", () => {
-    setup({ panel: "publish", machine: remoteMachine });
-    expect(screen.getByRole("complementary", { name: t("publish.title") })).toBeTruthy();
+  it("publish renders inside the one panel surface", () => {
+    setup({ panel: "publish", panelCtx: remoteCtx, machine: remoteMachine });
+
+    // One container, named for the surface in front: publish is a tab of the
+    // workspace panel, not a sheet drawn over it.
+    const regions = screen.getAllByRole("complementary");
+    expect(regions).toHaveLength(1);
+    expect(regions[0]!.getAttribute("aria-label")).toBe(t("publish.title"));
+
+    // …and the panel's one strip is inside it, with publish selected.
+    const strip = within(regions[0]!).getByRole("tablist");
+    expect(within(strip).getAllByRole("tab")).toHaveLength(4);
+    expect(
+      within(strip)
+        .getByRole("tab", { name: t("publish.title") })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+
+    // The pane is drawn embedded: it brings no second landmark and no second
+    // close, so the container's close is the only one on screen.
+    expect(screen.getByTestId("publish-pane").getAttribute("data-embedded")).toBe("true");
+    expect(screen.getByTestId("publish-pane").getAttribute("data-row-changed")).toBe("true");
+    expect(screen.getAllByRole("button", { name: t("publish.close") })).toHaveLength(1);
   });
 
-  it("offers publish from the workspace panel only when the registry allows it", () => {
-    setup({ panel: "files", panelCtx: localCtx });
-    expect(screen.queryByRole("button", { name: t("publish.action") })).toBeNull();
-  });
+  it("publish is offered only for a remote checkout", () => {
+    const local = setup({ panel: "files", panelCtx: localCtx });
+    // The tab strip is the offer: a checkout this Hub holds has nothing to
+    // publish from here, so the tab is absent rather than disabled.
+    expect(screen.queryByRole("tab", { name: t("publish.title") })).toBeNull();
+    expect(screen.getAllByRole("tab")).toHaveLength(3);
+    local.utils.unmount();
 
-  it("offers publish from the workspace panel for a remote session", () => {
     const { props } = setup({ panel: "files", panelCtx: remoteCtx, machine: remoteMachine });
-    fireEvent.click(screen.getByRole("button", { name: t("publish.action") }));
+    fireEvent.click(screen.getByRole("tab", { name: t("publish.title") }));
+    // The page owns the address, so the tab asks for the surface.
     expect(props.onPublish).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the pull request surface under its translated title", async () => {
+    const { utils } = setup({ panel: "pr" });
+    expect(await screen.findByRole("complementary", { name: t("pr.title") })).toBeTruthy();
+    utils.unmount();
+
+    // It is the same one-surface rule as the other panels: nothing open means
+    // no PR surface anywhere.
+    setup({ panel: null });
+    expect(screen.queryByRole("complementary", { name: t("pr.title") })).toBeNull();
+    expect(screen.queryByText(t("pr.title"))).toBeNull();
+  });
+
+  it("renders the pull request body inside the workspace container, not a second surface", () => {
+    setup({ panel: "pr" });
+
+    // One container, named for the surface in front: the PR is a tab of the
+    // workspace panel, not a sheet of its own.
+    const regions = screen.getAllByRole("complementary");
+    expect(regions).toHaveLength(1);
+    expect(regions[0]!.getAttribute("aria-label")).toBe(t("pr.title"));
+
+    // …and the panel's one tab strip lives inside it, with PR selected.
+    const strip = within(regions[0]!).getByRole("tablist");
+    expect(within(strip).getAllByRole("tab")).toHaveLength(3);
+    expect(
+      within(strip)
+        .getByRole("tab", { name: t("pr.title") })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
+  it("names the container by the surface in front", () => {
+    const pr = setup({ panel: "pr" });
+    expect(screen.getByRole("complementary", { name: t("pr.title") })).toBeTruthy();
+    expect(screen.queryByRole("complementary", { name: t("workspace.title") })).toBeNull();
+    pr.utils.unmount();
+
+    setup({ panel: "files" });
+    expect(screen.getByRole("complementary", { name: t("workspace.title") })).toBeTruthy();
+    expect(screen.queryByRole("complementary", { name: t("pr.title") })).toBeNull();
+  });
+
+  it("closes the PR surface through the container's one close button", () => {
+    const { props } = setup({ panel: "pr" });
+
+    // The container owns the close. The PR body draws no second one, so the
+    // label the reader gets is the PR's own.
+    const closes = screen.getAllByRole("button", { name: t("pr.close") });
+    expect(closes).toHaveLength(1);
+    fireEvent.click(closes[0]!);
+    expect(props.onClosePanel).toHaveBeenCalledTimes(1);
   });
 
   it("forwards the page's close to the open surface", () => {

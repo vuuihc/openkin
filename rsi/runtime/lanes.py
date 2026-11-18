@@ -19,6 +19,9 @@ import subprocess, argparse, fcntl, fnmatch, json, os, sys, time, glob, shlex
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATE = os.environ.get("RSI_STATE") or os.path.normpath(os.path.join(HERE, "..", "state"))
 LDIR = os.path.join(STATE, "lanes")
+# Worker event logs streamed by dispatch.sh: <stamp>-dispatch-lane<N>-<slug>-worker.jsonl.
+# Overridable so a hermetic test can point at its own runs dir.
+RUNS = os.environ.get("RSI_RUNS") or os.path.join(HERE, "runs")
 MAX_LANES = int(os.environ.get("RSI_MAX_LANES", "3"))
 CLAIM_TTL = 25 * 60
 
@@ -40,6 +43,11 @@ def load_max():
 LOAD_MAX = load_max()
 MEM_AVAIL_MIN_MB = float(os.environ.get("RSI_MEM_AVAIL_MIN_MB", "2048"))
 SWAP_USED_MAX_MB = float(os.environ.get("RSI_SWAP_USED_MAX_MB", "12288"))
+# The second simultaneous local worker is optional capacity: 16 GB is the scarce resource on
+# this Mac (Ethan 2026-11-18), so a spare lane starts only with real headroom. The FIRST worker
+# keeps the ordinary thresholds above; reworks are never held by this gate.
+LANE2_MEM_MIN_MB = float(os.environ.get("RSI_LANE2_MEM_MIN_MB", "5120"))
+LANE2_SWAP_MAX_MB = float(os.environ.get("RSI_LANE2_SWAP_MAX_MB", "1536"))
 
 def swap_usage_mb():
     """Return (used_mb, free_mb) from sysctl vm.swapusage, or (None, None)."""
@@ -84,6 +92,21 @@ def vm_pressure_level():
     except Exception:
         return None
 
+def spare_lane_pressure():
+    """Reason a *second* simultaneous local worker must wait, or empty if it may start.
+
+    Two agent lanes plus a merge-lane gate plus a browser walk is what swapped this machine
+    hard on 2026-11-18; the spare lane is what yields to the NAS instead. Only consulted when
+    one local lane is already active (the first worker is governed by host_pressure).
+    """
+    avail = avail_mem_mb()
+    if avail is not None and avail < LANE2_MEM_MIN_MB:
+        return "avail mem %.0fMB < %.0fMB" % (avail, LANE2_MEM_MIN_MB)
+    used = swap_used_mb()
+    if used is not None and used > LANE2_SWAP_MAX_MB:
+        return "swap used %.0fMB > %.0fMB" % (used, LANE2_SWAP_MAX_MB)
+    return ""
+
 def host_pressure():
     """Reason the Mac must not start a new local worker, or empty if it may."""
     try:
@@ -123,6 +146,15 @@ class Lock:
 
 
 def path_of(n): return os.path.join(LDIR, f"{n}.json")
+
+def unique_history_path(slug, stamp=None):
+    """A history filename that never overwrites an earlier row for the same slug."""
+    stamp = stamp or time.strftime("%Y%m%d-%H%M%S")
+    n, path = 1, os.path.join(LDIR, "history", f"{stamp}-{slug}.json")
+    while os.path.exists(path):
+        n += 1
+        path = os.path.join(LDIR, "history", f"{stamp}-{slug}-{n}.json")
+    return path
 
 def load(n):
     try:
@@ -168,18 +200,38 @@ def reap():
         elif d and d.get("status") == "claimed" and time.time() - d.get("claimed_at", 0) >= CLAIM_TTL:
             d.update(status="expired", finished_at=time.time()); save(n, d)
 
-def fmt(d):
+def silent_minutes(n, slug):
+    """Minutes since the newest worker event log for this lane was written, or None.
+
+    Deliberately the log mtime, not started_at: a worker that has been alive 39m but
+    silent for 30m is the failure this exposes (a stuck Bash call, 2026-11-18).
+    """
+    if not slug:
+        return None
+    pat = os.path.join(RUNS, "*-dispatch-lane%d-%s-worker.jsonl" % (n, slug))
+    try:
+        mtimes = [os.path.getmtime(f) for f in glob.glob(pat)]
+    except OSError:
+        return None
+    if not mtimes:
+        return None
+    return int(max(0.0, time.time() - max(mtimes)) / 60)
+
+def fmt(d, n=None):
     if not d: return "idle (never used)"
     st = d.get("status")
     age = int((time.time() - (d.get("started_at") or d.get("claimed_at") or 0)) / 60)
     base = f"{st:8} {d.get('item','?')} {d.get('slug','?')} mode={d.get('mode','new')}"
-    if is_active(d): return f"ACTIVE   {base} age={age}m paths={','.join(d.get('paths', []))}"
+    if is_active(d):
+        sil = silent_minutes(n, d.get("slug")) if n is not None else None
+        silent = "-" if sil is None else f"{sil}m"
+        return f"ACTIVE   {base} age={age}m silent={silent} paths={','.join(d.get('paths', []))}"
     return f"idle     last: {base} pr={d.get('pr','-')} note={d.get('note','')[:90]}"
 
 def cmd_status(a):
     reap()
     for n in range(1, ALL_LANES + 1):
-        print(f"lane {n}: {fmt(load(n))}")
+        print(f"lane {n}: {fmt(load(n), n)}")
     try:
         press = host_pressure()
         avail = avail_mem_mb()
@@ -203,11 +255,17 @@ def cmd_idle(a):
         press = host_pressure()
         # --ignore-pressure: the rework dispatcher needs the free slot even while host pressure defers NEW
         # slices; the claim itself re-checks and admits rework only (see cmd_claim).
-        if press and not getattr(a, "ignore_pressure", False):
+        ignore = getattr(a, "ignore_pressure", False)
+        if press and not ignore:
             print(f"host pressure ({press}); not filling local workers", file=sys.stderr); return
         cap = MAX_LANES
-        for n in range(1, cap + 1):
-            if not is_active(load(n)): print(n)
+        free = [n for n in range(1, cap + 1) if not is_active(load(n))]
+        if free and len(free) < cap and not ignore:
+            spare = spare_lane_pressure()
+            if spare:
+                print(f"spare lane held ({spare}); one local worker at a time", file=sys.stderr)
+                return
+        for n in free: print(n)
 
 def ux_gate_refuse(item):
     """Slices marked "gate": "ux-approved" in astryx-slices.json (S1-S3: the visible shell) cannot be claimed until Ethan has looked at the
@@ -244,6 +302,15 @@ def cmd_claim(a):
         if not 1 <= a.lane <= MAX_LANES: print("REFUSED: no such lane"); sys.exit(4)
         cur = load(a.lane)
         if is_active(cur): print(f"REFUSED: lane {a.lane} busy ({cur.get('slug')})"); sys.exit(4)
+        # The spare-lane gate belongs with the admission decision, not only with `idle`: a claim
+        # made directly (autofill, a rework dispatcher) must meet the same headroom rule. Reworks
+        # are minutes and may preempt it, exactly like host_pressure above.
+        if a.mode != "rework":
+            busy = [n for n in range(1, ALL_LANES + 1) if n != a.lane and is_active(load(n))]
+            if busy:
+                spare = spare_lane_pressure()
+                if spare:
+                    print(f"REFUSED: spare lane held ({spare}); one local worker at a time"); sys.exit(8)
         for c in cloud_claims():
             if c.get("item") == a.item: print(f"REFUSED: {a.item} is handed to a cloud agent ({c.get('slug')})"); sys.exit(3)
             for p in paths:
@@ -258,7 +325,7 @@ def cmd_claim(a):
                     if overlap(p, q):
                         print(f"REFUSED: overlap with lane {n} ({o.get('item')} {o.get('slug')}): '{p}' vs '{q}'. Pick an item in a disjoint area."); sys.exit(3)
         if cur:
-            os.replace(path_of(a.lane), os.path.join(LDIR, "history", f"{time.strftime('%Y%m%d-%H%M%S')}-{cur.get('slug','x')}.json"))
+            os.replace(path_of(a.lane), unique_history_path(cur.get('slug', 'x')))
         save(a.lane, dict(lane=a.lane, slug=a.slug, item=a.item, brief=a.brief, mode=a.mode, paths=paths,
                           status="claimed", claimed_at=time.time()))
     print(f"CLAIMED lane {a.lane}: {a.item} {a.slug} paths={paths}")

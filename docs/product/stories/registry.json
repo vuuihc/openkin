@@ -124,7 +124,7 @@
     },
     {
       "id": "KIN-RESULT-001",
-      "state": "draft",
+      "state": "covered",
       "priority": "P1",
       "journeys": [
         "J4"
@@ -141,12 +141,17 @@
         "ui/src/components/chat/shareExport.ts",
         "ui/src/pages/TaskDetailPage.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "ui/src/components/workspace/WorkspacePanel.esc.dom.test.tsx",
+        "ui/src/components/workspace/ChangedFilesList.keys.dom.test.tsx",
+        "ui/src/components/workspace/FileTree.keys.dom.test.tsx",
+        "scripts/journeys_walk_test.py"
+      ],
       "blockedReason": null
     },
     {
       "id": "KIN-MANAGE-001",
-      "state": "draft",
+      "state": "covered",
       "priority": "P1",
       "journeys": [
         "J5"
@@ -164,12 +169,17 @@
         "ui/src/hooks/useSessionDeletion.ts",
         "ui/src/pages/SessionsPage.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "ui/src/components/sessions/SessionRow.dom.test.tsx",
+        "ui/src/components/sessions/SessionList.selection.dom.test.tsx",
+        "ui/src/components/sessions/SessionList.drag.dom.test.tsx",
+        "scripts/journeys_walk_test.py"
+      ],
       "blockedReason": null
     },
     {
       "id": "KIN-SETTINGS-001",
-      "state": "draft",
+      "state": "approved",
       "priority": "P1",
       "journeys": [
         "J6"
@@ -186,7 +196,16 @@
         "ui/src/components/settings/ProviderSettingsSection.tsx",
         "ui/src/components/settings/LocalAgentSettingsSection.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "ui/src/pages/SettingsPage.facade.dom.test.tsx",
+        "ui/src/pages/SettingsPage.readFailure.dom.test.tsx",
+        "ui/src/pages/SettingsPage.notificationTab.dom.test.tsx",
+        "ui/src/pages/SettingsPage.operations.dom.test.tsx",
+        "ui/src/pages/settingsTabsWiring.test.ts",
+        "ui/src/components/settings/SettingsPrimitives.test.ts",
+        "ui/src/components/settings/ProviderSettingsSection.test.ts",
+        "ui/src/components/settings/LocalAgentSettingsSection.dom.test.tsx"
+      ],
       "blockedReason": null
     },
     {
@@ -316,7 +335,7 @@
     },
     {
       "id": "KIN-AGENTS-001",
-      "state": "blocked",
+      "state": "covered",
       "priority": "P1",
       "journeys": [
         "J6"
@@ -347,7 +366,7 @@
         "ui/src/lib/usage.test.ts",
         "ui/src/lib/agentSessionImport.test.ts"
       ],
-      "blockedReason": "The signed Agents page and its auto-import removal are implemented, but the full KIN-AGENTS-001 acceptance contract has not been re-run after integration with the current mainline."
+      "blockedReason": null
     },
     {
       "id": "KIN-ROUTINE-001",
@@ -426,7 +445,7 @@
     },
     {
       "id": "KIN-CONTINUE-003",
-      "state": "draft",
+      "state": "approved",
       "priority": "P0",
       "journeys": [
         "J1",
@@ -459,12 +478,25 @@
         "ui/src/lib/phoneDeepLinkParent.ts",
         "ui/src/lib/phoneNavigation.ts"
       ],
-      "tests": [],
+      "tests": [
+        "ui/src/lib/areas.test.ts",
+        "ui/src/lib/areaNavigation.test.ts",
+        "ui/src/components/layout/AreaNavigation.dom.test.tsx",
+        "ui/src/components/layout/PhoneNavigation.dom.test.tsx",
+        "ui/src/lib/notificationRoute.test.ts",
+        "ui/src/components/NotificationTaps.dom.test.tsx",
+        "ui/src/lib/overlayOwnsKeyboard.dom.test.ts",
+        "ui/src/pages/macKeyboardWiring.test.ts",
+        "ui/src/pages/SettingsPage.leaveGuard.dom.test.tsx",
+        "ui/src/pages/settingsTabsWiring.test.ts",
+        "ui/src/pages/ProjectDetailPage.dom.test.tsx",
+        "ui/src/pages/AgentSessionDetailPage.dom.test.tsx"
+      ],
       "blockedReason": null
     },
     {
       "id": "KIN-RESULT-002",
-      "state": "draft",
+      "state": "approved",
       "priority": "P0",
       "journeys": [
         "J4"
@@ -482,12 +514,15 @@
         "ui/src/components/workspace/WorkspacePanel.tsx",
         "ui/src/components/workspace/CodeViewer.tsx"
       ],
-      "tests": [],
+      "tests": [
+        "ui/src/components/workspace/htmlPreview.test.ts",
+        "ui/src/components/workspace/FilePreview.dom.test.tsx"
+      ],
       "blockedReason": null
     },
     {
       "id": "KIN-RESULT-003",
-      "state": "approved",
+      "state": "covered",
       "priority": "P0",
       "journeys": [
         "J2",
@@ -504,7 +539,76 @@
       "tests": [
         "ui/src/components/workspace/diffCommentAnchor.test.ts",
         "ui/src/components/workspace/DiffCommentGutter.dom.test.tsx",
-        "ui/src/components/workspace/DiffCommentsTray.dom.test.tsx"
+        "ui/src/components/workspace/DiffCommentsTray.dom.test.tsx",
+        "ui/src/components/workspace/WorkspacePanel.comments.dom.test.tsx",
+        "scripts/journeys_walk_test.py"
+      ],
+      "blockedReason": null
+    },
+    {
+      "id": "KIN-PROJECT-002",
+      "state": "covered",
+      "priority": "P0",
+      "journeys": [
+        "J4"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "项目的工作目录：看清这几个目录为什么在一起，并能增删",
+      "file": "docs/product/stories/KIN-PROJECT-002.md",
+      "surface": "Mac / 手机 项目封面 · 工作目录块",
+      "ownerPaths": [
+        "ui/src/pages/ProjectDetailPage.tsx",
+        "ui/src/pages/ProjectDetailPage.dom.test.tsx",
+        "internal/api/projects.go",
+        "internal/store/projects.go",
+        "ui/src/components/project/ProjectRootsBlock.tsx",
+        "ui/src/lib/projectRoots.ts"
+      ],
+      "tests": [
+        "ui/src/lib/projectRoots.test.ts",
+        "ui/src/lib/projectChats.test.ts",
+        "ui/src/pages/ProjectDetailPage.dom.test.tsx",
+        "internal/store/projects_test.go",
+        "scripts/journeys_walk_test.py"
+      ],
+      "blockedReason": null
+    },
+    {
+      "id": "KIN-PROJECT-003",
+      "state": "covered",
+      "priority": "P1",
+      "journeys": [
+        "J4"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "项目的工作说明：新对话一开始就知道这里怎么干活",
+      "file": "docs/product/stories/KIN-PROJECT-003.md",
+      "surface": "Mac / 手机 项目封面 · 工作方式块",
+      "ownerPaths": [
+        "internal/store/onepager.go",
+        "internal/api/projects.go",
+        "ui/src/pages/ProjectDetailPage.tsx",
+        "ui/src/components/project/ProjectOnePager.tsx",
+        "ui/src/pages/NewChatPage.tsx",
+        "ui/src/i18n/locales/en.ts",
+        "ui/src/i18n/locales/zh.ts",
+        "ui/src/components/project/ProjectInstructionsBlock.tsx",
+        "ui/src/lib/projectInstructions.ts"
+      ],
+      "tests": [
+        "internal/store/onepager_test.go",
+        "internal/api/projects_test.go",
+        "ui/src/components/project/ProjectInstructionsBlock.dom.test.tsx",
+        "ui/src/lib/projectInstructions.test.ts",
+        "scripts/journeys_walk_test.py",
+        "scripts/journeys_seed_test.py",
+        "scripts/journeys_fake_agent_test.py"
       ],
       "blockedReason": null
     }

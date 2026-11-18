@@ -5,6 +5,7 @@
 set -u
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
+source "$RSI_DIR/runtime/lane-pr.sh"
 CMD="${1:-}"; N="${2:-}"
 
 launch() { # n
@@ -28,6 +29,15 @@ if [ "$CMD" = autofill ]; then
   for sb in "$STATE"/sendback/*.md; do
     [ -e "$sb" ] || continue
     slug="$(basename "$sb" .md)"
+    # A size-only sendback must not open a rework lane while its waiver stands: the cap it asks
+    # to fit is gone, and a rework lane trims real content to obey it (2026-11-18: #296's round
+    # deleted 879 lines of a signed story before it was killed; #299 was waived before a lane
+    # claimed it). See state/merge/<slug>.size-ok.
+    src="$(sed -n 's/^source: *//p' "$sb" | head -1)"
+    if [ "$src" = "hold-size" ] && [ -f "$STATE/merge/$slug.size-ok" ]; then
+      echo "autofill: $slug: hold-size waived (merge/$slug.size-ok), not opening a rework lane"
+      continue
+    fi
     itm="$(sed -n 's/^item: *//p' "$sb" | head -1)"
     is_astryx=$(python3 -c "import json,sys;ids={s['id'] for s in json.load(open('$RSI_DIR/astryx-slices.json'))['slices']};print(1 if sys.argv[1] in ids else 0)" "$itm" 2>/dev/null || echo 0)
     [ "$SCOPE" = astryx ] && [ "$is_astryx" != 1 ] && continue
@@ -181,7 +191,14 @@ PRN="$($GH pr list --repo "$GH_REPO" --head "$BR" --state open --json number --j
 if [ -z "$PRN" ]; then
   TITLE="$WORKER_TITLE"; [ -n "$TITLE" ] || TITLE="$($GIT -C "$WT" log -1 --format=%s origin/main..HEAD 2>/dev/null | head -1)"; TITLE="${TITLE:-chore(rsi): $ITEM $SLUG}"
   BODY="$STATUS_NOTE_FILE"; [ -s "$BODY" ] || { BODY="$STATE/lanes/$N.pr-body.fallback.md"; printf 'RSI lane %s, item %s.\n\nWorker summary:\n\n%s\n\nRSI item: %s\n' "$N" "$ITEM" "$(tail -c 3000 "$STATE/lanes/$N.worker.txt")" "$ITEM" > "$BODY"; }
-  PRURL="$($GH pr create --repo "$GH_REPO" --base main --head "$BR" --title "$TITLE" --body-file "$BODY" 2>&1 | tail -1)"
+  # A transient GitHub failure must not throw away a finished round; the helper
+  # retries and checks whether the PR already exists (see lane-pr.sh).
+  if ! PRURL="$(gh_pr_create "$GH_REPO" main "$BR" "$TITLE" "$BODY" 2>"$STATE/lanes/$N.pr.err")"; then
+    PR_DETAIL="$(tail -c 300 "$STATE/lanes/$N.pr.err" 2>/dev/null | tr '\n' ' ')"
+    count_fail "lane $N PR" "${PR_DETAIL:-no output}"
+    finish failed "" "pr create failed: ${PR_DETAIL:-see $STATE/lanes/$N.pr.err}"
+    exit 1
+  fi
   PRN="$(echo "$PRURL" | sed -n 's#.*/pull/\([0-9]*\).*#\1#p')"
 else
   PRURL="https://github.com/$GH_REPO/pull/$PRN"

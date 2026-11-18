@@ -81,10 +81,17 @@ import {
   subscribeSessionViewed,
 } from "../../lib/sessionViewed";
 import { getPinnedTaskIds, setTaskPinned } from "../../lib/taskPins";
-import { getTaskOrder, setBucketOrder, type TaskOrder } from "../../lib/taskOrder";
+import { setLocalTaskTitle, useLocalTaskTitles } from "../../lib/taskTitles";
+import {
+  clearBucketOrder,
+  getTaskOrder,
+  setBucketOrder,
+  type TaskOrder,
+} from "../../lib/taskOrder";
 import { mergeTaskTail } from "../../lib/taskTail";
 import ActionSheet from "../ui/ActionSheet";
 import Button from "../ui/Button";
+import { SessionListSkeleton } from "../Skeleton";
 import HighlightedText from "../HighlightedText";
 import {
   IconAlert,
@@ -151,6 +158,15 @@ function listStateQuery(params: URLSearchParams, extra: Record<string, string> =
 const ROWS_BEFORE_SHOW_ALL = 5;
 const EMPTY_IDS: ReadonlySet<string> = new Set();
 const SEARCH_DEBOUNCE_MS = 200;
+
+/** The drag in flight: which bucket, which row, the order being drawn, and
+ *  how far the row has followed the finger. */
+type SessionDrag = {
+  bucketKey: string;
+  key: string;
+  ids: string[];
+  offsetY: number;
+};
 
 export default function SessionList({
   shell,
@@ -223,6 +239,10 @@ export default function SessionList({
   const [pinnedIds, setPinnedIds] = useState<ReadonlySet<string>>(
     () => new Set(getPinnedTaskIds()),
   );
+  // This browser's renames. The row's title is composed during bucketing, so
+  // the list draws from this state rather than reading storage per row; the
+  // hook is also what re-reads a title written by another mounted surface.
+  const [localTitles, setLocalTitles] = useLocalTaskTitles();
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set());
   const [deletingSelection, setDeletingSelection] = useState(false);
@@ -243,6 +263,16 @@ export default function SessionList({
   // The manual order per bucket, read once the way pins are. A bucket without
   // an entry keeps the attention + recency rule.
   const [taskOrder, setTaskOrder] = useState<TaskOrder>(() => getTaskOrder());
+  const [drag, setDrag] = useState<SessionDrag | null>(null);
+  // Pointer moves land between renders, so the drag's mutable state has a
+  // synchronous copy; `drag` is what the list draws from.
+  const dragRef = useRef<SessionDrag | null>(null);
+  const dragOriginY = useRef<number | null>(null);
+  // The lifted row's top before it moved. The reorder draws the row in a new
+  // DOM slot, so the transform is measured from this start rather than from
+  // the finger's raw travel: otherwise the slot and the transform would both
+  // carry the row.
+  const dragStartTop = useRef<number | null>(null);
   const [prefsTick, setPrefsTick] = useState(0);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectMenu, setProjectMenu] = useState<{
@@ -462,8 +492,15 @@ export default function SessionList({
   }, [projects]);
   // Search and status views still display the stored order, but a reorder is
   // offered only where the whole bucket is shown; the archive scope has no
-  // manual order at all.
-  const orders = useMemo(() => (scope === "active" ? taskOrder : undefined), [scope, taskOrder]);
+  // manual order at all. While a drag is live the dragged bucket draws the
+  // in-flight order; the stored order is only written on release.
+  const dragIds = drag?.ids;
+  const dragBucketKey = drag?.bucketKey;
+  const orders = useMemo(() => {
+    if (scope !== "active") return undefined;
+    if (!dragIds || !dragBucketKey) return taskOrder;
+    return { ...taskOrder, [dragBucketKey]: dragIds };
+  }, [scope, taskOrder, dragIds, dragBucketKey]);
   const buckets = useMemo(
     () =>
       phoneProjectBuckets(
@@ -481,6 +518,7 @@ export default function SessionList({
         // copy's key carries a device suffix that is not part of the address.
         (cwd) => projectNameByCwd.get(bucketKeyFor(cwd)),
         orders,
+        localTitles,
       ),
     [
       tasks,
@@ -492,6 +530,7 @@ export default function SessionList({
       archivedCwds,
       projectNameByCwd,
       orders,
+      localTitles,
     ],
   );
   // A project heading is where its cover lives, so a project with no row in the
@@ -696,11 +735,18 @@ export default function SessionList({
         pinnedIds={pinnedIds}
         pinnedProjects={pinnedProjects}
         onPin={pinRow}
+        onRename={renameRow}
         onArchive={archiveRow}
         onDelete={deleteRow}
         onRestore={restoreRow}
         scope={scope}
         query={query}
+        canReorder={canReorder}
+        draggingKey={drag?.key ?? null}
+        dragOffsetY={drag?.offsetY ?? 0}
+        onDragStart={startDrag}
+        onDragMove={moveDrag}
+        onDragEnd={endDrag}
         archived={scope === "archived"}
         onRestoreProject={
           scope === "archived" && bucketIsLocal(bucket) && archivedCwdFor(bucket.key, archivedCwds)
@@ -711,6 +757,11 @@ export default function SessionList({
             : undefined
         }
         local={bucketIsLocal(bucket)}
+        hasStoredOrder={(taskOrder[bucket.key]?.length ?? 0) > 0}
+        onRestoreOrder={() => {
+          clearBucketOrder(bucket.key);
+          setTaskOrder(getTaskOrder());
+        }}
         onOpenProject={() => void openProject(bucket)}
         onNewSession={() => newSessionIn(bucket)}
         onArchiveProject={() => archiveProjectConfirmed(bucket)}
@@ -824,6 +875,16 @@ export default function SessionList({
   function pinRow(row: PhoneSessionRow) {
     if (!row.task) return;
     setPinnedIds(new Set(setTaskPinned(row.task.id, !pinnedIds.has(row.task.id))));
+    setSwipeOpen(null);
+  }
+
+  function renameRow(row: PhoneSessionRow, title: string) {
+    if (!row.task) return;
+    // A rename is a local preference like a pin: this browser's name for the
+    // conversation, written without the daemon. The lib returns the new map
+    // even when storage refuses it, so the list still shows the new title for
+    // this session and nothing here has to retry or toast.
+    setLocalTitles(setLocalTaskTitle(row.task.id, title));
     setSwipeOpen(null);
   }
 
@@ -1023,6 +1084,89 @@ export default function SessionList({
     return Array.from(listRef.current?.querySelectorAll<HTMLElement>("[data-session-row]") ?? []);
   }
 
+  function updateDrag(next: SessionDrag | null) {
+    dragRef.current = next;
+    setDrag(next);
+  }
+
+  /** A hold became a drag. The ids are the whole bucket, not only the drawn
+   *  rows: rows folded away by "show all" keep their place at the end. */
+  function startDrag(bucketKey: string, key: string, ids: readonly string[]) {
+    if (dragRef.current || !canReorder) return;
+    dragOriginY.current = null;
+    dragStartTop.current = rowTop(key);
+    // The action strip and the drag cannot both own the row.
+    setSwipeOpen(null);
+    updateDrag({ bucketKey, key, ids: [...ids], offsetY: 0 });
+  }
+
+  /** The top of one drawn row's rect, transform included. */
+  function rowTop(key: string): number | null {
+    for (const element of sessionRows()) {
+      if (element.dataset.sessionRow === key) return element.getBoundingClientRect().top;
+    }
+    return null;
+  }
+
+  /** The drawn rows' midpoints, in the order they currently sit on screen. */
+  function rowMidpoints(ids: readonly string[]): { id: string; mid: number; height: number }[] {
+    const wanted = new Set(ids);
+    const out: { id: string; mid: number; height: number }[] = [];
+    for (const element of sessionRows()) {
+      const id = element.dataset.sessionRow;
+      if (!id || !wanted.has(id)) continue;
+      const rect = element.getBoundingClientRect();
+      out.push({ id, mid: rect.top + rect.height / 2, height: rect.height });
+    }
+    return out.sort((a, b) => a.mid - b.mid);
+  }
+
+  function moveDrag(clientY: number) {
+    const current = dragRef.current;
+    if (!current) return;
+    // The first move sets the origin, so the row does not jump by however far
+    // the finger travelled during the hold.
+    if (dragOriginY.current === null) dragOriginY.current = clientY;
+    // The lifted row is not in the sequence; insert it after the last row
+    // whose midpoint the finger has passed. Only this bucket's ids are asked
+    // for, so a row can never be dropped into another project.
+    const remaining = current.ids.filter((id) => id !== current.key);
+    const rows = rowMidpoints(remaining);
+    let at = 0;
+    for (const row of rows) {
+      if (clientY <= row.mid) break;
+      at += 1;
+    }
+    const ids = [...remaining.slice(0, at), current.key, ...remaining.slice(at)];
+    // `ids` draws the row in its new slot on the next render, so the transform
+    // must cover only the distance between the finger and that slot; using the
+    // finger's raw travel would move the row by both at once. The slot it sits
+    // in now is its rect minus the transform already on it, shifted by the
+    // rows this move jumps over.
+    const from = current.ids.indexOf(current.key);
+    const jumped = from < at ? rows.slice(from, at) : rows.slice(at, from);
+    const shift = jumped.reduce((sum, row) => sum + row.height, 0) * (at < from ? -1 : 1);
+    const startTop = dragStartTop.current ?? 0;
+    const drawnTop = rowTop(current.key);
+    const slotTop = (drawnTop === null ? startTop : drawnTop - current.offsetY) + shift;
+    updateDrag({
+      ...current,
+      ids,
+      offsetY: startTop + clientY - dragOriginY.current - slotTop,
+    });
+  }
+
+  function endDrag(cancelled: boolean) {
+    const current = dragRef.current;
+    updateDrag(null);
+    dragOriginY.current = null;
+    dragStartTop.current = null;
+    // A cancelled gesture puts the rows back; only a release is a decision.
+    if (!current || cancelled) return;
+    setBucketOrder(current.bucketKey, current.ids);
+    setTaskOrder(getTaskOrder());
+  }
+
   /** Alt+↑/↓: the focused row changes places inside its own bucket. Only a
    *  row that is a conversation (not a heading or the draft) takes part, and
    *  the ends clamp instead of wrapping. */
@@ -1123,11 +1267,7 @@ export default function SessionList({
 
   const body = (
     <div ref={listRef} onKeyDown={onListKeyDown}>
-      {loading && (
-        <p className="px-4 py-10 text-center text-strong text-kin-muted">
-          {tr("sessions.loading")}
-        </p>
-      )}
+      {loading && <SessionListSkeleton shell={shell} label={tr("sessions.loading")} />}
 
       {!loading && pendingQuery && listed.length === 0 && !loadFailed && (
         <p className="px-4 py-10 text-center text-strong text-kin-muted">
@@ -1266,6 +1406,23 @@ export default function SessionList({
                       },
                     },
                   ]),
+              // The way back out of a manual order. Offered only when this
+              // project actually has one; restoring is a preference, not a
+              // deletion, so it takes no red ink. The order is stored per
+              // bucket in this browser and applies to a remote copy too, so
+              // the reset does not follow the local project record.
+              ...(!projectMenu.archived && (taskOrder[projectMenu.bucket.key]?.length ?? 0) > 0
+                ? [
+                    {
+                      id: "restore-order",
+                      label: tr("nav.restoreTimeOrder"),
+                      onSelect: () => {
+                        clearBucketOrder(projectMenu.bucket.key);
+                        setTaskOrder(getTaskOrder());
+                      },
+                    },
+                  ]
+                : []),
               ...(!bucketIsLocal(projectMenu.bucket)
                 ? []
                 : [
@@ -1488,13 +1645,22 @@ function ProjectBucket({
   pinnedIds,
   pinnedProjects,
   onPin,
+  onRename,
   onArchive,
   onDelete,
   onRestore,
   scope,
   query,
+  canReorder,
+  draggingKey,
+  dragOffsetY,
+  onDragStart,
+  onDragMove,
+  onDragEnd,
   archived,
   local,
+  hasStoredOrder,
+  onRestoreOrder,
   onRestoreProject,
   onOpenProject,
   onNewSession,
@@ -1527,14 +1693,26 @@ function ProjectBucket({
   pinnedIds: ReadonlySet<string>;
   pinnedProjects: readonly string[];
   onPin: (row: PhoneSessionRow) => void;
+  onRename: (row: PhoneSessionRow, title: string) => void;
   onArchive: (row: PhoneSessionRow) => void;
   onDelete: (row: PhoneSessionRow) => void;
   onRestore: (row: PhoneSessionRow) => void;
   scope: SessionScopeFilter;
+  /** Alt+↑/↓ moves a row here; each row carries the hint while it does. A
+   *  completed hold also lifts the row into a drag. */
+  canReorder: boolean;
+  draggingKey: string | null;
+  dragOffsetY: number;
+  onDragStart: (bucketKey: string, key: string, ids: readonly string[]) => void;
+  onDragMove: (clientY: number) => void;
+  onDragEnd: (cancelled: boolean) => void;
   archived: boolean;
   /** This bucket's rows run on this machine, so the local project record —
    *  cover, pin, archive — describes it. */
   local: boolean;
+  /** A manual order is stored for this bucket in this browser. */
+  hasStoredOrder: boolean;
+  onRestoreOrder: () => void;
   onRestoreProject?: () => void;
   onOpenProject: () => void;
   onNewSession: () => void;
@@ -1542,6 +1720,13 @@ function ProjectBucket({
   onProjectMenu: () => void;
 }) {
   const tr = useT();
+  const headingRef = useRef<HTMLButtonElement | null>(null);
+  // The reset control unmounts together with the order it clears, so focus
+  // moves back to the bucket heading rather than falling to <body>.
+  const restoreOrder = () => {
+    onRestoreOrder();
+    window.requestAnimationFrame(() => headingRef.current?.focus());
+  };
   const rows = showAll ? bucket.rows : bucket.rows.slice(0, ROWS_BEFORE_SHOW_ALL);
   const hidden = bucket.rows.length - rows.length;
   const showAllLabel =
@@ -1590,6 +1775,7 @@ function ProjectBucket({
             opening its cover and folding its rows are its two tap targets,
             and the design system has no row primitive. */}
         <button
+          ref={headingRef}
           type="button"
           onClick={openable ? onOpenProject : onToggle}
           aria-label={heading}
@@ -1629,6 +1815,39 @@ function ProjectBucket({
             <IconRefresh size={13} />
             {tr("sessions.restore")}
           </Button>
+        ) : null}
+        {hasStoredOrder && !archived && !realProject && !imported ? (
+          /*
+            Pinned and No-project are synthetic buckets: they have no `cwd` and
+            therefore no project record, so neither the fine-pointer hover strip
+            nor the coarse-pointer project menu draws for them. Without this
+            heading control a manual order written inside one (a drag or
+            Alt+↑/↓ stores it under `__pinned__` / `__unassigned__`) would have
+            no way back to recent activity.
+
+            Fine pointers get the same 24px, tooltip-backed icon the real
+            projects' hover strip uses. A phone has no tooltip, and a bare ↻
+            beside “Pinned” reads as “refresh”, so coarse pointers get the
+            refresh-plus-label shape of the archived project's Restore button.
+          */
+          coarse ? (
+            <Button
+              variant="secondary"
+              title={tr("nav.restoreTimeOrder")}
+              aria-label={tr("nav.restoreTimeOrder")}
+              onClick={restoreOrder}
+              className="h-11 flex-none items-center gap-1.5 rounded-lg px-2.5 text-caption font-medium"
+            >
+              <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                <IconRefresh size={13} />
+                <span>{tr("sessions.restore")}</span>
+              </span>
+            </Button>
+          ) : (
+            <ProjectIconButton label={tr("nav.restoreTimeOrder")} onClick={restoreOrder}>
+              <IconRefresh size={12} />
+            </ProjectIconButton>
+          )
         ) : null}
         {realProject && !onRestoreProject && !coarse ? (
           /*
@@ -1677,6 +1896,11 @@ function ProjectBucket({
                 </ProjectIconButton>
               </>
             ) : null}
+            {hasStoredOrder && !archived ? (
+              <ProjectIconButton label={tr("nav.restoreTimeOrder")} onClick={onRestoreOrder}>
+                <IconRefresh size={12} />
+              </ProjectIconButton>
+            ) : null}
           </div>
         ) : null}
         {realProject && coarse ? (
@@ -1722,11 +1946,31 @@ function ProjectBucket({
               onSwipeOpenChange={(open) => onSwipeOpenChange(open ? row.key : null)}
               pinned={row.task ? pinnedIds.has(row.task.id) : false}
               onPin={() => onPin(row)}
+              onRename={(title) => onRename(row, title)}
               onArchive={() => onArchive(row)}
               onDelete={() => onDelete(row)}
               onRestore={() => onRestore(row)}
               scope={scope}
               query={query}
+              reorderHint={canReorder && !imported}
+              // Imported sessions are an index, not a project order, and the
+              // stored order is never applied there; so no handle either.
+              reorder={
+                canReorder && !imported
+                  ? {
+                      onStart: () =>
+                        onDragStart(
+                          bucket.key,
+                          row.key,
+                          bucket.rows.map((member) => member.key),
+                        ),
+                      onMove: onDragMove,
+                      onEnd: onDragEnd,
+                    }
+                  : undefined
+              }
+              dragging={draggingKey === row.key}
+              dragOffsetY={draggingKey === row.key ? dragOffsetY : 0}
             />
           ))}
           {canToggle && (hidden > 0 || bucket.rows.length > ROWS_BEFORE_SHOW_ALL) ? (

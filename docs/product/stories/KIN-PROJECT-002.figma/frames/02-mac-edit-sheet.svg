@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1100" height="760" fill="#ffffff" rx="10"/><rect width="1100" height="32" fill="#f0f0f0" rx="10"/><rect y="10" width="1100" height="22" fill="#f0f0f0"/>
+<line x1="0" y1="32" x2="1100" y2="32" stroke="#dddddd"/><text x="12" y="21" font-size="12" fill="#555">Mac 1100×760 · 工作目录 · 编辑浮层（KIN-PROJECT-002）</text><text x="1088" y="21" font-size="11" fill="#6b6b6b" text-anchor="end">添加 / 移除 / 设为默认，一次保存整份列表</text>
+<!-- 封面在浮层后面，压暗 --><rect x="1" y="32" width="1098" height="728" fill="#f4f4f6"/><rect x="1" y="32" width="329" height="728" fill="#ececef"/>
+<line x1="330" y1="32" x2="330" y2="760" stroke="#dddddd"/><text x="358" y="96" font-size="22" fill="#b9b9c0" font-weight="600">alpha</text><text x="358" y="130" font-size="12" fill="#b9b9c0">工作目录块在浮层后面，位置不动</text>
+<rect x="358" y="150" width="724" height="196" rx="10" fill="#e8e8ec" stroke="#d8d8de"/><!-- 浮层 --><rect x="292" y="92" width="620" height="576" rx="14" fill="#ffffff" stroke="#bdbdbd"/>
+<rect x="292" y="92" width="620" height="44" rx="14" fill="#fafafa"/><line x1="292" y1="136" x2="912" y2="136" stroke="#e3e3e3"/><text x="312" y="121" font-size="16" fill="#1a1a1a" font-weight="600">工作目录</text>
+<text x="892" y="121" font-size="16" fill="#888" text-anchor="end">×</text><text x="312" y="164" font-size="11.5" fill="#6b6b6b">新对话默认落在第一个目录。保存时把完整的有序列表发给项目。</text><!-- 第 1 行 -->
+<rect x="312" y="182" width="580" height="66" rx="8" fill="#eef2ff" stroke="#c9d9ff"/><text x="326" y="206" font-size="12.5" fill="#1a1a1a" font-weight="600">/work/alpha</text><rect x="326" y="216" width="52" height="20" rx="10" fill="#eef2ff" stroke="#1f6feb"/>
+<text x="352" y="230" font-size="10.5" fill="#1f6feb" text-anchor="middle">默认</text><text x="876" y="222" font-size="11.5" fill="#b42318" text-anchor="end">移除</text>
+<text x="812" y="222" font-size="11.5" fill="#999" text-anchor="end">已经是默认</text><!-- 第 2 行 --><rect x="312" y="256" width="580" height="66" rx="8" fill="#ffffff" stroke="#e3e3e3"/>
+<text x="326" y="280" font-size="12.5" fill="#1a1a1a" font-weight="600">/work/alpha-config</text><rect x="742" y="276" width="66" height="24" rx="12" fill="#ffffff" stroke="#1f6feb"/>
+<text x="775" y="292" font-size="11" fill="#1f6feb" text-anchor="middle">设为默认</text><text x="876" y="292" font-size="11.5" fill="#b42318" text-anchor="end">移除</text><!-- 第 3 行 -->
+<rect x="312" y="330" width="580" height="66" rx="8" fill="#ffffff" stroke="#e3e3e3"/><text x="326" y="354" font-size="12.5" fill="#1a1a1a" font-weight="600">/work/shared-lib</text>
+<rect x="742" y="350" width="66" height="24" rx="12" fill="#ffffff" stroke="#1f6feb"/><text x="775" y="366" font-size="11" fill="#1f6feb" text-anchor="middle">设为默认</text><text x="876" y="366" font-size="11.5" fill="#b42318" text-anchor="end">移除</text>
+<!-- 添加目录 --><rect x="312" y="408" width="580" height="44" rx="8" fill="#fbfbfb" stroke="#bbbbbb" stroke-dasharray="5 4"/><text x="602" y="435" font-size="12.5" fill="#1f6feb" text-anchor="middle">＋ 添加目录</text>
+<text x="312" y="474" font-size="11" fill="#6b6b6b">选择器与新建对话共用：机器 → 目录。选到重复目录时就地说「这个目录已经在列表里」。</text><text x="312" y="496" font-size="11" fill="#6b6b6b">顺序就是保存顺序；「设为默认」= 移到第一位，其余相对顺序不变。</text><line x1="312" y1="560" x2="892" y2="560" stroke="#e3e3e3"/>
+<text x="312" y="586" font-size="11" fill="#888">未保存修改会在关闭浮层前确认。</text><rect x="700" y="600" width="84" height="40" rx="10" fill="#ffffff" stroke="#bbbbbb"/><text x="742" y="625" font-size="12.5" fill="#444" text-anchor="middle">取消</text>
+<rect x="796" y="600" width="96" height="40" rx="10" fill="#1f6feb"/><text x="844" y="625" font-size="12.5" fill="#ffffff" text-anchor="middle">保存</text><text x="312" y="625" font-size="11" fill="#6b6b6b">⌘Enter 保存</text>
+<!-- 焦点与键盘提示 --><rect x="312" y="654" width="580" height="1" fill="#eeeeee"/><text x="312" y="676" font-size="10.5" fill="#999">焦点：打开后落在标题；Tab 依次到每行的「设为默认」「移除」、「添加目录」、「取消」「保存」。</text>
+</g>
+</svg>

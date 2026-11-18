@@ -51,19 +51,29 @@ describe("the file finder's ways in", () => {
     expect(ACTION_SHEET).toContain("onCloseComplete");
   });
 
-  it("spends the open-file pulse when the panel closes", () => {
+  it("spends the open-file pulse when the panel closes, not when a sibling tab is visited", () => {
     // The panel consumes the pulse once. A closed panel that kept it would
     // replay the last "open this file" on the next open and land inside a file
-    // instead of on the list, which is what a fresh open of Files means. The
-    // hook runs before the page's loading return, so it reads "is this
-    // session's files panel open" from the store instead of from the panel.
+    // instead of on the list, which is what a fresh open of Files means. The PR
+    // and publish are tabs of that same panel, so a visit to either is not a
+    // close: the open file has to survive the visit (TASTE 15). The hook runs
+    // before the page's loading return, so it reads the surfaces from the store
+    // instead of from the panel.
     expect(PAGE).toContain(
       'const filesPanelOpen = shownPanel?.view === id && shownPanel.id === "files";',
     );
-    expect(PAGE).toContain("if (!filesPanelOpen) setWorkspaceOpenPath(null);");
+    expect(PAGE).toContain(
+      'const prSurfaceOpen = shownPanel?.view === id && shownPanel.id === "pr";',
+    );
+    expect(PAGE).toContain(
+      'const publishSurfaceOpen = shownPanel?.view === id && shownPanel.id === "publish";',
+    );
+    expect(PAGE).toContain(
+      "if (!filesPanelOpen && !prSurfaceOpen && !publishSurfaceOpen) setWorkspaceOpenPath(null);",
+    );
   });
 
-  it("offers the panel's own trigger next to its two lenses", () => {
+  it("offers the panel's own trigger beside the surface tabs", () => {
     expect(PANEL).toContain("onFindFile?: () => void;");
     expect(PANEL).toContain('aria-label={tr("workspace.find.action")}');
     expect(PAGE).toContain("onFindFile={() => setFileFinderOpen(true)}");

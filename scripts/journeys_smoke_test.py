@@ -164,12 +164,50 @@ class SummarizerTest(unittest.TestCase):
         self.assertNotIn("J2/mac", rows)
         self.assertNotIn("J2/mac-wide", rows)
 
+        # An id the spec will never define. J9 used to stand in here; it is a
+        # real journey now (the F4 switch proof), so the fixture moved out of
+        # the numbered range.
         bad_code, bad_out, bad_err = self.run_main(
-            "--walk-json", self.walk, "--spec", self.spec, "--journeys", "J9"
+            "--walk-json", self.walk, "--spec", self.spec, "--journeys", "J99"
         )
         self.assertEqual(bad_code, 2, bad_out + bad_err)
         self.assertIn("unavailable:", bad_out + bad_err)
-        self.assertIn("J9", bad_out + bad_err)
+        self.assertIn("J99", bad_out + bad_err)
+
+    def test_split_spec_reads_a_body_file_through_the_resolver(self) -> None:
+        # Once the body move lands, an index entry is a path string, not a
+        # body. Reading the raw index would call .get on that string and crash
+        # a clean walk into exit 1; the summarizer must resolve through
+        # spec.py and still list every pair.
+        os.makedirs(os.path.join(self.dir, "journeys"), exist_ok=True)
+        with open(os.path.join(self.dir, "journeys", "J1.json"), "w", encoding="utf-8") as fh:
+            json.dump({"viewports": ["phone"], "steps": [["goto", "/sessions"]]}, fh)
+        path = self.write_spec({
+            "viewports": SPEC["viewports"],
+            "journeys": {
+                "J1": "journeys/J1.json",
+                "J2": {"viewports": ["mac", "mac-wide"]},
+            },
+        })
+        self.write_walk(screens=[
+            screen("J1", "phone"), screen("J2", "mac"), screen("J2", "mac-wide"),
+        ])
+        code, out, err = self.run_main("--walk-json", self.walk, "--spec", path)
+        rows = self.rows(out)
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(rows["J1/phone"][2], "1")  # the file body's pair is listed
+        self.assertEqual(sorted(rows), ["J1/phone", "J2/mac", "J2/mac-wide"])
+
+    def test_split_spec_missing_body_is_unavailable_not_a_crash(self) -> None:
+        path = self.write_spec({
+            "viewports": SPEC["viewports"],
+            "journeys": {"J1": "journeys/absent.json"},
+        })
+        self.write_walk(screens=[screen("J1", "phone")])
+        code, out, err = self.run_main("--walk-json", self.walk, "--spec", path)
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("unavailable: cannot read spec", out + err)
+        self.assertIn("J1", out + err)
 
 
 class SeedSkipContractTest(unittest.TestCase):
@@ -208,11 +246,13 @@ class ShellTest(unittest.TestCase):
         )
 
     def test_unknown_journey_id_is_rejected(self) -> None:
-        result = self.run_shell("--journeys", "J9", "--dry-run")
+        # J9 is a real journey now (the F4 switch proof); the unknown-id
+        # fixture must stay outside the spec's numbered range.
+        result = self.run_shell("--journeys", "J99", "--dry-run")
         combined = result.stdout + result.stderr
         self.assertEqual(result.returncode, 2, combined)
         self.assertIn("unavailable:", combined)
-        self.assertIn("J9", combined)
+        self.assertIn("J99", combined)
         self.assertIn("J1", combined)
         self.assertIn("J7", combined)
 
@@ -233,6 +273,24 @@ class ShellTest(unittest.TestCase):
         self.assertIn(
             "summarize: python3 scripts/journeys_smoke.py --walk-json <out>/walk.json --journeys J1",
             result.stdout,
+        )
+
+    def test_slow_agent_hold_default_is_pinned(self) -> None:
+        # J3 types a second message while the first round is still open, so the
+        # fake agent's 3 s default hold has to be stretched to 10 s; this export
+        # is the only thing that does it. Dropping or retuning it would surface
+        # as an intermittent walk failure, not a red test, so pin the exact line
+        # (the dry run exits before it, so the resolved value cannot be read).
+        with open(SHELL, encoding="utf-8") as fh:
+            lines = [
+                line.strip()
+                for line in fh
+                if line.strip().startswith("export RSI_FAKE_SLOW_SECS=")
+            ]
+        self.assertEqual(
+            lines,
+            ['export RSI_FAKE_SLOW_SECS="${RSI_FAKE_SLOW_SECS:-10}"'],
+            "scripts/journeys-smoke.sh must export RSI_FAKE_SLOW_SECS with a 10 s default",
         )
 
 

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// KIN-SETTINGS-001 — 改默认设置（J6）：本套件持有目录 / 内容列布局与键盘焦点的验收行。
 import { createElement, useState } from "react";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +8,7 @@ import {
   offscreenEdges,
   settingsTabFromSearch,
   SettingsLayout,
+  SettingsTabPanel,
   type SettingsTabId,
   type SettingsTabItem,
 } from "./SettingsPrimitives";
@@ -216,6 +218,115 @@ describe("SettingsLayout focus recovery", () => {
     } finally {
       raf.mockRestore();
     }
+  });
+});
+
+describe("SettingsLayout summaries and phone focus", () => {
+  const withSummary: SettingsTabItem[] = [
+    { id: "general", label: "General", description: "General settings" },
+    {
+      id: "providers",
+      label: "Providers",
+      description: "Provider settings",
+      summary: "Anthropic",
+    },
+  ];
+
+  /** The phone directory row that carries a section's description. */
+  function phoneRow(detail: string): HTMLElement {
+    const node = screen.getByText(detail).closest("button");
+    expect(node).toBeTruthy();
+    return node as HTMLElement;
+  }
+
+  /** The layout with two real panels, so focus can land inside one. */
+  function panelHarness(items: SettingsTabItem[], controlInProviders = true) {
+    return function Harness() {
+      const [active, setActive] = useState<SettingsTabId>("general");
+      return createElement(SettingsLayout, {
+        title: "Settings",
+        tabs: items,
+        activeTab: active,
+        onTabChange: setActive,
+        children: [
+          createElement(SettingsTabPanel, {
+            key: "general",
+            id: "general",
+            active: active === "general",
+            children: createElement("button", { type: "button" }, "Theme control"),
+          }),
+          createElement(SettingsTabPanel, {
+            key: "providers",
+            id: "providers",
+            active: active === "providers",
+            children: controlInProviders
+              ? createElement("button", { type: "button" }, "Provider control")
+              : "Nothing to focus yet",
+          }),
+        ],
+      });
+    };
+  }
+
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+    // jsdom has no layout engine; the directory tap scrolls the page to the top.
+    Element.prototype.scrollTo = vi.fn();
+  });
+
+  it("shows each section's current value in the Mac nav and the phone directory", () => {
+    // The value is a glance aid on both surfaces: the tab strip already names
+    // the section, and the phone's directory row has the room for it.
+    render(createElement(layoutHarness("general", withSummary)));
+
+    const tab = screen.getByRole("tab", { name: "Providers" });
+    expect(within(tab).getByText("Anthropic")).toBeTruthy();
+
+    const row = phoneRow("Provider settings");
+    expect(within(row).getByText("Anthropic")).toBeTruthy();
+  });
+
+  it("keeps the description when a section has no value yet", () => {
+    // No value is the fallback, not an empty second line: a section whose
+    // current value is not known keeps its description and nothing else.
+    render(createElement(layoutHarness("general", tabs)));
+
+    const tab = screen.getByRole("tab", { name: "Providers" });
+    expect(tab.textContent).toBe("Providers");
+    expect(tab.getAttribute("title")).toBe("Provider settings");
+
+    const row = phoneRow("Provider settings");
+    expect(row.textContent).toBe("ProvidersProvider settings");
+  });
+
+  it("choosing a section from the phone directory moves focus into its panel", () => {
+    render(createElement(panelHarness(withSummary)));
+
+    fireEvent.click(phoneRow("Provider settings"));
+
+    // The directory that held the tapped row is gone; focus belongs to the
+    // layer that just appeared, not to <body>.
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Provider control" }));
+  });
+
+  it("falls back to the panel itself when the section has no control to focus", () => {
+    render(createElement(panelHarness(withSummary, false)));
+
+    fireEvent.click(phoneRow("Provider settings"));
+
+    expect(document.activeElement).toBe(document.getElementById("settings-panel-providers"));
+  });
+
+  it("choosing a section from the Mac tab strip keeps focus on the tab", () => {
+    // The ARIA tablist keeps focus on the tab; arrow keys already move it, and
+    // a panel focus move here would fight that pattern.
+    render(createElement(panelHarness(withSummary)));
+
+    const tab = screen.getByRole("tab", { name: "Providers" });
+    tab.focus();
+    fireEvent.click(tab);
+
+    expect(document.activeElement).toBe(tab);
   });
 });
 

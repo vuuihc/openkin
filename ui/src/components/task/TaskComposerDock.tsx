@@ -78,6 +78,15 @@ export type TaskComposerDockProps = {
   waitingCount: number;
   /** The oldest waiting entry is an approval, so the band can offer the decision. */
   pendingIsApproval: boolean;
+  /**
+   * That approval's card is inside the transcript's viewport right now.
+   *
+   * The band keeps its row either way — it is the locator for a card that may
+   * be a screen or two above the fold. But the card carries Approve and Deny
+   * itself, and a second Approve under it would be two primaries for one
+   * decision. The page measures this on the card, not on the scroll offset.
+   */
+  pendingCardOnScreen: boolean;
   /** That approval is already being answered; the dock's Approve waits with it. */
   pendingApprovalBusy: boolean;
   onRevealFirstPending: () => void;
@@ -119,6 +128,7 @@ export default function TaskComposerDock({
   machine,
   waitingCount,
   pendingIsApproval,
+  pendingCardOnScreen,
   pendingApprovalBusy,
   onRevealFirstPending,
   onApproveFirstPending,
@@ -141,9 +151,12 @@ export default function TaskComposerDock({
             A decision, within reach of the composer. In a long conversation
             the inline card can be a screen or two above the fold, and the
             strip that only scrolled to it still made the reader leave the
-            message they were writing. The row names the decision, says how
-            many more are queued behind it, and carries the same Approve the
-            card does — the page decides through the same path either way.
+            message they were writing. The row always names the decision and
+            says how many more are queued behind it, and it scrolls to the
+            card; the Approve rides with it only while that card is off
+            screen. With the card visible, its own Approve and Deny are the
+            only decision controls — the row is a locator, not a second
+            primary — and either way the page decides through one path.
           */
           <div className="flex items-center gap-2 rounded-xl border border-kin-orange/40 bg-kin-orange/15 px-3 py-2">
             <IconAlert className="w-4 h-4 flex-none text-kin-orange-ink" />
@@ -154,14 +167,16 @@ export default function TaskComposerDock({
             <Button variant="secondary" onClick={onRevealFirstPending} className="flex-none px-3">
               {tr("task.viewPending")}
             </Button>
-            <Button
-              variant="approve"
-              disabled={pendingApprovalBusy}
-              onClick={onApproveFirstPending}
-              className="flex-none px-3"
-            >
-              {tr("chat.approve")}
-            </Button>
+            {pendingCardOnScreen ? null : (
+              <Button
+                variant="approve"
+                disabled={pendingApprovalBusy}
+                onClick={onApproveFirstPending}
+                className="flex-none px-3"
+              >
+                {tr("chat.approve")}
+              </Button>
+            )}
           </div>
         ) : waitingCount > 0 ? (
           // A question needs its card's own form; the band can only take the

@@ -17,27 +17,55 @@
 # failed task.
 #
 # One prompt holds a turn open. A prompt containing "[seed] approve" prints
-# the init line and one assistant message carrying a tool_use block, then stays
-# alive instead of printing a result — so the daemon keeps the task `running`
-# and scripts/journeys_seed.py can ask the daemon's own permission bridge for an
-# approval row. The task then sits in `waiting_approval` and the walk
-# photographs the card. It exits when its parent (the daemon) is gone, and has
-# a hard cap, so a crashed walk cannot leave a sleeper behind.
+# the init line and one assistant message carrying its tool_use blocks, then
+# stays alive instead of printing a result — so the daemon keeps the task
+# `running` and scripts/journeys_seed.py can ask the daemon's own permission
+# bridge for an approval row. The task then sits in `waiting_approval` and the
+# walk photographs the card. It exits when its parent (the daemon) is gone, and
+# has a hard cap, so a crashed walk cannot leave a sleeper behind. The second
+# block names a real path in the shared seed root, because this is the
+# conversation the phone journey opens: the console's changed-files bar reads
+# path-bearing tool_use events, and without one there is no bar to photograph.
 #
-# One prompt changes a file. A prompt containing "[seed] change" appends one
-# sentinel line to the tracked notes.md, and only when the process's real
-# working directory carries the `kin-journeys-seed-` prefix that
+# Three prompts change a file, and only when the process's real working
+# directory carries the `kin-journeys-seed-` prefix that
 # scripts/journeys_seed.py's _seed_roots() creates — this binary can be
-# selected by path, so it must never write into a real repository. The line is
-# appended only once, so a re-run leaves the same one-file diff and the journey
-# walk has a real workspace change to open. Every other prompt writes nothing:
-# the task cwd stays untouched.
+# selected by path, so it must never write into a real repository:
+#
+#   [seed] change   append one sentinel line to the tracked notes.md, at most
+#                   once, so the journey walk has a real workspace change and
+#                   a re-run leaves the same one-file diff.
+#   [seed] shift    insert one line immediately above that sentinel, so the
+#                   line a saved diff comment quotes moves down unchanged.
+#   [seed] rewrite  replace the sentinel with different text, so the quote a
+#                   saved comment holds is gone — the stale case the tray
+#                   shows as 该行已变化.
+#
+# shift and rewrite are no-ops when their line is already present, so a second
+# round is byte-identical, and no-ops when the sentinel is absent. Every other
+# prompt writes nothing: the task cwd stays untouched.
 #
 # Deliberately no `session_id`: a made-up ref sends the engine looking for it
 # in the real agent session catalog on every turn (~16 s per seeded
 # conversation on a machine with a large catalog), and a seeded conversation
 # has no real session behind it. Omitting the optional field leaves the task
 # succeeded in well under a second and touches no local session state.
+# One prompt answers slowly. A prompt containing "[seed] slow" prints the init
+# line, holds for RSI_FAKE_SLOW_SECS (default 3, clamped 0..10, a malformed
+# value falls back to the default), then prints the usual reply. The J3 walk
+# presses Start for real and photographs the pending bubble and the waiting
+# row; without a deterministic hold that window is a race against the answer.
+# The hold is bounded so a crashed walk can never leave a turn running for
+# minutes, and it changes nothing for any other prompt.
+#
+# One prompt never answers. A prompt containing "[seed] hold" prints the init
+# line and one assistant message, then stays alive for RSI_FAKE_HOLD_SECS
+# (default 600, clamped 0..900, a malformed value falls back to the default)
+# without ever printing a result. The task therefore stays `running`, not
+# `waiting_approval`: scripts/journeys_seed.py uses it for the one conversation
+# whose row menu J5 opens while the turn is still working. It exits as soon as
+# its parent (the daemon) is gone, so a torn-down walk leaves no sleeper, and
+# the cap bounds even a parent that never dies.
 set -u
 
 prompt=""
@@ -74,7 +102,7 @@ case "$prompt" in
     # while the process sleeps, and the daemon would never see these lines.
     cat <<'EOF'
 {"type":"system","subtype":"init","cwd":"."}
-{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_seed_approve","name":"Bash","input":{"command":"git status --short"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_seed_approve","name":"Bash","input":{"command":"git status --short"}},{"type":"tool_use","id":"toolu_seed_approve_write","name":"Write","input":{"file_path":"notes.md","content":"- [seed] change: the journey walk reads this line as a real diff."}}]}}
 EOF
     # A held turn, not a daemon of its own: die with the parent, and never
     # outlive a walk by more than the hard cap.
@@ -88,25 +116,164 @@ EOF
     ;;
 esac
 
-# The one workspace change this fake ever makes: a single line in the tracked
-# notes.md of a throwaway seed root, appended at most once.
-case "$prompt" in
-  *"[seed] change"*)
-    # pwd -P, not an inherited $PWD: the daemon passes its own environment
-    # through, so only the process's real directory proves where this writes.
-    case "$(pwd -P)" in
-      *kin-journeys-seed-*)
-        line='- [seed] change: the journey walk reads this line as a real diff.'
-        if [ -f notes.md ] && ! grep -qxF -e "$line" notes.md; then
-          printf '%s\n' "$line" >>notes.md
+# The workspace changes this fake ever makes: lines in the tracked notes.md of
+# a throwaway seed root. All three branches are idempotent, so a second round
+# of the same walk changes no bytes.
+#
+# pwd -P, not an inherited $PWD: the daemon passes its own environment through,
+# so only the process's real directory proves where this writes.
+case "$(pwd -P)" in
+  *kin-journeys-seed-*)
+    change_line='- [seed] change: the journey walk reads this line as a real diff.'
+    shift_line='- [seed] shift: a line added above the commented one.'
+    rewrite_line='- [seed] rewrite: this line changed after the comment was written.'
+    case "$prompt" in
+      *"[seed] change"*)
+        if [ -f notes.md ] && ! grep -qxF -e "$change_line" notes.md; then
+          printf '%s\n' "$change_line" >>notes.md
+        fi
+        ;;
+    esac
+    case "$prompt" in
+      *"[seed] shift"*)
+        # One line above the first sentinel, and only while the sentinel is
+        # there and the shift has not already run.
+        if [ -f notes.md ] && grep -qxF -e "$change_line" notes.md &&
+          ! grep -qxF -e "$shift_line" notes.md; then
+          awk -v line="$shift_line" -v target="$change_line" '
+            !inserted && $0 == target { print line; inserted = 1 }
+            { print }
+          ' notes.md >notes.md.seed-tmp &&
+            cat notes.md.seed-tmp >notes.md
+          rm -f notes.md.seed-tmp
+        fi
+        ;;
+    esac
+    case "$prompt" in
+      *"[seed] rewrite"*)
+        # The sentinel text becomes the rewrite line, once. A comment quoting
+        # the old text can no longer be re-anchored: that is the stale case.
+        if [ -f notes.md ] && grep -qxF -e "$change_line" notes.md &&
+          ! grep -qxF -e "$rewrite_line" notes.md; then
+          awk -v line="$rewrite_line" -v target="$change_line" '
+            !replaced && $0 == target { print line; replaced = 1; next }
+            { print }
+          ' notes.md >notes.md.seed-tmp &&
+            cat notes.md.seed-tmp >notes.md
+          rm -f notes.md.seed-tmp
         fi
         ;;
     esac
     ;;
 esac
 
+# Every answer begins with the init line, before any hold below. `cat` rather
+# than a shell builtin's printf: the approve branch documents why a buffered
+# write can sit in the pipe while the process sleeps.
 cat <<'EOF'
 {"type":"system","subtype":"init","cwd":"."}
+EOF
+
+# A conversation created inside a project receives the One-Pager digest as
+# part of its prompt. The transcript deliberately does not show the injected
+# text as the user's message, so a walk cannot prove "the cover and the agent
+# received the same 工作方式 section" by reading the user bubble. This echo is
+# the agent's own receipt: the section body exactly as it arrived (already cut
+# to the digest's 400 runes), printed as one assistant text event BEFORE the
+# ordinary reply. The J4 walk waits for it inside the transcript and compares
+# it with the cover; without the block nothing extra is printed, so every
+# other journey's reply is unchanged apart from this paragraph.
+#
+# The JSON is built by python3 rather than hand-quoted: the body carries an
+# ellipsis, CJK punctuation and newlines, and a shell heredoc cannot escape
+# them safely.
+case "$prompt" in
+  *"[Project context"*)
+    case "$prompt" in
+      *"How to work here:"*)
+        printf '%s' "$prompt" | python3 -c '
+import json, sys
+
+lines = sys.stdin.read().split("\n")
+try:
+    start = next(i for i, line in enumerate(lines) if line.strip() == "How to work here:")
+except StopIteration:
+    raise SystemExit(0)
+body = []
+for line in lines[start + 1:]:
+    if line.strip() in ("Next:", "---"):
+        break
+    body.append(line)
+body = "\n".join(body).strip()
+if not body:
+    raise SystemExit(0)
+print(json.dumps({
+    "type": "assistant",
+    "message": {
+        "role": "assistant",
+        "content": [{"type": "text", "text": "Project instructions received:\n" + body}],
+    },
+}, ensure_ascii=False))
+'
+        ;;
+    esac
+    ;;
+esac
+
+case "$prompt" in
+  *"[seed] slow"*)
+    raw="${RSI_FAKE_SLOW_SECS:-3}"
+    case "$raw" in
+      '' | *[!0-9]*) secs=3 ;;
+      *)
+        # Compare by length first: an arbitrarily large number is not a
+        # number `test -gt` has to parse.
+        if [ "${#raw}" -gt 2 ] || [ "$raw" -gt 10 ]; then secs=10; else secs="$raw"; fi
+        ;;
+    esac
+    sleep "$secs"
+    ;;
+esac
+
+case "$prompt" in
+  *"[seed] hold"*)
+    raw="${RSI_FAKE_HOLD_SECS:-600}"
+    case "$raw" in
+      '' | *[!0-9]*) secs=600 ;;
+      *)
+        # Compare by length first so an arbitrarily large number is never
+        # parsed by `test -gt`; 900 is the hard cap, and "900" is three digits.
+        if [ "${#raw}" -gt 3 ] || [ "$raw" -gt 900 ]; then secs=900; else secs="$raw"; fi
+        ;;
+    esac
+    # One assistant line so the transcript is not empty while the row works.
+    # No tool_use: this task must never ask for an approval card.
+    cat <<'EOF'
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Fake turn still working; no result will arrive."}]}}
+EOF
+    i=0
+    while [ "$i" -lt "$secs" ]; do
+      kill -0 "$PPID" 2>/dev/null || exit 0
+      sleep 1
+      i=$((i + 1))
+    done
+    exit 0
+    ;;
+esac
+
+# The change turn names the file it just touched, so the console's
+# changed-files bar (fed by path-bearing tool_use events) has a file to
+# summarize. Without it the seeded conversation reads as a text-only turn and
+# the bar renders null in every journey screenshot.
+case "$prompt" in
+  *"[seed] change"*)
+    cat <<'EOF'
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_seed_change","name":"Write","input":{"file_path":"notes.md","content":"- [seed] change: the journey walk reads this line as a real diff."}}]}}
+EOF
+    ;;
+esac
+
+cat <<'EOF'
 {"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Fake reply"}}}
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Fake reply from the journey fake agent."}]}}
 {"type":"result","subtype":"success","is_error":false,"result":"Fake reply from the journey fake agent.","total_cost_usd":0.00042,"usage":{"input_tokens":42,"output_tokens":7}}

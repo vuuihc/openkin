@@ -10,6 +10,8 @@
 #   the same diff exit 2 at once, without walking, dispatching or deleting the last walk's screenshots. A new diff hash retries at once.
 #   RSI_UX_COOLDOWN_MIN=0    disable the cooldown (test hook)
 #   RSI_UX_WALK_CMD=<cmd>    test hook: run instead of the walker, gets the screenshot dir as $1, must leave walk.json + a .png there
+#                            a red run's confirm re-walk passes the journey selector (J2,J9) as an optional $2;
+#                            older callers (retry-test.sh) pass only $1 and stay valid
 #   RSI_UX_REVIEW_CMD=<cmd>  test hook: run instead of the model, gets the prompt file as $1 and prints the reviewer text
 #                            (a non-zero exit without UX_SCORES counts as unavailable, same as a failed dispatch)
 #   RSI_UX_STATE=<dir>       state root override for tests; defaults to the worktree's rsi/state. Not RSI_STATE: the loop
@@ -63,10 +65,95 @@ if [ -n "$HARD" ] && [ -s "$KNOWN" ]; then
 fi
 NSHOT="$(ls "$SHOTS"/*.png 2>/dev/null | wc -l | tr -d ' ')"
 [ "$NSHOT" -gt 0 ] || unavailable "walk produced no screenshots"
+# 1b. Confirm a red once before it bills a rework round (R-ux-gate-confirm-red, 2026-11-18).
+# One hard-fail line from one walk used to convict a UI PR for a whole rework round; #296 was
+# billed a 9-minute lane and $0.89 for `J9/mac: scroll-kept ...`, which three independent walks
+# of the same tree could not reproduce. A red is now re-walked once, on the same tree, for the
+# journeys its failing lines name. Only failures the second walk reproduces survive; the rest
+# are recorded as flaked in the sendback and scores.json, so the rework lane and the retro can
+# count false reds by source. A green run walks once and never creates $UXD/confirm. A confirm
+# that cannot run keeps the first-walk failures: fail closed, never turn a red into "unavailable".
+CONF_JSON="$UXD/confirm.json"; CONF_SUMMARY=""
+rm -f "$CONF_JSON" "$UXD/confirm.txt" "$UXD/confirm.summary" "$UXD/confirm.hard"   # this attempt's evidence only
+# This run's own evidence only: a stale UNAVAILABLE or walk.json from an earlier attempt on the
+# same slug must not decide the confirmation.
+rm -rf "$UXD/confirm"
+if [ -n "$HARD" ]; then
+  # A hard fail names its journey two ways: walk.mjs writes `<journey>/<viewport>: ` for a step
+  # failure, and `<J<nn>>-<viewport>-<NN>-<step>: ` for a screenshot check such as "blank page"
+  # or "horizontal page overflow". Both are localisable, so both select the re-walk; treating the
+  # screenshot form as unattributable billed #330 a rework round for two blank-page lines its own
+  # confirm walk could not reproduce. Only a line that names no journey at all is kept and skips
+  # the confirm: re-walking everything would double the cost for a failure we cannot target.
+  JOURNEYS="$(printf '%s\n' "$HARD" | sed -n -e 's#^\([A-Za-z0-9_]*\)/.*#\1#p' -e 's#^\(J[0-9][0-9]*\)-.*#\1#p' | sort -u | paste -sd, -)"
+  if [ -n "$JOURNEYS" ]; then
+    mkdir -p "$UXD/confirm"
+    if [ -n "${RSI_UX_WALK_CMD:-}" ]; then
+      bash -c "$RSI_UX_WALK_CMD" _ "$UXD/confirm" "$JOURNEYS" > "$UXD/confirm/walk.out" 2>&1; CRC=$?
+    else
+      bash "$RSI_DIR/runtime/ux-walk.sh" "$WT" "$UXD/confirm" "$JOURNEYS" > "$UXD/confirm/walk.out" 2>&1; CRC=$?
+    fi
+    CRSN=""; CHARD=""
+    if [ -e "$UXD/confirm/UNAVAILABLE" ]; then CRSN="$(tr '\n' ' ' < "$UXD/confirm/UNAVAILABLE")"
+    elif [ "${CRC:-0}" -eq 2 ]; then CRSN="walker exit 2"
+    elif [ ! -s "$UXD/confirm/walk.json" ]; then CRSN="no confirm walk.json"
+    else
+      CHARD="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("\n".join(d.get("hardFail",[])))' "$UXD/confirm/walk.json")" \
+        || { CRSN="confirm walk.json unreadable"; CHARD=""; }
+    fi
+    # A confirm whose evidence cannot be parsed or decided keeps the first walk's red: an empty
+    # CHARD would otherwise record every first-walk failure as flaked and could pass a real one.
+    if [ -z "$CRSN" ]; then
+      if [ -n "$CHARD" ] && [ -s "$KNOWN" ]; then
+        CHARD="$(printf '%s\n' "$CHARD" | grep -v -F -f "$KNOWN" || true)"
+      fi
+      # Written to a file rather than captured: macOS bash 3.2 lexes quotes inside a heredoc
+      # nested in $( ), so a body comment with an apostrophe breaks the parse. A standalone
+      # heredoc is literal and keeps the python readable.
+      python3 - "$HARD" "$CHARD" "$JOURNEYS" "$UXD/confirm.txt" "$CONF_JSON" "$UXD/confirm.summary" "$UXD/confirm.hard" <<'PY'
+import json, re, sys
+orig = [l for l in sys.argv[1].splitlines() if l]
+conf = [l for l in sys.argv[2].splitlines() if l]
+journeys = sys.argv[3]
+def journey(line):
+    m = re.match(r"^([A-Za-z0-9_]+)/", line) or re.match(r"^(J[0-9]+)-", line)
+    return m.group(1) if m else ""
+conf_set = set(conf)
+reproduced = [l for l in orig if journey(l) and l in conf_set]
+flaked = [l for l in orig if journey(l) and l not in conf_set]
+unattributed = [l for l in orig if not journey(l)]
+# The confirm walk's filtered lines are the surviving hard failures. A NEW line survives too:
+# a flaky first red must not hide a real second one. Unattributable first-walk lines stay.
+final = conf + unattributed
+with open(sys.argv[4], "w") as f:
+    f.write("journeys=%s reproduced=%d flaked=%d\n" % (journeys, len(reproduced), len(flaked)))
+    for l in flaked:
+        f.write(l + "\n")
+summary = "walk confirm: re-walked %s once → reproduced=%d flaked=%d" % (journeys, len(reproduced), len(flaked))
+if flaked:
+    summary += "\nflaked (failed the first walk, not reproduced; not blocking):\n" + "\n".join(flaked)
+open(sys.argv[6], "w").write(summary + "\n")
+json.dump({"journeys": journeys, "reproduced": len(reproduced), "flaked": len(flaked)}, open(sys.argv[5], "w"))
+open(sys.argv[7], "w").write("\n".join(final) + ("\n" if final else ""))
+PY
+      PYRC=$?
+      [ "$PYRC" -eq 0 ] || CRSN="confirm decision failed"
+    fi
+    if [ -z "$CRSN" ]; then
+      HARD="$(cat "$UXD/confirm.hard")"
+      CONF_SUMMARY="$(cat "$UXD/confirm.summary")"
+    else
+      # Never unavailable() from here: the first walk already produced a verdict, and an infra
+      # hiccup on the second must not turn a red into "not merged / needs-ceo".
+      CONF_SUMMARY="walk confirm: unavailable (${CRSN% }) — first-walk failures kept"
+    fi
+    printf 'ux-gate: %s\n' "$CONF_SUMMARY"
+  fi
+fi
 # 2. vision review
 BASELINE="$STATE/shots/baseline"   # walk of the installed build before the programme (empty daemon); refresh with ux-walk.sh on current main
 APPROVED_PROTO="$STATE/ux-proto/final"
-BODY="$($GH pr view "$N" --repo "$GH_REPO" --json body --jq .body 2>/dev/null | head -c 3000)"
+BODY="$($GH pr view "$N" --repo "$GH_REPO" --json body --jq .body 2>/dev/null | head -c 3000 | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null)"
 PR_SHOTS="$(ls "$STATE/shots/$SLUG"/*.png 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
 PF="$STATE/briefs/$SLUG-ux-review.md"; mkdir -p "$STATE/briefs"
 {
@@ -102,9 +189,10 @@ else
 fi
 [ "${DRC:-0}" -ne 0 ] && ! grep -qE 'UX_SCORES:' "$UXR" 2>/dev/null && unavailable "ux reviewer unavailable: dispatch exit $DRC"
 # 3. decide (recomputed from the numbers; the model's own verdict only matters as a tie to the text)
-python3 - "$UXR" "$UXD/scores.json" "$ERR" "$SHOTS" "$HARD" <<'PY'
+python3 - "$UXR" "$UXD/scores.json" "$ERR" "$SHOTS" "$HARD" "$CONF_JSON" "$CONF_SUMMARY" <<'PY'
 import re, sys, json
 txt = open(sys.argv[1], errors="replace").read(); out, err, shots, hard = sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
+conf_json, conf_summary = sys.argv[6], sys.argv[7]
 m = re.findall(r"UX_SCORES:\s*(.+)", txt); axes = ["clarity", "density", "consistency", "feedback", "keyboard"]
 sc = {}
 if m:
@@ -120,10 +208,16 @@ else:
     if mean < 3.5: reasons.append("mean %.1f < 3.5" % mean)
 if hard.strip(): reasons.append("walk hard failures:\n" + hard)
 if verdict == "FAIL" and not reasons: reasons.append("reviewer verdict FAIL (see findings)")
-json.dump({"scores": sc, "mean": round(mean, 2), "verdict": verdict, "pass": not reasons, "reasons": reasons}, open(out, "w"), indent=1)
+doc = {"scores": sc, "mean": round(mean, 2), "verdict": verdict, "pass": not reasons, "reasons": reasons}
+try:
+    doc["walk_confirm"] = json.load(open(conf_json))
+except Exception:
+    pass
+json.dump(doc, open(out, "w"), indent=1)
 if reasons:
+    conf = ("\n" + conf_summary.rstrip() + "\n") if conf_summary.strip() else ""
     with open(err, "w") as f:
-        f.write("=== UX GATE FAILED ===\n" + "\n".join(reasons) + "\n\nScreenshots: " + shots + "\nReviewer findings (tail):\n" + txt[-5000:])
+        f.write("=== UX GATE FAILED ===\n" + "\n".join(reasons) + "\n" + conf + "\nScreenshots: " + shots + "\nReviewer findings (tail):\n" + txt[-5000:])
     sys.exit(1)
 PY
 rc=$?

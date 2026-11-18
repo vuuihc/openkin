@@ -1,0 +1,86 @@
+[
+  {
+    "label": "the phone tabs forget the URL the reader left in each area",
+    "file": "ui/src/components/layout/PhoneFooter.tsx",
+    "old": "place.id === \"sessions\" ? returnListUrl(location) : phoneTabUrl(place.id, place.path);",
+    "new": "(place.id === \"sessions\" ? returnListUrl(location) : phoneTabUrl(place.id, place.path)).slice(0, 0) + place.path; // R-f5-tab-state: the remembered URL dropped on purpose",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J10"
+  },
+  {
+    "label": "the seeded detail row and the pending bubble do not cross the route",
+    "file": "ui/src/pages/NewChatPage.tsx",
+    "old": "      liveResources.applyTaskSnapshot(task, liveResources.currentRevision());\n      // The same bubble travels with the route: the conversation mounts before\n      // its detail answers, and it must draw the message the draft was already\n      // showing rather than blink it away for one navigation plus one GET.\n      handOffPendingSend(task.id, sent);",
+    "new": "      // R-walk-mutant: the two halves of the #54 bridge — the seeded detail\n      // row and the in-memory pending bubble — broken together on purpose.\n      // `if (false)` keeps `task`, `sent` and both imports used under\n      // noUnusedLocals while esbuild drops the calls from the bundle.\n      if (false) {\n        liveResources.applyTaskSnapshot(task, liveResources.currentRevision());\n        // The same bubble travels with the route: the conversation mounts before\n        // its detail answers, and it must draw the message the draft was already\n        // showing rather than blink it away for one navigation plus one GET.\n        handOffPendingSend(task.id, sent);\n      }",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once"
+  },
+  {
+    "label": "the phone tab root draws the decision card over the seeded row again",
+    "file": "ui/src/components/cards/FloatingApproval.tsx",
+    "old": "      {!raised && (",
+    "new": "      {true && (",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J7"
+  },
+  {
+    "label": "a follow-up sent during the round is dropped instead of queued",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "old": "  async function onComposer(text: string, opts?: { interrupt?: boolean }) {\n    if (!task) return;",
+    "new": "  async function onComposer(text: string, opts?: { interrupt?: boolean }) {\n    if (!task) return;\n    // R-midrun-followup: the mid-run dispatch removed on purpose; the composer\n    // clears its draft, so the follow-up must vanish from the walk.\n    if (!isTerminal(task.status)) return;",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once"
+  },
+  {
+    "label": "a saved diff comment whose quoted line disappeared reads as live instead of 该行已变化",
+    "file": "ui/src/components/workspace/diffCommentAnchor.ts",
+    "old": "  return comments\n    .filter((comment) => comment.path === path)",
+    "new": "  return comments\n    // R-p3-rerun-comment: the stale report dropped on purpose — a comment\n    // whose quoted line is gone is filtered out of the report, so the tray\n    // keeps its last anchor and shows the row as live, never 该行已变化.\n    .filter((comment) => comment.path === path && matchingLines(comment.quote, lineChanges, lines).length > 0)",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J2"
+  },
+  {
+    "label": "the sent review loses its anchor: the hunk header and quoted line are dropped",
+    "file": "ui/src/components/workspace/diffCommentAnchor.ts",
+    "old": "export function formatCommentBlock(comment: DiffComment): string {\n  return [\n    `${comment.path}:${comment.line}`,\n    comment.hunkHeader,\n    `> ${comment.quote}`,\n    \"\",\n    comment.text,\n  ].join(\"\\n\");\n}",
+    "new": "export function formatCommentBlock(comment: DiffComment): string {\n  // R-p3-review-walk: the anchor dropped on purpose — the words still arrive,\n  // the hunk header and the quoted line do not, so the walk's transcript\n  // assertion must fail. Keep the body so the failure is about the anchor.\n  return [\n    `${comment.path}:${comment.line}`,\n    \"\",\n    comment.text,\n  ].join(\"\\n\");\n}",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J2"
+  },
+  {
+    "label": "Stop does nothing, so the round keeps running",
+    "file": "ui/src/pages/TaskDetailPage.tsx",
+    "old": "  async function onStop() {\n    if (!task || isTerminal(task.status)) return;",
+    "new": "  async function onStop() {\n    if (!task || isTerminal(task.status)) return;\n    // R-midrun-stop: the cancel removed on purpose.\n    if (!isTerminal(task.status)) return;",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once"
+  },
+  {
+    "label": "every route change remounts the shell, throwing away the panes, the scroll and the draft",
+    "file": "ui/src/App.tsx",
+    "old": "      <AppShell pendingApprovals={pending.data.approvals} routineUnreadCount={routineUnreadCount}>",
+    "new": "      {/* R-f4-switch: the shell keyed on the pathname remounts on every switch,\n          which is the page-load flash F4 exists to prevent. */}\n      <AppShell key={location.pathname} pendingApprovals={pending.data.approvals} routineUnreadCount={routineUnreadCount}>",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J9"
+  },
+  {
+    "label": "an unchecked branch reads as still checking, so the honest state is never seen",
+    "file": "ui/src/components/pr/PullRequestPanel.tsx",
+    "old": "            busy ? (\n              <Checking />\n            ) : (\n              <p className=\"text-body text-kin-muted\">{unobservedLabel(tr)}</p>\n            )",
+    "new": "            // R-p3-pr-panel: the unchecked branch reads as still checking on purpose.\n            true ? (\n              <Checking />\n            ) : (\n              <p className=\"text-body text-kin-muted\">{unobservedLabel(tr)}</p>\n            )",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J2"
+  },
+  {
+    "label": "a working conversation's row menu loses its 运行中 status line",
+    "file": "ui/src/components/sessions/SessionRow.tsx",
+    "old": "        ...(runningNow\n          ? [\n              {\n                id: \"running\",",
+    "new": "        // R-j5-row-actions-proof: the running status line dropped on purpose.\n        // `runningNow &&` keeps the tone test referenced so tsc's noUnusedLocals\n        // accepts the mutant build; esbuild drops the dead branch.\n        ...(runningNow && false\n          ? [\n              {\n                id: \"running\",",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J5"
+  },
+  {
+    "label": "the phone's Back reloads the document, throwing away the shell and the kept-alive panes",
+    "file": "ui/src/lib/phoneBack.ts",
+    "old": "  if ((window.history.state?.idx ?? 0) > 0) navigate(-1);",
+    "new": "  // R-f4-switch-phone: the phone's Back reloads the document on purpose —\n  // a page load throws away the shell, the kept-alive panes and the transcript\n  // position, which is exactly the flash F4 exists to prevent. `navigate` stays\n  // used on the cold-deep-link branch so tsc accepts the mutant.\n  if ((window.history.state?.idx ?? 0) > 0) window.location.assign(\"/sessions\");",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J11"
+  },
+  {
+    "label": "the edge back stops following the finger, so the list never comes back",
+    "file": "ui/src/hooks/useEdgeSwipeBack.ts",
+    "old": "    if (!enabledRef.current || gesture.current) return;",
+    "new": "    // R-j12-register: the edge back disabled at its entry point on purpose.\n    // The finger still lands in the strip, but `begin` returns before it can\n    // capture the pointer, so the swipe never starts and the list never comes\n    // back. The refs stay referenced so tsc's noUnusedLocals accepts the\n    // mutant build; esbuild drops the dead branch.\n    if (true || !enabledRef.current || gesture.current) return;",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J12"
+  }
+]

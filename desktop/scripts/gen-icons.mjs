@@ -9,11 +9,7 @@
  * product and must not drift into two different icons.
  */
 import { deflateSync } from "node:zlib";
-import {
-  writeFileSync,
-  mkdirSync,
-  rmSync,
-} from "node:fs";
+import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
@@ -26,7 +22,7 @@ function crc32(buf) {
   let c = ~0;
   for (let i = 0; i < buf.length; i++) {
     c ^= buf[i];
-    for (let k = 0; k < 8; k++) c = c & 1 ? (0xedb88320 ^ (c >>> 1)) : c >>> 1;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
   }
   return ~c >>> 0;
 }
@@ -249,5 +245,15 @@ const iosIcon = join(
 mkdirSync(dirname(iosIcon), { recursive: true });
 writeRgbPng(iosIcon, 1024, paintIosAppIcon);
 
+const webIcons = join(repoRoot, "ui", "public", "icons");
+mkdirSync(webIcons, { recursive: true });
+writeRgbPng(join(webIcons, "icon-192.png"), 192, paintIosAppIcon);
+writeRgbPng(join(webIcons, "icon-512.png"), 512, paintIosAppIcon);
+
 console.log("desktop: icons written to assets/ (rounded-square app icon)");
-console.log("mobile: iOS app icon written to Assets.xcassets/AppIcon.appiconset");
+console.log(
+  "mobile: iOS app icon written to Assets.xcassets/AppIcon.appiconset",
+);
+console.log(
+  "ui: web icons written to ui/public/icons/ (icon-192.png, icon-512.png)",
+);

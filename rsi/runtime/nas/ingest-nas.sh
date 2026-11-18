@@ -18,6 +18,7 @@ REMOTE="${NAS_REMOTE:-}"
 SSH_BIN="${NAS_SSH:-ssh}"
 SCP_BIN="${NAS_SCP:-scp}"
 GH_BIN="${NAS_GH:-$GH}"
+DATE_BIN="${NAS_DATE:-date}"
 SSH=("$SSH_BIN" -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -n)
 SSH_T="${NAS_SSH_TIMEOUT:-90}"
 XFER_T="${NAS_XFER_TIMEOUT:-900}"
@@ -407,10 +408,15 @@ while IFS=, read -r SLUG ST <&3; do
   fi
   VISIBLE="$(printf '%s\n' "$DIFF" | grep -E '^ui/src/.*\.(tsx|css)$' | grep -vE '\.test\.|/__tests__/' || true)"
   SHOTS="$STATE/shots/$SLUG"
-  PRINFO="$(with_timeout "$GH_T" "$GH_BIN" pr list --repo "$GH_REPO" --head "$BR" --state open --json number,headRefOid --jq '.[0] | "\(.number)\t\(.headRefOid)"' 2>/dev/null)"
+  # `.[0] // empty` matters: with no open PR, `.[0] | "…"` prints "null\tnull" (the string form of the
+  # null object), and that literal once reached `merge-base --is-ancestor null` below, so every fresh NAS
+  # result was held as "branch diverged" and never published. Absent means absent; it is not a rev.
+  PRINFO="$(with_timeout "$GH_T" "$GH_BIN" pr list --repo "$GH_REPO" --head "$BR" --state open --json number,headRefOid --jq '.[0] // empty | "\(.number)\t\(.headRefOid)"' 2>/dev/null)"
   PRN="${PRINFO%%$'\t'*}"; PRHEAD=""
   case "$PRINFO" in *$'\t'*) PRHEAD="${PRINFO#*$'\t'}";; esac
   case "$PRN" in ''|*[!0-9]*) PRN="";; esac
+  # Defence in depth: only a hex object name may be fed to git (a degraded `gh` must not fake a divergence).
+  case "$PRHEAD" in ''|*[!0-9a-f]*) PRHEAD="";; esac
   NEEDS_SHOTS=0; HOLD_WHY=""
   [ "$DIFF_FAILED" = 1 ] && { NEEDS_SHOTS=1; HOLD_WHY="cannot diff the branch against origin/main"; }
   [ -n "$VISIBLE" ] && { NEEDS_SHOTS=1; HOLD_WHY="visible UI changed and no two-width shots in $SHOTS"; }
@@ -473,7 +479,14 @@ while IFS=, read -r SLUG ST <&3; do
     with_timeout "$GH_T" "$GH_BIN" pr edit "$PRN" --repo "$GH_REPO" --body-file "$PRB" >/dev/null 2>&1 \
       || echo "branch pushed; could not update the PR #$PRN body for $SLUG"
   fi
-  python3 - "$STATE/lanes/history/$(date +%Y%m%d-%H%M%S)-$SLUG.json" "$SLUG" "$ITEM" "$PRN" "$STATE/cloud/$SLUG.json" "$SC" <<'PY'
+  HIST_TS="$("$DATE_BIN" +%Y%m%d-%H%M%S)"
+  HIST_OUT="$STATE/lanes/history/$HIST_TS-$SLUG.json"
+  HIST_N=1
+  while [ -e "$HIST_OUT" ]; do
+    HIST_N=$((HIST_N + 1))
+    HIST_OUT="$STATE/lanes/history/$HIST_TS-$SLUG-$HIST_N.json"
+  done   # two results in one second are two rows
+  python3 - "$HIST_OUT" "$SLUG" "$ITEM" "$PRN" "$STATE/cloud/$SLUG.json" "$SC" <<'PY'
 import json,sys,time,os
 out,slug,item,pr,cf,sc=sys.argv[1:7]
 paths=json.load(open(cf)).get("paths",[]) if os.path.exists(cf) else []

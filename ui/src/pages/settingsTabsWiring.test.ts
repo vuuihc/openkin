@@ -1,3 +1,4 @@
+// KIN-SETTINGS-001 — 改默认设置（J6）：本套件持有六组目录与已删面板的验收行。
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,6 +7,9 @@ import { normalizeSettingsTab } from "../lib/areaNavigation";
 
 /**
  * The settings page's tab set, checked at the seam a panel test cannot see.
+ *
+ * KIN-CONTINUE-003 row 14: the six sections stay distinct — `agents` is the
+ * local section, `operations` is Agent Ops — and retired tabs stay retired.
  *
  * R0b-3 deleted the Remote and Notifications tabs: nothing in the console
  * configures a tunnel or a push registration any more, because the phone's

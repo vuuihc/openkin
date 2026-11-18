@@ -262,6 +262,11 @@ export function phoneProjectBuckets(
    *  new message must not undo a move the person made. Imported sessions have
    *  no manual order — they are an index, not a project. */
   orders: Readonly<Record<string, readonly string[]>> | undefined = undefined,
+  /** This browser's renames, keyed by task id. The caller reads storage; this
+   *  module only composes the row, so the function stays pure and the search
+   *  below inherits the override through `row.title`. Imported sessions have
+   *  no task id and keep the title their agent index gave them. */
+  localTitles: Readonly<Record<string, string>> = {},
 ): PhoneProjectBucket[] {
   const archived = new Set(archivedCwds.map(archivedKeyOf));
   const selfId = selfDeviceId.trim();
@@ -339,7 +344,11 @@ export function phoneProjectBuckets(
     bucket.rows.push({
       key: task.id,
       at,
-      title: task.title.trim() || displayUserPrompt(task.prompt) || copy.untitled,
+      title:
+        localTitles[task.id] ||
+        task.title.trim() ||
+        displayUserPrompt(task.prompt) ||
+        copy.untitled,
       agentId: task.agent || "kin",
       status: task.status,
       remote: Boolean(device) && device !== selfDeviceId,

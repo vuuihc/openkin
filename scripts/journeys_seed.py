@@ -8,18 +8,49 @@ the token is never printed. A state the API cannot produce without launching a
 real agent CLI is reported as `skip <state>: <reason>` and does not fail the
 walk — ux-walk.sh only treats a non-zero exit as a seed failure.
 
-Each project root is a clean git repository with one committed file, and the
-`conversation-created` prompt carries CHANGE_MARKER: the fake agent appends one
-line to that tracked file, so the walk can open a real workspace diff instead
-of an empty Changes bar.
+Each project root is a clean git repository with one committed file, and two
+prompts carry CHANGE_MARKER: the fake agent appends one line to that tracked
+file, so the walk can open a real workspace diff instead of an empty Changes
+bar. `[seed] Morning planning` (Project Alpha) is the diff J2 reruns: its
+`[seed] shift` inserts one line immediately above CHANGE_SENTINEL and its
+`[seed] rewrite` replaces the sentinel's text, moving a saved diff comment to
+its new line and then making it stale (该行已变化) — the P3 item 3 rerun this
+seed exists to make walkable. Because those writes land in Alpha's file,
+`[seed] Phone review` (Project Beta) is J8's own diff: the phone review reads a
+file no other journey rewrites, so it quotes a line that still exists.
 
 Conversations are seedable because the harness (rsi/runtime/ux-walk.sh and
 scripts/journeys-smoke.sh) puts scripts/journeys_fake_agent first on the
-throwaway daemon's PATH: the seed creates one succeeded, one failed, one
-archived and one held-open conversation, and refuses to create any unless
-/api/agents names a `claude` inside that directory as the binary the daemon
-would launch. The held conversation gets its approval card through the same
-loopback-only `POST /internal/approvals` bridge the agent's own client uses.
+throwaway daemon's PATH: the seed creates four succeeded, one failed, one
+archived, one still-running and three held-open conversations, and refuses to
+create any unless /api/agents names a `claude` inside that directory as the
+binary the daemon would launch. The still-running fixture is the one whose row
+menu J5 opens while the turn is still going: it asks for no approval card, so
+the task stays `running` instead of `waiting_approval`. Each held conversation
+gets its approval card through the same
+loopback-only `POST /internal/approvals` bridge the agent's own client uses:
+one card for the approve path, one for the deny path, and one that J7's
+notification deep link lands on. When both J1 cards exist the seed prints the
+line the next walk slice targets them from:
+
+    j1 targets approve conversation=<task-id> focus=<approval-id> deny conversation=<task-id> focus=<approval-id>
+
+J7's own card prints its own line, naming the conversation, the card a
+notification would reveal, and the row title a reader clicks after Back:
+
+    j7 target conversation=<task-id> focus=<approval-id> title=<title>
+
+The still-running conversation J5 opens prints the row it must act on:
+
+    j5 target conversation=<task-id> title=<title>
+
+The One-Pager document J4 edits mid-walk is Alpha's, and its id is printed
+only when that document is really in place:
+
+    j4 target project=<project-id>
+
+With no J7 card that line is absent and J7 stays a skip; with no deny card the
+`j1 targets` line is absent, because a half pair would point 拒絕 at nothing.
 States the fake cannot produce — a failed routine run — still print `skip`.
 
 Usage:
@@ -48,13 +79,26 @@ CHANGE_MARKER = "[seed] change"
 # emits the request and then stays alive, so the task stays `running` until
 # the seed asks for an approval through the internal bridge.
 APPROVE_MARKER = "[seed] approve"
+# The literal the fake agent looks for to stay `running` without ever asking
+# for an approval: no result is printed and no card is created, so the row
+# menu J5 opens carries the shipped 运行中 / Running status line. Distinct from
+# APPROVE_MARKER because `waiting_approval` reads as an approval, not a run.
+HOLD_MARKER = "[seed] hold"
 # The exact line the fake agent appends to notes.md. The shell fake carries the
 # same text; a re-run finds it and leaves the file alone.
 CHANGE_SENTINEL = "- [seed] change: the journey walk reads this line as a real diff."
+# The rerun pair, sent by a follow-up turn of the same conversation and not by
+# this seed: `[seed] shift` inserts one line immediately above CHANGE_SENTINEL,
+# so a saved comment's line moves down while its quote stays the same, and
+# `[seed] rewrite` replaces the sentinel with a different line, so the quoted
+# text is gone and the comment reads stale (该行已变化). The fake writes both
+# only inside a SEED_ROOT_PREFIX root and only once, so a repeated round
+# changes no bytes.
+SHIFT_MARKER = "[seed] shift"
+REWRITE_MARKER = "[seed] rewrite"
 # The fake agent only writes inside a root whose path carries this prefix, and
 # scripts/journeys_fake_agent/claude hard-codes the same match.
 SEED_ROOT_PREFIX = "kin-journeys-seed-"
-SEED_ROOT_NAMES = ("alpha", "beta", "gamma")
 # The harness directory that holds the fake claude. The seed only creates
 # conversations when the daemon resolves its `claude` binary inside it.
 FAKE_AGENT_DIRNAME = "journeys_fake_agent"
@@ -63,12 +107,50 @@ TERMINAL_STATUSES = ("succeeded", "failed", "canceled")
 # The focus line doubles as the sentinel: a second run finds it in the
 # One-Pager and leaves the file alone, and nothing extra shows on the cover.
 FOCUS_SENTINEL = "Finish the journey walk with real projects, conversations and routines on screen."
-
-PROJECTS = (
-    ("Project Alpha", "ship", "project-alpha"),
-    ("Project Beta", "learn", "project-beta"),
-    ("Project Gamma", "ship", "project-gamma"),
+# KIN-PROJECT-003. Alpha's "How to work here" section is one short line the
+# cover shows, a new chat receives and the journey fake echoes back verbatim;
+# the edited line replaces it mid-walk and shares no words with it, so a
+# `count text=<old> 0` cannot pass on a substring.
+ALPHA_INSTRUCTIONS = "- 交付前先跑 scripts/check.sh；生成文件不要手改。"
+ALPHA_INSTRUCTIONS_EDITED = "- 新的工作方式：先写测试，再动实现；提交前先把结论说清楚。"
+# Gamma's section is longer than the digest's 400-rune cut. The cut lands
+# inside CUT-BOUNDARY-PHRASE, so the cover and the agent's context can both be
+# read as `CUT-BOUNDARY…`; the tail lies beyond rune 400 and must appear in
+# neither. The fake echoes the received body, so these two strings are the
+# whole proof that both surfaces carry the same cut.
+GAMMA_PREFIX = "- 每周一先看上一周的失败运行；动手前读 docs/README.md；提交前跑 ./scripts/check.sh 并把结果贴回来；生成文件不要手改；"
+GAMMA_FILLER = (
+    "把这条说明写长一点，好让封面上的截断正好落在下面这个标记的中间，"
+    "这样封面上看到的最后一个词和 agent 收到的是同一段。"
 )
+# CUT-BOUNDARY-PHRASE begins at rune 388, so the 400-rune cut keeps
+# "CUT-BOUNDARY" and appends the digest's ellipsis. The needle both surfaces
+# are read with is therefore CUT-BOUNDARY… (see journeys_walk_test.py).
+GAMMA_INSTRUCTIONS = (
+    GAMMA_PREFIX
+    + (GAMMA_FILLER * 20)[: 388 - len(GAMMA_PREFIX)]
+    + "CUT-BOUNDARY-PHRASE；TAIL-BEYOND-400 只应该留在文件里。"
+)
+# The tail phrase that lies beyond rune 400: the file carries it, neither the
+# cover nor the agent context may. Also the sentinel for a second seed run.
+GAMMA_SENTINEL = "TAIL-BEYOND-400"
+
+# (name, mode, slug, roots). Roots are basenames under the one temp base
+# _seed_roots creates, and their order is the order the daemon must keep.
+#
+# Alpha carries two roots on purpose: J4 opens the cover's folder editor, moves
+# the default, saves and reloads, and the saved list is only distinguishable
+# from a sorted one when a root sorts before the default. `alpha` stays first
+# (J2 and J3 start their conversations there) and `aaa-config` sorts before it.
+PROJECTS = (
+    ("Project Alpha", "ship", "project-alpha", ("alpha", "aaa-config")),
+    ("Project Beta", "learn", "project-beta", ("beta",)),
+    ("Project Gamma", "ship", "project-gamma", ("gamma",)),
+)
+# Every directory _seed_roots creates. Derived from PROJECTS so a root no
+# project names cannot drift into existence, and a declared root cannot be
+# missing when the daemon is asked to store it.
+SEED_ROOT_NAMES = tuple(root for _name, _mode, _slug, roots in PROJECTS for root in roots)
 FOCUS_PROJECT = "Project Alpha"
 FOCUS_MARKDOWN = f"""# {PREFIX}Project Alpha
 
@@ -78,10 +160,41 @@ A walkthrough daemon that already looks lived-in.
 ## Current Focus
 {FOCUS_SENTINEL}
 
+## 工作方式
+{ALPHA_INSTRUCTIONS}
+
 ## Next
 - Read the J4 project cover
 - Check the routines page density
 """
+# The same document after the walk's mid-leg edit: the section is replaced and
+# everything else stays byte-identical, so the post-edit cover read is about
+# the section and not about a rewritten file.
+FOCUS_MARKDOWN_EDITED = FOCUS_MARKDOWN.replace(ALPHA_INSTRUCTIONS, ALPHA_INSTRUCTIONS_EDITED)
+# Gamma starts with more than 400 runes of instructions, so the cover and the
+# digest both have to cut and both have to cut at the same rune.
+GAMMA_MARKDOWN = f"""# {PREFIX}Project Gamma
+
+## North Star
+A walkthrough daemon whose instructions do not fit.
+
+## Current Focus
+Keep the long instructions under the digest's cut.
+
+## 工作方式
+{GAMMA_INSTRUCTIONS}
+
+## Next
+- Check the truncated instructions block
+"""
+# Which project carries which document, and the literal that proves a second
+# run need not write again. Beta is absent on purpose: a project created
+# through POST /api/projects already has the template's empty 工作方式 section,
+# which is the cover's empty state.
+ONE_PAGER_PROJECTS = (
+    ("Project Alpha", FOCUS_MARKDOWN, FOCUS_SENTINEL),
+    ("Project Gamma", GAMMA_MARKDOWN, GAMMA_SENTINEL),
+)
 
 ROUTINES = (
     {
@@ -127,6 +240,90 @@ CONVERSATIONS = (
         "archive": True,
     },
     {
+        # J8's own root: J2's rerun leg rewrites alpha's notes.md with
+        # `[seed] shift` then `[seed] rewrite`, so the phone review must read a
+        # file nothing else touches. Beta's root gets the pristine sentinel
+        # from this one turn and is never rewritten (the deny / J7 fixtures
+        # hold their turns without writing). Created before the running and
+        # held fixtures so the approve row J1 opens stays the newest row.
+        "slug": "conversation-phone-review",
+        "title": PREFIX + "Phone review",
+        "prompt": PREFIX + "change: review this diff from the phone.",
+        "expect": ("succeeded",),
+        "archive": False,
+        "project": "Project Beta",
+    },
+    {
+        # Two more succeeded rows in Gamma, so the phone list is taller than
+        # the 390x844 viewport with a search active by more than scroll-kept's
+        # 48px tolerance: J12 scrolls the list before its edge-back gesture
+        # and reads the same offset back (a top-of-list restore must not pass).
+        # Created after J8's Beta diff and before the held trio, so the approve
+        # row J1 opens stays the newest row and Alpha/Beta order does not move.
+        "slug": "conversation-gamma-planning",
+        "title": PREFIX + "Gamma planning",
+        "prompt": PREFIX + "plan the next experiment for Gamma.",
+        "expect": ("succeeded",),
+        "archive": False,
+        "project": "Project Gamma",
+    },
+    {
+        "slug": "conversation-gamma-review",
+        "title": PREFIX + "Gamma review",
+        "prompt": PREFIX + "review what Gamma has learned so far.",
+        "expect": ("succeeded",),
+        "archive": False,
+        "project": "Project Gamma",
+    },
+    {
+        # J5's fixture: the one conversation that is genuinely still working
+        # when its row menu opens. `[seed] hold` keeps the turn `running` with
+        # no approval card, which is the state `taskCardStatusView` maps to the
+        # shipped 运行中 / Running line. Named in Gamma so the Alpha/Beta row
+        # order other journeys read does not move, and created before the
+        # approval trio so it is not the newest row J1's list shows.
+        "slug": "conversation-running",
+        "title": PREFIX + "Running the migration",
+        "prompt": HOLD_MARKER + ": keep working until the walk opens this row.",
+        "expect": ("running",),
+        "archive": False,
+        # Wait only for `running`: no approval, no terminal status.
+        "running": True,
+        "project": "Project Gamma",
+    },
+    {
+        # The deny fixture: the same held turn, so a second card exists for J1
+        # to press 拒絕 on. Created before the approve card so the approve
+        # conversation stays the newest row J1 opens today.
+        "slug": "waiting-approval-deny",
+        "title": PREFIX + "Deny the migration",
+        "prompt": APPROVE_MARKER + ": hold this turn open until a person denies it.",
+        "expect": ("running", "waiting_approval"),
+        "archive": False,
+        "hold": True,
+        # Which pair this card fills in the `j1 targets` line.
+        "target": "deny",
+        # Named, not positional: adding a card must not move an existing
+        # conversation to another project's bucket.
+        "project": "Project Beta",
+    },
+    {
+        # J7's landing target: its own held card, never the approve card J1
+        # answers earlier in the same walk. Its title is short and stable
+        # because the walk clicks that row after Back. Created after the deny
+        # card and before the approve card, so the approve row stays the
+        # newest one J1 opens.
+        "slug": "waiting-approval-j7",
+        "title": PREFIX + "Answer the deploy",
+        "prompt": APPROVE_MARKER + ": hold this turn open until a notification opens it.",
+        "expect": ("running", "waiting_approval"),
+        "archive": False,
+        "hold": True,
+        # Which pair this card fills in the `j7 target` line.
+        "target": "j7",
+        "project": "Project Beta",
+    },
+    {
         # Created last so it is the newest row in the session list, which is
         # the conversation J1 opens.
         "slug": "waiting-approval",
@@ -136,8 +333,11 @@ CONVERSATIONS = (
         "prompt": APPROVE_MARKER + ": hold this turn open until a person answers.",
         "expect": ("running", "waiting_approval"),
         "archive": False,
-        # The one spec that must not wait for a terminal status.
+        # Held specs never wait for a terminal status.
         "hold": True,
+        "target": "approve",
+        # Stays in Alpha, the project J1 has always opened it under.
+        "project": "Project Alpha",
     },
 )
 
@@ -248,7 +448,13 @@ def _git(root: str, *args: str) -> None:
 
 
 def _seed_roots() -> str:
-    """Fresh temp roots, each a clean git repository with a committed notes.md.
+    """Fresh temp roots, each a clean git repository with two committed files.
+
+    `notes.md` is the text/diff file J2, J3, J8 and J13 read; its bytes are
+    shared with those journeys, so it must stay exactly as written. The
+    self-contained `preview.html` is J13's page/source leg: no external CSS,
+    image or script, and one visible line the source view can match after the
+    preview iframe has left the screen.
 
     Never a real repository: the fake agent appends its one diff line only
     inside a path carrying SEED_ROOT_PREFIX, and this is the only place that
@@ -265,8 +471,23 @@ def _seed_roots() -> str:
                 "- Seeded for the journey walk.\n"
                 "- The walk opens the diff the fake agent leaves in this file.\n"
             )
+        with open(os.path.join(root, "preview.html"), "w", encoding="utf-8") as fh:
+            fh.write(
+                "<!doctype html>\n"
+                '<html lang="en">\n'
+                "<head>\n"
+                '  <meta charset="utf-8">\n'
+                "  <title>Seed preview page</title>\n"
+                "  <style>body { margin: 2rem; font-family: system-ui, sans-serif; }</style>\n"
+                "</head>\n"
+                "<body>\n"
+                "  <h1>Seed preview page</h1>\n"
+                "  <p>Seed preview page</p>\n"
+                "</body>\n"
+                "</html>\n"
+            )
         _git(root, "init", "-q")
-        _git(root, "add", "notes.md")
+        _git(root, "add", "notes.md", "preview.html")
         # Inline identity and no signing: the seed must not depend on, or
         # disturb, whatever git config the machine happens to carry.
         _git(
@@ -303,7 +524,7 @@ def seed_projects(api: Api, report: Report) -> dict[str, dict]:
     by_name = {row.get("name"): row for row in rows}
     created: dict[str, dict] = {}
     roots = ""
-    for name, mode, slug in PROJECTS:
+    for name, mode, slug, root_names in PROJECTS:
         full = PREFIX + name
         row = by_name.get(full)
         if row:
@@ -319,7 +540,7 @@ def seed_projects(api: Api, report: Report) -> dict[str, dict]:
         status, body = api.call(
             "POST",
             "/api/projects",
-            {"name": full, "mode": mode, "roots": [os.path.join(roots, name.split()[-1].lower())]},
+            {"name": full, "mode": mode, "roots": [os.path.join(roots, root) for root in root_names]},
         )
         if status in (200, 201) and isinstance(body, dict) and body.get("id"):
             report.create("project", full, str(body["id"]))
@@ -334,34 +555,51 @@ def seed_projects(api: Api, report: Report) -> dict[str, dict]:
     return created
 
 
-def seed_focus(api: Api, report: Report, projects: dict[str, dict]) -> None:
-    full = PREFIX + FOCUS_PROJECT
-    target = projects.get(FOCUS_PROJECT) or {}
-    ident = target.get("id")
-    if not ident:
+def seed_focus(api: Api, report: Report, projects: dict[str, dict]) -> set[str]:
+    """Write each project's One-Pager document; return the names really in place.
+
+    Alpha carries the short 工作方式 section the J4 walk reads, edits and reads
+    again; Gamma carries a section longer than the digest's 400-rune cut. Both
+    writes are idempotent through their own sentinel, so a second run changes
+    no bytes. Beta is left alone: the project template already has the empty
+    section the cover draws as its empty state.
+
+    The returned names are what `j4 target project=` is allowed to name: a
+    journey that edits a One-Pager must not be pointed at a project whose
+    document this seed could not write.
+    """
+    ready: set[str] = set()
+    for name, markdown, sentinel in ONE_PAGER_PROJECTS:
+        full = PREFIX + name
+        target = projects.get(name) or {}
+        ident = target.get("id")
+        if not ident:
+            if report.dry_run:
+                report.plan("focus", full)
+            else:
+                report.skip("focus", f"{name} was not created")
+            continue
+        status, body = api.call("GET", f"/api/projects/{ident}/one-pager")
+        current = body.get("markdown") if isinstance(body, dict) else None
+        if status == 200 and isinstance(current, str) and sentinel in current:
+            report.existing("focus", full)
+            ready.add(name)
+            continue
         if report.dry_run:
             report.plan("focus", full)
-        else:
-            report.skip("focus", "the focus project was not created")
-        return
-    status, body = api.call("GET", f"/api/projects/{ident}/one-pager")
-    markdown = body.get("markdown") if isinstance(body, dict) else None
-    if status == 200 and isinstance(markdown, str) and FOCUS_SENTINEL in markdown:
-        report.existing("focus", full)
-        return
-    if report.dry_run:
-        report.plan("focus", full)
-        return
-    status, body = api.call("PUT", f"/api/projects/{ident}/one-pager", {"markdown": FOCUS_MARKDOWN})
-    if status in (200, 201):
-        report.create("focus", full)
-        return
-    reason = _reason(status, body)
-    if status in (401, 403):
-        raise AuthError(f"PUT /api/projects/{ident}/one-pager refused: {reason}; check KIN_TOKEN")
-    if status not in SKIPPABLE:
-        raise SeedError(f"PUT /api/projects/{ident}/one-pager: {reason}")
-    report.skip("focus", reason)
+            continue
+        status, body = api.call("PUT", f"/api/projects/{ident}/one-pager", {"markdown": markdown})
+        if status in (200, 201):
+            report.create("focus", full)
+            ready.add(name)
+            continue
+        reason = _reason(status, body)
+        if status in (401, 403):
+            raise AuthError(f"PUT /api/projects/{ident}/one-pager refused: {reason}; check KIN_TOKEN")
+        if status not in SKIPPABLE:
+            raise SeedError(f"PUT /api/projects/{ident}/one-pager: {reason}")
+        report.skip("focus", reason)
+    return ready
 
 
 def seed_routines(api: Api, report: Report) -> None:
@@ -482,13 +720,17 @@ def _fake_answered(api: Api, ident: str) -> tuple[bool, str]:
     return True, ""
 
 
-def _create_approval(api: Api, report: Report, ident: str, timeout: float) -> bool:
+def _create_approval(api: Api, report: Report, ident: str, timeout: float, state: str) -> str | None:
     """Ask the internal bridge for one approval row, then confirm the task waits.
 
     POST /internal/approvals is what the agent's own client calls: loopback
     only, operator token, and internal/task.RequestApproval moves the task to
     `waiting_approval`. A refusal means this daemon cannot produce the card, so
-    it stays a skip — never a failed seed, and never a fabricated card.
+    it stays a skip — never a failed seed, and never a fabricated card. `state`
+    labels that skip, so a refused deny card reads
+    `skip waiting-approval-deny: …` and is not mistaken for the approve card.
+
+    Returns the approval id when the task is confirmed waiting on it, else None.
     """
     status, body = api.call(
         "POST",
@@ -500,15 +742,43 @@ def _create_approval(api: Api, report: Report, ident: str, timeout: float) -> bo
         },
     )
     if not (status in (200, 201) and isinstance(body, dict) and body.get("id")):
-        report.skip("waiting-approval", f"internal approval refused: {_reason(status, body)}")
-        return False
+        report.skip(state, f"internal approval refused: {_reason(status, body)}")
+        return None
     approval = str(body["id"])
-    state, last = _wait_status(api, ident, ("waiting_approval",), timeout)
-    if state is None:
-        report.skip("waiting-approval", f"task {ident} still {last} after {timeout:g}s of polling; no approval card")
-        return False
+    state_seen, last = _wait_status(api, ident, ("waiting_approval",), timeout)
+    if state_seen is None:
+        report.skip(state, f"task {ident} still {last} after {timeout:g}s of polling; no approval card")
+        return None
     report.create("approval", approval)
-    return True
+    return approval
+
+
+def _pending_approval(api: Api, ident: str) -> str | None:
+    """The pending approval id on a task an earlier run already held open.
+
+    A second seed run must still name the J7 target, or the walk would skip a
+    conversation whose card is already there. A daemon that cannot answer the
+    list leaves the target unnamed (the walker then skips J7); it never invents
+    an id and never fails the seed.
+    """
+    status, body = api.call("GET", "/api/approvals?status=pending")
+    if status != 200 or not isinstance(body, list):
+        return None
+    for row in body:
+        if isinstance(row, dict) and str(row.get("task_id") or "") == ident:
+            approval = str(row.get("id") or "")
+            if approval:
+                return approval
+    return None
+
+
+def _remember_target(
+    targets: dict[str, tuple[str, str, str]], spec: dict, ident: str, approval: str | None
+) -> None:
+    """Record one held card under its role; the first real answer wins."""
+    role = str(spec.get("target") or "")
+    if approval and role and role not in targets:
+        targets[role] = (ident, approval, str(spec.get("title") or ""))
 
 
 def _set_archived(api: Api, report: Report, spec: dict, ident: str, already: bool) -> None:
@@ -531,20 +801,28 @@ def _set_archived(api: Api, report: Report, spec: dict, ident: str, already: boo
     report.skip(spec["slug"], reason)
 
 
-def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | None = None) -> None:
-    """Create one succeeded, one failed, one archived and one held-open conversation.
+def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | None = None) -> dict[str, tuple[str, str, str]]:
+    """Create two succeeded, one failed, one archived, one still-running and three held-open conversations.
 
-    The fake agent makes every turn but the held one terminal; nothing here
+    The fake agent makes every turn but the held ones terminal; nothing here
     waits longer than KIN_SEED_TASK_TIMEOUT_SECS, and a turn that does not
     settle is reported as a skip rather than hanging the walk. The held
-    conversation is never waited on for a terminal status: it exists so the
-    walk can photograph the approval card a person actually meets.
+    conversations are never waited on for a terminal status: they exist so the
+    walk can photograph the approval cards a person actually meets. The
+    still-running conversation is waited on only until it reports `running`:
+    it exists so J5 opens a row menu that carries the shipped 运行中 line, and
+    it must not ask for an approval card.
+
+    Returns {role: (conversation id, approval id, title)} for each held
+    conversation that really produced a card — the `j1 targets` / `j7 target`
+    pairs — plus `j5`, whose approval id is empty: it names the still-running
+    row J5 opens. Absent roles mean the walker skips that journey.
     """
     agent, why = _fake_agent(api)
     if agent is None:
         for spec in CONVERSATIONS:
             report.skip(spec["slug"], why)
-        return
+        return {}
     print(f"fake agent: claude resolves to {FAKE_AGENT_LABEL}")
 
     try:
@@ -557,7 +835,9 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
     except SeedError as exc:
         for spec in CONVERSATIONS:
             report.skip(spec["slug"], str(exc))
-        return
+        return {}
+
+    targets: dict[str, tuple[str, str, str]] = {}
 
     by_title: dict[str, dict] = {}
     for row in filed + archived:
@@ -580,12 +860,26 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
             if state not in spec["expect"]:
                 report.skip(spec["slug"], f"existing task {ident} is {state}, wanted {'/'.join(spec['expect'])}")
                 continue
+            if spec.get("running"):
+                # The still-working row J5 acts on. A second run names it
+                # again and expects no card: this fixture never asks for one.
+                targets["j5"] = (ident, "", title)
+                continue
             if spec.get("hold"):
                 # An earlier run can leave the task running because its
                 # approval was refused; retry that instead of leaving the walk
                 # with no card. A task already waiting needs nothing.
+                approval = None
                 if state == "running":
-                    _create_approval(api, report, ident, timeout)
+                    if report.dry_run:
+                        # The bridge POST moves the task to waiting_approval; a
+                        # dry run describes that, never performs it.
+                        report.plan("approval", title)
+                        continue
+                    approval = _create_approval(api, report, ident, timeout, spec["slug"])
+                elif state == "waiting_approval":
+                    approval = _pending_approval(api, ident)
+                _remember_target(targets, spec, ident, approval)
                 continue
             if spec["archive"]:
                 _set_archived(api, report, spec, ident, bool(row.get("archived_at")))
@@ -593,13 +887,15 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
         if report.dry_run:
             report.plan("conversation", title)
             continue
-        project_name = PROJECTS[index % len(PROJECTS)][0]
+        project_name = str(spec.get("project") or PROJECTS[index % len(PROJECTS)][0])
         project_roots = ((projects or {}).get(project_name) or {}).get("roots") or []
         cwd = str(project_roots[0]) if project_roots and project_roots[0] else ""
         if not cwd:
             if not roots:
                 roots = _seed_roots()
-            cwd = os.path.join(roots, ("alpha", "beta", "gamma")[index % 3])
+            # Project Alpha / Beta / Gamma map to the alpha / beta / gamma
+            # roots, the same way seed_projects names them.
+            cwd = os.path.join(roots, project_name.split()[-1].lower())
         status, body = api.call(
             "POST",
             "/api/tasks",
@@ -628,6 +924,17 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
         ident = str(body["id"])
         report.create("conversation", title, ident)
 
+        if spec.get("running"):
+            # No approval and no terminal wait: this turn is meant to still be
+            # working when J5 opens its row menu. Reaching `running` is the
+            # whole contract — the fake holds it open from there.
+            state, last = _wait_status(api, ident, ("running",), timeout)
+            if state is None:
+                report.skip(spec["slug"], f"task {ident} still {last} after {timeout:g}s of polling; not waiting forever")
+            else:
+                targets["j5"] = (ident, "", title)
+            continue
+
         if spec.get("hold"):
             # No terminal wait and no fake-answered gate: this turn is meant to
             # stay open. It only has to reach `running` before the agent's own
@@ -636,7 +943,8 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
             if state is None:
                 report.skip(spec["slug"], f"task {ident} still {last} after {timeout:g}s of polling; not waiting forever")
                 continue
-            _create_approval(api, report, ident, timeout)
+            approval = _create_approval(api, report, ident, timeout, spec["slug"])
+            _remember_target(targets, spec, ident, approval)
             continue
 
         state, last = _wait_terminal(api, ident, timeout)
@@ -652,6 +960,7 @@ def seed_conversations(api: Api, report: Report, projects: dict[str, dict] | Non
             continue
         if spec["archive"]:
             _set_archived(api, report, spec, ident, False)
+    return targets
 
 
 def report_unproducible(report: Report) -> None:
@@ -682,12 +991,42 @@ def main(argv: list[str] | None = None) -> int:
     report = Report(args.dry_run)
     try:
         projects = seed_projects(api, report)
-        seed_focus(api, report, projects)
+        one_pagers = seed_focus(api, report, projects)
         seed_routines(api, report)
-        seed_conversations(api, report, projects)
+        targets = seed_conversations(api, report, projects)
     except SeedError as exc:
         print(f"journeys seed: {exc}", file=sys.stderr)
         return 1
+    approve = targets.get("approve")
+    deny = targets.get("deny")
+    j7 = targets.get("j7")
+    # Both cards, so the next slice can target 批准 and 拒絕 by id instead of
+    # "the first row". Absent when either card is missing: a half pair would
+    # point one of the two actions at nothing.
+    if approve and deny:
+        print(
+            f"j1 targets approve conversation={approve[0]} focus={approve[1]} "
+            f"deny conversation={deny[0]} focus={deny[1]}"
+        )
+    # One line the walker can consume: the conversation a notification would
+    # name, the card it must reveal, and the row title a reader clicks after
+    # Back. J7 has its own held card — the approve card is answered by J1
+    # earlier in the walk. Absent when that card is absent, which is what keeps
+    # J7 a skip rather than a walk against a made-up id.
+    if j7:
+        print(f"j7 target conversation={j7[0]} focus={j7[1]} title={j7[2]}")
+    # The row J5 opens: by id, so the walk acts on the conversation that is
+    # really still running instead of whichever row happens to be first.
+    j5 = targets.get("j5")
+    if j5:
+        print(f"j5 target conversation={j5[0]} title={j5[2]}")
+    # J4's api step edits the seeded One-Pager mid-walk, and the story's
+    # fixture is one file per project. The project id is named here, never
+    # invented by the walker, and only when the document this seed writes is
+    # really in place.
+    alpha = projects.get(FOCUS_PROJECT) or {}
+    if "Project Alpha" in one_pagers and alpha.get("id"):
+        print(f"j4 target project={alpha['id']}")
     report_unproducible(report)
     report.summary()
     return 0

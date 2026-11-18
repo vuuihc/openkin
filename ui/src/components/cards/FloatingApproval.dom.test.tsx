@@ -40,6 +40,10 @@ function hiddenBand(): HTMLDivElement {
   return chrome;
 }
 
+// The conversation shape: a pushed screen with a composer band. The decision
+// card — Approve/Deny, focus hand-back, the opaque base under it — belongs to
+// that surface; a phone tab root gets the compact strip instead, so those
+// tests opt into `raised` explicitly.
 function setup(overrides: Partial<React.ComponentProps<typeof FloatingApproval>> = {}) {
   const onDecide = vi.fn();
   const onOpenTask = vi.fn();
@@ -49,8 +53,8 @@ function setup(overrides: Partial<React.ComponentProps<typeof FloatingApproval>>
     busy: {},
     onDecide,
     onOpenTask,
-    raised: true,
-    screenKey: "/sessions",
+    raised: false,
+    screenKey: "/tasks/task-1",
     expectsBottomChrome: true,
     ...overrides,
   };
@@ -75,6 +79,103 @@ describe("FloatingApproval", () => {
   it("counts the approvals behind the one it shows", () => {
     setup();
     expect(screen.getByText("+1")).toBeTruthy();
+  });
+
+  it("keeps a phone tab root to the waiting strip, so every row stays tappable", () => {
+    // The full card over the conversation list covered rows: a tap on the
+    // seeded row at y≈416 landed on the panel's button instead of the row.
+    // On the four phone tab roots the floating approval is one strip.
+    const { container } = setup({
+      raised: true,
+      expectsBottomChrome: false,
+      screenKey: "/sessions",
+    });
+    expect(container.querySelector("aside")).not.toBeNull();
+    // The strip's own live region (the facade's Button carries an internal
+    // one for its busy state, so this is the aside's direct child).
+    const strip = container.querySelector("aside > [role='status']");
+    expect(strip).not.toBeNull();
+    expect(strip?.getAttribute("aria-live")).toBe("polite");
+    const control = screen.getByRole("button", { name: /Fix the tests/ });
+    expect(control.textContent).toContain("Fix the tests");
+    expect(control.textContent).toContain("+1");
+    // No decision surface: neither the card's buttons nor its body.
+    expect(screen.queryByRole("button", { name: new RegExp(t("chat.approve")) })).toBeNull();
+    expect(screen.queryByRole("button", { name: new RegExp(t("chat.deny")) })).toBeNull();
+    expect(container.querySelector("[class*='animate-slideIn']")).toBeNull();
+  });
+
+  it("still gives a pushed conversation the full decision card", () => {
+    // The compact state must not leak into a conversation: that is where the
+    // diff is explained and where answering in place is the point.
+    const chrome = band(600);
+    document.body.appendChild(chrome);
+    try {
+      const { onDecide } = setup({
+        raised: false,
+        screenKey: "/tasks/task-1",
+        expectsBottomChrome: true,
+      });
+      expect(screen.getByRole("button", { name: new RegExp(t("chat.approve")) })).toBeTruthy();
+      expect(screen.getByRole("button", { name: new RegExp(t("chat.deny")) })).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: new RegExp(t("chat.approve")) }));
+      expect(onDecide).toHaveBeenCalledWith("oldest", "approved");
+    } finally {
+      chrome.remove();
+    }
+  });
+
+  it("gives the waiting strip a 44px tap target", () => {
+    const { container } = setup({
+      raised: true,
+      expectsBottomChrome: false,
+      screenKey: "/sessions",
+    });
+    const controls = container.querySelectorAll("aside button");
+    // One target, not three: the label, the task and the count all live inside
+    // it, so a thumb cannot land on a non-interactive fragment.
+    expect(controls).toHaveLength(1);
+    const control = controls[0] as HTMLElement;
+    expect(control.className).toContain("min-h-11");
+    expect(control.textContent).toContain(t("approval.floatingLabel"));
+    expect(control.textContent).toContain("Fix the tests");
+    expect(control.textContent).toContain("+1");
+    // Its accessible name says what it opens and how many are behind it.
+    const name = control.getAttribute("aria-label") ?? "";
+    expect(name).toContain(t("approval.floatingLabel"));
+    expect(name).toContain("Fix the tests");
+    expect(name).toContain(t("approval.moreWaiting", { n: 1 }));
+    expect(container.querySelectorAll("aside a")).toHaveLength(0);
+  });
+
+  it("keeps the +N count in the strip when more than one is waiting", () => {
+    setup({
+      raised: true,
+      expectsBottomChrome: false,
+      screenKey: "/sessions",
+      approvals: [
+        approval("newest", "task-3", 300),
+        approval("newer", "task-2", 200),
+        approval("oldest", "task-1", 100),
+      ],
+    });
+    const control = screen.getByRole("button", { name: /Fix the tests/ });
+    expect(control.textContent).toContain("+2");
+    expect(control.getAttribute("aria-label")).toContain(t("approval.moreWaiting", { n: 2 }));
+  });
+
+  it("puts an opaque surface under the card, so list rows cannot show through", () => {
+    // The card's own surface is a translucent orange tint — right on a solid
+    // transcript pane, unreadable floating over the list, where row text bled
+    // through the gradient. The wrapper is the opaque base.
+    const { container } = setup();
+    const surfaces = Array.from(container.querySelectorAll("aside > div.pointer-events-auto"));
+    const cardSurface = surfaces.find((el) => el.querySelector("[class*='animate-slideIn']"));
+    expect(cardSurface?.className).toContain("bg-kin-panel");
+    // The waiting-count chip floats over the same rows.
+    const chip = container.querySelector("aside > [role='status']");
+    expect(chip?.className).toContain("bg-kin-panel");
+    expect(chip?.className).not.toContain("kin-glass");
   });
 
   it("answers the approval on screen", () => {
@@ -254,7 +355,9 @@ describe("FloatingApproval", () => {
       const { container } = setup({ screenKey: "/tasks/task-1" });
       const aside = container.querySelector("aside");
       expect(aside?.style.bottom).toBe("");
-      expect(aside?.className).toContain("bottom-[calc(9.25rem");
+      // A pushed conversation's fallback, not the tab root's: it clears the
+      // composer band it could not measure.
+      expect(aside?.className).toContain("bottom-[calc(5.5rem");
     } finally {
       chrome.remove();
     }

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// KIN-SETTINGS-001 — 改默认设置（J6）：本套件持有 ?tab= 深链与切组保留草稿的验收行。
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
@@ -114,6 +115,7 @@ vi.mock("../api/client", async (importOriginal) => {
 
 vi.mock("../hooks/useMachines", () => ({
   useMachines: () => ({ machines: [], loading: false, failed: false }),
+  refreshMachines: vi.fn(async () => []),
 }));
 
 vi.mock("../hooks/useMinWidth", () => ({

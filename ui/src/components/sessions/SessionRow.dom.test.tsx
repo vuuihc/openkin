@@ -17,19 +17,20 @@ import SessionRow, { type SessionRowProps } from "./SessionRow";
  * imported rows expose neither.
  *
  * KIN-MANAGE-001, step 3: a completed hold opens this row's own action sheet
- * instead of entering multi-select.
+ * instead of entering multi-select. Step 5: Rename is the menu's first action
+ * and edits the row's own title in place, on both surfaces.
  */
 
 const NOW = new Date("2026-11-15T12:00:00Z").getTime();
 
-function task(id: string, archivedAt?: number): Task {
+function task(id: string, archivedAt?: number, status = "succeeded"): Task {
   return {
     id,
     title: id,
     cwd: "/work/alpha",
     agent: "kin",
     prompt: "",
-    status: "succeeded",
+    status,
     tokens_in: 0,
     tokens_out: 0,
     event_epoch: 0,
@@ -96,6 +97,7 @@ function props(overrides: Partial<SessionRowProps> = {}): SessionRowProps {
     onSwipeOpenChange: vi.fn(),
     pinned: false,
     onPin: vi.fn(),
+    onRename: vi.fn(),
     onArchive: vi.fn(),
     onDelete: vi.fn(),
     onRestore: vi.fn(),
@@ -269,12 +271,12 @@ describe("SessionRow", () => {
     };
 
     const first = await openMenu();
-    // Select is the visible door into multi-select, ahead of the row's own edits.
+    // Rename leads, then the way into multi-select, then the row's own edits.
     expect(
       within(first)
         .getAllByRole("menuitem")
         .map((item) => item.textContent),
-    ).toEqual(["Select", "Pin", "Archive", "Delete"]);
+    ).toEqual(["Rename", "Select", "Pin", "Archive", "Delete"]);
     await userEvent.click(within(first).getByRole("menuitem", { name: "Pin" }));
     expect(onPin).toHaveBeenCalledTimes(1);
     // Choosing a row runs it once and puts the menu away again.
@@ -369,7 +371,7 @@ describe("SessionRow", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("offers Select as the row menu's first action on a touch page", async () => {
+  it("offers Rename, Select and the row's edits in order on a touch page", async () => {
     const onStartSelection = vi.fn();
     const onPin = vi.fn();
     const onArchive = vi.fn();
@@ -385,12 +387,13 @@ describe("SessionRow", () => {
     await userEvent.click(trigger);
 
     const sheet = screen.getByRole("dialog", { name: "Fix the build" });
-    // The gesture-free way in, ahead of the row's own edits.
+    // The same order as the Mac menu: Rename, the gesture-free way into
+    // multi-select, then the row's own edits.
     expect(
       within(sheet)
         .getAllByRole("button")
         .map((item) => item.textContent),
-    ).toEqual(["Select", "Pin", "Archive", "Delete", "Cancel"]);
+    ).toEqual(["Rename", "Select", "Pin", "Archive", "Delete", "Cancel"]);
 
     await userEvent.click(within(sheet).getByRole("button", { name: "Select" }));
     await waitFor(() => expect(onStartSelection).toHaveBeenCalledTimes(1));
@@ -420,7 +423,7 @@ describe("SessionRow", () => {
         within(sheet)
           .getAllByRole("button")
           .map((item) => item.textContent),
-      ).toEqual(["Select", "Pin", "Archive", "Delete", "Cancel"]);
+      ).toEqual(["Rename", "Select", "Pin", "Archive", "Delete", "Cancel"]);
       expect(onOpen).not.toHaveBeenCalled();
       expect(onStartSelection).not.toHaveBeenCalled();
 
@@ -456,6 +459,52 @@ describe("SessionRow", () => {
     }
   });
 
+  it("a dragging row exposes data-dragging and its offset", () => {
+    const { container } = render(
+      <SessionRow
+        {...props({
+          shell: "page",
+          coarse: true,
+          reorder: { onStart: vi.fn(), onMove: vi.fn(), onEnd: vi.fn() },
+          dragging: true,
+          dragOffsetY: 36,
+        })}
+      />,
+    );
+
+    const lifted = container.querySelector<HTMLElement>("[data-dragging]");
+    if (!lifted) throw new Error("a dragging row did not mark itself");
+    // The row follows the finger as a lift, not a screen transition.
+    expect(lifted.style.transform).toBe("translateY(36px)");
+    expect(lifted.className).toContain("shadow-e2");
+    expect(lifted.contains(rowButton())).toBe(true);
+  });
+
+  it("the trailing trigger still opens the row actions", async () => {
+    // The hold belongs to the reorder now; the one visible way into the sheet
+    // is still the trailing trigger, unchanged.
+    const onArchive = vi.fn();
+    render(
+      <SessionRow
+        {...props({
+          shell: "page",
+          coarse: true,
+          onArchive,
+          reorder: { onStart: vi.fn(), onMove: vi.fn(), onEnd: vi.fn() },
+        })}
+      />,
+    );
+
+    const trigger = document.querySelector<HTMLElement>("[data-row-actions]");
+    if (!trigger) throw new Error("the touch row did not render an actions trigger");
+    await userEvent.click(trigger);
+
+    const sheet = screen.getByRole("dialog", { name: "Fix the build" });
+    await userEvent.click(within(sheet).getByRole("button", { name: "Archive" }));
+    expect(onArchive).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
   it("Escape closes a long-press sheet and returns focus to the row", () => {
     vi.useFakeTimers();
     try {
@@ -481,7 +530,7 @@ describe("SessionRow", () => {
     }
   });
 
-  it("offers Select in the Mac sidebar menu too", async () => {
+  it("offers the same ordered actions in the Mac sidebar menu", async () => {
     const onStartSelection = vi.fn();
     const { container } = render(
       <SessionRow {...props({ shell: "sidebar", coarse: false, onStartSelection })} />,
@@ -493,11 +542,171 @@ describe("SessionRow", () => {
       within(menu)
         .getAllByRole("menuitem")
         .map((item) => item.textContent),
-    ).toEqual(["Select", "Pin", "Archive", "Delete"]);
+    ).toEqual(["Rename", "Select", "Pin", "Archive", "Delete"]);
 
     await userEvent.click(within(menu).getByRole("menuitem", { name: "Select" }));
     expect(onStartSelection).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("a running conversation says Running in the Mac menu and still offers Archive and Delete", async () => {
+    const onArchive = vi.fn();
+    const onDelete = vi.fn();
+    const { container } = render(
+      <SessionRow
+        {...props({
+          shell: "sidebar",
+          coarse: false,
+          row: taskRow({ task: task("row-1", undefined, "running") }),
+          onArchive,
+          onDelete,
+        })}
+      />,
+    );
+
+    await userEvent.click(rowActionsTrigger(container));
+    const menu = screen.getByRole("menu");
+    // A status line leads, and it is part of the one list both surfaces share.
+    expect(
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Running", "Rename", "Select", "Pin", "Archive", "Delete"]);
+
+    const running = within(menu).getByRole("menuitem", { name: "Running" });
+    expect(running.getAttribute("aria-disabled")).toBe("true");
+    // Choosing it is not a choice: the menu stays up and nothing runs.
+    await userEvent.click(running);
+    expect(screen.getByRole("menu")).toBeTruthy();
+    expect(onArchive).not.toHaveBeenCalled();
+    expect(onDelete).not.toHaveBeenCalled();
+
+    // The row's real actions keep working exactly as they do on a settled row.
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Archive" }));
+    expect(onArchive).toHaveBeenCalledTimes(1);
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("a running conversation says Running in the phone action sheet without blocking its edits", async () => {
+    const onArchive = vi.fn();
+    render(
+      <SessionRow
+        {...props({
+          shell: "page",
+          coarse: true,
+          row: taskRow({ task: task("row-1", undefined, "running") }),
+          onArchive,
+        })}
+      />,
+    );
+
+    const trigger = document.querySelector<HTMLElement>("[data-row-actions]");
+    if (!trigger) throw new Error("the touch row did not render an actions trigger");
+    await userEvent.click(trigger);
+
+    const sheet = screen.getByRole("dialog", { name: "Fix the build" });
+    const running = within(sheet).getByRole("button", { name: "Running" });
+    // The sheet draws a native disabled button; the line reads as information,
+    // not as a control the person can choose.
+    expect(running.tagName).toBe("BUTTON");
+    expect((running as HTMLButtonElement).disabled).toBe(true);
+
+    for (const name of ["Rename", "Archive", "Delete"]) {
+      expect((within(sheet).getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(
+        false,
+      );
+    }
+
+    await userEvent.click(within(sheet).getByRole("button", { name: "Archive" }));
+    expect(onArchive).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("a conversation waiting on the person does not say Running", async () => {
+    // A chat that is waiting on the person is already asking for them, and the
+    // row's dot says so: it is not working on its own.
+    for (const status of ["waiting_approval", "waiting_input"]) {
+      const mac = render(
+        <SessionRow
+          {...props({
+            shell: "sidebar",
+            coarse: false,
+            row: taskRow({ task: task("row-1", undefined, status) }),
+          })}
+        />,
+      );
+      await userEvent.click(rowActionsTrigger(mac.container));
+      expect(
+        within(screen.getByRole("menu"))
+          .getAllByRole("menuitem")
+          .map((item) => item.textContent),
+      ).toEqual(["Rename", "Select", "Pin", "Archive", "Delete"]);
+      mac.unmount();
+
+      const phone = render(
+        <SessionRow
+          {...props({
+            shell: "page",
+            coarse: true,
+            row: taskRow({ task: task("row-1", undefined, status) }),
+          })}
+        />,
+      );
+      const trigger = document.querySelector<HTMLElement>("[data-row-actions]");
+      if (!trigger) throw new Error("the touch row did not render an actions trigger");
+      await userEvent.click(trigger);
+      const sheet = screen.getByRole("dialog", { name: "Fix the build" });
+      expect(
+        within(sheet)
+          .getAllByRole("button")
+          .map((item) => item.textContent),
+      ).toEqual(["Rename", "Select", "Pin", "Archive", "Delete", "Cancel"]);
+      phone.unmount();
+    }
+  });
+
+  it("a queued or retrying conversation says Running", async () => {
+    // The same tone the row's dot already draws: the conversation is still
+    // being worked on, however it is spelled internally.
+    for (const status of ["queued", "retrying"]) {
+      const view = render(
+        <SessionRow
+          {...props({
+            shell: "sidebar",
+            coarse: false,
+            row: taskRow({ task: task("row-1", undefined, status) }),
+          })}
+        />,
+      );
+      await userEvent.click(rowActionsTrigger(view.container));
+      expect(within(screen.getByRole("menu")).getAllByRole("menuitem")[0]?.textContent).toBe(
+        "Running",
+      );
+      view.unmount();
+    }
+  });
+
+  it("an archived conversation that is still running says Running", async () => {
+    // Archiving does not stop a run, so an archived conversation whose task is
+    // still going keeps the warning above the actions that follow it.
+    const { container } = render(
+      <SessionRow
+        {...props({
+          shell: "sidebar",
+          coarse: false,
+          row: taskRow({ task: task("row-1", 99, "running") }),
+          scope: "archived",
+        })}
+      />,
+    );
+
+    await userEvent.click(rowActionsTrigger(container));
+    expect(
+      within(screen.getByRole("menu"))
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Running", "Select", "Restore", "Delete"]);
   });
 
   it("while selecting, the row menu holds only Exit selection", async () => {
@@ -732,5 +941,263 @@ describe("SessionRow", () => {
     expect(screen.queryByRole("button", { name: "Pin" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+  });
+
+  it("reorder-hint-is-a-tooltip-not-the-accessible-name", () => {
+    const { rerender } = render(<SessionRow {...props({ reorderHint: true })} />);
+
+    expect(rowButton().getAttribute("title")).toBe("Alt+↑/↓ moves this chat");
+    // The hint is sighted-only guidance; the row's sentence must not grow it.
+    expect(rowButton().getAttribute("aria-label")).not.toContain("Alt");
+
+    rerender(<SessionRow {...props()} />);
+    expect(rowButton().hasAttribute("title")).toBe(false);
+  });
+
+  /** Open the row's actions and choose Rename on either surface, returning the
+   *  field the row turned into. The sheet runs its row from its close
+   *  teardown, so both paths wait for the field rather than assume it. */
+  async function chooseRename(
+    container: HTMLElement,
+    surface: "menu" | "sheet",
+  ): Promise<HTMLInputElement> {
+    await userEvent.click(rowActionsTrigger(container));
+    const opened =
+      surface === "menu"
+        ? screen.getByRole("menu")
+        : screen.getByRole("dialog", { name: "Fix the build" });
+    await userEvent.click(
+      within(opened).getByRole(surface === "menu" ? "menuitem" : "button", { name: "Rename" }),
+    );
+    return waitFor(() => screen.getByRole("textbox", { name: "Chat title" }) as HTMLInputElement);
+  }
+
+  it("choosing Rename edits the title in place with it selected", async () => {
+    const onOpen = vi.fn();
+    const { container } = render(
+      <SessionRow {...props({ shell: "sidebar", coarse: false, onOpen })} />,
+    );
+
+    const field = await chooseRename(container, "menu");
+
+    expect(field.value).toBe("Fix the build");
+    expect(document.activeElement).toBe(field);
+    // The whole current title is selected, so typing replaces it.
+    expect(field.selectionStart).toBe(0);
+    expect(field.selectionEnd).toBe("Fix the build".length);
+    // The edit is the row, not a screen: nothing navigates, no surface stays up.
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("Enter saves the trimmed title and returns focus to the row", async () => {
+    const onRename = vi.fn();
+    const { container } = render(
+      <SessionRow {...props({ shell: "sidebar", coarse: false, onRename })} />,
+    );
+    const field = await chooseRename(container, "menu");
+
+    fireEvent.change(field, { target: { value: "  Ship the build  " } });
+    await userEvent.keyboard("{Enter}");
+
+    expect(onRename).toHaveBeenCalledWith("Ship the build");
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(document.activeElement).toBe(rowButton());
+  });
+
+  it("Escape cancels the edit without calling onRename", async () => {
+    const onRename = vi.fn();
+    const { container } = render(
+      <SessionRow {...props({ shell: "sidebar", coarse: false, onRename })} />,
+    );
+    const field = await chooseRename(container, "menu");
+
+    fireEvent.change(field, { target: { value: "Something else" } });
+    await userEvent.keyboard("{Escape}");
+
+    expect(onRename).not.toHaveBeenCalled();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(document.activeElement).toBe(rowButton());
+    // The row still carries the title it had before the edit.
+    expect(rowButton().textContent).toContain("Fix the build");
+  });
+
+  it("a blank title cannot be saved", async () => {
+    const onRename = vi.fn();
+    const { container } = render(
+      <SessionRow {...props({ shell: "sidebar", coarse: false, onRename })} />,
+    );
+    const field = await chooseRename(container, "menu");
+
+    fireEvent.change(field, { target: { value: "   " } });
+    await userEvent.keyboard("{Enter}");
+
+    expect(onRename).not.toHaveBeenCalled();
+    // The field stays open and keeps focus so the person can finish typing.
+    const shown = screen.getByRole("textbox", { name: "Chat title" }) as HTMLInputElement;
+    expect(shown).toBe(document.activeElement);
+    // And it says why nothing was saved, rather than looking like a no-op.
+    expect(shown.getAttribute("aria-invalid")).toBe("true");
+    expect(screen.getByText("Enter a title to save")).toBeTruthy();
+    // Typing again is an answer to that message, so it goes away.
+    fireEvent.change(shown, { target: { value: "Ship it" } });
+    expect(screen.queryByText("Enter a title to save")).toBeNull();
+  });
+
+  it("hides the row's tail and the actions trigger while the title is edited", async () => {
+    const { container } = render(
+      <SessionRow {...props({ shell: "sidebar", coarse: false, deviceLabel: "Studio" })} />,
+    );
+    expect(screen.getByText("Studio")).toBeTruthy();
+
+    const field = await chooseRename(container, "menu");
+
+    // In a 248px sidebar the time, the device label and the trigger beside
+    // the field left only a few characters of the name visible.
+    expect(screen.queryByText("Studio")).toBeNull();
+    expect(screen.queryByText("2 minutes ago")).toBeNull();
+    expect(container.querySelector("[data-row-actions]")).toBeNull();
+    expect(field.className).toContain("px-1.5");
+  });
+
+  it("offers touch-sized Save and Cancel beside the phone's edit field", async () => {
+    const onRename = vi.fn();
+    const { container } = render(
+      <SessionRow {...props({ shell: "page", coarse: true, onRename })} />,
+    );
+    const field = await chooseRename(container, "sheet");
+
+    // A soft keyboard has no Enter or Escape, so the touch surface draws both
+    // controls at the same 44px target the row's own actions keep.
+    const save = within(rowButton()).getByRole("button", { name: "Save" });
+    const cancel = within(rowButton()).getByRole("button", { name: "Cancel" });
+    for (const control of [save, cancel]) {
+      expect(control.className).toContain("h-11");
+      expect(control.className).toContain("w-11");
+    }
+    // The trailing trigger is gone while editing: it cannot take the draft.
+    expect(container.querySelector("[data-row-actions]")).toBeNull();
+
+    fireEvent.change(field, { target: { value: "  Ship it  " } });
+    await userEvent.click(save);
+
+    // The tap confirms the edit instead of blurring the field away first.
+    expect(onRename).toHaveBeenCalledWith("Ship it");
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(document.activeElement).toBe(rowButton());
+  });
+
+  it("Cancel leaves the phone's edit without saving", async () => {
+    const onRename = vi.fn();
+    const { container } = render(
+      <SessionRow {...props({ shell: "page", coarse: true, onRename })} />,
+    );
+    const field = await chooseRename(container, "sheet");
+    fireEvent.change(field, { target: { value: "Never mind" } });
+
+    await userEvent.click(within(rowButton()).getByRole("button", { name: "Cancel" }));
+
+    expect(onRename).not.toHaveBeenCalled();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    // The row still carries the title it had before the edit.
+    expect(rowButton().textContent).toContain("Fix the build");
+  });
+
+  it("Tab from the field reaches the phone's Save and commits on Enter", async () => {
+    const onRename = vi.fn();
+    const { container } = render(
+      <SessionRow {...props({ shell: "page", coarse: true, onRename })} />,
+    );
+    const field = await chooseRename(container, "sheet");
+    fireEvent.change(field, { target: { value: "Ship it" } });
+
+    await userEvent.tab();
+
+    // The field and the Save/Cancel pair are one editor: moving focus between
+    // them must not cancel the edit and unmount the control keyboard focus is
+    // travelling to (TASTE 11).
+    const save = within(rowButton()).getByRole("button", { name: "Save" });
+    expect(document.activeElement).toBe(save);
+
+    await userEvent.keyboard("{Enter}");
+
+    expect(onRename).toHaveBeenCalledWith("Ship it");
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("the rename field is not inside the row's button", async () => {
+    const onOpen = vi.fn();
+    const { container } = render(
+      <SessionRow {...props({ shell: "sidebar", coarse: false, onOpen })} />,
+    );
+    const field = await chooseRename(container, "menu");
+
+    // HTML cannot nest an input inside a button, and the row's own click must
+    // not fire while editing: the shell is a plain row until the edit ends.
+    expect(field.closest("button")).toBeNull();
+    expect(rowButton().tagName).toBe("DIV");
+    expect(rowButton().hasAttribute("aria-label")).toBe(false);
+
+    await userEvent.click(rowButton());
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("the Mac menu and the phone sheet offer the same action ids", async () => {
+    const mac = render(<SessionRow {...props({ shell: "sidebar", coarse: false })} />);
+    await userEvent.click(rowActionsTrigger(mac.container));
+    const menuLabels = within(screen.getByRole("menu"))
+      .getAllByRole("menuitem")
+      .map((item) => item.textContent);
+    mac.unmount();
+
+    render(<SessionRow {...props({ shell: "page", coarse: true })} />);
+    const trigger = document.querySelector<HTMLElement>("[data-row-actions]");
+    if (!trigger) throw new Error("the touch row did not render an actions trigger");
+    await userEvent.click(trigger);
+    const sheet = screen.getByRole("dialog", { name: "Fix the build" });
+    const sheetLabels = within(sheet)
+      .getAllByRole("button")
+      .map((item) => item.textContent);
+
+    // One action list feeds both surfaces (TASTE 3 and 4): same rows, same
+    // order, same labels. Cancel is the sheet's own close, not a row.
+    expect(menuLabels).toEqual(["Rename", "Select", "Pin", "Archive", "Delete"]);
+    expect(sheetLabels.slice(0, 5)).toEqual(menuLabels);
+    expect(sheetLabels[5]).toBe("Cancel");
+
+    // The phone's door reaches the same in-place field.
+    await userEvent.click(within(sheet).getByRole("button", { name: "Rename" }));
+    const field = await waitFor(
+      () => screen.getByRole("textbox", { name: "Chat title" }) as HTMLInputElement,
+    );
+    expect(field.value).toBe("Fix the build");
+  });
+
+  it("offers no Rename on an archived row or an imported row", async () => {
+    const { container, rerender } = render(
+      <SessionRow
+        {...props({
+          shell: "sidebar",
+          coarse: false,
+          row: taskRow({ task: task("row-1", 99) }),
+          scope: "archived",
+        })}
+      />,
+    );
+
+    await userEvent.click(rowActionsTrigger(container));
+    const archivedLabels = within(screen.getByRole("menu"))
+      .getAllByRole("menuitem")
+      .map((item) => item.textContent);
+    // The archived menu is restore + delete; a name is not a way back.
+    expect(archivedLabels).toEqual(["Select", "Restore", "Delete"]);
+    await userEvent.keyboard("{Escape}");
+
+    // An imported session has no task id, so it has no local title to edit —
+    // and its row carries no action surface at all.
+    rerender(<SessionRow {...props({ shell: "sidebar", coarse: false, row: importedRow() })} />);
+    expect(container.querySelector("[data-row-actions]")).toBeNull();
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 });

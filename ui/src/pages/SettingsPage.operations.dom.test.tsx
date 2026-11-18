@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// KIN-SETTINGS-001 — 改默认设置（J6）：本套件持有运维入口与被动视图不预读的验收行。
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -114,6 +115,7 @@ vi.mock("../hooks/useMachines", () => ({
     loading: false,
     failed: false,
   }),
+  refreshMachines: vi.fn(async () => []),
 }));
 
 vi.mock("../hooks/useMinWidth", () => ({

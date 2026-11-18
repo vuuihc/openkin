@@ -1,13 +1,15 @@
 import type { CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import type { Task } from "../../api/client";
-import { displayUserPrompt } from "../../lib/attachments";
+import { taskDisplayTitle } from "../../lib/taskTitle";
+import { useLocalTaskTitles } from "../../lib/taskTitles";
 import { useT } from "../../i18n/react";
 import {
   IconArchive,
   IconBack,
   IconMore,
   IconPanel,
+  IconPullRequest,
   IconRestore,
   IconSessions,
   IconShare,
@@ -37,6 +39,24 @@ function StatusPill({ degraded }: { degraded: boolean }) {
       ].join(" ")}
     >
       {degraded ? tr("task.reconnect") : tr("task.running")}
+    </span>
+  );
+}
+
+/**
+ * How many subagent calls the live turn still has running, beside the pill.
+ *
+ * A count, not a control: no button, no panel, no per-subagent stop — the
+ * existing Stop interrupts the turn, which is the only cancellation a
+ * subagent has. It is text in the same fixed-size, non-shrinking spirit as
+ * the pill, so it reads as part of the state the header already shows and
+ * never pushes the title around. At zero it is absent rather than "0".
+ */
+function SubagentCount({ count }: { count: number }) {
+  const tr = useT();
+  return (
+    <span className="inline-flex flex-none items-center whitespace-nowrap text-micro text-kin-muted tabular-nums">
+      {tr("task.subagentCount", { count })}
     </span>
   );
 }
@@ -72,9 +92,17 @@ export type TaskHeaderProps = {
   terminal: boolean;
   /** Connected to the daemon's live stream but not receiving it. */
   degraded: boolean;
-  filesOpen: boolean;
   /**
-   * A panel (files or publish) is open for this conversation.
+   * Subagent calls this turn still has in flight. Absent or 0 draws nothing —
+   * zero is the empty state, and an agent with no subagent concept never
+   * reports one.
+   */
+  subagentsRunning?: number;
+  filesOpen: boolean;
+  /** The read-only pull-request panel is the surface in front. */
+  prOpen: boolean;
+  /**
+   * A panel (files, pull request or publish) is open for this conversation.
    *
    * The shell hides the conversation list while that is true, so this is what
    * draws the one control that brings it back. `filesOpen` is the workspace
@@ -85,6 +113,7 @@ export type TaskHeaderProps = {
   deleting: boolean;
   stopping: boolean;
   onToggleWorkspace: () => void;
+  onTogglePr: () => void;
   onShare: () => void;
   onToggleArchive: () => void | Promise<void>;
   onDelete: () => void | Promise<void>;
@@ -106,12 +135,15 @@ export default function TaskHeader({
   project,
   terminal,
   degraded,
+  subagentsRunning = 0,
   filesOpen,
+  prOpen,
   panelOpen,
   archiving,
   deleting,
   stopping,
   onToggleWorkspace,
+  onTogglePr,
   onShare,
   onToggleArchive,
   onDelete,
@@ -121,7 +153,12 @@ export default function TaskHeader({
   onShowList,
 }: TaskHeaderProps) {
   const tr = useT();
-  const title = task.title || displayUserPrompt(task.prompt || "");
+  // This browser's renames, the same map the list's row menu writes
+  // (`taskTitles.ts`). The header is open when a rename happens in the sidebar
+  // or another tab, so it subscribes and re-reads rather than trusting the
+  // title it mounted with — that stale copy was the whole bug.
+  const [localTitles] = useLocalTaskTitles();
+  const title = taskDisplayTitle(task, localTitles);
   const archiveLabel = task.archived_at ? tr("task.unarchiveSession") : tr("task.archiveSession");
 
   return (
@@ -145,6 +182,7 @@ export default function TaskHeader({
           task.cwd || !terminal ? (
             <span className="flex min-w-0 items-center justify-center gap-1.5">
               {!terminal && <StatusPill degraded={degraded} />}
+              {!terminal && subagentsRunning > 0 && <SubagentCount count={subagentsRunning} />}
               {task.cwd && (
                 <span className="min-w-0 truncate">
                   {[project, task.workspace_branch].filter(Boolean).join(" · ")}
@@ -175,7 +213,11 @@ export default function TaskHeader({
         className="hidden md:flex min-h-11 flex-none items-center px-5 border-b border-[var(--kin-hairline)]"
         style={{ WebkitAppRegion: "drag" } as CSSProperties}
       >
-        <div className="min-w-0 flex-1">
+        {/* The title keeps a readable floor rather than yielding to the verbs:
+            with a panel open at 1100px the row is ~700px wide, and a `flex-1`
+            title with no floor collapsed to its first character. The action
+            cluster is the one that scrolls when space runs out. */}
+        <div className="min-w-cell flex-1">
           <div className="text-strong font-semibold text-kin-text truncate">{title}</div>
         </div>
         <div
@@ -194,7 +236,9 @@ export default function TaskHeader({
             >
               {hostAgentAvatar.initials}
             </span>
-            <span>{tr("newChat.hostAgent", { name: hostAgentName })}</span>
+            <span className="hidden xl:inline">
+              {tr("newChat.hostAgent", { name: hostAgentName })}
+            </span>
           </span>
           {/* The list column yielded to an open panel; this is its way back.
               It is desktop-only because the phone has no list column to
@@ -225,7 +269,29 @@ export default function TaskHeader({
             title={tr("workspace.toggle")}
           >
             <IconPanel size={13} />
-            <span>{tr("workspace.title")}</span>
+            {/* Below `xl` the verbs keep their icon, accessible name and
+                tooltip but give up the word, so the title and the primary
+                surfaces stay readable when a panel narrows the row. */}
+            <span className="hidden xl:inline">{tr("workspace.title")}</span>
+          </Button>
+          {/* The pull request is a sibling surface to the workspace, in the
+              same right-side container (TASTE 17), so its toggle is that
+              toggle's peer rather than a row inside the file tree. */}
+          <Button
+            variant="secondary"
+            onClick={onTogglePr}
+            aria-pressed={prOpen}
+            aria-label={tr("pr.title")}
+            className={[
+              "gap-1.5 rounded-md px-2 py-1 text-body font-normal",
+              prOpen
+                ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
+                : "text-kin-secondary hover:text-kin-text",
+            ].join(" ")}
+            title={tr("pr.title")}
+          >
+            <IconPullRequest size={13} />
+            <span>{tr("pr.title")}</span>
           </Button>
           <Button
             variant="secondary"
@@ -235,7 +301,7 @@ export default function TaskHeader({
             title={tr("task.shareTitle")}
           >
             <IconShare size={13} />
-            <span>{tr("task.share")}</span>
+            <span className="hidden xl:inline">{tr("task.share")}</span>
           </Button>
           <Button
             variant="secondary"
@@ -272,6 +338,9 @@ export default function TaskHeader({
           )}
           {!terminal && (
             <>
+              {/* The count merges into the live-state cluster the pill already
+                  leads: same row, same moment, no new container. */}
+              {subagentsRunning > 0 && <SubagentCount count={subagentsRunning} />}
               <StatusPill degraded={degraded} />
               <Button
                 variant="secondary"

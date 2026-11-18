@@ -5,7 +5,7 @@ export HOME="${HOME:-/Users/$(id -un)}"
 RSI_CTRL="${RSI_CTRL:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 RSI_DIR="$RSI_CTRL/rsi"
 STATE="$RSI_DIR/state"
-RUNS="$RSI_DIR/runtime/runs"
+RUNS="${RSI_RUNS:-$RSI_DIR/runtime/runs}"
 GH_REPO="vuuihc/openkin"
 WT_ROOT="$HOME/.kin/worktrees"
 MAIN_CHECKOUT="$HOME/Workspace/study/kin-multidevice"   # primary checkout
@@ -27,14 +27,23 @@ KIN_BIN="$HOME/.kin/node/kin"
 export GIT_AUTHOR_NAME=vuuihc GIT_AUTHOR_EMAIL=vuuihc@users.noreply.github.com
 export GIT_COMMITTER_NAME=vuuihc GIT_COMMITTER_EMAIL=vuuihc@users.noreply.github.com
 export GIT_TERMINAL_PROMPT=0
-# Let the Bash tool wait for long builds/tests inside a claude -p run.
-export BASH_DEFAULT_TIMEOUT_MS=3300000 BASH_MAX_TIMEOUT_MS=3600000
+# Let the Bash tool wait for long builds/tests inside a claude -p run, but keep the
+# DEFAULT well under LANE_WORKER_SECS (3000 s = 50 min watchdog, below): a default
+# longer than the watchdog turns one stuck call into a lost round (2026-11-18, lane 2:
+# a nested heredoc swallowed its closing `)` and hung on stdin for 2,400 s). Known-long
+# builds/tests (walk and mutant suites, check.sh) must pass an explicit `timeout`, up
+# to the 30-min max.
+export BASH_DEFAULT_TIMEOUT_MS=600000 BASH_MAX_TIMEOUT_MS=1800000
+# Every loop process resolves "opus" to DeepSeek, never to Kimi (CEO 2026-11-17, ROUTING.md):
+# worker lanes pass --model explicitly, but Claude Code's own sub-agents and any internal
+# "opus" resolution read this env first, and the global ~/.claude mapping points at Kimi.
+export ANTHROPIC_DEFAULT_OPUS_MODEL='volcengine-gw/volcengine/deepseek-v4.1-flash[1m]'
 
 # Model routing — policy in rsi/ROUTING.md (CEO 2026-11-15). Default DeepSeek; escalate only on necessity.
 # Workers / rework: DeepSeek V4.1 Flash at --effort high. Director/planner/dream/first reviewer: same model at --effort max.
 # Strong reviewers: Antigravity gemini-4-hydrogen-medium first (UX too — Hydrogen is multimodal).
 # hydrogen-high only for F1–F4 / S1–S3 / architecture, or a second strong pass after disagreement.
-# Never xhigh by default. gpt-6.1-sol second, Carbon third, Kimi last (Volcengine, ¥80/day cap).
+# Never xhigh by default. gpt-6.1-sol second, Carbon third, Kimi last (Volcengine, ¥150/day cap).
 M_WORKER='volcengine-gw/volcengine/deepseek-v4.1-flash[1m]'
 M_DIRECTOR='volcengine-gw/volcengine/deepseek-v4.1-flash[1m]'
 M_ALT='codex/gpt-6.1-sol'
@@ -65,6 +74,11 @@ BUDGET_GUARD="${BUDGET_GUARD:-15}"
 export RSI_STATE="$STATE"
 [ -e "$STATE/BOX_OFF" ] && export RSI_CLOUD_MAX="${RSI_CLOUD_MAX:-2}"
 export RSI_MAX_LANES="${RSI_MAX_LANES:-2}"        # worker lanes; the merge lane is separate. 3 swamped this 16 GB Mac (swap 90%, load 100+) -> 2.
+# Ethan 2026-11-18: the Mac's memory is the constraint, so the SECOND local worker is optional
+# capacity and stands down unless the machine is genuinely cool; the rest of the work goes to the
+# NAS lanes. Measured at the change: 6.5 GB reclaimable, 1.3 GB swap -> the spare lane starts.
+export RSI_LANE2_MEM_MIN_MB="${RSI_LANE2_MEM_MIN_MB:-5120}"
+export RSI_LANE2_SWAP_MAX_MB="${RSI_LANE2_SWAP_MAX_MB:-1536}"
 # Do not default RSI_LOAD_MAX to 100000 (that disabled the guard). lanes.py
 # treats a missing or >=10000 value as 2× cores, and also refuses a new local
 # worker when free swap is below RSI_SWAP_FREE_MIN_MB (default 2048).
@@ -76,6 +90,39 @@ LANE_BUDGET_USD="${LANE_BUDGET_USD:-9}"            # runaway guard per worker ru
 FILL_SECS="${FILL_SECS:-1200}"
 LANES_PY="$RSI_DIR/runtime/lanes.py"
 mkdir -p "$STATE/lanes" "$STATE/sendback" "$STATE/merge"
+
+# Restore a lost +x bit on a runtime script that the repository records as executable.
+#
+# Why: the live control tree is patched in place (CEO hotfixes), and a temp-file+mv edit drops
+# the mode to 644. A caller that invokes a runtime script as a program — ux-gate.sh runs
+# `dispatch.sh`, not `bash dispatch.sh` — then dies with exit 126 and the reviewer reports
+# "unavailable" while the code is fine (2026-11-17 23:24, dispatch.sh and ux-gate.sh both left
+# 644; #238's UX gate lost a cooldown cycle to it). run.sh, merge.sh, lane.sh, gate.sh,
+# dispatch.sh, ux-gate.sh and ux-walk.sh source this file, so the heal lands before they
+# dispatch anything. release.sh does not source it and calls release-check.sh via `bash`.
+#
+# Only files git records as 100755 are healed: rsi/runtime/tests/*.sh and three top-level
+# scripts are tracked 644 on purpose, and chmod-ing them would leave a mode-only modification
+# that run.sh:40 (control-tree fast-forward) and gate.sh:114 ("build left uncommitted changes")
+# read as operator edits. A tree that is not a git checkout has no recorded modes to respect,
+# so there everything is healed.
+if git -C "$RSI_CTRL" rev-parse --git-dir >/dev/null 2>&1; then
+  git -C "$RSI_CTRL" ls-files -s -- rsi/runtime 2>/dev/null \
+    | awk '$1 == "100755" && $4 ~ /^rsi\/runtime\/[^\/]+\.sh$/ {print substr($4, 13)}' \
+    | while read -r _rsi_sh; do
+        [ -n "$_rsi_sh" ] || continue
+        [ -x "$RSI_DIR/runtime/$_rsi_sh" ] && continue
+        chmod +x "$RSI_DIR/runtime/$_rsi_sh" 2>/dev/null \
+          && echo "rsi: restored +x on $_rsi_sh" >&2
+      done
+else
+  for _rsi_sh in "$RSI_DIR"/runtime/*.sh; do
+    [ -f "$_rsi_sh" ] || continue
+    [ -x "$_rsi_sh" ] && continue
+    chmod +x "$_rsi_sh" 2>/dev/null && echo "rsi: restored +x on ${_rsi_sh##*/}" >&2
+  done
+fi
+unset _rsi_sh
 
 
 # Reap a process and its descendants (children first). Never signals pid 1.
@@ -94,7 +141,12 @@ rsi_kill_tree() {
 with_timeout() { # secs cmd...   (macOS has no `timeout`)
   local s="$1"; shift
   "$@" & local p=$!
-  ( sleep "$s"; kill -TERM "$p" 2>/dev/null; sleep 5; kill -KILL "$p" 2>/dev/null ) >/dev/null 2>&1 & local w=$!
+  ( sp=""
+    trap '[ -n "${sp:-}" ] && kill "$sp" 2>/dev/null; exit 0' TERM INT
+    sleep "$s" & sp=$!; wait "$sp" || exit 0
+    kill -TERM "$p" 2>/dev/null
+    sleep 5 & sp=$!; wait "$sp" || exit 0
+    kill -KILL "$p" 2>/dev/null ) >/dev/null 2>&1 & local w=$!
   wait "$p"; local rc=$?
   kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
   return $rc
@@ -136,11 +188,11 @@ notify() { # title body
 # Volcengine list-price budget (Mac magpie, Asia/Singapore day). See runtime/volc-budget.py and escalate.py.
 # >= ¥450 (RSI_VOLC_KIMI_MAX): no Kimi; fall back to gpt-6.1-sol.
 # >= ¥560 (RSI_VOLC_STOP_WORKERS): new worker lanes / box pack / NAS pulse stand down until tomorrow.
-# Kimi daily cap ¥80 (RSI_VOLC_KIMI_DAY_MAX): further Kimi escalations fall back to gpt-6.1-sol.
+# Kimi daily cap ¥150 (RSI_VOLC_KIMI_DAY_MAX): further Kimi escalations fall back to gpt-6.1-sol.
 rsi_budget_apply() {
   # Preserve a caller's explicit cap: the tool re-reads policy on every call and a cached
   # spend snapshot carries the caps it was computed with (volc-budget.py recomputes them).
-  RSI_VOLC_CNY=; RSI_VOLC_LEVEL=ok; RSI_VOLC_DAY=; RSI_VOLC_KIMI_CNY=; RSI_VOLC_KIMI_DAY_MAX="${RSI_VOLC_KIMI_DAY_MAX:-80}"
+  RSI_VOLC_CNY=; RSI_VOLC_LEVEL=ok; RSI_VOLC_DAY=; RSI_VOLC_KIMI_CNY=; RSI_VOLC_KIMI_DAY_MAX="${RSI_VOLC_KIMI_DAY_MAX:-150}"
   local ev
   ev="$(python3 "$RSI_DIR/runtime/volc-budget.py" --export 2>/dev/null)" || return 0
   eval "$ev" 2>/dev/null || true

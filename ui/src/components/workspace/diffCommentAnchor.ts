@@ -201,3 +201,93 @@ export function newCommentId(): string {
 // a changed block by hunk header, then by quote, and mark it stale when the
 // quoted line is gone. Keep it a function of (anchor, lineChanges, lines), not
 // of the editor, so the tray can render the same answer without Monaco.
+
+/** Where one saved comment points in the diff that is open now. */
+export type CommentAnchorState = {
+  /** 1-based modified line: the current one, or the saved one when stale. */
+  line: number;
+  /** The quoted line is no longer in the diff. */
+  stale: boolean;
+};
+
+/** A comment plus the answer for where it points now. */
+export type ReanchoredComment = { id: string } & CommentAnchorState;
+
+function matchingLines(
+  quote: string,
+  lineChanges: readonly LineChange[],
+  lines: readonly string[],
+): number[] {
+  const matches: number[] = [];
+  for (const change of lineChanges) {
+    if (change.modifiedEndLineNumber === 0) continue;
+    for (
+      let line = change.modifiedStartLineNumber;
+      line <= change.modifiedEndLineNumber;
+      line += 1
+    ) {
+      const text = lines[line - 1];
+      if (text !== undefined && quoteLine(text) === quote) matches.push(line);
+    }
+  }
+  return matches;
+}
+
+/**
+ * KIN-RESULT-003 part 2 — where each saved comment points in a fresh diff.
+ *
+ * The quote is the identity and the saved line is only a hint: after a rerun
+ * the quoted line may have moved, and a comment must never silently attach to
+ * a neighbouring line whose text merely sits close by. A saved comment whose
+ * exact quoted line is gone is reported stale *with its saved line*, so the
+ * row stays readable and jumpable; there is no stored stale bit, so the same
+ * call re-points it once the line comes back.
+ *
+ * `lines` is the modified file, 0-based: line N is `lines[N - 1]`. A null or
+ * empty `lineChanges` is "the diff is not computed yet", which is no answer at
+ * all — the caller leaves its state untouched rather than marking everything
+ * stale. Comments for other files are not this diff's business.
+ */
+export function reanchorComments(
+  comments: readonly DiffComment[],
+  input: { path: string; lineChanges: readonly LineChange[] | null; lines: readonly string[] },
+): ReanchoredComment[] {
+  const { path, lineChanges, lines } = input;
+  if (!lineChanges || lineChanges.length === 0) return [];
+
+  return comments
+    .filter((comment) => comment.path === path)
+    .map((comment) => {
+      const candidates = matchingLines(comment.quote, lineChanges, lines);
+      if (candidates.length === 0) {
+        return { id: comment.id, line: comment.line, stale: true };
+      }
+      // Remember the block the comment was written in. If that block is still
+      // here (same header) and holds the quote, it wins over a numerically
+      // closer match in a newer block.
+      const inSavedHunk = new Set(
+        lineChanges
+          .filter((change) => formatHunkHeader(change) === comment.hunkHeader)
+          .flatMap((change) =>
+            change.modifiedEndLineNumber === 0
+              ? []
+              : Array.from(
+                  {
+                    length: change.modifiedEndLineNumber - change.modifiedStartLineNumber + 1,
+                  },
+                  (_, offset) => change.modifiedStartLineNumber + offset,
+                ),
+          ),
+      );
+      const preferred = candidates.filter((line) => inSavedHunk.has(line));
+      const pool = preferred.length > 0 ? preferred : candidates;
+      const line = pool.reduce((best, candidate) => {
+        const distance = Math.abs(candidate - comment.line);
+        const bestDistance = Math.abs(best - comment.line);
+        return distance < bestDistance || (distance === bestDistance && candidate < best)
+          ? candidate
+          : best;
+      });
+      return { id: comment.id, line, stale: false };
+    });
+}

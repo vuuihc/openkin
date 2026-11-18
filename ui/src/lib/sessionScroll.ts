@@ -1,7 +1,8 @@
 /**
- * Per-task chat scroll position (localStorage).
- * Keep-alive hides inactive sessions with display:none, which resets scrollTop —
- * so we persist and restore explicitly.
+ * Persisted scroll positions (localStorage).
+ * Chat: keep-alive hides inactive sessions with display:none, which resets
+ * scrollTop — so we persist and restore explicitly. The same map also holds a
+ * page's list offset under its own key (see getKeyedScroll).
  */
 
 const STORAGE_KEY = "kin.sessionScroll.v1";
@@ -35,20 +36,20 @@ function writeMap(map: ScrollMap): void {
   }
 }
 
-/** Last known scrollTop for a task, or null if never saved. */
-export function getSessionScroll(taskId: string): number | null {
-  if (!taskId) return null;
-  const v = readMap()[taskId];
+/** Last known scrollTop for a key, or null if never saved. */
+export function getKeyedScroll(key: string): number | null {
+  if (!key) return null;
+  const v = readMap()[key];
   return typeof v === "number" ? v : null;
 }
 
-/** Persist scrollTop for a task (LRU-ish: drop oldest keys when oversized). */
-export function setSessionScroll(taskId: string, scrollTop: number): void {
-  if (!taskId || !Number.isFinite(scrollTop) || scrollTop < 0) return;
+/** Persist scrollTop for a key (LRU-ish: drop oldest keys when oversized). */
+export function setKeyedScroll(key: string, scrollTop: number): void {
+  if (!key || !Number.isFinite(scrollTop) || scrollTop < 0) return;
   const map = readMap();
   // Re-insert so this key is treated as most recent when pruning.
-  if (taskId in map) delete map[taskId];
-  map[taskId] = Math.round(scrollTop);
+  if (key in map) delete map[key];
+  map[key] = Math.round(scrollTop);
   const keys = Object.keys(map);
   if (keys.length > MAX_ENTRIES) {
     for (const k of keys.slice(0, keys.length - MAX_ENTRIES)) {
@@ -56,6 +57,16 @@ export function setSessionScroll(taskId: string, scrollTop: number): void {
     }
   }
   writeMap(map);
+}
+
+/** Last known scrollTop for a task, or null if never saved. */
+export function getSessionScroll(taskId: string): number | null {
+  return getKeyedScroll(taskId);
+}
+
+/** Persist scrollTop for a task. */
+export function setSessionScroll(taskId: string, scrollTop: number): void {
+  setKeyedScroll(taskId, scrollTop);
 }
 
 export function clearSessionScroll(taskId: string): void {

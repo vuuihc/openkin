@@ -39,11 +39,21 @@ if [ -n "${UX_KIN_BIN:-}" ]; then
     done; return 1
   }
   stop_daemon() { [ -n "$JPID" ] && kill -KILL "$JPID" 2>/dev/null; wait "$JPID" 2>/dev/null; JPID=""; }
+  # The daemon resolves `claude` from this PATH for every turn, so a send can
+  # only ever launch what this directory holds. KIN_CLAUDE_BIN overrides PATH,
+  # so drop it for the launch, exactly as ux-walk.sh does.
+  start_daemon_using() { # $1 bin dir -> $2 state dir
+    local dir="$1" st="$2" old="$PATH" saved="${KIN_CLAUDE_BIN:-}"
+    PATH="$dir:$PATH"; unset KIN_CLAUDE_BIN
+    start_daemon "$st"; local rc=$?
+    PATH="$old"
+    [ -z "$saved" ] || export KIN_CLAUDE_BIN="$saved"
+    return $rc
+  }
   walk_j3() { mkdir -p "$1"; node "$RT/ux/walk.mjs" --base "http://127.0.0.1:$JPORT" --token "$JTOKEN" --out "$1" --journeys J3 >"$1/walk.log" 2>&1; }
-
-  # 3.1 a daemon that knows a project root: open the picker, choose it, Start becomes usable
-  if start_daemon "$T/j3-started/state"; then
-    python3 - "$JPORT" "$JTOKEN" "$T/j3-started/project" <<'PY'
+  # A project root the place picker can offer, so the journey reaches Start.
+  make_project() { # $1 root
+    python3 - "$JPORT" "$JTOKEN" "$1" <<'PY'
 import json, os, sys, urllib.request
 port, token, root = sys.argv[1], sys.argv[2], sys.argv[3]
 os.makedirs(root, exist_ok=True)
@@ -55,21 +65,52 @@ req = urllib.request.Request(
 body = json.load(urllib.request.urlopen(req, timeout=10))
 assert body.get("roots") == [root], body
 PY
-    [ $? -eq 0 ] || bad "J3 case 1: the project fixture was refused"
-    walk_j3 "$T/j3-started"
-    python3 - "$T/j3-started/walk.json" <<'PY' && ok "J3 reaches started" || bad "J3 did not reach a startable composer (see $T/j3-started/walk.json)"
-import json, sys
+  }
+
+  # 3.1 a daemon that knows a project root: choose it, settle the run settings,
+  # then press Start FOR REAL. The fake agent is first on this daemon's PATH, so
+  # the press launches the fake and the walk can prove the send landed.
+  if [ -x "$WT/scripts/journeys_fake_agent/claude" ]; then
+    # The fake holds a `[seed] slow` turn for RSI_FAKE_SLOW_SECS (default 3).
+    # J3 now types, queues and reads a second message during that round, so the
+    # default races those steps; the fake clamps at 10, which is the window.
+    export RSI_FAKE_SLOW_SECS=10
+    if start_daemon_using "$WT/scripts/journeys_fake_agent" "$T/j3-started/state"; then
+      make_project "$T/j3-started/project" || bad "J3 case 1: the project fixture was refused"
+      walk_j3 "$T/j3-started"
+      python3 - "$T/j3-started/walk.json" <<'PY' && ok "J3 presses Start and the fake replies" || bad "J3 did not send (see $T/j3-started/walk.json)"
+import json, re, sys
 d = json.load(open(sys.argv[1]))
 hard = [h for h in d["hardFail"] if "J3/" in h]
 assert not hard, hard
 screens = d["screens"]
 for vp in ("phone", "mac"):
-    hit = [s for s in screens if s["name"].startswith(f"J3-{vp}-") and s["name"].endswith("-started")]
-    assert hit, f"no J3-{vp}-*-started screen in {[s['name'] for s in screens]}"
-    assert any("enabled" in note for note in hit[-1].get("notes", [])), hit[-1]
+    mine = [s for s in screens if s["name"].startswith(f"J3-{vp}-")]
+    names = [s["name"] for s in mine]
+    sent = [s for s in mine if s["name"].endswith("-sent")]
+    replied = [s for s in mine if s["name"].endswith("-replied")]
+    assert sent and replied, names
+    # The sent shot is on the conversation route, after a real press, and
+    # before the reply — that is the pending bubble the F1 path must keep.
+    assert re.match(r"^/tasks/[^/]+", sent[-1]["url"]), sent[-1]
+    assert names.index(sent[-1]["name"]) < names.index(replied[-1]["name"]), names
+    assert any(note.startswith("pressed ") for note in sent[-1].get("notes", [])), sent[-1]
+    assert any(note.startswith("waited for css=[role=region]") and "Draft: " in note
+               for note in sent[-1].get("notes", [])), sent[-1]
+    # The mid-run follow-up: on screen and marked queued before the first
+    # answer. This is the F2 lost-message path, so it must fail the case, not
+    # only look right in a screenshot.
+    queued = [s for s in mine if s["name"].endswith("-midrun-queued")]
+    assert queued, names
+    assert names.index(queued[-1]["name"]) < names.index(replied[-1]["name"]), names
+    assert any(note.startswith("waited for css=[role=status]")
+               and ("已排队" in note or "Queued" in note)
+               for note in queued[-1].get("notes", [])), queued[-1]
 PY
-  else bad "J3 case 1: the throwaway daemon did not start"; fi
+    else bad "J3 case 1: the throwaway daemon did not start"; fi
+  else bad "J3 case 1: the fake agent is missing at $WT/scripts/journeys_fake_agent/claude"; fi
   stop_daemon
+  unset RSI_FAKE_SLOW_SECS
 
   # 3.2 nothing to choose: an explicit skip with a reason, never a hard failure
   if start_daemon "$T/j3-skip/state"; then
@@ -103,12 +144,15 @@ HTML
   python3 -m http.server "$FPORT" --bind 127.0.0.1 --directory "$T/j3-fixture" >"$T/j3-fixture/server.log" 2>&1 & FPID=$!
   for _ in $(seq 1 40); do curl -fs -o /dev/null --max-time 1 "http://127.0.0.1:$FPORT/new/" 2>/dev/null && break; sleep 0.1; done
   mkdir -p "$T/j3-disabled"
-  node "$RT/ux/walk.mjs" --base "http://127.0.0.1:$FPORT" --out "$T/j3-disabled" --journeys J3 >"$T/j3-disabled/walk.log" 2>&1
+  # A static fixture never navigates, so every wait on the send path is meant
+  # to fail; a short timeout keeps the case about the verdict, not the clock.
+  RSI_UX_WAIT_MS=1500 node "$RT/ux/walk.mjs" --base "http://127.0.0.1:$FPORT" --out "$T/j3-disabled" --journeys J3 >"$T/j3-disabled/walk.log" 2>&1
   kill -KILL "$FPID" 2>/dev/null; wait "$FPID" 2>/dev/null
   python3 - "$T/j3-disabled/walk.json" <<'PY' && ok "a disabled Start with no explanation is still a hard failure" || bad "a disabled Start with no explanation was not a hard failure (see $T/j3-disabled/walk.json)"
 import json, sys
 d = json.load(open(sys.argv[1]))
-hard = [h for h in d["hardFail"] if "J3/" in h and "disabled" in h and "no on-screen explanation" in h]
+# The send op keeps the verdict the old `enabled` op gave, now on the press.
+hard = [h for h in d["hardFail"] if "J3/" in h and "开始" in h and "is disabled" in h and "no on-screen explanation" in h]
 assert hard, d["hardFail"]
 PY
 
@@ -141,7 +185,7 @@ HTML
   python3 -m http.server "$NPORT" --bind 127.0.0.1 --directory "$T/j3-nopicker" >"$T/j3-nopicker/server.log" 2>&1 & NPID=$!
   for _ in $(seq 1 40); do curl -fs -o /dev/null --max-time 1 "http://127.0.0.1:$NPORT/new/" 2>/dev/null && break; sleep 0.1; done
   mkdir -p "$T/j3-nopicker-out"
-  node "$RT/ux/walk.mjs" --base "http://127.0.0.1:$NPORT" --out "$T/j3-nopicker-out" --journeys J3 >"$T/j3-nopicker-out/walk.log" 2>&1
+  RSI_UX_WAIT_MS=1500 node "$RT/ux/walk.mjs" --base "http://127.0.0.1:$NPORT" --out "$T/j3-nopicker-out" --journeys J3 >"$T/j3-nopicker-out/walk.log" 2>&1
   kill -KILL "$NPID" 2>/dev/null; wait "$NPID" 2>/dev/null
   python3 - "$T/j3-nopicker-out/walk.json" <<'PY' && ok "a missing picker is a hard failure, not a skip" || bad "a missing picker was not a hard failure (see $T/j3-nopicker-out/walk.json)"
 import json, sys
@@ -149,5 +193,93 @@ d = json.load(open(sys.argv[1]))
 assert any("J3/" in h and "no working-directory picker" in h for h in d["hardFail"]), d["hardFail"]
 assert not any("skipped-no-workdir" in s["name"] for s in d["screens"]), [s["name"] for s in d["screens"]]
 PY
-else echo "skip J3 walk cases (set UX_KIN_BIN)"; fi
+
+  # 3.6 J1: a seed line that claims an approval card, on a page that renders no
+  # card, must fail the walk -- not skip it. This is the regression a green J1
+  # used to hide: every decision step was optional, so no card walked through.
+  mkdir -p "$T/j1-missing-card/sessions" "$T/j1-missing-card/tasks/task-1" "$T/j1-missing-card/tasks/task-2" "$T/j1-missing-card-out"
+  for page in sessions tasks/task-1 tasks/task-2; do
+    cat > "$T/j1-missing-card/$page/index.html" <<'HTML'
+<!doctype html><meta charset="utf-8"><title>J1 fixture</title>
+<p>A conversation-shaped page with a transcript and no approval card on it. The seed below claims both cards exist, so the walk must fail rather than skip.</p>
+<button type="button" aria-label="返回">返回</button>
+HTML
+  done
+  : > "$T/j1-missing-card/favicon.ico"
+  printf 'journeys seed: base http://127.0.0.1:<port>\nj1 targets approve conversation=task-1 focus=appr-1 deny conversation=task-2 focus=appr-2\n' > "$T/j1-missing-card-out/seed.log"
+  J1PORT=$(freeport)
+  python3 -m http.server "$J1PORT" --bind 127.0.0.1 --directory "$T/j1-missing-card" >"$T/j1-missing-card/server.log" 2>&1 & J1PID=$!
+  for _ in $(seq 1 40); do curl -fs -o /dev/null --max-time 1 "http://127.0.0.1:$J1PORT/sessions/" 2>/dev/null && break; sleep 0.1; done
+  node "$RT/ux/walk.mjs" --base "http://127.0.0.1:$J1PORT" --out "$T/j1-missing-card-out" --journeys J1 >"$T/j1-missing-card-out/walk.log" 2>&1
+  kill -KILL "$J1PID" 2>/dev/null; wait "$J1PID" 2>/dev/null
+  python3 - "$T/j1-missing-card-out/walk.json" <<'PY' && ok "a seeded card that is not on the page is a hard failure" || bad "a seeded card that is not on the page was not a hard failure (see $T/j1-missing-card-out/walk.json)"
+import json, sys
+d = json.load(open(sys.argv[1]))
+hard = [h for h in d["hardFail"] if "J1/" in h and "missing required click" in h]
+assert any("批准" in h or "Approve" in h for h in hard), d["hardFail"]
+assert any("拒绝" in h or "Deny" in h for h in hard), d["hardFail"]
+assert not any("skipped" in s["name"] for s in d["screens"]), [s["name"] for s in d["screens"]]
+assert any(s["journey"] == "J1" for s in d["screens"]), d["screens"]
+PY
+
+  # 3.7 J1: a decision that leaves its control on screen must fail the walk.
+  # The static page below keeps 批准 and 拒绝 visible forever, so the click
+  # lands and only the `gone` assertion can catch it. Without this case a
+  # no-op `gone` would keep every suite green and the deny regression silent.
+  mkdir -p "$T/j1-still-visible/sessions" "$T/j1-still-visible/tasks/task-1" "$T/j1-still-visible/tasks/task-2" "$T/j1-still-visible-out"
+  for page in sessions tasks/task-1 tasks/task-2; do
+    cat > "$T/j1-still-visible/$page/index.html" <<'HTML'
+<!doctype html><meta charset="utf-8"><title>J1 fixture</title>
+<p>A conversation-shaped page whose approval controls never leave the screen, so a decision click that does nothing must fail the walk.</p>
+<div role="region" aria-label="对话">
+<button type="button" aria-label="批准">批准</button>
+<button type="button" aria-label="拒绝">拒绝</button>
+</div>
+HTML
+  done
+  : > "$T/j1-still-visible/favicon.ico"
+  printf 'journeys seed: base http://127.0.0.1:<port>\nj1 targets approve conversation=task-1 focus=appr-1 deny conversation=task-2 focus=appr-2\n' > "$T/j1-still-visible-out/seed.log"
+  J1SPORT=$(freeport)
+  python3 -m http.server "$J1SPORT" --bind 127.0.0.1 --directory "$T/j1-still-visible" >"$T/j1-still-visible/server.log" 2>&1 & J1SPID=$!
+  for _ in $(seq 1 40); do curl -fs -o /dev/null --max-time 1 "http://127.0.0.1:$J1SPORT/sessions/" 2>/dev/null && break; sleep 0.1; done
+  RSI_UX_WAIT_MS=400 node "$RT/ux/walk.mjs" --base "http://127.0.0.1:$J1SPORT" --out "$T/j1-still-visible-out" --journeys J1 >"$T/j1-still-visible-out/walk.log" 2>&1
+  kill -KILL "$J1SPID" 2>/dev/null; wait "$J1SPID" 2>/dev/null
+  python3 - "$T/j1-still-visible-out/walk.json" <<'PY' && ok "a decision control that stays on screen is a hard failure" || bad "a decision control that stays on screen was not a hard failure (see $T/j1-still-visible-out/walk.json)"
+import json, sys
+d = json.load(open(sys.argv[1]))
+hard = [h for h in d["hardFail"] if "J1/phone: gone " in h and "still visible after 400ms" in h]
+assert any("批准" in h or "Approve" in h for h in hard), d["hardFail"]
+assert any("拒绝" in h or "Deny" in h for h in hard), d["hardFail"]
+PY
+
+  # 3.8 a daemon whose claude is not the fake: J3 records a skip and never
+  # presses Start. A walk must not launch a real CLI, so the check is written
+  # against the daemon's own answer, not the caller's PATH.
+  mkdir -p "$T/realbin"
+  cat > "$T/realbin/claude" <<'SH'
+#!/bin/sh
+# Stands in for a real CLI: discovery only needs it on PATH. If a walk ever
+# pressed Start this would exit non-zero and complete a turn the gate forbids.
+exit 1
+SH
+  chmod +x "$T/realbin/claude"
+  if start_daemon_using "$T/realbin" "$T/j3-nofake/state"; then
+    make_project "$T/j3-nofake/project" || bad "J3 case 6: the project fixture was refused"
+    walk_j3 "$T/j3-nofake"
+    python3 - "$T/j3-nofake/walk.json" <<'PY' && ok "J3 skips without a fake agent and never presses Start" || bad "J3 did not skip a real claude (see $T/j3-nofake/walk.json)"
+import json, sys
+d = json.load(open(sys.argv[1]))
+hard = [h for h in d["hardFail"] if "J3/" in h]
+assert not hard, hard
+screens = d["screens"]
+for vp in ("phone", "mac"):
+    skip = [s for s in screens if s["name"] == f"J3-{vp}-skipped-no-fake-agent"]
+    assert skip, [s["name"] for s in screens]
+    assert any("only the fake agent may answer" in note for note in skip[-1].get("notes", [])), skip[-1]
+# A real CLI answered nothing: no press happened, so no conversation screen exists.
+assert not any(s["name"].endswith("-sent") for s in screens), [s["name"] for s in screens]
+PY
+  else bad "J3 case 6: the throwaway daemon did not start"; fi
+  stop_daemon
+else echo "skip J3/J1 walk cases (set UX_KIN_BIN)"; fi
 exit $fail

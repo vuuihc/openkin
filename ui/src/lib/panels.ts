@@ -25,7 +25,7 @@
  * the only way to add an id is to add it to the list, and the list is what the
  * test walks.
  */
-export const PANEL_IDS = ["files", "publish", "terminal"] as const;
+export const PANEL_IDS = ["files", "pr", "publish", "terminal"] as const;
 
 export type PanelId = (typeof PANEL_IDS)[number];
 
@@ -77,10 +77,19 @@ export const PANELS: PanelDescriptor[] = [
     available: (ctx) => ctx.taskId !== null,
   },
   {
+    // The pull-request panel is read-only state about this session's branch, so
+    // it is offered for every session. For a task whose checkout is elsewhere,
+    // the machine holding it is the one that answers — the panel says so rather
+    // than hiding a question that machine can still answer.
+    id: "pr",
+    titleKey: "pr.title",
+    available: (ctx) => ctx.taskId !== null,
+  },
+  {
     // Publishing writes to a repository the Hub holds, and it is only offered for
     // a session running on another machine — the one case where the write is the
-    // local machine's to make. A button that could only ever be refused is worse
-    // than no button, so the gate lives here rather than inside the sheet.
+    // local machine's to make. A control that could only ever be refused is worse
+    // than no control, so the gate lives here rather than inside the pane.
     id: "publish",
     titleKey: "publish.title",
     available: (ctx) => ctx.remote,
@@ -160,7 +169,7 @@ export function closeOpenPanel(open: OpenPanel, view: string): OpenPanel {
 /**
  * The panel to render, given what is open and what is currently offered. A panel
  * that stops being available while it is open (the session moved to a machine
- * whose checkout the Hub holds, so the publish sheet no longer applies) closes
+ * whose checkout the Hub holds, so the publish tab no longer applies) closes
  * itself rather than rendering in a state it is not allowed to be in.
  */
 export function resolvePanel(current: PanelId | null, ctx: PanelContext): PanelId | null {

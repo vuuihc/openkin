@@ -33,7 +33,9 @@ import { IconBack, IconMachine, IconRoutines } from "../components/icons";
 import Button from "../components/ui/Button";
 import SearchSelect from "../components/ui/SearchSelect";
 import Heatmap from "../components/project/Heatmap";
+import ProjectInstructionsBlock from "../components/project/ProjectInstructionsBlock";
 import ProjectOnePager from "../components/project/ProjectOnePager";
+import ProjectRootsBlock from "../components/project/ProjectRootsBlock";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import { useMinWidth } from "../hooks/useMinWidth";
 import { useSlowHint } from "../hooks/useSlowHint";
@@ -54,6 +56,8 @@ import { readRoutineDevice, routineDeviceForProject } from "../lib/routineDevice
 import { formatRelativeTime } from "../lib/relativeTime";
 import { sessionStatusDotClass } from "../lib/sessionViewed";
 import { taskCardStatusView } from "../lib/taskCardStatus";
+import { taskDisplayTitle } from "../lib/taskTitle";
+import { useLocalTaskTitles } from "../lib/taskTitles";
 import { useT } from "../i18n/react";
 import { useAppStore } from "../store/appStore";
 
@@ -86,6 +90,11 @@ export default function ProjectDetailPage() {
   const offline = wsStatus === "disconnected";
   const wide = useMinWidth(1024);
   const cardIds = useId();
+  // A rename is this browser's name for a conversation, and the cover's one
+  // row draws that name like the sidebar and the header do. Subscribing here
+  // (rather than only reading the map when the activity feed lands) is what
+  // makes a rename from another surface reach a row already on screen.
+  const [localTitles] = useLocalTaskTitles();
 
   const [project, setProject] = useState<Project | null>(null);
   const [markdown, setMarkdown] = useState("");
@@ -122,11 +131,18 @@ export default function ProjectDetailPage() {
   const [editing, setEditing] = useState(false);
   /** The One-Pager section owns the draft; the page owns the leave guard. */
   const [dirty, setDirty] = useState(false);
+  /** The folder editor is open; its ⌘Enter belongs to its own Save. */
+  const [rootsEditing, setRootsEditing] = useState(false);
   /** The version the editor started from; a reconnect must not move it. */
   const [editBase, setEditBase] = useState({ markdown: "", updatedAt: 0 });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [conflict, setConflict] = useState<OnePager | null>(null);
+
+  // What the cover draws now, not what the read returned: a rename can land
+  // between reads, and this same row is what the cache stores, so the next
+  // offline visit paints the new name instead of the one the feed answered.
+  const drawnLatest = useMemo(() => renameCoverRow(latest, localTitles), [latest, localTitles]);
 
   const [params, setParams] = useSearchParams();
   const projectRef = useRef<Project | null>(null);
@@ -193,6 +209,7 @@ export default function ProjectDetailPage() {
     activityRequest.current += 1;
     setError(null);
     setEditing(false);
+    setRootsEditing(false);
     setConflict(null);
     setSaved(false);
     setEditBase({ markdown: "", updatedAt: 0 });
@@ -437,7 +454,7 @@ export default function ProjectDetailPage() {
       pulse: pulseFor === currentProject.id ? pulse : null,
       routines: routinesCurrent ? routines : [],
       routinesLoaded: routinesCurrent && routinesLoaded,
-      latest: activityCurrent ? latest : null,
+      latest: activityCurrent ? drawnLatest : null,
       lastImportAt: activityCurrent ? lastImportAt : null,
       activityLoaded: activityCurrent && activityLoaded,
       savedAt: lastLoadedAt || Date.now(),
@@ -450,7 +467,7 @@ export default function ProjectDetailPage() {
     routines,
     routinesFor,
     routinesLoaded,
-    latest,
+    drawnLatest,
     lastImportAt,
     activityFor,
     activityLoaded,
@@ -614,6 +631,7 @@ export default function ProjectDetailPage() {
   }, [markdown, updatedAt]);
 
   const onEditingChange = useCallback((next: boolean) => setEditing(next), []);
+  const onRootsEditingChange = useCallback((next: boolean) => setRootsEditing(next), []);
   const onDirtyChange = useCallback((next: boolean) => setDirty(next), []);
   const onDismissConflict = () => {
     setConflict(null);
@@ -662,7 +680,6 @@ export default function ProjectDetailPage() {
     runGuardedNavigation(() => phonePush(navigate, location, to));
   };
 
-  const roots = currentProject ? projectRoots(currentProject) : [];
   const newChat = currentProject
     ? projectNewChatTarget(currentProject)
     : ({ kind: "no-root" } as const);
@@ -679,6 +696,13 @@ export default function ProjectDetailPage() {
         : "";
   const newChatDisabled = Boolean(newChatReason);
   const newChatHref = newChat.kind === "no-root" ? null : newChat.href;
+  // The work-instructions launcher is the same draft as "New chat", with the
+  // edit request pre-filled. It obeys the same disabled rules, so a cover with
+  // no root or no agent never offers a link that cannot work.
+  const instructionsHref =
+    newChatHref && !newChatDisabled
+      ? `${newChatHref}${newChatHref.includes("?") ? "&" : "?"}q=${encodeURIComponent(tr("projects.instructionsPrompt"))}`
+      : null;
 
   // Esc goes back and ⌘Enter starts a chat from anywhere on the cover, not
   // only while a particular control has focus. Typing fields and open pickers
@@ -703,7 +727,7 @@ export default function ProjectDetailPage() {
         return;
       }
       if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-        if (editing || typing || newChatDisabled || !newChatHref) return;
+        if (editing || rootsEditing || typing || newChatDisabled || !newChatHref) return;
         event.preventDefault();
         runGuardedNavigation(() =>
           phonePush(navigate, location, newChatHref, {
@@ -714,7 +738,7 @@ export default function ProjectDetailPage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [editing, goBack, location, navigate, newChatDisabled, newChatHref]);
+  }, [editing, rootsEditing, goBack, location, navigate, newChatDisabled, newChatHref]);
 
   if (!currentProject) {
     if (error) {
@@ -763,7 +787,7 @@ export default function ProjectDetailPage() {
     );
   }
 
-  const activity = activityFor === currentProject.id ? latest : null;
+  const activity = activityFor === currentProject.id ? drawnLatest : null;
   const importAt = activityFor === currentProject.id ? lastImportAt : null;
   const activityPartialShown = activityFor === currentProject.id && activityPartial;
   const shownRoutines = routinesFor === currentProject.id ? routines : [];
@@ -816,11 +840,6 @@ export default function ProjectDetailPage() {
             <h1 tabIndex={0} className="truncate text-title leading-7 font-semibold text-kin-text">
               {currentProject.name}
             </h1>
-            {roots[0] && (
-              <div className="mt-1 max-w-sheet truncate text-body text-kin-secondary">
-                {roots[0]}
-              </div>
-            )}
           </div>
           <SearchSelect
             label={tr("projects.mode")}
@@ -836,6 +855,17 @@ export default function ProjectDetailPage() {
             className="text-body text-kin-text"
           />
         </div>
+
+        <ProjectRootsBlock
+          project={currentProject}
+          offline={offline}
+          wide={wide}
+          machines={machines}
+          machinesLoading={machinesLoading}
+          device={routineDevice}
+          onProjectChange={setProject}
+          onEditingChange={onRootsEditingChange}
+        />
 
         {offline && lastLoadedAt > 0 && (
           <div
@@ -867,6 +897,25 @@ export default function ProjectDetailPage() {
               onDismissConflict={onDismissConflict}
               onEditingChange={onEditingChange}
               onDirtyChange={onDirtyChange}
+            />
+
+            <ProjectInstructionsBlock
+              titleId={`${cardIds}-instructions`}
+              loaded={onePagerLoaded}
+              loading={onePagerLoading}
+              loadError={onePagerError}
+              markdown={markdown}
+              offline={offline}
+              launcherHref={instructionsHref}
+              launcherLabel={tr("projects.instructionsAsk")}
+              launcherReason={newChatDisabled ? newChatReason : ""}
+              onLauncherClick={(event) => {
+                if (!instructionsHref) return;
+                onGuardedLinkClick(event, navigate, location, instructionsHref, {
+                  state: draftEntryState(returnListUrl(location)),
+                });
+              }}
+              onRetry={() => void loadOnePager()}
             />
 
             <section aria-labelledby={`${cardIds}-recent`} className="rounded-xl bg-kin-panel p-4">
@@ -1169,6 +1218,27 @@ function NewChatControl({
       {tr("projects.newChat")}
     </Link>
   );
+}
+
+/**
+ * The row with the reader's current name for it.
+ *
+ * A task row's name is `taskDisplayTitle(task, localTitles)` — the same
+ * expression the sidebar and the conversation header use — so a rename made
+ * after the feed answered still names the row. An imported session keeps the
+ * name the read gave it; its title does not come from the local map. The same
+ * object comes back when nothing changed, so the cache write below does not
+ * run on every render.
+ */
+function renameCoverRow(
+  row: ProjectChatRow | null,
+  localTitles: Record<string, string>,
+): ProjectChatRow | null {
+  if (!row?.task) return row;
+  // An empty rename result means the task has no name of its own; the row
+  // already carries the cover's untitled fallback, which is better than blank.
+  const title = taskDisplayTitle(row.task, localTitles);
+  return title && title !== row.title ? { ...row, title } : row;
 }
 
 function RecentConversationRow({

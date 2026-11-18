@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 
@@ -567,9 +568,9 @@ func loginCodeDeviceKey(raw string) string {
 // attached to the URL. The code is what the console translates; the message is
 // a fallback, and is the only place a provider's own error text can appear.
 func (s *Server) redirectAuthError(w http.ResponseWriter, r *http.Request, returnTo, code, message string) {
-	target := withAuthNotice(safeReturnTo(returnTo), "")
-	http.Redirect(w, r, target+"auth_error="+url.QueryEscape(message)+
-		"&auth_error_code="+url.QueryEscape(code), http.StatusFound)
+	target := withAuthQuery(returnTo, "auth_error="+url.QueryEscape(message)+
+		"&auth_error_code="+url.QueryEscape(code))
+	http.Redirect(w, r, target, http.StatusFound)
 }
 
 func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, session auth.Session) {
@@ -677,6 +678,17 @@ func authError(err error) map[string]string {
 
 // safeReturnTo accepts only a local absolute path, so a crafted return_to
 // cannot bounce a freshly authenticated browser to another origin.
+//
+// The value is judged by what it decodes to, not only how it was typed: a hop
+// in front of the Hub (a reverse proxy, a log-and-redirect tool) may
+// percent-decode once, so "/%09/host" and "/%2F/host" reach it as "//host".
+// Every escape before the first "?" or "#" is decoded twice — "%2509" reaches
+// the same tab one round later — and a decoded "/", "\" or ASCII control is a
+// refusal, as is a malformed or invalid-UTF-8 escape. The query and the
+// fragment are data, are not decoded, and come back exactly as written.
+//
+// The browser mirrors this set in `safeReturnTo` (`ui/src/lib/returnTo.ts`);
+// the two must accept and refuse exactly the same values.
 func safeReturnTo(raw string) string {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" || !strings.HasPrefix(trimmed, "/") {
@@ -686,19 +698,89 @@ func safeReturnTo(raw string) string {
 	if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "/\\") {
 		return "/"
 	}
+	// TrimSpace only drops the control characters at the ends; one in the
+	// middle is not part of a path anybody typed.
+	if strings.ContainsFunc(trimmed, isControlRune) {
+		return "/"
+	}
+	// Only what precedes the first "?" or "#" decides the origin.
+	origin := trimmed
+	if i := strings.IndexAny(origin, "?#"); i >= 0 {
+		origin = origin[:i]
+	}
+	if !originStaysLocal(origin) {
+		return "/"
+	}
 	return trimmed
 }
 
-func withAuthNotice(returnTo, notice string) string {
+func isControlRune(r rune) bool {
+	return r < 0x20 || r == 0x7f
+}
+
+// originStaysLocal reports whether the origin-deciding span hides a
+// character that would change it — "/", "\" or an ASCII control — inside a
+// percent escape.
+//
+// Escapes are decoded two rounds because a hop in front of the Hub may have
+// decoded once already, stopping as soon as a round changes nothing. Two facts
+// make the checks sufficient: a decoded control character cannot have been
+// literal (that was refused before this call), and decoding never removes a
+// slash, so a count that grows means an escape produced one.
+//
+// A malformed escape is a refusal, not a pass-through; so is invalid UTF-8,
+// because the browser twin's decodeURIComponent throws on both and the two
+// sides must refuse the same values.
+func originStaysLocal(origin string) bool {
+	current := origin
+	for round := 0; round < 2; round++ {
+		decoded, err := url.PathUnescape(current)
+		if err != nil || !utf8.ValidString(decoded) {
+			return false
+		}
+		if decoded == current {
+			return true
+		}
+		if strings.Count(decoded, "/")+strings.Count(decoded, `\`) >
+			strings.Count(current, "/")+strings.Count(current, `\`) {
+			return false
+		}
+		if strings.ContainsFunc(decoded, isControlRune) {
+			return false
+		}
+		current = decoded
+	}
+	return true
+}
+
+// authReturnTarget splits a return path at its first "#" so auth parameters
+// can be appended before the fragment and the fragment re-appended untouched:
+// a deep link's anchor only resolves if the fragment comes back exactly as
+// the caller wrote it.
+func authReturnTarget(returnTo string) (path, fragment string) {
 	target := safeReturnTo(returnTo)
+	if i := strings.IndexByte(target, '#'); i >= 0 {
+		return target[:i], target[i:]
+	}
+	return target, ""
+}
+
+// withAuthQuery appends an already-encoded query (no leading "?" or "&") to a
+// return path, before any fragment, and re-appends the fragment.
+func withAuthQuery(returnTo, query string) string {
+	path, fragment := authReturnTarget(returnTo)
 	separator := "?"
-	if strings.Contains(target, "?") {
+	if strings.Contains(path, "?") {
 		separator = "&"
 	}
+	return path + separator + query + fragment
+}
+
+func withAuthNotice(returnTo, notice string) string {
 	if notice == "" {
-		return target + separator
+		return withAuthQuery(returnTo, "")
 	}
-	return target + separator + "auth_notice=" + url.QueryEscape(notice)
+	return withAuthQuery(returnTo, "auth_notice="+url.QueryEscape(notice))
 }
 
 // decodeJSONBody reads a JSON request body with a size cap and reports whether

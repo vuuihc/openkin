@@ -249,7 +249,7 @@ run_agy() { # hydrogen|hydrogen-high|carbon
       echo; echo "Attached diff (also at $ctx/diff.patch, $sz bytes):"
       echo '```diff'
       if [ "${sz:-0}" -le 250000 ]; then cat "$ctx/diff.patch"
-      else head -c 250000 "$ctx/diff.patch"; echo; echo "... [truncated; Read $ctx/diff.patch for the rest]"
+      else head -c 250000 "$ctx/diff.patch" | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null; echo; echo "... [truncated; Read $ctx/diff.patch for the rest]"
       fi
       echo '```'
     fi

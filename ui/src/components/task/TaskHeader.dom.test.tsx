@@ -40,10 +40,12 @@ function setup(overrides: Partial<TaskHeaderProps> = {}) {
     degraded: false,
     filesOpen: false,
     panelOpen: false,
+    prOpen: false,
     archiving: false,
     deleting: false,
     stopping: false,
     onToggleWorkspace: vi.fn(),
+    onTogglePr: vi.fn(),
     onShare: vi.fn(),
     onToggleArchive: vi.fn(),
     onDelete: vi.fn(),
@@ -128,6 +130,31 @@ describe("TaskHeader", () => {
     expect(props.onShare).toHaveBeenCalledTimes(1);
     expect(props.onToggleArchive).toHaveBeenCalledTimes(1);
     expect(props.onDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it("desktop: keeps the conversation title readable when the row is crowded", () => {
+    const { utils } = setup();
+    const desktop = within(desktopBar(utils));
+
+    // A `flex-1` title with no floor collapsed to its first character once a
+    // right-side panel narrowed the row; the verbs are what give way instead.
+    const titleBlock = desktop.getByText("Fix the header").parentElement as HTMLElement;
+    expect(titleBlock.className.split(/\s+/)).toContain("min-w-cell");
+
+    // Secondary verbs keep their icon, name and tooltip but lose the word
+    // below `xl`, which is what makes room for the title at 1100px.
+    const compacted = [
+      within(desktop.getByRole("button", { name: t("workspace.title") })).getByText(
+        t("workspace.title"),
+      ),
+      within(desktop.getByRole("button", { name: t("task.share") })).getByText(t("task.share")),
+      desktop.getByText(t("newChat.hostAgent", { name: "Kin" })),
+    ];
+    for (const label of compacted) {
+      const classes = label.className.split(/\s+/);
+      expect(classes).toContain("hidden");
+      expect(classes).toContain("xl:inline");
+    }
   });
 
   it("desktop: stop button appears only while the session is live", () => {
@@ -243,6 +270,24 @@ describe("TaskHeader", () => {
     expect(screen.queryByRole("button", { name: t("nav.showList") })).toBeNull();
   });
 
+  it("desktop: the PR toggle reports its pressed state and calls the page", () => {
+    // The button is a peer of the workspace toggle, not a mode of it: the two
+    // panels are separate surfaces and each says whether it is the one open.
+    const { props, utils } = setup({ prOpen: true });
+    const toggle = within(desktopBar(utils)).getByRole("button", { name: t("pr.title") });
+
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(toggle);
+    expect(props.onTogglePr).toHaveBeenCalledTimes(1);
+    expect(props.onToggleWorkspace).not.toHaveBeenCalled();
+    utils.unmount();
+
+    setup({ prOpen: false });
+    expect(screen.getByRole("button", { name: t("pr.title") }).getAttribute("aria-pressed")).toBe(
+      "false",
+    );
+  });
+
   it("keeps the phone bar unchanged", () => {
     // The phone has no list column: its list is the page, and a control that
     // reveals a column it does not have is the phone control TASTE 3 forbids
@@ -260,5 +305,41 @@ describe("TaskHeader", () => {
 
     expect((archive as HTMLButtonElement).disabled).toBe(true);
     expect((del as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("shows the running subagent count beside the status", () => {
+    // The count is a merge into the live-state area the header already owns:
+    // no button, no panel, no per-subagent stop. It sits immediately before
+    // the pill on the desktop cluster and just after it on the phone's
+    // subtitle row, so it reads as part of the same state, never a new line.
+    const plain = setup();
+    const buttonsBefore = screen.queryAllByRole("button").length;
+    plain.utils.unmount();
+
+    const { utils } = setup({ subagentsRunning: 2 });
+    const label = t("task.subagentCount", { count: 2 });
+
+    const desktop = desktopBar(utils);
+    const desktopCount = within(desktop).getByText(label);
+    expect(desktopCount.closest("button")).toBeNull();
+    expect(desktopCount.getAttribute("tabindex")).toBeNull();
+    expect(desktopCount.nextElementSibling).toBe(statusPill(desktop));
+
+    const phone = phoneBarEl(utils);
+    expect(within(phone).getByText(label).previousElementSibling).toBe(statusPill(phone));
+
+    // A count is not a control: the header's set of buttons did not grow.
+    expect(screen.queryAllByRole("button").length).toBe(buttonsBefore);
+  });
+
+  it("hides the count at zero and when the turn is terminal", () => {
+    // Zero is the empty state — absent, not "Subagents: 0" — and a finished
+    // turn has no live state left for a count to describe.
+    const zero = setup({ subagentsRunning: 0 });
+    expect(screen.queryByText(t("task.subagentCount", { count: 0 }))).toBeNull();
+    zero.utils.unmount();
+
+    setup({ subagentsRunning: 3, terminal: true });
+    expect(screen.queryByText(t("task.subagentCount", { count: 3 }))).toBeNull();
   });
 });

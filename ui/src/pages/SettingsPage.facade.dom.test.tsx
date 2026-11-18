@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// KIN-SETTINGS-001 — 改默认设置（J6）：本套件持有通用 / 路由 / 高级的按钮与保存验收行。
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -106,6 +107,7 @@ vi.mock("../api/client", async (importOriginal) => {
 
 vi.mock("../hooks/useMachines", () => ({
   useMachines: () => ({ machines: [], loading: false, failed: false }),
+  refreshMachines: vi.fn(async () => []),
 }));
 
 vi.mock("../hooks/useMinWidth", () => ({

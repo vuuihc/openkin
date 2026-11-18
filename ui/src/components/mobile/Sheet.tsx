@@ -20,6 +20,7 @@ import {
   SWIPE_TOLERANCE_PX,
 } from "../../lib/swipeGesture";
 import { registerSheetExit } from "../../lib/sheetExit";
+import Button from "../ui/Button";
 
 /**
  * The phone's one modal surface.
@@ -510,7 +511,7 @@ export default function Sheet({
         tabIndex={-1}
         aria-hidden="true"
         onClick={() => onCloseRef.current()}
-        className="kin-scrim-enter absolute inset-0 bg-black/55"
+        className="kin-scrim-enter kin-scrim absolute inset-0 bg-black/50"
         style={{
           opacity: scrimOpacity,
           transition: dragging ? "none" : "opacity 180ms ease-out",
@@ -530,7 +531,7 @@ export default function Sheet({
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         className={[
-          "kin-sheet-surface relative z-10 flex max-h-[85dvh] flex-col rounded-t-2xl outline-none",
+          "kin-sheet-surface relative z-10 flex max-h-[85dvh] flex-col rounded-t-2xl border-b-0 md:border-b outline-none",
           gestureDriven ? "" : "kin-sheet-enter",
           "pb-[max(1rem,env(safe-area-inset-bottom))]",
           dialog
@@ -608,12 +609,12 @@ export function SheetSecondaryButton({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
+    <Button
+      variant="secondary"
       onClick={onClick}
-      className="flex min-h-11 w-full items-center justify-center rounded-xl text-strong font-medium text-kin-secondary active:bg-[var(--kin-fill)]"
+      className="w-full min-h-11 sm:min-h-11 font-medium"
     >
       {children}
-    </button>
+    </Button>
   );
 }
