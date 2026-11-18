@@ -34,6 +34,24 @@ function result(id: string): TaskEvent {
   return ev("tool_result", { tool_use_id: id, name: "task", ok: true });
 }
 
+/** The host's run-start: user-facing, so a new turn begins here. */
+function hostStarted(): TaskEvent {
+  return ev("task_started", {
+    session_id: "s1",
+    visibility: { user: true, task: true },
+  });
+}
+
+/** A worker's start mid-turn: stamped task-only by the engine. */
+function workerStarted(agent: string): TaskEvent {
+  return ev("task_started", {
+    session_id: "w1",
+    agent,
+    speaker: agent,
+    visibility: { user: false, task: true },
+  });
+}
+
 describe("runningSubagentCount", () => {
   it("counts a sidechain call until its result lands", () => {
     const callEv = call("toolu_1", true);
@@ -56,8 +74,9 @@ describe("runningSubagentCount", () => {
     expect(runningSubagentCount([call("toolu_host"), result("toolu_host")])).toBe(0);
   });
 
-  it("stays at zero for an agent with no subagent concept", () => {
-    // An ACP adapter sends ordinary tool calls and no `sidechain` anywhere.
+  it("stays at zero for an agent that sends no sidechain mark", () => {
+    // The native adapters (claude-code stream-json, codex, droid, kinagent)
+    // send ordinary tool calls and no `sidechain` anywhere.
     const events = [
       ev("message", { text: "working", role: "assistant" }),
       call("toolu_1"),
@@ -77,5 +96,29 @@ describe("runningSubagentCount", () => {
         result("toolu_1"),
       ]),
     ).toBe(1);
+  });
+
+  it("does not count a call with no id to join on", () => {
+    // A malformed row cannot be closed by any result; counting it would show a
+    // live subagent forever.
+    expect(runningSubagentCount([ev("tool_use", { sidechain: true })])).toBe(0);
+  });
+
+  it("starts a fresh turn at zero when the host run begins", () => {
+    // A stopped or crashed turn never closes its open calls — cancel writes no
+    // `tool_result`, and a follow-up revives the task without resetting the
+    // transcript — so those orphans must not leak into the next turn's count.
+    const events = [call("toolu_stale", true), hostStarted()];
+    expect(runningSubagentCount(events)).toBe(0);
+
+    // The new turn's own calls still count.
+    expect(runningSubagentCount([...events, call("toolu_fresh", true)])).toBe(1);
+  });
+
+  it("does not reset on an orchestrated worker's start", () => {
+    // Workers start mid-turn; clearing here would wipe the host's live count
+    // every time a fan-out launched a peer.
+    const events = [hostStarted(), call("toolu_1", true), workerStarted("codex")];
+    expect(runningSubagentCount(events)).toBe(1);
   });
 });

@@ -335,8 +335,9 @@ describe("TaskHeader", () => {
   it("hides the count at zero and when the turn is terminal", () => {
     // Zero is the empty state — absent, not "Subagents: 0" — and a finished
     // turn has no live state left for a count to describe.
-    setup({ subagentsRunning: 0 });
+    const zero = setup({ subagentsRunning: 0 });
     expect(screen.queryByText(t("task.subagentCount", { count: 0 }))).toBeNull();
+    zero.utils.unmount();
 
     setup({ subagentsRunning: 3, terminal: true });
     expect(screen.queryByText(t("task.subagentCount", { count: 3 }))).toBeNull();
