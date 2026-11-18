@@ -33,11 +33,18 @@
 # GET 9s with a 6s prompt budget and a spec cut at the `sent` shot.
 #
 # J7: the row that reopens the seeded conversation after Back is tapped, not
-# focused and pressed. The manifest renders the decision card over the phone
-# tab root again (the pre-#252 layout); the card intercepts the tap, the row
-# click times out, and the walk prints J7 red. --walk-once J7 builds the UI,
-# walks only J7 at both viewports, and requires a back-list shot before a
-# back-card shot.
+# focused and pressed. The phone tab root draws the approval strip only: the
+# decision card belongs to a conversation (and to Mac), where the transcript
+# explains what is being decided. So the journey counts the Approve controls
+# (批准 / Approve) on the phone list after Back and requires zero; Mac is out
+# of scope on purpose, because there the card on the list is legitimate. The
+# manifest renders the card on the phone root again (`{!raised && (` ->
+# `{true && (`, the pre-#252 layout); the count then reads 1 and --walk-once
+# J7 prints red on that line. The old interception story no longer holds: the
+# extra card floats above the list without blocking the row tap, so the tap
+# alone stays green and only the count can see the decision surface.
+# --walk-once J7 builds the UI, walks only J7 at both viewports, and requires
+# a back-list shot before a back-card shot.
 #
 # J2: the review loop — comment a changed line, save it into the tray, send
 # the tray as one follow-up — must arrive in the transcript WITH its anchor.
