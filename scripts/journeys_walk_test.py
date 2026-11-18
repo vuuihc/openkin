@@ -1736,6 +1736,23 @@ class WalkJ11ContractTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("routines area change", out)
 
+    def test_j11_contract_rejects_a_list_entry_without_the_fold_press(self) -> None:
+        # Conversations another journey created land in the same project
+        # bucket. Past five rows the list draws them behind 展开全部, so the
+        # seeded row is not in the DOM and the click is a hard fail. A spec
+        # that drops the press is green in a standalone walk and red only in
+        # the gate, which is why the contract has to name the missing press.
+        def drop_the_fold_press(steps: list) -> None:
+            hits = [i for i, step in enumerate(steps)
+                    if step[0] == "click"
+                    and ("展开全部" in str(step[1]) or "Show all" in str(step[1]))]
+            for i in reversed(hits):
+                steps.pop(i)
+
+        code, out = self.check(self.copy_with(drop_the_fold_press))
+        self.assertEqual(code, 1, out)
+        self.assertIn("project fold", out)
+
 
 class WalkJ12ContractTest(unittest.TestCase):
     """J12 must walk the phone's three thumb gestures and read each consequence.
@@ -1934,6 +1951,37 @@ class WalkJ12ContractTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("spec red: J12", out)
         self.assertIn("hold", out)
+
+    def test_j12_contract_rejects_a_list_load_without_the_fold_press(self) -> None:
+        # Past five rows the project bucket renders 展开全部 instead of the
+        # seeded row, and every gesture aimed at it fails as "not on the
+        # screen". The press is optional at runtime (a standalone walk seeds
+        # three rows and has no disclosure) but its absence from the spec is
+        # the gate never reaching the row, so the contract names it.
+        def drop_the_fold_press(steps: list) -> None:
+            hits = [i for i, step in enumerate(steps)
+                    if step[0] == "click"
+                    and ("展开全部" in str(step[1]) or "Show all" in str(step[1]))]
+            for i in reversed(hits):
+                steps.pop(i)
+
+        code, out = self.check(self.copy_with(drop_the_fold_press))
+        self.assertEqual(code, 1, out)
+        self.assertIn("project fold", out)
+
+    def test_j12_contract_still_rejects_an_optional_proof(self) -> None:
+        # The fold press is the one optional step the contract allows; an
+        # optional chip wait would let a dead reveal pass with every remaining
+        # assertion still green, which is what the ban exists for.
+        def make_the_chip_wait_optional(steps: list) -> None:
+            step = next(step for step in steps
+                        if step[0] == "wait"
+                        and re.search(r"置顶|Pin|改名|Rename", str(step[1])))
+            step[1] = "?" + str(step[1])
+
+        code, out = self.check(self.copy_with(make_the_chip_wait_optional))
+        self.assertEqual(code, 1, out)
+        self.assertIn("is optional", out)
 
     def test_j12_contract_rejects_an_index_without_the_registration(self) -> None:
         # Registration is the point of this row: deleting the one line must be

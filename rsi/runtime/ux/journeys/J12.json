@@ -9,7 +9,7 @@
     ["wait", "css=[data-session-row]:has-text(\"[seed] Morning planning\")"],
     ["scroll", "css=[data-phone-scroll]", "80"],
     ["shot", "list-searched-scrolled"],
-    ["click", "css=[data-session-row]:has-text(\"[seed] Morning planning\")"],
+    ["click", "css=[data-session-row]:has-text('[seed]')"],
     ["url", "^/tasks/"],
     ["shot", "conversation"],
     ["swipe", 12, 140, 420, 260],
@@ -19,7 +19,10 @@
     ["shot", "list-restored"],
 
     ["goto", "/sessions"],
+    ["fill", "input[type=search]", ""],
+    ["click", "?css=section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='展开全部'], section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='Show all']"],
     ["wait", "css=[data-session-row]:has-text(\"[seed] Morning planning\")"],
+    ["hover", "css=[data-session-row]:has-text(\"[seed] Morning planning\")"],
     ["shot", "row-closed"],
     ["swipe", 330, 100, "css=[data-session-row]:has-text(\"[seed] Morning planning\")", 260],
     ["wait", "css=button[aria-label='置顶'], button[aria-label='Pin']"],
@@ -37,6 +40,8 @@
     ["rows", "css=[data-phone-scroll] section:has([data-session-row]:has-text(\"[seed] Morning planning\")):not(:has(section))", "[seed] Morning planning|[seed] Approve the migration"],
     ["shot", "order-after-drag"],
     ["goto", "/sessions"],
+    ["fill", "input[type=search]", ""],
+    ["click", "?css=section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='展开全部'], section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='Show all']"],
     ["wait", "css=[data-session-row]:has-text(\"[seed] Morning planning\")"],
     ["rows", "css=[data-phone-scroll] section:has([data-session-row]:has-text(\"[seed] Morning planning\")):not(:has(section))", "[seed] Morning planning|[seed] Approve the migration"],
     ["shot", "order-after-reload"]
