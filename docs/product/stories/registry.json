@@ -570,6 +570,32 @@
         "ui/src/pages/ProjectDetailPage.dom.test.tsx"
       ],
       "blockedReason": null
+    },
+    {
+      "id": "KIN-PROJECT-003",
+      "state": "draft",
+      "priority": "P1",
+      "journeys": [
+        "J4"
+      ],
+      "surfaces": [
+        "mac",
+        "phone"
+      ],
+      "title": "项目的工作说明：新对话一开始就知道这里怎么干活",
+      "file": "docs/product/stories/KIN-PROJECT-003.md",
+      "surface": "Mac / 手机 项目封面 · 工作方式块",
+      "ownerPaths": [
+        "internal/store/onepager.go",
+        "internal/api/projects.go",
+        "ui/src/pages/ProjectDetailPage.tsx",
+        "ui/src/components/project/ProjectOnePager.tsx",
+        "ui/src/pages/NewChatPage.tsx",
+        "ui/src/i18n/locales/en.ts",
+        "ui/src/i18n/locales/zh.ts"
+      ],
+      "tests": [],
+      "blockedReason": null
     }
   ]
 }
