@@ -24,9 +24,27 @@ involved, so a mutant can span lines.
 
 import argparse
 import json
+import signal
 import subprocess
 import sys
 from pathlib import Path
+
+
+class _Terminated(BaseException):
+    """Raised from a SIGTERM/SIGHUP handler so the per-mutant `finally` restores."""
+
+
+def _terminate(signum, _frame):
+    raise _Terminated(signum)
+
+
+def install_termination_handlers() -> None:
+    # dispatch.sh reaps a timed-out worker's process group with SIGTERM. Terminating
+    # by default skips `finally`, which is what writes the original bytes back, and
+    # lane.sh then commits every modified tracked file. One raise keeps the restore
+    # on the same path as a normal exit.
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, _terminate)
 
 
 def run_test(command: str, timeout: float) -> tuple[int | None, str]:
@@ -60,6 +78,7 @@ def main() -> int:
     parser.add_argument("--verbose", action="store_true",
                         help="print the failing output for each red mutant")
     args = parser.parse_args()
+    install_termination_handlers()
 
     entries = json.loads(Path(args.manifest).read_text())
     if not isinstance(entries, list) or not entries:
@@ -136,4 +155,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except _Terminated as stop:
+        print(f"\nSTOPPED  signal {stop.args[0]}: the tree is restored")
+        sys.exit(128 + int(stop.args[0]))

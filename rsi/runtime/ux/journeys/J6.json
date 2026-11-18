@@ -1,5 +1,5 @@
 {
-  "title": "Settings and agent operations",
+  "title": "Settings and agent operations: change the default agent, then see the next new chat host it",
   "viewports": [
     "phone",
     "mac"
@@ -28,6 +28,116 @@
     [
       "shot",
       "legacy-agents-redirect"
+    ],
+    [
+      "goto",
+      "/settings?tab=providers"
+    ],
+    [
+      "wait",
+      "css=[aria-describedby='default-agent-desc'][aria-haspopup]:visible"
+    ],
+    [
+      "wait",
+      "css=#default-agent-desc:has-text('新建对话默认用它，除非你在输入框里另选。'), #default-agent-desc:has-text('A new chat starts with this agent until you pick another one in the composer.')"
+    ],
+    [
+      "shot",
+      "default-agent-row"
+    ],
+    [
+      "click",
+      "css=[aria-describedby='default-agent-desc'][aria-haspopup]:visible"
+    ],
+    [
+      "wait",
+      "css=[role='listbox']:visible, [role='dialog']:visible:has([data-search-option])"
+    ],
+    [
+      "count",
+      "css=[data-search-option]:visible:has-text('(claude-code)')",
+      "1"
+    ],
+    [
+      "count",
+      "css=[data-search-option]:visible:has-text('(codex)')",
+      "1"
+    ],
+    [
+      "click",
+      "css=[data-search-option]:visible:has-text('(codex)')"
+    ],
+    [
+      "wait",
+      "css=[aria-describedby='default-agent-desc'][aria-label*='(codex)']"
+    ],
+    [
+      "click",
+      "css=button:has-text('保存默认 agent'), button:has-text('Save default agent')"
+    ],
+    [
+      "wait",
+      "css=[role='status']:has-text('已保存'), [role='status']:has-text('Saved')"
+    ],
+    [
+      "goto",
+      "/settings?tab=providers"
+    ],
+    [
+      "wait",
+      "css=[aria-describedby='default-agent-desc'][aria-label*='(codex)']"
+    ],
+    [
+      "goto",
+      "/new"
+    ],
+    [
+      "wait",
+      "css=button[aria-haspopup='dialog'][aria-label^='运行设置'][aria-label*='Codex'], button[aria-haspopup='dialog'][aria-label^='Run settings'][aria-label*='Codex']"
+    ],
+    [
+      "shot",
+      "new-chat-host"
+    ],
+    [
+      "goto",
+      "/settings?tab=providers"
+    ],
+    [
+      "wait",
+      "css=[aria-describedby='default-agent-desc'][aria-haspopup]:visible"
+    ],
+    [
+      "click",
+      "css=[aria-describedby='default-agent-desc'][aria-haspopup]:visible"
+    ],
+    [
+      "wait",
+      "css=[data-search-option]:visible:has-text('(claude-code)')"
+    ],
+    [
+      "click",
+      "css=[data-search-option]:visible:has-text('(claude-code)')"
+    ],
+    [
+      "wait",
+      "css=[aria-describedby='default-agent-desc'][aria-label*='(claude-code)']"
+    ],
+    [
+      "click",
+      "css=button:has-text('保存默认 agent'), button:has-text('Save default agent')"
+    ],
+    [
+      "wait",
+      "css=[role='status']:has-text('已保存'), [role='status']:has-text('Saved')"
+    ],
+    [
+      "goto",
+      "/new"
+    ],
+    [
+      "wait",
+      "css=button[aria-haspopup='dialog'][aria-label^='运行设置'][aria-label*='Claude Code'], button[aria-haspopup='dialog'][aria-label^='Run settings'][aria-label*='Claude Code']"
     ]
   ]
 }
