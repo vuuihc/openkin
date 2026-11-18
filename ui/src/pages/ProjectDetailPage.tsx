@@ -34,6 +34,7 @@ import Button from "../components/ui/Button";
 import SearchSelect from "../components/ui/SearchSelect";
 import Heatmap from "../components/project/Heatmap";
 import ProjectOnePager from "../components/project/ProjectOnePager";
+import ProjectRootsBlock from "../components/project/ProjectRootsBlock";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import { useMinWidth } from "../hooks/useMinWidth";
 import { useSlowHint } from "../hooks/useSlowHint";
@@ -129,6 +130,8 @@ export default function ProjectDetailPage() {
   const [editing, setEditing] = useState(false);
   /** The One-Pager section owns the draft; the page owns the leave guard. */
   const [dirty, setDirty] = useState(false);
+  /** The folder editor is open; its ⌘Enter belongs to its own Save. */
+  const [rootsEditing, setRootsEditing] = useState(false);
   /** The version the editor started from; a reconnect must not move it. */
   const [editBase, setEditBase] = useState({ markdown: "", updatedAt: 0 });
   const [saving, setSaving] = useState(false);
@@ -205,6 +208,7 @@ export default function ProjectDetailPage() {
     activityRequest.current += 1;
     setError(null);
     setEditing(false);
+    setRootsEditing(false);
     setConflict(null);
     setSaved(false);
     setEditBase({ markdown: "", updatedAt: 0 });
@@ -626,6 +630,7 @@ export default function ProjectDetailPage() {
   }, [markdown, updatedAt]);
 
   const onEditingChange = useCallback((next: boolean) => setEditing(next), []);
+  const onRootsEditingChange = useCallback((next: boolean) => setRootsEditing(next), []);
   const onDirtyChange = useCallback((next: boolean) => setDirty(next), []);
   const onDismissConflict = () => {
     setConflict(null);
@@ -674,7 +679,6 @@ export default function ProjectDetailPage() {
     runGuardedNavigation(() => phonePush(navigate, location, to));
   };
 
-  const roots = currentProject ? projectRoots(currentProject) : [];
   const newChat = currentProject
     ? projectNewChatTarget(currentProject)
     : ({ kind: "no-root" } as const);
@@ -715,7 +719,7 @@ export default function ProjectDetailPage() {
         return;
       }
       if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-        if (editing || typing || newChatDisabled || !newChatHref) return;
+        if (editing || rootsEditing || typing || newChatDisabled || !newChatHref) return;
         event.preventDefault();
         runGuardedNavigation(() =>
           phonePush(navigate, location, newChatHref, {
@@ -726,7 +730,7 @@ export default function ProjectDetailPage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [editing, goBack, location, navigate, newChatDisabled, newChatHref]);
+  }, [editing, rootsEditing, goBack, location, navigate, newChatDisabled, newChatHref]);
 
   if (!currentProject) {
     if (error) {
@@ -828,11 +832,6 @@ export default function ProjectDetailPage() {
             <h1 tabIndex={0} className="truncate text-title leading-7 font-semibold text-kin-text">
               {currentProject.name}
             </h1>
-            {roots[0] && (
-              <div className="mt-1 max-w-sheet truncate text-body text-kin-secondary">
-                {roots[0]}
-              </div>
-            )}
           </div>
           <SearchSelect
             label={tr("projects.mode")}
@@ -848,6 +847,17 @@ export default function ProjectDetailPage() {
             className="text-body text-kin-text"
           />
         </div>
+
+        <ProjectRootsBlock
+          project={currentProject}
+          offline={offline}
+          wide={wide}
+          machines={machines}
+          machinesLoading={machinesLoading}
+          device={routineDevice}
+          onProjectChange={setProject}
+          onEditingChange={onRootsEditingChange}
+        />
 
         {offline && lastLoadedAt > 0 && (
           <div

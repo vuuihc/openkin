@@ -544,7 +544,7 @@
     },
     {
       "id": "KIN-PROJECT-002",
-      "state": "draft",
+      "state": "approved",
       "priority": "P0",
       "journeys": [
         "J4"
@@ -560,9 +560,15 @@
         "ui/src/pages/ProjectDetailPage.tsx",
         "ui/src/pages/ProjectDetailPage.dom.test.tsx",
         "internal/api/projects.go",
-        "internal/store/projects.go"
+        "internal/store/projects.go",
+        "ui/src/components/project/ProjectRootsBlock.tsx",
+        "ui/src/lib/projectRoots.ts"
       ],
-      "tests": [],
+      "tests": [
+        "ui/src/lib/projectRoots.test.ts",
+        "ui/src/lib/projectChats.test.ts",
+        "ui/src/pages/ProjectDetailPage.dom.test.tsx"
+      ],
       "blockedReason": null
     }
   ]

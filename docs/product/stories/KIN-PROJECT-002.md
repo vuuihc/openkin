@@ -1,6 +1,6 @@
 # KIN-PROJECT-002 · 项目的工作目录：看清这几个目录为什么在一起，并能增删
 
-状态：draft
+状态：approved
 优先级：P0
 旅程：J4
 归属面：`IA.md`「项目」行（对话列表里的项目标题 → `/projects/:id` 封面上的工作目录块）
@@ -133,9 +133,16 @@
 
 ## 证据
 
-- 之前：封面只显示 `roots[0]`，没有默认标记与编辑入口（`ProjectDetailPage.tsx:831`）；`PATCH /projects/:id` 已接受 `roots`（`internal/api/projects.go:297-340`）。
-- 之后：交付时补（测试、截图、`./scripts/check.sh` 结果）。
+- 之前：封面只显示 `roots[0]`，没有默认标记与编辑入口（`ProjectDetailPage.tsx:831`）；`PATCH /projects/:id` 已接受 `roots`（`internal/api/projects.go:297-340`）。截图：`rsi/state/shots/project-roots-face/before-1100-cover.png`、`before-390-cover.png`。
+- 之后：
+  - 单元 `ui/src/lib/projectRoots.test.ts`：归一化去空去重（首次出现保留位置）、设为默认移到首位且相对顺序不变、移除唯一 root 得空列表、追加重复目录就地报告。
+  - 组件 `ui/src/pages/ProjectDetailPage.dom.test.tsx`：全部 root 按保存顺序显示且只有第一个带「默认」；保存发送完整有序列表；失败保留草稿与重试且焦点回「保存」；移除先读后果（不删对话）再确认；重开编辑是服务器列表而非已取消草稿；离线显示列表并禁用编辑并说明；追加目录与重复就地提示；移除最后一个目录说明新对话无处可落。
+  - 回归 `ui/src/lib/projectChats.test.ts`：保存后的第一个 root 决定新对话落点。
+  - 视觉：`rsi/state/shots/project-roots-face/` 的 `after-1100-cover.png`、`after-1100-editor.png`、`after-390-cover.png`、`after-390-editor.png`、`after-390-remove-confirm.png`；390 无横滚，点按区 ≥44px。
+  - `./scripts/check.sh`：18 项全绿（含 stories、ui-inventory、ui-lint-guard）。
+- 未闭合的一项（真浏览器）：封面读全部目录、添加、设为默认、移除并读确认、保存都可用，但保存后 daemon 按 `ORDER BY path` 读回（`internal/store/projects.go:157`），刚保存的顺序被重排，「默认」无法跨读取保留（`after-390-save-order-reset.png` 即此现象）。要让「保存顺序 = 默认」成立，daemon 需按插入顺序读（如 `ORDER BY rowid`）或存储 position；该文件不在本 lane 的声明路径内，未改。因此故事停在 `approved`，未置 `covered`。
 
 ## 变更记录
 
 - 2026-11-18 创建（P5 第一条故事；只写合同，不写代码；状态 draft，等人签字）
+- 2026-11-18 UI 交付（工作目录块、编辑层、增删/默认/保存、双语文案、测试与截图）；发现 daemon 读回顺序为 `ORDER BY path`，顺序默认跨读取不保，故事留在 approved
