@@ -6,11 +6,13 @@ seed.log and spec files, no browser, no daemon, no network. The walker's
 `--resolve-j1` / `--resolve-j7` modes run the same read/apply functions the
 real walk uses, so a green case here is the resolution that walk would take.
 `--check-spec` runs the J2 review-loop, J3 send, J8 phone-tap, J9 Mac switch,
-J11 phone switch, J12 thumb gesture and J13 phone file-link contracts through
-the same parser, so a spec that regressed to photographing the diff, to merely
-asserting Start is usable, to pressing a desktop chord on the phone, to leaving
-the shell, the scroll and the draft unread, or to pressing a file link without
-reading where Back lands, fails before a browser starts.
+J11 phone switch, J12 thumb gesture, J13 phone file-link and J14 cold-start /
+palette / one-list contracts through the same parser, so a spec that regressed
+to photographing the diff, to merely asserting Start is usable, to pressing a
+desktop chord on the phone, to leaving the shell, the scroll, the draft or the
+composer element unread, to pressing a file link without reading where Back
+lands, or to losing a cold start's last conversation, the palette's zero rows
+or a level of the phone's one list, fails before a browser starts.
 """
 
 from __future__ import annotations
@@ -1461,6 +1463,37 @@ class WalkJ9ContractTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("scroll-kept", out)
 
+    def test_j9_pins_the_composer_element(self) -> None:
+        """TASTE 15: the composer is part of the shell that must not repaint.
+
+        #342 tagged the `form` itself — `composer` before the switch,
+        `composer-failed` on the other conversation, `composer` again after the
+        return — because a per-route re-key leaves the shell node identical
+        while the input is a new element. No contract read those tags, so any
+        of them could be deleted with every check green. Deleting each tag must
+        redden the spec.
+        """
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        steps = load_spec()["journeys"]["J9"]["steps"]
+        switch = self.at(steps, lambda step: self.is_click_title(step, "Failed migration"))
+        return_i = self.at(steps, lambda step: self.is_click_title(step, "Morning planning"), switch + 1)
+        tags = [(i, step[2]) for i, step in enumerate(steps) if step[0] == "node"]
+        composers = [(i, name) for i, name in tags if name in ("composer", "composer-failed")]
+        self.assertEqual([name for _, name in composers],
+                         ["composer", "composer-failed", "composer"], composers)
+        before, failed, back = (i for i, _ in composers)
+        self.assertLess(before, switch)
+        self.assertLess(switch, failed)
+        self.assertLess(failed, return_i)
+        self.assertLess(return_i, back)
+        for index, name in composers:
+            with self.subTest(tag=name, step=index):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("spec red: J9", out)
+                self.assertIn("composer", out)
+
 
 class WalkJ10ContractTest(unittest.TestCase):
     """J10 must prove the phone's four tabs keep their place and a card stays answered.
@@ -1735,6 +1768,41 @@ class WalkJ11ContractTest(unittest.TestCase):
         code, out = self.check(self.copy_with(drop_the_routines_node))
         self.assertEqual(code, 1, out)
         self.assertIn("routines area change", out)
+
+    def test_j11_pins_the_composer_element(self) -> None:
+        """TASTE 15 at 390: the same `form` survives every switch.
+
+        The four tags #342 added — `composer` before the first Back,
+        `composer-failed` on the second conversation, `composer` after the
+        return and `composer` after the footer round — assert element identity
+        on the phone, where the pane is also unmounted off screen. No contract
+        read them; deleting any one must redden the spec.
+        """
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        steps = load_spec()["journeys"]["J11"]["steps"]
+        leave = self.at(steps, lambda step: step[0] == "back")
+        switch = self.at(steps, lambda step: self.is_click_title(step, "Failed migration"))
+        back = self.at(steps, lambda step: step[0] == "back", switch + 1)
+        return_i = self.at(steps, lambda step: self.is_click_title(step, "Morning planning"), back + 1)
+        last_return = self.at(steps, lambda step: self.is_click_title(step, "Morning planning"), return_i + 1)
+        composers = [(i, step[2]) for i, step in enumerate(steps)
+                     if step[0] == "node" and step[2] in ("composer", "composer-failed")]
+        self.assertEqual([name for _, name in composers],
+                         ["composer", "composer-failed", "composer", "composer"], composers)
+        first, failed, returned, final = (i for i, _ in composers)
+        self.assertLess(first, leave)
+        self.assertLess(switch, failed)
+        self.assertLess(failed, back)
+        self.assertLess(return_i, returned)
+        self.assertLess(returned, last_return)
+        self.assertLess(last_return, final)
+        for index, name in composers:
+            with self.subTest(tag=name, step=index):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("spec red: J11", out)
+                self.assertIn("composer", out)
 
     def test_j11_contract_rejects_a_list_entry_without_the_fold_press(self) -> None:
         # Conversations another journey created land in the same project
@@ -2432,6 +2500,204 @@ class WalkJ13ContractTest(unittest.TestCase):
         self.assertIn("TaskDetailPage.tsx", out)
         self.assertIn("locales/zh.ts", out)
         self.assertIn("locales/en.ts", out)
+
+
+class WalkJ14ContractTest(unittest.TestCase):
+    """KIN-CONTINUE-001's cold start, palette and one list must stay walked.
+
+    #342 added J14 (31 steps) and the composer element tags in J9/J11, seven
+    files and not one test: ``--check-spec`` had no J14 case at all, so any of
+    those steps could be deleted with every check green and only a browser walk
+    would notice. Same shape as WalkJ13ContractTest — the walker's own
+    ``--check-spec`` is the reader, so a rule cannot drift between the spec and
+    the gate. The Mac cold start must reopen the *last* conversation by its own
+    prompt, ⌘K must hold places but no conversation rows, and the phone home
+    must draw the device, project and conversation levels of one list.
+    """
+
+    # The seeded conversation's own prompt. The generic fake reply is on every
+    # seeded conversation, so it cannot prove *which* one the Mac reopened.
+    PROMPT = "[seed] change: summarise the three things worth doing today."
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j14-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        spec = load_spec()
+        mutate(spec["journeys"]["J14"]["steps"])
+        path = os.path.join(self.tmp, "resolved.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh, ensure_ascii=False)
+        return path
+
+    def copy_spec_with(self, mutate) -> str:
+        spec = load_spec()
+        mutate(spec)
+        path = os.path.join(self.tmp, "paths.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh, ensure_ascii=False)
+        return path
+
+    def index_without_j14(self) -> str:
+        """A copy of the shipped index with only the J14 entry deleted."""
+        shutil.copytree(JOURNEYS_DIR, os.path.join(self.tmp, "journeys"))
+        with open(SPEC, encoding="utf-8") as fh:
+            index = json.load(fh)
+        self.assertIn("J14", index["journeys"],
+                      "the shipped index does not register J14")
+        del index["journeys"]["J14"]
+        path = os.path.join(self.tmp, "journeys.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(index, fh, ensure_ascii=False)
+        return path
+
+    @staticmethod
+    def at(steps: list, pred, start: int = 0) -> int:
+        return next(i for i, step in enumerate(steps) if i >= start and pred(step))
+
+    def test_shipped_j14_spec_is_ok(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J14", out)
+        journey = load_spec()["journeys"]["J14"]
+        self.assertEqual(journey["viewports"], ["mac", "phone"],
+                         "J14 is two cold starts: the Mac and the phone")
+
+    def test_j14_without_mac_last_conversation_is_red(self) -> None:
+        # A Mac cold start that only reaches *a* conversation is not the story:
+        # `goto /` must land on the conversation the reader left, named by its
+        # own prompt. Deleting the reload, the address proof or the prompt
+        # wait must each redden the spec.
+        steps = load_spec()["journeys"]["J14"]["steps"]
+        mac = self.at(steps, lambda step: step[0] == "vp" and step[1] == "mac")
+        goto_i = self.at(steps, lambda step: step[0] == "goto" and step[1] == "/", mac + 1)
+        url_i = self.at(steps, lambda step: step[0] == "url"
+                        and str(step[1]).startswith("^/tasks/"), goto_i + 1)
+        prompt_i = self.at(steps, lambda step: step[0] == "wait"
+                           and self.PROMPT in str(step[1]), goto_i + 1)
+        for label, index in (("the mac reload onto /", goto_i),
+                             ("the conversation address after it", url_i),
+                             ("the last conversation's own prompt", prompt_i)):
+            with self.subTest(removed=label):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("spec red: J14", out)
+                self.assertIn("cold start", out)
+
+    def test_j14_without_palette_zero_rows_is_red(self) -> None:
+        # The palette's claim is a zero: places and recipes are there, the
+        # conversation list is not. An empty palette would satisfy a zero, so
+        # the contract also requires the places row; this test removes each of
+        # the two zero counts and expects the gate to name it.
+        steps = load_spec()["journeys"]["J14"]["steps"]
+        zeroes = [i for i, step in enumerate(steps)
+                  if step[0] == "count" and str(step[2]) == "0"
+                  and "[role=dialog]" in str(step[1])]
+        self.assertEqual(len(zeroes), 2, zeroes)
+        for index in zeroes:
+            selector = str(steps[index][1])
+            with self.subTest(step=index, selector=selector):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("spec red: J14", out)
+                self.assertIn("palette", out)
+                if "[data-session-row]" in selector:
+                    self.assertIn("conversation rows", out)
+                else:
+                    self.assertIn("seeded conversation", out)
+
+    def test_j14_without_phone_three_levels_is_red(self) -> None:
+        # One list at three levels: the device heading, the project button and
+        # the conversation row, with the seeded row drawn exactly once. Each
+        # level is its own proof; deleting any of them must be red.
+        steps = load_spec()["journeys"]["J14"]["steps"]
+        phone = self.at(steps, lambda step: step[0] == "vp" and step[1] == "phone")
+        goto_i = self.at(steps, lambda step: step[0] == "goto" and step[1] == "/", phone + 1)
+        targets = {
+            "device heading": self.at(
+                steps, lambda step: step[0] == "wait"
+                and ("此设备" in str(step[1]) or "This machine" in str(step[1])), goto_i + 1),
+            "project button": self.at(
+                steps, lambda step: step[0] == "wait"
+                and "[seed] Project Alpha" in str(step[1]), goto_i + 1),
+            "session row": self.at(
+                steps, lambda step: step[0] == "wait"
+                and "data-session-row" in str(step[1])
+                and "Morning planning" in str(step[1]), goto_i + 1),
+            "one-row count": self.at(
+                steps, lambda step: step[0] == "count"
+                and "data-session-row" in str(step[1]) and str(step[2]) == "1", goto_i + 1),
+        }
+        for label, index in targets.items():
+            with self.subTest(removed=label):
+                code, out = self.check(self.copy_with(lambda steps: steps.pop(index)))
+                self.assertEqual(code, 1, out)
+                self.assertIn("spec red: J14", out)
+                self.assertIn("one list", out)
+
+    def test_j14_optional_proof_is_red(self) -> None:
+        # A `?`-prefixed step that misses is logged as `skipped`: one optional
+        # address, count or wait would leave the walk green while the cold
+        # start, the palette's zero or a list level is dead. Only the project
+        # fold may be optional (it exists only when the bucket is taller than
+        # five rows).
+        steps = load_spec()["journeys"]["J14"]["steps"]
+        for op in ("wait", "url", "count"):
+            index = self.at(steps, lambda step: step[0] == op)
+
+            def make_optional(steps: list) -> None:
+                steps[index][1] = "?" + str(steps[index][1]).lstrip("?")
+
+            with self.subTest(op=op, step=index):
+                code, out = self.check(self.copy_with(make_optional))
+                self.assertEqual(code, 1, out)
+                self.assertIn("spec red: J14", out)
+                self.assertIn("optional", out)
+
+    def test_index_without_j14_is_red(self) -> None:
+        # Registration is the point: deleting the one index entry must be
+        # loud, or the cold-start walk can be retired by an edit no gate
+        # notices.
+        code, out = self.check(self.index_without_j14())
+        self.assertEqual(code, 1, out)
+        self.assertIn("spec red: J14", out)
+        self.assertIn("J14 is not in the spec", out)
+
+    def test_paths_table_selects_j14_for_its_surfaces(self) -> None:
+        # `--files` selects the journeys from the paths table, first match
+        # wins. A palette, list or conversation diff that drops J14 would let
+        # the cold start rot without any gate ever walking it.
+        spec = load_spec()
+        needles = (
+            "ui/src/components/CommandPalette",
+            "ui/src/pages/Sessions|ui/src/components/sessions/|ui/src/components/mobile/",
+            "ui/src/pages/TaskDetail|ui/src/pages/TaskSession|ui/src/components/chat/"
+            "|ui/src/components/cards/|ui/src/components/workspace/",
+        )
+        for needle in needles:
+            row = next((row for row in spec["paths"] if row[0] == needle), None)
+            self.assertIsNotNone(row, needle)
+            self.assertIn("J14", row[1], needle)
+        for needle in needles[:2]:
+            def drop_j14(spec: dict, needle: str = needle) -> None:
+                row = next(row for row in spec["paths"] if row[0] == needle)
+                row[1] = [journey for journey in row[1] if journey != "J14"]
+
+            with self.subTest(row=needle):
+                code, out = self.check(self.copy_spec_with(drop_j14))
+                self.assertEqual(code, 1, out)
+                self.assertIn("paths table", out)
+                self.assertIn("J14", out)
 
 
 class WalkJ5ContractTest(unittest.TestCase):

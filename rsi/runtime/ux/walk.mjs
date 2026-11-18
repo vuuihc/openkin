@@ -625,6 +625,25 @@ function checkJ9Contract(spec) {
     }
   });
 
+  // The composer is part of the shell claim (TASTE 15). #342 tags the `form`
+  // itself by name: `composer` before the switch, `composer-failed` on the
+  // other conversation, `composer` again after the return. A per-route re-key
+  // leaves the shell node identical while the input is a new element, so
+  // without these tags the walk photographs the right pane and proves nothing.
+  const composerTag = (name, from, to = steps.length) => (nodes.find((i) => i > from && i < to && sel(steps[i], 2) === name && /^css=/.test(sel(steps[i], 1))) ?? -1);
+  const composerBefore = switchAt < 0 ? -1 : (nodes.find((i) => i < switchAt && sel(steps[i], 2) === 'composer' && /^css=/.test(sel(steps[i], 1))) ?? -1);
+  const composerFailed = switchAt < 0 || backAt < 0 ? -1 : composerTag('composer-failed', switchAt, backAt);
+  const composerBack = backAt < 0 ? -1 : composerTag('composer', backAt);
+  if (switchAt >= 0 && composerBefore < 0) {
+    errs.push('J9 never tags the composer element before the switch (node css=… composer)');
+  }
+  if (switchAt >= 0 && backAt >= 0 && composerFailed < 0) {
+    errs.push("J9 never tags the second conversation's composer (node css=… composer-failed)");
+  }
+  if (backAt >= 0 && composerBack < 0) {
+    errs.push('J9 never tags the same composer element again after the return (node css=… composer); a per-route re-key would go unseen');
+  }
+
   // The transcript's place. The offset must be numeric and away from the top:
   // a remount that starts at 0, or the product's own jump-to-bottom on a fresh
   // pane, must not be able to satisfy the return by accident.
@@ -814,6 +833,29 @@ function checkJ11Contract(spec) {
     if (sessionsAt >= 0 && sameShell(sessionsAt) === undefined) {
       errs.push('J11 never asserts the same shell node after the sessions area change');
     }
+  }
+
+  // The composer is part of the shell claim at 390 too (TASTE 15). #342 tags
+  // the `form` by name before the first Back, on the other conversation, after
+  // the return and after the footer round; the last one is the stronger
+  // claim, because the pane was off screen. Deleting any tag must be red.
+  const composerTag = (name, from, to = steps.length) => (nodes.find((i) => i > from && i < to && sel(steps[i], 2) === name && /^css=/.test(sel(steps[i], 1))) ?? -1);
+  const lastReturnAt = returnAt < 0 ? -1 : idx((st) => st[0] === 'click' && /Morning planning/.test(sel(st, 1)), returnAt + 1);
+  const composerBefore = leaveAt < 0 ? -1 : (nodes.find((i) => i < leaveAt && sel(steps[i], 2) === 'composer' && /^css=/.test(sel(steps[i], 1))) ?? -1);
+  const composerFailed = switchAt < 0 || backAt < 0 ? -1 : composerTag('composer-failed', switchAt, backAt);
+  const composerBack = returnAt < 0 ? -1 : composerTag('composer', returnAt, lastReturnAt < 0 ? steps.length : lastReturnAt);
+  const composerFinal = lastReturnAt < 0 ? -1 : composerTag('composer', lastReturnAt);
+  if (leaveAt >= 0 && composerBefore < 0) {
+    errs.push('J11 never tags the composer element before the first Back (node css=… composer)');
+  }
+  if (switchAt >= 0 && backAt >= 0 && composerFailed < 0) {
+    errs.push("J11 never tags the second conversation's composer (node css=… composer-failed)");
+  }
+  if (returnAt >= 0 && composerBack < 0) {
+    errs.push('J11 never tags the same composer element again after the return (node css=… composer); a per-route re-key would go unseen');
+  }
+  if (lastReturnAt >= 0 && composerFinal < 0) {
+    errs.push('J11 never tags the same composer element again after the footer round (node css=… composer); the off-screen restore is the stronger claim');
   }
 
   // The transcript's place. The offset must be numeric and away from the top:
@@ -1475,6 +1517,10 @@ function checkJ12Contract(spec) {
 const J13_DEEP_LINK = /panel=files&file=/;
 const J13_PREVIEW = /预览|Preview/;
 const J13_SOURCE = /源码|Code/;
+// The seeded conversation's own prompt (journeys_seed.py). Every seeded
+// conversation carries the same fake reply, so only the prompt says which one
+// the Mac's cold start reopened.
+const J14_MAC_PROMPT = '[seed] change: summarise the three things worth doing today.';
 function checkJ13Contract(spec) {
   const journey = (((spec || {}).journeys || {}).J13) || {};
   const steps = journey.steps;
@@ -1669,6 +1715,158 @@ function checkJ13Contract(spec) {
   }
   return errs;
 }
+// J14's contract: KIN-CONTINUE-001's three sentences at the walk's level. A
+// Mac cold start at `/` reopens the conversation the reader left, proved by
+// that conversation's own prompt (every seeded conversation carries the same
+// fake reply, so the reply cannot say which one came back); ⌘K's dialog holds
+// places and recipes but no conversation rows; and the phone home is the one
+// list with the device, project and conversation levels on screen at 390. The
+// walk is two cold starts, so its viewports are exactly `mac` and `phone`;
+// unlike J13 it is not phone-only, so the phone leg's ban is only the Mac's
+// own input (chords and hover).
+//   node walk.mjs --check-spec [--spec path/to/journeys.json]
+function checkJ14Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J14) || {};
+  const steps = journey.steps;
+  // Registration is the point: deleting the one index line must be loud, or
+  // the cold-start walk can be retired by an edit no gate notices.
+  if (!journey.title && !Array.isArray(steps)) return ['J14 is not in the spec'];
+  if (!Array.isArray(steps) || steps.length === 0) return ['J14 has no steps'];
+  const errs = [];
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
+  const after = (prev, pred) => (prev < 0 ? -1 : idx(pred, prev + 1));
+  const sel = (st, i) => String((st || [])[i] ?? '');
+
+  // Only the project fold may be optional: past five rows the bucket draws
+  // 展开全部 and a standalone walk's bucket may not. Every address, count,
+  // wait, node, key and gone is a proof, and a `?`-prefixed proof that misses
+  // is logged as `skipped` — green while the cold start, a palette zero or a
+  // list level is dead.
+  steps.forEach((st) => {
+    if (!Array.isArray(st)) return;
+    const optional = st.slice(1).some((v) => typeof v === 'string' && v.startsWith('?'));
+    if (!optional) return;
+    const isFold = st[0] === 'click' && /展开全部|Show all/.test(sel(st, 1));
+    if (!isFold) {
+      errs.push('J14 step ' + JSON.stringify(st) + ' is optional; only the project fold may be optional, every proof must be mandatory');
+    }
+  });
+
+  // Two cold starts: a Mac reload and a phone reload, each landing on a list
+  // the reader already had. One viewport would walk half the story.
+  const viewports = journey.viewports;
+  if (!Array.isArray(viewports) || viewports.length !== 2 || viewports[0] !== 'mac' || viewports[1] !== 'phone') {
+    errs.push('J14 is two cold starts: its viewports must be exactly ["mac","phone"]');
+  }
+  const macAt = idx((st) => st[0] === 'vp' && sel(st, 1) === 'mac');
+  const phoneAt = idx((st) => st[0] === 'vp' && sel(st, 1) === 'phone');
+
+  // Leg 1 — the Mac cold start returns to the last conversation, not merely a
+  // conversation. A conversation is open first (`url ^/tasks/` before the
+  // reload), then `goto /` under `vp mac`, then the address and that
+  // conversation's own prompt. The generic fake reply is on every seeded
+  // conversation and cannot stand in for the wait.
+  const openedAt = macAt < 0 ? -1 : steps.findIndex((st, i) => i < macAt && Array.isArray(st) && st[0] === 'url' && /^\^\/tasks\//.test(sel(st, 1)));
+  if (macAt < 0) {
+    errs.push('J14 never scopes the Mac leg (vp mac)');
+  } else {
+    if (openedAt < 0) errs.push('J14 never opens a conversation before the Mac cold start (url ^/tasks/)');
+    const gotoAt = idx((st) => st[0] === 'goto' && sel(st, 1) === '/', macAt + 1);
+    if (gotoAt < 0 || (phoneAt >= 0 && gotoAt > phoneAt)) {
+      errs.push('J14 never reloads the Mac onto / for its cold start after the conversation is open (goto / under vp mac)');
+    } else {
+      const addressAt = after(gotoAt, (st) => st[0] === 'url' && /^\^\/tasks\//.test(sel(st, 1)));
+      const promptAt = after(gotoAt, (st) => st[0] === 'wait' && /role=.?region/.test(sel(st, 1)) && sel(st, 1).includes(J14_MAC_PROMPT));
+      if (addressAt < 0) errs.push('J14 never proves the Mac cold start landed on a conversation (url ^/tasks/)');
+      if (promptAt < 0) errs.push('J14 never proves the Mac cold start reopened the last conversation (wait … ' + J14_MAC_PROMPT + ')');
+    }
+  }
+
+  // Leg 2 — ⌘K holds places and recipes, not conversations. The places row is
+  // required before the two zeros: a palette that failed to open would count
+  // zero rows and pass a zero-only check.
+  const keyAt = idx((st) => st[0] === 'key' && /^(meta|cmd)\+k$/i.test(sel(st, 1)));
+  if (keyAt < 0) {
+    errs.push('J14 never opens the command palette (key Meta+k)');
+  } else {
+    const dialogAt = after(keyAt, (st) => st[0] === 'wait' && /\[role=dialog\]/.test(sel(st, 1)));
+    if (dialogAt < 0) errs.push('J14 never waits for the palette dialog (wait [role=dialog])');
+    const placesAt = after(keyAt, (st) => st[0] === 'wait' && /例行任务|Routines/.test(sel(st, 1)));
+    if (placesAt < 0) errs.push('J14 never proves the palette still holds a places/recipes row (例行任务|Routines); an empty palette would satisfy the zeros');
+    const rowsAt = after(keyAt, (st) => st[0] === 'count' && /\[role=dialog\]/.test(sel(st, 1)) && /\[data-session-row\]/.test(sel(st, 1)) && sel(st, 2) === '0');
+    if (rowsAt < 0) errs.push('J14 never proves the palette holds no conversation rows (count [role=dialog] [data-session-row] 0)');
+    const seedAt = after(keyAt, (st) => st[0] === 'count' && /\[role=dialog\]/.test(sel(st, 1)) && /Morning planning/.test(sel(st, 1)) && sel(st, 2) === '0');
+    if (seedAt < 0) errs.push('J14 never proves the palette does not name the seeded conversation (count … Morning planning 0)');
+    const escapeAt = after(keyAt, (st) => st[0] === 'key' && sel(st, 1) === 'Escape');
+    if (escapeAt < 0) errs.push('J14 never closes the palette with Escape');
+    const goneAt = escapeAt < 0 ? -1 : after(escapeAt, (st) => st[0] === 'gone' && /\[role=dialog\]/.test(sel(st, 1)));
+    if (goneAt < 0) errs.push('J14 never proves the palette left the screen (gone [role=dialog])');
+  }
+
+  // Leg 3 — the phone home is the one list at three levels. A cold `goto /`
+  // under `vp phone` lands on /sessions, and the device heading, the project
+  // button and the conversation row are all on screen. The count of one is
+  // the one-list claim: a second copy of the seeded row is a duplicated list.
+  if (phoneAt < 0) {
+    errs.push('J14 never scopes the phone leg (vp phone)');
+  } else {
+    const phoneGotoAt = after(phoneAt, (st) => st[0] === 'goto' && sel(st, 1) === '/');
+    if (phoneGotoAt < 0) {
+      errs.push('J14 never reloads the phone home (goto / under vp phone)');
+    } else {
+      const sessionsAt = after(phoneGotoAt, (st) => st[0] === 'url' && /^\^\/sessions/.test(sel(st, 1)));
+      if (sessionsAt < 0) errs.push('J14 never proves the phone cold start landed on the session list (url ^/sessions)');
+      const deviceAt = after(phoneGotoAt, (st) => st[0] === 'wait' && /此设备|This machine/.test(sel(st, 1)));
+      if (deviceAt < 0) errs.push('J14 never proves the phone one list draws its device level (wait … 此设备|This machine)');
+      const projectAt = after(phoneGotoAt, (st) => st[0] === 'wait' && /\[seed\] Project Alpha/.test(sel(st, 1)));
+      if (projectAt < 0) errs.push('J14 never proves the phone one list draws its project level (wait … [seed] Project Alpha)');
+      const rowAt = after(phoneGotoAt, (st) => st[0] === 'wait' && /\[data-session-row\]/.test(sel(st, 1)) && /Morning planning/.test(sel(st, 1)));
+      if (rowAt < 0) errs.push('J14 never proves the phone one list draws its conversation level (wait [data-session-row] … Morning planning)');
+      const oneAt = after(phoneGotoAt, (st) => st[0] === 'count' && /\[data-session-row\]/.test(sel(st, 1)) && /Morning planning/.test(sel(st, 1)) && sel(st, 2) === '1');
+      if (oneAt < 0) errs.push('J14 never proves the one list draws the seeded conversation exactly once (count … = 1)');
+    }
+  }
+
+  // The phone leg has no mouse and no keyboard: a platform chord or a hover
+  // after `vp phone` would press a control the surface does not have.
+  if (phoneAt >= 0) {
+    for (let i = phoneAt + 1; i < steps.length; i += 1) {
+      const st = steps[i];
+      if (!Array.isArray(st)) continue;
+      if (st[0] === 'hover') errs.push('J14 hovers a control in the phone leg; the phone must press, not hover');
+      if (st[0] === 'key' && /meta|cmd|ctrl|alt/i.test(sel(st, 1))) {
+        errs.push('J14 presses the Mac-only chord ' + JSON.stringify(sel(st, 1)) + ' in the phone leg');
+      }
+    }
+  }
+
+  // Every click must be followed by the state it changed before the next
+  // click starts. A press with no read is a photograph of a page that may not
+  // have moved.
+  const ASSERT_OPS = new Set(['wait', 'gone', 'count', 'url', 'search', 'value', 'active']);
+  const clicks = steps.map((st, i) => i).filter((i) => Array.isArray(steps[i]) && steps[i][0] === 'click');
+  clicks.forEach((at, k) => {
+    const next = k + 1 < clicks.length ? clicks[k + 1] : steps.length;
+    if (!steps.some((st, i) => i > at && i < next && Array.isArray(st) && ASSERT_OPS.has(st[0]))) {
+      errs.push(`J14's click at step ${at + 1} (${sel(steps[at], 1)}) is never followed by an assertion before the next click`);
+    }
+  });
+
+  // The paths table selects the journeys `--files` walks, first match wins. A
+  // palette, list or conversation diff that drops J14 would let the cold
+  // start rot without the gate ever walking it.
+  const paths = Array.isArray(spec.paths) ? spec.paths : [];
+  const mapsToJ14 = (file) => {
+    const row = paths.find(([re]) => re.split('|').some((p) => file.startsWith(p)));
+    return !!row && Array.isArray(row[1]) && row[1].includes('J14');
+  };
+  for (const file of ['ui/src/components/CommandPalette.tsx', 'ui/src/pages/SessionsPage.tsx', 'ui/src/components/sessions/SessionList.tsx', 'ui/src/components/mobile/MobileList.tsx', 'ui/src/pages/TaskDetailPage.tsx', 'ui/src/components/chat/ChatStream.tsx']) {
+    if (!mapsToJ14(file)) {
+      errs.push(`the paths table does not map ${file} to J14; a diff there would not walk the cold start`);
+    }
+  }
+  return errs;
+}
 if (process.argv.includes('--check-spec')) {
   const j2 = checkJ2Contract(spec);
   const j3 = checkJ3Contract(spec);
@@ -1681,7 +1879,8 @@ if (process.argv.includes('--check-spec')) {
   const j11 = checkJ11Contract(spec);
   const j12 = checkJ12Contract(spec);
   const j13 = checkJ13Contract(spec);
-  if (j2.length || j3.length || j4.length || j5.length || j7.length || j8.length || j9.length || j10.length || j11.length || j12.length || j13.length) {
+  const j14 = checkJ14Contract(spec);
+  if (j2.length || j3.length || j4.length || j5.length || j7.length || j8.length || j9.length || j10.length || j11.length || j12.length || j13.length || j14.length) {
     if (j2.length) { console.log('spec red: J2'); j2.forEach((e) => console.log(' - ' + e)); }
     if (j3.length) { console.log('spec red: J3'); j3.forEach((e) => console.log(' - ' + e)); }
     if (j4.length) { console.log('spec red: J4'); j4.forEach((e) => console.log(' - ' + e)); }
@@ -1693,6 +1892,7 @@ if (process.argv.includes('--check-spec')) {
     if (j11.length) { console.log('spec red: J11'); j11.forEach((e) => console.log(' - ' + e)); }
     if (j12.length) { console.log('spec red: J12'); j12.forEach((e) => console.log(' - ' + e)); }
     if (j13.length) { console.log('spec red: J13'); j13.forEach((e) => console.log(' - ' + e)); }
+    if (j14.length) { console.log('spec red: J14'); j14.forEach((e) => console.log(' - ' + e)); }
     process.exit(1);
   }
   console.log('spec ok: J2 comments a changed line, sends the tray, and proves path, hunk and quote in the transcript');
@@ -1708,6 +1908,7 @@ if (process.argv.includes('--check-spec')) {
   console.log('spec ok: J11 keeps the shell, the scroll and the draft across the phone\'s switches');
   if (spec.journeys && spec.journeys.J12) console.log('spec ok: J12 walks the phone\'s edge back, row reveal and hold-to-reorder as real touch and reads the consequences');
   if (spec.journeys && spec.journeys.J13) console.log('spec ok: J13 walks the phone file link through Back to the list and the conversation, and the HTML preview/source switch without leaving the file address');
+  if (spec.journeys && spec.journeys.J14) console.log('spec ok: J14 reopens the last conversation on the Mac, finds no conversation rows in ⌘K, and draws the phone home as one list at three levels');
   // With a seed log the check also prints the assertion the walk will make,
   // resolved through the same function the walker uses: the reviewer reads
   // `[data-pending-id="appr-1"]`, not a placeholder.
