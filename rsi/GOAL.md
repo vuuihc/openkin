@@ -96,8 +96,14 @@ keep 2–4 queued, and say so in the weekly retro. Do not extend the date.
 **Out of scope — parked on Ethan** (one line each in `state/STATUS.md`, "Parked / needs a person"): F3 in-app PR writes (credential and
 permission model), the browser panel tab (Electron `webview` ADR), the agent catalog cut 74 → ≤10.
 
-## Current phase (P6) — a new chat starts already briefed
-<!-- phase: P6-projects-briefing target=2026-11-21T20:00 -->
+## Closed phase (P6) — a new chat starts already briefed
+<!-- closed-phase: P6-projects-briefing target=2026-11-21T20:00 -->
+
+Closed 2026-11-18, all three items landed: item 1 `2059df97` (#306 — the cover shows the 工作方式 block
+and new chats carry it) and `9d8dfeb9` (#313 — 003 `covered` after the J4 walk), item 2
+`TestBuildContinuePromptWorkInstructions` in `internal/store/onepager_test.go` and
+`TestPrepareTaskCreateInjectsWorkInstructions` in `internal/api/projects_test.go` (6 + 3 subtests, mutant
+red in #306), item 3 the J4 walk (#313). P6 closed early; the target date is unchanged.
 
 **Why this and not features.** P5 gave a project a face for *which directories* it is made of. The thing a
 person repeats by hand every day is *how work happens here* — the build command, the generated files nobody
@@ -129,8 +135,8 @@ object expansion (session / role / prompt shortcut: needs its own story), the §
 security pass), reading a project's `AGENTS.md` / `CLAUDE.md` (filesystem, future story), and anything that
 would add a schema, a migration or a new endpoint.
 
-## Next phase (P7) — 手机上没被走查过的三件事
-<!-- next-phase: P7-phone-gestures target=2026-11-23T20:00 -->
+## Current phase (P7) — 手机上没被走查过的三件事
+<!-- phase: P7-phone-gestures target=2026-11-23T20:00 -->
 
 **Why this and not features.** P1–P6 proved the five flows on the Mac and most of the phone, but three pointer
 gestures a person uses every day at 390 have no walk at all — the edge swipe back, the row swipe and the
