@@ -4,7 +4,8 @@
 # The proof itself needs a browser and two UI builds, so it is not part of the
 # gate. What the gate *can* check without one is that the committed mutants still
 # point at the real hand-off pair, the row tap, the mid-run follow-up
-# dispatch, the Stop that must cancel the round, and the J2 review anchor;
+# dispatch, the Stop that must cancel the round, the J2 review anchor, and the
+# shell that must not remount on a route change;
 # that the runner prints
 # that same manifest; and that the J3 spec carries the mid-run ordering proof
 # (the follow-up on screen before the first answer) and the Stop proof (a held
@@ -35,8 +36,8 @@ import sys
 
 manifest_path, root = sys.argv[1], sys.argv[2]
 entries = json.load(open(manifest_path, encoding="utf-8"))
-if not isinstance(entries, list) or len(entries) != 5:
-    raise SystemExit("manifest must be exactly five entries, got %r" % (entries,))
+if not isinstance(entries, list) or len(entries) != 6:
+    raise SystemExit("manifest must be exactly six entries, got %r" % (entries,))
 for entry in entries:
     for key in ("label", "file", "old", "new", "test"):
         if not isinstance(entry.get(key), str) or not entry[key]:
@@ -105,8 +106,19 @@ if "cancelTask" in stop["new"]:
     raise SystemExit("the Stop mutant leaves cancelTask reachable; it must remove the cancel")
 if "J7" in stop["test"]:
     raise SystemExit("the Stop entry's `test` walks J7; it must walk J3")
-print("manifest ok: %s, %s, %s, %s and %s, one occurrence of each `old`"
-      % (j3["file"], j7["file"], follow["file"], review["file"], stop["file"]))
+# The J9 mutant must remount the shell on every route change: that is the
+# page-load flash F4 exists to prevent, and the `node` assertion is what
+# proves it. A mutant elsewhere in App.tsx would redden the switch for an
+# unrelated reason.
+shell = next((e for e in entries if e["file"] == "ui/src/App.tsx"), None)
+if shell is None:
+    raise SystemExit("no J9 entry for ui/src/App.tsx")
+if "key={location.pathname}" not in shell["new"]:
+    raise SystemExit("the J9 mutant does not key AppShell on the pathname")
+if "--walk-once J9" not in shell["test"]:
+    raise SystemExit("the J9 entry's `test` does not walk J9 (--walk-once J9)")
+print("manifest ok: %s, %s, %s, %s, %s and %s, one occurrence of each `old`"
+      % (j3["file"], j7["file"], follow["file"], review["file"], stop["file"], shell["file"]))
 PY
 [ $? -eq 0 ] || fail "$case_name: manifest check failed"
 pass "$case_name"

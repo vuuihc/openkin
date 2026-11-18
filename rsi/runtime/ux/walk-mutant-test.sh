@@ -2,7 +2,7 @@
 # walk-mutant-test.sh — the one-command red proof for the walk contracts (R-walk-mutant, R-walk-tap-j7).
 #
 #   bash rsi/runtime/ux/walk-mutant-test.sh                    # apply every committed mutant, require red, restore
-#   bash rsi/runtime/ux/walk-mutant-test.sh --walk-once [J3|J7|J2|J8] # one walk pass of this tree (J3 = hand-off + mid-run walks); 0 green, 1 red, 2 unavailable
+#   bash rsi/runtime/ux/walk-mutant-test.sh --walk-once [J3|J7|J2|J8|J9] # one walk pass of this tree (J3 = hand-off + mid-run walks); 0 green, 1 red, 2 unavailable
 #   bash rsi/runtime/ux/walk-mutant-test.sh --print-manifest
 #
 # J3 has two contracts. One: pressing Start on /new must keep the typed message
@@ -53,6 +53,14 @@
 # sheet -> tray -> sent in order, count = 1, notes.md + @@ in the transcript,
 # and the tray gone afterwards.
 #
+# J9: F4's switch proof. The manifest keys <AppShell> on the pathname, so every
+# route change remounts the shell and throws away the keep-alive panes. The
+# journey tags the shell, scrolls the transcript, types an unsent draft, walks
+# to another conversation and both area roots, then reads all three back; the
+# `node` assertion names the replaced element. --walk-once J9 builds the UI,
+# walks only J9 at the mac viewport, and requires the switch-back notes to
+# carry the same-shell line, the scroll-kept line and the draft's value line.
+#
 # Deliberately not wired into ux-gate.sh: the proof builds the UI twice (once
 # for the mutant, once restored), which is too heavy for every PR. This is a
 # one-command verification to run when a journey or its walk changes.
@@ -77,8 +85,8 @@ case "${1:-}" in
   --walk-once)
     JOURNEY="${2:-J3}"
     case "$JOURNEY" in
-      J3|J7|J2|J8) ;;
-      *) unavailable "unknown journey $JOURNEY; --walk-once takes J3 (default), J7, J2 or J8" ;;
+      J3|J7|J2|J8|J9) ;;
+      *) unavailable "unknown journey $JOURNEY; --walk-once takes J3 (default), J7, J2, J8 or J9" ;;
     esac
     ;;
   "")
@@ -164,6 +172,66 @@ if missing:
     print("walk-mutant: J7 red: no back-list shot before a back-card shot at " + ", ".join(missing))
     sys.exit(1)
 print("walk-mutant: J7 green: the row tap lands on the named card after Back")
+PY
+  exit $?
+fi
+
+if [ "$JOURNEY" = "J9" ]; then
+  bash rsi/runtime/ux-walk.sh "$WT" "$OUT" J9 >"$OUT/ux-walk.log" 2>&1
+  rc=$?
+  if [ "$rc" -eq 2 ]; then
+    unavailable "$(cat "$OUT/UNAVAILABLE" 2>/dev/null || tail -c 300 "$OUT/ux-walk.log")"
+  fi
+  [ "$rc" -eq 0 ] || unavailable "ux-walk.sh exited $rc: $(tail -c 300 "$OUT/ux-walk.log")"
+  [ -s "$OUT/walk.json" ] || unavailable "the walker wrote no walk.json"
+
+  python3 - "$OUT/walk.json" <<'PY'
+import json
+import sys
+
+walk = json.load(open(sys.argv[1], encoding="utf-8"))
+screens = [s for s in walk.get("screens", []) if s.get("journey") == "J9"]
+names = [str(s.get("name", "")) for s in screens]
+skips = [n for n in names if "-skipped-" in n]
+if skips:
+    # No seeded conversation: a switch between two empty pages proves nothing.
+    # Fail closed as "could not run".
+    print("UNAVAILABLE: J9 was skipped (" + ", ".join(skips[:2]) + ")")
+    sys.exit(2)
+
+# Step failures are `J9/…`; screenshot lint is `J9-<vp>-…`. Both are J9's.
+hard = [f for f in walk.get("hardFail", [])
+        if str(f).startswith("J9/") or str(f).startswith("J9-")]
+print("J9 screens: " + (", ".join(names) or "none"))
+for f in hard:
+    print("J9 hardFail: " + str(f))
+if hard:
+    print("walk-mutant: J9 red: %d hard failure(s)" % len(hard))
+    sys.exit(1)
+
+# The return shot is the evidence. Its notes are the journey's whole log, so
+# they must carry the shell's element identity, the transcript position read
+# back, and the composer's draft: a shot of the right pane taken without
+# reading any of them proves only that the route works.
+back = [s for s in screens if str(s.get("name", "")).endswith("-switch-back")]
+if not back:
+    print("walk-mutant: J9 red: no switch-back shot")
+    sys.exit(1)
+notes = [str(n) for n in back[-1].get("notes", [])]
+same_shell = any(n.startswith("node ") and " is the same element " in n for n in notes)
+scroll_kept = any(n.startswith("scroll-kept ") for n in notes)
+draft_kept = any(n.startswith("value textarea is ") and "F4 draft [seed]" in n for n in notes)
+missing = []
+if not same_shell:
+    missing.append("the same shell node")
+if not scroll_kept:
+    missing.append("the scroll position")
+if not draft_kept:
+    missing.append("the composer draft")
+if missing:
+    print("walk-mutant: J9 red: the switch-back screen never read " + ", ".join(missing))
+    sys.exit(1)
+print("walk-mutant: J9 green: the shell, the scroll and the draft survived the switch")
 PY
   exit $?
 fi

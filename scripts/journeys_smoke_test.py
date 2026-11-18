@@ -164,12 +164,15 @@ class SummarizerTest(unittest.TestCase):
         self.assertNotIn("J2/mac", rows)
         self.assertNotIn("J2/mac-wide", rows)
 
+        # An id the spec will never define. J9 used to stand in here; it is a
+        # real journey now (the F4 switch proof), so the fixture moved out of
+        # the numbered range.
         bad_code, bad_out, bad_err = self.run_main(
-            "--walk-json", self.walk, "--spec", self.spec, "--journeys", "J9"
+            "--walk-json", self.walk, "--spec", self.spec, "--journeys", "J99"
         )
         self.assertEqual(bad_code, 2, bad_out + bad_err)
         self.assertIn("unavailable:", bad_out + bad_err)
-        self.assertIn("J9", bad_out + bad_err)
+        self.assertIn("J99", bad_out + bad_err)
 
 
 class SeedSkipContractTest(unittest.TestCase):
@@ -208,11 +211,13 @@ class ShellTest(unittest.TestCase):
         )
 
     def test_unknown_journey_id_is_rejected(self) -> None:
-        result = self.run_shell("--journeys", "J9", "--dry-run")
+        # J9 is a real journey now (the F4 switch proof); the unknown-id
+        # fixture must stay outside the spec's numbered range.
+        result = self.run_shell("--journeys", "J99", "--dry-run")
         combined = result.stdout + result.stderr
         self.assertEqual(result.returncode, 2, combined)
         self.assertIn("unavailable:", combined)
-        self.assertIn("J9", combined)
+        self.assertIn("J99", combined)
         self.assertIn("J1", combined)
         self.assertIn("J7", combined)
 

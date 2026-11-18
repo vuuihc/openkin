@@ -379,6 +379,172 @@ function checkJ8Contract(spec) {
   }
   return errs;
 }
+// J9's contract: F4 — a switch is not a page load. Leaving a conversation for
+// another one (or for another area) and coming back must keep the same shell
+// element, the transcript where the reader left it, and the unsent draft in
+// the composer. The keep-alive host ships and pieces of it are pinned in DOM
+// tests, but no walk ever switches and comes back; a regression that remounts
+// the shell, resets the scroller, or drops the draft is invisible to the gate.
+// The proof is element identity, not a screenshot: `node` tags the shell once
+// and asserts the same element after every route change, `scroll`/`scroll-kept`
+// bracket the transcript's position, and `value` reads the draft back. A
+// `goto` after the conversation is open would reload the document and make the
+// shell question meaningless, so it is rejected.
+//   node walk.mjs --check-spec [--spec path/to/journeys.json]
+function checkJ9Contract(spec) {
+  const journey = (((spec || {}).journeys || {}).J9) || {};
+  const steps = journey.steps;
+  if (!Array.isArray(steps) || steps.length === 0) return ['J9 has no steps'];
+  const errs = [];
+  const idx = (pred, from = 0) => steps.findIndex((st, i) => i >= from && Array.isArray(st) && pred(st));
+  const after = (prev, pred) => (prev < 0 ? -1 : idx(pred, prev + 1));
+  const sel = (st, i) => String((st || [])[i] ?? '');
+
+  // The phone half needs per-viewport steps (#282's `vp` scope), so this
+  // journey is the Mac proof and must not pretend to be the phone one.
+  const viewports = journey.viewports;
+  if (!Array.isArray(viewports) || viewports.length !== 1 || viewports[0] !== 'mac') {
+    errs.push('J9 is the Mac switch proof: its viewports must be exactly ["mac"]; the phone switch is its own journey');
+  }
+
+  // Open, leave for a different conversation, come back. A journey that never
+  // leaves proves nothing, and one that leaves and never returns proves only
+  // the first half.
+  const openAt = idx((st) => st[0] === 'click' && /Morning planning/.test(sel(st, 1)));
+  const switchAt = after(openAt, (st) => st[0] === 'click' && /Failed migration/.test(sel(st, 1)));
+  const backAt = after(switchAt, (st) => st[0] === 'click' && /Morning planning/.test(sel(st, 1)));
+  if (openAt < 0) errs.push('J9 never opens the seeded conversation from the list (click … Morning planning)');
+  if (switchAt < 0) errs.push('J9 never switches to the second seeded conversation (click … Failed migration)');
+  if (backAt < 0) errs.push('J9 never returns to the conversation it left (click … Morning planning again)');
+
+  // A `goto` reloads the document. The shell claim is about client-side
+  // navigation, so nothing after the first open may replace the page.
+  if (openAt >= 0 && steps.findIndex((st, i) => i > openAt && Array.isArray(st) && st[0] === 'goto') >= 0) {
+    errs.push('J9 reloads the document with goto after the conversation is open; the switch must be client-side navigation');
+  }
+
+  // Shell identity. One tag before the first switch, then the same tag after
+  // every route change: a shell remounted on the new pathname is a page load
+  // wearing the same markup, and only element identity catches it.
+  const nodes = [];
+  steps.forEach((st, i) => { if (Array.isArray(st) && st[0] === 'node') nodes.push(i); });
+  const nodeName = nodes.length ? sel(steps[nodes[0]], 2) : '';
+  const tagged = nodes.find((i) => i < (switchAt < 0 ? steps.length : switchAt));
+  if (!nodeName || tagged === undefined) {
+    errs.push('J9 never tags the shell before the switch (node css=… shell)');
+  } else if (!/^css=/.test(sel(steps[tagged], 1))) {
+    errs.push('J9\'s shell tag must name the element with css=<selector>');
+  }
+  // The next area-nav click after `from`, or the end of the journey: the
+  // assertion must sit between the route change and the next one, so a node
+  // after the *return* cannot stand in for the one the switch needed.
+  const areaNavAt = (from) => steps.findIndex((st, i) => i > from && Array.isArray(st) && st[0] === 'click' && sel(st, 1).includes('data-area='));
+  const sameShell = (from, to = steps.length) => nodes.find((i) => i > from && i < to && sel(steps[i], 2) === nodeName);
+  if (nodeName) {
+    if (switchAt >= 0 && sameShell(switchAt, backAt < 0 ? steps.length : backAt) === undefined) {
+      errs.push('J9 never asserts the same shell node after the switch; a remount would go unseen');
+    }
+    const firstArea = backAt < 0 ? -1 : areaNavAt(backAt);
+    if (backAt >= 0 && sameShell(backAt, firstArea < 0 ? steps.length : firstArea) === undefined) {
+      errs.push('J9 never asserts the same shell node after returning to the conversation');
+    }
+  }
+  // Area changes are route changes too. A shell keyed on the pathname dies on
+  // /sessions → /projects just as it dies on one conversation → another.
+  const areas = ['projects', 'settings'].map((area) => ({
+    area,
+    at: idx((st) => st[0] === 'click' && sel(st, 1).includes(`data-area="${area}"`)),
+  }));
+  areas.forEach(({ area, at: areaAt }, i) => {
+    if (areaAt < 0) {
+      errs.push(`J9 never visits the ${area} area (click [data-area="${area}"])`);
+      return;
+    }
+    const nextAt = i + 1 < areas.length && areas[i + 1].at >= 0 ? areas[i + 1].at : steps.length;
+    if (nodeName && sameShell(areaAt, nextAt) === undefined) {
+      errs.push(`J9 never asserts the same shell node after the ${area} area change`);
+    }
+  });
+
+  // The transcript's place. The offset must be numeric and away from the top:
+  // a remount that starts at 0, or the product's own jump-to-bottom on a fresh
+  // pane, must not be able to satisfy the return by accident.
+  const transcript = (st) => sel(st, 1).startsWith('css=') && /role=.?region/.test(sel(st, 1));
+  const scrollAt = idx((st) => st[0] === 'scroll' && transcript(st));
+  const keptAt = backAt < 0 ? -1 : idx((st) => st[0] === 'scroll-kept' && transcript(st), backAt + 1);
+  if (scrollAt < 0) {
+    errs.push('J9 never scrolls the transcript before the switch; the return has no position to prove');
+  } else {
+    const asked = sel(steps[scrollAt], 2);
+    if (!/^\d+$/.test(asked) || Number(asked) < 96) {
+      errs.push('J9 must scroll the transcript to a numeric middle offset of at least 96px, not ' + JSON.stringify(asked));
+    }
+    if (switchAt >= 0 && scrollAt > switchAt) {
+      errs.push('J9 scrolls the transcript after the switch; the position must be left before it');
+    }
+  }
+  if (keptAt < 0) {
+    errs.push('J9 never asserts the transcript came back where it was left (scroll-kept after the return)');
+  } else if (scrollAt >= 0) {
+    const asked = Number(sel(steps[scrollAt], 2));
+    const kept = Number(sel(steps[keptAt], 2));
+    if (!Number.isFinite(kept) || Math.abs(kept - asked) > 48) {
+      errs.push('J9\'s scroll-kept offset must be the offset it scrolled to (within the walker\'s 48px tolerance)');
+    }
+  }
+
+  // The half-typed message. It must be typed before the conversation is left,
+  // must not be sent, and must be read back from the composer after the
+  // return; a walk that only checks the route survived leaves F4's draft half
+  // unproven. Sends in the journey are allowed (they give the transcript a
+  // position to lose), which is why the draft is the last fill before the
+  // switch that no `send` follows — not merely the first fill.
+  const fills = [];
+  steps.forEach((st, i) => {
+    if (Array.isArray(st) && st[0] === 'fill' && /textarea/.test(sel(st, 1)) && typeof st[2] === 'string' && st[2].trim() !== '') fills.push(i);
+  });
+  const sentAfter = (i) => {
+    const send = idx((st) => st[0] === 'send', i + 1);
+    return send >= 0 && (switchAt < 0 || send < switchAt);
+  };
+  const draftFills = switchAt < 0 ? fills : fills.filter((i) => i < switchAt && !sentAfter(i));
+  const draftFillAt = draftFills.length ? draftFills[draftFills.length - 1] : -1;
+  const draft = draftFillAt >= 0 ? String(steps[draftFillAt][2]) : '';
+  if (fills.length === 0) {
+    errs.push('J9 never types an unsent draft into the composer');
+  } else if (draftFillAt < 0) {
+    errs.push('J9 never leaves an unsent draft in the composer before the switch; every text it typed was sent');
+  }
+  const draftAt = backAt < 0 || draftFillAt < 0 ? -1
+    : idx((st) => st[0] === 'value' && /textarea/.test(sel(st, 1)) && sel(st, 2) === draft, backAt + 1);
+  if (draftFillAt >= 0 && draftAt < 0) {
+    errs.push('J9 never proves the draft survived the return (value textarea … after the return)');
+  }
+
+  // The screenshots are the reviewable evidence, in the order the switch runs.
+  const shotAt = (name) => steps.findIndex((st) => Array.isArray(st) && st[0] === 'shot' && st[1] === name);
+  const chatShot = shotAt('switch-chat'), backShot = shotAt('switch-back'), areaShot = shotAt('area-projects');
+  if (chatShot < 0) errs.push('J9 takes no `switch-chat` shot');
+  else if (switchAt >= 0 && chatShot > switchAt) errs.push('the `switch-chat` shot must be taken before the switch');
+  if (backShot < 0) errs.push('J9 takes no `switch-back` shot');
+  else if (backAt >= 0 && backShot < backAt) errs.push('the `switch-back` shot must follow the return');
+  if (areaShot < 0) errs.push('J9 takes no `area-projects` shot');
+
+  // A shell or conversation-pane diff that no longer selects J9 would let the
+  // keep-alive contract rot without the gate ever walking it. Same first-match
+  // rule the walker uses, and only the rows that can break the switch.
+  const paths = Array.isArray(spec.paths) ? spec.paths : [];
+  const mapsToJ9 = (file) => {
+    const row = paths.find(([re]) => re.split('|').some((p) => file.startsWith(p)));
+    return !!row && Array.isArray(row[1]) && row[1].includes('J9');
+  };
+  for (const file of ['ui/src/components/layout/AppShell.tsx', 'ui/src/pages/TaskDetailPage.tsx']) {
+    if (!mapsToJ9(file)) {
+      errs.push(`the paths table does not map ${file} to J9; a diff there would not walk the switch`);
+    }
+  }
+  return errs;
+}
 // J7's contract: a notification tap must prove it landed on the card the
 // notification named — not just photograph whatever loaded. Without these
 // rules a blank deep link, a landing on the wrong card, and a Back that
@@ -438,11 +604,13 @@ if (process.argv.includes('--check-spec')) {
   const j3 = checkJ3Contract(spec);
   const j7 = checkJ7Contract(spec);
   const j8 = checkJ8Contract(spec);
-  if (j2.length || j3.length || j7.length || j8.length) {
+  const j9 = checkJ9Contract(spec);
+  if (j2.length || j3.length || j7.length || j8.length || j9.length) {
     if (j2.length) { console.log('spec red: J2'); j2.forEach((e) => console.log(' - ' + e)); }
     if (j3.length) { console.log('spec red: J3'); j3.forEach((e) => console.log(' - ' + e)); }
     if (j7.length) { console.log('spec red: J7'); j7.forEach((e) => console.log(' - ' + e)); }
     if (j8.length) { console.log('spec red: J8'); j8.forEach((e) => console.log(' - ' + e)); }
+    if (j9.length) { console.log('spec red: J9'); j9.forEach((e) => console.log(' - ' + e)); }
     process.exit(1);
   }
   console.log('spec ok: J2 comments a changed line, sends the tray, and proves path, hunk and quote in the transcript');
@@ -450,6 +618,7 @@ if (process.argv.includes('--check-spec')) {
   console.log('spec ok: J3 stops a held round, proves Stop left, and reads the queued message discard report');
   console.log('spec ok: J7 lands on the named card, proves focus, consumes ?focus=, and reopens it after Back');
   console.log('spec ok: J8 taps a changed line at 390, saves the sheet, sends the tray, and proves path, hunk and quote');
+  console.log('spec ok: J9 keeps the shell, the scroll and the draft across a switch');
   // With a seed log the check also prints the assertion the walk will make,
   // resolved through the same function the walker uses: the reviewer reads
   // `[data-pending-id="appr-1"]`, not a placeholder.
@@ -579,6 +748,11 @@ fs.mkdirSync(out, { recursive: true });
 let browser; try { browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--disable-gpu'] }); } catch (e) { console.error('chrome launch failed: ' + e.message); process.exit(2); }
 
 const screens = [], hardFail = [];
+// J9's element-identity book. The first `node` call tags the matched element
+// with `data-kin-walk-node=<name>` and keeps the handle; every later call with
+// the same name compares against it. A remount produces a different element,
+// which no amount of identical markup can hide.
+const walkNodes = new Map();
 async function lint(page, phone) {
   return page.evaluate((phone) => {
     const vis = (e) => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0 && getComputedStyle(e).visibility !== 'hidden'; };
@@ -1010,6 +1184,104 @@ for (const j of want) {
           else if (optional) log.push('skipped value ' + sel + ' (is ' + JSON.stringify(actual) + ')');
           else hardFail.push(`${j}/${vpName}: ${sel} value is ${JSON.stringify(actual)}, want ${JSON.stringify(b)}`);
         } else if (op === 'key') { await page.keyboard.press(a); await page.waitForTimeout(200); }
+        else if (op === 'node') {
+          // `["node", "css=<selector>", "<name>"]`: first call tags the element
+          // with `data-kin-walk-node=<name>`; any later call with the same name
+          // asserts it is the SAME element. A shell remounted on a route change
+          // is a different element, and identical markup cannot hide it.
+          const { optional, value } = optionalOf(a);
+          const name = String(b ?? '').trim();
+          if (!value.startsWith('css=') || !name) {
+            hardFail.push(`${j}/${vpName}: node needs css=<selector> and a name, got ${JSON.stringify(a)}, ${JSON.stringify(b)}`);
+            continue;
+          }
+          const selector = value.slice('css='.length);
+          const key = `${j}/${vpName}/${name}`;
+          if (!walkNodes.has(key)) {
+            const found = page.locator(selector).first();
+            if (await found.count() === 0) {
+              if (optional) { log.push('skipped node ' + name + ' (' + selector + ')'); continue; }
+              hardFail.push(`${j}/${vpName}: missing required node ${selector}`); continue;
+            }
+            const handle = await found.elementHandle({ timeout: 3000 }).catch(() => null);
+            if (!handle) {
+              if (optional) { log.push('skipped node ' + name + ' (' + selector + ')'); continue; }
+              hardFail.push(`${j}/${vpName}: missing required node ${selector}`); continue;
+            }
+            await handle.evaluate((el, n) => el.setAttribute('data-kin-walk-node', n), name).catch(() => {});
+            walkNodes.set(key, handle);
+            log.push('node ' + name + ' tagged (' + selector + ')');
+          } else {
+            // A detached handle throws; a different live element compares
+            // false. Both mean the node was replaced.
+            const same = await walkNodes.get(key)
+              .evaluate((el, s) => el === el.ownerDocument.querySelector(s), selector)
+              .catch(() => false);
+            if (!same) { hardFail.push(`${j}/${vpName}: the ${name} node was replaced`); continue; }
+            log.push('node ' + name + ' is the same element (' + selector + ')');
+          }
+        } else if (op === 'scroll') {
+          // `["scroll", "css=<selector>", "<px>|bottom"]`: put the scroller
+          // where the reader left it and record what it actually reached (a
+          // short transcript clamps, and the log says so rather than pretending).
+          const { optional, value } = optionalOf(a);
+          const asked = String(b ?? '').trim();
+          if (!value.startsWith('css=') || !(asked === 'bottom' || /^\d+$/.test(asked))) {
+            hardFail.push(`${j}/${vpName}: scroll needs css=<selector> and <px>|bottom, got ${JSON.stringify(a)}, ${JSON.stringify(b)}`);
+            continue;
+          }
+          const selector = value.slice('css='.length);
+          const got = await page.evaluate(({ selector, asked }) => {
+            const vis = (el) => {
+              const r = el.getBoundingClientRect();
+              return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
+            };
+            const el = [...document.querySelectorAll(selector)].find(vis);
+            if (!el) return null;
+            el.scrollTop = asked === 'bottom' ? el.scrollHeight : Number(asked);
+            return { top: el.scrollTop, max: el.scrollHeight - el.clientHeight };
+          }, { selector, asked }).catch(() => null);
+          if (!got) {
+            if (optional) { log.push('skipped scroll ' + selector); continue; }
+            hardFail.push(`${j}/${vpName}: missing required scroll ${selector}`); continue;
+          }
+          // Let the product's own onScroll record the position before the
+          // route changes; the restore effect reads the same saved value.
+          await page.waitForTimeout(300);
+          log.push(`scroll ${selector} to ${Math.round(got.top)} (asked ${asked}, max ${Math.round(got.max)})`);
+        } else if (op === 'scroll-kept') {
+          // `["scroll-kept", "css=<selector>", "<px>"]`: the scroller came back
+          // within 48px of where it was left. The tolerance is the contract
+          // ("where I left it", not the exact pixel); the wait is because the
+          // restore is a layout effect after the pane is shown again, not an
+          // instant DOM write.
+          const { optional, value } = optionalOf(a);
+          const want = Number(b);
+          if (!value.startsWith('css=') || !Number.isFinite(want)) {
+            hardFail.push(`${j}/${vpName}: scroll-kept needs css=<selector> and a pixel offset, got ${JSON.stringify(a)}, ${JSON.stringify(b)}`);
+            continue;
+          }
+          const selector = value.slice('css='.length);
+          const readTop = () => page.evaluate((selector) => {
+            const vis = (el) => {
+              const r = el.getBoundingClientRect();
+              return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
+            };
+            const el = [...document.querySelectorAll(selector)].find(vis);
+            return el ? el.scrollTop : null;
+          }, selector).catch(() => null);
+          let top = null;
+          const deadline = Date.now() + WAIT_MS;
+          for (;;) {
+            top = await readTop();
+            if (top !== null && Math.abs(top - want) <= 48) break;
+            if (Date.now() >= deadline) break;
+            await page.waitForTimeout(100);
+          }
+          if (top !== null && Math.abs(top - want) <= 48) log.push(`scroll-kept ${selector} at ${Math.round(top)} (want ${want}±48)`);
+          else if (optional) log.push(`skipped scroll-kept ${selector} (at ${top === null ? 'nothing visible' : Math.round(top)})`);
+          else hardFail.push(`${j}/${vpName}: scroll-kept ${selector} is at ${top === null ? 'nothing visible' : Math.round(top)}, want ${want}±48`);
+        }
         else { hardFail.push(`${j}/${vpName}: unknown step op ${JSON.stringify(op)}`); }
       } catch (e) {
         if (e && e[SKIP]) {
