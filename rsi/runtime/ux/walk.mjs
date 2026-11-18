@@ -250,6 +250,104 @@ function checkJ2Contract(spec) {
   else if (trayWaitAt >= 0 && trayShot < trayWaitAt) errs.push('the `diff-comment-tray` shot must follow the tray row wait');
   if (sentShot < 0) errs.push('J2 takes no `diff-comment-sent` shot');
   else if (transcriptAt >= 0 && sentShot < transcriptAt) errs.push('the `diff-comment-sent` shot must follow the transcript assertion');
+
+  // The rerun leg (R-p3-rerun-comment). A person comments a changed line, then
+  // asks the agent for another round. The tray must keep the comment: the row
+  // moves to the line its quote moved to, and when the quote is gone the row
+  // says 该行已变化 / This line has changed and still carries the quote. Without
+  // these rules a walk sends [seed] shift and [seed] rewrite and photographs
+  // whatever the tray happens to show: a dropped report renders an absent
+  // anchor as live (never as stale), which is a silent lie rather than a
+  // missing badge.
+  const J2_SHIFT = '[seed] shift';
+  const J2_REWRITE = '[seed] rewrite';
+  const J2_STALE = /该行已变化|This line has changed/;
+  const rerunFrom = sentShot >= 0 ? sentShot + 1 : (sendAt >= 0 ? sendAt + 1 : 0);
+  // The comment box is the only surface whose Save belongs to this leg; a bare
+  // Save elsewhere proves nothing about the tray.
+  const boxScoped = (v) => /section\[aria-label/.test(String(v)) && /评论|Comment on/.test(String(v));
+  const isBoxSave = (st) => st[0] === 'click' && /保存|Save/.test(sel(st, 1)) && boxScoped(sel(st, 1));
+  // The composer's own send, never the tray's button: the tray holds the
+  // comment under test and must not be emptied by the rerun.
+  const isComposerSend = (st) => st[0] === 'send' && /发送|Send/.test(sel(st, 1)) && !traySel(st);
+  // The rerun prompt is typed into the composer — not into Monaco's hidden
+  // editor textarea and not into a comment box, both of which are on screen
+  // while the diff is open.
+  const isMarkerFill = (st, marker) => st[0] === 'fill' && typeof st[2] === 'string' && st[2].includes(marker)
+    && /textarea/.test(sel(st, 1)) && !/monaco|editor\.modified/.test(sel(st, 1)) && !/评论|Comment on/.test(sel(st, 1));
+  const trayRowWithQuote = (st) => cssWait(st, /li:has-text/) && traySel(st) && /notes\.md/.test(sel(st, 1)) && sel(st, 1).includes(J2_QUOTE);
+  // The stale row keeps the saved quote but no longer has a live line, so its
+  // wait may name only the badge and the quote.
+  const staleRowWait = (st) => cssWait(st, /li:has-text/) && traySel(st) && J2_STALE.test(sel(st, 1)) && sel(st, 1).includes(J2_QUOTE);
+  const namedLines = (v) => [...String(v).matchAll(/notes\.md:(\d+)/g)].map((m) => Number(m[1]));
+
+  // (a) A second comment, saved while the first one's send has left the tray
+  // empty. Its box must pin the line, or "re-anchored to a different line" has
+  // nothing to be different from.
+  const box2At = idx((st) => cssWait(st, /section\[aria-label/) && /notes\.md:\d+/.test(sel(st, 1)) && /aria-label\^=/.test(sel(st, 1)), rerunFrom);
+  const box2Line = box2At >= 0 ? (namedLines(sel(steps[box2At], 1))[0] ?? NaN) : NaN;
+  if (box2At < 0) errs.push('J2 never reopens the comment box naming notes.md:<line> after the first send; the rerun must start from a saved comment and the box must pin the line');
+  const fill2At = after(box2At, (st) => st[0] === 'fill' && /textarea/.test(sel(st, 1)) && boxScoped(sel(st, 1)) && typeof st[2] === 'string' && st[2].trim() !== '');
+  if (box2At >= 0 && fill2At < 0) errs.push('J2 never types the second comment into the box textarea');
+  const save2At = after(fill2At, isBoxSave);
+  if (fill2At >= 0 && save2At < 0) errs.push('J2 never saves the second comment (click Save in the box); a rerun without a saved comment proves nothing');
+  const tray2At = after(save2At, trayRowWithQuote);
+  if (save2At >= 0 && tray2At < 0) errs.push('J2 never reads the second comment in the tray (a row naming notes.md and the quoted line) before the rerun');
+  const count2At = after(tray2At, (st) => st[0] === 'count' && traySel(st) && String(st[2]) === '1');
+  if (tray2At >= 0 && count2At < 0) errs.push('J2 never asserts the tray holds exactly one comment again after the second Save (count … 1)');
+
+  // (b) The round that moves the seeded line. It has to be sent after the
+  // comment is saved, or the saved line is already the moved one.
+  const shiftFillAt = idx((st) => isMarkerFill(st, J2_SHIFT), rerunFrom);
+  const shiftAt = after(shiftFillAt, isComposerSend);
+  if (shiftFillAt < 0 || shiftAt < 0) {
+    errs.push('J2 never sends a rerun round asking for [seed] shift after the second comment is saved; without it the tray is never re-anchored by a real fresh diff');
+  } else if (save2At >= 0 && shiftAt < save2At) {
+    errs.push('J2 sends [seed] shift before the second comment is saved; the rerun must start from a saved comment');
+  }
+  if (shiftAt >= 0 && tray2At >= 0 && tray2At > shiftAt) {
+    errs.push('J2 reads the tray holding the second comment after the [seed] shift send; the row and its count must come first');
+  }
+
+  // (c) Re-anchored means a DIFFERENT line number carrying the same quote.
+  // Waiting for the saved line again would pass on a stale report that never
+  // re-pointed anything.
+  const reanchorAt = after(shiftAt, (st) => {
+    if (!trayRowWithQuote(st)) return false;
+    const lines = namedLines(sel(st, 1));
+    return Number.isInteger(box2Line) && lines.length > 0 && lines.some((n) => n !== box2Line);
+  });
+  if (shiftAt >= 0 && reanchorAt < 0) {
+    errs.push('J2 never asserts the saved comment re-anchored to a different line (a tray row naming notes.md:<new line> with the saved quote) after [seed] shift');
+  }
+  // (d) At that moment no row may claim the line changed: a live row is never
+  // implied stale.
+  const staleZeroAt = after(reanchorAt, (st) => st[0] === 'count' && traySel(st) && J2_STALE.test(sel(st, 1)) && String(st[2]) === '0');
+  if (reanchorAt >= 0 && staleZeroAt < 0) errs.push('J2 never asserts no row is marked 该行已变化 while the comment is re-anchored (count … 0)');
+
+  // (e) Then the round that removes the quoted line.
+  const rewriteFillAt = after(reanchorAt, (st) => isMarkerFill(st, J2_REWRITE));
+  const rewriteAt = after(rewriteFillAt, isComposerSend);
+  if (reanchorAt >= 0 && (rewriteFillAt < 0 || rewriteAt < 0)) {
+    errs.push('J2 never sends a second rerun asking for [seed] rewrite after the re-anchored row; the stale half of the contract is unwalked');
+  }
+  // (f) The stale row: the badge AND the saved quote, so a row that merely
+  // says "changed" without saying what was commented cannot stand in.
+  const staleWaitAt = after(rewriteAt, staleRowWait);
+  if (rewriteAt >= 0 && staleWaitAt < 0) {
+    errs.push('J2 never waits for the stale row (该行已变化 / This line has changed) carrying the saved quote after [seed] rewrite');
+  }
+  // (g) Kept, not dropped and not duplicated.
+  const keptAt = after(staleWaitAt, (st) => st[0] === 'count' && traySel(st) && String(st[2]) === '1');
+  if (staleWaitAt >= 0 && keptAt < 0) errs.push('J2 never proves the stale comment was kept and not duplicated (count the tray rows = 1 after the stale wait)');
+
+  // (h) The two screenshots, each of the state it names.
+  const reanchorShot = shotAt('diff-comment-reanchored'), staleShot = shotAt('diff-comment-stale');
+  if (reanchorShot < 0) errs.push('J2 takes no `diff-comment-reanchored` shot');
+  else if (reanchorAt >= 0 && reanchorShot < reanchorAt) errs.push('the `diff-comment-reanchored` shot must follow the re-anchored row wait');
+  else if (rewriteAt >= 0 && reanchorShot > rewriteAt) errs.push('the `diff-comment-reanchored` shot must be taken before [seed] rewrite; after it the row is stale');
+  if (staleShot < 0) errs.push('J2 takes no `diff-comment-stale` shot');
+  else if (staleWaitAt >= 0 && staleShot < staleWaitAt) errs.push('the `diff-comment-stale` shot must follow the stale row wait');
   return errs;
 }
 // J8's contract: the review loop the way a thumb runs it at 390. J2 proves the
@@ -446,6 +544,7 @@ if (process.argv.includes('--check-spec')) {
     process.exit(1);
   }
   console.log('spec ok: J2 comments a changed line, sends the tray, and proves path, hunk and quote in the transcript');
+  console.log('spec ok: J2 keeps a saved comment across a rerun — re-anchored to its new line, then 该行已变化 when the quoted line is gone');
   console.log('spec ok: J3 sends a prompt, queues a mid-run follow-up before the reply, and marks it queued');
   console.log('spec ok: J3 stops a held round, proves Stop left, and reads the queued message discard report');
   console.log('spec ok: J7 lands on the named card, proves focus, consumes ?focus=, and reopens it after Back');
@@ -806,10 +905,24 @@ for (const j of want) {
       if (r.status() >= 400) bad.push(r.status() + ' ' + p);
     });
     const log = []; let n = 0;
+    // `["vp", "mac"]` scopes the steps that follow to one viewport and
+    // `["vp", ""]` clears the scope. Some legs mutate the seeded fixture
+    // irreversibly — the fake's `[seed] shift` / `[seed] rewrite` write once per
+    // seed root — so replaying such a leg at the second width would walk a file
+    // the first width already changed and fail for a fixture reason, not a
+    // product one. The scope keeps one real walk of the leg without pretending
+    // the second width ran it.
+    let vpOnly = '';
     for (const rawStep of J.steps) {
       const preStep = j === 'J7' && j7 ? applyJ7Step(rawStep, j7) : rawStep;
       const st = applyVpStep(preStep, vpName);
       const [op, a, b] = st;
+      if (op === 'vp') {
+        vpOnly = String(a || '').trim();
+        log.push(vpOnly ? 'steps below run only at ' + vpOnly : 'viewport scope cleared');
+        continue;
+      }
+      if (vpOnly && vpOnly !== vpName) continue;
       try {
         if (op === 'goto') {
           const href = j === 'J1' && j1 ? applyJ1Target(a, j1) : a; // J7 is already substituted above.

@@ -21,6 +21,13 @@
     "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once"
   },
   {
+    "label": "a saved diff comment whose quoted line disappeared reads as live instead of 该行已变化",
+    "file": "ui/src/components/workspace/diffCommentAnchor.ts",
+    "old": "  return comments\n    .filter((comment) => comment.path === path)",
+    "new": "  return comments\n    // R-p3-rerun-comment: the stale report dropped on purpose — a comment\n    // whose quoted line is gone is filtered out of the report, so the tray\n    // keeps its last anchor and shows the row as live, never 该行已变化.\n    .filter((comment) => comment.path === path && matchingLines(comment.quote, lineChanges, lines).length > 0)",
+    "test": "bash rsi/runtime/ux/walk-mutant-test.sh --walk-once J2"
+  },
+  {
     "label": "the sent review loses its anchor: the hunk header and quoted line are dropped",
     "file": "ui/src/components/workspace/diffCommentAnchor.ts",
     "old": "export function formatCommentBlock(comment: DiffComment): string {\n  return [\n    `${comment.path}:${comment.line}`,\n    comment.hunkHeader,\n    `> ${comment.quote}`,\n    \"\",\n    comment.text,\n  ].join(\"\\n\");\n}",
