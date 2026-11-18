@@ -33,7 +33,7 @@ import {
 } from "../../lib/changedFiles";
 import WorkspaceGenerationPicker from "./WorkspaceGenerationPicker";
 import { projectLabel, shortPath, toWorkspaceRelativePath } from "../../lib/paths";
-import { IconBack, IconPanel, IconSearch, IconSend, IconSpinner, IconX } from "../icons";
+import { IconBack, IconPanel, IconSearch, IconSpinner, IconX } from "../icons";
 import Button from "../ui/Button";
 import Tabs from "../ui/Tabs";
 import DeltaInline from "../changedFileFace";
@@ -119,14 +119,6 @@ type Props = {
   onDiscardAll?: () => void | Promise<void>;
   actionsBusy?: boolean;
   /**
-   * Opens the publish sheet, for a task whose checkout is on another machine.
-   *
-   * Omitted means this console has nothing to publish here — the session runs on
-   * the machine showing the page, where the person can push the branch
-   * themselves, and the Hub refuses the write for exactly that reason.
-   */
-  onPublish?: () => void;
-  /**
    * Opens the file finder, for a console that has one.
    *
    * The shortcut is the desktop's; this button is how a phone reaches the same
@@ -142,12 +134,12 @@ type Props = {
   /**
    * Which of the panel's surfaces is in front.
    *
-   * The pull request is the panel's third tab, not a sheet of its own: it is
-   * drawn in this same container, under this same strip, behind this same
-   * close. The page owns that address (`panel: "pr"`), so this is read here
-   * and never written.
+   * The pull request and publish are the panel's third and fourth tabs, not
+   * sheets of their own: they are drawn in this same container, under this same
+   * strip, behind this same close. The page owns that address (`panel: "pr"` /
+   * `panel: "publish"`), so this is read here and never written.
    */
-  surface?: "files" | "pr";
+  surface?: "files" | "pr" | "publish";
   /**
    * The pull-request body, drawn when `surface` is `"pr"`.
    *
@@ -155,12 +147,29 @@ type Props = {
    * hands it the read-only pane it already owns.
    */
   prPane?: ReactNode;
+  /**
+   * The publish body, drawn when `surface` is `"publish"`.
+   *
+   * Passed in for the same reason as `prPane`: the panel owns the strip, the
+   * container and the close; the page owns what publishing is.
+   */
+  publishPane?: ReactNode;
   /** The PR tab was picked: the page opens the pull-request surface. */
   onOpenPr?: () => void;
   /**
-   * A lens tab was picked while the PR was in front: the page returns the
-   * panel to its files surface. The lens pick is already recorded; this only
-   * moves the address.
+   * The publish tab was picked: the page opens the publish surface.
+   *
+   * Defining it is what puts the tab in the strip. Omitted means this console
+   * has nothing to publish here — the session runs on the machine showing the
+   * page, where the person can push the branch themselves, and the Hub refuses
+   * the write for exactly that reason — and a control that could only ever be
+   * refused is worse than no control.
+   */
+  onOpenPublish?: () => void;
+  /**
+   * A lens tab was picked while the PR or publish was in front: the page
+   * returns the panel to its files surface. The lens pick is already recorded;
+   * this only moves the address.
    */
   onShowFiles?: () => void;
 };
@@ -247,12 +256,13 @@ export default function WorkspacePanel({
   reviewActions = false,
   onDiscardAll,
   actionsBusy = false,
-  onPublish,
   onFindFile,
   onSendFollowUp,
   surface = "files",
   prPane,
+  publishPane,
   onOpenPr,
+  onOpenPublish,
   onShowFiles,
 }: Props) {
   useT();
@@ -401,10 +411,10 @@ export default function WorkspacePanel({
   // layout effect corrects it before the first paint.
   const [panesWide, setPanesWide] = useState(true);
   useLayoutEffect(() => {
-    // The PR surface draws no panes, so the first files render has to measure
-    // then — measuring only on mount would leave a panel that opened on PR
-    // claiming a split layout it never had.
-    if (surface === "pr") return;
+    // The PR and publish surfaces draw no panes, so the first files render has
+    // to measure then — measuring only on mount would leave a panel that opened
+    // on another surface claiming a split layout it never had.
+    if (surface !== "files") return;
     const el = panesRef.current;
     if (!el) return;
     const apply = () => {
@@ -1019,9 +1029,10 @@ export default function WorkspacePanel({
     if (isImeKeyEvent(event.nativeEvent)) return;
     if (event.defaultPrevented) return;
     if (overlayOwnsKeyboard()) return;
-    // The stacked file pane's Escape belongs to the file view; the PR tab has
-    // no list behind it, so there Escape is the panel's close.
-    if (surface !== "pr" && phoneView === "file" && !panesWide && selectedPath) {
+    // The stacked file pane's Escape belongs to the file view; the PR and
+    // publish tabs have no list behind them, so there Escape is the panel's
+    // close.
+    if (surface === "files" && phoneView === "file" && !panesWide && selectedPath) {
       event.preventDefault();
       goBackToFiles();
       return;
@@ -1053,9 +1064,9 @@ export default function WorkspacePanel({
   }, [showingTurn, turnFiles, selectedPath, focusFileList]);
 
   // One strip, drawn by whichever surface is in front: beside the list under
-  // the files surface, above the PR body under the PR tab. The finder is an
-  // action beside the tabs and never a fourth tab; the close is the
-  // container's one close, and it says what it closes.
+  // the files surface, above the PR and publish bodies under their tabs. The
+  // finder is an action beside the tabs and never a tab of its own; the close
+  // is the container's one close, and it says what it closes.
   const strip = (
     <Tabs
       items={[
@@ -1070,19 +1081,27 @@ export default function WorkspacePanel({
         // The pull request is a surface of this panel, so it is a tab of the
         // one strip — not a control beside it and not a second sheet.
         { id: "pr", label: tr("pr.title"), disabled: !onOpenPr },
+        // Publish is the fourth tab, and it exists only where publishing does:
+        // the page omits the handler for a checkout this Hub holds, and a tab
+        // that could only ever be refused is worse than no tab.
+        ...(onOpenPublish ? [{ id: "publish", label: tr("publish.title") }] : []),
       ]}
-      value={surface === "pr" ? "pr" : lens}
+      value={surface === "pr" ? "pr" : surface === "publish" ? "publish" : lens}
       onChange={(id) => {
         if (id === "pr") {
           onOpenPr?.();
           return;
         }
+        if (id === "publish") {
+          onOpenPublish?.();
+          return;
+        }
         if (id === "changes" || id === "files") {
           pickWorkspaceLens(taskId, viewKey, id);
-          // Choosing a lens while PR is in front is also choosing the files
-          // surface, and only the page can move the address to agree. The
-          // pick above is what the panel opens on (TASTE 15).
-          if (surface === "pr") onShowFiles?.();
+          // Choosing a lens while another surface is in front is also choosing
+          // the files surface, and only the page can move the address to agree.
+          // The pick above is what the panel opens on (TASTE 15).
+          if (surface !== "files") onShowFiles?.();
         }
       }}
       ariaLabel={tr("workspace.sidebarTabs")}
@@ -1107,18 +1126,24 @@ export default function WorkspacePanel({
       variant="quiet"
       onClick={closePanel}
       className="flex-none h-11 w-11 items-center justify-center p-0 text-kin-muted sm:h-6 sm:w-6"
-      aria-label={surface === "pr" ? tr("pr.close") : tr("workspace.close")}
+      aria-label={
+        surface === "pr"
+          ? tr("pr.close")
+          : surface === "publish"
+            ? tr("publish.close")
+            : tr("workspace.close")
+      }
     >
       <IconX size={14} />
     </Button>
   );
 
-  // The PR surface: the same container, strip and close as the lenses, with
-  // the page's read-only pane as the content. An early return rather than a
+  // The PR and publish surfaces: the same container, strip and close as the
+  // lenses, with the page's pane as the content. An early return rather than a
   // branch inside the markup, so the files surface below stays exactly the
   // markup it was: one tab switch is a different surface, not a different
   // panel.
-  if (surface === "pr") {
+  if (surface !== "files") {
     return (
       <div
         ref={rootRef}
@@ -1130,7 +1155,7 @@ export default function WorkspacePanel({
           {finderAction}
           {closeAction}
         </div>
-        <div className="min-w-0 flex-1 min-h-0">{prPane}</div>
+        <div className="min-w-0 flex-1 min-h-0">{surface === "pr" ? prPane : publishPane}</div>
       </div>
     );
   }
@@ -1176,23 +1201,6 @@ export default function WorkspacePanel({
             {projectLabel(cwd)} · {shortPath(cwd, 48)}
           </div>
         </div>
-        {/*
-          The one write this panel offers, in the corner of the header it belongs
-          in: what the panel shows is a session's changes, and publishing is what
-          a person does about them when they are done reading.
-        */}
-        {onPublish && (
-          <Button
-            variant="secondary"
-            onClick={onPublish}
-            title={tr("publish.hint")}
-            aria-label={tr("publish.action")}
-            className="flex-none gap-1.5 px-2 py-1 text-caption"
-          >
-            <IconSend size={12} />
-            {tr("publish.action")}
-          </Button>
-        )}
         {workspaceView.editable && reviewActions && onDiscardAll && (
           <Button
             variant="secondary"
@@ -1238,8 +1246,9 @@ export default function WorkspacePanel({
           }
         >
           <div className="flex-none flex items-center gap-1 px-2 py-1.5 border-b border-[var(--kin-hairline)]">
-            {/* The one strip: the lenses and the PR tab, with the finder as an
-                action beside them — never a fourth tab that selects nothing. */}
+            {/* The one strip: the lenses and the panel's other surfaces, with
+                the finder as an action beside them — never a tab that selects
+                nothing. */}
             {strip}
             {finderAction}
           </div>

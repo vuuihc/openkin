@@ -11,13 +11,13 @@ import WorkspacePanel from "../workspace/WorkspacePanel";
 import TaskUsageSummary from "../usage/TaskUsageSummary";
 
 /**
- * The session's floating surfaces: the side rail, the workspace panel (the
- * files lenses, with the read-only pull request as its third tab) and the
- * publish sheet.
+ * The session's floating surfaces: the side rail and the workspace panel — the
+ * files lenses, with the read-only pull request and publish as its third and
+ * fourth tabs.
  *
  * Extracted from `TaskDetailPage` unchanged so the page's state, handlers and
  * lifecycle logic can be read — and later edited — without scrolling past the
- * markup of three surfaces that only draw what the page tells them. It reads no
+ * markup of two surfaces that only draw what the page tells them. It reads no
  * store and fetches nothing: every value and callback below is the page's.
  *
  * The component renders a fragment, never a wrapper. Both surfaces position
@@ -79,7 +79,7 @@ export type TaskPanelsProps = {
    */
   onSendFollowUp?: (text: string) => Promise<void>;
   onClosePanel: () => void;
-  /** The agent's last answer, as the publish sheet's opening draft. */
+  /** The agent's last answer, as the publish tab's opening draft. */
   publishDraft: PublishDraft;
   onPublishRowChanged: () => void;
 };
@@ -118,7 +118,12 @@ export default function TaskPanels({
   const tr = useT();
   const filesOpen = panel === "files";
   const prOpen = panel === "pr";
-  const publishOpen = panel === "publish";
+  // One predicate for the tab and the pane: the registry's rule (a checkout on
+  // another machine) and a machine to publish to. Two answers could disagree —
+  // a tab that opens nothing, or a surface with no tab selected — so there is
+  // only one.
+  const publishOffered = machine !== null && isPanelAvailable("publish", panelCtx);
+  const publishOpen = panel === "publish" && publishOffered;
 
   return (
     <>
@@ -147,8 +152,13 @@ export default function TaskPanels({
         </aside>
       )}
 
-      {(filesOpen || prOpen) && (
-        <PanelSurface label={prOpen ? tr("pr.title") : tr("workspace.title")} shape="column">
+      {(filesOpen || prOpen || publishOpen) && (
+        <PanelSurface
+          label={
+            prOpen ? tr("pr.title") : publishOpen ? tr("publish.title") : tr("workspace.title")
+          }
+          shape="column"
+        >
           <div className="h-full w-full">
             <WorkspacePanel
               taskId={task.id}
@@ -167,17 +177,19 @@ export default function TaskPanels({
               actionsBusy={reviewBusy}
               // Publishing is offered for a session on another machine and no
               // other: the Hub refuses the write for a checkout it holds, and a
-              // button that could only ever be refused is worse than no button.
-              // Asked of the registry rather than of `machine`, so the rule has
-              // one home — the same one `resolvePanel` just consulted.
-              onPublish={isPanelAvailable("publish", panelCtx) ? onPublish : undefined}
+              // tab that could only ever be refused is worse than no tab. The
+              // predicate is shared with the pane above, so the tab and the
+              // surface cannot disagree — the same rule `resolvePanel` just
+              // consulted.
+              onOpenPublish={publishOffered ? onPublish : undefined}
               onFindFile={onFindFile}
               onSendFollowUp={onSendFollowUp}
               onClose={onClosePanel}
-              // The PR is this panel's third tab, drawn by the same container
-              // and the same strip. The page still owns the surface address,
-              // which is why the tab asks rather than flipping anything here.
-              surface={prOpen ? "pr" : "files"}
+              // The PR and publish are this panel's third and fourth tabs,
+              // drawn by the same container and the same strip. The page still
+              // owns the surface address, which is why a tab asks rather than
+              // flipping anything here.
+              surface={prOpen ? "pr" : publishOpen ? "publish" : "files"}
               prPane={
                 prOpen ? (
                   <PullRequestPanel
@@ -193,33 +205,36 @@ export default function TaskPanels({
                   />
                 ) : undefined
               }
+              publishPane={
+                publishOpen ? (
+                  <PublishPanel
+                    taskId={task.id}
+                    machine={machine}
+                    // Where the Hub remembers the work being. It is what the
+                    // machine recorded when the session started (or the last
+                    // publish corrected), and the pane says "unknown" rather
+                    // than guessing when there is nothing: only that machine
+                    // can answer, and it answers when asked.
+                    repo={task.workspace_repo ?? undefined}
+                    branch={task.workspace_branch ?? undefined}
+                    draft={publishDraft}
+                    // Both answers that change the Hub's row — a publish, and
+                    // the escape that moves the checkout — land here, so the
+                    // row under this page is read again. The row is what the
+                    // pane opens with and what the repository chip draws; the
+                    // branch strip beside it asks the machine on its own and is
+                    // not this.
+                    onRowChanged={onPublishRowChanged}
+                    // The container owns the skin, the strip and the one close.
+                    embedded
+                  />
+                ) : undefined
+              }
               onOpenPr={onOpenPr}
               onShowFiles={onShowFiles}
             />
           </div>
         </PanelSurface>
-      )}
-
-      {publishOpen && machine && (
-        <PublishPanel
-          taskId={task.id}
-          machine={machine}
-          // Where the Hub remembers the work being. It is what the machine
-          // recorded when the session started (or the last publish corrected),
-          // and the sheet says "unknown" rather than guessing when there is
-          // nothing: only that machine can answer, and it answers when asked.
-          repo={task.workspace_repo ?? undefined}
-          branch={task.workspace_branch ?? undefined}
-          draft={publishDraft}
-          // Both answers that change the Hub's row — a publish, and the escape
-          // that moves the checkout — land here, so the row under this page is
-          // read again. The row is what the sheet opens with and what the
-          // repository chip draws; the branch strip beside it asks the machine
-          // on its own and is not this.
-          onRowChanged={onPublishRowChanged}
-          onClose={onClosePanel}
-          shape="column"
-        />
       )}
     </>
   );

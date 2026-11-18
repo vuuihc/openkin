@@ -914,7 +914,6 @@ const zh = {
   },
   publish: {
     title: "发布",
-    hint: "把这台机器上这个会话的分支推上去并开 Pull Request",
     action: "发布",
     on: "在 {name} 上",
     onUnknown: "在 {name} 上（不在机器列表里）",
