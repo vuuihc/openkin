@@ -122,6 +122,25 @@ Job map：定义/定位＝状态机与深链；准备/确认＝文件读取与�
 - 用户 2026-11-14 明确要求修返回、HTML 和 Kin 文件直达链接。
 - 独立复审指出：同路径 phonePush 历史、OIDC 查询丢失、资源承诺冲突、inert 导航、truncated 判断、source/generation 与 IA owner；本版逐项收紧。
 
+## P7 走查（2026-11-18）
+
+结论：验收表**未被整表走查覆盖**，状态保持 `approved`。J13 在 390×844 真浏览器走通了下面「已证」的五条；「未证」的条目仍只由既有测试或契约文字承担，registry 与 COVERAGE 不变。
+
+已证（`rsi/runtime/ux/journeys/J13.json`，`./scripts/journeys-smoke.sh --journeys J13`：8 屏、0 硬失败）：
+
+- 冷启动 `/tasks/<id>?panel=files&file=notes.md` 落在该源文件，正文可读，地址仍指向该文件。
+- 面板内「返回文件」把地址写回 `?panel=files`（无 file），文件列表重新出现，且没有把旧文件重新打开。
+- 面板关闭（「关闭文件面板」）把地址写回 `/tasks/<id>`（无 panel/file），`data-phone-view` 消失，回到对话。
+- 从列表打开自包含 `preview.html`：默认 iframe 预览、「预览」按下；点「源码」后 iframe 消失、「源码」按下、源码可读；点回「预览」后 iframe 回来；两次切换地址都不变。
+- 再次打开 `?panel=files&file=notes.md` 仍恢复同一文件。
+
+未证：
+
+- **浏览器/系统 Back 从文件列表回到对话**：冷启动深链的合成父级是 `/sessions`（`synthesizePhoneParent`），第二次 Back 落到会话列表而不是对话；本故事写的 replace+push 队列尚未实现。因此 J13 用面板自己的关闭作为对话出口，不声称系统 Back 可达。
+- 「普通打开 Files 不重放旧文件」没有单独走查。
+- Mac 双栏、登录回跳、`truncated`、空/失败/断线，以及 ≥44px 触达与焦点恢复，J13 不断言，仍由既有 DOM 测试与验收表文字承担。
+- 走查顺带修的两处：面板「返回文件」原本只改组件状态、不写地址，现在经 `onSelectPath(cwd)` 把列表地址 replace 回来；预览文档 CSP 里的 `frame-ancestors` 在 `<meta>` 中无效并抛出控制台错误，已移除（`htmlPreview.ts`，沙盒与 `default-src 'none'` 仍在）。
+
 ## 变更记录
 
 - 2026-11-14 创建为独立文件工作区故事，不启动全局 IA；按独立复审补齐导航、登录、安全与范围合同。

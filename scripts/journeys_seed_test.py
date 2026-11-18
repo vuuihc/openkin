@@ -1132,6 +1132,18 @@ class HarnessContractTest(unittest.TestCase):
             tracked = git(root, "ls-files", "--error-unmatch", "notes.md")
             self.assertEqual(tracked.returncode, 0, tracked.stderr)
             self.assertTrue(self.notes(root).strip())
+            # J13's page/source leg: a committed, self-contained document. No
+            # script, link or remote src can be in it — the preview's inert
+            # document would strip them, and the walk would be proving the
+            # stripper, not the page.
+            html = git(root, "ls-files", "--error-unmatch", "preview.html")
+            self.assertEqual(html.returncode, 0, html.stderr)
+            with open(os.path.join(root, "preview.html"), encoding="utf-8") as fh:
+                preview = fh.read()
+            self.assertIn("<style>", preview)
+            self.assertIn("<p>Seed preview page</p>", preview)
+            for active in ("<script", " src=", " href="):
+                self.assertNotIn(active, preview)
             status = git(root, "status", "--porcelain")
             self.assertEqual(status.returncode, 0, status.stderr)
             self.assertEqual(status.stdout, "", f"{root} is not clean")
