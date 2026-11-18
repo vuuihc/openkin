@@ -339,4 +339,33 @@ describe("the split follows the panel's own width", () => {
     expect(hasClass(viewer(container), "hidden")).toBe(false);
     expect(back()).toBeNull();
   });
+
+  it("measures again when the files surface comes back", () => {
+    // A panel that opened on the pull request draws no panes, so there was
+    // nothing to measure. The first files render must measure rather than
+    // inherit the initial "wide" answer and lay a split out in a 380px column.
+    stubContainerWidth(380);
+    const view = render(
+      <WorkspacePanel
+        taskId="task-1"
+        cwd={CWD}
+        changedFiles={[changed]}
+        events={[]}
+        surface="pr"
+      />,
+    );
+    expect(panes(view.container)).toBeNull();
+
+    view.rerender(
+      <WorkspacePanel
+        taskId="task-1"
+        cwd={CWD}
+        changedFiles={[changed]}
+        events={[]}
+        surface="files"
+      />,
+    );
+
+    expect(panes(view.container)?.getAttribute("data-panes")).toBe("stacked");
+  });
 });
