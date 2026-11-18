@@ -26,6 +26,7 @@ MANIFEST="$WT/rsi/runtime/ux/walk-mutant.json"
 RUNNER="$WT/rsi/runtime/ux/walk-mutant-test.sh"
 WALKER="$WT/rsi/runtime/ux/walk.mjs"
 SPEC_INDEX="$WT/rsi/runtime/ux/journeys.json"
+JOURNEYS_DIR="$WT/rsi/runtime/ux/journeys"
 SPECPY="$WT/rsi/runtime/ux/spec.py"
 MERGE="$WT/rsi/runtime/merge.sh"
 
@@ -622,16 +623,24 @@ if [ "$rc" -ne 0 ]; then
   fail "$case_name: --check-spec exited $rc against the real inline spec"
 fi
 # And once with a body on disk: the walker's loader, not only spec.py, must
-# resolve an index entry relative to the index.
+# resolve an index entry relative to the index. Bodies the real index already
+# names are carried over too, so this case keeps working as more journeys move.
 tmp="$(mktemp -d "$tmpbase/walk-mutant-spec-split.XXXXXX")"
 python3 - "$SPEC_INDEX" "$tmp" <<'PY' || { rm -rf "$tmp"; rm -f "$log"; fail "$case_name: cannot build the moved-J1 fixture"; }
 import json
 import os
+import shutil
 import sys
 
 src, out = sys.argv[1], sys.argv[2]
 spec = json.load(open(src, encoding="utf-8"))
 os.makedirs(os.path.join(out, "journeys"), exist_ok=True)
+bodies = os.path.join(os.path.dirname(os.path.abspath(src)), "journeys")
+if os.path.isdir(bodies):
+    for name in sorted(os.listdir(bodies)):
+        if name.endswith(".json"):
+            shutil.copyfile(os.path.join(bodies, name),
+                            os.path.join(out, "journeys", name))
 body = spec["journeys"]["J1"]
 with open(os.path.join(out, "journeys", "J1.json"), "w", encoding="utf-8") as fh:
     json.dump(body, fh, ensure_ascii=False)
@@ -687,4 +696,37 @@ dash="$(RSI_CTRL="$WT" bash "$MERGE" --spec-rev "$empty" 2>&1)"
 rm -rf "$tmp" "$empty"
 pass "$case_name"
 
-echo "walk-mutant contract: 14/14 cases passed"
+# The fixtures above prove the loader; this case pins the shipped index, so the
+# first body move cannot be faked by a stale inline copy or a body that drifted
+# from it. J2 gains legs, so the step count is deliberately not asserted. Batch
+# 3 generalises this into test_spec_split_every_journey_resolves; keep the body
+# checks here reusable for that.
+case_name="test_spec_real_index_j2_is_a_file"
+[ -f "$SPECPY" ] || fail "$case_name: $SPECPY is missing"
+python3 - "$SPEC_INDEX" "$SPECPY" "$JOURNEYS_DIR" <<'PY' || fail "$case_name: the shipped index still has J2 inline or the body drifted"
+import json
+import os
+import subprocess
+import sys
+
+index_path, specpy, journeys_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+index = json.load(open(index_path, encoding="utf-8"))
+entry = (index.get("journeys") or {}).get("J2")
+assert entry == "journeys/J2.json", "J2 is not a file entry: %r" % (entry,)
+body_path = os.path.join(journeys_dir, "J2.json")
+body = json.load(open(body_path, encoding="utf-8"))
+steps = body.get("steps")
+assert isinstance(steps, list) and steps, "J2.json has no steps"
+assert isinstance(body.get("title"), str) \
+    and body["title"].startswith("Mac: search last week's chat"), \
+    "J2.json title drifted: %r" % (body.get("title"),)
+assert body.get("viewports") == ["mac", "mac-wide"], \
+    "J2.json viewports drifted: %r" % (body.get("viewports"),)
+resolved = json.loads(subprocess.check_output(
+    [sys.executable, specpy, "--resolve", index_path]))
+assert resolved["journeys"]["J2"] == body, "the resolved J2 is not the body file"
+print("real index ok: J2 resolves verbatim from journeys/J2.json")
+PY
+pass "$case_name"
+
+echo "walk-mutant contract: 15/15 cases passed"
