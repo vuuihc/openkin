@@ -12,7 +12,7 @@
 | 视觉：继续 Kin，不换主题与品牌 | 🟢 已与用户确定 | `--kin-*` 与不变量测试继续使用 |
 | 人工节点：总设计签字 + 整体交付验收 | 🟢 已与用户确定 | 两个 Goal 而不是八次逐区确认 |
 | Goal 0 · 总设计 | 🟡 已制作，待签字 | [审阅页](../product/stories/KIN-CONTINUE-003.review.html) + [合同](../product/stories/KIN-CONTINUE-003.md)；通知生命周期 / 项目刷新等复审问题已修正，独立复审无 blocker/major，尚无人为签字 |
-| 手机文件修复（RESULT-002） | 🟡 独立小设计已复审，无 blocker/major；待人为签字，产品未改 | [审阅页](../product/stories/KIN-RESULT-002.review.html)：3 帧 / 3 套流程；390/1100 真浏览器通过。历史/OIDC/HTML 合同两轮修正后窄复审通过；范围仅文件/diff 返回、自包含 HTML 预览、source 深链；**不是 Goal 1 开工** |
+| 手机文件修复（RESULT-002） | 🟢 已签字并实现；走查随 P7 第 2 项落地，暂不记为已覆盖 | [审阅页](../product/stories/KIN-RESULT-002.review.html)：3 帧 / 3 套流程；390/1100 真浏览器通过。历史/OIDC/HTML 合同两轮修正后窄复审通过；范围仅文件/diff 返回、自包含 HTML 预览、source 深链；**不是 Goal 1 开工**。签字见 `rsi/DECISIONS.md` 2026-11-17 14:55；已落地预览 + 源码切换（`ui/src/pages/TaskDetailPage.tsx:1088` 的 `/tasks/<id>?panel=files&file=<path>` 地址，测试 `ui/src/components/workspace/FilePreview.dom.test.tsx` 的 `KIN-RESULT-002: 源码 shows the code viewer and comes back`），URL/返回状态机另列 |
 | Astryx 固定接入成本 | 🟢 已实测并落地 | [spike](2026-11-09-astryx-spike.md) 的 +83.9 kB raw / +25.1 kB gzip 只是 Button/TextInput/Theme 三个入口的 spike 成本；F3 #80 `8fbe3fa3` 已接入主线，最终包体差值与测量方法见下方《验收说明（2026-11-17）》§4 |
 | Tailwind 4 兼容 | 🟢 已落地主线 | F1 #67 `37f63772`：`tailwindcss@4` + `@tailwindcss/postcss` 替换 v3 管线，layer / 对比度 / 焦点环回归测试随迁移通过 |
 | 当前故事与导航合同 | 🟢 已统一 | G2 #149 `49ddf5a0` 把 `NAVIGATION.md` 与 `IA.md` 改成四区 / 四入口合同；G2b #154 `2ea8e07b` 补齐组件契约。旧的「项目无独立列表」不再成立 |
@@ -45,6 +45,7 @@
 以下都是在本 SHA 上重新核对过的「还没做完」，不是历史摘抄。
 
 - **中 · J5 行操作缺「改名」**（本轮 walk 新发现）。验证：`ui/src/components/sessions/SessionRow.tsx:270-327` 构造的行操作只有多选 / 置顶 / 归档 / 删除；手机 Sheet 与 Mac 菜单都能打开（`J5-phone-02-row-actions.png`、`J5-mac-02-row-actions.png`），但没有已签字故事 `docs/product/stories/KIN-MANAGE-001.md:57` 要求的「改名」，运行中的对话也没有该故事 `:58` 要求的「正在运行」提示。后果：标题相近的对话只能靠归档 / 删除整理，改不了名。需要单独切片补 KIN-MANAGE-001 的菜单项与本地改名（已记入 `rsi/state/needs-ceo.md`）。
+- 已修（#223 `a1bc4c37` + #291 `eb1a3334`）J5 行操作补上「改名」与运行中提示 —— 验证：`ui/src/components/sessions/SessionRow.tsx:525` 在活动范围以 `id: "rename"`（`tr("sessions.rename")`）领头，`:511` 在 `runningNow` 时先插入 `id: "running"` 的禁用状态行；测试 `ui/src/components/sessions/SessionRow.dom.test.tsx` 文件头 pin `KIN-MANAGE-001`，并有「offers Rename, Select and the row's edits in order on a touch page」与「a running conversation says Running in the Mac menu and still offers Archive and Delete」。
 - 已修（#165 `9d8fbffc` + #171 `e43b0b62`）思考与过程叙述被收进卡片 —— gap-log 2026-11-17 已移入「已修」。验证：`ui/src/components/chat/ChatStream.tsx:190-193` 在 `loading` 时以 `splitNotes` 把进行中的过程留在正文，结束的一轮收成一条带终态 / 工具数 / 时长的摘要行；测试见 `ui/src/components/chat/transcriptProjection.test.ts`、`ChatStream.prose.dom.test.tsx`、`ChatStream.summary.dom.test.tsx`。
 - 已修（#205 `62a7dcb6`）长按对话行不能拖动排序 —— 验证：`ui/src/lib/taskOrder.ts` 持久化手动顺序，`ui/src/lib/phoneSessionBuckets.ts:421` 用 `applyTaskOrder` 覆盖桶内排序，`ui/src/components/mobile/SwipeReveal.tsx:244-253` 把完成的长按交给 `reorder`；测试见 `ui/src/lib/taskOrder.test.ts` 与 `ui/src/components/sessions/SessionList.drag.dom.test.tsx`。`docs/plans/gap-log.md:37` 的条目尚未移入「已修」，待随下一次 gap-log 维护同步。本轮 walk 不模拟指针手势，没有手势录像。
 - 已修（#797e3dd2）手机新建页 <44px 触控目标 —— `ProjectSummaryCard.tsx` 的封面 chip 加 `inline-flex min-h-11`；本轮复走 J3/phone 12 屏 `smallTapTargets` 汇总 0（05:53 为 18）。gap-log 2026-11-17 已移入「已修」。
@@ -57,8 +58,8 @@
 
 ### 3. 未验证项
 
-- **发送新消息（J1 / J2「继续」里的发送动作）**：walk 只做 fill / click / key，没有发送步骤；本轮验证到对话正文、composer 与审批卡，没有真的发出新消息。
-- **J2「看 diff」只到文件内容**：walk 打开 notes.md 后停在 Markdown 预览（能看到 fake agent 追加的行），没有切到查看器里的「差异」视图；产品有该切换（`ui/src/i18n/locales/zh.ts` 的 `viewer.diff`），本轮没有走。
+- **发送新消息（J1 / J2「继续」里的发送动作）**：walk 只做 fill / click / key，没有发送步骤；本轮验证到对话正文、composer 与审批卡，没有真的发出新消息。已补走：J3 走查真实点「开始」发送（#245 `89d9c656`），运行中的追问在首个回答前入队（#264 `7b0f6679`）。
+- **J2「看 diff」只到文件内容**：walk 打开 notes.md 后停在 Markdown 预览（能看到 fake agent 追加的行），没有切到查看器里的「差异」视图；产品有该切换（`ui/src/i18n/locales/zh.ts` 的 `viewer.diff`），本轮没有走。已补走：J2 走查从行内评论走到已发送的追问，并打开 notes.md 的 diff（#274 `58afe1ae`）。
 - **J7/Mac 的「返回」步骤**：桌面布局没有手机上的返回按钮（Mac 用侧栏回到列表），walk 记为 skipped（not visible），不是失败；手机的同一步已走通（回到 `/sessions`）。
 - **手机手势**（左缘返回跟手、行左划、拖动排序）：walk 不模拟指针手势；拖动排序已有 #205 的代码与单测，本轮没有真机 / 浏览器手势录像。
 - **Electron 桌面外壳**：本轮只走浏览器 console（headless Chrome），没有重建或操作 Electron 壳。

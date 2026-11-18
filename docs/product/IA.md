@@ -42,7 +42,7 @@
 | Mac 右边 `/sessions` 页 | 不再显示列表，跳到新建页；归档页保留 | 和左边重复 |
 | ⌘K 里的"任务"表格 `/tasks` | 删除 | 第三份，而且只能从 ⌘K 进 |
 | 手机 K 抽屉 / dock | 删除；入口并进列表页底部四个入口，导入进 Agent 运维 | 手机上只能有一个导航面 |
-| 手机对话列表 | 补上设备层：设备 → 项目 → 对话 | 现在只有两层，和左栏不一致 |
+| 手机对话列表 | 补上设备层：设备 → 项目 → 对话 | 已落地：`ui/src/components/sessions/SessionList.tsx` 的 `DeviceSection` 渲染「设备 → 项目 → 行」，`data-sidebar-indent` 标出层级，分组由 `groupProjectBucketsByDevice` 提供；测试 `ui/src/lib/phoneSessionBuckets.test.ts`（`describe("groupProjectBucketsByDevice")`），J1 走查即按（设备 → 项目 → 对话）打开（`docs/plans/2026-11-14-ux-unification.md` §1 J1 行） |
 | 归档 `/sessions?scope=archived` | 保留为同一份对话列表的筛选；Mac 入口在左栏，手机不占一级入口 | 归档不是独立的导航面 |
 | Mac 点"权限" | 改成 Mac 的小菜单 | 现在弹 iPhone 式底部面板 |
 | Mac 点"模型" | 改成带目录和分组的桌面面板 | 现在 288px，只有两行 |
