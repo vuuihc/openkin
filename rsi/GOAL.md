@@ -96,8 +96,48 @@ keep 2–4 queued, and say so in the weekly retro. Do not extend the date.
 **Out of scope — parked on Ethan** (one line each in `state/STATUS.md`, "Parked / needs a person"): F3 in-app PR writes (credential and
 permission model), the browser panel tab (Electron `webview` ADR), the agent catalog cut 74 → ≤10.
 
-## Current phase (P5) — projects you can manage, not just open
-<!-- phase: P5-projects-manage target=2026-11-23T20:00 -->
+## Current phase (P6) — a new chat starts already briefed
+<!-- phase: P6-projects-briefing target=2026-11-21T20:00 -->
+
+**Why this and not features.** P5 gave a project a face for *which directories* it is made of. The thing a
+person repeats by hand every day is *how work happens here* — the build command, the generated files nobody
+edits, the doc to read first. Today that only fits in the One-Pager's Current Focus, which belongs to the main
+line and is capped, or it is retyped into every new chat and lost when the chat ends. The signed
+`KIN-PROJECT-003` already settles the durable source: a bounded `## 工作方式` section in `ONE_PAGER.md`, carried
+by the digest that new chats already receive (`OnePagerDigestMaxRunes = 1200`), read-only on the cover with a
+「让 Kin 改…」launcher — zero schema, zero new endpoint, no new editor and no new tab. Parity §7 names the same gap
+("project instructions"), and the injection path (`maybeInjectProjectContext` → `BuildContinuePrompt`) already
+exists, so the work is to make it carry this section, not to invent a second document.
+
+**Done means** (each item names what proves it):
+1. KIN-PROJECT-003 delivered: `## 工作方式` (aliases `How to work here`, `Instructions`) is parsed into the
+   digest, at most 400 characters and still inside the existing 1200-rune budget; the cover shows the text the
+   agent will actually receive, with 空 / 截断 / 读取失败+重试 / 离线 states and the launcher that pre-fills the
+   composer without starting it; 390/1100 shots; the registry flips to `covered` with the tests that name
+   `KIN-PROJECT-003` in the same PR.
+2. The first prompt carries it: a test proves a new chat in a project with that section receives the text
+   through `BuildContinuePrompt` (and a project without it receives nothing extra), and a mutant that drops the
+   section from the digest turns that test red.
+3. The block a person reads on the cover is the same text the agent gets in a new chat, on both widths — the
+   story's J4 row walked, not only asserted in a unit test.
+
+**Cut rule.** If item 1 is not green by the target, land it alone, keep item 3 queued, and say so in the weekly
+retro. Do not extend the date.
+
+**Out of scope** — routines 「清空已结束」/delete API (parked row 13: needs an ADR and Ethan's word), the `@`
+object expansion (session / role / prompt shortcut: needs its own story), the §6 MCP config face (needs a
+security pass), reading a project's `AGENTS.md` / `CLAUDE.md` (filesystem, future story), and anything that
+would add a schema, a migration or a new endpoint.
+
+## Closed phase (P5) — projects you can manage, not just open
+<!-- closed-phase: P5-projects-manage target=2026-11-23T20:00 -->
+
+Closed 2026-11-18, all three items landed: item 1 `a1e18155` (#296 — every root in saved order with 默认 on the
+first; the editor adds, removes and re-defaults through one `PATCH {roots}`; Mac Popover, phone bottom sheet),
+item 2 the same PR (the registry flipped to `approved` with its three registered tests), item 3 the same PR
+(one root → cwd, several → picker; `KIN-PROJECT-002 the new-chat target follows the first root after a saved
+reorder`). A saved order survives a reload: `SetProjectRoots` deletes and re-inserts, `listProjectRoots` reads
+`ORDER BY rowid` (`TestProjectRootsKeepSavedOrder`). P5 closed five days early; the target date is unchanged.
 
 **Why this and not features.** P4 proved the last two daily flows. The next most-used surface with no
 management face is the project: `Project.roots` and `PATCH /api/projects/:id {roots}` already exist and
