@@ -1345,5 +1345,133 @@ class WalkJ9ContractTest(unittest.TestCase):
         self.assertIn("scroll-kept", out)
 
 
+class WalkJ10ContractTest(unittest.TestCase):
+    """J10 must prove the phone's four tabs keep their place and a card stays answered.
+
+    The tab memory itself is pinned in `phoneNavigation.test.tsx`, but no walk
+    ever approves a deep-linked card, visits the four footer entries, and comes
+    back. Without J10 a settings tab that reopens General, a Routines entry that
+    forgets its machine, or an approved card that reappears on the return are
+    all green. Same shape as WalkJ9ContractTest: the checked-in spec passes the
+    walker's own contract check, and a copy that regresses one rule at a time
+    fails with a message naming that rule.
+    """
+
+    SHOTS = (
+        "f5-deep-link",
+        "f5-approved",
+        "f5-tab-settings-remembered",
+        "f5-tab-routines",
+        "f5-approved-card-stayed-gone",
+    )
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j10-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def check(self, spec_path: str = SPEC) -> tuple[int, str]:
+        done = subprocess.run(
+            [NODE, WALK, "--check-spec", "--spec", spec_path],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        return done.returncode, done.stdout + done.stderr
+
+    def copy_with(self, mutate) -> str:
+        with open(SPEC, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        mutate(spec["journeys"]["J10"]["steps"])
+        path = os.path.join(self.tmp, "journeys.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(spec, fh)
+        return path
+
+    @staticmethod
+    def at(steps: list, pred, start: int = 0) -> int:
+        return next(i for i, step in enumerate(steps) if i >= start and pred(step))
+
+    @staticmethod
+    def approve(step: list) -> bool:
+        return step[0] in ("click", "gone") and (
+            "批准" in str(step[1]) or "Approve" in str(step[1])
+        )
+
+    def test_j10_contract_accepts_the_checked_in_spec(self) -> None:
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("spec ok: J10 ", out)
+        with open(SPEC, encoding="utf-8") as fh:
+            journey = json.load(fh)["journeys"]["J10"]
+        self.assertEqual(journey["viewports"], ["phone"])
+        names = [step[1] for step in journey["steps"] if step[0] == "shot"]
+        for name in self.SHOTS:
+            self.assertIn(name, names)
+        # The order is the story: land, approve, walk the tabs, return.
+        self.assertLess(names.index("f5-deep-link"), names.index("f5-approved"))
+        self.assertLess(names.index("f5-approved"), names.index("f5-tab-settings-remembered"))
+        self.assertLess(names.index("f5-tab-settings-remembered"), names.index("f5-tab-routines"))
+        self.assertLess(names.index("f5-tab-routines"), names.index("f5-approved-card-stayed-gone"))
+
+    def test_j10_contract_rejects_a_walk_that_never_approves_the_card(self) -> None:
+        # Approving is the decision the return must find gone. A walk that only
+        # looks at the card never answers it, and the final gone is vacuous.
+        def drop_the_approve_click(steps: list) -> None:
+            steps.pop(self.at(steps, lambda step: step[0] == "click" and self.approve(step)))
+
+        code, out = self.check(self.copy_with(drop_the_approve_click))
+        self.assertEqual(code, 1, out)
+        self.assertIn("never presses the card's approve control", out)
+
+        def drop_the_approve_gone(steps: list) -> None:
+            steps.pop(self.at(steps, lambda step: step[0] == "gone" and self.approve(step)))
+
+        code, out = self.check(self.copy_with(drop_the_approve_gone))
+        self.assertEqual(code, 1, out)
+        self.assertIn("never proves the approve control left the screen", out)
+
+    def test_j10_contract_rejects_a_walk_without_all_four_footer_taps(self) -> None:
+        # IA D8: four peer entries. Dropping any one leaves its area's memory
+        # unproven, so each is a required tap, not a nicety.
+        for tab in ("sessions", "routines", "agents", "settings"):
+            with self.subTest(tab=tab):
+                def drop_one_tab(steps: list, tab: str = tab) -> None:
+                    needle = f'[data-phone-return="{tab}"]'
+                    hits = [i for i, step in enumerate(steps)
+                            if step[0] == "click" and needle in str(step[1])]
+                    for i in reversed(hits):
+                        steps.pop(i)
+
+                code, out = self.check(self.copy_with(drop_one_tab))
+                self.assertEqual(code, 1, out)
+                self.assertIn(f"never taps the {tab} footer entry", out)
+
+    def test_j10_contract_rejects_a_tab_round_without_the_remembered_settings_url(self) -> None:
+        # F5's whole point: 设置 and Agent 运维 share /settings but not a memory
+        # key. A round that only asserts bare roots passes while Settings
+        # reopens General after Agent Ops, which is the regression.
+        def drop_the_settings_memory(steps: list) -> None:
+            hits = [i for i, step in enumerate(steps)
+                    if step[0] == "search" and "tab=agents" in str(step[1])]
+            steps.pop(hits[-1])
+
+        code, out = self.check(self.copy_with(drop_the_settings_memory))
+        self.assertEqual(code, 1, out)
+        self.assertIn("Settings remembered its tab", out)
+
+    def test_j10_contract_rejects_a_return_that_never_proves_the_card_stayed_gone(self) -> None:
+        # The return is the half that catches a decided card drawn as pending
+        # again. Without the final gone the walk photographs a page and says
+        # nothing about the answer it gave.
+        def drop_the_final_gone(steps: list) -> None:
+            hits = [i for i, step in enumerate(steps)
+                    if step[0] == "gone" and self.approve(step)]
+            steps.pop(hits[-1])
+
+        code, out = self.check(self.copy_with(drop_the_final_gone))
+        self.assertEqual(code, 1, out)
+        self.assertIn("stayed gone", out)
+
+
 if __name__ == "__main__":
     unittest.main()
