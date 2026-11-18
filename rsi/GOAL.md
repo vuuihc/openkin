@@ -170,7 +170,7 @@ model), the browser panel tab (Electron `webview` ADR), the agent catalog cut 74
 `R-steer-native`, 10 `R-queue-reorder`, 13 `R-routine-filter`, 15 `R-at-sessions`.
 
 ## Next phase (P8) — 把签过字的承诺结算成事实
-<!-- next-phase: P8-settled-ledger target=2026-11-20T20:00 -->
+<!-- next-phase: P8-settled-ledger target=2026-11-21T20:00 -->
 
 **Why this and not features.** The ledger says 8 `approved` / 8 `covered`, and the label now means
 "nobody has checked" rather than "not built". Three facts from this week measure the gap. `KIN-PROJECT-002`'s
@@ -202,8 +202,10 @@ false is fixed in the same delivery.
    list is 设备 → 项目 → 对话, and ⌘K lists actions and places but no conversation rows. Anything false is
    fixed in the same delivery.
 
-**Cut rule.** At 11-20 20:00 land whatever is green, queue the rest with the reason, and do not extend the
-number. A flip with no walk step or test named is refused, exactly as in P7 item 3.
+**Cut rule.** At 11-21 20:00 land whatever is green, queue the rest with the reason, and do not extend the
+number. The date assumes P7 closes by 11-19; if P7 lands on its own deadline (11-23), re-state this date when the
+marker flips rather than carrying one that already passed. A flip with no walk step or test named is refused,
+exactly as in P7 item 3.
 
 **Out of scope** — `KIN-NOTIFY-001` (its last acceptance row needs a real iPhone), `KIN-SETTINGS-002` (needs
 a packaged build), `KIN-CONTINUE-003` (its own surface; next phase), and every parked row above.
