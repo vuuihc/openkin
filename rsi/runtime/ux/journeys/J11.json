@@ -1,0 +1,237 @@
+{
+  "title": "Phone: switch conversations and areas without losing the shell, the scroll or the draft",
+  "viewports": [
+    "phone"
+  ],
+  "steps": [
+    [
+      "goto",
+      "/sessions"
+    ],
+    [
+      "shot",
+      "list"
+    ],
+    [
+      "click",
+      "[data-session-row]:has-text('[seed] Morning planning')"
+    ],
+    [
+      "wait",
+      "css=[role=region][tabindex='-1']:has-text('Fake reply from the journey fake agent.')"
+    ],
+    [
+      "fill",
+      "textarea",
+      "F4 turn 1"
+    ],
+    [
+      "send",
+      "button[aria-label='发送'], button[aria-label='Send']"
+    ],
+    [
+      "wait",
+      "css=[role=region][tabindex='-1']:has-text('F4 turn 1')"
+    ],
+    [
+      "wait",
+      "css=[role=region][tabindex='-1'] p:has-text('Fake reply from the journey fake agent.') >> nth=1"
+    ],
+    [
+      "fill",
+      "textarea",
+      "F4 turn 2"
+    ],
+    [
+      "send",
+      "button[aria-label='发送'], button[aria-label='Send']"
+    ],
+    [
+      "wait",
+      "css=[role=region][tabindex='-1']:has-text('F4 turn 2')"
+    ],
+    [
+      "wait",
+      "css=[role=region][tabindex='-1'] p:has-text('Fake reply from the journey fake agent.') >> nth=2"
+    ],
+    [
+      "fill",
+      "textarea",
+      "F4 turn 3"
+    ],
+    [
+      "send",
+      "button[aria-label='发送'], button[aria-label='Send']"
+    ],
+    [
+      "wait",
+      "css=[role=region][tabindex='-1']:has-text('F4 turn 3')"
+    ],
+    [
+      "wait",
+      "css=[role=region][tabindex='-1'] p:has-text('Fake reply from the journey fake agent.') >> nth=3"
+    ],
+    [
+      "fill",
+      "textarea",
+      "F4 turn 4"
+    ],
+    [
+      "send",
+      "button[aria-label='发送'], button[aria-label='Send']"
+    ],
+    [
+      "wait",
+      "css=[role=region][tabindex='-1']:has-text('F4 turn 4')"
+    ],
+    [
+      "wait",
+      "css=[role=region][tabindex='-1'] p:has-text('Fake reply from the journey fake agent.') >> nth=4"
+    ],
+    [
+      "scroll",
+      "css=[role=region][tabindex='-1']",
+      "320"
+    ],
+    [
+      "node",
+      "css=#root .touch-lg",
+      "shell"
+    ],
+    [
+      "fill",
+      "textarea",
+      "F4 draft [seed]"
+    ],
+    [
+      "shot",
+      "switch-chat"
+    ],
+    [
+      "back"
+    ],
+    [
+      "url",
+      "^/sessions"
+    ],
+    [
+      "click",
+      "[data-session-row]:has-text('[seed] Failed migration')"
+    ],
+    [
+      "url",
+      "^/tasks/"
+    ],
+    [
+      "wait",
+      "css=[role=region][tabindex='-1']:has-text('[seed] fail: explain why the migration stopped.')"
+    ],
+    [
+      "node",
+      "css=#root .touch-lg",
+      "shell"
+    ],
+    [
+      "back"
+    ],
+    [
+      "url",
+      "^/sessions"
+    ],
+    [
+      "click",
+      "[data-session-row]:has-text('[seed] Morning planning')"
+    ],
+    [
+      "url",
+      "^/tasks/"
+    ],
+    [
+      "wait",
+      "css=[role=region][tabindex='-1']:has-text('F4 turn 4')"
+    ],
+    [
+      "value",
+      "textarea",
+      "F4 draft [seed]"
+    ],
+    [
+      "scroll-kept",
+      "css=[role=region][tabindex='-1']",
+      "320"
+    ],
+    [
+      "node",
+      "css=#root .touch-lg",
+      "shell"
+    ],
+    [
+      "shot",
+      "switch-back"
+    ],
+    [
+      "back"
+    ],
+    [
+      "url",
+      "^/sessions"
+    ],
+    [
+      "click",
+      "[data-phone-return=\"routines\"]"
+    ],
+    [
+      "url",
+      "^/routines"
+    ],
+    [
+      "node",
+      "css=#root .touch-lg",
+      "shell"
+    ],
+    [
+      "click",
+      "[data-phone-return=\"sessions\"]"
+    ],
+    [
+      "url",
+      "^/sessions"
+    ],
+    [
+      "node",
+      "css=#root .touch-lg",
+      "shell"
+    ],
+    [
+      "click",
+      "[data-session-row]:has-text('[seed] Morning planning')"
+    ],
+    [
+      "url",
+      "^/tasks/"
+    ],
+    [
+      "wait",
+      "css=[role=region][tabindex='-1']:has-text('F4 turn 4')"
+    ],
+    [
+      "value",
+      "textarea",
+      "F4 draft [seed]"
+    ],
+    [
+      "scroll-kept",
+      "css=[role=region][tabindex='-1']",
+      "320"
+    ],
+    [
+      "node",
+      "css=#root .touch-lg",
+      "shell"
+    ],
+    [
+      "shot",
+      "switch-area-back"
+    ]
+  ]
+}
