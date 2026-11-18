@@ -1,0 +1,6 @@
+#!/bin/bash
+SHIM="$(cd "$(dirname "$0")" && pwd)"; REAL="$(PATH="${PATH//$SHIM:/}" command -v go)"
+case "go:$1 $2" in
+  npm:"run build"|npm:"run test"|npm:"run typecheck"|npm:"run lint"|npm:"ci "|npm:"install "|npm:"test "|npx:vitest*|npx:tsc*|npx:"vite "*|go:"test "*|go:"build "*|go:"vet "*) exec /workspace/box-lane/heavy.sh "$REAL" "$@";;
+  *) exec "$REAL" "$@";;
+esac
