@@ -104,6 +104,11 @@
       "F4 draft [seed]"
     ],
     [
+      "node",
+      "css=[data-kin-bottom-chrome] form",
+      "composer"
+    ],
+    [
       "shot",
       "switch-chat"
     ],
@@ -121,12 +126,22 @@
       "shell"
     ],
     [
+      "node",
+      "css=[data-kin-bottom-chrome] form",
+      "composer-failed"
+    ],
+    [
       "click",
       "[data-session-row]:has-text('[seed] Morning planning')"
     ],
     [
       "wait",
       "css=[role=region][tabindex='-1']:has-text('F4 turn 4')"
+    ],
+    [
+      "node",
+      "css=[data-kin-bottom-chrome] form",
+      "composer"
     ],
     [
       "value",
