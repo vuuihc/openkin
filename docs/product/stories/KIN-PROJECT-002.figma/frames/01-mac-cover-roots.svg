@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="760" viewBox="0 0 1100 760">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="1100" height="760" fill="#ffffff" rx="10"/><rect width="1100" height="32" fill="#f0f0f0" rx="10"/><rect y="10" width="1100" height="22" fill="#f0f0f0"/>
+<line x1="0" y1="32" x2="1100" y2="32" stroke="#dddddd"/><text x="12" y="21" font-size="12" fill="#555">Mac 1100×760 · 项目封面 · 工作目录块（KIN-PROJECT-002）</text><text x="1088" y="21" font-size="11" fill="#6b6b6b" text-anchor="end">多个目录全部可见，第一个是默认</text>
+<rect x="1" y="32" width="329" height="728" fill="#fbfbfb"/><line x1="330" y1="32" x2="330" y2="760" stroke="#e3e3e3"/><text x="20" y="62" font-size="13" fill="#1a1a1a" font-weight="600">K</text>
+<rect x="16" y="76" width="298" height="30" rx="6" fill="#f0f0f0"/><text x="28" y="96" font-size="12" fill="#888">搜索对话…</text><text x="28" y="132" font-size="12" fill="#666" font-weight="600">本机</text>
+<text x="40" y="160" font-size="12" fill="#666">▾ alpha</text><rect x="16" y="146" width="298" height="24" rx="5" fill="#eef2ff"/><text x="56" y="162" font-size="12.5" fill="#1f6feb" font-weight="600">alpha</text>
+<text x="72" y="186" font-size="12" fill="#666">对话 A</text><text x="72" y="208" font-size="12" fill="#666">对话 B</text><text x="40" y="238" font-size="12" fill="#666">▸ beta</text>
+<text x="28" y="700" font-size="12" fill="#888">导入 · 归档 · 设置</text><text x="358" y="66" font-size="11" fill="#999">项目</text><text x="358" y="96" font-size="22" fill="#1a1a1a" font-weight="600">alpha</text>
+<rect x="470" y="78" width="72" height="24" rx="12" fill="#eef2ff" stroke="#1f6feb"/><text x="506" y="94" font-size="11.5" fill="#1f6feb" text-anchor="middle">ship ▾</text><rect x="358" y="118" width="724" height="196" rx="10" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="374" y="146" font-size="14" fill="#1a1a1a" font-weight="600">工作目录</text><rect x="1006" y="130" width="60" height="24" rx="12" fill="#ffffff" stroke="#1f6feb"/><text x="1036" y="146" font-size="11.5" fill="#1f6feb" text-anchor="middle">编辑</text>
+<text x="374" y="166" font-size="11.5" fill="#6b6b6b">新对话默认落在第一个目录；这几个目录共同组成这个项目。</text><rect x="374" y="180" width="692" height="38" rx="7" fill="#eef2ff" stroke="#c9d9ff"/><text x="388" y="204" font-size="12.5" fill="#1f6feb" font-weight="600">1</text>
+<text x="406" y="204" font-size="12.5" fill="#1a1a1a">/work/alpha</text><rect x="934" y="189" width="52" height="20" rx="10" fill="#eef2ff" stroke="#1f6feb"/><text x="960" y="203" font-size="10.5" fill="#1f6feb" text-anchor="middle">默认</text>
+<rect x="374" y="224" width="692" height="38" rx="7" fill="#ffffff" stroke="#e3e3e3"/><text x="388" y="248" font-size="12.5" fill="#6b6b6b" font-weight="600">2</text>
+<text x="406" y="248" font-size="12.5" fill="#1a1a1a">/work/alpha-config</text><rect x="374" y="268" width="692" height="38" rx="7" fill="#ffffff" stroke="#e3e3e3"/>
+<text x="388" y="292" font-size="12.5" fill="#6b6b6b" font-weight="600">3</text><text x="406" y="292" font-size="12.5" fill="#1a1a1a">/work/shared-lib</text>
+<text x="358" y="348" font-size="12.5" fill="#6b6b6b">概览 · 没有 tab；工作目录块在页头与概览之间</text><line x1="358" y1="358" x2="1082" y2="358" stroke="#e3e3e3"/><rect x="358" y="376" width="440" height="150" rx="8" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="374" y="402" font-size="14" fill="#1a1a1a" font-weight="600">一句话摘要</text><text x="374" y="424" font-size="12" fill="#555">这个项目在做什么、现在做到哪。</text><text x="374" y="444" font-size="12" fill="#555">占位文案：一句话，最多两行。</text>
+<rect x="374" y="460" width="60" height="24" rx="12" fill="#ffffff" stroke="#bbbbbb"/><text x="404" y="476" font-size="11.5" fill="#444" text-anchor="middle">编辑</text><rect x="818" y="376" width="264" height="150" rx="8" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="834" y="402" font-size="13" fill="#1a1a1a" font-weight="600">最近活动</text><text x="834" y="428" font-size="11.5" fill="#555">对话 A · 2 小时前</text><text x="834" y="452" font-size="11.5" fill="#777">只放最近一段对话的入口</text>
+<rect x="834" y="470" width="96" height="24" rx="12" fill="#eef2ff" stroke="#1f6feb"/><text x="882" y="486" font-size="11" fill="#1f6feb" text-anchor="middle">新建对话</text><rect x="358" y="546" width="724" height="160" rx="8" fill="#fbfbfb" stroke="#e3e3e3" stroke-dasharray="4 4"/>
+<text x="374" y="572" font-size="11.5" fill="#888">概览其余部分：两周热力图与只读例行任务（KIN-PROJECT-001），本故事不改。</text><text x="374" y="600" font-size="11.5" fill="#888">工作目录块只读时：路径可读、可复制；编辑入口在块标题右端。</text><text x="374" y="628" font-size="11.5" fill="#888">路径过长时中间省略，聚焦或悬停可看全；不出现行内拖拽手柄。</text>
+<text x="374" y="656" font-size="11.5" fill="#888">顺序 = 保存顺序；「默认」永远是列表第一项。</text>
+</g>
+</svg>

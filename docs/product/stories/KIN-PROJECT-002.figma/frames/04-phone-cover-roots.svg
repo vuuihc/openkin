@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="390" height="844" fill="#ffffff" rx="18"/><!-- 状态栏 --><text x="20" y="26" font-size="11" fill="#555">9:41</text>
+<text x="370" y="26" font-size="11" fill="#555" text-anchor="end">▮▮▮</text><!-- 页头 --><text x="20" y="66" font-size="18" fill="#1f6feb">←</text>
+<text x="48" y="66" font-size="12" fill="#6b6b6b">项目</text><text x="20" y="100" font-size="21" fill="#1a1a1a" font-weight="600">alpha</text><rect x="300" y="82" width="70" height="26" rx="13" fill="#eef2ff" stroke="#1f6feb"/>
+<text x="335" y="99" font-size="11" fill="#1f6feb" text-anchor="middle">ship ▾</text><!-- 工作目录块 --><rect x="16" y="124" width="358" height="218" rx="12" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="30" y="150" font-size="14" fill="#1a1a1a" font-weight="600">工作目录</text><rect x="310" y="130" width="54" height="44" rx="10" fill="#eef2ff" stroke="#1f6feb"/><text x="337" y="157" font-size="12" fill="#1f6feb" text-anchor="middle">编辑</text>
+<text x="30" y="170" font-size="11" fill="#6b6b6b">新对话默认落在第一个目录。</text><rect x="30" y="182" width="330" height="42" rx="7" fill="#eef2ff" stroke="#c9d9ff"/><text x="42" y="208" font-size="12" fill="#1a1a1a">/work/alpha</text>
+<rect x="286" y="192" width="46" height="20" rx="10" fill="#eef2ff" stroke="#1f6feb"/><text x="309" y="206" font-size="10" fill="#1f6feb" text-anchor="middle">默认</text><rect x="30" y="230" width="330" height="42" rx="7" fill="#ffffff" stroke="#e3e3e3"/>
+<text x="42" y="256" font-size="12" fill="#1a1a1a">/work/alpha-config</text><rect x="30" y="278" width="330" height="52" rx="7" fill="#ffffff" stroke="#e3e3e3"/><text x="42" y="299" font-size="12" fill="#1a1a1a">/work/shared-library-with-a-</text>
+<text x="42" y="317" font-size="12" fill="#1a1a1a">long-name</text><!-- 概览 --><text x="16" y="376" font-size="12" fill="#6b6b6b">概览 · 没有 tab</text>
+<line x1="16" y1="386" x2="374" y2="386" stroke="#e3e3e3"/><rect x="16" y="402" width="358" height="112" rx="10" fill="#ffffff" stroke="#c4c4c4"/><text x="30" y="428" font-size="13.5" fill="#1a1a1a" font-weight="600">一句话摘要</text>
+<text x="30" y="450" font-size="11.5" fill="#555">这个项目在做什么、现在做到哪。</text><text x="30" y="470" font-size="11.5" fill="#777">占位文案：一句话。</text><rect x="30" y="480" width="60" height="24" rx="12" fill="#ffffff" stroke="#bbbbbb"/>
+<text x="60" y="496" font-size="11" fill="#444" text-anchor="middle">编辑</text><rect x="16" y="528" width="358" height="100" rx="10" fill="#ffffff" stroke="#c4c4c4"/><text x="30" y="554" font-size="13.5" fill="#1a1a1a" font-weight="600">最近活动</text>
+<text x="30" y="578" font-size="11.5" fill="#555">对话 A · 2 小时前</text><text x="30" y="600" font-size="11" fill="#777">只放最近一段对话的入口</text><rect x="16" y="642" width="358" height="76" rx="10" fill="#fbfbfb" stroke="#e3e3e3" stroke-dasharray="4 4"/>
+<text x="30" y="668" font-size="11" fill="#888">以下为 KIN-PROJECT-001 的概览块：</text><text x="30" y="688" font-size="11" fill="#888">两周热力图、只读例行任务；本故事不改。</text><text x="30" y="708" font-size="11" fill="#888">长路径换行，不横向滚动；页面不横滚。</text>
+<!-- 底部导航 --><line x1="0" y1="752" x2="390" y2="752" stroke="#e3e3e3"/><text x="49" y="784" font-size="11" fill="#1f6feb" text-anchor="middle">对话</text>
+<text x="146" y="784" font-size="11" fill="#888" text-anchor="middle">项目</text><text x="243" y="784" font-size="11" fill="#888" text-anchor="middle">例行任务</text><text x="340" y="784" font-size="11" fill="#888" text-anchor="middle">设置</text>
+<circle cx="49" cy="800" r="2.5" fill="#1f6feb"/>
+</g>
+</svg>
