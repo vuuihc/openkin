@@ -1820,6 +1820,281 @@ class WalkJ5ContractTest(unittest.TestCase):
         self.assertIn("scopes steps to one viewport", out)
 
 
+# The folder editor's visible labels, both locales. The walk reads the cover
+# the way a person does, so every control is named by what it says.
+J4_EDIT = "编辑"
+J4_EDIT_EN = "Edit folders"
+J4_DEFAULT = "设为默认"
+J4_DEFAULT_EN = "Make default"
+J4_SAVE = "保存"
+J4_SAVE_EN = "Save folders"
+J4_ALPHA_LINK = "css=a[href^='/projects/']:has-text('Project Alpha')"
+
+
+def j4_contract_problems(steps: list) -> list[str]:
+    """What J4 must carry to prove the cover's saved folder order survives.
+
+    `TestProjectRootsKeepSavedOrder` pins the store; nothing walked the editor
+    and the reload. The leg opens the editor, moves the saved default onto
+    `aaa-config` (which sorts before `alpha`, so a sorted read is visible),
+    saves, restores the seeded order, then reloads the document and reads the
+    folders back. Returns the problems; empty means the leg holds.
+    """
+    problems: list[str] = []
+
+    def at(pred, start: int = 0) -> int:
+        for index in range(start, len(steps)):
+            if pred(steps[index]):
+                return index
+        return -1
+
+    def required(step: list) -> bool:
+        return not str(step[1]).startswith("?")
+
+    def is_shot(step: list, name: str) -> bool:
+        return step[:2] == ["shot", name]
+
+    def is_edit(step: list) -> bool:
+        return step[0] == "click" and J4_EDIT in str(step[1]) and J4_EDIT_EN in str(step[1])
+
+    def is_save(step: list) -> bool:
+        return step[0] == "click" and J4_SAVE in str(step[1]) and J4_SAVE_EN in str(step[1])
+
+    def is_default(step: list) -> bool:
+        return step[0] == "click" and J4_DEFAULT in str(step[1]) and J4_DEFAULT_EN in str(step[1])
+
+    def is_gone_editor(step: list) -> bool:
+        return (step[0] == "gone" and J4_SAVE in str(step[1]) and J4_SAVE_EN in str(step[1]))
+
+    link = at(lambda step: step[0] == "click" and step[1] == J4_ALPHA_LINK)
+    if link < 0:
+        problems.append("J4 never opens Project Alpha by name (click %s)" % J4_ALPHA_LINK)
+    elif not required(steps[link]):
+        problems.append("the Project Alpha link click is optional")
+    cover = at(lambda step: is_shot(step, "project-cover"))
+    if cover < 0:
+        problems.append("J4 takes no project-cover shot")
+    elif link >= 0 and cover < link:
+        problems.append("the project-cover shot is taken before Project Alpha is open")
+
+    # Save 1: the editor's own order control moves the default to aaa-config.
+    edit = at(is_edit, cover + 1) if cover >= 0 else -1
+    if edit < 0:
+        problems.append("J4 never opens the folder editor (%s / %s)" % (J4_EDIT, J4_EDIT_EN))
+        return problems
+    if not required(steps[edit]):
+        problems.append("the folder editor click is optional")
+    moved = at(lambda step: is_default(step) and "aaa-config" in str(step[1]), edit + 1)
+    if moved < 0:
+        problems.append("J4 never moves the default off alpha (click 设为默认 / Make default on the aaa-config row)")
+        return problems
+    if not required(steps[moved]):
+        problems.append("the aaa-config Make default click is optional")
+    save = at(is_save, moved + 1)
+    if save < 0:
+        problems.append("J4 never saves the reordered folder list (click %s / %s)" % (J4_SAVE, J4_SAVE_EN))
+        return problems
+    if not required(steps[save]):
+        problems.append("the folder save is optional")
+    if at(is_gone_editor, save + 1) < 0:
+        problems.append("J4 never proves the folder editor closed after the save (the daemon accepted the list)")
+    first_saved = at(
+        lambda step: step[0] == "wait"
+        and "aaa-config" in str(step[1])
+        and "first-child" in str(step[1]),
+        save + 1,
+    )
+    if first_saved < 0:
+        problems.append("the saved cover never shows aaa-config on its first row")
+    saved_shot = at(lambda step: is_shot(step, "roots-saved"), save + 1)
+    if saved_shot < 0:
+        problems.append("J4 takes no roots-saved shot after the save")
+
+    # Save 2: restore the seeded order so the next viewport starts where this
+    # one did; a one-way reorder drifts the fixture across phone -> mac ->
+    # mac-wide.
+    second_edit = at(is_edit, saved_shot + 1) if saved_shot >= 0 else -1
+    restored = (
+        at(
+            lambda step: is_default(step)
+            and "/alpha" in str(step[1])
+            and "aaa-config" not in str(step[1]),
+            second_edit + 1,
+        )
+        if second_edit >= 0
+        else -1
+    )
+    if restored < 0:
+        problems.append("J4 never restores the seeded order (Make default on the alpha row); the fixture would drift across viewports")
+    second_save = at(is_save, restored + 1) if restored >= 0 else -1
+    if restored >= 0 and second_save < 0:
+        problems.append("J4 never saves the restored folder order")
+
+    # A document reload, not a client-side route change: only a fresh load
+    # re-reads /api/projects and proves the store's order.
+    goto = (
+        at(lambda step: step[0] == "goto" and str(step[1]).rstrip("/") == "/projects", second_save + 1)
+        if second_save >= 0
+        else -1
+    )
+    if second_save >= 0 and goto < 0:
+        problems.append("J4 never reloads the document (goto /projects) after the save; a route change reads the page, not the store")
+    reload_link = (
+        at(lambda step: step[0] == "click" and step[1] == J4_ALPHA_LINK, goto + 1) if goto >= 0 else -1
+    )
+    if goto >= 0 and reload_link < 0:
+        problems.append("J4 never reopens Project Alpha after the reload")
+    elif reload_link >= 0 and not required(steps[reload_link]):
+        problems.append("the post-reload Project Alpha click is optional")
+
+    if reload_link >= 0:
+        last_row = at(
+            lambda step: step[0] == "wait"
+            and "aaa-config" in str(step[1])
+            and "last-child" in str(step[1]),
+            reload_link + 1,
+        )
+        if last_row < 0:
+            problems.append("the reloaded cover never proves aaa-config is the LAST row (saved order, not sorted order)")
+        first_row = at(
+            lambda step: step[0] == "wait"
+            and "/alpha" in str(step[1])
+            and "first-child" in str(step[1]),
+            reload_link + 1,
+        )
+        if first_row < 0:
+            problems.append("the reloaded cover never proves alpha is the first row")
+        badge = at(
+            lambda step: step[0] == "wait"
+            and "默认" in str(step[1])
+            and "Default" in str(step[1])
+            and "first-child" in str(step[1]),
+            reload_link + 1,
+        )
+        if badge < 0:
+            problems.append("the reloaded cover never proves the first row carries 默认 / Default")
+        count = at(
+            lambda step: step[0] == "count"
+            and len(step) > 2
+            and str(step[2]) == "2"
+            and "li" in str(step[1]),
+            max(last_row, first_row, badge) + 1,
+        )
+        if count < 0:
+            problems.append("the reloaded cover never counts exactly two folder rows")
+        reloaded = at(lambda step: is_shot(step, "roots-reloaded"), reload_link + 1)
+        if reloaded < 0:
+            problems.append("J4 takes no roots-reloaded shot after reloading the document")
+        elif saved_shot >= 0 and reloaded < saved_shot:
+            problems.append("the roots-reloaded shot comes before roots-saved")
+    return problems
+
+
+class WalkJ4ContractTest(unittest.TestCase):
+    """J4 must walk the cover's folder editor through a save and a reload.
+
+    Same shape as the other contract tests: the checked-in spec passes the
+    guard, and a copy that regresses one rule at a time fails with a message
+    naming that rule. Without this, a J4 that photographs the cover and leaves
+    is green while the editor, the PATCH or the saved-order read breaks.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="j4-contract-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def steps(self) -> list:
+        return load_spec()["journeys"]["J4"]["steps"]
+
+    def problems_after(self, mutate) -> list[str]:
+        copy = json.loads(json.dumps(self.steps()))
+        mutate(copy)
+        return j4_contract_problems(copy)
+
+    @staticmethod
+    def at(steps: list, pred) -> int:
+        return next(i for i, step in enumerate(steps) if pred(step))
+
+    def test_j4_opens_the_roots_editor_and_reloads(self) -> None:
+        journey = load_spec()["journeys"]["J4"]
+        self.assertEqual(journey["viewports"], ["phone", "mac", "mac-wide"])
+        self.assertEqual(j4_contract_problems(journey["steps"]), [])
+        # The evidence the reviewer reads, in order: editor -> saved order ->
+        # restored order -> reloaded order.
+        names = [step[1] for step in journey["steps"] if step[0] == "shot"]
+        self.assertLess(names.index("project-cover"), names.index("roots-saved"), names)
+        self.assertLess(names.index("roots-saved"), names.index("roots-reloaded"), names)
+
+    def test_j4_contract_rejects_a_cover_photo_without_the_editor(self) -> None:
+        # Today's shape: goto /projects, photograph the cover, leave for
+        # /routines. No editor step means no save and no reload either.
+        def drop_editor(steps: list) -> None:
+            steps[:] = [
+                step
+                for step in steps
+                if not (
+                    step[0] in ("click", "wait", "gone", "count")
+                    and any(
+                        word in str(step[1])
+                        for word in (J4_EDIT, J4_EDIT_EN, J4_DEFAULT, J4_DEFAULT_EN, J4_SAVE, J4_SAVE_EN)
+                    )
+                )
+            ]
+
+        problems = self.problems_after(drop_editor)
+        self.assertTrue(any("folder editor" in problem for problem in problems), problems)
+
+    def test_j4_contract_rejects_a_route_change_instead_of_a_reload(self) -> None:
+        # A client-side return to the cover reads the state the editor just
+        # installed; only `goto` re-reads /api/projects.
+        def drop_reload(steps: list) -> None:
+            save = max(
+                i for i, step in enumerate(steps)
+                if step[0] == "click" and J4_SAVE in str(step[1])
+            )
+            at = next(
+                i for i in range(save + 1, len(steps))
+                if steps[i][0] == "goto" and str(steps[i][1]).rstrip("/") == "/projects"
+            )
+            steps.pop(at)
+
+        problems = self.problems_after(drop_reload)
+        self.assertTrue(any("reloads the document" in problem for problem in problems), problems)
+
+    def test_j4_contract_rejects_a_sorted_read_passing_the_wait(self) -> None:
+        # `wait text=aaa-config` passes whether the folder is first or last.
+        # The reload proof has to name the row's position: sorted order puts
+        # aaa-config first, which is exactly the regression.
+        def unpin_last_row(steps: list) -> None:
+            at = self.at(
+                steps,
+                lambda step: step[0] == "wait"
+                and "aaa-config" in str(step[1])
+                and "last-child" in str(step[1]),
+            )
+            steps[at] = ["wait", "text=aaa-config"]
+
+        problems = self.problems_after(unpin_last_row)
+        self.assertTrue(any("LAST row" in problem for problem in problems), problems)
+
+    def test_j4_contract_rejects_a_one_way_reorder(self) -> None:
+        # Saving [aaa-config, alpha] at phone and again at mac would leave the
+        # next width a fixture it did not expect; the second save must restore
+        # the seeded order.
+        def drop_restore(steps: list) -> None:
+            at = self.at(
+                steps,
+                lambda step: step[0] == "click"
+                and J4_DEFAULT in str(step[1])
+                and "/alpha" in str(step[1])
+                and "aaa-config" not in str(step[1]),
+            )
+            steps.pop(at)
+
+        problems = self.problems_after(drop_restore)
+        self.assertTrue(any("restores the seeded order" in problem for problem in problems), problems)
+
+
 @unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")
 class WalkJ5ResolveTest(unittest.TestCase):
     def setUp(self) -> None:
