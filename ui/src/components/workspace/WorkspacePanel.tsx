@@ -982,8 +982,15 @@ export default function WorkspacePanel({
   // pane, so focus goes to the row that opened the file — the place the reader
   // left off — and that row is scrolled back into view, because hiding the pane
   // also reset the list's scroll.
+  //
+  // The address names the open file, so it must stop naming it: hand the page
+  // the workspace root, which is this panel's "no file" value (`.` resolves
+  // to the list link, not a file the checkout can open). Without that, a
+  // refresh, a shared link or a Forward reopens the file the reader just left.
+  // `selectFile` is deliberately not used: the reader is not picking the root.
   const goBackToFiles = () => {
     setPhoneView("list");
+    onSelectPath?.(cwd);
     focusFileList();
   };
 

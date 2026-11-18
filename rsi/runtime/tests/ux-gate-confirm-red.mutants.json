@@ -19,5 +19,12 @@
     "test": "RSI_TEST_ONLY=test_confirm_unavailable_fails_closed bash rsi/runtime/tests/test-ux-gate-confirm-red.sh",
     "old": "      CONF_SUMMARY=\"walk confirm: unavailable (${CRSN% }) — first-walk failures kept\"",
     "new": "      HARD=\"\"; CONF_SUMMARY=\"walk confirm: unavailable (${CRSN% }) — first-walk failures kept\""
+  },
+  {
+    "label": "a screenshot-check line names its journey but is treated as unattributable, so the confirm cannot clear a flake",
+    "file": "rsi/runtime/ux-gate.sh",
+    "test": "RSI_TEST_ONLY=test_step_named_failure_is_confirmed bash rsi/runtime/tests/test-ux-gate-confirm-red.sh",
+    "old": "    m = re.match(r\"^([A-Za-z0-9_]+)/\", line) or re.match(r\"^(J[0-9]+)-\", line)",
+    "new": "    m = re.match(r\"^([A-Za-z0-9_]+)/\", line)"
   }
 ]

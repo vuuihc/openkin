@@ -448,7 +448,13 @@ def _git(root: str, *args: str) -> None:
 
 
 def _seed_roots() -> str:
-    """Fresh temp roots, each a clean git repository with a committed notes.md.
+    """Fresh temp roots, each a clean git repository with two committed files.
+
+    `notes.md` is the text/diff file J2, J3, J8 and J13 read; its bytes are
+    shared with those journeys, so it must stay exactly as written. The
+    self-contained `preview.html` is J13's page/source leg: no external CSS,
+    image or script, and one visible line the source view can match after the
+    preview iframe has left the screen.
 
     Never a real repository: the fake agent appends its one diff line only
     inside a path carrying SEED_ROOT_PREFIX, and this is the only place that
@@ -465,8 +471,23 @@ def _seed_roots() -> str:
                 "- Seeded for the journey walk.\n"
                 "- The walk opens the diff the fake agent leaves in this file.\n"
             )
+        with open(os.path.join(root, "preview.html"), "w", encoding="utf-8") as fh:
+            fh.write(
+                "<!doctype html>\n"
+                '<html lang="en">\n'
+                "<head>\n"
+                '  <meta charset="utf-8">\n'
+                "  <title>Seed preview page</title>\n"
+                "  <style>body { margin: 2rem; font-family: system-ui, sans-serif; }</style>\n"
+                "</head>\n"
+                "<body>\n"
+                "  <h1>Seed preview page</h1>\n"
+                "  <p>Seed preview page</p>\n"
+                "</body>\n"
+                "</html>\n"
+            )
         _git(root, "init", "-q")
-        _git(root, "add", "notes.md")
+        _git(root, "add", "notes.md", "preview.html")
         # Inline identity and no signing: the seed must not depend on, or
         # disturb, whatever git config the machine happens to carry.
         _git(

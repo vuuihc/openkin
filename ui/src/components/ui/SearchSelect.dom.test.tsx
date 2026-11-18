@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within, fireEvent } from "@testing-library/react";
+import { cleanup, render, screen, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { setLocale } from "../../i18n";
 import SearchSelect, { type SearchSelectOption } from "./SearchSelect";
@@ -319,6 +319,23 @@ describe("short lists", () => {
     await userEvent.click(desktopTrigger());
     expect(screen.queryByRole("combobox")).toBeNull();
     expect(screen.getByRole("listbox")).toBeTruthy();
+  });
+});
+
+// A caption under a picker explains what the chosen value affects; the trigger
+// has to be able to name it, or a reader who lands on the picker hears only the
+// value. Unlike a field, a picker owns no hint or status of its own, so this is
+// the one-id shape `TextInput`'s merged `aria-describedby` reduces to.
+describe("the description contract", () => {
+  it("points the trigger at the caller's description, and renders no attribute when omitted", () => {
+    setup("", vi.fn(), { describedBy: "model-effect" });
+    expect(desktopTrigger().getAttribute("aria-describedby")).toBe("model-effect");
+    expect(phoneTrigger().getAttribute("aria-describedby")).toBe("model-effect");
+
+    cleanup();
+    setup();
+    expect(desktopTrigger().getAttribute("aria-describedby")).toBeNull();
+    expect(phoneTrigger().getAttribute("aria-describedby")).toBeNull();
   });
 });
 

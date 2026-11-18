@@ -9,7 +9,7 @@
 | `KIN-CONTINUE-002` | approved | P0 | J1、J2 | Mac/手机 | 手机只留一个导航面：列表页就是侧栏 | 6 |
 | `KIN-CONTINUE-003` | approved | P0 | J1、J2、J3、J4、J5、J6、J7 | Mac/手机 | 统一控制台的四区导航与工作台 | 12 |
 | `KIN-NOTIFY-001` | approved | P0 | J7 | Mac/手机 | 离开时被叫回来 | 14 |
-| `KIN-PROJECT-002` | approved | P0 | J4 | Mac/手机 | 项目的工作目录：看清这几个目录为什么在一起，并能增删 | 5 |
+| `KIN-PROJECT-002` | covered | P0 | J4 | Mac/手机 | 项目的工作目录：看清这几个目录为什么在一起，并能增删 | 5 |
 | `KIN-RESULT-002` | approved | P0 | J4 | Mac/手机 | 读懂文件、预览并返回原对话 | 2 |
 | `KIN-RESULT-003` | covered | P0 | J2、J1 | Mac/手机 | 对改动逐行评论并发回对话 | 5 |
 | `KIN-AGENTS-001` | covered | P1 | J6 | Mac/手机 | 机器上的 agent：装了什么、能不能用、用掉多少 | 7 |
@@ -24,4 +24,4 @@
 
 ## 汇总
 
-approved 8 · covered 8
+approved 7 · covered 9
