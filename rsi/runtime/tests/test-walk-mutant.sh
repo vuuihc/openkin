@@ -10,7 +10,9 @@
 # URL the reader left in each area, the phone's Back that must not reload the
 # document, the unchecked PR branch that must not read as still checking, and
 # the row menu that must keep its disabled 运行中 line; that the runner prints
-# that same manifest; and that the J3 spec carries the mid-run ordering proof
+# that same manifest; that a walk killed by the watchdog (TERM), a closed
+# terminal (HUP) or Ctrl-C (INT) puts the tracked web/dist/index.html back and
+# leaves no temp OUT behind; and that the J3 spec carries the mid-run ordering proof
 # (the follow-up on screen before the first answer) and the Stop proof (a held
 # round stopped, its control gone, and the queued message accounted for by the
 # daemon's discard report) and still satisfies the contract the walk depends
@@ -227,6 +229,131 @@ if printed != committed:
     raise SystemExit("--print-manifest differs from the committed manifest")
 PY
 [ $? -eq 0 ] || fail "$case_name: printed manifest does not match"
+pass "$case_name"
+
+# --walk-once builds over the tracked web/dist/index.html and restores the
+# committed entry from a trap. Leaving that to the EXIT trap alone makes the
+# restore depend on what the shell does when a watchdog's TERM, a closed
+# terminal's HUP or a Ctrl-C's INT cuts the build short, so the runner installs
+# the same restore on all four traps. The --trap-check seam replays that window
+# against a throwaway worktree: back the entry up, install the same restore,
+# let the "build" overwrite it, send itself the signal. Each signal must exit
+# conventionally (TERM 143, HUP 129, INT 130), restore the sentinel byte for
+# byte and remove its temp OUT. The status is read raw, not as `$?`: a shell
+# killed by the signal reports negative there, so only a handler that ran can
+# produce the positive 128+signal status. The case also pins the --walk-once
+# wiring (traps and backup before the build), which the seam cannot see because
+# it installs its own. No node, npm or browser is involved, so this runs in the
+# hermetic shell job.
+case_name="test_walk_mutant_restores_dist_on_term_hup_and_int"
+[ -f "$RUNNER" ] || fail "$case_name: rsi/runtime/ux/walk-mutant-test.sh is missing"
+trap_root="$(mktemp -d "${TMPDIR:-/tmp}/walk-mutant-trap.XXXXXX")"
+run_trap_check() { # <signal>: one throwaway worktree per signal
+  local sig="$1" wt="$trap_root/$1"
+  mkdir -p "$wt/web/dist" "$wt/tmp"
+  # The committed entry the restore must reproduce exactly, and the mutant line
+  # the seam writes in its place must not survive the signal.
+  printf '%s\n' '<!doctype html>' \
+    '<!-- walk-mutant contract: the committed console entry -->' \
+    '<script type="module" src="/assets/index-COMMITTED.js"></script>' > "$wt/web/dist/index.html"
+  cp "$wt/web/dist/index.html" "$wt/entry.expected"
+  # TMPDIR points inside the fixture, so the runner's OUT is findable
+  # afterwards: a temp dir left behind is a restore that never ran.
+  #
+  # Two reasons to launch through python3 (already a runner dependency)
+  # rather than `bash ... --trap-check` directly:
+  #
+  # 1. check.sh starts this suite as an asynchronous child, where bash ignores
+  #    SIGINT and an ignored-at-entry signal cannot be trapped. A real Ctrl-C,
+  #    a closing terminal and the watchdog all reach the runner with default
+  #    dispositions, so the child resets them before exec.
+  # 2. `$?` in a shell folds "died from the signal" and "exited 143" into the
+  #    same 143. The raw wait status keeps them apart: a negative return code
+  #    means no handler ran and the signal killed the shell; the positive
+  #    conventional status is only reachable through the restore handler's
+  #    `exit`. That is what makes this case able to redden when the signal
+  #    traps are missing instead of merely observing that bash died.
+  TMPDIR="$wt/tmp" python3 - "$RUNNER" "$wt" "$sig" "$wt/rc" >"$wt/run.log" 2>&1 <<'PY'
+import signal
+import subprocess
+import sys
+
+runner, worktree, sig, rcfile = sys.argv[1:5]
+
+def reset_signals():
+    for s in (signal.SIGINT, signal.SIGHUP, signal.SIGTERM):
+        signal.signal(s, signal.SIG_DFL)
+
+rc = subprocess.call(["bash", runner, "--trap-check", worktree, sig],
+                     preexec_fn=reset_signals)
+open(rcfile, "w").write("%d\n" % rc)
+PY
+}
+for sig in TERM HUP INT; do
+  run_trap_check "$sig"
+done
+for sig in TERM HUP INT; do
+  wt="$trap_root/$sig"
+  case "$sig" in
+    TERM) want=143 ;;
+    HUP) want=129 ;;
+    INT) want=130 ;;
+  esac
+  [ -s "$wt/rc" ] || {
+    cat "$wt/run.log" >&2
+    rm -rf "$trap_root"
+    fail "$case_name: $sig produced no status (the launcher wrote no rc)"
+  }
+  rc="$(cat "$wt/rc")"
+  if [ "$rc" -ne "$want" ]; then
+    cat "$wt/run.log" >&2
+    rm -rf "$trap_root"
+    fail "$case_name: $sig exited $rc, want $want (a negative status means the shell died of the signal: the signal handler did not run)"
+  fi
+  if ! cmp -s "$wt/web/dist/index.html" "$wt/entry.expected"; then
+    echo "--- web/dist/index.html after $sig ---" >&2
+    cat "$wt/web/dist/index.html" >&2
+    rm -rf "$trap_root"
+    fail "$case_name: $sig left the mutant entry in web/dist/index.html"
+  fi
+  # TMPDIR is the fixture's own empty dir, so anything left in it is OUT. Not a
+  # name match: the runner owns the mktemp prefix, and a renamed prefix would
+  # make a prefix assertion pass while the temp dir leaked.
+  leftovers="$(find "$wt/tmp" -mindepth 1 -print)"
+  if [ -n "$leftovers" ]; then
+    rm -rf "$trap_root"
+    fail "$case_name: $sig left its temp OUT behind: $leftovers"
+  fi
+done
+# The seam proves the restore handler; it installs its own traps and takes its
+# own backup, so it cannot see whether --walk-once is wired to them. Assert the
+# normal build path too: both calls before the build, inside the post-dispatch
+# block. Deleting either from --walk-once would otherwise leave this suite
+# green while a real watchdog TERM during a build restores nothing.
+if ! python3 - "$RUNNER" <<'PY'
+import sys
+
+text = open(sys.argv[1], encoding="utf-8").read()
+try:
+    start = text.index('cd "$WT" || unavailable "cannot enter the worktree root"')
+    build = text.index('( cd ui && npm run build )', start)
+except ValueError:
+    raise SystemExit("cannot find the --walk-once build block in the runner")
+block = text[start:build]
+# Exact call lines, not substrings: the prose above the calls names both
+# helpers, so a substring check would stay green after the calls were deleted.
+calls = [line.strip() for line in block.splitlines()]
+missing = [call for call in ("trap_restore_dist", "backup_dist") if call not in calls]
+if missing:
+    raise SystemExit("--walk-once no longer prepares the restore before the build: missing "
+                     + ", ".join(missing))
+print("--walk-once wiring ok: traps and backup installed before the build")
+PY
+then
+  rm -rf "$trap_root"
+  fail "$case_name: the --walk-once build path is not wired to the restore"
+fi
+rm -rf "$trap_root"
 pass "$case_name"
 
 case_name="test_j3_spec_still_passes_the_contract"
@@ -769,4 +896,4 @@ case "$err" in *"$tmp/journeys/J9.json"*) ;; *) rm -rf "$tmp"; fail "$case_name:
 rm -rf "$tmp"
 pass "$case_name"
 
-echo "walk-mutant contract: 16/16 cases passed"
+echo "walk-mutant contract: 17/17 cases passed"

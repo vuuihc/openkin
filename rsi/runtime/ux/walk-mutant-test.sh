@@ -111,6 +111,43 @@ JOURNEY="J3"
 usage() { sed -n '3,7p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 unavailable() { echo "UNAVAILABLE: $*" >&2; exit 2; }
 
+# `npm run build` empties and rewrites the tracked web/dist/index.html (vite's
+# outDir), while mutants.py restores only the source file. Keep the committed
+# entry and put it back on the way out, or a run that built over it leaves the
+# tree with a mutant entry naming a chunk that is gitignored: a blank console
+# on the next load, and a commit could carry it. The second call is harmless:
+# the backup left with OUT, and rm -rf on a missing dir is a no-op.
+restore_dist() {
+  if [ -f "$OUT/index.html.bak" ]; then
+    # Keep OUT when the copy back fails: the backup is the only good copy left.
+    cp "$OUT/index.html.bak" "$WT/web/dist/index.html" || return 1
+  fi
+  rm -rf "$OUT"
+}
+
+# Copy the committed entry under a temp name and move it into place, so a
+# signal that cuts the copy short leaves no `.bak` for restore_dist to put back
+# over the tracked entry. A missing entry is not an error: there is nothing to
+# keep and nothing to restore.
+backup_dist() {
+  [ -f "$WT/web/dist/index.html" ] || return 0
+  cp "$WT/web/dist/index.html" "$OUT/index.html.bak.tmp" || return 1
+  mv "$OUT/index.html.bak.tmp" "$OUT/index.html.bak"
+}
+
+# Install the restore on every way this runner can end, rather than leaving it
+# to whatever the shell does with a fatal signal while a foreground build runs:
+# a watchdog's TERM, a closed terminal's HUP and Ctrl-C's INT restore first and
+# then exit with the status the shell conventionally reports for that signal.
+# When bash also runs the EXIT trap after that `exit`, the second call is
+# harmless.
+trap_restore_dist() {
+  trap 'restore_dist' EXIT
+  trap 'restore_dist; exit 143' TERM
+  trap 'restore_dist; exit 129' HUP
+  trap 'restore_dist; exit 130' INT
+}
+
 case "${1:-}" in
   --print-manifest)
     [ -f "$MANIFEST" ] || unavailable "no manifest at rsi/runtime/ux/walk-mutant.json"
@@ -123,6 +160,40 @@ case "${1:-}" in
       J3|J5|J7|J2|J8|J9|J10|J11|J12) ;;
       *) unavailable "unknown journey $JOURNEY; --walk-once takes J3 (default), J5, J7, J2, J8, J9, J10, J11 or J12" ;;
     esac
+    ;;
+  --trap-check)
+    # Hermetic seam for the restore-on-signal contract
+    # (rsi/runtime/tests/test-walk-mutant.sh): replay what --walk-once does
+    # around its build — back the committed entry up, install the same restore,
+    # let the build overwrite the entry — then send this shell the requested
+    # signal, without node, npm or a browser. It takes a throwaway worktree so
+    # the contract can never drive the real tree.
+    [ "$#" -eq 3 ] || unavailable "--trap-check takes <worktree> <TERM|HUP|INT>"
+    case "$3" in
+      TERM|HUP|INT) ;;
+      *) unavailable "--trap-check takes TERM, HUP or INT, not $3" ;;
+    esac
+    ROOT="$(cd "$HERE/../../.." && pwd -P)"
+    TARGET="$(cd "$2" 2>/dev/null && pwd -P)" || unavailable "--trap-check worktree does not exist: $2"
+    [ "$TARGET" != "$ROOT" ] || unavailable "--trap-check refuses the real worktree; pass a throwaway copy"
+    WT="$TARGET"
+    [ -f "$WT/web/dist/index.html" ] || unavailable "no web/dist/index.html in the --trap-check worktree"
+    OUT="$(mktemp -d "${TMPDIR:-/tmp}/walk-mutant.XXXXXX")" || unavailable "cannot create a temp dir"
+    trap_restore_dist
+    backup_dist || unavailable "cannot back up the committed entry"
+    printf '%s\n' '<!doctype html>' \
+      '<script type="module" src="/assets/index-MUTANT.js"></script>' > "$WT/web/dist/index.html" \
+      || unavailable "cannot write the mutant entry"
+    # The contract asserts the sentinel comes back, which proves nothing unless
+    # the entry really was mutant when the signal arrived.
+    if cmp -s "$WT/web/dist/index.html" "$OUT/index.html.bak"; then
+      unavailable "the --trap-check mutant entry is identical to the committed one"
+    fi
+    kill -s "$3" "$$"
+    # Only reached when the signal could not be delivered (ignored at entry):
+    # say so rather than let the EXIT restore read as a pass.
+    echo "UNAVAILABLE: $3 was not delivered in this shell (ignored on entry), so the signal trap could not run" >&2
+    exit 99
     ;;
   "")
     cd "$WT" || unavailable "cannot enter the worktree root"
@@ -144,12 +215,12 @@ command -v npm >/dev/null 2>&1 || unavailable "npm is not on PATH"
 command -v python3 >/dev/null 2>&1 || unavailable "python3 is not on PATH"
 
 OUT="$(mktemp -d "${TMPDIR:-/tmp}/walk-mutant.XXXXXX")" || unavailable "cannot create a temp dir"
-# `npm run build` empties and rewrites the tracked web/dist/index.html (vite's
-# outDir), while mutants.py restores only the source file. Keep the committed
-# entry and put it back on the way out, or default mode leaves a dirty index
-# naming a mutant chunk that is gitignored.
-[ -f "$WT/web/dist/index.html" ] && cp "$WT/web/dist/index.html" "$OUT/index.html.bak"
-trap '[ -f "$OUT/index.html.bak" ] && cp "$OUT/index.html.bak" "$WT/web/dist/index.html"; rm -rf "$OUT"' EXIT
+# Keep the committed entry and put it back on the way out (see restore_dist and
+# backup_dist), including when a watchdog, a closed terminal or Ctrl-C ends the
+# run before the build returns. Both go in before the build, and the contract
+# case asserts that wiring because the --trap-check seam cannot see it.
+trap_restore_dist
+backup_dist
 
 ( cd ui && npm run build ) >"$OUT/build.log" 2>&1 \
   || unavailable "ui build failed: $(tail -c 300 "$OUT/build.log")"
