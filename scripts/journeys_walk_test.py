@@ -1853,9 +1853,15 @@ class WalkJ12ContractTest(unittest.TestCase):
 
         # Leg 3 — hold-to-reorder. A real 500ms hold, the new order read from
         # the drawn DOM, then the same read after a reload: a reorder that
-        # lives only in React state must not pass.
+        # lives only in React state must not pass. The travel reaches past the
+        # bucket's first row's midpoint: a journey walked earlier in the same
+        # daemon (J3, on every layout row) can leave its own conversations
+        # between the two seeded rows, so an 80px step across the neighbour
+        # would read a different order while the drag itself is correct.
         drag = at(lambda step: step[0] == "drag" and "data-session-row" in str(step[1])
                   and int(step[3]) >= 500)
+        self.assertLessEqual(int(steps[drag][2]), -200,
+                             "the drag must pass above the bucket's first row midpoint")
         before = max(i for i, step in enumerate(steps)
                      if i < drag and step[0] == "rows")
         after = at(lambda step: step[0] == "rows", drag + 1)
@@ -1880,6 +1886,39 @@ class WalkJ12ContractTest(unittest.TestCase):
             row = next((row for row in spec["paths"] if row_needle in row[0]), None)
             self.assertIsNotNone(row, row_needle)
             self.assertIn("J12", row[1], row_needle)
+
+    def test_j12_order_read_tolerates_rows_another_journey_created(self) -> None:
+        # The layout row lists J1..J12 in array order, so any walk on a shell
+        # or list change runs J3 before J12 against one daemon. J3's two
+        # viewports create two `Draft: … [seed] slow` conversations in Project
+        # Alpha; the "seed" search keeps them (the project label matches), so
+        # the order read must allow extra rows while still failing the pre-drag
+        # order after the drag. Both halves are the proof: without the first,
+        # J12 hard-fails every combined walk; without the second, a dead drag
+        # passes on a list another journey populated.
+        def matches(got: list[str], wanted: list[str]) -> int:
+            done = subprocess.run(
+                [NODE, WALK, "--rows-match", "--got", json.dumps(got),
+                 "--want", json.dumps(wanted)],
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            return done.returncode
+
+        drafts = ["Draft: summarise this week's TODOs [seed] slow"] * 2
+        before = ["[seed] Approve the migration", "[seed] Morning planning"] + drafts
+        after = ["[seed] Morning planning", "[seed] Approve the migration"] + drafts
+        self.assertEqual(matches(before, ["[seed] Approve the migration",
+                                          "[seed] Morning planning"]), 0,
+                         "extra rows from an earlier journey must not fail the order read")
+        self.assertEqual(matches(before, ["[seed] Morning planning",
+                                          "[seed] Approve the migration"]), 1,
+                         "the pre-drag order must not satisfy the post-drag read")
+        self.assertEqual(matches(after, ["[seed] Morning planning",
+                                         "[seed] Approve the migration"]), 0)
+        self.assertEqual(matches(drafts, ["[seed] Approve the migration"]), 1,
+                         "a missing row must not match")
 
     def test_j12_contract_rejects_a_spec_without_the_reorder(self) -> None:
         # A J12 that dropped the hold still passes every earlier leg, so the

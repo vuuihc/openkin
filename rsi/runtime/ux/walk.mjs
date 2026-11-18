@@ -1448,6 +1448,26 @@ if (process.argv.includes('--check-spec')) {
   }
   process.exit(0);
 }
+// `--rows-match --got <json rows> --want <json tokens>`: the `rows` op's
+// comparison without a browser, so the walk-contract tests can prove that an
+// order read tolerates rows another journey created while still rejecting a
+// wrong order. Exit 0 = match, 1 = no match, 2 = bad arguments.
+if (process.argv.includes('--rows-match')) {
+  let got, wanted;
+  try {
+    got = JSON.parse(arg('got', ''));
+    wanted = JSON.parse(arg('want', ''));
+  } catch (e) {
+    got = wanted = null;
+  }
+  if (!Array.isArray(got) || !Array.isArray(wanted) || wanted.length === 0) {
+    console.error('usage: walk.mjs --rows-match --got <json rows> --want <json tokens>');
+    process.exit(2);
+  }
+  const match = rowsMatch(got.map(String), wanted.map(String));
+  console.log(match ? 'match' : 'no match');
+  process.exit(match ? 0 : 1);
+}
 // J7 must land on the conversation and card a notification would name. The
 // seed prints one `j7 target conversation=<task> focus=<approval> title=<title>`
 // line when (and only when) it really produced both; without that line J7 is a
@@ -1888,6 +1908,22 @@ async function performDrag(page, cdp, selector, dy, holdMs) {
   }
   await touchPoint(cdp, 'touchEnd', x, endY);
   await page.waitForTimeout(350);
+}
+/** Whether `wanted` appears in `got` as an ordered subsequence, one token per row.
+ *
+ * The `rows` op reads an order, not a census. Another journey walked against
+ * the same daemon can leave extra conversations in the same project (J3's two
+ * viewports each send `[seed] slow`, and the project label keeps them under the
+ * "seed" search), so requiring the exact row list would fail J12 on every
+ * combined walk. The wanted order is still the proof: a drag that did not
+ * reorder the seeded rows leaves them in the old order and matches nothing.
+ */
+function rowsMatch(got, wanted) {
+  let at = 0;
+  for (const text of got) {
+    if (at < wanted.length && text.includes(wanted[at])) at++;
+  }
+  return at === wanted.length;
 }
 /** The conversation rows with a layout box under a scope, in drawn order. */
 async function readRows(page, scope) {
@@ -2400,9 +2436,12 @@ for (const j of want) {
         } else if (op === 'rows') {
           // `["rows", "css=<scope>", "<token>|<token>"]`: the visible
           // conversation rows under the first visible match of `<scope>`
-          // appear exactly in this order and number, each containing its
-          // token. A reorder (and its restore after a reload) is a fact about
-          // drawn order, so it is read, not photographed.
+          // contain the tokens in this order, each in its own row. Other rows
+          // may sit between or after them — a journey walked earlier in the
+          // same daemon creates its own conversations, and a census would turn
+          // that into a phantom failure — but the order itself is the proof:
+          // a drag that did not reorder the rows fails, and so does a reorder
+          // that did not survive the reload.
           const { optional, value } = optionalOf(a);
           const wanted = String(b ?? '').split('|').map((token) => token.trim()).filter(Boolean);
           if (!value.startsWith('css=') || wanted.length === 0) {
@@ -2414,7 +2453,7 @@ for (const j of want) {
             if (optional) { log.push('skipped rows ' + value); continue; }
             hardFail.push(`${j}/${vpName}: rows scope ${value} is not on screen`); continue;
           }
-          const same = got.length === wanted.length && wanted.every((token, i) => got[i].includes(token));
+          const same = rowsMatch(got, wanted);
           if (same) log.push('rows ' + value + ' = ' + wanted.join(' | '));
           else if (optional) log.push('skipped rows ' + value + ' (is ' + got.join(' | ') + ')');
           else hardFail.push(`${j}/${vpName}: rows ${value} are ${JSON.stringify(got)}, want ${JSON.stringify(wanted)}`);
