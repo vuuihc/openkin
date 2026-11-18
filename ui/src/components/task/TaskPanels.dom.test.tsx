@@ -165,7 +165,9 @@ describe("TaskPanels", () => {
     const strip = within(regions[0]!).getByRole("tablist");
     expect(within(strip).getAllByRole("tab")).toHaveLength(4);
     expect(
-      within(strip).getByRole("tab", { name: t("publish.title") }).getAttribute("aria-selected"),
+      within(strip)
+        .getByRole("tab", { name: t("publish.title") })
+        .getAttribute("aria-selected"),
     ).toBe("true");
 
     // The pane is drawn embedded: it brings no second landmark and no second

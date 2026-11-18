@@ -268,8 +268,7 @@ describe("one shared tab set", () => {
     expect(pane.closest('[role="complementary"]')).toBeNull();
     expect(screen.queryAllByRole("complementary")).toHaveLength(0);
     expect(
-      screen.getByRole("tablist").compareDocumentPosition(pane) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
+      screen.getByRole("tablist").compareDocumentPosition(pane) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 
