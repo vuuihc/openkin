@@ -204,6 +204,101 @@ class FakeAgentSlowTest(FakeAgentCase):
 
 HOLD_PROMPT = "Keep the migration going [seed] hold"
 
+# A prompt shaped the way internal/store.BuildContinuePrompt emits it, with a
+# 工作方式 section. The fake must echo the body exactly as received — already
+# cut to the digest's 400 runes — or the J4 walk cannot compare the cover with
+# what the agent actually got.
+SECTION_BODY = "- 交付前先跑 scripts/check.sh；生成文件不要手改。"
+CONTEXT_PROMPT = (
+    "[Project context — living cover digest; user owns goals]\n"
+    "Project: [seed] Project Alpha\n"
+    "Mode: ship\n"
+    "Mode focus: use cover Focus/Next; prefer the smallest useful next step (mode=ship).\n"
+    "\n"
+    "North Star: A walkthrough daemon that already looks lived-in.\n"
+    "Current Focus: Finish the journey walk.\n"
+    "How to work here:\n"
+    f"{SECTION_BODY}\n"
+    "\n"
+    "Next:\n"
+    "1. Read the J4 project cover\n"
+    "---\n"
+    "Edit the working instructions."
+)
+RECEIPT = "Project instructions received:"
+
+
+class FakeAgentProjectInstructionsTest(FakeAgentCase):
+    """The agent's receipt for the injected 工作方式 section (KIN-PROJECT-003).
+
+    The transcript deliberately hides injected context from the user bubble,
+    so this assistant event is the only honest evidence of what the agent
+    received. It must carry the body verbatim, appear before the ordinary
+    reply, and stay absent when there is no section to acknowledge.
+    """
+
+    def run_prompt(self, prompt: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [FAKE, "-p", prompt],
+            capture_output=True,
+            text=True,
+            env=fake_env(),
+            timeout=15,
+        )
+
+    @staticmethod
+    def events(done: subprocess.CompletedProcess[str]) -> list[dict]:
+        return [json.loads(line) for line in done.stdout.splitlines() if line.strip()]
+
+    @staticmethod
+    def texts(events: list[dict]) -> list[str]:
+        return [
+            block.get("text", "")
+            for event in events
+            if event.get("type") == "assistant"
+            for block in (event.get("message") or {}).get("content") or []
+            if isinstance(block, dict)
+        ]
+
+    def test_echoes_the_received_section_before_the_ordinary_reply(self) -> None:
+        done = self.run_prompt(CONTEXT_PROMPT)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        events = self.events(done)
+        receipts = [text for text in self.texts(events) if RECEIPT in text]
+        self.assertEqual(
+            receipts,
+            [RECEIPT + "\n" + SECTION_BODY],
+            f"the receipt must carry the section body verbatim, got {receipts!r}",
+        )
+        reply = [text for text in self.texts(events) if REPLY in text]
+        self.assertTrue(reply, f"the ordinary reply must still follow, got {self.texts(events)!r}")
+        self.assertEqual(events[-1].get("type"), "result", "the ordinary result must still close the turn")
+        self.assertIs(events[-1].get("is_error"), False, done.stdout)
+
+    def test_no_receipt_without_a_work_instructions_section(self) -> None:
+        prompt = CONTEXT_PROMPT.replace("How to work here:\n" + SECTION_BODY + "\n", "")
+        done = self.run_prompt(prompt)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertNotIn(RECEIPT, done.stdout)
+        self.assertIn(REPLY, done.stdout)
+
+    def test_no_receipt_without_project_context(self) -> None:
+        # The section alone is not proof the digest was injected; the fake only
+        # acknowledges a prompt that carries the project-context header.
+        prompt = "How to work here:\n" + SECTION_BODY + "\n---\nDo the thing."
+        done = self.run_prompt(prompt)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertNotIn(RECEIPT, done.stdout)
+        self.assertIn(REPLY, done.stdout)
+
+    def test_no_receipt_for_an_empty_section(self) -> None:
+        prompt = CONTEXT_PROMPT.replace(SECTION_BODY + "\n", "")
+        done = self.run_prompt(prompt)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertNotIn(RECEIPT, done.stdout)
+        self.assertIn(REPLY, done.stdout)
+
+
 
 class FakeAgentHoldTest(FakeAgentCase):
     """The still-working branch J5's row menu is photographed against.

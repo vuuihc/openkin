@@ -31,6 +31,19 @@ NODE = shutil.which("node")
 
 SPECPY = os.path.join(ROOT, "rsi", "runtime", "ux", "spec.py")
 
+sys.path.insert(0, SCRIPTS)
+import journeys_seed  # noqa: E402  — the fixture literals the J4 leg edits
+# The walk's browser context has no stored locale, so the console renders its
+# default (zh). The J4 prefill assertion is therefore the zh prompt, and this
+# reader pins it to the shipped string instead of a hand-copied one.
+ZH_LOCALE = os.path.join(ROOT, "ui", "src", "i18n", "locales", "zh.ts")
+
+
+def shipped_instructions_prompt() -> str:
+    with open(ZH_LOCALE, encoding="utf-8") as fh:
+        match = re.search(r'instructionsPrompt:\s*\n?\s*"([^"]+)"', fh.read())
+    return match.group(1) if match else ""
+
 
 def load_spec(path: str = SPEC) -> dict:
     """Resolve the journey index through its one reader, rsi/runtime/ux/spec.py.
@@ -1832,6 +1845,269 @@ J4_ALPHA_LINK = "css=a[href^='/projects/']:has-text('Project Alpha')"
 
 
 def j4_contract_problems(steps: list) -> list[str]:
+    """Everything J4 must carry: the folder-editor leg and the instructions leg."""
+    return _j4_roots_problems(steps) + j4_instructions_problems(steps)
+
+
+def j4_instructions_problems(steps: list) -> list[str]:
+    """What J4 must carry to prove the cover and the agent get the same text.
+
+    KIN-PROJECT-003. The cover's 工作方式 block is read-only and the injected
+    digest is deliberately not user text in the transcript, so the leg reads
+    the block, presses the launcher, reads the pre-filled composer, sends, and
+    then reads the agent's own receipt inside the transcript. It edits
+    ONE_PAGER.md through the one `api` PUT, re-reads the cover, reopens the
+    earlier conversation, starts a new one, and finally compares the 400-rune
+    cut for a section longer than the bound. Returns the problems; empty means
+    the leg holds.
+    """
+    problems: list[str] = []
+    old_line = journeys_seed.ALPHA_INSTRUCTIONS
+    new_line = journeys_seed.ALPHA_INSTRUCTIONS_EDITED
+    # The transcript renders a received bullet as a markdown list item, so the
+    # marker is structure there, not text; the cover shows the raw file. The
+    # same line therefore needs two needles, one per rendering.
+    old_text = old_line[2:] if old_line.startswith("- ") else old_line
+    new_text = new_line[2:] if new_line.startswith("- ") else new_line
+    gamma_cut = journeys_seed.GAMMA_INSTRUCTIONS[:400] + "…"
+    # The distinctive phrase straddling rune 400, as both surfaces render it.
+    cut_needle = gamma_cut[-13:]
+    if not cut_needle.endswith("…"):
+        problems.append("the Gamma fixture's cut does not end inside a known phrase; the walk has no boundary needle")
+    tail = journeys_seed.GAMMA_SENTINEL
+    prompt = shipped_instructions_prompt()
+    if not prompt or "ONE_PAGER.md" not in prompt:
+        problems.append("ui/src/i18n/locales/zh.ts has no instructionsPrompt naming ONE_PAGER.md; the prefill assertion cannot be pinned")
+
+    def at(pred, start: int = 0) -> int:
+        for index in range(start, len(steps)):
+            if pred(steps[index]):
+                return index
+        return -1
+
+    def required(step: list) -> bool:
+        return isinstance(step, list) and len(step) > 1 and not str(step[1]).startswith("?")
+
+    def css_wait(step: list, needle: str) -> bool:
+        return (
+            isinstance(step, list)
+            and step[:1] == ["wait"]
+            and str(step[1]).startswith("css=")
+            and needle in str(step[1])
+        )
+
+    def transcript_wait(step: list, needle: str) -> bool:
+        return css_wait(step, needle) and "[role=region" in str(step[1])
+
+    def section_wait(step: list, needle: str) -> bool:
+        return (
+            css_wait(step, needle)
+            and "工作方式" in str(step[1])
+            and "How to work here" in str(step[1])
+        )
+
+    def send_at(start: int) -> int:
+        return at(lambda step: step[0] == "send" and required(step), start)
+
+    # The launcher, in both locales, and the pre-filled composer it produces.
+    launcher = at(
+        lambda step: step[0] == "click"
+        and required(step)
+        and "让 Kin 改…" in str(step[1])
+        and "Ask Kin to edit…" in str(step[1])
+    )
+    if launcher < 0:
+        problems.append("J4 never presses the cover launcher (让 Kin 改… / Ask Kin to edit…); the pre-filled path is unwalked")
+    prefill = at(
+        lambda step: step[0] == "value"
+        and str(step[1]) == "textarea"
+        and prompt
+        and str(step[2]) == prompt,
+        max(launcher, 0) + 1,
+    )
+    if prefill < 0:
+        problems.append(
+            "J4 never asserts the pre-filled composer (value textarea <projects.instructionsPrompt>) after the launcher"
+        )
+    elif "ONE_PAGER.md" not in str(steps[prefill][2]):
+        problems.append("the prefill assertion does not name ONE_PAGER.md; it could pass on unrelated text")
+    first_send = send_at(max(launcher, 0) + 1)
+    if first_send < 0:
+        problems.append("J4 never sends the pre-filled prompt")
+    elif prefill < 0 or prefill > first_send:
+        problems.append("J4 sends before it asserts the composer prefill")
+
+    # The agent's receipt, scoped to the transcript. A bare text= wait would
+    # pass on the cover or the header and prove nothing about what it received.
+    # The FIRST receipt read after the send is the one that belongs to the
+    # first chat; a later one (the second chat's) cannot stand in for it.
+    first_receipt = at(
+        lambda step: step[0] == "wait" and "Project instructions received:" in str(step[1]),
+        max(first_send, 0) + 1,
+    )
+    if first_receipt < 0:
+        problems.append("J4 never waits for the agent's receipt after the first send (Project instructions received:)")
+    elif "[role=region" not in str(steps[first_receipt][1]):
+        problems.append("the first chat's receipt wait is not scoped to the transcript; the cover could satisfy it")
+    echo_line = at(
+        lambda step: transcript_wait(step, old_text), max(first_receipt, 0) + 1
+    )
+    if first_receipt < 0 or echo_line < 0:
+        problems.append("J4 never reads the received 工作方式 line inside the transcript")
+
+    # The edit is the one api op: a PUT to the shipped one-pager route, after
+    # the first send (a PUT before it would edit the text the first chat was
+    # supposed to receive) and before the post-edit cover read.
+    def is_api(step: list) -> bool:
+        return (
+            isinstance(step, list)
+            and step[:2] == ["api", "PUT"]
+            and str(step[2]) == "/api/projects/{project}/one-pager"
+            and len(step) > 3
+            and isinstance(step[3], str)
+        )
+
+    api_steps = [index for index, step in enumerate(steps) if isinstance(step, list) and step[:1] == ["api"]]
+    edit = at(is_api, max(first_send, 0) + 1)
+    if edit < 0:
+        problems.append("J4 never edits ONE_PAGER.md through the api PUT after the first send")
+    elif steps[edit][3] != journeys_seed.FOCUS_MARKDOWN_EDITED or new_line not in steps[edit][3]:
+        problems.append("the J4 edit PUT does not carry the seeded edited document byte for byte")
+    if first_send >= 0 and any(index < first_send for index in api_steps):
+        problems.append("J4 runs an api step before the first send; the fixture must be edited mid-walk, not before it")
+    if echo_line >= 0 and edit >= 0 and echo_line > edit:
+        problems.append("J4 reads the first chat's receipt only after the file is edited; that text proves nothing about what the first chat received")
+    post_edit = at(lambda step: section_wait(step, new_line), max(edit, 0) + 1)
+    # The first cover read after the edit is the proof that the page re-read the
+    # file; a later repeat (the second launcher flow reads the cover too) cannot
+    # stand in for the read the edit is supposed to have changed.
+    leave_cover = at(
+        lambda step: step[0] == "click"
+        and required(step)
+        and "data-session-row" in str(step[1]),
+        max(edit, 0) + 1,
+    )
+    if post_edit < 0 or (leave_cover >= 0 and post_edit > leave_cover):
+        problems.append("J4 never re-reads the cover after the edit (a 工作方式 wait naming the new line)")
+    elif edit > post_edit:
+        problems.append("J4 asserts the edited cover before it edits the file")
+    old_gone = at(
+        lambda step: step[0] == "count"
+        and str(step[1]) == "text=" + old_line
+        and str(step[2]) == "0",
+        max(post_edit, 0) + 1,
+    )
+    if old_gone < 0 or (leave_cover >= 0 and old_gone > leave_cover):
+        problems.append("J4 never proves the old line left the cover after the edit (count text=<old> 0)")
+
+    # The earlier conversation keeps the text it started with.
+    old_chat = at(
+        lambda step: step[0] == "click"
+        and required(step)
+        and "data-session-row" in str(step[1]),
+        max(old_gone, 0) + 1,
+    )
+    if old_chat < 0:
+        problems.append("J4 never reopens the earlier conversation (click [data-session-row] …)")
+    old_echo = at(
+        lambda step: transcript_wait(step, "Project instructions received:"), max(old_chat, 0) + 1
+    )
+    old_kept = at(lambda step: transcript_wait(step, old_text), max(old_echo, 0) + 1)
+    if old_chat >= 0 and old_kept < 0:
+        problems.append("J4 never reads the old received line in the earlier conversation")
+    old_has_new = at(
+        lambda step: step[0] == "count"
+        and "[role=region" in str(step[1])
+        and new_text in str(step[1])
+        and str(step[2]) == "0",
+        max(old_kept, 0) + 1,
+    )
+    if old_kept >= 0 and old_has_new < 0:
+        problems.append("J4 never proves the earlier conversation did not receive the new line (count … 0 in the transcript)")
+
+    # A chat started after the edit receives the new line.
+    second_send = send_at(max(old_has_new, 0) + 1)
+    if second_send < 0:
+        problems.append("J4 never starts a second chat after the edit")
+    new_echo = at(lambda step: transcript_wait(step, new_text), max(second_send, 0) + 1)
+    if second_send >= 0 and new_echo < 0:
+        problems.append("J4 never reads the edited line in the new chat's receipt")
+
+    # Restore the seeded document so the next viewport starts where this one did.
+    restore = at(is_api, max(new_echo, 0) + 1)
+    if restore < 0:
+        problems.append("J4 never restores the seeded One-Pager after the edit (a second api PUT); the next viewport would start on the edited file")
+    elif steps[restore][3] != journeys_seed.FOCUS_MARKDOWN:
+        problems.append("the J4 restore PUT does not carry the seeded document byte for byte")
+
+    # The over-400 section: the same cut on the cover and in the agent's text.
+    cover_cut = at(lambda step: section_wait(step, cut_needle), max(restore, 0) + 1)
+    if cover_cut < 0:
+        problems.append("J4 never reads the truncated body on the cover (a 工作方式 wait naming %r)" % cut_needle)
+    cover_trunc = at(
+        lambda step: section_wait(step, "已截断") or section_wait(step, "Truncated"),
+        max(cover_cut, 0) + 1,
+    )
+    if cover_trunc < 0:
+        problems.append("J4 never reads the truncation footnote on the cover (已截断 / Truncated)")
+    cover_tail = at(
+        lambda step: step[0] == "count" and str(step[1]) == "text=" + tail and str(step[2]) == "0",
+        max(cover_cut, 0) + 1,
+    )
+    if cover_tail < 0:
+        problems.append("J4 never proves the tail beyond rune 400 is absent from the cover (count text=%s 0)" % tail)
+    gamma_send = send_at(max(cover_tail, 0) + 1)
+    if gamma_send < 0:
+        problems.append("J4 never sends a chat in the truncated project")
+    sent_cut = at(lambda step: transcript_wait(step, cut_needle), max(gamma_send, 0) + 1)
+    if gamma_send >= 0 and sent_cut < 0:
+        problems.append("J4 never reads the same truncated body in the agent's receipt")
+    sent_tail = at(
+        lambda step: step[0] == "count"
+        and "[role=region" in str(step[1])
+        and tail in str(step[1])
+        and str(step[2]) == "0",
+        max(sent_cut, 0) + 1,
+    )
+    if sent_cut >= 0 and sent_tail < 0:
+        problems.append("J4 never proves the agent received no text beyond rune 400 (count … %s 0 in the transcript)" % tail)
+
+    # The empty state.
+    empty = at(
+        lambda step: section_wait(step, "还没写工作说明") or section_wait(step, "No working instructions yet"),
+        max(sent_tail, 0) + 1,
+    )
+    if empty < 0:
+        problems.append("J4 never reads the empty state on a project with no 工作方式 section (还没写工作说明)")
+    empty_note = at(
+        lambda step: section_wait(step, "新对话不会收到这一段")
+        or section_wait(step, "New chats will not receive this section"),
+        max(empty, 0) + 1,
+    )
+    if empty >= 0 and empty_note < 0:
+        problems.append("J4 never reads the empty state footnote (新对话不会收到这一段)")
+
+    # The evidence the reviewer reads.
+    names = [step[1] for step in steps if isinstance(step, list) and step[:1] == ["shot"]]
+    for name in (
+        "instructions-cover",
+        "instructions-composer",
+        "instructions-sent",
+        "instructions-edited",
+        "instructions-old-chat",
+        "instructions-truncated",
+        "instructions-truncated-sent",
+        "instructions-empty",
+    ):
+        if name not in names:
+            problems.append("J4 takes no `%s` shot" % name)
+    if "instructions-cover" in names and "instructions-composer" in names and first_send >= 0:
+        if names.index("instructions-cover") > names.index("instructions-composer"):
+            problems.append("the instructions-cover shot must come before instructions-composer")
+    return problems
+
+
+def _j4_roots_problems(steps: list) -> list[str]:
     """What J4 must carry to prove the cover's saved folder order survives.
 
     `TestProjectRootsKeepSavedOrder` pins the store; nothing walked the editor
@@ -2093,6 +2369,147 @@ class WalkJ4ContractTest(unittest.TestCase):
 
         problems = self.problems_after(drop_restore)
         self.assertTrue(any("restores the seeded order" in problem for problem in problems), problems)
+
+    # --- KIN-PROJECT-003: the 工作方式 leg -------------------------------
+
+    def test_j4_KIN_PROJECT_003_walks_the_cover_block_and_the_agent_echo(self) -> None:
+        journey = load_spec()["journeys"]["J4"]
+        self.assertEqual(j4_instructions_problems(journey["steps"]), [])
+        names = [step[1] for step in journey["steps"] if step[0] == "shot"]
+        order = [
+            "instructions-cover",
+            "instructions-composer",
+            "instructions-sent",
+            "instructions-edited",
+            "instructions-old-chat",
+            "instructions-truncated",
+            "instructions-truncated-sent",
+            "instructions-empty",
+        ]
+        self.assertEqual([name for name in names if name in order], order)
+
+    def test_j4_KIN_PROJECT_003_rejects_a_walk_without_the_launcher(self) -> None:
+        def drop_launcher(steps: list) -> None:
+            steps[:] = [
+                step
+                for step in steps
+                if not (step[0] == "click" and "让 Kin 改…" in str(step[1]))
+            ]
+
+        problems = self.problems_after(drop_launcher)
+        self.assertTrue(any("never presses the cover launcher" in problem for problem in problems), problems)
+
+    def test_j4_KIN_PROJECT_003_rejects_a_send_before_the_prefill_is_read(self) -> None:
+        def send_first(steps: list) -> None:
+            send = self.at(steps, lambda step: step[0] == "send")
+            value = self.at(steps, lambda step: step[0] == "value" and "ONE_PAGER.md" in str(step[2]))
+            steps[send], steps[value] = steps[value], steps[send]
+
+        problems = self.problems_after(send_first)
+        self.assertTrue(any("prefill" in problem for problem in problems), problems)
+
+    def test_j4_KIN_PROJECT_003_rejects_a_receipt_read_outside_the_transcript(self) -> None:
+        # The cover also says "工作方式"; a bare text= wait for the echoed line
+        # would be satisfied by the cover and prove nothing about the agent.
+        def unscoped_echo(steps: list) -> None:
+            at = self.at(
+                steps,
+                lambda step: step[0] == "wait"
+                and "Project instructions received:" in str(step[1]),
+            )
+            steps[at] = ["wait", "text=Project instructions received:"]
+
+        problems = self.problems_after(unscoped_echo)
+        self.assertTrue(any("receipt wait is not scoped to the transcript" in problem for problem in problems), problems)
+
+    def test_j4_KIN_PROJECT_003_rejects_an_api_edit_before_the_first_send(self) -> None:
+        def move_edit_first(steps: list) -> None:
+            edit = self.at(steps, lambda step: step[0] == "api" and "新的工作方式" in str(step[3]))
+            step = steps.pop(edit)
+            first_send = self.at(steps, lambda s: s[0] == "send")
+            steps.insert(first_send, step)
+
+        problems = self.problems_after(move_edit_first)
+        self.assertTrue(any("before the first send" in problem for problem in problems), problems)
+
+    def test_j4_KIN_PROJECT_003_rejects_a_dropped_post_edit_cover_read(self) -> None:
+        def drop_post_edit(steps: list) -> None:
+            at = self.at(
+                steps,
+                lambda step: step[0] == "wait"
+                and "工作方式" in str(step[1])
+                and journeys_seed.ALPHA_INSTRUCTIONS_EDITED in str(step[1]),
+            )
+            steps.pop(at)
+
+        problems = self.problems_after(drop_post_edit)
+        self.assertTrue(any("re-reads the cover after the edit" in problem for problem in problems), problems)
+
+    def test_j4_KIN_PROJECT_003_rejects_a_dropped_old_conversation_count(self) -> None:
+        def drop_old_count(steps: list) -> None:
+            at = self.at(
+                steps,
+                lambda step: step[0] == "count"
+                and "[role=region" in str(step[1])
+                and journeys_seed.ALPHA_INSTRUCTIONS_EDITED[2:] in str(step[1]),
+            )
+            steps.pop(at)
+
+        problems = self.problems_after(drop_old_count)
+        self.assertTrue(any("earlier conversation did not receive the new line" in problem for problem in problems), problems)
+
+    def test_j4_KIN_PROJECT_003_rejects_a_dropped_truncation_case(self) -> None:
+        def drop_truncation(steps: list) -> None:
+            steps[:] = [
+                step
+                for step in steps
+                if not (
+                    "CUT-BOUNDARY" in str(step[1])
+                    or (step[0] == "count" and journeys_seed.GAMMA_SENTINEL in str(step[1]))
+                )
+            ]
+
+        problems = self.problems_after(drop_truncation)
+        self.assertTrue(any("truncated body on the cover" in problem for problem in problems), problems)
+        self.assertTrue(any("tail beyond rune 400" in problem for problem in problems), problems)
+
+    def test_j4_KIN_PROJECT_003_rejects_a_dropped_empty_state(self) -> None:
+        def drop_empty(steps: list) -> None:
+            steps[:] = [
+                step
+                for step in steps
+                if not (
+                    "还没写工作说明" in str(step[1])
+                    or "新对话不会收到这一段" in str(step[1])
+                )
+            ]
+
+        problems = self.problems_after(drop_empty)
+        self.assertTrue(any("empty state" in problem for problem in problems), problems)
+
+    def test_j4_KIN_PROJECT_003_rejects_an_edit_body_that_drifted_from_the_seed(self) -> None:
+        def drift(steps: list) -> None:
+            at = self.at(steps, lambda step: step[0] == "api" and "新的工作方式" in str(step[3]))
+            steps[at][3] = steps[at][3].replace(
+                journeys_seed.ALPHA_INSTRUCTIONS_EDITED,
+                "- 一个新的、但种子从不写入的句子。",
+            )
+
+        problems = self.problems_after(drift)
+        self.assertTrue(any("does not carry the seeded edited document" in problem for problem in problems), problems)
+
+    def test_j4_KIN_PROJECT_003_rejects_a_dropped_restore(self) -> None:
+        def drop_restore(steps: list) -> None:
+            at = self.at(
+                steps,
+                lambda step: step[0] == "api"
+                and journeys_seed.ALPHA_INSTRUCTIONS in str(step[3])
+                and journeys_seed.ALPHA_INSTRUCTIONS_EDITED not in str(step[3]),
+            )
+            steps.pop(at)
+
+        problems = self.problems_after(drop_restore)
+        self.assertTrue(any("restores the seeded One-Pager" in problem for problem in problems), problems)
 
 
 @unittest.skipUnless(NODE, "node is not installed; the journey walker needs it")

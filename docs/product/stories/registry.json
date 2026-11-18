@@ -573,7 +573,7 @@
     },
     {
       "id": "KIN-PROJECT-003",
-      "state": "approved",
+      "state": "covered",
       "priority": "P1",
       "journeys": [
         "J4"
@@ -600,7 +600,10 @@
         "internal/store/onepager_test.go",
         "internal/api/projects_test.go",
         "ui/src/components/project/ProjectInstructionsBlock.dom.test.tsx",
-        "ui/src/lib/projectInstructions.test.ts"
+        "ui/src/lib/projectInstructions.test.ts",
+        "scripts/journeys_walk_test.py",
+        "scripts/journeys_seed_test.py",
+        "scripts/journeys_fake_agent_test.py"
       ],
       "blockedReason": null
     }
