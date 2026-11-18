@@ -1181,6 +1181,8 @@ const en: MessageTree = {
       currentDefault: " — current default",
       defaultAgentHint:
         "Only agents installed and ready on this machine can be selected. Auto picks Kin when the provider is ready, otherwise the first ready CLI.",
+      defaultAgentEffect:
+        "A new chat starts with this agent until you pick another one in the composer.",
       save: "Save default agent",
       add: "Add provider",
       empty: "No providers yet. Add an OpenAI-compatible endpoint to power the kin agent.",

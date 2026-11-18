@@ -65,6 +65,11 @@ type Props = {
   searchable?: boolean;
   searchPlaceholder?: string;
   emptyLabel?: string;
+  /** Id of the caption that says what the chosen value affects. The trigger
+   *  names it, so a reader who lands on the picker hears the explanation
+   *  without hunting for the line under it. One id is enough: unlike a field,
+   *  a picker owns no hint or status of its own to merge in. */
+  describedBy?: string;
 };
 
 /**
@@ -112,6 +117,8 @@ type TriggerProps = {
   title?: string;
   /** The panel this button opens, while it is open. */
   controls?: string;
+  /** The caption that says what the chosen value affects. */
+  describedBy?: string;
   onClick: () => void;
 };
 
@@ -125,6 +132,7 @@ function Trigger({
   buttonRef,
   title,
   controls,
+  describedBy,
   onClick,
 }: TriggerProps) {
   const tr = useT();
@@ -135,6 +143,7 @@ function Trigger({
       disabled={disabled}
       onClick={onClick}
       aria-label={`${label}${tr("common.labelSeparator")}${current}`}
+      aria-describedby={describedBy}
       aria-haspopup={hasPopup}
       aria-expanded={open}
       aria-controls={controls}
@@ -444,6 +453,7 @@ export default function SearchSelect({
   searchable = false,
   searchPlaceholder,
   emptyLabel,
+  describedBy,
 }: Props) {
   const tr = useT();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -537,6 +547,7 @@ export default function SearchSelect({
           className={triggerClass}
           title={title}
           controls={menuOpen ? listId : undefined}
+          describedBy={describedBy}
           onClick={() => setMenuOpen((open) => !open)}
         />
         <Popover
@@ -586,6 +597,7 @@ export default function SearchSelect({
           disabled={disabled}
           className={triggerClass}
           title={title}
+          describedBy={describedBy}
           onClick={() => setSheetOpen(true)}
         />
       </span>
