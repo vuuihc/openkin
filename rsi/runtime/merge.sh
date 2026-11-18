@@ -92,15 +92,31 @@ pr_head() { # <pr-number> -> prints the live head oid, non-zero on failure (an o
 }
 # A head is an oid and nothing else: a gh warning or a blank line on stdout must read as unreadable.
 oid() { case "${1:-}" in ""|*[!0-9a-fA-F]*) return 1 ;; esac; }
-# The journey spec the UX gate walked, as a 12-hex blob revision, or "-" when the worktree, the
-# blob or git itself cannot answer. #251's false red was a walker/spec mismatch: the sendback
-# named neither, so the retro could not tell it from a real defect. Never fails: the header line
-# must always be writable.
-spec_rev() { # <worktree> -> HEAD:rsi/runtime/ux/journeys.json short hash, or -
-  local wt="${1:-}" rev
+# The journey spec the UX gate walked, as a 12-hex revision of the WHOLE spec: the index and
+# every per-journey file under rsi/runtime/ux/journeys/, so the sendback header names a revision
+# that moves when any journey body moves. That is provenance, not cache invalidation: the UX PASS
+# cache already keys on the PR diff plus origin/main:ui. #251's false red was a walker/spec
+# mismatch: the sendback named neither, so the retro could not tell it from a real defect. Never
+# fails: the header line must always be writable, and an empty file list prints "-" rather than
+# hashing nothing.
+spec_rev() { # <worktree> -> 12-hex revision of the split spec, or -
+  local wt="${1:-}" files rev o ids ok
   if [ -n "$wt" ] && [ -d "$wt" ]; then
-    rev="$($GIT -C "$wt" rev-parse --short=12 HEAD:rsi/runtime/ux/journeys.json 2>/dev/null)" || rev=""
-    [ ${#rev} -eq 12 ] && { printf '%s\n' "$rev"; return 0; }
+    files="$($GIT -C "$wt" ls-tree -r --name-only HEAD -- rsi/runtime/ux/journeys.json rsi/runtime/ux/journeys 2>/dev/null)" || files=""
+    if [ -n "$files" ]; then
+      ids=""; ok=1
+      while IFS= read -r f; do
+        o="$($GIT -C "$wt" rev-parse "HEAD:$f" 2>/dev/null)" || { ok=0; break; }
+        ids="$ids$o"$'\n'
+      done <<< "$(printf '%s\n' "$files" | LC_ALL=C sort)"
+      if [ "$ok" -eq 1 ] && [ -n "$ids" ]; then
+        rev="$(printf '%s' "$ids" | shasum -a 1 | cut -c1-12)"
+        case "$rev" in
+          ""|*[!0-9a-f]*) ;;
+          *) [ ${#rev} -eq 12 ] && { printf '%s\n' "$rev"; return 0; } ;;
+        esac
+      fi
+    fi
   fi
   printf '%s\n' -
 }
