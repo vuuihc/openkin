@@ -14,6 +14,13 @@
 # Prints "PASS <case>" per case and exits non-zero on the first failure.
 # Set RSI_TEST_ONLY=<case name> to run one case (used to show the red run per case).
 #
+# An `archive-*` group pins the other end of a sendback's life: a squash-merged PR leaves its
+# branch commits out of main, so `git diff origin/main...rsi/<slug>` stays non-empty after the PR
+# lands and the leftover sendback made lane.sh autofill claim a phantom rework round for work
+# already on main (2026-11-19, lane 3: "cancelled: stale sendback"). The merge-success block must
+# archive the file; those cases drive the same archive_sendback() through --archive-check and a
+# source guard keeps the success block calling it.
+#
 # A second group (`item-*`) lives here because the same merge lane reads the slice id out of the
 # PR body, and both readers must agree: `RSI item: **F1**` used to parse as "" at both, so the
 # lane silently used R-<slug>, slices.py never marked the slice done and the F1-F3 package.json
@@ -178,6 +185,68 @@ test_head_command_receives_the_pr_number() {
   [ -s "$(sf)" ] || fail "head_arg: the ordinary sendback is missing"
 }
 
+# --- archive cases -----------------------------------------------------------------------------
+# The merge lane's success block archives the rework request it answered: a sendback must not
+# outlive its PR, or autofill re-claims it against a branch that still diffs from main after a
+# squash merge. The seam runs the same archive_sendback() with no lock, review, gh or network;
+# every case leaves PAUSE set, so it also pins that the seam sits before the PAUSE check.
+
+mk_sendback() { # <slug> — raw bytes are compared after the move, so keep them distinctive
+  mkdir -p "$(st)/sendback"
+  printf 'item: R-%s\nattempt: 1\nkind: targeted\nsource: gate+review\n# Sent back: fix it\n' "$1" \
+    > "$(st)/sendback/$1.md"
+}
+archive_seam() { # <slug> <sha8>
+  RSI_CTRL="$RSI_CTRL" bash "$MERGE" --archive-check "$1" "$2" > "$T/$CASE.out" 2>&1
+  RC=$?
+}
+
+test_archive_merged_moves_file() {
+  new_case archive_merged
+  mk_sendback "$SLUG"
+  cp "$(st)/sendback/$SLUG.md" "$T/$CASE.before"
+  archive_seam "$SLUG" deadbeef
+  [ "$RC" -eq 0 ] || fail "archive_merged: seam exited $RC ($(tr '\n' ' ' < "$T/$CASE.out"))"
+  [ ! -e "$(st)/sendback/$SLUG.md" ] || fail "archive_merged: the sendback is still in the queue"
+  local f="$(st)/sendback/done/$SLUG-merged-deadbeef.md"
+  [ -s "$f" ] || fail "archive_merged: no $f"
+  cmp -s "$T/$CASE.before" "$f" || fail "archive_merged: the archived bytes differ from the sendback"
+}
+
+# No sendback: a merge with nothing to archive is silent and successful, and must not create a
+# done/ entry that a later retro would read as a retired rework.
+test_archive_noop_without_file() {
+  new_case archive_noop
+  mkdir -p "$(st)/sendback"
+  archive_seam "$SLUG" deadbeef
+  [ "$RC" -eq 0 ] || fail "archive_noop: seam exited $RC"
+  [ -z "$(ls "$(st)/sendback/done/$SLUG-"*.md 2>/dev/null)" ] \
+    || fail "archive_noop: created a done/ entry without a sendback"
+}
+
+# Archiving is per-PR: another pending rework must keep its file and its turn.
+test_archive_leaves_other_slugs() {
+  new_case archive_other
+  mk_sendback "$SLUG"
+  mk_sendback other-slug
+  archive_seam "$SLUG" deadbeef
+  [ "$RC" -eq 0 ] || fail "archive_other: seam exited $RC"
+  [ ! -e "$(st)/sendback/$SLUG.md" ] || fail "archive_other: this slug's sendback was not archived"
+  [ -s "$(st)/sendback/other-slug.md" ] || fail "archive_other: another slug's sendback was moved"
+}
+
+# Source guard: the archive must stay wired to the merge-success block, not only to the test
+# seam. Grep inside the block that records the merge so a later edit cannot drop the call while
+# the seam still passes.
+test_merge_success_archives_sendback() {
+  local f="$ROOT/rsi/runtime/merge.sh" ln
+  [ -f "$f" ] || fail "archive-source-guard: missing $f"
+  ln="$(grep -nF '>> "$STATE/merged.log"' "$f" | head -1 | cut -d: -f1)"
+  [ -n "$ln" ] || fail "archive-source-guard: merge.sh no longer writes \$STATE/merged.log"
+  sed -n "${ln},$((ln + 20))p" "$f" | grep -qF 'archive_sendback' \
+    || fail "archive-source-guard: the merge-success block does not call archive_sendback; a merged PR's sendback would outlive it"
+}
+
 run() {
   if [ -n "$ONLY" ] && [ "$1" != "$ONLY" ]; then return 0; fi
   RAN=$((RAN+1))
@@ -271,6 +340,10 @@ run test_empty_sha_writes_sendback
 run test_empty_head_output_fails_closed
 run test_malformed_head_output_fails_closed
 run test_head_command_receives_the_pr_number
+run_item archive-merged-moves-file test_archive_merged_moves_file
+run_item archive-noop-without-file test_archive_noop_without_file
+run_item archive-leaves-other-slugs test_archive_leaves_other_slugs
+run_item archive-merge-success-call test_merge_success_archives_sendback
 run_item item-bold test_item_bold
 run_item item-bold-no-space test_item_bold_no_space
 run_item item-underscore test_item_underscore
