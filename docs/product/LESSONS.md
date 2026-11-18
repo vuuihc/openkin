@@ -592,9 +592,10 @@ seen: 1
 证据：#96（`07e9b3b7`，669 行）对比 #97–#108（0 行），`rsi/state/merged.log` 02:34–07:39
 
 ## 2026-11-16 · 同一份交付只投递一次，认领随落库一起释放
-seen: 1
+seen: 2
 
 发生了什么：`state/cloud/design-system-gallery.json` 在 #96 合入后没有被释放，#97–#108 的重复投递就是这么来的。同一时期还有一类同源错误：`slices.py ready` 在 lane 退出后就把仍有开放 PR 的切片重新列为 ready（15:22 记录：N2/T1/L1/P1/Q3a 同时被列为 ready 而它们都有 live PR）。
+2026-11-19 再次出现：squash merge 不会把分支提交带进 main，`git diff origin/main...rsi/<slug>` 在 PR 合入后仍非空；残留的 `state/sendback/<slug>.md` 让 `lane.sh` autofill 为已经在 main 上的工作认领了一个幽灵 rework lane（lane 3 `cancelled: stale sendback`），损失一个 worker 轮次与一个 merge-lane 槽，merge.sh 也在该文件存在时拒绝已修好的 PR；`6ea5b433` 在合入成功时把 sendback 归档到 `state/sendback/done/`，autofill 先读 PR 状态再决定是否认领。
 
 为什么没拦住：“已交付”只写在 `merged.log` 里，投递端（cloud/NAS ingest、scheduler）在决定要不要再干一次时不读它；认领的释放挂在合并流程之外，合入成功并不必然触发。
 
@@ -670,13 +671,15 @@ seen: 2
 证据：`ecb3485a`（06:36 记录）、`5ae52e54`（今晚 `origin/main` 导出树 `RATCHET_PASS`）
 
 ## 2026-11-17 · 只读评审者的搜索要限定在 state 目录，且每次等待都有超时
-seen: 2
+seen: 4
 
 发生了什么：G4 (#163) 的独立复审两次挂起，都是评审者在 `$HOME` 下执行 `find ... -name merged.log`（macOS 容器 / worktree 让这次遍历极慢）；第一次杀进程后复审再次复现，直到把 `$STATE` 的实际路径写进评审简报、并禁止跨 `$HOME` / `/Users` 的 `find`，`#163` 才在 07:36 以 `5ae52e54` 合入。
+2026-11-18 再次出现：Bash 工具的默认 55 分钟超时比 50 分钟的 worker 看门狗还长，`lanes.py status` 只打印 `ACTIVE age=39m`；一条嵌套 heredoc 吞掉闭合括号后挂在 stdin 上 2,400 秒，一个 worker 轮次就这样被吃掉，期间看起来一直“健康”（`920eb53c` 把默认值降到 10 分钟、上限 30 分钟，并让状态打印 silent 分钟数）。
+2026-11-19 再次出现：`run_codex` 是唯一没有 `DISPATCH_MAX_SECS` 的派发路径，merge.sh 等评审也没有自己的 deadline；2026-11-15 两次静默的 codex exec 评审占住两个 verifier 槽整整一小时（`e10d9cb4` 用与 claude/agy 相同的看门狗包住 codex，超时后走 reviewer-alt 回退，不伪造结论）。
 
 为什么没拦住：评审简报只给了 `$STATE` 这个环境变量名，没有给出可直接 `ls` 的绝对路径，评审者按“找文件”的直觉搜索整个 home；watchdog 只看到“评审未返回”，分不清是模型慢还是子进程卡住。
 
-规则：给只读评审者的简报必须写明 `$STATE` 的实际绝对路径和已知文件清单，并禁止在 `$HOME` / `/Users` 上跑 `find`；任何外部命令都要有超时，超时先杀进程树再判定“无结论”，不累计成质量 sendback。
+规则：给只读评审者的简报必须写明 `$STATE` 的实际绝对路径和已知文件清单，并禁止在 `$HOME` / `/Users` 上跑 `find`；任何外部命令都要有超时，超时先杀进程树再判定“无结论”，不累计成质量 sendback。（2026-11-18 补充：外层看门狗不能代替内层超时——每一层等待都要有自己的界，且严格小于包住它的那一层；没有界的路径本身就是缺陷，哪怕它还没挂过。）
 
 证据：`5ae52e54`；`rsi/runtime/merge.sh`（`$RB`）；`rsi/roles/reviewer.md`
 
@@ -725,9 +728,10 @@ seen: 1
 证据：`04cac378`（#252）；`rsi/state/needs-ceo.md` 2026-11-18 02:10
 
 ## 2026-11-18 · `--no-build` 走查先校验 `index.html` 与 `assets/` 同源
-seen: 1
+seen: 2
 
 发生了什么：`web/dist/index.html` 指向 `index-CsUU5Pwd.js`，而 `web/dist/assets/` 里是 `index-8W_FasJ4.js`；走查打开空白页，报出约 20 个 J3 硬失败，正好落在修 J3 的 PR 上。同一类假红在此前让 #251 白走两次。
+2026-11-19 再次出现：`ux-walk.sh` 只要 `web/dist/assets` 存在就跳过构建，于是“index.html 来自一次构建、assets 来自另一次”的 worktree 仍然提供空白控制台，Chromium 对入口 chunk 404，所有 journey 硬失败，UX gate 把一个与 PR 无关的原因记在 PR 头上；`04fa6370` 把 `dist_ready` 改为“assets 存在且 index.html 里每个本地 `/assets/` 引用都在磁盘上”，不一致时直接重建。
 
 为什么没拦住：runner 信任 `index.html`，不检查它命名的资源是否存在；上一次构建与后一次 dist 更新不同步是正常状态，静默地变成了产品缺陷。
 
@@ -758,15 +762,49 @@ seen: 1
 证据：`9d34c20e`（#254）；`rsi/state/needs-ceo.md` 2026-11-18 03:20
 
 ## 2026-11-18 · 同步/快进失败不得吞掉
-seen: 1
+seen: 2
 
 发生了什么：`sync_control_tree` 把 `merge --ff-only` 的错误送进 `/dev/null`，活动控制树停在 main 之前 5–6 个提交，合并与闸门连续跑了旧脚本；根因是一个未跟踪的旧草稿会被合入覆盖。
+同一天再次出现：`release.sh` 里 `git fetch -q origin main && git rev-parse origin/main` 遇到一次 github SSL 错误，返回空 SHA；脚本仍打印 `releasing  to node=1 hub=1`，用当时的 HEAD 重建并重启了 live 节点，直到 Hub 步骤的 `git archive ""` 才失败，并把没有 SHA 的 `node=` 写进 `state/last_release`。`b8828d55` 在重建任何东西之前拒绝空 SHA 与非十六进制 SHA，并点名失败的 fetch。
 
 为什么没拦住：失败路径静默，`run.sh --sync-check` 不打印 SHA 也退出 0；「未跟踪文件」被当成无害噪音。
 
 规则：快进失败必须打印原因并 pin 住冲突路径；未跟踪文件只在字节与 main 一致时采纳，否则显式列名；同步后打印实际 SHA。
 
 证据：`b4ee0d5b`（#263）；`rsi/state/needs-ceo.md` 2026-11-18 04:55
+
+## 2026-11-18 · 把一次失败计进 rework 之前，先在同一棵树上确认它能复现
+seen: 1
+
+发生了什么：一条 J9 滚动失败曾让 PR #296 被计 9 分钟与 $0.89，而三次独立走查都无法复现；`8e23d244` 因此加了 confirm：只重走失败行点名的 journey，一次，同一棵树，flaked 记进 sendback 与 `scores.json`，复现的仍然阻塞。同一天 `9d03f1b5` 发现确认器只认 `<journey>/<viewport>: …` 行，而截图检查把硬失败写成 `<step>: blank page`（step 里已经含 journey，如 `J11-phone-03-switch-back`）；J11 的确认重走零硬失败，PR #330 仍被计一个 rework 轮次——同一类假红又来一次。
+
+为什么没拦住：确认器按想象中的日志格式写解析，没有拿真实的失败行样本验证；“能确认”被实现成“能解析一种前缀”，其余形态静默落回计费路径；负向用例只覆盖了能被解析的那一种。
+
+规则：任何“先确认再计费”的判据，上线前把真实日志里的每一种失败行形态各跑一遍；解析不了的形态要显式列出并 fail closed，不能静默按旧路径计费；每新增一种证据格式，同时补一条“这种格式能否被确认”的用例。
+
+证据：`8e23d244`（#302）、`9d03f1b5`（#332）（2026-11-18）
+
+## 2026-11-19 · 改到受版本控制的文件或生成物时，恢复要挂满退出与信号路径
+seen: 1
+
+发生了什么：`--walk-once` 备份受版本控制的 `web/dist/index.html`，却只从 EXIT trap 恢复；watchdog 的 TERM、关闭终端的 HUP、Ctrl-C 的 INT 都会跳过它，mutant 入口留在树里并指向一个被 gitignore 的 chunk，进程还以原始 -15/-1/-2 而不是 143/129/130 退出。`25dc3d81` 把清理抽成 `restore_dist`、备份改成 temp + mv，并把恢复挂到 EXIT/TERM/HUP/INT，用 `--trap-check` 回放信号窗口。同一天 `e1b0aa13` 补上“看门狗终止 runner 时恢复 mutant”，否则被杀的变异体会留在文件里。
+
+为什么没拦住：只测了正常退出，全绿；信号路径既没有测试也没有统一清理入口，每个工具各写自己的 trap，把 EXIT 当成“总会执行”。
+
+规则：任何会改动受版本控制文件的工具，先做原子备份（temp + mv），把恢复同时挂在 EXIT 与 TERM/HUP/INT；测试用信号回放窗口，断言文件逐字节恢复、临时目录为空、退出码是 128+signal；只测正常退出不算验证。
+
+证据：`25dc3d81`（#344）、`e1b0aa13`（#338）（2026-11-19）
+
+## 2026-11-19 · 调度与健康判据读瞬时状态，不读累积计数或代理指标
+seen: 1
+
+发生了什么：备用 lane 的门槛用 `swap used` 判断内存压力，而 macOS 在压力过去后仍保留已换出的页——它是累积高水位。2026-11-19 机器读到 2,706 MB used，同时 `kern.memorystatus_vm_pressure_level` 是 1（正常）、可回收约 5.9 GB；从上一晚起每一条第二 lane 的 claim 都被拒。`1505de69` 改为按 warning 及以上的 VM pressure 与真实 swap-free headroom（< 512 MB）判断，`lanes.py status` 同时打印 `vm_pressure` 与 `swap_free_mb`。
+
+为什么没拦住：指标名字读起来就是“内存压力”，没人验证它是不是瞬时值；拒绝是静默的（只是不派工），日志分不清“真压力大”和“读错了量”。
+
+规则：调度与健康判据只读瞬时状态（pressure level、真实 headroom），累积计数器与代理值只用于展示；上线前在一个“历史高水位但当前正常”的样本上验证不会误拒；拒绝时打印用的是哪个读数。
+
+证据：`1505de69`（#350，2026-11-19）
 
 ---
 
@@ -806,7 +844,7 @@ seen: 1
 | 串行检查的退出码要逐个传递，不能由最后一条覆盖 | 1 | 未升级；`1f630884` 已执行生产 job 的失败组合 |
 | AST 与 ESLint 守卫要验证语言绑定和真实配置语义 | 1 | 未升级；`568d7117` 已补四条红测，下一次新规则先列旁路 |
 | 合入必须改变树 | 1 | 未升级；`merge.sh` 需补 changedFiles > 0 断言，空 PR 关闭不合 |
-| 同一份交付只投递一次，认领随落库一起释放 | 1 | 未升级；`merged.log` 落库同一步释放 claim，ingest 推前比树 |
+| 同一份交付只投递一次，认领随落库一起释放 | 2 | 未升级；`6ea5b433` 已在合入成功时归档 sendback、autofill 先读 PR 状态；下一次新增队列输入先问“完成状态记在哪” |
 | 循环脚本安装要么整份要么不装 | 2 | 未升级；`node-stamp.sh` 已按整份恢复，`1ff7749b` 已在 `common.sh` 自愈可执行位；下一次安装脚本先断言存在性、语法与可执行位 |
 | gate 日志要留下失败测试的名字 | 1 | 未升级；`gate.sh` `step()` 已保留 FAIL 标识，下一次改日志先验分类器 |
 | 判断证据缺失要列目录，不要猜文件名 | 1 | 未升级；`rsi/roles/reviewer.md` 已写抗体 |
@@ -817,16 +855,18 @@ seen: 1
 | 合并或变基的结果当成一次新改动，提交前重跑 gate | 1 | 未升级；下一次解冲突或合并后先在合并树上跑 tsc/测试/格式/库存基线并重建 `web/dist`，ratchet 上调须在正文写明原因 |
 | 限流与额度只看结构化错误，不读正文 | 1 | 未升级；`note_agy_limit()` 已改为只认结构化错误，回归用例在 `rsi/runtime/tests/` |
 | 测量必须在 `origin/main` 的导出树上做 | 2 | 未升级；DREAM 夜报与 planner 卡已写抗体，下一次测量前先 `git archive` |
-| 只读评审者的搜索要限定在 state 目录 | 2 | 未升级；`reviewer.md` 与 `merge.sh` 的 `$RB` 已写死路径与禁令 |
+| 只读评审者的搜索要限定在 state 目录 | 4 | AGENTS.md「Agent best practices」第 13 条；`merge.sh` 的 `$RB` 与 codex 看门狗已就位，仍需一条能复现“无界等待必然被信号终止”的回归测试，本轮不改代码 |
 | 同一份共享文件一轮只能有一个写者 | 2 | 未升级；baseline / locale 的单写者规则已进 DECISIONS，第三次时进 AGENTS.md |
 | 一个字段有多个展示副本时，改名要逐面接线并验证实时重绘 | 1 | 未升级；`taskDisplayTitle` 已收敛取名表达式，下一次新增可编辑字段先列展示副本并写“挂着时改名立即重绘”的测试 |
 | 截断用户或 PR 文本要按字符边界，不按字节 | 1 | 未升级；三处截断已改 `iconv -c`，下一次切文本先加一条中英混排的边界用例 |
-
 | 浮层盖住列表根页时，用真实指针点一次种子行 | 1 | 未升级；`FloatingApproval` 已改横条，下一次在根页加浮层先写 `elementFromPoint` 断言 |
-| `--no-build` 走查先校验 `index.html` 与 `assets/` 同源 | 1 | 未升级；`journeys-smoke.sh` 已 fail closed，下一次复用 dist 的走查先跑正反两例 |
+| `--no-build` 走查先校验 `index.html` 与 `assets/` 同源 | 2 | 未升级；`04fa6370` 已让可构建路径在不一致时重建，下一次复用 dist 前先断言入口 chunk 存在 |
 | 仓库自带的冒烟要自己 pin 它需要的环境变量 | 1 | 未升级；`RSI_FAKE_SLOW_SECS` 已进 smoke，下一次加时间窗步骤先补 export 与完整旅程 |
 | 新增可执行脚本必须以 100755 进 git | 1 | 未升级；#254 的脚本已修正，下一次新脚本用 `--chmod=+x` 并断言 `ls-files -s` |
-| 同步/快进失败不得吞掉 | 1 | 未升级；`adopt_untracked_collision` 已 fail closed，第三次出现时进 `AGENTS.md` |
+| 同步/快进失败不得吞掉 | 2 | 未升级；`b8828d55` 已在 release 重建前拒绝空 SHA 与非十六进制 SHA，下一次不可逆步骤前先断言目标 SHA |
+| 把一次失败计进 rework 之前，先在同一棵树上确认它能复现 | 1 | 未升级；`8e23d244`/`9d03f1b5` 已覆盖两种失败行形态，下一次新判据先用真实日志的每种格式各跑一遍 |
+| 改到受版本控制的文件或生成物时，恢复要挂满退出与信号路径 | 1 | 未升级；`25dc3d81` 已挂 EXIT/TERM/HUP/INT 并有信号回放用例，下一次写临时改动受控文件的工具先复用 `restore_dist` |
+| 调度与健康判据读瞬时状态，不读累积计数或代理指标 | 1 | 未升级；`1505de69` 已改读 VM pressure 与真实 headroom，下一次加门槛先在“历史高水位、当前正常”的样本上验证不误拒 |
 
 ## 评审复盘与协议
 

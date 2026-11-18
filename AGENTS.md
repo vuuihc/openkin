@@ -77,6 +77,11 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
     `scripts/check.sh` (not only a change-detection glob) in the same commit,
     and the gate's own output proves it ran; a suite nobody wires is a green
     light for a regression.
+13. **Bound every external wait.** Each dispatched model call, shell command,
+    search or fetch runs under an explicit timeout shorter than the watchdog
+    that encloses it, kills its process tree on expiry, and reports "no
+    verdict" instead of a fabricated one; a path with no bound is a defect
+    even if it has never hung.
 
 ## Development workflow
 
