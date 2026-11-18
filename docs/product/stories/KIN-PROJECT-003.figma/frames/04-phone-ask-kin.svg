@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+<g font-family="PingFang SC, Helvetica Neue, Arial, sans-serif">
+<rect width="390" height="844" fill="#ffffff" rx="18"/>
+<!-- 状态栏 -->
+<text x="20" y="26" font-size="11" fill="#555">9:41</text><text x="370" y="26" font-size="11" fill="#555" text-anchor="end">▮▮▮</text>
+<!-- 页头 -->
+<text x="20" y="62" font-size="18" fill="#1f6feb">←</text>
+<text x="48" y="62" font-size="12" fill="#6b6b6b">封面</text>
+<text x="20" y="96" font-size="19" fill="#1a1a1a" font-weight="600">新建对话</text>
+<text x="20" y="118" font-size="11" fill="#6b6b6b">项目已选中；提示词来自「让 Kin 改…」。</text>
+<!-- 项目 -->
+<rect x="16" y="136" width="150" height="34" rx="9" fill="#eef2ff" stroke="#1f6feb"/>
+<text x="30" y="158" font-size="12.5" fill="#1f6feb" font-weight="600">项目 · alpha ▾</text>
+<!-- 预填输入框 -->
+<rect x="16" y="186" width="358" height="270" rx="12" fill="#ffffff" stroke="#1f6feb"/>
+<text x="30" y="210" font-size="10.5" fill="#1f6feb" font-weight="600">预填的提示词（已选中，可改可删）</text>
+<rect x="28" y="220" width="334" height="196" rx="8" fill="#eef2ff"/>
+<text x="40" y="244" font-size="11.5" fill="#1a1a1a">读一下这个项目 ONE_PAGER.md 的</text>
+<text x="40" y="264" font-size="11.5" fill="#1a1a1a">「工作方式」一节，先告诉我它现在</text>
+<text x="40" y="284" font-size="11.5" fill="#1a1a1a">写了什么；然后按我下面说的改，</text>
+<text x="40" y="304" font-size="11.5" fill="#1a1a1a">只改这一节，不要动其他小节：</text>
+<text x="40" y="332" font-size="11.5" fill="#6b6b6b">（在这里补你想让 Kin 记住的规则）</text>
+<text x="40" y="360" font-size="11.5" fill="#1a1a1a">改完在对话里说改了哪几句，并让</text>
+<text x="40" y="380" font-size="11.5" fill="#1a1a1a">我看 diff。</text>
+<text x="30" y="440" font-size="10.5" fill="#999">没有任务开始跑，也没有保存发生。</text>
+<!-- 运行配置与发送 -->
+<rect x="16" y="472" width="210" height="44" rx="10" fill="#ffffff" stroke="#c4c4c4"/>
+<text x="30" y="499" font-size="11.5" fill="#444">Agent · 模型 · 权限 ▾</text>
+<rect x="306" y="472" width="68" height="44" rx="22" fill="#1f6feb"/>
+<text x="340" y="499" font-size="11.5" fill="#ffffff" text-anchor="middle">发送</text>
+<text x="16" y="536" font-size="10.5" fill="#999">发送与返回都 ≥44px；焦点在文本末尾。</text>
+<!-- 键盘 -->
+<rect x="0" y="556" width="390" height="288" fill="#ececf0"/>
+<rect x="8" y="568" width="374" height="34" rx="5" fill="#ffffff"/><text x="195" y="590" font-size="11" fill="#999" text-anchor="middle">q w e r t y u i o p</text>
+<rect x="8" y="610" width="374" height="34" rx="5" fill="#ffffff"/><text x="195" y="632" font-size="11" fill="#999" text-anchor="middle">a s d f g h j k l</text>
+<rect x="8" y="652" width="374" height="34" rx="5" fill="#ffffff"/><text x="195" y="674" font-size="11" fill="#999" text-anchor="middle">⇧ z x c v b n m ⌫</text>
+<rect x="8" y="694" width="180" height="34" rx="5" fill="#ffffff"/><text x="98" y="716" font-size="11" fill="#999" text-anchor="middle">123</text>
+<rect x="196" y="694" width="186" height="34" rx="5" fill="#ffffff"/><text x="289" y="716" font-size="11" fill="#999" text-anchor="middle">空格</text>
+<rect x="118" y="736" width="154" height="34" rx="5" fill="#d7d7de"/><text x="195" y="758" font-size="11" fill="#666" text-anchor="middle">换行</text>
+<text x="195" y="808" font-size="10.5" fill="#888" text-anchor="middle">键盘弹起时输入框仍完整可见，不被遮住。</text>
+</g>
+</svg>
