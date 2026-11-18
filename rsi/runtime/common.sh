@@ -69,6 +69,11 @@ BUDGET_GUARD="${BUDGET_GUARD:-15}"
 export RSI_STATE="$STATE"
 [ -e "$STATE/BOX_OFF" ] && export RSI_CLOUD_MAX="${RSI_CLOUD_MAX:-2}"
 export RSI_MAX_LANES="${RSI_MAX_LANES:-2}"        # worker lanes; the merge lane is separate. 3 swamped this 16 GB Mac (swap 90%, load 100+) -> 2.
+# Ethan 2026-11-18: the Mac's memory is the constraint, so the SECOND local worker is optional
+# capacity and stands down unless the machine is genuinely cool; the rest of the work goes to the
+# NAS lanes. Measured at the change: 6.5 GB reclaimable, 1.3 GB swap -> the spare lane starts.
+export RSI_LANE2_MEM_MIN_MB="${RSI_LANE2_MEM_MIN_MB:-5120}"
+export RSI_LANE2_SWAP_MAX_MB="${RSI_LANE2_SWAP_MAX_MB:-1536}"
 # Do not default RSI_LOAD_MAX to 100000 (that disabled the guard). lanes.py
 # treats a missing or >=10000 value as 2× cores, and also refuses a new local
 # worker when free swap is below RSI_SWAP_FREE_MIN_MB (default 2048).
