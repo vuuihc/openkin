@@ -11,13 +11,19 @@
 # heavy slot: the walker itself runs under heavy.sh, and RSI_NO_HEAVY makes the
 # walk fail closed instead of competing with the gate's build (2026-11-18,
 # three walks lost their scroll-restore race next to a parallel build).
-# ux-walker.mutants.json proves the selection and the slot each go red when
-# their line is reverted.
+# The console build is skipped only when web/dist is coherent: an index.html
+# from one build can name a chunk that a second build replaced, and the walk
+# then serves a blank console (Chromium 404s the entry chunk, every journey
+# fails, the gate reds a PR for a reason that is not in the PR: measured
+# 2026-11-18/19). The walk can build, so an inconsistent dist must build.
+# ux-walker.mutants.json proves the selection, the slot and the dist
+# consistency each go red when their line is reverted.
 #
 # Hermetic: bash, python3 and coreutils in temp dirs; npm/go/node are booby
 # traps (exit 97), so a seam that fell through to the build or walk path
-# cannot pass. Prints "ok: <case>" per case and exits non-zero on the first
-# failure.
+# cannot pass — except in the build-decision cases, where npm records the
+# expected build attempt and go stays a trap. Prints "ok: <case>" per case and
+# exits non-zero on the first failure.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
@@ -137,6 +143,101 @@ grep -q '<worktree>' "$T/seam5.err" || fail "$case_name: usage does not name the
 grep -q 'booby trap' "$T/seam5.err" && fail "$case_name: reached a build/walk command"
 pass "$case_name"
 
+# --- build decision: a coherent dist is the only reason to skip the build -------
+# A worktree carrying an index.html from one build and an assets/ directory
+# from another serves a blank console. npm below is a recorder (exit 0), go a
+# booby trap: the expected exit 2 at the go build proves npm ran first, keeps
+# the case build-free, and never reaches node/the walker.
+npm()  { : > "$NPM_REC"; }
+go()   { echo "booby trap: go invoked" >&2; exit 97; }
+node() { : > "$NODE_REC"; exit 97; }
+export -f npm go node
+
+# <worktree> <chunk index.html names> <chunk actually on disk>
+mkdist() {
+  local wt="$1" named="$2" ondisk="$3"
+  mkdir -p "$wt/ui" "$wt/web/dist/assets"
+  printf '// chunk\n' > "$wt/web/dist/assets/$ondisk"
+  printf '<!doctype html><script type="module" src="/assets/%s"></script>\n' "$named" \
+    > "$wt/web/dist/index.html"
+}
+
+run_walk() { # <out-base> <worktree> <outdir>; no UX_KIN_BIN, stubs record what ran
+  env -u RSI_HEAVY_HELD -u RSI_NO_HEAVY -u UX_KIN_BIN \
+    NPM_REC="$NPM_REC" NODE_REC="$NODE_REC" \
+    bash "$SEAM" "$2" "$3" > "$1.out" 2>&1
+}
+
+case_name="test_stale_index_forces_a_build"
+WT8="$T/wt-stale"; mkdist "$WT8" index-MISSING.js index-OTHER.js
+OUT8="$T/out-stale"; NPM_REC="$T/stale.npm"; NODE_REC="$T/stale.node"
+rm -f "$NPM_REC" "$NODE_REC"
+run_walk "$T/stale" "$WT8" "$OUT8"
+rc=$?
+[ $rc -eq 2 ] || fail "$case_name: exit $rc, wanted 2 ($(tail -c 300 "$T/stale.out"))"
+[ -f "$NPM_REC" ] \
+  || fail "$case_name: npm never ran; a stale index.html skipped the build"
+grep -q 'go build failed' "$OUT8/UNAVAILABLE" 2>/dev/null \
+  || fail "$case_name: did not stop at the go build ($(cat "$OUT8/UNAVAILABLE" 2>/dev/null))"
+[ ! -f "$NODE_REC" ] || fail "$case_name: reached the walker"
+pass "$case_name"
+
+case_name="test_consistent_dist_skips_the_build"
+WT9="$T/wt-consistent"; mkdist "$WT9" index-OTHER.js index-OTHER.js
+OUT9="$T/out-consistent"; NPM_REC="$T/consistent.npm"; NODE_REC="$T/consistent.node"
+rm -f "$NPM_REC" "$NODE_REC"
+run_walk "$T/consistent" "$WT9" "$OUT9"
+rc=$?
+[ $rc -eq 2 ] || fail "$case_name: exit $rc, wanted 2 at the go build ($(tail -c 300 "$T/consistent.out"))"
+[ ! -f "$NPM_REC" ] \
+  || fail "$case_name: npm ran although index.html names a chunk that exists"
+[ ! -f "$NODE_REC" ] || fail "$case_name: reached the walker"
+pass "$case_name"
+
+case_name="test_missing_assets_forces_a_build"
+WT10="$T/wt-no-assets"; mkdir -p "$WT10/ui" "$WT10/web/dist"
+printf '<!doctype html>\n' > "$WT10/web/dist/index.html"
+OUT10="$T/out-no-assets"; NPM_REC="$T/no-assets.npm"; NODE_REC="$T/no-assets.node"
+rm -f "$NPM_REC" "$NODE_REC"
+run_walk "$T/no-assets" "$WT10" "$OUT10"
+rc=$?
+[ $rc -eq 2 ] || fail "$case_name: exit $rc, wanted 2 at the go build ($(tail -c 300 "$T/no-assets.out"))"
+[ -f "$NPM_REC" ] || fail "$case_name: npm never ran without web/dist/assets"
+[ ! -f "$NODE_REC" ] || fail "$case_name: reached the walker"
+pass "$case_name"
+
+case_name="test_dist_state_seam_is_build_free"
+NPM_REC="$T/dist-state.npm"; NODE_REC="$T/dist-state.node"
+rm -f "$NPM_REC" "$NODE_REC" "$T/never-dist-state"
+out="$(env -u RSI_HEAVY_HELD -u RSI_NO_HEAVY NPM_REC="$NPM_REC" NODE_REC="$NODE_REC" \
+  bash "$SEAM" --dist-state "$WT8" "$T/never-dist-state/out" 2>"$T/dist-state.err")"
+rc=$?
+[ $rc -eq 0 ] || fail "$case_name: exit $rc ($(cat "$T/dist-state.err"))"
+[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = 1 ] \
+  || fail "$case_name: printed more than one line: $out"
+case "$out" in
+  "build: "*) ;;
+  *) fail "$case_name: stale dist answered '$out', wanted 'build: <why>'" ;;
+esac
+case "$out" in
+  *index-MISSING.js*) ;;
+  *) fail "$case_name: the reason does not name the missing chunk: $out" ;;
+esac
+[ ! -e "$T/never-dist-state" ] || fail "$case_name: created the output directory"
+[ ! -f "$NPM_REC" ] && [ ! -f "$NODE_REC" ] || fail "$case_name: reached npm/node"
+grep -q 'booby trap' "$T/dist-state.err" && fail "$case_name: reached a build/walk command"
+[ ! -d "$CTRL/rsi/state/heavy" ] || fail "$case_name: reached heavy.sh"
+out="$(env -u RSI_HEAVY_HELD -u RSI_NO_HEAVY bash "$SEAM" --dist-state "$WT9" 2>"$T/dist-state2.err")"
+[ "$out" = "skip" ] || fail "$case_name: coherent dist answered '$out', wanted skip"
+# An index that cannot be read is not consistent: answer build, with the reason.
+WT11="$T/wt-no-index"; mkdir -p "$WT11/web/dist/assets"
+out="$(env -u RSI_HEAVY_HELD -u RSI_NO_HEAVY bash "$SEAM" --dist-state "$WT11" 2>"$T/dist-state3.err")"
+case "$out" in
+  "build: "*index.html*) ;;
+  *) fail "$case_name: missing index answered '$out', wanted build naming index.html" ;;
+esac
+pass "$case_name"
+
 # --- 6+7: the walk itself holds the machine-wide heavy slot ---------------------
 # The walk is the heaviest single step in the gate (Chromium plus a live daemon
 # for 5-10 minutes); under a parallel build the transcript loses its
@@ -245,4 +346,4 @@ PY
 [ $? -eq 0 ] || fail "$case_name: manifest check failed"
 pass "$case_name"
 
-echo "ux-walker contract: 9/9 cases passed"
+echo "ux-walker contract: 13/13 cases passed"

@@ -14,6 +14,13 @@
     "new": "bash \"$RSI_DIR/runtime/heavy.sh\" true 2>/dev/null; if [ \"${1:-}\" = \"--walker-for\" ]; then"
   },
   {
+    "label": "dist check trusts web/dist/assets again: a stale entry chunk silently skips the build and every journey walks a blank console",
+    "file": "rsi/runtime/ux-walk.sh",
+    "test": "bash rsi/runtime/tests/test-ux-walker.sh",
+    "old": "  dist_ready \"$WT\" || { ( cd \"$WT/ui\" && npm run build >/dev/null 2>&1 ) || unavail \"ui build failed in $WT\"; }",
+    "new": "  [ -d \"$WT/web/dist/assets\" ] || { ( cd \"$WT/ui\" && npm run build >/dev/null 2>&1 ) || unavail \"ui build failed in $WT\"; }"
+  },
+  {
     "label": "walk no longer takes the heavy slot: a parallel build can starve the transcript again",
     "file": "rsi/runtime/ux-walk.sh",
     "test": "bash rsi/runtime/tests/test-ux-walker.sh",

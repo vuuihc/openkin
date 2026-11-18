@@ -446,7 +446,7 @@
     },
     {
       "id": "KIN-CONTINUE-003",
-      "state": "approved",
+      "state": "covered",
       "priority": "P0",
       "journeys": [
         "J1",
