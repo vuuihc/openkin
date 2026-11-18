@@ -1003,9 +1003,7 @@ export default function WorkspacePanel({
     if (document.activeElement !== document.body) return;
     const frame = window.requestAnimationFrame(() => {
       if (document.activeElement !== document.body) return;
-      rootRef.current
-        ?.querySelector<HTMLElement>("[role=tab][aria-selected=true]")
-        ?.focus();
+      rootRef.current?.querySelector<HTMLElement>("[role=tab][aria-selected=true]")?.focus();
     });
     return () => window.cancelAnimationFrame(frame);
   }, [surface]);
