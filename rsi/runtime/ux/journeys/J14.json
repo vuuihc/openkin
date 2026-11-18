@@ -1,0 +1,39 @@
+{
+  "title": "Cold start: the Mac reopens the last conversation, ⌘K holds no conversation rows, and the phone home is the one list at three levels",
+  "viewports": [
+    "mac",
+    "phone"
+  ],
+  "steps": [
+    ["goto", "/sessions"],
+    ["click", "?css=section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='展开全部'], section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='Show all']"],
+    ["wait", "css=[data-session-row]:has-text('[seed] Morning planning')"],
+    ["click", "[data-session-row]:has-text('[seed] Morning planning')"],
+    ["url", "^/tasks/"],
+    ["wait", "css=[role=region][tabindex='-1']:has-text('Fake reply from the journey fake agent.')"],
+    ["vp", "mac"],
+    ["goto", "/"],
+    ["url", "^/tasks/"],
+    ["wait", "css=[role=region][tabindex='-1']:has-text('Fake reply from the journey fake agent.')"],
+    ["shot", "cold-start-mac"],
+    ["key", "Meta+k"],
+    ["wait", "css=[role=dialog]"],
+    ["wait", "css=[role=dialog] button:has-text('例行任务'), [role=dialog] button:has-text('Routines')"],
+    ["count", "css=[role=dialog] [data-session-row]", "0"],
+    ["count", "css=[role=dialog]:has-text('[seed] Morning planning')", "0"],
+    ["shot", "palette-mac"],
+    ["key", "Escape"],
+    ["gone", "css=[role=dialog]"],
+    ["vp", "phone"],
+    ["goto", "/"],
+    ["url", "^/sessions"],
+    ["wait", "css=[data-phone-scroll]"],
+    ["wait", "css=section[aria-label='此设备'] h2, section[aria-label='This machine'] h2"],
+    ["wait", "css=button[aria-label='[seed] Project Alpha']"],
+    ["click", "?css=section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='展开全部'], section:has-text('[seed] Project Alpha'):not(:has(section)) button[aria-label^='Show all']"],
+    ["wait", "css=[data-session-row]:has-text('[seed] Morning planning')"],
+    ["count", "css=[data-session-row]:has-text('[seed] Morning planning')", "1"],
+    ["shot", "cold-start-phone"],
+    ["vp", ""]
+  ]
+}

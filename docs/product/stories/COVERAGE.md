@@ -5,7 +5,7 @@
 
 | 编号 | 状态 | 优先级 | 旅程 | 面 | 标题 | 测试 |
 |---|---|---|---|---|---|---|
-| `KIN-CONTINUE-001` | approved | P0 | J1、J2 | Mac/手机 | 接着问一段对话 | 26 |
+| `KIN-CONTINUE-001` | covered | P0 | J1、J2 | Mac/手机 | 接着问一段对话 | 26 |
 | `KIN-CONTINUE-002` | covered | P0 | J1、J2 | Mac/手机 | 手机只留一个导航面：列表页就是侧栏 | 6 |
 | `KIN-CONTINUE-003` | approved | P0 | J1、J2、J3、J4、J5、J6、J7 | Mac/手机 | 统一控制台的四区导航与工作台 | 12 |
 | `KIN-NOTIFY-001` | approved | P0 | J7 | Mac/手机 | 离开时被叫回来 | 14 |
@@ -24,4 +24,4 @@
 
 ## 汇总
 
-approved 5 · covered 11
+approved 4 · covered 12
